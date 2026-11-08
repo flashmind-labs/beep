@@ -1,0 +1,292 @@
+//! Branch advertisements, peer references and inactive-branch fast-forwards.
+
+use super::{Oid, Repo, WriteGuard, is_busy};
+use anyhow::{Context, Result, bail, ensure};
+use iroh::EndpointId;
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+
+const HEADS: &str = "refs/heads/";
+const MAX_BRANCHES: usize = 4096;
+const MAX_BRANCH_NAME: usize = 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(in crate::files::sync) struct BranchTip {
+    pub(in crate::files::sync) name: String,
+    pub(in crate::files::sync) commit: Oid,
+}
+
+impl BranchTip {
+    pub(in crate::files::sync) fn validate(tips: &[Self]) -> Result<()> {
+        ensure!(tips.len() <= MAX_BRANCHES, "Too many Git branches to sync");
+        let mut names = HashSet::new();
+        for tip in tips {
+            ensure!(
+                tip.name.starts_with(HEADS)
+                    && tip.name.len() > HEADS.len()
+                    && tip.name.len() <= MAX_BRANCH_NAME
+                    && names.insert(&tip.name),
+                "Invalid or duplicate Git branch advertisement"
+            );
+        }
+        Ok(())
+    }
+}
+
+impl Repo {
+    /// Advertise local branch tips, excluding stashes, recovery refs and peer refs.
+    pub(in crate::files::sync) fn branches(&self) -> Result<Vec<BranchTip>> {
+        let tips = self
+            .refs()?
+            .into_iter()
+            .filter_map(|reference| {
+                let name = reference.found.path.strip_prefix(".git/")?;
+                name.starts_with(HEADS).then(|| BranchTip {
+                    name: name.to_owned(),
+                    commit: reference.oid,
+                })
+            })
+            .collect::<Vec<_>>();
+        BranchTip::validate(&tips)?;
+        Ok(tips)
+    }
+
+    pub(in crate::files::sync) fn validate_branch(&self, name: &str) -> Result<()> {
+        ensure!(
+            name.starts_with(HEADS) && name.len() <= MAX_BRANCH_NAME,
+            "Only local Git branches may be requested"
+        );
+        self.run(&["check-ref-format", name])?;
+        Ok(())
+    }
+
+    pub(in crate::files::sync) fn ref_oid(&self, name: &str) -> Option<Oid> {
+        let out = self
+            .run(&["rev-parse", "-q", "--verify", "--end-of-options", name])
+            .ok()?;
+        Oid::parse(String::from_utf8_lossy(&out.stdout).trim())
+    }
+
+    pub(in crate::files::sync) fn peer_ref(peer: &EndpointId, branch: &str) -> Result<String> {
+        let branch = branch.strip_prefix(HEADS).context("Not a Git branch")?;
+        Ok(format!("refs/remotes/beep/{peer}/{branch}"))
+    }
+
+    pub(in crate::files::sync) fn cached_branches(
+        &self,
+        peer: &EndpointId,
+    ) -> Result<Vec<BranchTip>> {
+        let prefix = format!(".git/refs/remotes/beep/{peer}/");
+        let tips = self
+            .refs()?
+            .into_iter()
+            .filter_map(|reference| {
+                let branch = reference.found.path.strip_prefix(&prefix)?;
+                Some(BranchTip {
+                    name: format!("{HEADS}{branch}"),
+                    commit: reference.oid,
+                })
+            })
+            .collect::<Vec<_>>();
+        BranchTip::validate(&tips)?;
+        Ok(tips)
+    }
+
+    fn retain_peer_history(&self, peer: &EndpointId, branch: &str, commit: Oid) -> Result<()> {
+        let retained = format!(
+            "refs/beep-sync/retained/{peer}/{}/{}",
+            blake3::hash(branch.as_bytes()).to_hex(),
+            commit.hex()
+        );
+        if self.ref_oid(&retained) != Some(commit) {
+            self.set_ref(&retained, commit, None)?;
+        }
+        Ok(())
+    }
+
+    /// Removed peer refs are archived, never local branches. This also clears name-prefix
+    /// conflicts when a peer replaces a branch such as `topic` with `topic/next`.
+    pub(in crate::files::sync) fn prepare_peer_refs(
+        &self,
+        peer: &EndpointId,
+        tips: &[BranchTip],
+    ) -> Result<()> {
+        let mut wanted = HashSet::new();
+        for tip in tips {
+            self.validate_branch(&tip.name)?;
+            wanted.insert(Self::peer_ref(peer, &tip.name)?);
+        }
+        let prefix = format!("refs/remotes/beep/{peer}/");
+        for reference in self.refs()? {
+            let name = reference.found.path.trim_start_matches(".git/");
+            if let Some(branch) = name.strip_prefix(&prefix)
+                && !wanted.contains(name)
+            {
+                self.retain_peer_history(peer, &format!("{HEADS}{branch}"), reference.oid)?;
+                self.delete_ref(name, reference.oid)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Pin received commits before the peer's advertisement is accepted by the task.
+    pub(in crate::files::sync) fn keep_peer_branch(
+        &self,
+        peer: &EndpointId,
+        tip: &BranchTip,
+    ) -> Result<()> {
+        self.validate_branch(&tip.name)?;
+        ensure!(
+            self.is_complete(tip.commit),
+            "Peer Git history is incomplete"
+        );
+        let reference = Self::peer_ref(peer, &tip.name)?;
+        let old = self.ref_oid(&reference);
+        if old == Some(tip.commit) {
+            return Ok(());
+        }
+        // A peer can rewind or replace its branch. Retain the old received history too.
+        if let Some(old) = old
+            && self.is_ancestor(old, tip.commit) != Some(true)
+        {
+            self.retain_peer_history(peer, &tip.name, old)?;
+        }
+        self.set_ref(&reference, tip.commit, old)
+    }
+
+    /// The newest peer commit reachable without merging or dropping local history.
+    pub(in crate::files::sync) fn forward_target(
+        &self,
+        branch: &str,
+        own: Oid,
+        candidates: &[Oid],
+    ) -> Result<Option<Oid>> {
+        let mut target = own;
+        for &candidate in candidates {
+            if self.is_ancestor(candidate, target) == Some(true) {
+                continue;
+            }
+            match self.is_ancestor(target, candidate) {
+                Some(true) => target = candidate,
+                Some(false) => bail!(
+                    "Git commits differ; histories diverged for {branch}; merge the peer commits to resume sync"
+                ),
+                None => {
+                    bail!("Git commits differ; waiting for peer commits for {branch} to arrive")
+                }
+            }
+        }
+        Ok((target != own).then_some(target))
+    }
+
+    /// Git itself refuses to fetch into a branch checked out in any worktree.
+    /// This also covers a checkout that starts after the caller read HEAD.
+    pub(in crate::files::sync) fn advance_inactive(&self, branch: &str, target: Oid) -> Result<()> {
+        self.validate_branch(branch)?;
+        self.check_recovery()?;
+        ensure!(!is_busy(&self.root), "Waiting for the local Git operation");
+        let _guard = WriteGuard::for_branches(&self.root)?;
+        ensure!(
+            self.head_ref().as_deref() != Some(branch) && !self.is_linked_to(branch),
+            "Git commits differ; branch {branch} is checked out in a worktree; its received commits are retained"
+        );
+        self.run(&[
+            "fetch",
+            "--no-tags",
+            "--no-prune",
+            "--no-write-fetch-head",
+            "--no-auto-maintenance",
+            "--no-recurse-submodules",
+            ".",
+            &format!("{}:{branch}", target.hex()),
+        ])
+        .with_context(|| format!("Waiting to fast-forward inactive Git branch {branch}"))?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn advertisements_exclude_private_names_and_duplicate_branches() {
+        let commit = Oid::from_bytes([1; 32]);
+        for name in [
+            "refs/stash",
+            "refs/beep-recovery/saved",
+            "refs/remotes/peer/main",
+        ] {
+            assert!(
+                BranchTip::validate(&[BranchTip {
+                    name: name.into(),
+                    commit
+                }])
+                .is_err()
+            );
+        }
+        let main = BranchTip {
+            name: "refs/heads/main".into(),
+            commit,
+        };
+        assert!(BranchTip::validate(&[main.clone(), main]).is_err());
+    }
+
+    #[test]
+    fn inactive_updates_block_checkout_in_existing_worktrees_and_release_only_their_locks() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = Repo {
+            root: temp.path().to_owned(),
+        };
+        repo.run(&["init", "-q", "-b", "main"]).unwrap();
+        std::fs::write(temp.path().join("README.md"), "baseline\n").unwrap();
+        repo.run(&["add", "README.md"]).unwrap();
+        repo.run(&[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-q",
+            "-m",
+            "baseline",
+        ])
+        .unwrap();
+        repo.run(&["branch", "feature"]).unwrap();
+        repo.run(&["branch", "linked"]).unwrap();
+        repo.run(&["worktree", "add", ".worktrees/linked", "linked"])
+            .unwrap();
+        let linked_admin = temp.path().join(".git/worktrees/linked");
+        let linked_root = temp.path().join(".worktrees/linked");
+        let guard = WriteGuard::for_branches(temp.path()).unwrap();
+        assert!(repo.run(&["switch", "feature"]).is_err());
+        let output = repo
+            .git()
+            .arg("--git-dir")
+            .arg(&linked_admin)
+            .arg("--work-tree")
+            .arg(&linked_root)
+            .args(["switch", "feature"])
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("index.lock"));
+        assert_eq!(repo.head_ref().as_deref(), Some("refs/heads/main"));
+        assert_eq!(
+            std::fs::read_to_string(linked_admin.join("HEAD"))
+                .unwrap()
+                .trim(),
+            "ref: refs/heads/linked"
+        );
+        drop(guard);
+        assert!(!temp.path().join(".git/index.lock").exists());
+        assert!(!linked_admin.join("index.lock").exists());
+        std::fs::write(linked_admin.join("index.lock"), "another operation").unwrap();
+        assert!(WriteGuard::for_branches(temp.path()).is_err());
+        assert!(!temp.path().join(".git/index.lock").exists());
+        assert_eq!(
+            std::fs::read_to_string(linked_admin.join("index.lock")).unwrap(),
+            "another operation"
+        );
+    }
+}
