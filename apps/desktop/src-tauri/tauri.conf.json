@@ -13,6 +13,7 @@
     "windows": [
       {
         "label": "bar",
+        "create": false,
         "title": "Beep",
         "width": 680,
         "height": 64,
