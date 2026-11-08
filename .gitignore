@@ -20,7 +20,7 @@ __pycache__/
 /apps/desktop/node_modules/
 /apps/desktop/dist/*.js
 /apps/desktop/dist/xterm.css
-/apps/desktop/src-tauri/gen/
+/apps/desktop/src-tauri/gen/schemas/
 /apps/ios/Generated/
 /apps/ios/Beep.xcodeproj/
 /apps/ios/build/
