@@ -34,6 +34,9 @@ const PROJECT: &str = "game";
 const LIMIT: Duration = Duration::from_secs(60);
 const MARKER: &str = ".beep-sync";
 
+#[path = "sync/background_git.rs"]
+mod background_git;
+
 /// One node: its key, its state and the folder it shares, which outlive
 /// a restart.
 struct Node {
@@ -1732,7 +1735,7 @@ async fn twins() -> (Node, Node) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn existing_checkouts_keep_their_own_branches_and_indexes() {
+async fn existing_checkouts_advance_inactive_branches_and_keep_their_indexes() {
     let (a, b) = twins().await;
     let original = head(&b).unwrap();
     git(&a.folder(), &["branch", "side"]);
@@ -1745,11 +1748,17 @@ async fn existing_checkouts_keep_their_own_branches_and_indexes() {
     a.sync_with(&b).await;
     b.sync_with(&a).await;
     file_round(&b, &a).await;
+    eventually("the inactive side branch to fast-forward", || {
+        git(&b.folder(), &["rev-parse", "refs/heads/side"]) == ahead
+    })
+    .await;
     assert_ne!(read(&a.path("README.md")), read(&b.path("README.md")));
     assert_eq!(git(&a.folder(), &["rev-parse", "refs/heads/side"]), ahead);
+    assert_eq!(git(&b.folder(), &["rev-parse", "refs/heads/side"]), ahead);
+    assert_eq!(head(&b).as_deref(), Some(original.as_str()));
     assert_eq!(
-        git(&b.folder(), &["rev-parse", "refs/heads/side"]),
-        original
+        read(&b.path("README.md")).as_deref(),
+        Some(b"staged locally\n".as_slice())
     );
     assert_eq!(
         git(&b.folder(), &["diff", "--cached", "--name-only"]),
@@ -2176,15 +2185,13 @@ async fn peer_commits_do_not_move_a_different_branch() {
     b.pause(&a, true).await;
     git(&b.folder(), &["switch", "-c", "other"]);
     let before = head(&b);
-    commit(&a, "new.txt", "new commit\n");
+    let newest = commit(&a, "new.txt", "new commit\n");
     a.pause(&b, false).await;
     b.pause(&a, false).await;
-    eventually("different branches to wait", || {
-        b.status()
-            .error
-            .as_deref()
-            .is_some_and(|error| error.contains("between branches"))
-    })
+    eventually(
+        "inactive main to catch up without moving the checkout",
+        || git(&b.folder(), &["rev-parse", "main"]) == newest,
+    )
     .await;
     assert_eq!(head(&b), before);
     assert!(!b.path("new.txt").exists());

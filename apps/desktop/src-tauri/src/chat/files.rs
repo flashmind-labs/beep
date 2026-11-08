@@ -1,6 +1,7 @@
 //! Files and pictures sent in a chat: downloaded once into the cache, then
 //! opened, saved to Downloads or drawn as a data URL.
 
+use super::clipboard::ImageClipboard;
 use crate::{
     bar::app::open,
     beep::{Beep, Service},
@@ -11,8 +12,9 @@ use beep_proto::ApiError;
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
 
 /// What the bar shows for a file or picture the server no longer has.
@@ -130,6 +132,19 @@ pub fn save_picture(app: AppHandle, name: String, url: String) -> Result<PathBuf
     let to = free_name(&app.path().download_dir()?, &picture_name(&name, mime));
     fs::write(&to, bytes).map_err(anyhow::Error::from)?;
     Ok(to)
+}
+
+/// Copies the renderer's PNG through the native clipboard, without webview permissions.
+#[tauri::command]
+pub async fn copy_diagram_image(
+    clipboard: State<'_, Arc<ImageClipboard>>,
+    png: String,
+) -> Result<()> {
+    let clipboard = clipboard.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || clipboard.copy_png(&png))
+        .await
+        .map_err(anyhow::Error::from)??;
+    Ok(())
 }
 
 /// `name` as a file name, with the extension of `mime` when it has none.

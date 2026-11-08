@@ -1407,6 +1407,8 @@ struct MarkdownText: View {
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(RoundedRectangle(cornerRadius: Mint.smallRadius).fill(Mint.tints[1]))
+                case .mermaid(let source):
+                    MermaidDiagram(source: source).blocksChatSwipe()
                 case .table(let table):
                     tableView(table)
                 case .rule:
@@ -1430,6 +1432,7 @@ struct MarkdownText: View {
 
     private enum Block {
         case paragraph(String), bullet(String), heading(String), code(String), table(Table), rule
+        case mermaid(String)
         case products([Product])
         case picture(ReplyPicture), gallery([ReplyPicture])
     }
@@ -1524,6 +1527,7 @@ struct MarkdownText: View {
         /// A product block joins the row before it; one that does not parse stays code.
         func closeFence(_ lines: [String]) {
             let body = lines.joined(separator: "\n")
+            if fence == "mermaid" { out.append(.mermaid(body)); return }
             guard fence == "product", let product = Product.parse(body) else {
                 out.append(.code(body))
                 return

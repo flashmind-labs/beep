@@ -1,3 +1,5 @@
+import { stashBar } from "../chat/stash.ts";
+import { composeField } from "../chat/compose.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // The bar under a project page: its prompt, harness picker and checkout, and
 // starting or resuming a coding agent from it.
@@ -118,6 +120,9 @@ const barAttachments = startAttachments(projectComp, text => { projectComp.err.t
   projectComp.send.disabled = pc.starting || barAttachments.reading || !p || !barPlace(p.places, pc.hosts ?? [], pc.machine) || !!pc.adding;
 });
 
+composeField(projectComp.input, { images: files => barAttachments.add(files) });
+barAttachments.bindStash(() => pc.project);
+
 function closeBarPicker() {
   pc.open = false;
   redrawProjects();
@@ -165,6 +170,8 @@ function loadProjectBar(name: string) {
 /// Points the bar at project `name`: its field, machine, folder and harness.
 export function drawProjectComp(name: string) {
   const c = projectComp;
+  c.form.querySelector(".prompt-stash-bar")?.remove();
+  if (!document.querySelector("#agconv")) c.form.insertAdjacentHTML("beforeend", stashBar(name));
   c.setPresentation(shown === "pane" && S.view === "agent" && AG.draft === name ? "centered" : "compact");
   if (pc.project !== name) {
     finishCopy?.();

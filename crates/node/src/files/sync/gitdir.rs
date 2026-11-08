@@ -28,8 +28,11 @@ use std::{
 use super::scan::{Found, Stat};
 use crate::files::paths;
 
+mod branches;
 mod recovery;
 mod seed;
+
+pub(super) use branches::BranchTip;
 
 pub(super) const GIT: &str = ".git";
 const PREFIX: &str = ".git/";
@@ -218,11 +221,11 @@ impl Checkout {
 
 /// Holds Git's index lock only while files enter the working tree. Git
 /// checkout, merge and commit cannot update the index during that batch.
-pub(super) struct WriteGuard(Option<PathBuf>);
+pub(super) struct WriteGuard(Vec<PathBuf>);
 
 impl WriteGuard {
     pub(super) fn acquire(root: &Path, expected: Option<Checkout>) -> Result<Self> {
-        let mut guard = Self(None);
+        let mut guard = Self(Vec::new());
         let Some(expected) = expected else {
             return Ok(guard);
         };
@@ -236,10 +239,30 @@ impl WriteGuard {
                 .create_new(true)
                 .open(&lock)
                 .context("waiting for Git's index lock")?;
-            guard.0 = Some(lock);
+            guard.0.push(lock);
         }
         if Checkout::read(root) != expected {
             bail!("the Git checkout changed before this batch could be applied");
+        }
+        Ok(guard)
+    }
+
+    /// Keep checkouts in the main and existing linked worktrees out of a branch update.
+    pub(super) fn for_branches(root: &Path) -> Result<Self> {
+        let mut guard = Self::acquire(root, Some(Checkout::read(root)))?;
+        let linked = match fs::read_dir(root.join(GIT).join("worktrees")) {
+            Ok(linked) => linked,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(guard),
+            Err(e) => return Err(e).context("reading linked worktrees before a Git update"),
+        };
+        for entry in linked {
+            let lock = entry?.path().join("index.lock");
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock)
+                .context("waiting for a linked worktree's Git index lock")?;
+            guard.0.push(lock);
         }
         Ok(guard)
     }
@@ -247,7 +270,7 @@ impl WriteGuard {
 
 impl Drop for WriteGuard {
     fn drop(&mut self) {
-        if let Some(lock) = &self.0 {
+        for lock in &self.0 {
             let _ = fs::remove_file(lock);
         }
     }
@@ -578,7 +601,7 @@ impl Repo {
 
     /// Whether `oid` and all it reaches is here, which is what git itself asks
     /// before it lets a pushed ref in.
-    fn is_complete(&self, oid: Oid) -> bool {
+    pub(super) fn is_complete(&self, oid: Oid) -> bool {
         let hex = oid.hex();
         self.run(&["rev-list", "--objects", "--quiet", &hex, "--not", "--all"])
             .is_ok()
