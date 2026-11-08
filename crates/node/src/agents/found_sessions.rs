@@ -257,7 +257,10 @@ impl Agents {
         let only = session.clone();
         let mut sessions = spawn_blocking(move || {
             let now = SystemTime::now();
-            let mut seen = stores.sessions(Some(agent));
+            let mut seen = match session.as_deref() {
+                Some(id) => stores.seen(Some(agent), id).into_iter().collect(),
+                None => stores.sessions(Some(agent)),
+            };
             seen.sort_by_key(|seen| Reverse(seen.last_activity));
             match session {
                 Some(id) => seen.retain(|seen| seen.id == id),
@@ -274,6 +277,11 @@ impl Agents {
         .await?;
         let held = self.held(agent, &sessions).await;
         for found in &mut sessions {
+            // A native thread shares its parent's process. Its own turn events,
+            // rather than the process holding its file, say whether it works.
+            if found.id.starts_with("subagent:") {
+                continue;
+            }
             let held = held.get(&found.id).copied();
             found.presence =
                 holders::settle(found.presence, found.pid, held.map(|pid| pid.is_some()));
@@ -320,6 +328,10 @@ impl Agents {
         id: &str,
         prompt: Option<String>,
     ) -> Result<Arc<Session>> {
+        anyhow::ensure!(
+            !id.starts_with("subagent:"),
+            "This subagent is managed by its parent. Open the parent to continue it."
+        );
         let ours = self.get(id);
         if let Some(session) = &ours
             && session.agent != kind.name

@@ -3,8 +3,10 @@
 //! the entry of the call that started it.
 
 use super::transcript::{Spawn, read_tail, tool_line};
+use super::{discover::Store, transcript};
 use crate::agents::cut;
-use beep_proto::node::agent::Entry;
+use crate::agents::subagent::Conversation;
+use beep_proto::node::agent::{Entry, ExternalSession, Presence};
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
@@ -13,6 +15,55 @@ use std::{
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
+
+fn conversation(session: &Path, agent: &str) -> Option<String> {
+    let parent = if session.parent()?.file_name()? == "subagents" {
+        session.parent()?.parent()?.file_name()?.to_str()?
+    } else {
+        session.file_stem()?.to_str()?
+    };
+    let id = Conversation::Claude { parent, agent }.to_string();
+    Conversation::parse(&id).is_some().then_some(id)
+}
+
+/// The native child reached through its parent's conversation, never a root listing.
+pub(super) fn session(store: &Store, id: &str) -> std::io::Result<Option<ExternalSession>> {
+    let Some(Conversation::Claude { parent, agent }) = Conversation::parse(id) else {
+        return Ok(None);
+    };
+    let Some(path) = store.find(id) else {
+        return Ok(None);
+    };
+    let found = Found {
+        id: agent.to_owned(),
+        meta: meta(&path.with_extension("meta.json")),
+        transcript: path.clone(),
+    };
+    let digest = transcript::digest_tail(&path, 100)?;
+    let head = transcript::head(&path)?;
+    let parent_cwd = store
+        .find(parent)
+        .and_then(|path| transcript::head(&path).ok())
+        .and_then(|head| head.cwd);
+    let cwd = digest.cwd.or(head.cwd).or(parent_cwd).unwrap_or_default();
+    let presence = match status(&Spawn::default(), &found) {
+        Status::InProgress => Presence::Working,
+        _ => Presence::Stopped,
+    };
+    Ok(Some(ExternalSession {
+        id: id.to_owned(),
+        agent: "claude".to_owned(),
+        title: found.meta.description.or(head.title).or(head.last_prompt),
+        place: crate::agents::place::of_folder(Path::new(&cwd)),
+        cwd,
+        started_at: head.first_at.unwrap_or(0),
+        last_activity: digest.last_at.unwrap_or(0),
+        last_prompt: digest.last_prompt.unwrap_or_default(),
+        last_message: digest.last_message.unwrap_or_default(),
+        presence,
+        ..Default::default()
+    }))
+}
 
 /// The most subagent files one session's folder is read for.
 const MAX_AGENTS: usize = 1_000;
@@ -102,7 +153,15 @@ pub(super) fn attach(
         return;
     }
     shown.sort_by_key(|(_, spawn)| spawn.entry);
-    let found = agents(&session.with_extension("").join("subagents"));
+    let folder = if session
+        .parent()
+        .is_some_and(|folder| folder.file_name().is_some_and(|name| name == "subagents"))
+    {
+        session.parent().map(Path::to_owned).unwrap_or_default()
+    } else {
+        session.with_extension("").join("subagents")
+    };
+    let found = agents(&folder);
     let mut taken = HashSet::new();
     for (call, spawn) in shown {
         let Some(agent) = pick(&found, call, spawn, &taken) else {
@@ -113,6 +172,48 @@ pub(super) fn attach(
             continue;
         };
         entry.text = text(spawn, agent, &read(&agent.transcript));
+        if let Some(id) = conversation(session, &agent.id) {
+            add_conversation(&mut entry.text, &id);
+        }
+    }
+}
+
+fn add_conversation(text: &mut String, id: &str) {
+    let mut lines = text.split('\n').peekable();
+    let mut prefix = Vec::new();
+    prefix.push(lines.next().unwrap_or_default());
+    while lines.peek().is_some_and(|line| {
+        line.starts_with("[steps]") || line.starts_with("[step ") || line.starts_with("[agent]")
+    }) {
+        prefix.push(lines.next().unwrap_or_default());
+    }
+    *text = format!(
+        "{}\n[session] {id}\n{}",
+        prefix.join("\n"),
+        lines.collect::<Vec<_>>().join("\n")
+    );
+}
+
+/// ACP keeps a live transcript; correlate its spawn calls with the harness's child files.
+pub(super) fn attach_live(session: &Path, calls: &[(usize, String)], entries: &mut [Entry]) {
+    let found = agents(&session.with_extension("").join("subagents"));
+    let digest = transcript::digest_tail(session, entries.len()).ok();
+    let mut taken = HashSet::new();
+    for (at, call) in calls {
+        let fallback = Spawn::default();
+        let spawn = digest
+            .as_ref()
+            .and_then(|digest| digest.spawns.get(call))
+            .unwrap_or(&fallback);
+        let Some(agent) = pick(&found, call, spawn, &taken) else {
+            continue;
+        };
+        taken.insert(agent.id.as_str());
+        if let Some(id) = conversation(session, &agent.id)
+            && let Some(entry) = entries.get_mut(*at)
+        {
+            add_conversation(&mut entry.text, &id);
+        }
     }
 }
 
@@ -321,7 +422,7 @@ mod tests {
     /// and a custom `release-checker`, with their files beside it.
     fn session(root: &Path) -> PathBuf {
         let project = root.join("projects/-srv-project");
-        let subagents = project.join("s1/subagents");
+        let subagents = project.join("11111111-1111-4111-8111-111111111111/subagents");
         fs::create_dir_all(&subagents).expect("folders");
         let lines = [
             json!({"type": "user", "message": {"role": "user", "content": "check the release"}}),
@@ -345,11 +446,11 @@ mod tests {
             ]}}),
         ];
         let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
-        let path = project.join("s1.jsonl");
+        let path = project.join("11111111-1111-4111-8111-111111111111.jsonl");
         fs::write(&path, text).expect("the session");
 
         let explore = [
-            json!({"type": "user", "isSidechain": true, "message": {"role": "user",
+            json!({"type": "user", "isSidechain": true, "origin": {"kind": "agent"}, "message": {"role": "user",
                 "content": "Where is the config read?"}}),
             json!({"type": "assistant", "isSidechain": true, "message": {"content": [
                 {"type": "tool_use", "id": "t1", "name": "Grep", "input": {"pattern": "load_config"}}
@@ -401,13 +502,64 @@ mod tests {
              [step completed] Grep: load_config\n\
              [step failed] Read: /srv/project/src/config.rs\n\
              [agent] Explore\n\
+             [session] subagent:claude:11111111-1111-4111-8111-111111111111:a1\n\
              It is read in src/config.rs."
         );
         assert_eq!(
             tools[1],
             "Check the release notes [in_progress]\n[steps] 0\n\
              [agent] release-checker\n\
+             [session] subagent:claude:11111111-1111-4111-8111-111111111111:a2\n\
              The notes match the diff."
+        );
+    }
+
+    #[test]
+    fn native_sidechain_messages_use_the_normal_transcript_reader() {
+        let root = tempfile::tempdir().expect("a temp folder");
+        let path = session(root.path());
+        let store = Store::at(root.path());
+        let id = "subagent:claude:11111111-1111-4111-8111-111111111111:a1";
+        let found = super::session(&store, id)
+            .expect("native metadata")
+            .expect("child");
+        assert_eq!(found.title.as_deref(), Some("Find the config loader"));
+        let child = store.find(id).expect("native file");
+        let read = entries(&child, 50, None, &Memo::new(2)).expect("child transcript");
+        assert_eq!(read.entries[0].text, "Where is the config read?");
+        assert_eq!(
+            read.entries.last().expect("reply").text,
+            "It is read in src/config.rs."
+        );
+        assert!(
+            read.entries
+                .iter()
+                .any(|entry| entry.kind == EntryKind::Tool)
+        );
+        assert!(
+            read.entries
+                .iter()
+                .any(|entry| entry.text.contains("[failed]\nno"))
+        );
+        assert!(
+            read.entries
+                .iter()
+                .all(|entry| !entry.text.contains("Both checks are done"))
+        );
+        let mut live = vec![Entry::new(
+            EntryKind::Tool,
+            "Explore [completed]\n[steps] 0".to_owned(),
+        )];
+        attach_live(&path, &[(0, "call_explore".to_owned())], &mut live);
+        assert!(
+            live[0]
+                .text
+                .contains("[session] subagent:claude:11111111-1111-4111-8111-111111111111:a1")
+        );
+        assert!(
+            store
+                .find("subagent:claude:11111111-1111-4111-8111-111111111111:../a1")
+                .is_none()
         );
     }
 

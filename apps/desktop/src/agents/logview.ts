@@ -16,9 +16,9 @@ import { answerHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace
 import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentAvatar, agentKind, stateTag } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { promptParts } from "./promptparts-state.ts";
-import { childRow, parentRow } from "./nesting-state.ts";
+import { childRow } from "./nesting-state.ts";
 import { childReplyHtml } from "./childreply-state.ts";
-import { sessions } from "./sessions.ts";
+import { parentSession, sessions } from "./sessions.ts";
 import { fillAgentPics } from "./images.ts";
 import { picTile } from "./pic-state.ts";
 import { planHtml, questionHtml } from "./coderhtml.ts";
@@ -144,13 +144,13 @@ function subRow(at: number, inPane = false) {
   const spent = kid?.tokens ? [`${tokenCount(kid.tokens)} tokens`, kid.cost != null ? money(kid.cost) : ""] : [];
   const meta = [st, x.ms != null ? duration(x.ms) : "", kid ? "" : x.sub.count === 1 ? "1 step" : `${x.sub.count} steps`, ...spent].filter(Boolean).join(" · ");
   const kind = x.agent ? `<span class="kind">${esc(x.agent)}</span>` : "";
-  // A child opens as the session it is; a subagent opens in this one.
-  const opens = kid ? `data-kid="${esc(kid.id)}" data-key="${esc(kid.key)}"` : `data-sub="${at}"`;
+  const opens = kid ? `data-kid="${esc(kid.id)}" data-key="${esc(kid.key)}"` : x.sub.session ? `data-native="${at}"` : `data-subsummary="${at}"`;
   const close = inPane && st !== "working" && st !== "needs you" ? `<em class="x" data-subclose="${at}" title="Dismiss from pane">${ICON.x}</em>` : "";
   // A child that runs can be stopped from its row, as from its own log.
   const stoppable = kid && (st === "working" || st === "needs you");
   const stop = stoppable ? `<em class="kstop" data-kidstop title="Stop ${esc(x.title)}">Stop</em>` : "";
   const row = `<button class="dsubrow${stoppable ? " stoppable" : ""}" ${opens} title="Open ${esc(x.title)}"><span class="mk">${mark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span>${close}${stop}</button>`;
+  if (!kid && !x.sub.session && AG.steps.get(at)) return row + `<div class="dmuted">${esc(x.sub.result || "The agent has not provided a readable conversation yet.")}</div>`;
   if (inPane || !x.prompt) return row;
   const open = AG.steps.get(at) ?? false;
   return `<div class="dsubprompt" data-row="${at}" data-at="${at}">${row}<button class="prompt-toggle" data-prompt="${at}" aria-expanded="${open}">${ICON.chev}Prompt</button>${open ? `<pre>${esc(x.prompt)}</pre>` : ""}</div>`;
@@ -197,35 +197,12 @@ function subagentsShown(p: AgentPage) {
   return p.entries.flatMap((en, i) => en.kind === "tool" && AG.log!.subagent(AG.log!.parseTool(en.text).output) ? [p.earlier + i] : []);
 }
 
-/// A subagent opened as its own conversation: the way back, what it was
-/// asked, its steps and what it answered.
-/// What a subagent's log holds.
-function childHtml(p: AgentPage, at: number) {
-  const x = subOf(at), s = p.session, k = agentKind(s.agent);
-  const steps = x.sub.steps.map(st => `<div class="dcoderen tool"><span class="mk">${mark(st.status)}</span><code class="tt" title="${esc(st.title)}">${esc(stepLabel(`${st.title} [${st.status}]`, st.status === "in_progress" && x.working))}</code></div>`).join("");
-  const earlier = x.sub.count > x.sub.steps.length ? `<div class="dmuted">${x.sub.count - x.sub.steps.length} earlier steps not shown</div>` : "";
-  const none = !x.sub.count && !x.working ? `<div class="dcoderen other">Steps not reported by ${esc(k.name)}.</div>` : "";
-  const result = x.sub.result ? `<div class="dcoderen agent">${esc(x.sub.result)}</div>` : x.working ? '<div class="dmuted"><span class="dspin"></span> Working…</div>' : "";
-  return `<div class="dcrumb"><button id="agparent">${esc(s.title || "Session")}</button><span>›</span><b>${esc(x.title)}</b><span class="sp"></span><button class="dbtn" id="agparent2" data-parent="1">Open parent<kbd>esc</kbd></button></div>
-    <div class="dcoderen user"><b>${esc(x.agent || "Task")}</b><span>${esc(x.title)}</span></div>
-    ${turnHeadHtml({ state: x.working ? "working" : "done", ms: x.ms, stats: "", key: null, opened: false })}
-    ${earlier}${steps}${none}${result}`;
-}
-
 /// The line back to the session whose agent started this one, when one did:
 /// its parent and this session's title, and the way up.
 function upCrumb(p: AgentPage) {
-  const up = parentRow(sessions, { machine_id: p.session.machine_id, id: p.session.id });
+  const up = parentSession(p.session);
   if (!up) return "";
-  return `<div class="dcrumb"><button id="agup">${esc(up.title || "Session")}</button><span>›</span><b>${esc(p.session.title || "Session")}</b><span class="sp"></span><button class="dbtn" id="agup2">Open parent<kbd>esc</kbd></button></div>`;
-}
-
-/// Back from a subagent to its session.
-export function closeChild() {
-  if (AG.child == null) return false;
-  AG.child = null;
-  drawAgentBody();
-  return true;
+  return `<div class="dcrumb"><button id="agup">${esc(up.title || "Session")}</button><span>/</span><b>${esc(p.session.title || "Session")}</b><span class="sp"></span><button class="dbtn" id="agup2">Open parent<kbd>esc</kbd></button></div>`;
 }
 
 /// An image a user entry carried: the one sent from here, the one read
@@ -535,8 +512,6 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   const redraw = older ? "older" : keep != null ? "toggle" : "news";
   const scroll = logScroll(b.stuck !== false, redraw);
   const anchor = scroll === "keep" ? scrollAnchor(b, keep) : null;
-  const child = AG.child != null && AG.log && p.entries[AG.child - p.earlier] ? AG.child : null;
-  if (child == null) AG.child = null;
   // A plan waiting for approval shows above the field instead.
   const question = q && AG.modes?.plan == null ? questionCard(q) : "";
   const plan = planHtml(p.plan, s.status === "asking");
@@ -558,8 +533,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   const olderText = olderNote(p, AG.older.stop, AG.older.loading);
   const earlier = olderText ? `<div class="dmuted">${esc(olderText)}</div>` : "";
   // The log goes in by turns, and only those near the view are drawn.
-  const units = child != null ? [fixed("child", childHtml(p, child))]
-    : p.entries.length && AG.log ? [fixed("up", upCrumb(p)), fixed("older", earlier), ...turnUnits(p)] : null;
+  const units = p.entries.length && AG.log ? [fixed("up", upCrumb(p)), fixed("older", earlier), ...turnUnits(p)] : null;
   const entries = units ? '<div class="dcoderlog"></div>'
     : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
   // What stopped an outside session's log from reading is not a failed turn.
@@ -571,11 +545,11 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   // A read that failed outright is not tried again by itself: Retry reads it.
   const retry = AG.readError && AG.note === AG.readError && !AG.link.lost && AG.note !== "gone";
   const refresh = retry ? '<button class="dbtn quiet" id="agresume">Retry</button>' : "";
-  const subs = child == null ? paneSubs(p) : { html: "", count: 0 };
-  if (!showLog(b, `${why}${entries}${child == null ? card : ""}${err}${note}${refresh}`, units, polled)) { AG.rest = ""; return; }
-  // The pane follows the agent, or the subagent opened, into a worktree.
-  followAgent(p.entries, p.earlier, child != null ? subOf(child).sub.steps.map(st => st.title) : null);
-  const arts = child == null ? { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) } : undefined;
+  const subs = paneSubs(p);
+  if (!showLog(b, `${why}${entries}${card}${err}${note}${refresh}`, units, polled)) { AG.rest = ""; return; }
+  // The pane follows the open conversation into its worktree.
+  followAgent(p.entries, p.earlier, null);
+  const arts = { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) };
   drawPane(subs, arts);
   drawModelPill();
   drawModes();
