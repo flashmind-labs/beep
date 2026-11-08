@@ -1,6 +1,6 @@
 // Home's Open PRs and issues tab, and importing a repo from it.
 import { ago, reason } from "../ui/format.ts";
-import { dbtn as button, note, svgEl as icon } from "../ui/parts.ts";
+import { note, svgEl as icon } from "../ui/parts.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { pane } from "../bar/pane.ts";
 import { keepLastImport, lastImport, openImportProject } from "../addproject/importproject.ts";
@@ -14,7 +14,7 @@ import type { StartEntry } from "../project/openlist-state.ts";
 import { state } from "./state.ts";
 import { projectDot, section, tag, rowButton, line } from "../ui/pieces.ts";
 import { draw } from "./home.ts";
-import { shown, go } from "./views.ts";
+import { currentLocation, go } from "./views.ts";
 import { reloadChats, projectRows, loadFound } from "./sidebar.ts";
 import { type LabelFilter, labelFilter, labelChip } from "../project/split.ts";
 import { refresh } from "./refresh.ts";
@@ -208,7 +208,7 @@ listen<GitItemsView>("git-items", e => {
   state.git = e.payload;
   drawing ??= window.setTimeout(() => {
     drawing = undefined;
-    if (receiving && shown === "home") draw();
+    if (receiving && currentLocation()?.view === "home") draw();
   }, 150);
 });
 
@@ -226,5 +226,5 @@ export const refreshGit = single(async () => {
   } finally {
     receiving = false;
   }
-  if (shown === "home") draw();
+  if (currentLocation()?.view === "home") draw();
 });

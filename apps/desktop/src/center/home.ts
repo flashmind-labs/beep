@@ -16,7 +16,7 @@ import { failure, conflict, dot, section, avatar, tag, rowButton, line } from ".
 import { addMachineButton, useThisMac, machineMenu, machinesSection, offlineNote } from "../machines/table.ts";
 import { conflictLines } from "../project/syncpage.ts";
 import { gitSection, openUrl, refreshGit } from "./openitems.ts";
-import { registerView, go, openResearch, shown } from "./views.ts";
+import { currentLocation, registerView, go, openResearch } from "./views.ts";
 import { projectRows } from "./sidebar.ts";
 import { loading, refresh, fresh } from "./refresh.ts";
 import { BEEP_MARK, IC } from "../ui/icons.ts";
@@ -371,7 +371,7 @@ function drawConnecting(view: HTMLElement) {
 
 export function draw() {
   // A hidden Home draws when it is shown: its mount refreshes.
-  if (shown && shown !== "home") return;
+  if (currentLocation()?.view && currentLocation()?.view !== "home") return;
   const home = homeForDisplay(state.home, S.server), view = $("#view");
   if (!home || S.server && problem()) return drawConnecting(view);
   const top = view.scrollTop;

@@ -337,7 +337,7 @@ test("controller view snapshots are installed before callbacks and discarded whe
   assert.equal(calls.some(call => call.cmd === "center_home"), false, "late source completion publishes a new projection instead of a UI refetch");
   nativeEvent("center-hidden");
   await settle();
-  assert.equal(snapshotView("center_home"), undefined);
+  assert.equal(snapshotView("center_home"), null);
 });
 
 test("explicit refreshes bypass view snapshots and writes discard stale views", async t => {
@@ -353,7 +353,7 @@ test("explicit refreshes bypass view snapshots and writes discard stale views", 
   installViews({ views: [{ command: "center_project_runs", args: { projectId: "example" }, value: { runs: [1] } }] });
   finish();
   await write;
-  assert.equal(snapshotView("center_project_runs", { projectId: "example" }), undefined);
+  assert.equal(snapshotView("center_project_runs", { projectId: "example" }), null);
   t.mock.timers.tick(5000);
 });
 
@@ -381,7 +381,7 @@ test("source errors invalidate rendered views and retries can read recovered sta
   t.mock.timers.tick(100);
   await settle();
   assert.equal(errors, 1);
-  assert.equal(snapshotView("center_home"), undefined);
+  assert.equal(snapshotView("center_home"), null);
   answers.center_home = { machines: ["after"] };
   t.mock.timers.tick(1000);
   await settle();

@@ -29,8 +29,11 @@ import { setPaneShown } from "../ui/active.ts";
 
 /// What the window can open in the pane: a CenterTarget in its JSON form,
 /// a group, or an agent view.
+export type PanePage = "agents" | "chats" | "memories" | "routines" | "skills"
+  | "apps" | "settings" | "machines" | "link" | "invite" | "revoked";
+
 export type PaneTarget =
-  | string
+  | PanePage
   | null
   | { chat: { session: string | null } }
   | { group: { id: string } }
@@ -39,7 +42,7 @@ export type PaneTarget =
   | { agentnew: { prompt?: string; at?: AgentPlace | null }; from?: BackTo };
 
 /// Pages the window opens in the pane by name.
-const VIEWS: Record<string, () => unknown> = {
+const VIEWS: Record<Exclude<PanePage, "agents">, () => unknown> = {
   chats: renderChats,
   memories: renderMemories,
   routines: renderRoutines,

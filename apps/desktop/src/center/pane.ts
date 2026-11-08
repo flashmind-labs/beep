@@ -3,14 +3,15 @@
 import { dbtn as button } from "../ui/parts.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { pane } from "../bar/pane.ts";
+import type { View } from "../bar/core.ts";
 import { el as h } from "../ui/dom.ts";
 import type { CenterTarget } from "../project/projectwindow.ts";
 import { chatProject, shortName, type ProjectAgent } from "../project/agent.ts";
 import { askBeep } from "./center.ts";
-import { type ViewHead, type ViewName, state } from "./state.ts";
+import { type ViewHead, state } from "./state.ts";
 import { projectDot } from "../ui/pieces.ts";
 import { startedWhen } from "./home.ts";
-import { shown, go, drawTop, openResearch } from "./views.ts";
+import { currentLocation, go, drawTop, openResearch } from "./views.ts";
 import { paneOn, chatList, projectRows, openProjects } from "./sidebar.ts";
 import { loadThreadChats, threadHead, pinButton, threadChats } from "./threadcard.ts";
 import { refresh } from "./refresh.ts";
@@ -24,7 +25,7 @@ const APPS_TITLE: [string, string] = ["Apps", "What Beep can use for you"];
 const SETTINGS_TITLE: [string, string] = ["Settings", ""];
 
 /// Titles of the pane's views; a chat or group takes its own name.
-const PANE_TITLES: Record<string, [string, string]> = {
+const PANE_TITLES: Partial<Record<View, [string, string]>> = {
   chats: ["Chats", "Every chat, from the bar, this window and your phone"],
   memories: ["Memories", "What Beep knows about you"],
   routines: ROUTINES_TITLE,
@@ -56,7 +57,7 @@ export function paneTitle(): ViewHead {
     const g = chatList.find(x => x.id === on.group);
     return { title: g?.title ?? "Group", tools: g ? [pinButton(g)] : [] };
   }
-  const [title, sub] = PANE_TITLES[on.view ?? ""] ?? ["Beep", ""];
+  const [title, sub] = (on.view ? PANE_TITLES[on.view] : null) ?? ["Beep", ""];
   if (on.view === "agentnew") return { title, sub, tools: [button("All sessions", "small", () => go("pane", "agents"))] };
   return { title, sub };
 }
@@ -89,7 +90,7 @@ export async function loadAgents() {
     console.warn("project agents:", e);
     return;
   }
-  if (shown === "pane") drawTop();
+  if (currentLocation()?.view === "pane") drawTop();
   loadThreadChats();
 }
 
@@ -103,13 +104,13 @@ export async function debugWithAgent(text: string) {
 }
 
 /// Shows what the bar or tray asked for, once; Home when nothing is waiting.
-export async function takePending(fallback: ViewName | null) {
+export async function takePending(fallback: "home" | null) {
   const target = await invoke<CenterTarget | null>("center_pending").catch(() => null);
   if (target == null) return fallback && go(fallback);
   if (target === "home" || target === "instructions" || target === "providers" || target === "terminals" || target === "research") return go(target);
   // The report target: the Report a problem sheet over the page on screen.
   if (target === "report") {
-    if (!shown) go("home");
+    if (!currentLocation()) go("home");
     return openReport(document.body, debugWithAgent);
   }
   if (typeof target === "object" && "projects" in target) return go("projects", target.projects);
@@ -117,7 +118,7 @@ export async function takePending(fallback: ViewName | null) {
   if (typeof target === "object" && "open_research" in target) return openResearch(target.open_research.session);
   // A notification's click: the page behind stays, the pane opens over it.
   if (typeof target === "object" && "notice" in target) {
-    if (!shown) go("home");
+    if (!currentLocation()) go("home");
     return showNotices(target.notice.session);
   }
   go("pane", target);

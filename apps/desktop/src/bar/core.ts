@@ -1,8 +1,9 @@
 // The bar's page, and the pane the command center window shows it in.
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
+import type { PanePage } from "./pane.ts";
 import type { GroupState } from "../chat/groups.ts";
 import type { ChatBody, Turn } from "../ui/turn.ts";
-import type { ViewName } from "../center/state.ts";
+import type { ViewName, ViewArg, Location } from "../center/state.ts";
 
 export const bar = document.getElementById("bar")!;
 /// True when this page runs as a pane in the command center window rather
@@ -168,10 +169,10 @@ export interface WindowHooks {
   openShortcuts(): void;
   /// A page Settings leads to, such as Apps: the sheet closes and the pane
   /// shows it; null only closes.
-  settingsAway(view: string | null): void;
+  settingsAway(view: PanePage | null): void;
   /// Draws window view `name` (such as "providers") inside `root`, a page of
   /// the Settings sheet, opened with `arg`.
-  embedView?(name: ViewName, root: HTMLElement, arg: unknown, tools?: (nodes: Node[]) => void): () => void;
+  embedView?(name: ViewName, root: HTMLElement, arg: ViewArg, tools?: (nodes: Node[]) => void): () => void;
   /// ⌘N in the pane: the window picks where the agent starts.
   newAgent(): void;
   /// Esc from an agent view goes back to the view that opened it.
@@ -184,10 +185,8 @@ export interface WindowHooks {
 }
 
 /// A window view to go back to, as the window opened an agent view from it.
-export interface BackTo {
-  view: ViewName;
-  arg?: unknown;
-}
+export type BackTo = Location;
+export type AgentReturn = "chat" | "agents" | BackTo;
 
 /// Set by the window once it has loaded the pane.
 export let windowHooks: WindowHooks | null = null;

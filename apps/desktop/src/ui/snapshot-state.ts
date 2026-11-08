@@ -14,36 +14,26 @@ const COMMANDS = new Set([
 ]);
 const MAX_VIEWS = 128;
 const MAX_BYTES = 8 * 1024 * 1024;
-type CachedView = { value?: unknown; error?: string };
+export type CachedView =
+  | { kind: "value"; value: unknown }
+  | { kind: "error"; error: string };
+interface Snapshot { command: string; args: Record<string, unknown>; result: CachedView }
 const views = new Map<string, CachedView & { bytes: number }>();
 let bytes = 0;
 
-function canonical(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonical);
-  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value)
-    .filter(([key, item]) => item !== undefined && !(key === "refresh" && item === false))
-    .sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, canonical(item)]));
-  return value;
-}
-
-function key(command: string, args: Record<string, unknown> = {}) {
-  return JSON.stringify([command, canonical(args)]);
-}
-
 /// Install every projection before notifying any subscriber of the source update.
 export function installViews(data: unknown): void {
-  if (!data || typeof data !== "object" || !("views" in data) || !Array.isArray(data.views)) return;
-  for (const snapshot of data.views) {
-    if (!snapshot || typeof snapshot !== "object" || !COMMANDS.has(snapshot.command)
-      || (!("value" in snapshot) && typeof snapshot.error !== "string")
-      || (snapshot.args !== undefined && (!snapshot.args || typeof snapshot.args !== "object" || Array.isArray(snapshot.args)))) continue;
+  if (!record(data) || !Array.isArray(data.views)) return;
+  for (const value of data.views) {
+    const snapshot = readSnapshot(value);
+    if (!snapshot) continue;
+    const { result } = snapshot;
     const id = key(snapshot.command, snapshot.args);
-    const error = typeof snapshot.error === "string" ? snapshot.error : undefined;
-    const size = JSON.stringify(error ?? snapshot.value)?.length ?? MAX_BYTES + 1;
+    const size = JSON.stringify(result.kind === "error" ? result.error : result.value)?.length ?? MAX_BYTES + 1;
     const previous = views.get(id);
     if (previous) { bytes -= previous.bytes; views.delete(id); }
     if (size > MAX_BYTES) continue;
-    views.set(id, error === undefined ? { value: structuredClone(snapshot.value), bytes: size } : { error, bytes: size });
+    views.set(id, { ...clone(result), bytes: size });
     bytes += size;
     while (views.size > MAX_VIEWS || bytes > MAX_BYTES) {
       const oldest = views.entries().next().value;
@@ -55,16 +45,16 @@ export function installViews(data: unknown): void {
 }
 
 /// Explicit refreshes read the source. Callers own their copy of each rendered view.
-export function snapshotView(command: string, args?: Record<string, unknown>): CachedView | undefined {
-  if (!COMMANDS.has(command) || args?.refresh === true) return;
+export function snapshotView(command: string, args?: Record<string, unknown>): CachedView | null {
+  if (!COMMANDS.has(command) || args?.refresh === true) return null;
   const held = views.get(key(command, args));
-  return held && (held.error === undefined ? { value: structuredClone(held.value) } : { error: held.error });
+  return held ? clone(held) : null;
 }
 
 /// A failure is delivered once, then the subscriber's retry can ask the recovered source.
-export function takeSnapshotView(command: string, args?: Record<string, unknown>): CachedView | undefined {
+export function takeSnapshotView(command: string, args?: Record<string, unknown>): CachedView | null {
   const snapshot = snapshotView(command, args);
-  if (snapshot?.error !== undefined) {
+  if (snapshot?.kind === "error") {
     const id = key(command, args), held = views.get(id);
     if (held) { bytes -= held.bytes; views.delete(id); }
   }
@@ -80,4 +70,33 @@ export function clearViews(): void {
 export function viewWrite(command: string): boolean {
   return /^(?:add_|allow_|answer_|cancel_|close_|complete_|connect_|create_|delete_|disconnect_|edit_|import_|invite_|join_|leave_|login_|new_|pin_|remove_|rename_|rerun_|resume_|save_|send_|set_|sign_|start_|stop_|update_|use_)/.test(command)
     || /^(?:agent_(?:delete|file_save|files_sync|harness_update|resume|review_start|start|steer|stop_process|title_save|tree_edit|tree_upload)|center_(?:answer|comment|dismiss|reply|stop|track|update)|project_(?:add|copy|git_move|sync_pause|sync_resolve)|review_(?:dismiss|fix|merge|post|start)|session_move|terminal_(?:close|open|start))/.test(command);
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/// Optional fields are accepted only at the wire boundary; the cache has explicit states.
+function readSnapshot(value: unknown): Snapshot | null {
+  if (!record(value) || typeof value.command !== "string" || !COMMANDS.has(value.command)) return null;
+  if (value.args !== undefined && !record(value.args)) return null;
+  const args = record(value.args) ? value.args : {};
+  if (typeof value.error === "string") return { command: value.command, args, result: { kind: "error", error: value.error } };
+  return "value" in value ? { command: value.command, args, result: { kind: "value", value: value.value } } : null;
+}
+
+function clone(result: CachedView): CachedView {
+  return result.kind === "value" ? { kind: "value", value: structuredClone(result.value) } : { kind: "error", error: result.error };
+}
+
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value)
+    .filter(([key, item]) => item !== undefined && !(key === "refresh" && item === false))
+    .sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, canonical(item)]));
+  return value;
+}
+
+function key(command: string, args: Record<string, unknown> = {}) {
+  return JSON.stringify([command, canonical(args)]);
 }

@@ -10,24 +10,24 @@ const scope: ProjectScope = {
 const agent = (machine_id: string, cwd: string) => ({ kind: "agent", machine_id, machine_name: machine_id, id: "s1", agent: "claude", title: null, cwd, status: "idle", external: false });
 
 test("a project window keeps its project and what opens from it", () => {
-  assert.equal(route(scope, "projects", { project: "org/site" }), "here");
-  assert.equal(route(scope, "pane", { agent: agent("build-box", "/srv/site") }), "here");
-  assert.equal(route(scope, "pane", { agent: agent("build-box", "/srv/site/.worktrees/fix") }), "here");
-  assert.equal(route(scope, "pane", { agentnew: { prompt: "" } }), "here");
-  assert.equal(route(scope, "pane", { draft: { project: "org/site", machine: null } }), "here");
-  assert.equal(route(scope, "pane", { draft: { project: "org/other", machine: null } }), "main");
-  assert.equal(route(scope, "pane", { chat: { session: "chat-site" } }), "here");
+  assert.equal(route(scope, { view: "projects", arg: { project: "org/site" } }), "here");
+  assert.equal(route(scope, { view: "pane", arg: { agent: agent("build-box", "/srv/site") } }), "here");
+  assert.equal(route(scope, { view: "pane", arg: { agent: agent("build-box", "/srv/site/.worktrees/fix") } }), "here");
+  assert.equal(route(scope, { view: "pane", arg: { agentnew: { prompt: "" } } }), "here");
+  assert.equal(route(scope, { view: "pane", arg: { draft: { project: "org/site", machine: null } } }), "here");
+  assert.equal(route(scope, { view: "pane", arg: { draft: { project: "org/other", machine: null } } }), "main");
+  assert.equal(route(scope, { view: "pane", arg: { chat: { session: "chat-site" } } }), "here");
 });
 
 test("a project window sends what is not its project to the main window", () => {
-  assert.equal(route(scope, "home"), "main");
-  assert.equal(route(scope, "projects", { project: "org/other" }), "main");
-  assert.equal(route(scope, "projects", { project: null }), "main");
-  assert.equal(route(scope, "pane", "settings"), "main");
-  assert.equal(route(scope, "pane", { chat: { session: null } }), "main");
-  assert.equal(route(scope, "pane", { chat: { session: "chat-other" } }), "main");
-  assert.equal(route(scope, "pane", { group: { id: "g1" } }), "main");
-  assert.equal(route(scope, "pane", { agent: agent("build-box", "/srv/site-old") }), "main");
-  assert.equal(route(scope, "pane", { agent: agent("gpu-box", "/srv/site") }), "main");
-  assert.equal(route(scope, "pane", { agent: agent("build-box", "") }), "main");
+  assert.equal(route(scope, { view: "home", arg: null }), "main");
+  assert.equal(route(scope, { view: "projects", arg: { project: "org/other" } }), "main");
+  assert.equal(route(scope, { view: "projects", arg: { project: null } }), "main");
+  assert.equal(route(scope, { view: "pane", arg: "settings" }), "main");
+  assert.equal(route(scope, { view: "pane", arg: { chat: { session: null } } }), "main");
+  assert.equal(route(scope, { view: "pane", arg: { chat: { session: "chat-other" } } }), "main");
+  assert.equal(route(scope, { view: "pane", arg: { group: { id: "g1" } } }), "main");
+  assert.equal(route(scope, { view: "pane", arg: { agent: agent("build-box", "/srv/site-old") } }), "main");
+  assert.equal(route(scope, { view: "pane", arg: { agent: agent("gpu-box", "/srv/site") } }), "main");
+  assert.equal(route(scope, { view: "pane", arg: { agent: agent("build-box", "") } }), "main");
 });
