@@ -201,7 +201,6 @@ ffi_structs! {
     }
 }
 
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChartKind {
@@ -210,7 +209,6 @@ pub enum ChartKind {
     Bar,
 }
 
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChartAxis {
@@ -219,7 +217,6 @@ pub enum ChartAxis {
 }
 
 /// How far back a stock chart reaches.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[derive(strum::AsRefStr, strum::IntoStaticStr)]

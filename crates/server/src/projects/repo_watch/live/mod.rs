@@ -289,4 +289,5 @@ pub(super) async fn sync_in_background(
 }
 
 #[cfg(test)]
+#[path = "../../../tests/projects_repo_watch_live.rs"]
 mod tests;

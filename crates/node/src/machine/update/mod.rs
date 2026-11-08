@@ -47,8 +47,6 @@ pub enum Error {
         #[source]
         source: <Url as FromStr>::Err,
     },
-    #[error("could not set up HTTPS")]
-    Tls(#[source] rustls::Error),
     #[error("could not set up downloads")]
     Client(#[source] reqwest::Error),
     #[error("could not reach {url}; is this machine online?")]

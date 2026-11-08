@@ -21,7 +21,7 @@ function sources(dir: string): string[] {
 /// The registered command names: the last path segment of each entry in
 /// `generate_handler![ ... ]`.
 function registered() {
-  const main = readFileSync("src-tauri/src/main.rs", "utf8");
+  const main = readFileSync("src-tauri/src/lib.rs", "utf8");
   const body = main.slice(main.indexOf("generate_handler![") + "generate_handler![".length);
   return body.slice(0, body.indexOf("]")).split(",").map(s => s.trim().split("::").pop()!).filter(Boolean);
 }

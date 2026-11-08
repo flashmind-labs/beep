@@ -17,6 +17,7 @@ fn window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
 }
 
 /// Shows the bar on the screen under the mouse, or hides it if it is open.
+#[cfg(desktop)]
 pub fn toggle<R: Runtime>(app: &AppHandle<R>) {
     let Some(bar) = window(app) else { return };
     if bar.is_visible().unwrap_or(false) {

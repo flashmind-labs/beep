@@ -25,6 +25,7 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
+pub(crate) use super::brief::BRIEF;
 pub(crate) mod calls;
 mod catalog;
 pub(crate) mod children;
@@ -60,25 +61,6 @@ const MAX_CONNECTIONS: usize = 64;
 /// How long a connection has to say whose it is.
 const HELLO_LIMIT: Duration = Duration::from_secs(5);
 const MAX_HELLO: u64 = 4096;
-/// What the agent hears ahead of its first prompt.
-pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the user's other \
-    machines. list_machines says which machines there are, whether each is online, its OS, \
-    what it can do (Xcode, Android, GPU, Docker, Blender) and its coding agents: pick the \
-    machine whose tools fit the work. harness_info gives a harness's model IDs, default model \
-    and thinking levels. remote_run runs a command there, never on your own machine; job_status and \
-    cancel follow a background command. \
-    sync_project syncs Git commits for repositories, selected ignored folders through file sync, and files for non-Git folders. Other uncommitted Git edits require an explicit handoff; sync_project never copies them. \
-    read_session_transcript reads a coding session on this or another machine by session ID, with pagination. \
-    send_files copies files to another machine. start_agent starts another coding agent, of any harness, on any machine, linked to you; agent_status, send_to_agent, stop_agent and list_agents follow your own agents, and the user answers their permission questions. review has your changes reviewed by a reviewer agent and gives its findings. ask_user asks the user a question and waits \
-    for the answer. For Rust, C, or C++ builds, check whether sccache is installed and use it \
-    when practical to reuse compilation results across worktrees. For Rust, set RUSTC_WRAPPER=sccache \
-    for the build if no compiler wrapper is already configured. For C or C++, follow the project's \
-    build configuration and preserve any existing compiler launcher. Do not install sccache or change \
-    the user's global configuration unless asked.\n\n\
-    Use fenced `mermaid` blocks when a diagram makes an explanation clearer. Beep renders them \
-    as expandable diagrams with SVG and PNG exports. Keep diagrams small and use plain labels; \
-    do not add initialization directives, HTML, links or external resources.";
-
 /// How sessions start the server, and the key their tokens are made with.
 pub struct Launch {
     /// The `beep-node` to run.
@@ -375,74 +357,5 @@ pub async fn pipe(dir: &Path, session: &str) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_token_is_good_for_its_own_session_only() {
-        let launch = Launch::new("/usr/local/bin/beep-node".into(), "/srv/node".into());
-        let token = launch.token("a3f9c1").to_hex().to_string();
-        assert!(launch.verify("a3f9c1", &token));
-        assert!(!launch.verify("b4e0d2", &token));
-        assert!(!launch.verify("a3f9c1", "not hex"));
-        let other = Launch::new("/usr/local/bin/beep-node".into(), "/srv/node".into());
-        assert!(!other.verify("a3f9c1", &token), "a new run has a new key");
-        let McpServer::Stdio(server) = launch.server("a3f9c1") else {
-            panic!("the server is not a command");
-        };
-        assert_eq!(server.name, SERVER_NAME);
-        assert_eq!(
-            server.args,
-            ["--dir", "/srv/node", "mcp", "--session", "a3f9c1"]
-        );
-        assert_eq!(server.env[0].name, TOKEN_ENV);
-        assert_eq!(server.env[0].value, token);
-    }
-
-    #[test]
-    fn a_session_connects_to_the_socket_the_node_bound() {
-        let user = "a".repeat(64);
-        let dir = PathBuf::from(format!(
-            "/Users/{user}/Library/Application Support/com.flashmind.beep.desktop/node"
-        ));
-        let launch = Launch::new("/srv/Beep.app/Contents/MacOS/beep".into(), dir.clone());
-        let McpServer::Stdio(server) = launch.server("a3f9c1") else {
-            panic!("the server is not a command");
-        };
-        let named = server
-            .env
-            .iter()
-            .find(|var| var.name == SOCKET_ENV)
-            .expect("the socket is named");
-        assert_eq!(Path::new(&named.value), launch.socket);
-        assert!(named.value.len() < 104, "{}", named.value);
-        assert_eq!(
-            connect_to(Some(named.value.clone().into()), &dir),
-            launch.socket
-        );
-        // A session started before the node named its socket.
-        assert_eq!(connect_to(None, &dir), launch.socket);
-        assert_eq!(
-            connect_to(None, Path::new("/srv/node")),
-            Path::new("/srv/node/mcp.sock")
-        );
-    }
-
-    #[test]
-    fn a_sessions_arguments_read_back_as_its_invocation() {
-        let launch = Launch::new(
-            "/srv/Beep.app/Contents/MacOS/beep".into(),
-            "/srv/node".into(),
-        );
-        let McpServer::Stdio(server) = launch.server("a3f9c1") else {
-            panic!("the server is not a command");
-        };
-        assert_eq!(
-            Invocation::parse(&server.args),
-            Some(Invocation {
-                dir: "/srv/node".into(),
-                session: "a3f9c1".into(),
-            })
-        );
-    }
-}
+#[path = "../../tests/agents_mcp.rs"]
+mod tests;

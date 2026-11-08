@@ -1,0 +1,7 @@
+{
+  "identifier": "com.flashmind.beep",
+  "version": "0.1.1",
+  "bundle": {
+    "iOS": { "frameworks": ["SystemConfiguration"] }
+  }
+}

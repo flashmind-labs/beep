@@ -1,14 +1,34 @@
-//! The native image clipboard, kept alive while another app requests its contents.
+//! The native image clipboard, kept alive while another app requests its
+//! contents. A phone has none: copying a picture there fails.
 
-use anyhow::{Context, Result, ensure};
+use anyhow::Result;
+#[cfg(desktop)]
+use anyhow::{Context, ensure};
+#[cfg(desktop)]
 use arboard::{Clipboard, ImageData};
+#[cfg(desktop)]
 use base64::{Engine, engine::general_purpose::STANDARD};
+#[cfg(desktop)]
 use image::{ImageFormat, ImageReader, Limits};
+#[cfg(desktop)]
 use std::{borrow::Cow, io::Cursor, sync::Mutex};
 
+#[cfg(desktop)]
 #[derive(Default)]
 pub(crate) struct ImageClipboard(Mutex<Option<Clipboard>>);
 
+#[cfg(mobile)]
+#[derive(Default)]
+pub(crate) struct ImageClipboard {}
+
+#[cfg(mobile)]
+impl ImageClipboard {
+    pub(crate) fn copy_png(&self, _png: &str) -> Result<()> {
+        anyhow::bail!("no image clipboard on a phone")
+    }
+}
+
+#[cfg(desktop)]
 impl ImageClipboard {
     pub(crate) fn copy_png(&self, png: &str) -> Result<()> {
         let image = decode(png)?;
@@ -27,6 +47,7 @@ impl ImageClipboard {
     }
 }
 
+#[cfg(desktop)]
 fn decode(png: &str) -> Result<ImageData<'static>> {
     ensure!(png.len() <= 24_000_000, "image too large");
     let bytes = STANDARD.decode(png).context("decode image")?;
@@ -44,35 +65,6 @@ fn decode(png: &str) -> Result<ImageData<'static>> {
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use image::{DynamicImage, Rgba, RgbaImage};
-
-    fn png(width: u32, height: u32) -> String {
-        let image = DynamicImage::ImageRgba8(RgbaImage::from_pixel(
-            width,
-            height,
-            Rgba([20, 40, 60, 255]),
-        ));
-        let mut out = Cursor::new(Vec::new());
-        image.write_to(&mut out, ImageFormat::Png).unwrap();
-        STANDARD.encode(out.into_inner())
-    }
-
-    #[test]
-    fn preserves_the_pixels_for_the_native_clipboard() {
-        let image = decode(&png(2, 1)).unwrap();
-        assert_eq!((image.width, image.height), (2, 1));
-        assert_eq!(image.bytes.as_ref(), &[20, 40, 60, 255, 20, 40, 60, 255]);
-    }
-
-    #[test]
-    fn rejects_invalid_or_oversized_images() {
-        assert!(decode("not base64").is_err());
-        assert!(decode(&STANDARD.encode(b"not a PNG")).is_err());
-        assert!(decode(&png(4097, 1)).is_err());
-        assert!(decode(&png(1, 4097)).is_err());
-        assert!(decode(&"A".repeat(24_000_001)).is_err());
-    }
-}
+#[cfg(all(test, desktop))]
+#[path = "../tests/chat_clipboard.rs"]
+mod tests;

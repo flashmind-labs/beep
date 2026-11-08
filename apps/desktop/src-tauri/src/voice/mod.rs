@@ -9,6 +9,8 @@ mod card;
 mod control;
 mod event;
 pub(crate) mod hotkey;
+// The double tap of Option: a phone has no Option key.
+#[cfg(desktop)]
 mod keys;
 pub(crate) mod news;
 mod note;

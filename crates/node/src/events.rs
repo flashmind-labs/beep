@@ -7,8 +7,10 @@ use std::{
 };
 use tokio::sync::broadcast;
 
-pub(crate) mod exits;
-pub(crate) mod paths;
+host! {
+    pub(crate) mod exits;
+    pub(crate) mod paths;
+}
 
 const SIGNAL_CAPACITY: usize = 1024;
 const MAX_PLUGIN_TOPICS: usize = 128;
@@ -60,6 +62,7 @@ impl Hub {
         }
     }
 
+    #[cfg(feature = "host")]
     pub(crate) fn register(&self, topic: Topic, sender: &broadcast::Sender<Change>) {
         let mut topics = crate::lock(&self.0.topics);
         topics.retain(|_, sender| sender.strong_count() > 0);
@@ -89,6 +92,7 @@ impl Hub {
         Ok(())
     }
 
+    #[cfg(feature = "host")]
     pub(crate) fn current(&self, topic: &Topic) -> Option<Value> {
         let local = crate::lock(&self.0.states).get(topic).cloned();
         local.or_else(|| {
@@ -98,6 +102,7 @@ impl Hub {
         })
     }
 
+    #[cfg(feature = "host")]
     pub(crate) fn published(&self) -> Vec<Topic> {
         let mut topics: std::collections::BTreeSet<_> =
             crate::lock(&self.0.states).keys().cloned().collect();
@@ -115,32 +120,5 @@ pub fn system() -> &'static Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn plugin_reconnect_reads_latest_state_without_retaining_updates() {
-        let hub = Hub::default();
-        let topic = Topic::keyed("plugin", "example");
-        let mut changes = hub.subscribe();
-        hub.publish(topic.clone(), vec![1]).unwrap();
-        hub.publish(topic.clone(), vec![2]).unwrap();
-        assert_eq!(changes.recv().await.unwrap().topic, topic);
-        assert_eq!(hub.current(&topic), Some(Value::Plugin(vec![2])));
-        assert_eq!(crate::lock(&hub.0.states).len(), 1);
-        assert!(hub.publish(Topic::new("plugin"), vec![]).is_err());
-    }
-
-    #[tokio::test]
-    async fn unchanged_plugin_state_does_not_wake_readers() {
-        let hub = Hub::default();
-        let topic = Topic::keyed("plugin", "example");
-        hub.publish(topic.clone(), vec![1]).unwrap();
-        let mut changes = hub.subscribe();
-        hub.publish(topic, vec![1]).unwrap();
-        assert!(matches!(
-            changes.try_recv(),
-            Err(broadcast::error::TryRecvError::Empty)
-        ));
-    }
-}
+#[path = "tests/events.rs"]
+mod tests;

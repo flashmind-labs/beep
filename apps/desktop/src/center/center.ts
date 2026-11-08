@@ -1,4 +1,4 @@
-import { WINDOWS } from "../ui/platform.ts";
+import { onPhone, WINDOWS } from "../ui/platform.ts";
 import { initConversationSwitcher } from "../agents/conversation-switcher.ts";
 import "../ui/contextmenu.ts";
 import "../chat/diagrams.ts";
@@ -6,6 +6,7 @@ import "../chat/diagrams.ts";
 // the window's shared state (state.ts). Entry: this file (dist/center.js).
 import "../ui/loopclock.ts";
 import "../ui/zoom.ts";
+import { initMobile } from "./mobile.ts";
 import { closeFocusedTab } from "../agentpane/media.ts";
 import { isCloseKey, isZoomKey } from "../agentpane/media-state.ts";
 import { isNewKey } from "../terminals/newkey-state.ts";
@@ -23,6 +24,7 @@ import { shortName, newChatTarget } from "../project/agent.ts";
 import { mountUsage, type UsageView } from "./usage.ts";
 import { mountNotices } from "./notices.ts";
 import { firstRun } from "./firstrun.ts";
+import { pairing } from "./pairing.ts";
 import { viewHidden } from "../settings/subscription.ts";
 import { windowCommand } from "../ui/windowkeys.ts";
 import { RESEARCHES } from "../research/researches.ts";
@@ -61,6 +63,7 @@ initConversationSwitcher({
 // ---------- Keys ----------
 
 initSideResize($(".cwin"), $("#side-grip"));
+initMobile();
 const reloadUsage = mountUsage($("#usage"), refresh => invoke<UsageView | null>("usage_get", { refresh }));
 listen("usage-changed", reloadUsage);
 mountNotices($("#bell"));
@@ -276,4 +279,4 @@ listen<string>("link-state", e => {
 });
 
 // A reload starts with no chat open, as the window just opened does.
-Promise.all([invoke("new_chat").catch(() => {}), showCached()]).then(() => firstRun(state.subscribed, () => {}, S.signedOut)).then(start).then(() => { if (state.subscribed) loadAgents(); });
+pairing().then(() => Promise.all([invoke("new_chat").catch(() => {}), showCached()])).then(() => onPhone() ? undefined : firstRun(state.subscribed, () => {}, S.signedOut)).then(start).then(() => { if (state.subscribed) loadAgents(); });

@@ -1,0 +1,13 @@
+*
+!Cargo.toml
+!Cargo.lock
+!crates/
+crates/*/target/
+!apps/
+apps/*
+!apps/desktop/
+!apps/diagrams/
+apps/diagrams/*
+!apps/diagrams/assets/
+apps/desktop/node_modules/
+apps/desktop/src-tauri/target/

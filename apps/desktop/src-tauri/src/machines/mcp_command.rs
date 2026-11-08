@@ -11,6 +11,7 @@ use tokio::runtime::Builder;
 /// Runs the pipe when `args` (after the executable) are a session's `mcp`
 /// command, returning the exit status; `None` when they are not, and the
 /// app starts as usual.
+#[cfg_attr(mobile, allow(dead_code))]
 pub fn run<I>(args: I) -> Option<i32>
 where
     I: IntoIterator<Item = OsString>,
@@ -32,20 +33,5 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_app_starts_on_its_own_arguments() {
-        assert_eq!(run(Vec::<OsString>::new()), None);
-        assert_eq!(run([OsString::from("--login")]), None);
-    }
-
-    #[test]
-    fn a_session_command_runs_the_pipe_and_fails_without_a_node() {
-        // Without the token, or with it and no node at that folder, the
-        // pipe fails rather than the app starting.
-        let args = ["--dir", "/srv/node", "mcp", "--session", "a3f9c1"].map(OsString::from);
-        assert_eq!(run(args), Some(1));
-    }
-}
+#[path = "../tests/machines_mcp_command.rs"]
+mod tests;

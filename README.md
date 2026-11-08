@@ -11,9 +11,8 @@ crates/proto/           Wire types, framing and the iroh client
 crates/server/          Server, beep-probe/beep-models, tests
   prompts/              Assistant prompt
   migrations/           Postgres schema
-crates/android-bridge/  UniFFI wrapper of the client for Kotlin
-apps/android/           Kotlin/Compose app
-apps/desktop/           Tauri tray app (macOS and Windows)
+apps/desktop/           Tauri app: macOS and Windows tray app, and the
+                        iOS and Android phone app
 deploy/                 Container entrypoint and AppArmor profile
 scripts/                Build helpers
 ```
@@ -28,12 +27,8 @@ cp config.example.toml config.toml   # set model and provider_key
 cargo run -p beep-server -- config.toml
 ```
 
-`just bake-profile` writes the server's address to
-`.dev/android-assets/testing-profile.json`, which the app builds pick up.
-
 Each client signs in with its own iroh key. A key the server has not seen
-becomes a new account, named from the key (e.g. `mega-fox-trot`). The Android
-app backs its key up to Google Block Store, or to a file from Settings.
+becomes a new account, named from the key (e.g. `mega-fox-trot`).
 
 Check the endpoint with the probe:
 
@@ -79,41 +74,30 @@ folder with the other devices of the mesh. Allow UDP 47120 through the firewall,
 not work in the container. No coding agents are installed: derive an image
 `FROM` this one and add the harnesses you use.
 
-## Android
+## Phones
 
-Needs JDK 17 or 21, SDK 36, NDK `28.2.13676358` and
-`rustup target add aarch64-linux-android armv7-linux-androideabi
-x86_64-linux-android i686-linux-android`. Gradle runs
-`scripts/build-android-native.sh` to build the Rust library and Kotlin
-bindings.
+The phone app is the desktop app built with Tauri for iOS and Android. On a
+phone it pairs with a desktop's phone code and joins the mesh as an observer:
+it runs no node and reaches machines over the mesh.
 
 ```sh
-just android          # bake profile, build debug APK, install, launch
-cd apps/android && ./gradlew :app:testDebugUnitTest
+just ios-sim-run      # iPhone 17 simulator
+just ios-run          # connected iPhone, signed with your development team
+just android-run      # connected device or emulator
 ```
 
-Bump `versionCode` on every release so updates install over old builds.
+iOS builds need Xcode and `rustup target add aarch64-apple-ios
+aarch64-apple-ios-sim`. Android builds need the SDK and NDK with
+`ANDROID_HOME` and `NDK_HOME` set, and `rustup target add
+aarch64-linux-android`.
 
-## iOS TestFlight
+### Releases
 
-The `ios` Forgejo workflow uploads every push to `main` to TestFlight. The
-App Store Connect app uses bundle ID `com.flashmind.beep`. The Mac runner needs
-Xcode, Rust, Homebrew and access to the sibling Rust dependency repository.
-
-Set repository variables `BEEP_SERVER_URL` (the server's `https://` address) and
-`IOS_TEAM_ID` (Apple Developer team ID). The workflow uses these repository
-secrets. The Apple API key secrets are also used by the desktop workflow:
-
-- `APPLE_API_PRIVATE_KEY`: App Store Connect API `.p8` contents
-- `APPLE_API_KEY_ID` and `APPLE_API_ISSUER_ID`: IDs for that API key
-- `IOS_DISTRIBUTION_P12`: base64-encoded Apple Distribution certificate and private key
-- `IOS_DISTRIBUTION_PASSWORD`: password for the `.p12` file
-- `IOS_PROVISIONING_PROFILE`: base64-encoded App Store Connect provisioning profile
-
-Xcode uses the distribution certificate and profile to sign the upload. Create
-an internal TestFlight group, then a private external group after Apple processes
-the first upload. Invite external testers by email. Apple must approve the first
-build before they can install it.
+`just android-release <version>` and `just ios-release <version>` set the
+phone version in `apps/desktop/src-tauri/tauri.android.conf.json` or
+`tauri.ios.conf.json`, commit and tag `android-v*` or `ios-v*`. The tag makes
+CI build the Tauri app and upload it to Play's beta track or to TestFlight.
+`just release` tags the desktop, node, Android and iOS together.
 
 ## Wire protocol
 

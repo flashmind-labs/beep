@@ -1,62 +1,165 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="01-styles.css"></head><body>
-<title>Beep iOS</title>
+<!doctype html><html lang="en"><head><meta charset="utf8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Beep iOS: the phone app</title><style>
+:root{--ink:#0f1011;--surface:#151617;--elev:#1c1d1f;--border:#222326;--fg:#e3e4e6;--muted:#8a8f98;--accent:#5e6ad2;--on-accent:#fff;--hot:#f2994a;--ok:#4cb782;--err:#eb5757;--warn:#f2c94c;--dim:color-mix(in srgb,var(--muted) 62%,var(--ink));--radius:8px;--radius-sm:6px;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;--body:Inter,-apple-system,BlinkMacSystemFont,"Helvetica Neue",Roboto,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0a0a0b;color:var(--fg);font:14px/1.4 var(--body);-webkit-font-smoothing:antialiased}
+h1.pg{font-size:15px;font-weight:600;margin:0;padding:16px 24px 0;color:var(--muted)}
+.wrap{display:flex;flex-wrap:wrap;gap:36px;padding:24px;justify-content:center}
+figure{margin:0;display:grid;gap:10px;justify-items:center}
+figcaption{font-size:12.5px;color:var(--muted);max-width:360px;text-align:center}
+.ph{width:390px;height:800px;border-radius:44px;border:9px solid #000;background:var(--ink);overflow:hidden;position:relative;display:flex;flex-direction:column;box-shadow:0 0 0 1px #2a2b2e}
+.android .ph{border-radius:30px;border-width:7px}
+.sb{flex:none;height:44px;display:flex;align-items:center;justify-content:space-between;padding:6px 26px 0;font-size:14px;font-weight:600;position:relative}
+.android .sb{height:30px;padding:0 18px;font-size:12.5px;font-weight:500}
+.sb .isl{position:absolute;left:50%;top:10px;width:96px;height:26px;margin-left:-48px;border-radius:14px;background:#000}
+.android .sb .isl{top:8px;width:12px;height:12px;margin-left:-6px;border-radius:50%}
+.hp{flex:none;height:22px;display:grid;place-items:center}
+.hp span{width:130px;height:5px;border-radius:3px;background:#e3e4e6;opacity:.8}
+.android .hp{height:20px}.android .hp span{width:100px}
+.cwin{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
+.top{flex:none;min-height:48px;display:flex;align-items:center;gap:6px;padding:4px 8px 4px 16px;border-bottom:1px solid var(--border)}
+.top h2{flex:1 1 auto;min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:17px;font-weight:600}
+.back{width:44px;height:44px;margin:0 0 0 -10px;margin-right:-6px;display:grid;place-items:center;color:var(--muted);flex:none}
+.back+h2{margin-left:0}
+svg{display:block;flex:none}
+.pill{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--border);border-radius:999px;font-size:12px;color:var(--muted);background:var(--surface)}
+.pill i{display:block;width:34px;height:4px;border-radius:2px;background:var(--elev);overflow:hidden;position:relative}
+.pill i::after{content:"";position:absolute;inset:0 38% 0 0;background:var(--accent)}
+.tbtn{width:44px;height:44px;display:grid;place-items:center;color:var(--muted)}
+.view{flex:1;min-height:0;overflow:hidden;padding:12px;display:flex;flex-direction:column;gap:14px}
+.tabs{flex:none;display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid var(--border);background:var(--surface)}
+.tabs div{position:relative;display:grid;justify-items:center;align-content:center;gap:2px;min-height:52px;padding:6px 0 5px;font-size:10.5px;color:var(--muted)}
+.tabs .on{color:var(--fg)}.tabs .on svg{color:var(--accent)}
+.tabs .dot::after{content:"";position:absolute;top:7px;left:calc(50% + 8px);width:7px;height:7px;border-radius:50%;background:var(--warn)}
+.mstrip{display:flex;gap:8px;margin:0 -12px;padding:0 12px;overflow:hidden}
+.mstrip .m{flex:none;min-width:132px;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:2px 6px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+.mstrip .m b{font-size:13px;font-weight:600}
+.mstrip .m span:not(.dd){grid-column:1/-1;font-size:11.5px;color:var(--muted)}
+.mstrip .m.off b{color:var(--muted)}
+.mstrip .add{flex:none;display:grid;place-items:center;padding:0 14px;border:1px dashed var(--border);border-radius:var(--radius);font-size:13px;color:var(--muted)}
+.dd{width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block}.dd.off{background:var(--dim)}.dd.w{background:var(--warn)}
+.ctabs{display:flex;gap:2px;padding:2px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+.ctabs div{flex:1;min-height:36px;display:flex;align-items:center;justify-content:center;gap:4px;padding:0 6px;border-radius:var(--radius-sm);white-space:nowrap;font-size:13px;color:var(--muted)}
+.ctabs .on{background:var(--elev);color:var(--fg)}
+.ctabs small{font-size:11px;color:var(--dim)}
+.sec h4{margin:0 0 6px;font-size:12px;font-weight:600;color:var(--muted);display:flex;gap:6px}
+.sec h4 span{color:var(--dim);font-weight:400}
+.panel{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+.row{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:46px;padding:9px 11px;border-top:1px solid var(--border)}
+.row:first-child{border-top:0}
+.row .t{min-width:0}.row .t b{display:block;font-size:13.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .t span{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .r{font-size:12px;color:var(--muted);white-space:nowrap}
+.ag{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;font-size:9px;font-weight:700;background:var(--elev);color:var(--fg)}
+.ag.c{background:#d97757;color:#fff}.ag.x{background:#e3e4e6;color:#111}.ag.g{background:#4285f4;color:#fff}
+.tag{display:inline-block;padding:0 7px;border-radius:999px;font-size:11px;line-height:18px;border:1px solid var(--border)}
+.tag.wait{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--border))}
+.tag.run{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--border))}
+.sp{display:inline-block;width:9px;height:9px;border:2px solid var(--ok);border-right-color:transparent;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--elev);font-size:13.5px;color:var(--fg)}
+.btn.pri{background:var(--accent);border-color:transparent;color:var(--on-accent)}
+.search{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--dim);font-size:16px}
+/* pairing */
+.pair{flex:1;display:flex;flex-direction:column;gap:14px;padding:32px 24px 24px;background:var(--ink);position:relative}
+.pair h1{margin:0;font-size:28px;line-height:34px;font-weight:600;letter-spacing:-.02em}
+.pair p{margin:0;font-size:15px;line-height:22px;color:var(--muted)}
+.pair .btn{width:100%;min-height:48px;font-size:16px;font-weight:600}
+.pair .code{min-height:112px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--dim);font:16px/22px var(--mono)}
+.pair .code.f{color:var(--fg)}
+.pair .err{color:var(--err);font-size:14px;line-height:20px}
+.pair .btn.dis{opacity:.5}
+.cam{position:absolute;inset:0;background:linear-gradient(160deg,#2a3340,#12161b 60%,#1d2a22);display:grid;place-items:center}
+.cam .fr{width:230px;height:230px;border:2px solid #fff;border-radius:18px;opacity:.85}
+.cam .bar{position:absolute;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:12px;padding:16px 24px 16px;background:var(--ink)}
+.cam .bar p{text-align:center}
+/* session */
+.dhead{flex:none;display:flex;flex-wrap:wrap;align-items:center;row-gap:5px;column-gap:6px;padding:8px 12px 8px 4px;border-bottom:1px solid var(--border)}
+.dhead .hl{flex:1 1 100%;display:flex;align-items:center;gap:4px;min-width:0}
+.dhead .hl b{flex:1;min-width:0;font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dhead .chips{display:flex;flex-wrap:wrap;gap:6px;padding-left:12px;align-items:center}
+.chip{padding:0 8px;border:1px solid var(--border);border-radius:999px;font-size:11.5px;line-height:18px;white-space:nowrap;color:var(--muted)}
+.st{font-size:11.5px;line-height:18px;color:var(--ok);display:inline-flex;align-items:center}
+.mnav{flex:none;display:flex;gap:4px;padding:3px 10px;border-bottom:1px solid var(--border)}
+.mnav div{min-height:30px;padding:0 12px;display:flex;align-items:center;border-radius:var(--radius-sm);font-size:14px;color:var(--muted)}
+.mnav .on{background:var(--elev);color:var(--fg)}
+.log{flex:1 1 0;min-height:0;overflow:hidden;padding:10px 12px;display:flex;flex-direction:column;gap:10px;font-size:14px;line-height:21px}
+.log .user{display:grid;gap:2px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--elev);font-size:13.5px;line-height:20px}
+.log .user b{font-size:11.5px;font-weight:600;color:var(--muted)}
+.log p{margin:0;overflow-wrap:anywhere}
+.log code{font-family:var(--mono);font-size:12.5px;background:var(--elev);border:1px solid var(--border);border-radius:4px;padding:0 4px}
+.sum{display:grid;grid-template-columns:16px minmax(0,1fr) 16px;column-gap:8px;align-items:center;padding:1px 0;font-size:12.5px;line-height:20px;margin-inline:-2px}
+.sum .sm{min-width:0;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sum svg,.tool svg{color:var(--dim)}
+.tool{display:grid;grid-template-columns:16px auto minmax(0,1fr) auto;column-gap:8px;align-items:center;font-size:12.5px;line-height:20px;margin-inline:-2px}
+.tool .vb{white-space:nowrap}
+.tool .cmd{font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tool .rm{font:11px/20px var(--mono);color:var(--dim)}.tool .rm.pl{color:var(--accent)}.tool .rm.mi{color:var(--hot)}
+.comp{flex:none;border-top:1px solid var(--border);background:var(--surface);padding:6px 10px 6px 14px;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.comp .fld{flex:1 1 100%;order:-1;min-height:38px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--ink);font-size:16px;line-height:20px;color:var(--dim)}
+.comp.one .fld{flex:1 1 0;min-width:0}
+.comp.typ .fld{color:var(--fg);min-height:58px}
+.ib{flex:none;width:38px;height:38px;display:grid;place-items:center;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);color:var(--muted)}
+.ib.stop{border-color:var(--border);background:var(--elev);color:var(--fg)}
+.ib.stop i{display:block;width:11px;height:11px;border-radius:2px;background:currentColor}
+.ib.send{border-color:transparent;background:var(--accent);color:var(--on-accent)}
+.ctl{display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;color:var(--muted)}
+.ctl.plus{width:34px;justify-content:center;padding:0}
+.grow{flex:1}
+.caret{display:inline-block;width:2px;height:18px;background:var(--accent);vertical-align:-4px}
+/* keyboards */
+.kb{flex:none;background:#1b1c1e;padding:8px 4px 4px;display:grid;gap:9px}
+.kb .kr{display:flex;gap:5px;justify-content:center}
+.kb .k{height:40px;min-width:30px;flex:1;max-width:36px;border-radius:5px;background:#3a3b3f;display:grid;place-items:center;font-size:19px;color:#fff}
+.kb .k.w{max-width:none;flex:none;width:44px;background:#2a2b2e}
+.kb .k.spc{max-width:none;flex:1 1 auto;font-size:15px}
+.android .kb{background:#202124}.android .kb .k{background:#303134;border-radius:8px;font-size:18px}
+.android .kb .k.w{background:#3c3d41}
+/* terminal */
+.term{flex:1;min-height:0;background:#0b0b0c;padding:10px 12px;font:12px/18px var(--mono);color:#d0d3d8;overflow:hidden;white-space:pre}
+.term .g{color:#6fcf97}.term .b{color:#8a9cf0}.term .d{color:#6b7078}
+.tmkeys{flex:none;display:grid;grid-template-columns:repeat(9,1fr);gap:4px;padding:5px 5px 6px;background:#17181b;border-top:1px solid #26272b}
+.tmkeys button,.tmkeys span{height:28px;min-width:0;padding:0;border:0;border-radius:5px;background:#26272b;color:#d0d3d8;font:11px var(--mono);display:grid;place-items:center}
+.tmkeys span{background:none}
+.tmkeys .on{background:var(--accent);color:var(--on-accent)}
+.tl-m{margin-bottom:12px}
+.tl-m h5{margin:0 0 6px;min-height:44px;display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.tl-m h5 .btn{margin-left:auto;min-height:36px;font-size:12.5px}
+.tl-it{display:flex;align-items:center;gap:8px;min-height:44px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);margin-bottom:4px;font-size:13.5px}
+.tl-it span{margin-left:auto;font-size:12px;color:var(--muted)}
+.tl-it code,.pj-li code{font-family:var(--mono);font-size:12px}
+/* machines + projects */
+.mcard{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);padding:12px;display:grid;gap:8px}
+.mcard h3{margin:0;font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+.mcard h3 em{margin-left:auto;font-style:normal;font-size:12px;font-weight:400;color:var(--muted)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;font-size:12.5px}.kv dt{color:var(--muted)}.kv dd{margin:0;text-align:right}
+.meter{height:4px;border-radius:2px;background:var(--elev);overflow:hidden;margin-top:2px}.meter i{display:block;height:100%;background:var(--accent)}
+.pj-li{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:10px;align-items:center;min-height:56px;padding:8px 11px;border-top:1px solid var(--border)}
+.pj-li:first-child{border-top:0}
+.pj-li .t b{display:block;font-size:13.5px;font-weight:500}.pj-li .t span{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fi{width:24px;height:24px;border-radius:6px;background:var(--elev);display:grid;place-items:center;color:var(--muted)}
+</style></head><body class="ios"><h1 class="pg">Beep iOS: the phone app is the desktop app in its phone layout</h1><div class="wrap"><figure><div class="ph"><div class="sb"><span>9:41</span><span class="isl"></span><span>5G 82%</span></div><div class="cwin"><div class="pair"><h1>Pair this phone</h1><p>On a desktop, open Add machine and pick phone.</p><div class="btn pri">Scan QR code</div><div class="code">Or paste the pairing code</div><div class="btn dis">Pair</div></div></div><div class="hp"><span></span></div></div><figcaption>Pairing, before any mesh. Scan, or paste a code, then Pair.</figcaption></figure><figure><div class="ph"><div class="sb"><span>9:41</span><span class="isl"></span><span>5G 82%</span></div><div class="cwin"><div class="pair"><h1>Pair this phone</h1><p>On a desktop, open Add machine and pick phone.</p><div class="btn pri">Scan QR code</div><div class="code f">beep-join:2:k3v9q7...x2m4</div><div class="btn">Pair</div><div class="err">The code expired. Make a new one on the desktop.</div></div></div><div class="hp"><span></span></div></div><figcaption>Pairing with a pasted code that failed. Pair turns on once the field has text.</figcaption></figure><figure><div class="ph"><div class="sb"><span>9:41</span><span class="isl"></span><span>5G 82%</span></div><div class="cwin"><div class="cam"><div class="fr"></div><div class="bar"><p>Point the camera at the code</p><div class="btn">Cancel</div></div></div></div><div class="hp"><span></span></div></div><figcaption>Scanning. The camera shows through the page; only Cancel stays drawn.</figcaption></figure><figure><div class="ph"><div class="sb"><span>9:41</span><span class="isl"></span><span>5G 82%</span></div><div class="cwin"><div class="top"><h2>Home</h2><span class="pill"><i></i>62% · 3h</span></div><div class="view"><div class="mstrip"><div class="m"><span class="dd"></span><b>build-box</b><span>2 agents · 41% disk</span></div><div class="m"><span class="dd"></span><b>laptop</b><span>1 agent · 63% disk</span></div><div class="m off"><span class="dd off"></span><b>gpu-box</b><span>offline</span></div><div class="add">Add</div></div><div class="ctabs"><div class="on">Overview</div><div class="">PRs and issues<small>4</small></div><div class="">Machines</div></div><div class="sec"><h4>Needs you <span>2</span></h4><div class="panel"><div class="row"><div class="ag c">CC</div><div class="t"><b>Run cargo publish?</b><span>build-box &middot; acme/app</span></div><div class="r"><span class="tag wait">needs you</span></div></div><div class="row"><div class="ag x">CX</div><div class="t"><b>Review PR #212</b><span>laptop &middot; acme/app</span></div><div class="r"><span class="tag wait">needs you</span></div></div></div></div><div class="sec"><h4>Running <span>3</span></h4><div class="panel"><div class="row"><div class="ag c">CC</div><div class="t"><b>Retry the sync upload</b><span>acme/app &middot; @build-box</span></div><div class="r"><span class="tag run"><span class="sp"></span>3m</span></div></div><div class="row"><div class="ag g">GM</div><div class="t"><b>Update the CI cache key</b><span>acme/web &middot; @laptop</span></div><div class="r">12m</div></div><div class="row"><div class="ag x">CX</div><div class="t"><b>Draft release notes</b><span>acme/app &middot; @build-box</span></div><div class="r">1h</div></div></div></div></div><div class="tabs"><div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9h-6v-6H9v6H3z"/></svg>Home</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h7l2 2h9v11H3z"/></svg>Projects</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12.5h5"/></svg>Agents</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M7 9l3 3-3 3M12 15h5"/></svg>Terminals</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h18v6H3z"/><path d="M3 14h18v6H3z"/><path d="M7 7h.1M7 17h.1"/></svg>Machines</div></div></div><div class="hp"><span></span></div></div><figcaption>Home. The plans' usage pill shows only here. A dot on Home means something needs an answer.</figcaption></figure><figure><div class="ph"><div class="sb"><span>9:41</span><span class="isl"></span><span>5G 82%</span></div><div class="cwin"><div class="top"><h2>Agents</h2></div><div class="view"><div class="search">Search sessions</div><div class="panel"><div class="row"><div class="ag c">CC</div><div class="t"><b>Retry the sync upload</b><span>acme/app &middot; @build-box</span></div><div class="r"><span class="tag run"><span class="sp"></span>3m</span></div></div><div class="row"><div class="ag c">CC</div><div class="t"><b>Run cargo publish?</b><span>acme/app &middot; @build-box</span></div><div class="r"><span class="tag wait">needs you</span></div></div><div class="row"><div class="ag g">GM</div><div class="t"><b>Update the CI cache key</b><span>acme/web &middot; @laptop</span></div><div class="r">12m</div></div><div class="row"><div class="ag x">CX</div><div class="t"><b>Draft release notes</b><span>acme/app &middot; @build-box</span></div><div class="r">1h</div></div><div class="row"><div class="ag c">CC</div><div class="t"><b>Rename the settings page</b><span>acme/web &middot; @laptop</span></div><div class="r">yesterday</div></div></div></div><div class="tabs"><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9h-6v-6H9v6H3z"/></svg>Home</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h7l2 2h9v11H3z"/></svg>Projects</div><div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12.5h5"/></svg>Agents</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M7 9l3 3-3 3M12 15h5"/></svg>Terminals</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h18v6H3z"/><path d="M3 14h18v6H3z"/><path d="M7 7h.1M7 17h.1"/></svg>Machines</div></div></div><div class="hp"><span></span></div></div><figcaption>Agents list. No usage pill off Home.</figcaption></figure><figure><div class="ph"><div class="sb"><span>9:41</span><span class="isl"></span><span>5G 82%</span></div><div class="cwin"><div class="dhead"><div class="hl"><div class="back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></div><div class="ag c" style="margin-right:6px">CC</div><b>Retry the sync upload</b></div><div class="chips"><span class="st"><span class="sp"></span>Working</span><span class="chip">acme/app</span><span class="chip">@build-box</span><span class="chip">fix-sync</span><span class="chip">21% used</span></div></div><div class="mnav"><div class="on">Log</div><div>Files</div><div>Changes <small style="color:var(--dim)">2</small></div></div><div class="log">
+<div class="user"><b>You</b>Retry the sync upload when the link drops, and add a test.</div>
+<div class="sum"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 00-3 11v3h6v-3a6 6 0 00-3-11z"/></svg><span class="sm">Thought for 8s &middot; Ran 3 commands &middot; Read 4 files &middot; Edited 2 files</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></div>
+<p>The upload gives up after one failure. I will wrap it in a retry with backoff in <code>upload.rs</code>.</p>
+<div class="tool"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M7 9l3 3-3 3M12 15h5"/></svg><span class="vb">Ran</span><span class="cmd">cargo test -p sync retry --no-fail-fast</span><span class="rm">2.1s</span></div>
+<div class="tool"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"/></svg><span class="vb">Edited</span><span class="cmd">src/upload.rs</span><span class="rm"><span class="pl">+18</span> <span class="mi">-3</span></span></div>
+<div class="sum"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 00-3 11v3h6v-3a6 6 0 00-3-11z"/></svg><span class="sm">Thought for 3s</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></div>
+<p>Added <code>retries_after_drop</code>. Running the suite once more.</p>
+<div class="tool"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M7 9l3 3-3 3M12 15h5"/></svg><span class="vb">Ran</span><span class="cmd">cargo test -p sync</span><span class="rm">running</span></div>
+</div><div class="comp one"><div class="fld">Message Claude</div><div class="ib stop"><i></i></div><div class="ib send"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V6M6 12l6-6 6 6"/></svg></div></div></div><div class="hp"><span></span></div></div><figcaption>Session, not typing. The tab bar is hidden. One line: field, Stop (only while a turn runs), round Send. Summary lines cut off with an ellipsis.</figcaption></figure><figure><div class="ph"><div class="sb"><span>9:41</span><span class="isl"></span><span>5G 82%</span></div><div class="cwin"><div class="dhead"><div class="hl"><div class="back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></div><div class="ag c" style="margin-right:6px">CC</div><b>Retry the sync upload</b></div><div class="chips"><span class="st"><span class="sp"></span>Working</span><span class="chip">acme/app</span><span class="chip">@build-box</span><span class="chip">fix-sync</span><span class="chip">21% used</span></div></div><div class="mnav"><div class="on">Log</div><div>Files</div><div>Changes <small style="color:var(--dim)">2</small></div></div><div class="log">
+<div class="user"><b>You</b>Retry the sync upload when the link drops, and add a test.</div>
+<div class="sum"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 00-3 11v3h6v-3a6 6 0 00-3-11z"/></svg><span class="sm">Thought for 8s &middot; Ran 3 commands &middot; Read 4 files &middot; Edited 2 files</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></div>
+<p>The upload gives up after one failure. I will wrap it in a retry with backoff in <code>upload.rs</code>.</p>
+<div class="tool"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M7 9l3 3-3 3M12 15h5"/></svg><span class="vb">Ran</span><span class="cmd">cargo test -p sync retry --no-fail-fast</span><span class="rm">2.1s</span></div>
+<div class="tool"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"/></svg><span class="vb">Edited</span><span class="cmd">src/upload.rs</span><span class="rm"><span class="pl">+18</span> <span class="mi">-3</span></span></div>
+<div class="sum"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 00-3 11v3h6v-3a6 6 0 00-3-11z"/></svg><span class="sm">Thought for 3s</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></div>
+<p>Added <code>retries_after_drop</code>. Running the suite once more.</p>
+<div class="tool"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M7 9l3 3-3 3M12 15h5"/></svg><span class="vb">Ran</span><span class="cmd">cargo test -p sync</span><span class="rm">running</span></div>
+</div><div class="comp typ"><div class="fld">Also log each retry at debug level,<br>no more than once a second<span class="caret"></span></div><div class="ctl plus"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></div><div class="ctl">Edit</div><div class="ctl">Opus 4 &middot; high</div><div class="grow"></div><div class="ib"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16v8H4z"/><path d="M7 10h.1M10 10h.1M13 10h.1M16 10h.1M8 13h8"/><path d="M9 18l3 3 3-3"/></svg></div><div class="ib stop"><i></i></div><div class="ib send"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V6M6 12l6-6 6 6"/></svg></div></div><div class="kb"><div class="kr"><div class="k">q</div><div class="k">w</div><div class="k">e</div><div class="k">r</div><div class="k">t</div><div class="k">y</div><div class="k">u</div><div class="k">i</div><div class="k">o</div><div class="k">p</div></div><div class="kr"><div class="k">a</div><div class="k">s</div><div class="k">d</div><div class="k">f</div><div class="k">g</div><div class="k">h</div><div class="k">j</div><div class="k">k</div><div class="k">l</div></div><div class="kr"><div class="k w">&#8679;</div><div class="k">z</div><div class="k">x</div><div class="k">c</div><div class="k">v</div><div class="k">b</div><div class="k">n</div><div class="k">m</div><div class="k w">&#9003;</div></div><div class="kr"><div class="k w">123</div><div class="k spc">space</div><div class="k w">return</div></div></div></div><div class="hp"><span></span></div></div><figcaption>Session, typing. Field full width, then +, mode, model, and on the right hide keyboard, Stop, Send. Return makes a new line. No accessory bar.</figcaption></figure><figure><div class="ph"><div class="sb"><span>9:41</span><span class="isl"></span><span>5G 82%</span></div><div class="cwin"><div class="top"><h2>Terminals</h2></div><div class="view"><div class="tl-m"><h5><span class="dd"></span>build-box<span class="btn">New terminal</span></h5><div class="tl-it"><code>zsh</code> /path/to/work<span>2m</span></div><div class="tl-it"><code>cargo watch</code> acme/app<span>1h</span></div></div><div class="tl-m"><h5><span class="dd"></span>laptop<span class="btn">New terminal</span></h5><div class="tl-it"><code>zsh</code> ~<span>5m</span></div></div></div><div class="tabs"><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9h-6v-6H9v6H3z"/></svg>Home</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h7l2 2h9v11H3z"/></svg>Projects</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12.5h5"/></svg>Agents</div><div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M7 9l3 3-3 3M12 15h5"/></svg>Terminals</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h18v6H3z"/><path d="M3 14h18v6H3z"/><path d="M7 7h.1M7 17h.1"/></svg>Machines</div></div></div><div class="hp"><span></span></div></div><figcaption>Terminals list by machine.</figcaption></figure><figure><div class="ph"><div class="sb"><span>9:41</span><span class="isl"></span><span>5G 82%</span></div><div class="cwin"><div class="top"><div class=back><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></div><h2>zsh on build-box</h2></div><div class="term"><span class="g">user@build-box</span> <span class="b">/path/to/work</span>
+$ cargo test -p sync
+   Compiling sync v0.3.1
+    Finished test profile
+<span class="d">running 14 tests</span>
+<span class="g">test result: ok. 14 passed</span>
 
-
-<link rel="stylesheet" href="02-styles.css">
-
-<div class="wrap">
-  <nav class="index" id="index" aria-label="Screens"></nav>
-
-  <main class="stage"><div class="mock-theme"><span>iOS</span><button data-theme-choice="dark">Dark</button><button data-theme-choice="light">Light</button></div>
-    <div class="iphone">
-      <div class="iscreen">
-        <div class="istatus"><span>9:41</span><span class="isl"></span><span class="r">5G 82%</span></div>
-        <div id="ios"></div>
-        <div class="toast" id="itoast" hidden></div>
-        <div class="ihome"><span></span></div>
-      </div>
-    </div>
-    <div class="variants" id="variants"></div>
-  </main>
-</div>
-
-<script src="01-shared.js"></script>
-<script src="02-tool-run.js"></script>
-<script src="03-screens.js"></script>
-<script src="04-iphone-swiftui-client-in-apps-ios.js"></script>
-<script src="05-group-chats.js"></script>
-<script src="06-chat-list-home.js"></script>
-<script src="07-take-a-photo-in-the-chat.js"></script>
-<script src="08-skills.js"></script>
-<script src="09-product-cards.js"></script>
-<script src="10-chat-notifications.js"></script>
-<script src="11-wiring.js"></script>
-<script src="12-transit-route-card.js"></script>
-<script src="13-recommendation-cards.js"></script>
-<script src="14-research-workspace.js"></script>
-<script src="15-research-on-the-phone.js"></script>
-<script src="16-v2-memory-scopes-machines-voice-and-hands-free.js"></script>
-<script src="17-machines-machinesscreen-machinesview-nodes-running-beep.js"></script>
-<script src="18-desktop-live-voice.js"></script>
-<script src="19-iphone-live-voice-liveview-swift-livesession-in-the-bri.js"></script>
-<script src="20-talk-to-beep-widget-and-the-live-session-s-live-activit.js"></script>
-<script src="21-iphone-live-voice-connecting-problems-cancel-asking-fir.js"></script>
-<script src="22-live-mode-over-the-chat-bar-iphone-android.js"></script>
-<script src="23-iphone.js"></script>
-<script src="24-android.js"></script>
-<script src="25-sources-under-a-reply.js"></script>
-<script src="26-desktop-coding-agents-in-the-window-start-form-one-sess.js"></script>
-
-<link rel="stylesheet" href="03-styles.css">
-<script src="27-updates.js"></script>
-
-<link rel="stylesheet" href="04-styles.css" id="linear-phone">
-
-<script src="28-updates.js"></script>
-<script src="29-workspace-link.js"></script>
-<link rel="stylesheet" href="05-first-run.css">
-<script src="30-first-run.js"></script>
-<link rel="stylesheet" href="06-command-center.css">
-<script src="31-command-center.js"></script>
-<script src="../mermaid.js" data-platform="ios"></script>
-</body></html>
+<span class="g">user@build-box</span> <span class="b">/path/to/work</span>
+$ <span style="background:#d0d3d8">&nbsp;</span></div><div class="tmkeys"><button class="">Esc</button><button class="">Tab</button><button class="">|</button><button class="">/</button><button class="">~</button><button class="">-</button><span></span><button class="">&uarr;</button><span></span><button class="on">Ctrl</button><button class="">Alt</button><button class="">Shift</button><button class="">Home</button><button class="">End</button><span></span><button class="">&larr;</button><button class="">&darr;</button><button class="">&rarr;</button></div><div class="kb"><div class="kr"><div class="k">q</div><div class="k">w</div><div class="k">e</div><div class="k">r</div><div class="k">t</div><div class="k">y</div><div class="k">u</div><div class="k">i</div><div class="k">o</div><div class="k">p</div></div><div class="kr"><div class="k">a</div><div class="k">s</div><div class="k">d</div><div class="k">f</div><div class="k">g</div><div class="k">h</div><div class="k">j</div><div class="k">k</div><div class="k">l</div></div><div class="kr"><div class="k w">&#8679;</div><div class="k">z</div><div class="k">x</div><div class="k">c</div><div class="k">v</div><div class="k">b</div><div class="k">n</div><div class="k">m</div><div class="k w">&#9003;</div></div><div class="kr"><div class="k w">123</div><div class="k spc">space</div><div class="k w">return</div></div></div></div><div class="hp"><span></span></div></div><figcaption>Open terminal, full screen with the keyboard up. The touch key bar sits above the keyboard; Ctrl is armed.</figcaption></figure><figure><div class="ph"><div class="sb"><span>9:41</span><span class="isl"></span><span>5G 82%</span></div><div class="cwin"><div class="top"><h2>Home</h2><span class="pill"><i></i>62% · 3h</span></div><div class="view"><div class="mstrip"><div class="m"><span class="dd"></span><b>build-box</b><span>2 agents · 41% disk</span></div><div class="m"><span class="dd"></span><b>laptop</b><span>1 agent · 63% disk</span></div><div class="m off"><span class="dd off"></span><b>gpu-box</b><span>offline</span></div><div class="add">Add</div></div><div class="ctabs"><div class="">Overview</div><div class="">PRs and issues<small>4</small></div><div class="on">Machines</div></div><div class="mcard"><h3><span class="dd"></span>build-box<em>online</em></h3><dl class="kv" style="margin:0"><dt>Agents</dt><dd>2 running</dd><dt>Disk</dt><dd>41% of 1 TB</dd><dt>Projects</dt><dd>acme/app, acme/web</dd></dl></div><div class="mcard"><h3><span class="dd"></span>laptop<em>online</em></h3><dl class="kv" style="margin:0"><dt>Agents</dt><dd>1 running</dd><dt>Disk</dt><dd>63% of 500 GB</dd><dt>Projects</dt><dd>acme/web</dd></dl></div><div class="mcard"><h3><span class="dd off"></span>gpu-box<em>offline 2h</em></h3><dl class="kv" style="margin:0"><dt>Disk</dt><dd>12% of 2 TB</dd></dl></div></div><div class="tabs"><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9h-6v-6H9v6H3z"/></svg>Home</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h7l2 2h9v11H3z"/></svg>Projects</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12.5h5"/></svg>Agents</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M7 9l3 3-3 3M12 15h5"/></svg>Terminals</div><div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h18v6H3z"/><path d="M3 14h18v6H3z"/><path d="M7 7h.1M7 17h.1"/></svg>Machines</div></div></div><div class="hp"><span></span></div></div><figcaption>Machines. This is Home's Machines tab, so the Machines tab is lit.</figcaption></figure><figure><div class="ph"><div class="sb"><span>9:41</span><span class="isl"></span><span>5G 82%</span></div><div class="cwin"><div class="top"><h2>Projects</h2></div><div class="view"><div class="panel"><div class="pj-li"><div class="fi"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h7l2 2h9v11H3z"/></svg></div><div class="t"><b>acme/app</b><span>build-box, laptop &middot; 2 agents</span></div><div class="r" style="font-size:12px;color:var(--muted)">3 PRs</div></div><div class="pj-li"><div class="fi"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h7l2 2h9v11H3z"/></svg></div><div class="t"><b>acme/web</b><span>laptop &middot; 1 agent</span></div><div class="r" style="font-size:12px;color:var(--muted)">1 PR</div></div><div class="pj-li"><div class="fi"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h7l2 2h9v11H3z"/></svg></div><div class="t"><b>notes</b><span>laptop &middot; folder sync</span></div><div class="r" style="font-size:12px;color:var(--muted)"></div></div></div></div><div class="tabs"><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9h-6v-6H9v6H3z"/></svg>Home</div><div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h7l2 2h9v11H3z"/></svg>Projects</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12.5h5"/></svg>Agents</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M7 9l3 3-3 3M12 15h5"/></svg>Terminals</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h18v6H3z"/><path d="M3 14h18v6H3z"/><path d="M7 7h.1M7 17h.1"/></svg>Machines</div></div></div><div class="hp"><span></span></div></div><figcaption>Projects list.</figcaption></figure><figure><div class="ph"><div class="sb"><span>9:41</span><span class="isl"></span><span>5G 82%</span></div><div class="cwin"><div class="top"><div class=back><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></div><h2>acme/app</h2></div><div class="view"><div class="ctabs"><div class="on">Overview</div><div>Issues</div><div>Runs</div></div><div class="sec"><h4>Sessions <span>2</span></h4><div class="panel"><div class="row"><div class="ag c">CC</div><div class="t"><b>Retry the sync upload</b><span>@build-box</span></div><div class="r"><span class="tag run">3m</span></div></div><div class="row"><div class="ag x">CX</div><div class="t"><b>Draft release notes</b><span>@build-box</span></div><div class="r">1h</div></div></div></div><div class="sec"><h4>Machines <span>2</span></h4><div class="panel"><div class="row"><span class=dd></span><div class="t"><b>build-box</b><span>/path/to/work</span></div><div class="r">in sync</div></div><div class="row"><span class=dd></span><div class="t"><b>laptop</b><span>/path/to/work</span></div><div class="r">in sync</div></div></div></div></div><div class="tabs"><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9h-6v-6H9v6H3z"/></svg>Home</div><div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h7l2 2h9v11H3z"/></svg>Projects</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12.5h5"/></svg>Agents</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M7 9l3 3-3 3M12 15h5"/></svg>Terminals</div><div class=""><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h18v6H3z"/><path d="M3 14h18v6H3z"/><path d="M7 7h.1M7 17h.1"/></svg>Machines</div></div></div><div class="hp"><span></span></div></div><figcaption>A project. Back returns to the list; the list and the detail never show together.</figcaption></figure></div></body></html>

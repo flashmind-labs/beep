@@ -304,4 +304,5 @@ fn no_sign_in(label: &str) -> String {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/account_user_mcp.rs"]
 mod tests;

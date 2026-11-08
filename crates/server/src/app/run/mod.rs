@@ -153,4 +153,5 @@ fn languages_line(languages: &str) -> String {
 }
 
 #[cfg(test)]
+#[path = "../../tests/app_run.rs"]
 mod tests;

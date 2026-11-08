@@ -1,3 +1,4 @@
+import { onPhone } from "../ui/platform.ts";
 // project/: the Projects page and one project's page (tasks, threads, runs,
 // file sync, custom agents, the agent bar). Entry: this file's view.
 // The Projects page: drawing it, and the project rows Home lists.
@@ -123,7 +124,7 @@ registerView("projects", {
       const more = button("⋯", "quiet small", e => {
         const on = state.top.includes(p.name);
         const items: MenuItem[] = [{ label: on ? "Unpin" : "Pin", on: () => setProjectOnTop(p.name, !on) }];
-        if (!windowProject) items.push({ label: NEW_WINDOW, on: () => openProjectWindow(p.name) }, { label: "All projects", on: () => openProjects() });
+        if (!windowProject) items.push(...(onPhone() ? [] : [{ label: NEW_WINDOW, on: () => openProjectWindow(p.name) }]), { label: "All projects", on: () => openProjects() });
         if (p.imported) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(p.name) });
         if (p.imported) openProjectMenu(e, p, items, () => { whereDue.add(p.name); revalidate(p.name); });
         else openMenu(e, p.name, items);

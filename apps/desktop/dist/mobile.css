@@ -1,0 +1,169 @@
+/* The phone layout of the command center (spec: tauri-mobile), after the phone mocks
+   (mockups/ios/index.html). Everything is scoped to body.mobile, which
+   src/center/mobile.ts sets for a phone, a narrow window or a small touch screen; the
+   desktop layout is untouched. Colors come from the skin. */
+
+.mb-tabs, .mb-back { display: none }
+
+body.mobile { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none }
+body.mobile .cwin { display: flex; flex-direction: column; height: 100vh; height: 100dvh; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right) }
+body.mobile #side, body.mobile #side-grip { display: none }
+body.mobile .cc-main { flex: 1; min-height: 0 }
+
+/* Top bar: Back in place of the sidebar. */
+body.mobile .cc-top { min-height: 48px; padding: calc(env(safe-area-inset-top) + 4px) 8px 4px 16px; gap: 6px }
+body.mobile .cc-top h2 { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 17px; font-weight: 600; letter-spacing: 0 }
+body.mobile .cc-top small { display: none }
+body.mobile .cc-top .tools { margin-left: 0; flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none }
+body.mobile .mb-back { display: grid; place-items: center; flex: none; width: 44px; height: 44px; margin: 0 0 0 -10px; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: var(--muted) }
+body.mobile .mb-back[hidden] { display: none }
+body.mobile .mb-back:active { background: var(--elev) }
+body.mobile .mb-back:not([hidden]) + h2 { margin-left: -6px }
+
+/* Bottom tabs. */
+body.mobile .mb-tabs { flex: none; display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--border); background: var(--surface); padding-bottom: env(safe-area-inset-bottom) }
+body.mobile .mb-tabs button { position: relative; display: grid; justify-items: center; align-content: center; gap: 2px; min-height: 52px; padding: 6px 0 5px; border: 0; background: none; font: inherit; font-size: 10.5px; color: var(--muted) }
+body.mobile .mb-tabs button[aria-current="true"] { color: var(--fg) }
+body.mobile .mb-tabs button[aria-current="true"] svg { color: var(--accent) }
+body.mobile .mb-tabs button.dot::after { content: ""; position: absolute; top: 7px; left: calc(50% + 8px); width: 7px; height: 7px; border-radius: 50%; background: var(--warn) }
+body.mobile.mb-full .mb-tabs, body.mobile.mb-kbd .mb-tabs { display: none }
+
+/* Touch targets: 44 px, and a 16 px field so iOS does not zoom in. */
+body.mobile :is(.dbtn, .cc-top button, .cc-menu button, .cc-tabs button, .cc-mstrip > button.m, .cc-si, .pj-li, .tl-it, .tl-m h5 .dbtn, .rp-row) { min-height: 44px }
+body.mobile .cc-row { min-height: 46px }
+body.mobile :is(input, textarea, select) { font-size: 16px }
+body.mobile .cc-comp input { font-size: 16px }
+body.mobile .cc-comp { padding: 6px 10px 6px 14px }
+body.mobile .cc-comp .cc-err { max-width: 30% }
+
+/* Menus open as a list of big rows; long press or the buttons in the header open them. */
+body.mobile .cc-menu { min-width: 200px; max-width: calc(100vw - 16px); padding: 6px }
+body.mobile .cc-menu button { display: flex; align-items: center; padding: 0 12px; font-size: 15px }
+body.mobile .cc-menu .lbl { font-size: 12px; padding: 6px 12px 4px }
+
+/* Home. */
+body.mobile .cc-view { padding: 12px 12px calc(16px + env(safe-area-inset-bottom)); gap: 14px }
+body.mobile.mb-full .cc-view, body.mobile .cc-box:has(.cc-comp) .cc-view { padding-bottom: 12px }
+body.mobile .cc-mstrip { flex-wrap: nowrap; gap: 8px; margin: 0 -12px; padding: 0 12px; overflow-x: auto; border: 0; border-radius: 0; background: none; scrollbar-width: none }
+body.mobile .cc-mstrip::-webkit-scrollbar { display: none }
+body.mobile .cc-mstrip > .m { flex: none; min-width: 132px; min-height: 0; text-align: left; justify-items: start; align-content: center; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface) }
+body.mobile .cc-mstrip > .m > span:not(.ddot) { grid-column: 1 / -1; font-size: 11.5px }
+body.mobile .cc-mstrip > .dbtn { flex: none; margin: 0; align-self: stretch; border-style: dashed }
+body.mobile .cc-tabs { position: static; margin: 0; padding: 2px; gap: 2px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: visible }
+body.mobile .cc-tabs button { flex: 1; justify-content: center; min-height: 36px; padding: 0 6px; border: 0; border-radius: var(--radius-sm); white-space: nowrap }
+body.mobile .cc-tabs button[aria-selected="true"] { background: var(--elev); color: var(--fg) }
+body.mobile .cc-tabs.pj-tabs { margin: 0; padding: 2px }
+body.mobile .cc-cols { grid-template-columns: minmax(0, 1fr) }
+body.mobile .cc-panel { background: var(--surface) }
+body.mobile .cc-row { padding: 9px 11px; grid-template-columns: 24px minmax(0, 1fr) auto }
+body.mobile .cc-row:has(.cc-when) { grid-template-columns: 52px minmax(0, 1fr) auto }
+body.mobile .cc-ag { width: 24px; height: 24px; border-radius: 6px; font-size: 9px; border: 0 }
+body.mobile .cc-sec h4 { font-size: 12px }
+
+/* Agents and the other lists the pane draws: full width, no floating panel. */
+body.mobile #pane-box > .dbar:not([data-view="chat"]):not([data-view="group"]):not([data-view="agent"]) { width: 100%; max-width: none; height: 100%; margin: 0; border: 0; border-radius: 0; background: none; align-self: stretch }
+body.mobile #pane-box > .dbar:not([data-view="chat"]):not([data-view="group"]) .dinput { font-size: 16px; padding: 10px 14px }
+
+/* A project: its list, or the picked row's detail, never both. */
+body.mobile .pj-split { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) }
+body.mobile .pj-split > .pj-list { border-right: 0 }
+body.mobile .pj-split:not(.picked):not(.gh-layout) > .pj-det { display: none }
+body.mobile .pj-split.picked:not(.gh-layout) > .pj-list { display: none }
+body.mobile .pj-split.gh-layout { grid-template-rows: auto minmax(0, 1fr) }
+body.mobile .pj-split > .pj-det { padding-bottom: 12px }
+body.mobile .pj-strip { margin: 8px 12px; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none }
+body.mobile .pj-cols, body.mobile .pj-cols.pj-half, body.mobile .pj-ov, body.mobile .in-cols, body.mobile .dtwo { grid-template-columns: minmax(0, 1fr) }
+body.mobile .pj-grid { grid-template-columns: minmax(0, 1fr) }
+
+/* Terminals: the machines' list, or the open terminal. */
+body.mobile .tl { grid-template-columns: minmax(0, 1fr) }
+body.mobile .tl-list { border-right: 0 }
+body.mobile .tl:has(> .tm-panel, > .tm-form) > .tl-list { display: none }
+body.mobile .tl:not(:has(> .tm-panel, > .tm-form)) > :not(.tl-list) { display: none }
+body.mobile .tl > .tm-form { margin: 12px }
+body.mobile .tl-it { padding: 8px 10px; border-color: var(--border); background: var(--surface); margin-bottom: 4px }
+body.mobile .tl-m h5 { min-height: 44px }
+
+/* No hover on a touch screen: what hover reveals is always there. */
+body.mobile .agtab em, body.mobile .dsubrow .x { opacity: .7; visibility: visible }
+body.mobile .drpic .save { opacity: 1 }
+body.mobile .rr-acts { display: flex; opacity: 1; grid-column: 2 / -1; grid-row: 2; justify-self: start }
+body.mobile .pj-runrow .rr-head:hover .rr-side { opacity: 1 }
+
+/* Settings and the command palette fill the screen. */
+body.mobile .cc-set-scrim { align-items: stretch }
+body.mobile .cc-set { width: 100%; height: 100%; border: 0; border-radius: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) }
+body.mobile .cc-set .dset-nav { display: flex; flex-direction: row; align-items: center; gap: 4px; padding: calc(env(safe-area-inset-top) + 6px) 8px 6px; border-right: 0; border-bottom: 1px solid var(--border); overflow-x: auto; overflow-y: hidden; scrollbar-width: none }
+body.mobile .cc-set .dset-nav > b, body.mobile .cc-set .dset-nav > small.dset-ver, body.mobile .cc-set .dset-pages .cc-si.sub { display: none }
+body.mobile .cc-set .dset-pages { flex-direction: row; gap: 4px }
+body.mobile .cc-set .dset-pages .cc-si { width: auto }
+body.mobile .cc-set .dset-top { padding: 12px 16px 10px }
+body.mobile .cc-set .dset-kv { grid-template-columns: minmax(0, 1fr) }
+body.mobile .cc-scrim { padding-top: calc(env(safe-area-inset-top) + 12px) }
+body.mobile .cc-pal { max-width: calc(100% - 16px) }
+body.mobile .cc-pal .it { min-height: 44px }
+body.mobile .cc-set-scrim, body.mobile .cc-scrim { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right) }
+
+/* Wide tables scroll sideways; keyboard hints have no keyboard to point at. */
+body.mobile .cc-mt { overflow-x: auto }
+body.mobile .pj-add { grid-template-columns: minmax(0, 1fr) }
+body.mobile kbd, body.mobile .dhints, body.mobile .agkeys, body.mobile .dv-keys, body.mobile .cc-pal .foot { display: none }
+
+body.mobile:not(.mb-home) #usage { display: none }
+
+/* A session: the composer takes a full line for its text. */
+body.mobile .dinput.small { flex-wrap: wrap; gap: 6px; padding: 6px 10px }
+body.mobile .dinput textarea { order: -1; flex: 1 1 100%; min-height: 38px; max-height: 120px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink) }
+/* Its attach, mode and model controls show while typing, leaving the log the room. */
+body.mobile #agfield:not(:focus-within) > :not(textarea, #agstop, #agsend, #agnativeparent) { display: none }
+body.mobile #agfield:not(:focus-within) textarea { flex: 1 1 0 }
+/* Stop and Send are icons the height of the field; Return makes a new line. */
+body.mobile :is(#agstop, #agsend) { flex: none; width: 38px; min-height: 0; height: 38px; padding: 0; justify-content: center; font-size: 0; border-radius: var(--radius) }
+body.mobile #agstop { order: 8 }
+body.mobile #agstop .dstopico { width: 11px; height: 11px }
+body.mobile #agsend { display: inline-flex; order: 10; border-color: transparent; background: var(--accent); color: var(--ink) }
+body.mobile .agmain > .agdiv { display: none }
+/* Puts the keyboard away; there while the composer has it up. */
+body.mobile .mb-kbdhide { display: none; order: 7; flex: none; margin-left: auto; width: 38px; height: 38px; place-items: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--muted) }
+body.mobile .dinput:focus-within .mb-kbdhide { display: grid }
+/* The log never scrolls sideways; wide code and tables scroll inside themselves. */
+body.mobile .dbody { overflow-x: hidden; overscroll-behavior-x: none }
+/* A folded turn's pictures line up with its summary, which has no icon column here. */
+body.mobile .dfoldpics { padding-left: 0 }
+
+/* The pairing screen: a phone with no mesh yet. */
+.pair { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; background: var(--ink); color: var(--fg); padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left) }
+.pair-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 32px 24px 24px; overflow-y: auto }
+.pair h1 { margin: 0; font-size: 28px; line-height: 34px; font-weight: 600; letter-spacing: -.02em }
+.pair-sub { margin: 0; font-size: 15px; line-height: 22px; color: var(--muted) }
+.pair-code { width: 100%; min-height: 112px; box-sizing: border-box; resize: none; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--fg); font: 16px/22px var(--mono) }
+.pair-code:focus { outline: 2px solid var(--accent); outline-offset: 0 }
+.pair-error { margin: 0; font-size: 14px; line-height: 20px; color: var(--err) }
+.pair-error[hidden] { display: none }
+.pair-body .dbtn { width: 100%; min-height: 48px; justify-content: center; font-size: 16px; font-weight: 600 }
+.pair-body .dbtn:disabled { opacity: .5 }
+.pair-scan { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 24px calc(16px + env(safe-area-inset-bottom)); background: var(--ink) }
+.pair-scan p { margin: 0; text-align: center; color: var(--muted); font-size: 15px }
+.pair-scan .dbtn { min-height: 48px; justify-content: center; font-size: 16px; font-weight: 600 }
+/* While the camera runs the page is see-through. */
+html:has(.pair.scanning), html:has(.pair.scanning) body, .pair.scanning { background: transparent !important }
+.pair.scanning .pair-body { visibility: hidden }
+
+/* A session: the head's second line is its meta (state, folder, branch, machine, usage), and
+   Log, Files, Changes... show one pane at a time. */
+body.mobile .agshell:not(.narrow) .agmnav { display: none }
+body.mobile .dhead { flex-wrap: wrap; row-gap: 5px; column-gap: 6px; padding: 8px 12px }
+body.mobile .dhead > .tt, body.mobile .dhead .aglocation, body.mobile .dhead .agfolder { display: contents }
+body.mobile .dhead #agtitle { order: 1; flex: 1 1 calc(100% - 56px); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+body.mobile .dhead .aglocation > span:nth-child(2) { display: none }
+body.mobile .dhead :is(#agstate, #agproj, #agbranch, #aghere, #aguse) { order: 2; flex: none; max-width: 100%; margin: 0; padding: 0 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+body.mobile .dhead #agstate { order: 2; padding: 0; border: 0 }
+body.mobile .dhead :is(#agbranch, #aguse):empty { display: none }
+body.mobile .dhead #aghere::before { content: "@" }
+body.mobile .agmnav { flex: none; display: flex; gap: 4px; padding: 3px 10px; overflow-x: auto; border-bottom: 1px solid var(--border); scrollbar-width: none }
+body.mobile .agmnav button { flex: none; min-height: 30px; padding: 0 12px; border: 0; border-radius: var(--radius-sm); background: none; font: inherit; font-size: 14px; color: var(--muted) }
+body.mobile .agmnav button[aria-selected="true"] { background: var(--elev); color: var(--fg) }
+body.mobile .agshell.mb-log .agpane, body.mobile .agshell.mb-log .agpstrip { display: none !important }
+body.mobile .agshell:not(.mb-log) .agconv { display: none }
+body.mobile .agshell:not(.mb-log) .agpane { flex: 1 1 0 !important; max-height: none }
+body.mobile .agpane .agphead :is(.agtabs, .agaddterm, [data-pact]) { display: none }

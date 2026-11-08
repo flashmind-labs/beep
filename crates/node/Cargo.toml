@@ -1,15 +1,68 @@
 [package]
 name = "beep-node"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 rust-version = "1.93"
 publish = false
 
 [features]
 default = ["cli"]
+# Everything that runs on a machine: agents, terminals, file sync and
+# transfers, the machine's services. The phone app leaves it out and keeps the
+# link types it shares with the mesh.
+host = [
+    "dep:strum",
+    "dep:tokio-stream",
+    "dep:agent-client-protocol",
+    "dep:bao-tree",
+    "dep:base64",
+    "dep:beep-mesh",
+    "beep-mesh/thumbs",
+    "dep:beep-projects",
+    "dep:beep-report",
+    "dep:blake3",
+    "dep:dirs",
+    "dep:dunce",
+    "dep:futures",
+    "dep:hex",
+    "dep:ignore",
+    "dep:iroh",
+    "dep:iroh-blobs",
+    "dep:iroh-tickets",
+    "dep:iroh-metrics",
+    "dep:metrics",
+    "dep:metrics-exporter-prometheus",
+    "dep:log",
+    "dep:notify",
+    "dep:portable-pty",
+    "dep:rand",
+    "dep:reqwest",
+    "dep:rmp-serde",
+    "dep:roxmltree",
+    "dep:rusqlite",
+    "dep:secrecy",
+    "dep:serde",
+    "dep:serde_bytes",
+    "dep:serde_json",
+    "dep:serde_yaml",
+    "dep:sha2",
+    "dep:tokio-util",
+    "dep:tempfile",
+    "dep:toml",
+    "dep:toml_edit",
+    "dep:uuid",
+    "dep:which",
+    "dep:libc",
+    "dep:rustix",
+    "dep:windows-sys",
+    "beep-proto/logging",
+    "beep-proto/https",
+    "beep-proto/http2",
+]
 # The command line; a host that embeds the node, such as the Mac app, leaves it out.
 # `beep-node update` comes with it, with what it downloads and unpacks with.
 cli = [
+    "host",
     "dep:chrono",
     "dep:clap",
     "beep-proto/logging",
@@ -25,73 +78,72 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [dependencies]
-agent-client-protocol = { version = "3.6", features = ["unstable_end_turn_token_usage", "unstable_session_system_prompt"] }
+agent-client-protocol = { version = "3.6", features = ["unstable_end_turn_token_usage", "unstable_session_system_prompt"], optional = true }
 anyhow = "1"
-bao-tree = "0.17"
-base64 = "0.22"
-beep-mesh = { path = "../mesh" }
+bao-tree = { version = "0.17", optional = true }
+base64 = { version = "0.22", optional = true }
+beep-mesh = { path = "../mesh", optional = true }
 # Reads CI runs as the desktop does.
-beep-projects = { path = "../projects" }
-beep-proto = { path = "../proto", features = ["logging"] }
-beep-report = { path = "../report" }
-blake3 = "1"
+beep-projects = { path = "../projects", optional = true }
+beep-proto = { path = "../proto" }
+beep-report = { path = "../report", optional = true }
+blake3 = { version = "1", optional = true }
 chrono = { version = "0.4", optional = true }
 clap = { version = "4", features = ["derive", "env"], optional = true }
-dirs = "7"
+dirs = { version = "7", optional = true }
 # `fs::canonicalize` without the verbatim prefix Windows programs refuse.
-dunce = "1"
+dunce = { version = "1", optional = true }
 fastrand = "2"
 flate2 = { version = "1", optional = true }
-futures = "0.3"
-hex = "0.4"
-ignore = "0.4"
-iroh = "1.3"
-iroh-blobs = { version = "0.104", default-features = false, features = ["fs-store"] }
-iroh-tickets = "1"
-iroh-metrics = "1"
-metrics = "0.24"
-metrics-exporter-prometheus = { version = "0.18", default-features = false }
-log = "0.4"
-notify = "8"
+futures = { version = "0.3", optional = true }
+hex = { version = "0.4", optional = true }
+ignore = { version = "0.4", optional = true }
+# Port mapping and metrics: a node is reached from outside.
+iroh = { version = "1.3", optional = true }
+iroh-blobs = { version = "0.104", default-features = false, features = ["fs-store"], optional = true }
+iroh-tickets = { version = "1", optional = true }
+iroh-metrics = { version = "1", optional = true }
+metrics = { version = "0.24", optional = true }
+metrics-exporter-prometheus = { version = "0.18", default-features = false, optional = true }
+log = { version = "0.4", optional = true }
+notify = { version = "8", optional = true }
 # Interactive terminals: a pseudo-terminal on Unix, ConPTY on Windows.
-portable-pty = "0.9"
-rand = "0.9"
+portable-pty = { version = "0.9", optional = true }
+rand = { version = "0.9", optional = true }
 # `beep-node update` downloads releases, and the CI watch asks GitHub, with
-# ring and webpki roots, as iroh does.
-reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
-rmp-serde = "1"
-roxmltree = "0.20"
+# the client setup from `beep_proto::https`.
+reqwest = { version = "0.13.5", default-features = false, optional = true }
+rmp-serde = { version = "1", optional = true }
+roxmltree = { version = "0.20", optional = true }
 # flsh keeps its sessions in SQLite; the same version flashmind uses.
-rusqlite = { version = "0.40", features = ["bundled"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-secrecy = "0.10"
-serde = { version = "1", features = ["derive"] }
-serde_bytes = "0.11"
-serde_json = "1"
+rusqlite = { version = "0.40", features = ["bundled"], optional = true }
+secrecy = { version = "0.10", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_bytes = { version = "0.11", optional = true }
+serde_json = { version = "1", optional = true }
 # Custom agent frontmatter; the same version the server reads personas with.
-serde_yaml = "0.9"
-sha2 = "0.11"
-strum = { version = "0.28", features = ["derive"] }
+serde_yaml = { version = "0.9", optional = true }
+sha2 = { version = "0.11", optional = true }
+strum = { version = "0.28", features = ["derive"], optional = true }
 tar = { version = "0.4", default-features = false, optional = true }
 thiserror = { version = "2", optional = true }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "fs", "signal", "io-util", "sync"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
-tokio-util = { version = "0.7", features = ["codec", "rt"] }
-tempfile = "3"
-toml = "1"
+tokio-stream = { version = "0.1", features = ["sync"], optional = true }
+tokio-util = { version = "0.7", features = ["codec", "rt"], optional = true }
+tempfile = { version = "3", optional = true }
+toml = { version = "1", optional = true }
 # Writes Beep's keys into flsh's config.toml, keeping the rest as it was.
-toml_edit = "0.25"
-uuid = { version = "1", features = ["v4"] }
-webpki-roots = "1"
-which = "8"
+toml_edit = { version = "0.25", optional = true }
+uuid = { version = "1", features = ["v4"], optional = true }
+which = { version = "8", optional = true }
 zip = { version = "4", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
-rustix = { version = "1", features = ["fs", "process"] }
+libc = { version = "0.2", optional = true }
+rustix = { version = "1", features = ["fs", "process"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = [
+windows-sys = { version = "0.61", optional = true, features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Storage_FileSystem",
@@ -103,6 +155,8 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+# Checks that no process-wide crypto provider gets installed.
+rustls = { version = "0.23", default-features = false }
 async-trait = "0.1"
 tokio = { version = "1", features = ["test-util"] }
 tracing = "0.1"

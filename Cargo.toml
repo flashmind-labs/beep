@@ -1,13 +1,14 @@
 [workspace]
 resolver = "3"
-members = ["crates/proto", "crates/projects", "crates/server", "crates/android-bridge", "crates/node", "crates/live", "crates/mesh", "crates/fleet", "crates/report"]
+members = ["crates/proto", "crates/projects", "crates/server", "crates/node", "crates/live", "crates/mesh", "crates/fleet", "crates/report"]
 
 [profile.release]
 strip = true
 
-# Size-tuned build for the Android native library. Keeps the default strip:
-# the Kotlin bindings are generated from the metadata in the built library.
-[profile.android-release]
-inherits = "release"
-opt-level = "z"
-strip = "debuginfo"
+# Line numbers for our crates and no debug info for dependencies: links
+# faster and keeps target/ small. Backtraces still name our lines.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

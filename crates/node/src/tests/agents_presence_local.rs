@@ -1,0 +1,82 @@
+use super::*;
+use beep_proto::node::agent::Presence;
+
+#[test]
+fn an_old_listener_leaves_a_replacement_locator_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("presence.json");
+    let old = publish(&path, "/srv/node/presence.sock").unwrap();
+    let new = publish(&path, "/srv/node/presence.sock").unwrap();
+    let before = fs::read(&path).unwrap();
+    drop(old);
+    assert_eq!(fs::read(&path).unwrap(), before);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    drop(new);
+    assert!(!path.exists());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_idle_connection_stays_present_until_eof_or_cancellation() {
+    for cancel in [false, true] {
+        let agents = Arc::new(Agents::default());
+        let mut changes = agents.presence.subscribe();
+        let (mut client, server) = tokio::net::UnixStream::pair().unwrap();
+        let serving = agents.clone();
+        let task = tokio::spawn(async move { connection(server, &serving).await });
+        let registration = serde_json::json!({
+            "version": 1, "agent": "flsh", "session_id": "session_a",
+            "cwd": "/srv/project", "pid": 123
+        });
+        client
+            .write_all(format!("{registration}\n").as_bytes())
+            .await
+            .unwrap();
+        let mut reader = BufReader::new(client);
+        let mut answer = String::new();
+        timeout(HELLO_WAIT, reader.read_line(&mut answer))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&answer).unwrap()["ok"],
+            true
+        );
+        assert_eq!(agents.presence.snapshot()[0].presence, Presence::Running);
+        changes.borrow_and_update();
+        if cancel {
+            task.abort();
+            assert!(task.await.unwrap_err().is_cancelled());
+        } else {
+            drop(reader);
+            task.await.unwrap().unwrap();
+        }
+        timeout(HELLO_WAIT, changes.changed())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(agents.presence.snapshot()[0].presence, Presence::Stopped);
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn oversized_registrations_are_refused_without_tracking_a_session() {
+    let agents = Arc::new(Agents::default());
+    let serving = agents.clone();
+    let (mut client, server) = tokio::net::UnixStream::pair().unwrap();
+    let task = tokio::spawn(async move { connection(server, &serving).await });
+    client
+        .write_all(&vec![b'x'; MAX_LINE as usize])
+        .await
+        .unwrap();
+    assert!(timeout(HELLO_WAIT, task).await.unwrap().unwrap().is_err());
+    assert!(agents.presence.snapshot().is_empty());
+}

@@ -1,6 +1,6 @@
 [package]
 name = "beep-desktop"
-version = "0.6.1"
+version = "0.6.2"
 edition = "2024"
 rust-version = "1.93"
 description = "Beep desktop: projects, coding agents and a quick-access tray bar"
@@ -9,13 +9,15 @@ publish = false
 # Its own workspace, so the server's Docker build and Linux checks never see Tauri.
 [workspace]
 
+[lib]
+name = "beep_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
 anyhow = "1"
-arboard = "3.7"
-image = { version = "0.25", default-features = false, features = ["png"] }
 open = "5"
 which = "8"
 async-trait = "0.1"
@@ -30,7 +32,7 @@ beep-projects = { path = "../../../crates/projects" }
 beep-proto = { path = "../../../crates/proto", features = ["client"] }
 beep-report = { path = "../../../crates/report" }
 futures = "0.3"
-iroh = "1.3"
+iroh = { version = "1.3", default-features = false, features = ["tls-ring", "fast-apple-datapath"] }
 iroh-tickets = "1"
 log = "0.4"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
@@ -42,12 +44,10 @@ serde = { version = "1", features = ["derive"] }
 serde_bytes = "0.11"
 serde_json = "1"
 strum = { version = "0.28", features = ["derive"] }
-tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
-tauri-plugin-autostart = "2"
+tauri = { version = "2", default-features = false, features = ["wry", "dynamic-acl", "tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-deep-link = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
-tauri-plugin-updater = "2"
 thiserror = "2"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -61,6 +61,27 @@ rmp-serde = "1"
 tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }
 
+# Desktop only: no login item or self-updater on a phone, and no embedded node.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+beep-node = { path = "../../../crates/node", default-features = false, features = ["host"] }
+arboard = "3.7"
+# Brotli for the bundled pages. A phone skips it: the IPA is zipped anyway.
+tauri = { version = "2", features = ["compression", "common-controls-v6", "x11", "dbus"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+beep-mesh = { path = "../../../crates/mesh", features = ["thumbs"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-updater = "2"
+
+# Phone only: the camera scans the pairing QR code.
+[target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
+tauri-plugin-barcode-scanner = "2"
+
+# The iPhone keeps its key in the Keychain.
+[target.'cfg(target_os = "ios")'.dependencies]
+security-framework = "3"
+# Removes the web view's bar above the keyboard.
+objc2 = "0.6"
+
 [target.'cfg(target_os = "windows")'.dependencies]
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
@@ -71,7 +92,7 @@ block2 = "0.6"
 # notification plugin shows them through the same crate but drops actions.
 mac-notification-sys = "0.6"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSBitmapImageRep", "NSImageRep", "NSRunningApplication", "NSWorkspace", "block2", "objc2-core-graphics"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSEvent", "NSBitmapImageRep", "NSImageRep", "NSRunningApplication", "NSWorkspace", "NSGraphics", "block2", "objc2-core-graphics"] }
 # Desktop control: the accessibility tree and Accessibility permission.
 objc2-application-services = { version = "0.3", default-features = false, features = ["std", "HIServices", "libc", "AXUIElement", "AXValue", "AXError"] }
 objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware", "objc2-core-audio-types"] }
@@ -87,3 +108,11 @@ objc2-screen-capture-kit = { version = "0.3", default-features = false, features
 
 [profile.release]
 strip = true
+
+# Line numbers for our crates and no debug info for dependencies: links
+# faster and keeps target/ small. Backtraces still name our lines.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

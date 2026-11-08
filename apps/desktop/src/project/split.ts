@@ -236,7 +236,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     { label: plural(prItems.length, "PR", "PRs"), text: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : "open", key: "overview" },
     { label: plural(issueItems.length, "issue", "issues"), text: "open", key: "issues" },
   ]);
-  return [strip, h("div", history ? "pj-split gh-layout" : "pj-split", history?.navigation || list, det)];
+  return [strip, h("div", `${history ? "pj-split gh-layout" : "pj-split"}${pa.tile ? " picked" : ""}`, history?.navigation || list, det)];
 }
 
 /// The strip under the project's title: its branch, Actions, agents, machines,

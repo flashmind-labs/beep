@@ -6,7 +6,9 @@ use super::{
     session::{MIC_CHUNKS, UNAVAILABLE},
 };
 use crate::error::DesktopError;
-use beep_live::{Input, Phase};
+use beep_live::Input;
+#[cfg(desktop)]
+use beep_live::Phase;
 use beep_proto::{ApiError, Transcription};
 use serde_bytes::ByteBuf;
 use std::{sync::Arc, time::Duration};
@@ -22,6 +24,7 @@ const BUSY_TRIES: u32 = 6;
 /// The longest wait between those tries.
 const BUSY_WAIT: Duration = Duration::from_secs(8);
 /// How long letting go of Option waits for the last words.
+#[cfg(desktop)]
 const FINISH_WAIT: Duration = Duration::from_secs(2);
 const BUSY: &str = "Voice is busy in another window or on another device. Try again in a moment.";
 
@@ -237,6 +240,7 @@ impl Voice {
     /// Option came up after a hold. The words said last may still be on
     /// their way, so the audio ends and the hold waits for the server's last
     /// words, up to `FINISH_WAIT`, before it sends.
+    #[cfg(desktop)]
     pub(super) fn release(self: &Arc<Self>) {
         let finishing = {
             let mut state = self.state();
@@ -280,15 +284,5 @@ impl Voice {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_busy_server_is_told_apart() {
-        assert!(busy(Some(&ApiError::Conflict {
-            message: "live transcriptions busy".into()
-        })));
-        assert!(!busy(Some(&ApiError::Internal {})));
-        assert!(!busy(None));
-    }
-}
+#[path = "../tests/voice_transcribe.rs"]
+mod tests;

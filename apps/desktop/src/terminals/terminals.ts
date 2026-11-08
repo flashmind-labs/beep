@@ -775,6 +775,8 @@ export function makeTerminals(deps: TerminalDeps) {
     focusOpen,
     /// Opens terminal `id` on the Terminals page, attached live.
     show: (id: string) => select(ALL, id),
+    /// Closes the open terminal or form on the Terminals page, back to its list.
+    unselect: () => { const t = of(ALL); t.open = null; t.form = null; redraw(); },
     stop: () => { watch(null); dropAll(); shown = null; },
   };
 }

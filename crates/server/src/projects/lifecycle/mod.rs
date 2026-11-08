@@ -97,4 +97,5 @@ pub(crate) async fn startup(app: &Arc<App>) -> Result<()> {
 }
 
 #[cfg(test)]
+#[path = "../../tests/projects_lifecycle.rs"]
 mod tests;

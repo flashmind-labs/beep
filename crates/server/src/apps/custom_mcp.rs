@@ -1,6 +1,12 @@
 //! Remote MCP servers the user adds by URL.
 //! Calls are rate limited per host and per user, and the URL must be https resolving only to public addresses.
 
+mod url;
+
+#[cfg(test)]
+use url::is_public;
+pub(crate) use url::{UrlError, check_url, host_of};
+
 use crate::{
     account::user::User,
     apps::mcp::lost_login,
@@ -14,11 +20,9 @@ use flashmind::{
     tools::mcp::{McpConfigProvider, McpRegistry, McpServerConfig, McpToolDef},
     types::tool::{Tool, ToolContext, ToolResult},
 };
-use reqwest::Url;
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
     sync::{Arc, LazyLock, Mutex, Weak},
     time::{Duration, Instant},
 };
@@ -81,88 +85,6 @@ pub(crate) fn server_name(label: &str) -> Option<String> {
 /// Whether `name` is a row name of a server the user added.
 pub(crate) fn is_custom(name: &str) -> bool {
     name.starts_with(PREFIX)
-}
-
-/// Why a URL is refused, worded for the user.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum UrlError {
-    #[error("The address must be a full https:// URL.")]
-    NotHttps,
-    #[error("The address must not carry a user name or password.")]
-    Credentials,
-    #[error("Beep could not find that server.")]
-    Unresolved,
-    #[error("That address is on a private network, which Beep cannot reach.")]
-    Private,
-}
-
-/// The URL when it is https without credentials and every address of its host is public.
-pub(crate) async fn check_url(url: &str) -> Result<Url, UrlError> {
-    let url = Url::parse(url.trim()).map_err(|_| UrlError::NotHttps)?;
-    if url.scheme() != "https" || url.host_str().is_none() {
-        return Err(UrlError::NotHttps);
-    }
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err(UrlError::Credentials);
-    }
-    let host = url.host_str().ok_or(UrlError::NotHttps)?;
-    let host = host.trim_start_matches('[').trim_end_matches(']');
-    let port = url.port_or_known_default().unwrap_or(443);
-    let addrs: Vec<IpAddr> = tokio::net::lookup_host((host, port))
-        .await
-        .map_err(|_| UrlError::Unresolved)?
-        .map(|addr| addr.ip())
-        .collect();
-    if addrs.is_empty() {
-        return Err(UrlError::Unresolved);
-    }
-    if !addrs.into_iter().all(is_public) {
-        return Err(UrlError::Private);
-    }
-    Ok(url)
-}
-
-/// Whether `ip` is public; IPv6 must be global unicast (2000::/3), which excludes mesh ranges.
-fn is_public(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ip) => public_v4(ip),
-        IpAddr::V6(ip) => {
-            if let Some(v4) = ip.to_ipv4_mapped() {
-                return public_v4(v4);
-            }
-            let first = ip.segments()[0];
-            let global_unicast = first & 0xe000 == 0x2000;
-            let documentation = first == 0x2001 && ip.segments()[1] == 0x0db8;
-            // 6to4 and Teredo carry an IPv4 address the check above did not see.
-            let tunnel = first == 0x2002 || (first == 0x2001 && ip.segments()[1] == 0);
-            global_unicast && !documentation && !tunnel && ip != Ipv6Addr::UNSPECIFIED
-        }
-    }
-}
-
-fn public_v4(ip: Ipv4Addr) -> bool {
-    let [a, b, ..] = ip.octets();
-    !(ip.is_private()
-        || ip.is_loopback()
-        || ip.is_link_local()
-        || ip.is_broadcast()
-        || ip.is_documentation()
-        || ip.is_multicast()
-        || ip.is_unspecified()
-        || a == 0
-        || a >= 240
-        // Shared address space (carrier-grade NAT).
-        || (a == 100 && (64..128).contains(&b))
-        // Benchmarking.
-        || (a == 198 && (18..20).contains(&b)))
-}
-
-/// The host a call's limits are counted on.
-pub(crate) fn host_of(url: &str) -> String {
-    Url::parse(url)
-        .ok()
-        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
-        .unwrap_or_default()
 }
 
 /// Why a call was not made.
@@ -761,120 +683,5 @@ impl Tool for CustomTool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn defs(names: &[&str]) -> Vec<McpToolDef> {
-        names
-            .iter()
-            .map(|name| McpToolDef {
-                name: (*name).to_owned(),
-                description: None,
-                input_schema: json!({"type": "object"}),
-            })
-            .collect()
-    }
-
-    #[test]
-    fn a_clashing_name_is_not_usable() {
-        let defs = defs(&["get-item", "get_item", "other"]);
-        let usable: Vec<bool> = tool_list("mcp_notes", &defs, None)
-            .tools
-            .iter()
-            .map(|tool| tool.usable)
-            .collect();
-        assert_eq!(usable, [true, false, true]);
-    }
-
-    #[test]
-    fn only_public_addresses_pass() {
-        for ip in [
-            "127.0.0.1",
-            "10.1.2.3",
-            "172.16.0.1",
-            "192.168.1.1",
-            "169.254.169.254",
-            "100.64.0.1",
-            "0.0.0.0",
-            "::1",
-            "fe80::1",
-            "fd00::1",
-            "::ffff:127.0.0.1",
-            "200:1234::1",
-            "2001:db8::1",
-            "2002:7f00:1::1",
-        ] {
-            assert!(!is_public(ip.parse().unwrap()), "{ip} passed");
-        }
-        for ip in ["1.1.1.1", "8.8.8.8", "2606:4700:4700::1111"] {
-            assert!(is_public(ip.parse().unwrap()), "{ip} refused");
-        }
-    }
-
-    #[tokio::test]
-    async fn urls_must_be_https_without_credentials() {
-        assert_eq!(
-            check_url("http://example.com/mcp").await,
-            Err(UrlError::NotHttps)
-        );
-        assert_eq!(check_url("example.com/mcp").await, Err(UrlError::NotHttps));
-        assert_eq!(
-            check_url("https://user:pw@example.com/mcp").await,
-            Err(UrlError::Credentials)
-        );
-        assert_eq!(
-            check_url("https://127.0.0.1/mcp").await,
-            Err(UrlError::Private)
-        );
-        assert_eq!(
-            check_url("https://[::1]:8443/mcp").await,
-            Err(UrlError::Private)
-        );
-        assert_eq!(
-            check_url("https://localhost/mcp").await,
-            Err(UrlError::Private)
-        );
-    }
-
-    #[test]
-    fn a_host_takes_a_few_calls_a_second_from_everyone() {
-        let limits = Limits::default();
-        let now = Instant::now();
-        let mut permits = Vec::new();
-        for i in 0..HOST_CALLS_PER_SECOND {
-            permits.push(
-                limits
-                    .begin_at("mcp.example", &format!("user{i}"), now)
-                    .unwrap(),
-            );
-        }
-        assert_eq!(
-            limits.begin_at("mcp.example", "other", now).err(),
-            Some(Refused::HostBusy)
-        );
-        // Another host has its own budget.
-        assert!(limits.begin_at("other.example", "other", now).is_ok());
-        drop(permits);
-        let later = now + Duration::from_secs(1);
-        assert!(limits.begin_at("mcp.example", "other", later).is_ok());
-    }
-
-    #[test]
-    fn one_user_gets_a_few_calls_a_minute() {
-        let limits = Limits::default();
-        let start = Instant::now();
-        for i in 0..USER_CALLS_PER_MINUTE {
-            // Spread out so the host's per-second budget is not what stops it.
-            let at = start + Duration::from_secs(u64::from(i));
-            limits.begin_at("mcp.example", "alice", at).unwrap();
-        }
-        let at = start + Duration::from_secs(30);
-        assert_eq!(
-            limits.begin_at("mcp.example", "alice", at).err(),
-            Some(Refused::UserLimit)
-        );
-        assert!(limits.begin_at("mcp.example", "bob", at).is_ok());
-        let next_minute = start + Duration::from_secs(61);
-        assert!(limits.begin_at("mcp.example", "alice", next_minute).is_ok());
-    }
-}
+#[path = "../tests/apps_custom_mcp.rs"]
+mod tests;

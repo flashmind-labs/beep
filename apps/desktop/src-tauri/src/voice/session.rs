@@ -7,7 +7,7 @@ use super::{
     audio::{Audio, MicChunk, MicDenied, Played},
     card,
     event::LiveEvent,
-    hotkey::{self, Taps},
+    hotkey,
     news::Heard,
     orb,
     reader::Reader,
@@ -35,7 +35,10 @@ const QUIET: &str = "Live mode ended after 2 minutes quiet.";
 
 /// How live mode starts.
 pub(super) enum Start {
+    /// From Option, which a phone does not have.
+    #[cfg(desktop)]
     Tap,
+    #[cfg(desktop)]
     Hold,
     Note {
         note: VoiceNote,
@@ -163,7 +166,9 @@ impl Session {
 
 #[derive(Default)]
 pub(super) struct State {
-    pub(super) taps: Taps,
+    #[cfg(desktop)]
+    pub(super) taps: hotkey::Taps,
+    #[cfg(desktop)]
     pub(super) hold: hotkey::Hold,
     pub(super) live: Option<Session>,
     /// The microphone opened when Option went down in the open bar, for
@@ -179,7 +184,9 @@ impl Voice {
         let mode = self.end_mode();
         let id = self.lives.fetch_add(1, Ordering::Relaxed) + 1;
         let ((live, effects), note) = match how {
+            #[cfg(desktop)]
             Start::Tap => (Live::listening(mode, now), None),
+            #[cfg(desktop)]
             Start::Hold => (Live::hold_to_talk(mode, now), None),
             Start::Note {
                 note,

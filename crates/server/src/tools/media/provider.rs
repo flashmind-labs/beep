@@ -58,7 +58,7 @@ impl TryFrom<ApiProvider> for MediaProvider {
 }
 
 /// What a tool makes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString, strum::IntoStaticStr)]
 #[strum(ascii_case_insensitive)]
 pub(crate) enum MediaKind {
     #[strum(serialize = "image_gen")]
@@ -71,14 +71,6 @@ pub(crate) enum MediaKind {
 
 impl MediaKind {
     pub(crate) const ALL: [Self; 3] = [Self::Image, Self::Video, Self::Model3d];
-
-    pub(crate) fn tool(self) -> &'static str {
-        match self {
-            Self::Image => "image_gen",
-            Self::Video => "video_gen",
-            Self::Model3d => "3d_gen",
-        }
-    }
 
     /// The action on an approval card.
     pub(crate) fn action(self) -> &'static str {

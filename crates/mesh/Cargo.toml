@@ -5,19 +5,25 @@ edition = "2024"
 rust-version = "1.93"
 publish = false
 
+[features]
+# Agent log pictures made small, by a node or the server. The phone draws
+# what it is given.
+thumbs = ["dep:image"]
+
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
-beep-proto = { path = "../proto" }
+beep-proto = { path = "../proto", features = ["https"] }
 bytes = "1"
 crc32fast = "1"
 fastrand = "2"
 futures = "0.3"
-iroh = "1.3"
+# Lean for the phone; a node and the server turn on the defaults.
+iroh = { version = "1.3", default-features = false, features = ["tls-ring", "fast-apple-datapath"] }
 iroh-tickets = "1"
 metrics = "0.24"
-image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"], optional = true }
+reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
 rmp-serde = "1"
 serde = { version = "1", features = ["derive"] }
 serde_bytes = "0.11"
