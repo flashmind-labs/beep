@@ -107,7 +107,11 @@ export function fillLog(b: ChatBody, follow: boolean) {
     measure(w);
     space(w, from, to);
     if (pin) b.scrollTop = b.scrollHeight;
-    else if (anchor && before != null) b.scrollTop = keptScrollTop(b.scrollTop, before, anchor.getBoundingClientRect().top);
+    else if (anchor && before != null) {
+      const top = keptScrollTop(b.scrollTop, before, anchor.getBoundingClientRect().top);
+      // Even writing the current position interrupts WebKit's wheel glide.
+      if (top !== b.scrollTop) b.scrollTop = top;
+    }
     if (same) break;
   }
   return changed;
@@ -167,7 +171,10 @@ function resized(log: HTMLElement, w: LogWindow) {
   const before = anchor?.getBoundingClientRect().top;
   space(w, keys.indexOf(drawn[0]), keys.indexOf(drawn[drawn.length - 1]) + 1);
   if (b.stuck !== false) pinEnd(b);
-  else if (anchor && before != null) b.scrollTop = keptScrollTop(b.scrollTop, before - shiftAbove(moved), anchor.getBoundingClientRect().top);
+  else if (anchor && before != null) {
+    const top = keptScrollTop(b.scrollTop, before - shiftAbove(moved), anchor.getBoundingClientRect().top);
+    if (top !== b.scrollTop) b.scrollTop = top;
+  }
 }
 
 /// The room a drawn turn takes, its gap included; a hidden one takes none.
