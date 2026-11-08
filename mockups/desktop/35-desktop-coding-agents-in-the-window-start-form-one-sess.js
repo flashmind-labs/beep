@@ -309,6 +309,7 @@
 .mac .dcoderav.mark svg, .mac .cc-ag.mark svg { width: 58%; height: 58%; display: block }
 .mac .cc-ag.mark { padding: 0 }
 .mac #agfield { position: relative }
+.mac #agfield button[aria-label="Attach files"] { width: 26px; padding: 0; justify-content: center; margin-right: -8px }
 .mac #agfield .txt.ph { color: var(--d-dim) }
 .mac #agfield .txt.typed { display: flex; align-items: center; gap: 4px; white-space: pre }
 .mac .cm-caret { width: 1px; height: 14px; background: var(--d-fg); display: inline-block }
@@ -339,7 +340,7 @@
 .mac .dstate.ask { background: transparent; box-shadow: none; overflow: visible; border: 1px solid rgba(242,153,74,.5); border-radius: 999px; color: var(--d-coral) }
 .mac .dstate.run { background: transparent }
 .mac .dv { container-type: inline-size }
-.mac .ag-pane > .dv { flex: 1 }
+.mac .ag-pane > .dv, .mac .ag-pane-content > .dv { flex: 1 }
 .mac .dv-head .dv-sum { flex-basis: 100%; overflow: hidden }
 .mac .dv-head .dv-sp { display: none }
 .mac .dv-head .dv-find { flex: 1 1 120px; max-width: none }
@@ -819,12 +820,12 @@ expected 200, got 401</pre></details></span></div>`;
     const dockBtn = bottom ? `<button class="ag-pbtn" data-dact="dset:ags:paneright" title="Dock these tabs on the right">${PI.right}</button>` : `<button class="ag-pbtn" data-dact="dset:ags:panebottom" title="Dock these tabs at the bottom">${PI.bottom}</button>`;
     const pane = v === "panecollapsed"
       ? `<button class="ag-pstrip" data-dact="dset:ags:paneright" title="Show the pane">${PI.model}<span>turntable.glb</span><small>6</small></button>`
-      : `<div class="ag-div" title="Drag to resize, double-click to reset" data-toast="Drag to resize, double-click to reset"></div><aside class="ag-pane"><div class="ag-phead"><div class="ag-tabs">${tabBtns}</div><span class="ag-wtw"><button class="ag-pbtn ag-wt" aria-haspopup="menu" title="The worktree Files and Changes show" data-dact="dset:ags:wtmenu"><code>${v === "subchild" ? "sub-bench" : "fix-login"}</code><span aria-hidden="true">&#9662;</span></button><!--wtmenu--></span><button class="ag-pbtn ag-addterm" data-dact="dset:ags:term" title="New terminal in this folder (&#8963;\`)">+ Terminal</button>${dockBtn}<button class="ag-pbtn" data-dact="dset:ags:panecollapsed" title="Hide the pane">${bottom ? PI.foldb : PI.fold}</button></div>${body[tabOn]()}</aside>`;
+      : `<div class="ag-div" title="Drag to resize, double-click to reset" data-toast="Drag to resize, double-click to reset"></div><aside class="ag-pane"><div class="ag-pane-content"><div class="ag-phead"><div class="ag-tabs">${tabBtns}</div><span class="ag-wtw"><button class="ag-pbtn ag-wt" aria-haspopup="menu" title="The worktree Files and Changes show" data-dact="dset:ags:wtmenu"><code>${v === "subchild" ? "sub-bench" : "fix-login"}</code><span aria-hidden="true">&#9662;</span></button><!--wtmenu--></span><button class="ag-pbtn ag-addterm" data-dact="dset:ags:term" title="New terminal in this folder (&#8963;\`)">+ Terminal</button>${dockBtn}<button class="ag-pbtn" data-dact="dset:ags:panecollapsed" title="Hide the pane">${bottom ? PI.foldb : PI.fold}</button></div>${body[tabOn]()}</div></aside>`;
     // Each tab drags to the bottom or right edge of the session and docks
     // there on its own; both docks show, each resizable. Dragging the last
     // tab out of a dock removes it. Where each tab sits is kept per window.
     const split = v === "termsplit", wrap = split || v === "dragtab";
-    const under = split ? `<div class="ag-div" title="Drag to resize, double-click to reset" data-toast="Drag to resize, double-click to reset"></div><aside class="ag-pane"><div class="ag-phead"><div class="ag-tabs"><button class="ag-tab on" title="fix-login 1">${FI.term}<span>fix-login 1</span><em data-toast="Closed the tab">&#215;</em></button></div><button class="ag-pbtn ag-addterm" data-toast="New terminal under the conversation" title="New terminal in this folder (&#8963;\`)">+ Terminal</button><button class="ag-pbtn" data-dact="dset:ags:term" title="Dock on the right">${PI.right}</button><button class="ag-pbtn" data-toast="Folded to a strip" title="Hide the pane">${PI.foldb}</button></div>${body.term()}</aside>`
+    const under = split ? `<div class="ag-div" title="Drag to resize, double-click to reset" data-toast="Drag to resize, double-click to reset"></div><aside class="ag-pane"><div class="ag-pane-content"><div class="ag-phead"><div class="ag-tabs"><button class="ag-tab on" title="fix-login 1">${FI.term}<span>fix-login 1</span><em data-toast="Closed the tab">&#215;</em></button></div><button class="ag-pbtn ag-addterm" data-toast="New terminal under the conversation" title="New terminal in this folder (&#8963;\`)">+ Terminal</button><button class="ag-pbtn" data-dact="dset:ags:term" title="Dock on the right">${PI.right}</button><button class="ag-pbtn" data-toast="Folded to a strip" title="Hide the pane">${PI.foldb}</button></div>${body.term()}</div></aside>`
       : v === "dragtab" ? `<div class="ag-dropzone">${PI.bottom}Dock at the bottom</div><span class="ag-tab on ag-tabghost">${FI.term}<span>fix-login 1</span></span>` : "";
     const usage = outside ? "" : variant === "flshunknown" ? "42%/1.05M · 182k tokens · $1.27 / ?" : pillAgent === "flsh" ? "42%/1.05M · 182k tokens · $1.27 / $7.25" : v === "nochange" ? "12%/200k · 9.4k tokens · $0.04" : "42%/200k · 182k tokens · $1.27";
     const folder = v === "nochange" ? ["/srv/project/sdk", "sdk"] : ["/srv/project/.worktrees/fix-login", "widget · fix-login"];
@@ -873,8 +874,9 @@ expected 200, got 401</pre></details></span></div>`;
     const orig = D.dAgentSession;
     const css = document.createElement("style");
     css.textContent = `.mac .ag-shell.zoomed { position: relative }
-.mac .ag-shell.zoomed > .ag-pane { position: absolute; inset: 0; z-index: 3; flex: none; max-width: none; background: var(--d-surface) }
-.mac .ag-shell.zoomed > .ag-div { display: none }
+.mac .ag-pane-content { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column }
+.mac .ag-shell.zoomed > .ag-pane > .ag-pane-content, .mac .ag-shell.zoomed > .ag-pane:not(:has(> .ag-pane-content)) { position: absolute; inset: 0; z-index: 3; max-width: none; background: var(--d-surface) }
+.mac .ag-shell.zoomed > .ag-div { visibility: hidden; pointer-events: none }
 .mac .dv-cmts { font-size: 12px; color: var(--d-muted) }
 .mac .ag-wtw { position: relative; margin-left: auto } .mac .ag-wt { display: inline-flex; align-items: center; gap: 4px; width: auto; padding: 0 6px; max-width: 150px } .mac .ag-wt code { font: 11.5px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .mac .ag-wtm { position: absolute; top: calc(100% + 4px); right: 0; z-index: 9; width: 250px; padding: 4px; display: grid; gap: 1px; border: 1px solid var(--d-border); border-radius: 8px; background: var(--d-surface); box-shadow: 0 10px 30px rgba(0,0,0,.35) }

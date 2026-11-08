@@ -169,8 +169,8 @@ export const paneOf = (d: Dock) => document.getElementById(`agpane-${d}`);
 /// One dock's frame: its divider, its pane and the strip it folds to.
 function dockFrame(d: Dock) {
   return `<div class="agdiv" id="agdiv-${d}" data-dock="${d}" role="separator" tabindex="0" title="Drag to resize, double-click to reset" hidden></div>`
-    + `<aside class="agpane" id="agpane-${d}" data-dock="${d}" tabindex="-1" hidden><div class="agphead"><div class="agtabs" role="tablist"></div>`
-    + `<span class="agwtw" hidden></span><button class="agpbtn agaddterm" data-pact="term" title="New terminal in this folder (⌃\`)">+ Terminal</button><button class="agpbtn" data-pact="dock"></button><button class="agpbtn" data-pact="fold" title="Hide the pane"></button></div><div class="agpviews"></div></aside>`
+    + `<aside class="agpane" id="agpane-${d}" data-dock="${d}" tabindex="-1" hidden><div class="agpane-content"><div class="agphead"><div class="agtabs" role="tablist"></div>`
+    + `<span class="agwtw" hidden></span><button class="agpbtn agaddterm" data-pact="term" title="New terminal in this folder (⌃\`)">+ Terminal</button><button class="agpbtn" data-pact="dock"></button><button class="agpbtn" data-pact="fold" title="Hide the pane"></button></div><div class="agpviews"></div></div></aside>`
     + `<button class="agpstrip" id="agpstrip-${d}" data-dock="${d}" hidden title="Show the pane"></button>`;
 }
 

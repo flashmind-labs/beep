@@ -63,7 +63,7 @@ function drawDropZone(to: Dock | null) {
   const s = el.getBoundingClientRect();
   const pane = paneOf(to);
   let r: Box;
-  if (pane && !pane.hidden) r = pane.getBoundingClientRect();
+  if (pane && !pane.hidden) r = (pane.querySelector(".agpane-content") ?? pane).getBoundingClientRect();
   else if (to === "right") {
     const w = paneSize("right", P.layout.right, s.width);
     r = { left: s.right - w, top: s.top, width: w, height: s.height };
