@@ -12,6 +12,62 @@ async fn stepped_snapshot(snapshots: &mut Snapshots) -> Option<Reply> {
     }
 }
 
+#[tokio::test]
+async fn session_process_topics_read_children_and_follow_process_changes() {
+    let offers = Offers::default();
+    let caller = iroh::SecretKey::generate().public();
+    let topic = Topic::keyed("processes", "example-session");
+    let mut snapshots = Snapshots::new();
+    snapshots.replace(&offers, std::slice::from_ref(&topic), &[], &BTreeMap::new());
+    let key = (topic.clone(), None);
+    assert_eq!(
+        snapshots.entries.get(&key).map(|entry| &entry.source),
+        Some(&Source::Read(Read::Sessions(Box::new(
+            SessionsRequest::Processes {
+                session: "example-session".into(),
+            }
+        ))))
+    );
+    snapshots.start(&offers, caller);
+    let Some(Reply::Snapshot(initial)) = stepped_snapshot(&mut snapshots).await else {
+        panic!("expected the session's initial process list");
+    };
+    assert_eq!(initial.topic, topic);
+    assert_eq!(
+        initial.value,
+        Value::Sessions(Box::new(SessionsReply::Processes { processes: vec![] }))
+    );
+
+    snapshots.changed(&Topic::new("processes"));
+    assert!(snapshots.entries.get(&key).unwrap().dirty);
+    // Completing the session read with a new child must produce another
+    // snapshot even though the separate managed-command table did not change.
+    let children = Value::Sessions(Box::new(SessionsReply::Processes {
+        processes: vec![beep_proto::node::agent::RunningProcess {
+            pid: 123,
+            command: "sleep 300".into(),
+            started_at: 1,
+            ports: vec![],
+            left_group: false,
+        }],
+    }));
+    let result = children.clone();
+    let generation = snapshots.generation;
+    snapshots.reads.spawn(async move {
+        Completed {
+            generation,
+            key,
+            result: Ok((result, 128)),
+        }
+    });
+    let Some(Reply::Snapshot(changed)) = stepped_snapshot(&mut snapshots).await else {
+        panic!("expected the child-process update");
+    };
+    assert_eq!(changed.topic, topic);
+    assert_eq!(changed.value, children);
+    assert!(changed.revision > initial.revision);
+}
+
 #[tokio::test(start_paused = true)]
 async fn plugin_bursts_coalesce_without_idle_timers_or_losing_inflight_changes() {
     let offers = Offers::default();

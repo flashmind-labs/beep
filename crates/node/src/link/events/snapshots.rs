@@ -103,7 +103,21 @@ impl Snapshots {
         if selected("reviews") {
             wanted.push((Topic::new("reviews"), Source::Reviews));
         }
-        if selected("processes") || selected("process-output") {
+        for topic in topics.iter().filter(|topic| topic.name() == "processes") {
+            if let Some(session) = topic.key().filter(|_| !topic.is_pattern()) {
+                wanted.push((
+                    topic.clone(),
+                    Source::Read(Read::Sessions(Box::new(SessionsRequest::Processes {
+                        session: session.to_owned(),
+                    }))),
+                ));
+            }
+        }
+        if topics.iter().any(|topic| {
+            topic.name() == "*"
+                || topic.name() == "process-output"
+                || (topic.name() == "processes" && topic.is_pattern())
+        }) {
             wanted.push((
                 Topic::new("processes"),
                 Source::Read(Read::Process(beep_proto::node::process::Request::List {})),
