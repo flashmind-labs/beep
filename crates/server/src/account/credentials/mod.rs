@@ -58,7 +58,7 @@ pub fn for_machines(opened: Vec<Opened>) -> MachineCredentials {
         let value = SecretText::new(secret.expose_secret());
         match slot {
             Slot::Forgejo(url) => out.forgejo.push(ForgejoLogin {
-                url: url.as_str().to_owned(),
+                url: url.as_ref().to_owned(),
                 token: value,
             }),
             // Only the default account is GH_TOKEN.

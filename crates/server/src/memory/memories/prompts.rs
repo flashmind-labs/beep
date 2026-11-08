@@ -52,7 +52,7 @@ pub(super) fn write_known(text: &mut String, known: &[Hit]) {
             "- {} [{}, {}, {}]{}: {}",
             h.id,
             h.category,
-            h.source.as_str(),
+            h.source.as_ref(),
             h.date,
             days(&h.valid),
             h.content
@@ -261,7 +261,7 @@ pub(crate) fn curate_prompt(rows: &[MemoryRow], today: NaiveDate) -> String {
             "- {} [{}, {}, {}]{}{ended}{core}: {}",
             row.id,
             row.category,
-            row.source.as_str(),
+            row.source.as_ref(),
             row.updated(),
             days(&row.valid),
             row.content

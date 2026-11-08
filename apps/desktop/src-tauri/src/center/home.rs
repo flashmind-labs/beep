@@ -23,6 +23,7 @@ use beep_proto::{
     MachineDisk, MachineEnv, MachineGpu, MachineSession, MachineStats, OpenUpdateChat,
     PendingApproval, ResearchStatus, ResearchSummary, Session,
 };
+use iroh::EndpointId;
 use serde::Serialize;
 use std::{cmp::Reverse, collections::HashMap, sync::Arc};
 use tauri::{AppHandle, State, WebviewWindow};
@@ -135,6 +136,7 @@ impl From<AppUpdate> for UpdateRow {
 /// A machine with what it reported and what runs on it.
 #[derive(Debug, Serialize)]
 struct MachineCard {
+    can_host: bool,
     id: String,
     name: String,
     online: bool,
@@ -284,6 +286,11 @@ pub async fn center_home(
     })?;
     for card in view.machines.iter_mut().flatten() {
         card.joined = fleet.member(&card.id).is_some();
+        card.can_host = card
+            .id
+            .parse::<EndpointId>()
+            .ok()
+            .is_none_or(|id| !fleet.mesh().is_some_and(|mesh| mesh.is_observer(id)));
     }
     cache_view(&cache, View::Home, &view);
     Ok(view)
@@ -418,6 +425,7 @@ fn machine_cards(
         .map(|machine| {
             let detail = details.remove(&machine.id);
             MachineCard {
+                can_host: true,
                 stats: stats.remove(&machine.id).map(CardStats::from),
                 agents: agents.get(machine.id.as_str()).copied().unwrap_or(0),
                 seen_at: epoch_ms(machine.seen_at),
@@ -470,7 +478,7 @@ impl From<&ResearchSummary> for RunningRow {
         Self::Research {
             session: research.session_id,
             topic: research.topic.clone(),
-            status: research.status.as_str(),
+            status: Into::<&'static str>::into(research.status),
             round: research.round,
             sources: research.sources,
             started_at: research.started_at,

@@ -171,7 +171,7 @@ impl Agents {
     /// in as the agent's sessions are, with the user's settings for it.
     /// `None` when this node does not run it or the user turned it off.
     fn cli(&self, agent: AgentAccount, args: &[&str]) -> Option<tokio::process::Command> {
-        let name = agent.slug();
+        let name = agent.as_ref();
         let kind = self.named(name)?;
         let kind = self.settings.configured(&kind).ok()?;
         let program = harnesses::find(name)?;
@@ -223,7 +223,7 @@ impl Agents {
         let keep = |agent: AgentAccount, read: Result<Option<PlanUsage>>| match read {
             Ok(Some(plan)) => self.usage.set_plan(plan),
             Ok(None) => {}
-            Err(e) => log::info!("{} plan usage not read: {e:#}", agent.slug()),
+            Err(e) => log::info!("{} plan usage not read: {e:#}", agent.as_ref()),
         };
         tokio::join!(
             async {

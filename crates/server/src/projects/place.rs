@@ -171,7 +171,11 @@ mod tests {
             name: name.to_owned(),
             online: true,
             offers_agent: true,
-            checkout: Some(MachinePath::parse("/srv/project").expect("a valid path")),
+            checkout: Some(
+                ("/srv/project")
+                    .parse::<MachinePath>()
+                    .expect("a valid path"),
+            ),
             shared: true,
             capabilities: capabilities.to_vec(),
             running: 0,

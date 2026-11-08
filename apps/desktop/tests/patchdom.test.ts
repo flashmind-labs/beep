@@ -1,4 +1,4 @@
-import "./dom-env.ts";
+import { removed } from "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { patchChildren } from "../src/ui/patch.ts";
@@ -25,4 +25,17 @@ test("a button disabled after drawing, a request in flight, keeps its child", ()
   (busy.querySelector("button") as HTMLButtonElement).disabled = true;
   patchChildren(view, [el(`<section id="b">Next</section>`)]);
   assert.equal(view.children[0], busy);
+});
+
+test("an updated child passed back to its parent stays attached", () => {
+  const view = document.createElement("div");
+  document.body.append(view);
+  const section = el("<section><button>Open session</button></section>");
+  patchChildren(view, [section]);
+  section.append(el("<span>Syncing</span>"));
+  removed.clear();
+  patchChildren(view, [section]);
+  assert.equal(removed.has(section), false);
+  assert.equal(view.children[0], section);
+  view.remove();
 });

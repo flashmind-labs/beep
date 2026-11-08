@@ -22,7 +22,7 @@ use crate::{
     projects::model::{ProjectId, WorkerState},
 };
 use anyhow::{Result, bail};
-use beep_projects::model::{IssueHost, MachinePath, RepoName, Roles, Visibility};
+use beep_projects::model::{MachinePath, RepoName, Roles, Visibility};
 use iroh::EndpointId;
 use sqlx::{PgConnection, Postgres, Transaction};
 use uuid::Uuid;
@@ -74,7 +74,7 @@ async fn agent_in(tx: &mut PgConnection, user: &UserKey, project: ProjectId) -> 
     let name: Option<String> =
         sqlx::query_scalar("SELECT name FROM projects WHERE id=$1 AND user_id=$2 FOR UPDATE")
             .bind(project.0)
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .fetch_optional(&mut *tx)
             .await?;
     let Some(name) = name else {
@@ -89,7 +89,7 @@ async fn agent_in(tx: &mut PgConnection, user: &UserKey, project: ProjectId) -> 
         return Ok(chat);
     }
     let chat = Uuid::new_v4();
-    if ensure_session(&mut *tx, user.as_str(), chat).await? != SessionChat::New {
+    if ensure_session(&mut *tx, user.as_ref(), chat).await? != SessionChat::New {
         bail!("a fresh chat id was already taken");
     }
     sqlx::query("UPDATE chats SET title=$2 WHERE id=$1")
@@ -117,7 +117,7 @@ async fn home_in(
     )
     .bind(project.0)
     .bind(machine.to_string())
-    .bind(path.as_str())
+    .bind(path.as_ref())
     .execute(&mut *tx)
     .await?
     .rows_affected();
@@ -130,7 +130,7 @@ async fn home_in(
     )
     .bind(project.0)
     .bind(machine.to_string())
-    .bind(path.as_str())
+    .bind(path.as_ref())
     .execute(&mut *tx)
     .await?;
     Ok(())
@@ -148,14 +148,14 @@ impl Store {
              ON CONFLICT (user_id, name) DO NOTHING",
         )
         .bind(Uuid::new_v4())
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(name.to_string())
         .execute(&self.pool)
         .await?;
         let row = sqlx::query(&format!(
             "SELECT {PROJECT_COLUMNS} FROM projects p WHERE p.user_id=$1 AND p.name=$2"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(name.to_string())
         .fetch_one(&self.pool)
         .await?;
@@ -167,7 +167,7 @@ impl Store {
         let rows = sqlx::query(&format!(
             "SELECT {PROJECT_COLUMNS} FROM projects p WHERE p.user_id=$1 ORDER BY p.name"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(project_from).collect()
@@ -182,7 +182,7 @@ impl Store {
             "SELECT {PROJECT_COLUMNS} FROM projects p WHERE p.id=$1 AND p.user_id=$2"
         ))
         .bind(id.0)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_optional(&self.pool)
         .await?;
         row.as_ref().map(project_from).transpose()
@@ -202,7 +202,7 @@ impl Store {
                             WHERE t.project_id = p.id AND t.chat_id=$1))"
         ))
         .bind(chat)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_optional(&self.pool)
         .await?;
         row.as_ref().map(project_from).transpose()
@@ -226,7 +226,7 @@ impl Store {
             "SELECT a.chat_id FROM project_agents a JOIN projects p ON p.id = a.project_id
              WHERE p.user_id = $1 ORDER BY a.created_at",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?)
     }
@@ -243,7 +243,7 @@ impl Store {
         )
         .bind(project.0)
         .bind(checkout.machine.to_string())
-        .bind(checkout.path.as_str())
+        .bind(checkout.path.as_ref())
         .bind(checkout.home)
         .execute(&self.pool)
         .await?;
@@ -272,8 +272,8 @@ impl Store {
             "UPDATE projects SET issues=$2, prs=$3, visibility=$4, default_branch=$5 WHERE id=$1",
         )
         .bind(project.0)
-        .bind(roles.issues.as_ref().map(IssueHost::stored))
-        .bind(roles.prs.as_ref().map(IssueHost::stored))
+        .bind(roles.issues.as_ref().map(String::from))
+        .bind(roles.prs.as_ref().map(String::from))
         .bind(<&str>::from(visibility))
         .bind(default_branch)
         .execute(&self.pool)

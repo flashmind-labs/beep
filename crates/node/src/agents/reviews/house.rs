@@ -32,7 +32,7 @@ pub(super) fn find(cwd: &Path, base: &str, harness: &str) -> Option<HouseRules> 
                 && NAMES.contains(&agent.name.to_lowercase().as_str())
         })
         .collect();
-    found.sort_by_key(|agent| agent.harness.as_str() != harness);
+    found.sort_by_key(|agent| agent.harness.as_ref() != harness);
     let at = base_commit(cwd, base)?;
     found
         .into_iter()

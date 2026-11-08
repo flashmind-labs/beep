@@ -106,7 +106,7 @@ pub(crate) async fn run(
             Err(error) => {
                 log::warn!(
                     "digest: unable to list unread {}: {error:#}; user={user}",
-                    mailbox.slug()
+                    mailbox.as_ref()
                 );
                 report.failed.push(mailbox);
                 continue;
@@ -142,7 +142,7 @@ pub(crate) async fn run(
         if let Err(error) = user.clear_attention(mailbox, &ids).await {
             log::warn!(
                 "digest: unable to clear {}: {error:#}; user={user}",
-                mailbox.slug()
+                mailbox.as_ref()
             );
         }
     }

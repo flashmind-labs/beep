@@ -2,7 +2,7 @@
 
 mod meta;
 mod scope;
-use meta::{Meta, expiry, from_record, from_result, meta_map, now_text, owned_by, row_from};
+use meta::{Meta, expiry, meta_map, now_text, owned_by, row_from};
 pub use scope::Scope;
 
 mod search;
@@ -127,7 +127,7 @@ impl Store {
         let updated = now_text();
         let scope = fact.scope.unwrap_or_default();
         let meta = Meta {
-            user: user.as_str(),
+            user: user.as_ref(),
             category: &category,
             source: fact.source,
             valid,
@@ -167,7 +167,7 @@ impl Store {
         let Some(record) = self.owned_memory(user, id).await? else {
             return Ok(None);
         };
-        let before = from_record(record);
+        let before = MemoryRow::from(record);
         let mut row = before.clone();
         change(&mut row);
         let updated = now_text();
@@ -251,10 +251,10 @@ impl Store {
         let records = self
             .memories
             .records()
-            .filter(USER, user.as_str())
+            .filter(USER, user.as_ref())
             .limit(MAX_ROWS)
             .await?;
-        let mut rows: Vec<MemoryRow> = records.into_iter().map(from_record).collect();
+        let mut rows: Vec<MemoryRow> = records.into_iter().map(MemoryRow::from).collect();
         rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         Ok(rows)
     }
@@ -285,7 +285,7 @@ impl Store {
         let Some(record) = self.owned_memory(user, id).await? else {
             return Ok(false);
         };
-        let mut row = from_record(record);
+        let mut row = MemoryRow::from(record);
         let (core, category) = (row.core, row.category.clone());
         change(&mut row);
         if row.core == core && row.category == category {
@@ -313,7 +313,7 @@ impl Store {
     pub(crate) async fn forget_all(&self, user: &UserKey) -> Result<u64> {
         let deleted = self
             .memories
-            .delete_matching(&[(USER, user.as_str())])
+            .delete_matching(&[(USER, user.as_ref())])
             .await?;
         self.forget_all_history(user).await?;
         Ok(deleted as u64)

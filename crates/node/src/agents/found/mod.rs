@@ -53,9 +53,23 @@ const RECENT: Duration = Duration::from_secs(3 * 60);
 
 /// A coding agent whose sessions are read here.
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+    strum::AsRefStr,
+    strum::Display,
+    strum::EnumString,
+    strum::IntoStaticStr,
 )]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub(crate) enum Agent {
     Claude,
     Codex,
@@ -64,33 +78,9 @@ pub(crate) enum Agent {
     OpenCode,
 }
 
-impl Agent {
-    const ALL: [Self; 5] = [
-        Self::Claude,
-        Self::Codex,
-        Self::Pi,
-        Self::Flsh,
-        Self::OpenCode,
-    ];
-
-    /// The name the node's agent table uses, such as `claude`.
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Claude => "claude",
-            Self::Codex => "codex",
-            Self::Pi => "pi",
-            Self::Flsh => "flsh",
-            Self::OpenCode => "opencode",
-        }
-    }
-
-    /// The slug the wire names it by.
-    pub(crate) fn slug(self) -> AgentSlug {
-        AgentSlug::from(self.as_str())
-    }
-
-    pub(crate) fn from_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|agent| agent.as_str() == name)
+impl From<Agent> for AgentSlug {
+    fn from(agent: Agent) -> Self {
+        Self::from(agent.as_ref())
     }
 }
 
@@ -423,7 +413,7 @@ pub(crate) fn folders(
                 agents: agents
                     .into_iter()
                     .map(|(agent, sessions)| AgentSessions {
-                        agent: agent.as_str().to_owned(),
+                        agent: agent.to_string(),
                         sessions,
                     })
                     .collect(),
@@ -512,7 +502,7 @@ fn describe(seen: Seen, now: SystemTime) -> ExternalSession {
         .unwrap_or_default();
     ExternalSession {
         id: seen.id,
-        agent: seen.agent.as_str().to_owned(),
+        agent: seen.agent.to_string(),
         cwd: seen.cwd.to_string_lossy().into_owned(),
         title: seen.title,
         started_at: seen.started_at,

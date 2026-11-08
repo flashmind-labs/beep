@@ -25,6 +25,7 @@ use beep_proto::{
     PullRequestHead, ThreadDetail,
 };
 use iroh::EndpointId;
+use std::str::FromStr;
 use std::{collections::HashMap, future::Future, sync::Arc};
 use uuid::Uuid;
 
@@ -229,7 +230,7 @@ pub(crate) struct DeskProject {
 
 impl DeskProject {
     pub(crate) fn of(mesh: &Mesh, name: &str) -> Result<Self> {
-        let name = RepoName::parse(name).map_err(|e| FleetError::refused(e.to_string()))?;
+        let name = RepoName::from_str(name).map_err(|e| FleetError::refused(e.to_string()))?;
         let stored = find_project(mesh, &name.to_string()).ok_or(FleetError::NotFound)?;
         let mut machines: Vec<EndpointId> = stored.places.keys().copied().collect();
         nearest_first(mesh, &mut machines, |machine| *machine);

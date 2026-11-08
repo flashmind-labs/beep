@@ -65,14 +65,15 @@ impl Snapshots {
             }
             let before = machine.entries.len();
             machine.entries.retain(|_, entry| {
-                entry.owners = topics
-                    .iter()
-                    .filter(|wanted| {
-                        wanted.matches(&entry.query.topic)
-                            || entry.owners.iter().any(|owner| wanted.covers(owner))
-                    })
-                    .cloned()
-                    .collect();
+                // Keep concrete owners while a broader subscription covers them.
+                entry
+                    .owners
+                    .retain(|owner| topics.iter().any(|wanted| wanted.covers(owner)));
+                for topic in topics {
+                    if topic.matches(&entry.query.topic) && !entry.owners.contains(topic) {
+                        entry.owners.push(topic.clone());
+                    }
+                }
                 !entry.owners.is_empty()
             });
             changed |= before != machine.entries.len();
@@ -112,9 +113,9 @@ impl Snapshots {
         {
             machine.generation = None;
             machine.ready = false;
-            for entry in machine.entries.values() {
-                entry.current.send_replace(None);
-            }
+            // These queries belong to the ended stream. Dropping their senders
+            // wakes waiting reads so they can fall back to finite requests.
+            machine.entries.clear();
         }
     }
 
@@ -224,7 +225,11 @@ impl Snapshots {
                 machine.entries.remove(&existing);
             } else if let Some(entry) = machine.entries.get_mut(&existing) {
                 entry.used = next;
-                entry.owners = owners;
+                for owner in owners {
+                    if !entry.owners.contains(&owner) {
+                        entry.owners.push(owner);
+                    }
+                }
                 return Some(Ok(entry.current.subscribe()));
             }
         }
@@ -306,7 +311,8 @@ impl SnapshotReader for Reader {
                         Some(Err(reason)) => Err(error(reason)),
                         None => Err(error("the subscription did not provide its snapshot")),
                     },
-                    Ok(Err(_)) => Err(error("the subscription was removed")),
+                    // The read can outlive its view's subscription.
+                    Ok(Err(_)) => return None,
                     Err(_) => Err(error("the node did not provide its subscription snapshot")),
                 },
             )

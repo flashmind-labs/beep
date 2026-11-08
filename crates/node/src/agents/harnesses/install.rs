@@ -43,8 +43,8 @@ pub(super) struct NpmGlobal {
     modules: PathBuf,
 }
 
-impl NpmGlobal {
-    pub(super) fn from_prefix(prefix: &Path) -> Self {
+impl From<&Path> for NpmGlobal {
+    fn from(prefix: &Path) -> Self {
         if cfg!(windows) {
             Self {
                 bin: prefix.to_path_buf(),
@@ -57,7 +57,9 @@ impl NpmGlobal {
             }
         }
     }
+}
 
+impl NpmGlobal {
     /// Whether `cli` is a command npm linked for `package`.
     fn installed(&self, cli: &Path, package: &str) -> bool {
         cli.parent() == Some(self.bin.as_path()) && self.modules.join(package).is_dir()
@@ -468,7 +470,7 @@ mod tests {
     fn a_command_in_npms_bin_folder_is_from_npm() {
         // npm on Windows writes a shim into the prefix, not a link.
         let prefix = tempfile::tempdir().unwrap();
-        let global = NpmGlobal::from_prefix(prefix.path());
+        let global = NpmGlobal::from(prefix.path());
         let cli = file(&global.bin, "gemini");
         let npm = Npm {
             found: true,

@@ -19,7 +19,7 @@ impl Store {
             "SELECT id, name, paths FROM project_groups WHERE user_id=$1
              ORDER BY created_at, id",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         Ok(rows
@@ -41,7 +41,7 @@ impl Store {
                      RETURNING id, name, paths",
                 )
                 .bind(Uuid::new_v4())
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .bind(group.name)
                 .bind(group.paths)
                 .fetch_one(&self.pool)
@@ -53,7 +53,7 @@ impl Store {
                      RETURNING id, name, paths",
                 )
                 .bind(id)
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .bind(group.name)
                 .bind(group.paths)
                 .fetch_optional(&self.pool)
@@ -67,7 +67,7 @@ impl Store {
     pub(crate) async fn delete_project_group(&self, user: &UserKey, id: Uuid) -> Result<bool> {
         let deleted = sqlx::query("DELETE FROM project_groups WHERE id=$1 AND user_id=$2")
             .bind(id)
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .execute(&self.pool)
             .await?
             .rows_affected();

@@ -1,6 +1,7 @@
 use super::kinds::launch;
 use super::running::home_twins;
 use super::*;
+use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{self, CheckoutPlan, SessionsReply, Status},
     harness::AgentSettings,
@@ -669,7 +670,7 @@ async fn a_live_view_survives_idle_time_and_detaching_keeps_the_agent_running() 
     .unwrap();
     let request = FollowSession {
         agent: "codex".into(),
-        session: session.info().id,
+        session: Into::<SessionId>::into(session.info().id),
         last: 200,
         after: None,
     };

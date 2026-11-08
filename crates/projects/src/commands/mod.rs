@@ -19,7 +19,7 @@ use anyhow::Result;
 
 /// Keeps `.worktrees/` and `.beep/` out of `git status` in the checkout.
 pub fn exclude_project_dirs(checkout: &MachinePath) -> String {
-    let checkout = quote(checkout.as_str());
+    let checkout = quote(checkout.as_ref());
     format!(
         "exclude=\"$(git -C {checkout} rev-parse --path-format=absolute --git-common-dir)/info/exclude\" \
          && mkdir -p \"$(dirname \"$exclude\")\" \
@@ -31,7 +31,7 @@ pub fn exclude_project_dirs(checkout: &MachinePath) -> String {
 /// Makes the task's worktree on a new `beep/<slug>` branch from `origin`'s `base`, or the
 /// local one when it has commits `origin` lacks.
 pub fn worktree_add(checkout: &MachinePath, slug: &TaskSlug, base: &str) -> String {
-    let repo = quote(checkout.as_str());
+    let repo = quote(checkout.as_ref());
     let local = quote(&format!("refs/heads/{base}"));
     let remote = quote(&format!("refs/remotes/origin/{base}"));
     format!(
@@ -42,21 +42,21 @@ pub fn worktree_add(checkout: &MachinePath, slug: &TaskSlug, base: &str) -> Stri
          git -C {repo} worktree add -b {branch} {path} \"$start\"",
         base_word = quote(base),
         branch = quote(&slug.branch()),
-        path = quote(slug.worktree(checkout).as_str()),
+        path = quote(slug.worktree(checkout).as_ref()),
         origin = quote(&format!("origin/{base}")),
     )
 }
 
 pub fn head_commit(checkout: &MachinePath) -> String {
-    format!("git -C {} rev-parse HEAD", quote(checkout.as_str()))
+    format!("git -C {} rev-parse HEAD", quote(checkout.as_ref()))
 }
 
 /// Removes the task's worktree and its `beep/<slug>` branch, nothing else.
 pub fn worktree_remove(checkout: &MachinePath, slug: &TaskSlug) -> String {
-    let repo = quote(checkout.as_str());
+    let repo = quote(checkout.as_ref());
     format!(
         "git -C {repo} worktree remove --force {} && git -C {repo} branch -D {}",
-        quote(slug.worktree(checkout).as_str()),
+        quote(slug.worktree(checkout).as_ref()),
         quote(&slug.branch()),
     )
 }
@@ -67,7 +67,7 @@ const HEAD_MARK: &str = "== head";
 
 /// Prints the checkout's raw remote URLs, its `beep.issues`/`beep.prs` settings and default branch.
 pub fn read_setup(checkout: &MachinePath) -> String {
-    let repo = quote(checkout.as_str());
+    let repo = quote(checkout.as_ref());
     format!(
         "echo '{REMOTES_MARK}'; git -C {repo} config --get-regexp '^remote\\..*\\.url$'; \
          echo '{CONFIG_MARK}'; echo \"issues=$(git -C {repo} config --get beep.issues)\"; \
@@ -167,9 +167,10 @@ fn role(configured: &str, remote_host: &str) -> Result<Option<IssueHost>, SetupE
         "none" => Ok(None),
         "github" => Ok(Some(IssueHost::Github)),
         "forgejo" => from_host().map(|host| host.filter(|host| *host != IssueHost::Github)),
-        other => IssueHost::from_stored(other)
+        other => other
+            .parse::<IssueHost>()
             .map(Some)
-            .ok_or_else(|| SetupError::BadConfig(other.to_owned())),
+            .map_err(|_| SetupError::BadConfig(other.to_owned())),
     }
 }
 

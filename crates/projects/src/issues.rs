@@ -337,7 +337,7 @@ async fn failed_everywhere(
 fn host_label(host: &IssueHost) -> &str {
     match host {
         IssueHost::Github => "GitHub",
-        IssueHost::Forgejo(host) => host.as_str(),
+        IssueHost::Forgejo(host) => host.as_ref(),
     }
 }
 
@@ -546,7 +546,7 @@ pub async fn machine_view(
     .ok();
     let host = match &source.host {
         IssueHost::Github => "github.com".to_owned(),
-        IssueHost::Forgejo(host) => host.as_str().to_owned(),
+        IssueHost::Forgejo(host) => host.as_ref().to_owned(),
     };
     Some(MachineView {
         host,
@@ -610,6 +610,7 @@ mod tests {
     use super::*;
     use crate::ShellOutput;
     use iroh::SecretKey;
+    use std::str::FromStr;
     use std::sync::Mutex;
 
     /// Answers every command the same way and counts them.
@@ -666,7 +667,7 @@ mod tests {
     }
 
     fn repo() -> RepoName {
-        RepoName::parse("acme/widget").expect("a repo")
+        RepoName::from_str("acme/widget").expect("a repo")
     }
 
     fn source(machine: EndpointId, shell: Arc<FixedShell>) -> IssueSource {

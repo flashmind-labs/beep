@@ -144,10 +144,7 @@ pub async fn update(options: Options) -> Result<(), Error> {
         }
         Ordering::Less => {}
     }
-    println!(
-        "Downloading beep-node {latest} for {}",
-        Target::current()?.triple()
-    );
+    println!("Downloading beep-node {latest} for {}", Target::current()?);
     let download = download(&client, &base, &latest).await?;
     // Kept until the restart, so the node holds new prompts until then.
     let _holding = match wait {

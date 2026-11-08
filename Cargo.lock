@@ -533,6 +533,7 @@ name = "beep-live"
 version = "0.1.0"
 dependencies = [
  "beep-proto",
+ "strum 0.28.0",
 ]
 
 [[package]]
@@ -569,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "beep-node"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -614,10 +615,12 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2 0.11.0",
+ "strum 0.28.0",
  "tar",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "toml 1.1.6+spec-1.1.0",
  "toml_edit 0.25.15+spec-1.1.0",

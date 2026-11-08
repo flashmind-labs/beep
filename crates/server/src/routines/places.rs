@@ -10,7 +10,8 @@ use crate::{
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use std::{fmt, sync::Arc};
+use std::{fmt, str::FromStr, sync::Arc};
+use strum::ParseError;
 use uuid::Uuid;
 
 /// How near counts as being at a place, in metres, unless the user says.
@@ -26,28 +27,24 @@ const EXIT_MARGIN_MIN: f64 = 50.0;
 const ARRIVE_ACCURACY_MIN: f64 = 100.0;
 
 /// Arriving at a place or leaving it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    strum::AsRefStr,
+    strum::Display,
+    strum::IntoStaticStr,
+    strum::EnumString,
+)]
+#[strum(serialize_all = "snake_case")]
 pub enum PlaceEvent {
     Arrive,
     Leave,
 }
 
 impl PlaceEvent {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Arrive => "arrive",
-            Self::Leave => "leave",
-        }
-    }
-
-    pub fn parse(text: &str) -> Option<Self> {
-        match text {
-            "arrive" => Some(Self::Arrive),
-            "leave" => Some(Self::Leave),
-            _ => None,
-        }
-    }
-
     /// The event as the routine's message tells it, such as `arrived at Gym`.
     fn past(self, place: &str) -> String {
         match self {
@@ -67,7 +64,18 @@ impl From<PlaceCrossing> for PlaceEvent {
 }
 
 /// How often a place routine starts, written as the end of its schedule.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    strum::AsRefStr,
+    strum::Display,
+    strum::IntoStaticStr,
+    strum::EnumString,
+)]
+#[strum(serialize_all = "snake_case")]
 pub enum PlaceRepeat {
     /// On every arrival or departure; the schedule has no ending.
     Always,
@@ -86,20 +94,6 @@ impl PlaceRepeat {
             Self::Once => Some("once"),
         }
     }
-
-    /// Reads the tool's word for it: `always`, `daily` or `once`.
-    pub fn parse(text: &str) -> Option<Self> {
-        match text {
-            "always" => Some(Self::Always),
-            "daily" => Some(Self::Daily),
-            "once" => Some(Self::Once),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        self.suffix().unwrap_or("always")
-    }
 }
 
 /// A place schedule: `arrive:<id>` or `leave:<id>`, ending in `:daily` or `:once`.
@@ -110,38 +104,42 @@ pub struct PlaceTrigger {
     pub repeat: PlaceRepeat,
 }
 
-impl PlaceTrigger {
-    /// Reads a schedule; `None` for a time or anything else.
-    pub fn parse(schedule: &str) -> Option<Self> {
+impl FromStr for PlaceTrigger {
+    type Err = ParseError;
+
+    fn from_str(schedule: &str) -> Result<Self, Self::Err> {
+        let invalid = ParseError::VariantNotFound;
         let mut parts = schedule.trim().split(':');
-        let event = PlaceEvent::parse(parts.next()?)?;
-        let place = parts.next()?.parse().ok()?;
+        let event = parts.next().ok_or(invalid)?.parse()?;
+        let place = parts.next().ok_or(invalid)?.parse().map_err(|_| invalid)?;
         let repeat = match parts.next() {
             None => PlaceRepeat::Always,
-            Some("always") => return None,
-            Some(ending) => PlaceRepeat::parse(ending)?,
+            Some("always") => return Err(invalid),
+            Some(ending) => ending.parse()?,
         };
         if parts.next().is_some() {
-            return None;
+            return Err(invalid);
         }
-        Some(Self {
+        Ok(Self {
             event,
             place,
             repeat,
         })
     }
+}
 
+impl PlaceTrigger {
     /// Whether `schedule` means to be a place trigger, well formed or not.
     pub fn claims(schedule: &str) -> bool {
         schedule
             .split_once(':')
-            .is_some_and(|(event, _)| PlaceEvent::parse(event.trim()).is_some())
+            .is_some_and(|(event, _)| (event.trim()).parse::<PlaceEvent>().ok().is_some())
     }
 }
 
 impl fmt::Display for PlaceTrigger {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}:{}", self.event.as_str(), self.place)?;
+        write!(f, "{}:{}", self.event.as_ref(), self.place)?;
         if let Some(suffix) = self.repeat.suffix() {
             write!(f, ":{suffix}")?;
         }
@@ -241,7 +239,7 @@ pub async fn cross(app: &Arc<App>, user: &Arc<User>, id: Uuid, event: PlaceEvent
 fn spawn_routines(app: &Arc<App>, user: &Arc<User>, crossing: Crossed) {
     log::info!(
         "places: {}; place_id={} user={user}",
-        crossing.event.as_str(),
+        crossing.event.as_ref(),
         crossing.place.id
     );
     let (app, user) = (app.clone(), user.clone());
@@ -385,13 +383,29 @@ mod tests {
                 repeat: PlaceRepeat::Once,
             },
         ] {
-            assert_eq!(PlaceTrigger::parse(&trigger.to_string()), Some(trigger));
+            assert_eq!(
+                trigger.to_string().parse::<PlaceTrigger>().ok(),
+                Some(trigger)
+            );
         }
-        assert_eq!(PlaceTrigger::parse("0 9 * * *"), None);
-        assert_eq!(PlaceTrigger::parse("2026-10-05T09:00:00+00:00"), None);
-        assert_eq!(PlaceTrigger::parse("arrive:gym"), None);
-        assert_eq!(PlaceTrigger::parse(&format!("arrive:{place}:weekly")), None);
-        assert_eq!(PlaceTrigger::parse(&format!("arrive:{place}:always")), None);
+        assert_eq!("0 9 * * *".parse::<PlaceTrigger>().ok(), None);
+        assert_eq!(
+            "2026-10-05T09:00:00+00:00".parse::<PlaceTrigger>().ok(),
+            None
+        );
+        assert_eq!("arrive:gym".parse::<PlaceTrigger>().ok(), None);
+        assert_eq!(
+            format!("arrive:{place}:weekly")
+                .parse::<PlaceTrigger>()
+                .ok(),
+            None
+        );
+        assert_eq!(
+            format!("arrive:{place}:always")
+                .parse::<PlaceTrigger>()
+                .ok(),
+            None
+        );
         assert!(PlaceTrigger::claims("arrive:gym"));
         assert!(!PlaceTrigger::claims("2026-10-05T09:00:00+00:00"));
         assert!(!PlaceTrigger::claims("0 9 * * *"));

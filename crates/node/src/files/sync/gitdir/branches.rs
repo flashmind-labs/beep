@@ -64,7 +64,7 @@ impl Repo {
         let out = self
             .run(&["rev-parse", "-q", "--verify", "--end-of-options", name])
             .ok()?;
-        Oid::parse(String::from_utf8_lossy(&out.stdout).trim())
+        String::from_utf8_lossy(&out.stdout).trim().parse().ok()
     }
 
     pub(in crate::files::sync) fn peer_ref(peer: &EndpointId, branch: &str) -> Result<String> {
@@ -96,7 +96,7 @@ impl Repo {
         let retained = format!(
             "refs/beep-sync/retained/{peer}/{}/{}",
             blake3::hash(branch.as_bytes()).to_hex(),
-            commit.hex()
+            commit
         );
         if self.ref_oid(&retained) != Some(commit) {
             self.set_ref(&retained, commit, None)?;
@@ -198,7 +198,7 @@ impl Repo {
             "--no-auto-maintenance",
             "--no-recurse-submodules",
             ".",
-            &format!("{}:{branch}", target.hex()),
+            &format!("{target}:{branch}"),
         ])
         .with_context(|| format!("Waiting to fast-forward inactive Git branch {branch}"))?;
         Ok(())
@@ -211,7 +211,7 @@ mod tests {
 
     #[test]
     fn advertisements_exclude_private_names_and_duplicate_branches() {
-        let commit = Oid::from_bytes([1; 32]);
+        let commit = Oid::from([1; 32]);
         for name in [
             "refs/stash",
             "refs/beep-recovery/saved",

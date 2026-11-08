@@ -488,8 +488,8 @@
   D.dAgentSession = () => {
     const variant = pick("ags", ["nochange", "held", "fromsession", "warning", "working", "asks", "idle", "stepsopen", "failed", "failedopen", "subagents", "subchild", "agentkids", "agentchild", "agentstopped", "answered", "model", "flshmodel", "flshusage", "flshunknown", "ended", "outside", "disksubs", "image", "shots", "shotpanel", "paneright", "panegone", "panebottom", "panepdf", "panecollapsed", "files", "filemulti", "filedelete", "filemenu", "filemenuwith", "filetext", "filefilter", "dragpath", "dropchoice", "term", "termsplit", "dragtab", "pasted", "pastepreview", "artifacts", "running", "runstop", "thinking", "thoughts", "thoughtopen", "steer", "steered", "stopping", "rich", "richopen", "richcmd", "richgroup", "richdone", "richerror", "richjump", "richthink", "richthought"], "nochange");
     const v = variant === "flshusage" || variant === "flshunknown" ? "idle" : variant;
-    // Enter while a turn runs steers: the message waits above the field and
-    // goes to the agent once its current step (tool call) finishes.
+    // Enter while a turn runs shows the message in the chat immediately.
+    // It stays pending until the agent receives it after its current step.
     // Cmd-. stops at once: the turn reads
     // Stopping until the agent confirms.
     const stopping = v === "stopping";
@@ -579,7 +579,7 @@ expected 200, got 401</pre></details></span></div>`;
     const answer = media
       ? `<div class="dcoderen agent md">The turntable renders cleanly now. The model is ${mlink("out/turntable.glb", "paneright")}, the render ${mlink("out/walkcycle.mp4", "panebottom")} and the contact sheet ${mlink("out/contact-sheet.pdf", "panepdf")}.<div class="shots"><i class="img big b2" data-dact="dset:ags:shotpanel"></i></div></div>`
       : shots
-      ? `<div class="dcoderen agent md">The button no longer overlaps the label. Before and after are in <a class="imgl" data-dact="dset:ags:shotpanel">shots/login-before.png</a> and <a class="imgl" data-dact="dset:ags:shotpanel">shots/login-after.png</a>.<div class="shots"><i class="img big" data-dact="dset:ags:shotpanel"></i><i class="img big b2" data-dact="dset:ags:shotpanel"></i></div></div>`
+      ? `<div class="dcoderen agent md">The button no longer overlaps the label. Before and after are in <a class="imgl" data-dact="dset:ags:shotpanel">shots/login-before.png</a> and <a class="imgl" data-dact="dset:ags:shotpanel">shots/login-after.png</a>.<p>Latest screenshot:</p><p><img class="img big" src="assets/inline-image.svg" alt="Sign-in screen" data-dact="dset:ags:shotpanel" width="240" height="160"></p></div>`
       : v === "beeptools"
       ? `<div class="dcoderen agent md">The release build passes on build-box, and the iOS UI tests are running on mac-mini (job-7f2c). win-box is offline, so the Windows run waits.</div>`
       : arts
@@ -617,6 +617,7 @@ expected 200, got 401</pre></details></span></div>`;
       subs ? group : thinkV && v !== "thinking" ? dRows(step("run", "Running cargo test -p widget-core")) : thinkV ? "" : dRows(step("run", asks ? "Run rm -rf target && cargo build --release" : "Running cargo test -p widget-core")),
       v === "thinking" ? dThink({ live: true, text: T2 }) : "",
       dLive(asks ? "Waiting for you" : v === "thinking" ? "Thinking" : "Working", "48s", { doing: asks || subs || thinkV ? "" : "Checking why the error text changed" }),
+      ["steer", "steered"].includes(v) ? `<div class="dcoderen user md"${v === "steer" ? ' data-pending-steer' : ""}><b>You</b><div class="said"><p>Use the fixture in tests/data, not a new one</p></div>${v === "steer" ? '<div class="dmuted">Waiting for the current step</div>' : ""}</div>` : "",
     ].join("");
     const kidView = `<div class="crumb"><button data-dact="dset:ags:agentkids">Fix the failing login test</button><span>›</span><b>Build the iOS target</b><span class="sp"></span><button class="dbtn" data-dact="dset:ags:agentkids">Open parent<kbd>esc</kbd></button></div>
       <div class="note">Started by Fix the failing login test on build-box. Codex on mac-box, in widget.</div>

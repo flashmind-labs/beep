@@ -566,6 +566,11 @@ impl Fleet {
         let mesh = timeout(OPENING, self.ready())
             .await
             .map_err(|_| DesktopError::NoMesh("still opening".into()))??;
+        if mesh.is_observer(machine) {
+            return Err(DesktopError::BadRequest(
+                "Phones do not host sessions or files.".into(),
+            ));
+        }
         with_deadline(machine, &mesh)
             .await
             .map(|client| client.with_snapshot_reader(self.snapshots.reader(machine)))
@@ -581,7 +586,9 @@ impl Fleet {
 
     /// The members that are online now, this Mac among them.
     pub fn online(&self) -> Vec<EndpointId> {
-        self.machines()
+        self.mesh()
+            .map(|mesh| mesh.code_hosts())
+            .unwrap_or_default()
             .into_iter()
             .filter(|status| {
                 status.online || (status.device.id == self.me && self.session.is_some())

@@ -49,7 +49,7 @@ impl Store {
              ON CONFLICT DO NOTHING",
         )
         .bind(chat)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(source)
         .bind(text)
         .execute(&self.pool)
@@ -61,7 +61,7 @@ impl Store {
              WHERE m.user_id = $1
              ORDER BY a.created_at DESC, a.chat_id OFFSET $2",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(LISTED)
         .fetch_all(&self.pool)
         .await?;
@@ -80,7 +80,7 @@ impl Store {
              WHERE m.user_id = $1
              ORDER BY a.created_at DESC, a.chat_id LIMIT $2",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(LISTED)
         .fetch_all(&self.pool)
         .await?;
@@ -104,7 +104,7 @@ impl Store {
             "UPDATE chat_alerts a SET read = TRUE FROM chat_members m
              WHERE m.chat_id = a.chat_id AND m.user_id = $1 AND a.chat_id = ANY($2)",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(ids)
         .execute(&self.pool)
         .await?;
@@ -118,7 +118,7 @@ impl Store {
             "SELECT a.chat_id FROM chat_alerts a JOIN chat_members m ON m.chat_id = a.chat_id
              WHERE m.user_id = $1 AND a.chat_id = ANY($2)",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(ids)
         .fetch_all(&self.pool)
         .await?;

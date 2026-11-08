@@ -46,9 +46,11 @@ impl Scope {
             Self::Account(app) => Some(format!("account:{app}")),
         }
     }
+}
 
+impl From<Option<&str>> for Scope {
     /// A stored scope; an unreadable one counts as the user's, the widest.
-    pub(super) fn from_stored(text: Option<&str>) -> Self {
+    fn from(text: Option<&str>) -> Self {
         let Some((kind, name)) = text.and_then(|text| text.split_once(':')) else {
             return Self::User;
         };

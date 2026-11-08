@@ -42,7 +42,7 @@ impl Store {
              ON CONFLICT (user_id, device_id) DO UPDATE SET fcm_token=excluded.fcm_token,
                  endpoint_id=excluded.endpoint_id, service=excluded.service, created_at=now()",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(device.device_id)
         .bind(device.token)
         .bind(device.endpoint.to_string())
@@ -54,7 +54,7 @@ impl Store {
 
     pub(crate) async fn unregister_device(&self, user: &UserKey, device_id: &str) -> Result<bool> {
         let deleted = sqlx::query("DELETE FROM devices WHERE user_id=$1 AND device_id=$2")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(device_id)
             .execute(&self.pool)
             .await?

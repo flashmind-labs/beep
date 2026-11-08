@@ -316,7 +316,7 @@ impl Live {
             .map(|option| AnswerOption {
                 id: option.option_id.0.to_string(),
                 name: option.name.clone(),
-                kind: OptionKind::from_acp(&wire_name(&option.kind)),
+                kind: wire_name(&option.kind).parse().unwrap_or(OptionKind::Other),
             })
             .collect();
         let text = cut(&text, MAX_LINE);
@@ -335,9 +335,8 @@ impl Live {
         }
     }
 
-    /// Applies one `session/update`. True when the compact state changed,
-    /// so the server should hear of it; transcript changes alone are not
-    /// sent.
+    /// Applies one `session/update`. True when the compact state changed;
+    /// transcript and metadata changes can still need publishing.
     pub(crate) fn apply(&mut self, update: &SessionUpdate) -> bool {
         self.apply_at(update, Instant::now())
     }

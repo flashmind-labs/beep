@@ -25,8 +25,10 @@ impl Agents {
     /// files go first, then the node's record of it, so a failure leaves
     /// the session listed. What it spent stays in the spend totals.
     pub(super) async fn delete_session(&self, agent: &str, id: &str) -> Result<()> {
-        let which =
-            Agent::from_name(agent).with_context(|| format!("this node has no agent {agent}"))?;
+        let which = agent
+            .parse::<Agent>()
+            .ok()
+            .with_context(|| format!("this node has no agent {agent}"))?;
         if matches!(which, Agent::Flsh | Agent::OpenCode) {
             bail!("{agent} keeps its sessions in a database, which Beep does not edit");
         }

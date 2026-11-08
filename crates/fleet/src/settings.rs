@@ -104,7 +104,7 @@ impl Desk {
         let shared = read::<HarnessConfig>(&self.mesh, &Self::harness_key(agent));
         Ok(self
             .mesh
-            .machines()
+            .code_hosts()
             .into_iter()
             .map(|status| {
                 let own = read::<HarnessConfig>(
@@ -202,7 +202,7 @@ impl Desk {
         }
         let mut seen = HashSet::new();
         for rule in &rules {
-            if !valid_model(rule.model.as_str()) || !seen.insert(&rule.model) {
+            if !valid_model(rule.model.as_ref()) || !seen.insert(&rule.model) {
                 return Err(FleetError::refused("Give each override a unique model id."));
             }
             if rule.compact.tokens == Some(0)
@@ -237,7 +237,7 @@ impl Desk {
         let paths = match include_program {
             true => self
                 .mesh
-                .machines()
+                .code_hosts()
                 .into_iter()
                 .map(|status| {
                     (
@@ -254,7 +254,7 @@ impl Desk {
     }
 
     fn known_machine(&self, machine: &str) -> Result<(EndpointId, u32)> {
-        let machines = self.mesh.machines();
+        let machines = self.mesh.code_hosts();
         let id = machines
             .iter()
             .map(|status| status.device.id)

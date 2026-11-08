@@ -31,14 +31,23 @@ ffi_enum! {
     /// `Planning` while the lead and the user agree on a plan; `Interrupted`
     /// when the server restarted while the agents ran.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(strum::AsRefStr, strum::IntoStaticStr)]
     pub enum ResearchStatus {
+        #[strum(serialize = "planning")]
         0 Planning {}
+        #[strum(serialize = "researching")]
         1 Researching {}
+        #[strum(serialize = "reviewing")]
         2 Reviewing {}
+        #[strum(serialize = "writing")]
         3 Writing {}
+        #[strum(serialize = "done")]
         4 Done {}
+        #[strum(serialize = "failed")]
         5 Failed {}
+        #[strum(serialize = "stopped")]
         6 Stopped {}
+        #[strum(serialize = "interrupted")]
         7 Interrupted {}
     }
 }
@@ -109,20 +118,5 @@ ffi_structs! {
         pub quote: String,
         /// The agent that found it.
         pub agent: String,
-    }
-}
-
-impl ResearchStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Planning {} => "planning",
-            Self::Researching {} => "researching",
-            Self::Reviewing {} => "reviewing",
-            Self::Writing {} => "writing",
-            Self::Done {} => "done",
-            Self::Failed {} => "failed",
-            Self::Stopped {} => "stopped",
-            Self::Interrupted {} => "interrupted",
-        }
     }
 }

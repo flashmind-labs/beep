@@ -85,7 +85,7 @@ impl Registry {
             .or_insert_with(|| Tracked {
                 session: ExternalSession {
                     id: registration.session_id,
-                    agent: registration.agent.as_str().to_owned(),
+                    agent: registration.agent.as_ref().to_owned(),
                     started_at: if registration.started_at == 0 {
                         now
                     } else {

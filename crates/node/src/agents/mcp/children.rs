@@ -243,8 +243,8 @@ struct ChildId<'a> {
     machine: Option<&'a str>,
 }
 
-impl<'a> ChildId<'a> {
-    fn parse(text: &'a str) -> Self {
+impl<'a> From<&'a str> for ChildId<'a> {
+    fn from(text: &'a str) -> Self {
         match text.trim().split_once('@') {
             Some((session, machine)) => Self {
                 session,
@@ -425,7 +425,7 @@ impl Reach<'_> {
             .map_err(|e| format!("{} answered something unreadable: {e}", machine.name))?;
         let view = view.named(&machine.name);
         self.agents
-            .settle_remote(me, machine.id, ChildId::parse(&view.id).session);
+            .settle_remote(me, machine.id, ChildId::from(view.id.as_str()).session);
         Ok(view)
     }
 
@@ -452,7 +452,7 @@ impl Reach<'_> {
     /// Where a child named by `id` is, and the child itself on this machine.
     /// The same refusal whether it is not there or not the caller's.
     fn find(&self, id: &str) -> Result<Found, String> {
-        let id = ChildId::parse(id);
+        let id = ChildId::from(id);
         let none = || format!("You have no agent {}.", id.session);
         match self.target(id.machine).map_err(|_| none())? {
             None => Ok(Found::Here(self.agents.child_of(self.who, id.session)?)),
@@ -468,7 +468,7 @@ impl Reach<'_> {
 
     async fn status(&self, id: &str) -> Reply {
         // A review's id: its reviewer is gone once it is done.
-        if let Some(run) = self.agents.review_for(self.who, ChildId::parse(id).session) {
+        if let Some(run) = self.agents.review_for(self.who, ChildId::from(id).session) {
             return super::review::standing(run);
         }
         match self.view_of(id).await {

@@ -6,6 +6,11 @@ import { setImmediate } from "node:timers/promises";
 import type { Note } from "../src/center/notices-state.ts";
 
 const routes: { name: string; arg: unknown }[] = [];
+let updateNotes: (event: { payload: Note[] }) => void = () => {};
+window.__TAURI__.event.listen = async (name, handler) => {
+  if (name === "notes") updateNotes = handler as typeof updateNotes;
+  return () => {};
+};
 Object.assign(globalThis, { noticeRoutes: routes });
 const stubs = new Map(Object.entries({
   "center/views.ts": "export const go = (name, arg) => globalThis.noticeRoutes.push({ name, arg });",
@@ -66,3 +71,88 @@ for (const [result, read, activation] of [
     await setImmediate();
   });
 }
+
+test("Cmd+B focuses notifications; arrows, updates and dismissals keep keyboard focus in the list", async t => {
+  const listeners = new WeakMap<object, Map<string, EventListener>>();
+  const listen = function (this: object, name: string, handler: EventListener) {
+    let events = listeners.get(this);
+    if (!events) listeners.set(this, events = new Map());
+    events.set(name, handler);
+  };
+  t.mock.method(HTMLElement.prototype, "addEventListener", listen);
+  t.mock.method(document, "addEventListener", listen);
+  let active: HTMLElement = document.body;
+  Object.defineProperty(document, "activeElement", { configurable: true, get: () => active });
+  t.after(() => { Reflect.deleteProperty(document, "activeElement"); });
+  t.mock.method(HTMLElement.prototype, "focus", function (this: HTMLElement) { active = this; });
+  const fire = (target: HTMLElement, name: string, keys: Partial<KeyboardEvent> = {}) => {
+    const path: object[] = [];
+    for (let node: HTMLElement | null = target; node; node = node.parentElement) path.push(node);
+    path.push(document);
+    let stopped = false;
+    const event = {
+      target, defaultPrevented: false, ...keys,
+      preventDefault() { this.defaultPrevented = true; },
+      stopPropagation() { stopped = true; },
+      composedPath: () => path,
+    };
+    for (const node of path) {
+      listeners.get(node)?.get(name)?.call(node, event as unknown as Event);
+      if (stopped) break;
+    }
+    return event;
+  };
+  const key = (key: string, metaKey = false) => fire(active!, "keydown", { key, metaKey });
+  const note = (id: string, at: number): Note => ({
+    id, at, kind: "finished", title: id, text: "", source: "build-box", read: false, done: false, target: null,
+  });
+  const notes = [note("first", 3), note("second", 2), note("third", 1)];
+  answers.alerts_list = null;
+  answers.notes_list = notes;
+  const host = document.createElement("div");
+  const opener = document.createElement("button");
+  document.body.append(host, opener);
+  t.after(() => { host.remove(); opener.remove(); });
+  mountNotices(host);
+  await setImmediate();
+
+  opener.focus();
+  assert.equal(key("b", true).defaultPrevented, true);
+  assert.equal(active?.dataset.id, "first", "the shortcut focuses the first notification");
+  key("ArrowUp");
+  assert.equal(active?.dataset.id, "third", "Up wraps to the last notification");
+  key("ArrowDown");
+  assert.equal(active?.dataset.id, "first", "Down wraps to the first notification");
+  key("ArrowDown");
+  assert.equal(active?.dataset.id, "second");
+
+  updateNotes({ payload: [note("new", 4), ...notes] });
+  assert.equal(host.querySelectorAll(".nt-row").length, 4);
+  assert.equal(active?.dataset.id, "second", "an incoming notification preserves the focused row");
+  active!.querySelector<HTMLElement>("button")!.focus();
+  key("ArrowDown");
+  assert.equal(active?.dataset.id, "third", "arrows also work from a row action");
+  active!.querySelector<HTMLElement>("button")!.focus();
+  fire(active!, "click");
+  assert.equal(active?.closest<HTMLElement>(".nt-row")?.dataset.id, "second", "dismissing the last row focuses its neighbor");
+
+  assert.equal(key("Escape").defaultPrevented, true, "Escape does not navigate the page behind the pane");
+  assert.equal(host.querySelector(".nt-pop"), null);
+  assert.equal(active, opener, "closing restores the previous focus");
+  key("b", true);
+  key("b", true);
+  assert.equal(active, opener, "the shortcut also restores focus when closing");
+
+  updateNotes({ payload: [] });
+  key("b", true);
+  assert.equal(active, host.querySelector(".nt-pop"), "an empty panel still receives focus");
+  updateNotes({ payload: notes });
+  assert.equal(active?.dataset.id, "first", "notes loaded after opening receive focus");
+  updateNotes({ payload: [{ ...notes[0], kind: "skill_conflict" }] });
+  key("Enter");
+  assert.equal(host.querySelector(".nt-row"), null, "Enter opens the notification");
+  key("Escape");
+  assert.equal(active?.dataset.id, "first", "Escape returns to the opened notification");
+  key("Escape");
+  assert.equal(active, opener);
+});

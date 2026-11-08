@@ -5,20 +5,35 @@ use super::{Error, version::Version};
 use std::env;
 
 /// A platform a release has a build for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::AsRefStr, strum::Display)]
 pub enum Target {
+    #[strum(serialize = "x86_64-unknown-linux-musl")]
     LinuxX86_64,
+    #[strum(serialize = "aarch64-unknown-linux-musl")]
     LinuxAarch64,
+    #[strum(serialize = "aarch64-apple-darwin")]
     MacAarch64,
     /// The x64 build, which Windows on Arm runs too.
+    #[strum(serialize = "x86_64-pc-windows-msvc")]
     WindowsX86_64,
 }
 
 /// How a release archive is packed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::AsRefStr)]
 pub(super) enum Format {
+    #[strum(serialize = "tar.gz")]
     TarGz,
+    #[strum(serialize = "zip")]
     Zip,
+}
+
+impl From<Target> for Format {
+    fn from(target: Target) -> Self {
+        match target {
+            Target::WindowsX86_64 => Self::Zip,
+            Target::LinuxX86_64 | Target::LinuxAarch64 | Target::MacAarch64 => Self::TarGz,
+        }
+    }
 }
 
 impl Target {
@@ -39,35 +54,15 @@ impl Target {
         }
     }
 
-    /// The Rust target the build was made for, as the archive names it.
-    pub fn triple(self) -> &'static str {
-        match self {
-            Self::LinuxX86_64 => "x86_64-unknown-linux-musl",
-            Self::LinuxAarch64 => "aarch64-unknown-linux-musl",
-            Self::MacAarch64 => "aarch64-apple-darwin",
-            Self::WindowsX86_64 => "x86_64-pc-windows-msvc",
-        }
-    }
-
-    pub(super) fn format(self) -> Format {
-        match self {
-            Self::WindowsX86_64 => Format::Zip,
-            Self::LinuxX86_64 | Self::LinuxAarch64 | Self::MacAarch64 => Format::TarGz,
-        }
-    }
-
     /// The release asset for `version`, named as the installers name it.
     pub fn archive(self, version: &Version) -> String {
-        let extension = match self.format() {
-            Format::TarGz => "tar.gz",
-            Format::Zip => "zip",
-        };
-        format!("beep-node-{version}-{}.{extension}", self.triple())
+        let format = Format::from(self);
+        format!("beep-node-{version}-{self}.{}", format.as_ref())
     }
 
     /// The binary inside the archive.
     pub(super) fn binary(self) -> &'static str {
-        match self.format() {
+        match Format::from(self) {
             Format::TarGz => "beep-node",
             Format::Zip => "beep-node.exe",
         }

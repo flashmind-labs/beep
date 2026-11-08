@@ -312,7 +312,7 @@ async fn a_machine_whose_cli_fails_gives_way_to_the_next() {
         .unwrap();
     }
     let project = user
-        .ensure_project(&RepoName::parse("acme/widget").unwrap())
+        .ensure_project(&"acme/widget".parse::<RepoName>().unwrap())
         .await
         .unwrap();
     old.answer("teacli", 1, "Error: unknown flag: --host");

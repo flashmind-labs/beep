@@ -14,7 +14,7 @@ import { attachLive } from "./thoughtlive.ts";
 import { groupThoughts, mergedThought } from "./thoughts-state.ts";
 import { patchable, patchRows, startPatching } from "./logpatch.ts";
 import { fillLog, pinEnd, type Unit } from "./logwindow.ts";
-import { answerHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
+import { answerHtml, collapseActivityHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
 import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentAvatar, agentKind, stateTag } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { promptParts } from "./promptparts-state.ts";
@@ -22,12 +22,14 @@ import { childRow } from "./nesting-state.ts";
 import { childReplyHtml } from "./childreply-state.ts";
 import { parentSession, sessions } from "./sessions.ts";
 import { fillAgentPics } from "./images.ts";
+import { prepareInlineImages } from "./inline-images.ts";
 import { picTile } from "./pic-state.ts";
 import { planHtml, questionHtml } from "./coderhtml.ts";
 import { drawModelPill } from "./modelpill.ts";
 import { drawModes } from "./modepill.ts";
 import { backgroundedEntry, drawTasks } from "./tasks.ts";
 import { drawQueue } from "./messages.ts";
+import { pendingSteers } from "./agentqueue.ts";
 import { olderNote } from "./older-state.ts";
 import { holdNote } from "./reconnect-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
@@ -273,6 +275,7 @@ export function entryRow(en: AgentEntry, at: number) {
   const linked = (html: string) => AG.log ? AG.log.markWarnings(AG.log.linkImagePaths(html).html) : html;
   if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md" data-row="${at}">${answerHtml(linked(en.html))}${pics}</div>` : `<div class="dcoderen agent" data-row="${at}">${linked(esc(said))}${pics}</div>`;
   if (en.kind === "tool") return AG.log ? toolRow({ ...en, text: said }, at, pics) : `<div class="dcoderen tool">${text}</div>`;
+  if (en.kind === "other" && en.text.trim() === "[conversation compacted]") return `<div class="dcoderen compacted" data-row="${at}"><span>Conversation compacted</span></div>`;
   const made = AG.page ? madeFiles(en.text, AG.page.session.cwd) : null;
   if (made) return madeRow(made, at);
   return `<div class="dcoderen other" data-row="${at}">${esc(en.text)}</div>`;
@@ -412,6 +415,7 @@ function turnUnits(p: AgentPage): Unit[] {
     const ms = start == null ? null : running ? Date.now() - start : end == null ? null : end - start;
     // The last tool may need to open on failure inside its progress group.
     const lastStep = t.steps.at(-1);
+    const latestTool = t.steps.findLast(at => entry(at).kind === "tool");
     const newest = running && lastStep != null && entry(lastStep).kind === "tool" ? lastStep : undefined;
     if (newest != null) newestStep = newest;
     // What the agent thinks or does now, on one dim line, unless the
@@ -427,14 +431,18 @@ function turnUnits(p: AgentPage): Unit[] {
         const key = section.ats[0], opened = m.opened.has(key);
         const group: Turn = { key, user: null, steps: section.ats, answer: [] };
         const kept = new Set(keptSteps(p.entries, group, p.earlier, openedSteps()));
+        // Keep the latest call in view until the turn ends. A failed last call
+        // stays visible afterwards; manually opened rows already stay in kept.
+        const preview = latestTool != null && section.ats.includes(latestTool)
+          && (running || AG.log?.parseTool(entry(latestTool).text).status === "failed") ? latestTool : null;
+        if (preview != null) kept.add(preview);
         const folding = section.ats.filter(at => !kept.has(at));
-        const stats = progressSummary(p.entries, group, p.earlier, opened ? section.ats : folding);
-        const head = folding.length || opened
-          ? turnHeadHtml({ state: "working", ms: null, stats, key, opened }) : "";
+        const stats = progressSummary(p.entries, group, p.earlier);
+        const head = turnHeadHtml({ state: "working", ms: null, stats, key, opened });
         const seen = opened ? [] : folding.flatMap(at => AG.log?.imageLines(entry(at).text).names ?? []);
         const pics = seen.length ? `<div class="dcoderen dfoldpics" data-row="${folding[0]}"><span class="pics">${seen.map(entryPic).join("")}</span></div>` : "";
         const rows = rowsOf(p, opened ? section.ats : section.ats.filter(at => kept.has(at)));
-        const collapse = opened ? `<div><button class="dbtn quiet" data-turn="${key}" data-collapse>Collapse</button></div>` : "";
+        const collapse = opened ? collapseActivityHtml(key) : "";
         return [head, pics, ...rows, collapse];
       });
       const head = turnHeadHtml({ state, start, ms, stats: "", key: null, opened: false });
@@ -524,7 +532,14 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   const olderText = olderNote(p, AG.older.stop, AG.older.loading);
   const earlier = olderText ? `<div class="dmuted">${esc(olderText)}</div>` : "";
   // The log goes in by turns, and only those near the view are drawn.
-  const units = p.entries.length && AG.log ? [fixed("up", upCrumb(p)), fixed("older", earlier), ...turnUnits(p)] : null;
+  const pending = pendingSteers(AG.queue, p).map((q, i) => {
+    const text = q.typed || q.text;
+    const pics = q.images.length ? `<span class="pics">${q.images.map(a => picTile(a.name, a.url, undefined)).join("")}</span>` : "";
+    const status = q.state === "sending" ? "Sending" : "Waiting for the current step";
+    return fixed(`steer${i}`, userRowHtml(text ? `<p>${esc(text).replace(/\n/g, "<br>")}</p>` : "", " data-pending-steer", `${pics}<div class="dmuted">${status}</div>`, true));
+  });
+  const units = (p.entries.length && AG.log) || pending.length
+    ? [fixed("up", upCrumb(p)), fixed("older", earlier), ...(AG.log ? turnUnits(p) : []), ...pending] : null;
   const entries = units ? '<div class="dcoderlog"></div>'
     : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
   // What stopped an outside session's log from reading is not a failed turn.
@@ -593,13 +608,14 @@ function showLog(b: HTMLElement, html: string, units: Unit[] | null, polled: boo
     startPatching(main);
   }
   const next = document.createElement("template");
-  next.innerHTML = html;
+  next.innerHTML = prepareInlineImages(html);
   const sel = getSelection(), held: Node[] = [];
   if (polled && sel && (!sel.isCollapsed || b.matches(":active"))) {
     if (sel.anchorNode) held.push(sel.anchorNode);
     if (sel.focusNode) held.push(sel.focusNode);
   }
-  return patchRows(main, next.content, units, held);
+  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(prepareInlineImages) })) ?? null;
+  return patchRows(main, next.content, prepared, held);
 }
 
 const DOWN_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>';

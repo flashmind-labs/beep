@@ -174,7 +174,7 @@ pub async fn save_agent_token(
 async fn save(fleet: &Arc<Session>, agent: AgentAccount, secret: SecretText) -> Result<TokenView> {
     let saved = desk(fleet)
         .await?
-        .save_agent_token(agent.slug(), &secret)
+        .save_agent_token(agent.as_ref(), &secret)
         .await?;
     Ok(saved.into())
 }
@@ -182,7 +182,10 @@ async fn save(fleet: &Arc<Session>, agent: AgentAccount, secret: SecretText) -> 
 #[tauri::command]
 pub async fn revoke_agent_token(fleet: FleetState<'_>, agent_slug: String) -> Result<()> {
     let agent = agent(&agent_slug)?;
-    Ok(desk(&fleet).await?.revoke_agent_token(agent.slug()).await?)
+    Ok(desk(&fleet)
+        .await?
+        .revoke_agent_token(agent.as_ref())
+        .await?)
 }
 
 #[tauri::command]

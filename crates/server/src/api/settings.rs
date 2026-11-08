@@ -12,7 +12,7 @@ pub(super) async fn list_apps(cx: Cx, _: ListApps) -> Reply<Vec<AppIntegration>>
     let feeds: Vec<Feed> = apps
         .iter()
         .filter(|app| app.connected)
-        .filter_map(|app| Feed::from_slug(&app.slug))
+        .filter_map(|app| app.slug.parse::<Feed>().ok())
         .collect();
     if !feeds.is_empty() {
         feeds::spawn_sync(&cx.app, &cx.user, feeds);

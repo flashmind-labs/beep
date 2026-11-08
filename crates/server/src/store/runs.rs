@@ -46,7 +46,9 @@ pub struct SavedTurn {
 }
 
 /// How an agent run ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr, strum::AsRefStr, strum::Display,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum RunStatus {
     Completed,
@@ -59,13 +61,6 @@ pub enum RunStatus {
     Failed,
     /// Ended on a tool call that waits for the user's OK.
     Waiting,
-}
-
-impl RunStatus {
-    /// The name stored in the database and sent to clients.
-    pub fn as_str(self) -> &'static str {
-        self.into()
-    }
 }
 
 fn run(row: &PgRow) -> Result<Run> {
@@ -108,7 +103,7 @@ impl Store {
              SELECT id, $1, 'user', id, $2, $3, now() FROM next RETURNING id",
         )
         .bind(chat)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(prompt)
         .fetch_one(&mut *tx)
         .await?;
@@ -117,7 +112,7 @@ impl Store {
         )
         .bind(id)
         .bind(&run.id)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .execute(&mut *tx)
         .await?
         .rows_affected();
@@ -140,7 +135,7 @@ impl Store {
             "SELECT id, chat_id, status FROM runs
              WHERE user_id = $1 AND chat_id = $2 AND status = 'running'",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(chat)
         .fetch_optional(&self.pool)
         .await?;
@@ -153,7 +148,7 @@ impl Store {
             "SELECT id, chat_id, status FROM runs
              WHERE user_id = $1 AND status = 'running' ORDER BY seq",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(run).collect()
@@ -167,7 +162,7 @@ impl Store {
         request: &str,
         message: &str,
     ) -> Result<CreateRun> {
-        let user = user.as_str();
+        let user = user.as_ref();
         if let Some(found) = self
             .run_for_request(user, chat, request, Some(message))
             .await?
@@ -268,7 +263,7 @@ impl Store {
 
     pub(crate) async fn run(&self, user: &UserKey, id: &str) -> Result<Option<Run>> {
         let row = sqlx::query("SELECT id, chat_id, status FROM runs WHERE user_id=$1 AND id=$2")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(id)
             .fetch_optional(&self.pool)
             .await?;
@@ -291,7 +286,7 @@ impl Store {
         let prompt: Option<i64> =
             sqlx::query_scalar("SELECT prompt_id FROM runs WHERE id = $1 AND user_id = $2")
                 .bind(&run.id)
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .fetch_optional(&mut *tx)
                 .await?
                 .flatten();
@@ -326,7 +321,7 @@ impl Store {
             } else {
                 latest_turn(&mut tx, chat).await?
             };
-            let ids = insert_steps(&mut tx, chat, user.as_str(), turn.steps, carried).await?;
+            let ids = insert_steps(&mut tx, chat, user.as_ref(), turn.steps, carried).await?;
             let opened = turn
                 .steps
                 .iter()
@@ -358,9 +353,9 @@ impl Store {
             });
         }
         sqlx::query("UPDATE runs SET status=$1 WHERE id=$2 AND user_id=$3")
-            .bind(status.as_str())
+            .bind(status.as_ref())
             .bind(&run.id)
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;

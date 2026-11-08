@@ -101,16 +101,20 @@ pub struct HourSpend {
     Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
 #[serde(rename_all = "snake_case")]
+#[derive(strum::AsRefStr, strum::IntoStaticStr, strum::EnumString)]
 pub enum Billing {
     /// A subscription covered it, such as a Claude or ChatGPT plan or
     /// GitHub Copilot: the tokens cost nothing more.
+    #[strum(serialize = "subscription")]
     Subscription,
     /// Paid by the token: an API key, OpenRouter, Bedrock, Vertex.
+    #[strum(serialize = "metered")]
     Metered,
     /// The node could not tell, or a newer node named a way this one does
     /// not know.
     #[default]
     #[serde(other)]
+    #[strum(serialize = "unknown")]
     Unknown,
 }
 
@@ -122,23 +126,6 @@ impl Billing {
             Self::Subscription => true,
             Self::Metered => false,
             Self::Unknown => *agent == AgentSlug::CLAUDE || *agent == AgentSlug::CODEX,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Unknown => "unknown",
-            Self::Subscription => "subscription",
-            Self::Metered => "metered",
-        }
-    }
-
-    /// The billing `as_str` names; `Unknown` for any other name.
-    pub fn from_name(name: &str) -> Self {
-        match name {
-            "subscription" => Self::Subscription,
-            "metered" => Self::Metered,
-            _ => Self::Unknown,
         }
     }
 }

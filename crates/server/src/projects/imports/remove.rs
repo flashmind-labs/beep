@@ -88,7 +88,7 @@ mod tests {
     async fn a_removed_project_can_be_imported_again_afresh() {
         let harness = Harness::new(Scripted::default()).await;
         let (app, alice) = (&harness.app, &harness.alice);
-        let repo = RepoName::parse(NAME).expect("a repo name");
+        let repo = NAME.parse::<RepoName>().expect("a repo name");
         import(alice, "laptop", "/home/user/widget").await;
         let first = alice.ensure_project(&repo).await.expect("made");
         let chat = alice.ensure_project_agent(first.id).await.expect("a chat");

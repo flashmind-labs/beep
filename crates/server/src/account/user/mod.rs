@@ -55,12 +55,14 @@ pub use events::Topics;
 #[derive(Clone)]
 pub struct UserKey(String);
 
-impl UserKey {
+impl AsRef<str> for UserKey {
     /// The user id the key was made for.
-    pub(crate) fn as_str(&self) -> &str {
+    fn as_ref(&self) -> &str {
         &self.0
     }
+}
 
+impl UserKey {
     /// A key for `id`, so store tests can call per-user methods.
     #[cfg(test)]
     pub(crate) fn for_test(id: &str) -> Self {

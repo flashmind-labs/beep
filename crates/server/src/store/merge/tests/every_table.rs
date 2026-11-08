@@ -428,7 +428,9 @@ async fn an_import_step_works_on_a_renamed_project() {
     let (_, target) = merged(&store).await;
     let user = UserKey::for_test(&target);
     let renamed = "acme/app-copy-2";
-    RepoName::parse(renamed).expect("the copy is still owner/repo");
+    (renamed)
+        .parse::<RepoName>()
+        .expect("the copy is still owner/repo");
 
     // Moving the import to another folder finds the moved row and the
     // moved project, and makes no other.
@@ -445,7 +447,7 @@ async fn an_import_step_works_on_a_renamed_project() {
         .await
         .unwrap();
     assert_eq!(saved.folder, "/w-moved");
-    let fork = RepoName::parse("octo/app").unwrap();
+    let fork = "octo/app".parse::<RepoName>().unwrap();
     store
         .set_import_fork(&user, renamed, "e", Some(&fork))
         .await

@@ -25,7 +25,7 @@ impl Store {
         let mut tx = self.pool.begin().await?;
         for description in descriptions {
             sqlx::query("INSERT INTO actions (user_id, description) VALUES ($1, $2)")
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .bind(description)
                 .execute(&mut *tx)
                 .await?;
@@ -33,7 +33,7 @@ impl Store {
         sqlx::query(
             "DELETE FROM actions WHERE user_id=$1 AND done_at < now() - make_interval(days => $2)",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(KEEP_DAYS)
         .execute(&mut *tx)
         .await?;
@@ -51,7 +51,7 @@ impl Store {
             "SELECT done_at, description FROM actions WHERE user_id=$1
              ORDER BY done_at DESC LIMIT $2",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(limit)
         .fetch_all(&self.pool)
         .await?

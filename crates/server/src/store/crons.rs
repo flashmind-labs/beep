@@ -39,7 +39,10 @@ fn check_schedule(schedule: &str) -> Result<()> {
 
 /// Whether a place schedule runs only once; `None` for other schedules.
 fn place_once(schedule: &str) -> Option<bool> {
-    PlaceTrigger::parse(schedule).map(|trigger| trigger.repeat == PlaceRepeat::Once)
+    (schedule)
+        .parse::<PlaceTrigger>()
+        .ok()
+        .map(|trigger| trigger.repeat == PlaceRepeat::Once)
 }
 
 impl Store {
@@ -48,7 +51,7 @@ impl Store {
             "SELECT id, label, prompt, schedule, enabled, created_at, run_once, last_run_at
              FROM crons WHERE user_id=$1 AND group_id IS NULL ORDER BY created_at DESC LIMIT 100",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter()
@@ -86,7 +89,7 @@ impl Store {
             "INSERT INTO crons (user_id, id, label, prompt, schedule, run_once)
              VALUES ($1, $2, $3, $4, $5, $6)",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(&id)
         .bind(label)
         .bind(prompt)
@@ -125,7 +128,7 @@ impl Store {
         .bind(enabled)
         .bind(label)
         .bind(schedule)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(id)
         .bind(schedule.and_then(place_once))
         .execute(&self.pool)
@@ -139,7 +142,7 @@ impl Store {
         let new_enabled = sqlx::query_scalar(
             "UPDATE crons SET enabled = NOT enabled WHERE user_id=$1 AND id=$2 AND group_id IS NULL RETURNING enabled",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(id)
         .fetch_optional(&self.pool)
         .await?;
@@ -150,7 +153,7 @@ impl Store {
     pub(crate) async fn delete_cron(&self, user: &UserKey, id: &str) -> Result<bool> {
         let deleted =
             sqlx::query("DELETE FROM crons WHERE user_id=$1 AND id=$2 AND group_id IS NULL")
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .bind(id)
                 .execute(&self.pool)
                 .await?

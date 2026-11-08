@@ -29,25 +29,16 @@ const MAX_CONFIG: u64 = 1024 * 1024;
 static WRITING: Mutex<()> = Mutex::new(());
 
 /// The keys of `[openrouter.routing]` Beep sets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, strum::AsRefStr,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 enum RoutingKey {
     Zdr,
     Quantizations,
     Sort,
     AllowFallbacks,
-}
-
-impl RoutingKey {
-    /// Its key in flsh's config.
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Zdr => "zdr",
-            Self::Quantizations => "quantizations",
-            Self::Sort => "sort",
-            Self::AllowFallbacks => "allow_fallbacks",
-        }
-    }
 }
 
 /// What Beep set in flsh's config, as `beep-owned.json` keeps it.
@@ -108,7 +99,7 @@ fn edit(doc: &mut DocumentMut, settings: &FlshSettings, before: &Owned) -> Resul
         ),
     ];
     for (key, item) in routing {
-        let name = key.as_str();
+        let name = key.as_ref();
         match item {
             Some(item) => {
                 let openrouter = table(root, "openrouter")?;

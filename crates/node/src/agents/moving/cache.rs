@@ -65,7 +65,7 @@ pub(super) struct Cache {
 
 /// A name a folder can carry for an agent.
 fn valid_agent(agent: &AgentSlug) -> bool {
-    matches!(agent.as_str(), "claude" | "codex" | "pi")
+    matches!(agent.as_ref(), "claude" | "codex" | "pi")
 }
 
 impl Cache {
@@ -77,7 +77,7 @@ impl Cache {
 
     /// The folder of session `id`, when both names are safe in a path.
     fn folder(&self, agent: &AgentSlug, id: &str) -> Option<PathBuf> {
-        (valid_agent(agent) && valid_id(id)).then(|| self.dir.join(agent.as_str()).join(id))
+        (valid_agent(agent) && valid_id(id)).then(|| self.dir.join(agent.as_ref()).join(id))
     }
 
     /// Where the copy of a session is kept.

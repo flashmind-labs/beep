@@ -35,7 +35,7 @@ pub(crate) async fn target(
             let (opened, url) = opened
                 .iter()
                 .find_map(|opened| match &opened.slot {
-                    Slot::Forgejo(url) if url.hostname().eq_ignore_ascii_case(name.as_str()) => {
+                    Slot::Forgejo(url) if url.hostname().eq_ignore_ascii_case(name.as_ref()) => {
                         Some((opened, url))
                     }
                     _ => None,
@@ -43,7 +43,7 @@ pub(crate) async fn target(
                 .ok_or_else(|| {
                     format!(
                         "Add a token for {} in Settings to see this project's runs.",
-                        name.as_str()
+                        name.as_ref()
                     )
                 })?;
             if !is_public(url).await {

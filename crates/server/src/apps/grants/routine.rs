@@ -43,7 +43,7 @@ impl RoutineGrants {
     pub(crate) async fn claim(&self, tool: &str, args: &Value, call_id: &str) -> Option<GrantRow> {
         let slug = ToolSlug::new(tool);
         let spec = grantable(&slug)?;
-        let grants = match self.user.routine_grants(self.routine, slug.as_str()).await {
+        let grants = match self.user.routine_grants(self.routine, slug.as_ref()).await {
             Ok(grants) => grants,
             Err(error) => {
                 log::warn!("grants: unable to load, asking instead: {error:#}");
@@ -81,9 +81,9 @@ impl RoutineGrants {
     /// Tells the user what a granted call did: a notification now, a chat message when the run ends.
     pub(crate) fn report(&self, grant: &GrantRow, tool: &str, args: &Value) {
         let slug = ToolSlug::new(tool);
-        let (app, action) = match permissions::lookup(slug.as_str()) {
+        let (app, action) = match permissions::lookup(slug.as_ref()) {
             Some((app, _)) => {
-                let action = permissions::action_name(&app, slug.as_str());
+                let action = permissions::action_name(&app, slug.as_ref());
                 (app.name(), action)
             }
             None => (tool.to_owned(), tool.to_lowercase()),

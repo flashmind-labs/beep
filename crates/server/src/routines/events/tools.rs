@@ -43,7 +43,7 @@ impl Tool for EventTopicsTool {
          for them, or to stop or start telling them about something."
     }
     fn parameters(&self) -> Value {
-        let topics: Vec<&str> = Topic::ALL.iter().map(|topic| topic.as_str()).collect();
+        let topics: Vec<&str> = Topic::ALL.iter().map(|topic| topic.as_ref()).collect();
         json!({
             "type": "object",
             "properties": {
@@ -95,7 +95,7 @@ impl Tool for EventTopicsTool {
         }
         for (topic, on) in self.user.event_topics().await?.iter() {
             let state = if on { "on" } else { "off" };
-            let _ = writeln!(text, "{}: {state} ({})", topic.as_str(), topic.describe());
+            let _ = writeln!(text, "{}: {state} ({})", topic.as_ref(), topic.describe());
         }
         Ok(ToolResult::success(call, text.trim_end()))
     }
@@ -226,7 +226,7 @@ fn recent_line(recent: &RecentEvent) -> String {
         event.id,
         event.occurred.format("%Y-%m-%d %H:%M UTC"),
         event.app.name(),
-        event.kind.as_str().replace('_', " "),
+        event.kind.as_ref().replace('_', " "),
         event.summary
     );
     let outcome = match &recent.triage {

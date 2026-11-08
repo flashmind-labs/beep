@@ -1108,7 +1108,7 @@ mod usage {
         let read: HourSpend = rmp_serde::from_slice(&body).unwrap();
         assert_eq!(read.billing, Billing::Unknown);
         assert_eq!(
-            Billing::from_name(Billing::Metered.as_str()),
+            Billing::Metered.as_ref().parse::<Billing>().unwrap(),
             Billing::Metered
         );
     }
@@ -1174,7 +1174,7 @@ mod usage {
             at: u64,
         }
         let read: Released = beep_proto::lenient::from_slice(&compact).unwrap();
-        assert_eq!(read.agent, with_credits.agent.as_str());
+        assert_eq!(read.agent, with_credits.agent.as_ref());
         assert_eq!(read.plan, with_credits.plan);
         assert_eq!(read.windows, with_credits.windows);
         assert_eq!(read.at, with_credits.at);
@@ -1342,7 +1342,7 @@ mod agent {
             for agent in ["gemini", "opencode", "other"] {
                 assert!(efforts(agent).is_empty(), "{agent}");
             }
-            let names: Vec<&str> = efforts("pi").iter().map(|e| e.as_str()).collect();
+            let names: Vec<&str> = efforts("pi").iter().map(AsRef::as_ref).collect();
             assert_eq!(
                 names,
                 ["off", "minimal", "low", "medium", "high", "xhigh", "max"]

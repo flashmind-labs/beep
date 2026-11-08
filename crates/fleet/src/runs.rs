@@ -30,6 +30,7 @@ use beep_proto::{
 };
 use futures::future::{join, join_all};
 use secrecy::ExposeSecret;
+use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
 /// What the host's rate limit is shared by: the desktop's calls to it.
@@ -67,7 +68,7 @@ impl Desk {
     fn place_of(&self, repo: &RepoRef, opened: &[Opened]) -> std::result::Result<Place, String> {
         let found = credential_of(repo, opened)
             .ok_or_else(|| format!("Beep has no token for {}.", repo.host_name()))?;
-        let name = RepoName::parse(&repo.project()).map_err(|e| e.to_string())?;
+        let name = RepoName::from_str(&repo.project()).map_err(|e| e.to_string())?;
         let secret = found.secret.expose_secret().to_owned().into();
         let (mut target, kind) = match (&repo.host, &found.slot) {
             (Host::GitHub, Slot::GitHub) => {

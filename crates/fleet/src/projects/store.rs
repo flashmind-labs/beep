@@ -14,6 +14,7 @@ use beep_projects::{
     model::RepoName,
 };
 use iroh::EndpointId;
+use std::str::FromStr;
 
 pub(super) fn row(stored: &Stored, machine: EndpointId, place: &Place) -> ImportRow {
     ImportRow {
@@ -25,7 +26,7 @@ pub(super) fn row(stored: &Stored, machine: EndpointId, place: &Place) -> Import
         fork: place
             .fork
             .as_deref()
-            .and_then(|fork| RepoName::parse(fork).ok()),
+            .and_then(|fork| RepoName::from_str(fork).ok()),
     }
 }
 

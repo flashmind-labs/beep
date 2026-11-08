@@ -211,13 +211,13 @@ mod tests {
         );
         let old = LegacyRequest::GitObjects {
             project: "project".into(),
-            commit: Oid::from_bytes([1; 32]),
+            commit: Oid::from([1; 32]),
             branch: "refs/heads/main".into(),
             have: None,
         };
         let new = Request::GitObjects {
             project: "project".into(),
-            commit: Oid::from_bytes([1; 32]),
+            commit: Oid::from([1; 32]),
             branch: "refs/heads/main".into(),
             have: None,
         };

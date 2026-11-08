@@ -44,7 +44,9 @@ pub async fn report_collect(
     let since = period.since_now();
     let me = fleet.id();
     let mut devices: Vec<Device> = fleet
-        .machines()
+        .mesh()
+        .map(|mesh| mesh.code_hosts())
+        .unwrap_or_default()
         .into_iter()
         .map(|status| status.device)
         .collect();

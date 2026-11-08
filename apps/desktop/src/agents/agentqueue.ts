@@ -1,5 +1,6 @@
 // Messages typed while a coding agent's turn runs.
 import type { StashFile } from "../chat/stash-state.ts";
+import type { Run } from "./older-state.ts";
 
 /// An image waiting to go with a message.
 export interface Attached {
@@ -29,6 +30,26 @@ export interface Waiting {
   state: SteerState | null;
   /// For a sent steer: the session read after which the node holds it.
   after: number;
+  /// First transcript entry that could record this message.
+  entryFrom?: number;
+}
+
+/// Keep an immediate chat row until the transcript records the steer.
+/// A transcript update can arrive before the send call returns.
+export function pendingSteers(items: Waiting[], run: Run): Waiting[] {
+  const used = new Set<number>();
+  return items.filter(q => {
+    if (q.state === "delivered") return false;
+    const from = q.entryFrom;
+    const recorded = from == null ? -1 : run.entries.findIndex((entry, i) => {
+      if (run.earlier + i < from || used.has(i) || entry.kind !== "user") return false;
+      const text = q.images.length ? entry.text.replace(/(?:^|\n)\[image: image-[0-9a-f]{16}\]/g, "") : entry.text;
+      return text === q.text;
+    });
+    if (recorded < 0) return true;
+    used.add(recorded);
+    return false;
+  });
 }
 
 /// Marks the steers the node no longer holds as delivered, oldest first.

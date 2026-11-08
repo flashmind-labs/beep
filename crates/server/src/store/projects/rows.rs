@@ -153,7 +153,8 @@ pub(super) fn endpoint(text: &str) -> Result<EndpointId> {
 
 pub(super) fn issue_host(text: Option<String>) -> Result<Option<IssueHost>> {
     text.map(|text| {
-        IssueHost::from_stored(&text).ok_or_else(|| anyhow!("unknown issue host {text}"))
+        text.parse::<IssueHost>()
+            .map_err(|_| anyhow!("unknown issue host {text}"))
     })
     .transpose()
 }
@@ -164,7 +165,7 @@ pub(super) fn project_from(row: &PgRow) -> Result<ProjectRow> {
     let pin: Option<String> = row.try_get(6)?;
     Ok(ProjectRow {
         id: ProjectId(row.try_get(0)?),
-        name: RepoName::parse(&name)?,
+        name: name.parse::<RepoName>()?,
         roles: Roles {
             issues: issue_host(row.try_get(2)?)?,
             prs: issue_host(row.try_get(3)?)?,
@@ -180,7 +181,7 @@ pub(super) fn checkout_from(row: &PgRow) -> Result<CheckoutRow> {
     let path: String = row.try_get(1)?;
     Ok(CheckoutRow {
         machine: endpoint(&machine)?,
-        path: MachinePath::parse(&path)?,
+        path: path.parse::<MachinePath>()?,
         home: row.try_get(2)?,
     })
 }
@@ -203,7 +204,9 @@ pub(super) fn task_from(row: &PgRow) -> Result<TaskRow> {
     Ok(TaskRow {
         id: TaskId(row.try_get(0)?),
         project: ProjectId(row.try_get(1)?),
-        slug: TaskSlug::parse(&slug).ok_or_else(|| anyhow!("stored slug {slug} is not one"))?,
+        slug: slug
+            .parse::<TaskSlug>()
+            .map_err(|_| anyhow!("stored slug {slug} is not one"))?,
         title: row.try_get(3)?,
         body: row.try_get(4)?,
         state: state.parse()?,
@@ -237,7 +240,7 @@ pub(in crate::store) fn worker_from(row: &PgRow) -> Result<WorkerRow> {
         machine: endpoint(&machine)?,
         agent: agent.parse()?,
         session: row.try_get(5)?,
-        folder: MachinePath::parse(&folder)?,
+        folder: folder.parse::<MachinePath>()?,
         state: state.parse()?,
         asking: row.try_get(8)?,
         last_output: row.try_get(9)?,

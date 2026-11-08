@@ -272,7 +272,7 @@ impl Service {
         let platform = headers
             .get(PLATFORM_HEADER)
             .and_then(|value| value.to_str().ok())
-            .and_then(Platform::from_header);
+            .and_then(|text| text.parse::<Platform>().ok());
         let signed_in = match self.app.admit(&key).await {
             Ok(Admission::SignedIn(signed_in)) => signed_in,
             Ok(Admission::Guest) => return Ok(Caller::Guest { key, platform }),
@@ -342,9 +342,10 @@ fn stale_token() -> Response {
 
 fn refused(refusal: Refusal) -> Response {
     let mut response = error(&ApiError::Unauthorized {});
-    response
-        .headers_mut()
-        .insert(REFUSED_HEADER, HeaderValue::from_static(refusal.as_str()));
+    response.headers_mut().insert(
+        REFUSED_HEADER,
+        HeaderValue::from_static(Into::<&'static str>::into(refusal)),
+    );
     response
 }
 

@@ -197,7 +197,7 @@ impl Voice {
         // "Repeat that" with nothing to repeat goes back to listening.
         let mut nothing_to_repeat = false;
         for effect in effects {
-            log::debug!("live {id}: {}", effect.name());
+            log::debug!("live {id}: {}", effect);
             match effect {
                 // A voice note is only read out: nothing listens.
                 Effect::Transcribe if self.is_note(id) => {}
@@ -230,7 +230,7 @@ impl Voice {
                 }
                 Effect::Leave { draft, why } => self.leave(id, draft, why),
                 Effect::Toast(LiveToast::Repeating) if nothing_to_repeat => {}
-                Effect::Toast(toast) => self.toast(toast.text()),
+                Effect::Toast(toast) => self.toast(toast.as_ref()),
                 Effect::Soon(after) => self.emit(LiveEvent::Soon {
                     ms: after.map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX)),
                 }),
@@ -251,7 +251,7 @@ impl Voice {
                 return;
             };
             LiveEvent::View {
-                phase: s.live.phase().as_str(),
+                phase: Into::<&'static str>::into(s.live.phase()),
                 words: s.live.text(),
                 line: s.line.clone(),
                 prev: s.prev.clone(),

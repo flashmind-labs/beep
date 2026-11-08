@@ -50,7 +50,7 @@ fn read(ran: &ShellOutput) -> Said {
 /// Checks the token for `url` from up to [`MAX_MACHINES`] machines at once.
 pub async fn check_from(machines: &[Reach], url: &ForgejoUrl) -> CredentialCheck {
     let machines = &machines[..machines.len().min(MAX_MACHINES)];
-    let command = format!("teacli whoami --host {} --format json", quote(url.as_str()));
+    let command = format!("teacli whoami --host {} --format json", quote(url.as_ref()));
     let said = join_all(machines.iter().map(|machine| async {
         match machine.shell.run(&command, LIMIT).await {
             Ok(ran) => read(&ran),

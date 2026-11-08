@@ -19,22 +19,21 @@ pub struct Logs {
     files: Vec<PathBuf>,
 }
 
-impl Logs {
-    /// The log `beep-node logs` shows.
-    pub fn service() -> Self {
-        Self::default()
-    }
-
+impl From<PathBuf> for Logs {
     /// The log file at `path`, for a host that keeps its own, as the Mac app.
-    pub fn file(path: PathBuf) -> Self {
-        Self::files(vec![path])
+    fn from(path: PathBuf) -> Self {
+        Self::from(vec![path])
     }
+}
 
+impl From<Vec<PathBuf>> for Logs {
     /// The log files at `paths`, oldest first, the last one being written.
-    pub fn files(paths: Vec<PathBuf>) -> Self {
+    fn from(paths: Vec<PathBuf>) -> Self {
         Self { files: paths }
     }
+}
 
+impl Logs {
     /// The log from Unix second `since` on, the newest `max_bytes` of it.
     pub fn window(&self, since: i64, max_bytes: usize) -> Result<String> {
         window(&self.files, since, max_bytes)

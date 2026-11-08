@@ -25,7 +25,8 @@ pub(super) async fn mirror_import(cx: Cx, request: MirrorImport) -> Reply<()> {
 /// the caller's keys or nodes. A desktop's own machine has a key and may have
 /// no node, and the lists name machines from `nodes`, so it gets a row.
 async fn record(user: &User, request: &MirrorImport) -> Reply<()> {
-    let project = RepoName::parse(request.project.trim())
+    let project = (request.project.trim())
+        .parse::<RepoName>()
         .map_err(|e| ApiError::bad_request(e.to_string()))?
         .to_string();
     let folder = match FolderPath::parse(&request.folder) {
@@ -112,7 +113,7 @@ mod tests {
         record(&user, &request("https://example.com/org/widget"))
             .await
             .unwrap();
-        let fork = RepoName::parse("me/widget").unwrap();
+        let fork = "me/widget".parse::<RepoName>().unwrap();
         user.set_import_fork("org/widget", &machine, Some(&fork))
             .await
             .unwrap();

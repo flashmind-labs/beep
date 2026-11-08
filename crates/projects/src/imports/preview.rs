@@ -298,6 +298,7 @@ pub async fn checkout_for_worktree(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn import_finds_checkout_by_fork_url() {
@@ -331,7 +332,7 @@ mod tests {
     #[test]
     fn an_import_links_a_checkout_of_the_fork_or_the_repository() {
         let repo = RepoRef::parse("acme/widget", &[]).expect("a repo");
-        let name = crate::model::RepoName::parse("octo/widget").expect("a name");
+        let name = crate::model::RepoName::from_str("octo/widget").expect("a name");
         let fork = repo.sibling(&name).expect("a fork");
         let found = parse_remotes(
             "@@dir /srv/other\n\

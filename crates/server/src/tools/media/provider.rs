@@ -5,7 +5,18 @@ use secrecy::SecretString;
 use std::{collections::HashMap, time::Duration};
 
 /// A service that makes media with the user's own key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumString, strum::IntoStaticStr)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    strum::EnumString,
+    strum::IntoStaticStr,
+    strum::AsRefStr,
+    strum::Display,
+)]
 #[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub(crate) enum MediaProvider {
     OpenRouter,
@@ -15,41 +26,46 @@ pub(crate) enum MediaProvider {
 }
 
 impl MediaProvider {
-    /// The slug the model names it by, the same as its API key's.
-    pub(crate) fn slug(self) -> &'static str {
-        self.into()
-    }
-
     /// What the user knows it as.
     pub(crate) fn name(self) -> &'static str {
-        self.api().name()
+        ApiProvider::from(self).name()
     }
+}
 
-    fn api(self) -> ApiProvider {
-        match self {
-            Self::OpenRouter => ApiProvider::OpenRouter,
-            Self::OpenAi => ApiProvider::OpenAi,
-            Self::Venice => ApiProvider::Venice,
-            Self::Meshy => ApiProvider::Meshy,
+impl From<MediaProvider> for ApiProvider {
+    fn from(provider: MediaProvider) -> Self {
+        match provider {
+            MediaProvider::OpenRouter => Self::OpenRouter,
+            MediaProvider::OpenAi => Self::OpenAi,
+            MediaProvider::Venice => Self::Venice,
+            MediaProvider::Meshy => Self::Meshy,
         }
     }
+}
 
-    fn from_api(provider: ApiProvider) -> Option<Self> {
+impl TryFrom<ApiProvider> for MediaProvider {
+    type Error = ApiProvider;
+
+    fn try_from(provider: ApiProvider) -> Result<Self, Self::Error> {
         match provider {
-            ApiProvider::OpenRouter => Some(Self::OpenRouter),
-            ApiProvider::OpenAi => Some(Self::OpenAi),
-            ApiProvider::Venice => Some(Self::Venice),
-            ApiProvider::Meshy => Some(Self::Meshy),
-            _ => None,
+            ApiProvider::OpenRouter => Ok(Self::OpenRouter),
+            ApiProvider::OpenAi => Ok(Self::OpenAi),
+            ApiProvider::Venice => Ok(Self::Venice),
+            ApiProvider::Meshy => Ok(Self::Meshy),
+            other => Err(other),
         }
     }
 }
 
 /// What a tool makes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString)]
+#[strum(ascii_case_insensitive)]
 pub(crate) enum MediaKind {
+    #[strum(serialize = "image_gen")]
     Image,
+    #[strum(serialize = "video_gen")]
     Video,
+    #[strum(serialize = "3d_gen")]
     Model3d,
 }
 
@@ -62,13 +78,6 @@ impl MediaKind {
             Self::Video => "video_gen",
             Self::Model3d => "3d_gen",
         }
-    }
-
-    /// The kind a tool name is, in either case.
-    pub(crate) fn from_tool(name: &str) -> Option<Self> {
-        Self::ALL
-            .into_iter()
-            .find(|kind| kind.tool().eq_ignore_ascii_case(name))
     }
 
     /// The action on an approval card.
@@ -132,7 +141,7 @@ impl Keys {
     pub(crate) fn new(keys: Vec<ApiKey>) -> Self {
         Self(
             keys.into_iter()
-                .filter_map(|key| Some((MediaProvider::from_api(key.provider)?, key.secret)))
+                .filter_map(|key| Some((MediaProvider::try_from(key.provider).ok()?, key.secret)))
                 .collect(),
         )
     }

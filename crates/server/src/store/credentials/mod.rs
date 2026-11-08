@@ -105,7 +105,7 @@ impl Store {
         }
         let id = Uuid::new_v4().simple().to_string();
         let owner = Owner {
-            user: user.as_str(),
+            user: user.as_ref(),
             slot: new.slot,
             id: &id,
         };
@@ -126,7 +126,7 @@ impl Store {
              RETURNING {SHOWN}"
         ))
         .bind(&id)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(kind)
         .bind(provider)
         .bind(host_url)
@@ -152,7 +152,7 @@ impl Store {
              ORDER BY kind <> 'github', kind <> 'forgejo', is_default DESC, created_at,
                  host_url, provider"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         let mut github = false;
@@ -174,11 +174,11 @@ impl Store {
     pub(crate) async fn remove_credential(&self, user: &UserKey, id: &str) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
         sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .execute(&mut *tx)
             .await?;
         let done = sqlx::query("DELETE FROM credentials WHERE user_id=$1 AND id=$2")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(id)
             .execute(&mut *tx)
             .await?;
@@ -189,7 +189,7 @@ impl Store {
              AND NOT EXISTS (
                  SELECT 1 FROM credentials WHERE user_id=$1 AND kind=$2 AND is_default)",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(GITHUB)
         .execute(&mut *tx)
         .await?;
@@ -209,7 +209,7 @@ impl Store {
             "SELECT id, kind, provider, host_url, secret FROM credentials
              WHERE user_id=$1 AND kind=$2 ORDER BY provider",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(API_KEY)
         .fetch_all(&self.pool)
         .await?;
@@ -222,7 +222,7 @@ impl Store {
                     bail!("not an API key");
                 };
                 let owner = Owner {
-                    user: user.as_str(),
+                    user: user.as_ref(),
                     slot: &slot,
                     id: &id,
                 };

@@ -186,7 +186,7 @@
     ["oss", [["parser", "build-box", "2 w"], ["fmt-lint", "studio", "1 mo"]]]];
   // The Machines tab: name, state, OS, agents, free disk, memory in use, what it can run, now.
   const MT = [["build-box", "busy", "Ubuntu 26.04", "2", "348 GB free", "76 / 125 GB", "GPU · Docker", "working"], ["studio", "", "macOS 26.3", "–", "80 GB free", "24 / 36 GB", "Xcode · iOS simulator", "idle"],
-    ["laptop", "busy", "macOS 27.0", "1", "120 GB free", "18 / 24 GB", "Xcode", "working"], ["phone", "off", "Android", "–", "–", "–", "Camera", "offline"]];
+    ["laptop", "busy", "macOS 27.0", "1", "120 GB free", "18 / 24 GB", "Xcode", "working"], ["phone", "", "Phone", "–", "–", "–", "Controller", "connected"]];
   const PCOL = ["#f2994a", "#8a9cf0", "#4cb782", "#f2c94c", "#b18ce0"];
   const HOME_TABS = [["overview", "Overview", ""], ["git", "PRs and issues", PRS.length + ISSUES.length], ["projects", "Projects", 7], ["machines", "Machines", ""]];
   const IC_PR = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="M6 7.2v9.6M18 16.8V10a3 3 0 00-3-3h-4M13 4.5L10.5 7 13 9.5"/></svg>';
@@ -265,7 +265,7 @@
         const terms = TERMS.filter(x => x[1] === n).map(([t, , where, st, toff]) => `<span class="tr${off}" data-dgo="dTerminals"><span class="ddot${toff}"></span><span class="t"><b>${t}</b><small>${where}</small></span><span class="w">${st}</span></span>`).join("")
           + (MT_SYNC[n] || []).map(([pr, meta, right]) => `<span class="tr" data-dgo="dWinProject" title="${meta}"><span class="ddot"></span><span class="t"><b>${pr}</b><small>${meta}</small></span><span class="w">${right}</span></span>`).join("");
         return `<span class="nm${off}"><b><span class="ddot${s ? " " + s : ""}"></span>${n}</b><small>${os}</small></span><span class="num c-ag${off}">${ag}</span><span class="num c-disk${off}${n === "studio" ? " two" : ""}">${disk}${n === "studio" ? "<small>Scratch 1.2 TB free</small>" : ""}</span><span class="num c-mem${off}">${mem}</span><span class="num c-net${off}"${MT_TRAFFIC[n] ? ` title="${MT_TRAFFIC[n][0]}"` : ""}>${MT_TRAFFIC[n]?.[1] ?? "–"}</span><span class="num c-can${off}">${can}</span><span class="num${off}"${off ? ' title="Seen 12 min ago"' : ""}>${now}</span>`
-          + `<span class="act">${off ? `<button class="dbtn" disabled style="padding:3px 10px;font-size:12px;min-height:24px">New terminal</button>` : `<button class="dbtn" style="padding:3px 10px;font-size:12px;min-height:24px" data-dact="dset:tl:new" data-dgo="dTerminals">New terminal</button>`}</span>${terms}`;
+          + `<span class="act">${n === "phone" ? "" : off ? `<button class="dbtn" disabled style="padding:3px 10px;font-size:12px;min-height:24px">New terminal</button>` : `<button class="dbtn" style="padding:3px 10px;font-size:12px;min-height:24px" data-dact="dset:tl:new" data-dgo="dTerminals">New terminal</button>`}</span>${terms}`;
       }).join("");
       return csec("Machines", `${live} of ${rows.length} online`, `<div class="cc-panel"><div class="nb-mt" role="table">${head}${body}${tmCells()}${tmRow() ? "<span></span>" : ""}</div></div>`, `<button class="dbtn small" data-dgo="dAddMachine">${CC_IC.plus} Add a machine</button>`);
     }

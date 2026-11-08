@@ -8,3 +8,4 @@ publish = false
 
 [dependencies]
 beep-proto = { path = "../proto" }
+strum = { version = "0.28", features = ["derive"] }

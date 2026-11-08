@@ -656,13 +656,7 @@ impl Shared {
     async fn resolve_ref(&self, path: &str, original: &str, keep: Keep) -> Result<()> {
         let (copy, beside) = {
             let state = self.lock();
-            let hash = |p: &str| {
-                state
-                    .saved
-                    .seen
-                    .get(p)
-                    .map(|seen| Oid::from_bytes(seen.hash))
-            };
+            let hash = |p: &str| state.saved.seen.get(p).map(|seen| Oid::from(seen.hash));
             (hash(path), hash(original))
         };
         let copy = copy.with_context(|| format!("{path} is not on this machine yet"))?;

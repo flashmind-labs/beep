@@ -168,7 +168,8 @@ async fn dismiss_issue(user: &User, id: ProjectId, number: u64) -> Reply<()> {
 
 /// The agent of the project `name`, made with its chat on the first ask.
 async fn project_agent(user: &User, name: &str) -> Reply<ProjectAgent> {
-    let name = RepoName::parse(name.trim())
+    let name = (name.trim())
+        .parse::<RepoName>()
         .map_err(|e| ApiError::bad_request(format!("Not a project name: {e}.")))?;
     let project = user.ensure_project(&name).await?;
     agent_of(user, &project).await
@@ -306,7 +307,7 @@ pub(super) fn task_view(task: TaskRow) -> ProjectTask {
     };
     ProjectTask {
         id: task.id.0,
-        slug: task.slug.as_str().to_owned(),
+        slug: task.slug.as_ref().to_owned(),
         title: task.title,
         body: task.body,
         state: task.state.into(),
@@ -330,7 +331,7 @@ fn worker_view(worker: WorkerRow, names: &HashMap<String, String>) -> ProjectWor
         machine_id,
         agent: agent.to_owned(),
         session: worker.session,
-        folder: worker.folder.as_str().to_owned(),
+        folder: worker.folder.as_ref().to_owned(),
         state: worker.state.into(),
         last_output: worker.last_output,
         persona: worker.persona,

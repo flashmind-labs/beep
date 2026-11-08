@@ -102,7 +102,7 @@ pub(super) const GRANTABLE: &[Grantable] = &[
 ];
 
 pub(super) fn grantable(tool: &ToolSlug) -> Option<&'static Grantable> {
-    GRANTABLE.iter().find(|spec| spec.tool == tool.as_str())
+    GRANTABLE.iter().find(|spec| spec.tool == tool.as_ref())
 }
 
 /// What a grant holds a call to, never changed after approval.

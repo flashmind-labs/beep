@@ -34,10 +34,10 @@ function machineTable(machines: MachineCard[]) {
   const terms = byMachine(termMachines(), allTerms.list(ALL) || []);
   for (const m of machines) {
     const off = m.online ? "" : " off";
-    const name = h("span", `nm${off}`, h("b", "", dot(m), h("span", "", m.name)), h("span", "os", machineOs(m)));
+    const name = h("span", `nm${off}`, h("b", "", dot(m), h("span", "", m.name)), h("span", "os", m.can_host === false ? "Phone" : machineOs(m)));
     name.id = `m-${m.id}`;
     name.title = m.name;
-    const caps = machineCaps(m);
+    const caps = m.can_host === false ? ["Controller"] : machineCaps(m);
     const can = h("span", `caps${off}`, caps.join(" · ") || "–");
     if (caps.length) can.title = [...caps, ...m.gpus.map(g => g.model)].join(", ");
     const now = h("span", `num${off}`, machineNow(m));
@@ -53,7 +53,7 @@ function machineTable(machines: MachineCard[]) {
     const agents = h("span", `num${off}`, m.online && m.agents ? String(m.agents) : "–");
     const add = button("New terminal", "small", () => openTerminals({ newOn: m.id }));
     add.disabled = !m.online;
-    const act = h("span", "act", add);
+    const act = h("span", "act", ...(m.can_host === false ? [] : [add]));
     table.append(name, agents, disk, memory, traffic, can, now, act);
     machineMenu(m, name, agents, disk, memory, traffic, can, now, act);
     for (const t of terms.find(x => x.id === m.id)?.terms || []) table.append(terminalRow(t, m.online));
@@ -125,6 +125,7 @@ interface Removable {
   id: string;
   name: string;
   online?: boolean;
+  can_host?: boolean;
 }
 
 /// Right-clicking `els` opens the menu for machine `m`: a terminal on it when it is
@@ -138,7 +139,7 @@ export function machineMenuWith(m: Removable, first: () => MenuItem[], ...els: E
   for (const el of els) el.addEventListener("contextmenu", e => {
     if (!m.id) return;
     const items: MenuItem[] = [...first()];
-    if (m.online !== false) items.push({ label: "New terminal", on: () => openTerminals({ newOn: m.id }) });
+    if (m.online !== false && m.can_host !== false) items.push({ label: "New terminal", on: () => openTerminals({ newOn: m.id }) });
     if (m.id !== state.mac?.id) items.push({ label: "Remove…", warn: true, on: () => removeMachine(m) });
     if (items.length) openMenu(e as MouseEvent, m.name, items);
   });
@@ -148,8 +149,8 @@ export function machineMenuWith(m: Removable, first: () => MenuItem[], ...els: E
 function removeMachine(m: Removable) {
   confirmSheet({
     title: `Remove ${m.name}?`,
-    text: m.online === false ? "It is unlinked from your account." : "It is unlinked and agents running there stop.",
-    note: "Its files stay on the machine.",
+    text: m.can_host === false || m.online === false ? "It is unlinked from your account." : "It is unlinked and agents running there stop.",
+    note: m.can_host === false ? "Pair it again to reconnect." : "Its files stay on the machine.",
     action: "Remove",
     run: async () => {
       await invoke("remove_machine", { id: m.id });
@@ -177,7 +178,7 @@ export function machinesSection(machines: MachineCard[]) {
 }
 
 export function offlineNote(machines: MachineCard[]) {
-  const gone = machines.filter(m => !m.online && Date.now() - m.seen_at < OFFLINE_NOTE_MS);
+  const gone = machines.filter(m => m.can_host !== false && !m.online && Date.now() - m.seen_at < OFFLINE_NOTE_MS);
   if (!gone.length) return null;
   const names = gone.map(m => m.name).join(", ");
   return note("bad", h("b", "", `${names} ${gone.length === 1 ? "is" : "are"} offline.`), " Their sessions left Running now. They come back when beep-node runs there again.");

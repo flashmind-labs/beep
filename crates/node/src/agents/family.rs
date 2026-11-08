@@ -168,7 +168,7 @@ impl Agents {
         };
         let me = mesh.me();
         let there = mesh
-            .devices()
+            .code_hosts()
             .into_iter()
             .filter(|status| status.online && status.device.id != me)
             .map(|status| {

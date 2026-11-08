@@ -7,6 +7,7 @@ use crate::{
     turn::{Closed, Turn},
 };
 use std::time::{Duration, Instant};
+use strum::{AsRefStr, Display, IntoStaticStr};
 
 /// Quiet after a phrase before it counts as whole, so a command said on its
 /// own is told apart from the start of a sentence.
@@ -27,7 +28,8 @@ pub enum EndMode {
     Word,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsRefStr, IntoStaticStr, Display)]
+#[strum(serialize_all = "lowercase")]
 pub enum Phase {
     Listening,
     /// Option is held: listening, and letting go sends.
@@ -40,18 +42,6 @@ pub enum Phase {
     /// on screen. Listening as in `Listening`, but quiet never ends live
     /// mode.
     Waiting,
-}
-
-impl Phase {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Listening => "listening",
-            Self::Holding => "holding",
-            Self::Thinking => "thinking",
-            Self::Speaking => "speaking",
-            Self::Waiting => "waiting",
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,28 +84,21 @@ pub enum Input {
 }
 
 /// A short note the bar shows when a command was heard.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsRefStr, IntoStaticStr, Display)]
 pub enum Toast {
+    #[strum(serialize = "Cancelled")]
     Cancelled,
+    #[strum(serialize = "Removed last sentence")]
     Scratched,
+    #[strum(serialize = "New chat")]
     NewChat,
+    #[strum(serialize = "Stopped")]
     Stopped,
+    #[strum(serialize = "Repeating")]
     Repeating,
     /// "stop" while nothing plays.
+    #[strum(serialize = "Nothing playing · say bye to leave")]
     NothingPlaying,
-}
-
-impl Toast {
-    pub fn text(self) -> &'static str {
-        match self {
-            Self::Cancelled => "Cancelled",
-            Self::Scratched => "Removed last sentence",
-            Self::NewChat => "New chat",
-            Self::Stopped => "Stopped",
-            Self::Repeating => "Repeating",
-            Self::NothingPlaying => "Nothing playing · say bye to leave",
-        }
-    }
 }
 
 /// Why live mode ended.
@@ -131,11 +114,13 @@ pub enum Leaving {
     Failed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, AsRefStr, IntoStaticStr, Display)]
+#[strum(serialize_all = "lowercase")]
 pub enum Effect {
     /// Starts a new transcription, ending one that runs.
     Transcribe,
     /// Ends the transcription.
+    #[strum(serialize = "end transcription")]
     EndTranscription,
     Send {
         text: String,
@@ -145,10 +130,12 @@ pub enum Effect {
     Speak,
     /// Speaks the last answer again.
     Repeat,
+    #[strum(serialize = "stop speaking")]
     StopSpeaking,
     /// Stops the reply on the server and drops the rest of its events: the
     /// user interrupted it or left while Beep was thinking or speaking. The
     /// run may have finished already, which makes it a no-op.
+    #[strum(serialize = "cancel reply")]
     CancelReply,
     /// Live mode is over; `draft` is what was said and not sent.
     Leave {
@@ -160,25 +147,6 @@ pub enum Effect {
     Soon(Option<Duration>),
     /// The words changed.
     Show,
-}
-
-impl Effect {
-    /// The effect without what it carries, for the log: no words said.
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::Transcribe => "transcribe",
-            Self::EndTranscription => "end transcription",
-            Self::Send { .. } => "send",
-            Self::Speak => "speak",
-            Self::Repeat => "repeat",
-            Self::StopSpeaking => "stop speaking",
-            Self::CancelReply => "cancel reply",
-            Self::Leave { .. } => "leave",
-            Self::Toast(_) => "toast",
-            Self::Soon(_) => "soon",
-            Self::Show => "show",
-        }
-    }
 }
 
 #[derive(Debug)]

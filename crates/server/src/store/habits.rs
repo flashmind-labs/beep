@@ -39,7 +39,7 @@ impl Store {
              RETURNING id",
         )
         .bind(Uuid::new_v4().to_string())
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(name)
         .bind(frequency)
         .fetch_optional(&self.pool)
@@ -55,7 +55,7 @@ impl Store {
              WHERE h.user_id=$1 AND NOT h.archived
              ORDER BY h.created_at",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         let mut result = Vec::with_capacity(rows.len());
@@ -85,7 +85,7 @@ impl Store {
              WHERE user_id=$2 AND name=$3 AND NOT archived",
         )
         .bind(Uuid::new_v4().to_string())
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(habit_name)
         .bind(value)
         .bind(note)
@@ -108,7 +108,7 @@ impl Store {
             "SELECT id, name, frequency, created_at FROM habits
              WHERE user_id=$1 AND name=$2 AND NOT archived",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(habit_name)
         .fetch_optional(&self.pool)
         .await?;
@@ -176,7 +176,7 @@ impl Store {
         let changed = sqlx::query(
             "UPDATE habits SET archived=TRUE WHERE user_id=$1 AND name=$2 AND NOT archived",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(habit_name)
         .execute(&self.pool)
         .await?

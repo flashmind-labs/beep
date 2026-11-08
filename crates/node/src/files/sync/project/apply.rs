@@ -592,12 +592,12 @@ impl Task {
             let lost = old
                 .and_then(|old| crate::files::sync::map::conflict_path(&work.path, &old))
                 .and_then(|copy| state.saved.map.get(&copy).map(|e| e.file.is_some()));
-            (old.map(Oid::from_bytes), lost.unwrap_or(false))
+            (old.map(Oid::from), lost.unwrap_or(false))
         };
         let root = self.shared.root().to_owned();
         let change = RefMove {
             path: work.path.clone(),
-            new: work.file.as_ref().map(|file| Oid::from_bytes(file.hash)),
+            new: work.file.as_ref().map(|file| Oid::from(file.hash)),
             old,
             stays_ahead,
         };
@@ -734,7 +734,7 @@ impl Task {
         let settled = spawn_blocking(move || {
             let repo = Repo::open(&root)?;
             let ahead = |a: [u8; 32], b: [u8; 32]| {
-                repo.is_ancestor(Oid::from_bytes(a), Oid::from_bytes(b))
+                repo.is_ancestor(Oid::from(a), Oid::from(b))
                     .unwrap_or(false)
             };
             let settled: Vec<(Pair, bool)> = pairs

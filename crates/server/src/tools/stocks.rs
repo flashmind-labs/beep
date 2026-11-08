@@ -131,7 +131,7 @@ async fn fetch_one(
     let url = Url::parse_with_params(
         &format!("{BASE}{symbol}"),
         [
-            ("range", range.as_str()),
+            ("range", range.as_ref()),
             ("interval", interval(range)),
             ("includePrePost", "false"),
         ],
@@ -280,7 +280,7 @@ pub(crate) fn chart(range: ChartRange, histories: &[History]) -> Chart {
                     .map(|history| history.info.symbol.as_str())
                     .collect::<Vec<_>>()
                     .join(" vs "),
-                range.as_str()
+                range.as_ref()
             ),
             kind: ChartKind::Line,
             x: ChartAxis::Time,

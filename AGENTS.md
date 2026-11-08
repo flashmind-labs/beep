@@ -14,11 +14,27 @@ on desktop and phones by `SERVER_ENABLED` and the live voice guards.
 
 Check the implementation when changing a feature; these notes may lag behind it.
 
+## Feature requests
+
+Every feature the user asks for gets a GitHub issue in `flashmind-labs/beep`
+(`gh issue create`) before work starts. Link it from the commit or close it
+when the feature ships.
+
 ## UI
 
 Update the platform mock before changing an app's UI, then match the app to it:
 `mockups/desktop/index.html` (including the tray bar), and for the phone
 layout of the same app `mockups/ios/index.html` or `mockups/android/index.html`.
+
+## Rust types and conversions
+
+Use domain types for identifiers, names with domain meaning, and paths. Reserve
+`String` for actual text. Prefer `From`, `TryFrom`, `FromStr`, `AsRef` and
+`Display` over custom conversion methods such as `from_acp` or `as_str`. Use
+Strum derives when they express the conversion correctly, including `EnumString`,
+`AsRefStr`, `IntoStaticStr` and `Display`. Keep validation and error handling in
+the conversion traits. Prefer explicit `Into::<Target>::into(value)` when using `Into`,
+rather than inferring the target from `value.into()`.
 
 ## Tests and development
 

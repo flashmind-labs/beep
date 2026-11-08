@@ -13,9 +13,9 @@ impl Repo {
         refs: &[RefNow],
     ) -> Result<Vec<Found>> {
         fs::create_dir_all(cache)?;
-        let mut tips: Vec<_> = refs.iter().map(|r| r.oid.hex()).collect();
+        let mut tips: Vec<_> = refs.iter().map(|r| r.oid.to_string()).collect();
         if let Some(head) = self.head() {
-            tips.push(head.hex());
+            tips.push(head.to_string());
         }
         tips.sort();
         tips.dedup();
@@ -77,7 +77,7 @@ impl Repo {
                 let abs = cache.join(&name);
                 Ok(Found {
                     path: format!("{GIT}/objects/pack/{name}"),
-                    stat: Stat::of(&fs::metadata(&abs)?),
+                    stat: Stat::from(&fs::metadata(&abs)?),
                     abs,
                 })
             })

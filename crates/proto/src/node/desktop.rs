@@ -69,36 +69,37 @@ pub enum MouseButton {
     Right,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    strum::AsRefStr,
+    strum::IntoStaticStr,
+    strum::EnumString,
+    strum::Display,
+)]
 pub enum Modifier {
+    #[strum(
+        to_string = "cmd",
+        serialize = "command",
+        serialize = "meta",
+        serialize = "super"
+    )]
     Command,
+    #[strum(serialize = "shift")]
     Shift,
+    #[strum(to_string = "option", serialize = "opt", serialize = "alt")]
     Option,
+    #[strum(to_string = "ctrl", serialize = "control")]
     Control,
+    #[strum(serialize = "fn")]
     Function,
-}
-
-impl Modifier {
-    fn parse(word: &str) -> Option<Self> {
-        Some(match word {
-            "cmd" | "command" | "meta" | "super" => Self::Command,
-            "shift" => Self::Shift,
-            "opt" | "option" | "alt" => Self::Option,
-            "ctrl" | "control" => Self::Control,
-            "fn" => Self::Function,
-            _ => return None,
-        })
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Command => "cmd",
-            Self::Shift => "shift",
-            Self::Option => "option",
-            Self::Control => "ctrl",
-            Self::Function => "fn",
-        }
-    }
 }
 
 /// One key with the modifiers held for it, written like `cmd+shift+t`.
@@ -137,8 +138,9 @@ impl FromStr for KeyPress {
         }
         let mut modifiers = Vec::new();
         for word in mods.split('+').filter(|word| !word.is_empty()) {
-            let modifier =
-                Modifier::parse(word).ok_or_else(|| format!("{word:?} is not a modifier"))?;
+            let modifier = word
+                .parse::<Modifier>()
+                .map_err(|_| format!("{word:?} is not a modifier"))?;
             if !modifiers.contains(&modifier) {
                 modifiers.push(modifier);
             }
@@ -151,7 +153,7 @@ impl FromStr for KeyPress {
 impl fmt::Display for KeyPress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for modifier in &self.modifiers {
-            write!(f, "{}+", modifier.as_str())?;
+            write!(f, "{}+", modifier.as_ref())?;
         }
         f.write_str(&self.key)
     }
@@ -238,18 +240,12 @@ pub struct Permissions {
     pub accessibility: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, strum::AsRefStr, strum::IntoStaticStr,
+)]
 pub enum Permission {
+    #[strum(serialize = "Screen Recording")]
     ScreenRecording,
+    #[strum(serialize = "Accessibility")]
     Accessibility,
-}
-
-impl Permission {
-    /// Its name in System Settings, Privacy and Security.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::ScreenRecording => "Screen Recording",
-            Self::Accessibility => "Accessibility",
-        }
-    }
 }

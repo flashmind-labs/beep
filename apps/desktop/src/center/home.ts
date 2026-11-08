@@ -214,7 +214,7 @@ function openHomeTab(tab: HomeTab) {
 function machineStrip(machines: MachineCard[]) {
   const cells: HTMLElement[] = machines.map(m => {
     const disk = machineDisk(m).text;
-    const now = m.online ? (m.agents ? plural(m.agents, "agent", "agents") : "idle") : "offline";
+    const now = m.online ? (m.can_host === false ? "controller" : m.agents ? plural(m.agents, "agent", "agents") : "idle") : "offline";
     const cell = h("button", `m${m.online ? "" : " off"}`, dot(m), h("b", "", m.name), h("span", "", disk === "–" ? now : `${now} · ${disk}`));
     cell.type = "button";
     cell.addEventListener("click", () => jump(`m-${m.id}`));
@@ -381,7 +381,7 @@ export function draw() {
   scrollTarget = null;
   $("#home-comp").style.display = state.subscribed ? "" : "none";
   $<HTMLInputElement>("#home-ask").placeholder = home.machines?.length ? "Ask Beep, or start an agent on a machine" : "Ask Beep anything";
-  $("#home-agent").style.display = home.machines?.some(m => m.online) ? "" : "none";
+  $("#home-agent").style.display = home.machines?.some(m => m.online && m.can_host !== false) ? "" : "none";
 }
 
 onPlaces(() => draw());
