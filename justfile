@@ -49,6 +49,36 @@ desktop-release version:
     git tag -a "desktop-v{{version}}" -m "Beep for macOS {{version}}"
     echo "Tagged desktop-v{{version}}. Publish it with: git push forgejo main desktop-v{{version}}"
 
+# Set the Android version, commit it and tag android-v<version>; the tag uploads to Play's beta track
+android-release version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ "{{version}}" =~ ^0\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 0.2.3: every app stays on 0.x until production is ready" >&2; exit 1; }
+    [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
+    [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
+    ! git rev-parse -q --verify "refs/tags/android-v{{version}}" > /dev/null || { echo "android-v{{version}} already exists" >&2; exit 1; }
+    cfg=apps/desktop/src-tauri/tauri.android.conf.json
+    sed -i.bak 's/^\( *"version": \)".*"/\1"{{version}}"/' "$cfg" && rm "$cfg.bak"
+    # The version may already be set, as in a first release.
+    git diff --quiet -- "$cfg" || git commit --quiet -m "Release Beep for Android {{version}}" "$cfg"
+    git tag -a "android-v{{version}}" -m "Beep for Android {{version}}"
+    echo "Tagged android-v{{version}}. Publish it with: git push origin main android-v{{version}}"
+
+# Set the iOS version, commit it and tag ios-v<version>; the tag uploads to TestFlight
+ios-release version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ "{{version}}" =~ ^0\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 0.2.3: every app stays on 0.x until production is ready" >&2; exit 1; }
+    [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
+    [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
+    ! git rev-parse -q --verify "refs/tags/ios-v{{version}}" > /dev/null || { echo "ios-v{{version}} already exists" >&2; exit 1; }
+    cfg=apps/desktop/src-tauri/tauri.ios.conf.json
+    sed -i.bak 's/^\( *"version": \)".*"/\1"{{version}}"/' "$cfg" && rm "$cfg.bak"
+    # The version may already be set, as in a first release.
+    git diff --quiet -- "$cfg" || git commit --quiet -m "Release Beep for iOS {{version}}" "$cfg"
+    git tag -a "ios-v{{version}}" -m "Beep for iOS {{version}}"
+    echo "Tagged ios-v{{version}}. Publish it with: git push origin main ios-v{{version}}"
+
 # Set beep-node's version, commit it and tag node-v<version>. Pushing the tag
 # makes the node workflow build the Linux and macOS binaries and publish them
 # with install.sh at https://releases.flashmind.com/beep/node/.
@@ -69,28 +99,33 @@ node-release version:
     git tag -a "node-v{{version}}" -m "beep-node {{version}}"
     echo "Tagged node-v{{version}}. Publish it with: git push origin main node-v{{version}}"
 
-# Release the desktop and beep-node together and push the tags. Without
-# versions it bumps each app's patch number: `just release`, or
-# `just release 0.4.0 0.1.1` (desktop, then node). The node is left out until
-# its first `node-release` tag exists.
-release desktop="" node="":
+# Release the desktop, beep-node, Android and iOS together and push the tags.
+# Without versions it bumps each app's patch number: `just release`, or
+# `just release 0.4.0 0.1.1 0.2.0 0.2.0` (desktop, node, Android, then iOS).
+# The node and iOS are left out until their first `node-release` or
+# `ios-release` tag exists.
+release desktop="" node="" android="" ios="":
     #!/usr/bin/env bash
     set -euo pipefail
     latest() { git tag --list "$1-v*" --sort=-v:refname | head -1; }
     bump() { local v; v=$(latest "$1"); v=${v#"$1-v"}; [[ -n $v ]] || { echo "no $1 tag to bump" >&2; exit 1; }; echo "${v%.*}.$(( ${v##*.} + 1 ))"; }
-    desktop="{{desktop}}"; node="{{node}}"
-    desktop=${desktop:-$(bump desktop)}
+    desktop="{{desktop}}"; node="{{node}}"; android="{{android}}"; ios="{{ios}}"
+    desktop=${desktop:-$(bump desktop)}; android=${android:-$(bump android)}
     if [[ -z $node && -n $(latest node) ]]; then node=$(bump node); fi
-    tags=("desktop-v$desktop")
+    if [[ -z $ios && -n $(latest ios) ]]; then ios=$(bump ios); fi
+    tags=("desktop-v$desktop" "android-v$android")
     if [[ -n $node ]]; then tags+=("node-v$node"); fi
+    if [[ -n $ios ]]; then tags+=("ios-v$ios"); fi
     # Checked before tagging anything, so a bad version leaves no tags behind.
     for tag in "${tags[@]}"; do
         [[ ${tag#*-v} =~ ^0\.[0-9]+\.[0-9]+$ ]] || { echo "$tag: version must be like 0.2.3: every app stays on 0.x until production is ready" >&2; exit 1; }
         ! git rev-parse -q --verify "refs/tags/$tag" > /dev/null || { echo "$tag already exists" >&2; exit 1; }
     done
-    echo "Releasing desktop $desktop${node:+, node $node}"
+    echo "Releasing desktop $desktop, Android $android${node:+, node $node}${ios:+, iOS $ios}"
     just desktop-release "$desktop"
     if [[ -n $node ]]; then just node-release "$node"; fi
+    just android-release "$android"
+    if [[ -n $ios ]]; then just ios-release "$ios"; fi
     git push origin main "${tags[@]}"
 
 # Deploy the Cloudflare Worker behind https share and invite links. Needs
