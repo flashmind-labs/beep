@@ -309,6 +309,7 @@
 .mac .dcoderav.mark svg, .mac .cc-ag.mark svg { width: 58%; height: 58%; display: block }
 .mac .cc-ag.mark { padding: 0 }
 .mac #agfield { position: relative }
+.mac #agfield button[aria-label="Attach files"] { width: 26px; padding: 0; justify-content: center; margin-right: -8px }
 .mac #agfield .txt.ph { color: var(--d-dim) }
 .mac #agfield .txt.typed { display: flex; align-items: center; gap: 4px; white-space: pre }
 .mac .cm-caret { width: 1px; height: 14px; background: var(--d-fg); display: inline-block }
