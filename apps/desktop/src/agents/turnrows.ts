@@ -56,6 +56,8 @@ export function turnHeadHtml(t: { state: TurnState; start?: number | null; ms: n
     + (t.start != null ? `<span class="when">${clock(t.start)}</span>` : "") + "</div>";
 }
 
+export const collapseActivityHtml = (key: number) => `<div><button class="dprogress-collapse" data-turn="${key}" data-collapse aria-label="Collapse activity" title="Collapse activity" aria-expanded="true">${ICON.chev}</button></div>`;
+
 let turnTick: ReturnType<typeof setInterval> | undefined;
 
 /// Moves the running turns' clocks on each second, until none shows or

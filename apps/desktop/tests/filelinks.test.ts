@@ -60,7 +60,7 @@ test("Open in Beep works even when a file has no local copy", async () => {
   let opened = "";
   context("mockups/index.html#L12", path => { opened = path; });
   await settle();
-  assert.deepEqual(labels(), ["Open in Beep", "Copy path"]);
+  assert.deepEqual(labels(), ["Open in Beep", "Copy path", "Open in default app"]);
   click("Open in Beep");
   assert.equal(opened, "mockups/index.html");
 });
@@ -75,7 +75,7 @@ test("paths outside the session folder do not request native actions", async () 
   for (const href of ["../other/mockup.html", "/srv/project-other/mockup.html"]) {
     context(href);
     await settle();
-    assert.deepEqual(labels(), ["Open in Beep", "Copy path"]);
+    assert.deepEqual(labels(), ["Open in Beep", "Copy path", "Open in default app"]);
     closeMenu();
   }
   assert.equal(calls.length, 0);
@@ -89,4 +89,15 @@ test("a late app lookup cannot reopen a dismissed menu", async () => {
   finish({ apps: [] });
   await settle();
   assert.deepEqual(labels(), []);
+});
+
+test("a remote file opens through the default app", async () => {
+  answers.local_file = null;
+  context("mockups/index.html");
+  await settle();
+  click("Open in default app");
+  await settle();
+  assert.deepEqual(calls.find(c => c.cmd === "agent_file_open")?.args, {
+    machineId: folder.machineId, path: "/srv/project/mockups/index.html",
+  });
 });
