@@ -7,6 +7,7 @@
 //! starts it and checks the limits. An agent reaches only its own children.
 
 use super::machines::{Machine, command_name, machines};
+use super::reply::{fail, ok};
 use crate::agents::{
     Agents, Command, Session,
     family::{ChildNote, ChildStart, RemoteKid, WAIT_LIMIT, WAIT_POLL, Who},
@@ -183,20 +184,6 @@ pub(crate) struct PeerCall {
     /// Stop only the running turn, not the session.
     #[serde(default)]
     pub(crate) turn_only: bool,
-}
-
-fn fail(text: impl Into<String>) -> Reply {
-    Reply::Done {
-        text: text.into(),
-        failed: true,
-    }
-}
-
-fn ok(text: impl Into<String>) -> Reply {
-    Reply::Done {
-        text: text.into(),
-        failed: false,
-    }
 }
 
 fn json_of<T: Serialize>(value: &T) -> Reply {

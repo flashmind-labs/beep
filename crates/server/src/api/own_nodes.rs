@@ -1,16 +1,7 @@
-//! The caller's machines, which the server no longer reaches: released apps still ask.
+//! Recorded machine names and linked keys used by the caller's stored data.
 
-use super::Reply;
 use crate::{api::router::Cx, protocol::ApiError};
 use std::collections::{HashMap, HashSet};
-
-/// What a released app hears when it asks the server to act on a machine.
-pub(super) const RETIRED: &str = "Machines are reached through a desktop now.";
-
-/// The answer to a request that acted on a machine through the server.
-pub(super) fn retired<T>() -> Reply<T> {
-    Err(ApiError::bad_request(RETIRED))
-}
 
 /// The caller's machines' names, by key, as the account recorded them.
 pub(super) async fn machine_names(cx: &Cx) -> Result<HashMap<String, String>, ApiError> {
