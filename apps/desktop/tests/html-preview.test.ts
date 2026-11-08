@@ -1,0 +1,83 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { registerHooks } from "node:module";
+import { JSDOM } from "jsdom";
+import { isHtmlFile } from "../src/agentpane/html-preview-state.ts";
+
+const dom = new JSDOM("<body></body>");
+Object.assign(globalThis, { window: dom.window, document: dom.window.document });
+const state = { session: { machine_id: "remote", cwd: "/srv/project" }, tabs: [] as any[] };
+const calls: unknown[] = [];
+let answer: () => Promise<unknown> = async () => ({ kind: "html", src: "beepview://localhost/test/" });
+Object.assign(globalThis, { previewState: state, previewInvoke: async (cmd: string, args: unknown) => { calls.push({ cmd, args }); return answer(); } });
+const stubs = new Map(Object.entries({
+  "agentpane/media.ts": "export const P = globalThis.previewState; export const closeTab = () => {}; export const saveWorkFile = () => {};",
+  "agentpane/read.ts": "export const readFile = () => {}; export const readError = e => e.message; export const drawTermStatus = () => {};",
+  "agentpane/terminal.ts": "export const attach = () => {}; export const detachTerm = () => {}; export const killTerm = () => {};",
+  "ui/tauri.ts": "export const invoke = globalThis.previewInvoke;",
+  "chat/media.ts": "export const fileSize = () => ''; export const openViewer = () => {};",
+  "ui/menu.ts": "export const confirmSheet = () => {}; export const openMenu = () => {};",
+  "agents/workdrop.ts": "export const addMention = () => {};",
+}).map(([path, source]) => [new URL(`../src/${path}`, import.meta.url).href, source]));
+const hook = registerHooks({ load(url, context, next) {
+  const source = stubs.get(url);
+  return source === undefined ? next(url, context) : { format: "module", source, shortCircuit: true };
+} });
+const { viewOf } = await import("../src/agentpane/views.ts");
+hook.deregister();
+const tick = () => new Promise(r => setImmediate(r));
+function tab(name = "report.HTML") {
+  const t: any = { id: name, kind: "text", rel: name, root: "/srv/project/work", name, path: null, size: 30, text: { text: "<h1>Hello</h1>", size: 30, binary: false, cut: false } };
+  state.tabs = [t];
+  t.el = viewOf(t);
+  document.body.replaceChildren(t.el);
+  return t;
+}
+
+test("HTML detection includes htm and uppercase names", () => {
+  assert.ok(isHtmlFile("page.HTM"));
+  assert.ok(isHtmlFile("page.HTML"));
+  assert.ok(!isHtmlFile("page.html.txt"));
+});
+
+test("remote HTML offers preview and returns to source", async () => {
+  const t = tab();
+  (t.el.querySelector("[data-preview]") as HTMLButtonElement).click();
+  await tick();
+  assert.deepEqual(calls.at(-1), { cmd: "agent_artifact", args: { machineId: "remote", root: "/srv/project/work", path: "report.HTML", preview: true } });
+  const frame = t.el.querySelector("iframe");
+  assert.equal(frame.getAttribute("sandbox"), "");
+  assert.equal(frame.getAttribute("referrerpolicy"), "no-referrer");
+  assert.equal(frame.src, "beepview://localhost/test/");
+  t.el.querySelector("[data-preview]").click();
+  assert.ok(t.el.querySelector(".agcode"));
+  assert.equal(t.el.querySelector("iframe"), null);
+  assert.equal(tab("notes.txt").el.querySelector("[data-preview]"), null);
+});
+
+test("a failed read leaves source accessible and preview can be retried", async () => {
+  answer = async () => { throw new Error("Machine offline"); };
+  const t = tab();
+  t.el.querySelector("[data-preview]").click();
+  await tick();
+  assert.match(t.el.textContent, /Machine offline/);
+  t.el.querySelector("[data-preview]").click();
+  assert.ok(t.el.querySelector(".agcode"));
+  answer = async () => ({ kind: "html", src: "beepview://localhost/retry/" });
+  t.el.querySelector("[data-preview]").click();
+  await tick();
+  assert.equal(t.el.querySelector("iframe").src, "beepview://localhost/retry/");
+});
+
+test("returning to source while the preview loads keeps the source visible", async () => {
+  let finish!: (value: unknown) => void;
+  answer = () => new Promise(resolve => { finish = resolve; });
+  const t = tab();
+  t.el.querySelector("[data-preview]").click();
+  assert.match(t.el.textContent, /Loading preview/);
+  t.el.querySelector("[data-preview]").click();
+  finish({ kind: "html", src: "beepview://localhost/late/" });
+  await tick();
+  assert.ok(t.el.querySelector(".agcode"));
+  assert.equal(t.el.querySelector("iframe"), null);
+});

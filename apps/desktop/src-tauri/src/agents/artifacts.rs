@@ -72,6 +72,11 @@ const PAGE_CSP: &str = "default-src 'none'; \
     connect-src https: beepview:; frame-src 'none'; form-action 'none'; \
     base-uri 'none'; sandbox allow-scripts";
 
+/// File previews load only local assets and cannot run scripts.
+const PREVIEW_CSP: &str = "default-src 'none'; style-src 'unsafe-inline' beepview:; \
+    img-src data: blob: beepview:; font-src data: beepview:; media-src data: blob: beepview:; \
+    frame-src 'none'; form-action 'none'; base-uri 'none'; sandbox";
+
 /// The HTML pages ready to serve, by the token in their URL.
 pub struct Pages {
     kept: Mutex<VecDeque<Arc<Page>>>,
@@ -90,6 +95,7 @@ impl Default for Pages {
 
 struct Page {
     token: Uuid,
+    preview: bool,
     html: Arc<Vec<u8>>,
     place: Place,
     /// Files beside it asked for so far.
@@ -166,10 +172,15 @@ impl RelPath {
 impl Pages {
     /// Keeps `html`, read from `place`, to serve, returning its URL.
     fn keep(&self, html: Vec<u8>, place: Place) -> String {
+        self.keep_with_policy(html, place, false)
+    }
+
+    fn keep_with_policy(&self, html: Vec<u8>, place: Place, preview: bool) -> String {
         let token = Uuid::new_v4();
         let mut kept = self.kept.lock().unwrap_or_else(|e| e.into_inner());
         kept.push_back(Arc::new(Page {
             token,
+            preview,
             html: Arc::new(html),
             place,
             files: AtomicU32::new(0),
@@ -245,6 +256,7 @@ pub async fn agent_artifact(
     machine_id: String,
     root: String,
     path: String,
+    preview: Option<bool>,
 ) -> Result<ArtifactView> {
     let kind = kind_of(&path).ok_or_else(|| {
         DesktopError::BadRequest("Only pages, documents and pictures show here.".into())
@@ -254,7 +266,11 @@ pub async fn agent_artifact(
     Ok(match kind {
         Kind::Html => ArtifactView::Html {
             size,
-            src: pages.keep(data, place),
+            src: if preview.unwrap_or(false) {
+                pages.keep_with_policy(data, place, true)
+            } else {
+                pages.keep(data, place)
+            },
         },
         Kind::Markdown => ArtifactView::Md {
             size,
@@ -377,7 +393,10 @@ pub fn route(pages: &Pages, request: &Request<Vec<u8>>) -> Route {
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
-                .header(header::CONTENT_SECURITY_POLICY, PAGE_CSP)
+                .header(
+                    header::CONTENT_SECURITY_POLICY,
+                    if page.preview { PREVIEW_CSP } else { PAGE_CSP },
+                )
                 .header(header::REFERRER_POLICY, "no-referrer")
                 .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
                 .body(page.html.as_ref().clone()),
@@ -425,6 +444,14 @@ impl FileRead {
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, self.mime)
+                .header(
+                    header::CONTENT_SECURITY_POLICY,
+                    if self.page.preview {
+                        PREVIEW_CSP
+                    } else {
+                        PAGE_CSP
+                    },
+                )
                 .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
                 // The sandboxed page's origin is opaque; its module
                 // scripts and fonts load with CORS.
@@ -533,6 +560,28 @@ mod tests {
                 .await
             }
         }
+    }
+
+    #[tokio::test]
+    async fn file_previews_restrict_the_page_and_its_siblings() {
+        let pages = Pages::default();
+        let src = pages.keep_with_policy(b"<img src=chart.png>".to_vec(), place(), true);
+        let page = done(&pages, &src);
+        assert_eq!(page.headers()[header::CONTENT_SECURITY_POLICY], PREVIEW_CSP);
+        assert!(!PREVIEW_CSP.contains("https:"));
+        assert!(!PREVIEW_CSP.contains("allow-scripts"));
+        assert!(!PREVIEW_CSP.contains("script-src"));
+        let image = fetch(&pages, &format!("{src}chart.png")).await;
+        assert_eq!(image.status(), StatusCode::OK);
+        assert_eq!(image.body(), b"\x89PNG");
+        assert_eq!(
+            image.headers()[header::CONTENT_SECURITY_POLICY],
+            PREVIEW_CSP
+        );
+        assert_eq!(
+            done(&pages, &format!("{src}%2e%2e/secret")).status(),
+            StatusCode::NOT_FOUND
+        );
     }
 
     #[test]

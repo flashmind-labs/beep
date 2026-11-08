@@ -1,5 +1,6 @@
 // What each kind of tab shows: text, a terminal, a picture, a video, a PDF
 // or a 3D model.
+import { isHtmlFile } from "./html-preview-state.ts";
 import { actualView, baseName, clipTime, fitView, resolvePath, zoomAt } from "./media-state.ts";
 import { highlight, languageOf, MAX_LINES, shortSize } from "./files-state.ts";
 import type { Animation } from "./model3d.ts";
@@ -43,9 +44,45 @@ function textView(t: MediaTab, text: TreeText) {
     const width = String(shown.length).length;
     body = `<div class="agcode" style="--lnw:${width}ch"><pre>${shown.map((l, i) => `<span class="ln">${i + 1}</span>${highlight(l, lang)}`).join("\n")}</pre></div>`;
   }
+  if (t.preview?.active) {
+    body = t.preview.loading ? '<div class="agpmsg">Loading preview…</div>'
+      : t.preview.error ? `<div class="agpmsg derr">${esc(t.preview.error)}</div>`
+      : '<div class="agartframe-box"><iframe class="agartframe" sandbox="" referrerpolicy="no-referrer"></iframe></div>';
+  }
   const cut = text.cut || lines > MAX_LINES ? ` · the first ${lines > MAX_LINES ? `${MAX_LINES.toLocaleString()} lines` : shortSize(text.text.length)} shown` : "";
   const about = [rel, lang, text.binary ? "" : `${lines.toLocaleString()} lines`, shortSize(text.size)].filter(Boolean).join(" · ") + cut;
-  const el = h(`<div class="agpview">${body}<div class="agpacts"><span class="meta mono" title="${esc(rel)}">${esc(about)}</span><span class="sp"></span><button class="dbtn" data-tment="1">Mention</button><button class="dbtn" data-tsave="1">Save</button></div></div>`);
+  const el = h(`<div class="agpview">${body}<div class="agpacts"><span class="meta mono" title="${esc(rel)}">${esc(about)}</span><span class="sp"></span>${!text.binary && isHtmlFile(rel) ? `<button class="dbtn" data-preview="1">${t.preview?.active ? "Source" : "Preview"}</button>` : ""}<button class="dbtn" data-tment="1">Mention</button><button class="dbtn" data-tsave="1">Save</button></div></div>`);
+  const frame = el.querySelector("iframe");
+  if (frame && t.preview?.src) { frame.title = `Preview of ${t.name}`; frame.src = t.preview.src; }
+  const render = () => {
+    if (!P.tabs.includes(t) || !t.el) return;
+    const next = textView(t, text);
+    next.hidden = t.el.hidden;
+    t.el.replaceWith(next);
+    t.el = next;
+  };
+  el.querySelector("[data-preview]")?.addEventListener("click", async () => {
+    const s = P.session;
+    if (!s) return;
+    const preview = t.preview ??= { active: false, loading: false, src: "", error: "" };
+    preview.active = !preview.active;
+    if (!preview.active || preview.src || preview.loading) { render(); return; }
+    preview.loading = true;
+    preview.error = "";
+    render();
+    try {
+      const got = await invoke<{ kind: string; src: string }>("agent_artifact", {
+        machineId: s.machine_id, root: t.root ?? s.cwd, path: rel, preview: true,
+      });
+      if (got.kind !== "html") throw new Error("This file cannot be previewed as HTML.");
+      preview.src = got.src;
+    } catch (e) {
+      preview.error = readError(e);
+    } finally {
+      preview.loading = false;
+      render();
+    }
+  });
   const meta = el.querySelector(".meta")!;
   el.querySelector("[data-tment]")!.addEventListener("click", () => addMention(mentioned(t.root ?? P.session?.cwd ?? "", P.session?.cwd ?? "", rel)));
   el.querySelector("[data-tsave]")!.addEventListener("click", () => saveWorkFile(rel, note => { meta.textContent = note; }, t.root));
