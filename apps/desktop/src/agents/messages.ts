@@ -106,7 +106,6 @@ async function sendSteer(q: Waiting, back = true) {
   const o = AG.open, queue = AG.queue;
   if (!o) return false;
   q.state = "sending";
-  q.entryFrom ??= AG.page ? AG.page.earlier + AG.page.entries.length : 0;
   drawAgentBody();
   if (q.images.length) keepAgentPics(o, q.images);
   const ok = await steerAgent({ steer: outgoing(q.text, q.images) });
