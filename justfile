@@ -148,6 +148,27 @@ ios-build:
 ios-sim-run:
     bash scripts/tauri-ios.sh "iPhone 17"
 
+# Build a release .ipa of the phone app, to install later with ios-install
+ios-ipa:
+    bash scripts/tauri-ios.sh --ipa
+
+# Install the last built .ipa on a connected iPhone. Optional device name.
+[positional-arguments]
+ios-install device="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ipa=$(ls -t apps/desktop/src-tauri/gen/apple/build/arm64/*.ipa 2>/dev/null | head -1)
+    [[ -n $ipa ]] || { echo "No .ipa yet: run just ios-ipa" >&2; exit 1; }
+    device="$1"
+    if [[ -z $device ]]; then
+        list=$(mktemp)
+        xcrun devicectl list devices --json-output "$list" > /dev/null
+        device=$(python3 -c 'import json,sys; ds=[d for d in json.load(open(sys.argv[1]))["result"]["devices"] if d.get("hardwareProperties",{}).get("platform")=="iOS" and d.get("hardwareProperties",{}).get("reality")=="physical"]; print(ds[0]["identifier"] if len(ds)==1 else "")' "$list")
+        rm -f "$list"
+    fi
+    [[ -n $device ]] || { echo "Connect and unlock an iPhone, or pass its name" >&2; exit 1; }
+    xcrun devicectl device install app --device "$device" "$ipa"
+
 # Build, install and launch the phone app on a connected iPhone. Optional device name.
 [positional-arguments]
 ios-run device="":
