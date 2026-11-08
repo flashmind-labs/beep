@@ -1,6 +1,7 @@
 // machines/: the Machines list, Home's machine table (table.ts) and the
 // Add a machine sheet. Entry: this file.
 import { openAddMachine } from "./addmachine.ts";
+import { openJoinTicket } from "./jointicket.ts";
 import { harnessTile } from "../ui/harnessicon.ts";
 import { bareVersion, coderColumns, coders, errorText, isCoder, machineTag, nodeBehind, offeredNode, type NodeUpdate, shownVersion, specLine, toolChips, updatedNotes, updatedTo, updateOffered } from "./machines-state.ts";
 import { bar, S } from "../bar/core.ts";
@@ -171,7 +172,7 @@ async function readList() {
   try {
     const [list, mac, updatable, traffic] = await Promise.all([
       invoke<Machine[]>("list_machines"),
-      invoke<{ id: string | null }>("mac_control").catch(e => { console.warn("this Mac's state:", e); return null; }),
+      invoke<{ id: string | null }>("mac_control").catch(e => { console.warn("this computer's state:", e); return null; }),
       invoke<{ id: string }[]>("updatable_machines").catch(e => { console.warn("updatable machines:", e); return []; }),
       invoke<MachineTraffic[]>("machine_traffic").catch(e => { console.warn("machine traffic:", e); return []; }),
       loadClocks(invoke),
@@ -539,9 +540,8 @@ function toolNotes(m: Machine, tools: MachineEnv["tools"]) {
   return done.join("") + failed.join("");
 }
 
-/// Add a machine, which opens the same sheet as the window's Home; the
-/// list loads again once it closes.
-const addButton = '<button class="dbtn" id="mcAdd">Add a machine</button>';
+/// Machine actions; the list loads again once either sheet closes.
+const machineActions = '<span class="dline"><button class="dbtn quiet" id="mcLinkDesktop">Link another desktop</button><button class="dbtn" id="mcAdd">Add a machine</button></span>';
 
 function drawMachines() {
   const at = hosted(), el = root();
@@ -561,7 +561,7 @@ function drawMachines() {
     const sum = !MC.list ? "" : [on && `${on} online`, list.length - on && `${list.length - on} offline`].filter(Boolean).join(", ");
     const say = esc(sum || "Where Beep runs commands and coding agents");
     // In Settings the breadcrumb names the page; the sum goes under it.
-    const head = at ? `<div class="dmc-head"><span class="dmuted">${say}</span>${addButton}</div>` : `<div class="dhead"><span class="tt"><b>Machines</b><small>${say}</small></span>${addButton}</div>`;
+    const head = at ? `<div class="dmc-head"><span class="dmuted">${say}</span>${machineActions}</div>` : `<div class="dhead"><span class="tt"><b>Machines</b><small>${say}</small></span>${machineActions}</div>`;
     const columns = coderColumns(list.map(m => m.env?.tools ?? []));
     el.innerHTML = head + errLine(MC.error) + (MC.list && !list.length
       ? emptyPage(SERVER_ICON, "No machines yet.", "Add one to run commands and coding agents on it.")
@@ -583,6 +583,7 @@ function drawMachines() {
       el.querySelector<HTMLElement>("#rmNo")?.focus();
     });
   }
+  el.querySelector("#mcLinkDesktop")?.addEventListener("click", () => openJoinTicket({ onClose: () => { if (shown()) void renderMachines(hosted()?.machine ?? null).then(() => hosted()?.changed()); } }));
   el.querySelector("#mcAdd")?.addEventListener("click", () => openAddMachine({ onClose: () => { if (shown()) void renderMachines(hosted()?.machine ?? null).then(() => hosted()?.changed()); } }));
   el.querySelector("#rmYes")?.addEventListener("click", removeMachine);
   if (open) {

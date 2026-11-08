@@ -38,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -77,7 +78,7 @@ internal fun MachinesScreen(repository: ChatRepository, onBack: () -> Unit) {
     var error by remember { mutableStateOf("") }
     var open by rememberSaveable { mutableStateOf<String?>(null) }
     var terminals by rememberSaveable { mutableStateOf(false) }
-    if (terminals) { TerminalsScreen(repository, machineId = open, onBack = { terminals = false }); return }
+    if (terminals) { CompositionLocalProvider(LocalTabRoot provides false) { TerminalsScreen(repository, machineId = open, onBack = { terminals = false }) }; return }
     fun refresh() = scope.launch {
         runCatching {
             withContext(Dispatchers.IO) {
@@ -96,10 +97,11 @@ internal fun MachinesScreen(repository: ChatRepository, onBack: () -> Unit) {
     LinkCodeSheets(codes)
 
     val shown = machines?.firstOrNull { it.id == open }
+    val tabRoot = LocalTabRoot.current
     BackHandler(enabled = shown != null) { open = null }
     Scaffold(containerColor = Beep.colors.page, topBar = {
         TopAppBar(modifier = Modifier.beepBar(), expandedHeight = 54.dp, title = { Text(displayText(shown?.name ?: "Machines"), style = displayStyle(18.sp)) },
-            navigationIcon = { IconButton(onClick = { if (shown != null) open = null else onBack() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
+            navigationIcon = { if (shown != null || !tabRoot) IconButton(onClick = { if (shown != null) open = null else onBack() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
             actions = {
                 IconButton(onClick = { terminals = true }) { Icon(Icons.Outlined.Terminal, "Terminals", Modifier.size(20.dp)) }
                 IconButton(onClick = { refresh() }) { Icon(Icons.Outlined.Refresh, "Refresh", Modifier.size(20.dp)) }
@@ -276,7 +278,7 @@ private fun MachineDetail(machine: Machine, stats: MachineStats?, modifier: Modi
         Facts(listOf("OS" to env.osVersion.ifEmpty { env.os }, "Chip" to env.arch, "CPUs" to env.cpus.toString(),
             "Memory" to "${env.memoryMb / 1024u} GB", "Host" to env.hostname, "Home" to env.home).filter { it.second.isNotEmpty() },
             mono = setOf("Home"))
-        val agents = env.tools.filter { it.name in setOf("claude", "codex", "gemini", "opencode", "pi", "flsh") }
+        val agents = env.tools.filter { it.name in setOf("claude", "codex", "gemini", "opencode", "pi", "flsh", "hermes") }
         if (agents.isNotEmpty()) {
             Section("Coding agents")
             Facts(agents.map { tool -> tool.name to listOfNotNull(tool.version, env.logins.find { it.tool == tool.name }?.let { if (it.signedIn) "Signed in" else "Not signed in" }).joinToString(" · ") })

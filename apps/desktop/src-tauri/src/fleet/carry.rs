@@ -8,7 +8,6 @@ use beep_mesh::{Key, Mesh};
 use std::{
     fs::{self, OpenOptions},
     io::{ErrorKind, Write},
-    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -25,12 +24,14 @@ pub(super) fn save(dir: &Path, settings: &[(Key, Vec<u8>)]) -> Result<()> {
         .collect();
     let bytes = serde_json::to_vec(&texts).map_err(anyhow::Error::from)?;
     let write = || -> std::io::Result<()> {
-        let mut out = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(file(dir))?;
+        let mut options = OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut out = options.open(file(dir))?;
         out.write_all(&bytes)?;
         out.sync_all()
     };

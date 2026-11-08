@@ -31,8 +31,9 @@ import androidx.compose.ui.unit.sp
 class BeepWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         provideContent {
-            val c = BeepTokens.of(BeepStyle.MintQuiet,
-                context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES).colors
+            Appearance.load(context)
+            val dark = context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            val c = Skins.resolve(Appearance.choice.value, dark).colors
             val ink = c.ink
             val surface = c.surface
             val emerald = c.accent

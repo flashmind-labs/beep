@@ -33,8 +33,8 @@ export type TicketKind = "node" | "container" | "desktop" | "phone";
 export const KINDS: readonly { kind: TicketKind; title: string; sub: string }[] = [
   { kind: "node", title: "Node", sub: "A server or any always-on box" },
   { kind: "container", title: "Container", sub: "Removed after a day offline" },
-  { kind: "desktop", title: "Desktop", sub: "Another Mac" },
-  { kind: "phone", title: "Phone", sub: "Android or iPhone, over iroh" },
+  { kind: "desktop", title: "Desktop", sub: "macOS or Windows" },
+  { kind: "phone", title: "Phone", sub: "Observe projects and agents" },
 ];
 
 /// What `mesh_invite` takes for a ticket of `kind`.
@@ -52,6 +52,7 @@ export type AddState =
   | { step: "loading" }
   | { step: "waiting"; token: string; command: string; expiresAt: number; qrSvg?: string }
   | { step: "linked"; machine: Machine }
+  | { step: "paired" }
   | { step: "expired" }
   | { step: "error"; message: string };
 
@@ -61,6 +62,7 @@ export type AddEvent =
   | { type: "failed"; message: string }
   | { type: "tick"; now: number }
   | { type: "found"; machine: Machine }
+  | { type: "paired" }
   | { type: "renew" };
 
 /// The sheet before its token arrives.
@@ -86,6 +88,8 @@ export function next(state: AddState, event: AddEvent): AddState {
     case "found":
       if (state.step !== "waiting") return state;
       return { step: "linked", machine: event.machine };
+    case "paired":
+      return state.step === "waiting" ? { step: "paired" } : state;
     case "renew":
       return START;
     default:
@@ -145,8 +149,8 @@ export interface MacOption {
 /// saying where this Mac stands, and a button while it is off.
 export function macOption(mac: MacSeen | null | undefined, asked: boolean): MacOption | null {
   if (!mac || mac.status === "unlinked") return null;
-  const name = mac.name || "This Mac";
-  if (!mac.enabled) return { text: `Let Beep run commands and use the screen on ${name}.`, button: "Use this Mac" };
+  const name = mac.name || "This computer";
+  if (!mac.enabled) return { text: `Let Beep run commands and use the screen on ${name}.`, button: "Use this computer" };
   switch (mac.status) {
     case "connected": return asked ? { text: `${name} is linked. It shows under Machines.`, done: true } : null;
     case "failed": return { text: `Couldn't connect: ${mac.error || "unknown error"}. Beep tries again on its own.`, bad: true };

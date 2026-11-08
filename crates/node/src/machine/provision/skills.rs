@@ -45,6 +45,9 @@ pub(super) fn targets(home: &Path) -> Vec<PathBuf> {
     if home.join(".claude").is_dir() {
         out.push(home.join(".claude/skills"));
     }
+    if home.join(".hermes").is_dir() {
+        out.push(home.join(".hermes/skills"));
+    }
     if home.join(".codex").is_dir() {
         out.push(home.join(".agents/skills"));
     }

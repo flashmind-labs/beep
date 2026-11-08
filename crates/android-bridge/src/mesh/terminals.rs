@@ -67,7 +67,7 @@ impl Connected {
             machine_id: record.machine.to_string(),
             machine_name: self
                 .mesh
-                .devices()
+                .machines()
                 .into_iter()
                 .find(|device| device.device.id == record.machine)
                 .map(|device| device.device.name)
@@ -172,7 +172,11 @@ impl Connected {
         }
         Ok(self.terminal_view(&row, TerminalState::Running {}))
     }
-    pub async fn attach_terminal(&self, id: Uuid) -> Result<Arc<TerminalConnection>, BeepError> {
+    pub async fn attach_terminal(
+        &self,
+        id: Uuid,
+        size: Size,
+    ) -> Result<Arc<TerminalConnection>, BeepError> {
         let row = self.terminal_row(id)?;
         if !row.record.pty {
             return Ok(Arc::new(TerminalConnection {
@@ -188,8 +192,7 @@ impl Connected {
         {
             return Err(BeepError::NotFound);
         }
-        let (tx, rx) =
-            terminals::attach(&client, TaskId(row.record.task), 0, Size::DEFAULT).await?;
+        let (tx, rx) = terminals::attach(&client, TaskId(row.record.task), 0, size).await?;
         Ok(Arc::new(TerminalConnection {
             input: crate::AsyncMutex::new(TerminalInputStream::Mesh(tx)),
             output: crate::AsyncMutex::new(TerminalOutputStream::Mesh(rx)),

@@ -4,7 +4,7 @@ import { joinLine, notJoinedSub, splitJoined } from "../src/machines/notjoined-s
 
 test("a_machine_not_yet_joined_shows_its_join_line_and_still_works_through_the_server", () => {
   const machines = [
-    { id: "a", name: "This Mac", joined: true },
+    { id: "a", name: "This computer", joined: true },
     { id: "b", name: "build-box", joined: false },
     // A list from an app of before the field is all in the mesh.
     { id: "c", name: "gpu-box" },

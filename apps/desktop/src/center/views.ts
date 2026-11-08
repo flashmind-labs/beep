@@ -69,7 +69,7 @@ const pageTiming = new PageTiming(() => performance.now(), callback => { request
 
 /// The page showing, as `go` opens it again.
 function here() {
-  return { view: shown!, arg: shown === "projects" ? { project: state.picked } : shownArg };
+  return { view: shown!, arg: views.get(shown!)?.currentArg?.() ?? shownArg };
 }
 
 /// Goes one page back (⌘[) or forward (⌘]), if there is one.
@@ -105,7 +105,7 @@ export function go(name: ViewName, arg?: ViewArg): boolean {
   }
   // An agent view opened from another view goes back there on Esc.
   if (name === "pane" && opensAgent(arg) && !arg.from && shown && shown !== "pane") {
-    arg = { ...arg, from: { view: shown, arg: shown === "projects" ? { project: state.picked } : shownArg } };
+    arg = { ...arg, from: here() };
   }
   const view = views.get(name);
   if (!view) return false;
@@ -113,7 +113,7 @@ export function go(name: ViewName, arg?: ViewArg): boolean {
   // Sending from a draft turns it into the session; Back skips the spent form.
   const replaceDraft = shown === "pane" && !!shownArg && typeof shownArg === "object" && "draft" in shownArg
     && name === "pane" && !!arg && typeof arg === "object" && "agent" in arg && arg.adopt === true;
-  if (shown && !moving) pages.visit(here(), { view: name, arg: name === "projects" ? { project: (arg as ProjectsArg | undefined)?.project ?? null } : arg }, replaceDraft);
+  if (shown && !moving) pages.visit(here(), { view: name, arg: name === "projects" ? { project: (arg as ProjectsArg | undefined)?.project ?? null, tile: (arg as ProjectsArg | undefined)?.tile ?? null } : arg }, replaceDraft);
   shownArg = arg;
   if (shown && shown !== name) views.get(shown)!.unmount?.();
   shown = name;

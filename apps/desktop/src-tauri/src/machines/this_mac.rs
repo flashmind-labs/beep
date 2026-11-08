@@ -69,9 +69,10 @@ impl Machine {
     pub fn new(dir: &Path) -> Self {
         let provision = Provision::new(dir);
         let mut offers = Offers::local(&[], provision.clone());
+        #[cfg(target_os = "macos")]
         offers.extra.push(Arc::new(desktop::Desktop));
         // The user's coding agent skills reach the mesh's other machines.
-        if let Some(home) = std::env::var_os("HOME") {
+        if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
             offers.skills = Skills::under(home.into());
         }
         // The embedded node logs to the app's own file.

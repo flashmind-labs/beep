@@ -25,7 +25,6 @@ use std::{
     cmp::Reverse,
     fs,
     path::{Component, PathBuf},
-    process::Command,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::SystemTime,
 };
@@ -188,6 +187,51 @@ impl Notes {
         list.len() != before
     }
 
+    /// Opening a session removes its finished-turn notes, including read ones.
+    fn viewed_agent(&self, machine: &str, agent: &str, session: &str) -> bool {
+        let mut list = self.lock();
+        let before = list.len();
+        list.retain(|note| {
+            note.kind != NoteKind::Finished
+                || !note.id.parse::<AgentNoticeKey>().is_ok_and(|key| {
+                    key.question.is_none() && key.is_session(machine, agent, session)
+                })
+        });
+        list.len() != before
+    }
+
+    /// Keeps questions, but a finished turn on screen needs no note.
+    fn agent_notice(&self, key: &AgentNoticeKey, notice: &Notice, seen: bool) -> bool {
+        let finished = self.finish(|note| {
+            asked(note).is_some_and(|asked| {
+                asked.is_session(&key.machine_id, &key.agent, &key.session)
+                    && asked.question != key.question
+            })
+        });
+        if seen && key.question.is_none() {
+            let removed = self.viewed_agent(&key.machine_id, &key.agent, &key.session);
+            return finished || removed;
+        }
+        let kind = if key.question.is_some() {
+            NoteKind::Asks
+        } else {
+            NoteKind::Finished
+        };
+        let note = Note {
+            text: notice.body.clone(),
+            read: seen,
+            target: Some(CenterTarget::Agent(AgentTarget::notified(key))),
+            ..Note::new(
+                kind,
+                key.to_string(),
+                notice.title.clone(),
+                key.machine_name.clone(),
+            )
+        };
+        self.put(note, now_ms());
+        true
+    }
+
     /// Writes the newest list, through a partial file so a reader never sees
     /// half of it. It blocks.
     fn save(&self) -> anyhow::Result<()> {
@@ -256,34 +300,21 @@ fn asked(note: &Note) -> Option<AgentNoticeKey> {
     note.id.parse().ok()
 }
 
-/// A coding agent's notice: a question, or a turn that ended. Anything the
-/// session asked before no longer waits. `seen` when it was on screen.
+/// A coding agent's notice: a question, or a turn that ended off screen.
+/// Anything the session asked before no longer waits.
 pub(crate) fn agent_notice(app: &AppHandle, key: &AgentNoticeKey, notice: &Notice, seen: bool) {
     let notes = notes(app);
-    notes.finish(|note| {
-        asked(note).is_some_and(|asked| {
-            asked.is_session(&key.machine_id, &key.agent, &key.session)
-                && asked.question != key.question
-        })
-    });
-    let kind = if key.question.is_some() {
-        NoteKind::Asks
-    } else {
-        NoteKind::Finished
-    };
-    let note = Note {
-        text: notice.body.clone(),
-        read: seen,
-        target: Some(CenterTarget::Agent(AgentTarget::notified(key))),
-        ..Note::new(
-            kind,
-            key.to_string(),
-            notice.title.clone(),
-            key.machine_name.clone(),
-        )
-    };
-    notes.put(note, now_ms());
-    changed(app, notes);
+    if notes.agent_notice(key, notice, seen) {
+        changed(app, notes);
+    }
+}
+
+/// The user opened this session; its finished-turn notifications no longer wait.
+pub(crate) fn agent_viewed(app: &AppHandle, machine: &str, agent: &str, session: &str) {
+    let notes = notes(app);
+    if notes.viewed_agent(machine, agent, session) {
+        changed(app, notes);
+    }
 }
 
 /// The note for a run a machine told of: "Build failed on main" from its
@@ -398,11 +429,7 @@ pub fn skill_reveal(app: AppHandle, folder: String, name: String) -> Result<()> 
     if name.contains(['/', '\\']) || climbs || !skill.starts_with(&home) || !skill.is_dir() {
         return Err(DesktopError::BadRequest("not a skill on this Mac".into()));
     }
-    Command::new("open")
-        .arg("-R")
-        .arg(&skill)
-        .spawn()
-        .map_err(anyhow::Error::from)?;
+    crate::platform::reveal(&skill)?;
     Ok(())
 }
 
@@ -591,5 +618,112 @@ mod tests {
         asks.kind = NoteKind::Asks;
         assert_eq!(asked(&asks), Some(key));
         assert_eq!(waiting::agent_item("m1", "s1", 3), "wait:agent:m1:s1:3");
+    }
+
+    fn ready_key() -> AgentNoticeKey {
+        AgentNoticeKey {
+            machine_id: "m1".into(),
+            agent: "codex".into(),
+            session: "s1".into(),
+            question: None,
+            machine_name: "build-box".into(),
+        }
+    }
+
+    fn notice(key: &AgentNoticeKey) -> Notice {
+        Notice {
+            session_id: key.to_string(),
+            title: "Codex is ready".into(),
+            body: "The turn ended".into(),
+            app: None,
+            approval: None,
+            changed: false,
+            group: false,
+        }
+    }
+
+    #[test]
+    fn a_watched_turn_leaves_no_ready_note_and_settles_its_question() {
+        let dir = TempDir::new().expect("a temp dir");
+        let notes = store(&dir);
+        let ready = ready_key();
+        assert!(!notes.agent_notice(&ready, &notice(&ready), true));
+        assert!(notes.list().is_empty());
+
+        let question = AgentNoticeKey {
+            question: Some(7),
+            ..ready.clone()
+        };
+        assert!(notes.agent_notice(&question, &notice(&question), false));
+        assert!(notes.agent_notice(&ready, &notice(&ready), false));
+        assert!(notes.agent_notice(&ready, &notice(&ready), true));
+        assert_eq!(ids(&notes), [question.to_string()]);
+        assert!(notes.get(&question.to_string()).is_some_and(|n| n.done));
+
+        // A new question is still kept while the session is on screen.
+        let next = AgentNoticeKey {
+            question: Some(8),
+            ..ready
+        };
+        assert!(notes.agent_notice(&next, &notice(&next), true));
+        assert!(
+            notes
+                .get(&next.to_string())
+                .is_some_and(|n| n.read && !n.done)
+        );
+    }
+
+    #[test]
+    fn opening_a_session_removes_only_its_ready_notes_and_saves_the_removal() {
+        let dir = TempDir::new().expect("a temp dir");
+        let notes = store(&dir);
+        let ready = ready_key();
+        let other_machine = AgentNoticeKey {
+            machine_id: "m2".into(),
+            ..ready.clone()
+        };
+        let other_agent = AgentNoticeKey {
+            agent: "claude".into(),
+            ..ready.clone()
+        };
+        let other_session = AgentNoticeKey {
+            session: "s2".into(),
+            ..ready.clone()
+        };
+        let question = AgentNoticeKey {
+            question: Some(7),
+            ..ready.clone()
+        };
+        for key in [
+            &ready,
+            &other_machine,
+            &other_agent,
+            &other_session,
+            &question,
+        ] {
+            notes.agent_notice(key, &notice(key), false);
+        }
+        notes.read(&[ready.to_string()]);
+        let mut renamed = note(
+            &AgentNoticeKey {
+                machine_name: "gpu-box".into(),
+                ..ready.clone()
+            }
+            .to_string(),
+            now_ms(),
+        );
+        renamed.kind = NoteKind::Finished;
+        notes.put(renamed, now_ms());
+        notes.put(note("unrelated", now_ms()), now_ms());
+
+        assert!(notes.viewed_agent("m1", "codex", "s1"));
+        assert!(!notes.viewed_agent("m1", "codex", "s1"));
+        assert!(notes.get(&ready.to_string()).is_none());
+        assert_eq!(notes.list().len(), 5);
+        for key in [&other_machine, &other_agent, &other_session, &question] {
+            assert!(notes.get(&key.to_string()).is_some());
+        }
+        notes.save().expect("the notes are written");
+        assert_eq!(store(&dir).list(), notes.list());
     }
 }

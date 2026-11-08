@@ -98,6 +98,7 @@ const NAMES: Record<string, [string, string]> = {
   gemini: ["Gemini CLI", "GE"],
   flsh: ["flsh", "FL"],
   opencode: ["OpenCode", "OC"],
+  hermes: ["Hermes", "HE"],
 };
 
 /// What each harness is called on screen.

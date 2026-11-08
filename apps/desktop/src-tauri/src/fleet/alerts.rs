@@ -1,33 +1,27 @@
 //! What coding agents on the machines of the mesh want the user for, sent
-//! by the machines themselves: one `FollowAlerts` stream per machine, kept
-//! open while the machine is a member and reachable. The alerts become the
-//! same notices the server pushes, so they route the same way, and an
-//! answer goes back to the machine. No server is involved.
+//! by the machines themselves. The alerts and runs streams are
+//! `beep_fleet::alerts`; this adds the native CLI sessions each machine
+//! tells, and routes all of it to the app. The alerts become the same
+//! notices the server pushes, so they route the same way, and an answer
+//! goes back to the machine. No server is involved.
 
 use super::{Fleet, Opened};
-use crate::error::{DesktopError, Result};
-use beep_mesh::{MeshError, PeerClient};
+use crate::error::Result;
+use beep_fleet::alerts::{self as shared, Heard as Told};
+use beep_mesh::MeshError;
 use beep_node::link::reconnect::Backoff;
 use beep_proto::{
-    AgentNoticeKey, ApiError, Notice,
-    node::agent::{
-        Event, ExternalSession, Request, RunNews, SESSIONS_PROTOCOL, SessionsReply,
-        SessionsRequest, protocol,
-    },
+    AgentNoticeKey, Notice,
+    node::agent::{ExternalSession, RunNews, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
 };
 use iroh::EndpointId;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     str::FromStr,
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::{
-    select,
-    sync::mpsc,
-    task::JoinHandle,
-    time::{sleep, timeout},
-};
+use tokio::{select, sync::mpsc, time::sleep};
 
 /// Notices and connections waiting for the app to route them.
 const QUEUE: usize = 64;
@@ -36,8 +30,6 @@ const QUEUE: usize = 64;
 const TWICE: Duration = Duration::from_secs(60);
 /// How long a stream stays open before it counts as working.
 const HELD: Duration = Duration::from_secs(30);
-/// How long a machine gets to answer an answer.
-const ANSWERING: Duration = Duration::from_secs(10);
 
 /// What the streams tell the app.
 pub(crate) enum Direct {
@@ -55,16 +47,6 @@ pub(crate) enum Direct {
     },
 }
 
-/// Which stream a machine is followed on.
-#[derive(Clone, Copy)]
-enum Follows {
-    /// Coding agents' questions and turns: `FollowAlerts`.
-    Alerts,
-    /// CI runs: `FollowRuns`, which a machine from before it closes.
-    Runs,
-    Presence,
-}
-
 /// What follows every machine of the mesh, now and as it changes, and the
 /// receiver for what it hears. The future runs until the receiver is
 /// dropped; the caller spawns it.
@@ -73,90 +55,57 @@ pub(crate) fn start(fleet: Arc<Fleet>) -> (impl Future<Output = ()>, mpsc::Recei
     (follow(fleet, out), heard)
 }
 
-/// One task per machine, ended when the machine leaves the mesh or this
-/// is dropped.
-#[derive(Default)]
-struct Running(HashMap<EndpointId, JoinHandle<()>>);
-
-impl Running {
-    /// Runs exactly the tasks for `machines`, starting `start` for new ones.
-    fn keep(
-        &mut self,
-        machines: &HashSet<EndpointId>,
-        mut start: impl FnMut(EndpointId) -> JoinHandle<()>,
-    ) {
-        self.0.retain(|id, task| {
-            let stays = machines.contains(id);
-            if !stays {
-                task.abort();
-            }
-            stays
-        });
-        for id in machines {
-            self.0.entry(*id).or_insert_with(|| start(*id));
-        }
-    }
-}
-
-impl Drop for Running {
-    fn drop(&mut self) {
-        for task in self.0.values() {
-            task.abort();
-        }
-    }
-}
-
 async fn follow(fleet: Arc<Fleet>, out: mpsc::Sender<Direct>) {
     let mut opened = fleet.mesh.subscribe();
-    let mut running = Running::default();
     loop {
         let current = opened.borrow_and_update().clone();
         let Opened::Open(mesh) = current else {
             // No mesh to follow: the streams let go of it, so it can close.
-            running = Running::default();
             if opened.changed().await.is_err() {
                 return;
             }
             continue;
         };
-        let mut updates = mesh.updates();
-        loop {
-            updates.borrow_and_update();
-            let machines = mesh.devices().into_iter().map(|d| d.device.id).collect();
-            running.keep(&machines, |id| {
-                tokio::spawn(machine(fleet.clone(), id, out.clone()))
-            });
-            select! {
-                _ = out.closed() => return,
-                // Joined another mesh: look again.
-                changed = opened.changed() => {
-                    if changed.is_err() {
-                        return;
-                    }
-                    break;
+        let (alerts, mut told) = shared::follow(fleet.clone(), mesh.clone());
+        let presence = shared::each_machine(&mesh, |id| {
+            tokio::spawn(presence(fleet.clone(), id, out.clone()))
+        });
+        let routing = async {
+            while let Some(told) = told.recv().await {
+                if out.send(direct(told)).await.is_err() {
+                    return;
                 }
-                changed = updates.changed() => {
-                    if changed.is_err() {
-                        break;
-                    }
+            }
+        };
+        select! {
+            _ = out.closed() => return,
+            // Joined another mesh: look again.
+            changed = opened.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+            }
+            _ = async { select! { _ = alerts => {}, _ = presence => {}, _ = routing => {} } } => {
+                // The mesh closed: wait for the next one.
+                if opened.changed().await.is_err() {
+                    return;
                 }
             }
         }
     }
 }
 
-/// Follows `id`'s alerts and runs until the receiver goes.
-async fn machine(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) {
-    tokio::join!(
-        follow_one(&fleet, id, &out, Follows::Alerts),
-        follow_one(&fleet, id, &out, Follows::Runs),
-        follow_one(&fleet, id, &out, Follows::Presence),
-    );
+fn direct(told: Told) -> Direct {
+    match told {
+        Told::Connected => Direct::Connected,
+        Told::Notice { notice, .. } => Direct::Notice(notice),
+        Told::Run(news) => Direct::Run(news),
+    }
 }
 
-/// Follows one of `id`'s streams, again after each break, until the
+/// Follows `id`'s native CLI sessions, again after each break, until the
 /// receiver goes.
-async fn follow_one(fleet: &Fleet, id: EndpointId, out: &mpsc::Sender<Direct>, what: Follows) {
+async fn presence(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) {
     let mut backoff = Backoff::eager();
     // An offline machine fails the same way on every try: logged once,
     // and again when the error changes or after a stream that worked.
@@ -164,14 +113,13 @@ async fn follow_one(fleet: &Fleet, id: EndpointId, out: &mpsc::Sender<Direct>, w
     loop {
         let started = Instant::now();
         let mut replied = false;
-        match stream(fleet, id, out, what, &mut replied).await {
+        match stream(&fleet, id, &out, &mut replied).await {
             Ok(()) => return,
             Err(e) => {
                 let error = e.to_string();
                 if logged.as_ref() != Some(&error) {
                     log::debug!(
-                        "following {} from {}: {error}",
-                        what.name(),
+                        "following session presence from {}: {error}",
                         fleet.name_of(id)
                     );
                     logged = Some(error);
@@ -183,16 +131,6 @@ async fn follow_one(fleet: &Fleet, id: EndpointId, out: &mpsc::Sender<Direct>, w
             logged = None;
         }
         sleep(backoff.pause()).await;
-    }
-}
-
-impl Follows {
-    fn name(self) -> &'static str {
-        match self {
-            Follows::Alerts => "alerts",
-            Follows::Runs => "runs",
-            Follows::Presence => "session presence",
-        }
     }
 }
 
@@ -209,20 +147,13 @@ async fn stream(
     fleet: &Fleet,
     id: EndpointId,
     out: &mpsc::Sender<Direct>,
-    what: Follows,
     replied: &mut bool,
 ) -> Result<()> {
     let client = fleet.client(id).await?;
     let (mut tx, mut rx) = client.open(SESSIONS_PROTOCOL).await?;
-    let request = match what {
-        Follows::Alerts => SessionsRequest::FollowAlerts {},
-        Follows::Runs => SessionsRequest::FollowRuns {},
-        Follows::Presence => SessionsRequest::FollowPresence {},
-    };
-    tx.send(&request).await.map_err(MeshError::Link)?;
-    if matches!(what, Follows::Alerts) && out.send(Direct::Connected).await.is_err() {
-        return Ok(());
-    }
+    tx.send(&SessionsRequest::FollowPresence {})
+        .await
+        .map_err(MeshError::Link)?;
     // `tx` stays open: finishing it ends the stream.
     loop {
         let reply = rx.recv::<SessionsReply>().await.map_err(MeshError::Link)?;
@@ -230,40 +161,15 @@ async fn stream(
             return Err(MeshError::Link(anyhow::anyhow!("the machine ended the stream")).into());
         };
         *replied = true;
-        let alert = match reply {
-            SessionsReply::External { sessions } if matches!(what, Follows::Presence) => {
-                if out
-                    .send(Direct::Presence {
-                        machine: id,
-                        sessions,
-                    })
-                    .await
-                    .is_err()
-                {
-                    return Ok(());
-                }
-                continue;
-            }
-            SessionsReply::Alert { alert } => alert,
-            SessionsReply::Run { news } => {
-                if out.send(Direct::Run(Box::new(news))).await.is_err() {
-                    return Ok(());
-                }
-                continue;
-            }
-            _ => continue,
-        };
-        let key = alert.key(&id.to_string(), &fleet.name_of(id));
-        let notice = Notice {
-            title: alert.notice_title(&key.machine_name),
-            body: alert.notice_body(),
-            session_id: key.to_string(),
-            app: None,
-            approval: None,
-            changed: false,
-            group: false,
-        };
-        if out.send(Direct::Notice(Box::new(notice))).await.is_err() {
+        if let SessionsReply::External { sessions } = reply
+            && out
+                .send(Direct::Presence {
+                    machine: id,
+                    sessions,
+                })
+                .await
+                .is_err()
+        {
             return Ok(());
         }
     }
@@ -272,57 +178,7 @@ async fn stream(
 /// Answers the question `key` names, on the machine that asked it. Refused
 /// as a conflict when the session no longer asks it.
 pub(crate) async fn answer(fleet: &Fleet, key: &AgentNoticeKey, reply: &str) -> Result<()> {
-    let (Some(question), Ok(machine)) = (key.question, EndpointId::from_str(&key.machine_id))
-    else {
-        return Err(DesktopError::BadRequest("not a question".into()));
-    };
-    let client = fleet.client(machine).await?;
-    timeout(ANSWERING, attached(&client, key, question, reply))
-        .await
-        .map_err(|_| DesktopError::BadRequest("the machine did not answer in time".into()))?
-}
-
-async fn attached(
-    client: &PeerClient,
-    key: &AgentNoticeKey,
-    question: u32,
-    reply: &str,
-) -> Result<()> {
-    let (mut tx, mut rx) = client.open(&protocol(&key.agent)).await?;
-    tx.send(&Request::Attach {
-        session: key.session.clone(),
-    })
-    .await
-    .map_err(MeshError::Link)?;
-    loop {
-        let event = rx.recv::<Event>().await.map_err(MeshError::Link)?;
-        match event {
-            Some(Event::Attached { session }) => {
-                if session.question.as_ref().map(|q| q.id) != Some(question) {
-                    return Err(ApiError::Conflict {
-                        message: "The session no longer asks that question.".into(),
-                    }
-                    .into());
-                }
-                tx.send(&Request::Answer {
-                    question,
-                    reply: reply.to_owned(),
-                })
-                .await
-                .map_err(MeshError::Link)?;
-            }
-            Some(Event::Refused { .. }) => return Err(ApiError::NotFound {}.into()),
-            Some(Event::Ack { error: None }) => return Ok(()),
-            Some(Event::Ack { error: Some(why) }) => return Err(DesktopError::BadRequest(why)),
-            // The session's own news while attached.
-            Some(_) => {}
-            None => {
-                return Err(
-                    MeshError::Link(anyhow::anyhow!("the machine ended the stream")).into(),
-                );
-            }
-        }
-    }
+    Ok(shared::answer(fleet, key, reply).await?)
 }
 
 /// Whether `machine`, as text, is this Mac or a member of its mesh: the
@@ -372,11 +228,17 @@ impl Heard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::DesktopError;
     use beep_mesh::transport_config;
     use beep_node::{agents::AgentKind, link::Offers, machine::provision::Provision};
+    use beep_proto::{
+        ApiError,
+        node::agent::{Request, protocol},
+    };
     use iroh::{Endpoint, SecretKey, endpoint::presets};
     use std::collections::BTreeMap;
     use tempfile::TempDir;
+    use tokio::time::timeout;
 
     const LIMIT: Duration = Duration::from_secs(60);
 

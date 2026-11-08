@@ -22,15 +22,11 @@ use std::time::Duration;
 use uuid::Uuid;
 
 mod agent_accounts;
-mod agent_control;
-mod agent_found;
-mod agent_sessions;
+mod agent_images;
 
 mod alerts;
-mod branch_work;
 mod credentials;
 mod crons;
-mod custom_agents;
 mod devices;
 mod findings;
 mod git_items;
@@ -40,9 +36,6 @@ mod harnesses;
 mod instructions;
 mod live;
 mod location;
-mod machine_search;
-mod machine_tools;
-mod machine_traffic;
 mod machines;
 mod memories;
 mod mesh;
@@ -53,18 +46,16 @@ pub(crate) mod project_sync;
 mod project_watch;
 mod projects;
 mod research;
+mod retired;
 mod reviews;
 mod sessions;
 mod settings;
 mod spend_report;
-mod terminals;
 mod threads;
 mod transcribe;
 mod updates;
 mod usage;
 mod work;
-mod work_diff;
-mod work_files;
 
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 

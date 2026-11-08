@@ -40,7 +40,7 @@ pub fn state_script(folder: &str) -> String {
         "cd -- {folder} || exit 3; {NO_PROMPT}\
          b=$(git symbolic-ref -q --short HEAD) || {{ echo '@@detached'; exit 0; }}; \
          echo \"@@branch $b\"; \
-         git fetch --quiet >/dev/null 2>&1; \
+         git fetch --quiet --no-write-fetch-head >/dev/null 2>&1; \
          if u=$(git rev-parse --abbrev-ref '@{{upstream}}' 2>/dev/null); then \
            echo \"@@upstream $u\"; \
            echo \"@@ab $(git rev-list --left-right --count 'HEAD...@{{upstream}}' 2>/dev/null)\"; \
@@ -87,7 +87,10 @@ pub fn move_script(folder: &str, branch: &str, which: Move) -> String {
     let act = match which {
         Move::Pull => {
             "git rev-parse -q --verify '@{upstream}' >/dev/null 2>&1 || exit 8; \
-             git pull --ff-only 2>&1"
+             git fetch --no-write-fetch-head 2>&1 || exit $?; \
+             cur=$(git symbolic-ref -q --short HEAD) || exit 9; \
+             [ \"$cur\" = \"$b\" ] || exit 10; \
+             git -c merge.autostash=false merge --ff-only --no-edit '@{upstream}' 2>&1"
         }
         // The full ref name keeps a branch that starts with `-` from reading as an option.
         Move::Push => {
@@ -248,8 +251,14 @@ mod tests {
         // A fast-forward pull; the state sees the other clone's commit through its fetch.
         commit(&one, "b.txt");
         git(&one, &["push"]);
+        let fetch_head = two.join(".git/FETCH_HEAD");
+        fs::write(&fetch_head, "another fetch owns this file\n").expect("write FETCH_HEAD");
         assert_eq!(state(&two).behind, 1);
         assert_eq!(run(&two, "main", Move::Pull), Some(0));
+        assert_eq!(
+            fs::read_to_string(fetch_head).expect("read FETCH_HEAD"),
+            "another fetch owns this file\n"
+        );
         assert!(two.join("b.txt").exists());
         assert_eq!(state(&two).behind, 0);
 

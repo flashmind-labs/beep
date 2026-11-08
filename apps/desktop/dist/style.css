@@ -1372,3 +1372,8 @@ button.dachip:hover { border-color: var(--border-hi) }
 #agdraft { flex: 1; display: flex; padding: 16px; box-sizing: border-box }
 #agdraft > .cc-pjc.centered { margin: auto }
 #agdraft .agc-intro h3 { font-size: 36px; line-height: 40px }
+
+#agtitle { cursor: text; border-radius: 4px }
+#agtitle:focus-visible { outline: 2px solid var(--emerald) }
+.agtitle-input { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; font-size: 14px; font-weight: 600; line-height: 20px; color: var(--fg); background: var(--surface); border: 1px solid var(--emerald); border-radius: 4px; padding: 0 4px; outline: 2px solid var(--emerald) }
+.dhead .tt .agtitle-error { color: var(--coral); white-space: normal }

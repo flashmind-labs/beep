@@ -1,4 +1,6 @@
-//! Beep for macOS. A tray app whose bar opens on a double tap of Option.
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
+//! Beep desktop. A tray app whose bar opens on a double tap of Option.
 
 mod agents;
 mod bar;
@@ -8,6 +10,7 @@ mod chat;
 mod error;
 mod fleet;
 mod machines;
+mod navigation;
 mod notices;
 mod palette;
 mod platform;
@@ -23,7 +26,9 @@ use beep::{Beep, state::StateFile};
 use beep_proto::port::bind_endpoint;
 use fleet::Fleet;
 use std::{sync::Arc, time::Duration};
-use tauri::{ActivationPolicy, App, AppHandle, Manager, RunEvent, WindowEvent};
+#[cfg(target_os = "macos")]
+use tauri::ActivationPolicy;
+use tauri::{App, AppHandle, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::time::timeout;
@@ -44,8 +49,18 @@ fn main() {
     let _log = platform::logfile::start();
     log::info!("Beep {} starting", env!("CARGO_PKG_VERSION"));
     // SAFETY: nothing else runs yet; Tauri starts its threads below.
-    unsafe { platform::login_path::adopt() };
-    tauri::Builder::default()
+    #[cfg(unix)]
+    unsafe {
+        platform::login_path::adopt()
+    };
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "windows")]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        if let Err(e) = center::open(app) {
+            log::warn!("opening the existing window: {e}");
+        }
+    }));
+    builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
@@ -184,6 +199,7 @@ fn main() {
             agents::sessions::agent_preview,
             agents::sessions::agent_resume,
             agents::sessions::agent_sessions,
+            agents::sessions::agent_title_save,
             agents::sessions::agent_start,
             agents::sessions::agent_usage,
             agents::sessions::session_folder_here,
@@ -535,8 +551,34 @@ fn quit(app: &AppHandle) {
 }
 
 fn setup(app: &mut App) -> anyhow::Result<()> {
+    let bar = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == bar::LABEL)
+        .ok_or_else(|| anyhow::anyhow!("bar window config missing"))?;
+    navigation::guard(tauri::WebviewWindowBuilder::from_config(app, bar)?).build()?;
+    #[cfg(unix)]
     beep_node::machine::raise_open_files();
+    #[cfg(target_os = "macos")]
     app.set_activation_policy(ActivationPolicy::Accessory);
+    #[cfg(target_os = "windows")]
+    {
+        use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+        app.handle().plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _, event| {
+                    if event.state == ShortcutState::Pressed {
+                        bar::toggle(app);
+                    }
+                })
+                .build(),
+        )?;
+        if let Err(e) = app.global_shortcut().register("Ctrl+Alt+Space") {
+            log::warn!("could not register Ctrl+Alt+Space: {e}");
+        }
+    }
     let handle = app.handle().clone();
     let dir = beep::identity::data_dir(&handle)?;
     let identity = beep::identity::load_or_create(&dir.join("identity.key"))?;

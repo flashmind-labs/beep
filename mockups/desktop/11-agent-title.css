@@ -1,0 +1,3 @@
+.mac .agtitle { cursor: text; border-radius: 4px }
+.mac .agtitle:focus-visible { outline: 2px solid var(--d-emerald) }
+.mac .agtitle-input { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; font-size: 14px; font-weight: 600; line-height: 20px; color: var(--d-fg); background: var(--d-surface); border: 1px solid var(--d-emerald); border-radius: 4px; padding: 0 4px; outline: 2px solid var(--d-emerald) }

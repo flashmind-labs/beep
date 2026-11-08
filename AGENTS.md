@@ -64,7 +64,7 @@ change `SIGN_DOMAIN`, mesh ALPNs and `MESH_DIR` together. Terminal host
 `Request`, `Reply` and `Hello`, and transfer `Manifest`, cannot gain fields
 while released readers using plain `rmp_serde` remain reachable. Change a
 protocol's bytes only with a protocol name bump. The current mesh ALPNs are `beep-peer/2` and `beep-join/2`; sync uses
-`beep-sync/6`.
+`beep-sync/7`.
 
 ## Reports
 

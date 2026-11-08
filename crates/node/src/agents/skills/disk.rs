@@ -17,13 +17,14 @@ use std::{
 /// The skills folders the agents Beep runs read, under the home folder:
 /// Claude Code's, the shared `~/.agents/skills` (Codex, pi, Gemini CLI and
 /// OpenCode read it), and each agent's own.
-const READ: [&str; 6] = [
+const READ: [&str; 7] = [
     ".claude/skills",
     ".agents/skills",
     ".codex/skills",
     ".pi/agent/skills",
     ".gemini/skills",
     ".config/opencode/skills",
+    ".hermes/skills",
 ];
 /// The agents' folders that make `~/.agents/skills` worth writing to.
 const AGENTS_READERS: [&str; 5] = [".agents", ".codex", ".pi", ".gemini", ".config/opencode"];
@@ -331,6 +332,9 @@ fn targets(home: &Path) -> Vec<PathBuf> {
     if home.join(".claude").is_dir() {
         out.push(home.join(".claude/skills"));
     }
+    if home.join(".hermes").is_dir() {
+        out.push(home.join(".hermes/skills"));
+    }
     if AGENTS_READERS.iter().any(|rel| home.join(rel).is_dir()) {
         out.push(home.join(".agents/skills"));
     }
@@ -619,6 +623,31 @@ mod tests {
         assert_eq!(there.listed.len(), 1);
         assert_eq!(there.listed[0].hash, notes[0].hash);
         assert!(!install(other.path(), "notes", &files).unwrap());
+    }
+
+    #[test]
+    fn hermes_skills_sync_both_ways_without_replacing_local_edits() {
+        let source = tempfile::tempdir().unwrap();
+        skill(source.path(), ".hermes/skills", "notes", "A\n");
+        let listed = scan(source.path(), &mut Hashes::default()).listed;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].folders, ["~/.hermes/skills"]);
+        let files = files_of(source.path(), "notes", &listed[0].hash);
+        let target = tempfile::tempdir().unwrap();
+        fs::create_dir_all(target.path().join(".hermes")).unwrap();
+        assert!(install(target.path(), "notes", &files).unwrap());
+        assert!(
+            target
+                .path()
+                .join(".hermes/skills/notes/SKILL.md")
+                .is_file()
+        );
+        skill(target.path(), ".hermes/skills", "notes", "Local edits\n");
+        assert!(!install(target.path(), "notes", &files).unwrap());
+        assert_eq!(
+            fs::read_to_string(target.path().join(".hermes/skills/notes/SKILL.md")).unwrap(),
+            "Local edits\n"
+        );
     }
 
     #[test]

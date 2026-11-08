@@ -521,6 +521,31 @@ impl Mesh {
             .await
     }
 
+    /// Mints a phone ticket, retaining controller permissions without offering a code host.
+    pub async fn invite_observer(&self, ttl: Duration) -> Result<JoinTicket, MeshError> {
+        let addr = self.inner.endpoint.addr();
+        self.inner
+            .store
+            .run(move |core| core.invite_observer(addr, ttl))
+            .await
+    }
+
+    /// Whether `id` is an observer rather than a code host.
+    pub fn is_observer(&self, id: EndpointId) -> bool {
+        self.inner
+            .view()
+            .values
+            .contains_key(&Key::Observer(id.to_string()))
+    }
+
+    /// Code hosts, including offline machines, excluding observer phones.
+    pub fn machines(&self) -> Vec<DeviceStatus> {
+        self.devices()
+            .into_iter()
+            .filter(|status| !self.is_observer(status.device.id))
+            .collect()
+    }
+
     /// Whether `id` joined with a temporary ticket and was not removed since.
     pub fn is_temporary(&self, id: EndpointId) -> bool {
         self.inner

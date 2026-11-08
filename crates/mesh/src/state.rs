@@ -66,6 +66,8 @@ pub enum Key {
     /// A device removed after a day offline, such as a container: `temporary/<id>`,
     /// written by the desktop that spent its ticket. The value is empty.
     Temporary(String),
+    /// A phone that controls the mesh but cannot host code: `observer/<id>`.
+    Observer(String),
     /// A kind this build does not know, as its text. A member holds it and passes it on and
     /// nothing reads it, so a newer desktop's new kind never stops an older member's sync.
     Other(String),
@@ -87,6 +89,7 @@ impl fmt::Display for Key {
             Key::SessionMove(n) => write!(f, "session-move/{n}"),
             Key::Unmoved(n) => write!(f, "unmoved/{n}"),
             Key::Temporary(n) => write!(f, "temporary/{n}"),
+            Key::Observer(n) => write!(f, "observer/{n}"),
             Key::Other(text) => f.write_str(text),
         }
     }
@@ -120,6 +123,7 @@ impl FromStr for Key {
             "session-move" => Ok(Key::SessionMove(name)),
             "unmoved" => Ok(Key::Unmoved(name)),
             "temporary" => Ok(Key::Temporary(name)),
+            "observer" => Ok(Key::Observer(name)),
             // Not a kind this build knows, but well formed: kept as it is.
             other if kind_is_well_formed(other) && other != "flsh" => Ok(Key::Other(s.to_owned())),
             _ => Err(bad()),
@@ -719,6 +723,7 @@ mod tests {
             Key::SessionMove("0b1c2d3e".into()),
             Key::Unmoved("credential/7".into()),
             Key::Temporary("abc".into()),
+            Key::Observer("abc".into()),
             Key::Other("future-kind/x y".into()),
         ];
         for key in keys {

@@ -31,19 +31,19 @@
   const top = (t, sub, tools = "") => `<div class="cc-top"><h2>${t}</h2><small>${sub}</small><span class="tools">${tools}</span></div>`;
 
   const homeMachines = two => two
-    ? [row("", "This Mac", "macOS · Claude Code, Codex", "idle"), row("", "build-box", "Linux · Docker, Claude Code", "1 agent"), row("", "gpu-box", "Linux · Codex", "idle")].join("")
-    : row("", "This Mac", "macOS · Claude Code, Codex", "idle");
+    ? [row("", "This computer", "macOS · Claude Code, Codex", "idle"), row("", "build-box", "Linux · Docker, Claude Code", "1 agent"), row("", "gpu-box", "Linux · Codex", "idle")].join("")
+    : row("", "This computer", "macOS · Claude Code, Codex", "idle");
 
   const nsHome = two => ccWin(nsSide("home", two ? 3 : 1, two ? 3 : 1),
     top("Home", "Your machines", addBtn()) + `<div class="cc-view">
       <div><div class="cc-sec"><h4>Machines<span class="n">${two ? 3 : 1}</span></h4></div><div class="cc-panel">${homeMachines(two)}</div></div>
       <div><div class="cc-sec"><h4>Running<span class="n">${two ? 1 : ""}</span></h4></div>${two
         ? `<div class="cc-panel"><div class="cc-row cc-line" data-dgo="dAgentSession"><span class="cc-ag claude" style="width:20px;height:20px;border-radius:5px;font-size:8.5px">CC</span><button class="t" title="Swipeable approval strip"><b>Swipeable approval strip</b><span>build-box · fix-approval</span></button><span class="r">1 min</span></div></div>`
-        : empty("Nothing running", "Start an agent on this Mac, or add a machine to run it there.", `<button class="dbtn small" data-dgo="dAgentNew">Start an agent</button>`)}</div></div>`);
+        : empty("Nothing running", "Start an agent on this computer, or add a machine to run it there.", `<button class="dbtn small" data-dgo="dAgentNew">Start an agent</button>`)}</div></div>`);
 
   const nsProjects = () => ccWin(nsSide("projects", 3, 3), top("Projects", "Repositories on your machines", `<button class="dbtn small" data-dgo="dAddProject">${CC_IC.plus} Add a project</button>`) + `<div class="cc-view"><div class="cc-sec"><h4>Projects<span class="n">2</span></h4></div><div class="cc-mt cc-pt" role="table"><span class="th">Project</span><span class="th">Machine and folder</span><span class="th">Agents</span><span class="th">Last activity</span>
     <span class="nm"><b><button type="button" title="acme/widget" ${go("ns", "project")}>acme/widget</button></b><span class="os">github.com</span></span>
-    <span class="nm"><span class="os"><b>build-box</b> /srv/projects/acme/widget</span><span class="os"><b>This Mac</b> ~/Projects/acme/widget</span></span><span class="num">1</span><span class="num">6 min ago</span>
+    <span class="nm"><span class="os"><b>build-box</b> /srv/projects/acme/widget</span><span class="os"><b>This computer</b> ~/Projects/acme/widget</span></span><span class="num">1</span><span class="num">6 min ago</span>
     <span class="nm"><b><button type="button" title="acme/relay" ${go("ns", "project")}>acme/relay</button></b><span class="os">github.com</span></span>
     <span class="nm"><span class="os"><b>gpu-box</b> /srv/projects/acme/relay</span></span><span class="num">–</span><span class="num">2 d ago</span></div></div>`);
 
@@ -57,12 +57,12 @@
       <h4>Pull requests<span class="n">2</span></h4>${li("Cut the cache warm-up in half", "sam · 5 d · CI failing")}${li("Bump the sync crate", "you · 9 d · ready")}</div>
     <div class="pj-det"><div class="pj-ov"><div>
       <div><div class="cc-sec"><h4>Running<span class="n">1</span></h4></div><div class="cc-panel"><div class="cc-row cc-line" data-dgo="dAgentSession"><span class="cc-ag claude" style="width:20px;height:20px;border-radius:5px;font-size:8.5px">CC</span><button class="t" title="Swipeable approval strip"><b>Swipeable approval strip</b><span>build-box · fix-approval</span></button><span class="r">1 min</span></div></div></div>
-      <div><div class="cc-sec"><h4>Machines<span class="n">2/2</span></h4></div><div class="cc-panel">${row("", "build-box", "fix-approval", "")}${row("", "This Mac", "main", "")}</div></div>
+      <div><div class="cc-sec"><h4>Machines<span class="n">2/2</span></h4></div><div class="cc-panel">${row("", "build-box", "fix-approval", "")}${row("", "This computer", "main", "")}</div></div>
       <div><div class="cc-sec"><h4>Actions<span class="n">1 failed</span></h4></div><div class="cc-panel"><div class="cc-row cc-line bare"><button class="t" title="Cut the cache warm-up in half"><b>Cut the cache warm-up in half</b><span>build.yml #351</span></button><span class="r"><span class="pj-st blocked">failed</span></span></div></div></div>
     </div></div></div></div></div></div>`);
 
-  const nsMachines = () => ccWin(nsSide("machines", 3, 3), top("Machines", "3 of 3 online", addBtn()) + `<div class="cc-view"><div class="cc-panel">${homeMachines(true)}</div></div>`);
-  const nsAgents = () => ccWin(nsSide("agents"), top("Agents", "On your machines", `<button class="dbtn small" data-dgo="dAgentNew">${CC_IC.plus} Start an agent</button>`) + `<div class="cc-view">${empty("No agents running", "Start one on this Mac or on any machine you added.")}</div>`);
+  const nsMachines = () => ccWin(nsSide("machines", 3, 3), top("Machines", "3 of 3 online", `<button class="dbtn small" data-dact="dset:tk:other" data-dgo="dAddTicket">Link another desktop</button>${addBtn()}`) + `<div class="cc-view"><div class="cc-panel">${homeMachines(true)}</div></div>`);
+  const nsAgents = () => ccWin(nsSide("agents"), top("Agents", "On your machines", `<button class="dbtn small" data-dgo="dAgentNew">${CC_IC.plus} Start an agent</button>`) + `<div class="cc-view">${empty("No agents running", "Start one on this computer or on any machine you added.")}</div>`);
   const nsTerminals = () => ccWin(nsSide("terminals"), top("Terminals", "Kept running on your machines") + `<div class="cc-view">${empty("No terminals", "Open one on a machine and it keeps running when you close the window.")}</div>`);
   const nsSettings = () => ccWin(nsSide("settings"), top("Settings", "Beep for macOS 0.2.0") + `<div class="cc-pane"><div class="cc-panel"><div class="cs-row cs-go"><span>${IC.gear}</span><span><b>General</b><small>Start at login, shortcuts.</small></span><span class="end"></span></div><div class="cs-row cs-go"><span>${IC.gear}</span><span><b>Appearance</b><small>Skin and text size.</small></span><span class="end"></span></div><div class="cs-row cs-go"><span>${IC.key}</span><span><b>Credentials</b><small>Git hosts and API keys. Two to enter again.</small></span><span class="end"><span class="dtag warn">2</span></span></div><div class="cs-row cs-go"><span>${IC.gear}</span><span><b>Machines</b><small>The machines in this mesh.</small></span><span class="end"></span></div><div class="cs-row cs-go"><span>${IC.gear}</span><span><b>Instructions</b><small>What every agent reads first.</small></span><span class="end"></span></div><div class="cs-row cs-go" data-dgo="dReport"><span>${IC.gear}</span><span><b>Report a problem</b><small>Collect logs from your machines and send them to us.</small></span><span class="end"></span></div></div></div>`);
   const nsBar = () => deskScene(dBar(`<div class="dinput" style="cursor:text"><span class="caret" style="height:22px"></span><span class="txt ph" style="margin-left:-10px">Run a command or start an agent</span></div>` + dHints([["⌘K", "search"], ["⌘N", "new agent"], ["esc", "to hide"]])));
@@ -97,11 +97,11 @@
   const frOver = body => nsHome(false).replace(/<\/div><\/div>\s*$/, frCard(body) + "</div></div>");
   const FR_LOGO = '<svg width="34" height="34" viewBox="0 0 28 28" fill="currentColor" aria-hidden="true"><path d="M14 1 27 27h-3.1L15.4 10v17h-2.8V10L4.1 27H1Z"/></svg>';
   const frBig = (title, text, attrs, pri) => `<button class="dbtn${pri ? " pri" : ""}" ${attrs} style="display:grid;gap:3px;justify-items:start;width:100%;height:auto;padding:13px 15px;text-align:left;white-space:normal"><b style="font-size:14px;font-weight:600">${title}</b><span style="font-size:12.5px;font-weight:400;opacity:.8;line-height:1.4">${text}</span></button>`;
-  const frTicket = () => frOver(S.d.frlink ? `<div>${FR_LOGO}</div><div><b style="font-size:16px">Link other desktop</b><div style="font-size:12.5px;color:var(--d-muted);margin-top:4px;line-height:1.45">On your other desktop, open Machines, then Add a machine, and copy the ticket. This Mac then shares its machines, projects and keys.</div></div>
+  const frTicket = () => frOver(S.d.frlink ? `<div>${FR_LOGO}</div><div><b style="font-size:16px">Link another desktop</b><div style="font-size:12.5px;color:var(--d-muted);margin-top:4px;line-height:1.45">On your other desktop, open Machines, then Add a machine, choose Desktop and copy the ticket. This computer then shares its machines, projects and keys.</div></div>
       <input id="jt" aria-label="Ticket" placeholder="Paste a ticket" style="${MONO};width:100%;box-sizing:border-box">
-      <div style="display:flex;gap:8px;align-items:center"><button class="dbtn pri" disabled>Join</button><button class="dbtn quiet" data-dact="dset:frlink:" data-dgo="dNoServer">Back</button></div>` : `<div style="display:grid;gap:8px">${FR_LOGO}<div><b style="font-size:16px">Welcome to Beep</b><div style="font-size:12.5px;color:var(--d-muted);margin-top:2px">Run coding agents on your machines.</div></div></div>
-      ${frBig("Start", "Use Beep on this Mac. You can add machines later.", go("ns", "first"), true)}
-      ${frBig("Link other desktop", "You already use Beep on another Mac. Share its machines, projects and keys with this one.", 'data-dact="dset:frlink:1" data-dgo="dNoServer"', false)}`);
+      <div style="display:flex;gap:8px;align-items:center"><button class="dbtn pri" disabled>Link</button><button class="dbtn quiet" data-dact="dset:frlink:" data-dgo="dNoServer">Back</button></div>` : `<div style="display:grid;gap:8px">${FR_LOGO}<div><b style="font-size:16px">Welcome to Beep</b><div style="font-size:12.5px;color:var(--d-muted);margin-top:2px">Run coding agents on your machines.</div></div></div>
+      ${frBig("Start", "Use Beep on this computer. You can add machines later.", go("ns", "first"), true)}
+      ${frBig("Link another desktop", "You already use Beep on another computer. Share its machines, projects and keys with this one.", 'data-dact="dset:frlink:1" data-dgo="dNoServer"', false)}`);
   D.dNoServer = () => {
     const v = S.d.ns || "first";
     if (v === "bar") return nsBar();
@@ -123,13 +123,15 @@
   const otherMac = () => {
     const s = S.d.ts || "empty";
     const val = ["pasted", "joining", "bad"].includes(s) ? TICKET : "";
-    const msg = s === "joining" ? `<div style="display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--d-muted)"><span class="dspin"></span>Joining</div>`
+    const msg = s === "joining" ? `<div style="display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--d-muted)"><span class="dspin"></span>Linking</div>`
       : s === "bad" ? `<div style="font-size:12.5px;color:var(--d-err)">This ticket expired or was already used. Ask for a new one.</div>` : "";
-    return mbar() + `<div class="cc-win" style="grid-template-columns:minmax(0,1fr)"><div class="cc-main" style="display:grid;place-items:center"><div style="width:min(420px,90%);padding:20px 22px;border-radius:14px;border:1px solid var(--d-border);background:#151617;display:grid;gap:12px">
-      <div style="display:grid;gap:10px">${FR_LOGO}<div><b style="font-size:16px">Link other desktop</b><div style="font-size:12.5px;color:var(--d-muted);margin-top:4px;line-height:1.45">On your other desktop, open Machines, then Add a machine, and copy the ticket. This Mac then shares its machines, projects and keys.</div></div></div>
-      <input id="jt" aria-label="Join with a ticket" placeholder="Paste a ticket" value="${val}" style="${MONO};width:100%;box-sizing:border-box">
+    const sheet = `<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;padding-top:90px;justify-content:center;z-index:5"><div style="width:min(560px,86%);padding:18px 20px;border-radius:14px;border:1px solid var(--d-border);background:#151617;display:grid;gap:12px">
+      <div style="display:flex;justify-content:space-between"><b style="font-size:15px">Link another desktop</b><kbd style="font-size:11px;opacity:.7">esc</kbd></div>
+      <div style="font-size:12.5px;color:var(--d-muted);line-height:1.45">On the other desktop, open Machines, then Add a machine, choose Desktop and copy the ticket. Paste it here to share its machines, projects and keys.</div>
+      <input id="jt" aria-label="Desktop ticket" placeholder="Paste a ticket" value="${val}" style="${MONO};width:100%;box-sizing:border-box">
       ${msg}
-      <div style="display:flex;gap:8px;align-items:center"><button class="dbtn pri"${val && s !== "joining" ? ` data-dact="dset:ts:joining" data-dgo="dAddTicket"` : " disabled"}>Join</button><button class="dbtn quiet" data-dact="dset:ns:first" data-dgo="dNoServer">Back</button></div></div></div></div>`;
+      <div style="display:flex;gap:8px;align-items:center"><button class="dbtn pri"${val && s !== "joining" ? ` data-dact="dset:ts:joining" data-dgo="dAddTicket"` : " disabled"}>Link</button><button class="dbtn quiet" ${go("ns", "machines")}>Cancel</button></div></div></div>`;
+    return nsMachines().replace(/<\/div><\/div>\s*$/, sheet + "</div></div>");
   };
 
   D.dAddTicket = () => {
@@ -137,8 +139,8 @@
     if (k === "other") return otherMac();
     const node = k !== "desktop" && k !== "phone", box = k === "container", who = k === "phone" ? "Phone" : box ? "ci-runner" : node ? "build-box" : "MacBook Air";
     let body;
-    if (s === "joined") body = `<div style="display:flex;gap:10px;align-items:center;font-size:14px"><span class="ddot"></span><b>${who} joined</b></div>
-       <div style="font-size:12.5px;color:var(--d-muted);margin:8px 0 14px">${box ? "Linux, Claude Code. It shows under Machines and can run agents now." : node ? "Linux, Docker, Claude Code, Codex. It shows under Machines and can run agents now." : "macOS, Claude Code, Codex. It shows under Machines and can run agents now."}</div>
+    if (s === "joined") body = `<div style="display:flex;gap:10px;align-items:center;font-size:14px"><span class="ddot"></span><b>${k === "phone" ? "Phone paired" : who + " joined"}</b></div>
+       <div style="font-size:12.5px;color:var(--d-muted);margin:8px 0 14px">${k === "phone" ? "Observe projects and agents from your phone. Phones do not host projects or run code, and stay out of Machines." : box ? "Linux, Claude Code. It shows under Machines and can run agents now." : node ? "Linux, Docker, Claude Code, Codex. It shows under Machines and can run agents now." : "macOS, Claude Code, Codex. It shows under Machines and can run agents now."}</div>
        <button class="dbtn pri" ${go("ns", "machines")}>Done</button>`;
     else if (s === "expired") body = `<div style="font-size:13px;margin-bottom:12px">${k === "phone" ? "This code expired. Phone codes work once and last 5 minutes." : "This ticket expired. A ticket works once and lasts an hour."}</div><button class="dbtn pri" data-dact="dset:ts:ready" data-dgo="dAddTicket">New ticket</button>`;
     else if (node) body = `${step("1. Install beep-node on the machine")}
@@ -149,13 +151,12 @@
     else if (k === "phone") body = `${step("Scan with your phone")}<div style="width:200px;height:200px;background:#fff;color:#111;display:grid;place-items:center;margin:12px auto" aria-label="Phone pairing QR code">QR code</div><p>In Beep on your phone, open Linked devices and scan this code.</p><details><summary>Copy ticket instead</summary>${line(TICKET, "Copied")}</details><p>Expires in 5 minutes. Keep this ticket private.</p>${waiting("the phone")}`;
     else body = `${step("Ticket")}
        ${line(TICKET, "Copied")}
-       <div style="font-size:12.5px;color:var(--d-muted);margin-bottom:12px">Paste it into Beep on the other Mac, under Join with a ticket.</div>
-       ${s === "waiting" ? waiting("the other Mac") : note}
-       <button class="dbtn quiet" data-dact="dset:tk:other" data-dgo="dAddTicket">See the other Mac</button>`;
+       <div style="font-size:12.5px;color:var(--d-muted);margin-bottom:12px">On the other desktop, open Machines, then Link another desktop, and paste this ticket.</div>
+       ${s === "waiting" ? waiting("the other desktop") : note}`;
     const sheet = `<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;padding-top:90px;justify-content:center;z-index:5">
       <div style="width:min(560px,86%);padding:18px 20px;border-radius:14px;border:1px solid var(--d-border);background:#151617;box-shadow:0 20px 60px rgba(0,0,0,.5)">
       <div style="display:flex;justify-content:space-between;margin-bottom:12px"><b style="font-size:15px">Add a machine</b><kbd style="font-size:11px;opacity:.7">esc</kbd></div>
-      ${s === "joined" || s === "expired" ? "" : `<div role="radiogroup" aria-label="Kind of machine" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">${kindCard("node", "Node", "A server or any always-on box", k === "node")}${kindCard("container", "Container", "Removed after a day offline", box)}${kindCard("desktop", "Desktop", "Another Mac", k === "desktop")}${kindCard("phone", "Phone", "Pair over iroh", k === "phone")}</div>`}${body}</div></div>`;
+      ${s === "joined" || s === "expired" ? "" : `<div role="radiogroup" aria-label="Kind of machine" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">${kindCard("node", "Node", "A server or any always-on box", k === "node")}${kindCard("container", "Container", "Removed after a day offline", box)}${kindCard("desktop", "Desktop", "macOS or Windows", k === "desktop")}${kindCard("phone", "Phone", "Observe projects and agents", k === "phone")}</div>`}${body}</div></div>`;
     return nsHome(S.d.ns === "home").replace(/<\/div><\/div>\s*$/, sheet + "</div></div>");
   };
   const T = (l, kind, st) => [l, () => { S.d.tk = kind; S.d.ts = st; render(); }, () => (S.d.tk || "node") === kind && (S.d.ts || "ready") === st];
@@ -163,7 +164,7 @@
     T("Node: ticket ready", "node", "ready"), T("Node: waiting", "node", "waiting"), T("Node: joined", "node", "joined"), T("Node: expired", "node", "expired"),
     T("Container: ticket ready", "container", "ready"), T("Container: joined", "container", "joined"),
     T("Desktop: ticket ready", "desktop", "ready"), T("Desktop: waiting", "desktop", "waiting"), T("Desktop: joined", "desktop", "joined"), T("Desktop: expired", "desktop", "expired"),
-    T("Other Mac: Join with a ticket", "other", "empty"), T("Other Mac: ticket pasted", "other", "pasted"), T("Other Mac: joining", "other", "joining"), T("Other Mac: ticket expired", "other", "bad"),
+    T("Other desktop: Link another desktop", "other", "empty"), T("Other desktop: ticket pasted", "other", "pasted"), T("Other desktop: linking", "other", "joining"), T("Other desktop: ticket expired", "other", "bad"),
   ];
 
   // Machines list for an account that already has machines: the ones not in the mesh yet.
@@ -171,7 +172,7 @@
   D.dMachinesMesh = () => {
     const all = S.d.mm === "joined";
     return ccWin(ccSide("machines"), top("Machines", all ? "3 of 3 online" : "3 of 3 online · 2 not joined", addBtn())
-      + `<div class="cc-view"><div><div class="cc-sec"><h4>In the mesh<span class="n">${all ? 3 : 1}</span></h4></div><div class="cc-panel">${row("", "This Mac", "macOS · Claude Code, Codex", "idle")}${all ? row("", "build-box", "Linux · Docker, Claude Code", "1 agent") + row("", "gpu-box", "Linux · Codex", "idle") : ""}</div></div>
+      + `<div class="cc-view"><div><div class="cc-sec"><h4>In the mesh<span class="n">${all ? 3 : 1}</span></h4></div><div class="cc-panel">${row("", "This computer", "macOS · Claude Code, Codex", "idle")}${all ? row("", "build-box", "Linux · Docker, Claude Code", "1 agent") + row("", "gpu-box", "Linux · Codex", "idle") : ""}</div></div>
       ${all ? "" : `<div><div class="cc-sec"><h4>Not in the mesh yet<span class="n">2</span></h4></div><div class="cc-panel">${nj("build-box", "Linux", "beepjoin1example3kd7")}${nj("gpu-box", "Linux", "beepjoin1example9wt2")}</div></div>`}</div>`);
   };
   VARIANTS.dMachinesMesh = [["Two not joined", "pending"], ["All joined", "joined"]].map(([l, k]) => [l, () => { S.d.mm = k; render(); }, () => (S.d.mm || "pending") === k]);

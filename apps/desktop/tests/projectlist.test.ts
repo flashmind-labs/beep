@@ -37,7 +37,7 @@ test("each machine's chip says its folder and state in the tooltip", () => {
   assert.equal(chips[2].title, "gpu-box: /srv/widget · Offline");
 });
 
-test("the branch is this Mac's, else the first one checked out", () => {
+test("the branch is this computer's, else the first one checked out", () => {
   const rows = [{ machine_id: "m1", branch: null }, { machine_id: "m2", branch: "main" }, { machine_id: "mac", branch: "signup" }];
   assert.equal(projectBranch(rows, "mac"), "signup");
   assert.equal(projectBranch(rows, "elsewhere"), "main");

@@ -4,7 +4,7 @@ import { signInOffer, stillRunning, type SignInView } from "../src/machines/sign
 
 test("another machine offers Sign in for the agents it signs in itself", () => {
   for (const tool of ["claude", "codex", "opencode"]) assert.deepEqual(signInOffer(tool, "build-box", true, false), { button: true });
-  // Not while it is offline, and never on this Mac.
+  // Not while it is offline, and never on this computer.
   assert.equal(signInOffer("claude", "build-box", false, false), null);
   assert.equal(signInOffer("claude", "this-mac", true, true), null);
 });

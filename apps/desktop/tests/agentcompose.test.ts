@@ -1,8 +1,8 @@
 import { answers, bar, calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { S, connectWindow, windowHooks, type WindowHooks } from "../src/bar/core.ts";
-import { AG, type AgentPage, type AgentRow, agentKeys, drawAgents } from "../src/agents/agents.ts";
+import { S, connectWindow, windowHooks, type BackTo, type WindowHooks } from "../src/bar/core.ts";
+import { AG, type AgentPage, type AgentRow, agentBack, agentKeys, drawAgents } from "../src/agents/agents.ts";
 import { closeSession, visibleRunning } from "../src/agents/closing.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
 import { agentHints, closeOpenSession, pollAgent } from "../src/agents/session.ts";
@@ -269,11 +269,22 @@ test("replacing the shared session list does not change what a drawn row opens",
 
 test("the open session title follows the title returned by its machine", async () => {
   const page = openSession("idle");
-  const title = { textContent: "", title: "" };
+  const title = { textContent: "", title: "", querySelector: () => null };
   show({ "#agtitle": title });
   await read({ ...page, session: { ...page.session, title: "Fix the retry" } });
   assert.equal(title.textContent, "Fix the retry");
-  assert.equal(title.title, "Fix the retry");
+  assert.equal(title.title, "Fix the retry\nDouble-click to rename (Enter)");
+});
+
+test("a session refresh preserves a title being edited", async () => {
+  const page = openSession("idle");
+  const input = { value: "My unfinished title" };
+  const title = { textContent: "", title: "", querySelector: () => input };
+  show({ "#agtitle": title });
+  await read({ ...page, session: { ...page.session, title: "New generated title" } });
+  assert.equal(title.textContent, "");
+  assert.equal(input.value, "My unfinished title");
+  assert.equal(AG.page?.session.title, "New generated title");
 });
 
 test("close refuses ended and external sessions and empty drafts", async () => {
@@ -288,11 +299,38 @@ test("close refuses ended and external sessions and empty drafts", async () => {
   AG.draft = null;
 });
 
+for (const back of ["agents", { view: "projects", arg: { project: "acme/widget", tile: "running" } }] satisfies (string | BackTo)[]) {
+  test(`Esc returns to ${typeof back === "string" ? "Running agents" : "the project's Running section"} before the project overview`, async t => {
+    const previous = windowHooks;
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    t.after(() => { connectWindow(previous!); S.view = "agent"; });
+    openSession("idle");
+    Object.assign(AG, { back, draft: null, child: null, modelOpen: false });
+    show({});
+    answers.agent_sessions = [];
+    let projectOpened = false;
+    let returned: BackTo | undefined;
+    connectWindow({
+      goBack(from: BackTo) { returned = from; },
+      sessionProject() { return { label: "widget", name: "acme/widget", open() { projectOpened = true; } }; },
+    } as unknown as WindowHooks);
+
+    await agentBack();
+
+    assert.equal(projectOpened, false);
+    if (typeof back === "string") assert.equal(S.view, "agents");
+    else assert.deepEqual(returned, back);
+  });
+}
+
 // Keep navigation real while replacing the window's destination renderer.
-function closeDestination(t: test.TestContext) {
+function closeDestination(t: test.TestContext, from: BackTo = { view: "home" }) {
   const previous = windowHooks;
-  connectWindow({ goBack() { S.view = "agents"; } } as unknown as WindowHooks);
-  AG.back = { view: "home" };
+  connectWindow({
+    goBack(target: BackTo) { assert.deepEqual(target, from); S.view = "agents"; },
+    sessionProject() { return { label: "widget", name: "acme/widget", open() { assert.fail("should return to the previous page"); } }; },
+  } as unknown as WindowHooks);
+  AG.back = from;
   t.after(() => connectWindow(previous!));
 }
 
@@ -318,28 +356,47 @@ test("a refused background close shows an error without reopening the session", 
   assert.ok(messages.includes("banner"));
 });
 
-test("Cmd+Shift+W leaves immediately and a late reply leaves another page alone", async t => {
-  openSession("idle");
-  closeDestination(t);
-  AG.modelOpen = true;
-  t.after(() => { AG.modelOpen = false; });
-  const button = { hidden: false, disabled: false, textContent: "" };
-  show({ "#agclose": button });
-  let finish!: (value: null) => void;
-  answers.agent_steer = new Promise(resolve => { finish = resolve; });
-  let prevented = 0;
-  const event = { key: "W", shiftKey: true, altKey: false, ctrlKey: false, isComposing: false, repeat: false, preventDefault() { prevented++; } } as KeyboardEvent;
-  assert.equal(agentKeys({ ...event, shiftKey: false } as KeyboardEvent, true), false);
-  assert.equal(agentKeys(event, true), true);
-  assert.equal(S.view, "agents", "leaves while the machine's reply is pending, even with a picker open");
-  assert.equal(agentKeys(event, true), false);
+for (const from of [{ view: "home" }, { view: "projects", arg: { project: "acme/widget", tile: "running" } }, { view: "pane", arg: "agents" }] satisfies BackTo[]) {
+  test(`Cmd+Shift+W returns to ${from.view} immediately and a late reply leaves another page alone`, async t => {
+    const page = openSession("idle");
+    page.session.id = AG.open!.session = `close-from-${from.view}`;
+    closeDestination(t, from);
+    AG.modelOpen = true;
+    t.after(() => { AG.modelOpen = false; });
+    const button = { hidden: false, disabled: false, textContent: "" };
+    show({ "#agclose": button });
+    let finish!: (value: null) => void;
+    answers.agent_steer = new Promise(resolve => { finish = resolve; });
+    let prevented = 0;
+    const event = { key: "W", shiftKey: true, altKey: false, ctrlKey: false, isComposing: false, repeat: false, preventDefault() { prevented++; } } as KeyboardEvent;
+    assert.equal(agentKeys({ ...event, shiftKey: false } as KeyboardEvent, true), false);
+    assert.equal(agentKeys(event, true), true);
+    assert.equal(S.view, "agents", "leaves while the machine's reply is pending, even with a picker open");
+    assert.equal(agentKeys(event, true), false);
+    assert.deepEqual(steers(), ["close"]);
+    assert.equal(prevented, 1);
+    assert.equal(button.disabled, true);
+    S.view = "chat";
+    finish(null);
+    await settle();
+    assert.equal(S.view, "chat");
+  });
+}
+
+test("closing a child session returns to its previous page instead of opening its parent", async t => {
+  const page = openSession("idle");
+  page.session.id = AG.open!.session = "close-child";
+  closeDestination(t, { view: "projects", arg: { project: "acme/widget", tile: "running" } });
+  show({});
+  answers.agent_sessions = [
+    { ...page.session, id: "parent" },
+    { ...page.session, parent: { machine_id: "m1", id: "parent", key: "" } },
+  ];
+  await loadSessions();
+  answers.agent_steer = null;
+  await closeOpenSession();
+  assert.equal(S.view, "agents");
   assert.deepEqual(steers(), ["close"]);
-  assert.equal(prevented, 1);
-  assert.equal(button.disabled, true);
-  S.view = "chat";
-  finish(null);
-  await settle();
-  assert.equal(S.view, "chat");
 });
 
 test("closing removes list rows and counts before the reply, survives stale reads, and restores on refusal", async () => {

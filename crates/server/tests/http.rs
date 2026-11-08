@@ -150,6 +150,126 @@ async fn a_request_over_http_gets_its_reply() {
 }
 
 #[tokio::test]
+async fn machine_requests_keep_their_compatibility_replies() {
+    use beep_server::protocol::{
+        AddMachineOverSsh, ApiError, CancelWork, CodexLoginState, GetCodexLogin, GetNodeToken,
+        ListAgentHosts, ListAgentSessions, ListAllTerminals, ListCustomAgents, ListMachines,
+        ListQuestions, ListWork, RevokeNodeToken,
+    };
+    use uuid::Uuid;
+
+    let h = Harness::new().await;
+    let c = h.client();
+    assert!(c.call(&ListMachines {}).await.unwrap().is_empty());
+    assert!(c.call(&ListAgentHosts {}).await.unwrap().is_empty());
+    assert!(c.call(&ListAgentSessions {}).await.unwrap().is_empty());
+    assert!(c.call(&ListAllTerminals {}).await.unwrap().is_empty());
+    assert!(
+        c.call(&ListWork {
+            session_id: Uuid::nil()
+        })
+        .await
+        .unwrap()
+        .is_empty()
+    );
+    assert!(
+        c.call(&ListQuestions {
+            session_id: Uuid::nil()
+        })
+        .await
+        .unwrap()
+        .is_empty()
+    );
+    let error = c
+        .call(&ListCustomAgents {
+            machine_id: "unknown".into(),
+            folder: "/srv/project".into(),
+        })
+        .await
+        .unwrap_err()
+        .downcast::<ApiError>()
+        .unwrap();
+    assert_eq!(
+        error,
+        ApiError::bad_request("Machines are reached through a desktop now.")
+    );
+
+    let missing = c
+        .call(&GetNodeToken {
+            token: "unused".into(),
+        })
+        .await
+        .unwrap_err()
+        .downcast::<ApiError>()
+        .unwrap();
+    assert_eq!(missing, ApiError::NotFound {});
+    c.call(&RevokeNodeToken {
+        token: "unused".into(),
+    })
+    .await
+    .unwrap();
+    let missing = c
+        .call(&CancelWork {
+            session_id: Uuid::nil(),
+            id: "unknown".into(),
+        })
+        .await
+        .unwrap_err()
+        .downcast::<ApiError>()
+        .unwrap();
+    assert_eq!(missing, ApiError::NotFound {});
+    assert_eq!(
+        c.call(&GetCodexLogin {
+            machine_id: "unknown".into(),
+            task: 0
+        })
+        .await
+        .unwrap(),
+        CodexLoginState::Gone {},
+    );
+    let ssh = c
+        .call(&AddMachineOverSsh {
+            machine_id: "unknown".into(),
+            target: "user@host".into(),
+            search: String::new(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(ssh.machine_id, None);
+    assert!(ssh.system.is_empty());
+    assert!(ssh.output.is_empty());
+    assert_eq!(
+        ssh.error,
+        "Adding a machine over SSH was removed. Add machines from a desktop."
+    );
+}
+
+#[tokio::test]
+async fn a_retired_terminal_stream_ends_offline() {
+    use beep_server::protocol::{AttachTerminal, TerminalEvent, TerminalState};
+    use uuid::Uuid;
+
+    let h = Harness::new().await;
+    let c = h.client();
+    let (_up, mut replies) = c
+        .duplex(&AttachTerminal {
+            id: Uuid::nil(),
+            from: 0,
+            cols: 80,
+            rows: 24,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        replies.next().await.unwrap(),
+        Some(TerminalEvent::Ended {
+            state: TerminalState::Offline {}
+        }),
+    );
+    assert_eq!(replies.next().await.unwrap(), None);
+}
+
+#[tokio::test]
 async fn the_events_stream_delivers_a_notice() {
     let h = Harness::new().await;
     let c = h.client();
