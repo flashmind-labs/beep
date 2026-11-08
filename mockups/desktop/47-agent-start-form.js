@@ -65,7 +65,7 @@
 .mac .agctx hr { border: 0; border-top: 1px solid var(--d-border); margin: 4px 2px }
 .mac .agcode { flex: 1; min-height: 0; overflow: auto }
 .mac .agcode pre { margin: 0; padding: 8px 10px; font: 11.5px/17px var(--mono); color: var(--d-fg); white-space: pre; tab-size: 4 }
-.mac .agcode .ln { display: inline-block; width: var(--lnw, 3ch); margin-right: 12px; text-align: right; color: var(--d-dim); user-select: none }
+.mac .agcode .ln { display: inline-block; width: var(--lnw, 3ch); margin-right: 12px; text-align: right; color: var(--d-dim); -webkit-user-select: none; user-select: none }
 .mac .agcode .k { color: #C792EA }
 .mac .dcoderen .cmd .k { color: #C792EA } .mac .dcoderen .cmd .s { color: #A5D6A7 } .mac .dcoderen .cmd .c { color: var(--d-dim); font-style: italic } .mac .dcoderen .cmd .n { color: #F78C6C }
 .mac .agcode .s { color: #A5D6A7 }
