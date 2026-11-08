@@ -29,7 +29,7 @@ import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts"
 import { jumpToStart, jumpToEnd, logJumpKey } from "./older.ts";
 import type { OlderStop } from "./older-state.ts";
 import { closeModelPicker } from "./modelpill.ts";
-import { queueMessage, steerMessage, interruptAgent, answerFirst, sendAgentMessage } from "./messages.ts";
+import { steerMessage, interruptAgent, answerFirst, sendAgentMessage } from "./messages.ts";
 import { cycleMode } from "./modepill.ts";
 import { esc, money } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
@@ -267,10 +267,8 @@ interface AgentState {
   log: typeof import("./agentlog.ts") | null;
   /// The steps whose whole output shows, by place in the session.
   all: Set<number>;
-  /// Messages typed while a turn runs: steers, sent at once and shown until
-  /// delivered, and queued ones, sent when it stops or ends.
+  /// Steers sent while a turn runs, shown until the node delivers them.
   queue: Waiting[];
-  flushing: boolean;
   /// Messages and steers waiting for the session's machine to come back.
   held: number;
   /// Reads of the open session so far, which tell a read that left before
@@ -296,7 +294,7 @@ export const AG: AgentState = {
   open: null, draft: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
   sig: "", rest: "", changed: 0, answering: null,
   att: [], attError: "", attTimer: undefined, noImages: null,
-  opened: new Set(), steps: new Map(), log: null, all: new Set(), queue: [], flushing: false, held: 0, polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
+  opened: new Set(), steps: new Map(), log: null, all: new Set(), queue: [], held: 0, polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
   older: { stop: "", loading: false, gaveUp: false },
 };
 export const agentLog = () => import("./agentlog.ts").then(m => (AG.log = m));
@@ -503,9 +501,9 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     if (e.key === "Tab" && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && (e.target as HTMLElement).id === "agmsg" && cycleMode()) { e.preventDefault(); return true; }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (e.target as HTMLElement).id === "agmsg") {
       e.preventDefault();
-      // While the turn runs, Enter steers it after its current tool call,
-      // and Option-Enter queues for after the turn.
-      if (turnRuns()) (e.altKey ? queueMessage : steerMessage)(e.target as HTMLTextAreaElement);
+      if ((e.target as HTMLTextAreaElement).readOnly) return true;
+      // While the turn runs, Enter steers it after its current tool call.
+      if (turnRuns()) steerMessage(e.target as HTMLTextAreaElement);
       else sendAgentMessage();
       return true;
     }

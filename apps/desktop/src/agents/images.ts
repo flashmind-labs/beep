@@ -13,6 +13,7 @@ import { gonePic, retryIn } from "./pic-state.ts";
 import { invoke } from "../ui/tauri.ts";
 
 let pastedCount = 0;
+export let imagesReading = 0;
 
 /// A name for an image, unique among those waiting in `list`; a pasted one
 /// is named "Pasted image 1.png" and so on rather than "image.png".
@@ -36,8 +37,9 @@ export function agentAttachError(text: string) {
 /// what the agent cannot take rather than shrinking or dropping it.
 export async function agentAttach(files: Iterable<File>) {
   if (noAgentImages()) return agentAttachError("This Beep server does not take images yet.");
-  await attachImages(AG.att, files, agentAttachError);
-  drawAgentAttached();
+  imagesReading++;
+  try { await attachImages(AG.att, files, agentAttachError); }
+  finally { imagesReading--; drawAgentAttached(); }
 }
 
 /// Adds `files` to `list`, the images of one message, within what an agent
