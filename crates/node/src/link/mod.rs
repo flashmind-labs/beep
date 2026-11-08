@@ -2,22 +2,28 @@
 //! (`state`), serving until stopped (`serve`), the mesh's peers (`peers`),
 //! and what carries over a restart (`restart`).
 
-pub(crate) mod from_mesh;
-pub(crate) use from_mesh::Membership;
-pub(crate) mod local_socket;
-pub mod local_status;
-pub(crate) mod note;
-pub(crate) mod peer_tools;
-pub mod peers;
+mod protocol;
 pub mod reconnect;
-mod report;
-pub(crate) mod restart;
-pub use restart::{note_on_quit, reopen_and_keep};
-pub mod diagnostics;
-mod serve;
-pub mod state;
-mod traffic;
-pub(crate) mod watchdog;
 
-pub use serve::{Offers, Protocol, Session, listen_hooks, serve};
-pub use traffic::Traffic;
+pub use protocol::{Protocol, Session};
+
+host! {
+    pub(crate) mod from_mesh;
+    pub(crate) use from_mesh::Membership;
+    pub(crate) mod local_socket;
+    pub mod local_status;
+    pub(crate) mod note;
+    pub(crate) mod peer_tools;
+    pub mod peers;
+    mod report;
+    pub(crate) mod restart;
+    pub use restart::{note_on_quit, reopen_and_keep};
+    pub mod diagnostics;
+    mod serve;
+    pub mod state;
+    mod traffic;
+    pub(crate) mod watchdog;
+
+    pub use serve::{Offers, listen_hooks, serve};
+    pub use traffic::Traffic;
+}

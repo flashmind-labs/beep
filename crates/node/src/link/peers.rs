@@ -13,7 +13,8 @@ use crate::{
     link::local_socket::{Listener, Stream},
     link::local_status::{self, LocalStatus},
     link::report::serve_report,
-    link::serve::{Offers, Protocol, Who, read_open, serve_open, withheld},
+    link::Protocol,
+    link::serve::{Offers, Who, read_open, serve_open, withheld},
     link::watchdog::{self, Step},
     machine::{env, stats},
 };
