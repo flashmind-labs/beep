@@ -298,7 +298,17 @@ impl Actor {
         let asked = closed || matches!(end, Ok(End::Unstoppable(_) | End::NodeStopped));
         // What still waits goes with the session when the node resumes it.
         let waiting: Vec<Prompt> = if matches!(end, Ok(End::NodeStopped)) {
-            self.steers.drain(..).chain(self.queued.drain(..)).collect()
+            let interrupted = matches!(
+                self.live.borrow().status(),
+                Status::Working | Status::Asking
+            );
+            let continuation =
+                interrupted.then(|| Prompt::from(super::super::restart::CONTINUE.to_owned()));
+            continuation
+                .into_iter()
+                .chain(self.steers.drain(..))
+                .chain(self.queued.drain(..))
+                .collect()
         } else {
             Vec::new()
         };
