@@ -103,6 +103,7 @@ impl Live {
     pub(super) fn started_or_ended(&self) {
         crate::link::restart::changed();
         self.started_or_ended.notify_one();
+        crate::events::system().changed(beep_proto::node::events::Topic::new("terminals"));
     }
 
     /// Sizes the terminal to `size`, unless it already is: a resize makes

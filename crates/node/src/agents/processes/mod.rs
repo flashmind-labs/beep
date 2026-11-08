@@ -25,7 +25,7 @@ use macos as os;
 #[cfg(windows)]
 use windows as os;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 struct Process {
     pid: u32,
     parent: u32,
@@ -142,6 +142,7 @@ impl Processes {
         let first = crate::lock(&self.known).root_birth.is_none();
         let all = snapshot::read(fresh || first).await?;
         let mut observed = crate::lock(&self.known);
+        let before = observed.processes.clone();
         if observed.root_birth.is_none() {
             observed.root_birth = all.get(&self.root).map(|p| p.birth);
         }
@@ -170,6 +171,9 @@ impl Processes {
             if known.len() == before {
                 break;
             }
+        }
+        if *known != before {
+            crate::events::system().changed(beep_proto::node::events::Topic::new("processes"));
         }
         Ok(known
             .values()

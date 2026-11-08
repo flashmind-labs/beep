@@ -21,7 +21,7 @@ const WORKTREE_WAIT: Duration = Duration::from_secs(5);
 /// read: the harnesses' session logs and Claude Code's temp folder, where
 /// it keeps the files it makes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Access {
+pub(crate) enum Access {
     Read,
     Write,
     /// Read, but only in a work folder: a project folder asked for.
@@ -185,7 +185,7 @@ impl Agents {
     /// `asked`, absolute or starting `~/`, with its links and `..`
     /// resolved, once it is inside the folders `access` may reach; refused
     /// otherwise.
-    pub(super) async fn reachable(&self, asked: &str, access: Access) -> Result<PathBuf> {
+    pub(crate) async fn reachable(&self, asked: &str, access: Access) -> Result<PathBuf> {
         let home = dirs::home_dir();
         let reach = self.reach(Vec::new());
         let owned = asked.to_owned();

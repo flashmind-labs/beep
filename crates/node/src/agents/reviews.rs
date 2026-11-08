@@ -27,9 +27,9 @@ pub(crate) const MAX_FINDINGS: usize = 30;
 pub(crate) const NUDGE: &str = "Call submit_review with your findings.";
 
 /// The reviews this node ran and runs.
-#[derive(Default)]
 pub(super) struct Reviews {
     kept: Mutex<VecDeque<Kept>>,
+    events: crate::events::Hub,
 }
 
 struct Kept {
@@ -42,12 +42,30 @@ struct Kept {
     _watch: Option<AbortOnDropHandle<()>>,
 }
 
+impl Default for Reviews {
+    fn default() -> Self {
+        Self::new(crate::events::system().clone())
+    }
+}
+
 impl Reviews {
+    pub(super) fn new(events: crate::events::Hub) -> Self {
+        Self {
+            kept: Mutex::default(),
+            events,
+        }
+    }
+
     fn with<T>(&self, id: &str, f: impl FnOnce(&mut Kept) -> T) -> Option<T> {
-        crate::lock(&self.kept)
-            .iter_mut()
-            .find(|kept| kept.run.id == id)
-            .map(f)
+        let mut all = crate::lock(&self.kept);
+        let kept = all.iter_mut().find(|kept| kept.run.id == id)?;
+        let before = kept.run.clone();
+        let value = f(kept);
+        if kept.run != before {
+            self.events
+                .changed(beep_proto::node::events::Topic::keyed("reviews", id));
+        }
+        Some(value)
     }
 
     fn keep(&self, kept: Kept) {
@@ -57,6 +75,10 @@ impl Reviews {
         {
             all.remove(at);
         }
+        self.events.changed(beep_proto::node::events::Topic::keyed(
+            "reviews",
+            &kept.run.id,
+        ));
         all.push_back(kept);
     }
 }

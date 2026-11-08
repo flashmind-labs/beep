@@ -171,6 +171,34 @@ impl Stores {
         }
     }
 
+    /// Store directories watched by open session subscriptions, including database WAL files.
+    pub(crate) fn follow_paths(&self, agent: Option<Agent>) -> Vec<PathBuf> {
+        let root = match agent {
+            Some(Agent::Codex) => {
+                return self
+                    .codex
+                    .as_ref()
+                    .map(|root| root.join("sessions"))
+                    .into_iter()
+                    .collect();
+            }
+            Some(Agent::Pi) => self.pi.as_ref(),
+            Some(Agent::Flsh) => self.flsh.as_ref(),
+            Some(Agent::OpenCode) => self.opencode.as_ref(),
+            _ => None,
+        };
+        root.and_then(|path| {
+            if path.is_file() {
+                path.parent()
+            } else {
+                Some(path.as_path())
+            }
+        })
+        .map(PathBuf::from)
+        .into_iter()
+        .collect()
+    }
+
     /// Every session in the stores, `agent`'s only when given.
     pub(crate) fn sessions(&self, agent: Option<Agent>) -> Vec<Seen> {
         let wants = |one: Agent| agent.is_none_or(|agent| agent == one);

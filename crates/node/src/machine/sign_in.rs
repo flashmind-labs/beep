@@ -204,6 +204,7 @@ async fn run(
         Ok(()) => State::SignedIn {},
         Err(reason) => State::Failed { reason },
     });
+    crate::events::system().changed(beep_proto::node::events::Topic::new("accounts"));
     if signed_in {
         SIGNED_IN.send_replace(());
     }
@@ -259,6 +260,7 @@ async fn drive(
                     if !shown && let Some(prompt) = read::prompt(tool, &seen) {
                         shown = true;
                         state.send_replace(prompt);
+                        crate::events::system().changed(beep_proto::node::events::Topic::new("accounts"));
                     }
                 }
                 None => output_open = false,
