@@ -1,6 +1,5 @@
 // Home: its tabs, the Needs you, Updates, Running and Coming up sections, and the Connecting page before Home first loads.
 import { sessionMenu } from "../agents/sessionmenu.ts";
-import { syncMobile } from "./mobile.ts";
 import { patchChildren } from "../ui/patch.ts";
 import { harnessEl } from "../ui/harnessicon.ts";
 import { plural } from "../ui/format.ts";
@@ -204,9 +203,14 @@ export const TAB_OF: Record<string, HomeTab> = {
 /// Rows an Overview box shows; its title opens the rest.
 const BOX_ROWS = 5;
 
+/// The phone's tab bar lights Machines for Home's Machines tab. An event, since the bar's
+/// module imports this one.
+export const HOME_TAB_EVENT = "beep:home-tab";
+const homeTabChanged = () => document.dispatchEvent(new Event(HOME_TAB_EVENT));
+
 function openHomeTab(tab: HomeTab) {
   homeTab = tab;
-  syncMobile();
+  homeTabChanged();
   draw();
   $("#view").scrollTop = 0;
 }
@@ -404,7 +408,7 @@ export function jump(id?: string) {
   const tab = !id ? "overview" : id.startsWith("m-") ? "machines" : TAB_OF[id];
   if (tab && tab !== homeTab) {
     homeTab = tab;
-    syncMobile();
+    homeTabChanged();
     if (state.home) draw();
   }
   const view = $("#view");
