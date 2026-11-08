@@ -280,13 +280,13 @@
         : prompt || (noprompt ? "Say what the agent should do." : "Describe the task.")}</div>
         <div class="agc-row"><span class="sp"></span>
           ${none || looking ? `<button class="agc-pill" disabled>No agent</button>` : `<button class="agc-pill" aria-expanded="${open}" title="Harness, model and thinking (⌘M)" data-dact="dset:agc:${v === "picker" ? "nohost" : "picker"}">${pillText}${caret}</button>`}
-          <button class="agc-send"${np ? ' disabled title="Pick a project first"' : none || looking || !chosenHost ? ' disabled title="Pick a machine first"' : ` data-dgo="dAgentSession" data-dact="dset:ags:working" title="Start (⌘↩)"`} aria-label="Start">${up}</button></div>${picker}</div>
+          <button class="agc-send"${np ? ' disabled title="Pick a project first"' : none || looking || !chosenHost ? ' disabled title="Pick a machine first"' : ` data-dgo="dAgentSession" data-dact="dset:ags:working" title="Enter starts, Shift+Enter adds a line"`} aria-label="Start">${up}</button></div>${picker}</div>
       <div class="agc-under">${pjPill}<button class="agc-pill" aria-expanded="${v === "host"}" data-dact="dset:agc:${v === "host" ? "nohost" : "host"}">${host}${chosenHost || "Pick a machine"}${caret}</button><span class="sep"></span>
         ${folderPill}${base}${projectMenu}${hostMenu}${folderMenu}${baseMenu}</div>
       ${why}${help}</div>`;
     return ccWin(ccSidePj("agents"), `<div class="cc-top"><h2>Start a coding agent</h2><small>It runs on your machine; follow it and answer it here</small><span class="tools"><button class="dbtn small" data-dgo="dAgents">All sessions</button></span></div>
       <div class="cc-view">${form}</div>
-      <div class="cc-hints"><span><kbd>⌘${DI.ret}</kbd>start</span><span><kbd>⌘M</kbd>model</span><span><kbd>esc</kbd>cancel</span></div>`);
+      <div class="cc-hints"><span><kbd>${DI.ret}</kbd>start</span><span><kbd>⌘M</kbd>model</span><span><kbd>esc</kbd>cancel</span></div>`);
   };
   const vr = (l, k) => [l, () => { S.d.agc = k; render(); }, () => pick("agc", AGV, "nohost") === k];
   VARIANTS.dAgentNew = [vr("No machine picked yet", "nohost"), vr("Picker open (Claude Code)", "picker"), vr("Picker open (flsh)", "flsh"), vr("Picker, no machine", "pickernomachine"), vr("Machine menu", "host"), vr("Project menu", "project"), vr("Folder menu", "folder"), vr("New worktree from a ref", "branch"), vr("Base menu", "basemenu"), vr("Typing a folder", "typing"), vr("No agents", "none"), vr("Looking for machines", "looking"), vr("No prompt", "noprompt"), vr("No project", "noproj"), vr("No project: folder menu", "noprojfolder"), vr("Pasted text sent as code", "code")];
