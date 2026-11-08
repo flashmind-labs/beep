@@ -88,14 +88,14 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
         WebviewUrl::App("center.html".into()),
     ))
     .title(title)
-    .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
     .resizable(true)
     // Files dragged in from Finder reach the page as HTML drops, as in
     // the bar: a coding agent session uploads them to its machine.
     .disable_drag_drop_handler();
+    // A phone window fills the screen: a desktop minimum leaves its webview at zero size.
     #[cfg(desktop)]
     {
-        builder = builder.maximizable(true);
+        builder = builder.maximizable(true).min_inner_size(MIN_WIDTH, MIN_HEIGHT);
     }
     // The UI reads this to know it runs on a phone, before its scripts load.
     #[cfg(mobile)]
