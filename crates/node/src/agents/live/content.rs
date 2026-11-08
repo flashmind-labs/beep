@@ -1,6 +1,8 @@
 //! Reading what the agent sends: pictures, cut text and thoughts.
 
 use super::MAX_LINE;
+pub(crate) use crate::agents::text::cut;
+pub(super) use crate::agents::text::push_cut;
 use crate::agents::images::{Picture, data_url, picture_of};
 use agent_client_protocol::schema::v1::{ImageContent, ToolCallId};
 use serde_json::Value;
@@ -19,26 +21,6 @@ pub(super) fn detail(input: &Value) -> Option<String> {
         .map(str::to_owned)
         .or_else(|| (!input.is_null()).then(|| input.to_string()))?;
     Some(cut(&text, MAX_LINE))
-}
-
-/// `text` cut to at most `max` bytes, on a character boundary.
-pub(crate) fn cut(text: &str, max: usize) -> String {
-    let mut out = String::new();
-    push_cut(&mut out, text, max);
-    out
-}
-
-pub(super) fn push_cut(out: &mut String, text: &str, max: usize) {
-    let room = max.saturating_sub(out.len());
-    if text.len() <= room {
-        out.push_str(text);
-        return;
-    }
-    let mut end = room;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    out.push_str(&text[..end]);
 }
 
 /// `text` as an agent replays it, with each image it inlined as a markdown
