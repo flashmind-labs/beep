@@ -1,4 +1,5 @@
 // Messages typed while a coding agent's turn runs.
+import type { StashFile } from "../chat/stash-state.ts";
 
 /// An image waiting to go with a message.
 export interface Attached {
@@ -16,41 +17,18 @@ export type SteerState = "sending" | "sent" | "delivered";
 
 /// A message typed while the turn runs.
 export interface Waiting {
-  how: "steer" | "queue";
+  how: "steer";
   /// What was typed, as the row shows it.
   typed: string;
   /// What goes to the agent: the typed text and an `@path` per mention.
   text: string;
   paths: string[];
   images: Attached[];
-  /// A steer's progress; null for a queued message.
+  files?: { path: string; file: StashFile }[];
+  /// A steer's progress; null before sending.
   state: SteerState | null;
   /// For a sent steer: the session read after which the node holds it.
   after: number;
-}
-
-/// One message of queued ones: their words and images, in order.
-export interface Batch {
-  text: string;
-  images: Attached[];
-}
-
-/// The queued messages as few messages as fit: in order, joined until the
-/// images would pass what one message takes.
-export function batches(items: Waiting[], maxImages: number, maxBytes: number): Batch[] {
-  const out: Batch[] = [];
-  const bytes = (b: Batch) => b.images.reduce((n, a) => n + a.size, 0);
-  for (const item of items) {
-    const last = out[out.length - 1];
-    const fits = last && last.images.length + item.images.length <= maxImages && bytes(last) + bytes(item) <= maxBytes;
-    if (fits) {
-      last.text = [last.text, item.text].filter(Boolean).join("\n\n");
-      last.images = [...last.images, ...item.images];
-    } else {
-      out.push({ text: item.text, images: [...item.images] });
-    }
-  }
-  return out;
 }
 
 /// Marks the steers the node no longer holds as delivered, oldest first.

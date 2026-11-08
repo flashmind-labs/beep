@@ -70,6 +70,7 @@ fn main() {
             Some(vec![LOGIN_ARG]),
         ))
         .manage(artifacts::Pages::default())
+        .manage(Arc::new(chat::clipboard::ImageClipboard::default()))
         .register_asynchronous_uri_scheme_protocol(artifacts::SCHEME, |ctx, request, responder| {
             let app = ctx.app_handle();
             match artifacts::route(&app.state::<artifacts::Pages>(), &request) {
@@ -154,6 +155,11 @@ fn main() {
             agents::accounts::codex_login_start,
             agents::accounts::codex_login_state,
             agents::accounts::revoke_agent_token,
+            agents::stash::prompt_stash_list,
+            agents::stash::prompt_stash_put,
+            agents::stash::prompt_stash_read,
+            agents::stash::prompt_stash_take,
+            agents::stash::prompt_stash_remove,
             agents::accounts::save_agent_token,
             agents::artifacts::agent_artifact,
             agents::artifacts::agent_artifacts_present,
@@ -294,6 +300,7 @@ fn main() {
             center::window::center_window_project,
             center::window::open_center,
             chat::approvals::answer_approval,
+            chat::files::copy_diagram_image,
             chat::files::open_file,
             chat::files::picture,
             chat::files::reveal_file,

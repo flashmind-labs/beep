@@ -1,4 +1,7 @@
-import { agentPics } from "../chat/attach.ts";
+import { agentPics, fileBase64 } from "../chat/attach.ts";
+import { draftText } from "../chat/compose.ts";
+import { bindPromptStash } from "../chat/stash.ts";
+import { stashFile } from "../chat/stash-state.ts";
 import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import type { Attached } from "./agentqueue.ts";
@@ -71,5 +74,32 @@ export function startAttachments(c: ReturnType<typeof makeStartComposer>, error:
     get count() { return images.length + files.pending.length; },
     setBusy(value: boolean) { locked = value; picker.button.disabled = value; },
     clear() { images.length = 0; files.pending.length = 0; draw(); },
+    bindStash(project: () => string | null) {
+      let sendDisabled = false;
+      bindPromptStash(c.input, {
+        project,
+        hasAttachments: () => !!images.length || !!files.pending.length,
+        lock: value => {
+          if (value) sendDisabled = c.send.disabled;
+          locked = value; picker.button.disabled = value;
+          c.send.disabled = value || sendDisabled;
+        },
+        capture: async () => {
+          if (reading) throw new Error("Wait for the attachments to finish loading");
+          return { text: draftText(c.input.value), images: images.map(({ name, mime, size, data }) => ({ name, mime, size, data })), paths: [], files: await Promise.all(files.pending.map(async ({ file }) => ({ name: file.name, mime: file.type, size: file.size, data: await fileBase64(file) }))) };
+        },
+        clear: () => { c.input.value = ""; images.length = 0; files.pending.length = 0; draw(); c.input.dispatchEvent(new Event("input", { bubbles: true })); },
+        prepare: async message => {
+          const restoredFiles = message.files.map(stashFile);
+          message.images.forEach(stashFile);
+          return () => {
+            c.input.value = [message.text, ...message.paths.map(path => `@${path}`)].filter(Boolean).join("\n");
+            images.splice(0, images.length, ...message.images.map(file => ({ ...file, url: `data:${file.mime};base64,${file.data}` })));
+            files.pending.splice(0, files.pending.length, ...restoredFiles.map(file => ({ file })));
+            draw(); c.input.dispatchEvent(new Event("input", { bubbles: true }));
+          };
+        },
+      });
+    },
   };
 }

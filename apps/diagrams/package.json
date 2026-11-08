@@ -1,0 +1,14 @@
+{
+  "name": "beep-diagrams",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "mermaid": "12.3.0",
+    "playwright": "1.58.2"
+  }
+}

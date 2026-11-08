@@ -74,7 +74,10 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
     when practical to reuse compilation results across worktrees. For Rust, set RUSTC_WRAPPER=sccache \
     for the build if no compiler wrapper is already configured. For C or C++, follow the project's \
     build configuration and preserve any existing compiler launcher. Do not install sccache or change \
-    the user's global configuration unless asked.";
+    the user's global configuration unless asked.\n\n\
+    Use fenced `mermaid` blocks when a diagram makes an explanation clearer. Beep renders them \
+    as expandable diagrams with SVG and PNG exports. Keep diagrams small and use plain labels; \
+    do not add initialization directives, HTML, links or external resources.";
 
 /// How sessions start the server, and the key their tokens are made with.
 pub struct Launch {

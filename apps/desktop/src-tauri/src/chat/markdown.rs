@@ -82,7 +82,21 @@ pub fn to_html(markdown: &str) -> String {
         | Options::ENABLE_MATH;
     let source = dollar_delimiters(&markdown.replace(ROW_MARK, ""));
     let mut rows = Vec::new();
-    let parsed = Parser::new_ext(&source, options).into_offset_iter();
+    let parsed = Parser::new_ext(&source, options)
+        .into_offset_iter()
+        .map(|(event, range)| {
+            let event = match event {
+                Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang)))
+                    if lang.trim() == "mermaid" && !closed(&source[range.clone()]) =>
+                {
+                    Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(
+                        "mermaid-pending".into(),
+                    )))
+                }
+                other => other,
+            };
+            (event, range)
+        });
     let events = product_rows(&source, parsed, &mut rows);
     let events = autolink(TextMergeStream::new(events.into_iter()))
         .into_iter()
@@ -618,6 +632,17 @@ fn escape_prices(out: &mut String, text: &str) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn mermaid_waits_for_its_closing_fence() {
+        for fence in ["```", "~~~~"] {
+            let block = format!("{fence}mermaid\nflowchart LR\n A-->B\n");
+            assert!(super::to_html(&block).contains("language-mermaid-pending"));
+            let html = super::to_html(&format!("{block}{fence}\n"));
+            assert!(html.contains("class=\"language-mermaid\""), "{html}");
+            assert!(html.contains("A--&gt;B"), "{html}");
+        }
+    }
+
     #[test]
     fn untrusted_markdown_shows_raw_html_as_text() {
         let html = super::untrusted_html(

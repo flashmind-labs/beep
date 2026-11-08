@@ -30,3 +30,6 @@ admin.sock
 
 # Syncthing temporaries
 .syncthing.*.tmp
+
+/apps/diagrams/node_modules/
+/apps/desktop/dist/diagrams/
