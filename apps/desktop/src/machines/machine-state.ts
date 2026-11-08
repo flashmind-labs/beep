@@ -201,8 +201,8 @@ export interface MacRow {
 export function thisMacRow(mac: Pick<MacControl, "id" | "name" | "enabled" | "status" | "error"> | null | undefined, machines: readonly { id: string }[] | null | undefined): MacRow | null {
   if (!mac || !Array.isArray(machines) || mac.status === "unlinked") return null;
   if (machines.some(m => m.id === mac.id)) return null;
-  const row = { name: "This Mac", sub: mac.name || "", action: null };
-  if (!mac.enabled) return { ...row, state: "Off", title: "Let Beep use this Mac is off. Add turns it on.", action: "Add" };
+  const row = { name: "This computer", sub: mac.name || "", action: null };
+  if (!mac.enabled) return { ...row, state: "Off", title: "Let Beep use this computer is off. Add turns it on.", action: "Add" };
   if (mac.status === "failed") {
     const error = mac.error || "Could not connect";
     return { ...row, state: error, title: `${error}. Beep tries again on its own.`, bad: true };

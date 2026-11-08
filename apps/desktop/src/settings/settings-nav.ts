@@ -7,7 +7,7 @@ const SETTINGS_PAGES = [
   ["appearance", "Appearance"],
   ["models", "Models"],
   ["apps", "Apps"],
-  ["mac", "This Mac"],
+  ["mac", "This computer"],
   ["machines", "Machines"],
   ["agents", "Agent accounts"],
   ["creds", "Credentials"],

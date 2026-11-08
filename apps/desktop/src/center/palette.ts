@@ -1,3 +1,4 @@
+import { commandKey } from "../ui/platform.ts";
 // The Cmd+K palette: one search over actions, settings, projects, pull
 // requests, coding agents, chats, memories, routines and machines. The
 // window holds the index, so a keystroke waits on nothing.
@@ -240,8 +241,8 @@ window.addEventListener("keydown", e => {
   if (!root) return;
   const stop = () => { e.preventDefault(); e.stopImmediatePropagation(); };
   if (e.key === "Escape") { stop(); return close(); }
-  if (e.metaKey && e.key.toLowerCase() === "k") { stop(); return close(); }
-  if (e.metaKey && e.key === "Enter") { stop(); return state.subscribed ? ask_(input!.value) : undefined; }
+  if (commandKey(e) && e.key.toLowerCase() === "k") { stop(); return close(); }
+  if (commandKey(e) && e.key === "Enter") { stop(); return state.subscribed ? ask_(input!.value) : undefined; }
   if (e.isComposing) return;
   if (e.key === "Enter") { stop(); if (hits[sel]) pick(hits[sel]); return; }
   if (e.key === "Tab") { stop(); return input!.focus(); }
@@ -253,5 +254,5 @@ window.addEventListener("keydown", e => {
     return;
   }
   // Other window shortcuts do nothing under the overlay.
-  if (e.metaKey && !["a", "c", "v", "x", "z"].includes(e.key.toLowerCase())) stop();
+  if (commandKey(e) && !["a", "c", "v", "x", "z"].includes(e.key.toLowerCase())) stop();
 }, true);

@@ -289,7 +289,7 @@ function build() {
   remoteBox = el("div", "ap-remote");
   hint = el("div", "am-wait ap-look");
   const ways = el("div", "ap-ways",
-    way("Choose a folder…", "A checkout on this Mac or another machine, added in place", () => { closeAddProject(); opts.onChoose?.(); }),
+    way("Choose a folder…", "A checkout on this computer or another machine, added in place", () => { closeAddProject(); opts.onChoose?.(); }),
     way("Clone a repository…", "org/repo or a URL from GitHub or your Forgejo server", () => { closeAddProject(); opts.onClone?.(); }),
     way("New project…", "Create a repository and put it on your machines", () => { closeAddProject(); opts.onNew?.(); }));
   sheet!.replaceChildren(el("div", "am-head", el("b", "", "Add a project"), el("kbd", "", "esc")),

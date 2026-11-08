@@ -4,7 +4,6 @@ import { HOME_SEARCH, INSTALL, INSTALL_WINDOWS, KINDS, START, next, timeLeft, ma
 import type { AddEvent, MacSeen, TicketKind } from "./addmachine-state.ts";
 import { button, el, present } from "../ui/dom.ts";
 import { copyButton, openSheet } from "../ui/parts.ts";
-import { openJoinTicket } from "./jointicket.ts";
 import type { MacControl, MachineView } from "./machine-state.ts";
 
 /// A ticket as `mesh_invite` gives it (TokenView).
@@ -26,8 +25,6 @@ let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, sta
 let kind: TicketKind = "node";
 let creation = 0;
 let ticker: Timer, poller: Timer, close: (() => void) | null = null, onClose: (() => void) | null = null;
-/// `onClose` of the sheet that opened, for the join sheet it hands over to.
-let onCloseAgain: (() => void) | null = null;
 // This Mac's mac_control view, and whether the sheet turned it on.
 let mac: MacSeen | null = null, macAsked = false, macPoller: Timer;
 // Where the new machine looks for projects; it goes on the setup command.
@@ -42,7 +39,6 @@ function codeLine(text: string) {
 export function openAddMachine(options: { onClose?: () => void } = {}) {
   if (root) return;
   onClose = options.onClose || null;
-  onCloseAgain = onClose;
   kind = "node";
   ({ root, sheet, close } = openSheet("Add a machine", "am-sheet", { onClose: closed }));
   ticker = setInterval(() => update({ type: "tick", now: Date.now() }), TICK_MS);
@@ -126,7 +122,7 @@ async function loadMac() {
     if (!root) return;
     mac = view;
   } catch (e) {
-    console.warn("this Mac's state:", e);
+    console.warn("this computer's state:", e);
     return;
   }
   drawMac();
@@ -157,7 +153,7 @@ function statusLine() {
   if (state.step !== "waiting") return el("div", "am-status");
   return el("div", "am-status am-wait",
     el("span", "dspin"),
-    `Waiting for ${kind === "phone" ? "the phone" : kind === "desktop" ? "the other Mac" : "the machine"} · works once, `,
+    `Waiting for ${kind === "phone" ? "the phone" : kind === "desktop" ? "the other desktop" : "the machine"} · works once, `,
     el("span", "left", `${timeLeft(state.expiresAt, Date.now())} left`),
     el("span", "end", button("Cancel", "dbtn quiet", closeAddMachine)));
 }
@@ -171,7 +167,7 @@ function macBlock() {
     ? el("div", "am-wait", el("span", "dspin"), option.text)
     : el("div", `am-msg${option.bad ? " bad" : ""}`, option.done ? el("span", "ddot") : null, option.done ? " " : null, option.text);
   return el("div", "am-mac",
-    el("div", "am-label", "This Mac"),
+    el("div", "am-label", "This computer"),
     option.button
       ? el("div", "am-line", el("div", "am-mac-text", option.text), button(option.button, "dbtn pri", useThisMac))
       : status);
@@ -200,7 +196,7 @@ function draw() {
   const mine = macBlock();
   const other = mine && state.step !== "linked" ? el("div", "am-label am-other", "Another machine") : null;
   const done = state.step === "linked" || state.step === "expired";
-  box.replaceChildren(el("div", "am-head", el("b", "", "Add a machine"), el("kbd", "", "esc")), ...present([done ? null : kindPicker(), mine, other, ...body(), done ? null : button("Join with a ticket", "dbtn quiet", () => { closeAddMachine(); openJoinTicket({ onClose: onCloseAgain ?? undefined }); })]));
+  box.replaceChildren(el("div", "am-head", el("b", "", "Add a machine"), el("kbd", "", "esc")), ...present([done ? null : kindPicker(), mine, other, ...body()]));
   const first = box.querySelector("button");
   if (first && !box.contains(document.activeElement)) first.focus();
 }
@@ -241,7 +237,7 @@ function body() {
           codeLine(state.command),
           el("div", "am-os", kind === "phone"
             ? "On your phone, open Devices and paste this ticket. It proves the phone may join, works once and expires in 5 minutes. Keep it private."
-            : "Paste it into Beep on the other Mac, under Join with a ticket."),
+            : "On the other desktop, open Machines, then Link another desktop, and paste this ticket."),
           statusLine(),
         ]);
       }

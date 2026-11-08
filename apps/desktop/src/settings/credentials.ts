@@ -271,7 +271,7 @@ function ghOffer(esc: Esc, gh: CliLogin | null | undefined, busy: boolean, flow:
   switch (gh?.state) {
     case "signed_in":
       return {
-        account: gh.account ? `gh on this Mac as @${gh.account}` : "gh signed in on this Mac",
+        account: gh.account ? `gh on this computer as @${gh.account}` : "gh signed in on this computer",
         acts: useButton(esc, "github", "Use gh sign-in", busy) + paste(true),
         help: "",
       };
@@ -365,7 +365,7 @@ const ghUse = (esc: Esc, login: string, busy: boolean) =>
 
 /// The gh accounts on this Mac, one line each with Use.
 function ghChoiceRows(esc: Esc, choices: { login: string; active?: boolean }[], cliBusy: string | undefined) {
-  return choices.map(g => `<div class="dline dsm"><span class="dmut">gh on this Mac as @${esc(g.login)}</span>${g.active ? `<span class="dsub">active</span>` : ""}<span class="dpush">${ghUse(esc, g.login, cliBusy === `gh:${g.login}`)}</span></div>`).join("");
+  return choices.map(g => `<div class="dline dsm"><span class="dmut">gh on this computer as @${esc(g.login)}</span>${g.active ? `<span class="dsub">active</span>` : ""}<span class="dpush">${ghUse(esc, g.login, cliBusy === `gh:${g.login}`)}</span></div>`).join("");
 }
 
 /// What an account row needs besides the account.
@@ -432,7 +432,7 @@ function githubHtml(state: CredState, machines: ToolMachine[] | null, esc: Esc, 
     const offer = ghOffer(esc, cli?.github, state.cliBusy === "github", state.ghFlow);
     // Several accounts in gh here: one Use each.
     if (choices.length > 1 && !state.ghFlow) {
-      offer.account = `gh on this Mac has ${choices.length} accounts`;
+      offer.account = `gh on this computer has ${choices.length} accounts`;
       offer.acts = `<button class="dbtn quiet small" data-cred-edit="github">Paste a token</button>`;
       offer.help = "";
       offer.body = `<div class="dgrid6">${ghChoiceRows(esc, choices, state.cliBusy)}</div>`;
@@ -476,13 +476,13 @@ export function credentialsHtml(state: CredState, machines: ToolMachine[] | null
     const { busy, error } = rowState(key);
     html += hostRow(esc, {
       icon: FORGEJO_ICON, name: hostOf(s.url), cli: "teacli", machines: null, editKey: "forgejo", error,
-      offer: { account: "teacli on this Mac", acts: useButton(esc, key, "Use teacli sign-in", busy), help: "Signed in with teacli here, not in Beep yet" },
+      offer: { account: "teacli on this computer", acts: useButton(esc, key, "Use teacli sign-in", busy), help: "Signed in with teacli here, not in Beep yet" },
     });
   }
   // What is being added sits under the hosts, the add buttons side by side under that.
   html += github.adding;
   const addingForgejo = e?.kind === "forgejo" && !e.id;
-  if (addingForgejo) html += form(state, esc, { title: "New Forgejo/Gitea server", url: "one token per server, teacli on every machine", noteHtml: `Make one on your server at ${code("/user/settings/applications")}, with repository and issue access. Or run ${code("teacli login https://<server> --token <token>")} on this Mac and use that sign-in.` });
+  if (addingForgejo) html += form(state, esc, { title: "New Forgejo/Gitea server", url: "one token per server, teacli on every machine", noteHtml: `Make one on your server at ${code("/user/settings/applications")}, with repository and issue access. Or run ${code("teacli login https://<server> --token <token>")} on this computer and use that sign-in.` });
   const adds = (github.canAdd ? addButton(`data-cred-gh-add="1"`, "+ Add another GitHub account") : "")
     + (addingForgejo ? "" : addButton(`data-cred-edit="forgejo"`, "+ Add a Forgejo/Gitea server"));
   if (adds) html += `<div class="dline tight wrap dmt6">${adds}</div>`;

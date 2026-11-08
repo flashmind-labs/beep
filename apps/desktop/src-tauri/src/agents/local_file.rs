@@ -3,6 +3,9 @@
 //! and an app from the list it was given; every path and bundle used here is
 //! resolved in this module, never taken from the page.
 
+#[cfg(target_os = "macos")]
+use std::process::Command;
+
 use super::work_copy;
 use crate::{
     beep::Service,
@@ -10,10 +13,7 @@ use crate::{
     fleet::Machines,
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::path::{Path, PathBuf};
 use tokio::task::spawn_blocking;
 
 /// An app macOS says can open a file.
@@ -104,27 +104,38 @@ pub async fn open_local_file(
         .await
         .ok_or_else(|| DesktopError::BadRequest("that file is not on this Mac".into()))?;
     spawn_blocking(move || {
-        let mut cmd = Command::new("open");
-        match action {
-            Action::Open => {}
-            Action::Reveal => {
-                cmd.arg("-R");
+        #[cfg(not(target_os = "macos"))]
+        return match action {
+            Action::Open => crate::platform::open(&file),
+            Action::Reveal => crate::platform::reveal(&file),
+            Action::With(id) => Err(DesktopError::BadRequest(format!(
+                "app {id:?} is not available here"
+            ))),
+        };
+        #[cfg(target_os = "macos")]
+        {
+            let mut cmd = Command::new("open");
+            match action {
+                Action::Open => {}
+                Action::Reveal => {
+                    cmd.arg("-R");
+                }
+                Action::With(id) => {
+                    let app = apps_for(&file)
+                        .into_iter()
+                        .find(|a| a.id == id)
+                        .ok_or_else(|| {
+                            DesktopError::BadRequest("that app cannot open the file".into())
+                        })?;
+                    cmd.arg("-a").arg(app.id);
+                }
             }
-            Action::With(id) => {
-                let app = apps_for(&file)
-                    .into_iter()
-                    .find(|a| a.id == id)
-                    .ok_or_else(|| {
-                        DesktopError::BadRequest("that app cannot open the file".into())
-                    })?;
-                cmd.arg("-a").arg(app.id);
+            let status = cmd.arg(&file).status().map_err(anyhow::Error::from)?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err(DesktopError::BadRequest(format!("open failed: {status}")))
             }
-        }
-        let status = cmd.arg(&file).status().map_err(anyhow::Error::from)?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(DesktopError::BadRequest(format!("open failed: {status}")))
         }
     })
     .await
@@ -175,7 +186,9 @@ fn apps_for(_file: &Path) -> Vec<OpenApp> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{env, fs, os::unix::fs::symlink, process};
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
+    use std::{env, fs, process};
 
     fn scratch(name: &str) -> PathBuf {
         let dir = env::temp_dir().join(format!("beep-local-file-{name}-{}", process::id()));
@@ -206,6 +219,7 @@ mod tests {
         fs::remove_dir_all(dir).expect("cleanup");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_link_out_of_the_folder_is_refused() {
         let dir = scratch("link");
@@ -217,6 +231,7 @@ mod tests {
         fs::remove_dir_all(dir).expect("cleanup");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_link_inside_the_folder_resolves() {
         let dir = scratch("same");

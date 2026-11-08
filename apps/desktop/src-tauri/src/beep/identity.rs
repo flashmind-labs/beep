@@ -4,12 +4,12 @@ use anyhow::{Context, Result};
 use beep_proto::link::MAX_NAME;
 use iroh::SecretKey;
 use secrecy::{ExposeSecret, SecretBox};
+#[cfg(target_os = "macos")]
+use std::process::Command;
 use std::{
     fs::{self, OpenOptions},
     io::{ErrorKind, Write},
-    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
-    process::Command,
 };
 use tauri::{AppHandle, Manager};
 
@@ -28,10 +28,14 @@ pub fn load_or_create(path: &Path) -> Result<Identity> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
         .open(path)
         .with_context(|| format!("writing {}", path.display()))?;
     file.write_all(&key)?;
@@ -51,6 +55,7 @@ pub fn data_dir(app: &AppHandle) -> Result<PathBuf> {
 
 /// The name the phone shows for this Mac.
 pub fn computer_name() -> String {
+    #[cfg(target_os = "macos")]
     let mut name = Command::new("scutil")
         .args(["--get", "ComputerName"])
         .output()
@@ -59,6 +64,10 @@ pub fn computer_name() -> String {
         .map(|name| name.trim().to_owned())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "Mac".into());
+    #[cfg(not(target_os = "macos"))]
+    let mut name = std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "Computer".into());
     name.truncate(name.floor_char_boundary(MAX_NAME));
     name
 }

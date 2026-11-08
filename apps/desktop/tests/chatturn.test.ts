@@ -42,7 +42,7 @@ test("a reply stays the same element from its stream through the chat's redraws"
   send({ kind: "finished", status: "completed" });
   assert.equal(reply.innerHTML, "<p>No rain tomorrow.</p>");
 
-  // The first notice comes before this Mac's copy has the reply.
+  // The first notice comes before this computer's copy has the reply.
   answers.open_session = [prompt];
   await refreshSession(SESSION);
   assert.ok(reply.isConnected, "the reply left the chat while the copy caught up");

@@ -11,7 +11,6 @@ use beep_proto::ApiError;
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
@@ -75,11 +74,7 @@ pub fn reveal_file(app: AppHandle, path: PathBuf) -> Result<()> {
     if path.parent() != Some(downloads.as_path()) || !path.is_file() {
         return Err(DesktopError::BadRequest("not a saved file".into()));
     }
-    Command::new("open")
-        .arg("-R")
-        .arg(&path)
-        .spawn()
-        .map_err(anyhow::Error::from)?;
+    crate::platform::reveal(&path)?;
     Ok(())
 }
 

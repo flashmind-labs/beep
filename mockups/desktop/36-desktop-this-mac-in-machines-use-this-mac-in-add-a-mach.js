@@ -1,6 +1,6 @@
-// ---- Desktop: This Mac in Machines, Use this Mac in Add a machine, the Projects page and Import a project ----
+// ---- Desktop: This computer in Machines, Use this computer in Add a machine, the Projects page and Import a project ----
 // Mirrors thisMacRow in home.js and center.js, macOption in addmachine-state.js, projectTable in center.js
-// and importproject.js. This Mac shows while the server does not list it; S.d.tm picks its state.
+// and importproject.js. This computer shows while the server does not list it; S.d.tm picks its state.
 (() => {
   const st = document.createElement("style");
   st.textContent = `.mac .cc-mt .mac-state { grid-column: span 5 }
@@ -65,17 +65,17 @@
 })();
 
 const TM = {
-  off: { state: "Off", title: "Let Beep use this Mac is off. Add turns it on." },
+  off: { state: "Off", title: "Let Beep use this computer is off. Add turns it on." },
   connecting: { state: "Connecting", title: "Joining your machines" },
   notallowed: { state: "This account can't add machines on this server", title: "This account can't add machines on this server. Beep tries again on its own.", bad: true },
   failed: { state: "Could not reach the server", title: "Could not reach the server. Beep tries again on its own.", bad: true },
 };
-// Only on Home with machines listed, and while the server does not list this Mac.
+// Only on Home with machines listed, and while the server does not list this computer.
 const tmRow = () => S.d.cc === "empty" || S.d.cc === "old" ? null : TM[S.d.tm] || null;
 const tmCells = () => {
   const r = tmRow();
   if (!r) return "";
-  return `<span class="nm off" id="m-this-mac"><b><span class="ddot off" style="margin-right:6px"></span>This Mac</b><span>MacBook Air</span></span>
+  return `<span class="nm off" id="m-this-mac"><b><span class="ddot off" style="margin-right:6px"></span>This computer</b><span>MacBook Air</span></span>
       <span class="caps mac-state${r.bad ? " bad" : ""}" title="${r.title}">${r.state}</span>
       <span class="num">${S.d.tm === "off" ? `<button class="dbtn pri" style="padding:2px 10px;font-size:12px;min-height:0" data-dact="dset:tm:connecting">Add</button>` : "–"}</span>`;
 };
@@ -83,25 +83,25 @@ const tmItem = () => {
   const r = tmRow();
   if (!r) return "";
   return S.d.tm === "off"
-    ? `<div class="cc-si" title="This Mac: ${r.title}"><span class="ddot off"></span><span class="tt">This Mac</span><button class="dbtn quiet mac-add" data-dact="dset:tm:connecting">Add</button></div>`
-    : `<button class="cc-si" title="This Mac: ${r.title}"><span class="ddot off"></span><span class="tt">This Mac</span><span class="n mac-state${r.bad ? " bad" : ""}">${r.state}</span></button>`;
+    ? `<div class="cc-si" title="This computer: ${r.title}"><span class="ddot off"></span><span class="tt">This computer</span><button class="dbtn quiet mac-add" data-dact="dset:tm:connecting">Add</button></div>`
+    : `<button class="cc-si" title="This computer: ${r.title}"><span class="ddot off"></span><span class="tt">This computer</span><span class="n mac-state${r.bad ? " bad" : ""}">${r.state}</span></button>`;
 };
-VARIANTS.dHome.push(...[["This Mac off", "off"], ["This Mac connecting", "connecting"], ["This Mac not allowed", "notallowed"], ["This Mac failed", "failed"]]
+VARIANTS.dHome.push(...[["This computer off", "off"], ["This computer connecting", "connecting"], ["This computer not allowed", "notallowed"], ["This computer failed", "failed"]]
   .map(([l, k]) => [l, () => { S.d.tm = k; S.d.mrm = ""; S.d.cc = "default"; S.d.htab = "machines"; render(); }, () => S.d.tm === k]));
 
-// Add a machine, first option: this Mac in one click, then the steps for another machine.
+// Add a machine, first option: this computer in one click, then the steps for another machine.
 const amMac = () => {
   const k = S.d.amm || "off";
   if (k === "none") return "";
-  const wrap = x => `<div style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--d-border)"><div style="font-size:13px;color:var(--d-muted);margin-bottom:8px">This Mac</div>${x}</div>
+  const wrap = x => `<div style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--d-border)"><div style="font-size:13px;color:var(--d-muted);margin-bottom:8px">This computer</div>${x}</div>
       <div style="font-size:13px;font-weight:500;margin-bottom:8px">Another machine</div>`;
   if (k === "connecting") return wrap(`<div style="display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--d-muted)"><span class="dspin"></span>Connecting MacBook Air</div>`);
   if (k === "linked") return wrap(`<div style="display:flex;gap:8px;align-items:center;font-size:13px"><span class="ddot"></span>MacBook Air is linked. It shows under Machines.</div>`);
   if (k === "notallowed") return wrap(`<div style="font-size:13px;color:var(--d-err)">Couldn't connect: this account can't add machines on this server. Beep tries again on its own.</div>`);
   if (k === "failed") return wrap(`<div style="font-size:13px;color:var(--d-err)">Couldn't connect: could not reach the server. Beep tries again on its own.</div>`);
-  return wrap(`<div style="display:flex;gap:8px;align-items:center"><div style="flex:1;min-width:0;font-size:13px">Let Beep run commands and use the screen on MacBook Air.</div><button class="dbtn pri" data-dact="dset:amm:connecting">Use this Mac</button></div>`);
+  return wrap(`<div style="display:flex;gap:8px;align-items:center"><div style="flex:1;min-width:0;font-size:13px">Let Beep run commands and use the screen on MacBook Air.</div><button class="dbtn pri" data-dact="dset:amm:connecting">Use this computer</button></div>`);
 };
-VARIANTS.dAddMachine.push(...[["This Mac: Use this Mac", "off"], ["This Mac: connecting", "connecting"], ["This Mac: linked", "linked"], ["This Mac: not allowed", "notallowed"], ["This Mac: failed", "failed"], ["This Mac: already a machine", "none"]]
+VARIANTS.dAddMachine.push(...[["This computer: Use this computer", "off"], ["This computer: connecting", "connecting"], ["This computer: linked", "linked"], ["This computer: not allowed", "notallowed"], ["This computer: failed", "failed"], ["This computer: already a machine", "none"]]
   .map(([l, k]) => [l, () => { S.d.amm = k; S.d.am = "waiting"; render(); }, () => (S.d.amm || "off") === k]));
 
 // Projects page: imported repositories and the folders agents run in, one row per project.
@@ -151,7 +151,7 @@ D.dImportProject = () => {
   const field = typed ? `<span>${repo}</span>` : `<span class="ph">org/repo or https://github.com/org/repo</span>`;
   const picked = !typed ? 0 : mac ? 2 : 1;
   const chips = ["Auto", "build-box", "MacBook Air"].map((c, i) => `<button class="dchip" aria-pressed="${i === picked}" data-toast="${c === "Auto" ? "The server picks a machine" : c}">${c}</button>`).join("");
-  // Folder: the machine's default until Choose… picks one. This Mac opens the macOS folder picker;
+  // Folder: the machine's default until Choose… picks one. This computer opens the macOS folder picker;
   // another machine opens the browser below, listing its folders from its home or workspace.
   const folder = !typed ? `<div class="ip-path dim">The default folder on the machine Beep picks</div>`
     : mac ? `<div class="ip-path" title="~/Documents/code/widget">~/Documents/code/widget</div>`
@@ -198,7 +198,7 @@ D.dImportProject = () => {
   S.d.pp = S.d.pp || "list";
   return D.dProjectsPage().replace(/<\/div><\/div>\s*$/, sheet + "</div></div>");
 };
-VARIANTS.dImportProject = [["Empty", "form"], ["Filled in", "typed"], ["Reading branches", "reading"], ["Many branches, the sheet scrolls", "branches"], ["Choosing a folder on build-box", "browse"], ["Existing checkout on this Mac", "checkout"], ["Your fork", "fork"], ["Cloning", "cloning"], ["Done", "done"], ["Done, already there", "there"], ["Refused", "error"]]
+VARIANTS.dImportProject = [["Empty", "form"], ["Filled in", "typed"], ["Reading branches", "reading"], ["Many branches, the sheet scrolls", "branches"], ["Choosing a folder on build-box", "browse"], ["Existing checkout on this computer", "checkout"], ["Your fork", "fork"], ["Cloning", "cloning"], ["Done", "done"], ["Done, already there", "there"], ["Refused", "error"]]
   .map(([l, k]) => [l, () => { S.d.ip = k; S.d.pp = "list"; render(); }, () => (S.d.ip || "form") === k]);
 DESK_SCREENS.find(g => g.group === "Command center").items.push(
   ["dProjectsPage", "Projects page, imported repositories", "CommandCenterWindow, projectTable"],

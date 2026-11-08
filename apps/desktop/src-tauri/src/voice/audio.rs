@@ -3,9 +3,14 @@
 //! one `AVAudioEngine`, which echo cancellation needs, on a thread of its
 //! own since the engine stays where it was made.
 
+#[cfg(not(target_os = "macos"))]
+use std::path::Path;
 use std::time::Duration;
+#[cfg(not(target_os = "macos"))]
+use tokio::sync::{mpsc::Sender, oneshot::Receiver};
 
 /// The rate the server's live transcription takes.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub const RATE: u32 = beep_proto::TRANSCRIBE_RATE;
 /// How finely the loudness of an answer is kept, for the orb.
 pub const ENVELOPE_STEP: Duration = Duration::from_millis(50);
@@ -44,6 +49,7 @@ impl Played {
 
 /// Loudness of `samples` from 0 to 1. Speech peaks near 0.3 RMS, so it is
 /// scaled up to fill the range.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn level(samples: &[f32]) -> f32 {
     if samples.is_empty() {
         return 0.0;
@@ -54,6 +60,7 @@ pub fn level(samples: &[f32]) -> f32 {
 }
 
 /// Resamples by linear interpolation. Plenty for speech going to a model.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn resample(samples: &[f32], from: u32, to: u32) -> Vec<f32> {
     if from == to || samples.is_empty() || from == 0 || to == 0 {
         return samples.to_vec();
@@ -72,6 +79,7 @@ pub fn resample(samples: &[f32], from: u32, to: u32) -> Vec<f32> {
 }
 
 /// `samples` as 16-bit little-endian PCM.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn pcm16(samples: &[f32]) -> Vec<u8> {
     let mut out = Vec::with_capacity(samples.len() * 2);
     for s in samples {
@@ -82,6 +90,7 @@ pub fn pcm16(samples: &[f32]) -> Vec<u8> {
 }
 
 /// Loudness of each `ENVELOPE_STEP` of `samples` at `rate`.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn envelope(samples: &[f32], rate: f64) -> Vec<f32> {
     let per = ((rate * ENVELOPE_STEP.as_secs_f64()) as usize).max(1);
     samples.chunks(per).map(level).collect()
@@ -508,6 +517,27 @@ mod engine {
 
 #[cfg(target_os = "macos")]
 pub use engine::{Audio, mic_allowed};
+
+// Live voice is disabled. Fail explicitly if it is requested on a platform
+// without an audio engine.
+#[cfg(not(target_os = "macos"))]
+pub struct Audio;
+
+#[cfg(not(target_os = "macos"))]
+impl Audio {
+    pub fn open(_: Option<Sender<MicChunk>>) -> anyhow::Result<Self> {
+        anyhow::bail!("Voice is unavailable on this platform")
+    }
+    pub async fn play(&self, _: &Path) -> anyhow::Result<(Played, Receiver<()>)> {
+        anyhow::bail!("Voice is unavailable on this platform")
+    }
+    pub fn stop_playing(&self) {}
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn mic_allowed() -> bool {
+    false
+}
 
 #[cfg(test)]
 mod tests {

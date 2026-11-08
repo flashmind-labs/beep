@@ -1,3 +1,4 @@
+import { commandKey, WINDOWS } from "../ui/platform.ts";
 import { initConversationSwitcher } from "../agents/conversation-switcher.ts";
 import "../ui/contextmenu.ts";
 // center/: the command center window: sidebar, Home, palette, usage pill and
@@ -78,6 +79,7 @@ document.addEventListener("keydown", e => {
 
 document.addEventListener("keydown", e => {
   // Keys typed into a terminal are the terminal's, Esc and Tab too, but not ⌘W or ⌘N.
+  if (WINDOWS && e.ctrlKey && e.target instanceof Element && e.target.closest(".tm-xterm")) return;
   if (e.target instanceof Element && e.target.closest(".tm-xterm") && !isCloseKey(e) && !isNewKey(e)) return;
   // Esc goes up one page: a project's open tile closes, then the Projects page, then Home, then its Overview tab.
   if (e.key === "Escape" && !(shown === "terminals" && isZoomKey(e)) && !e.defaultPrevented) {
@@ -89,7 +91,7 @@ document.addEventListener("keydown", e => {
       return up.to === "home" ? go("home") : void openProjects();
     }
   }
-  if (!e.metaKey) return;
+  if (!commandKey(e)) return;
   const key = e.key.toLowerCase();
   if ((key === "[" || key === "]") && !e.shiftKey) {
     e.preventDefault();
@@ -124,7 +126,7 @@ document.addEventListener("keydown", e => {
     return newAgentHere();
   }
   // ⌘T in a project: a terminal filling the empty view. In a session the pane has taken it.
-  if (key === "t" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.defaultPrevented) {
+  if (key === "t" && !e.shiftKey && !e.altKey && (!e.ctrlKey || WINDOWS) && !e.defaultPrevented) {
     const to = projectHere();
     if (to) { e.preventDefault(); go("pane", { draft: { project: to.project, machine: to.machine, terminal: true } }); }
   }

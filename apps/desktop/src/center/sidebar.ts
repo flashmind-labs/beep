@@ -1,3 +1,4 @@
+import { WINDOWS } from "../ui/platform.ts";
 // The sidebar: its groups (pinned, chats, views, projects, machines) and
 // the sheets that add a machine or a project.
 import { onClosing, visibleRunning } from "../agents/closing.ts";
@@ -103,7 +104,7 @@ export function drawSide() {
   const head = h("div", "cc-head", "");
   head.setAttribute("data-tauri-drag-region", "");
   const top = h("div", "cc-grp",
-    sideItem(IC.find, "Search", 0, { cls: "cc-search", on: openPalette, kbd: "⌘K" }),
+    sideItem(IC.find, "Search", 0, { cls: "cc-search", on: openPalette, kbd: WINDOWS ? "Ctrl+K" : "⌘K" }),
     sideItem(IC.home, "Home", home?.needs_you.length, { current: shown === "home", hot: true, on: () => go("home") }));
   // Running opens the coding agents' list, the full view of Home's section.
   if (home?.running) top.append(sideItem(IC.run, "Running", visibleRunning(home.running).length, { current: paneOn().view === "agents", on: () => go("pane", "agents") }));
@@ -482,7 +483,7 @@ registerSidebarGroup("views", {
     { view: "routines", label: "Routines", svg: IC.loop },
     { view: "settings", label: "Settings", svg: IC.gear },
   ], state.subscribed),
-  row: v => sideItem(v.svg, v.label, 0, { current: v.view !== "settings" && paneOn().view === v.view, kbd: v.view === "settings" ? "⌘," : "" }),
+  row: v => sideItem(v.svg, v.label, 0, { current: v.view !== "settings" && paneOn().view === v.view, kbd: v.view === "settings" ? (WINDOWS ? "Ctrl+," : "⌘,") : "" }),
   onPick: v => go("pane", v.view),
 });
 

@@ -47,7 +47,7 @@ export function copiesHtml(live: ReadonlySet<string>) {
     `<div class="dchat copy" data-cpk="${esc(copyKey(c))}"><span class="t"><span>${esc(c.project)}${c.path ? ` / ${esc(c.path)}` : ""}</span><small>${esc(c.agent)} · ${esc(line)}</small></span>${actions}</div>`;
   const go = (label: string, act: string, pri: boolean) => `<button class="dbtn ${pri ? "pri " : "quiet "}small" data-cpact="${act}">${label}</button>`;
   return `<div class="dlist dcopies">${CP.error ? `<div class="derr dpadx">${esc(CP.error)}</div>` : ""}`
-    + offline.map(c => row(c, offlineLine(c, now), go("Continue on this Mac", "continue", true))).join("")
+    + offline.map(c => row(c, offlineLine(c, now), go("Continue on this computer", "continue", true))).join("")
     + lost.map(c => row(c, lostLine(), go("Restore", "continue", false) + go(discardLabel(CP.armed === copyKey(c)), "discard", false))).join("")
     + `</div>`;
 }

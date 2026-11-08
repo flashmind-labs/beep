@@ -225,7 +225,7 @@ function machineStrip(machines: MachineCard[]) {
   if (mac) {
     const cell = h("div", "m off", h("span", "ddot off"), h("b", "", mac.name), h("span", `${mac.bad ? "bad" : ""}`, mac.state));
     if (mac.action) cell.append(rowButton(mac.action, "quiet small", useThisMac));
-    cell.title = `This Mac: ${mac.title}`;
+    cell.title = `This computer: ${mac.title}`;
     cells.push(cell);
   }
   return h("div", "cc-mstrip", ...cells, addMachineButton("quiet small"));
@@ -296,7 +296,7 @@ export function overview(home: HomeView) {
   if (running?.length) out.push(homeBox("sec-running", "Running", running.length, () => go("pane", "agents"), byRecent(running).map(runningRow), Infinity));
   if (coming?.length) out.push(homeBox("sec-coming", "Coming up", coming.length, () => go("pane", "routines"), coming.map(comingRow)));
   if (!out.length && !state.subscribed) {
-    out.push(emptyPanel(h("b", "", "Nothing running"), h("span", "", "Start an agent on this Mac, or add a machine to run it there."), button("Start an agent", "small", () => go("pane", { agentnew: { prompt: "" } }))));
+    out.push(emptyPanel(h("b", "", "Nothing running"), h("span", "", "Start an agent on this computer, or add a machine to run it there."), button("Start an agent", "small", () => go("pane", { agentnew: { prompt: "" } }))));
   } else if (!out.length) out.push(emptyPanel(h("span", "", "Nothing needs you, and nothing is running.")));
   return out;
 }

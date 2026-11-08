@@ -20,6 +20,7 @@ pub const WINDOW: Duration = Duration::from_millis(300);
 /// What the tap reports, stripped of Core Graphics types so the logic can
 /// be tested.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub enum Input {
     /// Option went down with no other modifier held.
     OptionDown,
@@ -413,6 +414,20 @@ mod monitor {
 
 #[cfg(target_os = "macos")]
 pub use monitor::{since_press, start, unwatch_escape, watch_escape};
+
+#[cfg(not(target_os = "macos"))]
+pub fn start(_: impl Fn(Input) + 'static) {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn since_press() -> Duration {
+    Duration::MAX
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn watch_escape(_: impl Fn() -> bool + 'static) {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn unwatch_escape() {}
 
 #[cfg(test)]
 mod tests {

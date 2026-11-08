@@ -380,7 +380,7 @@ function menu(path: string, folder: boolean, x: number, y: number) {
     ...(canPasteFiles(F.clipboard, F.key, dir) ? [["paste", `Paste ${F.clipboard!.paths.length} items into ${dir || "working folder"}`]] as [string, string][] : []),
     ...(n === 1 && F.selected.size === 1 ? [["rename", "Rename..."]] as [string, string][] : []),
     ["-", ""], ["newfile", "New file..."], ["newfolder", "New folder..."], ["refresh", "Refresh"],
-    ...(n ? [["-", ""], ["save", `Save ${n > 1 ? `${n} items ` : ""}to this Mac`], ["delete", `Delete ${n > 1 ? `${n} items ` : ""}permanently...`]] as [string, string][] : []),
+    ...(n ? [["-", ""], ["save", `Save ${n > 1 ? `${n} items ` : ""}to this computer`], ["delete", `Delete ${n > 1 ? `${n} items ` : ""}permanently...`]] as [string, string][] : []),
   ];
   const m = h(`<div class="agctx" role="menu" aria-label="File actions">${items.map(([k, t]) => k === "-" ? "<hr>" : `<button role="menuitem" data-fact="${k}"${k === "delete" ? ' class="warn"' : ""}>${esc(t)}</button>`).join("")}</div>`);
   F.el.append(m);

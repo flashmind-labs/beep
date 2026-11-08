@@ -111,7 +111,7 @@ export async function useThisMac() {
   try {
     state.mac = await invoke<MacControl>("set_mac_control", { enabled: true });
   } catch (e) {
-    console.warn("turning on this Mac:", e);
+    console.warn("turning on this computer:", e);
   }
   draw();
   reloadGroup("machines");

@@ -1,7 +1,6 @@
 //! The code editors installed on this Mac, for a project's "Open in".
 
 use std::{
-    env,
     path::{Path, PathBuf},
     process::Command,
     sync::OnceLock,
@@ -94,7 +93,7 @@ fn found() -> &'static [Found] {
 #[cfg(target_os = "macos")]
 fn app(bundles: &[&str]) -> Option<PathBuf> {
     let mut dirs = vec![PathBuf::from("/Applications")];
-    if let Some(home) = env::var_os("HOME") {
+    if let Some(home) = std::env::var_os("HOME") {
         dirs.push(Path::new(&home).join("Applications"));
     }
     bundles
@@ -109,9 +108,7 @@ fn app(_bundles: &[&str]) -> Option<PathBuf> {
 }
 
 fn on_path(cli: &str) -> Option<PathBuf> {
-    env::split_paths(&env::var_os("PATH")?)
-        .map(|d| d.join(cli))
-        .find(|p| p.is_file())
+    which::which(cli).ok()
 }
 
 /// The editors installed here, preferred first; empty when there are none.
