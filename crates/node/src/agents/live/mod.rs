@@ -183,4 +183,5 @@ pub(crate) struct TurnMade {
 }
 
 #[cfg(test)]
+#[path = "../../tests/agents_live.rs"]
 mod tests;

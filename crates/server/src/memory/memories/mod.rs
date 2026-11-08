@@ -331,4 +331,5 @@ pub(crate) fn days(valid: &Validity) -> String {
 }
 
 #[cfg(test)]
+#[path = "../../tests/memory_memories.rs"]
 mod tests;

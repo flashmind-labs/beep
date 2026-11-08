@@ -558,4 +558,5 @@ fn handled() -> Vec<&'static str> {
 }
 
 #[cfg(test)]
+#[path = "../../tests/store_merge.rs"]
 mod tests;

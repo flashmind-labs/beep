@@ -305,4 +305,5 @@ impl Store {
 }
 
 #[cfg(test)]
+#[path = "../../tests/store_projects.rs"]
 mod tests;
