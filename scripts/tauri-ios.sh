@@ -24,9 +24,6 @@ if ! [[ "$team" =~ ^[A-Z0-9]{10}$ ]]; then
 fi
 export APPLE_DEVELOPMENT_TEAM=$team
 
-target=aarch64-apple-ios
-[[ ${1:-} == --sim ]] && target=aarch64-apple-ios-sim
-
 # On Xcode 27, swift-rs needs llvm-objcopy to export the Swift plugin symbols
 # (`_register_plugin` and the like); without it linking fails.
 rustup component add llvm-tools
@@ -34,12 +31,24 @@ rustup component add llvm-tools
 npm ci --silent
 bash ../../scripts/tauri-init.sh ios
 
-# Xcode runs cargo with its output hidden. Building the dependencies here
-# first shows the progress, and Xcode's run then reuses them. Only the static
-# library: the cdylib needs Tauri's Swift half, which Xcode links in.
-npm run build
-cargo rustc --manifest-path src-tauri/Cargo.toml --package beep-desktop --lib \
-    --crate-type staticlib --release --target "$target" --features tauri/custom-protocol
+# Xcode runs cargo itself and shows nothing until it ends. A `cargo` first on
+# PATH copies what cargo prints to a file this terminal follows.
+real_cargo=$(command -v cargo)
+work=$(mktemp -d)
+progress=$work/cargo.log
+: > "$progress"
+cat > "$work/cargo" <<SHIM
+#!/usr/bin/env bash
+set -o pipefail
+{ "$real_cargo" "\$@" 2>&1 1>&3 | tee -a "$progress" >&2; } 3>&1
+SHIM
+chmod +x "$work/cargo"
+export PATH="$work:$PATH"
+# Cargo draws its progress bar into the file too, at this terminal's width.
+export CARGO_TERM_PROGRESS_WHEN=always CARGO_TERM_PROGRESS_WIDTH=$(tput cols 2>/dev/null || echo 100)
+tail -n +1 -f "$progress" &
+follower=$!
+trap 'kill "$follower" 2>/dev/null; rm -rf "$work"' EXIT
 
 case ${1:-} in
     --ipa)
