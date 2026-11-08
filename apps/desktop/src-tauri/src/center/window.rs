@@ -97,7 +97,9 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
     // A phone window fills the screen: a desktop minimum leaves its webview at zero size.
     #[cfg(desktop)]
     {
-        builder = builder.maximizable(true).min_inner_size(MIN_WIDTH, MIN_HEIGHT);
+        builder = builder
+            .maximizable(true)
+            .min_inner_size(MIN_WIDTH, MIN_HEIGHT);
     }
     // The UI reads this to know it runs on a phone, before its scripts load.
     #[cfg(mobile)]
