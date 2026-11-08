@@ -43,7 +43,7 @@ pub async fn node_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Vec<M
 
 /// The sessions Beep runs on one node: none when its list fails.
 async fn beep_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Vec<MachineSession> {
-    linked_sessions(node, host)
+    linked_sessions(node, host, false)
         .await
         .into_iter()
         .map(|linked| linked.session)
@@ -55,17 +55,32 @@ async fn beep_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Vec<Machi
 pub struct Linked {
     pub session: MachineSession,
     pub parent: Option<ParentLink>,
+    /// A temporary reviewer of its parent's changes.
+    pub reviewer: bool,
 }
 
 /// `beep_sessions`, with who started each: what an app needs to nest a
 /// child under its parent. `MachineSession` stays as it is for the server's
 /// apps.
-pub async fn linked_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Vec<Linked> {
-    match timeout(NODE_LIMIT, sessions::list(node)).await {
+/// With `reviewers`, also the running reviewers that have a parent.
+pub async fn linked_sessions<S: Sessions + ?Sized>(
+    node: &S,
+    host: &Host,
+    reviewers: bool,
+) -> Vec<Linked> {
+    let listed = async {
+        if reviewers {
+            sessions::list_all(node).await
+        } else {
+            sessions::list(node).await
+        }
+    };
+    match timeout(NODE_LIMIT, listed).await {
         Ok(Ok(listed)) => listed
             .into_iter()
             .map(|info| Linked {
                 parent: info.parent.clone(),
+                reviewer: info.reviewer,
                 session: beep_session(host, info),
             })
             .collect(),

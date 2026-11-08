@@ -153,11 +153,16 @@ pub(crate) async fn peer_sessions(fleet: &Fleet) -> Vec<MachineSession> {
     .await
 }
 
-/// Beep's sessions on one machine, noting which an agent started.
+/// Beep's sessions on one machine, noting which an agent started. Its
+/// reviewers are only noted: they list under their parent, not as running.
 async fn listed(fleet: &Fleet, client: &PeerClient, host: &Host) -> Vec<MachineSession> {
-    let linked = listing::linked_sessions(client, host).await;
+    let linked = listing::linked_sessions(client, host, true).await;
     fleet.parents.note(&host.id, &linked);
-    linked.into_iter().map(|linked| linked.session).collect()
+    linked
+        .into_iter()
+        .filter(|linked| !linked.reviewer)
+        .map(|linked| linked.session)
+        .collect()
 }
 
 /// The sessions started outside Beep that run now, on every online machine.
@@ -182,7 +187,7 @@ pub(crate) async fn session(
     // The transcript is asked for alongside the list: one wait, not two.
     let last = get.last.clamp(1, MAX_ENTRIES);
     let (listed, read) = tokio::join!(
-        limited(sessions::list(&client)),
+        limited(sessions::list_all(&client)),
         limited(sessions::transcript_before(
             &client,
             &get.session,
@@ -246,7 +251,7 @@ pub(crate) async fn session(
 
 /// The session `session` of `agent` as the node lists it now.
 async fn info(client: &PeerClient, agent: &str, session: &str) -> Result<agent::SessionInfo> {
-    limited(sessions::list(client))
+    limited(sessions::list_all(client))
         .await?
         .into_iter()
         .find(|info| info.id == session && info.agent == agent)
