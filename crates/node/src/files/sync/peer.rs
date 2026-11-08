@@ -269,7 +269,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
             changes.entries.retain(|entry| {
                 let git = super::gitdir::in_git(&entry.path);
                 if git_only {
-                    copy_git && head.present && git
+                    copy_git && head.present && git && shared.may_export(&entry.path)
                 } else {
                     !git
                 }
@@ -386,7 +386,7 @@ async fn pull_once(
                     let remote_branch = remote_branch.to_owned();
                     let (need, have) = spawn_blocking(move || -> Result<_> {
                         let repo = Repo::open(&root).context("Git checkout is unavailable")?;
-                        repo.require_clean()?;
+                        // Fetching immutable objects is safe while local edits wait for recovery.
                         if repo.head_ref().as_deref() != Some(remote_branch.as_str()) {
                             bail!("Git commits differ between branches");
                         }

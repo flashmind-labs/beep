@@ -21,6 +21,18 @@ use std::sync::Arc;
 use tauri::State;
 
 #[tauri::command]
+pub async fn project_git_auto_recovery(
+    fleet: FleetState<'_>,
+    project: String,
+    enabled: Option<bool>,
+) -> Result<bool> {
+    Ok(desk(&fleet)
+        .await?
+        .project_git_auto_recovery(&project, enabled)
+        .await?)
+}
+
+#[tauri::command]
 pub async fn project_syncthing_mode(
     fleet: FleetState<'_>,
     project: String,

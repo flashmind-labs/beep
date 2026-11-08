@@ -35,6 +35,8 @@ const MATCH_SCAN: Duration = Duration::from_secs(30);
 
 /// What a project's task shares with the pulls and the node.
 pub(in crate::files::sync) struct Shared {
+    pub(super) bootstrap_paths: RwLock<Option<HashSet<String>>>,
+    recovery: Arc<Mutex<Option<std::sync::Weak<crate::agents::Agents>>>>,
     pub(super) name: String,
     pub(super) key: Key,
     pub(super) root: Arc<Folder>,
@@ -115,6 +117,15 @@ impl Shared {
             ..ProjectStatus::default()
         };
         Ok(Arc::new(Self {
+            bootstrap_paths: RwLock::new(
+                start
+                    .root
+                    .path()
+                    .join(".git/beep-recovery")
+                    .exists()
+                    .then(HashSet::new),
+            ),
+            recovery: Arc::default(),
             name: start.name,
             key: start.key,
             root: start.root,
@@ -141,6 +152,24 @@ impl Shared {
 
     pub(super) fn lock(&self) -> MutexGuard<'_, State> {
         crate::lock(&self.state)
+    }
+
+    pub(in crate::files::sync) fn set_recovery(
+        &self,
+        agents: Option<std::sync::Weak<crate::agents::Agents>>,
+    ) {
+        let changed = {
+            let mut current = crate::lock(&self.recovery);
+            let changed = current.is_some() != agents.is_some();
+            *current = agents;
+            changed
+        };
+        if changed {
+            if crate::lock(&self.recovery).is_some() {
+                *crate::write_lock(&self.bootstrap_paths) = Some(HashSet::new());
+            }
+            self.forced.notify_one();
+        }
     }
 
     pub(in crate::files::sync) fn name(&self) -> &str {
@@ -272,6 +301,16 @@ impl Shared {
         Ok(state.saved.map.since(since, limit))
     }
 
+    pub(in crate::files::sync) fn may_export(&self, path: &str) -> bool {
+        crate::read_lock(&self.bootstrap_paths)
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(path))
+    }
+
+    pub(super) fn recovery_enabled(&self) -> bool {
+        crate::lock(&self.recovery).is_some()
+    }
+
     pub(in crate::files::sync) async fn stopped(&self) {
         self.stop.cancelled().await;
     }
@@ -362,6 +401,9 @@ impl Shared {
         }
         let root = self.root().to_owned();
         let own = spawn_blocking(move || -> Result<Checkout> {
+            if let Some(repo) = Repo::open(&root) {
+                repo.check_recovery()?;
+            }
             if gitdir::is_busy(&root) {
                 bail!("{}", gitdir::busy_reason(&root));
             }
@@ -398,8 +440,13 @@ impl Shared {
         }
         let repo = Repo::open(self.root())
             .context("Git commits differ; the local repository is unavailable")?;
+        let recovery = crate::lock(&self.recovery)
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade);
+        let can_recover = recovery.is_some();
         let (repo, branch, target) = spawn_blocking(move || -> Result<_> {
-            repo.require_clean()?;
+            repo.check_recovery()?;
+            if !can_recover { repo.require_clean()?; }
             let branch = repo
                 .head_ref()
                 .context("Git commits differ; checkout is detached")?;
@@ -435,15 +482,46 @@ impl Shared {
             Ok((repo, branch, target))
         })
         .await??;
+        let dirty = {
+            let root = self.root().to_owned();
+            spawn_blocking(move || {
+                Repo::open(&root)
+                    .context("Git checkout is unavailable")?
+                    .has_local_changes()
+            })
+            .await??
+        };
+        let _hold = if dirty {
+            let agents = recovery.context(
+                "Local edits block Git sync; enable automatic recovery or commit or stash them.",
+            )?;
+            Some(agents.reserve_repository(self.root()).await?)
+        } else {
+            None
+        };
         let (snapshot, file) = {
             let mut state = self.lock();
             state.saved.fast_forward = Some(target);
             state.unsaved = true;
             (state.saved.clone(), self.file.clone())
         };
+        let policy = self.recovery.clone();
+        if dirty {
+            // Old lists may still name private staged blobs. Refuse those before creating a stash.
+            *crate::write_lock(&self.bootstrap_paths) = Some(HashSet::new());
+        }
         spawn_blocking(move || {
+            let _hold = _hold;
+            anyhow::ensure!(
+                !dirty || crate::lock(&policy).is_some(),
+                "Automatic Git recovery was disabled; local edits stay in place."
+            );
             crate::link::note::write(&file, &rmp_serde::to_vec(&snapshot)?)?;
-            repo.fast_forward(own, target, &branch)
+            if dirty {
+                repo.recover_fast_forward(own, target, &branch)
+            } else {
+                repo.fast_forward(own, target, &branch)
+            }
         })
         .await??;
         self.pull_again();

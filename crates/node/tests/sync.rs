@@ -2259,3 +2259,166 @@ async fn explicit_handoff_brings_edits_and_live_sync_does_not_undo_them() {
     assert!(a.status().conflicts.is_empty());
     assert!(b.status().conflicts.is_empty());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn git_recovery_keeps_staged_unstaged_untracked_and_ignored_work() {
+    let (a, b) = synced_repo().await;
+    commit(&a, "local.txt", "one\ntwo\nthree\n");
+    commit(&a, ".gitignore", "*.cache\n");
+    in_step(&a, &b).await;
+    a.pause(&b, true).await;
+    b.pause(&a, true).await;
+    write(&b.path("local.txt"), "staged\ntwo\nthree\n");
+    git(&b.folder(), &["add", "local.txt"]);
+    write(&b.path("local.txt"), "staged\ntwo\nunstaged\n");
+    write(&b.path("notes/local.bin"), [0, 2, 255]);
+    write(&b.path("render.cache"), "ignored local data");
+    let staged = git(&b.folder(), &["diff", "--cached", "--binary"]);
+    let unstaged = git(&b.folder(), &["diff", "--binary"]);
+    let target = commit(&a, "upstream.txt", "committed remotely\n");
+    git(&b.folder(), &["config", "user.name", "Test"]);
+    git(&b.folder(), &["config", "user.email", "test@example.com"]);
+    let agents = std::sync::Arc::new(beep_node::agents::Agents::default());
+    b.running()
+        .transfers
+        .syncs()
+        .set_git_auto_recovery(&agents, [PROJECT.to_owned()].into());
+    a.pause(&b, false).await;
+    b.pause(&a, false).await;
+    eventually("automatic recovery to restore all local work", || {
+        head(&b).as_deref() == Some(target.as_str())
+            && read(&b.path("notes/local.bin")) == Some(vec![0, 2, 255])
+            && !b.path(".git/beep-recovery/pending.json").exists()
+            && !git(&b.folder(), &["stash", "list"]).is_empty()
+    })
+    .await;
+    assert_eq!(git(&b.folder(), &["diff", "--cached", "--binary"]), staged);
+    assert_eq!(git(&b.folder(), &["diff", "--binary"]), unstaged);
+    assert_eq!(
+        read(&b.path("render.cache")).as_deref(),
+        Some(b"ignored local data".as_slice())
+    );
+    assert!(!a.path("notes/local.bin").exists());
+    let backup = git(&b.folder(), &["rev-parse", "refs/stash"]);
+    let private_blobs = [
+        git(
+            &b.folder(),
+            &["rev-parse", &format!("{backup}^2:local.txt")],
+        ),
+        git(
+            &b.folder(),
+            &["rev-parse", &format!("{backup}^3:notes/local.bin")],
+        ),
+    ];
+    assert!(!git(&b.folder(), &["for-each-ref", "refs/beep-recovery"]).is_empty());
+    // Packed stashes must remain local when a new machine imports the checkout.
+    a.pause(&b, true).await;
+    b.pause(&a, true).await;
+    git(&b.folder(), &["gc", "--quiet"]);
+    let c = Node::new().await;
+    b.configure(vec![c.addr()]).await;
+    c.configure(vec![b.addr()]).await;
+    eventually("a new checkout to receive only committed content", || {
+        head(&c).as_deref() == Some(target.as_str()) && is_clean(&c)
+    })
+    .await;
+    assert!(!c.path("notes/local.bin").exists());
+    assert!(git(&c.folder(), &["stash", "list"]).is_empty());
+    assert!(git(&c.folder(), &["for-each-ref", "refs/beep-recovery"]).is_empty());
+    assert!(
+        !try_git(&c.folder(), &["cat-file", "-e", &backup])
+            .status
+            .success()
+    );
+    for blob in private_blobs {
+        assert!(
+            !try_git(&c.folder(), &["cat-file", "-e", &blob])
+                .status
+                .success()
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn git_recovery_conflicts_keep_the_backup_and_do_not_repeat_after_restart() {
+    let (a, mut b) = synced_repo().await;
+    a.pause(&b, true).await;
+    b.pause(&a, true).await;
+    write(&b.path("README.md"), "local work\n");
+    write(&b.path("local.bin"), [0, 9, 255]);
+    let target = commit(&a, "README.md", "remote work\n");
+    git(&b.folder(), &["config", "user.name", "Test"]);
+    git(&b.folder(), &["config", "user.email", "test@example.com"]);
+    let agents = std::sync::Arc::new(beep_node::agents::Agents::default());
+    b.running()
+        .transfers
+        .syncs()
+        .set_git_auto_recovery(&agents, [PROJECT.to_owned()].into());
+    a.pause(&b, false).await;
+    b.pause(&a, false).await;
+    eventually("a recovery conflict warning", || {
+        b.status()
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("Git sync recovery needs review"))
+    })
+    .await;
+    assert_eq!(head(&b).as_deref(), Some(target.as_str()));
+    let backup = git(&b.folder(), &["rev-parse", "refs/stash"]);
+    assert!(git(&b.folder(), &["show", &format!("{backup}:README.md")]).contains("local work"));
+    assert_eq!(
+        try_git(&b.folder(), &["show", &format!("{backup}^3:local.bin")]).stdout,
+        [0, 9, 255]
+    );
+    b.stop().await;
+    b.start().await;
+    b.running()
+        .transfers
+        .syncs()
+        .set_git_auto_recovery(&agents, [PROJECT.to_owned()].into());
+    eventually(
+        "the pending recovery to remain visible after restart",
+        || {
+            b.status()
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("Git sync recovery needs review"))
+        },
+    )
+    .await;
+    assert_eq!(git(&b.folder(), &["rev-parse", "refs/stash"]), backup);
+    assert!(b.path(".git/beep-recovery/pending.json").exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn git_recovery_never_stashes_for_divergent_histories() {
+    let (a, b) = synced_repo().await;
+    a.pause(&b, true).await;
+    b.pause(&a, true).await;
+    commit(&a, "one.txt", "remote commit\n");
+    let before = commit(&b, "two.txt", "local commit\n");
+    write(&b.path("local.txt"), "uncommitted local work\n");
+    git(&b.folder(), &["config", "user.name", "Test"]);
+    git(&b.folder(), &["config", "user.email", "test@example.com"]);
+    let agents = std::sync::Arc::new(beep_node::agents::Agents::default());
+    b.running()
+        .transfers
+        .syncs()
+        .set_git_auto_recovery(&agents, [PROJECT.to_owned()].into());
+    a.pause(&b, false).await;
+    b.pause(&a, false).await;
+    eventually("divergent histories to require review", || {
+        b.status()
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("diverged"))
+    })
+    .await;
+    assert_eq!(head(&b).as_deref(), Some(before.as_str()));
+    assert!(!b.path(".git/beep-recovery").exists());
+    assert!(git(&b.folder(), &["stash", "list"]).is_empty());
+    assert_eq!(
+        read(&b.path("local.txt")).as_deref(),
+        Some(b"uncommitted local work\n".as_slice())
+    );
+}

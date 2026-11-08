@@ -378,6 +378,12 @@ impl Agents {
     ) -> Result<Arc<Session>> {
         let kind = &self.settings.configured(kind)?;
         let cwd = folder(cwd)?;
+        let recovery_cwd = crate::files::paths::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone());
+        let recovering = crate::lock(&self.recovering);
+        anyhow::ensure!(
+            !recovering.iter().any(|root| recovery_cwd.starts_with(root)),
+            "Git sync is preserving local edits in this checkout; try starting the session again shortly."
+        );
         // A reviewer changes nothing, so it needs no git rule.
         let rule = checkout::rule(&cwd).filter(|_| !begin.review);
         let mut sessions = self.lock();

@@ -152,6 +152,7 @@ enum Source {
 }
 
 struct Inner {
+    recoveries: Mutex<BTreeMap<String, std::sync::Weak<crate::agents::Agents>>>,
     parts: Parts,
     folders: Folders,
     /// Where the projects' state is kept.
@@ -265,6 +266,7 @@ impl Syncs {
         let syncs = Self {
             inner: Arc::new(Inner {
                 parts,
+                recoveries: Mutex::default(),
                 folders,
                 dir,
                 watcher,
@@ -302,6 +304,22 @@ impl Syncs {
         self.inner.parts.endpoint.addr()
     }
 
+    /// Applies the replicated opt-in. A missing preference always leaves local edits alone.
+    pub fn set_git_auto_recovery(
+        &self,
+        agents: &Arc<crate::agents::Agents>,
+        projects: BTreeSet<String>,
+    ) {
+        let recoveries: BTreeMap<_, _> = projects
+            .into_iter()
+            .map(|project| (project, Arc::downgrade(agents)))
+            .collect();
+        *lock(&self.inner.recoveries) = recoveries.clone();
+        for (name, running) in lock(&self.inner.projects).iter() {
+            running.shared.set_recovery(recoveries.get(name).cloned());
+        }
+    }
+
     /// Syncs exactly `projects`, and says which it refused. A project left
     /// out stops; its files stay and its state is forgotten. A folder
     /// Syncthing keeps in step is refused when the server names it new here,
@@ -320,6 +338,10 @@ impl Syncs {
     /// Lets go of the mesh `follow` took.
     pub(crate) fn unfollow(&self) {
         *lock(&self.inner.mesh) = None;
+        lock(&self.inner.recoveries).clear();
+        for running in lock(&self.inner.projects).values() {
+            running.shared.set_recovery(None);
+        }
         lock(&self.inner.lists).clear_mesh();
     }
 
@@ -542,6 +564,7 @@ impl Syncs {
             paused: project.paused,
         };
         let shared = spawn_blocking(move || Shared::load(start)).await??;
+        shared.set_recovery(lock(&self.inner.recoveries).get(&project.name).cloned());
         let task = tokio::spawn(project::run(
             shared.clone(),
             self.inner.parts.clone(),

@@ -2875,13 +2875,23 @@ async fn project_syncthing_choice_reaches_a_machine_that_joins_later() {
             .unwrap(),
         None
     );
+    assert!(
+        !desk
+            .project_git_auto_recovery("example/repo", None)
+            .await
+            .unwrap()
+    );
+    desk.project_git_auto_recovery("example/repo", Some(true))
+        .await
+        .unwrap();
     desk.project_syncthing_mode("example/repo", Some(false))
         .await
         .unwrap();
     let later = join(&studio, DeviceKind::Node, "build-box").await;
     until(&later.mesh, |mesh| {
         mesh.get(&key).is_some_and(|bytes| {
-            ProjectRecord::from_bytes(&bytes).unwrap().syncthing_files == Some(false)
+            let record = ProjectRecord::from_bytes(&bytes).unwrap();
+            record.syncthing_files == Some(false) && record.git_auto_recovery
         })
     })
     .await;
@@ -2891,7 +2901,19 @@ async fn project_syncthing_choice_reaches_a_machine_that_joins_later() {
     until(&later.mesh, |mesh| {
         mesh.get(&key).is_some_and(|bytes| {
             let record = ProjectRecord::from_bytes(&bytes).unwrap();
-            record.syncthing_files == Some(true) && record.url == "https://example.com/example/repo"
+            record.git_auto_recovery
+                && record.syncthing_files == Some(true)
+                && record.url == "https://example.com/example/repo"
+        })
+    })
+    .await;
+    desk.project_git_auto_recovery("example/repo", Some(false))
+        .await
+        .unwrap();
+    until(&later.mesh, |mesh| {
+        mesh.get(&key).is_some_and(|bytes| {
+            let record = ProjectRecord::from_bytes(&bytes).unwrap();
+            !record.git_auto_recovery && record.syncthing_files == Some(true)
         })
     })
     .await;

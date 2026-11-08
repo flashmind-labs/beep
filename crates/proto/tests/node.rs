@@ -751,6 +751,16 @@ mod mesh_state {
         let bytes = rmp_serde::to_vec(&old).unwrap();
         let mut record = ProjectRecord::from_bytes(&bytes).unwrap();
         assert_eq!(record.syncthing_files, None);
+        assert!(!record.git_auto_recovery);
+        record.git_auto_recovery = true;
+        let released: (String, Option<bool>) =
+            beep_proto::lenient::from_slice(&record.to_bytes().unwrap()).unwrap();
+        assert_eq!(released.1, None);
+        assert!(
+            ProjectRecord::from_bytes(&record.to_bytes().unwrap())
+                .unwrap()
+                .git_auto_recovery
+        );
         record.syncthing_files = Some(false);
         let older: OldProject =
             beep_proto::lenient::from_slice(&record.to_bytes().unwrap()).unwrap();
