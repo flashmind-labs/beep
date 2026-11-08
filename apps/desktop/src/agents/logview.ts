@@ -33,9 +33,6 @@ import { holdNote } from "./reconnect-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { ICON } from "../ui/icons.ts";
 
-/// A step's mark: done, failed, running or did not finish.
-const mark = (status: string) => stepMark(status, AGENT_ACTIVE.has(AG.page?.session.status));
-
 // Elapsed clocks use when this window first saw the call running.
 const toolStarts = new Map<string, number>();
 
@@ -129,8 +126,8 @@ function subOf(at: number) {
   const p = AG.page!, en = p.entries[at - p.earlier];
   const { title, status, output } = AG.log!.parseTool(AG.log!.imageLines(en.text).text);
   const sub = AG.log!.subagent(output) ?? { count: 0, steps: [], result: output };
-  // An agent another agent started has a session of its own, whose state the node wrote.
-  const working = sub.child ? sub.child.state === "working" : (status === "in_progress" || status === "pending") && AGENT_ACTIVE.has(p.session.status);
+  // A linked subagent can keep working after its parent's turn ends.
+  const working = sub.child ? sub.child.state === "working" : (status === "in_progress" || status === "pending") && (!!sub.session || AGENT_ACTIVE.has(p.session.status));
   // Timed from when this window saw it working, if it did.
   const key = `${AG.open?.session}\n${at}`, now = Date.now();
   let seen = subTimes.get(key);
@@ -155,7 +152,7 @@ function subRow(at: number, inPane = false) {
   // A child that runs can be stopped from its row, as from its own log.
   const stoppable = kid && (st === "working" || st === "needs you");
   const stop = stoppable ? `<em class="kstop" data-kidstop title="Stop ${esc(x.title)}">Stop</em>` : "";
-  const row = `<button class="dsubrow${stoppable ? " stoppable" : ""}" ${opens} title="Open ${esc(x.title)}"><span class="mk">${mark(x.working ? "in_progress" : x.status)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span>${close}${stop}</button>`;
+  const row = `<button class="dsubrow${stoppable ? " stoppable" : ""}" ${opens} title="Open ${esc(x.title)}"><span class="mk">${stepMark(x.working ? "in_progress" : x.status, x.working)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span>${close}${stop}</button>`;
   if (!kid && !x.sub.session && AG.steps.get(at)) return row + `<div class="dmuted">${esc(x.sub.result || "The agent has not provided a readable conversation yet.")}</div>`;
   if (inPane || !x.prompt) return row;
   const open = AG.steps.get(at) ?? false;
