@@ -10,6 +10,7 @@ import { interruptAgent, sendAgentMessage } from "../src/agents/messages.ts";
 import { drawModelPill, switchSessionModel } from "../src/agents/modelpill.ts";
 import type { Waiting } from "../src/agents/agentqueue.ts";
 import { MN } from "../src/agents/workdrop.ts";
+import type { TranscriptUpdate } from "../src/agents/transcript-cache-state.ts";
 
 /// Polls follow the session only while the page shows.
 const visible = (on: boolean) => { (globalThis.document as { visibilityState?: string }).visibilityState = on ? "visible" : "hidden"; };
@@ -24,6 +25,7 @@ const field = (value = "") => ({ value, placeholder: "", disabled: false, focus(
 
 /// Opens session s1 in `status`; polls stay off unless `polls`.
 function openSession(status: string, polls = false): AgentPage {
+  stopAgentFollow();
   const session: AgentRow = { machine_id: "m1", machine_name: "build-box", id: "s1", agent: "claude", cwd: "/srv/project", status, external: false, question: null };
   const page: AgentPage = { session, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 };
   S.view = "agent";
@@ -49,6 +51,13 @@ function enter(input: unknown, alt = false) {
 /// Lets the sends a poll started run.
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
+async function readLegacy() {
+  await pollAgent();
+  await settle();
+  // The fixture's unsupported stream has closed, so the finite fallback can read.
+  await pollAgent();
+}
+
 /// The `agent_steer` calls made, by what each sent.
 const steers = () => calls.filter(c => c.cmd === "agent_steer").map(c => (c.args as { steer: unknown }).steer);
 
@@ -56,7 +65,7 @@ const steers = () => calls.filter(c => c.cmd === "agent_steer").map(c => (c.args
 async function read(page: AgentPage) {
   answers.agent_view = page;
   visible(true);
-  await pollAgent();
+  await readLegacy();
   visible(false);
   clearTimeout(AG.timer);
   await settle();
@@ -73,7 +82,7 @@ test("an ended session puts the queue back in the field before what is typed the
   show({ "#agmsg": input });
   AG.queue = [words("first"), words("second")];
   answers.agent_view = { ...page, session: { ...page.session, status: "ended" } };
-  await pollAgent();
+  await readLegacy();
   assert.equal(input.value, "first\n\nsecond\n\nand one more");
   assert.deepEqual(AG.queue, []);
 });
@@ -83,7 +92,7 @@ test("an ended session keeps the queue while no field shows", async () => {
   show({});
   AG.queue = [words("first")];
   answers.agent_view = { ...page, session: { ...page.session, status: "ended" } };
-  await pollAgent();
+  await readLegacy();
   assert.deepEqual(AG.queue.map(q => q.text), ["first"]);
 });
 
@@ -122,14 +131,18 @@ test("live suffixes preserve history and a late fallback read cannot replace the
     delete answers.agent_follow;
     delete answers.agent_view;
   });
-  const polling = pollAgent(true);
+  await pollAgent(true);
   await settle();
+  assert.ok(!calls.some(c => c.cmd === "agent_view"), "opening a stream avoids a duplicate transcript read");
+  const now = Date.now();
+  t.mock.method(Date, "now", () => now + 3000);
+  const polling = pollAgent(true);
   const args = calls.find(c => c.cmd === "agent_follow")?.args as {
-    onEvent: { onmessage(update: { page: AgentPage; modes: null; tasks: [] }): void };
+    onEvent: { onmessage(update: TranscriptUpdate<AgentPage> & { modes: null; tasks: [] }): void };
   };
   assert.ok(args);
-  args.onEvent.onmessage({ page: { ...page, entries: [{ kind: "user", text: "hello" }, { kind: "agent", text: "working" }] }, modes: null, tasks: [] });
-  args.onEvent.onmessage({ page: { ...page, earlier: 1, entries: [{ kind: "agent", text: "finished" }] }, modes: null, tasks: [] });
+  args.onEvent.onmessage({ kind: "snapshot", cursor: { start: 0, next: 2, fingerprint: "initial" }, resumed: false, page: { ...page, entries: [{ kind: "user", text: "hello" }, { kind: "agent", text: "working" }] }, modes: null, tasks: [] });
+  args.onEvent.onmessage({ kind: "delta", cursor: { start: 0, next: 2, fingerprint: "updated" }, resumed: false, page: { ...page, earlier: 1, entries: [{ kind: "agent", text: "finished" }] }, modes: null, tasks: [] });
   finish({ ...page, entries: [{ kind: "agent", text: "stale" }] });
   await polling;
   assert.deepEqual(AG.page?.entries.map(entry => entry.text), ["hello", "finished"]);

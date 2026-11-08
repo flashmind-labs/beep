@@ -9,7 +9,9 @@ use crate::{
 use beep_mesh::machine;
 use beep_proto::{
     AgentMode, AgentSessionModes, AgentSessionView,
-    node::agent::{FollowSession, SESSION_FOLLOW_PROTOCOL, SessionSource, SessionUpdate},
+    node::agent::{
+        FollowSession, SESSION_FOLLOW_PROTOCOL, SessionCursor, SessionSource, SessionUpdate,
+    },
 };
 use serde::Serialize;
 use std::{
@@ -98,7 +100,17 @@ impl Drop for Reading<'_> {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "lowercase")]
+enum UpdateKind {
+    Snapshot,
+    Delta,
+}
+
+#[derive(Serialize)]
 pub struct Update {
+    kind: UpdateKind,
+    cursor: SessionCursor,
+    resumed: bool,
     page: SessionPage,
     modes: Option<ModesRow>,
     tasks: Vec<TaskRow>,
@@ -130,6 +142,7 @@ pub async fn agent_follow(
     agent: String,
     session: String,
     last: u32,
+    after: Option<SessionCursor>,
     on_event: Channel<Update>,
 ) -> Result<()> {
     let (cancel, mut cancelled) = watch::channel(false);
@@ -161,6 +174,7 @@ pub async fn agent_follow(
             agent,
             session: session.clone(),
             last,
+            after,
         };
         let (_tx, mut rx) = client
             .open_sending(SESSION_FOLLOW_PROTOCOL, &request)
@@ -181,8 +195,9 @@ pub async fn agent_follow(
                 &session,
                 Instant::now(),
             );
-            let snapshot = match update {
-                SessionUpdate::Snapshot(snapshot) => *snapshot,
+            let (kind, snapshot) = match update {
+                SessionUpdate::Snapshot(snapshot) => (UpdateKind::Snapshot, *snapshot),
+                SessionUpdate::Delta(snapshot) => (UpdateKind::Delta, *snapshot),
                 SessionUpdate::KeepAlive => continue,
                 SessionUpdate::Error { reason } => return Err(DesktopError::BadRequest(reason)),
             };
@@ -233,6 +248,9 @@ pub async fn agent_follow(
                 beep_fleet::session_titles::apply(&mesh, &mut view.session);
             }
             on_event.send(Update {
+                kind,
+                cursor: snapshot.cursor,
+                resumed: snapshot.resumed,
                 page: view.into(),
                 modes,
                 tasks: tasks.into_iter().map(Into::into).collect(),
