@@ -15,8 +15,17 @@ test("a detached worktree is named by its folder, and a missing remote by the ma
   assert.equal(placeSub(place({ branch: null, origin: "" }), "build-box"), "app · fix · build-box");
 });
 
-test("a row in the main checkout or with no place says nothing", () => {
-  assert.equal(placeSub(place({ linked: false, folder: "/srv/app", branch: "main" }), "build-box"), null);
+test("the main checkout uses the same repository name as its linked worktrees", () => {
+  const main = place({ linked: false, folder: "/srv/local-folder", main: "/srv/local-folder", branch: "main" });
+  assert.equal(placeSub(main, "build-box"), "org/app · build-box");
+  assert.equal(placeSub({ ...main, linked: true, folder: "/srv/local-folder/.worktrees/fix", branch: "fix" }, "build-box"), "org/app · fix · build-box");
+});
+
+test("the main checkout without a remote uses its root folder, including for sessions in subfolders", () => {
+  assert.equal(placeSub(place({ linked: false, folder: "/srv/app", origin: "" }), "build-box"), "app · build-box");
+});
+
+test("a row with no known place keeps its fallback", () => {
   assert.equal(placeSub(null, "build-box"), null);
   assert.equal(placeSub(undefined, "build-box"), null);
 });

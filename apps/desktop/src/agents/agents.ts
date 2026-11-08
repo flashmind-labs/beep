@@ -395,8 +395,8 @@ export async function renderAgents() {
   if (S.view === "agents") drawAgents(false);
 }
 
-/// A row's sub line: the harness, and the folder and machine; in a linked
-/// worktree the repository, the worktree and the machine.
+/// A row's sub line: the harness, repository and machine; in a linked
+/// worktree, also the worktree name. The folder is the fallback.
 function sessionSub(s: AgentSession, harness: string, folder: string) {
   const worktree = placeSub(placeOf(s), s.machine_name);
   const machine = moveLabel(s)?.sub ?? s.machine_name;
