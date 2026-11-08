@@ -4,7 +4,7 @@ import { answerHtml, userRowHtml } from "../agents/turnrows.ts";
 import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { chipHtml, phaseStep, PHASES, STATUS_LABEL } from "./research-list.ts";
-import { type Agent, type Entry, type Note, type Open, type Said, RUNNING, agentOf, count, doing, earlier, facts, host, kind, look, progress, round, shownTab } from "./research-state.ts";
+import { type Agent, type Entry, type Note, type Open, type Said, RUNNING, agentOf, count, doing, facts, host, kind, look, progress, round, shownTab } from "./research-state.ts";
 import type { Doing } from "./research-state.ts";
 
 const rav = (id: string) => { const l = look(id); return `<span class="rav" style="--c:${l.c}">${l.ini}</span>`; };

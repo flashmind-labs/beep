@@ -23,7 +23,7 @@ import { planStarts, type StartEntry, type StartRow } from "./openlist-state.ts"
 import { fixPrompt, runTarget, type RunDetail } from "./runs.ts";
 import { conflictPrompt, type Conflict } from "./filesync.ts";
 import { type Started, state } from "../center/state.ts";
-import { shown, go } from "../center/views.ts";
+import { currentLocation, go } from "../center/views.ts";
 import { projectRows } from "../center/sidebar.ts";
 import { redrawProjects, pc } from "./sections.ts";
 import { loadWhere, projectPlaces } from "./loads.ts";
@@ -151,7 +151,7 @@ function barProject() {
 /// Whether the bar of project `name` is on screen: under its page, or in the
 /// empty agent view.
 export function barOn(name: string) {
-  return (shown === "projects" && state.picked === name) || (shown === "pane" && S.view === "agent" && AG.draft === name);
+  return (currentLocation()?.view === "projects" && state.picked === name) || (currentLocation()?.view === "pane" && S.view === "agent" && AG.draft === name);
 }
 
 /// Reads what the bar needs for project `name`: the machines that run
@@ -172,7 +172,7 @@ export function drawProjectComp(name: string) {
   const c = projectComp;
   c.form.querySelector(".prompt-stash-bar")?.remove();
   if (!document.querySelector("#agconv")) c.form.insertAdjacentHTML("beforeend", stashBar(name));
-  c.setPresentation(shown === "pane" && S.view === "agent" && AG.draft === name ? "centered" : "compact");
+  c.setPresentation(currentLocation()?.view === "pane" && S.view === "agent" && AG.draft === name ? "centered" : "compact");
   if (pc.project !== name) {
     finishCopy?.();
     pc.project = name;

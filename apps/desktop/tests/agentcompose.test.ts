@@ -1,7 +1,7 @@
 import { answers, bar, calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { S, connectWindow, windowHooks, type BackTo, type WindowHooks } from "../src/bar/core.ts";
+import { S, connectWindow, windowHooks, type BackTo, type AgentReturn, type WindowHooks } from "../src/bar/core.ts";
 import { AG, type AgentPage, type AgentRow, agentBack, agentKeys, drawAgents, usageLine } from "../src/agents/agents.ts";
 import { closeSession, visibleRunning } from "../src/agents/closing.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
@@ -341,7 +341,7 @@ test("close refuses ended and external sessions and empty drafts", async () => {
   AG.draft = null;
 });
 
-for (const back of ["agents", { view: "projects", arg: { project: "acme/widget", tile: "running" } }] satisfies (string | BackTo)[]) {
+for (const back of ["agents", { view: "projects", arg: { project: "acme/widget", tile: "running" } }] satisfies AgentReturn[]) {
   test(`Esc returns to ${typeof back === "string" ? "Running agents" : "the project's Running section"} before the project overview`, async t => {
     const previous = windowHooks;
     t.mock.timers.enable({ apis: ["setInterval"] });
@@ -366,7 +366,7 @@ for (const back of ["agents", { view: "projects", arg: { project: "acme/widget",
 }
 
 // Keep navigation real while replacing the window's destination renderer.
-function closeDestination(t: test.TestContext, from: BackTo = { view: "home" }) {
+function closeDestination(t: test.TestContext, from: BackTo = { view: "home", arg: null }) {
   const previous = windowHooks;
   connectWindow({
     goBack(target: BackTo) { assert.deepEqual(target, from); S.view = "agents"; },
@@ -398,7 +398,7 @@ test("a refused background close shows an error without reopening the session", 
   assert.ok(messages.includes("banner"));
 });
 
-for (const from of [{ view: "home" }, { view: "projects", arg: { project: "acme/widget", tile: "running" } }, { view: "pane", arg: "agents" }] satisfies BackTo[]) {
+for (const from of [{ view: "home", arg: null }, { view: "projects", arg: { project: "acme/widget", tile: "running" } }, { view: "pane", arg: "agents" }] satisfies BackTo[]) {
   test(`Cmd+Shift+W returns to ${from.view} immediately and a late reply leaves another page alone`, async t => {
     const page = openSession("idle");
     page.session.id = AG.open!.session = `close-from-${from.view}`;

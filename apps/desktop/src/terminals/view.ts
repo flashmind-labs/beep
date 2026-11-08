@@ -8,7 +8,7 @@ import { makeScreen } from "./termview.ts";
 import { state, views } from "../center/state.ts";
 import { line } from "../ui/pieces.ts";
 import { draw } from "../center/home.ts";
-import { shown, registerView, go, drawTop } from "../center/views.ts";
+import { currentLocation, registerView, go, drawTop } from "../center/views.ts";
 import { drawSide } from "../center/sidebar.ts";
 import { refresh } from "../center/refresh.ts";
 
@@ -16,8 +16,8 @@ import { refresh } from "../center/refresh.ts";
 export const allTerms = makeTerminals({
   invoke, Channel, makeScreen, h, button, ago,
   redraw: () => {
-    if (shown === "terminals") { drawTerminals(); drawTop(); }
-    else if (shown === "home") draw();
+    if (currentLocation()?.view === "terminals") { drawTerminals(); drawTop(); }
+    else if (currentLocation()?.view === "home") draw();
     drawSide();
   },
 });

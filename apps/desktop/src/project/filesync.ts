@@ -11,7 +11,6 @@ import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import type { TileData, TileRow } from "./board.ts";
 import { PageCache, type SectionStore } from "../ui/pagecache.ts";
 import { bytes, reason } from "../ui/format.ts";
-import { pageShown } from "../ui/active.ts";
 import { diffView } from "../review/diff.ts";
 import { compareFiles } from "./compare.ts";
 import { clockWarning, loadClocks } from "../machines/clock.ts";
@@ -590,7 +589,6 @@ export function makeFileSync(deps: FileSyncDeps) {
     stop: () => watch(null),
   };
 }
-
 
 /// One machine's sync of one project, as `project_sync` lists it (SyncRow).
 export interface SyncRow {

@@ -32,7 +32,7 @@ export function setCredsHtml() {
   if (CRED.list === null) return `<div class="dmuted">Could not load your credentials.</div>`;
   // Which machines have gh and teacli, when the machines are known.
   const machines = Array.isArray(SET.machines) ? SET.machines : null;
-  return CRED.mod.credentialsHtml(CRED, machines, esc, when);
+  return CRED.mod.credentialsHtml(CRED, machines, esc);
 }
 
 /// Asks gh and teacli on this Mac what they are signed in to, then redraws.

@@ -1,6 +1,6 @@
 // Views and plugins share topic subscriptions over the window's duplex node connections.
 import { onShownChange, pageShown } from "./active.ts";
-import { matchesTopic, normalizeTopic, topic, type Topic } from "./topic-state.ts";
+import { matchesTopic, normalizeTopic, type Topic } from "./topic-state.ts";
 import { clearViews, installViews } from "./snapshot-state.ts";
 export { matchesTopic, topic, type Topic } from "./topic-state.ts";
 
@@ -149,7 +149,7 @@ function failed(event: MeshEvent) {
   if (!event.data || typeof event.data !== "object") return false;
   if ("error" in event.data && typeof event.data.error === "string") return true;
   return "views" in event.data && Array.isArray(event.data.views)
-    && event.data.views.some(view => view && typeof view.error === "string");
+    && event.data.views.some((view: unknown) => view !== null && typeof view === "object" && "error" in view && typeof view.error === "string");
 }
 
 function markDirty(subscriber: Subscriber, event: MeshEvent) {
