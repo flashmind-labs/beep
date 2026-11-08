@@ -339,6 +339,10 @@ export function whereRow(p: Project, m: WhereRow) {
     note.title = `Syncthing folder "${m.syncthing}". Beep does not sync it.`;
     what.append(" ", note);
   }
+  if (state.home?.machines?.some(x => x.id === m.id && x.can_host === false)) {
+    what.classList.add("wide");
+    return [name, what];
+  }
   if (m.kind === "none" && m.add) {
     const add = button("Add", "small", () => openAddToMachine({
       project: p.name,
@@ -445,6 +449,7 @@ function sessionRow(s: SessionRow) {
   const meta = [tile, s.status, ...(worktree ? [worktree] : [s.machine_name, base(s.cwd)]), s.last_activity ? ago(s.last_activity) : ""]
     .filter(Boolean).map(x => typeof x === "string" ? h("span", "", x) : x);
   const row = h("button", "pv-row", h("span", "t", s.title || "Untitled session"), h("span", "m", ...meta));
+  row.dataset.key = `${s.machine_id}:${s.id}`;
   row.addEventListener("click", () => openAgentRow(s));
   row.addEventListener("contextmenu", e => void sessionMenu(e, s, row => go("pane", { agent: row })));
   return row;

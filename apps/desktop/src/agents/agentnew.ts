@@ -116,7 +116,7 @@ export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: 
   $("#agprompt")?.focus();
   loadAgentHosts();
   loadSessions().then(() => { if (S.view === "agentnew") drawParts(); }).catch(() => {});
-  invoke<Machine[]>("list_machines").then(list => { KNOWN = list; if (S.view === "agentnew") drawParts(); }).catch(() => {});
+  invoke<Machine[]>("list_machines").then(list => { KNOWN = list.filter(m => m.can_host !== false); if (S.view === "agentnew") drawParts(); }).catch(() => {});
   if (at?.project) loadBranches(at.project);
   loadProjects();
 }

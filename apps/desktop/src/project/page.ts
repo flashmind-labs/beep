@@ -23,10 +23,26 @@ import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsD
 import { refresh } from "../center/refresh.ts";
 import { IC } from "../ui/icons.ts";
 import { resetRows } from "../ui/lazyrows.ts";
+import { patchChildren } from "../ui/patch.ts";
+
+// These wrappers have no event handlers. Keep them attached while their
+// independent sections change, so a sync update cannot interrupt a click.
+const layouts = ".pj-split:not(.gh-layout), .pj-list, .pj-det, .pj-ov, .pj-ov > div, .pj-cols, .ca-col";
+
+function patchProjectView(current: Element, next: Element) {
+  const children = [...next.children].map((child, i) => {
+    const old = current.children[i];
+    if (!old || old.tagName !== child.tagName || old.className !== child.className || !old.matches(layouts)) return child;
+    patchProjectView(old, child);
+    return old;
+  });
+  patchChildren(current, children);
+}
 
 export function drawProjects(el: HTMLElement) {
   const rows = projectRows();
-  const view = h("div", "cc-view");
+  let view: HTMLElement = h("div", "cc-view");
+  view.dataset.project = state.picked ?? "";
   let one: Project | null = null;
   if (!state.home) {
     view.append(emptyPanel(h("b", "", "Loading projects…")));
@@ -48,15 +64,21 @@ export function drawProjects(el: HTMLElement) {
     const elsewhere = !state.picked ? elsewhereSection(rows) : null;
     if (elsewhere) view.append(elsewhere);
   }
-  // Only the view is drawn again: the composer keeps what is typed and its
-  // focus, and the view keeps its scroll.
-  const old = el.querySelector(":scope > .cc-view");
+  // Patch within one project; changing projects installs new event handlers
+  // even when the two projects happen to have the same markup.
+  const old = el.querySelector<HTMLElement>(":scope > .cc-view");
   if (old) {
     // Read before the swap: a detached element scrolls to 0.
     const top = old.scrollTop;
     const inner = new Map([...old.querySelectorAll<HTMLElement>("[id] .pv-scroll")].map(s => [s.closest("[id]")!.id, s.scrollTop]));
     const cols = [".pj-list", ".pj-det", ".pj-scroll"].map(c => [c, old.querySelector(c)?.scrollTop ?? 0] as const);
-    old.replaceWith(view);
+    if (old.dataset.project === view.dataset.project && old.className === view.className) {
+      patchProjectView(old, view);
+      view = old;
+    } else {
+      patchProjectView(view, view);
+      old.replaceWith(view);
+    }
     view.scrollTop = top;
     for (const [c, at] of cols) { const col = view.querySelector(c); if (col) col.scrollTop = at; }
     for (const [id, at] of inner) {
@@ -64,6 +86,7 @@ export function drawProjects(el: HTMLElement) {
       if (s) s.scrollTop = at;
     }
   } else {
+    patchProjectView(view, view);
     el.prepend(view);
   }
   // The bar starts coding agents in the project's checkout.

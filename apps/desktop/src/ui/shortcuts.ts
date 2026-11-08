@@ -56,6 +56,13 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
     { keys: "⌘T", does: "New terminal in the project" },
     { keys: "↩", does: "Start a session from the project input" },
   ] },
+  { title: "Find in chat", rows: [
+    { keys: "⌘F", does: "Find in the conversation" },
+    { keys: "⌘G / ⇧⌘G", does: "Next or previous match, while searching" },
+    { keys: "↩", does: "Next match, in the search field" },
+    { keys: "⇧↩", does: "Previous match, in the search field" },
+    { keys: "esc", does: "Close search" },
+  ] },
   { title: "Agent session", rows: [
     { keys: "↩", does: "Send, or steer a running turn" },
     { keys: "⇧↩", does: "New line" },

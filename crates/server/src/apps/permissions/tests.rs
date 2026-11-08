@@ -23,14 +23,14 @@ use std::{collections::HashSet, sync::Arc};
 #[test]
 fn tools_are_classified_by_app() {
     let (app, acts) = lookup("GMAIL_SEND_EMAIL").unwrap();
-    assert_eq!((app.slug(), acts), ("gmail", Acts::Always));
+    assert_eq!((app.as_ref(), acts), ("gmail", Acts::Always));
     assert_eq!(lookup("GMAIL_FETCH_EMAILS").unwrap().1, Acts::Never);
     let (app, acts) = lookup("FASTMAIL_UPDATE_EMAIL").unwrap();
-    assert_eq!((app.slug(), acts), ("fastmail", Acts::WhenMoving));
+    assert_eq!((app.as_ref(), acts), ("fastmail", Acts::WhenMoving));
     assert!(lookup("open_maps").is_none());
     // A tool of a server the user added always asks.
     let (app, acts) = lookup("MCP_MY-NOTES_SEARCH_PAGES").unwrap();
-    assert_eq!((app.slug(), acts), ("mcp_my-notes", Acts::Always));
+    assert_eq!((app.as_ref(), acts), ("mcp_my-notes", Acts::Always));
     assert_eq!(app.name(), "My notes");
     assert_eq!(
         action_name(&app, "MCP_MY-NOTES_SEARCH_PAGES"),
@@ -42,7 +42,7 @@ fn tools_are_classified_by_app() {
 
 #[test]
 fn a_chat_allow_runs_without_asking_but_never_past_read_only() {
-    let mut rules = Rules::from_rows(vec![AppPermissionRow {
+    let mut rules = Rules::from(vec![AppPermissionRow {
         app: "notion".into(),
         level: PermissionLevel::ReadOnly {},
         allowed: Vec::new(),
@@ -119,7 +119,7 @@ async fn making_media_asks_first_with_its_service_and_model() {
     let args = json!({ "prompt": "a red fox", "provider": "openai" });
     for tool in ["image_gen", "video_gen", "3d_gen"] {
         let (app, acts) = lookup(tool).unwrap();
-        assert_eq!(app.slug(), MEDIA_APP);
+        assert_eq!(app.as_ref(), MEDIA_APP);
         assert_eq!(acts, Acts::Always);
         let guarded = guard(
             vec![Arc::new(Named(tool))],
@@ -189,7 +189,7 @@ fn an_untrusted_turn_keeps_only_read_tools() {
 #[test]
 fn project_tools_are_known_and_can_be_allowed_always() {
     let (app, acts) = lookup("project_plan").unwrap();
-    assert_eq!((app.slug(), acts), ("project", Acts::Never));
+    assert_eq!((app.as_ref(), acts), ("project", Acts::Never));
     assert_eq!(app.name(), "Project");
     assert!(lookup("PROJECT_WORKER").is_some());
     assert!(lookup("PROJECT_OTHER").is_none());
@@ -318,9 +318,9 @@ fn only_a_project_chat_shows_a_parked_exec_as_project() {
     assert_eq!(approval.app, "Project");
     assert!(lookup("exec").is_none());
     assert!(lookup("process").is_none());
-    assert_eq!(lookup_in("exec", true).unwrap().0.slug(), "project");
+    assert_eq!(lookup_in("exec", true).unwrap().0.as_ref(), "project");
     assert_eq!(
-        lookup_in("project_plan", false).unwrap().0.slug(),
+        lookup_in("project_plan", false).unwrap().0.as_ref(),
         "project"
     );
 }

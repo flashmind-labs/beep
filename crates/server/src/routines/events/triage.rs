@@ -44,7 +44,9 @@ const MAX_UPDATES: i64 = 20;
 const MAX_HELD_SHOWN: i64 = 10;
 
 /// What the triage agent decided about a batch, as the log keeps it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr, strum::AsRefStr, strum::Display,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum Verdict {
     Inform,
@@ -53,25 +55,24 @@ pub enum Verdict {
     Failed,
 }
 
-impl Verdict {
-    pub fn as_str(self) -> &'static str {
-        self.into()
-    }
-}
-
 /// When the main agent should hear about an inform.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    EnumString,
+    IntoStaticStr,
+    Deserialize,
+    strum::AsRefStr,
+    strum::Display,
+)]
 #[strum(serialize_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum Urgency {
     Now,
     Later,
-}
-
-impl Urgency {
-    pub fn as_str(self) -> &'static str {
-        self.into()
-    }
 }
 
 /// The config's `[events]`.
@@ -383,7 +384,7 @@ async fn wake_informed(app: &Arc<App>, user: &Arc<User>, rows: &[EventRow]) -> R
     let read_only = match user.app_rules().await {
         Ok(rules) => pipeline::apps_of(rows)
             .into_iter()
-            .filter(|app| rules.read_only(app.slug()))
+            .filter(|app| rules.read_only(app.as_ref()))
             .collect(),
         Err(error) => {
             log::warn!("events: unable to read app permissions: {error:#}; user={user}");
@@ -473,7 +474,7 @@ async fn spec(app: &App, user: &Arc<User>, rows: &[EventRow], model: &RoleModel)
 async fn tools(user: &Arc<User>, rows: &[EventRow]) -> Vec<Arc<dyn Tool>> {
     let apps: Vec<&str> = pipeline::apps_of(rows)
         .into_iter()
-        .map(EventApp::slug)
+        .map(<&'static str>::from)
         .collect();
     let (composio, mcp) = tokio::join!(user.app_tools(), user.mcp_tools());
     let reads: Vec<Arc<dyn Tool>> = composio
@@ -498,7 +499,7 @@ async fn context(user: &User) -> String {
             ctx.push_str("\nEvent topics the user chose (only topics that are on reach you):\n");
             for (topic, on) in topics.iter() {
                 let state = if on { "on" } else { "off" };
-                let _ = writeln!(ctx, "- {}: {state} ({})", topic.as_str(), topic.describe());
+                let _ = writeln!(ctx, "- {}: {state} ({})", topic.as_ref(), topic.describe());
             }
         }
         Err(error) => log::warn!("events: unable to read topics: {error:#}; user={user}"),

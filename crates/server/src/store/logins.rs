@@ -133,7 +133,7 @@ async fn complete_in(
             .bind(&endpoint)
             .bind(&holder)
             .bind(key.name)
-            .bind(key.kind.as_str())
+            .bind(key.kind.as_ref())
             .execute(&mut *tx)
             .await?
             .rows_affected();

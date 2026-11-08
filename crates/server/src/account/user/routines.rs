@@ -42,7 +42,7 @@ impl User {
 
     /// One of the user's jobs as the scheduler sees it.
     pub async fn cron_job(&self, id: Uuid) -> Result<Option<CronJob>> {
-        self.store.cron_job(id, Some(self.key.as_str())).await
+        self.store.cron_job(id, Some(self.key.as_ref())).await
     }
 
     /// Deletes a job; `false` when the user has no such job.

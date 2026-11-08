@@ -1,6 +1,6 @@
 //! Superseded memory versions, owned via `history_of` (not `user`) so lookups never see them; capped by age and `MAX_VERSIONS`.
 
-use super::{CORE, Fact, Meta, USER, from_record, meta_map, now_text, row_from};
+use super::{CORE, Fact, Meta, USER, meta_map, now_text, row_from};
 use crate::{
     account::user::UserKey,
     store::{MemoryRow, Store},
@@ -45,7 +45,7 @@ fn history_pairs(
         .into_iter()
         .filter(|(key, _)| *key != USER && *key != CORE)
         .collect();
-    pairs.push((HISTORY_OF, user.as_str().to_owned()));
+    pairs.push((HISTORY_OF, user.as_ref().to_owned()));
     pairs.push((SUPERSEDED_BY, by.to_owned()));
     pairs.push((SUPERSEDED_AT, superseded_at.to_owned()));
     pairs
@@ -57,7 +57,7 @@ fn superseded_from(record: MemoryRecord) -> Superseded {
         .unwrap_or(&"")
         .to_string();
     Superseded {
-        row: from_record(record),
+        row: MemoryRow::from(record),
         superseded_at,
     }
 }
@@ -103,7 +103,7 @@ impl Store {
             return Ok(false);
         };
         let now = now_text();
-        let row = from_record(record);
+        let row = MemoryRow::from(record);
         self.relink(user, &row, by, &now).await?;
         for earlier in self.history_records(user, id).await? {
             let superseded_at = meta_map(&earlier.meta)
@@ -137,7 +137,7 @@ impl Store {
         Ok(self
             .memories
             .records()
-            .filter(HISTORY_OF, user.as_str())
+            .filter(HISTORY_OF, user.as_ref())
             .filter(SUPERSEDED_BY, id)
             .limit(MAX_VERSIONS * 4)
             .await?)
@@ -171,7 +171,7 @@ impl Store {
     /// Deletes the history of the user's memory `id`.
     pub(super) async fn forget_history(&self, user: &UserKey, id: &str) -> Result<()> {
         self.memories
-            .delete_matching(&[(HISTORY_OF, user.as_str()), (SUPERSEDED_BY, id)])
+            .delete_matching(&[(HISTORY_OF, user.as_ref()), (SUPERSEDED_BY, id)])
             .await?;
         Ok(())
     }
@@ -180,7 +180,7 @@ impl Store {
     pub(super) async fn forget_all_history(&self, user: &UserKey) -> Result<usize> {
         Ok(self
             .memories
-            .delete_matching(&[(HISTORY_OF, user.as_str())])
+            .delete_matching(&[(HISTORY_OF, user.as_ref())])
             .await?)
     }
 }

@@ -64,7 +64,7 @@ pub(super) async fn load(user: &User) -> anyhow::Result<Vec<Project>> {
             let place = Place {
                 machine: machine.clone(),
                 endpoint,
-                folder: checkout.path.as_str().to_owned(),
+                folder: checkout.path.as_ref().to_owned(),
             };
             if !places.contains(&place) {
                 places.push(place);

@@ -97,6 +97,7 @@ pub async fn link_fork(
 mod tests {
     use super::*;
     use crate::model::RepoName;
+    use std::str::FromStr;
 
     fn folder(remotes: &[(&str, &str)]) -> FolderRemotes {
         FolderRemotes {
@@ -111,7 +112,7 @@ mod tests {
     fn repos() -> (RepoRef, RepoRef) {
         let repo = RepoRef::parse("acme/widget", &[]).expect("a repo");
         let fork = repo
-            .sibling(&RepoName::parse("octo/widget").expect("a name"))
+            .sibling(&RepoName::from_str("octo/widget").expect("a name"))
             .expect("a fork");
         (repo, fork)
     }

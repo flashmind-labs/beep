@@ -19,7 +19,7 @@ impl Stores {
             Agent::Codex => self.codex.as_deref().map(|root| root.join("sessions")),
             Agent::Pi => self.pi.clone(),
             Agent::Claude | Agent::Flsh | Agent::OpenCode => {
-                bail!("{} sessions cannot be deleted here", agent.as_str())
+                bail!("{} sessions cannot be deleted here", agent.as_ref())
             }
         };
         let Some(root) = root else {

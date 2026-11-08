@@ -38,15 +38,21 @@ pub struct Waiting {
     pub(super) work: bool,
 }
 
-impl Waiting {
+#[derive(Debug, thiserror::Error)]
+#[error("the notice does not contain a pending individual approval")]
+pub struct NotWaitingApproval;
+
+impl TryFrom<&Notice> for Waiting {
+    type Error = NotWaitingApproval;
+
     /// The approval `notice` asks for, unless it asks none, is news that
     /// one was resolved, or comes from a group.
-    fn from_notice(notice: &Notice) -> Option<Self> {
-        let pending = notice.approval.as_ref()?;
+    fn try_from(notice: &Notice) -> Result<Self, Self::Error> {
+        let pending = notice.approval.as_ref().ok_or(NotWaitingApproval)?;
         if notice.changed || notice.group {
-            return None;
+            return Err(NotWaitingApproval);
         }
-        Some(Self {
+        Ok(Self {
             session: notice.session_id.clone(),
             approval: Asking {
                 query_id: pending.query_id.clone(),
@@ -63,7 +69,9 @@ impl Waiting {
             work: pending.run_id.is_empty(),
         })
     }
+}
 
+impl Waiting {
     /// What live mode says when it asks.
     fn spoken(&self) -> String {
         let action = self.approval.action.trim().to_lowercase();
@@ -86,7 +94,7 @@ impl Voice {
     /// Gives the notice back when live mode does not take it: off, in the
     /// bar, reading a voice note, or a notice that asks nothing.
     pub fn approval_notice(self: &Arc<Self>, notice: Notice) -> Option<Notice> {
-        let Some(waiting) = Waiting::from_notice(&notice) else {
+        let Ok(waiting) = Waiting::try_from(&notice) else {
             return Some(notice);
         };
         if bar::is_open(&self.app) {

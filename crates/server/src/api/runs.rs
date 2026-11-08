@@ -247,7 +247,7 @@ pub(super) async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
     let message = Message {
         session_id,
         request_id: Uuid::nil(),
-        message: decision.as_str().to_owned(),
+        message: decision.as_ref().to_owned(),
         cron_id: None,
         scheduled: None,
         always_sent: false,

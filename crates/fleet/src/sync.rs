@@ -175,7 +175,7 @@ impl Desk {
 
     pub(crate) fn name_of(&self, machine: EndpointId) -> String {
         self.mesh
-            .machines()
+            .code_hosts()
             .into_iter()
             .find(|status| status.device.id == machine)
             .map_or_else(
@@ -258,7 +258,7 @@ impl Desk {
 
     fn is_online(&self, machine: EndpointId) -> bool {
         self.mesh
-            .machines()
+            .code_hosts()
             .iter()
             .any(|status| status.device.id == machine && status.online)
     }
@@ -427,7 +427,7 @@ impl Desk {
         let record = find_project(&self.mesh, name).ok_or(FleetError::NotFound)?;
         Ok(self
             .mesh
-            .machines()
+            .code_hosts()
             .into_iter()
             .map(|status| ProjectMachine {
                 machine_id: status.device.id.to_string(),

@@ -103,7 +103,7 @@ impl Repo {
                 .stash_oid()
                 .filter(|stash| Some(*stash) != previous)
                 .context("Git did not create a new recovery stash")?;
-            let message = self.run(&["show", "-s", "--format=%s", &stash.hex()])?;
+            let message = self.run(&["show", "-s", "--format=%s", &stash.to_string()])?;
             ensure!(
                 String::from_utf8_lossy(&message.stdout).contains(&recovery.reference),
                 "The stash changed during recovery; inspect its reflog before restoring work."
@@ -115,7 +115,7 @@ impl Repo {
             self.fast_forward(before, target, branch)?;
             recovery.phase = Phase::Restoring;
             crate::link::note::write_json(&file, &recovery)?;
-            self.run(&["stash", "apply", "--index", &stash.hex()])?;
+            self.run(&["stash", "apply", "--index", &stash.to_string()])?;
             ensure!(
                 self.head() == Some(target) && self.head_ref().as_deref() == Some(branch),
                 "The checkout changed while restoring local work"
@@ -128,6 +128,6 @@ impl Repo {
 
     fn stash_oid(&self) -> Option<Oid> {
         let out = self.run(&["rev-parse", "--verify", "refs/stash"]).ok()?;
-        Oid::parse(String::from_utf8_lossy(&out.stdout).trim())
+        String::from_utf8_lossy(&out.stdout).trim().parse().ok()
     }
 }

@@ -8,7 +8,7 @@ use crate::{
 };
 use beep_mesh::machine;
 use beep_proto::{
-    AgentMode, AgentSessionModes, AgentSessionView,
+    AgentMode, AgentSessionModes, AgentSessionView, AgentSlug, SessionId,
     node::agent::{
         FollowSession, SESSION_FOLLOW_PROTOCOL, SessionCursor, SessionSource, SessionUpdate,
     },
@@ -171,8 +171,8 @@ pub async fn agent_follow(
             .ok_or_else(|| DesktopError::BadRequest("machine is not in the mesh".into()))?;
         let client = fleet.client(machine).await?;
         let request = FollowSession {
-            agent,
-            session: session.clone(),
+            agent: Into::<AgentSlug>::into(agent),
+            session: Into::<SessionId>::into(session.clone()),
             last,
             after,
         };
@@ -191,7 +191,7 @@ pub async fn agent_follow(
             app.state::<AgentsShown>().read(
                 window.label(),
                 &machine_id,
-                &request.agent,
+                request.agent.as_ref(),
                 &session,
                 Instant::now(),
             );
@@ -255,6 +255,12 @@ pub async fn agent_follow(
                 modes,
                 tasks: tasks.into_iter().map(Into::into).collect(),
             })?;
+            crate::notices::history::agent_viewed(
+                &app,
+                &machine_id,
+                request.agent.as_ref(),
+                &session,
+            );
         }
     };
     tokio::select! {

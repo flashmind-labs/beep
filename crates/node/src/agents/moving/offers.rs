@@ -7,7 +7,10 @@ use crate::agents::{
     found::{Agent, within},
 };
 use beep_mesh::{Key, Mesh};
-use beep_proto::node::mesh_state::{Place, StateValue, SyncSpec};
+use beep_proto::{
+    AgentSlug,
+    node::mesh_state::{Place, StateValue, SyncSpec},
+};
 use iroh::EndpointId;
 use std::{
     collections::BTreeSet,
@@ -104,7 +107,7 @@ pub(super) async fn offers(agents: &Agents, projects: &[Project]) -> Vec<Offer> 
     let now = now_secs();
     let mut wanted: Vec<_> = seen
         .into_iter()
-        .filter(|one| Harness::of(one.agent).is_some() && is_recent(one.last_activity, now))
+        .filter(|one| Harness::try_from(one.agent).is_ok() && is_recent(one.last_activity, now))
         .filter_map(|one| {
             let project = projects
                 .iter()
@@ -134,7 +137,7 @@ pub(super) async fn offers(agents: &Agents, projects: &[Project]) -> Vec<Offer> 
                 let file = one.file?;
                 let (size, hash) = hash_of(&memo, &file)?;
                 Some(Offer {
-                    agent: one.agent.slug(),
+                    agent: Into::<AgentSlug>::into(one.agent),
                     id: one.id,
                     project,
                     path,
@@ -178,5 +181,7 @@ fn hash_of(memo: &super::progress::Hashes, file: &Path) -> Option<(u64, Vec<u8>)
 /// The harness behind an agent slug the peer named, when sessions of it
 /// are copied.
 pub(super) fn harness_of(slug: &str) -> Option<Harness> {
-    Agent::from_name(slug).and_then(Harness::of)
+    slug.parse::<Agent>()
+        .ok()
+        .and_then(|agent| Harness::try_from(agent).ok())
 }

@@ -343,7 +343,7 @@ pub(crate) async fn finish(app: &App, user: &User, run: &Run, finished: Finished
             log::info!(
                 "wake: nothing sent, chat deleted; run_id={} status={}",
                 run.id,
-                status.as_str()
+                status.as_ref()
             );
             if let Err(error) = user.delete_session(chat).await {
                 log::warn!(

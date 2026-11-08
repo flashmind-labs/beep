@@ -110,8 +110,12 @@ pub(super) async fn run(env: &Env, record: &SessionMove, tracker: &Tracker) -> R
 }
 
 async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result<()> {
-    if Agent::from_name(record.agent.as_str())
-        .and_then(Harness::of)
+    if record
+        .agent
+        .as_ref()
+        .parse::<Agent>()
+        .ok()
+        .and_then(|agent| Harness::try_from(agent).ok())
         .is_none()
     {
         bail!("{} sessions cannot move yet", record.agent);
@@ -149,9 +153,9 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     }
     let kind = env
         .agents
-        .named(record.agent.as_str())
+        .named(record.agent.as_ref())
         .with_context(|| format!("this machine has no {}", record.agent))?;
-    if Agent::from_name(&kind.name) == Some(Agent::Flsh) {
+    if kind.name.parse::<Agent>().ok() == Some(Agent::Flsh) {
         flsh::check(&kind, &env.name_of(&env.mesh.me())).await?;
     }
     if env.agents.runs(&record.id) {

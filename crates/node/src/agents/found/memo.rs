@@ -18,10 +18,12 @@ struct Stamp {
     len: u64,
 }
 
-impl Stamp {
-    fn of(meta: &Metadata) -> Option<Self> {
-        Some(Self {
-            modified: meta.modified().ok()?,
+impl TryFrom<&Metadata> for Stamp {
+    type Error = std::io::Error;
+
+    fn try_from(meta: &Metadata) -> Result<Self, Self::Error> {
+        Ok(Self {
+            modified: meta.modified()?,
             len: meta.len(),
         })
     }
@@ -84,7 +86,12 @@ impl<V: Clone> Memo<V> {
     fn read_files<E>(&self, files: &[&Path], read: impl FnOnce() -> Result<V, E>) -> Result<V, E> {
         let stamps: Vec<Option<Stamp>> = files
             .iter()
-            .map(|file| fs::metadata(file).ok().as_ref().and_then(Stamp::of))
+            .map(|file| {
+                fs::metadata(file)
+                    .ok()
+                    .as_ref()
+                    .and_then(|meta| Stamp::try_from(meta).ok())
+            })
             .collect();
         let Some((key, Some(_))) = files.first().zip(stamps.first()) else {
             return read();

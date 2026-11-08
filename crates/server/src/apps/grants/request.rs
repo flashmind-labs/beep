@@ -134,7 +134,7 @@ impl Tool for RequestGrantTool {
         self.user
             .create_grant(NewGrant {
                 routine: asked.routine,
-                tool: asked.tool.as_str(),
+                tool: asked.tool.as_ref(),
                 constraints: serde_json::to_value(&asked.constraints)?,
                 per_run: asked.per_run,
                 shown: serde_json::to_value(&asked.card.fields)?,
@@ -226,8 +226,8 @@ pub(super) async fn card(
     about: Card<'_>,
 ) -> Approval {
     let tool = ToolSlug::new(spec.tool);
-    let (app, action) = match permissions::lookup(tool.as_str()) {
-        Some((app, _)) => (app.name(), permissions::action_name(&app, tool.as_str())),
+    let (app, action) = match permissions::lookup(tool.as_ref()) {
+        Some((app, _)) => (app.name(), permissions::action_name(&app, tool.as_ref())),
         None => (spec.tool.to_owned(), spec.tool.to_lowercase()),
     };
     let routine: String = about

@@ -19,10 +19,10 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
-    fmt::Write as _,
-    fs,
+    fmt, fs,
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
+    str::FromStr,
 };
 
 use super::scan::{Found, Stat};
@@ -163,38 +163,44 @@ pub(super) fn ref_name(path: &str) -> &str {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct Oid(#[serde(with = "serde_bytes")] [u8; 32]);
 
-impl Oid {
-    pub(super) fn from_bytes(bytes: [u8; 32]) -> Self {
+impl From<[u8; 32]> for Oid {
+    fn from(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
+}
 
-    pub(super) fn as_bytes(&self) -> &[u8; 32] {
+impl AsRef<[u8; 32]> for Oid {
+    fn as_ref(&self) -> &[u8; 32] {
         &self.0
     }
+}
 
-    fn parse(hex: &str) -> Option<Self> {
+impl FromStr for Oid {
+    type Err = anyhow::Error;
+
+    fn from_str(hex: &str) -> Result<Self> {
         if !(hex.len() == 40 || hex.len() == 64) || !is_hex(hex) {
-            return None;
+            bail!("invalid object id");
         }
         let mut bytes = [0; 32];
         for (at, byte) in bytes.iter_mut().take(hex.len() / 2).enumerate() {
-            *byte = u8::from_str_radix(hex.get(at * 2..at * 2 + 2)?, 16).ok()?;
+            *byte = u8::from_str_radix(&hex[at * 2..at * 2 + 2], 16)?;
         }
-        Some(Self(bytes))
+        Ok(Self(bytes))
     }
+}
 
-    pub(super) fn hex(&self) -> String {
+impl fmt::Display for Oid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let used = if self.0[20..].iter().all(|byte| *byte == 0) {
             20
         } else {
             32
         };
-        let mut hex = String::with_capacity(used * 2);
         for byte in &self.0[..used] {
-            // Writing to a string cannot fail.
-            let _ = write!(hex, "{byte:02x}");
+            write!(f, "{byte:02x}")?;
         }
-        hex
+        Ok(())
     }
 }
 
@@ -468,7 +474,7 @@ impl Repo {
             "merge",
             "--ff-only",
             "--no-edit",
-            &target.hex(),
+            &target.to_string(),
         ])?;
         Ok(())
     }
@@ -541,7 +547,7 @@ impl Repo {
             else {
                 continue;
             };
-            let Some(oid) = Oid::parse(oid) else {
+            let Some(oid) = oid.parse::<Oid>().ok() else {
                 continue;
             };
             let path = format!("{PREFIX}{name}");
@@ -566,7 +572,7 @@ impl Repo {
         let output = self
             .run(&["rev-parse", "-q", "--verify", "HEAD^{commit}"])
             .ok()?;
-        Oid::parse(String::from_utf8_lossy(&output.stdout).trim())
+        String::from_utf8_lossy(&output.stdout).trim().parse().ok()
     }
 
     /// The ref HEAD names, unless it is detached.
@@ -602,7 +608,7 @@ impl Repo {
     /// Whether `oid` and all it reaches is here, which is what git itself asks
     /// before it lets a pushed ref in.
     pub(super) fn is_complete(&self, oid: Oid) -> bool {
-        let hex = oid.hex();
+        let hex = oid.to_string();
         self.run(&["rev-list", "--objects", "--quiet", &hex, "--not", "--all"])
             .is_ok()
     }
@@ -612,7 +618,12 @@ impl Repo {
     pub(super) fn is_ancestor(&self, a: Oid, b: Oid) -> Option<bool> {
         let status = self
             .git()
-            .args(["merge-base", "--is-ancestor", &a.hex(), &b.hex()])
+            .args([
+                "merge-base",
+                "--is-ancestor",
+                &a.to_string(),
+                &b.to_string(),
+            ])
             .output()
             .ok()?
             .status;
@@ -625,7 +636,7 @@ impl Repo {
 
     /// Sets ref `name` to `new` if it is still `old`.
     pub(super) fn set_ref(&self, name: &str, new: Oid, old: Option<Oid>) -> Result<()> {
-        let old = old.map(|old| old.hex()).unwrap_or_default();
+        let old = old.map(|old| old.to_string()).unwrap_or_default();
         self.run(&[
             "update-ref",
             "--no-deref",
@@ -633,7 +644,7 @@ impl Repo {
             "-m",
             "beep-sync: from another machine",
             name,
-            &new.hex(),
+            &new.to_string(),
             &old,
         ])?;
         Ok(())
@@ -641,7 +652,7 @@ impl Repo {
 
     /// Removes ref `name` if it is still `old`.
     pub(super) fn delete_ref(&self, name: &str, old: Oid) -> Result<()> {
-        self.run(&["update-ref", "--no-deref", "-d", name, &old.hex()])?;
+        self.run(&["update-ref", "--no-deref", "-d", name, &old.to_string()])?;
         Ok(())
     }
 
@@ -772,10 +783,10 @@ mod tests {
     #[test]
     fn object_names_of_either_length_read_back() {
         for hex in ["0a".repeat(20), "0a".repeat(32)] {
-            assert_eq!(Oid::parse(&hex).unwrap().hex(), hex);
+            assert_eq!(hex.parse::<Oid>().ok().unwrap().to_string(), hex);
         }
-        assert_eq!(Oid::parse("0a"), None);
-        assert_eq!(Oid::parse(&"zz".repeat(20)), None);
+        assert_eq!("0a".parse::<Oid>().ok(), None);
+        assert_eq!("zz".repeat(20).parse::<Oid>().ok(), None);
     }
 
     #[test]

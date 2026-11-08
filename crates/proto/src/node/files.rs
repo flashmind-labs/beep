@@ -99,22 +99,16 @@ pub struct FileEntry {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(strum::AsRefStr, strum::IntoStaticStr)]
 pub enum FileKind {
+    #[strum(serialize = "file")]
     File,
+    #[strum(serialize = "dir")]
     Dir,
+    #[strum(serialize = "symlink")]
     Symlink,
     #[default]
     #[serde(other)]
+    #[strum(serialize = "other")]
     Other,
-}
-
-impl FileKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::File => "file",
-            Self::Dir => "dir",
-            Self::Symlink => "symlink",
-            Self::Other => "other",
-        }
-    }
 }

@@ -11,6 +11,7 @@ import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { gonePic, retryIn } from "./pic-state.ts";
 import { invoke } from "../ui/tauri.ts";
+import { fillInlineImages } from "./inline-images.ts";
 
 let pastedCount = 0;
 export let imagesReading = 0;
@@ -139,6 +140,8 @@ let refill: ReturnType<typeof setTimeout> | undefined;
 export function fillAgentPics(b: HTMLElement) {
   const o = AG.open;
   if (!o) return;
+  const session = AG.page?.session;
+  if (session) fillInlineImages(b, session, () => AG.open === o && AG.page?.session.cwd === session.cwd);
   let wait = Infinity;
   for (const img of b.querySelectorAll<HTMLImageElement>("img.pic[data-key]:not([src])")) {
     const key = img.dataset.key!, here = picHere(key);

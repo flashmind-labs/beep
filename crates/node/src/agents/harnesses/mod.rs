@@ -195,9 +195,7 @@ impl Latest {
                     .lines()
                     .map(str::trim)
                     .find(|line| !line.is_empty())?;
-                Some(install::NpmGlobal::from_prefix(std::path::Path::new(
-                    prefix,
-                )))
+                Some(install::NpmGlobal::from(std::path::Path::new(prefix)))
             })
             .await
             .clone();
@@ -623,7 +621,7 @@ mod tests {
         assert_eq!(started.env["CODEX_HOME"], "/srv/codex-home");
         assert_eq!(started.env["HTTPS_PROXY"], "http://proxy:3128");
         assert_eq!(started.env["INITIAL_AGENT_MODE"], "agent-full-access");
-        assert_eq!(Policy::from_setting(started.compact), Policy::At(65));
+        assert_eq!(Policy::from(started.compact), Policy::At(65));
         // Another agent runs as found.
         assert_eq!(settings.configured(&kind("pi")).unwrap(), kind("pi"));
     }

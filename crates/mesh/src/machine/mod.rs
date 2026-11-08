@@ -7,6 +7,7 @@ pub mod agent;
 pub mod agent_files;
 pub mod auto;
 pub mod codex_login;
+mod inventory;
 pub mod listing;
 mod node;
 pub mod releases;
@@ -18,6 +19,7 @@ pub use agent::{
     Makes, Opened, StartOn, checkout_for, ended, node_request, open_agent, order, pick_agent,
     picked_effort, picked_model, queued_instead,
 };
+pub use inventory::Device;
 pub use listing::{
     Host, agent_models, beep_session, beep_view, entries_for, external_session, machine_capability,
     past_session, session_tasks,
@@ -30,10 +32,20 @@ pub use sessions::{NodeFile, NodeImage, NodeWork, Sessions, WorkRead, WorkWrite}
 
 use crate::MeshError;
 use anyhow::anyhow;
+use std::io::{Error, ErrorKind};
+use tokio::time::error::Elapsed;
 
 /// What the node said in place of an answer, as the error a caller shows.
 pub(crate) fn said(message: impl Into<String>) -> MeshError {
     MeshError::Link(anyhow!(message.into()))
+}
+
+pub(crate) fn timed_out(error: Elapsed, message: &'static str) -> MeshError {
+    MeshError::Link(anyhow::Error::new(error).context(message))
+}
+
+pub(crate) fn stream_closed(message: &'static str) -> MeshError {
+    MeshError::Link(Error::new(ErrorKind::UnexpectedEof, message).into())
 }
 
 /// The node answered with something this request never gets.

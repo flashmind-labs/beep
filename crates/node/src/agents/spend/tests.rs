@@ -100,7 +100,7 @@ fn a_pass_reports_every_agents_sessions_once_each() {
     let sessions = by_session(&reports);
     let names: Vec<(&str, &str)> = sessions
         .values()
-        .map(|report| (report.agent.as_str(), report.session.as_str()))
+        .map(|report| (report.agent.as_ref(), report.session.as_str()))
         .collect();
     assert_eq!(
         names,

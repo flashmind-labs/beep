@@ -27,7 +27,7 @@ impl Store {
         let row = sqlx::query(
             "SELECT read_before, finished_at FROM profile_reads WHERE user_id=$1 AND source=$2",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(source)
         .fetch_optional(&self.pool)
         .await?;
@@ -56,7 +56,7 @@ impl Store {
             "INSERT INTO profile_notes (user_id, source, noted_on, note)
              SELECT $1, $2, * FROM UNNEST($3::date[], $4::text[])",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(source)
         .bind(&dates)
         .bind(&texts)
@@ -66,7 +66,7 @@ impl Store {
             "INSERT INTO profile_reads (user_id, source, read_before) VALUES ($1, $2, $3)
              ON CONFLICT (user_id, source) DO UPDATE SET read_before=excluded.read_before",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(source)
         .bind(read_before)
         .execute(&mut *tx)
@@ -80,7 +80,7 @@ impl Store {
             "INSERT INTO profile_reads (user_id, source, finished_at) VALUES ($1, $2, now())
              ON CONFLICT (user_id, source) DO UPDATE SET finished_at=now()",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(source)
         .execute(&self.pool)
         .await?;
@@ -94,7 +94,7 @@ impl Store {
             sqlx::query(&format!(
                 "DELETE FROM {table} WHERE user_id=$1 AND source=$2"
             ))
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(source)
             .execute(&mut *tx)
             .await?;
@@ -109,7 +109,7 @@ impl Store {
             "SELECT noted_on, note FROM profile_notes WHERE user_id=$1
              ORDER BY noted_on NULLS FIRST, id",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         rows.iter()

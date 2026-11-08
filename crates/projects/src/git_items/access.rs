@@ -22,6 +22,32 @@ pub struct Repo {
     pub name: String,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("the item URL does not identify a host and repository")]
+pub struct RepoUrlError;
+
+impl TryFrom<&str> for Repo {
+    type Error = RepoUrlError;
+
+    fn try_from(url: &str) -> Result<Self, Self::Error> {
+        let rest = url.split_once("://").ok_or(RepoUrlError)?.1;
+        let mut parts = rest.split('/');
+        let host = parts
+            .next()
+            .filter(|host| !host.is_empty())
+            .ok_or(RepoUrlError)?;
+        let name = format!(
+            "{}/{}",
+            parts.next().ok_or(RepoUrlError)?,
+            parts.next().ok_or(RepoUrlError)?
+        );
+        Ok(Self {
+            host: host.to_owned(),
+            name,
+        })
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct RepoReply {
     #[serde(default)]
@@ -82,7 +108,7 @@ fn repo_url(login: &Login<'_>, repo: &Repo) -> Option<String> {
         }
         Slot::Forgejo(url) if url.host() == repo.host => Some(format!(
             "{}/api/v1/repos/{}",
-            url.as_str().trim_end_matches('/'),
+            url.as_ref().trim_end_matches('/'),
             repo.name
         )),
         _ => None,

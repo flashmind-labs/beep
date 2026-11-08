@@ -26,7 +26,7 @@ impl Store {
              ON CONFLICT (chat_id, app, tool) DO NOTHING",
         )
         .bind(chat)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(&allow.app)
         .bind(&allow.tool)
         .execute(&self.pool)
@@ -40,7 +40,7 @@ impl Store {
             "SELECT app, tool FROM chat_allows WHERE user_id=$1 AND chat_id=$2
              ORDER BY allowed_at, app, tool",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(chat)
         .fetch_all(&self.pool)
         .await?;

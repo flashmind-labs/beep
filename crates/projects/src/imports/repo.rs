@@ -72,7 +72,7 @@ impl RepoRef {
             return Self::new(Host::GitHub, org, name);
         }
         let server = forgejo.iter().find_map(|server| {
-            let base = Url::parse(server.as_str()).ok()?;
+            let base = Url::parse(server.as_ref()).ok()?;
             let same_host = base.host_str()? == host;
             let same_port = web_port.is_none() || base.port() == web_port;
             let prefix = base.path().trim_end_matches('/');
@@ -87,7 +87,7 @@ impl RepoRef {
                 .iter()
                 .filter(|_| web_port.is_none())
                 .find_map(|server| {
-                    let base = Url::parse(server.as_str()).ok()?;
+                    let base = Url::parse(server.as_ref()).ok()?;
                     (base.host_str()? == host).then(|| (server.clone(), path.to_owned()))
                 })
         });
@@ -141,7 +141,7 @@ impl RepoRef {
     fn base(&self) -> String {
         match &self.host {
             Host::GitHub => format!("https://{GITHUB}"),
-            Host::Forgejo(server) => server.as_str().to_owned(),
+            Host::Forgejo(server) => server.as_ref().to_owned(),
         }
     }
 
@@ -156,7 +156,7 @@ impl RepoRef {
     fn host_only(&self) -> String {
         match &self.host {
             Host::GitHub => GITHUB.to_owned(),
-            Host::Forgejo(server) => Url::parse(server.as_str())
+            Host::Forgejo(server) => Url::parse(server.as_ref())
                 .ok()
                 .and_then(|url| url.host_str().map(str::to_owned))
                 .unwrap_or_default(),

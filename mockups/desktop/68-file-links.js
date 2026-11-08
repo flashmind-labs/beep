@@ -1,4 +1,4 @@
-// File references in replies share the local file actions of the Files tab.
+// File references can open a local file or a downloaded copy in the default app.
 (() => {
   D.dAgentFileLinks = () => {
     const previous = S.d.ags;

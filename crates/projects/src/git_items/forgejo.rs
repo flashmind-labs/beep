@@ -27,10 +27,12 @@ impl Query {
         Query::AuthoredIssues,
         Query::AssignedIssues,
     ];
+}
 
+impl From<Query> for [(&'static str, &'static str); 2] {
     /// The search's `type` and the filter it sets.
-    fn params(self) -> [(&'static str, &'static str); 2] {
-        match self {
+    fn from(query: Query) -> Self {
+        match query {
             Query::AuthoredPulls => [("type", "pulls"), ("created", "true")],
             Query::ReviewRequested => [("type", "pulls"), ("review_requested", "true")],
             Query::AuthoredIssues => [("type", "issues"), ("created", "true")],
@@ -78,7 +80,7 @@ pub async fn items(caller: &Caller<'_>, base: &str) -> Result<Vec<Found>, HostEr
         let search = &search;
         async move {
             let mut params = vec![("state", "open"), ("limit", LIMIT)];
-            params.extend(query.params());
+            params.extend(<[(&str, &str); 2]>::from(query));
             let url = Url::parse_with_params(search, &params)
                 .map_err(|_| HostError::Internal(caller.host.to_owned()))?;
             let issues: Vec<Issue> = caller.get(url.as_str()).await?;

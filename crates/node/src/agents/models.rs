@@ -95,7 +95,7 @@ impl ModelCache {
 /// say gives a list without models.
 pub(super) async fn find(kind: AgentKind) -> ModelList {
     let flag = known(&kind.name).is_some_and(|known| known.model_flag);
-    if Agent::from_name(&kind.name) == Some(Agent::Flsh) {
+    if kind.name.parse::<Agent>().ok() == Some(Agent::Flsh) {
         return flsh(&kind).await;
     }
     let Some(home) = dirs::home_dir() else {

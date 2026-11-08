@@ -74,7 +74,7 @@ fn description(kind: MediaKind, providers: &[MediaProvider]) -> String {
                 .default_model(*provider, false)
                 .map(|model| format!(" (default model {model})"))
                 .unwrap_or_default();
-            format!("{}{model}", provider.slug())
+            format!("{}{model}", provider.as_ref())
         })
         .collect();
     format!(

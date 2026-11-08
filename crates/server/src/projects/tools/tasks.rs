@@ -99,8 +99,8 @@ impl Tool for TasksTool {
         let Some(slug) = args.task.as_deref() else {
             return Ok(ToolResult::failure(id, "Name the task by its slug."));
         };
-        let Some(task) = tasks.iter().find(|task| task.slug.as_str() == slug) else {
-            let slugs: Vec<&str> = tasks.iter().map(|task| task.slug.as_str()).collect();
+        let Some(task) = tasks.iter().find(|task| task.slug.as_ref() == slug) else {
+            let slugs: Vec<&str> = tasks.iter().map(|task| task.slug.as_ref()).collect();
             return Ok(ToolResult::failure(
                 id,
                 format!("There is no task {slug}. Tasks: {}.", slugs.join(", ")),
@@ -202,12 +202,12 @@ impl TasksTool {
         let after: Option<Option<TaskId>> = match args.after.as_deref().map(str::trim) {
             None => None,
             Some("") => Some(None),
-            Some(slug) if slug == task.slug.as_str() => {
+            Some(slug) if slug == task.slug.as_ref() => {
                 return Ok(Planned::Refused(
                     "A task cannot wait for itself.".to_owned(),
                 ));
             }
-            Some(slug) => match tasks.iter().find(|other| other.slug.as_str() == slug) {
+            Some(slug) => match tasks.iter().find(|other| other.slug.as_ref() == slug) {
                 Some(other) if waits_on(tasks, other, task.id) => {
                     return Ok(Planned::Refused(format!(
                         "{} cannot wait for {slug}: {slug} already waits for it, so neither \

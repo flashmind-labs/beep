@@ -14,7 +14,7 @@ import { failBanner } from "../ui/failbanner.ts";
 import { type AdapterInstall, adapterLine, adapterOf } from "../machines/adapters-state.ts";
 
 /// A machine as `list_machines` gives it; only these fields are read.
-interface MachineRow { id: string; name: string; online: boolean; adapters?: AdapterInstall[] }
+interface MachineRow { id: string; name: string; online: boolean; can_host?: boolean; adapters?: AdapterInstall[] }
 
 /// What the window hands `registerProviders`.
 interface ProvidersDeps {
@@ -72,8 +72,8 @@ export function registerProviders(deps: ProvidersDeps) {
   async function loadMachines() {
     try {
       const all = await invoke<MachineRow[]>("list_machines");
-      st.machines = all;
-      const online = all.filter(m => m.online);
+      st.machines = all.filter(m => m.can_host !== false);
+      const online = st.machines.filter(m => m.online);
       if (!st.machine || !online.some(m => m.id === st.machine)) st.machine = online[0]?.id ?? null;
     } catch (e) {
       st.machines = null;

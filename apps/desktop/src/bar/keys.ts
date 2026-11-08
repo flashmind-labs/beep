@@ -1,3 +1,8 @@
+import { closeChatFind, openChatFind, stepChatFind } from "../chat/find.ts";
+import { drawThrough } from "../chat/history.ts";
+import { loadOlder } from "../agents/older.ts";
+import { logSearchSources, revealLogUnit, watchLogSearch } from "../agents/logwindow.ts";
+import type { ChatBody } from "../ui/turn.ts";
 import { commandKey, WINDOWS } from "../ui/platform.ts";
 import { closeAgentNewMenus, renderAgentNew } from "../agents/agentnew.ts";
 import { keyHidden } from "../settings/subscription.ts";
@@ -136,6 +141,22 @@ document.addEventListener("keydown", e => {
   // Keys typed into a terminal of the pane are the terminal's: Tab, Esc
   // and the arrows go to the shell.
   if (!cmd && t instanceof Element && t.closest(".tm-xterm")) return;
+  if (!e.isComposing && e.key === "Escape" && closeChatFind()) { e.preventDefault(); return; }
+  if (cmd && !e.altKey && !e.isComposing && e.key.toLowerCase() === "g" && stepChatFind(e.shiftKey ? -1 : 1)) { e.preventDefault(); return; }
+  if (cmd && !e.altKey && !e.shiftKey && !e.isComposing && e.key.toLowerCase() === "f" && ["agent", "chat", "group"].includes(S.view) && !document.querySelector('[role="dialog"]:not(#bar), #viewer')) {
+    const body = $<ChatBody>(S.view === "agent" ? "#agbody" : S.view === "group" ? "#gbody" : "#body");
+    if (body) {
+      e.preventDefault();
+      openChatFind({
+        body,
+        sources: () => { const log = body.querySelector<HTMLElement>(".dcoderlog"); return log ? logSearchSources(log) : [{ key: "chat", root: body }]; },
+        reveal: key => body.querySelector(".dcoderlog") ? revealLogUnit(body, key) : body,
+        watch: changed => { const log = body.querySelector<HTMLElement>(".dcoderlog"); return log ? watchLogSearch(log, changed) : () => {}; },
+        prepare: S.view === "agent" ? () => loadOlder("all") : S.view === "chat" ? async () => { drawThrough(body, -1); } : undefined,
+      });
+      return;
+    }
+  }
   if (e.key === "Escape" && closeFilesMenu()) { e.preventDefault(); return; }
   if ($("#viewer")) return viewerKeys(e, cmd);
   if (LV.on && liveKeys(e, cmd)) return;

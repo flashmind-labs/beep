@@ -424,7 +424,7 @@ impl Peers {
         match active.filter(|active| active.mesh.is_member(me)) {
             Some(active) => active
                 .mesh
-                .devices()
+                .code_hosts()
                 .into_iter()
                 .map(|status| {
                     let device = status.device;
@@ -1280,7 +1280,7 @@ mod tests {
         let log = dir.path().join("beep.log");
         std::fs::write(&log, "a line\n").expect("the temp folder is writable");
         let offers = Offers {
-            log: Logs::file(log),
+            log: Logs::from(log),
             ..Offers::default()
         };
         offers.lend_to_peers(false);

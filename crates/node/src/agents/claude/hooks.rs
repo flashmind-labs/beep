@@ -358,11 +358,16 @@ pub(super) const WAITING: &[&str] = &[
     "agent_needs_input",
 ];
 
-impl HookMessage {
+impl TryFrom<&Value> for HookMessage {
+    type Error = anyhow::Error;
+
     /// Reads Claude Code's hook input.
-    pub(super) fn from_input(input: &Value) -> Option<Self> {
-        let event = serde_json::from_value(input["hook_event_name"].clone()).ok()?;
-        let session_id = input["session_id"].as_str()?.to_owned();
+    fn try_from(input: &Value) -> Result<Self> {
+        let event = serde_json::from_value(input["hook_event_name"].clone())?;
+        let session_id = input["session_id"]
+            .as_str()
+            .context("missing session id")?
+            .to_owned();
         let message = match event {
             HookEvent::Stop => input["last_assistant_message"].as_str(),
             _ => input["message"].as_str(),
@@ -386,7 +391,7 @@ impl HookMessage {
         .then(|| input["error"].as_str())
         .flatten()
         .map(|text| cut(text.trim(), MAX_DETAIL));
-        Some(Self {
+        Ok(Self {
             event,
             session_id,
             message: message.map(|text| cut(text.trim(), MAX_MESSAGE)),
@@ -398,7 +403,9 @@ impl HookMessage {
             error,
         })
     }
+}
 
+impl HookMessage {
     /// What it means for a follower, `None` for events nobody follows.
     pub(super) fn activity(&self) -> Option<Activity> {
         let kind = match self.event {
@@ -472,7 +479,7 @@ pub async fn forward(dir: &Path) {
     }
     let Some(message) = serde_json::from_str(&input)
         .ok()
-        .and_then(|input: Value| HookMessage::from_input(&input))
+        .and_then(|input: Value| HookMessage::try_from(&input).ok())
     else {
         return;
     };

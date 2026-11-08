@@ -149,7 +149,7 @@ async fn ask_machine(fleet: &Fleet, machine: EndpointId, want: &Want) -> Listed 
             },
             async {
                 if want.ptys {
-                    terminals::list_ptys(&client).await.ok()
+                    terminals::list_ptys_fresh(&client).await.ok()
                 } else {
                     None
                 }
@@ -357,7 +357,7 @@ pub(crate) async fn get(fleet: &Fleet, id: Uuid) -> Result<TerminalOutput> {
     };
     if row.record.pty {
         // Output streams through attach; this only says how it stands.
-        let state = match terminals::list_ptys(&client).await {
+        let state = match terminals::list_ptys_fresh(&client).await {
             Ok(tasks) => state_of(&row.kept(), &tasks),
             Err(_) => TerminalState::Offline {},
         };
@@ -438,7 +438,7 @@ pub(crate) async fn attach(
         return ended(TerminalState::Offline {});
     };
     // A restarted node hands numbers out again.
-    let Ok(listed) = terminals::list_ptys(&client).await else {
+    let Ok(listed) = terminals::list_ptys_fresh(&client).await else {
         return ended(TerminalState::Offline {});
     };
     let now = state_of(&row.kept(), &listed);

@@ -4,7 +4,8 @@ use super::{CheckoutPlan, Effort};
 use crate::{AgentContext, AgentToolCall, ModelId, ProviderCredits, Upload};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::str::FromStr;
+use strum::ParseError;
 
 /// What the server sends on an agent stream.
 /// A node older than a request answers that it does not know it.
@@ -258,42 +259,26 @@ pub struct Task {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[derive(strum::AsRefStr, strum::IntoStaticStr, strum::EnumString)]
 pub enum TaskState {
     #[default]
+    #[strum(serialize = "running")]
     Running,
+    #[strum(serialize = "paused")]
     Paused,
+    #[strum(serialize = "completed")]
     Completed,
+    #[strum(serialize = "failed")]
     Failed,
+    #[strum(serialize = "stopped")]
     Stopped,
     /// A state from a newer node.
     #[serde(other)]
+    #[strum(serialize = "unknown")]
     Unknown,
 }
 
 impl TaskState {
-    /// The state ACP names `name`, such as `running`.
-    pub fn from_acp(name: &str) -> Self {
-        match name {
-            "running" => Self::Running,
-            "paused" => Self::Paused,
-            "completed" => Self::Completed,
-            "failed" => Self::Failed,
-            "stopped" => Self::Stopped,
-            _ => Self::Unknown,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Running => "running",
-            Self::Paused => "paused",
-            Self::Completed => "completed",
-            Self::Failed => "failed",
-            Self::Stopped => "stopped",
-            Self::Unknown => "unknown",
-        }
-    }
-
     pub fn ended(self) -> bool {
         matches!(self, Self::Completed | Self::Failed | Self::Stopped)
     }
@@ -301,40 +286,28 @@ impl TaskState {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[derive(strum::AsRefStr, strum::IntoStaticStr, strum::Display)]
 pub enum Status {
     /// The agent is starting up.
     #[default]
+    #[strum(serialize = "starting")]
     Starting,
     /// A turn is running.
+    #[strum(serialize = "working")]
     Working,
     /// A turn waits for an answer to `question`.
+    #[strum(serialize = "waiting for an answer")]
     Asking,
     /// Waiting for a prompt.
+    #[strum(serialize = "idle")]
     Idle,
     /// The agent stopped: it failed, exited or was closed.
+    #[strum(serialize = "ended")]
     Ended,
     /// A status from a newer node.
     #[serde(other)]
+    #[strum(serialize = "unknown")]
     Unknown,
-}
-
-impl Status {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Starting => "starting",
-            Self::Working => "working",
-            Self::Asking => "waiting for an answer",
-            Self::Idle => "idle",
-            Self::Ended => "ended",
-            Self::Unknown => "unknown",
-        }
-    }
-}
-
-impl fmt::Display for Status {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -383,38 +356,23 @@ pub struct AnswerOption {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[derive(strum::AsRefStr, strum::IntoStaticStr, strum::EnumString)]
 pub enum OptionKind {
+    #[strum(serialize = "allow_once")]
     AllowOnce,
+    #[strum(serialize = "allow_always")]
     AllowAlways,
+    #[strum(serialize = "reject_once")]
     RejectOnce,
+    #[strum(serialize = "reject_always")]
     RejectAlways,
     #[default]
     #[serde(other)]
+    #[strum(serialize = "other")]
     Other,
 }
 
 impl OptionKind {
-    /// The kind ACP names `name`, such as `allow_once`.
-    pub fn from_acp(name: &str) -> Self {
-        match name {
-            "allow_once" => Self::AllowOnce,
-            "allow_always" => Self::AllowAlways,
-            "reject_once" => Self::RejectOnce,
-            "reject_always" => Self::RejectAlways,
-            _ => Self::Other,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::AllowOnce => "allow_once",
-            Self::AllowAlways => "allow_always",
-            Self::RejectOnce => "reject_once",
-            Self::RejectAlways => "reject_always",
-            Self::Other => "other",
-        }
-    }
-
     pub fn rejects(self) -> bool {
         matches!(self, Self::RejectOnce | Self::RejectAlways)
     }
@@ -423,48 +381,24 @@ impl OptionKind {
 /// Why a turn ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[derive(strum::AsRefStr, strum::IntoStaticStr, strum::Display)]
 pub enum StopReason {
+    #[strum(serialize = "finished")]
     EndTurn,
+    #[strum(serialize = "hit the token limit")]
     MaxTokens,
+    #[strum(serialize = "hit the request limit")]
     MaxTurnRequests,
+    #[strum(serialize = "refused")]
     Refusal,
+    #[strum(serialize = "cancelled")]
     Cancelled,
     /// The agent answered the prompt with an error.
+    #[strum(serialize = "failed")]
     Failed,
     #[serde(other)]
+    #[strum(serialize = "stopped")]
     Other,
-}
-
-impl StopReason {
-    /// The reason ACP names `name`, such as `end_turn`.
-    pub fn from_acp(name: &str) -> Self {
-        match name {
-            "end_turn" => Self::EndTurn,
-            "max_tokens" => Self::MaxTokens,
-            "max_turn_requests" => Self::MaxTurnRequests,
-            "refusal" => Self::Refusal,
-            "cancelled" => Self::Cancelled,
-            _ => Self::Other,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::EndTurn => "finished",
-            Self::MaxTokens => "hit the token limit",
-            Self::MaxTurnRequests => "hit the request limit",
-            Self::Refusal => "refused",
-            Self::Cancelled => "cancelled",
-            Self::Failed => "failed",
-            Self::Other => "stopped",
-        }
-    }
-}
-
-impl fmt::Display for StopReason {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
 }
 
 /// One entry of a transcript.
@@ -493,30 +427,42 @@ impl Entry {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[derive(strum::AsRefStr, strum::IntoStaticStr)]
 pub enum EntryKind {
     /// A prompt sent to the agent.
+    #[strum(serialize = "user")]
     User,
     /// What the agent said.
+    #[strum(serialize = "agent")]
     Agent,
     /// A tool call and how it went.
+    #[strum(serialize = "tool")]
     Tool,
     /// A permission question and its answer.
+    #[strum(serialize = "question")]
     Question,
     /// What the agent thought, as its `agent_thought_chunk`s said it.
+    #[strum(serialize = "thought")]
     Thought,
+    /// The conversation was compacted.
+    #[strum(serialize = "compacted")]
+    Compacted,
     #[serde(other)]
+    #[strum(serialize = "other")]
     Other,
 }
 
-impl EntryKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::Agent => "agent",
-            Self::Tool => "tool",
-            Self::Question => "question",
-            Self::Thought => "thought",
-            Self::Other => "other",
+impl FromStr for StopReason {
+    type Err = ParseError;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        match name {
+            "end_turn" => Ok(Self::EndTurn),
+            "max_tokens" => Ok(Self::MaxTokens),
+            "max_turn_requests" => Ok(Self::MaxTurnRequests),
+            "refusal" => Ok(Self::Refusal),
+            "cancelled" => Ok(Self::Cancelled),
+            _ => Err(ParseError::VariantNotFound),
         }
     }
 }

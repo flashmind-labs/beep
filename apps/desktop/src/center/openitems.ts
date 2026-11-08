@@ -51,7 +51,7 @@ export function openItemRow(item: GitItemRow, project: ReviewProject, f?: LabelF
     h("span", "age", ago(item.updated_at)),
     // Review prefills Start a coding agent: in the project's folder on an
     // online machine when it is imported, else on Auto.
-    item.kind === "pull_request" ? rowButton("Review", "small", () => go("pane", { agentnew: reviewStart(item, project, state.home?.machines) })) : null,
+    item.kind === "pull_request" ? rowButton("Review", "small", () => go("pane", { agentnew: reviewStart(item, project, state.home?.machines?.filter(m => m.can_host !== false)) })) : null,
     rowButton("Reply", "small", () => replyItem(item)),
   ];
   const row = h("div", "cc-row cc-line cc-gr it", extra?.pick, h("span", "ic", kindIcon), title, h("span", "r", ...right, extra?.action));
@@ -94,7 +94,7 @@ function rowImportButton(p: OpenRepo): HTMLElement {
 /// Where Import puts it: the last machine and folder used, else the server's
 /// default on the first online machine.
 function importPlace(p: OpenRepo) {
-  const machines = (state.home?.machines || []).filter(m => m.online);
+  const machines = (state.home?.machines || []).filter(m => m.online && m.can_host !== false);
   const last = lastImport();
   const machine = machines.find(m => m.id === last?.machine) || machines[0] || null;
   const folder = machine && last?.root && machine.id === last.machine ? folderUnder(last.root, importRepo(p)) : null;
@@ -136,7 +136,7 @@ async function quickImport(p: OpenRepo) {
 function importWithSettings(p: OpenRepo) {
   const { machine, folder } = importPlace(p);
   openImportProject({
-    machines: state.home?.machines || [],
+    machines: (state.home?.machines || []).filter(m => m.can_host !== false),
     macId: state.mac?.id || null,
     repo: importRepo(p),
     machine: machine?.id ?? null,

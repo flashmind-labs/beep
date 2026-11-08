@@ -63,8 +63,8 @@ impl Store {
              FROM event_triage WHERE id=$1 AND user_id=$2 AND decision=$3",
         )
         .bind(id)
-        .bind(user.as_str())
-        .bind(Verdict::Inform.as_str())
+        .bind(user.as_ref())
+        .bind(Verdict::Inform.as_ref())
         .fetch_optional(&self.pool)
         .await?
         else {
@@ -75,7 +75,7 @@ impl Store {
             "SELECT id, app, kind, summary, detail, ids, occurred_at, state, raw FROM app_events
              WHERE user_id=$1 AND id = ANY($2) ORDER BY id",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(&update.refs)
         .fetch_all(&self.pool)
         .await?;
@@ -105,8 +105,8 @@ impl Store {
              WHERE id=$1 AND user_id=$2 AND decision=$3 RETURNING id",
         )
         .bind(id)
-        .bind(user.as_str())
-        .bind(Verdict::Inform.as_str())
+        .bind(user.as_ref())
+        .bind(Verdict::Inform.as_ref())
         .fetch_optional(&mut *tx)
         .await?;
         if found.is_none() {
@@ -123,7 +123,7 @@ impl Store {
             return Ok(Some(UpdateChat { chat, made: false }));
         }
         let chat = Uuid::new_v4();
-        if ensure_session(&mut tx, user.as_str(), chat).await? != SessionChat::New {
+        if ensure_session(&mut tx, user.as_ref(), chat).await? != SessionChat::New {
             bail!("a fresh chat id was already taken");
         }
         sqlx::query("UPDATE chats SET title=$2, titled_at=now() WHERE id=$1")
@@ -144,13 +144,13 @@ impl Store {
                 content: seed.message.to_owned(),
             },
         };
-        let ids = insert_steps(&mut tx, chat, user.as_str(), &[step], None).await?;
+        let ids = insert_steps(&mut tx, chat, user.as_ref(), &[step], None).await?;
         sqlx::query("INSERT INTO update_chats (triage_id, chat_id) VALUES ($1, $2)")
             .bind(id)
             .bind(chat)
             .execute(&mut *tx)
             .await?;
-        let readers = Readers::User(user.as_str());
+        let readers = Readers::User(user.as_ref());
         let mut bumped = log_chat(&mut tx, chat, UpdateOp::Chat, readers).await?;
         bumped.extend(log_messages(&mut tx, chat, &ids, UpdateOp::Message, readers).await?);
         tx.commit().await?;

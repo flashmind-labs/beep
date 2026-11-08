@@ -3,7 +3,7 @@
 //! on what an app may ask of a session before a node is asked. A session
 //! lives in the node, so dropping the stream leaves it running.
 
-use super::{said, unexpected};
+use super::{said, stream_closed, timed_out, unexpected};
 use crate::{CALL_TIMEOUT, MeshError, PeerClient};
 use beep_proto::{
     AgentCheckoutPlan, AgentEffort, AgentHost, AgentSteer, ApiError, ModelId, agent_name,
@@ -49,11 +49,11 @@ pub async fn open_agent(
     } else {
         timeout(CALL_TIMEOUT, rx.recv::<Event>())
             .await
-            .map_err(|_| said("the node did not answer"))?
+            .map_err(|e| timed_out(e, "the node did not answer"))?
     };
     let event = reply
         .map_err(MeshError::Link)?
-        .ok_or_else(|| said("the node closed the session stream"))?;
+        .ok_or_else(|| stream_closed("the node closed the session stream"))?;
     match event {
         Event::Attached { session } => Ok(Opened {
             info: *session,
@@ -81,13 +81,13 @@ pub async fn order(
                 Some(Event::Ack { error: Some(error) }) => return Err(said(error)),
                 Some(Event::Ended { reason }) => return Err(said(reason)),
                 Some(_) => {}
-                None => return Err(said("lost the session's stream")),
+                None => return Err(stream_closed("lost the session's stream")),
             }
         }
     };
     timeout(limit, wait)
         .await
-        .map_err(|_| said("the node did not answer"))?
+        .map_err(|e| timed_out(e, "the node did not answer"))?
 }
 
 /// Waits on an attached stream until the node says the session ended, as it
@@ -104,7 +104,7 @@ pub async fn ended(opened: &mut Opened, limit: Duration) -> Result<(), MeshError
     };
     timeout(limit, wait)
         .await
-        .map_err(|_| said("the session did not end in time"))?
+        .map_err(|e| timed_out(e, "the session did not end in time"))?
 }
 
 /// The prompt a node from before `Request::Steer` gets for one, sent after the running turn.
@@ -155,7 +155,7 @@ pub fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
         AgentSteer::Configure { model, effort } => Request::Configure {
             model: model
                 .as_ref()
-                .map(|m| m.as_str().trim())
+                .map(|m| m.as_ref().trim())
                 .filter(|m| !m.is_empty())
                 .map(ModelId::from),
             effort: effort.map(Into::into),
@@ -186,7 +186,7 @@ pub fn picked_effort(
         return Err(ApiError::bad_request(format!(
             "{} cannot be set to think at {}.",
             agent_name(agent),
-            effort.as_str()
+            <&'static str>::from(effort)
         )));
     }
     Ok(Some(effort))

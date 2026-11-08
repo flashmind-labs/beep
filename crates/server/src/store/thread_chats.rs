@@ -86,7 +86,7 @@ impl Store {
              WHERE t.chat_id=$1 AND p.user_id=$2",
         )
         .bind(chat)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_optional(&self.pool)
         .await?;
         row.as_ref().map(row_from).transpose()
@@ -123,7 +123,7 @@ async fn thread_chat_in(
     let found: Option<Uuid> =
         sqlx::query_scalar("SELECT id FROM projects WHERE id=$1 AND user_id=$2 FOR UPDATE")
             .bind(project.0)
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .fetch_optional(&mut *tx)
             .await?;
     if found.is_none() {
@@ -142,7 +142,7 @@ async fn thread_chat_in(
         return row_from(&row);
     }
     let chat = Uuid::new_v4();
-    if ensure_session(&mut *tx, user.as_str(), chat).await? != SessionChat::New {
+    if ensure_session(&mut *tx, user.as_ref(), chat).await? != SessionChat::New {
         bail!("a fresh chat id was already taken");
     }
     sqlx::query("UPDATE chats SET title=$2 WHERE id=$1")

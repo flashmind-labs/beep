@@ -11,11 +11,11 @@ macro_rules! one {
 /// a new shape is a new variant.
 macro_rules! wire_enum {
     ($(#[$meta:meta])* pub enum $enum:ident {
-        $($op:literal $name:ident { $($field:ident: $ty:ty),* $(,)? })*
+        $($(#[$variant_meta:meta])* $op:literal $name:ident { $($field:ident: $ty:ty),* $(,)? })*
     }) => {
         $(#[$meta])*
         pub enum $enum {
-            $($name { $($field: $ty),* },)*
+            $($(#[$variant_meta])* $name { $($field: $ty),* },)*
         }
 
         impl serde::Serialize for $enum {

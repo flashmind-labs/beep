@@ -252,23 +252,15 @@ pub(super) enum End {
 }
 
 /// Why the node asked the agent to end its turn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
 pub(super) enum Stopping {
     /// The user stopped it.
+    #[strum(serialize = "Stopping")]
     User,
     /// A tool call finished with a steer waiting: the turn ends there and
     /// the steer goes as the next prompt.
+    #[strum(serialize = "Taking your message")]
     Steer,
-}
-
-impl Stopping {
-    /// What the session says it does meanwhile.
-    pub(super) fn summary(self) -> &'static str {
-        match self {
-            Self::User => "Stopping",
-            Self::Steer => "Taking your message",
-        }
-    }
 }
 
 /// The pipes the session reads besides ACP.
@@ -544,7 +536,11 @@ impl Actor {
                     self.mode_is(cx, now.current_mode_id.to_string());
                 }
                 let finished = self.tool_finished(&update);
-                self.live.send_if_modified(|live| live.apply(&update));
+                // Followers also need transcript and metadata changes that
+                // leave the compact state unchanged.
+                self.live.send_modify(|live| {
+                    live.apply(&update);
+                });
                 self.look_for_place();
                 if let Some(stopping) = self.stopping {
                     self.show_stopping(stopping);
@@ -628,7 +624,7 @@ impl Actor {
                 model,
                 result: Ok(()),
             } => {
-                self.model_is(Some(model.as_str()));
+                self.model_is(Some(model.as_ref()));
                 self.think(cx);
             }
             Reply::Reconfigured {
@@ -638,7 +634,7 @@ impl Actor {
             } => match result {
                 Ok(()) => {
                     if let Some(model) = model {
-                        self.model_is(Some(model.as_str()));
+                        self.model_is(Some(model.as_ref()));
                     }
                     self.note(&format!("Switched to {what} from the next turn"));
                 }
@@ -649,7 +645,7 @@ impl Actor {
                     self.note(&format!(
                         "{} could not be set to think at {}, so it thinks at its own level: {e}",
                         agent_title(&self.agent),
-                        effort.as_str()
+                        effort.as_ref()
                     ));
                 }
                 self.unprompted(cx);
@@ -702,7 +698,9 @@ impl Actor {
                 self.live.send_modify(|live| live.spent(tokens));
                 let (stop, error) = match result {
                     Ok(done) => (
-                        StopReason::from_acp(&acp::wire_name(&done.stop_reason)),
+                        acp::wire_name(&done.stop_reason)
+                            .parse()
+                            .unwrap_or(StopReason::Other),
                         None,
                     ),
                     Err(e) => (StopReason::Failed, Some(e.to_string())),
@@ -849,7 +847,7 @@ impl Actor {
             self.think(cx);
             return None;
         };
-        match acp::switch_model(&session, &switch, model.as_str()) {
+        match acp::switch_model(&session, &switch, model.as_ref()) {
             Ok(request) => {
                 // The first prompt waits for the model.
                 self.send(cx, request, move |result| Reply::ModelSet {
@@ -897,7 +895,7 @@ impl Actor {
             format!(
                 "{} here cannot be set to think at {}, so it thinks at its own level",
                 agent_title(agent),
-                effort.as_str()
+                effort.as_ref()
             )
         };
         let Some(id) = self.thinking.clone() else {

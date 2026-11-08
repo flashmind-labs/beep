@@ -24,7 +24,7 @@ impl Store {
              WHERE a.user_id = $1 AND a.key = $2
                AND f.created_at >= now() - make_interval(secs => $3)",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(key)
         .bind(FILE_KEEP.as_secs_f64())
         .fetch_optional(&self.pool)

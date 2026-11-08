@@ -69,7 +69,7 @@ pub(super) fn describe_action(
     call: &ToolCall,
     conversation: &Conversation,
 ) -> String {
-    let action = action_name(app, ToolSlug::new(&call.name).as_str());
+    let action = action_name(app, ToolSlug::new(&call.name).as_ref());
     let mut fields = records(call, conversation);
     fields.extend(fields_of(&call.arguments));
     let details: Vec<String> = fields

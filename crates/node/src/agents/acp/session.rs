@@ -257,7 +257,7 @@ pub(in crate::agents) fn set_effort(
 ) -> Result<UntypedMessage, agent_client_protocol::Error> {
     UntypedMessage::new(
         AGENT_METHOD_NAMES.session_set_config_option,
-        SetSessionConfigOptionRequest::new(session.clone(), id.clone(), effort.as_str()),
+        SetSessionConfigOptionRequest::new(session.clone(), id.clone(), effort.as_ref()),
     )
 }
 
@@ -371,7 +371,7 @@ mod tests {
         });
         let offered = offered_models(&answer);
         assert_eq!(offered.current.as_deref(), Some("gpt-test"));
-        let ids: Vec<&str> = offered.models.iter().map(|m| m.id.as_str()).collect();
+        let ids: Vec<&str> = offered.models.iter().map(|m| m.id.as_ref()).collect();
         assert_eq!(ids, ["gpt-test", "gpt-mini"]);
         assert_eq!(offered.models[1].description.as_deref(), Some("Faster"));
         let switch = offered.switch.expect("a switch");

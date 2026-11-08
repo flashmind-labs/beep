@@ -105,7 +105,7 @@ impl User {
         }
         Feed::ALL
             .into_iter()
-            .filter(|feed| connected.contains(feed.slug()))
+            .filter(|feed| connected.contains(feed.as_ref()))
             .collect()
     }
 

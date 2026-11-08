@@ -216,9 +216,9 @@ impl Task {
                 let prior = state.saved.seen.get(&now.found.path).cloned();
                 if prior
                     .as_ref()
-                    .is_none_or(|prior| prior.hash != *now.oid.as_bytes())
+                    .is_none_or(|prior| prior.hash != *now.oid.as_ref())
                 {
-                    hashed.push((&now.found, *now.oid.as_bytes(), prior));
+                    hashed.push((&now.found, *now.oid.as_ref(), prior));
                 }
             }
         }

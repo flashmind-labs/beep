@@ -126,7 +126,7 @@ impl App {
     ) -> Result<String> {
         let mut ctx = String::from("## Research\n");
         let _ = writeln!(ctx, "Topic: {}", research.topic);
-        let _ = writeln!(ctx, "Status: {}", research.status.as_str());
+        let _ = writeln!(ctx, "Status: {}", research.status.as_ref());
         if let Some(plan) = &research.plan {
             let _ = writeln!(ctx, "Round: {}", plan.round());
         }

@@ -29,7 +29,7 @@ impl Store {
                  longitude=excluded.longitude, accuracy=excluded.accuracy,
                  timezone=excluded.timezone, place=excluded.place, updated_at=excluded.updated_at",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(fix.latitude)
         .bind(fix.longitude)
         .bind(fix.accuracy)
@@ -46,7 +46,7 @@ impl Store {
         let changed = sqlx::query(
             "UPDATE users SET timezone=$2 WHERE id=$1 AND timezone IS DISTINCT FROM $2",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(timezone)
         .execute(&self.pool)
         .await?
@@ -63,7 +63,7 @@ impl Store {
             "SELECT latitude, longitude, accuracy, timezone, place, updated_at FROM locations
              WHERE user_id=$1",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_optional(&self.pool)
         .await?;
         row.map(|r| {
@@ -81,7 +81,7 @@ impl Store {
 
     pub(crate) async fn get_timezone(&self, user: &UserKey) -> Result<String> {
         let timezone: Option<String> = sqlx::query_scalar("SELECT timezone FROM users WHERE id=$1")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .fetch_optional(&self.pool)
             .await?
             .flatten();

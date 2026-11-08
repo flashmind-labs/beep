@@ -78,7 +78,7 @@ impl Live {
                 let Some(task) = self.task_mut(&async_task_id) else {
                     return false;
                 };
-                task.state = TaskState::from_acp(&state);
+                task.state = state.parse().unwrap_or(TaskState::Unknown);
                 task.summary = summary.map(|summary| cut(&summary, MAX_LINE));
                 task.output_file = output_file_path.or(task.output_file.take());
                 task.tool_call = tool_call_id.or(task.tool_call.take());

@@ -1,4 +1,4 @@
-use super::read::{ALPN, Pulled, pull};
+use super::read::{ALPN, Access, Pulled, pull};
 use crate::{
     agents::{Agents, found::Stores},
     link::Membership,
@@ -30,7 +30,11 @@ impl ProtocolHandler for Open {
             return Ok(());
         };
         let (tx, rx) = link(send, recv);
-        let _ = super::read::serve(tx, rx, &self.0, "laptop", &|_, _| true, &[]).await;
+        let access = Access {
+            check: &|_, _| true,
+            updates: None,
+        };
+        let _ = super::read::serve(tx, rx, &self.0, "laptop", access, &[]).await;
         connection.closed().await;
         Ok(())
     }
@@ -210,7 +214,11 @@ impl ProtocolHandler for Strict {
             return Ok(());
         };
         let (tx, rx) = link(send, recv);
-        let _ = super::read::serve(tx, rx, &self.0, "laptop", &|_, _| false, &[]).await;
+        let access = Access {
+            check: &|_, _| false,
+            updates: None,
+        };
+        let _ = super::read::serve(tx, rx, &self.0, "laptop", access, &[]).await;
         connection.closed().await;
         Ok(())
     }

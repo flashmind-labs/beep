@@ -2,7 +2,6 @@
 //! `session()`, or to the node in this process with no network at all.
 
 use crate::{Mesh, MeshError};
-use anyhow::anyhow;
 use beep_proto::node::events::{Read, Value};
 use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link, link_on, local_link};
 use futures::Stream;
@@ -276,7 +275,11 @@ impl PeerClient {
             rx.recv()
                 .await
                 .map_err(MeshError::Link)?
-                .ok_or_else(|| MeshError::Link(anyhow!("the node closed the stream")))
+                .ok_or_else(|| {
+                    MeshError::Link(
+                        io::Error::new(ErrorKind::UnexpectedEof, "the node closed the stream").into(),
+                    )
+                })
         })
         .await;
         match result {
@@ -331,7 +334,11 @@ async fn answer(rx: &mut LinkRx, protocol: &str) -> Result<(), MeshError> {
         .recv::<Opened>()
         .await
         .map_err(MeshError::Link)?
-        .ok_or_else(|| MeshError::Link(anyhow!("the node closed the stream")))?;
+        .ok_or_else(|| {
+            MeshError::Link(
+                io::Error::new(ErrorKind::UnexpectedEof, "the node closed the stream").into(),
+            )
+        })?;
     match opened {
         Opened::Ready {} => Ok(()),
         Opened::Refused { reason } => Err(MeshError::Declined {

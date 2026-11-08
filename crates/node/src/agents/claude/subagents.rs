@@ -23,12 +23,12 @@ fn conversation(session: &Path, agent: &str) -> Option<String> {
         session.file_stem()?.to_str()?
     };
     let id = Conversation::Claude { parent, agent }.to_string();
-    Conversation::parse(&id).is_some().then_some(id)
+    Conversation::try_from(id.as_str()).is_ok().then_some(id)
 }
 
 /// The native child reached through its parent's conversation, never a root listing.
 pub(super) fn session(store: &Store, id: &str) -> std::io::Result<Option<ExternalSession>> {
-    let Some(Conversation::Claude { parent, agent }) = Conversation::parse(id) else {
+    let Some(Conversation::Claude { parent, agent }) = Conversation::try_from(id).ok() else {
         return Ok(None);
     };
     let Some(path) = store.find(id) else {
@@ -103,21 +103,12 @@ struct Found {
 }
 
 /// How a subagent or one of its steps stands, by its wire name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display)]
+#[strum(serialize_all = "snake_case")]
 enum Status {
     InProgress,
     Completed,
     Failed,
-}
-
-impl Status {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::InProgress => "in_progress",
-            Self::Completed => "completed",
-            Self::Failed => "failed",
-        }
-    }
 }
 
 /// A subagent's own lines: the calls it made and its last text.
@@ -381,7 +372,7 @@ fn text(spawn: &Spawn, agent: &Found, run: &Run) -> String {
         .filter(|title| !title.is_empty())
         .unwrap_or("Subagent");
     let title = title.lines().next().unwrap_or_default();
-    let mut text = format!("{title} [{}]\n[steps] {}", status.as_str(), run.steps.len());
+    let mut text = format!("{title} [{status}]\n[steps] {}", run.steps.len());
     for step in &run.steps[run.steps.len().saturating_sub(MAX_STEPS)..] {
         // A step left running in a finished subagent did not fail.
         let shown = match step.status {
@@ -389,11 +380,7 @@ fn text(spawn: &Spawn, agent: &Found, run: &Run) -> String {
             other => other,
         };
         let title = step.title.lines().next().unwrap_or_default();
-        text.push_str(&format!(
-            "\n[step {}] {}",
-            shown.as_str(),
-            cut(title, MAX_STEP)
-        ));
+        text.push_str(&format!("\n[step {}] {}", shown, cut(title, MAX_STEP)));
     }
     let name = agent
         .meta

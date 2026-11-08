@@ -432,7 +432,7 @@ mod tests {
     fn names(agents: &[CustomAgent]) -> Vec<(&str, &str)> {
         agents
             .iter()
-            .map(|a| (a.harness.as_str(), a.name.as_str()))
+            .map(|a| (a.harness.as_ref(), a.name.as_str()))
             .collect()
     }
 

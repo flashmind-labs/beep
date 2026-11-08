@@ -31,7 +31,7 @@ pub(super) async fn remove_machine_rows(
         let found: Vec<String> = sqlx::query_scalar(&format!(
             "DELETE FROM {table} WHERE user_id=$1 AND endpoint_id=$2 RETURNING project"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(endpoint)
         .fetch_all(&mut *tx)
         .await?;
@@ -42,7 +42,7 @@ pub(super) async fn remove_machine_rows(
          WHERE c.project_id = p.id AND p.user_id=$1 AND c.machine=$2
          RETURNING p.name, c.project_id, c.home",
     )
-    .bind(user.as_str())
+    .bind(user.as_ref())
     .bind(endpoint)
     .fetch_all(&mut *tx)
     .await?;
@@ -63,7 +63,7 @@ pub(super) async fn remove_machine_rows(
          AND NOT EXISTS (SELECT 1 FROM project_checkouts c JOIN projects p ON p.id = c.project_id
                          WHERE p.user_id=$1 AND lower(p.name)=lower(n))",
     )
-    .bind(user.as_str())
+    .bind(user.as_ref())
     .bind(&names)
     .fetch_all(&mut *tx)
     .await?;
@@ -83,7 +83,7 @@ pub(super) async fn remove_machine_rows(
     .execute(&mut *tx)
     .await?;
     sqlx::query("UPDATE projects SET pin=NULL WHERE user_id=$1 AND pin=$2")
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(endpoint)
         .execute(&mut *tx)
         .await?;
@@ -93,7 +93,7 @@ pub(super) async fn remove_machine_rows(
         "SELECT {WORKER_COLUMNS} FROM project_workers w
          WHERE w.user_id=$1 AND w.machine=$2 AND w.state = ANY($3) ORDER BY w.started_at"
     ))
-    .bind(user.as_str())
+    .bind(user.as_ref())
     .bind(endpoint)
     .bind(live_states())
     .fetch_all(&mut *tx)
@@ -102,7 +102,7 @@ pub(super) async fn remove_machine_rows(
         gone.removed.workers.push(worker_from(row)?);
     }
     sqlx::query("DELETE FROM project_workers WHERE user_id=$1 AND machine=$2")
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(endpoint)
         .execute(&mut *tx)
         .await?;
@@ -111,14 +111,14 @@ pub(super) async fn remove_machine_rows(
         sqlx::query(&format!(
             "DELETE FROM {table} WHERE user_id=$1 AND {column}=$2"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(endpoint)
         .execute(&mut *tx)
         .await?;
     }
     // A session it started elsewhere alerts the user's computers from now on.
     sqlx::query("DELETE FROM agent_session_starts WHERE user_id=$1 AND (machine=$2 OR device=$2)")
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(endpoint)
         .execute(&mut *tx)
         .await?;
@@ -128,7 +128,7 @@ pub(super) async fn remove_machine_rows(
              (SELECT file_id FROM agent_images WHERE user_id=$1 AND machine_id=$2)
          RETURNING id",
     )
-    .bind(user.as_str())
+    .bind(user.as_ref())
     .bind(endpoint)
     .fetch_all(&mut *tx)
     .await?;

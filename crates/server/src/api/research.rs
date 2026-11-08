@@ -45,14 +45,14 @@ pub(super) async fn get_research(
         round,
         id: row.id,
         topic: row.topic,
-        status: row.status.wire(),
+        status: Into::<ResearchStatus>::into(row.status),
         agents,
         entries: entries
             .iter()
             .map(|entry| ResearchEntry {
                 seq: entry.seq,
                 agent: entry.member.to_string(),
-                body: entry.entry.wire(),
+                body: Into::<ResearchEntryBody>::into(&entry.entry),
                 timestamp: entry.created_at.timestamp_millis(),
             })
             .collect(),
@@ -85,7 +85,7 @@ pub(super) async fn list_researches(
                 session_id: research.chat,
                 round: research.plan.as_ref().map_or(1, Plan::round),
                 topic: research.topic,
-                status: research.status.wire(),
+                status: Into::<ResearchStatus>::into(research.status),
                 sources: listed.sources,
                 started_at: research.created_at.timestamp_millis(),
                 finished_at: research.finished_at.map(|at| at.timestamp_millis()),

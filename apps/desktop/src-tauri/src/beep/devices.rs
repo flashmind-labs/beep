@@ -9,10 +9,10 @@ use crate::{
     error::{DesktopError, Result},
     fleet::Fleet,
 };
-use beep_mesh::DeviceKind;
+use beep_mesh::machine::Device;
 use beep_proto::{
-    DeviceInvite, InviteDevice, JoinAccount, JoinPreview, LinkedDevice, ListDevices, PeekInvite,
-    RemoveDevice,
+    DeviceInvite, DeviceKind as AccountDeviceKind, InviteDevice, JoinAccount, JoinPreview,
+    LinkedDevice, ListDevices, PeekInvite, RemoveDevice,
     link::{format_join_code, join_code},
 };
 use iroh::EndpointId;
@@ -54,24 +54,31 @@ async fn start_here(app: &AppHandle, beep: &Beep) -> Result<()> {
 
 /// A device on the account, as Settings lists it.
 #[derive(Serialize)]
-pub struct DeviceView {
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum DeviceView {
+    Phone(DeviceInfo),
+    Desktop(DeviceInfo),
+}
+
+#[derive(Serialize)]
+pub struct DeviceInfo {
     id: String,
     name: String,
-    /// `phone` or `desktop`.
-    kind: &'static str,
-    /// A desktop, which adds and removes other devices.
     primary: bool,
     this_device: bool,
 }
 
 impl From<LinkedDevice> for DeviceView {
     fn from(device: LinkedDevice) -> Self {
-        Self {
+        let info = DeviceInfo {
             id: device.id,
             name: device.name,
-            kind: device.kind.as_str(),
             primary: device.primary,
             this_device: device.this_device,
+        };
+        match device.kind {
+            AccountDeviceKind::Phone {} => Self::Phone(info),
+            AccountDeviceKind::Desktop {} => Self::Desktop(info),
         }
     }
 }
@@ -98,16 +105,27 @@ pub struct Devices {
 #[tauri::command]
 pub async fn list_devices(beep: Service<'_>, fleet: State<'_, Arc<Fleet>>) -> Result<Devices> {
     let mut devices: Vec<DeviceView> = fleet
-        .machines()
+        .mesh()
+        .map(|mesh| mesh.inventory())
+        .unwrap_or_default()
         .into_iter()
-        .map(|status| status.device)
-        .filter(|device| device.kind == DeviceKind::Desktop)
-        .map(|device| DeviceView {
-            this_device: device.id == fleet.id(),
-            id: device.id.to_string(),
-            name: device.name,
-            kind: "desktop",
-            primary: true,
+        .filter_map(|device| {
+            let (status, phone) = match device {
+                Device::Node(_) => return None,
+                Device::Phone(status) => (status, true),
+                Device::Desktop(status) => (status, false),
+            };
+            let info = DeviceInfo {
+                this_device: status.device.id == fleet.id(),
+                id: status.device.id.to_string(),
+                name: status.device.name,
+                primary: true,
+            };
+            Some(if phone {
+                DeviceView::Phone(info)
+            } else {
+                DeviceView::Desktop(info)
+            })
         })
         .collect();
     let mut server = ServerReach::None;
@@ -118,7 +136,7 @@ pub async fn list_devices(beep: Service<'_>, fleet: State<'_, Arc<Fleet>>) -> Re
                 devices.extend(
                     linked
                         .into_iter()
-                        .filter(|device| device.kind.as_str() == "phone")
+                        .filter(|device| device.kind == AccountDeviceKind::Phone {})
                         .map(DeviceView::from),
                 );
             }

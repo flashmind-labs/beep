@@ -5,7 +5,6 @@ use crate::{
     account::user::User,
     agent::decision::{Criteria, DecisionTool},
     app::App,
-    apps::mcp::FASTMAIL,
     memory::memories::{Reading, ReadingKind, clip},
     store::{AttentionItem, Feed},
 };
@@ -85,7 +84,10 @@ verification links, and news about the world",
 };
 
 /// A mailbox the user can connect.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, strum::AsRefStr, strum::IntoStaticStr, strum::Display,
+)]
+#[strum(serialize_all = "lowercase")]
 pub enum Mailbox {
     Gmail,
     Fastmail,
@@ -93,15 +95,6 @@ pub enum Mailbox {
 }
 
 impl Mailbox {
-    /// The app slug, also the key of its sync state.
-    pub fn slug(self) -> &'static str {
-        match self {
-            Mailbox::Gmail => "gmail",
-            Mailbox::Fastmail => FASTMAIL,
-            Mailbox::Outlook => "outlook",
-        }
-    }
-
     /// How the user knows the mailbox.
     pub fn name(self) -> &'static str {
         match self {
@@ -412,7 +405,7 @@ pub(crate) async fn sync(
     let digest = user.digest_enabled().await?;
     log::info!(
         "mail: reading {} after {after}; user={user}",
-        mailbox.slug()
+        mailbox.as_ref()
     );
 
     // Each page is scored as soon as it is listed, several emails at once,

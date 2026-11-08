@@ -320,7 +320,7 @@ fn projects(
     me: EndpointId,
     specs: &mut BTreeMap<Key, SyncSpec>,
 ) -> (Vec<Project>, BTreeSet<String>) {
-    let devices = mesh.devices();
+    let devices = mesh.code_hosts();
     let mut now = BTreeMap::new();
     for (key, bytes) in mesh.scan("sync/") {
         match SyncSpec::from_bytes(&bytes) {

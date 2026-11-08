@@ -215,7 +215,7 @@ impl User {
         );
         log::debug!(
             "memory {} learning took {:.1}s; id={}",
-            reading.kind.source().as_str(),
+            reading.kind.source().as_ref(),
             started.elapsed().as_secs_f32(),
             reading.id
         );
@@ -480,7 +480,7 @@ impl User {
         let needs = curation_needs(&rows, &states, Utc::now().naive_utc());
         let needs = &needs[..needs.len().min(MAX_SCOPES_PER_SWEEP)];
         for need in needs {
-            let (kind, why) = (need.scope.kind(), need.need.as_str());
+            let (kind, why) = (need.scope.kind(), need.need.as_ref());
             match self.curate_scope(generator, &need.scope).await {
                 Ok(changed) => {
                     log::info!(

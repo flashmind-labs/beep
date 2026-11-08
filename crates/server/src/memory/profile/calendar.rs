@@ -5,7 +5,7 @@ use crate::{
     account::user::User, apps::feeds::mail::Window, memory::memories::clip,
     memory::starters::Generator, store::ProfileNote,
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Error, Result, bail};
 use chrono::{DateTime, Duration as Days, NaiveDate, Utc};
 use serde_json::{Value, json};
 use std::{
@@ -221,7 +221,7 @@ async fn fastmail_events(user: &User, window: Window) -> Result<Vec<Event>> {
         schema = user.mcp_tool_schema(&server, TOOL).await;
     }
     let schema = schema.context("Fastmail has no search_events tool")?;
-    let arguments = EventArguments::from_schema(&schema)?;
+    let arguments = EventArguments::try_from(&schema)?;
     let mut events = Vec::new();
     for span in spans(window, FASTMAIL_SPAN_DAYS) {
         events.extend(fastmail_span(user, &arguments, span).await?);
@@ -296,8 +296,10 @@ struct Argument {
     date_only: bool,
 }
 
-impl EventArguments {
-    fn from_schema(schema: &Value) -> Result<Self> {
+impl TryFrom<&Value> for EventArguments {
+    type Error = Error;
+
+    fn try_from(schema: &Value) -> Result<Self> {
         let Some(properties) = schema["properties"].as_object() else {
             bail!("search_events has no properties");
         };
@@ -335,7 +337,9 @@ impl EventArguments {
         }
         Ok(found)
     }
+}
 
+impl EventArguments {
     fn build(&self, window: Window, limit: usize, cursor: Option<&str>, offset: usize) -> Value {
         let time = |argument: &Argument, time: DateTime<Utc>| {
             if argument.date_only {

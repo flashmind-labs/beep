@@ -5,8 +5,11 @@ use crate::{
     apps::feeds::mail::{BULK_LABELS, Email, Mailbox, timestamp},
     memory::memories::clip,
 };
+use beep_projects::model::RepoName;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Deserializer, de};
 use serde_json::{Value, json};
+use url::Url;
 
 /// What the agent sees of an email or event body.
 const DETAIL_CHARS: usize = 300;
@@ -22,6 +25,10 @@ pub(crate) const GCAL_UPDATED: &str = "GOOGLECALENDAR_GOOGLE_CALENDAR_EVENT_UPDA
 pub(crate) const GCAL_CANCELLED: &str = "GOOGLECALENDAR_EVENT_CANCELED_DELETED_TRIGGER";
 pub(crate) const GCAL_SOON: &str = "GOOGLECALENDAR_EVENT_STARTING_SOON_TRIGGER";
 
+#[derive(Debug, thiserror::Error)]
+#[error("the payload does not describe a supported event")]
+pub struct UnsupportedEvent;
+
 /// One trigger event as Composio delivers it, whichever payload version.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TriggerMessage {
@@ -33,9 +40,10 @@ pub struct TriggerMessage {
     pub at: DateTime<Utc>,
 }
 
-impl TriggerMessage {
-    /// Reads Composio's V3, V2, V1 and legacy realtime envelopes; `None` for anything else.
-    pub fn parse(payload: &Value) -> Option<Self> {
+impl TryFrom<&Value> for TriggerMessage {
+    type Error = UnsupportedEvent;
+
+    fn try_from(payload: &Value) -> Result<Self, Self::Error> {
         let at = payload["timestamp"]
             .as_str()
             .and_then(timestamp)
@@ -46,31 +54,33 @@ impl TriggerMessage {
             metadata["trigger_slug"].as_str(),
             metadata["user_id"].as_str(),
         ) {
-            return Some(Self::new(user, slug, &payload["data"], at));
+            return Ok(Self::new(user, slug, &payload["data"], at));
         }
         // V2: `{type: "<slug>", data: {user_id, ...payload}}`.
         if let (Some(slug), Some(user)) = (
             payload["type"].as_str(),
             payload["data"]["user_id"].as_str(),
         ) {
-            return Some(Self::new(user, slug, &payload["data"], at));
+            return Ok(Self::new(user, slug, &payload["data"], at));
         }
         // Legacy realtime: `{appName, payload, metadata: {triggerName, connection: {clientUniqueUserId}}}`.
         if let (Some(slug), Some(user)) = (
             metadata["triggerName"].as_str(),
             metadata["connection"]["clientUniqueUserId"].as_str(),
         ) {
-            return Some(Self::new(user, slug, &payload["payload"], at));
+            return Ok(Self::new(user, slug, &payload["payload"], at));
         }
         // The SDK's own normalized shape: `{triggerSlug, userId, payload}`.
         if let (Some(slug), Some(user)) =
             (payload["triggerSlug"].as_str(), payload["userId"].as_str())
         {
-            return Some(Self::new(user, slug, &payload["payload"], at));
+            return Ok(Self::new(user, slug, &payload["payload"], at));
         }
-        None
+        Err(UnsupportedEvent)
     }
+}
 
+impl TriggerMessage {
     fn new(user: &str, slug: &str, data: &Value, at: DateTime<Utc>) -> Self {
         Self {
             user: user.to_owned(),
@@ -81,23 +91,27 @@ impl TriggerMessage {
     }
 }
 
-/// The event a trigger message reports; `None` for unread triggers, sent mail or promotions.
-pub fn from_trigger(message: &TriggerMessage) -> Option<AppEvent> {
-    let data = &message.data;
-    let mut event = match message.slug.as_str() {
-        GMAIL_NEW_MESSAGE => gmail_message(data)?,
-        OUTLOOK_NEW_MESSAGE => outlook_message(data)?,
-        OUTLOOK_EVENT_CHANGE => outlook_calendar(data)?,
-        GCAL_CREATED | GCAL_UPDATED | GCAL_CANCELLED | GCAL_SOON => {
-            google_calendar(&message.slug, data)?
+/// Supported trigger events, excluding sent mail and promotions.
+impl TryFrom<&TriggerMessage> for AppEvent {
+    type Error = UnsupportedEvent;
+
+    fn try_from(message: &TriggerMessage) -> Result<Self, Self::Error> {
+        let data = &message.data;
+        let mut event = match message.slug.as_str() {
+            GMAIL_NEW_MESSAGE => gmail_message(data).ok_or(UnsupportedEvent)?,
+            OUTLOOK_NEW_MESSAGE => outlook_message(data).ok_or(UnsupportedEvent)?,
+            OUTLOOK_EVENT_CHANGE => outlook_calendar(data).ok_or(UnsupportedEvent)?,
+            GCAL_CREATED | GCAL_UPDATED | GCAL_CANCELLED | GCAL_SOON => {
+                google_calendar(&message.slug, data).ok_or(UnsupportedEvent)?
+            }
+            _ => return Err(UnsupportedEvent),
+        };
+        // A payload without a time of its own takes the delivery's.
+        if event.occurred == DateTime::UNIX_EPOCH {
+            event.occurred = message.at;
         }
-        _ => return None,
-    };
-    // A payload without a time of its own takes the delivery's.
-    if event.occurred == DateTime::UNIX_EPOCH {
-        event.occurred = message.at;
+        Ok(event)
     }
-    Some(event)
 }
 
 fn gmail_message(data: &Value) -> Option<AppEvent> {
@@ -274,74 +288,212 @@ fn google_calendar(slug: &str, data: &Value) -> Option<AppEvent> {
     })
 }
 
-/// A GitHub notification thread as an event; `None` without an id or for a passing CI run.
-pub fn from_github_notification(notification: &Value) -> Option<AppEvent> {
-    let thread = str_of(notification, &["id"])?;
-    let reason = str_of(notification, &["reason"]).unwrap_or_default();
-    let subject = &notification["subject"];
-    let title = str_of(subject, &["title"]).unwrap_or("(untitled)");
-    let kind_of_thread = str_of(subject, &["type"]).unwrap_or_default();
-    let repo = str_of(&notification["repository"], &["full_name"]).unwrap_or("a repository");
-    let updated = str_of(notification, &["updated_at"]).unwrap_or_default();
-    let kind = match reason {
-        "review_requested" => EventKind::ReviewRequested,
-        "mention" | "team_mention" => EventKind::Mention,
-        "assign" => EventKind::Assigned,
-        "ci_activity" => EventKind::CiFailed,
-        "author" | "comment" => EventKind::ThreadActivity,
-        "subscribed" if kind_of_thread == "PullRequest" => EventKind::PullRequest,
-        _ => EventKind::GithubOther,
-    };
-    if kind == EventKind::CiFailed && title.to_ascii_lowercase().contains("succeeded") {
-        return None;
+/// GitHub's notification schema and the complete original payload kept with the event.
+#[derive(Debug)]
+pub struct GitHubNotification {
+    fields: GitHubNotificationFields,
+    raw: Value,
+}
+
+impl<'de> Deserialize<'de> for GitHubNotification {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = Value::deserialize(deserializer)?;
+        let fields = GitHubNotificationFields::deserialize(&raw).map_err(de::Error::custom)?;
+        Ok(Self { fields, raw })
     }
-    let number = subject["url"]
-        .as_str()
-        .and_then(|url| url.rsplit('/').next())
-        .and_then(|last| last.parse::<u64>().ok());
-    let what = match (kind_of_thread, number) {
-        ("PullRequest", Some(n)) => format!("PR #{n}"),
-        ("Issue", Some(n)) => format!("issue #{n}"),
-        ("CheckSuite", _) => "CI".to_owned(),
-        (other, _) if !other.is_empty() => other.to_owned(),
-        _ => "thread".to_owned(),
-    };
-    let happened = match kind {
-        EventKind::ReviewRequested => "review requested on",
-        EventKind::Mention => "mentioned in",
-        EventKind::Assigned => "assigned",
-        EventKind::CiFailed => "failed",
-        EventKind::ThreadActivity => "new activity on",
-        EventKind::PullRequest => "activity on",
-        _ => "notification on",
-    };
-    let link = match (kind_of_thread, number) {
-        ("PullRequest", Some(n)) => Some(format!("https://github.com/{repo}/pull/{n}")),
-        ("Issue", Some(n)) => Some(format!("https://github.com/{repo}/issues/{n}")),
-        _ => None,
-    };
-    let mut ids = json!({"repo": repo, "thread_id": thread, "type": kind_of_thread});
-    if let Some(n) = number {
-        ids["number"] = json!(n);
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubNotificationFields {
+    id: GitHubThreadId,
+    reason: Option<GitHubReason>,
+    subject: Option<GitHubSubject>,
+    repository: Option<GitHubRepository>,
+    updated_at: Option<GitHubRevision>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(try_from = "String")]
+struct GitHubThreadId(String);
+
+impl TryFrom<String> for GitHubThreadId {
+    type Error = UnsupportedEvent;
+
+    fn try_from(id: String) -> Result<Self, Self::Error> {
+        if id.is_empty() {
+            return Err(UnsupportedEvent);
+        }
+        Ok(Self(id))
     }
-    if let Some(link) = link {
-        ids["url"] = json!(link);
+}
+
+#[derive(Debug, Deserialize, strum::AsRefStr)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+enum GitHubReason {
+    ReviewRequested,
+    Mention,
+    TeamMention,
+    Assign,
+    CiActivity,
+    Author,
+    Comment,
+    Subscribed,
+    #[serde(untagged)]
+    #[strum(transparent)]
+    Unrecognized(String),
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct GitHubSubject {
+    title: Option<String>,
+    #[serde(rename = "type")]
+    kind: Option<GitHubSubjectKind>,
+    url: Option<Url>,
+}
+
+#[derive(Debug, Deserialize, strum::AsRefStr)]
+enum GitHubSubjectKind {
+    PullRequest,
+    Issue,
+    CheckSuite,
+    #[serde(untagged)]
+    #[strum(transparent)]
+    Unrecognized(String),
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubRepository {
+    #[serde(default, deserialize_with = "repository_name")]
+    full_name: Option<RepoName>,
+}
+
+fn repository_name<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<RepoName>, D::Error> {
+    Option::<String>::deserialize(deserializer)?
+        .filter(|name| !name.is_empty())
+        .map(|name| name.parse().map_err(de::Error::custom))
+        .transpose()
+}
+
+/// A notification revision, retaining the timestamp's original spelling for deduplication.
+#[derive(Debug, Deserialize)]
+#[serde(from = "String")]
+struct GitHubRevision {
+    token: String,
+    occurred: Option<DateTime<Utc>>,
+}
+
+impl From<String> for GitHubRevision {
+    fn from(token: String) -> Self {
+        Self {
+            occurred: timestamp(&token),
+            token,
+        }
     }
-    Some(AppEvent {
-        app: EventApp::Github,
-        kind,
-        // A thread comes back each time it gets new activity.
-        key: DedupeKey::new(&["github", thread, updated]),
-        summary: clip(
-            &format!("{repo}: {happened} {what} \"{title}\""),
-            SUMMARY_CHARS,
-        ),
-        detail: None,
-        ids,
-        raw: notification.clone(),
-        source: Source::Poll,
-        occurred: timestamp(updated).unwrap_or_else(Utc::now),
-    })
+}
+
+/// A GitHub notification thread, excluding successful CI runs.
+impl TryFrom<&GitHubNotification> for AppEvent {
+    type Error = UnsupportedEvent;
+
+    fn try_from(notification: &GitHubNotification) -> Result<Self, Self::Error> {
+        let fields = &notification.fields;
+        let thread = &fields.id.0;
+        let empty_subject = GitHubSubject::default();
+        let subject = fields.subject.as_ref().unwrap_or(&empty_subject);
+        let title = subject
+            .title
+            .as_deref()
+            .filter(|title| !title.is_empty())
+            .unwrap_or("(untitled)");
+        let kind_of_thread = subject.kind.as_ref().map(AsRef::as_ref).unwrap_or_default();
+        let repo = fields
+            .repository
+            .as_ref()
+            .and_then(|repository| repository.full_name.as_ref())
+            .map(ToString::to_string)
+            .unwrap_or_else(|| Into::<String>::into("a repository"));
+        let updated = fields
+            .updated_at
+            .as_ref()
+            .map(|revision| revision.token.as_str())
+            .unwrap_or_default();
+        let kind = match fields.reason.as_ref() {
+            Some(GitHubReason::ReviewRequested) => EventKind::ReviewRequested,
+            Some(GitHubReason::Mention | GitHubReason::TeamMention) => EventKind::Mention,
+            Some(GitHubReason::Assign) => EventKind::Assigned,
+            Some(GitHubReason::CiActivity) => EventKind::CiFailed,
+            Some(GitHubReason::Author | GitHubReason::Comment) => EventKind::ThreadActivity,
+            Some(GitHubReason::Subscribed)
+                if matches!(subject.kind, Some(GitHubSubjectKind::PullRequest)) =>
+            {
+                EventKind::PullRequest
+            }
+            _ => EventKind::GithubOther,
+        };
+        if kind == EventKind::CiFailed && title.to_ascii_lowercase().contains("succeeded") {
+            return Err(UnsupportedEvent);
+        }
+        let number = subject
+            .url
+            .as_ref()
+            .map(Url::as_str)
+            .and_then(|url| url.rsplit('/').next())
+            .and_then(|last| last.parse::<u64>().ok());
+        let what = match (subject.kind.as_ref(), number) {
+            (Some(GitHubSubjectKind::PullRequest), Some(n)) => format!("PR #{n}"),
+            (Some(GitHubSubjectKind::Issue), Some(n)) => format!("issue #{n}"),
+            (Some(GitHubSubjectKind::CheckSuite), _) => "CI".to_owned(),
+            (Some(other), _) if !other.as_ref().is_empty() => other.as_ref().to_owned(),
+            _ => "thread".to_owned(),
+        };
+        let happened = match kind {
+            EventKind::ReviewRequested => "review requested on",
+            EventKind::Mention => "mentioned in",
+            EventKind::Assigned => "assigned",
+            EventKind::CiFailed => "failed",
+            EventKind::ThreadActivity => "new activity on",
+            EventKind::PullRequest => "activity on",
+            _ => "notification on",
+        };
+        let link = match (subject.kind.as_ref(), number) {
+            (Some(GitHubSubjectKind::PullRequest), Some(n)) => {
+                Some(format!("https://github.com/{repo}/pull/{n}"))
+            }
+            (Some(GitHubSubjectKind::Issue), Some(n)) => {
+                Some(format!("https://github.com/{repo}/issues/{n}"))
+            }
+            _ => None,
+        };
+        let mut ids = json!({"repo": repo, "thread_id": thread, "type": kind_of_thread});
+        if let Some(n) = number {
+            ids["number"] = json!(n);
+        }
+        if let Some(link) = link {
+            ids["url"] = json!(link);
+        }
+        Ok(AppEvent {
+            app: EventApp::Github,
+            kind,
+            // A thread comes back each time it gets new activity.
+            key: DedupeKey::new(&["github", thread, updated]),
+            summary: clip(
+                &format!("{repo}: {happened} {what} \"{title}\""),
+                SUMMARY_CHARS,
+            ),
+            detail: None,
+            ids,
+            raw: notification.raw.clone(),
+            source: Source::Poll,
+            occurred: fields
+                .updated_at
+                .as_ref()
+                .and_then(|revision| revision.occurred)
+                .unwrap_or_else(Utc::now),
+        })
+    }
 }
 
 /// An unread email a poll found, or `None` for mail the user sent or bulk mail.
@@ -411,7 +563,7 @@ fn mail_event(mail: MailFields<'_>) -> AppEvent {
     AppEvent {
         app: mail.app,
         kind: EventKind::NewMail,
-        key: DedupeKey::new(&[mail.app.slug(), mail.id]),
+        key: DedupeKey::new(&[mail.app.as_ref(), mail.id]),
         summary: clip(
             &format!("From {}: {}", mail.from, mail.subject),
             SUMMARY_CHARS,
@@ -461,12 +613,12 @@ mod tests {
 
     #[test]
     fn reads_every_composio_envelope() {
-        let v3 = TriggerMessage::parse(&gmail_payload("m1", &["INBOX"])).unwrap();
+        let v3 = TriggerMessage::try_from(&gmail_payload("m1", &["INBOX"])).unwrap();
         assert_eq!(v3.user, "outside-1");
         assert_eq!(v3.slug, GMAIL_NEW_MESSAGE);
         assert_eq!(v3.data["message_id"], "m1");
 
-        let v2 = TriggerMessage::parse(&json!({
+        let v2 = TriggerMessage::try_from(&json!({
             "type": "gmail_new_gmail_message",
             "timestamp": "2026-10-20T10:00:00Z",
             "log_id": "log_2",
@@ -476,7 +628,7 @@ mod tests {
         assert_eq!(v2.user, "outside-2");
         assert_eq!(v2.slug, GMAIL_NEW_MESSAGE);
 
-        let legacy = TriggerMessage::parse(&json!({
+        let legacy = TriggerMessage::try_from(&json!({
             "appName": "gmail",
             "payload": {"message_id": "m3"},
             "metadata": {
@@ -489,13 +641,13 @@ mod tests {
         assert_eq!(legacy.user, "outside-3");
         assert_eq!(legacy.data["message_id"], "m3");
 
-        assert!(TriggerMessage::parse(&json!({"hello": "world"})).is_none());
+        assert!(TriggerMessage::try_from(&json!({"hello": "world"})).is_err());
     }
 
     #[test]
     fn a_gmail_trigger_and_a_poll_of_the_same_email_share_a_key() {
-        let message = TriggerMessage::parse(&gmail_payload("m1", &["INBOX"])).unwrap();
-        let triggered = from_trigger(&message).unwrap();
+        let message = TriggerMessage::try_from(&gmail_payload("m1", &["INBOX"])).unwrap();
+        let triggered = AppEvent::try_from(&message).unwrap();
         assert_eq!(triggered.kind, EventKind::NewMail);
         assert_eq!(
             triggered.summary,
@@ -552,7 +704,7 @@ mod tests {
             data,
             at: Utc::now(),
         };
-        let snake = from_trigger(&message(json!({
+        let snake = AppEvent::try_from(&message(json!({
             "event_type": "created",
             "id": "AAMk1",
             "outlook_message": {
@@ -566,9 +718,9 @@ mod tests {
         .unwrap();
         assert_eq!(snake.summary, "From Billing: Invoice");
         assert_eq!(snake.ids["thread_id"], "c1");
-        assert_eq!(snake.key.as_str(), "outlook:AAMk1");
+        assert_eq!(snake.key.as_ref(), "outlook:AAMk1");
 
-        let camel = from_trigger(&message(json!({
+        let camel = AppEvent::try_from(&message(json!({
             "id": "AAMk2",
             "message": {"subject": "Hi", "from": {"emailAddress": {"address": "a@example.com"}}}
         })))
@@ -576,16 +728,16 @@ mod tests {
         assert_eq!(camel.summary, "From a@example.com: Hi");
 
         assert!(
-            from_trigger(&message(json!({
+            AppEvent::try_from(&message(json!({
                 "id": "AAMk3",
                 "outlook_message": {"subject": "Sale", "inference_classification": "other"}
             })))
-            .is_none()
+            .is_err()
         );
     }
 
-    fn notification(reason: &str, kind: &str, title: &str, updated: &str) -> Value {
-        json!({
+    fn notification(reason: &str, kind: &str, title: &str, updated: &str) -> GitHubNotification {
+        serde_json::from_value(json!({
             "id": "123",
             "reason": reason,
             "unread": true,
@@ -596,12 +748,13 @@ mod tests {
                 "type": kind,
                 "url": "https://api.github.com/repos/org/repo/pulls/42"
             }
-        })
+        }))
+        .expect("a GitHub notification")
     }
 
     #[test]
     fn github_notifications_are_sorted_by_reason() {
-        let review = from_github_notification(&notification(
+        let review = AppEvent::try_from(&notification(
             "review_requested",
             "PullRequest",
             "Add caching",
@@ -625,7 +778,7 @@ mod tests {
             ("state_change", EventKind::GithubOther),
         ];
         for (reason, kind) in cases {
-            let event = from_github_notification(&notification(
+            let event = AppEvent::try_from(&notification(
                 reason,
                 "PullRequest",
                 "t",
@@ -636,7 +789,7 @@ mod tests {
         }
 
         // New activity on the same thread is a new event.
-        let later = from_github_notification(&notification(
+        let later = AppEvent::try_from(&notification(
             "review_requested",
             "PullRequest",
             "Add caching",
@@ -645,7 +798,7 @@ mod tests {
         .unwrap();
         assert_ne!(later.key, review.key);
 
-        let failed = from_github_notification(&notification(
+        let failed = AppEvent::try_from(&notification(
             "ci_activity",
             "CheckSuite",
             "CI workflow run failed for main branch",
@@ -654,13 +807,13 @@ mod tests {
         .unwrap();
         assert_eq!(failed.kind, EventKind::CiFailed);
         assert!(
-            from_github_notification(&notification(
+            AppEvent::try_from(&notification(
                 "ci_activity",
                 "CheckSuite",
                 "CI workflow run succeeded for main branch",
                 "2026-10-20T10:00:00Z",
             ))
-            .is_none()
+            .is_err()
         );
     }
 }

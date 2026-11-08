@@ -28,6 +28,7 @@ pub struct Hub(Arc<Inner>);
 struct Inner {
     states: Mutex<BTreeMap<Topic, Value>>,
     changes: broadcast::Sender<Change>,
+    topics: Mutex<BTreeMap<Topic, broadcast::WeakSender<Change>>>,
 }
 
 impl Default for Hub {
@@ -35,6 +36,7 @@ impl Default for Hub {
         Self(Arc::new(Inner {
             states: Mutex::new(BTreeMap::new()),
             changes: broadcast::channel(SIGNAL_CAPACITY).0,
+            topics: Mutex::default(),
         }))
     }
 }
@@ -46,8 +48,25 @@ impl Hub {
 
     pub fn changed(&self, topic: Topic) {
         if topic.valid() {
-            let _ = self.0.changes.send(Change { topic });
+            let change = Change { topic };
+            let _ = self.0.changes.send(change.clone());
+            crate::lock(&self.0.topics).retain(|topic, weak| {
+                let Some(sender) = weak.upgrade() else {
+                    return false;
+                };
+                if topic.matches(&change.topic) {
+                    let _ = sender.send(change.clone());
+                }
+                true
+            });
         }
+    }
+
+    #[cfg(feature = "host")]
+    pub(crate) fn register(&self, topic: Topic, sender: &broadcast::Sender<Change>) {
+        let mut topics = crate::lock(&self.0.topics);
+        topics.retain(|_, sender| sender.strong_count() > 0);
+        topics.insert(topic, sender.downgrade());
     }
 
     /// Replaces a plugin's current compact MessagePack state, never its event history.

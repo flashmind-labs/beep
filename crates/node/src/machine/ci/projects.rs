@@ -69,7 +69,7 @@ fn project(mesh: &Mesh, name: String, servers: &[ForgejoUrl]) -> Option<Project>
     let host = match &repo.host {
         RepoHost::GitHub => Host::GitHub,
         RepoHost::Forgejo(url) => Host::Forgejo {
-            url: url.as_str().to_owned(),
+            url: url.as_ref().to_owned(),
             name: url.host(),
         },
     };

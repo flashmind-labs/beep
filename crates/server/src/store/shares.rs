@@ -50,7 +50,7 @@ impl Store {
              RETURNING token, title, shared_at"
         ))
         .bind(Uuid::new_v4().simple().to_string())
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(chat)
         .bind(serde_json::to_string(conversation)?)
         .fetch_optional(&self.pool)
@@ -69,7 +69,7 @@ impl Store {
     /// Stops sharing session `chat`; `false` when it was not shared.
     pub(crate) async fn unshare_session(&self, user: &UserKey, chat: Uuid) -> Result<bool> {
         let deleted = sqlx::query("DELETE FROM shares WHERE user_id=$1 AND chat_id=$2")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(chat)
             .execute(&self.pool)
             .await?
@@ -129,7 +129,7 @@ impl Store {
         }
         sqlx::query("INSERT INTO chat_members (chat_id, user_id) VALUES ($1, $2)")
             .bind(chat)
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .execute(&mut *tx)
             .await?;
         sqlx::query("INSERT INTO sessions (chat_id, context) VALUES ($1, $2)")
@@ -143,8 +143,8 @@ impl Store {
             &steps::CallNotes::default(),
             &HashMap::new(),
         );
-        let ids = insert_steps(&mut tx, chat, user.as_str(), &copied.steps, None).await?;
-        let readers = Readers::User(user.as_str());
+        let ids = insert_steps(&mut tx, chat, user.as_ref(), &copied.steps, None).await?;
+        let readers = Readers::User(user.as_ref());
         let mut bumped = log_chat(&mut tx, chat, UpdateOp::Chat, readers).await?;
         bumped.extend(log_messages(&mut tx, chat, &ids, UpdateOp::Message, readers).await?);
         tx.commit().await?;

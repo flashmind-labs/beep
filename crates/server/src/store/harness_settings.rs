@@ -57,7 +57,7 @@ impl Store {
             "SELECT machine_id, agent, enabled, program, home, args, env_names
              FROM harness_settings WHERE user_id=$1 AND agent=$2 ORDER BY machine_id",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(agent)
         .fetch_all(&self.pool)
         .await?;
@@ -75,7 +75,7 @@ impl Store {
         let sealed: Option<Option<Vec<u8>>> = sqlx::query_scalar(
             "SELECT env FROM harness_settings WHERE user_id=$1 AND machine_id=$2 AND agent=$3",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(machine_id)
         .bind(agent)
         .fetch_optional(&self.pool)
@@ -84,7 +84,7 @@ impl Store {
             return Ok(Vec::new());
         };
         let owner = HarnessOwner {
-            user: user.as_str(),
+            user: user.as_ref(),
             machine: machine_id,
             agent,
         };
@@ -106,7 +106,7 @@ impl Store {
         } else {
             let plain = SecretString::from(serde_json::to_string(save.env)?);
             let owner = HarnessOwner {
-                user: user.as_str(),
+                user: user.as_ref(),
                 machine: save.machine_id,
                 agent: save.agent,
             };
@@ -120,7 +120,7 @@ impl Store {
                  enabled=$4, program=$5, home=$6, args=$7, env_names=$8, env=$9,
                  updated_at=now()",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(save.machine_id)
         .bind(save.agent)
         .bind(save.enabled)

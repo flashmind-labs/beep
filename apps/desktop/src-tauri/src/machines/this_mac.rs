@@ -77,9 +77,9 @@ impl Machine {
         }
         // The embedded node logs to the app's own file.
         if let Some(log) = logfile::current() {
-            offers.extra.push(Arc::new(Logs::file(log)));
+            offers.extra.push(Arc::new(Logs::from(log)));
         }
-        offers.log = Logs::files(logfile::kept());
+        offers.log = Logs::from(logfile::kept());
         // Searches read the agents' logs ahead on tasks of their own.
         async_runtime::block_on(async { offers.offer_searches(dir, &Search::default()) });
         Self {

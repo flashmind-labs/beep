@@ -123,14 +123,20 @@ pub(crate) async fn widget_project(
     visibility: beep_projects::model::Visibility,
 ) -> crate::store::ProjectRow {
     let project = user
-        .ensure_project(&beep_projects::model::RepoName::parse("acme/widget").unwrap())
+        .ensure_project(
+            &("acme/widget")
+                .parse::<beep_projects::model::RepoName>()
+                .unwrap(),
+        )
         .await
         .unwrap();
     user.add_checkout(
         project.id,
         &crate::store::CheckoutRow {
             machine: home,
-            path: beep_projects::model::MachinePath::parse("/srv/widget").unwrap(),
+            path: ("/srv/widget")
+                .parse::<beep_projects::model::MachinePath>()
+                .unwrap(),
             home: true,
         },
     )

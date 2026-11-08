@@ -24,6 +24,7 @@ interface Drawn {
 
 interface LogWindow {
   units: readonly Unit[];
+  search?: { key: string; root: HTMLElement }[];
   drawn: Map<string, Drawn>;
   /// How much room each turn took, its gap included, by key.
   sizes: Map<string, number>;
@@ -36,6 +37,12 @@ interface LogWindow {
 }
 
 const windows = new WeakMap<Element, LogWindow>();
+const searchWatches = new WeakMap<HTMLElement, () => void>();
+
+export function watchLogSearch(log: HTMLElement, changed: () => void) {
+  searchWatches.set(log, changed);
+  return () => { searchWatches.delete(log); const w = windows.get(log); if (w) w.search = undefined; };
+}
 
 /// How tall a turn is taken to be before any was measured.
 const FALLBACK = 120;
@@ -61,6 +68,8 @@ export function setUnits(log: HTMLElement, units: readonly Unit[], held: readonl
   for (const [key, d] of w.drawn) if (!keys.has(key)) undraw(w, key, d);
   for (const { d, html, reuse } of plans) patch(d, html, reuse);
   w.units = units;
+  w.search = undefined;
+  searchWatches.get(log)?.();
   // Turns read further back come in above, perhaps between the head and the
   // turns drawn: the drawn ones nearest the end stay, in one run.
   const at = units.flatMap((u, i) => w.drawn.has(u.key) ? [i] : []);
@@ -201,6 +210,7 @@ function space(w: LogWindow, from: number, to: number) {
 function draw(w: LogWindow, u: Unit): Drawn {
   const el = document.createElement("div");
   el.className = "agturn";
+  el.dataset.findKey = u.key;
   const d: Drawn = { el, html: [], nodes: [] };
   patch(d, u.rows(), []);
   w.drawn.set(u.key, d);
@@ -232,4 +242,32 @@ function patch(d: Drawn, html: readonly string[], reuse: readonly number[]) {
   d.el.hidden = !d.el.firstElementChild;
   d.html = html;
   d.nodes = nodes;
+}
+
+/// Search all held turns without mounting the entire conversation.
+export function logSearchSources(log: HTMLElement) {
+  const w = windows.get(log);
+  return w ? w.search ??= w.units.map(u => {
+    const root = document.createElement("div");
+    root.innerHTML = u.rows().join("");
+    return { key: u.key, root };
+  }) : [];
+}
+
+/// Mounts the requested turn and scrolls it into the virtual window.
+export function revealLogUnit(b: ChatBody, key: string) {
+  const log = b.querySelector<HTMLElement>(".dcoderlog"), w = log && windows.get(log);
+  if (!log || !w) return null;
+  const at = w.units.findIndex(u => u.key === key);
+  if (at < 0) return null;
+  b.stuck = false;
+  const d = w.drawn.get(key) ?? draw(w, w.units[at]);
+  // Measure the target before filling its surrounding turns.
+  for (const [k, other] of w.drawn) if (k !== key) undraw(w, k, other);
+  log.insertBefore(d.el, w.bottom);
+  measure(w);
+  space(w, at, at + 1);
+  b.scrollTop += d.el.getBoundingClientRect().top - b.getBoundingClientRect().top;
+  fillLog(b, false);
+  return w.drawn.get(key)?.el ?? null;
 }

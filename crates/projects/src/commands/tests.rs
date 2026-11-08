@@ -4,9 +4,10 @@ use crate::{
     model::{IssueHost, RepoName, Visibility},
 };
 use chrono::{DateTime, Utc};
+use std::str::FromStr;
 
 fn repo() -> RepoName {
-    RepoName::parse("acme/widget").expect("a repo")
+    RepoName::from_str("acme/widget").expect("a repo")
 }
 
 fn github() -> IssueHost {
@@ -14,7 +15,7 @@ fn github() -> IssueHost {
 }
 
 fn forgejo() -> IssueHost {
-    IssueHost::Forgejo(crate::model::ForgejoHost::parse("git.example.com").expect("a host"))
+    IssueHost::Forgejo(crate::model::ForgejoHost::from_str("git.example.com").expect("a host"))
 }
 
 #[test]
@@ -236,13 +237,13 @@ fn a_viewed_issue_parses_and_a_pr_is_refused() {
 
 #[test]
 fn gh_runs_as_the_account_for_the_owner() {
-    let repo = RepoName::parse("octo-two/tool").unwrap();
+    let repo = RepoName::from_str("octo-two/tool").unwrap();
     assert_eq!(
         HostCommand::MergePr { number: 1 }.render(&github(), &repo),
         "GH_TOKEN=\"${BEEP_GH_TOKEN_OCTO_TWO:-$GH_TOKEN}\" gh pr merge 1 -R octo-two/tool --squash"
     );
     // A name GitHub would not give an owner gets no account var.
-    let odd = RepoName::parse("my.org/tool").unwrap();
+    let odd = RepoName::from_str("my.org/tool").unwrap();
     assert_eq!(
         HostCommand::MergePr { number: 1 }.render(&github(), &odd),
         "gh pr merge 1 -R my.org/tool --squash"

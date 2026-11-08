@@ -395,7 +395,7 @@ pub fn session_tasks(tasks: Vec<agent::Task>) -> AgentSessionTasks {
                 id: task.id,
                 name: task.name,
                 description: task.description,
-                state: task.state.as_str().to_owned(),
+                state: task.state.as_ref().to_owned(),
                 can_stop: task.can_stop,
                 output_file: task.output_file,
                 summary: task.summary,
@@ -430,6 +430,8 @@ fn entry(entry: agent::Entry) -> AgentEntry {
         agent::EntryKind::Tool => AgentEntryKind::Tool {},
         agent::EntryKind::Question => AgentEntryKind::Question {},
         agent::EntryKind::Thought => AgentEntryKind::Thought { ms: entry.ms },
+        // Released apps already draw compaction boundaries as notes.
+        agent::EntryKind::Compacted => AgentEntryKind::Other {},
         _ => AgentEntryKind::Other {},
     };
     AgentEntry {

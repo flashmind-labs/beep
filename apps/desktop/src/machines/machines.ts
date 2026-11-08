@@ -39,11 +39,12 @@ export interface MachineEnv {
   avds: string[];
 }
 
-/// A machine running beep-node (MachineView).
+/// A machine or phone in the mesh (MachineView).
 export interface Machine {
   id: string;
   name: string;
   online: boolean;
+  can_host?: boolean;
   /// When it last connected or reported, in milliseconds since the Unix epoch.
   seen_at: number;
   version: string;
@@ -138,9 +139,10 @@ export async function renderMachines(id: string | null = null) {
   }
   MC.asking = null;
   if (log?.id !== id) log = null;
-  if (id) void loadSearch(id);
   drawMachines();
   await readList();
+  if (id && MC.list?.some(m => m.id === id && m.can_host !== false)) void loadSearch(id);
+  if (id && MC.list?.some(m => m.id === id && m.can_host === false)) return;
   // Looking the newest releases up can take a while; the page shows first.
   void loadNodeRelease();
   void loadToolUpdates();
@@ -234,6 +236,7 @@ async function saveSearch(folder: string) {
 
 /// The "Projects in" row: the folder and Change, or the field to change it.
 function searchRow(m: Machine) {
+  if (m.can_host === false) return "";
   const at = search?.id === m.id ? search : null;
   if (!at || at.folder === null) return "";
   const value = at.draft === null
@@ -427,7 +430,7 @@ function updateLine(m: Machine) {
   return "";
 }
 
-const removeNote = (m: Machine) => m.online ? "It stops taking work; its sessions and projects go with it." : "Its sessions and projects go with it. If it comes back online, it is turned away.";
+const removeNote = (m: Machine) => m.can_host === false ? "It disconnects from your mesh." : m.online ? "It stops taking work; its sessions and projects go with it." : "Its sessions and projects go with it. If it comes back online, it is turned away.";
 
 /// Remove on every machine but this Mac, and the question it asks.
 function removeParts(m: Machine) {
@@ -438,7 +441,7 @@ function removeParts(m: Machine) {
   const what = removeNote(m);
   return {
     button: "",
-    ask: `<div class="ask"><span>Remove ${esc(m.name)} from your account? ${what} To use it again, add it with a new setup command.</span>
+    ask: `<div class="ask"><span>Remove ${esc(m.name)} from your account? ${what} ${m.can_host === false ? "To reconnect, pair it again." : "To use it again, add it with a new setup command."}</span>
       ${asking.error ? `<span class="derr">${esc(asking.error)}</span>` : ""}
       <span class="acts"><button class="dbtn warn" id="rmYes"${asking.busy ? " disabled" : ""}>Remove</button><button class="dbtn quiet" id="rmNo">Cancel</button></span></div>`,
   };
@@ -483,12 +486,12 @@ function machineCard(m: Machine, columns: string[]) {
   const { button, ask } = opens ? { button: "", ask: "" } : removeParts(m);
   const open = opens ? ` data-machine="${esc(m.id)}" role="button" tabindex="0" aria-label="${esc(m.name)}"` : "";
   const seen = m.online ? "" : `<span class="seen">Seen ${span(Date.now() - m.seen_at)} ago</span>`;
-  const spec = env ? specLine(env) : "No report yet";
+  const spec = m.can_host === false ? "Phone · Controller" : env ? specLine(env) : "No report yet";
   const clock = clockWarning(m.id, env?.os ?? null);
   const off = clock ? `<span class="clockoff" title="${esc(clock.title)}">${esc(clock.text)}</span>` : "";
-  const line1 = `<span class="l1"><span class="ddot${m.online ? "" : " off"}" title="${m.online ? "Online" : "Offline"}"></span><b>${esc(m.name)}</b>${tagChip(m)}${seen}${off}<span class="spec" title="${esc(spec)}">${esc(spec)}</span>${nodeChip(m)}${button}</span>`;
+  const line1 = `<span class="l1"><span class="ddot${m.online ? "" : " off"}" title="${m.online ? "Online" : "Offline"}"></span><b>${esc(m.name)}</b>${tagChip(m)}${seen}${off}<span class="spec" title="${esc(spec)}">${esc(spec)}</span>${m.can_host === false ? "" : nodeChip(m)}${button}</span>`;
   const chev = opens ? `<span class="ch">${ICON.chev}</span>` : "";
-  if (!env) return `<div class="dmach"${open}>${line1}${chev}${ask}</div>`;
+  if (!env || m.can_host === false) return `<div class="dmach"${open}>${line1}${chev}${ask}</div>`;
   const agents = coders(env.tools);
   const line2 = agents.length
     ? agents.map(t => agentChip(env, t, columns.indexOf(t.name) + 1)).join("")
@@ -506,13 +509,13 @@ function machinePage(m: Machine) {
   const env = m.env, { button, ask } = removeParts(m);
   const kv = (k: string, v: string) => `<span>${k}</span><span>${v}</span>`;
   const behind = m.id !== MC.mac && nodeBehind(m.version, newest()) ? ` <span class="dtag ask">${esc(newest() ?? "")} is out</span>` : "";
-  const facts = kv("Status", statusTag(m) + (machineTag(m) ? ` ${tagChip(m)}` : "")) + kv("beep-node", esc(nodeVersion(m)) + behind + updateControl(m))
+  const facts = kv("Status", statusTag(m) + (machineTag(m) ? ` ${tagChip(m)}` : "")) + (m.can_host === false ? kv("Device", "Phone") + kv("Role", "Controller") : kv("beep-node", esc(nodeVersion(m)) + behind + updateControl(m)))
     + (env ? kv("System", esc(`${env.os_version}, ${env.arch}`)) + kv("Hardware", esc(`${env.cpus} CPUs, ${Math.round(env.memory_mb / 1024)} GB`))
       + kv("Host name", `<span class="dmono">${esc(env.hostname)}</span>`) + kv("Home", `<span class="dmono">${esc(env.home)}</span>`) + searchRow(m)
       + (env.avds.length ? kv("Android emulators", esc(env.avds.join(", "))) : "")
-      : kv("Report", "None yet"));
+      : m.can_host === false ? "" : kv("Report", "None yet"));
   let html = `<div class="dset-box"><div class="dset-kv">${facts}</div></div>` + updateLine(m) + (search?.id === m.id ? errLine(search.error) : "");
-  if (env?.logins.length) {
+  if (m.can_host !== false && env?.logins.length) {
     const rows = env.logins.map(l => {
       const who = l.signed_in ? esc(l.account ?? "Signed in") : '<span class="dtag ask">Not signed in</span>';
       const offer = l.signed_in ? null : signInOffer(l.tool, m.name, m.online, m.id === MC.mac);
@@ -522,12 +525,12 @@ function machinePage(m: Machine) {
     }).join("");
     html += `<div class="dset-h">Sign-ins</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Account</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
   }
-  if (env?.tools.length) {
+  if (m.can_host !== false && env?.tools.length) {
     const tools = [...coders(env.tools), ...env.tools.filter(t => !isCoder(t.name))];
     const rows = tools.map(t => `<tr><td class="dmono">${esc(t.name)}</td><td class="dmono">${esc(shownVersion(MC.installed, `${m.id} ${t.name}`, t.name, t.version) ?? "")}</td><td>${isCoder(t.name) ? "Coding agent" : "Tool"}</td></tr>`).join("");
     html += `<div class="dset-hrow"><div class="dset-h">Tools</div>${tools.map(t => toolUpdate(m, t)).join("")}${toolNotes(m, env.tools)}</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Version</th><th>Kind</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
-  html += trafficTable(m) + logSection(m);
+  html += trafficTable(m) + (m.can_host === false ? "" : logSection(m));
   return html + `<div class="dmach dset-rm">${button ? `<div class="dset-rm-row"><span class="t"><b>Remove this machine</b><small>${removeNote(m)}</small></span>${button}</div>` : ""}${ask}</div>`;
 }
 

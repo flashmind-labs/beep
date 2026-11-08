@@ -867,7 +867,7 @@ async fn joining_with_a_search_folder_has_the_node_look_there() {
     )
     .await;
     let saved = beep_node::link::state::saved_search(node.dir.path()).expect("node.toml reads");
-    assert_eq!(saved, beep_node::link::state::Search::parse(search));
+    assert_eq!(saved, beep_node::link::state::Search::from(search));
 }
 
 #[tokio::test]
@@ -1233,7 +1233,7 @@ async fn a_project_syncs_on_nodes_that_share_no_folders_and_after_a_restart() {
 
     // The saved list keeps to `files`; the mesh names the project again.
     pair.a = pair.a.restart().await;
-    pair.a.logged("from the mesh: sync proj").await;
+    pair.a.has_logged("from the mesh: sync proj").await;
     fs::write(pair.b_folder.join("after.txt"), "after a restart").expect("a file");
     has_text(&pair.a_folder.join("after.txt"), "after a restart").await;
 }
@@ -2851,16 +2851,18 @@ async fn until_progress(
     what: &str,
     done: impl Fn(&beep_proto::node::agent::MoveProgress) -> bool,
 ) {
+    let mut last = None;
     timeout(LIMIT, async {
         loop {
-            if progress_on(conn).await.is_some_and(|p| done(&p)) {
+            last = progress_on(conn).await;
+            if last.as_ref().is_some_and(&done) {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     })
     .await
-    .unwrap_or_else(|_| panic!("the move never reached: {what}"));
+    .unwrap_or_else(|_| panic!("the move never reached: {what}; last progress: {last:?}"));
 }
 
 #[cfg(unix)]
@@ -3908,10 +3910,10 @@ async fn when_two_machines_continued_a_session_the_later_one_wins_and_the_other_
 #[cfg(unix)]
 #[tokio::test]
 async fn the_cache_stays_under_its_cap_and_keeps_the_newest_sessions() {
-    // A rollout is about 1.3 KB with its note: two fit, a third does not.
+    // Two copies fit, including room for the next note; a third does not.
     let mut pair = synced_pair_env(None, None, &copy_env(Some(4000))).await;
     for (id, age) in [("s1", 3000), ("s2", 2000), ("s3", 1000)] {
-        rollout_for(&pair.a, &pair.a_folder, id, Duration::from_secs(age), 1000);
+        rollout_for(&pair.a, &pair.a_folder, id, Duration::from_secs(age), 900);
     }
     let conn_b = pair.desktop.reach(pair.b.id).await;
     // The two newest come, whatever order a pass takes them in, and the
@@ -4330,7 +4332,6 @@ fn hanging_adapter() -> String {
 #[tokio::test]
 async fn background_copies_wait_while_a_session_works_on_this_machine() {
     let mut pair = synced_pair_env(None, Some(&hanging_adapter()), &copy_env(None)).await;
-    rollout_on(&pair.a, &pair.a_folder);
     let conn_b = pair.desktop.reach(pair.b.id).await;
     // A turn that does not end: the session works.
     let mut agent = ready(&conn_b, "codex/1").await;
@@ -4349,6 +4350,7 @@ async fn background_copies_wait_while_a_session_works_on_this_machine() {
     pair.b
         .logged("background copies wait while a session works")
         .await;
+    rollout_on(&pair.a, &pair.a_folder);
     assert!(
         copies_on(&conn_b).await.is_empty(),
         "nothing is copied meanwhile"
@@ -4591,7 +4593,7 @@ async fn plans_came(conn: &Link, within: Duration) -> [Option<Duration>; 2] {
         while came.iter().any(Option::is_none) {
             match usage.rx.recv::<SessionsReply>().await.expect("reads") {
                 Some(SessionsReply::PlanUsage { usage }) => {
-                    let slot = if usage.agent.as_str() == "claude" {
+                    let slot = if usage.agent.as_ref() == "claude" {
                         0
                     } else {
                         1
@@ -4857,7 +4859,7 @@ async fn skill_sync_can_pause_survive_a_restart_and_resume_without_removing_file
     assert!(!b.home.path().join(".claude/skills/notes").exists());
 
     a = a.restart().await;
-    a.logged("skills: syncing paused").await;
+    a.has_logged("skills: syncing paused").await;
     assert!(!a.home.path().join(".agents/skills/notes").exists());
     set(true).await;
     b.logged("skills: got notes from box-a").await;
@@ -4880,7 +4882,7 @@ async fn skill_sync_can_pause_survive_a_restart_and_resume_without_removing_file
         "Created while paused.",
     );
     b = b.restart().await;
-    b.logged("skills: syncing paused").await;
+    b.has_logged("skills: syncing paused").await;
     assert_eq!(tree(&b.home.path().join(".claude/skills/notes")), notes);
     assert_eq!(tree(&b.home.path().join(".claude/skills/local")), local);
     assert!(!b.home.path().join(".claude/skills/later").exists());

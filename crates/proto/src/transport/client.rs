@@ -211,7 +211,7 @@ impl Client {
             .header(AUTHORIZATION, format!("Bearer {token}"))
             .header(CONTENT_TYPE_HEADER, CONTENT_TYPE);
         if let Some(platform) = self.platform {
-            request = request.header(PLATFORM_HEADER, platform.as_header());
+            request = request.header(PLATFORM_HEADER, platform.as_ref());
         }
         if let Some(version) = &self.version {
             request = request.header(VERSION_HEADER, version);
@@ -282,7 +282,7 @@ async fn checked(response: Response) -> Result<Response> {
         .headers()
         .get(REFUSED_HEADER)
         .and_then(|value| value.to_str().ok())
-        .and_then(Refusal::parse)
+        .and_then(|text| text.parse::<Refusal>().ok())
     {
         return Err(refusal.into());
     }

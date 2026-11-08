@@ -51,7 +51,7 @@ impl Searches {
                 let dir = self.0.dir.clone();
                 blocking(move || state::saved_search(&dir)).await
             }
-            Request::Set { folder } => self.set(Search::parse(&folder)).await,
+            Request::Set { folder } => self.set(Search::from(folder.as_str())).await,
             Request::Rescan {} => self.rescan().await,
             _ => return failed("Update beep-node on this machine first.".into()),
         };
@@ -154,7 +154,7 @@ mod tests {
         let empty = temp.path().join("empty");
         fs::create_dir(&empty).expect("a folder");
         let agents = Arc::new(Agents::new(Vec::new()));
-        let start = Search::parse(&empty.display().to_string());
+        let start = Search::from(empty.display().to_string().as_str());
         let searches = Searches::start(dir.clone(), agents, &start);
         let home = Reply::Folder {
             folder: "~/".into(),

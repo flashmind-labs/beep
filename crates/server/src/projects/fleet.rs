@@ -277,7 +277,10 @@ pub(crate) async fn shared(
         Reply::Roots { roots } => Ok(roots.iter().any(|root| {
             let root = root.trim_end_matches('/');
             // A node sharing `/` shares everything.
-            root.is_empty() || MachinePath::parse(root).is_ok_and(|root| root.contains(path))
+            root.is_empty()
+                || (root)
+                    .parse::<MachinePath>()
+                    .is_ok_and(|root| root.contains(path))
         })),
         Reply::Error { message } => Err(anyhow!("the machine said: {message}")),
         _ => Err(anyhow!("the machine did not list its shared folders")),

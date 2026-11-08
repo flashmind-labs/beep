@@ -1,6 +1,6 @@
 [package]
 name = "beep-node"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 rust-version = "1.93"
 publish = false
@@ -11,6 +11,8 @@ default = ["cli"]
 # transfers, the machine's services. The phone app leaves it out and keeps the
 # link types it shares with the mesh.
 host = [
+    "dep:strum",
+    "dep:tokio-stream",
     "dep:agent-client-protocol",
     "dep:bao-tree",
     "dep:base64",
@@ -121,9 +123,11 @@ serde_json = { version = "1", optional = true }
 # Custom agent frontmatter; the same version the server reads personas with.
 serde_yaml = { version = "0.9", optional = true }
 sha2 = { version = "0.11", optional = true }
+strum = { version = "0.28", features = ["derive"], optional = true }
 tar = { version = "0.4", default-features = false, optional = true }
 thiserror = { version = "2", optional = true }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "fs", "signal", "io-util", "sync"] }
+tokio-stream = { version = "0.1", features = ["sync"], optional = true }
 tokio-util = { version = "0.7", features = ["codec", "rt"], optional = true }
 tempfile = { version = "3", optional = true }
 toml = { version = "1", optional = true }

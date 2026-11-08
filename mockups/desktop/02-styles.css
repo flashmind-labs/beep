@@ -190,10 +190,10 @@ textarea.field { padding: 10px 14px; resize: none; min-height: 80px }
 .callout .who { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--m-muted) }
 .callout .txt { font-size: 13px; line-height: 18px; color: var(--m-ink); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden }
 .callout .life { height: 2px; border-radius: 2px; background: var(--m-soft); overflow: hidden; margin-top: 4px }
-.callout .life i { display: block; height: 100%; background: var(--m-brand); animation: life 6s linear forwards }
+.callout .life i { display: block; width: 100%; height: 100%; background: var(--m-brand); transform-origin: left; animation: life 6s linear forwards }
 .callout.leaving { transition: transform .2s ease-in, opacity .2s; opacity: 0 }
 @keyframes calloutIn { from { transform: scale(.6); opacity: 0 } }
-@keyframes life { from { width: 100% } to { width: 0 } }
+@keyframes life { from { transform: scaleX(1) } to { transform: scaleX(0) } }
 /* A reply sits close under its own prompt; turns keep the full gap. */
 .body > .user + *, .body > .prompt + * { margin-top: -6px }
 .thoughts { margin-bottom: 6px; padding: 10px 12px; border-radius: 8px; background: var(--m-surface); color: var(--m-muted); font-size: 13px; line-height: 19px }

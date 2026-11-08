@@ -26,7 +26,9 @@ import { openAgent, openEditorKey, closeOpenSession, turnRuns } from "./session.
 import { sessionMenu } from "./sessionmenu.ts";
 import { TAKEOVER } from "./sessionmenu-state.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
-import { jumpToStart, jumpToEnd, logJumpKey } from "./older.ts";
+import { jumpToStart, jumpToEnd, loadOlder, logJumpKey, nearTop } from "./older.ts";
+import { pageDirection } from "./page-key.ts";
+import type { ChatBody } from "../ui/turn.ts";
 import type { OlderStop } from "./older-state.ts";
 import { closeModelPicker } from "./modelpill.ts";
 import { steerMessage, interruptAgent, answerFirst, sendAgentMessage } from "./messages.ts";
@@ -503,6 +505,16 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
       }
       if (!e.shiftKey && (k === "2" || k === "3" || k === "4")) { e.preventDefault(); showPaneTab(Number(k) - 2); return true; }
       if (k === "o" && !e.shiftKey) { e.preventDefault(); openEditorKey(); return true; }
+    }
+    const target = e.target as HTMLElement | null;
+    const body = $<ChatBody>("#agbody");
+    const page = pageDirection(e, !!body && ((target?.id === "agmsg" && !(target as HTMLTextAreaElement).value) || target === body || target === document.body));
+    if (page && body) {
+      e.preventDefault();
+      body.stuck = false;
+      body.scrollTop += page * body.clientHeight * 0.9;
+      if (nearTop(body)) void loadOlder("near");
+      return true;
     }
     // Home and ⌘↑ go to the first entry of the log, End and ⌘↓ to the last,
     // unless the field has text to move through.

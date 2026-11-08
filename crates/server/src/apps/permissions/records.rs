@@ -170,7 +170,7 @@ pub(crate) async fn read_back(user: &User, call: &ToolCall) -> Vec<ApprovalField
     let tool = ToolSlug::new(&call.name);
     let Some(lookup) = LOOKUPS
         .iter()
-        .find(|lookup| lookup.tools.contains(&tool.as_str()))
+        .find(|lookup| lookup.tools.contains(&tool.as_ref()))
     else {
         return Vec::new();
     };
@@ -264,7 +264,7 @@ pub(super) fn record_ids(args: &Value) -> Vec<&str> {
 
 /// What the sender of the email `call` names is to the user.
 pub(super) fn sender_label(call: &ToolCall) -> &'static str {
-    match ToolSlug::new(&call.name).as_str() {
+    match ToolSlug::new(&call.name).as_ref() {
         "GMAIL_REPLY_TO_THREAD" | "OUTLOOK_REPLY_EMAIL" => "Replying to",
         "FASTMAIL_SEND_EMAIL" => match call.arguments.get("mode").and_then(Value::as_str) {
             Some("forward") => "Forwarding from",

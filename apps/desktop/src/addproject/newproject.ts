@@ -13,7 +13,7 @@ import type { ProjectRow } from "../project/projects-state.ts";
 /// What the window hands the sheet.
 export interface NewProjectOptions {
   /// The machines Home lists.
-  machines?: readonly { id: string; name: string; online: boolean }[];
+  machines?: readonly { id: string; name: string; online: boolean; can_host?: boolean }[];
   /// Runs with where it landed first, once the sheet closes on it.
   onDone?: (project: ProjectRow) => void;
   /// Back to the Add a project sheet.
@@ -39,7 +39,7 @@ const picked = () => form.machines.map(id => online().find(m => m.id === id)?.na
 export function openNewProject(options: NewProjectOptions = {}) {
   if (root) return;
   opening++;
-  opts = options;
+  opts = { ...options, machines: options.machines?.filter(m => m.can_host !== false) };
   forges = undefined;
   loadError = null;
   form = startForm([], online()[0]?.id);

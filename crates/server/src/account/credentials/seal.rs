@@ -29,8 +29,8 @@ impl Owner<'_> {
         let slot = match self.slot {
             Slot::GitHub => "github".to_owned(),
             Slot::Forgejo(url) => format!("forgejo {url}"),
-            Slot::ApiKey(provider) => format!("api_key {}", provider.slug()),
-            Slot::AgentToken(agent) => format!("agent_token {}", agent.slug()),
+            Slot::ApiKey(provider) => format!("api_key {}", provider.as_ref()),
+            Slot::AgentToken(agent) => format!("agent_token {}", agent.as_ref()),
         };
         // NUL never occurs in any of them, so the parts cannot run together.
         [self.user, &slot, self.id].join("\0").into_bytes()

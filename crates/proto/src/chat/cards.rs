@@ -222,36 +222,29 @@ pub enum ChartAxis {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(strum::AsRefStr, strum::IntoStaticStr)]
 pub enum ChartRange {
     #[serde(rename = "1d")]
+    #[strum(serialize = "1d")]
     Day,
     #[serde(rename = "5d")]
+    #[strum(serialize = "5d")]
     Week,
     #[serde(rename = "1mo")]
+    #[strum(serialize = "1mo")]
     Month,
     #[serde(rename = "6mo")]
+    #[strum(serialize = "6mo")]
     HalfYear,
     #[serde(rename = "ytd")]
+    #[strum(serialize = "ytd")]
     YearToDate,
     #[serde(rename = "1y")]
+    #[strum(serialize = "1y")]
     Year,
     #[serde(rename = "5y")]
+    #[strum(serialize = "5y")]
     FiveYears,
+    #[strum(serialize = "max")]
     Max,
-}
-
-impl ChartRange {
-    /// The name it has in JSON and in Yahoo Finance's `range`, such as "1mo".
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Day => "1d",
-            Self::Week => "5d",
-            Self::Month => "1mo",
-            Self::HalfYear => "6mo",
-            Self::YearToDate => "ytd",
-            Self::Year => "1y",
-            Self::FiveYears => "5y",
-            Self::Max => "max",
-        }
-    }
 }

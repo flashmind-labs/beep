@@ -48,7 +48,7 @@ impl Actor {
 
     pub(super) fn show_stopping(&mut self, stopping: Stopping) {
         self.live.send_if_modified(|live| {
-            let summary = stopping.summary();
+            let summary = Into::<&'static str>::into(stopping);
             let changed = live.info.state.summary != summary;
             if changed {
                 live.info.state.summary = summary.into();
@@ -349,24 +349,30 @@ impl Actor {
         self.compactor.finished();
         let tokens = result.as_ref().map(turn_tokens).unwrap_or_default();
         self.live.send_modify(|live| live.spent(tokens));
-        let line = match result {
+        let entry = match result {
             Ok(done) => {
-                let stop = StopReason::from_acp(&acp::wire_name(&done.stop_reason));
+                let stop = acp::wire_name(&done.stop_reason)
+                    .parse()
+                    .unwrap_or(StopReason::Other);
                 if stop == StopReason::EndTurn {
                     self.restate();
                 }
-                (stop == StopReason::EndTurn).then_some(COMPACTED_ENTRY.to_owned())
+                (stop == StopReason::EndTurn)
+                    .then(|| (EntryKind::Compacted, COMPACTED_ENTRY.to_owned()))
             }
             Err(e) => {
                 log::warn!("the agent did not compact: {e}");
-                Some(format!("[compacting the conversation failed: {e}]"))
+                Some((
+                    EntryKind::Other,
+                    format!("[compacting the conversation failed: {e}]"),
+                ))
             }
         };
         self.live.send_modify(|live| {
-            if let Some(line) = line
+            if let Some((kind, line)) = entry
                 && !live.take_compacted()
             {
-                live.push(EntryKind::Other, &line);
+                live.push(kind, &line);
             }
             let state = &mut live.info.state;
             state.status = Status::Idle;

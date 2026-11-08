@@ -252,20 +252,14 @@ ffi_enum! {
     /// The user's answer to an `Approval`. `Always` also stops asking for
     /// that action.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(strum::AsRefStr, strum::IntoStaticStr)]
     pub enum ApprovalDecision {
+        #[strum(serialize = "deny")]
         0 Deny {}
+        #[strum(serialize = "allow")]
         1 Allow {}
+        #[strum(serialize = "always")]
         2 Always {}
-    }
-}
-
-impl ApprovalDecision {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Deny {} => "deny",
-            Self::Allow {} => "allow",
-            Self::Always {} => "always",
-        }
     }
 }
 

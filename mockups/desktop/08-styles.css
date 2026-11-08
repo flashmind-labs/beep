@@ -3,3 +3,8 @@
 .mac .activity-progress { min-width: 0; }
 .mac .activity-progress > .tools { display: grid; gap: 12px; margin-top: 8px; }
 .mac .activity-progress > .dcoderturn .when { display: none; }
+.mac .dprogress-collapse { all: unset; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 4px; color: var(--d-muted); cursor: pointer; }
+.mac .dprogress-collapse svg { transform: rotate(-90deg); }
+.mac .dprogress-collapse:hover { color: var(--d-fg); background: var(--d-elev); }
+.mac .dprogress-collapse:active { transform: scale(.98); }
+.mac .dprogress-collapse:focus-visible { outline: 2px solid var(--d-accent); outline-offset: 2px; }

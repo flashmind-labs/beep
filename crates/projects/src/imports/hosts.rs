@@ -87,7 +87,7 @@ pub async fn target_of<'a>(hosts: &dyn Hosts, opened: &'a Opened) -> Option<Targ
             Target {
                 opened,
                 api: Api::Forgejo,
-                base: format!("{}/api/v1", url.as_str()),
+                base: format!("{}/api/v1", url.as_ref()),
                 login: None,
             }
         }

@@ -23,7 +23,7 @@ pub enum SkillOwner {
 impl SkillOwner {
     fn user_id(&self) -> Option<&str> {
         match self {
-            Self::User(key) => Some(key.as_str()),
+            Self::User(key) => Some(key.as_ref()),
             Self::Group(_) => None,
         }
     }
@@ -186,7 +186,7 @@ impl Store {
             "SELECT {COLUMNS} FROM {FROM} WHERE {VISIBLE}
              ORDER BY s.group_id NULLS FIRST, c.title, s.last_used DESC NULLS LAST, s.updated_at DESC"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?
         .iter()
@@ -281,7 +281,7 @@ impl Store {
         let visible: bool = sqlx::query_scalar(&format!(
             "SELECT EXISTS (SELECT 1 FROM skills s WHERE s.id = $2 AND {VISIBLE})"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(id)
         .fetch_one(&mut *tx)
         .await?;
@@ -297,7 +297,7 @@ impl Store {
         let done = sqlx::query(&format!(
             "DELETE FROM skills s WHERE s.id = $2 AND {VISIBLE}"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(id)
         .execute(&self.pool)
         .await?;
@@ -316,7 +316,7 @@ impl Store {
                 body = last.body, edited = last.edited, updated_at = now()
              FROM last WHERE s.id = $2 AND {VISIBLE}"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(id)
         .execute(&mut *tx)
         .await?;

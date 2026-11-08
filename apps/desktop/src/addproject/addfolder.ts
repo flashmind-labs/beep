@@ -15,7 +15,7 @@ import type { MachineFolder, ProjectRow } from "../project/projects-state.ts";
 /// What the window hands the sheet.
 export interface AddFolderOptions {
   /// The machines Home lists.
-  machines?: readonly { id: string; name: string; online: boolean }[];
+  machines?: readonly { id: string; name: string; online: boolean; can_host?: boolean }[];
   /// This Mac's machine id, when it is one.
   macId?: string | null;
   /// Runs once the project is in.
@@ -35,8 +35,8 @@ let reading = false;
 export function openAddFolder(options: AddFolderOptions = {}) {
   if (root) return;
   syncthing = syncthingImportChoice();
-  opts = options;
-  state = startOn(options.machines || [], options.macId || null);
+  opts = { ...options, machines: options.machines?.filter(m => m.can_host !== false) };
+  state = startOn(opts.machines || [], opts.macId || null);
   reading = false;
   ({ root, sheet, close } = openSheet("Add a folder", "am-sheet ip-sheet", {
     canClose: () => state.step !== "adding",

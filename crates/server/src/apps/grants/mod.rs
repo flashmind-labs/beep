@@ -33,9 +33,9 @@ const MAX_SENT_CHARS: usize = 2000;
 /// A grant as the grant list shows it.
 pub(crate) fn listed(row: GrantRow) -> Grant {
     let slug = ToolSlug::new(&row.tool);
-    let (app, action) = match permissions::lookup(slug.as_str()) {
+    let (app, action) = match permissions::lookup(slug.as_ref()) {
         Some((app, _)) => {
-            let action = permissions::action_name(&app, slug.as_str());
+            let action = permissions::action_name(&app, slug.as_ref());
             (app.name(), action)
         }
         None => (row.tool.clone(), row.tool.to_lowercase()),
