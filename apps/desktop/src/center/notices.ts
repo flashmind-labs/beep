@@ -33,6 +33,7 @@ export function mountNotices(host: HTMLElement) {
   let notes: Item[] = [];
   let open = false;
   let opened: string | null = null;
+  let returnFocus: HTMLElement | null = null;
   /// An alert a click asked for before the list had come.
   let wanted: string | null = null;
   /// Asks being answered, and why an answer failed, by id.
@@ -68,12 +69,29 @@ export function mountNotices(host: HTMLElement) {
     if (open && opened && find(alerts ?? [], opened)) drawBell(); else draw();
   };
 
-  const toggle = (to: boolean) => {
+  const focusList = (id?: string | null) => {
+    const rows = [...host.querySelectorAll<HTMLElement>(".nt-row")];
+    (rows.find(r => r.dataset.id === id) ?? rows[0] ?? host.querySelector<HTMLElement>(".nt-pop"))?.focus();
+  };
+
+  const backToList = () => {
+    const id = opened;
+    opened = null;
+    draw();
+    focusList(id);
+  };
+
+  const toggle = (to: boolean, keyboard = false) => {
+    if (to && !open) returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     open = to;
     if (!to) opened = null;
     draw();
     // Opening the pane reads what it shows; the rows keep their dots until it closes.
     if (to) read(unreadIds(items()), false);
+    if (keyboard) {
+      if (to) focusList();
+      else (returnFocus?.isConnected ? returnFocus : host.querySelector<HTMLElement>(".nt-bell"))?.focus();
+    }
   };
 
   const makeBell = () => {
@@ -96,9 +114,23 @@ export function mountNotices(host: HTMLElement) {
   };
 
   const draw = () => {
+    const active = document.activeElement;
+    const inPop = active instanceof HTMLElement && host.contains(active) && !!active.closest(".nt-pop");
+    const focused = inPop ? active.closest<HTMLElement>(".nt-row") : null;
+    const index = focused ? [...host.querySelectorAll(".nt-row")].indexOf(focused) : -1;
+    const action = focused ? [...focused.querySelectorAll("button")].indexOf(active as HTMLButtonElement) : -1;
     const bell = makeBell();
     const shown = opened && find(items(), opened);
     host.replaceChildren(bell, ...(open ? [shown ? (shown.server ? openedView(shown) : skillView(shown)) : listView(items())] : []));
+    // Live updates and dismissals keep the same row focused, or its nearest neighbor.
+    if (focused && open) {
+      const rows = [...host.querySelectorAll<HTMLElement>(".nt-row")];
+      const row = rows.find(r => r.dataset.id === focused.dataset.id) ?? rows[Math.min(index, rows.length - 1)];
+      const control = row?.querySelectorAll("button")[action];
+      (control && !control.disabled ? control : row ?? host.querySelector<HTMLElement>(".nt-pop button") ?? host.querySelector<HTMLElement>(".nt-pop"))?.focus();
+    } else if (inPop && open && !shown) {
+      focusList();
+    }
   };
 
   /// Marks `list` read, here and where it is kept; `redraw` false leaves the pane as drawn.
@@ -174,7 +206,9 @@ export function mountNotices(host: HTMLElement) {
     const body = list.length
       ? list.map(row)
       : [h("div", "nt-empty", "No notifications")];
-    return h("div", "nt-pop", head, h("div", "nt-list", ...body));
+    const pop = h("div", "nt-pop", head, h("div", "nt-list", ...body));
+    pop.tabIndex = -1;
+    return pop;
   };
 
   const row = (i: Item) => {
@@ -195,6 +229,7 @@ export function mountNotices(host: HTMLElement) {
     const text = h("span", "nt-t", h("b", "", i.title), !i.server && i.text ? h("span", "", i.text.split("\n").join(", ")) : null, sub, acts);
     const r = h("div", `nt-row${i.read ? "" : " unread"}${i.done ? " done" : ""}`, h("span", "nt-dot"), text, close);
     r.tabIndex = 0;
+    r.dataset.id = i.id;
     r.setAttribute("role", "button");
     r.addEventListener("click", () => openItem(i));
     r.addEventListener("keydown", e => {
@@ -205,7 +240,7 @@ export function mountNotices(host: HTMLElement) {
 
   /// A skill conflict opened: its copies, with no reply to give.
   const skillView = (i: Item) => {
-    const back = button("Notifications", "small quiet", () => { opened = null; draw(); });
+    const back = button("Notifications", "small quiet", backToList);
     const head = h("div", "nt-h", back, h("span", "", subLine(i, ago(i.at))), button("Dismiss", "small", () => dismiss([i.id])));
     const pending = keeping.get(i.id);
     const why = failed.get(i.id);
@@ -241,7 +276,7 @@ export function mountNotices(host: HTMLElement) {
   };
 
   const openedView = (i: Item) => {
-    const back = button("Notifications", "small quiet", () => { opened = null; draw(); });
+    const back = button("Notifications", "small quiet", backToList);
     const head = h("div", "nt-h", back, h("span", "", subLine(i, ago(i.at))), button("Dismiss", "small", () => dismiss([i.id])));
     const input = h("input", "nt-ask");
     input.type = "text";
@@ -285,16 +320,29 @@ export function mountNotices(host: HTMLElement) {
   };
 
   document.addEventListener("click", e => { if (open && !e.composedPath().includes(host)) toggle(false); });
+  host.addEventListener("keydown", e => {
+    if (!open || opened || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey ||
+        (e.key !== "ArrowDown" && e.key !== "ArrowUp") || !(e.target instanceof Element) || !e.target.closest(".nt-pop")) return;
+    const rows = [...host.querySelectorAll<HTMLElement>(".nt-row")];
+    if (!rows.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const index = rows.indexOf(e.target.closest<HTMLElement>(".nt-row")!);
+    const next = index < 0 ? (e.key === "ArrowDown" ? 0 : rows.length - 1)
+      : (index + (e.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length;
+    rows[next].focus();
+  });
   document.addEventListener("keydown", e => {
     if (!e.defaultPrevented && commandKey(e) && !(WINDOWS ? e.metaKey : e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b" &&
         !(e.target instanceof Element && e.target.closest("[contenteditable]:not([contenteditable=false]), .tm-xterm"))) {
       e.preventDefault();
-      toggle(!open);
+      toggle(!open, true);
       return;
     }
     if (!open || e.key !== "Escape") return;
+    e.preventDefault();
     // Esc goes back to the list first, then closes the pane.
-    if (opened) { opened = null; draw(); } else toggle(false);
+    if (opened) backToList(); else toggle(false, true);
   });
   listen<Alerts>("alerts", e => setAlerts(e.payload));
   listen<Note[]>("notes", e => setNotes(e.payload));

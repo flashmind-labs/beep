@@ -151,19 +151,30 @@
     const open = NF.filter(n => live(n) && !n.by), done = NF.filter(n => live(n) && n.by), un = unread();
     const body = S.d.nfempty ? '<div class="nf-empty">No notifications</div>'
       : open.map(nrow).join("") + (done.length ? `<div class="nb-lg">Completed<span class="c">${done.length}</span></div>` + done.map(nrow).join("") : "");
-    return `<div class="nf" role="dialog" aria-label="Notifications"><div class="nf-h"><b>Notifications</b>${un ? `<span>${un} unread</span>` : ""}${!S.d.nfempty && open.some(n => n.notice || n.mesh) ? '<button class="dbtn" data-nf-clear>Clear</button>' : ""}${!S.d.nfempty && open.some(n => !n.notice && !n.mesh) ? '<button class="dbtn" data-nf-all>Complete all</button>' : ""}</div><div class="nf-list">${body}</div></div>`;
+    return `<div class="nf" role="dialog" aria-label="Notifications" tabindex="-1"><div class="nf-h"><b>Notifications</b>${un ? `<span>${un} unread</span>` : ""}${!S.d.nfempty && open.some(n => n.notice || n.mesh) ? '<button class="dbtn" data-nf-clear>Clear</button>' : ""}${!S.d.nfempty && open.some(n => !n.notice && !n.mesh) ? '<button class="dbtn" data-nf-all>Complete all</button>' : ""}</div><div class="nf-list">${body}</div></div>`;
   };
   const bellHtml = () => { const un = unread(); return `${BELL}${un ? `<span class="nf-n">${un}</span>` : ""}`; };
+  let returnFocus = null;
+  const focusList = () => (document.querySelector("#desk .nf-row") || document.querySelector("#desk .nf"))?.focus();
+  const restoreFocus = () => (returnFocus?.isConnected ? returnFocus : document.querySelector("#desk .nf-bell"))?.focus();
   // Redraws only the button and the pane, so completing a row leaves the page and its scroll alone.
   const paint = () => {
     const win = document.querySelector("#desk .cc-win"), bell = win && win.querySelector(".nf-bell");
     if (!bell) return;
     const old = win.querySelector(".nf"), list = old && old.querySelector(".nf-list"), keep = list ? list.scrollTop : 0;
+    const focused = document.activeElement?.closest(".nf-row");
+    const rows = [...(old?.querySelectorAll(".nf-row") || [])], index = rows.indexOf(focused);
+    const action = focused ? [...focused.querySelectorAll("button")].indexOf(document.activeElement) : -1;
     bell.innerHTML = bellHtml();
     bell.setAttribute("aria-expanded", String(!!S.d.nfopen));
     bell.setAttribute("aria-label", `Notifications, ${unread()} unread`);
     old?.remove();
     if (S.d.nfopen) { win.insertAdjacentHTML("beforeend", pane()); win.querySelector(".nf-list").scrollTop = keep; }
+    if (focused && S.d.nfopen) {
+      const next = [...win.querySelectorAll(".nf-row")];
+      const row = next.find(r => r.dataset.nfGo === focused.dataset.nfGo) || next[Math.min(index, next.length - 1)];
+      (row?.querySelectorAll("button")[action] || row || win.querySelector(".nf"))?.focus();
+    }
   };
   const decorate = () => {
     const win = document.querySelector("#desk .cc-win"), top = win && win.querySelector(".cc-top");
@@ -210,11 +221,15 @@
     if (S.d.nfopen && !e.target.closest(".nf")) { S.d.nfopen = false; paint(); }
   });
   desk.addEventListener("keydown", e => {
+    if (S.d.nfopen && !S.d.nfnote && !e.metaKey && !e.ctrlKey && !e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp") && e.target.closest?.(".nf")) {
+      const rows = [...desk.querySelectorAll(".nf-row")], index = rows.indexOf(e.target.closest(".nf-row"));
+      if (rows.length) { e.preventDefault(); const next = index < 0 ? (e.key === "ArrowDown" ? 0 : rows.length - 1) : (index + (e.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length; rows[next].focus(); }
+    }
     if ((e.key === "Enter" || e.key === " ") && e.target.matches?.("[data-nf-go]")) { e.preventDefault(); e.target.click(); }
   });
   document.addEventListener("keydown", e => {
-    if (e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === "b" && document.querySelector("#desk .nf-bell") && !e.target.closest?.("[contenteditable=true], .tm-xterm")) { e.preventDefault(); S.d.nfnote = ""; S.d.nfopen = !S.d.nfopen; paint(); return; }
-    if (e.key === "Escape" && S.d.nfopen) { e.stopImmediatePropagation(); S.d.nfnote = ""; S.d.nfopen = false; paint(); }
+    if (e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === "b" && document.querySelector("#desk .nf-bell") && !e.target.closest?.("[contenteditable=true], .tm-xterm")) { e.preventDefault(); if (!S.d.nfopen) returnFocus = document.activeElement; S.d.nfnote = ""; S.d.nfopen = !S.d.nfopen; paint(); if (S.d.nfopen) focusList(); else restoreFocus(); return; }
+    if (e.key === "Escape" && S.d.nfopen) { e.stopImmediatePropagation(); if (S.d.nfnote) { S.d.nfnote = ""; paint(); focusList(); } else { S.d.nfopen = false; paint(); restoreFocus(); } }
   }, true);
 
   // Its own screen in the index, to try the pane and the pages it opens.
