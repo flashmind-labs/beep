@@ -153,7 +153,7 @@ ios-sim-run:
 ios-ipa:
     bash scripts/tauri-ios.sh --ipa
 
-# Install the last built .ipa on a connected iPhone. Optional device name.
+# Install the last built .ipa on a connected iPhone and open it. Optional device name.
 [positional-arguments]
 ios-install device="":
     #!/usr/bin/env bash
@@ -169,11 +169,13 @@ ios-install device="":
     fi
     [[ -n $device ]] || { echo "Connect and unlock an iPhone, or pass its name" >&2; exit 1; }
     xcrun devicectl device install app --device "$device" "$ipa"
+    xcrun devicectl device process launch --device "$device" com.flashmind.beep
 
 # Build, install and launch the phone app on a connected iPhone. Optional device name.
 [positional-arguments]
 ios-run device="":
-    bash scripts/tauri-ios.sh "$1"
+    just ios-ipa
+    just ios-install "$1"
 
 # Build the phone app's debug APK for arm64
 android-build:
