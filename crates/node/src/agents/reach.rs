@@ -21,7 +21,7 @@ const WORKTREE_WAIT: Duration = Duration::from_secs(5);
 /// read: the harnesses' session logs and Claude Code's temp folder, where
 /// it keeps the files it makes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Access {
+pub(crate) enum Access {
     Read,
     Write,
     /// Read, but only in a work folder: a project folder asked for.
@@ -93,7 +93,7 @@ pub(super) fn refused(asked: &str, access: Access) -> anyhow::Error {
 /// `path`, absolute, with its links and `..` resolved. A path not there
 /// yet is its nearest folder that is, resolved, with the rest joined.
 /// Blocks on the file system.
-pub(super) fn real(path: &Path) -> Result<PathBuf> {
+pub(crate) fn real(path: &Path) -> Result<PathBuf> {
     let mut missing = Vec::new();
     let mut at = path;
     loop {
@@ -182,10 +182,46 @@ impl Agents {
         }
     }
 
+    /// Work directories currently authorized for namespace-wide file subscriptions.
+    pub(crate) async fn notification_roots(&self) -> Result<Vec<PathBuf>> {
+        let mut work = self.folders.get().cloned().unwrap_or_default();
+        work.extend(self.lock().values().filter_map(|session| {
+            let info = session.info();
+            (info.state.status != beep_proto::node::agent::Status::Ended)
+                .then(|| PathBuf::from(info.cwd))
+        }));
+        work.extend(
+            self.presence
+                .snapshot()
+                .into_iter()
+                .filter(|session| session.presence.is_live())
+                .map(|session| PathBuf::from(session.cwd)),
+        );
+        work.extend(self.observed_work_roots());
+        spawn_blocking(move || {
+            let mut roots: Vec<_> = work
+                .into_iter()
+                .filter_map(|root| real(&root).ok())
+                .filter(|root| root.parent().is_some() && (root.is_dir() || !root.exists()))
+                .collect();
+            roots.sort();
+            roots.dedup();
+            let parents = roots.clone();
+            roots.retain(|root| {
+                !parents
+                    .iter()
+                    .any(|parent| parent != root && root.starts_with(parent))
+            });
+            Ok(roots)
+        })
+        .await
+        .context("finding notification roots stopped")?
+    }
+
     /// `asked`, absolute or starting `~/`, with its links and `..`
     /// resolved, once it is inside the folders `access` may reach; refused
     /// otherwise.
-    pub(super) async fn reachable(&self, asked: &str, access: Access) -> Result<PathBuf> {
+    pub(crate) async fn reachable(&self, asked: &str, access: Access) -> Result<PathBuf> {
         let home = dirs::home_dir();
         let reach = self.reach(Vec::new());
         let owned = asked.to_owned();

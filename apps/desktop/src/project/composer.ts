@@ -1,3 +1,4 @@
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // The bar under a project page: its prompt, harness picker and checkout, and
 // starting or resuming a coding agent from it.
 import { makeStartComposer } from "../agents/start-composer.ts";
@@ -31,8 +32,8 @@ import { defaultParent } from "../addproject/importproject-state.ts";
 import { lastImport } from "../addproject/importproject.ts";
 import { refresh } from "../center/refresh.ts";
 import { startAttachments } from "../agents/start-attachments.ts";
-/// How often the bar reads the sync while a project is added to a machine.
-const POLL_MS = 1000;
+
+let finishCopy: (() => void) | undefined;
 
 export const projectComp = (() => {
   const composer = makeStartComposer({ presentation: "compact" });
@@ -166,6 +167,7 @@ export function drawProjectComp(name: string) {
   const c = projectComp;
   c.setPresentation(shown === "pane" && S.view === "agent" && AG.draft === name ? "centered" : "compact");
   if (pc.project !== name) {
+    finishCopy?.();
     pc.project = name;
     pc.machine = lastMachine(name);
     pc.adding = null;
@@ -450,13 +452,28 @@ async function addToMachine(project: string, m: AgentHost) {
     await invoke<string>("project_add_to_machine", { project, machineId: m.machine_id, folder: `${parent}/${shortName(project)}` });
     refresh();
     loadWhere(project);
-    while (here()) {
-      const detail = await invoke<SyncDetail | null>("project_sync_detail", { project }).catch(() => null);
-      const line = copyLine(detail, m.machine_id, m.machine_name);
-      if (line.done) break;
-      if (here()) err.textContent = line.note ? `${line.text}. ${line.note}` : line.text;
-      await new Promise(done => setTimeout(done, POLL_MS));
-    }
+    await new Promise<void>(resolve => {
+      let reading = false, again = false, done = false;
+      const finish = () => { done = true; unfollow(); if (finishCopy === finish) finishCopy = undefined; resolve(); };
+      const read = async () => {
+        if (reading) { again = true; return; }
+        reading = true;
+        do {
+          again = false;
+          if (done) break;
+          if (!here()) { finish(); break; }
+          const detail = await invoke<SyncDetail | null>("project_sync_detail", { project }).catch(() => null);
+          if (done || !here()) { finish(); break; }
+          const line = copyLine(detail, m.machine_id, m.machine_name);
+          if (line.done) { finish(); break; }
+          err.textContent = line.note ? `${line.text}. ${line.note}` : line.text;
+        } while (again && !done);
+        reading = false;
+      };
+      const unfollow = subscribeChanges([topic("sync"), topic("projects")], () => read());
+      finishCopy = finish;
+      void read();
+    });
     if (here()) err.textContent = "";
   } catch (e) {
     if (here()) err.textContent = reason(e);

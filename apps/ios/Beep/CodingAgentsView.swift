@@ -200,85 +200,90 @@ struct CodingSessionView: View {
     @State private var showingDiff = false
 
     var body: some View {
-        WorkspacePage(title: "Agent session", back: back) {
+        WorkspacePage(title: view?.session.title ?? agentName(agent), back: back) {
             if let session = view?.session, !session.external, session.status != .ended {
                 Button("Stop") { perform { try await model.workspace.client().steerCoding(machineId: session.machineId, agent: session.agent, session: session.id, steer: .cancel) } }
                     .buttonStyle(TextAction(color: Mint.error)).disabled(busy)
             }
         } content: {
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 10) {
                     WorkspaceError(text: error, retry: load)
                     WorkspaceError(text: actionError)
                     if let view {
-                        HStack { WorkspaceHeading(title: view.session.title ?? agentName(agent)); WorkspaceBadge(text: view.session.status.label, color: view.session.status.color) }
-                        WorkspaceFacts(rows: [("Agent", agentName(view.session.agent)), ("Machine", view.session.machineName),
-                                              ("Turns", "\(view.turns)"), ("Folder", view.session.cwd)])
-                        if let usage {
-                            WorkspaceFacts(rows: [("Tokens", usage.tokens.formatted()), ("Cost", usage.costUsd.map { String(format: "$%.2f", $0) } ?? "Not reported")])
+                        HStack(spacing: 8) {
+                            Text(subtitle(view)).font(.body(12)).foregroundStyle(Mint.muted).lineLimit(2)
+                            Spacer(minLength: 0)
+                            WorkspaceBadge(text: view.session.status.label, color: view.session.status.color)
                         }
-                        if let question = view.session.question {
-                            WorkspaceBox {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    WorkspaceHeading(title: question.text)
-                                    if let detail = question.detail { Text(detail).font(.system(size: 12, design: .monospaced)).textSelection(.enabled) }
-                                    ForEach(question.options, id: \.id) { option in
-                                        Button(option.name) {
-                                            perform { try await model.workspace.client().answerCoding(machineId: view.session.machineId, agent: view.session.agent, session: view.session.id, question: question.id, reply: option.id) }
-                                        }.buttonStyle(PillButton(fill: option.allow ? Mint.accent : Mint.surface)).disabled(busy)
-                                    }
-                                }.padding(12)
-                            }
-                        }
-                        if !view.plan.isEmpty {
-                            WorkspaceHeading(title: "Plan")
-                            WorkspaceBox {
-                                ForEach(Array(view.plan.enumerated()), id: \.offset) { _, step in
-                                    WorkspaceRow(icon: step.status == .completed ? "checkmark.circle" : "circle", title: step.content)
-                                }
-                            }
-                        }
-                        WorkspaceHeading(title: "Session log")
-                        if view.earlier > 0 { Text("\(view.earlier) earlier entries omitted").font(.body(11)).foregroundStyle(Mint.muted) }
+                        if view.earlier > 0 { Text("\(view.earlier) earlier entries").font(.body(11)).foregroundStyle(Mint.dim) }
                         ForEach(Array(view.entries.enumerated()), id: \.offset) { _, entry in
                             transcript(entry)
                         }
                         if let problem = view.error { WorkspaceError(text: problem) }
+                        if !view.plan.isEmpty { plan(view.plan) }
                         if !view.files.isEmpty {
-                            WorkspaceHeading(title: "Changes")
-                            WorkspaceBox {
-                                ForEach(view.files, id: \.self) { file in
-                                    WorkspaceRow(icon: "doc", title: file) {
-                                        perform {
-                                            diff = try await model.workspace.client().sessionDiff(machineId: view.session.machineId, root: view.session.cwd)
-                                            showingDiff = true
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if view.session.external {
-                            Button("Resume session") {
+                            Button {
                                 perform {
-                                    let resumed = try await model.workspace.client().resumeCoding(machineId: view.session.machineId, agent: view.session.agent, session: view.session.id)
-                                    self.view = try await model.workspace.client().codingSession(machineId: resumed.session.machineId, agent: resumed.session.agent, session: resumed.session.id)
+                                    diff = try await model.workspace.client().sessionDiff(machineId: view.session.machineId, root: view.session.cwd)
+                                    showingDiff = true
                                 }
-                            }.buttonStyle(PrimaryButton()).disabled(busy)
+                            } label: {
+                                HStack {
+                                    Image(systemName: "doc.text.magnifyingglass")
+                                    Text(view.files.count == 1 ? "1 file changed" : "\(view.files.count) files changed")
+                                    Spacer()
+                                    Text("Review").foregroundStyle(Mint.accent)
+                                }.font(.body(13)).padding(12).card()
+                            }.buttonStyle(.plain)
                         }
                     } else if error.isEmpty { WorkspaceLoading() }
                 }.padding(16)
-            }.refreshable { await load() }
-            if let session = view?.session, !session.external, session.status != .ended {
-                HStack(spacing: 8) {
-                    TextField("Message agent", text: $draft, axis: .vertical).lineLimit(1...5).workspaceField()
-                    Button("Send") {
-                        let text = draft
+            }
+            .defaultScrollAnchor(.bottom)
+            .refreshable { await load() }
+            if let view, let question = view.session.question {
+                VStack(alignment: .leading, spacing: 9) {
+                    Text(question.text).font(.body(14).weight(.semibold))
+                    if let detail = question.detail { Text(detail).font(.system(size: 12, design: .monospaced)).foregroundStyle(Mint.muted).lineLimit(6).textSelection(.enabled) }
+                    ForEach(question.options, id: \.id) { option in
+                        Button(option.name) {
+                            perform { try await model.workspace.client().answerCoding(machineId: view.session.machineId, agent: view.session.agent, session: view.session.id, question: question.id, reply: option.id) }
+                        }.buttonStyle(PillButton(fill: option.allow ? Mint.accent : Mint.raised)).disabled(busy)
+                    }
+                }
+                .padding(11).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Mint.surface, in: RoundedRectangle(cornerRadius: Mint.radius))
+                .overlay(RoundedRectangle(cornerRadius: Mint.radius).stroke(Mint.warn.opacity(0.5)))
+                .padding(.horizontal, 12).padding(.bottom, 8)
+            }
+            if let session = view?.session {
+                if session.external {
+                    Button("Resume session") {
                         perform {
-                            try await model.workspace.client().steerCoding(machineId: session.machineId, agent: session.agent, session: session.id, steer: .prompt(text: text))
-                            draft = ""
+                            let resumed = try await model.workspace.client().resumeCoding(machineId: session.machineId, agent: session.agent, session: session.id)
+                            self.view = try await model.workspace.client().codingSession(machineId: resumed.session.machineId, agent: resumed.session.agent, session: resumed.session.id)
                         }
-                    }.buttonStyle(PillButton(fill: Mint.accent)).disabled(busy || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }.padding(12).background(Mint.surface).overlay(alignment: .top) { Divider().overlay(Mint.soft) }
+                    }.buttonStyle(PrimaryButton()).disabled(busy).padding(12)
+                } else if session.status != .ended {
+                    HStack(alignment: .bottom, spacing: 8) {
+                        TextField("Message \(agentName(session.agent))", text: $draft, axis: .vertical).lineLimit(1...5).font(.body(14))
+                        Button {
+                            let text = draft
+                            perform {
+                                try await model.workspace.client().steerCoding(machineId: session.machineId, agent: session.agent, session: session.id, steer: .prompt(text: text))
+                                draft = ""
+                            }
+                        } label: {
+                            Image(systemName: "arrow.up").font(.system(size: 15, weight: .semibold)).foregroundStyle(Mint.onAccent)
+                                .frame(width: 32, height: 32).background(Mint.accent, in: Circle())
+                        }.disabled(busy || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    .padding(.leading, 12).padding(.trailing, 6).padding(.vertical, 6)
+                    .background(Mint.surface, in: RoundedRectangle(cornerRadius: 18))
+                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Mint.soft))
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                }
             }
         }
         .task {
@@ -292,19 +297,40 @@ struct CodingSessionView: View {
             WorkspacePage("Changes", back: { showingDiff = false }) { ScrollView { if let diff { WorkDiffView(diff: diff).padding(16) } } }
         }
     }
+    private func subtitle(_ view: AgentSessionView) -> String {
+        var parts = [agentName(view.session.agent), view.session.machineName, view.session.cwd]
+        if let usage { parts.append(usage.costUsd.map { String(format: "$%.2f", $0) } ?? "\(usage.tokens.formatted()) tokens") }
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+    private func plan(_ steps: [AgentPlanStep]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Plan").font(.body(12).weight(.semibold))
+            ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                Text("\(index + 1). \(step.content)").font(.body(12))
+                    .foregroundStyle(step.status == .inProgress ? Mint.ink : Mint.muted)
+                    .strikethrough(step.status == .completed, color: Mint.dim)
+            }
+        }.padding(11).frame(maxWidth: .infinity, alignment: .leading).card()
+    }
     @ViewBuilder private func transcript(_ entry: AgentEntry) -> some View {
         switch entry.kind {
-        case .tool, .thought:
-            DisclosureGroup(entry.kind == .tool ? "Tool call" : "Thoughts") {
-                Text(entry.text).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-            }.font(.body(12)).tint(Mint.muted).padding(12).card()
+        case .user:
+            HStack {
+                Spacer(minLength: 40)
+                MarkdownText(text: entry.text, size: 13.5).textSelection(.enabled)
+                    .padding(.horizontal, 11).padding(.vertical, 8)
+                    .background(Mint.accent.opacity(0.22), in: UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12, bottomTrailingRadius: 4, topTrailingRadius: 12))
+            }.padding(.top, 6)
+        case .agent:
+            MarkdownText(text: entry.text, size: 13.5).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+        case .tool:
+            TranscriptLine(entry: entry)
+        case .thought:
+            TranscriptLine(entry: entry)
+        case .question:
+            Text(entry.text).font(.body(12)).foregroundStyle(Mint.warn).frame(maxWidth: .infinity, alignment: .leading)
         default:
-            WorkspaceBox {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(entry.kind == .user ? "You" : entry.kind == .question ? "Permission" : agentName(agent)).font(.body(11)).foregroundStyle(Mint.muted)
-                    Text(entry.text).font(.body(13)).textSelection(.enabled)
-                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            }
+            Text(entry.text).font(.body(12)).foregroundStyle(Mint.dim).frame(maxWidth: .infinity, alignment: .leading)
         }
     }
     private func perform(_ action: @escaping () async throws -> Void) {
@@ -322,5 +348,38 @@ struct CodingSessionView: View {
         } catch { self.error = describe(error) }
         do { usage = try await model.workspace.client().codingSessionUsage(machineId: current?.machineId ?? machineID, agent: current?.agent ?? agent, session: current?.id ?? sessionID) }
         catch { /* Usage is optional on servers from before session metering. */ }
+    }
+}
+
+/// A tool call or a thought as one muted line, tapped open for the full text.
+private struct TranscriptLine: View {
+    let entry: AgentEntry
+    @State private var open = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { open.toggle() } label: { label.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+            if open {
+                Text(entry.text).font(.system(size: 11, design: .monospaced)).foregroundStyle(Mint.muted).textSelection(.enabled)
+                    .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Mint.surface, in: RoundedRectangle(cornerRadius: Mint.smallRadius))
+            }
+        }
+    }
+
+    @ViewBuilder private var label: some View {
+        if case .thought(let ms) = entry.kind {
+            Text(ms.map { "Thought for \(max(1, $0 / 1000)) s" } ?? "Thought").font(.body(12)).italic().foregroundStyle(Mint.dim)
+        } else {
+            let line = entry.text.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? ""
+            let (name, rest) = line.firstIndex(of: ":").map { (String(line[..<$0]), line[line.index(after: $0)...].trimmingCharacters(in: .whitespaces)) } ?? (line, "")
+            HStack(spacing: 8) {
+                Text(String(name.prefix(1)).uppercased()).font(.system(size: 10, weight: .semibold, design: .monospaced)).foregroundStyle(Mint.muted)
+                    .frame(width: 18, height: 18).background(Mint.raised, in: RoundedRectangle(cornerRadius: 4))
+                Text(name).font(.body(12)).foregroundStyle(Mint.muted)
+                Text(rest).font(.system(size: 11.5, weight: .medium, design: .monospaced)).foregroundStyle(Mint.ink).lineLimit(1).truncationMode(.middle)
+            }
+        }
     }
 }

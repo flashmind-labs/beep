@@ -210,6 +210,10 @@ fn route(routes: &Mutex<HashMap<Key, Route>>, event: &Event) {
     if event.need_rescan() {
         for route in routes.values() {
             let _ = route.wake.try_send(());
+            crate::events::system().changed(beep_proto::node::events::Topic::keyed(
+                "files",
+                route.root.to_string_lossy(),
+            ));
         }
         return;
     }
@@ -234,6 +238,10 @@ fn route(routes: &Mutex<HashMap<Key, Route>>, event: &Event) {
         if git_says || (!skipped && !gitdir::is_quiet(&relative.to_string_lossy())) {
             // Full means a scan is due already.
             let _ = route.wake.try_send(());
+            crate::events::system().changed(beep_proto::node::events::Topic::keyed(
+                "files",
+                route.root.to_string_lossy(),
+            ));
         }
     }
 }

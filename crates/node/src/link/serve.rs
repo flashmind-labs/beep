@@ -452,8 +452,13 @@ pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
         desktop::PROTOCOL,
         sign_in::PROTOCOL,
     ];
-    let agent = matches!(protocol, agent::SESSIONS_PROTOCOL | TRANSCRIPT_PROTOCOL)
-        || agent::agent_of(protocol).is_some();
+    let agent = matches!(
+        protocol,
+        agent::SESSIONS_PROTOCOL
+            | agent::SESSION_FOLLOW_PROTOCOL
+            | beep_proto::node::events::PROTOCOL
+            | TRANSCRIPT_PROTOCOL
+    ) || agent::agent_of(protocol).is_some();
     (!lent && (shared.contains(&protocol) || agent))
         .then(|| format!("this machine is not shared with other devices: {protocol} is off"))
 }
@@ -558,6 +563,14 @@ pub(crate) async fn serve_open(
             tx.send(&Opened::Ready {}).await?;
             provision.serve_updates(tx, rx).await
         }
+        beep_proto::node::events::PROTOCOL => {
+            tx.send(&Opened::Ready {}).await?;
+            super::events::serve(tx, rx, offers, who.id()).await
+        }
+        agent::SESSION_FOLLOW_PROTOCOL => {
+            tx.send(&Opened::Ready {}).await?;
+            crate::agents::serve_follow(tx, rx, offers.agents).await
+        }
         TRANSCRIPT_PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;
             crate::agents::serve_transcripts(tx, rx, offers.agents).await
@@ -610,6 +623,8 @@ mod tests {
             "desktop/1",
             "sign-in/1",
             "agents/1",
+            "agent-view/1",
+            "events/1",
             TRANSCRIPT_PROTOCOL,
             "claude/1",
             "codex/1",

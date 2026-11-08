@@ -628,7 +628,14 @@ async fn sessions_list_with_no_agent_program_found() {
         external: External::locate_in(root.path()),
         ..Agents::default()
     };
-    assert_eq!(agents.offers(), vec![agent::SESSIONS_PROTOCOL.to_owned()]);
+    assert_eq!(
+        agents.offers(),
+        vec![
+            agent::SESSIONS_PROTOCOL.to_owned(),
+            agent::SESSION_FOLLOW_PROTOCOL.to_owned(),
+            beep_proto::node::events::PROTOCOL.to_owned()
+        ]
+    );
     let project = root.path().join("projects/-srv-project");
     std::fs::create_dir_all(&project).expect("folders");
     let line = r#"{"type":"user","cwd":"/srv/project","timestamp":"2026-11-02T10:00:00.000Z","message":{"role":"user","content":"hi"}}"#;
@@ -636,4 +643,215 @@ async fn sessions_list_with_no_agent_program_found() {
     std::fs::write(file, format!("{line}\n")).expect("a transcript");
     let listed = agents.external.list(10, None, HashMap::new()).await;
     assert_eq!(listed.expect("a list").len(), 1);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_live_view_survives_idle_time_and_detaching_keeps_the_agent_running() {
+    use agent::{FollowSession, SessionUpdate};
+    use tokio::time::{advance, pause, resume, timeout};
+    let root = tempfile::tempdir().unwrap();
+    let agents = Arc::new(Agents {
+        stores: found::Stores::default(),
+        ..Agents::default()
+    });
+    let kind = sh_agent("codex", THINKING_ADAPTER);
+    let session = agents
+        .start(&kind, root.path().to_str(), Begin::default())
+        .unwrap();
+    let mut live = session.live.clone();
+    timeout(
+        Duration::from_secs(10),
+        live.wait_for(|live| live.status() == Status::Idle),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let request = FollowSession {
+        agent: "codex".into(),
+        session: session.info().id,
+        last: 200,
+    };
+    let link = beep_proto::node::local_link();
+    let task = tokio::spawn(serve_follow(link.node.0, link.node.1, agents.clone()));
+    let (mut tx, mut rx) = link.caller;
+    tx.send(&request).await.unwrap();
+    let initial = rx.recv::<SessionUpdate>().await.unwrap().unwrap();
+    assert!(matches!(initial, SessionUpdate::Snapshot(_)));
+    pause();
+    advance(Duration::from_secs(10 * 60)).await;
+    assert_eq!(
+        rx.recv::<SessionUpdate>().await.unwrap(),
+        Some(SessionUpdate::KeepAlive)
+    );
+    resume();
+    session
+        .order(Command::Prompt("is 391 prime?".to_owned().into()))
+        .await
+        .unwrap();
+    timeout(Duration::from_secs(10), async {
+        loop {
+            match rx.recv::<SessionUpdate>().await.unwrap().unwrap() {
+                SessionUpdate::Snapshot(snapshot)
+                    if snapshot
+                        .entries
+                        .iter()
+                        .any(|entry| entry.text == "Not prime.") =>
+                {
+                    break;
+                }
+                SessionUpdate::Error { reason } => panic!("{reason}"),
+                _ => {}
+            }
+        }
+    })
+    .await
+    .unwrap();
+    drop(tx);
+    timeout(Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_ne!(session.info().state.status, Status::Ended);
+    session
+        .order(Command::Prompt("again".to_owned().into()))
+        .await
+        .unwrap();
+    timeout(
+        Duration::from_secs(10),
+        live.wait_for(|live| live.info.turns >= 2),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    session.close().await;
+}
+
+#[cfg(all(test, unix))]
+mod actor_tests {
+    use super::*;
+    use crate::link::{Offers, serve_events as serve};
+    use beep_proto::node::events::{CallReply, Operation, Reply, Request, Topic};
+    use beep_proto::node::{agent, local_link};
+    use std::time::Duration;
+    use tokio::time::timeout;
+    use tokio_util::task::AbortOnDropHandle;
+
+    #[tokio::test]
+    async fn a_prompt_and_actor_changes_travel_both_ways_without_owning_the_session() {
+        let root = tempfile::tempdir().unwrap();
+        let kind = AgentKind {
+            name: "codex".into(), program: "sh".into(),
+            args: vec!["-c".into(), r#"
+                id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
+                reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+                read -r line; reply '{"protocolVersion":1,"agentCapabilities":{}}'
+                read -r line; reply '{"sessionId":"s"}'
+                while read -r line; do
+                    case "$line" in
+                        *session/prompt*)
+                            printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"received once"}}}}'
+                            reply '{"stopReason":"end_turn"}' ;;
+                        *) reply '{}' ;;
+                    esac
+                done
+            "#.into()],
+            env: BTreeMap::new(), compact: None, compact_models: Vec::new(),
+        };
+        let agents = Arc::new(Agents::new(vec![kind.clone()]));
+        let session = agents
+            .start(&kind, root.path().to_str(), Begin::default())
+            .unwrap();
+        let public_id = session.named_info().await.unwrap().id;
+        let mut live = session.live.clone();
+        timeout(
+            Duration::from_secs(5),
+            live.wait_for(|live| live.status() == agent::Status::Idle),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let offers = Offers {
+            agents: agents.clone(),
+            ..Offers::default()
+        };
+        let link = local_link();
+        let task = AbortOnDropHandle::new(tokio::spawn(serve(
+            link.node.0,
+            link.node.1,
+            offers,
+            iroh::SecretKey::generate().public(),
+        )));
+        let (mut tx, mut rx) = link.caller;
+        tx.send(&Request::Watch {
+            id: 1,
+            topics: vec![Topic::keyed("agent", &public_id)],
+            after: None,
+        })
+        .await
+        .unwrap();
+        loop {
+            if matches!(
+                rx.recv::<Reply>().await.unwrap(),
+                Some(Reply::Resync { .. })
+            ) {
+                break;
+            }
+        }
+        tx.send(&Request::Call {
+            id: 2,
+            operation: Box::new(Operation::Agent {
+                agent: "codex".into(),
+                session: public_id.clone(),
+                request: agent::Request::Prompt {
+                    text: "hello".into(),
+                },
+            }),
+        })
+        .await
+        .unwrap();
+        let mut acknowledged = false;
+        let mut changed = false;
+        timeout(Duration::from_secs(5), async {
+            while !acknowledged || !changed {
+                match rx.recv::<Reply>().await.unwrap().unwrap() {
+                    Reply::Result { id: 2, reply } => {
+                        assert!(matches!(*reply, CallReply::Agent { .. }));
+                        acknowledged = true;
+                    }
+                    Reply::Changed(event) if event.topic == Topic::keyed("agent", &public_id) => {
+                        changed = true
+                    }
+                    Reply::Error { reason, .. } => panic!("prompt failed: {reason}"),
+                    _ => {}
+                }
+            }
+            live.wait_for(|live| {
+                live.status() == agent::Status::Idle
+                    && live
+                        .transcript(20)
+                        .0
+                        .iter()
+                        .any(|entry| entry.text == "received once")
+            })
+            .await
+            .unwrap();
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            live.borrow()
+                .transcript(20)
+                .0
+                .iter()
+                .filter(|entry| entry.text == "received once")
+                .count(),
+            1
+        );
+        drop(tx);
+        task.await.unwrap().unwrap();
+        assert_ne!(session.info().state.status, agent::Status::Ended);
+        session.close().await;
+    }
 }

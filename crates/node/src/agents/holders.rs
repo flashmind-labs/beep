@@ -4,16 +4,15 @@
 
 use crate::files::paths;
 use beep_proto::node::agent::Presence;
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-};
+#[cfg(target_os = "linux")]
+use std::collections::HashSet;
+use std::{collections::HashMap, path::PathBuf};
 
-/// Which of `files` some process has open, all looked up at once; `None`
+/// A process holding each of `files`, all looked up at once; `None`
 /// when that cannot be told here.
-pub(super) async fn held_open(files: Vec<PathBuf>) -> Option<HashSet<PathBuf>> {
+pub(super) async fn held_open(files: Vec<PathBuf>) -> Option<HashMap<PathBuf, u32>> {
     if files.is_empty() {
-        return Some(HashSet::new());
+        return Some(HashMap::new());
     }
     // By the path the system reports, to the path asked about.
     let real: HashMap<PathBuf, PathBuf> = files
@@ -23,8 +22,7 @@ pub(super) async fn held_open(files: Vec<PathBuf>) -> Option<HashSet<PathBuf>> {
     let open = open_among(&real).await?;
     Some(
         real.into_iter()
-            .filter(|(real, _)| open.contains(real))
-            .map(|(_, file)| file)
+            .filter_map(|(real, file)| Some((file, *open.get(&real)?)))
             .collect(),
     )
 }
@@ -32,13 +30,13 @@ pub(super) async fn held_open(files: Vec<PathBuf>) -> Option<HashSet<PathBuf>> {
 /// The paths among `real`'s keys some process has open, read from `/proc`
 /// in one pass.
 #[cfg(target_os = "linux")]
-async fn open_among(real: &HashMap<PathBuf, PathBuf>) -> Option<HashSet<PathBuf>> {
+async fn open_among(real: &HashMap<PathBuf, PathBuf>) -> Option<HashMap<PathBuf, u32>> {
     /// The most processes looked at.
     const MAX_PROCESSES: usize = 8192;
     let wanted: HashSet<PathBuf> = real.keys().cloned().collect();
     let scan = move || {
         let processes = std::fs::read_dir("/proc").ok()?;
-        let mut open = HashSet::new();
+        let mut open = HashMap::new();
         for process in processes
             .flatten()
             .filter(|entry| {
@@ -56,8 +54,12 @@ async fn open_among(real: &HashMap<PathBuf, PathBuf>) -> Option<HashSet<PathBuf>
             for fd in fds.flatten() {
                 if let Ok(to) = std::fs::read_link(fd.path())
                     && wanted.contains(&to)
+                    && let Some(pid) = process
+                        .file_name()
+                        .to_str()
+                        .and_then(|pid| pid.parse().ok())
                 {
-                    open.insert(to);
+                    open.entry(to).or_insert(pid);
                 }
             }
             if open.len() == wanted.len() {
@@ -72,29 +74,35 @@ async fn open_among(real: &HashMap<PathBuf, PathBuf>) -> Option<HashSet<PathBuf>
 /// The paths among `real`'s keys some process has open, through one `lsof`
 /// given `LIMIT`.
 #[cfg(all(unix, not(target_os = "linux")))]
-async fn open_among(real: &HashMap<PathBuf, PathBuf>) -> Option<HashSet<PathBuf>> {
+async fn open_among(real: &HashMap<PathBuf, PathBuf>) -> Option<HashMap<PathBuf, u32>> {
     use std::{process::Stdio, time::Duration};
     use tokio::{process::Command, time::timeout};
     /// How long `lsof` may take.
     const LIMIT: Duration = Duration::from_secs(10);
     let mut lsof = Command::new("lsof");
-    lsof.args(["-F", "n", "-w", "--"])
+    lsof.args(["-F", "pn", "-w", "--"])
         .args(real.keys())
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .kill_on_drop(true);
     let out = timeout(LIMIT, lsof.output()).await.ok()?.ok()?;
     // lsof exits 1 when any file is not open; what it printed still counts.
-    let open = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .filter_map(|line| line.strip_prefix('n'))
-        .map(PathBuf::from)
-        .collect();
+    let mut open = HashMap::new();
+    let mut pid = None;
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        if let Some(value) = line.strip_prefix('p') {
+            pid = value.parse::<u32>().ok();
+        } else if let Some(path) = line.strip_prefix('n')
+            && let Some(pid) = pid
+        {
+            open.entry(PathBuf::from(path)).or_insert(pid);
+        }
+    }
     Some(open)
 }
 
 #[cfg(not(unix))]
-async fn open_among(_real: &HashMap<PathBuf, PathBuf>) -> Option<HashSet<PathBuf>> {
+async fn open_among(_real: &HashMap<PathBuf, PathBuf>) -> Option<HashMap<PathBuf, u32>> {
     None
 }
 
@@ -143,6 +151,6 @@ mod tests {
         // A path nothing opened beside it. (A file closed again may still be
         // held for a moment by a child another test forks before it execs.)
         let held = held_open(vec![path.clone(), other]).await;
-        assert_eq!(held, Some(HashSet::from([path])));
+        assert_eq!(held, Some(HashMap::from([(path, std::process::id())])));
     }
 }

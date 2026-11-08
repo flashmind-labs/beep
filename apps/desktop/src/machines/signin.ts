@@ -5,10 +5,8 @@ import { button, el, present } from "../ui/dom.ts";
 import { reason } from "../ui/format.ts";
 import { copy, openSheet } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { stillRunning, type SignInView } from "./signin-state.ts";
-
-/// How often the sheet asks how the sign-in stands.
-const POLL_MS = 2000;
 
 type Step = { step: "start" } | { step: "state" } | { step: "answer"; text: string } | { step: "cancel" };
 
@@ -24,11 +22,17 @@ export function openSignIn(machine: { id: string; name: string }, tool: string, 
   let view: SignInView | null = null;
   let error = "";
   let sending = false;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let active = true;
+  let pending: Promise<void> = Promise.resolve();
+  const unfollow = subscribeChanges(topic("accounts"), async () => {
+    await step({ step: "state" });
+    if (error) throw new Error(error);
+  }, machine.id, () => active);
   const shell = openSheet(`Sign in ${tool} on ${machine.name}`, "am-sheet", {
     onClose: () => {
       open = false;
-      if (timer) clearTimeout(timer);
+      active = false;
+      unfollow();
       // Left before it ended: the machine stops it.
       if (view && stillRunning(view)) void ask(machine.id, tool, { step: "cancel" }).catch(console.warn);
       done();
@@ -42,18 +46,23 @@ export function openSignIn(machine: { id: string; name: string }, tool: string, 
 
   const take = (next: SignInView) => {
     view = next;
-    if (timer) clearTimeout(timer);
-    timer = stillRunning(next) ? setTimeout(() => void step({ step: "state" }), POLL_MS) : null;
     draw();
   };
-  async function step(s: Step) {
+  function step(s: Step): Promise<void> {
+    pending = pending.then(() => active ? read(s) : undefined);
+    return pending;
+  }
+  async function read(s: Step) {
     try {
-      take(await ask(machine.id, tool, s));
+      const next = await ask(machine.id, tool, s);
+      if (!active) {
+        if (s.step === "start" && stillRunning(next)) await ask(machine.id, tool, { step: "cancel" }).catch(console.warn);
+        return;
+      }
       error = "";
+      take(next);
     } catch (e) {
       error = reason(e);
-      if (timer) clearTimeout(timer);
-      timer = null;
     }
     draw();
   }
@@ -69,7 +78,7 @@ export function openSignIn(machine: { id: string; name: string }, tool: string, 
   }
 
   function draw() {
-    if (!open) return;
+    if (!active) return;
     const v = view;
     const linkRow = v?.url ? el("div", "am-line",
       el("div", "am-code", v.url),

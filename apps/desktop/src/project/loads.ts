@@ -1,3 +1,4 @@
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // Reading a project page: its view, agent, machines and sessions, kept
 // fresh while the user moves between projects, and prefetched ahead.
 import { sessionVisible } from "../agents/closing.ts";
@@ -360,13 +361,23 @@ export function whereRow(p: Project, m: WhereRow) {
   return [name, what];
 }
 
-/// Asks the server where `name` lives on each machine; while it looks through
-/// one, it asks again shortly.
+/// Follows changes to the selected project's checkouts on each machine.
 export const readingWhere = new Set<string>();
-let whereTimer: ReturnType<typeof setTimeout> | undefined;
+subscribeChanges([topic("projects"), topic("machines"), topic("sync")], async () => {
+  const name = state.picked;
+  if (name) { await whereReads.get(name); await loadWhere(name); }
+}, null, () => shown === "projects" && !!state.picked);
 /// Projects whose kept places are due another read on the next draw.
 export const whereDue = new Set<string>();
-export async function loadWhere(name: string) {
+const whereReads = new Map<string, Promise<void>>();
+export function loadWhere(name: string): Promise<void> {
+  const pending = whereReads.get(name);
+  if (pending) return pending;
+  const read = readWhere(name).finally(() => whereReads.delete(name));
+  whereReads.set(name, read);
+  return read;
+}
+async function readWhere(name: string) {
   if (readingWhere.has(name)) return;
   readingWhere.add(name);
   whereDue.delete(name);
@@ -392,12 +403,6 @@ export async function loadWhere(name: string) {
   if (got && before !== undefined && folders(before) !== folders(got)) {
     sessionsDue.add(name);
     refresh();
-  }
-  if (state.picked === name) clearTimeout(whereTimer);
-  if (got?.some(m => m.checking) && state.picked === name) {
-    whereTimer = setTimeout(() => {
-      if (shown === "projects" && state.picked === name) loadWhere(name);
-    }, 3000);
   }
   // The header's Open in follows this Mac's checkout.
   if (state.picked === name) redrawProjectsPage();

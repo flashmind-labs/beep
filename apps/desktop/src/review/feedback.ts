@@ -1,3 +1,4 @@
+import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // Review with agent: the diff header's button, the start form's picker
 // under it, and what follows a pick. A pick asks the node of the diff's
 // checkout to start a temporary reviewer there, a child of the session whose
@@ -28,7 +29,6 @@ const agents = () => import("../agents/agents.ts");
 const picker = () => import("../agents/agentpicker.ts");
 
 /// How often a running review is read.
-const POLL_MS = 3000;
 
 /// A review in progress.
 interface Run {
@@ -41,6 +41,7 @@ interface Run {
   load: () => Promise<DiffFile[]>;
   /// Reads of the review that failed in a row.
   failed: number;
+  unfollow?: () => void;
 }
 
 const runs = new Map<string, Run>();
@@ -104,10 +105,11 @@ function markTaken(key: string, id: string) {
 // ----- Following a review -----
 
 function schedule(run: Run) {
-  window.setTimeout(() => tick(run), POLL_MS);
+  run.unfollow ??= subscribeTopics(topic("reviews", run.id), () => tick(run), run.machineId);
 }
 
 function finish(run: Run) {
+  run.unfollow?.();
   if (runs.get(run.key) === run) runs.delete(run.key);
   attached.get(run.key)?.redraw();
 }
@@ -126,7 +128,7 @@ async function tick(run: Run) {
   } catch (e) {
     console.warn("review not read:", e);
     if (++run.failed >= 5) return fail(run, `The review could not be read: ${reason(e)}`);
-    return schedule(run);
+    throw e;
   }
   if (runs.get(run.key) !== run) return;
   const state = runState(read);

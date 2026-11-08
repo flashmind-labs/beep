@@ -25,13 +25,16 @@ use beep_proto::{
 };
 use serde::Serialize;
 use std::{cmp::Reverse, collections::HashMap, sync::Arc};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, State, WebviewWindow};
 use tokio::join;
 use uuid::Uuid;
 
 /// Answers a question an agent session asks.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn center_answer_agent(
+    window: WebviewWindow,
+    events: State<'_, crate::fleet::events::Events>,
     beep: Service<'_>,
     fleet: State<'_, Arc<Fleet>>,
     machine_id: String,
@@ -42,6 +45,23 @@ pub async fn center_answer_agent(
 ) -> Result<()> {
     // A machine of the mesh is asked directly; any other through the server.
     if alerts::reaches(&fleet, &machine_id) {
+        if let Some(machine) = fleet.member(&machine_id) {
+            let operation = beep_proto::node::events::Operation::Agent {
+                agent: agent.clone(),
+                session: session.clone(),
+                request: beep_proto::node::agent::Request::Answer {
+                    question,
+                    reply: reply.clone(),
+                },
+            };
+            if events
+                .call(window.label(), machine, operation)
+                .await?
+                .is_some()
+            {
+                return Ok(());
+            }
+        }
         let key = AgentNoticeKey {
             machine_id,
             agent,
