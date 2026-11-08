@@ -54,7 +54,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
       - name: Set up Android SDK
         uses: https://github.com/android-actions/setup-android@v3
