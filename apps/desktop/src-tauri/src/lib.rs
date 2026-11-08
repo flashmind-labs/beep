@@ -69,6 +69,9 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             Some(vec![LOGIN_ARG]),
         ));
+    // The camera that scans the pairing QR code.
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
     builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
