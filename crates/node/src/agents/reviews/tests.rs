@@ -150,6 +150,18 @@ async fn a_submitted_review_stays_with_the_parent_and_the_reviewer_goes() {
     assert!(!rig.agents.is_reviewer(&parent.id));
     let listed: Vec<String> = rig.agents.list().into_iter().map(|info| info.id).collect();
     assert_eq!(listed, [parent.info().id], "the reviewer is not listed");
+    let mut all: Vec<(String, bool)> = rig
+        .agents
+        .listed(true)
+        .into_iter()
+        .map(|info| (info.id, info.reviewer))
+        .collect();
+    all.sort_by_key(|(_, reviewer)| *reviewer);
+    assert_eq!(
+        all,
+        [(parent.info().id, false), (reviewer.info().id, true)],
+        "ListAll lists the reviewer under its parent"
+    );
     assert!(
         rig.agents
             .open_sessions()
@@ -203,17 +215,31 @@ async fn a_reviewer_that_ends_without_a_review_is_nudged_once() {
         Some("The reviewer ended without calling submit_review.")
     );
     assert!(rig.agents.list().is_empty());
+    assert!(
+        rig.agents.listed(true).is_empty(),
+        "a reviewer without a parent is never listed"
+    );
 }
 
 #[test]
 fn the_prompt_names_the_base_and_the_tool() {
-    let uncommitted = prompt("HEAD", "");
+    let uncommitted = prompt("HEAD", "", None);
     assert!(uncommitted.contains("`git diff HEAD`"), "{uncommitted}");
     assert!(uncommitted.contains("submit_review"));
-    let branch = prompt("origin/main; rm -rf /", "the cache");
+    let branch = prompt("origin/main; rm -rf /", "the cache", None);
     assert!(
         branch.contains("merge-base HEAD origin/mainrm-rf"),
         "{branch}"
     );
     assert!(branch.contains("Look first at what the author asks: the cache"));
+    let house = house::HouseRules {
+        path: ".codex/agents/reviewer.toml".into(),
+        prompt: "Flag every unbounded channel.".into(),
+    };
+    let with = prompt("HEAD", "", Some(&house));
+    assert!(
+        with.ends_with("\n\nFlag every unbounded channel."),
+        "{with}"
+    );
+    assert!(with.contains("defined in .codex/agents/reviewer.toml"));
 }

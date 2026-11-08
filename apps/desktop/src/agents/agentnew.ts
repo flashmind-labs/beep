@@ -1,3 +1,4 @@
+import { startAttachments } from "./start-attachments.ts";
 import { makeStartComposer } from "./start-composer.ts";
 import { AG, AGENT_ORDER, agentKind, type AgentSession, byPreference, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
 import { loadSessions, sessions } from "./sessions.ts";
@@ -64,6 +65,7 @@ export function keepMachine(project: string | null | undefined, machine: string)
 /// until read.
 let KNOWN: Machine[] | null = null;
 let composer: ReturnType<typeof makeStartComposer>;
+let attachments: ReturnType<typeof startAttachments>;
 let fixedProject = false;
 
 /// Each project's branches for the Base menu, by project: `undefined`
@@ -149,6 +151,7 @@ function drawFrame() {
   const f = AG.form;
   composer = makeStartComposer({ projectPicker: !fixedProject });
   const c = composer;
+  attachments = startAttachments(c, text => { AG.error = text; c.err.textContent = text; }, () => drawParts());
   c.box.id = "agbox";
   c.input.id = "agprompt";
   c.input.value = f.prompt;
@@ -172,7 +175,7 @@ function drawFrame() {
     f.prompt = c.input.value;
     if (AG.error === "prompt") { AG.error = ""; drawParts(); }
   });
-  composeField(c.input);
+  composeField(c.input, { images: files => attachments.add(files) });
   bar.onclick = onClick;
   drawParts();
 }
@@ -199,11 +202,12 @@ function drawParts() {
   const active = document.activeElement;
   const focused = active?.closest("#agpick") ? "#agpick .agc-search" : active?.id ? `#${active.id}` : "";
   const go = $$<HTMLButtonElement>("#aggo");
-  go.disabled = AG.busy || !hosts.length || !f.machine || !f.project;
+  go.disabled = AG.busy || attachments.reading || !hosts.length || !f.machine || !f.project;
   go.title = !f.project ? "Pick a project first" : !f.machine ? "Pick a machine first" : "Start (⌘↩)";
   // The key hints give way to an open menu.
   bar.classList.toggle("agc-menuopen", !!f.open);
   composer.setBusy(AG.busy);
+  attachments.setBusy(AG.busy);
   requestAnimationFrame(composer.grow);
   drawPill(none);
   drawPicker();
@@ -447,7 +451,7 @@ function drawWhy() {
 }
 
 function onClick(e: MouseEvent) {
-  if (S.view !== "agentnew") return;
+  if (S.view !== "agentnew" || AG.busy) return;
   const f = AG.form, target = e.target as HTMLElement;
   const at = (sel: string) => target.closest<HTMLElement>(sel);
   if (at("#agList")) return renderAgents();
@@ -617,9 +621,9 @@ function syncModel() {
 
 export async function startAgent() {
   const f = AG.form;
-  if (AG.busy || S.view !== "agentnew") return;
+  if (S.view !== "agentnew" || AG.busy || attachments.reading) return;
   if (!f.project) { f.open = "project"; return drawParts(); }
-  if (!f.prompt.trim()) { AG.error = "prompt"; drawParts(); return $("#agprompt")?.focus(); }
+  if (!f.prompt.trim() && !attachments.count) { AG.error = "prompt"; drawParts(); return $("#agprompt")?.focus(); }
   if (!f.machine) { f.open = "host"; return drawParts(); }
   AG.busy = true;
   AG.error = "";
@@ -634,11 +638,14 @@ export async function startAgent() {
     const { cwd, checkout } = checkoutHere()
       ? startPlace(f.checkout ?? DEFAULT_CHECKOUT, f.cwd.trim(), baseFor(f.base, formBranches()))
       : { cwd: f.cwd.trim(), checkout: null };
+    const prompt = await attachments.files.prompt(composeMessage(f.prompt), f.machine, f.cwd.trim(), text => { composer.err.textContent = text; });
+    const images = attachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
     const started = await invoke<Started>("agent_start", {
       machineId: f.machine,
       agent: f.agent,
       cwd: cwd || null,
-      prompt: composeMessage(f.prompt),
+      prompt,
+      images,
       chat: f.chat,
       model,
       effort: f.effort || null,

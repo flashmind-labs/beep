@@ -167,6 +167,11 @@ impl Fleet {
         self.parents.of(machine, session)
     }
 
+    /// The reviewers running as a child, as their machines listed them last.
+    pub(crate) fn reviewers(&self) -> Vec<beep_proto::MachineSession> {
+        self.parents.reviewers()
+    }
+
     /// `serve`, then `start_services`. Takes the time it takes and is meant
     /// to run in the background.
     pub async fn run(&self) {

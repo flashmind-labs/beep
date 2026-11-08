@@ -278,7 +278,7 @@ private fun MachineDetail(machine: Machine, stats: MachineStats?, modifier: Modi
         Facts(listOf("OS" to env.osVersion.ifEmpty { env.os }, "Chip" to env.arch, "CPUs" to env.cpus.toString(),
             "Memory" to "${env.memoryMb / 1024u} GB", "Host" to env.hostname, "Home" to env.home).filter { it.second.isNotEmpty() },
             mono = setOf("Home"))
-        val agents = env.tools.filter { it.name in setOf("claude", "codex", "gemini", "opencode", "pi", "flsh") }
+        val agents = env.tools.filter { it.name in setOf("claude", "codex", "gemini", "opencode", "pi", "flsh", "hermes") }
         if (agents.isNotEmpty()) {
             Section("Coding agents")
             Facts(agents.map { tool -> tool.name to listOfNotNull(tool.version, env.logins.find { it.tool == tool.name }?.let { if (it.signedIn) "Signed in" else "Not signed in" }).joinToString(" · ") })

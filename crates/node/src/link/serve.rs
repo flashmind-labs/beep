@@ -3,7 +3,7 @@
 
 use crate::{
     agents::mcp,
-    agents::{AgentKind, Agents, SESSIONS_ALPN, skills::Skills},
+    agents::{AgentKind, Agents, SESSIONS_ALPN, TRANSCRIPT_PROTOCOL, skills::Skills},
     files::Folders,
     files::search::Searches,
     files::transfer::Transfers,
@@ -457,6 +457,7 @@ pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
         agent::SESSIONS_PROTOCOL
             | agent::SESSION_FOLLOW_PROTOCOL
             | beep_proto::node::events::PROTOCOL
+            | TRANSCRIPT_PROTOCOL
     ) || agent::agent_of(protocol).is_some();
     (!lent && (shared.contains(&protocol) || agent))
         .then(|| format!("this machine is not shared with other devices: {protocol} is off"))
@@ -495,7 +496,7 @@ pub(crate) async fn serve_open(
     if matches!(who, Who::Node { .. })
         && !matches!(
             open.protocol.as_str(),
-            status::PROTOCOL | tools::PROTOCOL | skills::PROTOCOL
+            status::PROTOCOL | tools::PROTOCOL | skills::PROTOCOL | TRANSCRIPT_PROTOCOL
         )
     {
         let reason = format!("a node may not open {}", open.protocol);
@@ -570,6 +571,10 @@ pub(crate) async fn serve_open(
             tx.send(&Opened::Ready {}).await?;
             crate::agents::serve_follow(tx, rx, offers.agents).await
         }
+        TRANSCRIPT_PROTOCOL => {
+            tx.send(&Opened::Ready {}).await?;
+            crate::agents::serve_transcripts(tx, rx, offers.agents).await
+        }
         agent::SESSIONS_PROTOCOL => {
             tx.send(&Opened::Ready {}).await?;
             crate::agents::serve_sessions(tx, rx, offers.agents, who.id()).await
@@ -620,6 +625,7 @@ mod tests {
             "agents/1",
             "agent-view/1",
             "events/1",
+            TRANSCRIPT_PROTOCOL,
             "claude/1",
             "codex/1",
         ] {

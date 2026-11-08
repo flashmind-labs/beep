@@ -158,6 +158,12 @@ function say(key: string, text: string) {
   saying.get(key)?.(text);
 }
 
+/// Opens the reviewer's conversation, listed under the session it reviews.
+/// Read when needed: the agent views need the window.
+function openReviewer(run: Run, machineName: string) {
+  void import("../agents/session.ts").then(({ openAgent }) => openAgent({ machine_id: run.machineId, machine_name: machineName, id: run.id, agent: run.agent, cwd: run.root, status: "working", external: false, reviewer: true }));
+}
+
 // ----- The button -----
 
 export interface FeedbackOpts {
@@ -232,8 +238,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     button.disabled = false;
     if (run) {
       button.append(el("span", "dspin"), "Reviewing ", el("small", "", agentLabel(run.agent)));
-      button.disabled = true;
-      button.title = "The reviewer only reads; its findings become comments here";
+      button.title = "Open the review. The reviewer only reads; its findings become comments here";
       return;
     }
     if (starting) {
@@ -356,7 +361,9 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
 
   button.addEventListener("click", async e => {
     e.stopPropagation();
-    if (button.disabled || runs.has(o.key)) return;
+    if (button.disabled) return;
+    const run = runs.get(o.key);
+    if (run) return openReviewer(run, o.machine?.name ?? "");
     if (open) { closePicker(); return drawButton(); }
     readHosts(redraw);
     const [a, p] = await Promise.all([agents(), picker()]);

@@ -7,6 +7,7 @@ pub(crate) mod file_sync;
 pub(crate) mod git_items;
 pub(crate) mod git_sync;
 pub(crate) mod groups;
+pub(crate) mod history;
 pub(crate) mod import;
 pub(crate) mod list;
 pub(crate) mod live;

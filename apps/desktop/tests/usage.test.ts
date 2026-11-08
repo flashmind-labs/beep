@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { harnessLine, harnessName, modelTotals, projectExtra, planUsed, todayLine, windowUsed } from "../src/center/usage.ts";
+import { creditAmount, creditScope, hasUsage, harnessLine, harnessName, modelTotals, projectExtra, planUsed, todayLine, windowUsed } from "../src/center/usage.ts";
 import { tokenCount } from "../src/ui/format.ts";
 
 test("a plan has used what its tightest window has used", () => {
@@ -44,4 +44,14 @@ test("model totals combine harnesses and billing types, sorted by tokens", () =>
     { ...base, subscription: true, models: [{ name: "model-a", tokens: 15 }, { name: "unknown", tokens: 0 }] },
   ]), [{ name: "model-a", tokens: 25 }, { name: "model-b", tokens: 20 }]);
   assert.deepEqual(modelTotals([]), []);
+});
+
+test("credits preserve zero, precision and unknown balances without counting as spend", () => {
+  const credit = { provider: "openrouter", scope: "api_key", unit: "usd", remaining: "0", total: null, used: "42.123456", resets: null };
+  assert.equal(creditAmount(credit, credit.remaining), "$0");
+  assert.equal(creditAmount(credit, credit.used), "$42.123456");
+  assert.equal(creditAmount(credit, credit.total), "unavailable");
+  assert.equal(creditScope("api_key"), "API key limit");
+  const empty = { total: { project: "", cost_usd: 0, unpriced: [] }, tokens: 0, projects: [], harnesses: [] };
+  assert.ok(hasUsage({ limits: [{ agent: "flsh", plan: null, machine_name: "build-box", as_of: 0, windows: [], credits: [credit] }], today: empty, week: empty, month: null }));
 });

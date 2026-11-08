@@ -2,7 +2,7 @@
 //! transport speaks it. Calls run side by side, a few at a time, so a long
 //! `remote_run` does not hold up the next call.
 
-use super::catalog::{self, ASK_USER, REMOTE_RUN};
+use super::catalog::{self, ASK_USER, READ_TRANSCRIPT, REMOTE_RUN};
 use crate::agents::{Answered, Asking, Line, LineReader};
 use anyhow::Result;
 use beep_proto::node::{
@@ -35,6 +35,14 @@ const DENY: &str = "deny";
 pub(crate) trait Backend: Sync {
     /// Runs one call on the server.
     fn call(&self, request: &Request) -> impl Future<Output = Result<Reply>> + Send;
+    /// Reads a transcript independently of the acting tools/1 requests.
+    fn read_transcript(&self, _args: Value) -> impl Future<Output = Result<Reply>> + Send {
+        async {
+            Ok(super::reply::fail(
+                "Session transcripts are unavailable on this backend.",
+            ))
+        }
+    }
     /// Puts `question` to the user in `session` and waits for the answer.
     fn ask(&self, session: &str, question: Asking)
     -> impl Future<Output = Result<Answered>> + Send;
@@ -175,6 +183,13 @@ impl Called {
 async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -> Called {
     if name == ASK_USER {
         return ask_user(backend, session, args).await;
+    }
+    if name == READ_TRANSCRIPT {
+        return match backend.read_transcript(args).await {
+            Ok(Reply::Done { text, failed }) => Called { text, failed },
+            Ok(_) => Called::failed("Unexpected transcript reply."),
+            Err(e) => Called::failed(format!("Could not read the transcript: {e:#}")),
+        };
     }
     // `remote_run` goes as `run_on`, its name in `tools/1`, which is no MCP name.
     let parsed = match name {
@@ -364,6 +379,10 @@ mod tests {
             })
         }
 
+        async fn read_transcript(&self, args: Value) -> Result<Reply> {
+            Ok(super::super::reply::ok(args.to_string()))
+        }
+
         async fn ask(&self, session: &str, question: Asking) -> Result<Answered> {
             assert_eq!(session, "a3f9c1");
             self.asked.lock().unwrap().push(question.text.clone());
@@ -449,6 +468,7 @@ mod tests {
             [
                 "list_machines",
                 "harness_info",
+                "read_session_transcript",
                 "remote_run",
                 "sync_project",
                 "send_files",
@@ -474,6 +494,7 @@ mod tests {
         // Codex asks unless a tool reads only, or is neither destructive nor open world.
         assert_eq!(hints("list_machines")["readOnlyHint"], true);
         assert_eq!(hints("harness_info")["readOnlyHint"], true);
+        assert_eq!(hints(READ_TRANSCRIPT)["readOnlyHint"], true);
         assert_eq!(hints("remote_run")["destructiveHint"], false);
         assert_eq!(hints("remote_run")["openWorldHint"], false);
         assert_eq!(text(&out[2]), "- build-box: online");
@@ -485,6 +506,25 @@ mod tests {
         assert_eq!(calls[0].tool, Tool::ListMachines);
         assert_eq!(calls[0].session, "a3f9c1");
         assert!(fake.asked.lock().unwrap().is_empty(), "nothing acted");
+    }
+
+    #[tokio::test]
+    async fn transcript_calls_use_the_sessions_backend_without_acting_approval() {
+        let fake = Fake::new(DENY);
+        let args = json!({"machine":"build-box", "session":"session-a", "before":20});
+        let out = exchange(
+            &fake,
+            &[request(
+                1,
+                "tools/call",
+                json!({"name": READ_TRANSCRIPT, "arguments":args}),
+            )],
+        )
+        .await;
+        assert_eq!(out[0]["result"]["isError"], false);
+        assert_eq!(serde_json::from_str::<Value>(text(&out[0])).unwrap(), args);
+        assert!(fake.calls.lock().unwrap().is_empty());
+        assert!(fake.asked.lock().unwrap().is_empty());
     }
 
     #[tokio::test]

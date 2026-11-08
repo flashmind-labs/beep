@@ -51,7 +51,7 @@ impl Sessions for PeerClient {
         limit: Duration,
     ) -> Result<SessionsReply, MeshError> {
         let operation = match &request {
-            SessionsRequest::List {} => "list",
+            SessionsRequest::List {} | SessionsRequest::ListAll {} => "list",
             SessionsRequest::Transcript { .. } => "transcript",
             _ => "other",
         };
@@ -130,6 +130,18 @@ pub async fn list<S: Sessions + ?Sized>(node: &S) -> Result<Vec<SessionInfo>, Me
         SessionsReply::Sessions { sessions } => Ok(sessions),
         SessionsReply::Error { message } => Err(said(message)),
         other => Err(unexpected(&other)),
+    }
+}
+
+/// `list` with the running reviewers that have a parent. A node from
+/// before `ListAll` closes the stream, and gives `list` instead.
+pub async fn list_all<S: Sessions + ?Sized>(node: &S) -> Result<Vec<SessionInfo>, MeshError> {
+    match ask(node, SessionsRequest::ListAll {}).await {
+        Ok(SessionsReply::Sessions { sessions }) => Ok(sessions),
+        Ok(SessionsReply::Error { message }) => Err(said(message)),
+        Ok(other) => Err(unexpected(&other)),
+        Err(MeshError::Link(_)) => list(node).await,
+        Err(e) => Err(e),
     }
 }
 

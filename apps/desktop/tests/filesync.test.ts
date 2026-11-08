@@ -137,3 +137,10 @@ test("a sync update during its initial read reconciles the new snapshot before c
   assert.equal(reads, 2);
   assert.equal(sync.detail("example")!.machines[0].pending, 2);
 });
+
+test("automatic Git divergence has a warning chip until repaired", () => {
+  const failed = machine({ status: "failed", git_only: true, error: "Git commits differ; histories diverged; merge the peer commits to resume sync" });
+  assert.deepEqual(stateChip(failed), { text: "Git sync needs review", wait: true });
+  assert.deepEqual(stateChip({ ...failed, status: "in_sync", error: null }), { text: "in sync", wait: false });
+  assert.deepEqual(stateChip({ ...failed, error: "Waiting for peer Git commits to arrive" }), { text: "not syncing", wait: true });
+});

@@ -288,6 +288,19 @@ pub(super) fn is_busy(root: &Path) -> bool {
     .any(|name| git.join(name).exists())
 }
 
+/// A blocked operation may need conflict resolution rather than more waiting.
+/// Called on the blocking pool only, after `is_busy` has detected an operation.
+pub(super) fn busy_reason(root: &Path) -> &'static str {
+    let unmerged = Repo::open(root)
+        .and_then(|repo| repo.run(&["diff", "--name-only", "--diff-filter=U"]).ok())
+        .is_some_and(|out| !out.stdout.is_empty());
+    if unmerged {
+        "Git has unmerged conflicts; resolve them to resume sync"
+    } else {
+        "waiting for the Git operation running on this machine"
+    }
+}
+
 /// A ref to bring in line.
 #[derive(Debug)]
 pub(super) struct RefMove {
@@ -390,7 +403,7 @@ impl Repo {
 
     pub(super) fn require_clean(&self) -> Result<()> {
         if is_busy(&self.root) {
-            bail!("waiting for the Git operation running on this machine");
+            bail!("{}", busy_reason(&self.root));
         }
         let status = self.run(&[
             "status",

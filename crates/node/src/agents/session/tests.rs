@@ -809,6 +809,36 @@ async fn a_new_session_switches_to_its_model_before_the_first_prompt() {
     assert_eq!(args.trim(), "", "no flag on the command line");
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn hermes_selects_a_provider_model_and_edit_mode_before_prompting() {
+    let temp = tempfile::tempdir().unwrap();
+    let log = temp.path().join("sent.jsonl");
+    let adapter = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}'
+read -r line; log "$1"
+reply '{"sessionId":"s","models":{"availableModels":[{"modelId":"openrouter:vendor/model-a","name":"Model A"},{"modelId":"custom:local:model-b","name":"Model B"}],"currentModelId":"openrouter:vendor/model-a"},"modes":{"currentModeId":"default","availableModes":[{"id":"default","name":"Default"},{"id":"accept_edits","name":"Accept Edits"},{"id":"dont_ask","name":"Do not ask"}]}}'
+read -r line; log "$1"; reply '{}'
+read -r line; log "$1"; reply '{}'
+read -r line; log "$1"; reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+    let kind = script("hermes", adapter, &log);
+    let session =
+        Session::start(start_on(&kind, temp.path(), Some("custom:local:model-b"))).unwrap();
+    settle(&session).await;
+    assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
+    let sent = sent(&log);
+    assert_eq!(sent[1]["params"]["cwd"], temp.path().to_str().unwrap());
+    assert_eq!(sent[2]["method"], "session/set_model");
+    assert_eq!(sent[2]["params"]["modelId"], "custom:local:model-b");
+    assert_eq!(sent[3]["method"], "session/set_mode");
+    assert_eq!(sent[3]["params"]["modeId"], "dont_ask");
+    assert_eq!(sent[4]["method"], "session/prompt");
+    session.close().await;
+}
+
 /// An adapter that offers two models, ends its first turn, then
 /// answers the switch that comes after.
 const SWITCH_LATER_ADAPTER: &str = r#"

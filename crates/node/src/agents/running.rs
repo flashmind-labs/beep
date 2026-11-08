@@ -319,13 +319,24 @@ impl Agents {
 
     /// Every named session but the reviewers, oldest first.
     pub(super) fn list(&self) -> Vec<SessionInfo> {
+        self.listed(false)
+    }
+
+    /// `list`, with the reviewers that run as a child when `reviewers`.
+    pub(super) fn listed(&self, reviewers: bool) -> Vec<SessionInfo> {
         let mut sessions: Vec<SessionInfo> = self
             .lock()
             .values()
-            .filter(|s| !s.reviewer)
             .filter_map(|s| {
                 let live = s.live.borrow();
-                live.agent_session.as_ref().map(|_| live.info.clone())
+                live.agent_session.as_ref()?;
+                if s.reviewer && !(reviewers && live.info.parent.is_some()) {
+                    return None;
+                }
+                Some(SessionInfo {
+                    reviewer: s.reviewer,
+                    ..live.info.clone()
+                })
             })
             .collect();
         sessions.sort_by_key(|info| info.started_at);

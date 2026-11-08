@@ -1,4 +1,5 @@
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { gitSyncWarning } from "./gitsync-state.ts";
 // A project's file sync: the board's File sync tile, and its full view with
 // each machine's state, transfer rate and time left, the changes still
 // waiting, the conflicts with a way to keep either side, and Pause/Resume for
@@ -77,6 +78,8 @@ export interface FileSyncDeps {
   redraw: () => void;
   /// Fills the bar of `project` to have an agent settle a conflict.
   fix?: (project: string, c: Conflict) => void;
+  /// Opens an agent draft for a blocked Git sync.
+  fixGit?: (project: string, machine: string, error: string) => void;
   /// Opens the sheet that points `project` on machine `m` at another folder.
   changeFolder?: (project: string, m: MachineDetail) => void;
   /// Where each project's sync is kept between windows; in memory only
@@ -127,7 +130,7 @@ export function stateChip(m: Pick<MachineDetail, "status" | "paused" | "progress
   if (m.status === "missing") return { text: "folder missing", wait: true };
   if (m.status === "parent_missing") return { text: "disk missing", wait: true };
   if (m.paused) return { text: "paused", wait: false };
-  if (m.status === "failed") return { text: "not syncing", wait: true };
+  if (m.status === "failed") return { text: gitSyncWarning({ status: m.status, error: m.error ?? null }) ?? "not syncing", wait: true };
   if (m.status === "scanning") return { text: "scanning", wait: false };
   if (m.status === "syncing") return { text: `syncing ${syncPct(m)}%`, wait: false };
   return { text: "in sync", wait: m.conflicts.length > 0 };
@@ -426,6 +429,11 @@ export function makeFileSync(deps: FileSyncDeps) {
     if (clock) row.append(h("div", "fs-m", Object.assign(h("span", "clockoff", clock.text), { title: clock.title })));
     const note = stateNote(m);
     if (note) row.append(Object.assign(h("div", m.status === "syncthing" ? "fs-m" : "cc-err", note), { title: m.error || "" }));
+    if (deps.fixGit && !m.paused && gitSyncWarning(m)) {
+      const fix = button("Fix with an agent", "small", () => deps.fixGit!(name, m.machine_id, m.error!));
+      fix.title = "Opens a draft with both checkouts and recent session references";
+      row.append(h("div", "fs-m", fix));
+    }
     if (m.hint) row.append(h("div", "fs-m", `Rescanned instead of watched. To watch it, run ${m.hint}`));
     if (deps.changeFolder && m.status !== "offline" && m.folder) {
       row.addEventListener("contextmenu", e => openMenu(e, m.machine_name, [{ label: "Change folder…", on: () => deps.changeFolder!(name, m) }]));

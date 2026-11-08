@@ -146,8 +146,7 @@ function subRow(at: number, inPane = false) {
   const kind = x.agent ? `<span class="kind">${esc(x.agent)}</span>` : "";
   // A child opens as the session it is; a subagent opens in this one.
   const opens = kid ? `data-kid="${esc(kid.id)}" data-key="${esc(kid.key)}"` : `data-sub="${at}"`;
-  // A child that is done still holds its session on the machine; closing the row closes it.
-  const close = inPane && st !== "working" && st !== "needs you" ? `<em class="x" data-subclose="${at}"${st === "done" && kid ? " data-endkid" : ""} title="Close">${ICON.x}</em>` : "";
+  const close = inPane && st !== "working" && st !== "needs you" ? `<em class="x" data-subclose="${at}" title="Dismiss from pane">${ICON.x}</em>` : "";
   // A child that runs can be stopped from its row, as from its own log.
   const stoppable = kid && (st === "working" || st === "needs you");
   const stop = stoppable ? `<em class="kstop" data-kidstop title="Stop ${esc(x.title)}">Stop</em>` : "";
@@ -508,8 +507,8 @@ function scrollAnchor(b: HTMLElement, sel?: string): ScrollAnchor {
 
 function restoreScroll(b: HTMLElement, a: ScrollAnchor) {
   const el = a.sel != null ? b.querySelector<HTMLElement>(a.sel) : null;
-  if (el) b.scrollTop = keptScrollTop(b.scrollTop, a.off, el.getBoundingClientRect().top - b.getBoundingClientRect().top);
-  else b.scrollTop = a.scroll;
+  const top = el ? keptScrollTop(b.scrollTop, a.off, el.getBoundingClientRect().top - b.getBoundingClientRect().top) : a.scroll;
+  if (top !== b.scrollTop) b.scrollTop = top;
 }
 
 /// The row in view at the top of the log, to pass to `drawAgentBody` as the

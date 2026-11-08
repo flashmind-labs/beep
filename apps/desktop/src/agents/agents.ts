@@ -1,3 +1,4 @@
+import type { ProviderCredits } from "../ui/credits.ts";
 // agents/: coding agents in the bar: the start form, the picker, one
 // session's log and messages, and every session. Entry: this file.
 // Start a coding agent on one of the user's machines, follow it live and
@@ -5,7 +6,7 @@
 // every session. They run in the bar and in the window's pane alike. This
 // file holds their shared types and state, and the Every session list.
 import { nest, parentRow } from "./nesting-state.ts";
-import { loadSessions, sessions } from "./sessions.ts";
+import { loadSessions, reviewers, sessions } from "./sessions.ts";
 import { copiesClick, copiesHtml, keepCopiesFresh, onCopies, onCopyAction } from "./copies.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { emptyPage } from "../lists/memories.ts";
@@ -31,7 +32,7 @@ import type { OlderStop } from "./older-state.ts";
 import { closeModelPicker } from "./modelpill.ts";
 import { queueMessage, steerMessage, interruptAgent, answerFirst, sendAgentMessage } from "./messages.ts";
 import { cycleMode } from "./modepill.ts";
-import { esc, money, tokenCount } from "../ui/format.ts";
+import { esc, money } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -68,6 +69,8 @@ export interface AgentSession {
   question: AgentQuestion | null;
   /// The session whose agent started this one, when an agent did.
   parent?: AgentParent | null;
+  /// A temporary reviewer of its parent's changes.
+  reviewer?: boolean;
 }
 
 /// Where the session that started another runs and the ids it is listed
@@ -124,6 +127,7 @@ export interface AgentUsage {
   context: { used: number; size: number } | null;
   tokens: number;
   cost_usd: number | null;
+  credits?: ProviderCredits[];
 }
 
 /// The modes of a session, as `agent_modes` returns them. `plan` is the plan
@@ -148,12 +152,20 @@ export interface AgentTask {
   entry: number | null;
 }
 
-/// "62% context · 184K tokens · $1.42", leaving out what is not known.
+const sessionTokens = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+const contextTokens = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 });
+
+/// Context, session totals and provider balances in the session header.
 export function usageLine(u: AgentUsage) {
   const parts: string[] = [];
-  if (u.context?.size) parts.push(`${Math.round((u.context.used * 100) / u.context.size)}% context`);
-  if (u.tokens) parts.push(`${tokenCount(u.tokens)} tokens`);
-  if (u.cost_usd != null) parts.push(money(u.cost_usd));
+  if (u.context?.size) parts.push(`${Math.round((u.context.used * 100) / u.context.size)}%/${contextTokens.format(u.context.size).replace("K", "k")}`);
+  if (u.tokens) parts.push(`${sessionTokens.format(u.tokens).replace("K", "k")} tokens`);
+  const credit = u.credits?.find(c => c.unit === "usd");
+  const spent = u.cost_usd == null ? "?" : money(u.cost_usd);
+  if (credit) {
+    const remaining = credit.remaining == null ? NaN : Number(credit.remaining);
+    parts.push(`${spent} / ${Number.isFinite(remaining) ? money(remaining) : "?"}`);
+  } else if (u.cost_usd != null) parts.push(spent);
   return parts.join(" · ");
 }
 
@@ -335,10 +347,11 @@ export const AGENT_KINDS: Record<string, AgentKind> = {
   pi: { ini: "PI", name: "pi", cls: "pi" },
   flsh: { ini: "FL", name: "flsh", cls: "flsh" },
   opencode: { ini: "OC", name: "OpenCode", cls: "opencode" },
+  hermes: { ini: "HE", name: "Hermes", cls: "hermes" },
 };
 /// Agents whose outside sessions a node can take over (the ones it reads sessions of).
 export const canTakeOver = (a: string) => TAKEOVER.has(a);
-export const AGENT_ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
+export const AGENT_ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh", "hermes"];
 export const AGENT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>';
 
 export const agentKind = (a: string): AgentKind => AGENT_KINDS[a] ?? { ini: String(a || "?").slice(0, 2).toUpperCase(), name: a || "Agent", cls: "" };
@@ -411,13 +424,14 @@ function sessionRow({ row, depth }: { row: AgentSession; depth: number }, i: num
   const s = { ...row, status: shownStatus(row) };
   const k = agentKind(s.agent), folder = folderName(s.cwd);
   const moving = moveLabel(s);
-  const tail = moving ? `<span class="dstate ${moving.chip === "Moving" ? "run" : "ask"}"${moving.why ? ` title="${esc(moving.why)}"` : ""}>${moving.chip}</span>`
+  const tail = s.reviewer ? '<span class="w">Reviewing</span>'
+    : moving ? `<span class="dstate ${moving.chip === "Moving" ? "run" : "ask"}"${moving.why ? ` title="${esc(moving.why)}"` : ""}>${moving.chip}</span>`
     : s.status === "asking" ? '<span class="dstate ask">Needs you</span>'
     : s.status === "working" || s.status === "running" || s.status === "starting" ? `<span class="run" title="${esc(s.doing || "Working")}"><span class="dspin"></span><span class="tx">${esc(s.doing || "Working")}</span></span>`
     : `<span class="w">${s.external && s.status !== "ended" ? "In terminal" : esc(cap(s.status))}</span>`;
   const kid = depth ? ` kid" style="--depth:${depth}` : "";
   return `<button class="dchat${kid}" role="option" aria-selected="${i === AG.sel}" data-agi="${i}">
-      <span class="t"><span>${esc(s.title || folder || k.name)}</span><small>${esc(sessionSub(s, k.name, folder))}</small></span>${tail}</button>`;
+      <span class="t"><span>${esc(s.reviewer ? "Review" : s.title || folder || k.name)}</span><small>${esc(sessionSub(s, k.name, folder))}</small></span>${tail}</button>`;
 }
 
 /// The sessions the list on screen shows, which its rows index. Another page
@@ -425,7 +439,7 @@ function sessionRow({ row, depth }: { row: AgentSession; depth: number }, i: num
 let drawn: AgentSession[] = [];
 
 export function drawAgents(loading: boolean) {
-  const list = sessions.filter(sessionVisible), shown = nest(list);
+  const list = sessions.filter(sessionVisible), shown = nest([...list, ...reviewers]);
   drawn = shown.map(n => n.row);
   AG.sel = Math.min(AG.sel, Math.max(0, drawn.length - 1));
   const machines = new Set(list.map(s => s.machine_id)).size;

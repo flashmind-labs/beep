@@ -1,6 +1,23 @@
 package com.flashmind.beep
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -178,63 +195,126 @@ private fun CodingSessionScreen(repository: ChatRepository, initial: MachineSess
     if (close) AlertDialog(onDismissRequest = { close = false }, title = { Text("Close session?") }, text = { Text("The coding agent stops running.") },
         confirmButton = { TextButton(onClick = { close = false; act { api.steerCoding(shown.machineId, shown.agent, shown.id, AgentSteer.Close) } }) { Text("Close session") } },
         dismissButton = { TextButton(onClick = { close = false }) { Text("Cancel") } })
-    WorkspacePage("Agent session", onBack, data::refresh) {
-        WorkspaceBody {
-            WorkspaceHeading(shown.title ?: shown.agent)
-            WorkspaceFacts(listOf("Agent" to shown.agent, "Machine" to shown.machineName, "Status" to shown.status.workspaceLabel(), "Folder" to shown.cwd))
-            WorkspaceError(error)
-            WorkspaceError(data.error, data::refresh)
-            WorkspaceError(view?.error)
-            usage.value?.let { used -> WorkspaceFacts(listOf("Tokens" to used.tokens.toString(),
-                "Estimated cost" to (used.costUsd?.let { String.format(java.util.Locale.ROOT, "$%.2f", it) } ?: "Not reported"))) }
-            if (data.loading && view == null) WorkspaceLoading()
-            if (shown.external) OutlinedButton(onClick = { act { session = api.resumeCoding(shown.machineId, shown.agent, shown.id).session } }, enabled = !busy) { Text("Continue in Beep") }
-            shown.question?.let { question ->
-                BeepCard(Modifier.fillMaxWidth()) {
-                    WorkspaceHeading("Needs input")
-                    WorkspaceCode(question.text + question.detail?.let { "\n$it" }.orEmpty())
-                    question.options.forEach { option -> TextButton(onClick = {
-                        act { api.answerCoding(shown.machineId, shown.agent, shown.id, question.id, option.id) }
-                    }, enabled = !busy) { Text(option.name, color = if (option.allow) Beep.colors.brand else Beep.colors.muted) } }
+    val running = !shown.external && shown.status != AgentStatus.ENDED
+    var menu by remember { mutableStateOf(false) }
+    val list = rememberLazyListState()
+    val count = view?.entries?.size ?: 0
+    LaunchedEffect(count) { if (count > 0) list.scrollToItem(list.layoutInfo.totalItemsCount - 1) }
+    WorkspacePage(shown.title?.ifEmpty { null } ?: shown.agent, onBack, data::refresh, actions = {
+        if (running) {
+            TextButton(onClick = { act { api.steerCoding(shown.machineId, shown.agent, shown.id, AgentSteer.Cancel) } }, enabled = !busy) {
+                Text("Stop", color = Beep.colors.error, fontSize = 13.sp)
+            }
+            Box {
+                IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, "More") }
+                DropdownMenu(menu, { menu = false }) {
+                    DropdownMenuItem({ Text("Close session", color = Beep.colors.error) }, onClick = { menu = false; close = true })
                 }
             }
-            if (!view?.plan.isNullOrEmpty()) {
-                WorkspaceHeading("Plan")
-                BeepCard { view!!.plan.forEach { step -> WorkspaceRow(Icons.Outlined.Checklist, step.content, tag = step.status.workspaceLabel()) } }
+        }
+    }) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val cost = usage.value?.let { used -> used.costUsd?.let { String.format(java.util.Locale.ROOT, "$%.2f", it) } ?: "${used.tokens} tokens" }
+                        Text(listOfNotNull(shown.agent, shown.machineName, shown.cwd, cost).filter { it.isNotEmpty() }.joinToString(" · "),
+                            Modifier.weight(1f), fontSize = 12.sp, color = Beep.colors.muted, maxLines = 2)
+                        Text(shown.status.workspaceLabel(), fontSize = 11.sp,
+                            color = if (shown.status == AgentStatus.ASKING) Beep.colors.warn else Beep.colors.muted)
+                    }
+                    WorkspaceError(error)
+                    WorkspaceError(data.error, data::refresh)
+                    if (data.loading && view == null) WorkspaceLoading()
+                    if ((view?.earlier ?: 0u) > 0u) Text("${view!!.earlier} earlier entries", fontSize = 11.sp, color = Beep.colors.dim)
+                }
             }
-            WorkspaceHeading("Session log")
-            if ((view?.earlier ?: 0u) > 0u) Text("${view!!.earlier} earlier entries omitted", fontSize = 12.sp, color = Beep.colors.muted)
-            view?.entries?.forEachIndexed { index, entry ->
-                var expanded by remember(shown.id, index) { mutableStateOf(entry.kind == AgentEntryKind.User || entry.kind == AgentEntryKind.Agent || entry.kind == AgentEntryKind.Question) }
-                BeepCard(Modifier.fillMaxWidth()) {
-                    WorkspaceRow(Icons.Outlined.Code, entryTitle(entry.kind), entry.text.lineSequence().firstOrNull().orEmpty().take(120), onClick = { expanded = !expanded })
-                    if (expanded) {
-                        if (entry.kind == AgentEntryKind.Tool || entry.kind is AgentEntryKind.Thought) WorkspaceCode(entry.text)
-                        else WorkspaceProse(entry.text)
+            itemsIndexed(view?.entries.orEmpty()) { index, entry -> TranscriptEntry(entry, remember(shown.id, index) { mutableStateOf(false) }) }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    WorkspaceError(view?.error)
+                    if (!view?.plan.isNullOrEmpty()) BeepCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Plan", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            view!!.plan.forEachIndexed { i, step ->
+                                Text("${i + 1}. ${step.content}", fontSize = 12.sp,
+                                    color = if (step.status == AgentPlanStatus.IN_PROGRESS) Beep.colors.ink else Beep.colors.muted,
+                                    textDecoration = if (step.status == AgentPlanStatus.COMPLETED) TextDecoration.LineThrough else null)
+                            }
+                        }
+                    }
+                    val files = view?.files.orEmpty()
+                    if (files.isNotEmpty()) BeepCard(Modifier.fillMaxWidth()) {
+                        WorkspaceRow(Icons.Outlined.Difference, if (files.size == 1) "1 file changed" else "${files.size} files changed", tag = "Review", onClick = { diff = true })
                     }
                 }
             }
-            WorkspaceHeading("Changes", "Review diff") { diff = true }
-            BeepCard { view?.files?.forEach { file -> WorkspaceRow(Icons.AutoMirrored.Outlined.InsertDriveFile, file, onClick = { diff = true }) } }
-            if (!shown.external && shown.status != AgentStatus.ENDED) {
-                OutlinedTextField(message, { message = it }, Modifier.fillMaxWidth(), label = { Text("Message agent") }, minLines = 2)
-                Button(onClick = { val text = message.trim(); act {
-                    api.steerCoding(shown.machineId, shown.agent, shown.id, AgentSteer.Prompt(text)); message = ""
-                } }, enabled = !busy && message.isNotBlank()) { Text("Send") }
-                Row {
-                    TextButton(onClick = { act { api.steerCoding(shown.machineId, shown.agent, shown.id, AgentSteer.Cancel) } }, enabled = !busy) { Text("Stop turn") }
-                    TextButton(onClick = { close = true }, enabled = !busy) { Text("Close session", color = Beep.colors.error) }
+        }
+        shown.question?.let { question ->
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp).fillMaxWidth()
+                .background(Beep.colors.surface, RoundedCornerShape(12.dp))
+                .border(1.dp, Beep.colors.warn.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).padding(11.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(question.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                question.detail?.let { Text(it, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Beep.colors.muted, maxLines = 6) }
+                question.options.forEach { option ->
+                    val onClick = { act { api.answerCoding(shown.machineId, shown.agent, shown.id, question.id, option.id) } }
+                    if (option.allow) Button(onClick, Modifier.fillMaxWidth(), enabled = !busy) { Text(option.name) }
+                    else OutlinedButton(onClick, Modifier.fillMaxWidth(), enabled = !busy) { Text(option.name) }
                 }
+            }
+        }
+        if (shown.external) Button(onClick = { act { session = api.resumeCoding(shown.machineId, shown.agent, shown.id).session } },
+            Modifier.fillMaxWidth().padding(12.dp), enabled = !busy) { Text("Resume session") }
+        else if (running) Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth()
+            .background(Beep.colors.surface, RoundedCornerShape(18.dp))
+            .border(1.dp, Beep.colors.softLine, RoundedCornerShape(18.dp)).padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.Bottom) {
+            Box(Modifier.weight(1f).padding(vertical = 7.dp)) {
+                if (message.isEmpty()) Text("Message ${shown.agent}", color = Beep.colors.dim, fontSize = 14.sp)
+                BasicTextField(message, { message = it }, Modifier.fillMaxWidth(), maxLines = 5,
+                    textStyle = TextStyle(color = Beep.colors.ink, fontSize = 14.sp), cursorBrush = SolidColor(Beep.colors.accent))
+            }
+            IconButton(onClick = { val text = message.trim(); act {
+                api.steerCoding(shown.machineId, shown.agent, shown.id, AgentSteer.Prompt(text)); message = ""
+            } }, Modifier.size(34.dp).background(if (message.isBlank()) Beep.colors.raised else Beep.colors.accent, CircleShape),
+                enabled = !busy && message.isNotBlank()) {
+                Icon(Icons.Outlined.ArrowUpward, "Send", Modifier.size(18.dp), tint = Beep.colors.onAccent)
             }
         }
     }
 }
 
-private fun entryTitle(kind: AgentEntryKind): String = when (kind) {
-    AgentEntryKind.User -> "You"
-    AgentEntryKind.Agent -> "Agent"
-    AgentEntryKind.Tool -> "Tool"
-    AgentEntryKind.Question -> "Question"
-    is AgentEntryKind.Thought -> "Thought"
-    else -> "Session"
+/** One transcript entry as the mock draws it: your bubble, the agent's markdown, a muted line per tool or thought. */
+@Composable
+private fun TranscriptEntry(entry: AgentEntry, open: MutableState<Boolean>) {
+    when (val kind = entry.kind) {
+        AgentEntryKind.User -> Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+            Spacer(Modifier.weight(1f).widthIn(min = 40.dp))
+            Box(Modifier.widthIn(max = 300.dp).background(Beep.colors.accent.copy(alpha = 0.22f), RoundedCornerShape(12.dp, 12.dp, 4.dp, 12.dp))) {
+                MessageContent(entry.text, role = "agent", compact = true, padded = true)
+            }
+        }
+        AgentEntryKind.Agent -> MessageContent(entry.text, role = "agent", compact = true)
+        AgentEntryKind.Tool, is AgentEntryKind.Thought -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth().clickable { open.value = !open.value }.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (kind is AgentEntryKind.Thought) {
+                    Text(kind.ms?.let { "Thought for ${maxOf(1uL, it / 1000uL)} s" } ?: "Thought", fontSize = 12.sp, color = Beep.colors.dim, fontStyle = FontStyle.Italic)
+                } else {
+                    val line = entry.text.lineSequence().firstOrNull().orEmpty()
+                    val name = line.substringBefore(":")
+                    val rest = line.substringAfter(":", "").trim()
+                    Text(name.take(1).uppercase(), Modifier.size(18.dp).background(Beep.colors.raised, RoundedCornerShape(4.dp)).wrapContentHeight(),
+                        fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = Beep.colors.muted, textAlign = TextAlign.Center)
+                    Text(name, fontSize = 12.sp, color = Beep.colors.muted)
+                    Text(rest, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, color = Beep.colors.ink,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (open.value) WorkspaceCode(entry.text)
+        }
+        AgentEntryKind.Question -> Text(entry.text, fontSize = 12.sp, color = Beep.colors.warn)
+        else -> Text(entry.text, fontSize = 12.sp, color = Beep.colors.dim)
+    }
 }

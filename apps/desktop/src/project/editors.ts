@@ -13,17 +13,25 @@ export interface EditorRow {
 const CHEV = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 
 let installed: EditorRow[] | null = null;
-let asked = false;
+let reading = false;
+const waiting = new Set<() => void>();
 
 /// The header's buttons for `folder`: the first editor found, the others in
 /// a menu beside it; none without a folder or an editor. The first call
-/// reads the editors and calls `redraw` once they are in.
+/// reads the editors and redraws every waiting header once they are in.
 export function editorTools(folder: string | null | undefined, redraw: () => void): Node[] {
-  if (!asked) {
-    asked = true;
+  if (installed === null) waiting.add(redraw);
+  if (installed === null && !reading) {
+    reading = true;
     invoke<EditorRow[]>("editors").then(
-      rows => { installed = rows; if (rows.length) redraw(); },
-      e => console.warn("editors:", e),
+      rows => {
+        installed = rows;
+        reading = false;
+        const redraws = [...waiting];
+        waiting.clear();
+        for (const draw of redraws) draw();
+      },
+      e => { reading = false; waiting.clear(); console.warn("editors:", e); },
     );
   }
   if (!folder || !installed?.length) return [];

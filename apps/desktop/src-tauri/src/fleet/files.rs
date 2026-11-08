@@ -52,6 +52,7 @@ const FOLDERS_PER_MACHINE: u32 = 100;
 pub(crate) struct PeerShell {
     client: PeerClient,
     windows: bool,
+    complete_output: bool,
 }
 
 impl PeerShell {
@@ -63,7 +64,16 @@ impl PeerShell {
             Some(env) => is_windows(&env.os),
             None => agent_files::on_windows(&client).await?,
         };
-        Ok(Self { client, windows })
+        Ok(Self {
+            client,
+            windows,
+            complete_output: false,
+        })
+    }
+    /// Framed Git responses validate their byte lengths and bound their own output.
+    pub(crate) fn complete_output(mut self) -> Self {
+        self.complete_output = true;
+        self
     }
 }
 
@@ -76,12 +86,17 @@ impl Shell for PeerShell {
             timed_out,
             output,
         } = machine::exec(&self.client, &script, limit).await?;
-        let mut clip = Clip::default();
-        clip.push(&output);
+        let output = if self.complete_output {
+            output
+        } else {
+            let mut clip = Clip::default();
+            clip.push(&output);
+            clip.finish()
+        };
         Ok(ShellOutput {
             exit_code,
             timed_out,
-            output: clip.finish(),
+            output,
         })
     }
 }

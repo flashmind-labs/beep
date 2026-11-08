@@ -1,0 +1,75 @@
+import { agentPics } from "../chat/attach.ts";
+import { esc } from "../ui/format.ts";
+import { ICON } from "../ui/icons.ts";
+import type { Attached } from "./agentqueue.ts";
+import { attachedChips, attachImages, wireAttachedPreviews } from "./images.ts";
+import { filePicker } from "./file-picker.ts";
+import type { makeStartComposer } from "./start-composer.ts";
+import { StartFiles } from "./start-files.ts";
+
+export function startAttachments(c: ReturnType<typeof makeStartComposer>, error: (text: string) => void, changed: () => void) {
+  const images: Attached[] = [];
+  const files = new StartFiles();
+  let reading = 0, locked = false;
+  let serial = Promise.resolve();
+  const draw = () => {
+    c.att.innerHTML = attachedChips(images, "startimage") + files.pending.map(({ file }, i) =>
+      `<span class="att"><span class="nm" title="Copied to the selected machine when you start">${esc(file.name || "file")}</span><button type="button" aria-label="Remove ${esc(file.name || "file")}" data-startfile="${i}">${ICON.x}</button></span>`).join("");
+    wireAttachedPreviews(c.att, images);
+    c.att.hidden = !images.length && !files.pending.length;
+  };
+  const add = (input: Iterable<File>) => {
+    if (locked) return Promise.resolve();
+    const dropped = [...input];
+    error("");
+    reading++;
+    changed();
+    serial = serial.then(async () => {
+      const { pics, rest } = await agentPics(dropped);
+      files.add(rest, error);
+      await attachImages(images, pics, error);
+      draw();
+    }).catch(e => error(String(e))).finally(() => { reading--; changed(); });
+    return serial;
+  };
+  const picker = filePicker(add);
+  c.send.before(picker.button, picker.input);
+  c.att.addEventListener("click", e => {
+    if (locked) return;
+    const button = (e.target as HTMLElement).closest<HTMLElement>("[data-startimage], [data-startfile]");
+    if (!button) return;
+    if (button.dataset.startimage !== undefined) images.splice(Number(button.dataset.startimage), 1);
+    else files.pending.splice(Number(button.dataset.startfile), 1);
+    draw();
+    c.input.focus();
+  });
+  c.input.addEventListener("paste", e => {
+    const files = [...(e.clipboardData?.items ?? [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter((f): f is File => !!f);
+    if (!files.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void add(files);
+  });
+  c.form.addEventListener("dragover", e => {
+    if (!e.dataTransfer?.types.includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = locked ? "none" : "copy";
+    if (!locked) c.box.classList.add("dropping");
+  });
+  c.form.addEventListener("dragleave", e => { if (!c.form.contains(e.relatedTarget as Node | null)) c.box.classList.remove("dropping"); });
+  c.form.addEventListener("drop", e => {
+    c.box.classList.remove("dropping");
+    if (!e.dataTransfer?.files.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void add(e.dataTransfer.files).then(() => c.input.focus());
+  });
+  return {
+    add, images, files,
+    get reading() { return reading > 0; },
+    get count() { return images.length + files.pending.length; },
+    setBusy(value: boolean) { locked = value; picker.button.disabled = value; },
+    clear() { images.length = 0; files.pending.length = 0; draw(); },
+  };
+}

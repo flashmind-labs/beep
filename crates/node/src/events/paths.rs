@@ -52,6 +52,7 @@ impl Paths {
             move |event: notify::Result<notify::Event>| {
                 let roots = crate::lock(&interested);
                 let changed_roots = match &event {
+                    Ok(event) if event.need_rescan() => roots.clone(),
                     Ok(event) if matches!(event.kind, EventKind::Access(_) | EventKind::Other) => {
                         return;
                     }
@@ -63,14 +64,16 @@ impl Paths {
                     Err(_) => roots.clone(),
                 };
                 if event.as_ref().map_or(true, |event| {
-                    matches!(
-                        event.kind,
-                        EventKind::Remove(_)
-                            | EventKind::Modify(notify::event::ModifyKind::Name(_))
-                    ) && event
-                        .paths
-                        .iter()
-                        .any(|path| roots.iter().any(|root| root.starts_with(path)))
+                    event.need_rescan()
+                        || (matches!(
+                            event.kind,
+                            EventKind::Create(_)
+                                | EventKind::Remove(_)
+                                | EventKind::Modify(notify::event::ModifyKind::Name(_))
+                        ) && event
+                            .paths
+                            .iter()
+                            .any(|path| roots.iter().any(|root| root.starts_with(path))))
                 }) {
                     invalidated.store(true, Ordering::Release);
                 }
@@ -79,12 +82,13 @@ impl Paths {
                     return;
                 }
                 let structural = event.as_ref().map_or(true, |event| {
-                    matches!(
-                        event.kind,
-                        EventKind::Create(_)
-                            | EventKind::Remove(_)
-                            | EventKind::Modify(notify::event::ModifyKind::Name(_))
-                    )
+                    event.need_rescan()
+                        || matches!(
+                            event.kind,
+                            EventKind::Create(_)
+                                | EventKind::Remove(_)
+                                | EventKind::Modify(notify::event::ModifyKind::Name(_))
+                        )
                 });
                 direct(changed_roots, structural);
                 if structural {
@@ -135,11 +139,17 @@ impl Paths {
         })
     }
 
-    pub(crate) async fn replace(&self, mut roots: Vec<PathBuf>) -> Result<()> {
-        roots.sort();
-        roots.dedup();
+    pub(crate) async fn replace(&self, roots: Vec<PathBuf>) -> Result<()> {
         let inner = self.inner.clone();
         let (result, changed) = spawn_blocking(move || {
+            // OS notifications use physical paths, including macOS's /private aliases.
+            // Resolve the existing prefix even when a requested store is not created yet.
+            let mut roots = roots
+                .iter()
+                .map(|root| crate::agents::reach::real(root))
+                .collect::<Result<Vec<_>>>()?;
+            roots.sort();
+            roots.dedup();
             let mut inner = crate::lock(&inner);
             let before = crate::lock(&inner.roots).clone();
             let result = inner.install(&roots);
@@ -151,10 +161,10 @@ impl Paths {
             } else {
                 Vec::new()
             };
-            (result, changed)
+            Ok::<_, anyhow::Error>((result, changed))
         })
         .await
-        .context("filesystem watcher stopped")?;
+        .context("filesystem watcher stopped")??;
         if !changed.is_empty() {
             (self.changed)(changed, true);
         }
@@ -252,7 +262,8 @@ mod tests {
         let held = crate::lock(&watcher.inner);
         assert_eq!(held.installed.len(), 1);
         assert_eq!(
-            held.installed.get(root.path()),
+            held.installed
+                .get(&crate::agents::reach::real(root.path()).unwrap()),
             Some(&RecursiveMode::NonRecursive)
         );
     }
@@ -260,17 +271,24 @@ mod tests {
     #[tokio::test]
     async fn aliases_share_one_watch_and_removing_one_keeps_the_directory_watched() {
         let root = tempfile::tempdir().unwrap();
+        #[cfg(not(unix))]
+        let aliases = vec![root.path().to_owned(), root.path().to_owned()];
+        #[cfg(unix)]
+        let (_alias_directory, aliases) = {
+            let directory = tempfile::tempdir().unwrap();
+            let alias = directory.path().join("alias");
+            std::os::unix::fs::symlink(root.path(), &alias).unwrap();
+            (directory, vec![root.path().to_owned(), alias])
+        };
         let (changed, mut changes) = mpsc::channel(8);
         let watcher = Paths::new(move |paths| {
             let _ = changed.try_send(paths);
         })
         .unwrap();
-        watcher
-            .replace(vec![root.path().to_owned(), root.path().to_owned()])
-            .await
-            .unwrap();
+        watcher.replace(aliases).await.unwrap();
         watcher.replace(vec![root.path().to_owned()]).await.unwrap();
         assert_eq!(crate::lock(&watcher.inner).installed.len(), 1);
+        while changes.try_recv().is_ok() {}
         std::fs::write(root.path().join("example.txt"), "changed").unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(5), changes.recv())
             .await
@@ -341,7 +359,9 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 reconciled.borrow_and_update();
-                if crate::lock(&watcher.inner).installed.get(&path)
+                if crate::lock(&watcher.inner)
+                    .installed
+                    .get(&crate::agents::reach::real(&path).unwrap())
                     == Some(&RecursiveMode::Recursive)
                 {
                     break;

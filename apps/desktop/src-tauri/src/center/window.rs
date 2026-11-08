@@ -78,14 +78,18 @@ pub(crate) fn join_dock<R: Runtime>(_: &AppHandle<R>) {}
 /// Beep sits in the Dock.
 fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) -> Result<()> {
     join_dock(app);
-    let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("center.html".into()))
-        .title(title)
-        .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
-        .resizable(true)
-        .maximizable(true)
-        // Files dragged in from Finder reach the page as HTML drops, as in
-        // the bar: a coding agent session uploads them to its machine.
-        .disable_drag_drop_handler();
+    let mut builder = crate::navigation::guard(WebviewWindowBuilder::new(
+        app,
+        label,
+        WebviewUrl::App("center.html".into()),
+    ))
+    .title(title)
+    .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
+    .resizable(true)
+    .maximizable(true)
+    // Files dragged in from Finder reach the page as HTML drops, as in
+    // the bar: a coding agent session uploads them to its machine.
+    .disable_drag_drop_handler();
     #[cfg(target_os = "macos")]
     {
         builder = builder

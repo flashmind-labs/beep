@@ -1,4 +1,6 @@
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { creditAmount, creditScope, providerName, type ProviderCredits } from "../ui/credits.ts";
+export { creditAmount, creditScope, type ProviderCredits } from "../ui/credits.ts";
 // The pill at the right end of every command center header: how much of each
 // coding agent's plan is used and what the agents cost today.
 
@@ -14,12 +16,14 @@ export interface UsageWindow {
   scope: string | null;
 }
 
+
 export interface PlanLimits {
   agent: string;
   plan: string | null;
   machine_name: string;
   as_of: number;
   windows: UsageWindow[];
+  credits?: ProviderCredits[];
 }
 
 export interface NamedTokens {
@@ -182,8 +186,9 @@ export function todayLine(today: { total: Pick<Spend, "cost_usd">; tokens: numbe
 export function hasUsage(view: UsageView | null): view is UsageView {
   if (!view) return false;
   const spent = (p: Period | null) => !!p && (p.total.cost_usd > 0 || p.tokens > 0 || p.projects.length > 0 || p.harnesses.length > 0);
-  return view.limits.some(p => p.windows.length) || spent(view.today) || spent(view.week) || spent(view.month);
+  return view.limits.some(p => p.windows.length || p.credits?.length) || spent(view.today) || spent(view.week) || spent(view.month);
 }
+
 
 function bar(used: number, cls: string) {
   const i = h("i", used > WARN_USED ? "warn" : "");
@@ -195,15 +200,19 @@ function pill(view: UsageView) {
   const parts: Node[] = [];
   for (const plan of view.limits) {
     const used = planUsed(plan);
-    if (used == null) continue;
-    parts.push(h("span", "", `${shortName(plan.agent)} `, h("b", "", `${used}%`), " used"), bar(used, "bar"));
+    if (used != null) parts.push(h("span", "", `${shortName(plan.agent)} `, h("b", "", `${used}%`), " used"), bar(used, "bar"));
+    for (const credit of plan.credits ?? []) {
+      if (credit.remaining != null) parts.push(h("span", "", `${providerName(credit.provider)} `, h("b", "", creditAmount(credit, credit.remaining)), " left"));
+    }
   }
   parts.push(h("span", "", h("b", "", todayLine(view.today)), " today"));
   return parts;
 }
 
 function limitBlock(plan: PlanLimits, now: number) {
-  const name = [agentLabel(plan.agent), planName(plan.agent, plan.plan)].filter(Boolean).join(" · ");
+  const credits = plan.credits ?? [];
+  const singleProvider = !plan.windows.length && credits.length === 1;
+  const name = [agentLabel(plan.agent), planName(plan.agent, plan.plan), singleProvider ? `${providerName(credits[0].provider)} credits` : ""].filter(Boolean).join(" · ");
   const head = h("h5", "", h("span", "", name), h("span", "", asOf(plan.as_of, now)));
   head.title = `Read on ${plan.machine_name}`;
   const rows = plan.windows.map(w => {
@@ -211,6 +220,14 @@ function limitBlock(plan: PlanLimits, now: number) {
     const reset = w.resets_at != null ? ` · resets ${resetName(w.resets_at, now)}` : "";
     return h("div", "us-lim", h("span", "", windowName(w)), bar(used, "bar"), h("small", "", `${used}% used${reset}`));
   });
+  for (const credit of credits) {
+    const label = singleProvider ? creditScope(credit.scope) : `${providerName(credit.provider)} · ${creditScope(credit.scope)}`;
+    rows.push(h("div", "us-row", h("span", "", label), h("span", "", `${creditAmount(credit, credit.remaining)} remaining`)));
+    rows.push(h("div", "us-row", h("small", "", credit.resets ? `Resets ${credit.resets}` : ""), h("small", "", `${creditAmount(credit, credit.used)} used · ${creditAmount(credit, credit.total)} total`)));
+    if (credit.provider === "openrouter" && credit.scope === "api_key" && credit.remaining == null) {
+      rows.push(h("div", "us-note", "Account balance unavailable."));
+    }
+  }
   return h("div", "", head, ...rows);
 }
 
@@ -281,7 +298,7 @@ function keepInWindow(pop: HTMLElement) {
 }
 
 function popover(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => void, now: number) {
-  const blocks: Node[] = view.limits.filter(p => p.windows.length).map(p => limitBlock(p, now));
+  const blocks: Node[] = view.limits.filter(p => p.windows.length || p.credits?.length).map(p => limitBlock(p, now));
   blocks.push(
     periodBlock(view, key, pick),
     h("div", "us-note", view.metered
