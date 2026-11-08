@@ -38,7 +38,7 @@
       + node('branches', '<b>Branches</b><small>4</small>', branches.map(b=>node(`branch:${b.name}`, `<code>${b.name}</code>${b.name==='main'?'<small>default</small>':''}`, ancestry(b.tip).map(c=>commitNode(c,`${b.name}:`)).join(''), '', `data-gh-branch="${b.name}"`)).join(''))
       + node('worktrees', '<b>Worktrees</b><small>3</small>', worktrees.map(w=>node(`worktree:${w.name}`, `<code>${w.name}</code><small>${w.name==='main'?'main checkout':`${w.changes.length} changed`}</small>`, `<div class="gh-location">build-box<br><code>${w.path}</code></div>`+node(`working:${w.name}`, `<span>Uncommitted changes</span><small>${w.changes.length}</small>`, fileRows(w.changes,'',w.name)||'<p class="gh-empty">Working tree clean.</p>', '', `data-gh-working="${w.name}"`)+node(`sessions:${w.name}`, '<span>Sessions</span><small>1</small>', `<button class="gh-file" data-gh-session="${esc(w.session)}" data-gh-worktree="${w.name}"><span class="gh-session-mark">C</span><span>${w.session}</span></button>`))).join(''));
   };
-  window.gitHistoryNavigation = () => `<aside class="pj-list gh-nav" aria-label="Git navigation"><div class="gh-nav-head"><button class="gh-back" data-dact="dset:ixp:strip" data-dgo="dIdeaProject">Project</button><b>Git</b><button class="gh-collapse" data-gh-collapse title="Collapse all">Collapse all</button></div><label class="gh-search"><input type="search" placeholder="Find a commit or file" aria-label="Find a commit or file" value="${esc(H.query)}"></label><div class="gh-tree" id="git-history-tree">${navigationBody()}</div><div class="gh-nav-foot">All branches · build-box</div></aside>`;
+  window.gitHistoryNavigation = () => `<aside class="pj-list gh-nav" aria-label="Git navigation"><div class="gh-nav-head"><button class="gh-back" data-dact="dset:ixp:strip" data-dgo="dIdeaProject">Project</button><b>Git</b><button class="gh-collapse" data-gh-refresh>Refresh</button><button class="gh-collapse" data-gh-collapse title="Collapse all">Collapse all</button></div><label class="gh-search"><input type="search" placeholder="Find a commit or file" aria-label="Find a commit or file" value="${esc(H.query)}"></label><div class="gh-tree" id="git-history-tree">${navigationBody()}</div><div class="gh-nav-foot">All branches · build-box</div></aside>`;
   const diff = f => {
     const rows = [...(f.context?[{k:' ',old:18,now:18,text:f.context}]:[]),...(f.removed?[{k:'-',old:f.context?19:1,now:'',text:f.removed}]:[]),{k:'+',old:'',now:f.context?19:1,text:f.added},...(f.context?[{k:' ',old:f.removed?20:19,now:20,text:'}'}]:[])];
     const hunk = `@@ -${f.context?18:f.removed?1:0},${(f.context?2:0)+(f.removed?1:0)} +${f.context?18:1},${f.context?3:1} @@`;
@@ -66,6 +66,8 @@
   document.addEventListener('input',e=>{if(!e.target.matches('.gh-search input'))return;H.query=e.target.value;H.open.add('history');matching().forEach(c=>H.open.add(`day:${c.day}`));redrawTree();});
   document.addEventListener('click',e=>{
     const b=e.target.closest('button,summary');if(!b)return;
+    // The fabricated data stays the same on refresh; keep both panels in place.
+    if(b.hasAttribute('data-gh-refresh'))return;
     if(b.hasAttribute('data-gh-select'))choose(b.dataset.ghSelect,b.dataset.ghOrigin);
     if(b.hasAttribute('data-gh-branch'))choose(branches.find(branch=>branch.name===b.dataset.ghBranch).tip,`Branches / ${b.dataset.ghBranch}`);
     if(b.hasAttribute('data-gh-working')){H.worktree=b.dataset.ghWorking;H.path=null;H.session=null;H.tab='changes';redrawDetail();}

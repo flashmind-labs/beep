@@ -26,7 +26,7 @@ import { patchChildren } from "../ui/patch.ts";
 
 // These wrappers have no event handlers. Keep them attached while their
 // independent sections change, so a sync update cannot interrupt a click.
-const layouts = ".pj-split:not(.gh-layout), .pj-list, .pj-det, .pj-ov, .pj-ov > div, .pj-cols, .ca-col";
+const layouts = ".pj-split, .pj-list, .pj-det, .pj-ov, .pj-ov > div, .pj-cols, .ca-col";
 
 function patchProjectView(current: Element, next: Element) {
   const children = [...next.children].map((child, i) => {
