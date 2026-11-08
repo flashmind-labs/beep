@@ -12,9 +12,8 @@
 //! it is held for menus, Option-drag and Option-click. The same monitor
 //! drives both, through `Hold`, and `on_single` and `on_held` decide.
 
-use std::time::Duration;
 #[cfg(desktop)]
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Longest a tap may be held, and longest between two taps.
 #[cfg(desktop)]

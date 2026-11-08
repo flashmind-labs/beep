@@ -6,7 +6,9 @@ use super::{
     session::{MIC_CHUNKS, UNAVAILABLE},
 };
 use crate::error::DesktopError;
-use beep_live::{Input, Phase};
+use beep_live::Input;
+#[cfg(desktop)]
+use beep_live::Phase;
 use beep_proto::{ApiError, Transcription};
 use serde_bytes::ByteBuf;
 use std::{sync::Arc, time::Duration};
