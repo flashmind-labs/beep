@@ -5,7 +5,8 @@
 use crate::{beep::epoch_ms, error::Result, fleet::projects::FleetState};
 use beep_proto::{
     AgentSlug, AgentTokens, HarnessBill, HarnessSpend, ModelSpend, PeriodSpend, PlanLimits,
-    PlanWindow, ProjectBill, ProjectSpend, SpendPeriod, SpendReport, UsageReport, UsageView,
+    PlanWindow, ProjectBill, ProjectSpend, ProviderCredits, SpendPeriod, SpendReport, UsageReport,
+    UsageView,
 };
 use serde::Serialize;
 
@@ -39,6 +40,7 @@ pub struct PlanRow {
     machine_name: String,
     as_of: u64,
     windows: Vec<WindowRow>,
+    credits: Vec<ProviderCredits>,
 }
 
 #[derive(Debug, Serialize)]
@@ -90,6 +92,7 @@ impl From<PlanWindow> for WindowRow {
 impl From<PlanLimits> for PlanRow {
     fn from(p: PlanLimits) -> Self {
         Self {
+            credits: p.credits,
             agent: p.agent,
             plan: p.plan,
             machine_name: p.machine_name,

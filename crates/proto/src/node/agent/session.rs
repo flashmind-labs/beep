@@ -1,7 +1,7 @@
 //! One agent session's stream: what the server asks and what the node sends.
 
 use super::{CheckoutPlan, Effort};
-use crate::{AgentContext, ModelId, Upload};
+use crate::{AgentContext, ModelId, ProviderCredits, Upload};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -146,6 +146,9 @@ pub struct SessionInfo {
     /// before the first. New fields go after it: readers skip what they do
     /// not know.
     pub last_activity: u64,
+    /// Provider balances as this session last reported them.
+    #[serde(default)]
+    pub credits: Vec<ProviderCredits>,
 }
 
 /// Who started a session and how deep the chain goes, as the node that

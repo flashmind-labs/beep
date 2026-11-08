@@ -140,6 +140,7 @@ pub(super) fn limits(
         .filter(|plan| !plan.windows.is_empty())
         .map(|plan| PlanLimits {
             machine_name: names.get(&plan.endpoint).cloned().unwrap_or_default(),
+            credits: Vec::new(),
             agent: plan.agent,
             plan: plan.plan,
             as_of: plan.read_at.into(),

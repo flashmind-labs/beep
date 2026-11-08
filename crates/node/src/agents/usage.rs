@@ -4,7 +4,7 @@
 
 use crate::lock;
 use beep_proto::{
-    AgentSlug,
+    AgentSlug, ProviderCredits,
     node::usage::{LimitWindow, PlanUsage, TurnUsage},
 };
 use serde_json::Value;
@@ -75,6 +75,26 @@ impl UsageHub {
         });
     }
 
+    /// Replaces a provider's last balance without changing session spend or plan windows.
+    pub(crate) fn update_credits(&self, agent: &AgentSlug, credits: ProviderCredits, at: u64) {
+        self.plans.send_modify(|plans| {
+            let plan = plans.entry(agent.clone()).or_insert_with(|| PlanUsage {
+                agent: agent.clone(),
+                ..PlanUsage::default()
+            });
+            if let Some(kept) = plan
+                .credits
+                .iter_mut()
+                .find(|kept| kept.provider == credits.provider)
+            {
+                *kept = credits;
+            } else {
+                plan.credits.push(credits);
+            }
+            plan.at = at;
+        });
+    }
+
     /// Puts `windows`, seen `at` (Unix seconds), into `agent`'s report,
     /// replacing the same windows and keeping the others.
     pub(crate) fn update_windows(&self, agent: &AgentSlug, windows: Vec<LimitWindow>, at: u64) {
@@ -101,6 +121,42 @@ impl UsageHub {
             changed
         });
     }
+}
+
+/// flsh reports decimal balances as strings under `_meta["flsh/credits"]`.
+/// Reject malformed amounts while preserving unknown amounts and exact precision.
+pub(crate) fn flsh_credits(info: &Value) -> Option<ProviderCredits> {
+    let provider = info.get("provider")?.as_str()?;
+    if provider.is_empty() || provider.len() > 100 {
+        return None;
+    }
+    let balance = info.get("balance")?;
+    let text = |key: &str| -> Option<Option<String>> {
+        match balance.get(key) {
+            Some(Value::String(value)) if value.len() <= 100 => Some(Some(value.clone())),
+            Some(Value::Null) | None => Some(None),
+            _ => None,
+        }
+    };
+    let amount = |key| -> Option<Option<String>> {
+        let value = text(key)?;
+        if let Some(value) = &value {
+            let number: f64 = value.parse().ok()?;
+            if !number.is_finite() {
+                return None;
+            }
+        }
+        Some(value)
+    };
+    Some(ProviderCredits {
+        provider: provider.to_owned(),
+        scope: serde_json::from_value(balance.get("scope")?.clone()).ok()?,
+        unit: serde_json::from_value(balance.get("unit")?.clone()).ok()?,
+        remaining: amount("remaining")?,
+        total: amount("total")?,
+        used: amount("used")?,
+        resets: text("resets")?,
+    })
 }
 
 /// The windows in a Claude Code rate limit event, as claude-agent-acp
@@ -170,6 +226,7 @@ mod tests {
                     scope: None,
                 },
             ],
+            credits: Vec::new(),
             at: 50,
         });
         let event = json!({
