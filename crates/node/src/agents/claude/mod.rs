@@ -79,6 +79,10 @@ impl Default for External {
 }
 
 impl External {
+    pub(crate) fn follow_root(&self) -> Option<PathBuf> {
+        self.root.as_ref().map(|root| root.join("projects"))
+    }
+
     /// Looks for Claude Code's folder; without one there is nothing to list.
     pub fn locate() -> Self {
         Self {
