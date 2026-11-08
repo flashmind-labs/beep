@@ -196,7 +196,11 @@
     if (n.notice || n.copies) { S.d.nfnote = n.id; S.d.nfopen = true; S.d.nfempty = false; render(); return; }
     if (n.k === "build" || n.k === "buildok") n.gone = true;
     S.d.nfnote = ""; S.d.nfopen = false; S.d.nfempty = false; S.d.nfc = "";
-    if (n.ags) { S.d.ags = n.ags; go("dAgentSession"); return; }
+    if (n.ags) {
+      if (S.screen === "dWinProject" || S.screen === "dWinProjectWindow") S.d.nfback = S.screen;
+      else if (S.screen !== "dAgentSession") S.d.nfback = "";
+      S.d.ags = n.ags; go("dAgentSession"); return;
+    }
     if (n.sync) { go("dSync"); return; }
     if (n.mach) { go("dMachines"); return; }
     S.d.psel = n.psel; S.d.nfc = n.cmt ? "1" : ""; S.d.nfjump = true;
@@ -230,6 +234,15 @@
   document.addEventListener("keydown", e => {
     if (e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === "b" && document.querySelector("#desk .nf-bell") && !e.target.closest?.("[contenteditable=true], .tm-xterm")) { e.preventDefault(); if (!S.d.nfopen) returnFocus = document.activeElement; S.d.nfnote = ""; S.d.nfopen = !S.d.nfopen; paint(); if (S.d.nfopen) focusList(); else restoreFocus(); return; }
     if (e.key === "Escape" && S.d.nfopen) { e.stopImmediatePropagation(); if (S.d.nfnote) { S.d.nfnote = ""; paint(); focusList(); } else { S.d.nfopen = false; paint(); restoreFocus(); } }
+  }, true);
+
+  document.addEventListener("keydown", e => {
+    if (e.key !== "Escape" || e.defaultPrevented || e.isComposing || S.d.nfopen || S.screen !== "dAgentSession" || !S.d.nfback) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const back = S.d.nfback;
+    S.d.nfback = "";
+    go(back);
   }, true);
 
   // Its own screen in the index, to try the pane and the pages it opens.
