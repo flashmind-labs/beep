@@ -13,6 +13,7 @@ mod node;
 pub mod releases;
 pub mod sessions;
 pub mod terminals;
+#[cfg(feature = "thumbs")]
 pub mod thumb;
 
 pub use agent::{

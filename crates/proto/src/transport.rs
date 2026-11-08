@@ -6,6 +6,7 @@ pub mod client;
 pub mod follow;
 pub mod http;
 pub mod port;
+#[cfg(feature = "seal")]
 pub mod seal;
 
 pub use http::AppEvent;

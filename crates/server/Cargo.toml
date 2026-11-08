@@ -17,8 +17,8 @@ async-trait = "0.1"
 # The apps' HTTP; TLS is the proxy's in front.
 axum = { version = "0.8", features = ["http2"] }
 base64 = "0.22"
-beep-mesh = { path = "../mesh" }
-beep-proto = { path = "../proto", features = ["logging", "client"] }
+beep-mesh = { path = "../mesh", features = ["thumbs"] }
+beep-proto = { path = "../proto", features = ["logging", "client", "seal"] }
 beep-projects = { path = "../projects" }
 beep-report = { path = "../report" }
 blake3 = "1"

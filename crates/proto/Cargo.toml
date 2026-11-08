@@ -6,7 +6,8 @@ rust-version = "1.93"
 publish = false
 
 [features]
-uniffi = ["dep:uniffi"]
+# Sealing push notices to a phone, done by the server.
+seal = ["dep:chacha20poly1305"]
 # The apps' HTTP client of the server.
 client = ["https", "reqwest/stream", "tokio-util/io"]
 # The HTTPS client setup every crate shares: rustls with ring and webpki roots.
@@ -21,10 +22,11 @@ blake3 = "1"
 curve25519-dalek = "5"
 ed25519-dalek = "3"
 bytes = "1"
-chacha20poly1305 = "0.10"
+chacha20poly1305 = { version = "0.10", optional = true }
 flashmind-types = { git = "https://github.com/flashmind-labs/flashmind.git" }
 futures = "0.3"
-iroh = "1.3"
+# Lean for the phone; a node and the server turn on the defaults.
+iroh = { version = "1.3", default-features = false, features = ["tls-ring", "fast-apple-datapath"] }
 log = "0.4"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "http2"], optional = true }
 rmp-serde = "1"
@@ -38,7 +40,6 @@ tokio-util = { version = "0.7", features = ["codec"] }
 tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }
 tracing-log = { version = "0.2", default-features = false, features = ["std", "log-tracer"], optional = true }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "std", "tracing-log"], optional = true }
-uniffi = { version = "0.32", optional = true }
 uuid = { version = "1", features = ["v4", "serde"] }
 webpki-roots = { version = "1", optional = true }
 

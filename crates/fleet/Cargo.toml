@@ -14,7 +14,8 @@ beep-proto = { path = "../proto", features = ["https"] }
 chrono = "0.4"
 fastrand = "2"
 futures = "0.3"
-iroh = "1.3"
+# Lean for the phone; a node and the server turn on the defaults.
+iroh = { version = "1.3", default-features = false, features = ["tls-ring", "fast-apple-datapath"] }
 log = "0.4"
 reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
 rmp-serde = "1"
