@@ -113,6 +113,11 @@ body.mobile kbd, body.mobile .dhints, body.mobile .agkeys, body.mobile .dv-keys,
 body.mobile .dinput.small { flex-wrap: wrap; gap: 8px; padding: 8px 10px }
 body.mobile .dinput textarea { order: -1; flex: 1 1 100%; min-height: 44px; max-height: 120px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink) }
 body.mobile .agmain > .agdiv { display: none }
+/* Puts the keyboard away; there only while it is up. */
+body.mobile .mb-kbdhide { display: none; order: 9; flex: none; margin-left: auto; width: 36px; height: 32px; place-items: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--muted) }
+body.mobile.mb-kbd .mb-kbdhide { display: grid }
+/* The log never scrolls sideways; wide code and tables scroll inside themselves. */
+body.mobile .dbody { overflow-x: hidden; overscroll-behavior-x: none }
 body.mobile .dhead { padding-right: 12px }
 
 /* The pairing screen: a phone with no mesh yet. */
