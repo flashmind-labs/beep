@@ -67,7 +67,14 @@ pub(crate) async fn serve(
     send(&mut tx, &Reply::Ready).await?;
     loop {
         snapshots.start(&offers, caller);
+        let snapshot_due = snapshots.due();
         tokio::select! {
+            _ = async {
+                match snapshot_due {
+                    Some(due) => tokio::time::sleep_until(due).await,
+                    None => std::future::pending().await,
+                }
+            }, if snapshot_due.is_some() => {},
             request = rx.recv::<Request>() => match request? {
                 None => return Ok(()),
                 Some(Request::Watch { id, topics: wanted, queries: wanted_queries }) => {
