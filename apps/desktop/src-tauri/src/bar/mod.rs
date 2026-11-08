@@ -7,4 +7,6 @@ pub(crate) mod pasted_image;
 pub(crate) mod window;
 pub(crate) mod zoom;
 
-pub(crate) use window::{LABEL, hide, is_focused, is_open, show, toggle};
+#[cfg(desktop)]
+pub(crate) use window::toggle;
+pub(crate) use window::{LABEL, hide, is_focused, is_open, show};

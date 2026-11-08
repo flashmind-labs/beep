@@ -12,6 +12,8 @@ seal = ["dep:chacha20poly1305"]
 client = ["https", "reqwest/stream", "tokio-util/io"]
 # The HTTPS client setup every crate shares: rustls with ring and webpki roots.
 https = ["dep:reqwest", "dep:rustls", "dep:webpki-roots"]
+# HTTP/2 for the HTTPS client; a phone speaks HTTP/1.1.
+http2 = ["https", "reqwest/http2"]
 # Logging setup for the node and server binaries.
 logging = ["dep:tracing", "dep:tracing-log", "dep:tracing-subscriber"]
 
@@ -28,7 +30,7 @@ futures = "0.3"
 # Lean for the phone; a node and the server turn on the defaults.
 iroh = { version = "1.3", default-features = false, features = ["tls-ring", "fast-apple-datapath"] }
 log = "0.4"
-reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "http2"], optional = true }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"], optional = true }
 rmp-serde = "1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
 serde = { version = "1", features = ["derive"] }

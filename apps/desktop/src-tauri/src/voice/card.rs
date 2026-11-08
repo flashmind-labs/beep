@@ -108,6 +108,7 @@ impl Voice {
     }
 
     /// Opens the card up now, if there is one.
+    #[cfg(desktop)]
     pub(super) fn open_any_card(&self) -> bool {
         match self.take_card(None) {
             Some(card) => {

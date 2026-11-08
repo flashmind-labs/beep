@@ -5,8 +5,8 @@ use reqwest::ClientBuilder;
 use rustls::{ClientConfig, RootCertStore};
 use std::sync::Arc;
 
-/// A client builder with the shared TLS setup. It offers HTTP/2 and HTTP/1.1
-/// over ALPN, as reqwest does with its own TLS setup.
+/// A client builder with the shared TLS setup. It offers HTTP/2, when built
+/// with it, and HTTP/1.1 over ALPN, as reqwest does with its own TLS setup.
 pub fn client() -> ClientBuilder {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let roots = RootCertStore {
@@ -19,6 +19,10 @@ pub fn client() -> ClientBuilder {
         .expect("ring supports the default TLS versions")
         .with_root_certificates(roots)
         .with_no_client_auth();
-    tls.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    tls.alpn_protocols = if cfg!(feature = "http2") {
+        vec![b"h2".to_vec(), b"http/1.1".to_vec()]
+    } else {
+        vec![b"http/1.1".to_vec()]
+    };
     reqwest::Client::builder().tls_backend_preconfigured(tls)
 }

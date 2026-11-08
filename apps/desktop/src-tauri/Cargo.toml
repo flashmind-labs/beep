@@ -44,7 +44,7 @@ serde = { version = "1", features = ["derive"] }
 serde_bytes = "0.11"
 serde_json = "1"
 strum = { version = "0.28", features = ["derive"] }
-tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri = { version = "2", default-features = false, features = ["wry", "dynamic-acl", "tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-deep-link = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
@@ -65,6 +65,8 @@ tokio = { version = "1", features = ["test-util"] }
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 beep-node = { path = "../../../crates/node", default-features = false, features = ["host"] }
 arboard = "3.7"
+# Brotli for the bundled pages. A phone skips it: the IPA is zipped anyway.
+tauri = { version = "2", features = ["compression", "common-controls-v6", "x11", "dbus"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 beep-mesh = { path = "../../../crates/mesh", features = ["thumbs"] }
 tauri-plugin-autostart = "2"

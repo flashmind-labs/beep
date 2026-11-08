@@ -18,7 +18,7 @@ async-trait = "0.1"
 axum = { version = "0.8", features = ["http2"] }
 base64 = "0.22"
 beep-mesh = { path = "../mesh", features = ["thumbs"] }
-beep-proto = { path = "../proto", features = ["logging", "client", "seal"] }
+beep-proto = { path = "../proto", features = ["logging", "client", "http2", "seal"] }
 beep-projects = { path = "../projects" }
 beep-report = { path = "../report" }
 blake3 = "1"
