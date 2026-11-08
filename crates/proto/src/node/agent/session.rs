@@ -146,6 +146,9 @@ pub struct SessionInfo {
     /// before the first. New fields go after it: readers skip what they do
     /// not know.
     pub last_activity: u64,
+    /// A temporary reviewer of its parent's changes. Only `ListAll` lists
+    /// reviewers.
+    pub reviewer: bool,
     /// Provider balances as this session last reported them.
     #[serde(default)]
     pub credits: Vec<ProviderCredits>,

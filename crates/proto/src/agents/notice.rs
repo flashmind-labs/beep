@@ -166,6 +166,7 @@ pub fn agent_name(agent: &str) -> &str {
         "pi" => "pi",
         "flsh" => "flsh",
         "opencode" => "OpenCode",
+        "hermes" => "Hermes",
         other => other,
     }
 }

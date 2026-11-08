@@ -1692,6 +1692,90 @@ async fn an_agent_queries_models_on_its_own_machine_and_a_peer() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn a_repair_agent_reads_local_and_remote_transcripts_with_pagination() {
+    let desktop = desktop().await;
+    let work = TempDir::new().expect("a temp folder");
+    let sent = work.path().join("sent.jsonl");
+    let a = Node::start(Config {
+        name: Some("box-a"),
+        agent: Some(adapter(&sent)),
+        ..Config::default()
+    })
+    .await;
+    let b = Node::start(Config {
+        name: Some("box-b"),
+        ..Config::default()
+    })
+    .await;
+    a.join(&desktop.ticket(DeviceKind::Node).await).await;
+    b.join(&desktop.ticket(DeviceKind::Node).await).await;
+    desktop.reach(b.id).await;
+    let sessions = [
+        (&a, "11111111-1111-4111-8111-111111111111", "local intent"),
+        (&b, "22222222-2222-4222-8222-222222222222", "peer intent"),
+    ];
+    for (node, id, text) in sessions {
+        let dir = node.home.path().join(".codex/sessions/2026/11/04");
+        fs::create_dir_all(&dir).unwrap();
+        let mut lines = vec![
+            json!({"type":"session_meta", "payload":{"id":id, "cwd":"/srv/project", "timestamp":"2026-11-04T09:30:00Z"}}),
+        ];
+        for n in 0..3 {
+            lines.push(json!({"type":"event_msg", "payload":{"type":"user_message", "message":format!("{text} {n}")}}));
+        }
+        fs::write(
+            dir.join(format!("rollout-2026-11-04T09-30-00-{id}.jsonl")),
+            lines.iter().map(|v| format!("{v}\n")).collect::<String>(),
+        )
+        .unwrap();
+    }
+    let conn = desktop.reach(b.id).await;
+    let mut read_only = ready(&conn, "agent-transcripts/1").await;
+    read_only.tx.send(&SessionsRequest::List {}).await.unwrap();
+    assert!(
+        matches!(
+            read_only.rx.recv::<SessionsReply>().await.unwrap(),
+            Some(SessionsReply::Error { .. })
+        ),
+        "the transcript endpoint rejects other session requests"
+    );
+    let mut mcp = agent_mcp(&desktop, &a, work.path(), &sent).await;
+    assert!(
+        mcp.tools()
+            .await
+            .iter()
+            .any(|tool| tool == "read_session_transcript")
+    );
+    for (node, id, expected) in sessions {
+        let (text, failed) = mcp
+            .call(
+                "read_session_transcript",
+                json!({"machine":node.id.to_string(), "session":id, "last":1}),
+            )
+            .await;
+        assert!(!failed, "{text}");
+        let page: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(page["entries"][0]["text"], format!("{expected} 2"));
+        assert_eq!(page["next_before"], 2);
+        let (text, failed) = mcp.call("read_session_transcript", json!({"machine":node.id.to_string(), "session":id, "last":2, "before":page["next_before"]})).await;
+        assert!(!failed, "{text}");
+        let page: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(page["entries"][0]["text"], format!("{expected} 0"));
+        assert_eq!(page["entries"][1]["text"], format!("{expected} 1"));
+        assert_eq!(page["next_before"], serde_json::Value::Null);
+    }
+    for args in [
+        json!({"session":"missing"}),
+        json!({"session":sessions[0].1, "last":51}),
+        json!({"machine":"missing-box", "session":sessions[1].1}),
+    ] {
+        let (text, failed) = mcp.call("read_session_transcript", args).await;
+        assert!(failed, "{text}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn an_agent_sends_files_between_machines_that_share_no_folders() {
     let desktop = desktop().await;
     let work = TempDir::new().expect("a temp folder");

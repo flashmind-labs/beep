@@ -26,6 +26,7 @@ pub(crate) const PREFIX: &str = "Beep: ";
 pub(crate) enum Tool {
     ListMachines,
     HarnessInfo,
+    ReadTranscript,
     RunOn,
     SyncProject,
     SendFiles,
@@ -47,6 +48,7 @@ impl Tool {
         Some(match name {
             "list_machines" => Self::ListMachines,
             "harness_info" => Self::HarnessInfo,
+            "read_session_transcript" => Self::ReadTranscript,
             "remote_run" => Self::RunOn,
             "sync_project" => Self::SyncProject,
             "send_files" => Self::SendFiles,
@@ -137,6 +139,7 @@ impl Tool {
                     None => format!("{PREFIX}Query {harness}"),
                 }
             }
+            Self::ReadTranscript => with(on("Read transcript"), text("session")),
             Self::RunOn => with(on("Run"), text("command")),
             Self::SyncProject => {
                 let project = text("project").unwrap_or("a project");

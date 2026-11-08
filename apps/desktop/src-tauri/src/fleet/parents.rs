@@ -1,8 +1,9 @@
 //! Who started each coding agent session, as the nodes last listed them: a
 //! session an agent started with `start_agent` names its parent, which the
-//! session lists nest under.
+//! session lists nest under, and the reviewers running as a child.
 
 use beep_mesh::machine::listing::Linked;
+use beep_proto::MachineSession;
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -21,15 +22,21 @@ pub struct SessionParent {
 }
 
 /// The parents of the sessions each machine listed last, by machine and
-/// session.
+/// session, and the reviewers it listed, by machine.
 #[derive(Default)]
-pub(super) struct Parents(Mutex<HashMap<(String, String), SessionParent>>);
+pub(super) struct Parents(Mutex<Held>);
+
+#[derive(Default)]
+struct Held {
+    parents: HashMap<(String, String), SessionParent>,
+    reviewers: HashMap<String, Vec<MachineSession>>,
+}
 
 impl Parents {
     /// Takes `listed`, the sessions of `machine`, in place of what it had.
     pub(super) fn note(&self, machine: &str, listed: &[Linked]) {
-        let mut all = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        all.retain(|(held, _), _| held != machine);
+        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        held.parents.retain(|(at, _), _| at != machine);
         for linked in listed {
             let Some(parent) = &linked.parent else {
                 continue;
@@ -37,7 +44,7 @@ impl Parents {
             let machine_id = parent
                 .machine
                 .map_or_else(|| machine.to_owned(), |id| id.to_string());
-            all.insert(
+            held.parents.insert(
                 (machine.to_owned(), linked.session.id.clone()),
                 SessionParent {
                     machine_id,
@@ -46,13 +53,32 @@ impl Parents {
                 },
             );
         }
+        let reviewers: Vec<MachineSession> = listed
+            .iter()
+            .filter(|linked| linked.reviewer)
+            .map(|linked| linked.session.clone())
+            .collect();
+        held.reviewers.insert(machine.to_owned(), reviewers);
     }
 
     pub(super) fn of(&self, machine: &str, session: &str) -> Option<SessionParent> {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
+            .parents
             .get(&(machine.to_owned(), session.to_owned()))
             .cloned()
+    }
+
+    /// The reviewers every machine listed last.
+    pub(super) fn reviewers(&self) -> Vec<MachineSession> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .reviewers
+            .values()
+            .flatten()
+            .cloned()
+            .collect()
     }
 }

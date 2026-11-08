@@ -81,3 +81,16 @@ test("reviewPrompt on Forgejo uses teacli, and warns about others' and forked PR
   assert.match(text, /Someone else wrote this PR: do not build or run its code\./);
   assert.match(reviewPrompt(PR, "github", true), /gh pr diff 41/);
 });
+
+test("reviewPrompt reads the reviews already there; again, it reviews what changed in the same session", () => {
+  const first = reviewPrompt(PR, "github");
+  assert.match(first, /Read the reviews and comments already on it first/);
+  assert.match(first, /gh api repos\/acme\/widget\/pulls\/41\/comments/);
+  const again = reviewPrompt(PR, "github", false, true);
+  assert.match(again, /^Review PR #41 again: /);
+  assert.match(again, /which of your earlier comments are fixed/);
+  assert.match(again, /git pull --ff-only/);
+  assert.doesNotMatch(reviewPrompt(PR, "github", true, true), /git pull/);
+  const pr = { kind: "pr" as const, number: 41, branch: "fix/login", review: { number: 41, earlier: { machine_id: "b", agent: "codex", id: "s1" } } };
+  assert.deepEqual(targetCheckout(pr), { label: "Earlier review", sub: "PR #41" });
+});

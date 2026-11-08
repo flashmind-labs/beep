@@ -363,7 +363,7 @@ impl Shared {
         let root = self.root().to_owned();
         let own = spawn_blocking(move || -> Result<Checkout> {
             if gitdir::is_busy(&root) {
-                bail!("waiting for the Git operation running on this machine");
+                bail!("{}", gitdir::busy_reason(&root));
             }
             Ok(Checkout::read(&root))
         })
@@ -415,17 +415,17 @@ impl Shared {
                 if repo.is_ancestor(candidate, own_commit) == Some(true) {
                     continue;
                 }
-                if repo.is_ancestor(own_commit, candidate) != Some(true) {
-                    bail!(
-                        "Git commits differ; histories diverged or peer commits have not arrived"
-                    );
+                match repo.is_ancestor(own_commit, candidate) {
+                    Some(true) => {}
+                    Some(false) => bail!("Git commits differ; histories diverged; merge the peer commits to resume sync"),
+                    None => bail!("Git commits differ; waiting for peer commits to arrive"),
                 }
                 if let Some(previous) = target {
                     if repo.is_ancestor(candidate, previous) == Some(true) {
                         continue;
                     }
                     if repo.is_ancestor(previous, candidate) != Some(true) {
-                        bail!("Git commits differ between peers");
+                        bail!("Git commits differ; histories diverged between peers; merge their commits to resume sync");
                     }
                 }
                 target = Some(candidate);
@@ -457,8 +457,11 @@ impl Shared {
             bail!("waiting for a scan of the current Git checkout");
         }
         let root = self.root().to_owned();
-        if spawn_blocking(move || gitdir::is_busy(&root)).await? {
-            bail!("waiting for the Git operation running on this machine");
+        let busy =
+            spawn_blocking(move || gitdir::is_busy(&root).then(|| gitdir::busy_reason(&root)))
+                .await?;
+        if let Some(reason) = busy {
+            bail!("{reason}");
         }
         Ok(now)
     }
