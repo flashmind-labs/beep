@@ -8,6 +8,7 @@
 // Beep), one started on a Mac notifies that Mac. Sessions Beep did not start from a device (a
 // terminal, a routine, a project agent) notify the Macs only, never the phone.
 // Settings, General has a switch that turns them off on this Mac.
+// Every system banner uses the bundled arrow icon, including those without actions.
 (() => {
   const AGN = {
     asks: { t: "Claude Code on build-box asks", b: "Fix the flaky login test: Run cargo test -p server (cargo test -p server login)", go: "asks", ask: true },

@@ -9,7 +9,7 @@ import { fillPics, picRow } from "./media.ts";
 import { dayDiff } from "../lists/memories.ts";
 import { switchHtml, esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
-import { ICON } from "../ui/icons.ts";
+import { BEEP_MARK, ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 
 // ---------- Groups ----------
@@ -122,8 +122,6 @@ function avColor(name: string) {
   for (const c of name) n = (n * 31 + c.codePointAt(0)!) >>> 0;
   return AV_COLORS[n % AV_COLORS.length];
 }
-/// Beep's avatar is the chat mark the rest of the app uses, never a letter.
-const BEEP_MARK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>';
 function av(name: string, label = name) {
   return `<span class="dav" style="background:${avColor(name)}">${name === "Beep" ? BEEP_MARK : esc([...label][0]?.toUpperCase() ?? "?")}</span>`;
 }
