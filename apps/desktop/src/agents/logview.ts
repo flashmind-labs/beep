@@ -507,8 +507,8 @@ function scrollAnchor(b: HTMLElement, sel?: string): ScrollAnchor {
 
 function restoreScroll(b: HTMLElement, a: ScrollAnchor) {
   const el = a.sel != null ? b.querySelector<HTMLElement>(a.sel) : null;
-  if (el) b.scrollTop = keptScrollTop(b.scrollTop, a.off, el.getBoundingClientRect().top - b.getBoundingClientRect().top);
-  else b.scrollTop = a.scroll;
+  const top = el ? keptScrollTop(b.scrollTop, a.off, el.getBoundingClientRect().top - b.getBoundingClientRect().top) : a.scroll;
+  if (top !== b.scrollTop) b.scrollTop = top;
 }
 
 /// The row in view at the top of the log, to pass to `drawAgentBody` as the
