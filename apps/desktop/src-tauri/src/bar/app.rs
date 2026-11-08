@@ -14,6 +14,7 @@ use beep_proto::node::desktop::Permission;
 use serde::Serialize;
 use std::{path::Path, sync::Arc};
 use tauri::{AppHandle, Emitter, Manager, State};
+#[cfg(desktop)]
 use tauri_plugin_autostart::ManagerExt;
 
 #[derive(Serialize)]
@@ -87,7 +88,10 @@ pub fn settings(app: AppHandle, beep: Service<'_>) -> Settings {
     Settings {
         name: identity::computer_name(),
         version: app.package_info().version.to_string(),
+        #[cfg(desktop)]
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
+        #[cfg(mobile)]
+        autostart: false,
         notice_voice: beep.notice_voice(),
         send_on_pause: beep.send_on_pause(),
         agent_notices: beep.agent_notices(),
@@ -106,6 +110,15 @@ pub fn set_agent_notices(beep: Service<'_>, enabled: bool) {
     beep.set_agent_notices(enabled);
 }
 
+#[cfg(mobile)]
+#[tauri::command]
+pub fn set_autostart(_enabled: bool) -> Result<()> {
+    Err(DesktopError::BadRequest(
+        "A phone has no login item.".into(),
+    ))
+}
+
+#[cfg(desktop)]
 #[tauri::command]
 pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<()> {
     let manager = app.autolaunch();

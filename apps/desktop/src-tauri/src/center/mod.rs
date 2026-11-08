@@ -1,6 +1,7 @@
 //! The command center: its windows, its app menu, the view each opens on,
 //! Home, the views kept for the next window and which chat each one shows.
 
+#[cfg(desktop)]
 pub(crate) mod app_menu;
 pub(crate) mod home;
 pub(crate) mod home_sessions;

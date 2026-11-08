@@ -226,7 +226,7 @@ fn vm_stat_available_mb(vm_stat: &str) -> Option<u64> {
 }
 
 /// The load average over the last minute.
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "android")))]
 fn load() -> Option<f64> {
     let mut averages = [0f64; 3];
     // SAFETY: `averages` has room for the 3 values asked for, and
@@ -235,8 +235,8 @@ fn load() -> Option<f64> {
     (got >= 1).then_some(averages[0])
 }
 
-/// Windows keeps no load average.
-#[cfg(windows)]
+/// Windows and Android keep no load average to read.
+#[cfg(any(windows, target_os = "android"))]
 fn load() -> Option<f64> {
     None
 }
