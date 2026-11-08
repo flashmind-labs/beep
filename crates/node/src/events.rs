@@ -8,6 +8,9 @@ use std::{
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
+pub(crate) mod exits;
+pub(crate) mod paths;
+
 const RETAINED: usize = 1024;
 
 #[derive(Clone, Debug)]

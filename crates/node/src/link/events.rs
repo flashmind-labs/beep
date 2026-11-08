@@ -7,7 +7,6 @@ use beep_proto::node::{
     agent::{SessionsReply, SessionsRequest},
     events::{self, CallReply, Operation, Reply, Request, Topic},
 };
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
     collections::{BTreeMap, HashSet},
     path::PathBuf,
@@ -17,12 +16,13 @@ use std::{
 use tokio::{
     sync::broadcast::error::RecvError,
     task::JoinSet,
-    time::{interval, timeout},
+    time::{Instant, MissedTickBehavior, interval_at, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
 
 const WRITE_WAIT: Duration = Duration::from_secs(15);
 const MAX_CALLS: usize = 16;
+const MAX_FILE_ROOTS: usize = 512;
 
 pub(crate) async fn serve(
     mut tx: LinkTx,
@@ -30,53 +30,29 @@ pub(crate) async fn serve(
     offers: Offers,
     caller: iroh::EndpointId,
 ) -> Result<()> {
-    offers.agents.watch_event_sources().await?;
+    offers.agents.start_event_bridge();
     let mut changes = offers.agents.events.subscribe();
     let mut topics: Vec<Topic> = Vec::new();
     let mut considered = offers.agents.events.cursor();
     let roots = Arc::new(Mutex::new(BTreeMap::<String, PathBuf>::new()));
-    let changed_roots = roots.clone();
-    let hub = offers.agents.events.clone();
-    let mut watcher = RecommendedWatcher::new(
-        move |event: notify::Result<notify::Event>| {
-            let Ok(event) = event else {
-                for key in crate::lock(&changed_roots).keys() {
-                    hub.changed(Topic::keyed("files", key));
-                }
-                return;
-            };
-            if matches!(event.kind, EventKind::Access(_) | EventKind::Other) {
-                return;
-            }
-            for (key, root) in crate::lock(&changed_roots).iter() {
-                if event.paths.iter().any(|path| {
-                    path.starts_with(root)
-                        && !path.strip_prefix(root).is_ok_and(|path| {
-                            path.components().any(|part| {
-                                matches!(
-                                    part.as_os_str().to_str(),
-                                    Some("node_modules" | "target" | ".worktrees")
-                                )
-                            })
-                        })
-                }) {
-                    hub.changed(Topic::keyed("files", key));
-                }
-            }
-        },
-        notify::Config::default(),
-    )?;
+    let mut watcher = None;
+    let mut _source_lease = None;
     let mut calls = JoinSet::new();
     let mut pending = HashSet::new();
-    let mut heartbeat = interval(Duration::from_secs(10));
+    let mut heartbeat = interval_at(
+        Instant::now() + Duration::from_secs(10),
+        Duration::from_secs(10),
+    );
+    heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
     send(&mut tx, &Reply::Ready).await?;
     loop {
         tokio::select! {
             request = rx.recv::<Request>() => match request? {
                 None => return Ok(()),
                 Some(Request::Watch { id, topics: wanted, after }) => {
-                    match watch(&offers, &mut watcher, &roots, &wanted).await {
-                        Ok(()) => {
+                    match subscribe(&offers, &mut watcher, &roots, &wanted).await {
+                        Ok(lease) => {
+                            _source_lease = lease;
                             topics = wanted;
                             // Connection-owned file watchers were absent during a disconnect.
                             // Reconcile those resources as identified events before catching up.
@@ -122,11 +98,22 @@ pub(crate) async fn serve(
             event = changes.recv() => {
                 match event {
                     Ok(event) if event.id.epoch != considered.epoch || event.id.sequence > considered.sequence => {
+                        if broad_files(&topics) && matches!(event.topic.name.as_str(), "agents" | "projects" | "*")
+                            && let Err(error) = watch(&offers, &mut watcher, &roots, &topics).await
+                        {
+                            log::debug!("file subscription roots could not be refreshed: {error}");
+                            send(&mut tx, &Reply::Resync { cursor: event.id }).await?;
+                        }
                         considered = event.id;
                         deliver(&mut tx, &topics, event).await?;
                     }
                     Ok(_) => {},
                     Err(RecvError::Lagged(_)) => {
+                        if broad_files(&topics)
+                            && let Err(error) = watch(&offers, &mut watcher, &roots, &topics).await
+                        {
+                            log::debug!("file subscription roots could not be reconciled: {error}");
+                        }
                         considered = offers.agents.events.cursor();
                         send(&mut tx, &Reply::Resync { cursor: considered }).await?;
                     }
@@ -154,16 +141,50 @@ async fn deliver(tx: &mut LinkTx, topics: &[Topic], event: events::Event) -> Res
     }
 }
 
-async fn watch(
+fn broad_files(topics: &[Topic]) -> bool {
+    topics
+        .iter()
+        .any(|topic| topic.name == "*" || (topic.name == "files" && topic.key.is_none()))
+}
+
+async fn subscribe(
     offers: &Offers,
-    watcher: &mut RecommendedWatcher,
-    roots: &Mutex<BTreeMap<String, PathBuf>>,
+    watcher: &mut Option<crate::events::paths::Paths>,
+    roots: &Arc<Mutex<BTreeMap<String, PathBuf>>>,
     topics: &[Topic],
-) -> Result<()> {
+) -> Result<Option<Arc<crate::agents::follow::Sources>>> {
     if topics.len() > events::MAX_TOPICS || topics.iter().any(|topic| !topic.valid()) {
         bail!("invalid subscription topics");
     }
+    let lease = if broad_files(topics)
+        || topics
+            .iter()
+            .any(|topic| matches!(topic.name.as_str(), "agent" | "agents" | "*"))
+    {
+        Some(offers.agents.watch_event_sources().await?)
+    } else {
+        None
+    };
+    watch(offers, watcher, roots, topics).await?;
+    Ok(lease)
+}
+
+async fn watch(
+    offers: &Offers,
+    watcher: &mut Option<crate::events::paths::Paths>,
+    roots: &Arc<Mutex<BTreeMap<String, PathBuf>>>,
+    topics: &[Topic],
+) -> Result<()> {
     let mut wanted = BTreeMap::new();
+    if broad_files(topics) {
+        for root in offers.agents.notification_roots().await? {
+            let key = root
+                .to_str()
+                .context("a notification root is not UTF-8")?
+                .to_owned();
+            wanted.insert(key, root);
+        }
+    }
     for topic in topics.iter().filter(|topic| topic.name == "files") {
         if let Some(path) = &topic.key {
             let root = offers
@@ -173,25 +194,37 @@ async fn watch(
             wanted.insert(path.clone(), root);
         }
     }
-    let mut held = crate::lock(roots);
-    let mut added = Vec::new();
-    for (key, root) in &wanted {
-        if held.get(key) != Some(root) {
-            if let Err(error) = watcher.watch(root, RecursiveMode::Recursive) {
-                for root in added {
-                    let _ = watcher.unwatch(root);
+    if wanted.len() > MAX_FILE_ROOTS {
+        bail!("too many watched directories; subscribe to specific file roots");
+    }
+    if *crate::lock(roots) == wanted {
+        return Ok(());
+    }
+    if wanted.is_empty() {
+        *watcher = None;
+    } else {
+        if watcher.is_none() {
+            let changed_roots = roots.clone();
+            let hub = offers.agents.events.clone();
+            *watcher = Some(crate::events::paths::Paths::new(move |paths| {
+                let held = crate::lock(&changed_roots);
+                for (key, root) in held.iter() {
+                    if paths.iter().any(|path| path == root) {
+                        hub.changed(Topic::keyed("files", key));
+                    }
                 }
-                return Err(error.into());
-            }
-            added.push(root.as_path());
+            })?);
+        }
+        if let Some(watcher) = watcher.as_ref() {
+            watcher.replace(wanted.values().cloned().collect()).await?;
         }
     }
-    for (key, root) in held.iter() {
-        if wanted.get(key) != Some(root) {
-            let _ = watcher.unwatch(root);
-        }
+    // A root can appear or disappear while a broad subscription remains active.
+    // Reconcile it after installing the new key mapping, including any watch gap.
+    let previous = std::mem::replace(&mut *crate::lock(roots), wanted.clone());
+    for key in previous.keys().chain(wanted.keys()).collect::<HashSet<_>>() {
+        offers.agents.events.changed(Topic::keyed("files", key));
     }
-    *held = wanted;
     Ok(())
 }
 
@@ -274,7 +307,15 @@ mod tests {
         })
         .await
         .unwrap();
-        assert_eq!(next(rx).await, Reply::Watching { id });
+        loop {
+            match next(rx).await {
+                Reply::Changed(_) => continue,
+                reply => {
+                    assert_eq!(reply, Reply::Watching { id });
+                    break;
+                }
+            }
+        }
         assert!(matches!(next(rx).await, Reply::Resync { .. }));
     }
 
@@ -432,6 +473,33 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(next(&mut rx).await, Reply::Resync { cursor });
+    }
+
+    #[tokio::test]
+    async fn broad_files_watch_shared_roots_and_alias_removal_keeps_the_watch() {
+        let root = tempfile::tempdir().unwrap();
+        let offers = Offers::default();
+        offers.agents.share_folders(vec![root.path().to_owned()]);
+        let link = local_link();
+        let _task = AbortOnDropHandle::new(tokio::spawn(serve(
+            link.node.0,
+            link.node.1,
+            offers,
+            iroh::SecretKey::generate().public(),
+        )));
+        let (mut tx, mut rx) = link.caller;
+        assert_eq!(next(&mut rx).await, Reply::Ready);
+        subscribe(&mut tx, &mut rx, 1, vec![Topic::new("files")]).await;
+        std::fs::write(root.path().join("first.txt"), "one").unwrap();
+        assert!(
+            matches!(next(&mut rx).await, Reply::Changed(event) if event.topic.name == "files")
+        );
+        let primary = Topic::keyed("files", root.path().to_str().unwrap());
+        let alias = Topic::keyed("files", root.path().join(".").to_str().unwrap());
+        subscribe(&mut tx, &mut rx, 2, vec![primary, alias.clone()]).await;
+        subscribe(&mut tx, &mut rx, 3, vec![alias.clone()]).await;
+        std::fs::write(root.path().join("second.txt"), "two").unwrap();
+        assert!(matches!(next(&mut rx).await, Reply::Changed(event) if event.topic == alias));
     }
 
     #[tokio::test]

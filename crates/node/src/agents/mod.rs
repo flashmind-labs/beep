@@ -25,7 +25,7 @@ mod custom_agents;
 mod delete;
 mod family;
 mod flsh_config;
-mod follow;
+pub(crate) mod follow;
 mod found_sessions;
 mod harnesses;
 mod holders;
@@ -129,7 +129,7 @@ fn unix_now() -> u64 {
 #[derive(Default)]
 pub struct Agents {
     pub events: crate::events::Hub,
-    event_watcher: Mutex<Option<follow::Sources>>,
+    event_watcher: Mutex<std::sync::Weak<follow::Sources>>,
     event_forward: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,
     /// The agents it can start, replaced when detection finds others.
     kinds: watch::Sender<Arc<Vec<AgentKind>>>,

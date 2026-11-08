@@ -182,6 +182,42 @@ impl Agents {
         }
     }
 
+    /// Work directories currently authorized for namespace-wide file subscriptions.
+    pub(crate) async fn notification_roots(&self) -> Result<Vec<PathBuf>> {
+        let mut work = self.folders.get().cloned().unwrap_or_default();
+        work.extend(self.lock().values().filter_map(|session| {
+            let info = session.info();
+            (info.state.status != beep_proto::node::agent::Status::Ended)
+                .then(|| PathBuf::from(info.cwd))
+        }));
+        work.extend(
+            self.presence
+                .snapshot()
+                .into_iter()
+                .filter(|session| session.presence.is_live())
+                .map(|session| PathBuf::from(session.cwd)),
+        );
+        work.extend(self.observed_work_roots());
+        spawn_blocking(move || {
+            let mut roots: Vec<_> = work
+                .into_iter()
+                .filter_map(|root| real(&root).ok())
+                .filter(|root| root.parent().is_some() && (root.is_dir() || !root.exists()))
+                .collect();
+            roots.sort();
+            roots.dedup();
+            let parents = roots.clone();
+            roots.retain(|root| {
+                !parents
+                    .iter()
+                    .any(|parent| parent != root && root.starts_with(parent))
+            });
+            Ok(roots)
+        })
+        .await
+        .context("finding notification roots stopped")?
+    }
+
     /// `asked`, absolute or starting `~/`, with its links and `..`
     /// resolved, once it is inside the folders `access` may reach; refused
     /// otherwise.
