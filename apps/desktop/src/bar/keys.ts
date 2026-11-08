@@ -33,9 +33,8 @@ import { invoke } from "../ui/tauri.ts";
 
 // ---------- Keys ----------
 
-/// What a key's target is: a field, or any element the key came from.
-type KeyTarget = HTMLElement & { value?: string };
-const target = (e: KeyboardEvent) => e.target as KeyTarget;
+/// Normalize events dispatched on the document to its body.
+const target = (event: KeyboardEvent): Element => event.target instanceof Element ? event.target : document.body;
 const decision = (e: KeyboardEvent) => e.altKey ? "always" : e.shiftKey ? "session" : "allow";
 /// Back on the open chat, or a new one.
 const backToChat = () => S.session ? openSession(S.session) : renderChat();
@@ -91,7 +90,7 @@ export function chatsKeys(e: KeyboardEvent, cmd: boolean) {
 
 export function groupKeys(e: KeyboardEvent) {
   const t = target(e);
-  if (t.id !== "gask") return;
+  if (!(t instanceof HTMLTextAreaElement) || t.id !== "gask") return;
   const mn = G.mention;
   if (mn && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
     e.preventDefault();
@@ -201,7 +200,7 @@ document.addEventListener("keydown", e => {
     if (cmd && key === "d" && asked) { e.preventDefault(); return answerWork(S.session, asked, "deny"); }
     if (cmd && e.key === "Enter" && queued.get(S.session)?.held && !here()) { e.preventDefault(); return sendQueued(S.session); }
     if (!PANE && cmd && key === "o") { e.preventDefault(); return openInWindow(S.session); }
-    const ask = t.id === "ask" ? t.value! : null;
+    const ask = t instanceof HTMLTextAreaElement && t.id === "ask" ? t.value : null;
     if (cmd && e.shiftKey && e.key === "Enter" && ask != null && S.link === "linked") { e.preventDefault(); return research(composeMessage(ask)); }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && ask != null) { e.preventDefault(); return send(composeMessage(ask)); }
     if (e.key === "ArrowUp" && ask === "" && popQueued()) { e.preventDefault(); return; }

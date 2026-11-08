@@ -18,7 +18,7 @@ import { renderChat } from "../chat/chat.ts";
 import { type Link, LINKED } from "./reconnect-state.ts";
 import { leavePane, newTerminal, newTerminalLike, showPaneTab } from "../agentpane/media.ts";
 import { draftEsc } from "./draft-state.ts";
-import { $, type BackTo, bar, S, windowHooks } from "../bar/core.ts";
+import { $, type AgentReturn, bar, S, windowHooks } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { openSession } from "../chat/history.ts";
 import { cap } from "../chat/tools.ts";
@@ -251,7 +251,7 @@ interface AgentState {
   page: AgentPage | null;
   why: string;
   /// Where Esc goes: "chat", "agents", or a window view.
-  back: string | BackTo;
+  back: AgentReturn;
   timer: ReturnType<typeof setTimeout> | undefined;
   inflight: OpenAgent | null;
   /// "gone", or an error to show under the log.

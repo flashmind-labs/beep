@@ -1,22 +1,20 @@
 import { stashBar } from "../chat/stash.ts";
 import { startAttachments } from "./start-attachments.ts";
 import { makeStartComposer } from "./start-composer.ts";
-import { AG, AGENT_ORDER, agentKind, type AgentSession, byPreference, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
+import { AG, AGENT_ORDER, agentKind, byPreference, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
 import { loadSessions, sessions } from "./sessions.ts";
 import { openAgent } from "./session.ts";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, modelsOn, type Picked, pillInner } from "./agentpicker.ts";
 import { type BaseBranches, baseFor, baseRows, type CheckoutPick, DEFAULT_CHECKOUT, folderPill, folderRows, type FormProject, formProjects, harnessFor, keepEffort, knownWorktrees, machineRows, placeMenuAt, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
-import { $, $$, type BackTo, bar, PANE, S } from "../bar/core.ts";
+import { $, $$, type AgentReturn, bar, PANE, S } from "../bar/core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../addproject/foldercomplete.ts";
 import { folderOn, type MachineFolder, type ProjectRow } from "../project/projects-state.ts";
 import { addHosts, barCheckout, barPlace } from "../project/projectbar.ts";
 import type { CachedViews } from "../center/cached.ts";
 import type { HomeView } from "../center/home-state.ts";
 import { composeField, composeMessage } from "../chat/compose.ts";
-import { hints } from "../bar/hints.ts";
 import type { Machine } from "../machines/machines.ts";
 import { esc } from "../ui/format.ts";
-import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 
 // ----- Start form -----
@@ -104,7 +102,7 @@ async function loadProjects() {
 
 /// The start form with `prompt`; `from` is where Esc goes back to.
 /// `at` presets the machine and folder, as a project's "Start an agent here" does.
-export function renderAgentNew(prompt = "", from: string | BackTo = "chat", at: AgentPlace | null = null) {
+export function renderAgentNew(prompt = "", from: AgentReturn = "chat", at: AgentPlace | null = null) {
   const chat = S.view === "chat" ? S.session : null;
   S.view = "agentnew";
   AG.back = from;

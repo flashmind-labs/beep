@@ -2,7 +2,7 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // The project's Git navigator and its selected commit or worktree diff.
 import { button, el } from "../ui/dom.ts";
 import { dbtn, errorNote, svgEl, writeClipboard } from "../ui/parts.ts";
-import { ago, plural, reason } from "../ui/format.ts";
+import { ago, reason } from "../ui/format.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { SessionRow } from "../project/projects-state.ts";
 import { agentLabel } from "../project/projects-state.ts";

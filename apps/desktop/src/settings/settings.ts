@@ -1,3 +1,4 @@
+import type { PanePage } from "../bar/pane.ts";
 // settings/: the Settings pages (apps, accounts, credentials, coding agents,
 // instructions, model) and the window's sheet (sheet.ts). Entry: this file.
 import { bindAgents, bindCreds, CRED, loadAgentAccounts, loadCreds, setAgentsHtml, setCredsHtml } from "./accounts.ts";
@@ -236,7 +237,7 @@ function setMachinesHtml() {
 
 /// Leaves Settings for another page: in the window the sheet closes and
 /// the pane shows it.
-function setAway(view: string, inBar: () => unknown) {
+function setAway(view: PanePage, inBar: () => unknown) {
   if (SET.root && windowHooks) return windowHooks.settingsAway(view);
   inBar();
 }
@@ -626,7 +627,7 @@ function mountPage(path: SettingsPath) {
     // The view draws its machine picker in a toolbar of its own, under the breadcrumb.
     SET.unembed = embed("providers", box, { agent: sub.id, settings: true });
   } else if (path.page === "instr") {
-    SET.unembed = embed("instructions", box, undefined);
+    SET.unembed = embed("instructions", box, null);
   }
 }
 
