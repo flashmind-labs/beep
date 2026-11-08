@@ -475,7 +475,7 @@
     ["Explore auth module", "Find where the login error text is set", "done", "", 9, "Explore"],
     ["Check the release notes", "Compare the changelog with the diff", "done", "", 14, "release-checker"],
   ];
-  const subRow = ([n, d, st, el, k, a]) => `<button class="sr" data-dact="dset:ags:subchild" title="Open ${n}"><span class="mk">${st === "run" ? '<span class="dspin"></span>' : SG.ok}</span><span class="t"><b>${n}${a ? `<span class="kind">${a}</span>` : ""}</b><small>${[st === "run" ? "working" : "done", el, `${k} steps`].filter(Boolean).join(" · ")}</small></span></button>`;
+  const subRow = ([n, d, st, el, k, a]) => `<button class="sr" data-open-sub="${n}" title="Open ${n}"><span class="mk">${st === "run" ? '<span class="dspin"></span>' : SG.ok}</span><span class="t"><b>${n}${a ? `<span class="kind">${a}</span>` : ""}</b><small>${[st === "run" ? "working" : "done", el, `${k} steps`].filter(Boolean).join(" · ")}</small></span></button>`;
   // A coding agent another agent started (start_agent): a normal session on
   // its own machine, listed in the parent's log like a subagent with its
   // harness, machine and live state. A click opens its own log, which has a
@@ -632,11 +632,6 @@ expected 200, got 401</pre></details></span></div>`;
       <div class="dcoderen user"><b>Task</b><span>Build the iOS app and run the login UI tests</span></div>
       ${head("Worked for 2m", false, false)}<div class="tools">${[step("ok", "Ran xcodebuild -scheme Widget build")].join("")}</div>
       <div class="note">Stopped by you</div>`;
-    const childView = `<div class="crumb"><button data-dact="dset:ags:subagents">Fix the failing login test</button><span>›</span><b>Explore auth module</b><span class="sp"></span><button class="dbtn" data-dact="dset:ags:subagents">Open parent<kbd>esc</kbd></button></div>
-      <div class="dcoderen user"><b>Task</b><span>Explore auth module</span></div>
-      ${head("Worked for 41s", true, false)}<div class="tools">${[step("ok", "Searched for \"Wrong password\""), step("ok", "Read src/login.rs"), step("ok", "Read src/errors.rs"), step("ok", "Searched in tests/")].join("")}</div>
-      <div class="dcoderen agent md">The text comes from <code>LoginError::Display</code> in <code>src/errors.rs</code>; <code>tests/login.rs</code> asserts on it twice.</div>
-      <div class="note">A Codex subagent shows its prompt and result: steps not reported by Codex.</div>`;
     // ----- The transcript as rows -----
     // Each tool call is one line: an icon for its kind, the verb, its target
     // (a path or the command), a detail on the right (+2 -1, a line range,
@@ -706,7 +701,7 @@ expected 200, got 401</pre></details></span></div>`;
     // update) waits up to 2 minutes and goes once it answers; only then does it
     // fail and go back to the field.
     const held = `${noChange}<div class="dcoderen user"><b>You</b><span>add one that reviews the diff</span></div><div class="dmuted">Waiting for build-box to come back</div>`;
-    const log = v === "fromsession" ? fromSession : v === "nochange" ? noChange : v === "held" ? held : rich ? richTurn : v === "agentchild" ? kidView : v === "agentstopped" ? kidStopped : child ? childView : turn1 + live;
+    const log = v === "fromsession" ? fromSession : v === "nochange" ? noChange : v === "held" ? held : rich ? richTurn : v === "agentchild" ? kidView : v === "agentstopped" ? kidStopped : turn1 + live;
     const pm = x => `<span style="width:16px;display:grid;place-items:center">${x}</span>`;
     const plan = done || child ? "" : `<div class="sec">Plan</div><div class="plan">
         <div class="row">${pm(`<span class="dok">${DI.check || "&#10003;"}</span>`)}<span>Read the failing output</span></div>

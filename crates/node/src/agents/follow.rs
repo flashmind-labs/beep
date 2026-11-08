@@ -479,6 +479,9 @@ async fn paths(agents: &Agents, request: &FollowSession) -> Result<Vec<PathBuf>>
     }
     let mut paths = Vec::new();
     if let Some(file) = agents.session_file(&request.session).await? {
+        if request.session.starts_with("subagent:claude:") {
+            paths.push(file.with_extension("meta.json"));
+        }
         if matches!(request.agent.as_str(), "flsh" | "opencode") {
             let mut wal = file.as_os_str().to_owned();
             wal.push("-wal");

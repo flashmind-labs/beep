@@ -172,6 +172,16 @@ impl Store {
 
     /// The transcript of session `id`.
     pub(super) fn find(&self, id: &str) -> Option<PathBuf> {
+        if let Some(crate::agents::subagent::Conversation::Claude { parent, agent }) =
+            crate::agents::subagent::Conversation::parse(id)
+        {
+            let path = self
+                .find(parent)?
+                .with_extension("")
+                .join("subagents")
+                .join(format!("agent-{agent}.jsonl"));
+            return path.is_file().then_some(path);
+        }
         if !is_session_id(id) {
             return None;
         }
@@ -230,6 +240,9 @@ pub(super) fn list(
     limit: usize,
     only: Option<&str>,
 ) -> io::Result<Vec<ExternalSession>> {
+    if let Some(id) = only.filter(|id| id.starts_with("subagent:")) {
+        return super::subagents::session(store, id).map(|session| session.into_iter().collect());
+    }
     let all = store.transcripts()?;
     let newest_in_folder = newest_by_folder(&all);
     let picked: Vec<&Transcript> = match only {

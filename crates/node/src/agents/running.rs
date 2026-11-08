@@ -75,6 +75,25 @@ impl Agents {
         before: Option<u64>,
     ) -> (Vec<agent::Entry>, u64) {
         let (mut entries, earlier) = self.codex_transcript(session, last, before).await;
+        if session.agent == "claude" {
+            let (id, calls) = {
+                let live = session.live.borrow();
+                (
+                    live.agent_session.clone(),
+                    live.claude_children(earlier, entries.len()),
+                )
+            };
+            if let Some(id) = id.filter(|_| !calls.is_empty()) {
+                match self
+                    .external
+                    .attach_children(&id, calls, entries.clone())
+                    .await
+                {
+                    Ok(linked) => entries = linked,
+                    Err(e) => log::debug!("native child conversations not linked: {e}"),
+                }
+            }
+        }
         mcp::children::show_children(self, session, &mut entries);
         (entries, earlier)
     }
