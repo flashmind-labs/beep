@@ -527,6 +527,7 @@ dependencies = [
  "beep-mesh",
  "beep-projects",
  "beep-proto",
+ "blake3",
  "chrono",
  "fastrand",
  "futures",
