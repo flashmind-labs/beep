@@ -140,6 +140,7 @@ export function mountNotices(host: HTMLElement) {
       return;
     }
     if (!to) return;
+    if (i.kind === "run") dismiss([i.id]);
     toggle(false);
     if (to === "project") go("projects", (i.target as { projects: ProjectsArg }).projects);
     else if (to === "session") go("pane", i.target as PaneTarget);

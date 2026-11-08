@@ -179,10 +179,11 @@
   };
   const baseRender = render;
   render = function () { baseRender(); decorate(); };
-  // A row opens the entry's page and closes the pane.
+  // A row opens the entry's page and closes the pane. Builds leave the log when opened.
   const open = n => {
     n.read = true;
     if (n.notice || n.copies) { S.d.nfnote = n.id; S.d.nfopen = true; S.d.nfempty = false; render(); return; }
+    if (n.k === "build" || n.k === "buildok") n.gone = true;
     S.d.nfnote = ""; S.d.nfopen = false; S.d.nfempty = false; S.d.nfc = "";
     if (n.ags) { S.d.ags = n.ags; go("dAgentSession"); return; }
     if (n.sync) { go("dSync"); return; }
