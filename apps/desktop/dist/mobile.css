@@ -109,6 +109,8 @@ body.mobile .cc-mt { overflow-x: auto }
 body.mobile .pj-add { grid-template-columns: minmax(0, 1fr) }
 body.mobile kbd, body.mobile .dhints, body.mobile .agkeys, body.mobile .dv-keys, body.mobile .cc-pal .foot { display: none }
 
+body.mobile:not(.mb-home) #usage { display: none }
+
 /* A session: the composer takes a full line for its text. */
 body.mobile .dinput.small { flex-wrap: wrap; gap: 6px; padding: 6px 10px }
 body.mobile .dinput textarea { order: -1; flex: 1 1 100%; min-height: 38px; max-height: 120px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink) }
