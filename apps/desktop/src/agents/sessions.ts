@@ -1,10 +1,28 @@
 import { invoke } from "../ui/tauri.ts";
-import type { AgentSession } from "./agents.ts";
+import type { AgentRow, AgentSession } from "./agents.ts";
+import { parentRow } from "./nesting-state.ts";
 import { loadCopies } from "./copies.ts";
 import { refreshMoves, withoutCopies } from "./move-store.ts";
 
 /// Every session on the user's machines, as the last `loadSessions` read it.
 export let sessions: AgentSession[] = [];
+const nativeSessions = new Map<string, AgentSession>();
+const nativeParents = new Map<string, AgentRow>();
+
+export function keepNativeSession(row: AgentSession, parent?: AgentRow) {
+  const key = `${row.machine_id}\n${row.id}`;
+  if (parent) nativeParents.set(key, parent);
+  nativeSessions.set(key, row);
+  if (nativeSessions.size > 500) {
+    const oldest = nativeSessions.keys().next().value!;
+    nativeSessions.delete(oldest);
+    nativeParents.delete(oldest);
+  }
+  const at = sessions.findIndex(s => s.machine_id === row.machine_id && s.id === row.id);
+  if (at < 0) sessions.push(row); else sessions[at] = row;
+}
+
+export const parentSession = (row: AgentRow) => parentRow(sessions, row) ?? nativeParents.get(`${row.machine_id}\n${row.id}`);
 /// The reviewers running as a child, kept apart: they list only under their parent.
 export let reviewers: AgentSession[] = [];
 
@@ -21,7 +39,7 @@ export function loadSessions() {
   loading ??= Promise.all([invoke<AgentSession[]>("agent_sessions"), refreshMoves()])
     // A session that moved is on two machines for a while: it shows once.
     .then(([list]) => {
-      sessions = withoutCopies(list.filter(s => !s.reviewer));
+      sessions = withoutCopies([...list.filter(s => !s.reviewer), ...nativeSessions.values()]);
       reviewers = list.filter(s => s.reviewer);
       for (const f of sessionsRead) f();
       return sessions;

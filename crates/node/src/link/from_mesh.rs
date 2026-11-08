@@ -18,7 +18,7 @@ use beep_proto::{
         MachineCredentials,
         harness::{AgentSettings, HarnessConfig},
         mesh_state::{Credential, Place, ProjectRecord, StateValue, SyncSpec},
-        sync::Project,
+        sync::{Project, ignored_project},
     },
 };
 use iroh::{EndpointAddr, EndpointId};
@@ -50,6 +50,10 @@ impl Membership {
 
     pub(crate) fn clear(&self) {
         self.mesh.send_replace(None);
+    }
+
+    pub(crate) fn subscribe(&self) -> watch::Receiver<Option<Mesh>> {
+        self.mesh.subscribe()
     }
 
     pub(crate) fn get(&self) -> Option<Mesh> {
@@ -88,6 +92,7 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
             moved = updates.changed() => if moved.is_err() {
                 return;
             },
+            () = tokio::time::sleep(std::time::Duration::from_secs(30)) => {},
         }
     }
 }
@@ -194,6 +199,24 @@ impl Applied {
                 self.projects = Some(projects);
                 self.pending = pending;
             }
+            transfers.syncs().set_git_auto_recovery(
+                &offers.agents,
+                mesh.scan("project/")
+                    .into_iter()
+                    .filter_map(|(key, bytes)| {
+                        let Key::Project(name) = key else {
+                            return None;
+                        };
+                        if !offers.agents.reopened()
+                            || !self.specs.contains_key(&Key::Sync(name.clone()))
+                        {
+                            return None;
+                        }
+                        let record = ProjectRecord::from_bytes(&bytes).ok()?;
+                        record.git_auto_recovery.then_some(name)
+                    })
+                    .collect(),
+            );
         }
     }
 }
@@ -347,13 +370,31 @@ fn projects(
                     )
                 })
                 .collect();
-            Some(Project {
+            let main = Project {
                 name: name.clone(),
                 folder,
                 peers,
                 paused: spec.paused,
-            })
+            };
+            let mut all = vec![main.clone()];
+            if let Ok(config) = spec.ignored.clone().normalized()
+                && config.enabled
+            {
+                all.extend(config.folders.iter().map(|path| {
+                    Project {
+                        name: ignored_project(name, path),
+                        folder: std::path::Path::new(&main.folder)
+                            .join(path)
+                            .to_string_lossy()
+                            .into_owned(),
+                        peers: main.peers.clone(),
+                        paused: main.paused,
+                    }
+                }));
+            }
+            Some(all)
         })
+        .flatten()
         .collect();
     (projects, pending)
 }
@@ -364,6 +405,36 @@ mod tests {
     use beep_mesh::transport_config;
     use iroh::{Endpoint, SecretKey, endpoint::presets};
     use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn selected_ignored_folders_are_independent_datasets_with_the_same_peers_and_pause() {
+        use beep_proto::node::sync::IgnoredSync;
+        let (mesh, _dir) = lone_mesh().await;
+        let me = mesh.me();
+        let spec = SyncSpec {
+            folders: [(me, "/srv/project".to_owned())].into(),
+            paused: true,
+            ignored: IgnoredSync {
+                enabled: true,
+                folders: vec!["assets/models".into()],
+            },
+        };
+        mesh.set(
+            Key::Sync("acme/widget".into()),
+            Some(spec.to_bytes().unwrap()),
+        )
+        .await
+        .unwrap();
+        let (configured, _) = projects(&mesh, me, &mut BTreeMap::new());
+        assert_eq!(configured.len(), 2);
+        assert_eq!(configured[0].name, "acme/widget");
+        assert_eq!(
+            configured[1].name,
+            ignored_project("acme/widget", "assets/models")
+        );
+        assert_eq!(configured[1].folder, "/srv/project/assets/models");
+        assert!(configured.iter().all(|p| p.paused));
+    }
 
     async fn lone_mesh() -> (Mesh, TempDir) {
         let dir = TempDir::new().expect("a temp folder");
@@ -410,6 +481,7 @@ mod tests {
         let (mesh, _dir) = lone_mesh().await;
         let (me, other) = (mesh.me(), SecretKey::generate().public());
         let spec = |ids: &[EndpointId]| SyncSpec {
+            ignored: Default::default(),
             folders: ids.iter().map(|id| (*id, "/srv/app".to_owned())).collect(),
             paused: false,
         };

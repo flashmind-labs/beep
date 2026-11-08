@@ -1,0 +1,643 @@
+use super::*;
+use beep_proto::node::events::{Query, Read, Snapshot, Value};
+
+const MAX_READS: usize = 4;
+const MAX_VALUE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_RETAINED_BYTES: usize = 16 * 1024 * 1024;
+const READ_GAP: Duration = Duration::from_millis(40);
+
+#[derive(Clone, Debug, PartialEq)]
+enum Source {
+    Read(Read),
+    Plugin,
+    Missing,
+    Reviews,
+    Agent(String),
+    Resources(Vec<Topic>),
+}
+
+#[derive(Clone)]
+struct Projection {
+    topic: Topic,
+    query: Option<u64>,
+    source: Source,
+    previous: Option<Value>,
+    bytes: usize,
+    dirty: bool,
+    running: bool,
+    not_before: Instant,
+}
+
+type Key = (Topic, Option<u64>);
+struct Completed {
+    generation: u64,
+    key: Key,
+    result: Result<(Value, usize)>,
+}
+
+pub(super) struct Snapshots {
+    generation: u64,
+    revision: u64,
+    entries: BTreeMap<(Topic, Option<u64>), Projection>,
+    reads: JoinSet<Completed>,
+    next_key: Option<Key>,
+}
+
+impl Snapshots {
+    pub(super) fn new() -> Self {
+        Self {
+            generation: 0,
+            revision: 0,
+            entries: BTreeMap::new(),
+            reads: JoinSet::new(),
+            next_key: None,
+        }
+    }
+
+    pub(super) fn contains(&self, topic: &Topic) -> bool {
+        self.entries.contains_key(&(topic.clone(), None))
+    }
+
+    pub(super) fn validate(queries: &[Query]) -> Result<()> {
+        let mut ids = HashSet::new();
+        anyhow::ensure!(
+            queries.len() <= events::MAX_QUERIES,
+            "too many snapshot queries"
+        );
+        for query in queries {
+            anyhow::ensure!(ids.insert(query.id), "duplicate snapshot query id");
+            anyhow::ensure!(
+                query.read.topic().as_ref() == Some(&query.topic),
+                "a snapshot query must name its read-only source topic"
+            );
+        }
+        Ok(())
+    }
+
+    pub(super) fn replace(
+        &mut self,
+        offers: &Offers,
+        topics: &[Topic],
+        queries: &[Query],
+        roots: &BTreeMap<Topic, PathBuf>,
+    ) {
+        let mut wanted = Vec::new();
+        let selected = |name: &str| {
+            topics
+                .iter()
+                .any(|topic| topic.name() == name || topic.name() == "*")
+        };
+        if selected("agents") {
+            wanted.push((
+                Topic::new("agents"),
+                Source::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {}))),
+            ));
+        }
+        for topic in topics.iter().filter(|topic| topic.name() == "agent") {
+            let source = match topic.key().filter(|_| !topic.is_pattern()) {
+                Some(session) => Source::Agent(session.to_owned()),
+                None => Source::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {}))),
+            };
+            wanted.push((topic.clone(), source));
+        }
+        if selected("reviews") {
+            wanted.push((Topic::new("reviews"), Source::Reviews));
+        }
+        if selected("processes") || selected("process-output") {
+            wanted.push((
+                Topic::new("processes"),
+                Source::Read(Read::Process(beep_proto::node::process::Request::List {})),
+            ));
+        }
+        if selected("terminals") || selected("terminal-output") {
+            wanted.push((Topic::new("terminals"), Source::Read(Read::TerminalList)));
+        }
+        if selected("sign-in") {
+            for tool in [
+                beep_proto::node::sign_in::Tool::Claude,
+                beep_proto::node::sign_in::Tool::Codex,
+                beep_proto::node::sign_in::Tool::Opencode,
+            ] {
+                let topic = Topic::keyed("sign-in", tool.to_string());
+                if topics.iter().any(|wanted| wanted.covers(&topic)) {
+                    wanted.push((
+                        topic,
+                        Source::Read(Read::SignIn {
+                            tool: tool.to_string(),
+                        }),
+                    ));
+                }
+            }
+        }
+        if selected("sync") {
+            wanted.push((Topic::new("sync"), Source::Read(Read::SyncList)));
+        }
+        if selected("moves") {
+            wanted.push((
+                Topic::new("moves"),
+                Source::Read(Read::Sessions(Box::new(SessionsRequest::Copies {}))),
+            ));
+        }
+        for topic in topics
+            .iter()
+            .filter(|topic| topic.is_pattern() && matches!(topic.name(), "files" | "*"))
+        {
+            let scope = if topic.name() == "*" {
+                Topic::new("files")
+            } else {
+                topic.clone()
+            };
+            let resources = roots
+                .keys()
+                .filter(|topic| scope.covers(topic))
+                .cloned()
+                .collect();
+            wanted.push((scope, Source::Resources(resources)));
+        }
+        for (topic, root) in roots {
+            if topics.iter().any(|wanted| wanted.matches(topic)) {
+                wanted.push((
+                    topic.clone(),
+                    Source::Read(Read::Sessions(Box::new(SessionsRequest::Folder {
+                        root: root.to_string_lossy().into_owned(),
+                        path: String::new(),
+                        ignored: false,
+                        depth: 1,
+                    }))),
+                ));
+            }
+        }
+        for topic in topics
+            .iter()
+            .filter(|topic| topic.name() == "files" && !topic.is_pattern())
+        {
+            if !roots.contains_key(topic) {
+                wanted.push((topic.clone(), Source::Missing));
+            }
+        }
+        // Plugin publishers retain one current value per exact topic.
+        for topic in offers.agents.events.published() {
+            if topics.iter().any(|wanted| wanted.covers(&topic)) {
+                wanted.push((topic, Source::Plugin));
+            }
+        }
+        // An exact plugin subscription can precede the plugin's first publication.
+        for topic in topics.iter().filter(|topic| {
+            !topic.is_pattern()
+                && !matches!(
+                    topic.name(),
+                    "files"
+                        | "agents"
+                        | "agent"
+                        | "processes"
+                        | "process-output"
+                        | "terminals"
+                        | "terminal-output"
+                        | "sync"
+                        | "moves"
+                        | "reviews"
+                        | "sign-in"
+                )
+        }) {
+            wanted.push((topic.clone(), Source::Plugin));
+        }
+        let desired: BTreeMap<_, _> = wanted
+            .into_iter()
+            .map(|(topic, source)| ((topic, None), source))
+            .chain(queries.iter().map(|query| {
+                (
+                    (query.topic.clone(), Some(query.id)),
+                    Source::Read(query.read.clone()),
+                )
+            }))
+            .collect();
+        if desired.len() == self.entries.len()
+            && desired.iter().all(|(key, source)| {
+                self.entries
+                    .get(key)
+                    .is_some_and(|entry| &entry.source == source)
+            })
+        {
+            return;
+        }
+        self.generation = self.generation.wrapping_add(1);
+        self.reads.abort_all();
+        let mut next = BTreeMap::new();
+        for ((topic, query), source) in desired {
+            let key = (topic.clone(), query);
+            let previous = self.entries.remove(&key).filter(|old| old.source == source);
+            let entry = match previous {
+                Some(mut old) => {
+                    old.dirty |= old.running;
+                    old.running = false;
+                    old
+                }
+                None => Projection {
+                    topic,
+                    query,
+                    source,
+                    previous: None,
+                    bytes: 0,
+                    dirty: true,
+                    running: false,
+                    not_before: Instant::now(),
+                },
+            };
+            next.insert(key, entry);
+        }
+        // A removed wildcard resource needs one authoritative tombstone too.
+        for (key, previous) in &self.entries {
+            if previous.query.is_none()
+                && previous.source != Source::Missing
+                && !next.contains_key(key)
+                && topics.iter().any(|topic| topic.covers(&previous.topic))
+            {
+                next.insert(
+                    key.clone(),
+                    Projection {
+                        topic: previous.topic.clone(),
+                        query: None,
+                        source: Source::Missing,
+                        previous: None,
+                        bytes: 0,
+                        dirty: true,
+                        running: false,
+                        not_before: Instant::now(),
+                    },
+                );
+            }
+        }
+        self.entries = next;
+    }
+
+    pub(super) fn changed(&mut self, topic: &Topic) {
+        for entry in self.entries.values_mut() {
+            if affected(&entry.topic, topic) {
+                entry.dirty = true;
+            }
+        }
+    }
+
+    pub(super) fn reset(&mut self) {
+        for entry in self.entries.values_mut() {
+            entry.dirty = true;
+            entry.previous = None;
+            entry.bytes = 0;
+        }
+    }
+
+    pub(super) fn start(&mut self, offers: &Offers, caller: iroh::EndpointId) {
+        let now = Instant::now();
+        // Round robin prevents a busy low-sorted topic from starving other projections.
+        let mut keys: Vec<_> = self.entries.keys().cloned().collect();
+        if let Some(previous) = &self.next_key {
+            let at = keys.partition_point(|key| key <= previous);
+            keys.rotate_left(at);
+        }
+        for key in keys {
+            if self.reads.len() >= MAX_READS {
+                break;
+            }
+            let Some(entry) = self.entries.get_mut(&key) else {
+                continue;
+            };
+            if !entry.dirty || entry.running || entry.not_before > now {
+                continue;
+            }
+            self.next_key = Some(key.clone());
+            entry.dirty = false;
+            entry.running = true;
+            entry.not_before = now + READ_GAP;
+            let source = entry.source.clone();
+            let key = key.clone();
+            let offers = offers.clone();
+            let generation = self.generation;
+            self.reads.spawn(async move {
+                let result = timeout(Duration::from_secs(60), async {
+                    match source {
+                        Source::Read(read) => read_value(offers, caller, read).await,
+                        Source::Agent(session) => {
+                            let value = read_value(
+                                offers,
+                                caller,
+                                Read::Sessions(Box::new(SessionsRequest::ListAll {})),
+                            )
+                            .await?;
+                            match value {
+                                Value::Sessions(reply) => match *reply {
+                                    SessionsReply::Sessions { sessions } => {
+                                        Ok(Value::Sessions(Box::new(SessionsReply::Sessions {
+                                            sessions: sessions
+                                                .into_iter()
+                                                .filter(|info| info.id == session)
+                                                .collect(),
+                                        })))
+                                    }
+                                    other => Ok(Value::Sessions(Box::new(other))),
+                                },
+                                other => Ok(other),
+                            }
+                        }
+                        Source::Reviews => Ok(Value::Sessions(Box::new(SessionsReply::Reviews {
+                            runs: offers.agents.review_snapshots(),
+                        }))),
+                        Source::Missing => Ok(Value::Missing),
+                        Source::Resources(resources) => Ok(Value::Resources(resources)),
+                        Source::Plugin => offers
+                            .agents
+                            .events
+                            .current(&key.0)
+                            .context("no state has been published for this topic"),
+                    }
+                })
+                .await
+                .context("snapshot read timed out")
+                .and_then(|r| r);
+                let result = match result {
+                    Ok(value) => tokio::task::spawn_blocking(move || {
+                        let bytes = rmp_serde::to_vec(&value)?.len();
+                        anyhow::ensure!(
+                            bytes <= MAX_VALUE_BYTES,
+                            "snapshot is too large; request a smaller projection"
+                        );
+                        Ok((value, bytes))
+                    })
+                    .await
+                    .context("snapshot encoding stopped")
+                    .and_then(|result| result),
+                    Err(error) => Err(error),
+                };
+                Completed {
+                    generation,
+                    key,
+                    result,
+                }
+            });
+        }
+    }
+
+    pub(super) fn due(&self) -> Option<Instant> {
+        if self.reads.len() >= MAX_READS {
+            return None;
+        }
+        self.entries
+            .values()
+            .filter(|entry| entry.dirty && !entry.running)
+            .map(|entry| entry.not_before)
+            .min()
+    }
+
+    pub(super) async fn next(&mut self) -> Result<Option<Reply>> {
+        let Some(result) = self.reads.join_next().await else {
+            return std::future::pending().await;
+        };
+        let Completed {
+            generation,
+            key,
+            result,
+        } = match result {
+            Ok(completed) => completed,
+            Err(error) if error.is_cancelled() => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        if generation != self.generation {
+            return Ok(None);
+        }
+        let retained: usize = self.entries.values().map(|entry| entry.bytes).sum();
+        let Some(entry) = self.entries.get_mut(&key) else {
+            return Ok(None);
+        };
+        entry.running = false;
+        Ok(Some(match result {
+            Ok((value, bytes)) => {
+                if entry.previous.as_ref() == Some(&value) {
+                    return Ok(None);
+                }
+                if retained.saturating_sub(entry.bytes).saturating_add(bytes) > MAX_RETAINED_BYTES {
+                    entry.previous = None;
+                    entry.bytes = 0;
+                    return Ok(Some(Reply::SnapshotError {
+                        query: entry.query,
+                        topic: entry.topic.clone(),
+                        reason: "snapshot cache budget exceeded; narrow the subscription".into(),
+                    }));
+                }
+                entry.bytes = bytes;
+                entry.previous = Some(value.clone());
+                self.revision = self
+                    .revision
+                    .checked_add(1)
+                    .context("snapshot revision exhausted")?;
+                Reply::Snapshot(Box::new(Snapshot {
+                    topic: entry.topic.clone(),
+                    query: entry.query,
+                    revision: self.revision,
+                    value,
+                }))
+            }
+            Err(error) => {
+                entry.previous = None;
+                entry.bytes = 0;
+                Reply::SnapshotError {
+                    query: entry.query,
+                    topic: entry.topic.clone(),
+                    reason: format!("{error:#}"),
+                }
+            }
+        }))
+    }
+}
+
+fn affected(read: &Topic, change: &Topic) -> bool {
+    read.matches(change)
+        || matches!(
+            (read.name(), change.name()),
+            ("agents", "agent" | "moves")
+                | ("agent", "agents")
+                | ("processes", "process-output")
+                | ("terminals", "terminal-output")
+        )
+}
+
+async fn read_value(offers: Offers, caller: iroh::EndpointId, read: Read) -> Result<Value> {
+    match read {
+        Read::Git { root, query } => super::git::read(&offers.agents, &root, query)
+            .await
+            .map(Value::Git),
+        Read::Sessions(request) => {
+            match execute(offers.agents, caller, Operation::Sessions(*request)).await? {
+                CallReply::Sessions(reply) => Ok(Value::Sessions(reply)),
+                _ => bail!("unexpected snapshot reply"),
+            }
+        }
+        Read::SignIn { tool } => {
+            let link = beep_proto::node::local_link();
+            let _task = AbortOnDropHandle::new(tokio::spawn(crate::machine::sign_in::serve(
+                link.node.0,
+                link.node.1,
+            )));
+            let (mut tx, mut rx) = link.caller;
+            tx.send(&beep_proto::node::sign_in::Request::State { tool })
+                .await?;
+            Ok(Value::SignIn(
+                rx.recv()
+                    .await?
+                    .context("sign-in state closed without a reply")?,
+            ))
+        }
+        Read::Process(request) => Ok(Value::Process(
+            crate::run::tasks::answer(crate::run::tasks::Table::Shared, request).await,
+        )),
+        Read::TerminalList => {
+            let link = beep_proto::node::local_link();
+            let _task = AbortOnDropHandle::new(tokio::spawn(crate::run::terminal::serve(
+                link.node.0,
+                link.node.1,
+            )));
+            let (mut tx, mut rx) = link.caller;
+            tx.send(&beep_proto::node::terminal::Request::List {})
+                .await?;
+            Ok(Value::Terminals(
+                rx.recv()
+                    .await?
+                    .context("terminal list closed without state")?,
+            ))
+        }
+        Read::SyncList => Ok(Value::Sync(Box::new(
+            beep_proto::node::sync::Reply::Status {
+                projects: offers
+                    .transfers
+                    .get()
+                    .map(|t| t.syncs().status())
+                    .unwrap_or_default(),
+            },
+        ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn stepped_snapshot(snapshots: &mut Snapshots) -> Option<Reply> {
+        let next = snapshots.next();
+        tokio::pin!(next);
+        loop {
+            if let std::task::Poll::Ready(result) = futures::poll!(&mut next) {
+                return result.unwrap();
+            }
+            // Keep paused time fixed while the blocking encoder completes.
+            tokio::task::yield_now().await;
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn plugin_bursts_coalesce_without_idle_timers_or_losing_inflight_changes() {
+        let offers = Offers::default();
+        let caller = iroh::SecretKey::generate().public();
+        let topic = Topic::keyed("plugin", "example");
+        let mut snapshots = Snapshots::new();
+        offers
+            .agents
+            .events
+            .publish(topic.clone(), vec![1])
+            .unwrap();
+        snapshots.replace(&offers, std::slice::from_ref(&topic), &[], &BTreeMap::new());
+        let started = Instant::now();
+        assert_eq!(snapshots.due(), Some(started));
+        snapshots.start(&offers, caller);
+        assert!(snapshots.due().is_none());
+        assert!(
+            matches!(stepped_snapshot(&mut snapshots).await, Some(Reply::Snapshot(value)) if value.value == Value::Plugin(vec![1]))
+        );
+        assert_eq!(Instant::now(), started);
+        assert!(snapshots.due().is_none());
+
+        offers
+            .agents
+            .events
+            .publish(topic.clone(), vec![2])
+            .unwrap();
+        snapshots.changed(&topic);
+        snapshots.start(&offers, caller);
+        offers
+            .agents
+            .events
+            .publish(topic.clone(), vec![3])
+            .unwrap();
+        snapshots.changed(&topic);
+        assert!(snapshots.reads.is_empty());
+        assert_eq!(snapshots.due(), Some(started + READ_GAP));
+        tokio::time::advance(READ_GAP - Duration::from_millis(1)).await;
+        snapshots.start(&offers, caller);
+        assert!(snapshots.reads.is_empty());
+        tokio::time::advance(Duration::from_millis(1)).await;
+        snapshots.start(&offers, caller);
+        // A notification arriving during a read must retain another dirty pass.
+        snapshots.changed(&topic);
+        assert!(
+            matches!(stepped_snapshot(&mut snapshots).await, Some(Reply::Snapshot(value)) if value.value == Value::Plugin(vec![3]))
+        );
+        assert_eq!(snapshots.due(), Some(started + READ_GAP + READ_GAP));
+        offers.agents.events.publish(topic, vec![4]).unwrap();
+        snapshots.start(&offers, caller);
+        assert!(snapshots.reads.is_empty());
+        tokio::time::advance(READ_GAP).await;
+        snapshots.start(&offers, caller);
+        assert!(
+            matches!(stepped_snapshot(&mut snapshots).await, Some(Reply::Snapshot(value)) if value.value == Value::Plugin(vec![4]))
+        );
+        assert!(snapshots.due().is_none());
+    }
+
+    #[tokio::test]
+    async fn recovery_after_a_read_error_resends_identical_state() {
+        let mut snapshots = Snapshots::new();
+        let topic = Topic::keyed("plugin", "example");
+        let key = (topic.clone(), Some(7));
+        let value = Value::Plugin(vec![1]);
+        snapshots.entries.insert(
+            key.clone(),
+            Projection {
+                topic,
+                query: Some(7),
+                source: Source::Plugin,
+                previous: Some(value.clone()),
+                bytes: 1,
+                dirty: false,
+                running: true,
+                not_before: Instant::now(),
+            },
+        );
+        let failed = key.clone();
+        snapshots.reads.spawn(async move {
+            Completed {
+                generation: 0,
+                key: failed,
+                result: Err(anyhow::anyhow!("temporary read failure")),
+            }
+        });
+        assert!(matches!(
+            snapshots.next().await.unwrap(),
+            Some(Reply::SnapshotError { query: Some(7), .. })
+        ));
+        let entry = snapshots.entries.get(&key).unwrap();
+        assert!(entry.previous.is_none());
+        assert_eq!(entry.bytes, 0);
+        assert!(!entry.running);
+        let restored = value.clone();
+        snapshots.reads.spawn(async move {
+            Completed {
+                generation: 0,
+                key,
+                result: Ok((restored, 1)),
+            }
+        });
+        let Some(Reply::Snapshot(snapshot)) = snapshots.next().await.unwrap() else {
+            panic!("expected recovered state")
+        };
+        assert_eq!(snapshot.value, value);
+        assert_eq!(snapshot.query, Some(7));
+        assert_eq!(snapshot.revision, 1);
+    }
+}

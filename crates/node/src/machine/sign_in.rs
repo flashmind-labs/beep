@@ -117,11 +117,21 @@ async fn answer(request: Request) -> State {
                 }
             }
             lock(&SIGN_INS).retain(|entry| entry.tool != tool);
+            changed(tool);
             return State::Idle {};
         }
         None => {}
     }
     state.borrow().clone()
+}
+
+fn changed(tool: Tool) {
+    let hub = crate::events::system();
+    hub.changed(beep_proto::node::events::Topic::keyed(
+        "sign-in",
+        tool.to_string(),
+    ));
+    hub.changed(beep_proto::node::events::Topic::new("accounts"));
 }
 
 fn unknown(tool: &str) -> State {
@@ -153,6 +163,7 @@ async fn start(tool: Tool) -> State {
             }
         }
     };
+    changed(tool);
     let wait = state.wait_for(|state| !matches!(state, State::Starting {}));
     // `run` gives up on its own after `LINK_LIMIT`.
     if timeout(LINK_LIMIT + STOP_GRACE * 2, wait).await.is_err() {
@@ -204,6 +215,7 @@ async fn run(
         Ok(()) => State::SignedIn {},
         Err(reason) => State::Failed { reason },
     });
+    changed(tool);
     if signed_in {
         SIGNED_IN.send_replace(());
     }
@@ -259,6 +271,7 @@ async fn drive(
                     if !shown && let Some(prompt) = read::prompt(tool, &seen) {
                         shown = true;
                         state.send_replace(prompt);
+                        changed(tool);
                     }
                 }
                 None => output_open = false,

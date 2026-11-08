@@ -10,6 +10,7 @@ import { mentioned } from "../agentpane/worktree-state.ts";
 import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
+import { stashFile, type StashFile } from "../chat/stash-state.ts";
 
 /// A file on its way to the session's machine.
 interface Upload {
@@ -30,6 +31,8 @@ export const MN = {
   paths: [] as string[],
   uploads: [] as Upload[],
   ask: null as UploadAsk | null,
+  files: new Map<string, StashFile>(),
+  reading: 0,
   /// Draws the chips again; the session view sets it.
   redraw: () => {},
   /// Shows a short error by the chips; the session view sets it.
@@ -41,6 +44,7 @@ export function resetMentions() {
   MN.paths = [];
   MN.uploads = [];
   MN.ask = null;
+  MN.files.clear();
 }
 
 /// Mentions `path` (relative to the session's folder) in the next message.
@@ -55,6 +59,7 @@ export function addMention(path: string) {
 export function takeMentions() {
   const paths = MN.paths;
   MN.paths = [];
+  MN.files.clear();
   MN.redraw();
   return paths;
 }
@@ -108,14 +113,34 @@ export async function uploadDropped(files: File[], folder: string | null = null,
     const why = uploadRefusal(f);
     if (why) { MN.error(why); continue; }
     try {
+      MN.reading++;
       const path = await uploadOne(f, folder, root);
-      if (path && !MN.paths.includes(path)) MN.paths.push(path);
+      const data = path ? await fileBase64(f) : "";
+      if (path && paneSession() === session) {
+        MN.files.set(path, { name: f.name, mime: f.type || "application/octet-stream", size: f.size, data });
+        if (!MN.paths.includes(path)) MN.paths.push(path);
+      }
     } catch (e) {
       MN.error(`${f.name || "That file"} did not upload: ${String(e instanceof Error ? e.message : e).replace(/^bad request: /, "")}`);
+    } finally {
+      MN.reading--;
     }
     MN.redraw();
   }
   if (folder !== null) reloadFolder(folder);
+}
+
+/// Copies stashed files to this session before its stash entry is consumed.
+export async function prepareStashFiles(files: StashFile[]) {
+  const session = paneSession();
+  if (!session && files.length) throw new Error("Open a session before restoring files");
+  const restored = new Map<string, StashFile>();
+  for (const file of files) {
+    const path = await uploadOne(stashFile(file), null, session!.cwd);
+    if (!path || paneSession() !== session) throw new Error("The session changed while restoring files");
+    restored.set(path, file);
+  }
+  return restored;
 }
 
 /// Uploads `file` into `folder` of the session's folder, a part at a time;

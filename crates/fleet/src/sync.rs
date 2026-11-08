@@ -1,6 +1,8 @@
 //! How each machine stands with the projects it keeps in step. A node follows `sync/<name>` in
 //! the mesh by itself; the desktop writes that key and asks each node how it is doing.
 
+mod ignored;
+
 use crate::{
     desk::Desk,
     error::{FleetError, Result},
@@ -41,6 +43,20 @@ fn status_of(state: State, error: bool) -> SyncStatus {
 }
 
 impl Desk {
+    pub async fn project_git_auto_recovery(
+        &self,
+        project: &str,
+        enabled: Option<bool>,
+    ) -> Result<bool> {
+        let _write = WRITES.lock().await;
+        let mut stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+        if let Some(enabled) = enabled {
+            stored.record.git_auto_recovery = enabled;
+            write(&self.mesh, project_key(&stored.name), Some(&stored.record)).await?;
+        }
+        Ok(stored.record.git_auto_recovery)
+    }
+
     /// A replicated choice, applied on each machine when it is reachable.
     pub async fn project_syncthing_mode(
         &self,
@@ -143,7 +159,14 @@ impl Desk {
     /// What `machine` says of every project it syncs; `None` when it is offline or does not answer.
     pub(crate) async fn node_statuses(&self, machine: EndpointId) -> Option<Vec<ProjectStatus>> {
         let client = self.peers.client(machine).await.ok()?;
-        let reply: Reply = client.call(PROTOCOL, &Request::Status {}).await.ok()?;
+        let reply = match client
+            .snapshot(beep_proto::node::events::Read::SyncList)
+            .await
+        {
+            Some(Ok(beep_proto::node::events::Value::Sync(reply))) => *reply,
+            Some(_) => return None,
+            None => client.call(PROTOCOL, &Request::Status {}).await.ok()?,
+        };
         match reply {
             Reply::Status { projects } => Some(projects),
             _ => None,
@@ -180,12 +203,14 @@ impl Desk {
         machine: EndpointId,
         folder: &str,
         project: &str,
+        ignored: &beep_proto::node::sync::IgnoredSync,
         said: &HashMap<EndpointId, Vec<ProjectStatus>>,
     ) -> (MachineSync, Option<ProjectStatus>) {
-        let seen = said
-            .get(&machine)
-            .and_then(|all| all.iter().find(|status| status.name == project))
-            .cloned();
+        let seen = said.get(&machine).and_then(|all| {
+            all.iter()
+                .find(|status| status.name == project)
+                .map(|main| ignored.status(main, all))
+        });
         let sync = match &seen {
             Some(status) => MachineSync {
                 git_only: status.git_only,
@@ -258,7 +283,10 @@ impl Desk {
                 machines: spec
                     .folders
                     .iter()
-                    .map(|(machine, folder)| self.machine_sync(*machine, folder, &project, &said).0)
+                    .map(|(machine, folder)| {
+                        self.machine_sync(*machine, folder, &project, &spec.ignored, &said)
+                            .0
+                    })
                     .collect(),
                 pinned: spec.folders.is_empty(),
                 project,
@@ -274,7 +302,9 @@ impl Desk {
         let machines: Vec<(MachineSync, Option<ProjectStatus>)> = spec
             .folders
             .iter()
-            .map(|(machine, folder)| self.machine_sync(*machine, folder, project, &said))
+            .map(|(machine, folder)| {
+                self.machine_sync(*machine, folder, project, &spec.ignored, &said)
+            })
             .collect();
         Ok(ProjectSyncDetail {
             project: project.to_owned(),
@@ -331,13 +361,25 @@ impl Desk {
             ConflictKeep::Original {} => Keep::Original,
             ConflictKeep::Copy {} => Keep::Copy,
         };
+        let spec = read::<SyncSpec>(&self.mesh, &Key::Sync(project.to_owned()));
+        let selection = spec.as_ref().filter(|s| s.ignored.enabled).and_then(|s| {
+            s.ignored.folders.iter().find_map(|folder| {
+                path.strip_prefix(&format!("{folder}/")).map(|relative| {
+                    (
+                        beep_proto::node::sync::ignored_project(project, folder),
+                        relative,
+                    )
+                })
+            })
+        });
+        let (dataset, relative) = selection.unwrap_or_else(|| (project.to_owned(), path));
         let client = self.peers.client(machine).await?;
         let reply: Reply = client
             .call(
                 PROTOCOL,
                 &Request::Resolve {
-                    project: project.to_owned(),
-                    path: path.to_owned(),
+                    project: dataset,
+                    path: relative.to_owned(),
                     keep,
                 },
             )

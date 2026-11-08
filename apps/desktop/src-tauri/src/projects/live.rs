@@ -1,9 +1,5 @@
-//! Follows the project pages that show (`WatchProject`): the server says
-//! when a project's pull requests, issues or runs were read again, and the
-//! page redraws them as `project-live` events. A project of the mesh has no
-//! server to say: the desktop polls the host itself, and tells the page to
-//! read again every [`POLL_EVERY`] while it shows. Both poll, so a project
-//! is never live (an older server may still say it is).
+//! Project views share one source per project while any window follows it.
+//! Server subscriptions and periodic forge reads publish project changes locally.
 
 use crate::{
     beep::{Beep, Service},
@@ -16,10 +12,11 @@ use beep_node::link::reconnect::Backoff;
 use beep_proto::{ProjectChange, WatchProject};
 use serde::Serialize;
 use std::{
+    collections::{BTreeMap, BTreeSet, HashSet},
     sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
-use tauri::{AppHandle, Emitter, State, async_runtime::JoinHandle};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow, async_runtime::JoinHandle};
 use tokio::time::interval;
 use uuid::Uuid;
 
@@ -30,18 +27,19 @@ const USAGE_CHANGED: &str = "usage-changed";
 /// Why a mesh project is not live.
 const POLLING_WHY: &str = "Beep reads the host every couple of minutes while this page shows.";
 
-/// Project pages followed at once; the oldest goes for a new one.
+/// Project pages followed by one window; its oldest ownership goes for a new one.
 const MAX_FOLLOWED: usize = 8;
 
 /// What the page hears of one project.
 #[derive(Debug, Clone, Serialize)]
-struct LiveRow {
-    project_id: Uuid,
+pub(crate) struct LiveRow {
+    pub(crate) project_id: Uuid,
     /// None from a server too old to say.
     live: Option<bool>,
     polling_why: Option<String>,
-    lists: bool,
-    runs: bool,
+    pub(crate) lists: bool,
+    pub(crate) runs: bool,
+    views: Vec<crate::fleet::event_views::View>,
 }
 
 impl LiveRow {
@@ -52,6 +50,7 @@ impl LiveRow {
             polling_why: change.polling_why,
             lists: change.lists,
             runs: change.runs,
+            views: Vec::new(),
         }
     }
 }
@@ -60,11 +59,20 @@ impl LiveRow {
 #[derive(Default)]
 pub struct Followed {
     tasks: Mutex<Vec<Following>>,
+    pending: Mutex<BTreeMap<(String, Uuid), SelectedRun>>,
 }
 
 struct Following {
     project_id: Uuid,
+    windows: HashSet<String>,
+    selected: BTreeMap<String, SelectedRun>,
     task: JoinHandle<()>,
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct SelectedRun {
+    id: u64,
+    host: Option<String>,
 }
 
 impl Drop for Following {
@@ -73,47 +81,197 @@ impl Drop for Following {
     }
 }
 
-/// Follows `project_id` while its page shows. Following it again keeps
-/// the stream it has.
+impl Followed {
+    fn select(&self, window: &str, project_id: Uuid, run: Option<SelectedRun>) {
+        let mut tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(following) = tasks.iter_mut().find(|following| {
+            following.project_id == project_id && following.windows.contains(window)
+        }) {
+            match run {
+                Some(run) => {
+                    following.selected.insert(window.to_owned(), run);
+                }
+                None => {
+                    following.selected.remove(window);
+                }
+            }
+        } else {
+            let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+            let key = (window.to_owned(), project_id);
+            if let Some(run) = run {
+                if pending.contains_key(&key) || pending.len() < 256 {
+                    pending.insert(key, run);
+                }
+            } else {
+                pending.remove(&key);
+            }
+        }
+    }
+
+    pub(crate) fn contains(&self, project_id: Uuid) -> bool {
+        self.tasks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .any(|following| following.project_id == project_id)
+    }
+
+    fn selected(&self, project_id: Uuid) -> Vec<SelectedRun> {
+        self.tasks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|following| following.project_id == project_id)
+            .flat_map(|following| following.selected.values().cloned())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .take(16)
+            .collect()
+    }
+
+    pub(crate) fn clear(&self, window: &str) {
+        self.remove(window, None);
+    }
+
+    fn remove(&self, window: &str, project_id: Option<Uuid>) {
+        let mut tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
+        for following in tasks.iter_mut() {
+            if project_id.is_none_or(|id| following.project_id == id) {
+                following.windows.remove(window);
+                following.selected.remove(window);
+            }
+        }
+        tasks.retain(|following| !following.windows.is_empty());
+        self.pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(owner, project), _| {
+                owner != window || project_id.is_some_and(|id| id != *project)
+            });
+    }
+
+    fn add(
+        &self,
+        window: &str,
+        project_id: Uuid,
+        alive: impl Fn() -> bool,
+        spawn: impl FnOnce() -> JoinHandle<()>,
+    ) {
+        if !alive() {
+            self.clear(window);
+            return;
+        }
+        {
+            let mut tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
+            let already_owned = tasks.iter().any(|following| {
+                following.project_id == project_id && following.windows.contains(window)
+            });
+            if !already_owned {
+                if tasks
+                    .iter()
+                    .filter(|following| following.windows.contains(window))
+                    .count()
+                    >= MAX_FOLLOWED
+                {
+                    if let Some(oldest) = tasks
+                        .iter_mut()
+                        .find(|following| following.windows.contains(window))
+                    {
+                        oldest.windows.remove(window);
+                        oldest.selected.remove(window);
+                    }
+                    tasks.retain(|following| !following.windows.is_empty());
+                }
+                if let Some(following) = tasks
+                    .iter_mut()
+                    .find(|following| following.project_id == project_id)
+                {
+                    following.windows.insert(window.to_owned());
+                } else {
+                    tasks.push(Following {
+                        project_id,
+                        windows: HashSet::from([window.to_owned()]),
+                        selected: BTreeMap::new(),
+                        task: spawn(),
+                    });
+                }
+            }
+            if let Some(run) = self
+                .pending
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(&(window.to_owned(), project_id))
+                && let Some(following) = tasks
+                    .iter_mut()
+                    .find(|following| following.project_id == project_id)
+            {
+                following.selected.insert(window.to_owned(), run);
+            }
+        }
+        // Destruction may have cleared this window while its project lookup was pending.
+        if !alive() {
+            self.clear(window);
+        }
+    }
+}
+
+/// Follows `project_id` while this window's page shows, sharing its existing source.
 #[tauri::command]
 pub async fn follow_project(
     app: AppHandle,
+    window: WebviewWindow,
     fleet: FleetState<'_>,
     beep: Service<'_>,
     followed: State<'_, Followed>,
     project_id: Uuid,
 ) -> Result<()> {
-    let on_mesh = mesh_project(&fleet, project_id).await?.is_some();
-    let mut tasks = followed
-        .tasks
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner);
-    if tasks.iter().any(|f| f.project_id == project_id) {
-        return Ok(());
-    }
-    if tasks.len() >= MAX_FOLLOWED {
-        tasks.remove(0);
-    }
-    let task = if on_mesh {
-        tauri::async_runtime::spawn(poll(app, project_id))
-    } else {
-        tauri::async_runtime::spawn(follow(app, beep.inner().clone(), project_id))
-    };
-    tasks.push(Following { project_id, task });
+    let on_mesh = mesh_project(&fleet, project_id).await?;
+    let alive_app = app.clone();
+    followed.add(
+        window.label(),
+        project_id,
+        || alive_app.get_webview_window(window.label()).is_some(),
+        || {
+            if let Some((_, project)) = on_mesh {
+                tauri::async_runtime::spawn(poll(app, fleet.inner().clone(), project_id, project))
+            } else {
+                tauri::async_runtime::spawn(follow(app, beep.inner().clone(), project_id))
+            }
+        },
+    );
     Ok(())
 }
 
-/// Stops following `project_id`, or every project without one.
+/// Removes this window's ownership of one project, or all its projects without one.
 #[tauri::command]
-pub fn unfollow_project(followed: State<'_, Followed>, project_id: Option<Uuid>) {
-    let mut tasks = followed
-        .tasks
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner);
-    match project_id {
-        Some(id) => tasks.retain(|f| f.project_id != id),
-        None => tasks.clear(),
+pub fn unfollow_project(
+    window: WebviewWindow,
+    followed: State<'_, Followed>,
+    project_id: Option<Uuid>,
+) {
+    followed.remove(window.label(), project_id);
+}
+
+/// One visible workflow detail per window shares its project's source reads.
+#[tauri::command]
+pub fn follow_project_run(
+    window: WebviewWindow,
+    followed: State<'_, Followed>,
+    project_id: Uuid,
+    run_id: Option<u64>,
+    host: Option<String>,
+) -> Result<()> {
+    if host.as_ref().is_some_and(|host| host.len() > 512) {
+        return Err(crate::error::DesktopError::BadRequest(
+            "invalid run host".into(),
+        ));
     }
+    followed.select(
+        window.label(),
+        project_id,
+        run_id.map(|id| SelectedRun { id, host }),
+    );
+    Ok(())
 }
 
 /// What a background read of a mesh project tells its page: read the lists or the runs again.
@@ -132,9 +290,15 @@ pub(crate) fn changed(app: AppHandle) -> impl Fn(Changed) + Send + Sync + 'stati
                 polling_why: Some(POLLING_WHY.to_owned()),
                 lists,
                 runs,
+                views: Vec::new(),
             },
         ),
         Changed::Usage => {
+            beep_node::events::system().changed(beep_proto::node::events::Topic::new("usage"));
+            crate::fleet::event_views::changed(
+                app.clone(),
+                beep_proto::node::events::Topic::new("usage"),
+            );
             if let Err(e) = app.emit(USAGE_CHANGED, ()) {
                 log::debug!("the usage pill missed an update: {e}");
             }
@@ -143,23 +307,52 @@ pub(crate) fn changed(app: AppHandle) -> impl Fn(Changed) + Send + Sync + 'stati
 }
 
 /// Tells the page of a mesh project that it polls, then to read again every [`POLL_EVERY`].
-async fn poll(app: AppHandle, project_id: Uuid) {
-    let mut row = LiveRow {
-        project_id,
-        live: Some(false),
-        polling_why: Some(POLLING_WHY.to_owned()),
-        lists: false,
-        runs: false,
-    };
-    emit(&app, &row);
-    row.lists = true;
-    row.runs = true;
+async fn poll(app: AppHandle, fleet: Arc<beep_fleet::Session>, project_id: Uuid, project: String) {
+    let mut before_lists = None;
+    let mut before_runs = None;
     let mut ticks = interval(POLL_EVERY);
-    // The first tick is at once, and the page has just read.
-    ticks.tick().await;
     loop {
         ticks.tick().await;
-        emit(&app, &row);
+        let (lists, runs) = tokio::join!(fleet.lists(&project, true), fleet.runs(&project, true));
+        let lists_changed = match lists {
+            Ok(mut lists) => {
+                lists.lists.synced_at = None;
+                let changed = before_lists.as_ref() != Some(&lists);
+                before_lists = Some(lists);
+                changed
+            }
+            Err(error) => {
+                log::debug!("project lists source: {error}");
+                false
+            }
+        };
+        let runs_changed = match runs {
+            Ok(runs) => {
+                let changed = before_runs.as_ref() != Some(&runs);
+                before_runs = Some(runs);
+                changed
+            }
+            Err(error) => {
+                log::debug!("project runs source: {error}");
+                false
+            }
+        };
+        if lists_changed || runs_changed || !app.state::<Followed>().selected(project_id).is_empty()
+        {
+            emit(
+                &app,
+                &LiveRow {
+                    project_id,
+                    live: Some(false),
+                    polling_why: Some(POLLING_WHY.into()),
+                    lists: lists_changed,
+                    runs: runs_changed || !app.state::<Followed>().selected(project_id).is_empty(),
+                    views: Vec::new(),
+                },
+            );
+            beep_node::events::system()
+                .changed(beep_proto::node::events::Topic::keyed("forge", &project));
+        }
     }
 }
 
@@ -178,6 +371,7 @@ async fn follow(app: AppHandle, beep: Arc<Beep>, project_id: Uuid) {
                         polling_why: None,
                         lists: false,
                         runs: false,
+                        views: Vec::new(),
                     },
                 );
                 return;
@@ -214,7 +408,248 @@ async fn follow(app: AppHandle, beep: Arc<Beep>, project_id: Uuid) {
 }
 
 fn emit(app: &AppHandle, row: &LiveRow) {
+    crate::fleet::event_views::project_changed(app.clone(), row.clone());
+}
+
+pub(crate) async fn emit_snapshot(app: &AppHandle, mut row: LiveRow) {
+    if !app.state::<Followed>().contains(row.project_id) {
+        return;
+    }
+    let args = serde_json::json!({ "projectId": row.project_id });
+    if row.lists {
+        match crate::projects::runs::center_project_lists(
+            app.state(),
+            app.state(),
+            row.project_id,
+            false,
+        )
+        .await
+        {
+            Ok(value) => row.views.extend(crate::fleet::event_views::View::new(
+                "center_project_lists",
+                args.clone(),
+                value,
+            )),
+            Err(error) => row.views.push(crate::fleet::event_views::View::failed(
+                "center_project_lists",
+                args.clone(),
+                &error.to_string(),
+            )),
+        }
+    }
+    if row.runs {
+        match crate::projects::runs::center_project_runs(
+            app.state(),
+            app.state(),
+            row.project_id,
+            false,
+        )
+        .await
+        {
+            Ok(value) => row.views.extend(crate::fleet::event_views::View::new(
+                "center_project_runs",
+                args,
+                value,
+            )),
+            Err(error) => row.views.push(crate::fleet::event_views::View::failed(
+                "center_project_runs",
+                args,
+                &error.to_string(),
+            )),
+        }
+        for run in app.state::<Followed>().selected(row.project_id) {
+            let args = serde_json::json!({ "projectId": row.project_id, "runId": run.id, "host": run.host });
+            match crate::projects::runs::center_project_run(
+                app.state(),
+                app.state(),
+                row.project_id,
+                run.id,
+                run.host,
+                Some(true),
+            )
+            .await
+            {
+                Ok(value) => row.views.extend(crate::fleet::event_views::View::new(
+                    "center_project_run",
+                    args,
+                    value,
+                )),
+                Err(error) => row.views.push(crate::fleet::event_views::View::failed(
+                    "center_project_run",
+                    args,
+                    &error.to_string(),
+                )),
+            }
+        }
+    }
+    if !app.state::<Followed>().contains(row.project_id) {
+        return;
+    }
+    let machine = app.state::<Arc<crate::fleet::Fleet>>().id();
+    app.state::<crate::fleet::events::Events>().publish_views(
+        machine,
+        beep_proto::node::events::Topic::keyed("forge", row.project_id.to_string()),
+        serde_json::json!({ "views": row.views }),
+    );
     if let Err(e) = app.emit("project-live", row) {
         log::debug!("the project page missed an update: {e}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn selected_run_survives_project_registration_that_finishes_later() {
+        let followed = Followed::default();
+        let project = Uuid::new_v4();
+        let (stop, _) = tokio::sync::oneshot::channel();
+        followed.select("one", project, Some(SelectedRun { id: 42, host: None }));
+        followed.add("one", project, || true, || source(stop));
+        assert_eq!(
+            followed
+                .selected(project)
+                .iter()
+                .map(|run| run.id)
+                .collect::<Vec<_>>(),
+            [42]
+        );
+    }
+
+    #[tokio::test]
+    async fn hidden_project_drops_a_selection_waiting_for_registration() {
+        let followed = Followed::default();
+        let project = Uuid::new_v4();
+        followed.select("one", project, Some(SelectedRun { id: 42, host: None }));
+        followed.clear("one");
+        let (stop, _) = tokio::sync::oneshot::channel();
+        followed.add("one", project, || true, || source(stop));
+        assert!(followed.selected(project).is_empty());
+        followed.remove("one", Some(project));
+        followed.select("one", project, Some(SelectedRun { id: 42, host: None }));
+        followed.select("one", project, None);
+        let (stop, _) = tokio::sync::oneshot::channel();
+        followed.add("one", project, || true, || source(stop));
+        assert!(followed.selected(project).is_empty());
+    }
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::sync::oneshot;
+
+    fn source(stopped: oneshot::Sender<()>) -> JoinHandle<()> {
+        tauri::async_runtime::spawn(async move {
+            let _stopped = stopped;
+            std::future::pending::<()>().await;
+        })
+    }
+
+    #[tokio::test]
+    async fn windows_share_a_source_until_its_last_owner_leaves() {
+        let followed = Followed::default();
+        let project = Uuid::new_v4();
+        let (stop, stopped) = oneshot::channel();
+        followed.add("one", project, || true, || source(stop));
+        followed.add("two", project, || true, || panic!("duplicate source"));
+        {
+            let mut tasks = followed.tasks.lock().unwrap();
+            let following = &mut tasks[0];
+            following
+                .selected
+                .insert("one".into(), SelectedRun { id: 1, host: None });
+            following.selected.insert(
+                "two".into(),
+                SelectedRun {
+                    id: 2,
+                    host: Some("code.example".into()),
+                },
+            );
+        }
+        assert_eq!(followed.selected(project).len(), 2);
+        followed.remove("one", Some(project));
+        {
+            let tasks = followed.tasks.lock().unwrap();
+            assert_eq!(tasks.len(), 1);
+            assert_eq!(tasks[0].windows, HashSet::from(["two".to_owned()]));
+            assert_eq!(tasks[0].selected.len(), 1);
+        }
+        assert_eq!(followed.selected(project)[0].id, 2);
+        followed.clear("two");
+        assert!(followed.tasks.lock().unwrap().is_empty());
+        assert!(followed.selected(project).is_empty());
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), stopped)
+                .await
+                .unwrap()
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn clearing_one_window_keeps_other_windows_project_sources() {
+        let followed = Followed::default();
+        let shared = Uuid::new_v4();
+        let other = Uuid::new_v4();
+        let (shared_stop, _shared_stopped) = oneshot::channel();
+        let (other_stop, other_stopped) = oneshot::channel();
+        followed.add("one", shared, || true, || source(shared_stop));
+        followed.add("two", shared, || true, || panic!("duplicate source"));
+        followed.add("one", other, || true, || source(other_stop));
+        followed.clear("one");
+        {
+            let tasks = followed.tasks.lock().unwrap();
+            assert_eq!(tasks.len(), 1);
+            assert_eq!(tasks[0].project_id, shared);
+            assert!(tasks[0].windows.contains("two"));
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), other_stopped)
+                .await
+                .unwrap()
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_destroyed_window_cannot_leave_a_late_source_registration() {
+        let followed = Followed::default();
+        followed.add("gone", Uuid::new_v4(), || false, || panic!("closed window"));
+        let checks = AtomicUsize::new(0);
+        let (stop, stopped) = oneshot::channel();
+        followed.add(
+            "closing",
+            Uuid::new_v4(),
+            || checks.fetch_add(1, Ordering::SeqCst) == 0,
+            || source(stop),
+        );
+        assert!(followed.tasks.lock().unwrap().is_empty());
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), stopped)
+                .await
+                .unwrap()
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn one_windows_limit_cannot_stop_another_windows_source() {
+        let followed = Followed::default();
+        let shared = Uuid::new_v4();
+        let (stop, _stopped) = oneshot::channel();
+        followed.add("one", shared, || true, || source(stop));
+        followed.add("two", shared, || true, || panic!("duplicate source"));
+        for _ in 0..MAX_FOLLOWED {
+            let (stop, _stopped) = oneshot::channel();
+            followed.add("one", Uuid::new_v4(), || true, || source(stop));
+        }
+        let tasks = followed.tasks.lock().unwrap();
+        let shared = tasks.iter().find(|task| task.project_id == shared).unwrap();
+        assert_eq!(shared.windows, HashSet::from(["two".to_owned()]));
+        assert_eq!(
+            tasks
+                .iter()
+                .filter(|task| task.windows.contains("one"))
+                .count(),
+            MAX_FOLLOWED
+        );
     }
 }

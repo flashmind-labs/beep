@@ -3,12 +3,16 @@
 //! `digest_tail`, `head`).
 
 use super::subagents;
+use crate::agents::tool_details;
 use crate::{
     agents::mcp::calls::Tool as BeepTool,
     agents::tags::{self, Part},
     agents::{Picture, block_picture, cut, found::memo::Memo, window::window},
 };
-use beep_proto::node::agent::{Entry, EntryKind};
+use beep_proto::{
+    AgentToolCall,
+    node::agent::{Entry, EntryKind},
+};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
@@ -34,6 +38,8 @@ const MAX_TOOL: usize = 160;
 /// What a stretch of transcript says.
 #[derive(Debug, Default)]
 pub(super) struct Digest {
+    /// Native transcript files contain sidechain messages as their own conversation.
+    native: bool,
     pub(super) cwd: Option<String>,
     pub(super) title: Option<String>,
     /// A title the user set, which wins over the generated one.
@@ -90,6 +96,18 @@ const ARTIFACT_TOOL: &str = "Artifact";
 const ARTIFACT_LINK: &str = "https://claude.ai/";
 
 impl Digest {
+    fn for_file(path: &Path, text: &str, pictures: bool) -> Self {
+        let mut digest = Self {
+            native: path
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "subagents"),
+            pictures: pictures.then(Vec::new),
+            ..Self::default()
+        };
+        digest.lines(text);
+        digest
+    }
     /// Reads every complete line of `text`.
     pub(super) fn read(text: &str) -> Self {
         let mut digest = Self::default();
@@ -98,6 +116,7 @@ impl Digest {
     }
 
     /// Reads every complete line of `text`, keeping prompts' pictures.
+    #[cfg(test)]
     pub(super) fn with_pictures(text: &str) -> Self {
         let mut digest = Self {
             pictures: Some(Vec::new()),
@@ -129,7 +148,7 @@ impl Digest {
             return;
         };
         // A sub-agent's lines belong to its own conversation.
-        if value["isSidechain"].as_bool() == Some(true) {
+        if !self.native && value["isSidechain"].as_bool() == Some(true) {
             return;
         }
         let at_ms = value["timestamp"].as_str().and_then(unix_millis);
@@ -166,7 +185,8 @@ impl Digest {
             return;
         }
         // Prompts other than the user's own, such as a finished task's notice.
-        if let Some(kind) = value["origin"]["kind"].as_str()
+        if !self.native
+            && let Some(kind) = value["origin"]["kind"].as_str()
             && kind != "human"
         {
             return;
@@ -178,7 +198,9 @@ impl Digest {
             Value::Array(blocks) => {
                 for block in blocks.iter().filter(|block| block["type"] == "tool_result") {
                     let id = block["tool_use_id"].as_str().unwrap_or("");
-                    if block["is_error"].as_bool() == Some(true) {
+                    if self.native {
+                        self.native_tool_result(id, block);
+                    } else if block["is_error"].as_bool() == Some(true) {
                         self.tool_failed(id);
                     } else if self.artifacts.remove(id) {
                         self.artifact_published(id, &block["content"]);
@@ -187,6 +209,15 @@ impl Digest {
                         && let Some(agent_id) = value["toolUseResult"]["agentId"].as_str()
                     {
                         spawn.agent_id = Some(agent_id.to_owned());
+                    }
+                    if let Some(entry) = self
+                        .tools
+                        .get(id)
+                        .and_then(|&index| self.entries.get_mut(index))
+                        && let Some(tool) = &mut entry.tool
+                    {
+                        (tool.result, tool.result_truncated) =
+                            tool_details::json(block.get("content"));
                     }
                     self.tool_pictures(id, &block["content"]);
                 }
@@ -271,9 +302,30 @@ impl Digest {
                     if id.is_some_and(|id| self.spawns.contains_key(id)) {
                         continue;
                     }
-                    let line = tool_line(block);
+                    let line = if self.native {
+                        let name = block["name"].as_str().unwrap_or("tool");
+                        let detail = ["command", "file_path", "pattern", "path"]
+                            .iter()
+                            .find_map(|key| block["input"][key].as_str());
+                        format!(
+                            "{} [in_progress]",
+                            detail.map_or_else(
+                                || tool_line(block),
+                                |detail| format!("{name}: {detail}")
+                            )
+                        )
+                    } else {
+                        tool_line(block)
+                    };
                     self.push(EntryKind::Tool, &line);
                     let entry = self.entries.len() - 1;
+                    let (input, input_truncated) = tool_details::json(block.get("input"));
+                    self.entries[entry].tool = Some(AgentToolCall {
+                        name: text_field(block, "name"),
+                        input,
+                        input_truncated,
+                        ..AgentToolCall::default()
+                    });
                     let Some(id) = id else {
                         continue;
                     };
@@ -332,6 +384,37 @@ impl Digest {
                 }
             }
         }
+    }
+
+    fn native_tool_result(&mut self, id: &str, block: &Value) {
+        let failed = block["is_error"].as_bool() == Some(true);
+        if failed && let Some(spawn) = self.spawns.get_mut(id) {
+            spawn.failed = true;
+        }
+        let Some(entry) = self.tools.get(id).and_then(|&at| self.entries.get_mut(at)) else {
+            return;
+        };
+        let title = entry
+            .text
+            .strip_suffix(" [in_progress]")
+            .unwrap_or(&entry.text);
+        let content = &block["content"];
+        let output = content.as_str().map(str::to_owned).unwrap_or_else(|| {
+            content
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|part| part["text"].as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+        });
+        entry.text = cut(
+            &format!(
+                "{title} [{}]\n{output}",
+                if failed { "failed" } else { "completed" }
+            ),
+            MAX_ENTRY,
+        );
     }
 
     fn tool_failed(&mut self, id: &str) {
@@ -563,10 +646,14 @@ pub(super) fn read_from(file: &mut File, start: u64, end: u64) -> io::Result<Tai
 /// The digest of the end of a file, reading back far enough for `entries`
 /// entries when it can.
 pub(super) fn digest_tail(path: &Path, entries: usize) -> io::Result<Digest> {
-    digest_tail_with(path, entries, Digest::read)
+    digest_tail_with(path, entries, |text| Digest::for_file(path, text, false))
 }
 
-fn digest_tail_with(path: &Path, entries: usize, read: fn(&str) -> Digest) -> io::Result<Digest> {
+fn digest_tail_with(
+    path: &Path,
+    entries: usize,
+    read: impl Fn(&str) -> Digest,
+) -> io::Result<Digest> {
     let mut window = FIRST_WINDOW;
     loop {
         let tail = read_tail(path, window)?;
@@ -589,7 +676,7 @@ pub(super) fn head(path: &Path) -> io::Result<Digest> {
     let mut file = File::open(path)?;
     let len = file.metadata()?.len();
     let head = read_from(&mut file, 0, len.min(HEAD))?;
-    Ok(Digest::read(&head.text))
+    Ok(Digest::for_file(path, &head.text, false))
 }
 
 /// The end of a transcript, as `entries` reads it.
@@ -614,7 +701,7 @@ pub(super) fn entries(
 ) -> io::Result<Excerpt> {
     let digest = kept.read(path, || {
         let tail = read_tail(path, MAX_WINDOW)?;
-        Ok::<_, io::Error>(Arc::new(Digest::with_pictures(&tail.text)))
+        Ok::<_, io::Error>(Arc::new(Digest::for_file(path, &tail.text, true)))
     })?;
     let range = window(0, digest.entries.len(), last, before);
     let skip = range.start;
@@ -631,6 +718,25 @@ pub(super) fn entries(
 pub(super) mod tests {
     use super::*;
     use std::{fs, io::Write};
+
+    #[test]
+    fn historical_calls_keep_arguments_and_results() {
+        let mut digest = Digest::default();
+        for line in [
+            serde_json::json!({"type": "assistant", "timestamp": "2026-10-29T12:34:00Z", "message": {"content": [
+                {"type": "tool_use", "id": "wait", "name": "Bash", "input": {"command": "sleep 45"}}
+            ]}}),
+            serde_json::json!({"type": "user", "timestamp": "2026-10-29T12:34:45Z", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "wait", "content": "Finished waiting"}
+            ]}}),
+        ] {
+            digest.line(&line.to_string());
+        }
+        let tool = digest.entries[0].tool.as_ref().unwrap();
+        assert_eq!(tool.name.as_deref(), Some("Bash"));
+        assert_eq!(tool.input.as_deref(), Some(r#"{"command":"sleep 45"}"#));
+        assert_eq!(tool.result.as_deref(), Some(r#""Finished waiting""#));
+    }
 
     /// A fabricated transcript in Claude Code's format.
     pub(crate) const FIXTURE: &str = include_str!("fixtures/session.jsonl");

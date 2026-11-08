@@ -1,3 +1,4 @@
+import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // terminals/: terminals kept running on the machines, and the window's
 // Terminals page (view.ts). Entry: makeTerminals here.
 // Terminals: commands and shells kept running on the user's machines, apart
@@ -154,7 +155,6 @@ interface ProjectTerminals {
 }
 
 /// How often a view-only terminal's output is read again.
-const POLL_MS = 2000;
 /// The size a terminal starts at, before its screen is fitted.
 const START_SIZE = { cols: 100, rows: 30 };
 /// Attaches tried in a row before giving up until asked again.
@@ -281,7 +281,7 @@ export function makeTerminals(deps: TerminalDeps) {
   const all = new Map<string, ProjectTerminals>();
   /// Live views by terminal id, for the project on show.
   const lives = new Map<string, Live>();
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let unfollow: (() => void) | undefined;
   let polling: string | null = null;
   /// The project whose terminals view shows.
   let shown: string | null = null;
@@ -297,7 +297,16 @@ export function makeTerminals(deps: TerminalDeps) {
     return t;
   };
 
-  async function load(name: string) {
+  const loads = new Map<string, Promise<void>>();
+  function load(name: string): Promise<void> {
+    const pending = loads.get(name);
+    if (pending) return pending;
+    const read = readList(name).finally(() => loads.delete(name));
+    loads.set(name, read);
+    return read;
+  }
+
+  async function readList(name: string) {
     if (reading.has(name)) return;
     reading.add(name);
     const t = of(name);
@@ -307,6 +316,7 @@ export function makeTerminals(deps: TerminalDeps) {
         : await invoke<TerminalRow[] | null>("terminals_list", { project: name });
       if (t.open && !t.list?.some(x => x.id === t.open)) t.open = null;
       if (name !== ALL) kept.put(name, t.list);
+      t.error = "";
     } catch (e) {
       t.list ??= [];
       t.error = reason(e);
@@ -322,10 +332,17 @@ export function makeTerminals(deps: TerminalDeps) {
     if (kept.due(name, every) && !reading.has(name)) return load(name);
   }
 
+  const outputReads = new Map<string, Promise<void>>();
   async function readOutput(name: string) {
     const t = of(name);
     if (!t.open) return;
     const id = t.open;
+    const previous = outputReads.get(id);
+    if (previous) await previous;
+    if (t.open !== id) return;
+    let finish!: () => void;
+    const current = new Promise<void>(done => { finish = done; });
+    outputReads.set(id, current);
     try {
       const out = await invoke<OutputView>("terminal_output", { id });
       if (t.open !== id) return;
@@ -334,6 +351,9 @@ export function makeTerminals(deps: TerminalDeps) {
       t.error = "";
     } catch (e) {
       t.error = reason(e);
+    } finally {
+      if (outputReads.get(id) === current) outputReads.delete(id);
+      finish();
     }
     redraw();
   }
@@ -343,15 +363,22 @@ export function makeTerminals(deps: TerminalDeps) {
     t.list = (t.list || []).map(x => (x.id === row.id ? row : x));
   }
 
-  /// Polls the open view-only terminal of `name`; `null` stops.
+  /// Follows the terminal list and open output of `name`; null stops.
   function watch(name: string | null) {
     if (polling === name) return;
-    clearInterval(timer);
+    unfollow?.();
     polling = name;
     if (!name) return;
-    timer = setInterval(() => {
-      if (pageShown()) readOutput(name);
-    }, POLL_MS);
+    const stopList = subscribeTopics(topic("terminals"), async () => {
+      await loads.get(name);
+      await load(name);
+      if (of(name).error) throw new Error(of(name).error);
+    });
+    const stopOutput = subscribeTopics(topic("terminal-output"), async () => {
+      await readOutput(name);
+      if (of(name).error) throw new Error(of(name).error);
+    });
+    unfollow = () => { stopList(); stopOutput(); };
   }
 
   /// The live view of terminal `id`, made and attached the first time.

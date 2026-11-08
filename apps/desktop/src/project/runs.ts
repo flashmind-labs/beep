@@ -1,3 +1,5 @@
+import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { snapshotView } from "../ui/snapshot-state.ts";
 // A project's workflow runs (GitHub Actions or Forgejo Actions) on its page:
 // the Actions section with each run's state and, for a running one, its
 // current job and step; a run opened shows its jobs and steps and, when it
@@ -12,7 +14,7 @@ import { openMenu, type MenuItem } from "../ui/menu.ts";
 import type { TileData } from "./board.ts";
 import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
 import {
-  Bounded, DetailCache, HOVER_MS, KeptRows, POLL_MS, ahead, detailDue, detailKey, going, limited, listDue, runKey,
+  Bounded, DetailCache, HOVER_MS, KeptRows, ahead, detailDue, detailKey, going, limited, listDue, runKey,
 } from "./runs-state.ts";
 
 export { going, runKey };
@@ -315,7 +317,8 @@ export function makeRuns(deps: RunDeps) {
   /// The rows and opened runs drawn last, kept while nothing in them changes.
   const drawn = new KeptRows<HTMLElement>();
   /// The next poll of a running run opened, or of the list while one goes.
-  let poll: ReturnType<typeof setTimeout> | null = null;
+  let watching: string | null = null;
+  let unfollow: (() => void) | undefined;
   let hover: ReturnType<typeof setTimeout> | null = null;
 
   /// A project's runs, from the cache until they are read.
@@ -336,7 +339,16 @@ export function makeRuns(deps: RunDeps) {
     if (due && !of(id).loading) return load(id);
   }
 
-  async function load(id: string, refresh = false) {
+  const loads = new Map<string, Promise<void>>();
+  function load(id: string, refresh = false): Promise<void> {
+    const pending = loads.get(id);
+    if (pending) return pending;
+    const read = readList(id, refresh).finally(() => loads.delete(id));
+    loads.set(id, read);
+    return read;
+  }
+
+  async function readList(id: string, refresh = false) {
     const s = of(id);
     if (s.loading) return;
     s.loading = true;
@@ -410,29 +422,44 @@ export function makeRuns(deps: RunDeps) {
   function toggle(id: string, run: Pick<RunRow, "id" | "host">) {
     const s = of(id);
     const key = runKey(run);
-    if (s.open === key) { s.open = null; s.openRun = null; redraw(); return; }
+    if (s.open === key) {
+      s.open = null; s.openRun = null;
+      watchDetail(id, null);
+      redraw(); return;
+    }
     s.open = key;
     s.openRun = { id: run.id, host: run.host ?? null };
+    watchDetail(id, run);
     redraw();
     readDetail(id, run);
   }
 
-  /// While the section shows: the running run opened, and the list while a
-  /// run goes, every `POLL_MS`. Nothing is asked while all are done or the
-  /// rate limit holds. Each draw sets the next poll, so a page that no
-  /// longer shows the section stops polling.
+  let detailOwner = Promise.resolve();
+  function watchDetail(id: string, run: Pick<RunRow, "id" | "host"> | null) {
+    detailOwner = detailOwner.then(() => invoke("follow_project_run", {
+      projectId: id, runId: run?.id ?? null, host: run?.host ?? null,
+    })).then(() => {}, error => console.warn("following workflow detail:", error));
+  }
+
+  /// The visible section follows provider changes over the node stream.
   function schedule(id: string) {
-    if (poll) return;
-    const s = of(id);
-    const now = Date.now();
-    const open = s.openRun ? details.get(detailKey(id, s.openRun))?.data : undefined;
-    const runGoes = !!open && going(open.run.state) && !limited(limitOf(s.data), now);
-    if (!runGoes && !listDue(s.data?.runs ?? [], limitOf(s.data), now)) return;
-    poll = setTimeout(() => { poll = null; tick(id); }, POLL_MS);
+    if (watching === id) return;
+    if (watching) watchDetail(watching, null);
+    watching = id;
+    unfollow?.();
+    if (of(id).openRun) watchDetail(id, of(id).openRun);
+    unfollow = subscribeTopics(topic("forge", id), async () => {
+      if (!snapshotView("center_project_runs", { projectId: id })) return;
+      await loads.get(id);
+      await load(id);
+      const run = of(id).openRun;
+      if (run && snapshotView("center_project_run", { projectId: id, runId: run.id, host: run.host ?? null })) await loadDetail(id, run);
+      if (of(id).error) throw new Error(of(id).error);
+    });
   }
 
   /// Reads again only while a run goes, so nothing is asked while all are
-  /// done: on each poll, and every 10 seconds while the page shows.
+  /// done. Used when another visible section receives a change.
   function tick(id: string) {
     const s = of(id);
     if (!s.data) return;
@@ -607,6 +634,10 @@ export function makeRuns(deps: RunDeps) {
 
   return {
     load,
+    stop: () => {
+      if (watching) watchDetail(watching, null);
+      unfollow?.(); unfollow = undefined; watching = null;
+    },
     tick,
     section,
     /// The runs of project `id` and why they could not be read, reading

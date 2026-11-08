@@ -435,6 +435,7 @@ fn entry(entry: agent::Entry) -> AgentEntry {
     AgentEntry {
         kind,
         text: entry.text,
+        tool: entry.tool,
     }
 }
 

@@ -1,3 +1,4 @@
+import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 import type * as AgentAccountsModule from "./agentaccounts.ts";
 import type { AgentAccounts, AgentAccountsState, CodexFlow, CodexLogin } from "./agentaccounts.ts";
 import type * as CredentialsModule from "./credentials.ts";
@@ -215,7 +216,7 @@ const ACC: AgentAccountsState & {
   mod: typeof AgentAccountsModule | null;
   busy: string;
   codex: Record<string, CodexFlow>;
-  poll: ReturnType<typeof setInterval> | null;
+  poll: (() => void) | null;
 } = { mod: null, data: undefined, edit: null, busy: "", error: "", claudeFlow: false, claudeError: "", codex: {}, poll: null };
 const agModule = () => import("./agentaccounts.ts").then(m => (ACC.mod = m));
 
@@ -255,13 +256,13 @@ interface CodexState {
   message: string | null;
 }
 
-/// Asks after each Codex sign-in under way every 2 seconds, until none is.
+/// Sign-in tasks announce output and completion over the node stream.
 function pollCodex() {
   if (ACC.poll) return;
-  ACC.poll = setInterval(async () => {
+  const check = async () => {
     const waiting = Object.entries(ACC.codex).filter(([, f]) => f.task !== undefined);
     if (!waiting.length || !setShown()) {
-      clearInterval(ACC.poll!);
+      ACC.poll?.();
       ACC.poll = null;
       return;
     }
@@ -280,7 +281,9 @@ function pollCodex() {
     }
     if (done) await loadAgentAccounts();
     else redrawAgents();
-  }, 2000);
+  };
+  ACC.poll = subscribeTopics([topic("processes"), topic("process-output"), topic("accounts")], () => check(), null, setShown);
+  void check();
 }
 
 /// Binds the Agent accounts controls inside `el`.

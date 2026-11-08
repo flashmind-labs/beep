@@ -99,28 +99,12 @@
 <script src="66-agent-title.js"></script>
 <link rel="stylesheet" href="12-git-tree.css">
 <script src="67-git-tree.js"></script>
-<script>
-// Prompt stashes last until this window closes.
-const promptStash = [];
-document.addEventListener("keydown", e => {
-  const field = e.target;
-  if (!(field instanceof HTMLTextAreaElement) || !field.closest(".dinput, .agc-box") || !e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || e.isComposing || !["s", "p"].includes(e.key)) return;
-  e.preventDefault();
-  let note;
-  if (e.key === "s") {
-    if (!field.value.trim()) return;
-    promptStash.push(field.value); field.value = ""; note = `Stashed ${promptStash.length}`;
-  } else {
-    const text = promptStash.pop();
-    if (text === undefined) note = "Stash empty";
-    else { field.value = text; note = `Popped (${promptStash.length} left)`; }
-  }
-  field.dispatchEvent(new Event("input", { bubbles: true }));
-  document.querySelector(".prompt-stash-note")?.remove();
-  const status = document.createElement("div");
-  status.className = "prompt-stash-note"; status.setAttribute("role", "status"); status.textContent = note;
-  Object.assign(status.style, { position: "fixed", left: "50%", bottom: "60px", transform: "translateX(-50%)", zIndex: "9999", padding: "6px 12px", borderRadius: "6px", background: "var(--d-fg)", color: "var(--d-bg)", fontSize: "12px" });
-  document.body.append(status); setTimeout(() => status.remove(), 1600);
-});
-</script>
+<script src="68-file-links.js"></script>
+<link rel="stylesheet" href="13-subagent-conversations.css">
+<script src="68-subagent-conversations.js"></script>
+<link rel="stylesheet" href="13-message-stash.css">
+<script src="68-project-message-stash.js"></script>
+<link rel="stylesheet" href="13-tool-call-details.css">
+<script src="69-tool-call-details.js"></script>
+<script src="../mermaid.js" data-platform="desktop"></script>
 </body></html>

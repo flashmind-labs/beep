@@ -27,11 +27,12 @@ target=aarch64-apple-ios
 npm ci --silent
 bash ../../scripts/tauri-init.sh ios
 
-# Xcode runs cargo with its output hidden. Building the same library here
-# first shows the progress, and Xcode's run then finds it up to date.
+# Xcode runs cargo with its output hidden. Building the dependencies here
+# first shows the progress, and Xcode's run then reuses them. Only the static
+# library: the cdylib needs Tauri's Swift half, which Xcode links in.
 npm run build
-cargo build --manifest-path src-tauri/Cargo.toml --package beep-desktop --lib \
-    --release --target "$target" --features tauri/custom-protocol
+cargo rustc --manifest-path src-tauri/Cargo.toml --package beep-desktop --lib \
+    --crate-type staticlib --release --target "$target" --features tauri/custom-protocol
 
 case ${1:-} in
     --ipa)

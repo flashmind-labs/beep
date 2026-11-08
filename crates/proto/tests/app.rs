@@ -681,3 +681,32 @@ mod projects {
         }
     }
 }
+
+mod tool_details {
+    use beep_proto::{AgentEntry, AgentEntryKind, AgentToolCall};
+    use serde::{Deserialize, Serialize};
+
+    #[test]
+    fn named_transcript_entries_work_with_released_readers_and_older_nodes() {
+        #[derive(Serialize, Deserialize)]
+        struct OldEntry {
+            kind: AgentEntryKind,
+            text: String,
+        }
+        let older = OldEntry {
+            kind: AgentEntryKind::Tool {},
+            text: "Wait [completed]".into(),
+        };
+        let bytes = rmp_serde::to_vec_named(&older).unwrap();
+        let mut current: AgentEntry = rmp_serde::from_slice(&bytes).unwrap();
+        assert!(current.tool.is_none());
+        current.tool = Some(AgentToolCall {
+            name: Some("Sleep".into()),
+            ..AgentToolCall::default()
+        });
+        let bytes = rmp_serde::to_vec_named(&current).unwrap();
+        let released: OldEntry = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(released.kind, older.kind);
+        assert_eq!(released.text, older.text);
+    }
+}

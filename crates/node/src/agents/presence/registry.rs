@@ -62,7 +62,7 @@ pub(in crate::agents) struct Registry {
 }
 
 impl Registry {
-    pub(super) fn subscribe(&self) -> watch::Receiver<u64> {
+    pub(in crate::agents) fn subscribe(&self) -> watch::Receiver<u64> {
         self.changes.subscribe()
     }
 
@@ -105,6 +105,7 @@ impl Registry {
         }
         self.changes
             .send_modify(|count| *count = count.wrapping_add(1));
+        crate::events::system().changed(beep_proto::node::events::Topic::new("agents"));
         Ok(())
     }
 
@@ -134,6 +135,7 @@ impl Registry {
         }
         self.changes
             .send_modify(|count| *count = count.wrapping_add(1));
+        crate::events::system().changed(beep_proto::node::events::Topic::new("agents"));
     }
 
     pub(in crate::agents) fn snapshot(&self) -> Vec<ExternalSession> {

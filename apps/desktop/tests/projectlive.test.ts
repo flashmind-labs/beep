@@ -14,12 +14,12 @@ function setup() {
   return { live, calls, reads };
 }
 
-test("the window follows only the project it shows", () => {
+test("the window follows only the project it shows", async () => {
   const { live, calls } = setup();
   live.follow("p1");
   live.follow("p1");
   live.follow("p2");
-  live.follow(null);
+  await live.follow(null);
   assert.deepEqual(calls, [
     ["follow_project", { projectId: "p1" }],
     ["unfollow_project", { projectId: "p1" }],
@@ -28,8 +28,9 @@ test("the window follows only the project it shows", () => {
   ]);
 });
 
-test("an event reads again only what it changed, and the chip says live or polling", () => {
+test("an event reads again only what it changed, and the chip says live or polling", async () => {
   const { live, reads } = setup();
+  await live.follow("p1");
   assert.equal(live.chip("p1"), null, "unknown until the server says");
   live.heard({ project_id: "p1", live: true, polling_why: null, lists: false, runs: false });
   assert.deepEqual(reads, []);
@@ -43,4 +44,117 @@ test("an event reads again only what it changed, and the chip says live or polli
   // A server too old to say shows no chip.
   live.heard({ project_id: "p1", live: null, polling_why: null, lists: false, runs: false });
   assert.equal(live.chip("p1"), null);
+});
+
+test("hidden and unrelated project snapshots do not read views", async () => {
+  const { live, reads } = setup();
+  await live.follow("p1");
+  live.heard({ project_id: "p2", live: true, polling_why: null, lists: true, runs: true });
+  const hidden = live.follow(null);
+  live.heard({ project_id: "p1", live: true, polling_why: null, lists: true, runs: true });
+  await hidden;
+  assert.deepEqual(reads, []);
+});
+
+const settle = () => new Promise<void>(done => setImmediate(done));
+const deferred = () => {
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+};
+
+function delayed() {
+  const first = deferred();
+  const calls: Array<[string, string]> = [];
+  const registered = new Set<string>();
+  const invoke = (async (command: string, args: { projectId: string }) => {
+    calls.push([command, args.projectId]);
+    if (command === "follow_project") {
+      if (args.projectId === "p1") await first.promise;
+      registered.add(args.projectId);
+    } else {
+      registered.delete(args.projectId);
+    }
+  }) as never;
+  const live = makeProjectLive({ invoke, h, redraw() {}, reload() {} });
+  return { live, first, calls, registered };
+}
+
+test("hiding waits for delayed registration before releasing its source", async () => {
+  const { live, first, calls, registered } = delayed();
+  live.follow("p1");
+  await settle();
+  const hidden = live.follow(null);
+  await settle();
+  assert.deepEqual(calls, [["follow_project", "p1"]]);
+  first.resolve();
+  await hidden;
+  assert.deepEqual(calls, [["follow_project", "p1"], ["unfollow_project", "p1"]]);
+  assert.equal(registered.size, 0);
+});
+
+test("switching then hiding cannot overtake a delayed project follow", async () => {
+  const { live, first, calls, registered } = delayed();
+  live.follow("p1");
+  await settle();
+  live.follow("p2");
+  const hidden = live.follow(null);
+  await settle();
+  assert.deepEqual(calls, [["follow_project", "p1"]]);
+  first.resolve();
+  await hidden;
+  assert.deepEqual(calls, [
+    ["follow_project", "p1"], ["unfollow_project", "p1"],
+    ["follow_project", "p2"], ["unfollow_project", "p2"],
+  ]);
+  assert.equal(registered.size, 0);
+});
+
+test("failed registration and cleanup preserve later ownership changes", async t => {
+  t.mock.method(console, "warn", () => {});
+  const first = deferred();
+  const calls: Array<[string, string]> = [];
+  const registered = new Set<string>();
+  let cleanupAttempts = 0;
+  const invoke = (async (command: string, args: { projectId: string }) => {
+    const id = args.projectId;
+    calls.push([command, id]);
+    if (command === "follow_project") {
+      registered.add(id);
+      if (id === "p1") await first.promise;
+    } else {
+      if (id === "p1" && ++cleanupAttempts === 1) throw new Error("cleanup reply failed");
+      registered.delete(id);
+    }
+  }) as never;
+  const live = makeProjectLive({ invoke, h, redraw() {}, reload() {} });
+  live.follow("p1");
+  await settle();
+  const switched = live.follow("p2");
+  first.reject(new Error("registration reply failed"));
+  await switched;
+  assert.deepEqual([...registered], ["p2"], "failed cleanup is retried before switching");
+  await live.follow(null);
+  assert.equal(registered.size, 0);
+  assert.deepEqual(calls, [
+    ["follow_project", "p1"], ["unfollow_project", "p1"], ["unfollow_project", "p1"],
+    ["follow_project", "p2"], ["unfollow_project", "p2"],
+  ]);
+});
+
+test("repeated cleanup retries an unacknowledged source without starting it again", async t => {
+  t.mock.method(console, "warn", () => {});
+  let cleanups = 0;
+  const calls: string[] = [];
+  const invoke = (async (command: string) => {
+    calls.push(command);
+    if (command === "unfollow_project" && ++cleanups === 1) throw new Error("cleanup failed");
+  }) as never;
+  const live = makeProjectLive({ invoke, h, redraw() {}, reload() {} });
+  await live.follow("p1");
+  await live.follow(null);
+  await live.follow(null);
+  await live.follow(null);
+  assert.deepEqual(calls, ["follow_project", "unfollow_project", "unfollow_project"]);
 });

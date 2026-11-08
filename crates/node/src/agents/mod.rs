@@ -25,6 +25,7 @@ host! {
     pub mod mcp;
     pub mod skills;
 
+pub(crate) mod follow;
     mod acp;
     mod adapters;
     mod alerts;
@@ -52,7 +53,9 @@ host! {
     pub mod presence;
     mod prices;
     mod processes;
-    mod reach;
+    pub(crate) mod reach;
+    mod repository_recovery;
+mod tool_details;
     mod requests;
     mod restart;
     mod reviews;
@@ -65,6 +68,7 @@ host! {
     pub(crate) mod uploads;
     mod usage;
     mod window;
+pub use follow::serve_follow;
     mod work_folder;
     mod worktrees;
 
@@ -133,6 +137,11 @@ host! {
     /// to the daemon, so they outlive the streams and the connection.
     #[derive(Default)]
     pub struct Agents {
+        /// Checkouts temporarily held for local Git recovery.
+        recovering: Mutex<std::collections::HashSet<PathBuf>>,
+        pub events: crate::events::Hub,
+        event_watcher: Mutex<std::sync::Weak<follow::Sources>>,
+        event_forward: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,
         /// The agents it can start, replaced when detection finds others.
         kinds: watch::Sender<Arc<Vec<AgentKind>>>,
         /// The adapters the node installs itself.
@@ -202,7 +211,12 @@ host! {
 
     impl Agents {
         pub fn new(kinds: Vec<AgentKind>) -> Self {
+        let events = crate::events::Hub::default();
             Self {
+            recovering: Mutex::default(),
+            events: events.clone(),
+            event_watcher: Mutex::default(),
+            event_forward: OnceLock::new(),
                 kinds: watch::Sender::new(Arc::new(kinds)),
                 adapters: adapters::Installs::default(),
                 sessions: Mutex::default(),
@@ -221,7 +235,7 @@ host! {
                 latest: harnesses::Latest::default(),
                 folders: OnceLock::new(),
                 family: family::Family::default(),
-                reviews: reviews::Reviews::default(),
+            reviews: reviews::Reviews::new(events.clone()),
                 mcp: OnceLock::new(),
                 stopping: Arc::default(),
                 holding: watch::Sender::new(false),

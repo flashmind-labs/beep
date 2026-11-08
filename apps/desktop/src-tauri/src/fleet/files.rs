@@ -19,6 +19,7 @@ use beep_projects::{
     Clip, Shell, ShellOutput,
     branches::{self, read_branches},
     for_machine,
+    history::{self, CommitId, HistoryAsk},
     imports::{
         ImportError,
         folder::{self, FolderPath, look},
@@ -30,7 +31,11 @@ use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, ApiError, ListWorkTree, MAX_WORK_UPLOAD, MachineAgentFiles,
     MachineFolder, MachineSession, MachineUpdate, ProjectBranch, ReadWorkFile, WorkDiff, WorkTree,
     WriteWorkFile,
-    node::{agent::DiffAsk, tool_update::Tool},
+    node::{
+        agent::DiffAsk,
+        events::{GitOutput, GitRead, Read, Value},
+        tool_update::Tool,
+    },
 };
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
@@ -53,6 +58,7 @@ pub(crate) struct PeerShell {
     client: PeerClient,
     windows: bool,
     complete_output: bool,
+    projection: Option<(String, GitOutput)>,
 }
 
 impl PeerShell {
@@ -68,6 +74,7 @@ impl PeerShell {
             client,
             windows,
             complete_output: false,
+            projection: None,
         })
     }
     /// Framed Git responses validate their byte lengths and bound their own output.
@@ -75,11 +82,60 @@ impl PeerShell {
         self.complete_output = true;
         self
     }
+
+    /// Use the current subscribed Git projection when this view has a live files topic.
+    pub(crate) async fn snapshot_git(mut self, root: &str, query: GitRead) -> Result<Self> {
+        if let Some(value) = self
+            .client
+            .snapshot(Read::Git {
+                root: root.to_owned(),
+                query: query.clone(),
+            })
+            .await
+        {
+            let Value::Git(output) = value? else {
+                return Err(DesktopError::BadRequest(
+                    "unexpected Git snapshot result".into(),
+                ));
+            };
+            let script = match query {
+                GitRead::State => beep_projects::checkout_sync::state_script(root),
+                GitRead::Branches { fallback } => branches::branches_script(root, &fallback),
+                GitRead::History {
+                    revision,
+                    offset,
+                    search,
+                } => {
+                    let revision = revision.as_deref().map(CommitId::parse).transpose()?;
+                    history::history_script(&HistoryAsk {
+                        folder: root,
+                        revision: revision.as_ref(),
+                        offset,
+                        search: &search,
+                    })
+                }
+                GitRead::Files { commit } => {
+                    history::files_script(root, &CommitId::parse(&commit)?)
+                }
+            };
+            self.projection = Some((script, output));
+        }
+        Ok(self)
+    }
 }
 
 #[async_trait]
 impl Shell for PeerShell {
     async fn run(&self, script: &str, limit: Duration) -> anyhow::Result<ShellOutput> {
+        if let Some((expected, output)) = &self.projection
+            && expected == script
+        {
+            return Ok(ShellOutput {
+                exit_code: output.exit_code,
+                timed_out: output.timed_out,
+                output: output.output.clone(),
+            });
+        }
         let script = for_machine(script, self.windows);
         let Exec {
             exit_code,
@@ -320,7 +376,15 @@ pub(crate) async fn branches(
     place: &Place,
     default_branch: &str,
 ) -> Result<(String, Vec<ProjectBranch>)> {
-    let shell = PeerShell::on(fleet, place.machine).await?;
+    let shell = PeerShell::on(fleet, place.machine)
+        .await?
+        .snapshot_git(
+            &place.folder,
+            GitRead::Branches {
+                fallback: default_branch.to_owned(),
+            },
+        )
+        .await?;
     read_branches(&shell, &place.folder, default_branch)
         .await
         .map_err(|e| DesktopError::BadRequest(format!("{}: {e:#}", fleet.name_of(place.machine))))

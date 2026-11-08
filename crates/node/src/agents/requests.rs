@@ -497,6 +497,9 @@ pub async fn serve_sessions(
             message: format!("this node does not serve {other:?}"),
         },
     };
+    if let SessionsReply::External { sessions } = &reply {
+        agents.observe_external(sessions);
+    }
     let computed = started.elapsed();
     let result = tx.send(&reply).await;
     if let Some(operation) = operation {
@@ -912,5 +915,70 @@ mod tests {
             panic!("an error");
         };
         assert_eq!(message, "there is no session nothing");
+    }
+
+    #[tokio::test]
+    async fn a_native_codex_conversation_reads_only_its_own_messages_and_outputs() {
+        let codex = tempfile::tempdir().expect("a temp folder");
+        let pi = tempfile::tempdir().expect("a temp folder");
+        let dir = codex.path().join("sessions/2026/11/02");
+        fs::create_dir_all(&dir).expect("folders");
+        let text = lines(&[
+            json!({"type":"session_meta","payload":{"id":CODEX_ID,"cwd":"/srv/project","source":{"subagent":{}},"agent_path":"/root/check","subagent_history_start_ordinal":3}}),
+            json!({"type":"event_msg","payload":{"type":"user_message","message":"Parent history"}}),
+            json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"Parent answer"}]}}),
+            json!({"type":"event_msg","payload":{"type":"user_message","message":"Check the fixture"}}),
+            json!({"type":"event_msg","payload":{"type":"task_started"}}),
+            json!({"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"cargo test\"}","call_id":"c1"}}),
+            json!({"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"1 test passed"}}),
+            json!({"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"The fixture passes."}]}}),
+            json!({"type":"event_msg","payload":{"type":"task_complete"}}),
+        ]);
+        fs::write(dir.join(format!("rollout-example-{CODEX_ID}.jsonl")), text).expect("rollout");
+        let agents = agents(codex.path(), pi.path());
+        let id = format!("subagent:codex:{CODEX_ID}");
+        let listed = agents
+            .stores_external("codex", 10, None)
+            .await
+            .expect("roots");
+        assert!(listed.is_empty());
+        let listed = agents
+            .stores_external("codex", 1, Some(id.clone()))
+            .await
+            .expect("native session");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(
+            listed[0].presence,
+            beep_proto::node::agent::Presence::Stopped
+        );
+        let SessionsReply::Transcript { entries, earlier } = read(&agents, &id, 50).await else {
+            panic!("transcript")
+        };
+        assert_eq!(earlier, 0);
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].text, "Check the fixture");
+        assert_eq!(
+            entries[1].text,
+            "exec_command: cargo test [completed]\n1 test passed"
+        );
+        assert_eq!(entries[2].text, "The fixture passes.");
+        let SessionsReply::Transcript {
+            entries: tail,
+            earlier,
+        } = read(&agents, &id, 1).await
+        else {
+            panic!("last entry")
+        };
+        assert_eq!(earlier, 2);
+        assert_eq!(tail, entries[2..]);
+        let SessionsReply::Transcript {
+            entries: first,
+            earlier,
+        } = agents.transcript_reply(&id, 2, true, Some(2)).await
+        else {
+            panic!("older entries")
+        };
+        assert_eq!(earlier, 0);
+        assert_eq!(first, entries[..2]);
     }
 }

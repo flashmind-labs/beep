@@ -80,6 +80,16 @@ pub async fn sign_in(
     client: &PeerClient,
     request: &sign_in::Request,
 ) -> Result<sign_in::State, MeshError> {
+    if let sign_in::Request::State { tool } = request
+        && let Some(reply) = client
+            .snapshot(beep_proto::node::events::Read::SignIn { tool: tool.clone() })
+            .await
+    {
+        return match reply? {
+            beep_proto::node::events::Value::SignIn(state) => Ok(state),
+            other => Err(unexpected(&other)),
+        };
+    }
     let words = Words {
         silent: "the machine did not answer about the sign-in",
         closed: "the machine closed the sign-in without an answer",
@@ -146,6 +156,17 @@ pub struct Tasks<'a>(pub &'a PeerClient);
 impl Tasks<'_> {
     /// Sends `request` and returns the node's reply.
     pub async fn ask(&self, request: &process::Request) -> Result<process::Reply, MeshError> {
+        let read = beep_proto::node::events::Read::Process(request.clone());
+        if read.topic().is_some()
+            && let Some(value) = timeout(TASK_LIMIT, self.0.snapshot(read))
+                .await
+                .map_err(|_| said("the process subscription did not answer in time"))?
+        {
+            return match value? {
+                beep_proto::node::events::Value::Process(reply) => Ok(reply),
+                _ => Err(said("the process subscription returned another resource")),
+            };
+        }
         let words = Words {
             silent: "the node stopped answering",
             closed: "the node closed the process session",

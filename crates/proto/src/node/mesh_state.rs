@@ -19,6 +19,9 @@ pub struct SyncSpec {
     pub folders: BTreeMap<EndpointId, String>,
     #[serde(default)]
     pub paused: bool,
+    /// Selected ignored folders use independent file sync; off by default.
+    #[serde(default)]
+    pub ignored: super::sync::IgnoredSync,
 }
 
 /// `skills/sync`: whether coding agent skills sync across the mesh.
@@ -43,6 +46,9 @@ pub struct ProjectRecord {
     /// Project-wide Syncthing preference; absent preserves existing settings.
     #[serde(default)]
     pub syncthing_files: Option<bool>,
+    /// Preserve local edits before an automatic fast-forward, on idle machines only.
+    #[serde(default)]
+    pub git_auto_recovery: bool,
 }
 
 /// `project/<org/repo>/<machine>`: one machine's checkout of a project.

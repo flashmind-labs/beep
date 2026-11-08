@@ -1,7 +1,8 @@
 // What Home's rows say and how its sections are laid out, apart from the DOM
 // so it can be tested.
 import { agentName, type AgentQuestion, type ChatApproval, type RunningRow } from "../agents/running-state.ts";
-import type { MachineCard } from "../machines/machine-state.ts";
+import type { MachineTraffic } from "../machines/traffic-state.ts";
+import type { CardStats, MachineCard } from "../machines/machine-state.ts";
 import type { ProjectRow } from "../project/projects-state.ts";
 
 /// A Needs you row.
@@ -37,6 +38,21 @@ export interface HomeView {
   coming_up: CronRow[] | null;
   updates: UpdateRow[] | null;
   projects: ProjectRow[] | null;
+}
+
+/// Current native samples, pushed without another machine read.
+export interface Telemetry {
+  stats: Array<CardStats & { id: string }>;
+  traffic: MachineTraffic[];
+}
+
+export function applyTelemetry(home: HomeView, telemetry: Telemetry): HomeView {
+  const stats = new Map(telemetry.stats.map(sample => [sample.id, sample]));
+  return { ...home, machines: home.machines?.map(machine => {
+    const sample = stats.get(machine.id);
+    if (!sample || (machine.stats && machine.stats.sampled_at > sample.sampled_at)) return machine;
+    return { ...machine, stats: sample };
+  }) ?? null };
 }
 
 /// A serverless window opens before the mesh has answered. Keep this out of

@@ -34,6 +34,9 @@ const PROJECT: &str = "game";
 const LIMIT: Duration = Duration::from_secs(60);
 const MARKER: &str = ".beep-sync";
 
+#[path = "sync/background_git.rs"]
+mod background_git;
+
 /// One node: its key, its state and the folder it shares, which outlive
 /// a restart.
 struct Node {
@@ -1561,6 +1564,10 @@ async fn three_hosts_do_not_fetch_a_file_already_received_by_git_pull() {
         &nodes[0].folder(),
         &["commit", "-q", "-m", "change tracked file"],
     );
+    // Keep the waiting state stable until this test performs its own Git pulls.
+    for peer in &nodes[1..] {
+        write(&peer.path("local-only.txt"), "local test edit\n");
+    }
     configure_three(&nodes, false).await;
     eventually("all nodes to wait for Git", || {
         nodes.iter().all(|node| {
@@ -1580,7 +1587,14 @@ async fn three_hosts_do_not_fetch_a_file_already_received_by_git_pull() {
     // Pause only while Git pulls, so requests made after the pulls are
     // measured separately from the Git transfer itself.
     configure_three(&nodes, true).await;
+    eventually("sync tasks to pause before the manual pulls", || {
+        nodes
+            .iter()
+            .all(|node| node.status().state == State::Paused)
+    })
+    .await;
     for peer in &nodes[1..] {
+        fs::remove_file(peer.path("local-only.txt")).unwrap();
         git(
             &peer.folder(),
             &[
@@ -1721,7 +1735,7 @@ async fn twins() -> (Node, Node) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn existing_checkouts_keep_their_own_branches_and_indexes() {
+async fn existing_checkouts_advance_inactive_branches_and_keep_their_indexes() {
     let (a, b) = twins().await;
     let original = head(&b).unwrap();
     git(&a.folder(), &["branch", "side"]);
@@ -1734,11 +1748,17 @@ async fn existing_checkouts_keep_their_own_branches_and_indexes() {
     a.sync_with(&b).await;
     b.sync_with(&a).await;
     file_round(&b, &a).await;
+    eventually("the inactive side branch to fast-forward", || {
+        git(&b.folder(), &["rev-parse", "refs/heads/side"]) == ahead
+    })
+    .await;
     assert_ne!(read(&a.path("README.md")), read(&b.path("README.md")));
     assert_eq!(git(&a.folder(), &["rev-parse", "refs/heads/side"]), ahead);
+    assert_eq!(git(&b.folder(), &["rev-parse", "refs/heads/side"]), ahead);
+    assert_eq!(head(&b).as_deref(), Some(original.as_str()));
     assert_eq!(
-        git(&b.folder(), &["rev-parse", "refs/heads/side"]),
-        original
+        read(&b.path("README.md")).as_deref(),
+        Some(b"staged locally\n".as_slice())
     );
     assert_eq!(
         git(&b.folder(), &["diff", "--cached", "--name-only"]),
@@ -2165,15 +2185,13 @@ async fn peer_commits_do_not_move_a_different_branch() {
     b.pause(&a, true).await;
     git(&b.folder(), &["switch", "-c", "other"]);
     let before = head(&b);
-    commit(&a, "new.txt", "new commit\n");
+    let newest = commit(&a, "new.txt", "new commit\n");
     a.pause(&b, false).await;
     b.pause(&a, false).await;
-    eventually("different branches to wait", || {
-        b.status()
-            .error
-            .as_deref()
-            .is_some_and(|error| error.contains("between branches"))
-    })
+    eventually(
+        "inactive main to catch up without moving the checkout",
+        || git(&b.folder(), &["rev-parse", "main"]) == newest,
+    )
     .await;
     assert_eq!(head(&b), before);
     assert!(!b.path("new.txt").exists());
@@ -2258,4 +2276,382 @@ async fn explicit_handoff_brings_edits_and_live_sync_does_not_undo_them() {
     assert!(git(&b.folder(), &["diff", "--cached", "--name-only"]).is_empty());
     assert!(a.status().conflicts.is_empty());
     assert!(b.status().conflicts.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn git_recovery_keeps_staged_unstaged_untracked_and_ignored_work() {
+    let (a, b) = synced_repo().await;
+    commit(&a, "local.txt", "one\ntwo\nthree\n");
+    commit(&a, ".gitignore", "*.cache\n");
+    in_step(&a, &b).await;
+    a.pause(&b, true).await;
+    b.pause(&a, true).await;
+    write(&b.path("local.txt"), "staged\ntwo\nthree\n");
+    git(&b.folder(), &["add", "local.txt"]);
+    write(&b.path("local.txt"), "staged\ntwo\nunstaged\n");
+    write(&b.path("notes/local.bin"), [0, 2, 255]);
+    write(&b.path("render.cache"), "ignored local data");
+    let staged = git(&b.folder(), &["diff", "--cached", "--binary"]);
+    let unstaged = git(&b.folder(), &["diff", "--binary"]);
+    let target = commit(&a, "upstream.txt", "committed remotely\n");
+    git(&b.folder(), &["config", "user.name", "Test"]);
+    git(&b.folder(), &["config", "user.email", "test@example.com"]);
+    let agents = std::sync::Arc::new(beep_node::agents::Agents::default());
+    b.running()
+        .transfers
+        .syncs()
+        .set_git_auto_recovery(&agents, [PROJECT.to_owned()].into());
+    a.pause(&b, false).await;
+    b.pause(&a, false).await;
+    eventually("automatic recovery to restore all local work", || {
+        head(&b).as_deref() == Some(target.as_str())
+            && read(&b.path("notes/local.bin")) == Some(vec![0, 2, 255])
+            && !b.path(".git/beep-recovery/pending.json").exists()
+            && !git(&b.folder(), &["stash", "list"]).is_empty()
+    })
+    .await;
+    assert_eq!(git(&b.folder(), &["diff", "--cached", "--binary"]), staged);
+    assert_eq!(git(&b.folder(), &["diff", "--binary"]), unstaged);
+    assert_eq!(
+        read(&b.path("render.cache")).as_deref(),
+        Some(b"ignored local data".as_slice())
+    );
+    assert!(!a.path("notes/local.bin").exists());
+    let backup = git(&b.folder(), &["rev-parse", "refs/stash"]);
+    let private_blobs = [
+        git(
+            &b.folder(),
+            &["rev-parse", &format!("{backup}^2:local.txt")],
+        ),
+        git(
+            &b.folder(),
+            &["rev-parse", &format!("{backup}^3:notes/local.bin")],
+        ),
+    ];
+    assert!(!git(&b.folder(), &["for-each-ref", "refs/beep-recovery"]).is_empty());
+    // Packed stashes must remain local when a new machine imports the checkout.
+    a.pause(&b, true).await;
+    b.pause(&a, true).await;
+    git(&b.folder(), &["gc", "--quiet"]);
+    let c = Node::new().await;
+    b.configure(vec![c.addr()]).await;
+    c.configure(vec![b.addr()]).await;
+    eventually("a new checkout to receive only committed content", || {
+        head(&c).as_deref() == Some(target.as_str()) && is_clean(&c)
+    })
+    .await;
+    assert!(!c.path("notes/local.bin").exists());
+    assert!(git(&c.folder(), &["stash", "list"]).is_empty());
+    assert!(git(&c.folder(), &["for-each-ref", "refs/beep-recovery"]).is_empty());
+    assert!(
+        !try_git(&c.folder(), &["cat-file", "-e", &backup])
+            .status
+            .success()
+    );
+    for blob in private_blobs {
+        assert!(
+            !try_git(&c.folder(), &["cat-file", "-e", &blob])
+                .status
+                .success()
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn git_recovery_conflicts_keep_the_backup_and_do_not_repeat_after_restart() {
+    let (a, mut b) = synced_repo().await;
+    a.pause(&b, true).await;
+    b.pause(&a, true).await;
+    write(&b.path("README.md"), "local work\n");
+    write(&b.path("local.bin"), [0, 9, 255]);
+    let target = commit(&a, "README.md", "remote work\n");
+    git(&b.folder(), &["config", "user.name", "Test"]);
+    git(&b.folder(), &["config", "user.email", "test@example.com"]);
+    let agents = std::sync::Arc::new(beep_node::agents::Agents::default());
+    b.running()
+        .transfers
+        .syncs()
+        .set_git_auto_recovery(&agents, [PROJECT.to_owned()].into());
+    a.pause(&b, false).await;
+    b.pause(&a, false).await;
+    eventually("a recovery conflict warning", || {
+        b.status()
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("Git sync recovery needs review"))
+    })
+    .await;
+    assert_eq!(head(&b).as_deref(), Some(target.as_str()));
+    let backup = git(&b.folder(), &["rev-parse", "refs/stash"]);
+    assert!(git(&b.folder(), &["show", &format!("{backup}:README.md")]).contains("local work"));
+    assert_eq!(
+        try_git(&b.folder(), &["show", &format!("{backup}^3:local.bin")]).stdout,
+        [0, 9, 255]
+    );
+    b.stop().await;
+    b.start().await;
+    b.running()
+        .transfers
+        .syncs()
+        .set_git_auto_recovery(&agents, [PROJECT.to_owned()].into());
+    eventually(
+        "the pending recovery to remain visible after restart",
+        || {
+            b.status()
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("Git sync recovery needs review"))
+        },
+    )
+    .await;
+    assert_eq!(git(&b.folder(), &["rev-parse", "refs/stash"]), backup);
+    assert!(b.path(".git/beep-recovery/pending.json").exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn git_recovery_never_stashes_for_divergent_histories() {
+    let (a, b) = synced_repo().await;
+    a.pause(&b, true).await;
+    b.pause(&a, true).await;
+    commit(&a, "one.txt", "remote commit\n");
+    let before = commit(&b, "two.txt", "local commit\n");
+    write(&b.path("local.txt"), "uncommitted local work\n");
+    git(&b.folder(), &["config", "user.name", "Test"]);
+    git(&b.folder(), &["config", "user.email", "test@example.com"]);
+    let agents = std::sync::Arc::new(beep_node::agents::Agents::default());
+    b.running()
+        .transfers
+        .syncs()
+        .set_git_auto_recovery(&agents, [PROJECT.to_owned()].into());
+    a.pause(&b, false).await;
+    b.pause(&a, false).await;
+    eventually("divergent histories to require review", || {
+        b.status()
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("diverged"))
+    })
+    .await;
+    assert_eq!(head(&b).as_deref(), Some(before.as_str()));
+    assert!(!b.path(".git/beep-recovery").exists());
+    assert!(git(&b.folder(), &["stash", "list"]).is_empty());
+    assert_eq!(
+        read(&b.path("local.txt")).as_deref(),
+        Some(b"uncommitted local work\n".as_slice())
+    );
+}
+
+async fn ignored_config(node: &Node, peer: &Node, enabled: bool, paused: bool) {
+    use beep_proto::node::sync::ignored_project;
+    let mut projects = vec![Project {
+        name: PROJECT.into(),
+        folder: node.folder().to_string_lossy().into_owned(),
+        peers: vec![peer.addr()],
+        paused,
+    }];
+    if enabled {
+        projects.push(Project {
+            name: ignored_project(PROJECT, "assets/models"),
+            folder: node.path("assets/models").to_string_lossy().into_owned(),
+            peers: vec![peer.addr()],
+            paused,
+        });
+    }
+    let refused = node.running().transfers.syncs().configure(projects).await;
+    assert!(refused.is_empty(), "{refused:?}");
+}
+
+fn ignored_status(node: &Node) -> ProjectStatus {
+    let name = beep_proto::node::sync::ignored_project(PROJECT, "assets/models");
+    node.running()
+        .transfers
+        .syncs()
+        .status()
+        .into_iter()
+        .find(|s| s.name == name)
+        .unwrap()
+}
+
+async fn ignored_pair() -> (Node, Node) {
+    let (a, b) = synced_repo().await;
+    commit(&a, ".gitignore", "assets/models/\n.env\n");
+    in_step(&a, &b).await;
+    ignored_config(&a, &b, true, false).await;
+    ignored_config(&b, &a, true, false).await;
+    (a, b)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn selected_ignored_folders_sync_while_git_histories_differ_and_other_edits_stay_local() {
+    let (a, b) = synced_repo().await;
+    commit(&a, ".gitignore", "assets/models/\n.env\n");
+    in_step(&a, &b).await;
+    a.pause(&b, true).await;
+    b.pause(&a, true).await;
+    let ours = commit(&a, "code.txt", "ours\n");
+    let theirs = commit(&b, "code.txt", "theirs\n");
+    fs::write(a.path("README.md"), "uncommitted source\n").unwrap();
+    fs::write(a.path(".env"), "LOCAL_SETTING=fixture\n").unwrap();
+    ignored_config(&a, &b, true, false).await;
+    ignored_config(&b, &a, true, false).await;
+    let model = "assets/models/scene.blend";
+    write(&a.path(model), b"model\0one");
+    eventually("ignored binary data to cross differing commits", || {
+        read(&b.path(model)).as_deref() == Some(b"model\0one")
+    })
+    .await;
+    assert_eq!(head(&a).as_deref(), Some(ours.as_str()));
+    assert_eq!(head(&b).as_deref(), Some(theirs.as_str()));
+    assert!(!b.path(".env").exists());
+    assert_ne!(read(&b.path("README.md")), read(&a.path("README.md")));
+    write(&b.path(model), b"model\0two");
+    eventually("ignored content to sync back", || {
+        read(&a.path(model)).as_deref() == Some(b"model\0two")
+    })
+    .await;
+    fs::remove_file(b.path(model)).unwrap();
+    eventually("ignored file deletion to sync", || !a.path(model).exists()).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn disabling_ignored_folder_sync_leaves_files_and_stops_transferring() {
+    let (a, b) = ignored_pair().await;
+    let model = "assets/models/scene.blend";
+    write(&a.path(model), "original");
+    eventually("first ignored model", || {
+        read(&b.path(model)).as_deref() == Some(b"original")
+    })
+    .await;
+    ignored_config(&a, &b, false, false).await;
+    ignored_config(&b, &a, false, false).await;
+    write(&a.path(model), "kept locally");
+    // Rescans and a complete peer exchange are the synchronization barrier.
+    a.running().transfers.syncs().rescan(PROJECT).await.unwrap();
+    b.running().transfers.syncs().rescan(PROJECT).await.unwrap();
+    assert_eq!(
+        read(&b.path(model)).as_deref(),
+        Some(b"original".as_slice())
+    );
+    assert_eq!(
+        read(&a.path(model)).as_deref(),
+        Some(b"kept locally".as_slice())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ignored_folder_sync_cannot_overwrite_a_force_added_model_or_its_index() {
+    let (a, b) = ignored_pair().await;
+    let model = "assets/models/scene.blend";
+    write(&a.path(model), "original");
+    eventually("first ignored model", || {
+        read(&b.path(model)).as_deref() == Some(b"original")
+    })
+    .await;
+    git(&b.folder(), &["add", "-f", model]);
+    let index = read(&b.path(".git/index"));
+    write(&a.path(model), "peer edit");
+    eventually("force-added content to block ignored-folder sync", || {
+        ignored_status(&b)
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("tracked or staged"))
+    })
+    .await;
+    assert_eq!(
+        read(&b.path(model)).as_deref(),
+        Some(b"original".as_slice())
+    );
+    assert_eq!(read(&b.path(".git/index")), index);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn concurrent_ignored_model_edits_keep_both_versions_and_can_be_resolved() {
+    let (a, b) = ignored_pair().await;
+    let model = "assets/models/scene.blend";
+    write(&a.path(model), "baseline");
+    eventually("model baseline", || {
+        read(&b.path(model)).as_deref() == Some(b"baseline")
+            && ignored_status(&b).files == 1
+            && ignored_status(&b).pending == 0
+    })
+    .await;
+    ignored_config(&a, &b, true, true).await;
+    ignored_config(&b, &a, true, true).await;
+    eventually(
+        "ignored-folder sync to pause before concurrent edits",
+        || ignored_status(&a).state == State::Paused && ignored_status(&b).state == State::Paused,
+    )
+    .await;
+    write(&a.path(model), "local model");
+    write(&b.path(model), "peer model");
+    ignored_config(&a, &b, true, false).await;
+    ignored_config(&b, &a, true, false).await;
+    let both = |node: &Node| {
+        let contents: Vec<_> = files(&node.path("assets/models"))
+            .iter()
+            .filter_map(|path| read(&node.path("assets/models").join(path)))
+            .collect();
+        !ignored_status(node).conflicts.is_empty()
+            && contents.iter().any(|v| v == b"local model")
+            && contents.iter().any(|v| v == b"peer model")
+    };
+    eventually("both ignored model versions on both machines", || {
+        both(&a) && both(&b)
+    })
+    .await;
+    let name = beep_proto::node::sync::ignored_project(PROJECT, "assets/models");
+    timeout(
+        LIMIT,
+        a.running().transfers.syncs().have_all_from(
+            &name,
+            &b.addr().id,
+            tokio::time::Instant::now(),
+            |_| {},
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let conflict = ignored_status(&a).conflicts[0].clone();
+    a.running()
+        .transfers
+        .syncs()
+        .resolve(&name, &conflict, Keep::Original)
+        .await
+        .unwrap();
+    eventually("resolved ignored conflict to propagate", || {
+        ignored_status(&a).conflicts.is_empty() && ignored_status(&b).conflicts.is_empty()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ignored_files_wait_during_git_recovery_and_resume_after_review() {
+    let (a, b) = ignored_pair().await;
+    let model = "assets/models/scene.blend";
+    write(&a.path(model), b"original model");
+    eventually("the original ignored model", || {
+        read(&b.path(model)).as_deref() == Some(b"original model")
+    })
+    .await;
+    write(&b.path(".git/beep-recovery/pending.json"), "{}");
+    write(&a.path(model), b"updated model");
+    eventually("ignored sync to wait for recovery", || {
+        ignored_status(&b)
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("Git recovery"))
+    })
+    .await;
+    assert_eq!(
+        read(&b.path(model)).as_deref(),
+        Some(b"original model".as_slice())
+    );
+    fs::remove_file(b.path(".git/beep-recovery/pending.json")).unwrap();
+    b.running().transfers.syncs().rescan(PROJECT).await.unwrap();
+    eventually(
+        "ignored sync to resume after the pending recovery is reviewed",
+        || read(&b.path(model)).as_deref() == Some(b"updated model"),
+    )
+    .await;
 }

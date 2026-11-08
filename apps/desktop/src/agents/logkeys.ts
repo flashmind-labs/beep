@@ -18,7 +18,7 @@ function commandOpen(at: number) {
 /// leaves its "Ran N commands" group and shows under a folded turn's heading.
 export function toggleCommands() {
   const p = AG.page;
-  if (!p || AG.child != null) return false;
+  if (!p) return false;
   const ats = commandRows(p.entries, p.earlier);
   if (!ats.length) return false;
   const open = allOpen(ats.map(commandOpen));
@@ -31,7 +31,7 @@ export function toggleCommands() {
 /// ⇧⌘Y: the last command row opens or folds.
 export function toggleLastCommand() {
   const p = AG.page;
-  if (!p || AG.child != null) return false;
+  if (!p) return false;
   const at = commandRows(p.entries, p.earlier).at(-1);
   if (at == null) return false;
   const keep = rowInView();
@@ -43,7 +43,7 @@ export function toggleLastCommand() {
 /// ⌘U: every thought opens, or folds when all are open.
 export function toggleThoughts() {
   const p = AG.page, o = AG.open;
-  if (!p || !o || AG.child != null) return false;
+  if (!p || !o) return false;
   const ats = thoughtRows(p.entries, p.earlier);
   if (!ats.length) return false;
   const m = turnsOf(o.session);

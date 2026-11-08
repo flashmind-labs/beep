@@ -1,4 +1,5 @@
 // Tauri's global API (`withGlobalTauri`), typed for the pages.
+import { clearViews, takeSnapshotView, viewWrite } from "./snapshot-state.ts";
 
 /// A channel Rust streams events into, passed as an `invoke` argument.
 export interface TauriChannel<T> {
@@ -87,6 +88,10 @@ const UNTIMED = new Set([
 /// channel) fails with a plain error, so a call that never returns cannot
 /// hold the page.
 export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>, within?: number): Promise<T> {
+  const snapshot = takeSnapshotView(cmd, args);
+  if (snapshot) return snapshot.error === undefined ? Promise.resolve(snapshot.value as T) : Promise.reject(snapshot.error);
+  const writing = viewWrite(cmd);
+  if (writing) clearViews();
   const lifecycle = cmd === "agent_start" || cmd === "agent_resume";
   const at = Date.now();
   const measure = TIMED_COMMANDS.has(cmd) ? performance.now() : null;
@@ -106,7 +111,10 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>,
       logInfo(`agent command: ${JSON.stringify({ command: cmd, stage: "returned", ms: Date.now() - at, session: started?.session?.id, machine: started?.session?.machine_id, status: started?.session?.status })}`);
     }
     return value;
-  }).finally(() => clearTimeout(timer)).catch((e: unknown) => {
+  }).finally(() => {
+    clearTimeout(timer);
+    if (writing) clearViews();
+  }).catch((e: unknown) => {
     if (measure !== null) recordTiming("command", cmd, performance.now() - measure, timedOut ? "timeout" : "error");
     const about = [["machine", args?.machineId], ["session", args?.session]].filter(([, v]) => typeof v === "string").map(([k, v]) => `${k} ${v}`).join(", ");
     logError(`${cmd} failed${about ? ` (${about})` : ""}: ${typeof e === "object" && e && !(e instanceof Error) ? JSON.stringify(e) : e}`);

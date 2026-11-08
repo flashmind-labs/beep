@@ -1,6 +1,8 @@
 // Double-click the session title to override it. An empty value restores it.
 (() => {
-  let override = "";
+  const overrides = new Map();
+  const key = title => title.dataset.sessionKey || "parent";
+  const name = title => overrides.get(key(title)) || title.dataset.originalTitle || original;
   const original = "Fix the failing login test";
   const base = D.dAgentSession;
   D.dAgentSession = () => {
@@ -15,25 +17,25 @@
       title.tabIndex = 0;
       title.setAttribute("role", "button");
       title.title = "Double-click to rename (Enter)";
-      title.textContent = override || original;
+      title.textContent = name(title);
     }
     return template.innerHTML;
   };
-  const draw = () => document.querySelectorAll(".agtitle").forEach(title => { title.textContent = override || original; });
+  const draw = () => document.querySelectorAll(".agtitle").forEach(title => { title.textContent = name(title); });
   new MutationObserver(draw).observe(document.getElementById("desk"), { childList: true });
   function edit(title) {
     if (!title || title.querySelector("input")) return;
     const input = document.createElement("input");
     input.className = "agtitle-input";
-    input.value = override || original;
+    input.value = name(title);
     input.maxLength = 200;
     input.setAttribute("aria-label", "Session title");
     let done = false;
     const finish = save => {
       if (done) return;
       done = true;
-      if (save) override = input.value.trim();
-      title.replaceChildren(override || original);
+      if (save) overrides.set(key(title), input.value.trim());
+      title.replaceChildren(name(title));
       title.focus();
     };
     input.addEventListener("blur", () => finish(true));

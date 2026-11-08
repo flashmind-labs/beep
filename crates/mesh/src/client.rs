@@ -3,6 +3,7 @@
 
 use crate::{Mesh, MeshError};
 use anyhow::anyhow;
+use beep_proto::node::events::{Read, Value};
 use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link, link_on, local_link};
 use futures::Stream;
 use futures::stream::unfold;
@@ -82,6 +83,15 @@ type OpenBi = Arc<
         + Sync,
 >;
 
+/// The current value of a subscribed read, or `None` to use an ordinary request.
+pub type SnapshotFuture<'a> =
+    Pin<Box<dyn Future<Output = Option<Result<Value, MeshError>>> + Send + 'a>>;
+
+/// A caller-owned source of live read projections.
+pub trait SnapshotReader: Send + Sync {
+    fn snapshot(&self, read: Read) -> SnapshotFuture<'_>;
+}
+
 #[derive(Clone)]
 enum Via {
     Peer(OpenBi),
@@ -94,6 +104,7 @@ enum Via {
 pub struct PeerClient {
     via: Via,
     peer: Option<EndpointId>,
+    snapshots: Option<Arc<dyn SnapshotReader>>,
 }
 
 impl Debug for PeerClient {
@@ -122,6 +133,7 @@ impl PeerClient {
                 })
             })),
             peer: Some(peer),
+            snapshots: None,
         }
     }
 
@@ -141,6 +153,7 @@ impl PeerClient {
                 })
             })),
             peer: Some(peer),
+            snapshots: None,
         }
     }
 
@@ -150,7 +163,19 @@ impl PeerClient {
         Self {
             via: Via::Local(session),
             peer: None,
+            snapshots: None,
         }
+    }
+
+    /// Uses the owner's current snapshots for subscribed reads.
+    pub fn with_snapshot_reader(mut self, snapshots: Arc<dyn SnapshotReader>) -> Self {
+        self.snapshots = Some(snapshots);
+        self
+    }
+
+    /// Reads from a live subscription when one owns this resource.
+    pub async fn snapshot(&self, read: Read) -> Option<Result<Value, MeshError>> {
+        self.snapshots.as_ref()?.snapshot(read).await
     }
 
     /// Opens a stream for `protocol` and waits for the node to accept it.
@@ -393,6 +418,64 @@ mod tests {
     use iroh::SecretKey;
     use iroh::endpoint::VarInt;
     use std::future::pending;
+
+    struct CurrentSessions;
+
+    impl SnapshotReader for CurrentSessions {
+        fn snapshot(&self, read: Read) -> SnapshotFuture<'_> {
+            Box::pin(async move {
+                match read {
+                    Read::Sessions(request)
+                        if matches!(
+                            request.as_ref(),
+                            beep_proto::node::agent::SessionsRequest::ListAll {}
+                        ) =>
+                    {
+                        Some(Ok(Value::Sessions(Box::new(
+                            beep_proto::node::agent::SessionsReply::Sessions {
+                                sessions: Vec::new(),
+                            },
+                        ))))
+                    }
+                    Read::SignIn { tool } if tool == "codex" => Some(Ok(Value::SignIn(
+                        beep_proto::node::sign_in::State::SignedIn {},
+                    ))),
+                    _ => None,
+                }
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_subscribed_sign_in_state_uses_its_snapshot_without_opening_an_rpc() {
+        let unavailable: SessionFn =
+            Arc::new(|_, _| panic!("a cached read must not open a stream"));
+        let client = PeerClient::local(unavailable).with_snapshot_reader(Arc::new(CurrentSessions));
+        assert_eq!(
+            crate::machine::sign_in(
+                &client,
+                &beep_proto::node::sign_in::Request::State {
+                    tool: "codex".into()
+                }
+            )
+            .await
+            .unwrap(),
+            beep_proto::node::sign_in::State::SignedIn {}
+        );
+    }
+
+    #[tokio::test]
+    async fn a_subscribed_session_read_uses_its_snapshot_without_opening_an_rpc() {
+        let unavailable: SessionFn =
+            Arc::new(|_, _| panic!("a cached read must not open a stream"));
+        let client = PeerClient::local(unavailable).with_snapshot_reader(Arc::new(CurrentSessions));
+        assert!(
+            crate::machine::sessions::list_all(&client)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
 
     fn link(e: impl StdError + Send + Sync + 'static) -> MeshError {
         MeshError::Link(anyhow::Error::new(e))

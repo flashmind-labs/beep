@@ -123,6 +123,7 @@ pub(crate) struct Stores {
     flsh: Option<PathBuf>,
     /// OpenCode's database, or its data folder of them.
     opencode: Option<PathBuf>,
+    opencode_file: bool,
     memos: Arc<Memos>,
 }
 
@@ -160,15 +161,44 @@ impl Default for Memos {
 }
 
 impl Stores {
-    /// The stores that exist here.
+    /// Configured stores, including ones a harness has not created yet.
     pub(crate) fn locate() -> Self {
         Self {
-            codex: codex::locate(),
-            pi: pi::locate(),
-            flsh: flsh::locate(),
-            opencode: opencode::locate(),
+            codex: codex::configured(),
+            pi: pi::configured(),
+            flsh: flsh::sessions_dir(),
+            opencode: opencode::configured(),
+            opencode_file: opencode::configured_file(),
             memos: Arc::default(),
         }
+    }
+
+    /// Store directories watched by open session subscriptions, including database WAL files.
+    pub(crate) fn follow_paths(&self, agent: Option<Agent>) -> Vec<PathBuf> {
+        let root = match agent {
+            Some(Agent::Codex) => {
+                return self
+                    .codex
+                    .as_ref()
+                    .into_iter()
+                    .flat_map(|root| [root.join("sessions"), root.join("session_index.jsonl")])
+                    .collect();
+            }
+            Some(Agent::Pi) => self.pi.as_ref(),
+            Some(Agent::Flsh) => self.flsh.as_ref(),
+            Some(Agent::OpenCode) => self.opencode.as_ref(),
+            _ => None,
+        };
+        root.and_then(|path| {
+            if path.is_file() || (agent == Some(Agent::OpenCode) && self.opencode_file) {
+                path.parent()
+            } else {
+                Some(path.as_path())
+            }
+        })
+        .map(PathBuf::from)
+        .into_iter()
+        .collect()
     }
 
     /// Every session in the stores, `agent`'s only when given.
@@ -194,6 +224,15 @@ impl Stores {
     /// `seen` as `describe` lists it, its title read from its file when the
     /// store gave none.
     pub(crate) fn describe(&self, mut seen: Seen, now: SystemTime) -> ExternalSession {
+        let native_run = seen
+            .id
+            .starts_with("subagent:")
+            .then(|| {
+                seen.file
+                    .as_deref()
+                    .and_then(|file| codex_run::read(file).ok())
+            })
+            .flatten();
         if seen.title.is_none()
             && let Some(file) = seen.file.as_deref()
         {
@@ -203,10 +242,19 @@ impl Stores {
         }
         let folder = self.working_folder(&seen);
         let place = of_folder(&folder);
-        ExternalSession {
+        let mut session = ExternalSession {
             place,
             ..describe(seen, now)
+        };
+        if let Some(run) = native_run {
+            session.presence = if run.working {
+                Presence::Working
+            } else {
+                Presence::Stopped
+            };
+            session.last_message = run.result.unwrap_or_default();
         }
+        session
     }
 
     /// The folder `seen` works in now: what its agent last recorded, else
@@ -245,18 +293,22 @@ impl Stores {
     /// The file of session `id`, of `agent` when given; `None` for one not
     /// found or kept in a database.
     pub(crate) fn file(&self, agent: Option<Agent>, id: &str) -> Option<PathBuf> {
-        self.sessions(agent)
-            .into_iter()
-            .find(|seen| seen.id == id)?
-            .file
+        self.seen(agent, id)?.file
+    }
+
+    pub(super) fn seen(&self, agent: Option<Agent>, id: &str) -> Option<Seen> {
+        if id.starts_with("subagent:") {
+            return agent
+                .is_none_or(|agent| agent == Agent::Codex)
+                .then(|| codex::native(self.codex.as_deref()?, id))
+                .flatten();
+        }
+        self.sessions(agent).into_iter().find(|seen| seen.id == id)
     }
 
     /// One session of `agent` by its id, described.
     pub(crate) fn find(&self, agent: Agent, id: &str) -> Option<ExternalSession> {
-        let seen = self
-            .sessions(Some(agent))
-            .into_iter()
-            .find(|seen| seen.id == id)?;
+        let seen = self.seen(Some(agent), id)?;
         Some(self.describe(seen, SystemTime::now()))
     }
 

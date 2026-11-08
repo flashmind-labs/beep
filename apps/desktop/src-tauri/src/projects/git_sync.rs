@@ -13,6 +13,7 @@ use beep_projects::{
     checkout_sync::{Move, read_state, run_move},
     model::branch_name,
 };
+use beep_proto::node::events::GitRead;
 use futures::future::join_all;
 use iroh::EndpointId;
 use serde::Serialize;
@@ -31,7 +32,12 @@ pub struct GitRow {
     error: Option<String>,
 }
 
-async fn row(fleet: &Fleet, place: &Place) -> GitRow {
+enum ReadFrom {
+    Subscription,
+    Checkout,
+}
+
+async fn row(fleet: &Fleet, place: &Place, from: ReadFrom) -> GitRow {
     let mut row = GitRow {
         machine_id: place.machine.to_string(),
         branch: None,
@@ -41,9 +47,15 @@ async fn row(fleet: &Fleet, place: &Place) -> GitRow {
         error: None,
     };
     let read = async {
-        let shell = PeerShell::on(fleet, place.machine)
+        let mut shell = PeerShell::on(fleet, place.machine)
             .await
             .map_err(|e| e.to_string())?;
+        if matches!(from, ReadFrom::Subscription) {
+            shell = shell
+                .snapshot_git(&place.folder, GitRead::State)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
         read_state(&shell, &place.folder)
             .await
             .map_err(|e| format!("{e:#}"))
@@ -71,7 +83,12 @@ pub async fn project_git_state(
     let Placed::Mesh(places) = placed(&beep, &fleet, &project).await? else {
         return Ok(Vec::new());
     };
-    Ok(join_all(places.iter().map(|place| row(&fleet, place))).await)
+    Ok(join_all(
+        places
+            .iter()
+            .map(|place| row(&fleet, place, ReadFrom::Subscription)),
+    )
+    .await)
 }
 
 /// Pulls (fast-forward only) or pushes `branch` of `project`'s checkout on `machine_id`, then
@@ -100,5 +117,5 @@ pub async fn project_git_move(
     run_move(&shell, &place.folder, branch, direction)
         .await
         .map_err(|why| DesktopError::BadRequest(format!("{name}: {why}")))?;
-    Ok(row(&fleet, &place).await)
+    Ok(row(&fleet, &place, ReadFrom::Checkout).await)
 }

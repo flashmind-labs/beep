@@ -69,3 +69,12 @@ test("local edits get a distinct warning without calling them a merge conflict",
     assert.equal(gitSyncWarning({ status: "failed", error }), "Local edits block Git sync");
   }
 });
+
+test("interrupted recovery raises a repair warning with the backup instructions", async () => {
+  const { gitSyncWarning, syncRepairPrompt } = await import("../src/project/gitsync-state.ts");
+  const error = "waiting for Git: Git sync recovery needs review. Local work remains in refs/beep-recovery/example";
+  assert.equal(gitSyncWarning({status:"failed", error}), "Git recovery needs review");
+  const prompt = syncRepairPrompt({project:"acme/widget", machine:"build-box", error, checkouts:[], git:[], sessions:[]});
+  assert.match(prompt, /pending.json/);
+  assert.match(prompt, /Never apply a stash twice/);
+});

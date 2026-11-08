@@ -1,6 +1,6 @@
 [package]
 name = "beep-desktop"
-version = "0.5.17"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.93"
 description = "Beep desktop: projects, coding agents and a quick-access tray bar"
@@ -18,6 +18,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 anyhow = "1"
+arboard = "3.7"
+image = { version = "0.25", default-features = false, features = ["png"] }
 open = "5"
 which = "8"
 async-trait = "0.1"

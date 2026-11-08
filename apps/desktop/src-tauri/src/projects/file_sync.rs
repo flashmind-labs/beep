@@ -21,6 +21,18 @@ use std::sync::Arc;
 use tauri::State;
 
 #[tauri::command]
+pub async fn project_git_auto_recovery(
+    fleet: FleetState<'_>,
+    project: String,
+    enabled: Option<bool>,
+) -> Result<bool> {
+    Ok(desk(&fleet)
+        .await?
+        .project_git_auto_recovery(&project, enabled)
+        .await?)
+}
+
+#[tauri::command]
 pub async fn project_syncthing_mode(
     fleet: FleetState<'_>,
     project: String,
@@ -29,6 +41,18 @@ pub async fn project_syncthing_mode(
     Ok(desk(&fleet)
         .await?
         .project_syncthing_mode(&project, enabled)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn project_ignored_sync(
+    fleet: FleetState<'_>,
+    project: String,
+    settings: Option<beep_proto::node::sync::IgnoredSync>,
+) -> Result<beep_proto::node::sync::IgnoredSync> {
+    Ok(desk(&fleet)
+        .await?
+        .project_ignored_sync(&project, settings)
         .await?)
 }
 
@@ -142,6 +166,7 @@ pub async fn project_sync(
 /// A project's sync as the File sync view shows it.
 #[derive(Debug, Serialize, PartialEq)]
 pub struct SyncDetailView {
+    ignored_folders: Vec<String>,
     project: String,
     pinned: bool,
     paused: bool,
@@ -221,6 +246,7 @@ impl From<MachineSyncDetail> for MachineDetailRow {
 impl From<ProjectSyncDetail> for SyncDetailView {
     fn from(d: ProjectSyncDetail) -> Self {
         Self {
+            ignored_folders: Vec::new(),
             project: d.project,
             pinned: d.pinned,
             paused: d.paused,
@@ -241,12 +267,21 @@ pub async fn project_sync_detail(
         return Ok(known(beep.call(GetProjectSyncDetail { project }).await)?.map(Into::into));
     };
     match desk.sync_detail(&project).await {
-        Ok(detail) => Ok(Some(detail.into())),
+        Ok(detail) => {
+            let mut view: SyncDetailView = detail.into();
+            if let Ok(settings) = desk.project_ignored_sync(&project, None).await
+                && settings.enabled
+            {
+                view.ignored_folders = settings.folders;
+            }
+            Ok(Some(view))
+        }
         // Synced by the server alone, until the project is moved into the mesh.
         Err(beep_fleet::FleetError::NotFound) if beep.has_server() => {
             Ok(known(beep.call(GetProjectSyncDetail { project }).await)?.map(Into::into))
         }
         Err(beep_fleet::FleetError::NotFound) => Ok(Some(SyncDetailView {
+            ignored_folders: Vec::new(),
             project,
             pinned: false,
             paused: false,

@@ -627,17 +627,46 @@ mod mesh_state {
     use std::collections::BTreeMap;
 
     #[test]
+    fn ignored_sync_defaults_off_for_released_specs_and_older_readers_skip_the_selection() {
+        #[derive(Debug, PartialEq, Serialize, serde::Deserialize)]
+        struct ReleasedSpec {
+            folders: BTreeMap<EndpointId, String>,
+            paused: bool,
+        }
+        let released = ReleasedSpec {
+            folders: BTreeMap::from([(SecretKey::generate().public(), "/srv/project".into())]),
+            paused: true,
+        };
+        for bytes in [
+            rmp_serde::to_vec(&released).unwrap(),
+            rmp_serde::to_vec_named(&released).unwrap(),
+        ] {
+            let mut current = SyncSpec::from_bytes(&bytes).unwrap();
+            assert_eq!(current.ignored, Default::default());
+            current.ignored = beep_proto::node::sync::IgnoredSync {
+                enabled: true,
+                folders: vec!["models".into()],
+            };
+            let older: ReleasedSpec =
+                beep_proto::lenient::from_slice(&current.to_bytes().unwrap()).unwrap();
+            assert_eq!(older, released);
+        }
+    }
+
+    #[test]
     fn a_value_with_a_field_from_a_newer_build_is_read() {
         #[derive(Serialize)]
         struct NewerSpec {
             folders: BTreeMap<EndpointId, String>,
             paused: bool,
+            ignored: beep_proto::node::sync::IgnoredSync,
             added_later: u8,
         }
         let id = SecretKey::generate().public();
         let sent = NewerSpec {
             folders: BTreeMap::from([(id, "/srv/project".to_owned())]),
             paused: true,
+            ignored: Default::default(),
             added_later: 1,
         };
         let bytes = rmp_serde::to_vec(&sent).unwrap();
@@ -751,6 +780,16 @@ mod mesh_state {
         let bytes = rmp_serde::to_vec(&old).unwrap();
         let mut record = ProjectRecord::from_bytes(&bytes).unwrap();
         assert_eq!(record.syncthing_files, None);
+        assert!(!record.git_auto_recovery);
+        record.git_auto_recovery = true;
+        let released: (String, Option<bool>) =
+            beep_proto::lenient::from_slice(&record.to_bytes().unwrap()).unwrap();
+        assert_eq!(released.1, None);
+        assert!(
+            ProjectRecord::from_bytes(&record.to_bytes().unwrap())
+                .unwrap()
+                .git_auto_recovery
+        );
         record.syncthing_files = Some(false);
         let older: OldProject =
             beep_proto::lenient::from_slice(&record.to_bytes().unwrap()).unwrap();
@@ -767,6 +806,7 @@ mod mesh_state {
     fn values_round_trip_and_hide_secrets_in_debug() {
         let id = SecretKey::generate().public();
         let spec = SyncSpec {
+            ignored: Default::default(),
             folders: BTreeMap::from([(id, "/srv/project".to_owned())]),
             paused: false,
         };
@@ -2117,6 +2157,7 @@ mod agent {
                 text: String,
             }
             let thought = Entry {
+                tool: None,
                 kind: EntryKind::Thought,
                 text: "hmm".into(),
                 ms: Some(1200),
@@ -2156,5 +2197,42 @@ mod agent {
             assert_eq!(agent_of(SESSIONS_PROTOCOL), None);
             assert_eq!(agent_of("claude/2"), None);
         }
+    }
+}
+
+mod tool_details {
+    use beep_proto::{
+        AgentToolCall,
+        node::agent::{Entry, EntryKind},
+    };
+    use serde::Deserialize;
+
+    #[test]
+    fn transcript_entries_read_without_details_and_older_readers_skip_details() {
+        let old = (EntryKind::Tool, "Sleep [completed]", None::<u64>);
+        let bytes = rmp_serde::to_vec(&old).unwrap();
+        let entry: Entry = beep_proto::lenient::from_slice(&bytes).unwrap();
+        assert!(entry.tool.is_none());
+        let mut entry = entry;
+        entry.tool = Some(AgentToolCall {
+            name: Some("Sleep".into()),
+            input: Some(r#"{"seconds":45}"#.into()),
+            ..AgentToolCall::default()
+        });
+        let bytes = rmp_serde::to_vec(&entry).unwrap();
+        #[derive(Deserialize)]
+        struct OldEntry {
+            kind: EntryKind,
+            text: String,
+            ms: Option<u64>,
+        }
+        let old: OldEntry = beep_proto::lenient::from_slice(&bytes).unwrap();
+        assert_eq!(old.kind, EntryKind::Tool);
+        assert_eq!(old.text, "Sleep [completed]");
+        assert_eq!(old.ms, None);
+        assert_eq!(
+            beep_proto::lenient::from_slice::<Entry>(&bytes).unwrap(),
+            entry
+        );
     }
 }

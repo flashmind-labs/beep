@@ -70,6 +70,11 @@ pub(crate) async fn listen(socket: &Path, hub: &Hub, live: &Live) -> Result<()> 
                     activity.session,
                     activity.kind.as_str()
                 );
+                crate::events::system().changed(beep_proto::node::events::Topic::keyed(
+                    "agent",
+                    &activity.session,
+                ));
+                crate::events::system().changed(beep_proto::node::events::Topic::new("agents"));
                 hub.send(activity);
             }
             Ok(Ok(None)) => {}

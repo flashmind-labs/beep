@@ -3,6 +3,7 @@
 
 mod apply;
 mod fetch;
+mod git;
 mod list;
 mod scanning;
 mod shared;

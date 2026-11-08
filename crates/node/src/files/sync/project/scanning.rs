@@ -44,6 +44,7 @@ impl Task {
     }
 
     async fn try_scan(&mut self) -> Result<()> {
+        self.shared.check_ignored().await?;
         let checked = self.check_root().await?;
         let root = self.shared.root().to_owned();
         let checkout = {
@@ -58,7 +59,12 @@ impl Task {
         };
         let rules = {
             let root = root.clone();
-            spawn_blocking(move || Rules::load(&root)).await??
+            let ignored = self.shared.ignored.clone();
+            spawn_blocking(move || match ignored {
+                Some(scope) => scope.rules(&root),
+                None => Rules::load(&root),
+            })
+            .await??
         };
         // A repository created locally before any donor was selected is
         // already owned by Git and must never receive a raw Git copy.
@@ -105,18 +111,45 @@ impl Task {
         let repo_gone = repo.is_none();
         let refs = repo.unwrap_or_default();
         let git_only = self.shared.lock().saved.git_only;
-        let walked = {
+        let (mut walked, protected) = {
             let (root, rules) = (root.clone(), self.shared.rules.clone());
-            spawn_blocking(move || {
+            let cache = self.shared.file.with_extension("seed");
+            let protect_recovery = self.shared.recovery_enabled();
+            spawn_blocking(move || -> Result<_> {
                 let rules = read_lock(&rules);
                 if git_only {
-                    scan::walk_git(&root, &rules)
+                    let mut walked = scan::walk_git(&root, &rules)?;
+                    let repo = Repo::open(&root)
+                        .filter(|repo| protect_recovery || repo.has_recovery_backups());
+                    let protected = repo.is_some();
+                    if let Some(repo) = repo {
+                        walked
+                            .files
+                            .retain(|f| !f.path.starts_with(".git/objects/"));
+                        walked
+                            .files
+                            .extend(repo.seed_objects(&cache, &repo.refs()?)?);
+                    }
+                    Ok((walked, protected))
                 } else {
-                    scan::walk(&root, &rules, 0)
+                    Ok((scan::walk(&root, &rules, 0)?, false))
                 }
             })
             .await??
         };
+        *write_lock(&self.shared.bootstrap_paths) = protected.then(|| {
+            walked
+                .files
+                .iter()
+                .chain(refs.iter().map(|r| &r.found))
+                .map(|f| f.path.clone())
+                .collect()
+        });
+        if let Some(scope) = &self.shared.ignored {
+            walked.dirs.extend(scope.watch_dirs());
+            walked.dirs.sort();
+            walked.dirs.dedup();
+        }
         self.mode = self
             .watcher
             .set_dirs(self.shared.key, walked.dirs.clone())
@@ -158,9 +191,14 @@ impl Task {
             if self.shared.stop.is_cancelled() {
                 bail!("stopped");
             }
-            let imports = batch
-                .iter()
-                .map(|(found, _)| scan::import(&self.parts.store, found));
+            let cache = self.shared.file.with_extension("seed");
+            let imports = batch.iter().map(|(found, _)| async {
+                if found.abs.starts_with(&cache) {
+                    scan::import_copy(&self.parts.store, found).await
+                } else {
+                    scan::import(&self.parts.store, found).await
+                }
+            });
             for ((found, prior), imported) in batch.iter().zip(join_all(imports).await) {
                 match imported {
                     Ok(tag) => {
@@ -184,6 +222,7 @@ impl Task {
                 }
             }
         }
+        self.shared.check_ignored().await?;
         // HEAD last: a peer applying part of the list finds what it names.
         hashed.sort_by_key(|(found, ..)| gitdir::kind(&found.path) == Some(gitdir::Kind::Head));
         let first = self.first;
@@ -334,6 +373,7 @@ impl Task {
     }
 
     async fn try_send_deletes(&mut self, held: BTreeSet<String>) -> Result<()> {
+        self.shared.check_ignored().await?;
         let (saved, seen_any) = self.saved_root();
         let folder = self.shared.root.clone();
         let checked = {
