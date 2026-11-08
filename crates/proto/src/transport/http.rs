@@ -24,7 +24,7 @@
 //! user's devices are told, a `Heartbeat` every `HEARTBEAT` so proxies keep it
 //! open, and `?after=<id>` resumes after the last `AppEvent::Notice` read.
 
-use crate::{ApiError, Notice, Op, Platform, SecretText};
+use crate::{ApiError, Notice, Op, SecretText};
 use bytes::{BufMut, Bytes, BytesMut};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -39,11 +39,11 @@ pub const SESSION_PATH: &str = "/v1/session";
 /// `GET`, signed in: the `AppEvent` stream.
 pub const EVENTS_PATH: &str = "/v1/events";
 pub const CONTENT_TYPE: &str = "application/msgpack";
-/// Which app sends the request (`Platform::as_header`).
+/// Which app sends the request (`Platform`).
 pub const PLATFORM_HEADER: &str = "beep-platform";
 /// The app's own version, such as "0.1.0 (142)".
 pub const VERSION_HEADER: &str = "beep-version";
-/// On a 403 for the key itself: `Refusal::as_str`.
+/// On a 403 for the key itself: `Refusal`.
 pub const REFUSED_HEADER: &str = "beep-refused";
 
 /// How long a `SessionToken` is good for.
@@ -111,52 +111,28 @@ pub fn status(error: &ApiError) -> u16 {
     }
 }
 
-impl Platform {
-    pub fn as_header(self) -> &'static str {
-        match self {
-            Self::Android {} => "android",
-            Self::Ios {} => "ios",
-            Self::Macos {} => "macos",
-        }
-    }
-
-    pub fn from_header(text: &str) -> Option<Self> {
-        match text {
-            "android" => Some(Self::Android {}),
-            "ios" => Some(Self::Ios {}),
-            "macos" => Some(Self::Macos {}),
-            _ => None,
-        }
-    }
-}
-
 /// Why the server refuses the key itself, not one request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    thiserror::Error,
+    strum::AsRefStr,
+    strum::IntoStaticStr,
+    strum::EnumString,
+)]
 pub enum Refusal {
     /// The account removed this key.
     #[error("this device was removed from the account")]
+    #[strum(serialize = "revoked")]
     Revoked,
     /// A single-user server's key that is not one of its owner's. The owner
     /// links more devices with `LinkDevice`.
     #[error("this server is someone else's")]
+    #[strum(serialize = "not-invited")]
     NotInvited,
-}
-
-impl Refusal {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Revoked => "revoked",
-            Self::NotInvited => "not-invited",
-        }
-    }
-
-    pub fn parse(text: &str) -> Option<Self> {
-        match text {
-            "revoked" => Some(Self::Revoked),
-            "not-invited" => Some(Self::NotInvited),
-            _ => None,
-        }
-    }
 }
 
 /// What `SERVER_PATH` says.

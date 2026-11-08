@@ -54,9 +54,9 @@ pub(super) async fn resume(
 ) -> Result<()> {
     // Refused before a file is written: a full node would otherwise set the
     // session's transcript aside and then fail to start it.
-    let agent = Agent::from_name(&kind.name);
+    let agent = kind.name.parse::<Agent>().ok();
     let harness = agent
-        .and_then(Harness::of)
+        .and_then(|agent| Harness::try_from(agent).ok())
         .with_context(|| format!("{} sessions cannot move yet", kind.name))?;
     let stored = {
         let id = arrival.id.to_owned();
@@ -126,7 +126,7 @@ pub(super) async fn continue_here(
     id: &str,
     lost: Option<u64>,
 ) -> Result<()> {
-    if harness_of(agent.as_str()).is_none() {
+    if harness_of(agent.as_ref()).is_none() {
         bail!("{agent} sessions cannot be continued yet");
     }
     let Some(_going) = env.agents.moves.begin_continue(id) else {
@@ -146,9 +146,9 @@ pub(super) async fn continue_here(
     }
     let kind = env
         .agents
-        .named(agent.as_str())
+        .named(agent.as_ref())
         .with_context(|| format!("this machine has no {agent}"))?;
-    if Agent::from_name(&kind.name) == Some(Agent::Flsh) {
+    if kind.name.parse::<Agent>().ok() == Some(Agent::Flsh) {
         flsh::check(&kind, &env.name_of(&env.mesh.me())).await?;
     }
     let folders = continued_folders(env, &meta)?;
@@ -164,7 +164,7 @@ pub(super) async fn continue_here(
     // would set it aside where nothing lists it. If the session still does
     // not start, it goes back.
     let mut aside = None;
-    if let Some(harness) = harness_of(agent.as_str())
+    if let Some(harness) = harness_of(agent.as_ref())
         && let Some(local) = env.agents.transcript_file(harness, id).await
     {
         let (len, modified) = {

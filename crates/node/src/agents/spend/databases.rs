@@ -160,7 +160,7 @@ pub(super) fn flsh_file(
 /// The totals in the header of the flsh session file at `path`, when it
 /// has them.
 pub(super) fn flsh_counted(path: &Path) -> std::io::Result<Option<Counted>> {
-    Ok(flsh_header(path)?.map(|session| Counted::of(&session.totals)))
+    Ok(flsh_header(path)?.map(|session| Counted::from(&session.totals)))
 }
 
 fn flsh_header(path: &Path) -> std::io::Result<Option<FlshSession>> {
@@ -215,8 +215,8 @@ pub(super) struct Counted {
     cost: f64,
 }
 
-impl Counted {
-    fn of(totals: &FlshTotals) -> Self {
+impl From<&FlshTotals> for Counted {
+    fn from(totals: &FlshTotals) -> Self {
         Self {
             input: totals.input_tokens,
             cached: totals.cached_input_tokens.unwrap_or(0),

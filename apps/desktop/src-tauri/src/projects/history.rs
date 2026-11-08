@@ -13,6 +13,7 @@ use crate::{
 use beep_projects::history::{self, ChangedFile, CommitId, History, HistoryAsk};
 use beep_proto::node::{agent::DiffAsk, events::GitRead};
 use serde::Serialize;
+use std::str::FromStr;
 
 #[derive(Serialize)]
 pub struct HistoryView {
@@ -64,7 +65,7 @@ pub async fn project_git_history(
         )
         .await?
         .complete_output();
-    let revision = revision.as_deref().map(CommitId::parse).transpose()?;
+    let revision = revision.as_deref().map(CommitId::from_str).transpose()?;
     let ask = HistoryAsk {
         folder: &place.folder,
         revision: revision.as_ref(),
@@ -101,7 +102,7 @@ pub async fn project_git_files(
         )
         .await?
         .complete_output();
-    let id = CommitId::parse(&commit)?;
+    let id = CommitId::from_str(&commit)?;
     let mut parts = history::run(&shell, &history::files_script(&place.folder, &id)).await?;
     let files = parts.remove("files").ok_or_else(|| {
         DesktopError::BadRequest("Git did not list the changed files.".to_owned())
@@ -123,7 +124,7 @@ pub async fn project_git_diff(
     let shell = PeerShell::on(&fleet, place.machine)
         .await?
         .complete_output();
-    let id = CommitId::parse(&commit)?;
+    let id = CommitId::from_str(&commit)?;
     let mut parts = history::run(&shell, &history::patch_script(&place.folder, &id, &only)).await?;
     let patch = parts.remove("patch").ok_or_else(|| {
         DesktopError::BadRequest("Git did not return the commit diff.".to_owned())

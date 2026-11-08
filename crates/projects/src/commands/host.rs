@@ -145,7 +145,7 @@ impl HostCommand<'_> {
     pub fn render(&self, host: &IssueHost, repo: &RepoName) -> String {
         match host {
             IssueHost::Github => self.gh(&repo.to_string()),
-            IssueHost::Forgejo(host) => self.teacli(host.as_str(), &repo.to_string()),
+            IssueHost::Forgejo(host) => self.teacli(host.as_ref(), &repo.to_string()),
         }
     }
 

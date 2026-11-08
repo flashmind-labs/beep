@@ -289,7 +289,7 @@ impl Session {
             .filter(|_| known.is_some_and(|known| known.model_flag))
             .map(|model| format!("--model={model}"));
         let model = model.filter(|_| flag.is_none());
-        let policy = Policy::from_setting(kind.compact);
+        let policy = Policy::from(kind.compact);
         // An agent with its own auto-compaction is set to the same
         // threshold unless the user set it.
         let route = route(&kind.name);

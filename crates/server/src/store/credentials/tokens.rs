@@ -23,7 +23,7 @@ impl Store {
             "SELECT id, kind, provider, host_url, last4, created_at, secret FROM credentials
              WHERE user_id=$1 AND kind=$2 ORDER BY provider",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(AGENT_TOKEN)
         .fetch_all(&self.pool)
         .await?;
@@ -51,9 +51,9 @@ impl Store {
     ) -> Result<bool> {
         let done =
             sqlx::query("DELETE FROM credentials WHERE user_id=$1 AND kind=$2 AND provider=$3")
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .bind(AGENT_TOKEN)
-                .bind(agent.slug())
+                .bind(agent.as_ref())
                 .execute(&self.pool)
                 .await?;
         Ok(done.rows_affected() > 0)
@@ -69,7 +69,7 @@ impl Store {
             "SELECT {ACCOUNT}, secret FROM credentials WHERE user_id=$1 AND to_machines
              ORDER BY kind, is_default DESC, created_at, host_url, provider"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         let mut out = Vec::new();
@@ -78,7 +78,7 @@ impl Store {
             let sealed: Vec<u8> = row.try_get("secret")?;
             let opened = slot_from(row).and_then(|slot| {
                 let owner = Owner {
-                    user: user.as_str(),
+                    user: user.as_ref(),
                     slot: &slot,
                     id: &id,
                 };

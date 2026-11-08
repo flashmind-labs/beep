@@ -173,7 +173,7 @@ impl Store {
             session_columns(),
             listing.condition()
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(session).collect()
@@ -187,7 +187,7 @@ impl Store {
              WHERE m.user_id = $1 AND c.id = $2 AND c.kind = 'session'",
             session_columns()
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(chat)
         .fetch_optional(&self.pool)
         .await?;
@@ -214,7 +214,7 @@ impl Store {
             session_columns(),
             listing.condition()
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(format!("%{}%", like_pattern(query)))
         .bind(limit)
         .fetch_all(&self.pool)
@@ -320,7 +320,7 @@ impl Store {
             "SELECT c.id FROM chats c JOIN chat_members m ON m.chat_id = c.id
                  WHERE m.user_id = $1 AND c.kind = 'session' AND c.id = ANY($2) AND {SHOWN}"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(ids)
         .fetch_all(&self.pool)
         .await?)
@@ -338,7 +338,7 @@ impl Store {
              WHERE m.user_id = $1 AND c.kind = 'session' AND c.id = ANY($2)
              ORDER BY c.id FOR UPDATE OF c",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(ids)
         .fetch_all(&mut *tx)
         .await?;
@@ -366,7 +366,7 @@ impl Store {
              WHERE c.id = $1 AND m.user_id = $2 AND c.kind = 'session' FOR UPDATE OF c",
         )
         .bind(chat)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_optional(&mut *tx)
         .await?;
         if empty != Some(true) {
@@ -394,7 +394,7 @@ impl Store {
              WHERE s.chat_id = $1 AND m.user_id = $2 FOR UPDATE OF s",
         )
         .bind(chat)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_optional(&mut *tx)
         .await?;
         let Some(raw) = raw else {
@@ -482,7 +482,7 @@ impl Store {
         user: &UserKey,
         chat: Uuid,
     ) -> Result<Option<StoredContext>> {
-        self.context_of(user.as_str(), chat).await
+        self.context_of(user.as_ref(), chat).await
     }
 
     /// The context of a session the store picked for a sweep.

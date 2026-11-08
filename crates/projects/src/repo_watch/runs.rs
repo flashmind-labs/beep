@@ -78,7 +78,7 @@ impl Target {
     pub fn forgejo(user: &str, repo: RepoName, url: &ForgejoUrl, token: SecretString) -> Target {
         Target {
             api: Api::Forgejo,
-            base: format!("{}/api/v1", url.as_str()),
+            base: format!("{}/api/v1", url.as_ref()),
             repo,
             host: url.host(),
             token,
@@ -170,6 +170,7 @@ mod tests {
     use super::*;
     use crate::repo_watch::test_host::{Reply, TestHost};
     use beep_proto::RunState;
+    use std::str::FromStr;
     use std::sync::Arc;
     use tokio::sync::Semaphore;
 
@@ -177,7 +178,7 @@ mod tests {
         Target {
             api,
             base: base.to_owned(),
-            repo: RepoName::parse("acme/widget").expect("a repository name"),
+            repo: RepoName::from_str("acme/widget").expect("a repository name"),
             host: "git.example.com".to_owned(),
             token: SecretString::from("tok"),
             who: Who("alice git.example.com".to_owned()),

@@ -49,7 +49,7 @@ impl RepoOnHost {
 pub(crate) fn host_name(host: &IssueHost) -> String {
     match host {
         IssueHost::Github => "github.com".to_owned(),
-        IssueHost::Forgejo(server) => server.as_str().to_owned(),
+        IssueHost::Forgejo(server) => server.as_ref().to_owned(),
     }
 }
 
@@ -61,7 +61,7 @@ impl Tokens<'_> {
         self.0.iter().any(|opened| match (&opened.slot, host) {
             (Slot::GitHub, IssueHost::Github) => true,
             (Slot::Forgejo(url), IssueHost::Forgejo(server)) => {
-                url.hostname().eq_ignore_ascii_case(server.as_str())
+                url.hostname().eq_ignore_ascii_case(server.as_ref())
             }
             _ => false,
         })
@@ -88,7 +88,7 @@ fn repo_of_url(url: &str) -> Option<(IssueHost, RepoName)> {
     let mut parts = path.rsplit('/');
     let repo = parts.next()?;
     let owner = parts.next()?;
-    let name = RepoName::parse(&format!("{owner}/{repo}")).ok()?;
+    let name = format!("{owner}/{repo}").parse::<RepoName>().ok()?;
     Some((host, name))
 }
 
@@ -162,7 +162,7 @@ async fn places(user: &User, project: &ProjectRow) -> anyhow::Result<Vec<Place>>
         .into_iter()
         .map(|checkout| Place {
             machine: checkout.machine,
-            folder: checkout.path.as_str().to_owned(),
+            folder: checkout.path.as_ref().to_owned(),
         })
         .collect();
     let name = project.name.to_string();
@@ -172,11 +172,11 @@ async fn places(user: &User, project: &ProjectRow) -> anyhow::Result<Vec<Place>>
         }
         if let (Ok(machine), Ok(path)) = (
             import.endpoint.parse::<EndpointId>(),
-            MachinePath::parse(&import.folder),
+            import.folder.parse::<MachinePath>(),
         ) {
             places.push(Place {
                 machine,
-                folder: path.as_str().to_owned(),
+                folder: path.as_ref().to_owned(),
             });
         }
     }
@@ -274,7 +274,7 @@ mod tests {
     fn project(roles: Roles) -> ProjectRow {
         ProjectRow {
             id: crate::projects::model::ProjectId(uuid::Uuid::from_u128(1)),
-            name: RepoName::parse("acme/widget").expect("a name"),
+            name: "acme/widget".parse::<RepoName>().expect("a name"),
             roles,
             visibility: Visibility::Public,
             default_branch: "main".to_owned(),
@@ -291,7 +291,11 @@ mod tests {
     }
 
     fn forge() -> IssueHost {
-        IssueHost::Forgejo(ForgejoHost::parse("forge.example.com").expect("a host"))
+        IssueHost::Forgejo(
+            ("forge.example.com")
+                .parse::<ForgejoHost>()
+                .expect("a host"),
+        )
     }
 
     #[test]

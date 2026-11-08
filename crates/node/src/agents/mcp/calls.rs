@@ -2,7 +2,7 @@
 //! title it by the tool's name alone, so the node words it from its arguments,
 //! such as `Beep: Run on build-box: cargo test`; the apps read it back.
 
-use super::{SERVER_NAME, catalog::ASK_USER};
+use super::SERVER_NAME;
 use serde_json::{Map, Value};
 
 /// What every title of a `beep` call starts with.
@@ -22,11 +22,14 @@ pub(crate) const PREFIX: &str = "Beep: ";
 /// - `Ask: <question>`
 /// - `Review changes`, `Review changes against <base>`, `Check review <id>`
 /// - `Submit review`
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString)]
+#[strum(serialize_all = "snake_case")]
 pub(crate) enum Tool {
     ListMachines,
     HarnessInfo,
+    #[strum(serialize = "read_session_transcript")]
     ReadTranscript,
+    #[strum(serialize = "remote_run")]
     RunOn,
     SyncProject,
     SendFiles,
@@ -43,34 +46,11 @@ pub(crate) enum Tool {
 }
 
 impl Tool {
-    /// The tool by its name in `tools/list`.
-    fn named(name: &str) -> Option<Self> {
-        Some(match name {
-            "list_machines" => Self::ListMachines,
-            "harness_info" => Self::HarnessInfo,
-            "read_session_transcript" => Self::ReadTranscript,
-            "remote_run" => Self::RunOn,
-            "sync_project" => Self::SyncProject,
-            "send_files" => Self::SendFiles,
-            "job_status" => Self::JobStatus,
-            "cancel" => Self::Cancel,
-            "start_agent" => Self::StartAgent,
-            "agent_status" => Self::AgentStatus,
-            "send_to_agent" => Self::SendToAgent,
-            "stop_agent" => Self::StopAgent,
-            "list_agents" => Self::ListAgents,
-            ASK_USER => Self::AskUser,
-            "review" => Self::Review,
-            "submit_review" => Self::SubmitReview,
-            _ => return None,
-        })
-    }
-
     /// The tool a Claude Code tool name calls: `mcp__beep__remote_run`.
     pub(crate) fn of_name(name: &str) -> Option<Self> {
         let rest = name.strip_prefix("mcp__")?;
         let tool = rest.strip_prefix(SERVER_NAME)?.strip_prefix("__")?;
-        Self::named(tool)
+        tool.parse().ok()
     }
 
     /// The tool an ACP tool call runs, from Claude Code's `_meta`, its
@@ -87,7 +67,7 @@ impl Tool {
             .and_then(Self::of_name);
         named
             .or_else(|| Self::of_title(title))
-            .or_else(|| Self::of_input(input?))
+            .or_else(|| Self::try_from(input?).ok())
     }
 
     fn of_title(title: &str) -> Option<Self> {
@@ -99,18 +79,11 @@ impl Tool {
         if let Some(rest) = bare.strip_prefix(SERVER_NAME)
             && let Some(tool) = rest.strip_prefix('/').or_else(|| rest.strip_prefix('.'))
         {
-            return Self::named(tool);
+            return tool.parse().ok();
         }
         let (tool, server) = title.split_once(" (")?;
         let server = server.strip_suffix(" MCP Server)")?;
-        (server == SERVER_NAME).then(|| Self::named(tool)).flatten()
-    }
-
-    fn of_input(input: &Value) -> Option<Self> {
-        if input.get("server")?.as_str()? != SERVER_NAME {
-            return None;
-        }
-        Self::named(input.get("tool")?.as_str()?)
+        (server == SERVER_NAME).then(|| tool.parse().ok()).flatten()
     }
 
     /// The call's title, from its arguments as far as they have come.
@@ -183,6 +156,21 @@ impl Tool {
         }
         .trim_end()
         .to_owned()
+    }
+}
+
+impl TryFrom<&Value> for Tool {
+    type Error = strum::ParseError;
+
+    fn try_from(input: &Value) -> Result<Self, Self::Error> {
+        if input.get("server").and_then(Value::as_str) != Some(SERVER_NAME) {
+            return Err(strum::ParseError::VariantNotFound);
+        }
+        input
+            .get("tool")
+            .and_then(Value::as_str)
+            .ok_or(strum::ParseError::VariantNotFound)?
+            .parse()
     }
 }
 

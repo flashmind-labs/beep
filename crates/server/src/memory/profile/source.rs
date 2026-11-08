@@ -41,7 +41,7 @@ impl Source {
     /// The key of its read in the store.
     pub fn key(self) -> &'static str {
         match self {
-            Source::Mail(mailbox) => mailbox.slug(),
+            Source::Mail(mailbox) => Into::<&'static str>::into(mailbox),
             Source::Calendar(Calendar::Google) => "googlecalendar",
             Source::Calendar(Calendar::Outlook) => "outlook-calendar",
             Source::Calendar(Calendar::Fastmail) => "fastmail-calendar",

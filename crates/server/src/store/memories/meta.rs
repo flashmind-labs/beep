@@ -6,6 +6,7 @@ use super::{
     UPDATED, USER, VALID_FROM, VALID_UNTIL,
 };
 use crate::{account::user::UserKey, protocol::MemorySource};
+use anyhow::{Error, anyhow};
 use chrono::{Days, Utc};
 use flashmind::memory::{MemoryRecord, MemorySearchResult};
 use std::collections::HashMap;
@@ -40,7 +41,7 @@ impl<'a> Meta<'a> {
     /// The metadata of `row`, kept by `user` and last changed at `updated`.
     pub(super) fn of(user: &'a UserKey, row: &'a MemoryRow, updated: &'a str) -> Self {
         Self {
-            user: user.as_str(),
+            user: user.as_ref(),
             category: &row.category,
             source: row.source,
             valid: row.valid,
@@ -55,7 +56,7 @@ impl<'a> Meta<'a> {
         let mut pairs = vec![
             (USER, self.user.to_owned()),
             (CATEGORY, self.category.to_owned()),
-            (SOURCE, self.source.as_str().to_owned()),
+            (SOURCE, self.source.as_ref().to_owned()),
             (UPDATED, self.updated.to_owned()),
         ];
         if let Some(from) = format_date(self.valid.from) {
@@ -92,7 +93,12 @@ pub(super) fn row_from(id: String, content: String, meta: &[(String, String)]) -
         id,
         content,
         category: meta.get(CATEGORY).unwrap_or(&UNFILED).to_string(),
-        source: MemorySource::parse(meta.get(SOURCE).unwrap_or(&"user")),
+        source: meta
+            .get(SOURCE)
+            .copied()
+            .unwrap_or("user")
+            .parse::<MemorySource>()
+            .unwrap_or(MemorySource::Learned {}),
         updated_at: meta.get(UPDATED).unwrap_or(&"").to_string(),
         valid: Validity {
             from: date(VALID_FROM),
@@ -103,21 +109,30 @@ pub(super) fn row_from(id: String, content: String, meta: &[(String, String)]) -
             quote: meta.get(QUOTE).map(|quote| quote.to_string()),
         }),
         core: meta.get(CORE) == Some(&"1"),
-        scope: Scope::from_stored(meta.get(SCOPE).copied()),
+        scope: Scope::from(meta.get(SCOPE).copied()),
     }
 }
 
-pub(super) fn from_record(record: MemoryRecord) -> MemoryRow {
-    row_from(record.id, record.content, &record.meta)
+impl From<MemoryRecord> for MemoryRow {
+    fn from(record: MemoryRecord) -> Self {
+        row_from(record.id, record.content, &record.meta)
+    }
 }
 
-pub(super) fn from_result(result: MemorySearchResult) -> Option<Scored> {
-    Some(Scored {
-        score: result.score,
-        row: row_from(result.id?, result.content, &result.meta),
-    })
+impl TryFrom<MemorySearchResult> for Scored {
+    type Error = Error;
+
+    fn try_from(result: MemorySearchResult) -> Result<Self, Self::Error> {
+        let id = result
+            .id
+            .ok_or_else(|| anyhow!("memory search result has no id"))?;
+        Ok(Self {
+            score: result.score,
+            row: row_from(id, result.content, &result.meta),
+        })
+    }
 }
 
 pub(super) fn owned_by(record: &MemoryRecord, user: &UserKey) -> bool {
-    meta_map(&record.meta).get(USER) == Some(&user.as_str())
+    meta_map(&record.meta).get(USER) == Some(&user.as_ref())
 }

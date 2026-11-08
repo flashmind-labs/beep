@@ -70,7 +70,7 @@ impl Store {
              WHERE user_id=$1 AND day >= date_trunc('week', t.today)::date AND day <= t.today
              GROUP BY endpoint_id, cwd, agent, day = t.today"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         rows.iter()
@@ -94,7 +94,7 @@ impl Store {
             "SELECT agent, model, tokens FROM agent_model_usage
              WHERE user_id=$1 AND day = {TODAY} ORDER BY tokens DESC"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         rows.iter()
@@ -114,7 +114,7 @@ impl Store {
             "SELECT agent, endpoint_id, plan, windows, read_at FROM plan_usage
              WHERE user_id=$1 ORDER BY agent",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         rows.iter()

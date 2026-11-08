@@ -101,9 +101,9 @@ fn what_an_agent_reads_of_a_child_says_when_it_waits_on_the_user() {
 
 #[test]
 fn a_childs_id_names_its_machine() {
-    let id = ChildId::parse(" a3f9c1@build-box ");
+    let id = ChildId::from(" a3f9c1@build-box ");
     assert_eq!((id.session, id.machine), ("a3f9c1", Some("build-box")));
-    let id = ChildId::parse("a3f9c1");
+    let id = ChildId::from("a3f9c1");
     assert_eq!((id.session, id.machine), ("a3f9c1", None));
 }
 
@@ -286,7 +286,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     assert!(!failed, "{text}");
     let done = view(&text);
     assert_eq!(
-        (done.state.as_str(), done.harness.as_str()),
+        (done.state.as_str(), done.harness.as_ref()),
         ("idle", "kid")
     );
     assert_eq!(done.turns, 1);

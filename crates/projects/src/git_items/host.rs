@@ -1,6 +1,7 @@
 //! One git host API call with a user's token, and its failure in plain words.
 
-use beep_proto::GitItem;
+use super::access::{Repo, RepoUrlError};
+use beep_proto::{GitItem, GitItemKind, GitReview, ProjectIssue};
 use reqwest::{Client, Response, StatusCode, header, header::HeaderMap};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -36,6 +37,34 @@ pub struct Found {
     pub labels: Vec<String>,
     /// When the host says it was created. Not part of `GitItem`, whose bytes released apps read.
     pub opened_at: Option<SystemTime>,
+}
+
+impl TryFrom<&ProjectIssue> for Found {
+    type Error = RepoUrlError;
+
+    fn try_from(issue: &ProjectIssue) -> Result<Self, Self::Error> {
+        let Repo { host, name: repo } = Repo::try_from(issue.url.as_str())?;
+        Ok(Self {
+            item: GitItem {
+                host,
+                repo,
+                number: issue.number,
+                kind: GitItemKind::Issue {},
+                title: issue.title.clone(),
+                url: issue.url.clone(),
+                updated_at: issue.opened_at,
+                authored: false,
+                assigned: false,
+                review_requested: false,
+                draft: false,
+                review: GitReview::None {},
+                checks_failing: false,
+                comments: issue.comments,
+            },
+            labels: issue.labels.clone(),
+            opened_at: Some(issue.opened_at),
+        })
+    }
 }
 
 /// A label as GitHub and Forgejo give it on an issue.

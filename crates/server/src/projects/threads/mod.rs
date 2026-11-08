@@ -223,7 +223,8 @@ pub(crate) async fn list(
 /// `repo` checked to be `project`'s, as it is kept: lowercase.
 pub(crate) fn project_repo(project: &ProjectRow, repo: &str) -> Result<String, IssueError> {
     let name = project.name.to_string().to_ascii_lowercase();
-    let asked = RepoName::parse(repo.trim())
+    let asked = (repo.trim())
+        .parse::<RepoName>()
         .map_err(|_| {
             IssueError::from(SourceError::Refused(format!(
                 "{repo} is not an org/repo name."

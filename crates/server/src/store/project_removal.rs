@@ -56,7 +56,7 @@ pub(super) async fn remove_project_rows(
         "SELECT id FROM projects WHERE user_id=$1 AND lower(name)=lower($2)
          ORDER BY id FOR UPDATE",
     )
-    .bind(user.as_str())
+    .bind(user.as_ref())
     .bind(name)
     .fetch_all(&mut *tx)
     .await?;
@@ -89,14 +89,14 @@ pub(super) async fn remove_project_rows(
         .await?;
     let imports =
         sqlx::query("DELETE FROM project_imports WHERE user_id=$1 AND lower(project)=lower($2)")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(name)
             .execute(&mut *tx)
             .await?
             .rows_affected();
     let synced =
         sqlx::query("DELETE FROM project_sync WHERE user_id=$1 AND lower(project)=lower($2)")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(name)
             .execute(&mut *tx)
             .await?
@@ -105,7 +105,7 @@ pub(super) async fn remove_project_rows(
         sqlx::query(&format!(
             "DELETE FROM {table} WHERE user_id=$1 AND lower(project)=lower($2)"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(name)
         .execute(&mut *tx)
         .await?;
@@ -115,7 +115,7 @@ pub(super) async fn remove_project_rows(
          RETURNING {}",
         terminals::COLUMNS
     ))
-    .bind(user.as_str())
+    .bind(user.as_ref())
     .bind(name)
     .fetch_all(&mut *tx)
     .await?
@@ -128,7 +128,7 @@ pub(super) async fn remove_project_rows(
          WHERE r.user_id=$1 AND lower(r.project)=lower($2) AND s.state = 'reading'
          ORDER BY r.id, s.shard",
     )
-    .bind(user.as_str())
+    .bind(user.as_ref())
     .bind(name)
     .fetch_all(&mut *tx)
     .await?
@@ -143,7 +143,7 @@ pub(super) async fn remove_project_rows(
     .collect::<Result<Vec<_>>>()?;
     let reviews =
         sqlx::query("DELETE FROM branch_reviews WHERE user_id=$1 AND lower(project)=lower($2)")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(name)
             .execute(&mut *tx)
             .await?
@@ -201,7 +201,7 @@ mod tests {
     async fn make(store: &Store, user: &UserKey, name: &str) -> Made {
         let machine = SecretKey::generate().public();
         let endpoint = machine.to_string();
-        let repo = RepoName::parse(name).expect("a repo name");
+        let repo = name.parse::<RepoName>().expect("a repo name");
         let project = store.ensure_project(user, &repo).await.expect("made").id;
         let agent = store
             .ensure_project_agent(user, project)
@@ -229,7 +229,7 @@ mod tests {
                 project,
                 &CheckoutRow {
                     machine,
-                    path: MachinePath::parse("/srv/code").expect("a path"),
+                    path: "/srv/code".parse::<MachinePath>().expect("a path"),
                     home: true,
                 },
             )
@@ -240,7 +240,7 @@ mod tests {
             "INSERT INTO project_dismissed_issues (project_id, host, number) VALUES ($1, $2, 3)",
         )
         .bind(project.0)
-        .bind(IssueHost::Github.stored())
+        .bind(String::from(&IssueHost::Github))
         .execute(&store.pool)
         .await
         .expect("dismissed");
@@ -265,7 +265,7 @@ mod tests {
         .bind(Uuid::new_v4())
         .bind(task.0)
         .bind(project.0)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(&endpoint)
         .execute(&store.pool)
         .await
@@ -304,7 +304,7 @@ mod tests {
              VALUES ($1, $2, $3, $4, 4, 'dev', 'npm run dev', '/srv/code')",
         )
         .bind(Uuid::new_v4())
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(name)
         .bind(&endpoint)
         .execute(&store.pool)
@@ -317,7 +317,7 @@ mod tests {
              VALUES ($1, $2, $3, 'fix', 'main', $4, '/srv/code', 'abc', 'def', now(), 1, 1)",
         )
         .bind(review)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(name)
         .bind(&endpoint)
         .execute(&store.pool)
@@ -373,7 +373,7 @@ mod tests {
             let n: i64 = sqlx::query_scalar(&format!(
                 "SELECT count(*) FROM {table} WHERE user_id=$1 AND project=$2"
             ))
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(name)
             .fetch_one(&store.pool)
             .await
@@ -384,7 +384,7 @@ mod tests {
             "SELECT count(*) FROM branch_review_shards s JOIN branch_reviews r ON r.id = s.review_id
              WHERE r.user_id=$1",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_one(&store.pool)
         .await
         .expect("counted");

@@ -85,7 +85,7 @@ impl App {
                         log::error!("unable to persist failure: {error}; run_id={}", run.id);
                     }
                     live.push(RunEvent::RunFinished {
-                        status: RunStatus::Failed.as_str().to_owned(),
+                        status: RunStatus::Failed.as_ref().to_owned(),
                         updated_at: None,
                     });
                 }

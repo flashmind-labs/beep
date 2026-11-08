@@ -41,7 +41,7 @@ impl Store {
             "SELECT name, config, credentials, url, label, sign_in, tools FROM mcp_servers
              WHERE user_id=$1 ORDER BY created_at, name",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter()
@@ -77,7 +77,7 @@ impl Store {
                  sign_in=excluded.sign_in
              WHERE mcp_servers.url IS NOT NULL",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(name)
         .bind(&custom.url)
         .bind(&custom.label)
@@ -92,7 +92,7 @@ impl Store {
         sqlx::query(
             "UPDATE mcp_servers SET sign_in = TRUE WHERE user_id=$1 AND name=$2 AND url IS NOT NULL",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(name)
         .execute(&self.pool)
         .await?;
@@ -109,7 +109,7 @@ impl Store {
         sqlx::query(
             "UPDATE mcp_servers SET tools = $3 WHERE user_id=$1 AND name=$2 AND url IS NOT NULL",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(name)
         .bind(tools)
         .execute(&self.pool)
@@ -127,7 +127,7 @@ impl Store {
         sqlx::query(
             "UPDATE mcp_servers SET label = $3 WHERE user_id=$1 AND name=$2 AND url IS NULL",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(name)
         .bind(address)
         .execute(&self.pool)
@@ -146,7 +146,7 @@ impl Store {
             "INSERT INTO mcp_servers (user_id, name, config) VALUES ($1, $2, $3)
              ON CONFLICT (user_id, name) DO UPDATE SET config=excluded.config",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(name)
         .bind(config)
         .execute(&self.pool)
@@ -166,7 +166,7 @@ impl Store {
             "INSERT INTO mcp_servers (user_id, name, credentials) VALUES ($1, $2, $3)
              ON CONFLICT (user_id, name) DO UPDATE SET credentials=excluded.credentials",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(name)
         .bind(credentials)
         .execute(&self.pool)
@@ -177,14 +177,17 @@ impl Store {
     /// Every app the user set permissions for; unknown levels read as `Ask`.
     pub(crate) async fn app_permissions(&self, user: &UserKey) -> Result<Vec<AppPermissionRow>> {
         let rows = sqlx::query("SELECT app, level, allowed FROM app_permissions WHERE user_id=$1")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .fetch_all(&self.pool)
             .await?;
         rows.into_iter()
             .map(|r| {
                 Ok(AppPermissionRow {
                     app: r.try_get(0)?,
-                    level: PermissionLevel::parse(r.try_get(1)?).unwrap_or(PermissionLevel::Ask {}),
+                    level: r
+                        .try_get::<&str, _>(1)?
+                        .parse::<PermissionLevel>()
+                        .unwrap_or(PermissionLevel::Ask {}),
                     allowed: r.try_get(2)?,
                 })
             })
@@ -200,9 +203,9 @@ impl Store {
             "INSERT INTO app_permissions (user_id, app, level, allowed) VALUES ($1, $2, $3, $4)
              ON CONFLICT (user_id, app) DO UPDATE SET level=excluded.level, allowed=excluded.allowed",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(&row.app)
-        .bind(row.level.as_str())
+        .bind(row.level.as_ref())
         .bind(&row.allowed)
         .execute(&self.pool)
         .await?;
@@ -211,7 +214,7 @@ impl Store {
 
     pub(crate) async fn delete_mcp_server(&self, user: &UserKey, name: &str) -> Result<bool> {
         let deleted = sqlx::query("DELETE FROM mcp_servers WHERE user_id=$1 AND name=$2")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(name)
             .execute(&self.pool)
             .await?

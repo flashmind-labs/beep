@@ -93,7 +93,7 @@ impl From<ReviewPr> for PrView {
         Self {
             number: pr.number,
             url: pr.url,
-            checks: pr.checks.into(),
+            checks: Into::<&'static str>::into(pr.checks),
         }
     }
 }
@@ -119,7 +119,7 @@ impl From<ReviewShard> for ShardView {
             _ => String::new(),
         };
         Self {
-            state: (&s.state).into(),
+            state: Into::<&'static str>::into(&s.state),
             note,
             area: s.area,
             files: s.files,
@@ -156,12 +156,12 @@ impl From<ReviewFinding> for FindingView {
         Self {
             id: f.id,
             area: f.area,
-            severity: f.severity.into(),
+            severity: Into::<&'static str>::into(f.severity),
             title: f.title,
             file: f.file,
             line: f.line,
             why: f.why,
-            verdict: (&f.verdict).into(),
+            verdict: Into::<&'static str>::into(&f.verdict),
             dropped_why,
             dismissed: f.dismissed,
         }
@@ -192,7 +192,7 @@ pub struct ReviewView {
 
 impl From<BranchReview> for ReviewView {
     fn from(r: BranchReview) -> Self {
-        let merge: &'static str = (&r.merge).into();
+        let merge = Into::<&'static str>::into(&r.merge);
         let conflicts = match r.merge {
             ReviewMerge::Conflicts { files } => files,
             _ => Vec::new(),
@@ -233,7 +233,7 @@ impl From<ProjectTask> for FixView {
             id: t.id,
             slug: t.slug,
             title: t.title,
-            state: t.state.into(),
+            state: Into::<&'static str>::into(t.state),
         }
     }
 }

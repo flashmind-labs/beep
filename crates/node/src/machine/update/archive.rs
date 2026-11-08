@@ -40,7 +40,7 @@ pub(super) fn unpack(target: Target, archive: &str, packed: &[u8]) -> Result<Vec
         archive: archive.to_owned(),
         source,
     };
-    let found = match target.format() {
+    let found = match Format::from(target) {
         Format::TarGz => untar(packed, target.binary()),
         Format::Zip => unzip(packed, target.binary()),
     }

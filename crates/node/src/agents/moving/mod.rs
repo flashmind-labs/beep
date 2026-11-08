@@ -83,16 +83,18 @@ pub(crate) enum Harness {
     Flsh,
 }
 
-impl Harness {
+impl TryFrom<Agent> for Harness {
+    type Error = Agent;
+
     /// The harness for `agent`; `None` for those that keep sessions in a
     /// database.
-    pub(crate) fn of(agent: Agent) -> Option<Self> {
+    fn try_from(agent: Agent) -> Result<Self, Self::Error> {
         match agent {
-            Agent::Claude => Some(Self::Claude),
-            Agent::Codex => Some(Self::Codex),
-            Agent::Pi => Some(Self::Pi),
-            Agent::Flsh => Some(Self::Flsh),
-            Agent::OpenCode => None,
+            Agent::Claude => Ok(Self::Claude),
+            Agent::Codex => Ok(Self::Codex),
+            Agent::Pi => Ok(Self::Pi),
+            Agent::Flsh => Ok(Self::Flsh),
+            Agent::OpenCode => Err(agent),
         }
     }
 }

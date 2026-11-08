@@ -147,7 +147,7 @@ impl Connected {
         let id = id
             .parse()
             .map_err(|_| bad_request("Invalid machine identity"))?;
-        if id == self.mesh.me() || !self.mesh.is_member(id) {
+        if id == self.mesh.me() || !self.mesh.is_member(id) || self.mesh.is_observer(id) {
             return Err(BeepError::NotFound);
         }
         beep_mesh::with_deadline(id, &self.mesh)

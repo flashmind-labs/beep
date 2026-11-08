@@ -13,18 +13,22 @@ use serde_json::{Value, json};
 pub(crate) const NAME: &str = "skill";
 
 /// What a `skill` call does, by its `action`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString, strum::IntoStaticStr)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    strum::EnumString,
+    strum::IntoStaticStr,
+    strum::AsRefStr,
+    strum::Display,
+)]
 #[strum(serialize_all = "snake_case")]
 enum Action {
     View,
     Create,
     Update,
-}
-
-impl Action {
-    fn as_str(self) -> &'static str {
-        self.into()
-    }
 }
 
 pub(crate) struct SkillTool {
@@ -62,7 +66,7 @@ impl Tool for SkillTool {
         }
     }
     fn parameters(&self) -> Value {
-        let actions: Vec<&str> = self.actions().iter().map(|a| a.as_str()).collect();
+        let actions: Vec<&str> = self.actions().iter().map(|a| a.as_ref()).collect();
         let mut properties = json!({
             "action": {"type": "string", "enum": actions},
             "name": {"type": "string", "description": "The skill's name as listed, or a new one's."}
@@ -98,7 +102,7 @@ impl Tool for SkillTool {
             Ok(action) => {
                 return Ok(ToolResult::failure(
                     ctx.tool_call_id,
-                    format!("skill {} is not available here.", action.as_str()),
+                    format!("skill {} is not available here.", action.as_ref()),
                 ));
             }
             Err(error) => return Ok(ToolResult::failure(ctx.tool_call_id, error.to_string())),

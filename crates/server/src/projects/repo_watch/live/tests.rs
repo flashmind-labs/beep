@@ -30,15 +30,19 @@ const JOBS: &str = r#"{"jobs": [{"id": 9, "name": "Build", "status": "completed"
 fn github() -> RepoOnHost {
     RepoOnHost {
         host: IssueHost::Github,
-        repo: RepoName::parse("acme/widget").expect("a name"),
+        repo: "acme/widget".parse::<RepoName>().expect("a name"),
         primary: true,
     }
 }
 
 fn forge() -> RepoOnHost {
     RepoOnHost {
-        host: IssueHost::Forgejo(ForgejoHost::parse("forge.example.com").expect("a host")),
-        repo: RepoName::parse("mirrors/widget").expect("a name"),
+        host: IssueHost::Forgejo(
+            ("forge.example.com")
+                .parse::<ForgejoHost>()
+                .expect("a host"),
+        ),
+        repo: "mirrors/widget".parse::<RepoName>().expect("a name"),
         primary: false,
     }
 }
@@ -227,7 +231,11 @@ async fn a_run_opened_on_the_mirror_is_read_from_the_mirror() {
             .any(|seen| seen.path == "/repos/mirrors/widget/actions/runs/77/jobs?limit=50&page=1")
     );
     // A host the project is not on has no slot.
-    let other = IssueHost::Forgejo(ForgejoHost::parse("elsewhere.example.com").expect("a host"));
+    let other = IssueHost::Forgejo(
+        ("elsewhere.example.com")
+            .parse::<ForgejoHost>()
+            .expect("a host"),
+    );
     assert_eq!(copy.slot_of(Some(&other)), None);
 }
 

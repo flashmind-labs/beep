@@ -116,7 +116,7 @@ async fn pass(env: &Env) -> Result<()> {
     let me = env.mesh.me();
     let peers: Vec<EndpointId> = env
         .mesh
-        .devices()
+        .code_hosts()
         .into_iter()
         .filter(|status| status.online && status.device.id != me)
         .map(|status| status.device.id)
@@ -192,7 +192,7 @@ async fn from_peer(
         if *fetched >= MAX_FETCHES || busy(env) {
             break;
         }
-        if harness_of(offer.agent.as_str()).is_none() {
+        if harness_of(offer.agent.as_ref()).is_none() {
             continue;
         }
         if !is_recent(offer.last_activity, now) || !projects.iter().any(|p| p.name == offer.project)
@@ -563,7 +563,7 @@ async fn locals(env: &Env) -> Locals {
     let seen = env.agents.sightings().await.unwrap_or_default();
     Locals(
         seen.into_iter()
-            .filter(|one| harness_of(one.agent.as_str()).is_some())
+            .filter(|one| harness_of(one.agent.as_ref()).is_some())
             .filter_map(|one| Some((one.id, one.file?)))
             .collect(),
     )

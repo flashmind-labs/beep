@@ -34,32 +34,17 @@ ffi_enum! {
     /// Who a memory came from: the user saying so, Beep picking it up from a
     /// chat, or Beep reading it in the user's email or Slack.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(strum::AsRefStr, strum::IntoStaticStr)]
+    #[derive(strum::EnumString)]
     pub enum MemorySource {
+        #[strum(serialize = "user")]
         0 User {}
+        #[strum(serialize = "learned")]
         1 Learned {}
+        #[strum(serialize = "email")]
         2 Email {}
+        #[strum(serialize = "slack")]
         3 Slack {}
-    }
-}
-
-impl MemorySource {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::User {} => "user",
-            Self::Learned {} => "learned",
-            Self::Email {} => "email",
-            Self::Slack {} => "slack",
-        }
-    }
-
-    /// Reads `as_str`; anything else, including the old `auto`, is learned.
-    pub fn parse(text: &str) -> Self {
-        match text {
-            "user" => Self::User {},
-            "email" => Self::Email {},
-            "slack" => Self::Slack {},
-            _ => Self::Learned {},
-        }
     }
 }
 

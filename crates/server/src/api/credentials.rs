@@ -39,7 +39,7 @@ pub(super) async fn save_credential(
         to_machines,
     }: SaveCredential,
 ) -> Reply<Credential> {
-    let slot = Slot::from_wire(&kind).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let slot = Slot::try_from(&kind).map_err(|e| ApiError::bad_request(e.to_string()))?;
     let secret = trimmed(&secret)?;
     if slot == Slot::GitHub {
         // An app from before several accounts replaces the default one.

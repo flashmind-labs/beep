@@ -2,7 +2,6 @@
 
 use super::{PlanEntry, WorkPlace};
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
 /// A git checkout coding agents worked in, as `SessionsRequest::Folders`
 /// finds it.
@@ -119,46 +118,36 @@ pub enum Steer {
 /// Whether anything runs an external session now.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[derive(strum::AsRefStr, strum::IntoStaticStr, strum::Display)]
 pub enum Presence {
     /// Its process runs a turn.
+    #[strum(serialize = "working")]
     Working,
     /// Its process waits for the user.
+    #[strum(serialize = "waiting for the user")]
     Waiting,
     /// Its process runs; what it does is not known.
+    #[strum(serialize = "running")]
     Running,
     /// No process was found, but its transcript changed a moment ago.
+    #[strum(serialize = "active a moment ago")]
     Recent,
     /// Nothing runs it.
+    #[strum(serialize = "stopped")]
     Stopped,
     #[default]
     #[serde(other)]
+    #[strum(serialize = "unknown")]
     Unknown,
 }
 
 impl Presence {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Working => "working",
-            Self::Waiting => "waiting for the user",
-            Self::Running => "running",
-            Self::Recent => "active a moment ago",
-            Self::Stopped => "stopped",
-            Self::Unknown => "unknown",
-        }
-    }
-
     /// A process may run it, so taking it over could clash.
     pub fn is_live(self) -> bool {
         matches!(
             self,
             Self::Working | Self::Waiting | Self::Running | Self::Recent
         )
-    }
-}
-
-impl fmt::Display for Presence {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
     }
 }
 
@@ -177,27 +166,21 @@ pub struct Activity {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
+#[derive(strum::AsRefStr, strum::IntoStaticStr)]
 pub enum ActivityKind {
     /// A turn ended.
+    #[strum(serialize = "finished a turn")]
     TurnDone,
     /// It waits for the user: a permission prompt or an idle prompt.
+    #[strum(serialize = "is waiting for the user")]
     NeedsInput,
     /// A process started or resumed it.
+    #[strum(serialize = "started")]
     Started,
     /// Its process ended.
+    #[strum(serialize = "ended")]
     Ended,
     #[serde(other)]
+    #[strum(serialize = "changed")]
     Other,
-}
-
-impl ActivityKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::TurnDone => "finished a turn",
-            Self::NeedsInput => "is waiting for the user",
-            Self::Started => "started",
-            Self::Ended => "ended",
-            Self::Other => "changed",
-        }
-    }
 }

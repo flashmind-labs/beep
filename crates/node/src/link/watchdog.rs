@@ -24,26 +24,21 @@ const BEAT: Duration = Duration::from_secs(5);
 const AGAIN: Duration = Duration::from_secs(300);
 
 /// A step the node has hung in before.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, strum::Display)]
 pub(crate) enum Step {
     /// A `beep-node mesh` command on the control socket.
+    #[strum(serialize = "a mesh command on the control socket")]
     MeshCommand,
     /// Writing down what is open, for the next start.
+    #[strum(serialize = "the note of open sessions")]
     OpenNote,
     /// Applying the projects the mesh syncs.
+    #[strum(serialize = "applying the mesh's sync set")]
     SyncApply,
 }
 
 impl Step {
     const ALL: [Step; 3] = [Step::MeshCommand, Step::OpenNote, Step::SyncApply];
-
-    fn as_str(self) -> &'static str {
-        match self {
-            Step::MeshCommand => "a mesh command on the control socket",
-            Step::OpenNote => "the note of open sessions",
-            Step::SyncApply => "applying the mesh's sync set",
-        }
-    }
 }
 
 /// How many run, and since when the first of them, in ms from `START`.
@@ -146,7 +141,7 @@ fn stalls(now: u64) -> Option<String> {
         }
         let waited = now.saturating_sub(busy.since_ms.load(Ordering::Relaxed));
         if waited >= stall {
-            what.push(format!("{} has run for {}s", step.as_str(), waited / 1000));
+            what.push(format!("{step} has run for {}s", waited / 1000));
         }
     }
     (!what.is_empty()).then(|| what.join("; "))

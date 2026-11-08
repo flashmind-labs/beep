@@ -250,6 +250,7 @@ mod tests {
     use super::*;
     use crate::model::ForgejoHost;
     use serde_json::json;
+    use std::str::FromStr;
 
     #[test]
     fn a_github_pull_request_reads_with_reviews_and_checks() {
@@ -293,7 +294,7 @@ mod tests {
             "pull_request": {"merged": true, "draft": false},
         });
         let comments = json!([{"user": {"login": "alice"}, "created_at": "2026-10-30T10:00:00Z", "body": "Thanks"}]);
-        let host = IssueHost::Forgejo(ForgejoHost::parse("git.example.com").unwrap());
+        let host = IssueHost::Forgejo(ForgejoHost::from_str("git.example.com").unwrap());
         let d = parse(&host, &format!("{issue}\n{comments}\n")).unwrap();
         assert_eq!(d.kind, GitItemKind::PullRequest {});
         assert_eq!(d.state, ThreadState::Merged {});

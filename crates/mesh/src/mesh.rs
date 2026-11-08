@@ -1,6 +1,7 @@
 //! `Mesh`: one device's membership. An owner task keeps a dialer per other
 //! member; `link` runs each connection; `join` handles tickets.
 
+use crate::machine::Device as InventoryDevice;
 use crate::state::now_ms;
 use crate::store::{Core, SharedView, Store, View};
 use crate::wire;
@@ -538,11 +539,19 @@ impl Mesh {
             .contains_key(&Key::Observer(id.to_string()))
     }
 
-    /// Code hosts, including offline machines, excluding observer phones.
+    /// Every machine in the mesh, including phones and offline members.
     pub fn machines(&self) -> Vec<DeviceStatus> {
         self.devices()
+    }
+
+    /// Machines that can host sessions and sync files, including offline hosts.
+    pub fn code_hosts(&self) -> Vec<DeviceStatus> {
+        self.inventory()
             .into_iter()
-            .filter(|status| !self.is_observer(status.device.id))
+            .filter_map(|device| match device {
+                InventoryDevice::Node(status) | InventoryDevice::Desktop(status) => Some(status),
+                InventoryDevice::Phone(_) => None,
+            })
             .collect()
     }
 

@@ -68,7 +68,7 @@ pub async fn read_hosts(
                 listed(
                     server.host(),
                     GitHostKind::Forgejo {},
-                    server.as_str(),
+                    server.as_ref(),
                     read,
                 )
             }
@@ -99,8 +99,8 @@ impl TeaServer {
     /// Whether this is `server`, by URL, with case and a trailing slash ignored.
     fn is(&self, server: &ForgejoUrl) -> bool {
         match self.url.parse::<ForgejoUrl>() {
-            Ok(url) => url.as_str() == server.as_str(),
-            Err(_) => self.url.trim().trim_end_matches('/') == server.as_str(),
+            Ok(url) => url.as_ref() == server.as_ref(),
+            Err(_) => self.url.trim().trim_end_matches('/') == server.as_ref(),
         }
     }
 }

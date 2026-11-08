@@ -6,7 +6,18 @@ use std::fmt;
 use strum::{EnumString, IntoStaticStr};
 
 /// The app an event happened in; its slug is the catalog's, so its permission level applies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, IntoStaticStr)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    EnumString,
+    IntoStaticStr,
+    strum::AsRefStr,
+    strum::Display,
+)]
 pub enum EventApp {
     #[strum(serialize = "gmail")]
     Gmail,
@@ -21,10 +32,6 @@ pub enum EventApp {
 }
 
 impl EventApp {
-    pub fn slug(self) -> &'static str {
-        self.into()
-    }
-
     /// How the user knows the app.
     pub fn name(self) -> &'static str {
         match self {
@@ -38,7 +45,18 @@ impl EventApp {
 }
 
 /// What happened.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, IntoStaticStr)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    EnumString,
+    IntoStaticStr,
+    strum::AsRefStr,
+    strum::Display,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum EventKind {
     NewMail,
@@ -58,10 +76,6 @@ pub enum EventKind {
 }
 
 impl EventKind {
-    pub fn as_str(self) -> &'static str {
-        self.into()
-    }
-
     /// The topic the user turns this kind on or off with.
     pub fn topic(self) -> Topic {
         match self {
@@ -95,7 +109,18 @@ impl EventKind {
 }
 
 /// A group of events the user turns on or off, by asking Beep.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, IntoStaticStr)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    EnumString,
+    IntoStaticStr,
+    strum::AsRefStr,
+    strum::Display,
+)]
 pub enum Topic {
     #[strum(serialize = "mail")]
     Mail,
@@ -133,10 +158,6 @@ impl Topic {
         Topic::GithubOther,
     ];
 
-    pub fn as_str(self) -> &'static str {
-        self.into()
-    }
-
     /// Whether a user who never chose gets it.
     pub fn default_on(self) -> bool {
         self != Topic::GithubOther
@@ -163,19 +184,15 @@ impl Topic {
 }
 
 /// How an event reached the server.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr, strum::AsRefStr, strum::Display,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum Source {
     /// A Composio trigger, delivered over its realtime channel.
     Trigger,
     /// One of the server's own polls.
     Poll,
-}
-
-impl Source {
-    pub fn as_str(self) -> &'static str {
-        self.into()
-    }
 }
 
 /// What makes two events the same happening, such as `gmail:<message id>`.
@@ -186,8 +203,10 @@ impl DedupeKey {
     pub fn new(parts: &[&str]) -> Self {
         Self(parts.join(":"))
     }
+}
 
-    pub fn as_str(&self) -> &str {
+impl AsRef<str> for DedupeKey {
+    fn as_ref(&self) -> &str {
         &self.0
     }
 }

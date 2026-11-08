@@ -305,7 +305,7 @@ fn missing(permission: Permission) -> Reply {
     Reply::Failed {
         reason: format!(
             "{} is not allowed for Beep on this Mac.",
-            permission.as_str()
+            permission.as_ref()
         ),
         missing: Some(permission),
     }

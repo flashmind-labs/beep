@@ -46,15 +46,16 @@ impl BeepClient {
             let newest = mesh.desk().await?.instructions().map(|value| value.text);
             let mut files = Vec::new();
             for machine in mesh
-                .machines()
-                .await
+                .mesh
+                .code_hosts()
                 .into_iter()
                 .filter(|machine| machine.online)
             {
-                let client = mesh.client(&machine.id).await?;
+                let id = machine.device.id.to_string();
+                let client = mesh.client(&id).await?;
                 files.push(agent_files::machine_files(
-                    machine.id,
-                    machine.name,
+                    id,
+                    machine.device.name,
                     agent_files::read(&client).await,
                     newest.as_deref(),
                 ));

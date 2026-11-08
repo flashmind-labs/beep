@@ -270,7 +270,7 @@ mod tests {
         TaskRow {
             id: TaskId(Uuid::new_v4()),
             project: ProjectId(Uuid::new_v4()),
-            slug: TaskSlug::parse("fix-it").expect("a slug"),
+            slug: "fix-it".parse::<TaskSlug>().expect("a slug"),
             title: "Fix it".to_owned(),
             body: "Make it pass.".to_owned(),
             state: TaskState::Planned,

@@ -120,7 +120,7 @@ pub async fn serve(
     if let Some(home) = dirs::home_dir() {
         offers.skills = Skills::under(home);
     }
-    offers.extra.push(Arc::new(Logs::service()));
+    offers.extra.push(Arc::new(Logs::default()));
     // Only the CLI updates itself; the Mac app's node updates with the app.
     #[cfg(feature = "cli")]
     offers
@@ -363,7 +363,7 @@ impl Offers {
                 Some(provision.dir()),
             ))),
             extra: Vec::new(),
-            log: Logs::service(),
+            log: Logs::default(),
             provision: Some(provision),
             traffic: Traffic::default(),
             mesh: Membership::default(),

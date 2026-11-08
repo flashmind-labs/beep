@@ -368,7 +368,7 @@ async fn run() -> Result<()> {
         Command::Mesh { action } => match action {
             MeshAction::Join { ticket, search } => {
                 // Refused before the ticket is spent.
-                let search = search.as_deref().map(state::Search::parse);
+                let search = search.as_deref().map(state::Search::from);
                 if let Some(search) = &search {
                     search.existing_root().context("--search")?;
                 }

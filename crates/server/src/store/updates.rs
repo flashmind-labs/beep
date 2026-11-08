@@ -44,24 +44,23 @@ pub fn start_pruning(store: Store) {
 }
 
 /// What happened to a message or chat.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr, strum::EnumString)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    strum::IntoStaticStr,
+    strum::EnumString,
+    strum::AsRefStr,
+    strum::Display,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum UpdateOp {
     Message,
     Deleted,
     Chat,
     ChatDeleted,
-}
-
-impl UpdateOp {
-    pub fn as_str(self) -> &'static str {
-        self.into()
-    }
-
-    pub(super) fn parse(op: &str) -> Result<Self> {
-        op.parse()
-            .map_err(|_| anyhow::anyhow!("unknown update op {op}"))
-    }
 }
 
 /// A user's newest update id after a write.
@@ -126,7 +125,7 @@ pub(super) async fn log_messages(
     ))
     .bind(chat)
     .bind(messages)
-    .bind(op.as_str())
+    .bind(op.as_ref())
     .bind(readers.user())
     .fetch_all(&mut *tx)
     .await?;
@@ -168,7 +167,7 @@ pub(super) async fn log_chat(
         readers = readers.query(3)
     ))
     .bind(chat)
-    .bind(op.as_str())
+    .bind(op.as_ref())
     .bind(readers.user())
     .fetch_all(&mut *tx)
     .await?;

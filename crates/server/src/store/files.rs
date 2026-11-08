@@ -56,7 +56,7 @@ impl Store {
              VALUES ($1, $2, $3, $4, $5, '')",
         )
         .bind(&id)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(file.chat)
         .bind(file.name)
         .bind(file.mime)
@@ -72,7 +72,7 @@ impl Store {
             "DELETE FROM files WHERE user_id=$1 AND message_id IS NULL
              AND created_at < now() - make_interval(secs => $2) RETURNING id",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(FILE_KEEP.as_secs_f64())
         .fetch_all(&self.pool)
         .await?;
@@ -107,7 +107,7 @@ impl Store {
                  VALUES ($1, $2, $3, $4, $5, '', $6, $7, $8)",
             )
             .bind(&id)
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(of.chat)
             .bind(format!("picture-{}", position + 1))
             .bind(picture.mime)
@@ -155,7 +155,7 @@ impl Store {
                  VALUES ($1, $2, $3, $4, $5, '', $6, true, $7)",
             )
             .bind(&id)
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(of.chat)
             .bind(file.name)
             .bind(file.mime)
@@ -228,7 +228,7 @@ impl Store {
         )
         .bind(of.message)
         .bind(of.chat)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -243,7 +243,7 @@ impl Store {
              ORDER BY id",
         )
         .bind(chat)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?)
     }
@@ -257,7 +257,7 @@ impl Store {
              WHERE f.user_id = $1 AND f.chat_id = $2 AND f.attached
              ORDER BY m.id, f.position",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(chat)
         .fetch_all(&self.pool)
         .await?;
@@ -307,7 +307,7 @@ impl Store {
              WHERE f.user_id = $1 AND f.chat_id = $2 AND NOT f.attached
              ORDER BY m.id, f.position",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(chat)
         .fetch_all(&self.pool)
         .await?;
@@ -343,7 +343,7 @@ impl Store {
                     SELECT 1 FROM chat_members m JOIN chats c ON c.id = m.chat_id
                     WHERE m.chat_id = f.chat_id AND m.user_id = $1 AND c.kind = 'group'))))",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(id)
         .bind(FILE_KEEP.as_secs_f64())
         .fetch_one(&self.pool)

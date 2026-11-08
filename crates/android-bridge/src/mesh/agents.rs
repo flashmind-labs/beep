@@ -22,7 +22,7 @@ const ORDER_WAIT: Duration = Duration::from_secs(10);
 impl Connected {
     fn host(&self, id: &str) -> Result<Host, BeepError> {
         self.mesh
-            .machines()
+            .code_hosts()
             .into_iter()
             .find(|device| device.device.id.to_string() == id)
             .map(|device| Host {
@@ -35,7 +35,7 @@ impl Connected {
     pub async fn hosts(&self) -> Vec<AgentHost> {
         stream::iter(
             self.mesh
-                .machines()
+                .code_hosts()
                 .into_iter()
                 .filter(|device| device.online && device.device.id != self.mesh.me()),
         )
@@ -82,7 +82,7 @@ impl Connected {
     pub async fn sessions(&self, project: Option<&str>) -> Vec<MachineSession> {
         let places = project.map(|name| beep_fleet::places(&self.mesh, name));
         let mut sessions: Vec<_> =
-            stream::iter(self.mesh.machines().into_iter().filter(|device| {
+            stream::iter(self.mesh.code_hosts().into_iter().filter(|device| {
                 device.online
                     && device.device.id != self.mesh.me()
                     && places

@@ -19,7 +19,17 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 /// What a message is, as `messages.role` names it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr, strum::EnumString)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    strum::IntoStaticStr,
+    strum::EnumString,
+    strum::AsRefStr,
+    strum::Display,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum Role {
     User,
@@ -29,17 +39,6 @@ pub enum Role {
     Approval,
     Member,
     Beep,
-}
-
-impl Role {
-    pub fn as_str(self) -> &'static str {
-        self.into()
-    }
-
-    fn parse(role: &str) -> Result<Self> {
-        role.parse()
-            .map_err(|_| anyhow!("unknown message role {role}"))
-    }
 }
 
 /// What a turn ran with.
@@ -301,7 +300,10 @@ fn turn_record(row: &PgRow) -> Result<TurnRecord> {
 }
 
 fn stored(row: &PgRow) -> Result<StoredMessage> {
-    let role = Role::parse(row.try_get(6)?)?;
+    let role: &str = row.try_get(6)?;
+    let role = role
+        .parse::<Role>()
+        .map_err(|_| anyhow!("unknown message role {role}"))?;
     let content: String = row.try_get(7)?;
     let body = match role {
         Role::User => StoredBody::User {
@@ -363,7 +365,7 @@ pub(super) async fn insert_steps(
              FROM next RETURNING id",
         )
         .bind(chat)
-        .bind(step.body.role().as_str())
+        .bind(step.body.role().as_ref())
         .bind(opens)
         .bind(turn)
         .bind(matches!(step.body, StepBody::User { .. }).then_some(author))
@@ -590,9 +592,9 @@ impl Store {
                  ORDER BY chat_id, seq DESC
              ) latest WHERE latest.status = $3",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(chats)
-        .bind(RunStatus::Waiting.as_str())
+        .bind(RunStatus::Waiting.as_ref())
         .fetch_all(&self.pool)
         .await?;
         let mut runs: HashMap<Uuid, String> = HashMap::new();

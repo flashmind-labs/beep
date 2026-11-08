@@ -44,7 +44,7 @@ async fn sync_feeds(app: &App, user: &User, feeds: &[Feed], every: Duration) {
 }
 
 async fn sync_feed(app: &App, decision: &DecisionTool, user: &User, feed: Feed, every: Duration) {
-    let slug = feed.slug();
+    let slug = feed.as_ref();
     let Some(_claim) = user.claim_feed(feed) else {
         log::debug!("feeds: {slug} already syncing; user={user}");
         return;

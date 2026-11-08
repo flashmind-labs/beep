@@ -95,7 +95,7 @@ pub(super) fn render_show(project: &Project, live: &Live, now: SystemTime) -> St
         let _ = write!(
             out,
             "- {} [{state}] {}",
-            task.slug.as_str(),
+            task.slug.as_ref(),
             short(&task.title)
         );
         if let Some(pr) = &task.pr_url {

@@ -323,7 +323,7 @@ impl User {
 
     /// The user's newest update id, now and as it moves.
     pub async fn watch_updates(&self) -> Result<watch::Receiver<i64>> {
-        self.store.watch_updates(self.key.as_str()).await
+        self.store.watch_updates(self.key.as_ref()).await
     }
 
     /// Ends a run with `status`, saving its turn if any; `None` when none was saved.

@@ -39,6 +39,7 @@ use beep_proto::{
 };
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
+use std::str::FromStr;
 use std::{collections::HashSet, time::Duration};
 use tokio::time::timeout;
 
@@ -106,7 +107,7 @@ impl PeerShell {
                     offset,
                     search,
                 } => {
-                    let revision = revision.as_deref().map(CommitId::parse).transpose()?;
+                    let revision = revision.as_deref().map(CommitId::from_str).transpose()?;
                     history::history_script(&HistoryAsk {
                         folder: root,
                         revision: revision.as_ref(),
@@ -115,7 +116,7 @@ impl PeerShell {
                     })
                 }
                 GitRead::Files { commit } => {
-                    history::files_script(root, &CommitId::parse(&commit)?)
+                    history::files_script(root, &CommitId::from_str(&commit)?)
                 }
             };
             self.projection = Some((script, output));

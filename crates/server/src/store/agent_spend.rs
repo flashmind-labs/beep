@@ -62,7 +62,10 @@ pub(crate) struct DayModelRow {
 }
 
 fn billing_of(row: &PgRow) -> Result<Billing> {
-    Ok(Billing::from_name(&row.try_get::<String, _>("billing")?))
+    Ok(row
+        .try_get::<String, _>("billing")?
+        .parse::<Billing>()
+        .unwrap_or_default())
 }
 
 impl Store {
@@ -73,7 +76,7 @@ impl Store {
              SELECT today, date_trunc('week', today)::date AS week,
                  date_trunc('month', today)::date AS month FROM t"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_one(&self.pool)
         .await?;
         Ok(Periods {
@@ -118,7 +121,7 @@ impl Store {
              WHERE day >= $2 AND day <= $3
              GROUP BY endpoint_id, cwd, agent, billing, day"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(periods.start())
         .bind(periods.today)
         .fetch_all(&self.pool)
@@ -163,7 +166,7 @@ impl Store {
              WHERE day >= $2 AND day <= $3
              ORDER BY tokens DESC"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(periods.start())
         .bind(periods.today)
         .fetch_all(&self.pool)

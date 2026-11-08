@@ -30,16 +30,16 @@ pub(super) fn columns(slot: &Slot) -> Columns {
         Slot::Forgejo(url) => Columns {
             kind: FORGEJO,
             provider: "",
-            host_url: url.as_str().to_owned(),
+            host_url: url.as_ref().to_owned(),
         },
         Slot::ApiKey(provider) => Columns {
             kind: API_KEY,
-            provider: provider.slug(),
+            provider: Into::<&'static str>::into(provider),
             host_url: String::new(),
         },
         Slot::AgentToken(agent) => Columns {
             kind: AGENT_TOKEN,
-            provider: agent.slug(),
+            provider: Into::<&'static str>::into(agent),
             host_url: String::new(),
         },
     }
@@ -128,7 +128,7 @@ pub(super) fn opens(row: &PgRow, user: &UserKey, key: &CredentialKey) -> bool {
     };
     slot_from(row).is_ok_and(|slot| {
         let owner = Owner {
-            user: user.as_str(),
+            user: user.as_ref(),
             slot: &slot,
             id: &id,
         };

@@ -13,7 +13,9 @@ use std::{collections::HashMap, str::FromStr, time::Duration};
 use strum::{EnumString, IntoStaticStr};
 
 /// Where an event is in the pipeline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr, strum::AsRefStr, strum::Display,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum EventState {
     /// Stored, waiting for the next triage.
@@ -28,12 +30,6 @@ pub enum EventState {
     Held,
     /// Handed to the agent again in a digest.
     Digested,
-}
-
-impl EventState {
-    pub fn as_str(self) -> &'static str {
-        self.into()
-    }
 }
 
 /// A stored event as the agent is told about it.
@@ -116,15 +112,15 @@ impl Store {
              ON CONFLICT (user_id, dedupe_key) DO NOTHING
              RETURNING id",
         )
-        .bind(user.as_str())
-        .bind(event.app.slug())
-        .bind(event.kind.as_str())
-        .bind(event.key.as_str())
+        .bind(user.as_ref())
+        .bind(event.app.as_ref())
+        .bind(event.kind.as_ref())
+        .bind(event.key.as_ref())
         .bind(&event.summary)
         .bind(event.detail.as_deref())
         .bind(&event.ids)
         .bind(&event.raw)
-        .bind(event.source.as_str())
+        .bind(event.source.as_ref())
         .bind(event.occurred)
         .fetch_optional(&self.pool)
         .await?)
@@ -143,8 +139,8 @@ impl Store {
              WHERE user_id=$1 AND state=$2 AND received_at <= now() - make_interval(secs => $3)
              ORDER BY received_at, id LIMIT $4",
         )
-        .bind(user.as_str())
-        .bind(state.as_str())
+        .bind(user.as_ref())
+        .bind(state.as_ref())
         .bind(age.as_secs_f64())
         .bind(limit)
         .fetch_all(&self.pool)
@@ -164,9 +160,9 @@ impl Store {
             "INSERT INTO event_triage (user_id, decision, urgency, summary, reason, refs)
              VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
         )
-        .bind(user.as_str())
-        .bind(triage.verdict.as_str())
-        .bind(triage.urgency.map(Urgency::as_str))
+        .bind(user.as_ref())
+        .bind(triage.verdict.as_ref())
+        .bind(triage.urgency.map(<&'static str>::from))
         .bind(triage.summary)
         .bind(triage.reason)
         .bind(triage.refs)
@@ -176,10 +172,10 @@ impl Store {
             "UPDATE app_events SET state=$4, state_at=now(), triage_id=$5
              WHERE user_id=$1 AND id = ANY($2) AND state=$3",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(events)
-        .bind(EventState::Triaging.as_str())
-        .bind(EventState::Triaged.as_str())
+        .bind(EventState::Triaging.as_ref())
+        .bind(EventState::Triaged.as_ref())
         .bind(id)
         .execute(&mut *tx)
         .await?;
@@ -200,8 +196,8 @@ impl Store {
              WHERE user_id=$1 AND decision=$2 AND delivered_at IS NULL AND decided_at > $3
              ORDER BY decided_at, id LIMIT $4",
         )
-        .bind(user.as_str())
-        .bind(Verdict::Inform.as_str())
+        .bind(user.as_ref())
+        .bind(Verdict::Inform.as_ref())
         .bind(since)
         .bind(limit)
         .fetch_all(&self.pool)
@@ -226,8 +222,8 @@ impl Store {
                  AND t.decided_at > $3
              ORDER BY t.decided_at DESC, t.id DESC LIMIT $4",
         )
-        .bind(user.as_str())
-        .bind(Verdict::Inform.as_str())
+        .bind(user.as_ref())
+        .bind(Verdict::Inform.as_ref())
         .bind(since)
         .bind(limit)
         .fetch_all(&self.pool)
@@ -246,7 +242,7 @@ impl Store {
             "UPDATE event_triage SET delivered_at=now(), run_id=$3
              WHERE user_id=$1 AND id = ANY($2) AND delivered_at IS NULL",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(ids)
         .bind(run_id)
         .execute(&self.pool)
@@ -257,8 +253,8 @@ impl Store {
     /// Requeues events left in triage when the server stopped, for every user.
     pub(crate) async fn requeue_triaging(&self) -> Result<u64> {
         Ok(sqlx::query("UPDATE app_events SET state=$2 WHERE state=$1")
-            .bind(EventState::Triaging.as_str())
-            .bind(EventState::Pending.as_str())
+            .bind(EventState::Triaging.as_ref())
+            .bind(EventState::Pending.as_ref())
             .execute(&self.pool)
             .await?
             .rows_affected())
@@ -274,9 +270,9 @@ impl Store {
             "UPDATE app_events SET state=$3, state_at=now()
              WHERE user_id=$1 AND state=$2 AND state_at < now() - $4 * interval '1 second'",
         )
-        .bind(user.as_str())
-        .bind(EventState::Triaging.as_str())
-        .bind(EventState::Pending.as_str())
+        .bind(user.as_ref())
+        .bind(EventState::Triaging.as_ref())
+        .bind(EventState::Pending.as_ref())
         .bind(after.as_secs_f64())
         .execute(&self.pool)
         .await?
@@ -298,7 +294,7 @@ impl Store {
              WHERE e.user_id=$1 AND e.received_at >= $2
              ORDER BY e.received_at DESC, e.id DESC LIMIT $3",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(since)
         .bind(limit)
         .fetch_all(&self.pool)
@@ -331,10 +327,10 @@ impl Store {
             "UPDATE app_events SET state=$4, state_at=now(), run_id=COALESCE($5, run_id)
              WHERE user_id=$1 AND id = ANY($2) AND state=$3",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(ids)
-        .bind(from.as_str())
-        .bind(to.as_str())
+        .bind(from.as_ref())
+        .bind(to.as_ref())
         .bind(run_id)
         .execute(&self.pool)
         .await?
@@ -344,13 +340,13 @@ impl Store {
     /// Forgets events received and triage decisions made before `before`.
     pub(crate) async fn prune_events(&self, user: &UserKey, before: DateTime<Utc>) -> Result<u64> {
         sqlx::query("DELETE FROM event_triage WHERE user_id=$1 AND decided_at < $2")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(before)
             .execute(&self.pool)
             .await?;
         Ok(
             sqlx::query("DELETE FROM app_events WHERE user_id=$1 AND received_at < $2")
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .bind(before)
                 .execute(&self.pool)
                 .await?
@@ -361,7 +357,7 @@ impl Store {
     /// The topics the user chose, on or off. Others keep their default.
     pub(crate) async fn event_topics(&self, user: &UserKey) -> Result<HashMap<Topic, bool>> {
         let rows = sqlx::query("SELECT topic, enabled FROM event_topics WHERE user_id=$1")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .fetch_all(&self.pool)
             .await?;
         let mut topics = HashMap::new();
@@ -385,8 +381,8 @@ impl Store {
             "INSERT INTO event_topics (user_id, topic, enabled) VALUES ($1, $2, $3)
              ON CONFLICT (user_id, topic) DO UPDATE SET enabled=excluded.enabled",
         )
-        .bind(user.as_str())
-        .bind(topic.as_str())
+        .bind(user.as_ref())
+        .bind(topic.as_ref())
         .bind(enabled)
         .execute(&self.pool)
         .await?;
@@ -399,7 +395,7 @@ impl Store {
              VALUES ($1, $2, $3, $4)
              ON CONFLICT (user_id, slug, account_id) DO UPDATE SET trigger_id=excluded.trigger_id",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(&row.slug)
         .bind(&row.account_id)
         .bind(&row.trigger_id)
@@ -413,7 +409,7 @@ impl Store {
             "SELECT slug, account_id, trigger_id FROM event_triggers WHERE user_id=$1
              ORDER BY slug, account_id",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         rows.iter()
@@ -433,7 +429,7 @@ impl Store {
         row: &TriggerRow,
     ) -> Result<()> {
         sqlx::query("DELETE FROM event_triggers WHERE user_id=$1 AND slug=$2 AND account_id=$3")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(&row.slug)
             .bind(&row.account_id)
             .execute(&self.pool)
@@ -449,7 +445,7 @@ impl Store {
     ) -> Result<Option<DateTime<Utc>>> {
         Ok(
             sqlx::query_scalar("SELECT polled_at FROM event_polls WHERE user_id=$1 AND source=$2")
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .bind(source)
                 .fetch_optional(&self.pool)
                 .await?,
@@ -466,7 +462,7 @@ impl Store {
             "INSERT INTO event_polls (user_id, source, polled_at) VALUES ($1, $2, $3)
              ON CONFLICT (user_id, source) DO UPDATE SET polled_at=excluded.polled_at",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(source)
         .bind(at)
         .execute(&self.pool)

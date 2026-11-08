@@ -1,5 +1,5 @@
 use super::Connected;
-use beep_mesh::DeviceStatus;
+use beep_mesh::{DeviceStatus, machine::Device};
 use beep_proto::{
     Machine, MachineDisk, MachineEnv, MachineLogin, MachineStats, MachineTool,
     node::{EnvReport, StatsReport, status},
@@ -41,26 +41,25 @@ impl Connected {
     }
 
     pub async fn machines(&self) -> Vec<Machine> {
-        stream::iter(
-            self.mesh
-                .machines()
-                .into_iter()
-                .filter(|device| device.device.id != self.mesh.me()),
-        )
-        .map(|device| self.machine(device))
-        .buffer_unordered(4)
-        .collect()
-        .await
+        stream::iter(self.mesh.inventory())
+            .map(|device| self.machine(device))
+            .buffer_unordered(4)
+            .collect()
+            .await
     }
 
-    async fn machine(&self, device: DeviceStatus) -> Machine {
-        let report = if device.online {
-            self.snapshot(&device.device.id.to_string(), false)
-                .await
-                .env
-        } else {
-            None
+    async fn machine(&self, device: Device) -> Machine {
+        let report = match &device {
+            Device::Node(status) | Device::Desktop(status)
+                if status.online && status.device.id != self.mesh.me() =>
+            {
+                self.snapshot(&status.device.id.to_string(), false)
+                    .await
+                    .env
+            }
+            _ => None,
         };
+        let device = DeviceStatus::from(device);
         Machine {
             id: device.device.id.to_string(),
             name: device.device.name,
@@ -83,7 +82,7 @@ impl Connected {
     pub async fn machine_stats(&self) -> Vec<MachineStats> {
         stream::iter(
             self.mesh
-                .machines()
+                .code_hosts()
                 .into_iter()
                 .filter(|device| device.online && device.device.id != self.mesh.me()),
         )

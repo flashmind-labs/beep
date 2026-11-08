@@ -10,7 +10,7 @@ impl Store {
     pub(crate) async fn flsh_settings(&self, user: &UserKey) -> Result<Option<FlshSettings>> {
         let row: Option<Json<FlshSettings>> =
             sqlx::query_scalar("SELECT settings FROM flsh_settings WHERE user_id=$1")
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .fetch_optional(&self.pool)
                 .await
                 .context("the flsh settings do not read")?;
@@ -27,7 +27,7 @@ impl Store {
             "INSERT INTO flsh_settings (user_id, settings) VALUES ($1, $2)
              ON CONFLICT (user_id) DO UPDATE SET settings=$2, updated_at=now()",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(Json(settings))
         .execute(&self.pool)
         .await?;

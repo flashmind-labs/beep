@@ -1,14 +1,15 @@
 //! Read-only session snapshots pushed over an authenticated mesh stream.
 
 use super::{Entry, ExternalSession, SessionInfo};
+use crate::{AgentSlug, SessionId};
 use serde::{Deserialize, Serialize};
 
 pub const SESSION_FOLLOW_PROTOCOL: &str = "agent-view/1";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FollowSession {
-    pub agent: String,
-    pub session: String,
+    pub agent: AgentSlug,
+    pub session: SessionId,
     pub last: u32,
     #[serde(default)]
     pub after: Option<SessionCursor>,

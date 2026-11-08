@@ -348,7 +348,7 @@ async fn node_session_and_project_changes_survive_desktop_disconnect_and_phone_r
     until(&desktop, || desktop.is_observer(key.public())).await;
     assert!(desktop.is_member(key.public()));
     assert!(
-        !desktop
+        desktop
             .machines()
             .iter()
             .any(|status| status.device.id == key.public())

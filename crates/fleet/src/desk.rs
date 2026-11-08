@@ -73,7 +73,7 @@ impl Desk {
         &self.mesh
     }
 
-    /// Every machine of the mesh, with a shell on each that is online.
+    /// Every code host of the mesh, with a shell on each that is online.
     pub(crate) async fn machines(&self) -> Vec<Machine> {
         self.seen()
             .await
@@ -82,9 +82,9 @@ impl Desk {
             .collect()
     }
 
-    /// Every machine of the mesh with what it said about itself.
+    /// Every code host of the mesh with what it said about itself.
     pub(crate) async fn seen(&self) -> Vec<Seen> {
-        join_all(self.mesh.machines().into_iter().map(|d| self.look(d))).await
+        join_all(self.mesh.code_hosts().into_iter().map(|d| self.look(d))).await
     }
 
     /// Only the machines among `ids`: a read of one project has no use for the others, and one
@@ -92,7 +92,7 @@ impl Desk {
     pub(crate) async fn machines_among(&self, ids: &[EndpointId]) -> Vec<Machine> {
         let wanted = self
             .mesh
-            .machines()
+            .code_hosts()
             .into_iter()
             .filter(|status| ids.contains(&status.device.id));
         join_all(wanted.map(|status| self.look(status)))
@@ -111,7 +111,7 @@ impl Desk {
     pub(crate) async fn seen_one(&self, machine: EndpointId) -> Option<Seen> {
         let status = self
             .mesh
-            .machines()
+            .code_hosts()
             .into_iter()
             .find(|status| status.device.id == machine)?;
         Some(self.look(status).await)

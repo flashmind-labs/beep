@@ -30,6 +30,8 @@ export interface MachineView {
   id: string;
   name: string;
   online: boolean;
+  /// False for phones, which control the mesh without running work.
+  can_host?: boolean;
   /// In milliseconds since the Unix epoch.
   seen_at: number;
   version: string;
@@ -98,8 +100,8 @@ export function machineCaps(m: { gpus: readonly { model: string }[]; capabilitie
 }
 
 /// The machine table's Now column.
-export function machineNow(m: Pick<MachineCard, "online" | "agents">) {
-  return !m.online ? "offline" : m.agents ? "working" : "idle";
+export function machineNow(m: Pick<MachineCard, "online" | "agents" | "can_host">) {
+  return !m.online ? "offline" : m.can_host === false ? "controller" : m.agents ? "working" : "idle";
 }
 
 /// How far machine `id` is with a synced project it fetches or scans now,

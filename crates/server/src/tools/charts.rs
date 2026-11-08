@@ -142,7 +142,7 @@ fn summary(range: ChartRange, histories: &[History]) -> String {
             info.currency,
             change.absolute,
             change.percent,
-            range.as_str(),
+            range.as_ref(),
             price(info.previous),
         );
         if !info.exchange.is_empty() {

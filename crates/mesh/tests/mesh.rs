@@ -1346,8 +1346,13 @@ async fn observer_phones_stay_members_but_never_become_hosts() {
     until(&phone.mesh, |mesh| mesh.is_observer(phone_id)).await;
     for mesh in [&desktop.mesh, &node.mesh, &phone.mesh] {
         assert!(
+            mesh.machines()
+                .iter()
+                .any(|status| status.device.id == phone_id)
+        );
+        assert!(
             !mesh
-                .machines()
+                .code_hosts()
                 .iter()
                 .any(|status| status.device.id == phone_id)
         );
@@ -1365,7 +1370,7 @@ async fn observer_phones_stay_members_but_never_become_hosts() {
     assert!(
         !desktop
             .mesh
-            .machines()
+            .code_hosts()
             .iter()
             .any(|status| status.device.id == phone_id)
     );
@@ -1374,12 +1379,12 @@ async fn observer_phones_stay_members_but_never_become_hosts() {
     assert!(
         !phone
             .mesh
-            .machines()
+            .code_hosts()
             .iter()
             .any(|status| status.device.id == phone_id)
     );
     let (desktop_key, desktop_dir) = desktop.stop().await;
     let desktop = reopen(desktop_key, desktop_dir).await;
     assert!(desktop.mesh.is_observer(phone_id));
-    assert_eq!(desktop.mesh.machines().len(), 2);
+    assert_eq!(desktop.mesh.code_hosts().len(), 2);
 }

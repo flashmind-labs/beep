@@ -108,7 +108,7 @@ impl Call {
 }
 
 fn slugs(providers: &[MediaProvider]) -> Vec<&'static str> {
-    providers.iter().map(|provider| provider.slug()).collect()
+    providers.iter().map(Into::into).collect()
 }
 
 /// The tool's arguments, with `provider` one of `available`.

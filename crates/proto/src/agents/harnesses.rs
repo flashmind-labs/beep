@@ -53,26 +53,18 @@ pub const MAX_CUSTOM_AGENTS: usize = 200;
 wire_enum! {
     /// The coding agent harness that defines a `CustomAgent`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(strum::AsRefStr, strum::IntoStaticStr)]
     pub enum CustomAgentHarness {
+        #[strum(serialize = "claude")]
         0 Claude {}
+        #[strum(serialize = "opencode")]
         1 OpenCode {}
+        #[strum(serialize = "codex")]
         2 Codex {}
+        #[strum(serialize = "pi")]
         3 Pi {}
+        #[strum(serialize = "flsh")]
         4 Flsh {}
-    }
-}
-
-impl CustomAgentHarness {
-    /// The harness's id, as the apps name it elsewhere: `claude`,
-    /// `opencode`, `codex`, `pi` or `flsh`.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Claude {} => "claude",
-            Self::OpenCode {} => "opencode",
-            Self::Codex {} => "codex",
-            Self::Pi {} => "pi",
-            Self::Flsh {} => "flsh",
-        }
     }
 }
 
@@ -81,19 +73,12 @@ wire_enum! {
     /// so it travels with the repository, `User` in the user's own harness
     /// folder on the machine.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(strum::AsRefStr, strum::IntoStaticStr)]
     pub enum CustomAgentScope {
+        #[strum(serialize = "project")]
         0 Project {}
+        #[strum(serialize = "user")]
         1 User {}
-    }
-}
-
-impl CustomAgentScope {
-    /// `project` or `user`.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Project {} => "project",
-            Self::User {} => "user",
-        }
     }
 }
 
@@ -234,7 +219,17 @@ ffi_enum! {
 
 /// The coding agents Beep can keep a token for. On the wire an agent is
 /// its slug, the name the node gives the agent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::IntoStaticStr, strum::EnumString)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    strum::IntoStaticStr,
+    strum::AsRefStr,
+    strum::EnumString,
+)]
 #[strum(serialize_all = "lowercase")]
 pub enum AgentAccount {
     Claude,
@@ -242,11 +237,6 @@ pub enum AgentAccount {
 }
 
 impl AgentAccount {
-    /// The slug the wire and the database carry, such as `claude`.
-    pub fn slug(self) -> &'static str {
-        self.into()
-    }
-
     /// The env var the agent reads its token from: Claude Code's
     /// long-lived OAuth token, or the API key Codex takes in place of a
     /// sign-in.
@@ -425,6 +415,7 @@ ffi_enum! {
     Eq,
     Hash,
     strum::IntoStaticStr,
+    strum::AsRefStr,
     strum::EnumString,
     strum::EnumIter,
 )]
@@ -452,11 +443,6 @@ impl ApiProvider {
     /// Every provider, in the order Settings lists them.
     pub fn all() -> impl Iterator<Item = Self> {
         <Self as strum::IntoEnumIterator>::iter()
-    }
-
-    /// The slug the wire and the database carry, such as `openrouter`.
-    pub fn slug(self) -> &'static str {
-        self.into()
     }
 
     /// What the user knows it as.

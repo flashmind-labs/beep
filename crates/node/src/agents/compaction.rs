@@ -32,10 +32,10 @@ pub(super) enum Policy {
     AtTokens(u64),
 }
 
-impl Policy {
+impl From<Option<AutoCompact>> for Policy {
     /// The policy a harness's setting gives: the default when it sets
     /// none or a percent out of range.
-    pub(super) fn from_setting(setting: Option<AutoCompact>) -> Self {
+    fn from(setting: Option<AutoCompact>) -> Self {
         let Some(setting) = setting else {
             return Self::default();
         };
@@ -60,7 +60,9 @@ impl Policy {
             }
         }
     }
+}
 
+impl Policy {
     /// Whether a session at `usage` is due a compaction.
     pub(super) fn due(self, usage: Option<AgentContext>) -> bool {
         let Some(usage) = usage else {
@@ -195,7 +197,7 @@ impl Compactor {
     }
 
     pub(super) fn set_model(&mut self, model: Option<&str>) -> bool {
-        if self.model.as_ref().map(ModelId::as_str) == model {
+        if self.model.as_ref().map(ModelId::as_ref) == model {
             return false;
         }
         self.model = model.map(ModelId::from);
@@ -208,8 +210,8 @@ impl Compactor {
         let override_policy = self
             .models
             .iter()
-            .find(|rule| Some(rule.model.as_str()) == self.model.as_ref().map(ModelId::as_str))
-            .map(|rule| Policy::from_setting(Some(rule.compact)));
+            .find(|rule| Some(rule.model.as_ref()) == self.model.as_ref().map(ModelId::as_ref))
+            .map(|rule| Policy::from(Some(rule.compact)));
         let (policy, route) = override_policy.map_or((self.policy, self.route), |policy| {
             (policy, Route::Advertised)
         });
@@ -323,18 +325,12 @@ mod tests {
 
     #[test]
     fn the_threshold_reads_from_the_setting() {
-        assert_eq!(Policy::from_setting(None), Policy::At(80));
-        assert_eq!(Policy::from_setting(setting(true, None)), Policy::At(80));
-        assert_eq!(
-            Policy::from_setting(setting(true, Some(70))),
-            Policy::At(70)
-        );
-        assert_eq!(Policy::from_setting(setting(false, Some(70))), Policy::Off);
-        assert_eq!(
-            Policy::from_setting(setting(true, Some(150))),
-            Policy::At(80)
-        );
-        assert_eq!(Policy::from_setting(setting(true, Some(0))), Policy::At(80));
+        assert_eq!(Policy::from(None), Policy::At(80));
+        assert_eq!(Policy::from(setting(true, None)), Policy::At(80));
+        assert_eq!(Policy::from(setting(true, Some(70))), Policy::At(70));
+        assert_eq!(Policy::from(setting(false, Some(70))), Policy::Off);
+        assert_eq!(Policy::from(setting(true, Some(150))), Policy::At(80));
+        assert_eq!(Policy::from(setting(true, Some(0))), Policy::At(80));
         let mut off = Compactor::new(route("codex"), Policy::Off);
         ended(&mut off, usage(100, 100), &commands(&["compact"]));
         assert!(!off.start(false));
@@ -358,13 +354,13 @@ mod tests {
             percent: Some(70),
             tokens: Some(350_000),
         };
-        assert_eq!(Policy::from_setting(Some(both)), Policy::AtTokens(350_000));
-        assert_eq!(Policy::from_setting(tokens(0)), Policy::At(80));
+        assert_eq!(Policy::from(Some(both)), Policy::AtTokens(350_000));
+        assert_eq!(Policy::from(tokens(0)), Policy::At(80));
         let off = AutoCompact {
             enabled: false,
             ..both
         };
-        assert_eq!(Policy::from_setting(Some(off)), Policy::Off);
+        assert_eq!(Policy::from(Some(off)), Policy::Off);
         let policy = Policy::AtTokens(350_000);
         assert!(policy.due(usage(350_000, 1_000_000)));
         assert!(!policy.due(usage(349_999, 1_000_000)));

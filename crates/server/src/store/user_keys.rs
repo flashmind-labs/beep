@@ -80,7 +80,7 @@ fn account_key((endpoint_id, name, kind, primary, created_at): KeyRow) -> Accoun
     AccountKey {
         endpoint_id,
         name,
-        kind: DeviceKind::parse(&kind).unwrap_or_default(),
+        kind: kind.parse::<DeviceKind>().unwrap_or_default(),
         primary,
         linked_at: created_at,
     }
@@ -146,9 +146,9 @@ impl Store {
              RETURNING endpoint_id, name, kind, is_primary, created_at",
         )
         .bind(key.endpoint.to_string())
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(key.name)
-        .bind(key.kind.as_str())
+        .bind(key.kind.as_ref())
         .fetch_optional(&self.pool)
         .await?;
         Ok(match row {
@@ -163,7 +163,7 @@ impl Store {
             "SELECT endpoint_id, name, kind, is_primary, created_at FROM user_keys
              WHERE user_id=$1 AND revoked_at IS NULL ORDER BY is_primary DESC, created_at",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().map(account_key).collect())
@@ -180,7 +180,7 @@ impl Store {
             "UPDATE user_keys SET revoked_at=now()
              WHERE user_id=$1 AND endpoint_id=$2 AND NOT is_primary AND revoked_at IS NULL",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(endpoint_id)
         .execute(&mut *tx)
         .await?
@@ -190,13 +190,13 @@ impl Store {
             return Ok(None);
         }
         sqlx::query("DELETE FROM devices WHERE user_id=$1 AND endpoint_id=$2")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(endpoint_id)
             .execute(&mut *tx)
             .await?;
         // A removed machine is no longer one the agent can run work on.
         sqlx::query("DELETE FROM nodes WHERE user_id=$1 AND endpoint_id=$2")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(endpoint_id)
             .execute(&mut *tx)
             .await?;
@@ -215,7 +215,7 @@ impl Store {
     pub async fn set_key_kind(&self, endpoint: &EndpointId, kind: DeviceKind) -> Result<()> {
         sqlx::query("UPDATE user_keys SET kind=$2 WHERE endpoint_id=$1")
             .bind(endpoint.to_string())
-            .bind(kind.as_str())
+            .bind(kind.as_ref())
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -234,7 +234,7 @@ impl Store {
             .into_iter()
             .map(|(endpoint_id, kind)| LiveKey {
                 endpoint_id,
-                kind: DeviceKind::parse(&kind).unwrap_or_default(),
+                kind: kind.parse::<DeviceKind>().unwrap_or_default(),
             })
             .collect())
     }
@@ -259,7 +259,7 @@ pub(super) async fn insert_account(
     .bind(endpoint.to_string())
     .bind(user)
     .bind(&name)
-    .bind(DeviceKind::Phone {}.as_str())
+    .bind(DeviceKind::Phone {}.as_ref())
     .execute(&mut *tx)
     .await?
     .rows_affected();
@@ -284,7 +284,7 @@ fn signed_in((user, external_id, kind, primary, revoked): SignInRow) -> SignIn {
             id: user,
             external_id,
         },
-        device: DeviceKind::parse(&kind).unwrap_or_default(),
+        device: kind.parse::<DeviceKind>().unwrap_or_default(),
         primary,
     }
 }

@@ -129,7 +129,7 @@ impl Store {
         let expires_at = Utc::now() + ttl;
         let mut tx = self.pool.begin().await?;
         sqlx::query("UPDATE user_keys SET name=$3 WHERE user_id=$1 AND endpoint_id=$2")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(&endpoint)
             .bind(name)
             .execute(&mut *tx)
@@ -144,7 +144,7 @@ impl Store {
              VALUES ($1, $2, $3, $4)",
         )
         .bind(&code)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(&endpoint)
         .bind(expires_at)
         .execute(&mut *tx)
@@ -168,7 +168,7 @@ impl Store {
         Ok(row.map(|(id, external_id, name, kind)| Inviter {
             account: Account { id, external_id },
             name,
-            kind: DeviceKind::parse(&kind).unwrap_or_default(),
+            kind: kind.parse::<DeviceKind>().unwrap_or_default(),
         }))
     }
 
@@ -192,7 +192,7 @@ impl Store {
         .bind(key.endpoint.to_string())
         .bind(&target)
         .bind(key.name)
-        .bind(key.kind.as_str())
+        .bind(key.kind.as_ref())
         .execute(&mut *tx)
         .await?
         .rows_affected();
@@ -207,7 +207,7 @@ impl Store {
 
     /// Merges `source`'s account into the code's account, using the code up.
     pub(crate) async fn merge_into(&self, source: &UserKey, into: MergeInto<'_>) -> Result<Merge> {
-        let source = source.as_str();
+        let source = source.as_ref();
         let mut tx = self.pool.begin().await?;
         let target: Option<String> = sqlx::query_scalar(
             "SELECT user_id FROM account_invites WHERE code=$1 AND expires_at > now() FOR UPDATE",

@@ -13,7 +13,7 @@ use crate::{
     machine::env,
 };
 use anyhow::{Context, Result, bail};
-use beep_mesh::{DeviceKind, Key, Mesh};
+use beep_mesh::{Key, Mesh, machine::Device};
 use beep_proto::node::{
     EnvReport, LinkRx, LinkTx, Open, Opened, link,
     mesh_state::{StateValue, SyncSpec},
@@ -24,7 +24,7 @@ use beep_proto::node::{
 use iroh::EndpointId;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{fmt::Write, time::Duration};
+use std::{fmt::Write, str::FromStr, time::Duration};
 use tokio::time::timeout;
 
 /// How long a call waits for the link to a machine the mesh holds but is
@@ -51,7 +51,7 @@ pub(super) struct Machine {
 }
 
 pub(super) fn machines(mesh: &Mesh) -> Vec<Machine> {
-    mesh.machines()
+    mesh.code_hosts()
         .into_iter()
         .map(|status| Machine {
             id: status.device.id,
@@ -114,7 +114,11 @@ pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Rep
         }
         Tool::SyncProject => sync_project(offers, mesh, request, &args).await,
         Tool::JobStatus | Tool::Cancel => {
-            let Some(job) = args.get("id").and_then(Value::as_str).and_then(Job::parse) else {
+            let Some(job) = args
+                .get("id")
+                .and_then(Value::as_str)
+                .and_then(|id| id.parse::<Job>().ok())
+            else {
                 return done("Give the job id remote_run gave, such as task:7@box.", true);
             };
             let Some(target) = machines(mesh).into_iter().find(|m| m.name == job.machine) else {
@@ -333,8 +337,15 @@ async fn list(mesh: &Mesh) -> Reply {
 /// Each device of the mesh as the list shows it.
 async fn device_lines(mesh: &Mesh) -> Vec<String> {
     let me = mesh.me();
-    futures::future::join_all(mesh.machines().into_iter().map(|status| async move {
-        let env = if status.device.id == me {
+    futures::future::join_all(mesh.inventory().into_iter().map(|device| async move {
+        let label = Into::<&'static str>::into(&device);
+        let (status, can_host) = match device {
+            Device::Phone(status) => (status, false),
+            Device::Desktop(status) | Device::Node(status) => (status, true),
+        };
+        let env = if !can_host {
+            None
+        } else if status.device.id == me {
             Some(env::probe().await)
         } else if status.online {
             peer_env(mesh, status.device.id).await
@@ -347,14 +358,15 @@ async fn device_lines(mesh: &Mesh) -> Vec<String> {
             ""
         };
         let online = if status.online { "online" } else { "offline" };
-        let kind = match status.device.kind {
-            DeviceKind::Desktop => "desktop",
-            DeviceKind::Node => "node",
-        };
         let mut line = format!(
-            "- {}{here}: {online}, {kind}",
+            "- {}{here}: {online}, {label}",
             command_name(&status.device.name)
         );
+        if !can_host {
+            line.push_str(
+                "\n  Observes and controls machines; does not host sessions or file sync.",
+            );
+        }
         if let Some(env) = env {
             // Writing to a string cannot fail.
             let _ = write!(line, "\n  {}", describe(&env));
@@ -413,11 +425,16 @@ struct Job {
     machine: String,
 }
 
-impl Job {
-    fn parse(text: &str) -> Option<Self> {
-        let (what, machine) = text.trim().split_once('@')?;
-        let id = what.strip_prefix("task:")?.parse().ok()?;
-        Some(Self {
+impl FromStr for Job {
+    type Err = anyhow::Error;
+
+    fn from_str(text: &str) -> Result<Self> {
+        let (what, machine) = text.trim().split_once('@').context("missing job machine")?;
+        let id = what
+            .strip_prefix("task:")
+            .context("missing task prefix")?
+            .parse()?;
+        Ok(Self {
             id,
             machine: machine.to_owned(),
         })
@@ -565,9 +582,9 @@ mod tests {
             named,
             "Started it in the background. Job id: task:7@box-b. Check it."
         );
-        let job = Job::parse("task:7@box-b").expect("a job id");
+        let job = "task:7@box-b".parse::<Job>().expect("a job id");
         assert_eq!((job.id, job.machine.as_str()), (7, "box-b"));
-        assert!(Job::parse("7").is_none());
+        assert!("7".parse::<Job>().ok().is_none());
     }
 
     #[test]

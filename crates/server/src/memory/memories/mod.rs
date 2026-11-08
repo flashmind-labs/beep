@@ -150,7 +150,7 @@ impl Hit {
             "id": self.id,
             "content": self.content,
             "category": self.category,
-            "source": self.source.as_str(),
+            "source": self.source.as_ref(),
             "updated": self.date,
         });
         if let Some(from) = self.valid.from {

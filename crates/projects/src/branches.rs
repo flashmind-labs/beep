@@ -7,6 +7,7 @@ use crate::{
 use anyhow::{Result, bail};
 use beep_proto::{ProjectBranch, WorkBranch, node::agent};
 use serde::Deserialize;
+use std::str::FromStr;
 use std::{
     collections::{BTreeMap, HashMap},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -27,7 +28,7 @@ pub fn worktree_path(branch: &str) -> String {
 /// Gives `branch` a worktree in `folder`, from the local branch or the first remote that has it.
 /// Exits 3 no folder, 4 git failed, 5 worktree exists, 6 path taken, 7 no remote has it.
 pub fn add_worktree_script(folder: &str, branch: &str) -> String {
-    let exclude = MachinePath::parse(folder)
+    let exclude = MachinePath::from_str(folder)
         .map(|path| format!("{{ {}; }} >/dev/null 2>&1; ", exclude_project_dirs(&path)))
         .unwrap_or_default();
     format!(

@@ -263,7 +263,7 @@ impl PlaceTool {
         ) else {
             return Ok(Err("place, when, label and task are required".into()));
         };
-        let Some(event) = PlaceEvent::parse(when) else {
+        let Some(event) = when.parse::<PlaceEvent>().ok() else {
             return Ok(Err("when is arrive or leave".into()));
         };
         let Some(place) = self.user.place_named(name).await? else {
@@ -271,7 +271,8 @@ impl PlaceTool {
                 "no place named '{name}'. Save it first with place_save, or check place_list."
             )));
         };
-        let Some(repeat) = text(args, "repeat").and_then(PlaceRepeat::parse) else {
+        let Some(repeat) = text(args, "repeat").and_then(|text| text.parse::<PlaceRepeat>().ok())
+        else {
             return Ok(Err("repeat is once, daily or always".into()));
         };
         let routine = NewPlaceRoutine {
@@ -293,8 +294,8 @@ impl PlaceTool {
             "id": id,
             "label": label,
             "place": place.name,
-            "when": event.as_str(),
-            "repeat": repeat.as_str(),
+            "when": event.as_ref(),
+            "repeat": repeat.as_ref(),
         })))
     }
 }
@@ -372,7 +373,7 @@ mod tests {
         let crons = user.list_crons().await.unwrap();
         assert_eq!(crons.len(), 1);
         assert_eq!(
-            PlaceTrigger::parse(&crons[0].schedule),
+            crons[0].schedule.parse::<PlaceTrigger>().ok(),
             Some(PlaceTrigger {
                 event: PlaceEvent::Arrive,
                 place: place.id,

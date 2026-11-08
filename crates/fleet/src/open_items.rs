@@ -14,7 +14,7 @@ use beep_projects::{
 };
 use beep_proto::{
     GitHost, GitHostKind, GitItem, GitItemKind, GitItems, GitReview, LabeledGitItems,
-    LabeledProjectLists, ProjectIssue, ProjectPullRequest,
+    LabeledProjectLists, ProjectPullRequest,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -110,15 +110,6 @@ fn unreadable(lists: &LabeledProjectLists) -> Option<String> {
     }
 }
 
-/// `host` and `org/repo` out of an item's web address.
-fn host_and_repo(url: &str) -> Option<(String, String)> {
-    let rest = url.split_once("://")?.1;
-    let mut parts = rest.split('/');
-    let host = parts.next().filter(|host| !host.is_empty())?;
-    let repo = format!("{}/{}", parts.next()?, parts.next()?);
-    Some((host.to_owned(), repo))
-}
-
 /// What decides which of a project's open items Home lists: a repository the user can write to
 /// lists them all, any other only the user's own. The tokens' searches already give what is
 /// assigned to the user or asks for their review, so those need no row from the project.
@@ -172,16 +163,16 @@ impl Access {
     /// Whether Home lists the item at `url` that `author` opened; `mine` when the machine's own
     /// account is known to be the author.
     fn lists(&self, url: &str, author: &str, mine: bool) -> bool {
-        let Some((host, name)) = host_and_repo(url) else {
+        let Ok(repo) = Repo::try_from(url) else {
             return false;
         };
         let own = !author.is_empty()
-            && self.accounts.get(&host).is_some_and(|accounts| {
+            && self.accounts.get(&repo.host).is_some_and(|accounts| {
                 accounts
                     .iter()
                     .any(|account| account.eq_ignore_ascii_case(author))
             });
-        mine || own || self.writable.contains(&Repo { host, name })
+        mine || own || self.writable.contains(&repo)
     }
 }
 
@@ -229,14 +220,13 @@ pub(crate) fn repos_of(projects: &[ProjectRead]) -> HashSet<Repo> {
         .iter()
         .filter_map(|read| read.result.as_ref().ok())
         .flat_map(urls)
-        .filter_map(|url| host_and_repo(&url))
-        .map(|(host, name)| Repo { host, name })
+        .filter_map(|url| Repo::try_from(url.as_str()).ok())
         .collect()
 }
 
 /// A row with what a project list knows; the rest is false.
 fn row(url: &str, number: u64, kind: GitItemKind) -> Option<GitItem> {
-    let (host, repo) = host_and_repo(url)?;
+    let Repo { host, name: repo } = Repo::try_from(url).ok()?;
     Some(GitItem {
         host,
         repo,
@@ -252,18 +242,6 @@ fn row(url: &str, number: u64, kind: GitItemKind) -> Option<GitItem> {
         review: GitReview::None {},
         checks_failing: false,
         comments: 0,
-    })
-}
-
-fn from_issue(issue: &ProjectIssue) -> Option<Found> {
-    let mut item = row(&issue.url, issue.number, GitItemKind::Issue {})?;
-    item.title = issue.title.clone();
-    item.updated_at = issue.opened_at;
-    item.comments = issue.comments;
-    Some(Found {
-        item,
-        labels: issue.labels.clone(),
-        opened_at: Some(issue.opened_at),
     })
 }
 
@@ -325,7 +303,7 @@ pub(crate) fn merge(
             .issues
             .iter()
             .filter(|issue| access.lists(&issue.url, &issue.author, false))
-            .filter_map(from_issue);
+            .filter_map(|issue| Found::try_from(issue).ok());
         let prs = lists
             .lists
             .pull_requests
@@ -370,7 +348,7 @@ pub(crate) fn merge(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beep_proto::ProjectLists;
+    use beep_proto::{ProjectIssue, ProjectLists};
 
     /// Every repository writable, as for the user's own projects.
     fn open_access() -> Access {

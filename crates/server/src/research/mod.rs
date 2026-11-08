@@ -31,7 +31,9 @@ pub const MAX_TEAM_SCOUTS: usize =
     MAX_SCOUTS + MAX_GAP_SCOUTS + (MAX_ROUNDS as usize - 1) * (MAX_FOLLOW_UPS + MAX_GAP_SCOUTS);
 
 /// Where a research stands, as the store keeps it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, EnumString, IntoStaticStr, strum::AsRefStr, strum::Display,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum Status {
     Planning,
@@ -45,25 +47,23 @@ pub enum Status {
 }
 
 impl Status {
-    pub fn as_str(self) -> &'static str {
-        self.into()
-    }
-
     /// The team is at work.
     pub fn is_running(self) -> bool {
         matches!(self, Self::Researching | Self::Reviewing | Self::Writing)
     }
+}
 
-    pub fn wire(self) -> ResearchStatus {
-        match self {
-            Self::Planning => ResearchStatus::Planning {},
-            Self::Researching => ResearchStatus::Researching {},
-            Self::Reviewing => ResearchStatus::Reviewing {},
-            Self::Writing => ResearchStatus::Writing {},
-            Self::Done => ResearchStatus::Done {},
-            Self::Failed => ResearchStatus::Failed {},
-            Self::Stopped => ResearchStatus::Stopped {},
-            Self::Interrupted => ResearchStatus::Interrupted {},
+impl From<Status> for ResearchStatus {
+    fn from(status: Status) -> Self {
+        match status {
+            Status::Planning => ResearchStatus::Planning {},
+            Status::Researching => ResearchStatus::Researching {},
+            Status::Reviewing => ResearchStatus::Reviewing {},
+            Status::Writing => ResearchStatus::Writing {},
+            Status::Done => ResearchStatus::Done {},
+            Status::Failed => ResearchStatus::Failed {},
+            Status::Stopped => ResearchStatus::Stopped {},
+            Status::Interrupted => ResearchStatus::Interrupted {},
         }
     }
 }
@@ -236,18 +236,18 @@ pub enum Entry {
     Note { content: String, sources: Vec<u32> },
 }
 
-impl Entry {
-    pub fn wire(&self) -> ResearchEntryBody {
-        match self {
-            Self::Said { to, content } => ResearchEntryBody::Said {
+impl From<&Entry> for ResearchEntryBody {
+    fn from(entry: &Entry) -> Self {
+        match entry {
+            Entry::Said { to, content } => ResearchEntryBody::Said {
                 to: to.map(|to| to.to_string()),
                 content: content.clone(),
             },
-            Self::Step { label, success } => ResearchEntryBody::Step {
+            Entry::Step { label, success } => ResearchEntryBody::Step {
                 label: label.clone(),
                 success: *success,
             },
-            Self::Note { content, sources } => ResearchEntryBody::Note {
+            Entry::Note { content, sources } => ResearchEntryBody::Note {
                 content: content.clone(),
                 sources: sources.clone(),
             },

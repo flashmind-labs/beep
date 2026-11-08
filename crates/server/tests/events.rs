@@ -12,7 +12,7 @@ use beep_server::{
     app::{App, ServerTools, UserNotice},
     protocol::Session,
     routines::events::{
-        self, Accepted, EventApp, Limits, Settings, Topic, Urgency, Verdict, normalize,
+        self, Accepted, AppEvent, EventApp, Limits, Settings, Topic, Urgency, Verdict, normalize,
     },
     store::{EventState, TestDb},
 };
@@ -213,8 +213,8 @@ fn gmail_trigger(user: &str, id: &str, sender: &str, subject: &str) -> Value {
 }
 
 /// A notification as `GITHUB_LIST_NOTIFICATIONS` returns it.
-fn github_notification(reason: &str, title: &str) -> Value {
-    json!({
+fn github_notification(reason: &str, title: &str) -> normalize::GitHubNotification {
+    serde_json::from_value(json!({
         "id": "9001",
         "reason": reason,
         "unread": true,
@@ -225,7 +225,8 @@ fn github_notification(reason: &str, title: &str) -> Value {
             "type": "PullRequest",
             "url": "https://api.github.com/repos/org/repo/pulls/42"
         }
-    })
+    }))
+    .expect("a GitHub notification")
 }
 
 /// The next notice with a title, the kind a finished woken run sends.
@@ -290,11 +291,8 @@ async fn an_inform_now_wakes_the_agent_with_the_triage_summary() {
     let alice = &h.alice;
 
     // A review request found by the GitHub poll is passed on now.
-    let review = normalize::from_github_notification(&github_notification(
-        "review_requested",
-        "Add caching",
-    ))
-    .unwrap();
+    let review =
+        AppEvent::try_from(&github_notification("review_requested", "Add caching")).unwrap();
     events::submit(&h.app, alice.id(), review.clone()).await;
     let notice = next_notice(&mut notices).await;
     assert_eq!(notice.user, alice.id());
@@ -313,7 +311,7 @@ async fn an_inform_now_wakes_the_agent_with_the_triage_summary() {
     );
     // A topic the user turned off is dropped.
     alice.set_event_topic(Topic::GithubCi, false).await.unwrap();
-    let failed = normalize::from_github_notification(&github_notification(
+    let failed = AppEvent::try_from(&github_notification(
         "ci_activity",
         "CI workflow run failed for main branch",
     ))
@@ -355,8 +353,8 @@ async fn an_ignore_is_logged_and_a_later_waits_for_the_next_wake() {
         (Verdict::Ignore, None, false)
     );
     // A trigger and a poll of the same email are one event.
-    let message = normalize::TriggerMessage::parse(&payload).unwrap();
-    let again = normalize::from_trigger(&message).unwrap();
+    let message = normalize::TriggerMessage::try_from(&payload).unwrap();
+    let again = AppEvent::try_from(&message).unwrap();
     assert_eq!(
         events::accept(&h.app, alice, again).await.unwrap(),
         Accepted::Duplicate
@@ -392,11 +390,8 @@ async fn an_ignore_is_logged_and_a_later_waits_for_the_next_wake() {
     assert_eq!(waiting[0].app, Some(EventApp::Gmail));
 
     // The next inform now carries it along.
-    let review = normalize::from_github_notification(&github_notification(
-        "review_requested",
-        "Add caching",
-    ))
-    .unwrap();
+    let review =
+        AppEvent::try_from(&github_notification("review_requested", "Add caching")).unwrap();
     events::submit(&h.app, alice.id(), review).await;
     next_notice(&mut notices).await;
     assert_eq!(
@@ -423,7 +418,7 @@ async fn a_failed_triage_passes_on_only_urgent_looking_events() {
     assert!(alice.sessions().await.unwrap().is_empty());
 
     // A failed build looks urgent, so the main agent gets it directly.
-    let failed = normalize::from_github_notification(&github_notification(
+    let failed = AppEvent::try_from(&github_notification(
         "ci_activity",
         "CI workflow run failed for main branch",
     ))
@@ -446,11 +441,8 @@ async fn limits_hold_triages_and_wakes_back() {
     let alice = &h.alice;
 
     // With no wake left, an inform now waits like a later one.
-    let review = normalize::from_github_notification(&github_notification(
-        "review_requested",
-        "Add caching",
-    ))
-    .unwrap();
+    let review =
+        AppEvent::try_from(&github_notification("review_requested", "Add caching")).unwrap();
     events::submit(&h.app, alice.id(), review).await;
     let ids = events_in(alice, EventState::Triaged, 1).await;
     triaged(&h, alice).await;
@@ -486,8 +478,8 @@ async fn duplicates_do_not_count_toward_the_hourly_limit() {
     let alice = &h.alice;
     let mail = |id: &str| {
         let payload = gmail_trigger(alice.external_id(), id, "Ana <ana@example.com>", "Lunch");
-        let message = normalize::TriggerMessage::parse(&payload).unwrap();
-        normalize::from_trigger(&message).unwrap()
+        let message = normalize::TriggerMessage::try_from(&payload).unwrap();
+        AppEvent::try_from(&message).unwrap()
     };
     assert!(matches!(
         events::accept(&h.app, alice, mail("d1")).await.unwrap(),
@@ -515,11 +507,8 @@ async fn a_notified_wake_is_an_alert_until_the_user_replies() {
     let mut notices = h.app.notifications.subscribe();
     let alice = &h.alice;
 
-    let review = normalize::from_github_notification(&github_notification(
-        "review_requested",
-        "Add caching",
-    ))
-    .unwrap();
+    let review =
+        AppEvent::try_from(&github_notification("review_requested", "Add caching")).unwrap();
     events::submit(&h.app, alice.id(), review).await;
     let notice = next_notice(&mut notices).await;
     let chat = Uuid::parse_str(&notice.notice.session_id).expect("a session id");
@@ -571,11 +560,8 @@ async fn a_dismissed_alert_is_gone_with_its_chat() {
     let mut notices = h.app.notifications.subscribe();
     let alice = &h.alice;
 
-    let review = normalize::from_github_notification(&github_notification(
-        "review_requested",
-        "Add caching",
-    ))
-    .unwrap();
+    let review =
+        AppEvent::try_from(&github_notification("review_requested", "Add caching")).unwrap();
     events::submit(&h.app, alice.id(), review).await;
     let chat = Uuid::parse_str(&next_notice(&mut notices).await.notice.session_id).unwrap();
     assert_eq!(alice.alerts().await.unwrap().len(), 1);

@@ -17,7 +17,7 @@ import { reason } from "../ui/format.ts";
 import type { MachineCard } from "../machines/machine-state.ts";
 
 /// A machine the sheet offers, as Home lists it.
-type Machine = Pick<MachineCard, "id" | "name" | "online" | "env">;
+type Machine = Pick<MachineCard, "id" | "name" | "online" | "env" | "can_host">;
 
 /// What the window hands the sheet.
 export interface ImportProjectOptions {
@@ -81,7 +81,7 @@ const listed = new Map<string, readonly string[]>();
 export function openImportProject(options: ImportProjectOptions = {}) {
   if (root) return;
   syncthing = syncthingImportChoice();
-  machines = options.machines || [];
+  machines = (options.machines || []).filter(m => m.can_host !== false);
   macId = options.macId || null;
   onDone = options.onDone || null;
   // Start on this Mac when it is one of the machines: Choose… then opens the

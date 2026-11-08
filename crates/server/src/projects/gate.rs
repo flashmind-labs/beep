@@ -66,7 +66,7 @@ impl ProjectGate {
                     level == (PermissionLevel::Allow {})
                         || self
                             .rules
-                            .allows(PROJECT_APP.slug, ToolSlug::new(tool).as_str())
+                            .allows(PROJECT_APP.slug, ToolSlug::new(tool).as_ref())
                 }
             };
         if runs {
@@ -85,7 +85,7 @@ mod tests {
     use crate::store::AppPermissionRow;
 
     fn rules(level: PermissionLevel, allowed: &[&str]) -> Rules {
-        Rules::from_rows(vec![AppPermissionRow {
+        Rules::from(vec![AppPermissionRow {
             app: "project".into(),
             level,
             allowed: allowed.iter().map(|tool| (*tool).to_owned()).collect(),

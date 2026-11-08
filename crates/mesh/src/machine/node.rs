@@ -1,7 +1,7 @@
 //! One-request protocols of a node: files, logs, search, background
 //! tasks, tool and node updates, and a command in a shell.
 
-use super::{said, unexpected};
+use super::{said, stream_closed, timed_out, unexpected};
 use crate::{MeshError, PeerClient};
 use beep_proto::node::{
     files, logs,
@@ -57,9 +57,9 @@ pub(super) async fn exchange<Q: Serialize, R: DeserializeOwned>(
     tx.send(request).await.map_err(MeshError::Link)?;
     timeout(limit, rx.recv::<R>())
         .await
-        .map_err(|_| said(words.silent))?
+        .map_err(|e| timed_out(e, words.silent))?
         .map_err(MeshError::Link)?
-        .ok_or_else(|| said(words.closed))
+        .ok_or_else(|| stream_closed(words.closed))
 }
 
 /// Sends `request` to the node's shared folders and returns its reply.
@@ -160,7 +160,7 @@ impl Tasks<'_> {
         if read.topic().is_some()
             && let Some(value) = timeout(TASK_LIMIT, self.0.snapshot(read))
                 .await
-                .map_err(|_| said("the process subscription did not answer in time"))?
+                .map_err(|e| timed_out(e, "the process subscription did not answer in time"))?
         {
             return match value? {
                 beep_proto::node::events::Value::Process(reply) => Ok(reply),
@@ -316,13 +316,13 @@ pub async fn exec(client: &PeerClient, command: &str, limit: Duration) -> Result
                     });
                 }
                 Some(_) => {}
-                None => return Err(said("the node closed the shell")),
+                None => return Err(stream_closed("the node closed the shell")),
             }
         }
     };
     timeout(limit + GRACE, answer)
         .await
-        .map_err(|_| said("the node stopped answering"))?
+        .map_err(|e| timed_out(e, "the node stopped answering"))?
 }
 
 #[cfg(test)]

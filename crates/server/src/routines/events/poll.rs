@@ -1,7 +1,11 @@
 //! Sources without a Composio trigger are polled on each sweep: GitHub notifications, Fastmail,
 //! and Gmail or Outlook while their trigger or the realtime channel is down.
 
-use super::{Topic, normalize, submit, triggers};
+use super::{
+    AppEvent, Topic,
+    normalize::{self, GitHubNotification},
+    submit, triggers,
+};
 use crate::{
     account::user::{Topics, User},
     app::App,
@@ -33,7 +37,7 @@ const GITHUB_TOPICS: [Topic; 7] = [
 ];
 
 /// A polled source, also the key of its cursor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr, strum::AsRefStr, strum::Display)]
 enum PollSource {
     #[strum(serialize = "github")]
     Github,
@@ -46,14 +50,10 @@ enum PollSource {
 }
 
 impl PollSource {
-    fn as_str(self) -> &'static str {
-        self.into()
-    }
-
     /// The catalog app the source reads.
     fn app(self) -> &'static str {
         match self.mailbox() {
-            Some(mailbox) => mailbox.slug(),
+            Some(mailbox) => Into::<&'static str>::into(mailbox),
             None => "github",
         }
     }
@@ -83,7 +83,7 @@ pub(super) async fn poll_user(app: &Arc<App>, user: &Arc<User>) {
         }
     };
     for source in sources(app, user, &topics).await {
-        let since = match user.polled_at(source.as_str()).await {
+        let since = match user.polled_at(source.as_ref()).await {
             Ok(Some(at)) => at - OVERLAP,
             Ok(None) => Utc::now() - FIRST_LOOKBACK,
             Err(error) => {
@@ -100,16 +100,16 @@ pub(super) async fn poll_user(app: &Arc<App>, user: &Arc<User>) {
             Ok(found) => {
                 log::debug!(
                     "events: polled {}; user={user} found={found}",
-                    source.as_str()
+                    source.as_ref()
                 );
-                if let Err(error) = user.mark_polled(source.as_str(), started).await {
+                if let Err(error) = user.mark_polled(source.as_ref(), started).await {
                     log::warn!("events: unable to save a poll cursor: {error:#}");
                 }
             }
             // The cursor stays, so the next sweep reads the same stretch.
             Err(error) => log::warn!(
                 "events: poll of {} failed: {error:#}; user={user}",
-                source.as_str()
+                source.as_ref()
             ),
         }
     }
@@ -144,7 +144,7 @@ async fn sources(app: &App, user: &User, topics: &Topics) -> Vec<PollSource> {
             Some(Mailbox::Fastmail) | None => false,
             Some(mailbox) => {
                 realtime
-                    && triggers::has_mail_trigger(user, mailbox.slug())
+                    && triggers::has_mail_trigger(user, mailbox.as_ref())
                         .await
                         .unwrap_or_else(|error| {
                             log::warn!("events: unable to read triggers: {error:#}");
@@ -191,12 +191,20 @@ async fn poll_github(app: &App, user: &User, since: DateTime<Utc>) -> Result<usi
         }
     })
     .await?;
-    for notification in &notifications {
-        if let Some(event) = normalize::from_github_notification(notification) {
+    let read = notifications.len();
+    for payload in notifications {
+        let notification = match serde_json::from_value::<GitHubNotification>(payload) {
+            Ok(notification) => notification,
+            Err(error) => {
+                log::warn!("events: invalid GitHub notification: {error}");
+                continue;
+            }
+        };
+        if let Ok(event) = AppEvent::try_from(&notification) {
             submit(app, user.id(), event).await;
         }
     }
-    Ok(notifications.len())
+    Ok(read)
 }
 
 /// Every item from page 1 until an empty page or `GITHUB_MAX_PAGES`; a short page is not the last.

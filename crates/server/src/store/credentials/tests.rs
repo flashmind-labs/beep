@@ -215,7 +215,7 @@ async fn credentials_belong_to_their_owner() {
         .iter()
         .map(|login| {
             let host = match &login.slot {
-                Slot::Forgejo(url) => url.as_str(),
+                Slot::Forgejo(url) => url.as_ref(),
                 _ => "not a forgejo server",
             };
             (host, login.secret.expose_secret())
@@ -236,7 +236,7 @@ async fn credentials_belong_to_their_owner() {
     // A row moved to another user, as by a write that skipped the
     // store, does not open for them.
     sqlx::query("UPDATE credentials SET user_id=$1 WHERE id=$2")
-        .bind(bob.as_str())
+        .bind(bob.as_ref())
         .bind(&replaced.id)
         .execute(&store.pool)
         .await
@@ -248,7 +248,7 @@ async fn credentials_belong_to_their_owner() {
     // A provider this server does not know, as a newer one saved it,
     // lists as unreadable without failing the rest.
     sqlx::query("UPDATE credentials SET provider='newai' WHERE user_id=$1 AND kind='api_key'")
-        .bind(alice.as_str())
+        .bind(alice.as_ref())
         .execute(&store.pool)
         .await
         .unwrap();

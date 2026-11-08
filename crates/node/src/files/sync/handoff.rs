@@ -20,7 +20,7 @@ fn snapshot(root: &Path) -> Result<HandoffSnapshot> {
     let base = repo
         .head()
         .context("Commit the initial version before handing off work.")?
-        .hex();
+        .to_string();
     ensure!(
         repo.run(&["ls-files", "--unmerged"])?.stdout.is_empty(),
         "Resolve Git conflicts before handing off work."
@@ -117,7 +117,7 @@ fn snapshot(root: &Path) -> Result<HandoffSnapshot> {
         "Uncommitted work exceeds the 4 MiB handoff limit. Commit large files first."
     );
     ensure!(
-        repo.head().is_some_and(|head| head.hex() == base),
+        repo.head().is_some_and(|head| head.to_string() == base),
         "The source commit changed. Try the handoff again."
     );
     Ok(HandoffSnapshot {
@@ -133,13 +133,15 @@ fn apply(root: &Path, snapshot: HandoffSnapshot) -> Result<()> {
     );
     let repo = Repo::open(root).context("This folder is not a Git checkout.")?;
     ensure!(
-        repo.head().is_some_and(|head| head.hex() == snapshot.base),
+        repo.head()
+            .is_some_and(|head| head.to_string() == snapshot.base),
         "Checkouts have different commits. Pull the same commit before handing off work."
     );
     repo.require_clean()?;
     let _guard = WriteGuard::acquire(root, Some(Checkout::read(root)))?;
     ensure!(
-        repo.head().is_some_and(|head| head.hex() == snapshot.base),
+        repo.head()
+            .is_some_and(|head| head.to_string() == snapshot.base),
         "The destination commit changed. Try again."
     );
     ensure!(

@@ -645,7 +645,7 @@ async fn a_file_changed_under_the_store_is_not_copied_as_its_old_content() {
     let found = Found {
         path: "a.txt".into(),
         abs: path.clone(),
-        stat: Stat::of(&fs::metadata(&path).unwrap()),
+        stat: Stat::from(&fs::metadata(&path).unwrap()),
     };
     let tag = scan::import(&store, &found).await.unwrap();
     let hash = tag.hash();
@@ -703,7 +703,7 @@ async fn a_store_copy_that_cannot_be_read_is_fetched_again() {
     let found = Found {
         path: "a.txt".into(),
         abs: path.clone(),
-        stat: Stat::of(&fs::metadata(&path).unwrap()),
+        stat: Stat::from(&fs::metadata(&path).unwrap()),
     };
     let tag = scan::import(&store, &found).await.unwrap();
     let hash = tag.hash();

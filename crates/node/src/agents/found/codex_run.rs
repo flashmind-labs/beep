@@ -84,7 +84,9 @@ impl Reader {
     fn header(&mut self, meta: &Value) -> usize {
         self.run.session = meta["id"].as_str().and_then(|id| {
             let session = Conversation::Codex(id).to_string();
-            Conversation::parse(&session).is_some().then_some(session)
+            Conversation::try_from(session.as_str())
+                .is_ok()
+                .then_some(session)
         });
         let text = |key: &str| {
             meta[key]

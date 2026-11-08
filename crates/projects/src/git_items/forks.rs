@@ -4,6 +4,7 @@ use super::host::{Caller, HostError, Page};
 use crate::model::{RepoName, branch_name};
 use reqwest::Url;
 use serde::{Deserialize, de::DeserializeOwned};
+use std::str::FromStr;
 
 /// The most forks, or open pull requests, one page reads.
 const PAGE: &str = "50";
@@ -134,7 +135,7 @@ async fn fork_of(
                     .as_ref()
                     .is_some_and(|parent| parent.full_name.eq_ignore_ascii_case(upstream)) =>
         {
-            return Ok(RepoName::parse(&repo.full_name).ok());
+            return Ok(RepoName::from_str(&repo.full_name).ok());
         }
         Ok(_) | Err(HostError::Status { status: 404, .. }) => {}
         Err(e) => return Err(e),
@@ -153,7 +154,7 @@ async fn fork_of(
     Ok(forks
         .iter()
         .find(|repo| owned(repo))
-        .and_then(|repo| RepoName::parse(&repo.full_name).ok()))
+        .and_then(|repo| RepoName::from_str(&repo.full_name).ok()))
 }
 
 /// Every item of the list at `first`, following `Link` up to `MAX_PAGES` and only on the same host.
@@ -285,7 +286,7 @@ mod tests {
             host: "github.com",
             token: &token,
         };
-        let upstream = RepoName::parse(upstream).expect("a repository name");
+        let upstream = RepoName::from_str(upstream).expect("a repository name");
         find(
             &caller,
             &Lookup {

@@ -23,7 +23,7 @@ impl Store {
     ) -> Result<GitHubAccountRow> {
         let id = Uuid::new_v4().simple().to_string();
         let owner = Owner {
-            user: user.as_str(),
+            user: user.as_ref(),
             slot: &Slot::GitHub,
             id: &id,
         };
@@ -33,13 +33,13 @@ impl Store {
         // One save of a user's accounts at a time, so two first saves do
         // not both become the default.
         sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .execute(&mut *tx)
             .await?;
         let accounts: Vec<(String, bool)> = sqlx::query_as(
             "SELECT provider, is_default FROM credentials WHERE user_id=$1 AND kind=$2",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(GITHUB)
         .fetch_all(&mut *tx)
         .await?;
@@ -47,7 +47,7 @@ impl Store {
         let mut default = !accounts.iter().any(|(_, default)| *default);
         if new.replace_default && !known && !default {
             sqlx::query("DELETE FROM credentials WHERE user_id=$1 AND kind=$2 AND is_default")
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .bind(GITHUB)
                 .execute(&mut *tx)
                 .await?;
@@ -64,7 +64,7 @@ impl Store {
              RETURNING {ACCOUNT}"
         ))
         .bind(&id)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(GITHUB)
         .bind(&login_key)
         .bind(Slot::GitHub.env_var().unwrap_or_default())
@@ -89,7 +89,7 @@ impl Store {
             "SELECT {ACCOUNT}, secret FROM credentials WHERE user_id=$1 AND kind=$2
              ORDER BY is_default DESC, created_at, id"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(GITHUB)
         .fetch_all(&self.pool)
         .await?;
@@ -109,7 +109,7 @@ impl Store {
         let found: Option<String> = sqlx::query_scalar(
             "SELECT id FROM credentials WHERE user_id=$1 AND kind=$2 AND id=$3 FOR UPDATE",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(GITHUB)
         .bind(id)
         .fetch_optional(&mut *tx)
@@ -118,7 +118,7 @@ impl Store {
             return Ok(false);
         }
         sqlx::query("UPDATE credentials SET is_default=false WHERE user_id=$1 AND kind=$2")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(GITHUB)
             .execute(&mut *tx)
             .await?;
@@ -139,7 +139,7 @@ impl Store {
     ) -> Result<bool> {
         let done =
             sqlx::query("UPDATE credentials SET account=$3 WHERE user_id=$1 AND id=$2 AND kind=$4")
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .bind(id)
                 .bind(account)
                 .bind(FORGEJO)
@@ -158,7 +158,7 @@ impl Store {
             "SELECT id, kind, provider, host_url, account, secret FROM credentials
              WHERE user_id=$1 AND kind IN ('github', 'forgejo') ORDER BY kind, host_url, id",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         let mut out = Vec::new();
@@ -168,7 +168,7 @@ impl Store {
             let account: Option<String> = row.try_get("account")?;
             let opened = slot_from(row).and_then(|slot| {
                 let owner = Owner {
-                    user: user.as_str(),
+                    user: user.as_ref(),
                     slot: &slot,
                     id: &id,
                 };

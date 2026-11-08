@@ -23,7 +23,7 @@ impl Store {
              DO UPDATE SET folder=excluded.folder, url=excluded.url
              RETURNING project, endpoint_id, folder, url, imported_at, fork",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(import.project)
         .bind(import.endpoint)
         .bind(import.folder)
@@ -42,7 +42,7 @@ impl Store {
             "SELECT project, endpoint_id, folder, url, imported_at, fork FROM project_imports
              WHERE user_id=$1 ORDER BY project, endpoint_id",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(import_row).collect()
@@ -60,7 +60,7 @@ impl Store {
             "UPDATE project_imports SET fork=$4
              WHERE user_id=$1 AND project=$2 AND endpoint_id=$3",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(project)
         .bind(endpoint)
         .bind(fork.map(ToString::to_string))
@@ -77,7 +77,7 @@ impl Store {
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (user_id, project, endpoint_id) DO NOTHING",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(import.project)
         .bind(import.endpoint)
         .bind(import.folder)
@@ -96,7 +96,7 @@ async fn ensure_imported_project(
     user: &UserKey,
     project: &str,
 ) -> Result<()> {
-    let Ok(name) = RepoName::parse(project) else {
+    let Ok(name) = project.parse::<RepoName>() else {
         log::warn!("imported project has no project row, not owner/repo: {project}");
         return Ok(());
     };
@@ -107,7 +107,7 @@ async fn ensure_imported_project(
          ON CONFLICT (user_id, name) DO NOTHING",
     )
     .bind(Uuid::new_v4())
-    .bind(user.as_str())
+    .bind(user.as_ref())
     .bind(name.to_string())
     .execute(conn)
     .await?;
@@ -123,7 +123,7 @@ fn import_row(row: &sqlx::postgres::PgRow) -> Result<ImportRow> {
         imported_at: row.try_get(4)?,
         fork: row
             .try_get::<Option<String>, _>(5)?
-            .and_then(|fork| RepoName::parse(&fork).ok()),
+            .and_then(|fork| fork.parse::<RepoName>().ok()),
     })
 }
 

@@ -182,7 +182,9 @@ async fn shown(cx: &Cx, review: ReviewRow, doing: &HashMap<u32, String>) -> Repl
 
 /// The caller's project named `name`, made or imported.
 pub(super) async fn project_row(cx: &Cx, name: &str) -> Result<ProjectRow, ApiError> {
-    let name = RepoName::parse(name.trim()).map_err(|_| ApiError::NotFound {})?;
+    let name = (name.trim())
+        .parse::<RepoName>()
+        .map_err(|_| ApiError::NotFound {})?;
     let text = name.to_string();
     let known = cx
         .user

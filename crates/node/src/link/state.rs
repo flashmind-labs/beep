@@ -55,14 +55,16 @@ pub struct State {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Search(Option<PathBuf>);
 
-impl Search {
+impl From<&str> for Search {
     /// A folder as the user typed it; empty, `~` and `~/` are home.
-    pub fn parse(text: &str) -> Self {
+    fn from(text: &str) -> Self {
         let text = text.trim();
         let home = matches!(text, "" | "~" | "~/" | "~\\");
         Self((!home).then(|| PathBuf::from(text)))
     }
+}
 
+impl Search {
     /// The folder to walk, `~` made home; `None` when it needs a home and
     /// this system has none.
     pub fn root(&self) -> Option<PathBuf> {
@@ -258,7 +260,7 @@ mod tests {
             + "server = \"abc\"\nwebhook_listen = \"[fd00::12]:7480\"\n";
         fs::write(&path, old).unwrap();
         assert_eq!(State::load(dir).unwrap().name, "box");
-        save_search(dir, &Search::parse("~")).unwrap();
+        save_search(dir, &Search::from("~")).unwrap();
         let saved = fs::read_to_string(&path).unwrap();
         assert!(!saved.contains("webhook_listen"), "{saved}");
         assert!(!saved.contains("server"), "{saved}");
