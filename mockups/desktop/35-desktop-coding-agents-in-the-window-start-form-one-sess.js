@@ -1259,3 +1259,14 @@ DESK_SCREENS.find(g => g.group === "Command center").items.push(
     S.d.ags = usagePreview;
   }
 }
+
+// Reopened sessions show the latest turn. The scrolled-up variant stays put.
+{
+  const base = render;
+  render = function () {
+    base();
+    if (S.screen !== "dAgentSession" || S.d.ags === "richjump") return;
+    const body = document.querySelector("#desk #agbody");
+    if (body) body.scrollTop = body.scrollHeight;
+  };
+}

@@ -1,4 +1,6 @@
 // The "Add a machine" sheet.
+import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { onShownChange } from "../ui/active.ts";
 import { invoke } from "../ui/tauri.ts";
 import { HOME_SEARCH, INSTALL, INSTALL_WINDOWS, KINDS, START, next, timeLeft, machineById, describeMachine, macOption, withSearch, inviteArgs } from "./addmachine-state.ts";
 import type { AddEvent, MacSeen, TicketKind } from "./addmachine-state.ts";
@@ -17,18 +19,26 @@ interface NodeToken {
 
 type Timer = ReturnType<typeof setInterval> | undefined;
 
-const POLL_MS = 2000;
 const TICK_MS = 1000;
 
 let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, state = START;
 /// What the ticket is for: a node, a container, another Mac, or a phone.
 let kind: TicketKind = "node";
 let creation = 0;
-let ticker: Timer, poller: Timer, close: (() => void) | null = null, onClose: (() => void) | null = null;
+let ticker: Timer, poller: (() => void) | undefined, close: (() => void) | null = null, onClose: (() => void) | null = null;
 // This Mac's mac_control view, and whether the sheet turned it on.
-let mac: MacSeen | null = null, macAsked = false, macPoller: Timer;
+let mac: MacSeen | null = null, macAsked = false, macPoller: (() => void) | undefined;
 // Where the new machine looks for projects; it goes on the setup command.
 let searchInput: HTMLInputElement | null = null;
+
+onShownChange(visible => {
+  clearInterval(ticker);
+  ticker = undefined;
+  if (visible && root) {
+    update({ type: "tick", now: Date.now() });
+    ticker = setInterval(() => update({ type: "tick", now: Date.now() }), TICK_MS);
+  }
+});
 
 function codeLine(text: string) {
   return el("div", "am-line", el("div", "am-code", text), copyButton(text));
@@ -45,7 +55,7 @@ export function openAddMachine(options: { onClose?: () => void } = {}) {
   mac = null;
   macAsked = false;
   loadMac();
-  macPoller = setInterval(loadMac, POLL_MS);
+  macPoller = subscribeTopics(topic("machines"), () => loadMac());
   searchInput = el("input", "am-code am-search");
   searchInput.value = HOME_SEARCH;
   searchInput.setAttribute("aria-label", "Search for projects in");
@@ -74,9 +84,10 @@ export function closeAddMachine() {
 function closed() {
   creation++;
   clearInterval(ticker);
-  clearInterval(poller);
-  clearInterval(macPoller);
-  ticker = poller = macPoller = undefined;
+  poller?.();
+  macPoller?.();
+  ticker = undefined;
+  poller = macPoller = undefined;
   root = sheet = close = null;
   state = START;
   const done = onClose;
@@ -88,13 +99,14 @@ function closed() {
 async function start() {
   const requested = ++creation;
   update({ type: "renew" });
-  clearInterval(poller);
+  poller?.();
   poller = undefined;
   try {
     const made = await invoke<NodeToken>("mesh_invite", inviteArgs(kind));
     if (!root || requested !== creation) return;
     update({ type: "created", token: made.token, command: made.command, expiresAt: made.expires_at, qrSvg: made.qr_svg ?? undefined });
-    poller = setInterval(poll, POLL_MS);
+    poller = subscribeTopics([topic("machines"), topic("projects")], () => poll());
+    void poll();
   } catch (e) {
     if (!root || requested !== creation) return;
     update({ type: "failed", message: String(e) });
@@ -115,7 +127,7 @@ async function poll() {
     const machine = machineById(await invoke<MachineView[]>("list_machines"), id);
     if (machine && state.step === "waiting" && state.token === token) update({ type: "found", machine });
   } catch {
-    // The next poll tries again.
+    // A membership update or reconnect tries again.
   }
 }
 
@@ -181,7 +193,7 @@ function update(event: AddEvent) {
   const was = state;
   state = next(state, event);
   if (state.step !== "waiting") {
-    clearInterval(poller);
+    poller?.();
     poller = undefined;
   }
   if (!root) return;

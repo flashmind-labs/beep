@@ -9,6 +9,46 @@ use beep_proto::node::{
 };
 use std::sync::Arc;
 
+impl Agents {
+    /// Orders from the duplex events stream use the same actor as ACP and legacy streams.
+    pub(crate) async fn send_session(
+        &self,
+        agent: &str,
+        id: &str,
+        request: Request,
+    ) -> Result<SessionInfo, String> {
+        let session = self
+            .get(id)
+            .filter(|session| session.agent == agent)
+            .ok_or_else(|| "session is no longer on the machine".to_owned())?;
+        if matches!(request, Request::Close {}) {
+            session.close().await;
+            return Ok(session.info());
+        }
+        let cascade = matches!(request, Request::Cancel {});
+        let command = match request {
+            Request::Prompt { text } => Command::Prompt(text.into()),
+            Request::PromptImages { text, images } => {
+                Command::Prompt(Prompt::with_images(text, images)?)
+            }
+            Request::Steer { text, images } => Command::Steer(Prompt::with_images(text, images)?),
+            Request::DropSteers {} => Command::DropSteers,
+            Request::Answer { question, reply } => Command::Answer { question, reply },
+            Request::SetMode { mode } => Command::SetMode(mode),
+            Request::StopTask { task } => Command::StopTask(task),
+            Request::Cancel {} => Command::Cancel { by_user: true },
+            Request::Close {} => Command::Close { by_user: true },
+            Request::Configure { model, effort } => Command::Configure { model, effort },
+            _ => return Err("this request cannot order an existing session".into()),
+        };
+        session.order(command).await?;
+        if cascade {
+            self.cancel_family(&session).await;
+        }
+        Ok(session.info())
+    }
+}
+
 /// Serves one agent stream: starts or attaches to a session, then passes
 /// orders to it and its changes back until either side ends.
 pub async fn serve_session(

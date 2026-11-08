@@ -4,6 +4,7 @@
 
 pub(crate) mod from_mesh;
 pub(crate) use from_mesh::Membership;
+mod events;
 pub(crate) mod local_socket;
 pub mod local_status;
 pub(crate) mod note;
@@ -21,3 +22,6 @@ pub(crate) mod watchdog;
 
 pub use serve::{Offers, Protocol, Session, listen_hooks, serve};
 pub use traffic::Traffic;
+
+#[cfg(all(test, unix))]
+pub(crate) use events::serve as serve_events;

@@ -1,3 +1,4 @@
+import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // Moving the open session to another machine: the machine name in the head is
 // a menu, a turn that runs waits (or is stopped), steps tick above the
 // composer, and the lists say "laptop to studio". The records are in the
@@ -7,19 +8,17 @@ import { type AgentHost, type AgentRow, AG } from "./agents.ts";
 import { type MoveRecord, type MoveTarget, canMove, going, moveRows, targetNote } from "./move-state.ts";
 import { MV, moved, nameOf, stateOf } from "./move-store.ts";
 import { loadSessions } from "./sessions.ts";
-import { $, windowHooks } from "../bar/core.ts";
+import { $, S, windowHooks } from "../bar/core.ts";
 import { placeOf } from "./place.ts";
 import { esc } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
+import { paneShown } from "../ui/active.ts";
 import type { ProjectMachineRow } from "../project/projects-state.ts";
-
-/// How often the target is asked while a move goes.
-const POLL_MS = 1500;
 
 const CHEV = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 const OK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-9"/></svg>';
 
-const UI = { targets: [] as MoveTarget[], open: false, loading: false, error: "", timer: 0 };
+const UI = { targets: [] as MoveTarget[], open: false, loading: false, error: "" };
 
 /// How long a machine may take to say whether it takes the move.
 const PROBE_MS = 3000;
@@ -37,14 +36,11 @@ export function drawMove() {
   if (!s) return;
   drawHead(s);
   drawBox(s);
-  const r = here(s);
-  const p = stateOf(s.id);
-  // The target can finish before its session appears in the next scan.
-  if (r?.from === s.machine_id && (going(p) || p?.phase === "done") && !UI.timer) UI.timer = window.setTimeout(poll, POLL_MS);
 }
 
+subscribeTopics([topic("moves"), topic("agents")], () => poll(), null, () => !!AG.open && S.view === "agent" && paneShown());
+
 async function poll() {
-  UI.timer = 0;
   try { await loadSessions(); } catch (e) { console.warn("sessions not read after a move", e); }
   drawMove();
 }

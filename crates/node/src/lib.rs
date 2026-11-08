@@ -4,6 +4,7 @@
 use std::sync::{Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 pub mod agents;
+pub mod events;
 pub mod files;
 pub mod link;
 pub mod machine;

@@ -24,4 +24,3 @@ export function creditScope(scope: string) {
 export function providerName(provider: string) {
   return provider === "openrouter" ? "OpenRouter" : provider;
 }
-

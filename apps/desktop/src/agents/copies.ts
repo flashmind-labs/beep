@@ -1,3 +1,4 @@
+import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // The copies this Mac keeps of other machines' sessions, in the Coding
 // agents list: a session whose machine is off offers Continue on this Mac,
 // and a version that lost to another machine's can be restored or thrown
@@ -20,14 +21,12 @@ const acted = new Set<() => void>();
 export const onCopyAction = (f: () => void) => void acted.add(f);
 
 let showing: () => boolean = () => false;
-let timer: ReturnType<typeof setInterval> | undefined;
+let unfollow: (() => void) | undefined;
 
-/// While `isOpen` says the list shows, the copies are read again every 10
-/// seconds, as the page's other refreshes are: a machine that goes off
-/// offers Continue without a reload. Started once, when the list first opens.
+/// Follows copy and machine changes while the list shows. Started once.
 export function keepCopiesFresh(isOpen: () => boolean) {
   showing = isOpen;
-  timer ??= setInterval(() => { if (showing() && pageShown()) void loadCopies(); }, 10_000);
+  unfollow ??= subscribeTopics([topic("moves"), topic("machines")], () => loadCopies(), null, () => showing() && pageShown());
 }
 
 /// Reads the copies the node keeps.

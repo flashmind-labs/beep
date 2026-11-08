@@ -497,6 +497,9 @@ pub async fn serve_sessions(
             message: format!("this node does not serve {other:?}"),
         },
     };
+    if let SessionsReply::External { sessions } = &reply {
+        agents.observe_external(sessions);
+    }
     let computed = started.elapsed();
     let result = tx.send(&reply).await;
     if let Some(operation) = operation {

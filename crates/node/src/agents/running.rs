@@ -270,6 +270,8 @@ impl Agents {
             .map(|kind| agent::protocol(&kind.name))
             .collect();
         offers.push(SESSIONS_PROTOCOL.to_owned());
+        offers.push(agent::SESSION_FOLLOW_PROTOCOL.to_owned());
+        offers.push(beep_proto::node::events::PROTOCOL.to_owned());
         offers
     }
 
@@ -457,6 +459,30 @@ impl Agents {
         let session = Arc::new(session);
         let how = if resumed { "took over" } else { "started" };
         log::info!("{how} {} session {id} in {}", kind.name, cwd.display());
+        let events = self.events.clone();
+        let mut updates = session.live.clone();
+        session.keep(tokio::spawn(async move {
+            let mut previous = None;
+            loop {
+                let info = updates.borrow_and_update().info.clone();
+                events.changed(beep_proto::node::events::Topic::keyed("agent", &info.id));
+                let summary = (
+                    info.id.clone(),
+                    info.state.status,
+                    info.title.clone(),
+                    info.turns,
+                    info.state.tasks.clone(),
+                );
+                if previous.as_ref() != Some(&summary) {
+                    events.changed(beep_proto::node::events::Topic::new("agents"));
+                    events.changed(beep_proto::node::events::Topic::new("processes"));
+                    previous = Some(summary);
+                }
+                if updates.changed().await.is_err() {
+                    return;
+                }
+            }
+        }));
         sessions.insert(id, session.clone());
         crate::link::restart::changed();
         Ok(session)
