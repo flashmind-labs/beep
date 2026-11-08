@@ -65,14 +65,21 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
 fn machines(app: &AppHandle, fleet: &Fleet, away: &mut Away<EndpointId>) {
     let me = fleet.id();
     // A temporary machine going offline is no news: it stopped, or it is removed in time.
-    let temporary = fleet
-        .mesh()
+    let mesh = fleet.mesh();
+    let temporary = mesh
+        .as_ref()
         .map(|mesh| mesh.temporaries())
         .unwrap_or_default();
     let online: HashMap<EndpointId, bool> = fleet
         .machines()
         .into_iter()
-        .filter(|status| status.device.id != me && !temporary.contains(&status.device.id))
+        .filter(|status| {
+            status.device.id != me
+                && !temporary.contains(&status.device.id)
+                && !mesh
+                    .as_ref()
+                    .is_some_and(|mesh| mesh.is_observer(status.device.id))
+        })
         .map(|status| (status.device.id, status.online))
         .collect();
     for change in away.step(&online, Instant::now()) {
