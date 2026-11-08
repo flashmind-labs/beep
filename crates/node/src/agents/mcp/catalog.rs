@@ -87,8 +87,8 @@ pub(super) fn tools(reviewer: bool) -> Value {
         {
             "name": "sync_project",
             "description": "Sync a project now. Git repositories exchange commits through Git; \
-                uncommitted edits stay on their machine and require an explicit handoff. Non-Git \
-                folders exchange files. Scans here and on the other machines, then waits up to \
+                selected Git-ignored folders use file sync when enabled in project settings. Other \
+                uncommitted edits stay on their machine and require an explicit handoff. Non-Git folders exchange files. Scans here and on the other machines, then waits up to \
                 90 seconds and reports how each stands. A successful Git sync does not mean \
                 uncommitted files were copied.",
             "inputSchema": {

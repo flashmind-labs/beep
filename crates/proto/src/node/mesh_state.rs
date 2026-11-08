@@ -19,6 +19,9 @@ pub struct SyncSpec {
     pub folders: BTreeMap<EndpointId, String>,
     #[serde(default)]
     pub paused: bool,
+    /// Selected ignored folders use independent file sync; off by default.
+    #[serde(default)]
+    pub ignored: super::sync::IgnoredSync,
 }
 
 /// `skills/sync`: whether coding agent skills sync across the mesh.

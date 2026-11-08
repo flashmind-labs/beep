@@ -263,7 +263,7 @@ async fn sync_project(args: Value, caller: &Caller) -> Outcome {
     let mut status = status;
     while !settled(&status) && Instant::now() < deadline {
         sleep(SYNC_POLL).await;
-        match syncs.status().into_iter().find(|s| s.name == project) {
+        match syncs.status_for(&project) {
             Some(now) => status = now,
             None => return Err(format!("{project} stopped syncing here.")),
         }
@@ -286,7 +286,7 @@ fn settled(status: &ProjectStatus) -> bool {
 fn sync_line(status: &ProjectStatus) -> String {
     let mut line = match status.state {
         SyncState::Idle if status.pending == 0 && status.git_only =>
-            "Git checkout ready; uncommitted edits stay on their machine and require an explicit handoff".to_owned(),
+            "Git checkout ready; selected ignored folders are in sync. Other uncommitted edits stay on their machine and require an explicit handoff".to_owned(),
         SyncState::Idle if status.pending == 0 => format!("in sync, {} files", status.files),
         SyncState::Failed => format!(
             "failed: {}",

@@ -38,6 +38,7 @@ async fn a_stop_is_sent_again_until_the_machine_answers_and_then_gives_up() {
 fn a_child_is_started_in_the_same_project_on_the_other_machine() {
     let (me, there) = (endpoint(), endpoint());
     let spec = SyncSpec {
+        ignored: Default::default(),
         folders: [
             (me, "/srv/game".to_owned()),
             (there, "/Users/box/game".to_owned()),

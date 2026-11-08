@@ -1178,6 +1178,7 @@ impl Bare {
     /// Writes the record, and waits for each node to take it.
     async fn sync(&mut self) {
         let spec = SyncSpec {
+            ignored: Default::default(),
             folders: [
                 (self.a.id, self.a_folder.display().to_string()),
                 (self.b.id, self.b_folder.display().to_string()),
@@ -2700,6 +2701,7 @@ async fn synced_pair_env(
     fs::create_dir(&a_folder).expect("a project folder");
     fs::create_dir(&b_folder).expect("a project folder");
     let spec = SyncSpec {
+        ignored: Default::default(),
         folders: [
             (a.id, a_folder.display().to_string()),
             (b.id, b_folder.display().to_string()),
@@ -4501,6 +4503,7 @@ async fn status_shows_the_devices_and_how_each_project_syncs() {
     let b_gone = pair.b_folder.with_file_name("gone");
     fs::create_dir(&b_gone).expect("a project folder");
     let spec = SyncSpec {
+        ignored: Default::default(),
         folders: [
             (pair.a.id, unmounted.display().to_string()),
             (pair.b.id, b_gone.display().to_string()),
