@@ -42,6 +42,10 @@ pub(crate) struct OpenSession {
     /// The agent's own id for the session.
     session: String,
     cwd: PathBuf,
+    #[serde(default)]
+    started_at: u64,
+    #[serde(default)]
+    last_activity: u64,
     /// Prompts that had not gone to the agent yet.
     held: Vec<Prompt>,
     /// The session mode it was in.
@@ -174,6 +178,8 @@ impl Agents {
             agent: session.agent.clone(),
             session: live.agent_session.clone()?,
             cwd: PathBuf::from(&live.info.cwd),
+            started_at: live.info.started_at,
+            last_activity: live.info.last_activity,
             held: match keep {
                 Keep::Open => live.held.clone(),
                 Keep::Moving => Vec::new(),
@@ -248,6 +254,7 @@ impl Agents {
             Some(&cwd),
             Begin {
                 resume: Some(open.session),
+                timestamps: Some((open.started_at, open.last_activity)),
                 earlier: open.transcript,
                 mode: open.mode,
                 parent: open.parent,
@@ -472,8 +479,10 @@ done
         let mut live = session.live.clone();
         until(&mut live, |live| live.info.turns == 1).await;
         before.shutdown().await;
-        let stopped = before.open_sessions();
+        let mut stopped = before.open_sessions();
         assert_eq!(stopped.len(), 1);
+        stopped[0].started_at = 100;
+        stopped[0].last_activity = 200;
 
         let after = Agents::new(vec![kind]);
         after.settings_arrived();
@@ -481,6 +490,8 @@ done
         let resumed = after.get("held-1").expect("resumed under the agent's id");
         let mut live = resumed.live.clone();
         until(&mut live, |live| live.status() == Status::Idle).await;
+        assert_eq!(live.borrow().info.started_at, 100);
+        assert_eq!(live.borrow().info.last_activity, 200);
         let read = std::fs::read_to_string(&log).expect("the adapter's log");
         assert!(read.contains("session/resume"), "{read}");
         let shown: Vec<(EntryKind, String)> = live

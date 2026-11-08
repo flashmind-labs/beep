@@ -773,6 +773,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         prompt: Some(String::from("go").into()),
         resume: None,
         earlier: Vec::new(),
+        timestamps: None,
         model: model.map(ModelId::new),
         effort: None,
         mode: None,
