@@ -66,6 +66,10 @@ tokio = { version = "1", features = ["test-util"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-updater = "2"
 
+# Phone only: the camera scans the pairing QR code.
+[target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
+tauri-plugin-barcode-scanner = "2"
+
 [target.'cfg(target_os = "windows")'.dependencies]
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
