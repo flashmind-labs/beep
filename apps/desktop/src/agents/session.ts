@@ -691,7 +691,7 @@ function agentClick(e: MouseEvent) {
     else m.thoughts.delete(at);
     return;
   }
-  // The heading toggles the steps; Collapse at their end returns to it.
+  // The heading toggles the steps; the bottom chevron returns to it.
   const turn = target.closest<HTMLElement>("#agbody [data-turn]");
   if (turn && AG.open) {
     const opened = turnsOf(AG.open.session).opened, key = Number(turn.dataset.turn);
