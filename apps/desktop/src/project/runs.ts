@@ -1,3 +1,4 @@
+import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // A project's workflow runs (GitHub Actions or Forgejo Actions) on its page:
 // the Actions section with each run's state and, for a running one, its
 // current job and step; a run opened shows its jobs and steps and, when it
@@ -12,7 +13,7 @@ import { openMenu, type MenuItem } from "../ui/menu.ts";
 import type { TileData } from "./board.ts";
 import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
 import {
-  Bounded, DetailCache, HOVER_MS, KeptRows, POLL_MS, ahead, detailDue, detailKey, going, limited, listDue, runKey,
+  Bounded, DetailCache, HOVER_MS, KeptRows, ahead, detailDue, detailKey, going, limited, listDue, runKey,
 } from "./runs-state.ts";
 
 export { going, runKey };
@@ -315,7 +316,8 @@ export function makeRuns(deps: RunDeps) {
   /// The rows and opened runs drawn last, kept while nothing in them changes.
   const drawn = new KeptRows<HTMLElement>();
   /// The next poll of a running run opened, or of the list while one goes.
-  let poll: ReturnType<typeof setTimeout> | null = null;
+  let watching: string | null = null;
+  let unfollow: (() => void) | undefined;
   let hover: ReturnType<typeof setTimeout> | null = null;
 
   /// A project's runs, from the cache until they are read.
@@ -336,7 +338,16 @@ export function makeRuns(deps: RunDeps) {
     if (due && !of(id).loading) return load(id);
   }
 
-  async function load(id: string, refresh = false) {
+  const loads = new Map<string, Promise<void>>();
+  function load(id: string, refresh = false): Promise<void> {
+    const pending = loads.get(id);
+    if (pending) return pending;
+    const read = readList(id, refresh).finally(() => loads.delete(id));
+    loads.set(id, read);
+    return read;
+  }
+
+  async function readList(id: string, refresh = false) {
     const s = of(id);
     if (s.loading) return;
     s.loading = true;
@@ -417,22 +428,16 @@ export function makeRuns(deps: RunDeps) {
     readDetail(id, run);
   }
 
-  /// While the section shows: the running run opened, and the list while a
-  /// run goes, every `POLL_MS`. Nothing is asked while all are done or the
-  /// rate limit holds. Each draw sets the next poll, so a page that no
-  /// longer shows the section stops polling.
+  /// The visible section follows provider changes over the node stream.
   function schedule(id: string) {
-    if (poll) return;
-    const s = of(id);
-    const now = Date.now();
-    const open = s.openRun ? details.get(detailKey(id, s.openRun))?.data : undefined;
-    const runGoes = !!open && going(open.run.state) && !limited(limitOf(s.data), now);
-    if (!runGoes && !listDue(s.data?.runs ?? [], limitOf(s.data), now)) return;
-    poll = setTimeout(() => { poll = null; tick(id); }, POLL_MS);
+    if (watching === id) return;
+    watching = id;
+    unfollow?.();
+    unfollow = subscribeTopics(topic("forge"), async () => { await loads.get(id); await load(id); const run = of(id).openRun; if (run) await loadDetail(id, run, true); if (of(id).error) throw new Error(of(id).error); });
   }
 
   /// Reads again only while a run goes, so nothing is asked while all are
-  /// done: on each poll, and every 10 seconds while the page shows.
+  /// done. Used when another visible section receives a change.
   function tick(id: string) {
     const s = of(id);
     if (!s.data) return;
@@ -607,6 +612,7 @@ export function makeRuns(deps: RunDeps) {
 
   return {
     load,
+    stop: () => { unfollow?.(); unfollow = undefined; watching = null; },
     tick,
     section,
     /// The runs of project `id` and why they could not be read, reading

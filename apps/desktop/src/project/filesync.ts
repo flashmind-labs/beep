@@ -1,3 +1,4 @@
+import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // A project's file sync: the board's File sync tile, and its full view with
 // each machine's state, transfer rate and time left, the changes still
 // waiting, the conflicts with a way to keep either side, and Pause/Resume for
@@ -83,8 +84,6 @@ export interface FileSyncDeps {
   kept?: SectionStore<SyncDetail | null>;
 }
 
-/// How often the open view reads the sync again.
-const POLL_MS = 2000;
 /// How old the board's tile lets the sync get before it reads it again.
 const TILE_MAX_AGE_MS = 30_000;
 
@@ -312,7 +311,7 @@ interface ProjectSyncState {
 export function makeFileSync(deps: FileSyncDeps) {
   const { invoke, h, button, redraw } = deps;
   const all = new Map<string, ProjectSyncState>();
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let unfollow: (() => void) | undefined;
   let polling: string | null = null;
 
   /// The conflicts opened to compare, by project and path: the diff, or the
@@ -329,7 +328,16 @@ export function makeFileSync(deps: FileSyncDeps) {
     return s;
   };
 
-  async function load(name: string) {
+  const loads = new Map<string, Promise<void>>();
+  function load(name: string): Promise<void> {
+    const pending = loads.get(name);
+    if (pending) return pending;
+    const read = readList(name).finally(() => loads.delete(name));
+    loads.set(name, read);
+    return read;
+  }
+
+  async function readList(name: string) {
     const s = of(name);
     if (s.loading) return;
     s.loading = true;
@@ -363,15 +371,19 @@ export function makeFileSync(deps: FileSyncDeps) {
     return of(name).detail;
   }
 
-  /// Reads `name` again every few seconds while its view shows; null stops.
+  /// Follows sync changes while its view shows; null stops.
   function watch(name: string | null) {
     if (polling === name) return;
-    clearInterval(timer);
+    unfollow?.();
     polling = name;
     if (!name) return;
-    timer = setInterval(() => {
-      if (pageShown()) load(name);
-    }, POLL_MS);
+    unfollow = subscribeTopics(topic("sync"), () => reload(name));
+  }
+
+  async function reload(name: string) {
+    await loads.get(name);
+    await load(name);
+    if (of(name).error) throw new Error(of(name).error);
   }
 
   async function act(name: string, what: string, run: () => Promise<unknown>) {
@@ -554,6 +566,7 @@ export function makeFileSync(deps: FileSyncDeps) {
   }
 
   return {
+    reload,
     ensure,
     detail: (name: string) => of(name).detail,
     forTile,

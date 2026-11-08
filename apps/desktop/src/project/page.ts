@@ -16,7 +16,7 @@ import { setProjectOnTop, openProjectWindow, removeProject, projectRows, openPro
 import { editGroup } from "./groups.ts";
 import { importButton, overviewSection, loadOverview, projectDetail } from "./projects.ts";
 import { splitOn, openTile } from "./split.ts";
-import { liveMode, pa, redrawProjectsPage, runs } from "./sections.ts";
+import { liveMode, pa, redrawProjectsPage, runs, terms } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
 import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, elsewhereSection } from "./loads.ts";
 import { refresh } from "../center/refresh.ts";
@@ -133,5 +133,5 @@ registerView("projects", {
     refresh();
     prefetchRecentSoon();
   },
-  unmount: () => openTile(null, false),
+  unmount: () => { openTile(null, false); liveMode.follow(null); terms.stop(); },
 });

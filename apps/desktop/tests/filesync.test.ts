@@ -118,3 +118,22 @@ test("a Windows folder shows without its prefix", () => {
   const tile = fileSyncTile(detail([machine({ machine_name: "win", folder: "\\\\?\\C:\\Users\\me\\widget" })]));
   assert.equal(tile.rows[0].title, "win: C:\\Users\\me\\widget");
 });
+
+test("a sync update during its initial read reconciles the new snapshot before completing", async () => {
+  const { makeFileSync } = await import("../src/project/filesync.ts");
+  let finish!: (value: SyncDetail) => void;
+  const initial = new Promise<SyncDetail>(done => { finish = done; });
+  let reads = 0;
+  const invoke = (async (command: string) => {
+    if (command !== "project_sync_detail") return [];
+    return ++reads === 1 ? initial : detail([machine({ pending: 2 })]);
+  }) as Parameters<typeof makeFileSync>[0]["invoke"];
+  const sync = makeFileSync({ invoke, h: null!, button: null!, redraw() {} });
+  const first = sync.ensure("example");
+  const changed = sync.reload("example");
+  assert.equal(reads, 1);
+  finish(detail([machine({ pending: 0 })]));
+  await Promise.all([first, changed]);
+  assert.equal(reads, 2);
+  assert.equal(sync.detail("example")!.machines[0].pending, 2);
+});

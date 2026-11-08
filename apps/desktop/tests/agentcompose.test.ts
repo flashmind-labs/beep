@@ -5,7 +5,7 @@ import { S, connectWindow, windowHooks, type BackTo, type WindowHooks } from "..
 import { AG, type AgentPage, type AgentRow, agentBack, agentKeys, drawAgents } from "../src/agents/agents.ts";
 import { closeSession, visibleRunning } from "../src/agents/closing.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
-import { agentHints, closeOpenSession, pollAgent } from "../src/agents/session.ts";
+import { agentHints, closeOpenSession, pollAgent, stopAgentFollow } from "../src/agents/session.ts";
 import { interruptAgent, sendAgentMessage } from "../src/agents/messages.ts";
 import { drawModelPill, switchSessionModel } from "../src/agents/modelpill.ts";
 import type { Waiting } from "../src/agents/agentqueue.ts";
@@ -107,6 +107,36 @@ test("opening a session reads it once even when the webview reports hidden", asy
   await pollAgent();
   assert.equal(calls.filter(c => c.cmd === "agent_view").length, 1, "background polling still waits for the window");
   assert.ok(calls.some(c => c.cmd === "log_webview" && (c.args as { message: string }).message.includes('"reason":"hidden"')));
+});
+
+test("live suffixes preserve history and a late fallback read cannot replace them", async t => {
+  const page = openSession("idle", true);
+  show({});
+  answers.agent_follow = new Promise<void>(() => {});
+  let finish!: (page: AgentPage) => void;
+  answers.agent_view = new Promise<AgentPage>(resolve => { finish = resolve; });
+  t.after(() => {
+    stopAgentFollow();
+    finish(page);
+    visible(false);
+    delete answers.agent_follow;
+    delete answers.agent_view;
+  });
+  const polling = pollAgent(true);
+  await settle();
+  const args = calls.find(c => c.cmd === "agent_follow")?.args as {
+    onEvent: { onmessage(update: { page: AgentPage; modes: null; tasks: [] }): void };
+  };
+  assert.ok(args);
+  args.onEvent.onmessage({ page: { ...page, entries: [{ kind: "user", text: "hello" }, { kind: "agent", text: "working" }] }, modes: null, tasks: [] });
+  args.onEvent.onmessage({ page: { ...page, earlier: 1, entries: [{ kind: "agent", text: "finished" }] }, modes: null, tasks: [] });
+  finish({ ...page, entries: [{ kind: "agent", text: "stale" }] });
+  await polling;
+  assert.deepEqual(AG.page?.entries.map(entry => entry.text), ["hello", "finished"]);
+  AG.changed = Date.now() - 10 * 60_000;
+  calls.length = 0;
+  await pollAgent();
+  assert.ok(!calls.some(c => ["agent_view", "agent_modes", "agent_tasks"].includes(c.cmd)));
 });
 
 test("a stalled first read logs the operation it is waiting for", async t => {
