@@ -52,6 +52,10 @@ impl Membership {
         self.mesh.send_replace(None);
     }
 
+    pub(crate) fn subscribe(&self) -> watch::Receiver<Option<Mesh>> {
+        self.mesh.subscribe()
+    }
+
     pub(crate) fn get(&self) -> Option<Mesh> {
         self.mesh.borrow().clone()
     }

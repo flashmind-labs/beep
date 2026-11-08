@@ -7,48 +7,8 @@ use uuid::Uuid;
 pub const PROTOCOL: &str = "events/1";
 pub const MAX_TOPICS: usize = 64;
 
-/// A namespace and optional resource key. An absent key matches the whole namespace.
-/// `*` matches every namespace. Plugins may use their own namespace.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct Topic {
-    pub name: String,
-    pub key: Option<String>,
-}
-
-impl Topic {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            key: None,
-        }
-    }
-    pub fn keyed(name: impl Into<String>, key: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            key: Some(key.into()),
-        }
-    }
-    pub fn matches(&self, topic: &Self) -> bool {
-        (self.name == "*" || self.name == topic.name)
-            && self
-                .key
-                .as_ref()
-                .is_none_or(|key| topic.key.is_none() || topic.key.as_ref() == Some(key))
-    }
-    pub fn valid(&self) -> bool {
-        !self.name.is_empty()
-            && self.name.len() <= 128
-            && (self.name == "*"
-                || self
-                    .name
-                    .bytes()
-                    .all(|c| c.is_ascii_alphanumeric() || b"._-/".contains(&c)))
-            && self
-                .key
-                .as_ref()
-                .is_none_or(|key| !key.is_empty() && key.len() <= 4096 && !key.contains('\0'))
-    }
-}
+mod topic;
+pub use topic::{MAX_TOPIC_BYTES, Topic, TopicError};
 
 /// The epoch changes when the node restarts or its history is replaced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,7 +18,7 @@ pub struct EventId {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-/// A missing resource key invalidates the namespace for every matching subscriber.
+/// A wildcard topic invalidates its scope for every matching subscriber.
 pub struct Event {
     pub topic: Topic,
     pub id: EventId,
@@ -131,6 +91,7 @@ pub enum Reply {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn subscriptions_match_a_resource_a_namespace_or_everything() {
         let event = Topic::keyed("files", "/srv/project");

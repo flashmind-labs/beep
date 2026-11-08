@@ -257,7 +257,7 @@ impl Events {
         let topics = registry.interests();
         let forge = topics
             .iter()
-            .any(|interest| matches!(interest.topic.name.as_str(), "forge" | "*"));
+            .any(|interest| matches!(interest.topic.name(), "forge" | "*"));
         self.demand.send_if_modified(|held| {
             if *held == topics {
                 false
@@ -535,7 +535,7 @@ fn validate(topics: &[Interest]) -> Result<()> {
 
 fn controller_topic(topic: &Topic) -> bool {
     matches!(
-        topic.name.as_str(),
+        topic.name(),
         "machines" | "telemetry" | "projects" | "forge" | "home"
     )
 }
@@ -556,21 +556,15 @@ fn receives(interests: &[Interest], update: &Update, controller: Option<&Endpoin
 }
 
 fn compact_topics(topics: Vec<Topic>) -> Vec<Topic> {
-    let all = Topic::new("*");
-    if topics.contains(&all) {
-        return vec![all];
-    }
-    let namespaces: BTreeSet<_> = topics
-        .iter()
-        .filter(|topic| topic.key.is_none())
-        .map(|topic| topic.name.as_str())
-        .collect();
+    let topics: BTreeSet<_> = topics.into_iter().collect();
     topics
         .iter()
-        .filter(|topic| topic.key.is_none() || !namespaces.contains(topic.name.as_str()))
+        .filter(|topic| {
+            !topics
+                .iter()
+                .any(|other| other != *topic && other.covers(topic))
+        })
         .cloned()
-        .collect::<BTreeSet<_>>()
-        .into_iter()
         .collect()
 }
 
@@ -685,7 +679,7 @@ async fn run(
                 if changed.is_err() { return; }
                 let current = *status.borrow_and_update();
                 if current.machines != revision.machines { beep_node::events::system().changed(Topic::new("machines")); }
-                if current.telemetry != revision.telemetry && interests.iter().any(|interest| matches!(interest.topic.name.as_str(), "telemetry" | "*")) {
+                if current.telemetry != revision.telemetry && interests.iter().any(|interest| matches!(interest.topic.name(), "telemetry" | "*")) {
                     beep_node::events::system().changed(Topic::new("telemetry"));
                 }
                 revision = current;
@@ -792,8 +786,8 @@ async fn stream(
                         resume.cursor = None;
                     },
                     Reply::Changed(event) => {
-                        invalidate(app, &event.topic.name);
-                        app.state::<Events>().dispatch(Update { machine_id: machine.to_string(), id: event.id, data: (event.topic.name == "telemetry").then(|| telemetry(&app.state::<Arc<Fleet>>())), topic: event.topic, resync: false });
+                        invalidate(app, event.topic.name());
+                        app.state::<Events>().dispatch(Update { machine_id: machine.to_string(), id: event.id, data: (event.topic.name() == "telemetry").then(|| telemetry(&app.state::<Arc<Fleet>>())), topic: event.topic, resync: false });
                         resume.cursor = Some(event.id);
                     },
                     Reply::Resync { cursor: current } => {
@@ -925,6 +919,32 @@ fn telemetry(fleet: &Fleet) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dotted_topics_cross_ipc_and_prefixes_compact_without_widening() {
+        let interest: Interest = serde_json::from_value(serde_json::json!({
+            "machine": null,
+            "topic": "files.org.repo"
+        }))
+        .unwrap();
+        assert_eq!(interest.topic.resource_segments(), ["org", "repo"]);
+        assert_eq!(
+            serde_json::to_value(&interest).unwrap()["topic"],
+            "files.org.repo"
+        );
+        let topics = [
+            "files.org.*",
+            "files.org.repo",
+            "files.other.repo",
+            "files.org%2Erepo",
+        ]
+        .map(|topic| Topic::parse(topic).unwrap());
+        let compacted = compact_topics(topics.to_vec());
+        assert_eq!(compacted.len(), 3);
+        assert!(compacted.contains(&Topic::parse("files.org.*").unwrap()));
+        assert!(compacted.contains(&Topic::parse("files.other.repo").unwrap()));
+        assert!(compacted.contains(&Topic::parse("files.org%2Erepo").unwrap()));
+    }
 
     fn interest(name: &str, machine: Option<EndpointId>) -> Interest {
         Interest {

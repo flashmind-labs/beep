@@ -16,6 +16,36 @@ test("resource, namespace and all-topic subscriptions match plugin events", () =
   assert.equal(matchesTopic(topic("files"), event), false);
 });
 
+test("direct dotted subscriptions send canonical strings and filter hierarchical events", async () => {
+  nativeEvent("center-shown");
+  await settle();
+  calls.length = 0;
+  const exact: number[] = [], scoped: number[] = [];
+  const stopExact = subscribeEvents("files.org.repo", event => exact.push(event.id.sequence));
+  const stopScoped = subscribeEvents(["files.org.*", "files.%6f%72%67.*"], event => scoped.push(event.id.sequence));
+  try {
+    await settle();
+    const reader = latestReader();
+    assert.deepEqual(new Set((reader.topics as Array<{ topic: string }>).map(interest => interest.topic)), new Set(["files.org.repo", "files.org.*"]));
+    ["files.org.repo", "files.org.other", "files.organization.repo", "files.*", "files.other.*"].forEach((topic, index) => {
+      reader.onEvent.onmessage({ id: { epoch: "example", sequence: index + 1 }, machine_id: "machine-a", topic, resync: false });
+    });
+    assert.deepEqual(exact, [1, 4]);
+    assert.deepEqual(scoped, [1, 2, 4]);
+  } finally {
+    stopExact(); stopScoped();
+    await settle();
+  }
+});
+
+test("invalid dotted patterns do not register native demand", async () => {
+  await settle();
+  calls.length = 0;
+  assert.throws(() => subscribeEvents("files.*.repo", () => {}));
+  await settle();
+  assert.equal(calls.length, 0);
+});
+
 test("views share a reader, filter machines, coalesce bursts and ignore disposed subscriptions", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   Object.assign(document, { visibilityState: "visible" });
@@ -211,7 +241,7 @@ test("subscription changes are ordered and unchanged demand does not issue IPC",
   await settle();
   const sent = calls.filter(call => call.cmd === "mesh_topics");
   assert.equal(sent.length, 2);
-  assert.deepEqual((sent[1].args as { topics: Array<{ topic: { name: string } }> }).topics.map(interest => interest.topic.name), ["forge", "reviews"]);
+  assert.deepEqual((sent[1].args as { topics: Array<{ topic: string }> }).topics.map(interest => interest.topic), ["forge.*", "reviews.*"]);
   for (let i = 0; i < 10; i++) refreshTopicSubscriptions();
   await settle();
   assert.equal(calls.filter(call => call.cmd === "mesh_topics").length, 2);
