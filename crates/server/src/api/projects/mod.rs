@@ -347,4 +347,5 @@ pub(super) async fn project_cards(user: &User) -> Reply<Vec<(Uuid, PendingApprov
 }
 
 #[cfg(test)]
+#[path = "../../tests/api_projects.rs"]
 mod tests;

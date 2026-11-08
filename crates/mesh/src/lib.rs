@@ -28,4 +28,4 @@ pub use state::Key;
 pub(crate) use state::{Applied, Entry, Heads, State};
 
 #[cfg(test)]
-mod wire_tests;
+mod tests;

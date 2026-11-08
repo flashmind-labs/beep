@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
-import type { CenterView, ProjectsArg, ViewArg } from "../src/center/state.ts";
+import type { CenterView, ViewArg } from "../src/center/state.ts";
 
 // Load the real navigation with the window's DOM and services replaced.
 const element = () => ({ hidden: false, textContent: "", replaceChildren() {} }) as unknown as HTMLElement;
@@ -35,19 +35,18 @@ hooks.deregister();
 
 test("Back and Forward restore the project section a resumed session came from", () => {
   let tile: string | null = null;
-  let sessionArg: ViewArg;
+  const mounted: { arg: ViewArg } = { arg: null };
   registerView("home", { el: element(), mount() {} });
   registerView("projects", {
     el: element(),
     currentArg: () => ({ project: state.picked, tile }),
     mount(_el, arg) {
-      const target = arg as ProjectsArg;
-      state.picked = target.project;
-      tile = target.tile ?? null;
+      state.picked = arg?.project ?? null;
+      tile = arg?.tile ?? null;
     },
     unmount() { tile = null; },
   });
-  registerView("pane", { el: element(), mount(_el, arg) { sessionArg = arg; } });
+  registerView("pane", { el: element(), mount(_el, arg) { mounted.arg = arg; } });
 
   go("home");
   go("projects", { project: "acme/widget" });
@@ -55,14 +54,14 @@ test("Back and Forward restore the project section a resumed session came from",
   const session = { agent: { machine_id: "build-box", machine_name: "build-box", id: "session", cwd: "/srv/project", agent: "codex", status: "idle", external: false } };
   go("pane", session);
   assert.equal(tile, null, "leaving the project clears its live selection");
-  assert.deepEqual((sessionArg as { from: unknown }).from, {
+  assert.deepEqual(returnTarget(mounted.arg), {
     view: "projects", arg: { project: "acme/widget", tile: "running" },
   });
   goHistory(false);
   assert.equal(state.picked, "acme/widget");
   assert.equal(tile, "running");
   goHistory(true);
-  assert.ok(sessionArg && typeof sessionArg === "object" && "agent" in sessionArg);
+  assert.ok(mounted.arg && typeof mounted.arg === "object" && "agent" in mounted.arg);
   goHistory(false);
   assert.equal(tile, "running");
   goHistory(false);
@@ -78,29 +77,33 @@ test("Back and Forward restore the project section a resumed session came from",
 });
 
 test("notifications keep the project return target across conversations", () => {
-  let sessionArg: ViewArg;
-  registerView("pane", { el: element(), mount(_el, arg) { sessionArg = arg; } });
+  const mounted: { arg: ViewArg } = { arg: null };
+  registerView("pane", { el: element(), mount(_el, arg) { mounted.arg = arg; } });
   const agent = { machine_id: "build-box", machine_name: "build-box", id: "notice", cwd: "/srv/project", agent: "codex", status: "idle", external: false };
   const project = { project: "acme/widget", tile: "running" };
   go("projects", project);
   go("pane", { agent });
   go("pane", { agent: { ...agent, id: "second-notice" } });
-  assert.deepEqual((sessionArg as { from: unknown }).from, { view: "projects", arg: project });
+  assert.deepEqual(returnTarget(mounted.arg), { view: "projects", arg: project });
 });
 
 test("a notification from the project composer returns to the project", () => {
-  let sessionArg: ViewArg;
-  registerView("pane", { el: element(), mount(_el, arg) { sessionArg = arg; } });
+  const mounted: { arg: ViewArg } = { arg: null };
+  registerView("pane", { el: element(), mount(_el, arg) { mounted.arg = arg; } });
   go("pane", { draft: { project: "acme/widget", machine: "build-box" } });
   go("pane", { agent: { machine_id: "build-box", machine_name: "build-box", id: "notice", cwd: "/srv/project", agent: "codex", status: "idle", external: false } });
-  assert.deepEqual((sessionArg as { from: unknown }).from, { view: "projects", arg: { project: "acme/widget" } });
+  assert.deepEqual(returnTarget(mounted.arg), { view: "projects", arg: { project: "acme/widget" } });
 });
 
 test("explicit return targets take priority when opening a conversation", () => {
-  let sessionArg: ViewArg;
-  registerView("pane", { el: element(), mount(_el, arg) { sessionArg = arg; } });
+  const mounted: { arg: ViewArg } = { arg: null };
+  registerView("pane", { el: element(), mount(_el, arg) { mounted.arg = arg; } });
   go("pane", { draft: { project: "acme/widget", machine: null } });
-  const from = { view: "home" as const, arg: undefined };
+  const from = { view: "home" as const, arg: null };
   go("pane", { agentnew: { prompt: "" }, from });
-  assert.deepEqual((sessionArg as { from: unknown }).from, from);
+  assert.deepEqual(returnTarget(mounted.arg), from);
 });
+
+function returnTarget(arg: ViewArg) {
+  return arg && typeof arg === "object" && "from" in arg ? arg.from : null;
+}

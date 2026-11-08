@@ -247,5 +247,6 @@ pub use follow::serve_follow;
     }
 
     #[cfg(test)]
+    #[path = "../tests/agents.rs"]
     mod tests;
 }

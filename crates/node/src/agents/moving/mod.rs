@@ -24,10 +24,13 @@ mod target;
 mod worktree;
 
 #[cfg(all(test, unix))]
+#[path = "../../tests/agents_moving_move_tests.rs"]
 mod move_tests;
 #[cfg(test)]
+#[path = "../../tests/agents_moving_read_tests.rs"]
 mod read_tests;
 #[cfg(test)]
+#[path = "../../tests/agents_moving.rs"]
 mod tests;
 
 pub use alpn::SessionsAlpn;

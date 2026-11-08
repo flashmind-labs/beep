@@ -34,52 +34,56 @@ function setup() {
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-test("the first submission shows a chat row before acknowledgement and during compaction", async t => {
+test("steers appear only in the composer until recorded in the transcript", async t => {
   const { page, input } = setup();
   let acknowledge!: (keys: string[]) => void;
   answers.agent_steer = new Promise<string[]>(resolve => { acknowledge = resolve; });
   t.after(() => { acknowledge([]); stopAgentFollow(); delete answers.agent_steer; });
   steerMessage(input);
-  const pending = () => bar.querySelector("[data-pending-steer]");
+  const queued = () => bar.querySelector("#agqueue");
+  const transcript = () => bar.querySelector("#agbody")?.textContent ?? "";
   assert.equal(input.value, "");
-  assert.ok(pending()?.textContent.includes("Use the existing fixture"));
-  assert.ok(pending()?.textContent.includes("Sending"));
+  assert.ok(queued()?.textContent.includes("Use the existing fixture"));
+  assert.equal(transcript().includes("Use the existing fixture"), false);
+  assert.ok(queued()?.textContent.includes("sending"));
   assert.deepEqual(page.entries.map(e => e.text), ["Check the build", "Compacting the conversation"], "pending rows do not change transcript positions");
   acknowledge([]);
   await settle();
-  assert.ok(pending()?.textContent.includes("Waiting for the current step"));
+  assert.ok(queued()?.textContent.includes("after the current step"));
   page.queued = 1;
   drawAgentBody(undefined, true);
-  assert.ok(pending(), "reads during compaction preserve the pending row");
+  assert.ok(queued(), "reads during compaction preserve the steering row");
+  assert.equal(transcript().includes("Use the existing fixture"), false);
   page.entries.push({ kind: "user", text: "Use the existing fixture" });
+  AG.queue[0].state = "delivered";
   drawAgentBody();
-  assert.equal(pending(), null);
+  assert.equal(queued(), null);
   assert.equal(bar.querySelectorAll(".dcoderen.user").filter(e => e.textContent.includes("Use the existing fixture")).length, 1);
 });
 
-test("a refused steer removes its pending row and restores the draft", async t => {
+test("a refused steer removes its steering row and restores the draft", async t => {
   const { input } = setup();
   let refuse!: (error: string) => void;
   answers.agent_steer = new Promise((_resolve, reject) => { refuse = reject; });
   t.after(() => { stopAgentFollow(); delete answers.agent_steer; });
   steerMessage(input);
-  assert.ok(bar.querySelector("[data-pending-steer]"));
+  assert.ok(bar.querySelector("#agqueue"));
   refuse("bad request: message refused");
   await settle();
-  assert.equal(bar.querySelector("[data-pending-steer]"), null);
+  assert.equal(bar.querySelector("#agqueue"), null);
   assert.equal(input.value, "Use the existing fixture");
   assert.ok(bar.textContent.includes("message refused"));
 });
 
-test("editing a pending steer removes its chat row and restores its text", async t => {
+test("editing a pending steer removes its steering row and restores its text", async t => {
   const { input } = setup();
   answers.agent_steer = [];
   t.after(() => { stopAgentFollow(); delete answers.agent_steer; });
   steerMessage(input);
   await settle();
-  assert.ok(bar.querySelector("[data-pending-steer]"));
+  assert.ok(bar.querySelector("#agqueue"));
   await editQueued(0, true);
-  assert.equal(bar.querySelector("[data-pending-steer]"), null);
+  assert.equal(bar.querySelector("#agqueue"), null);
   assert.equal(input.value, "Use the existing fixture");
 });
 
@@ -107,10 +111,11 @@ test("a pending steer returns after switching conversations without sending it a
   };
   answers.agent_view = other;
   await visit(other);
-  assert.equal(bar.querySelector("[data-pending-steer]"), null);
+  assert.equal(bar.querySelector("#agqueue"), null);
   answers.agent_view = waiting;
   await visit(waiting);
-  assert.ok(bar.querySelector("[data-pending-steer]")?.textContent.includes("Use the existing fixture"));
+  assert.ok(bar.querySelector("#agqueue")?.textContent.includes("Use the existing fixture"));
+  assert.equal(bar.querySelector("#agbody")?.textContent.includes("Use the existing fixture"), false);
   assert.equal(calls.filter(call => call.cmd === "agent_steer").length, 1);
 });
 

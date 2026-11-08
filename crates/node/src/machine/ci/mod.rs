@@ -18,6 +18,7 @@ mod projects;
 mod watcher;
 
 #[cfg(test)]
+#[path = "../../tests/machine_ci.rs"]
 mod tests;
 
 use crate::agents::AlertHub;

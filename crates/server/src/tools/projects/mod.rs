@@ -172,4 +172,5 @@ fn find<'a>(projects: &'a [Project], wanted: &str) -> Result<&'a Project, String
 }
 
 #[cfg(test)]
+#[path = "../../tests/tools_projects.rs"]
 mod tests;

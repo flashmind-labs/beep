@@ -10,7 +10,7 @@ import { openProjectMenu } from "./syncthing.ts";
 import { editorTools } from "./editors.ts";
 import { NEW_WINDOW } from "./projectwindow.ts";
 import { agentFor, pageAgent } from "./agent.ts";
-import { type ProjectsArg, state, pages, warm } from "../center/state.ts";
+import { state, pages, warm } from "../center/state.ts";
 import { openUrl } from "../center/openitems.ts";
 import { registerView, windowProject } from "../center/views.ts";
 import { setProjectOnTop, openProjectWindow, removeProject, projectRows, openProjects, loadFound } from "../center/sidebar.ts";
@@ -136,9 +136,9 @@ registerView("projects", {
     return { title: state.picked, sub: projectLine(p), tools };
   },
   mount(el, arg) {
-    state.picked = (arg as ProjectsArg | undefined)?.project || null;
+    state.picked = arg?.project || null;
     // A build's notification opens its run on the Actions tile.
-    const run = (arg as ProjectsArg | undefined)?.run;
+    const run = arg?.run;
     pa.run = run && state.picked ? { project: state.picked, ...run } : null;
     // What the project last showed draws at once; what is due reads again
     // behind it.
@@ -149,7 +149,7 @@ registerView("projects", {
       if (pages.due("gitsync", state.picked)) gitDue.add(state.picked);
       noteRecent(state.picked);
     }
-    openTile(pa.run ? "actions" : (arg as ProjectsArg | undefined)?.tile ?? null, false);
+    openTile(pa.run ? "actions" : arg?.tile ?? null, false);
     resetRows("projects-overview");
     drawProjects(el);
     if (state.picked) revalidate(state.picked);

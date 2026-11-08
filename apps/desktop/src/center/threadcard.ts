@@ -2,14 +2,14 @@
 import { plural, reason, since } from "../ui/format.ts";
 import { dbtn as button, stateChip } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
-import { pane, type PaneTarget } from "../bar/pane.ts";
+import { pane } from "../bar/pane.ts";
 import type { PaneNow } from "../bar/core.ts";
 import { el as h } from "../ui/dom.ts";
 import type { ThreadChatRow } from "../project/threads.ts";
 import { openLabel, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
 import { type ViewHead, type ChatItem, $, state } from "./state.ts";
 import { openUrl } from "./openitems.ts";
-import { shown, registerView, drawTop } from "./views.ts";
+import { currentLocation, registerView, drawTop } from "./views.ts";
 import { reloadGroup, paneOn, drawSide, reloadChats, setPinned } from "./sidebar.ts";
 import { paneTitle, scopeTag } from "./pane.ts";
 
@@ -36,7 +36,7 @@ export function loadThreadChats() {
       threadChats = new Map(lists.flat().map(c => [c.chat_id, c]));
       reloadChats();
       reloadGroup("projects");
-      if (shown === "pane") { drawTop(); pane.chatTop(); }
+      if (currentLocation()?.view === "pane") { drawTop(); pane.chatTop(); }
     })
     .finally(() => { if (threadsLoading === mine) threadsLoading = null; });
   return threadsLoading = mine;
@@ -151,7 +151,7 @@ registerView("pane", {
   title: paneTitle,
   mount(_el, arg) {
     pane.mounted(true);
-    return pane.open(arg as PaneTarget).then(() => {});
+    return pane.open(arg).then(() => {});
   },
   unmount() {
     pane.mounted(false);
@@ -164,7 +164,7 @@ registerView("pane", {
 export let last: Pick<PaneNow, "session"> & { view: string | null; group?: string | null } = { view: null, session: null };
 $("#bar").dataset.view = pane.current().view ?? "";
 pane.onChange(now => {
-  if (shown === "pane") {
+  if (currentLocation()?.view === "pane") {
     if (last.view === "chat" && now.view !== "chat" && now.view !== "group") invoke("new_chat").catch(() => {});
     if (last.group && !now.group) invoke("close_group").catch(() => {});
   }

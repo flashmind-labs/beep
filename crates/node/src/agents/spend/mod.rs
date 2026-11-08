@@ -232,4 +232,5 @@ fn forget_gone(ledger: &mut Ledger, since: u64) {
 }
 
 #[cfg(test)]
+#[path = "../../tests/agents_spend.rs"]
 mod tests;

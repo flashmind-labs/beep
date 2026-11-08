@@ -5,7 +5,7 @@ import type { PaneTarget } from "../bar/pane.ts";
 import { el as h } from "../ui/dom.ts";
 import { mainTarget, route, type CenterTarget, type ProjectScope } from "../project/projectwindow.ts";
 import { chatProject } from "../project/agent.ts";
-import { type ProjectsArg, type ViewArg, type ViewHead, type CenterView, type ViewName, $, state, views } from "./state.ts";
+import { type Location, type NavigationArgs, type ViewHead, type CenterView, type ViewName, $, state, views } from "./state.ts";
 import { drawSide, projectRows } from "./sidebar.ts";
 import { openSettings } from "../settings/sheet.ts";
 import { threadChats } from "./threadcard.ts";
@@ -15,12 +15,10 @@ import { viewHidden } from "../settings/subscription.ts";
 import { S } from "../bar/core.ts";
 import { syncMobile } from "./mobile.ts";
 
-export let shown: ViewName | null = null;
-/// The argument `shown` was opened with, so Esc from an agent view can return to it.
-export let shownArg: ViewArg;
+let currentPage: Location | null = null;
 
 /// Adds a view the window can show.
-export function registerView(name: ViewName, view: CenterView) {
+export function registerView<K extends ViewName>(name: K, view: CenterView<NoInfer<K>>) {
   let el = view.el;
   if (!el) {
     el = h("div", "cc-box");
@@ -31,7 +29,7 @@ export function registerView(name: ViewName, view: CenterView) {
 }
 
 /// A pane target that opens an agent view, which can go back.
-function opensAgent(arg: ViewArg): arg is Extract<PaneTarget, { agent: unknown } | { agentnew: unknown }> {
+function opensAgent(arg: PaneTarget): arg is Extract<PaneTarget, { agent: unknown } | { agentnew: unknown }> {
   return !!arg && typeof arg === "object" && ("agent" in arg || "agentnew" in arg);
 }
 
@@ -64,24 +62,31 @@ export function toMain(target: CenterTarget) {
   invoke("center_open", { target }).catch(e => console.warn("opening in the main window:", e));
 }
 
-const pages = new PageHistory<{ view: ViewName; arg: ViewArg }>();
+const pages = new PageHistory<Location>();
 /// Set while ⌘[ or ⌘] moves, so the move is not a new visit.
 let moving = false;
 const pageTiming = new PageTiming(() => performance.now(), callback => { requestAnimationFrame(callback); }, () => !document.hidden, (page, ms) => recordTiming("page", page, ms));
 
 /// The page showing, as `go` opens it again.
-function here() {
-  return { view: shown!, arg: views.get(shown!)?.currentArg?.() ?? shownArg };
+export function currentLocation(): Location | null {
+  if (!currentPage) return null;
+  // Project sections change without mounting the page again.
+  if (currentPage.view === "projects") {
+    const arg = views.get("projects")?.currentArg?.();
+    if (arg && typeof arg === "object" && "project" in arg) return { view: "projects", arg };
+  }
+  return currentPage;
 }
 
 /// Goes one page back (⌘[) or forward (⌘]), if there is one; false when there is none.
 export function goHistory(forward: boolean): boolean {
-  if (!shown) return false;
-  const page = forward ? pages.forward(here()) : pages.back(here());
+  const current = currentLocation();
+  if (!current) return false;
+  const page = forward ? pages.forward(current) : pages.back(current);
   if (!page) return false;
   moving = true;
   try {
-    go(page.view, page.arg);
+    goTo(page);
   } finally {
     moving = false;
   }
@@ -89,43 +94,50 @@ export function goHistory(forward: boolean): boolean {
 }
 
 /// Shows view `name`, passing `arg` to its mount.
-export function go(name: ViewName, arg?: ViewArg): boolean {
+export function go(...[name, arg]: NavigationArgs): boolean {
+  switch (name) {
+    case "home": return goTo({ view: name, arg: null });
+    case "research": return goTo({ view: name, arg: null });
+    case "sync": return goTo({ view: name, arg: null });
+    case "terminals": return goTo({ view: name, arg: null });
+    case "pane": return goTo({ view: name, arg: arg ?? null });
+    case "projects": return goTo({ view: name, arg: arg ?? null });
+    case "providers": return goTo({ view: name, arg: arg ?? null });
+    case "instructions": return goTo({ view: name, arg: arg ?? null });
+    case "researchopen": return goTo({ view: name, arg });
+  }
+}
+
+export function goTo(target: Location): boolean {
+  const page = withReturnTarget(target, currentLocation());
+  const { view: name, arg } = page;
   // A link to a page only a subscription has lands on Home, and a new or old chat on the
   // agent's start form.
   if (viewHidden(name, arg, state.subscribed, S.server)) {
     const chat = !!arg && typeof arg === "object" && "chat" in arg;
     return chat ? go("pane", { agentnew: { prompt: "" } }) : go("home");
   }
-  if (route(windowScope(), name, arg) === "main") {
-    toMain(mainTarget(name, arg));
+  if (route(windowScope(), page) === "main") {
+    toMain(mainTarget(page));
     return false;
   }
   // Settings open over whatever shows, which stays as it is.
   if (name === "pane" && arg === "settings") {
-    if (!shown) go("home");
+    if (!currentPage) go("home");
     openSettings();
     return true;
-  }
-  // Keep the return page when a notification replaces an open conversation.
-  if (name === "pane" && opensAgent(arg) && !arg.from && shown) {
-    const current = here();
-    if (shown !== "pane") arg = { ...arg, from: current };
-    else if (current.arg && typeof current.arg === "object" && "draft" in current.arg) {
-      arg = { ...arg, from: { view: "projects", arg: { project: current.arg.draft.project } } };
-    } else if (opensAgent(current.arg) && current.arg.from) {
-      arg = { ...arg, from: current.arg.from };
-    }
   }
   const view = views.get(name);
   if (!view) return false;
   const afterMount = pageTiming.start(pageName(name, arg));
   // Sending from a draft turns it into the session; Back skips the spent form.
-  const replaceDraft = shown === "pane" && !!shownArg && typeof shownArg === "object" && "draft" in shownArg
+  const replaceDraft = currentPage?.view === "pane" && !!currentPage.arg && typeof currentPage.arg === "object" && "draft" in currentPage.arg
     && name === "pane" && !!arg && typeof arg === "object" && "agent" in arg && arg.adopt === true;
-  if (shown && !moving) pages.visit(here(), { view: name, arg: name === "projects" ? { project: (arg as ProjectsArg | undefined)?.project ?? null, tile: (arg as ProjectsArg | undefined)?.tile ?? null } : arg }, replaceDraft);
-  shownArg = arg;
-  if (shown && shown !== name) views.get(shown)!.unmount?.();
-  shown = name;
+  const previous = currentLocation();
+  const next: Location = page.view === "projects" ? { view: "projects", arg: { project: page.arg?.project ?? null, tile: page.arg?.tile ?? null } } : page;
+  if (previous && !moving) pages.visit(previous, next, replaceDraft);
+  if (previous && previous.view !== name) views.get(previous.view)?.unmount?.();
+  currentPage = page;
   for (const [n, v] of views) v.el.hidden = n !== name;
   const mounted = view.mount(view.el, arg);
   refreshTopicSubscriptions();
@@ -136,12 +148,24 @@ export function go(name: ViewName, arg?: ViewArg): boolean {
   return true;
 }
 
+function withReturnTarget(page: Location, current: Location | null): Location {
+  if (page.view !== "pane" || !opensAgent(page.arg) || page.arg.from || !current) return page;
+  const target = page.arg;
+  if (current.view !== "pane") return { view: "pane", arg: { ...target, from: current } };
+  const previous = current.arg;
+  if (previous && typeof previous === "object" && "draft" in previous) {
+    return { view: "pane", arg: { ...target, from: { view: "projects", arg: { project: previous.draft.project } } } };
+  }
+  if (opensAgent(previous) && previous.from) return { view: "pane", arg: { ...target, from: previous.from } };
+  return page;
+}
+
 export function drawTop() {
-  const view = shown ? views.get(shown) : undefined;
+  const view = currentPage ? views.get(currentPage.view) : null;
   const head: ViewHead = typeof view?.title === "function" ? view.title() : { title: view?.title ?? "Beep" };
   // A project window's other views go back to the project.
   const back = document.getElementById("pw-back");
-  if (back) back.hidden = shown === "projects";
+  if (back) back.hidden = currentPage?.view === "projects";
   $("#title").textContent = head.title || "Beep";
   $("#scope").replaceChildren(...(head.scope ? [head.scope] : []));
   $("#date").textContent = head.sub || "";

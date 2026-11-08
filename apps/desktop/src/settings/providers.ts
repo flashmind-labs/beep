@@ -6,7 +6,7 @@ import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import { checkedLabel, compactKind, compactOf, compactProblem, differsLabel, differsOn, draftChanged, draftOf, envProblem, harnessName, hasCompact, hasUpdate, listRows, planOf, savedToLabel, settingsInput, summaryLine, toggledInput, updatable, versionLine } from "./providers-state.ts";
 import type { Compact, HarnessDraft, HarnessesView, HarnessView, MachineSettings, SharedField } from "./providers-state.ts";
-import type { ViewName } from "../center/state.ts";
+import type { CenterView } from "../center/state.ts";
 import { copyButton, emptyPanel } from "../ui/parts.ts";
 import { modelContextPanel } from "./model-context.ts";
 import { flshPanel } from "./flsh.ts";
@@ -18,7 +18,7 @@ interface MachineRow { id: string; name: string; online: boolean; can_host?: boo
 
 /// What the window hands `registerProviders`.
 interface ProvidersDeps {
-  registerView: (name: ViewName, view: { title: () => { title: string; sub: string; tools: Node[] }; mount(root: HTMLElement, arg?: unknown): void }) => void;
+  registerView: (name: "providers", view: CenterView<"providers">) => void;
   invoke: typeof Invoke;
   h: MakeEl;
   button: MakeButton;
@@ -578,9 +578,9 @@ export function registerProviders(deps: ProvidersDeps) {
     // Settings opens it at one agent (`arg.agent`), which its left pane picks.
     mount(root, arg) {
       el = root;
-      const want = arg && typeof arg === "object" ? arg as { agent?: string; settings?: boolean } : {};
-      if (want.agent) st.picked = want.agent;
-      inSettings = want.settings === true;
+      const want = arg;
+      if (want?.agent) st.picked = want.agent;
+      inSettings = want?.settings === true;
       draw();
       loadMachines();
     },
