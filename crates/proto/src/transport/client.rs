@@ -60,17 +60,16 @@ pub struct Client {
 
 impl Client {
     /// A client of the server at `base`, such as `https://example.com`. Plain
-    /// `http://` speaks HTTP/2 without TLS, for a server on this machine.
+    /// `http://` is for a server on this machine.
     pub fn new(base: &str, identity: SecretKey) -> Result<Self> {
         let base = base.trim().trim_end_matches('/').to_owned();
-        let mut builder = crate::https::client().connect_timeout(CONNECT_TIMEOUT);
-        if base.starts_with("http://") {
-            builder = builder.http2_prior_knowledge();
-        } else if !base.starts_with("https://") {
+        if !base.starts_with("https://") && !base.starts_with("http://") {
             bail!("the server address must start with https://");
         }
         Ok(Self {
-            http: builder.build()?,
+            http: crate::https::client()
+                .connect_timeout(CONNECT_TIMEOUT)
+                .build()?,
             base,
             identity,
             platform: None,
