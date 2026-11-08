@@ -621,7 +621,14 @@ impl Shared {
     }
 
     pub(super) fn publish(&self, update: impl FnOnce(&mut ProjectStatus)) {
-        self.status.send_modify(update);
+        let changed = self.status.send_if_modified(|status| {
+            let before = status.clone();
+            update(status);
+            *status != before
+        });
+        if changed {
+            crate::events::system().changed(beep_proto::node::events::Topic::new("sync"));
+        }
     }
 
     pub(in crate::files::sync) fn is_paused(&self) -> bool {

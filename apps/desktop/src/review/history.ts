@@ -1,3 +1,4 @@
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // The project's Git navigator and its selected commit or worktree diff.
 import { button, el } from "../ui/dom.ts";
 import { dbtn, errorNote, svgEl, writeClipboard } from "../ui/parts.ts";
@@ -53,6 +54,33 @@ const CHEVRON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4
 
 export function makeGitHistory(deps: HistoryDeps) {
   const projects = new Map<string, ProjectHistory>();
+  let following: ProjectHistory | null = null;
+  let watched = "";
+  let unfollow: (() => void) | undefined;
+
+  function follow(p: ProjectHistory) {
+    if (following !== p) stop();
+    following = p;
+    if (!p.data) return;
+    const roots = [...new Set([p.data.root, ...(p.selected?.kind === "working" ? [p.selected.worktree.path] : [])])].sort();
+    const key = JSON.stringify([p.name, p.data.machine_id, roots]);
+    if (watched === key) return;
+    unfollow?.();
+    watched = key;
+    unfollow = subscribeChanges(roots.map(root => topic("files", root)), async () => {
+      await refresh(p.name);
+      const error = list(p, null, p.query).error;
+      if (error) throw new Error(error);
+    }, p.data.machine_id, () => p.nav.isConnected && p.detail.isConnected);
+  }
+
+  function stop() {
+    if (following) clearTimeout(following.timer);
+    unfollow?.();
+    unfollow = undefined;
+    following = null;
+    watched = "";
+  }
   let active = 0;
   const waiting: (() => void)[] = [];
   async function read<T>(command: string, args: Record<string, unknown>): Promise<T> {
@@ -121,6 +149,7 @@ export function makeGitHistory(deps: HistoryDeps) {
       });
       if (version !== target.version) return;
       if (!p.data || (!target.revision && !target.search && !more)) p.data = data;
+      if (following === p) follow(p);
       target.rows = more ? appendCommits(target.rows, data.commits) : data.commits;
       target.next = data.next;
       target.loaded = true;
@@ -292,6 +321,7 @@ export function makeGitHistory(deps: HistoryDeps) {
   }
 
   function renderDetail(p: ProjectHistory) {
+    if (following === p) follow(p);
     const selected = p.selected;
     if (!selected || !p.data) {
       const found = list(p, null, p.query);
@@ -349,6 +379,7 @@ export function makeGitHistory(deps: HistoryDeps) {
 
   function panels(name: string) {
     const p = project(name);
+    follow(p);
     const found = list(p);
     if (!found.loaded && !found.loading && !found.error) void load(p, found);
     renderTree(p); renderDetail(p);
@@ -359,7 +390,7 @@ export function makeGitHistory(deps: HistoryDeps) {
     const p = project(name);
     p.files.clear(); p.view = null; p.viewKey = "";
     for (const value of p.lists.values()) { ++value.version; value.loading = false; value.loaded = false; value.error = ""; }
-    void load(p, list(p, null, p.query));
+    return load(p, list(p, null, p.query));
   }
-  return { panels, refresh };
+  return { panels, refresh, stop };
 }

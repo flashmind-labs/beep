@@ -12,11 +12,15 @@ use std::{
 
 /// pi's sessions folder, when it has one here.
 pub(super) fn locate() -> Option<PathBuf> {
+    configured().filter(|sessions| sessions.is_dir())
+}
+
+pub(super) fn configured() -> Option<PathBuf> {
     let sessions = match env::var_os("PI_CODING_AGENT_SESSION_DIR") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
         _ => agent_dir()?.join("sessions"),
     };
-    sessions.is_dir().then_some(sessions)
+    Some(sessions)
 }
 
 /// pi's agent dir, which holds its `auth.json`.

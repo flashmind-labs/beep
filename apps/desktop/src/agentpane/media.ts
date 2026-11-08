@@ -1,3 +1,4 @@
+import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 // agentpane/: a coding agent session's side pane and its tabs (media,
 // files, changes, artifacts, terminal). Entry: this file.
 // The media pane of a coding agent session: pictures, videos, 3D models and
@@ -292,6 +293,7 @@ function place() {
   const shown = DOCKS.some(d => paneOf(d)?.hidden === false);
   if (shown && !paneWasShown) queueMicrotask(() => window.dispatchEvent(new Event("agent-pane-shown")));
   paneWasShown = shown;
+  refreshTopicSubscriptions();
   // A zoomed dock that folded, emptied or moved away ends the zoom.
   if (P.zoom && paneOf(P.zoom)?.hidden !== false) P.zoom = null;
   el.classList.toggle("zoomed", !!P.zoom);

@@ -1,4 +1,5 @@
 // The bar's page, and the pane the command center window shows it in.
+import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import type { GroupState } from "../chat/groups.ts";
 import type { ChatBody, Turn } from "../ui/turn.ts";
 import type { ViewName } from "../center/state.ts";
@@ -79,11 +80,12 @@ export function current(): PaneNow {
 export const changeListeners: ((now: PaneNow) => void)[] = [];
 let changeQueued = false;
 export function changed() {
-  if (changeQueued || !changeListeners.length) return;
+  if (changeQueued) return;
   changeQueued = true;
   queueMicrotask(() => {
     changeQueued = false;
     const now = current();
+    refreshTopicSubscriptions();
     for (const fn of changeListeners) { try { fn(now); } catch {} }
   });
 }

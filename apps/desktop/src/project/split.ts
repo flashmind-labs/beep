@@ -40,8 +40,10 @@ export function splitOn(p: Project) {
 /// draws.
 export function openTile(key: string | null, draw = true) {
   pa.tile = key;
+  if (key !== "actions") runs.stop();
   if (key !== "sync") fsync.stop();
   if (key !== "review") revs.stop();
+  if (key !== "branches") gitHistory.stop();
   if (!draw) return;
   redrawProjects();
   projectsEl().querySelector(":scope > .cc-view .pj-det")?.scrollTo({ top: 0 });

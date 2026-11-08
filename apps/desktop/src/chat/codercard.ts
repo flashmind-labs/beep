@@ -1,3 +1,5 @@
+import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { paneShown } from "../ui/active.ts";
 import { type AgentReport, cardKey, parseAgentReport, type ReportStep } from "./agentcard.ts";
 import { AGENT_ACTIVE, type AgentPage, type AgentQuestion, type AgentSession, agentAvatar, agentKind, stateTag } from "../agents/agents.ts";
 import { loadSessions } from "../agents/sessions.ts";
@@ -16,16 +18,34 @@ import type { Turn } from "../ui/turn.ts";
 // under the reply's steps: its state, plan, files and any question, live
 // while it works, with the question's buttons and Open.
 
-/// How often a working session's card asks again.
-const CARD_POLL_MS = 3000;
-
 /// A card's element, which keeps what it shows and where its session is.
 interface CoderCard extends HTMLElement {
   report: AgentReport;
   /// The session as the node knows it, once found.
   found?: { row: AgentSession; page: AgentPage | null };
   answering?: number | null;
-  timer?: ReturnType<typeof setTimeout>;
+  unfollow?: () => void;
+}
+
+const followed = new Set<CoderCard>();
+let observer: MutationObserver | undefined;
+
+function follow(card: CoderCard, row: AgentSession) {
+  card.unfollow?.();
+  card.unfollow = subscribeTopics(topic("agent", row.id), () => poll(card), row.machine_id, () => card.isConnected && paneShown());
+  followed.add(card);
+  if (observer) return;
+  observer = new MutationObserver(records => {
+    if (!records.some(record => record.removedNodes.length)) return;
+    for (const card of followed) {
+      if (card.isConnected) continue;
+      card.unfollow?.();
+      card.unfollow = undefined;
+      followed.delete(card);
+    }
+    if (!followed.size) { observer?.disconnect(); observer = undefined; }
+  });
+  observer.observe(document, { subtree: true, childList: true });
 }
 
 /// Draws or updates the card for the session a `code_agent` result
@@ -52,27 +72,26 @@ async function find(card: CoderCard) {
   const row = (await loadSessions().catch((): AgentSession[] => [])).find(s => s.id === r.id && s.agent === r.agent);
   if (!row || !card.isConnected) return;
   card.found = { row, page: null };
-  poll(card);
+  follow(card, row);
+  void poll(card).catch(e => console.warn("agent card:", e));
 }
 
-/// Reads the session again, then again while it works and the card shows.
+/// Reads the session after a change while its card shows.
 async function poll(card: CoderCard) {
-  clearTimeout(card.timer);
+
   const f = card.found;
   if (!f || !card.isConnected) return;
   try {
     const page = await invoke<AgentPage>("agent_view", { machineId: f.row.machine_id, agent: f.row.agent, session: f.row.id, last: 1 });
     f.page = page;
     if (page.session.question?.id !== card.answering) card.answering = null;
-  } catch {
-    // Gone from the machine, or the machine went offline: the card keeps
-    // what the reply said.
-    card.found = undefined;
+  } catch (error) {
+    // Keep the last view while the active subscription retries the read.
     draw(card);
-    return;
+    throw error;
   }
   draw(card);
-  if (card.isConnected && AGENT_ACTIVE.has(f.page?.session.status)) card.timer = setTimeout(() => poll(card), CARD_POLL_MS);
+
 }
 
 function draw(card: CoderCard) {
@@ -106,7 +125,7 @@ async function answer(card: CoderCard, i: number) {
     if (!/^conflict/i.test(String(e))) card.answering = null;
     console.warn("answering the agent:", e);
   }
-  poll(card);
+  void poll(card).catch(e => console.warn("agent card:", e));
 }
 
 function cardClick(card: CoderCard, e: MouseEvent) {

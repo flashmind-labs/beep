@@ -182,17 +182,17 @@ export function itemLine(item: GitItemRow) {
   return row;
 }
 
-/// `load` run so that a call while one runs is dropped.
+/// Calls during a read share its promise and request one fresh read after it.
 export function single(load: () => Promise<void>) {
-  let running = false;
+  let running: Promise<void> | undefined;
+  let dirty = false;
   return async () => {
-    if (running) return;
-    running = true;
-    try {
-      await load();
-    } finally {
-      running = false;
-    }
+    if (running) { dirty = true; return running; }
+    running = (async () => {
+      do { dirty = false; await load(); } while (dirty);
+    })();
+    try { await running; }
+    finally { running = undefined; }
   };
 }
 

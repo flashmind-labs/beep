@@ -1,3 +1,4 @@
+import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 import { creditAmount, creditScope, providerName, type ProviderCredits } from "../ui/credits.ts";
 export { creditAmount, creditScope, type ProviderCredits } from "../ui/credits.ts";
 // The pill at the right end of every command center header: how much of each
@@ -78,11 +79,6 @@ export const PERIODS: { key: PeriodKey; label: string }[] = [
 
 /// Above this much used, a bar turns amber.
 export const WARN_USED = 70;
-/// How often the pill reads the usage again while the window shows.
-export const POLL_MS = 60_000;
-/// After asking the machines to read their plans, how long to wait before
-/// reading what they sent.
-export const REFRESH_WAIT_MS = 4_000;
 
 const HOUR = 60;
 const DAY = 24 * HOUR;
@@ -352,14 +348,12 @@ export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promis
     draw();
     if (!open) return;
     void load(true);
-    setTimeout(() => { if (open) void load(false); }, REFRESH_WAIT_MS);
   };
 
   document.addEventListener("click", e => { if (open && !e.composedPath().includes(host)) toggle(false); });
   document.addEventListener("keydown", e => { if (open && e.key === "Escape") toggle(false); });
-  const reload = () => { if (pageShown()) void load(false); };
-  setInterval(reload, POLL_MS);
-  onShownChange(shown => { if (shown) reload(); });
+  const reload = () => load(false);
+  subscribeTopics(topic("usage"), reload);
   void load(false);
   return reload;
 }

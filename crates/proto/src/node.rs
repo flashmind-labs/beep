@@ -21,6 +21,7 @@ mod stream;
 
 pub mod agent;
 pub mod desktop;
+pub mod events;
 pub mod files;
 pub mod harness;
 pub mod mesh_state;

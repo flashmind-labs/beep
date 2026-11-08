@@ -87,11 +87,17 @@ impl Peer {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct Revision {
+    pub machines: u64,
+    pub telemetry: u64,
+}
+
 /// The members and what they reported, shared with the follows.
 struct Shared {
     peers: Mutex<BTreeMap<EndpointId, Peer>>,
     /// Counts every change, for a reader that redraws.
-    changes: watch::Sender<u64>,
+    changes: watch::Sender<Revision>,
 }
 
 impl Shared {
@@ -104,49 +110,84 @@ impl Shared {
     fn refresh(&self, mesh: &Mesh) {
         let devices = mesh.machines();
         let now = SystemTime::now();
-        {
-            let mut peers = self.peers();
-            peers.retain(|id, _| devices.iter().any(|status| status.device.id == *id));
-            for status in devices {
-                let peer = peers
-                    .entry(status.device.id)
-                    .or_insert_with(|| Peer::new(status.device.clone()));
-                if peer.online && !status.online {
-                    peer.seen_at = Some(now);
-                }
-                peer.device = status.device;
-                peer.online = status.online;
+        let mut peers = self.peers();
+        let before = peers.len();
+        peers.retain(|id, _| devices.iter().any(|status| status.device.id == *id));
+        let mut changed = peers.len() != before;
+        for status in devices {
+            changed |= peers
+                .get(&status.device.id)
+                .is_none_or(|peer| peer.device != status.device || peer.online != status.online);
+            let peer = peers
+                .entry(status.device.id)
+                .or_insert_with(|| Peer::new(status.device.clone()));
+            if peer.online && !status.online {
+                peer.seen_at = Some(now);
             }
+            peer.device = status.device;
+            peer.online = status.online;
         }
-        self.changes.send_modify(|count| *count += 1);
+        drop(peers);
+        if changed {
+            self.changes
+                .send_modify(|revision| revision.machines = revision.machines.wrapping_add(1));
+        }
     }
 
     fn set_version(&self, id: EndpointId, version: String, clock_offset_ms: Option<i64>) {
-        if let Some(peer) = self.peers().get_mut(&id) {
-            peer.version = Some(version);
-            peer.clock_offset_ms = clock_offset_ms;
+        let mut peers = self.peers();
+        let Some(peer) = peers.get_mut(&id) else {
+            return;
+        };
+        let changed = peer.version.as_ref() != Some(&version);
+        peer.version = Some(version);
+        peer.clock_offset_ms = clock_offset_ms;
+        drop(peers);
+        if changed {
+            self.changes
+                .send_modify(|revision| revision.machines = revision.machines.wrapping_add(1));
         }
-        self.changes.send_modify(|count| *count += 1);
     }
 
     fn record(&self, id: EndpointId, report: Report) {
         let now = SystemTime::now();
-        {
-            let mut peers = self.peers();
-            let Some(peer) = peers.get_mut(&id) else {
-                return;
-            };
-            peer.seen_at = Some(now);
-            match report {
-                Report::Offers(offers) => peer.offers = offers,
-                Report::Env(env) => peer.env = Some(env),
-                Report::Stats(report) => peer.stats = Some(Sampled { at: now, report }),
-                Report::Traffic(report) => peer.traffic = Some(Sampled { at: now, report }),
-                // A report this app does not know is skipped.
-                _ => {}
+        let mut peers = self.peers();
+        let Some(peer) = peers.get_mut(&id) else {
+            return;
+        };
+        peer.seen_at = Some(now);
+        let (machines, telemetry) = match report {
+            Report::Offers(offers) => {
+                let changed = peer.offers != offers;
+                peer.offers = offers;
+                (changed, false)
             }
+            Report::Env(env) => {
+                let changed = peer.env.as_ref() != Some(&env);
+                peer.env = Some(env);
+                (changed, false)
+            }
+            Report::Stats(report) => {
+                peer.stats = Some(Sampled { at: now, report });
+                (false, true)
+            }
+            Report::Traffic(report) => {
+                peer.traffic = Some(Sampled { at: now, report });
+                (false, true)
+            }
+            _ => (false, false),
+        };
+        drop(peers);
+        if machines || telemetry {
+            self.changes.send_modify(|revision| {
+                if machines {
+                    revision.machines = revision.machines.wrapping_add(1);
+                }
+                if telemetry {
+                    revision.telemetry = revision.telemetry.wrapping_add(1);
+                }
+            });
         }
-        self.changes.send_modify(|count| *count += 1);
     }
 }
 
@@ -171,7 +212,7 @@ impl Status {
             session,
             shared: Arc::new(Shared {
                 peers: Mutex::default(),
-                changes: watch::channel(0).0,
+                changes: watch::channel(Revision::default()).0,
             }),
             watching: Mutex::new(None),
         }
@@ -213,8 +254,7 @@ impl Status {
     }
 
     /// Counts up whenever a machine comes, goes or reports.
-    #[cfg(test)]
-    pub fn changes(&self) -> watch::Receiver<u64> {
+    pub(super) fn changes(&self) -> watch::Receiver<Revision> {
         self.shared.changes.subscribe()
     }
 
@@ -581,6 +621,37 @@ mod tests {
     use tokio::time::timeout;
 
     use super::Status;
+
+    #[test]
+    fn telemetry_does_not_invalidate_machine_metadata() {
+        use super::{Peer, Revision, Shared};
+        use beep_mesh::{Device, DeviceKind};
+        use beep_proto::node::{EnvReport, StatsReport, status::Report};
+        use std::{collections::BTreeMap, sync::Mutex};
+        let id = iroh::SecretKey::generate().public();
+        let shared = Shared {
+            peers: Mutex::new(BTreeMap::from([(
+                id,
+                Peer::new(Device {
+                    id,
+                    name: "build-box".into(),
+                    kind: DeviceKind::Node,
+                    added_at_ms: 0,
+                }),
+            )])),
+            changes: tokio::sync::watch::channel(Revision::default()).0,
+        };
+        shared.record(id, Report::Stats(StatsReport::default()));
+        assert_eq!(shared.changes.borrow().machines, 0);
+        assert_eq!(shared.changes.borrow().telemetry, 1);
+        shared.record(id, Report::Env(EnvReport::default()));
+        assert_eq!(shared.changes.borrow().machines, 1);
+        shared.record(id, Report::Env(EnvReport::default()));
+        assert_eq!(shared.changes.borrow().machines, 1);
+        shared.record(id, Report::Offers(vec!["events/1".into()]));
+        shared.record(id, Report::Offers(vec!["events/1".into()]));
+        assert_eq!(shared.changes.borrow().machines, 2);
+    }
 
     /// Waits until `ok` holds for what the machines have reported.
     async fn settled(status: &Status, ok: impl Fn(&Status) -> bool) {

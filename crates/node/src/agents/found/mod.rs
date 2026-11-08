@@ -123,6 +123,7 @@ pub(crate) struct Stores {
     flsh: Option<PathBuf>,
     /// OpenCode's database, or its data folder of them.
     opencode: Option<PathBuf>,
+    opencode_file: bool,
     memos: Arc<Memos>,
 }
 
@@ -160,15 +161,44 @@ impl Default for Memos {
 }
 
 impl Stores {
-    /// The stores that exist here.
+    /// Configured stores, including ones a harness has not created yet.
     pub(crate) fn locate() -> Self {
         Self {
-            codex: codex::locate(),
-            pi: pi::locate(),
-            flsh: flsh::locate(),
-            opencode: opencode::locate(),
+            codex: codex::configured(),
+            pi: pi::configured(),
+            flsh: flsh::sessions_dir(),
+            opencode: opencode::configured(),
+            opencode_file: opencode::configured_file(),
             memos: Arc::default(),
         }
+    }
+
+    /// Store directories watched by open session subscriptions, including database WAL files.
+    pub(crate) fn follow_paths(&self, agent: Option<Agent>) -> Vec<PathBuf> {
+        let root = match agent {
+            Some(Agent::Codex) => {
+                return self
+                    .codex
+                    .as_ref()
+                    .into_iter()
+                    .flat_map(|root| [root.join("sessions"), root.join("session_index.jsonl")])
+                    .collect();
+            }
+            Some(Agent::Pi) => self.pi.as_ref(),
+            Some(Agent::Flsh) => self.flsh.as_ref(),
+            Some(Agent::OpenCode) => self.opencode.as_ref(),
+            _ => None,
+        };
+        root.and_then(|path| {
+            if path.is_file() || (agent == Some(Agent::OpenCode) && self.opencode_file) {
+                path.parent()
+            } else {
+                Some(path.as_path())
+            }
+        })
+        .map(PathBuf::from)
+        .into_iter()
+        .collect()
     }
 
     /// Every session in the stores, `agent`'s only when given.
