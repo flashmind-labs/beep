@@ -23,6 +23,7 @@ export class TranscriptCache<T extends Run> {
   private readonly sessions = new Map<string, Cached<T>>();
   private readonly limit: number;
   private readonly characters: number;
+  private readonly entrySizes = new WeakMap<object, number>();
 
   constructor(limit = 8, characters = 8 * 1024 * 1024) {
     this.limit = limit;
@@ -74,7 +75,16 @@ export class TranscriptCache<T extends Run> {
   private size() {
     let characters = 0;
     for (const held of this.sessions.values()) {
-      for (const entry of held.page.entries) characters += entry.text.length;
+      for (const entry of held.page.entries) {
+        let size = this.entrySizes.get(entry);
+        if (size === undefined) {
+          // Include tool payloads while reusing measured immutable prefix entries.
+          const plain = JSON.stringify({ kind: entry.kind, text: entry.text }).length;
+          size = entry.text.length + Math.max(0, JSON.stringify(entry).length - plain);
+          this.entrySizes.set(entry, size);
+        }
+        characters += size;
+      }
     }
     return characters;
   }
