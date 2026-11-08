@@ -11,7 +11,7 @@ use std::ffi::{CStr, c_void};
 /// The content view's subclass, made once, with no accessory bar.
 const NO_BAR: &CStr = c"BeepWKContentViewNoBar";
 
-extern "C-unwind" fn no_bar(_this: &AnyObject, _cmd: Sel) -> *mut AnyObject {
+extern "C-unwind" fn no_bar(_this: *mut AnyObject, _cmd: Sel) -> *mut AnyObject {
     std::ptr::null_mut()
 }
 
@@ -57,7 +57,7 @@ fn subclass(class: &AnyClass) -> Option<&'static AnyClass> {
     unsafe {
         builder.add_method(
             sel!(inputAccessoryView),
-            no_bar as extern "C-unwind" fn(&AnyObject, Sel) -> *mut AnyObject,
+            no_bar as extern "C-unwind" fn(*mut AnyObject, Sel) -> *mut AnyObject,
         );
     }
     Some(builder.register())
