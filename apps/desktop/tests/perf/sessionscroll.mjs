@@ -1,7 +1,7 @@
 // Manual check that a coding agent session opens at the end of its log and
 // stays there while its reads come in (#439). Same environment as check.mjs.
 //
-//   PLAYWRIGHT_DIR=/path/with/playwright/ node tests/perf/sessionscroll.mjs [--browser webkit|chromium] [--dist DIR] [--flow open,reopen,switch] [--trace]
+//   PLAYWRIGHT_DIR=/path/with/playwright/ node tests/perf/sessionscroll.mjs [--browser webkit|chromium] [--dist DIR] [--flow open,reopen,switch,restore,restore-up] [--trace]
 //
 // The session has 1002 entries: the first read gets the newest 200, whose
 // oldest turn lacks its prompt, so a read of older entries follows. Every
@@ -63,6 +63,7 @@ const sessionStub = ([log, session, delays]) => {
   // A picture that loads late.
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="420"><rect width="600" height="420" fill="#7a9"/></svg>`;
   window.__TAURI__.core.invoke = async (cmd, a = {}) => {
+    if (cmd === "editors") return [];
     if (cmd === "agent_view") return later(a.before == null ? delays.view : delays.older, page(a.session, a.last, a.before));
     if (cmd === "agent_thumb" || cmd === "agent_image") return later(delays.thumb, `data:image/svg+xml,${encodeURIComponent(svg)}`);
     if (cmd === "agent_modes") return later(delays.view, null);
@@ -78,33 +79,49 @@ const gap = r => r.height - r.top - r.client;
 
 // `open`: a first open. `reopen`: the session was open at its end before,
 // and Home showed since. `switch`: another session was open, scrolled up.
-for (const flow of (opt("flow", "") || "open,reopen,switch").split(",")) {
+// `restore` and `restore-up`: a hidden window resets its log before showing.
+for (const flow of (opt("flow", "") || "open,reopen,switch,restore,restore-up").split(",")) {
   const page = await (await browser.newContext({ viewport: { width: 1280, height: 800 } })).newPage();
+  page.on("pageerror", error => { console.error(error.stack); failed++; });
   await page.addInitScript(stubInit, JSON.stringify(makeData()));
   await page.addInitScript(sessionStub, [LOG, SESSION, delays]);
   await page.goto(`${origin}/center.html`);
-  await page.waitForSelector(".cc-tabs");
+  await page.waitForSelector("#side");
   await sleep(500);
   const openSession = s => page.evaluate(s => { window.__pending = { agent: s }; window.__emit("center-open"); }, s);
+  let keptTop;
   if (flow !== "open") {
     await openSession(flow === "switch" ? { ...SESSION, id: "fake-session-other" } : SESSION);
     await sleep(4000);
+    if (flow === "restore-up") {
+      await page.evaluate(() => { const b = document.querySelector("#agbody"); b.scrollTop = b.scrollHeight / 2; });
+      await sleep(500);
+      keptTop = await page.locator("#agbody").evaluate(b => b.scrollTop);
+    }
     if (flow === "switch") await page.evaluate(() => { const b = document.querySelector("#agbody"); b.scrollTop = b.scrollHeight / 2; });
+    else if (flow.startsWith("restore")) await page.evaluate(() => {
+      window.__emit("center-hidden");
+      // WebKit can reset the scroll of a hidden view while it stays connected.
+      document.querySelector("#agbody").scrollTop = 0;
+    });
     else await page.evaluate(() => { window.__pending = "home"; window.__emit("center-open"); });
     await sleep(500);
   }
   // Open the session as the sidebar or Home does, and record the log every frame for 3 s.
-  const trace = await page.evaluate(session => new Promise(done => {
+  const trace = await page.evaluate(([session, flow]) => new Promise(done => {
     const out = [], t0 = performance.now();
     const tick = () => {
       const b = document.querySelector("#agbody");
       if (b) out.push({ t: Math.round(performance.now() - t0), top: Math.round(b.scrollTop), height: b.scrollHeight, client: b.clientHeight, stuck: b.stuck, turns: b.querySelectorAll(".agturn").length, pics: b.querySelectorAll("img.pic[src]").length });
       if (performance.now() - t0 < 3000) requestAnimationFrame(tick); else done(out);
     };
-    window.__pending = { agent: session };
-    window.__emit("center-open");
+    if (flow.startsWith("restore")) window.__emit("center-shown");
+    else {
+      window.__pending = { agent: session };
+      window.__emit("center-open");
+    }
     requestAnimationFrame(tick);
-  }), SESSION);
+  }), [SESSION, flow]);
 
   // With --trace, every frame where the log changed.
   if (args.includes("--trace")) {
@@ -113,8 +130,12 @@ for (const flow of (opt("flow", "") || "open,reopen,switch").split(",")) {
   }
   const end = trace.at(-1), off = trace.filter(r => r.turns && gap(r) > 40);
   check(`${flow}: the session's log drew`, !!end && end.turns > 0, end && `${end.turns} turns`);
-  check(`${flow}: it ends at the bottom and follows it`, !!end && gap(end) <= 40 && end.stuck !== false, end && JSON.stringify(end));
-  check(`${flow}: no frame after the first draw is left off the bottom`, off.length <= 2, off.length ? `${off.length} frames, first ${JSON.stringify(off[0])}` : "");
+  if (flow === "restore-up") {
+    check(`${flow}: it keeps the reader's position`, !!end && Math.abs(end.top - keptTop) <= 1 && end.stuck === false, end && JSON.stringify({ ...end, keptTop }));
+  } else {
+    check(`${flow}: it ends at the bottom and follows it`, !!end && gap(end) <= 40 && end.stuck !== false, end && JSON.stringify(end));
+    check(`${flow}: no frame after the first draw is left off the bottom`, off.length <= 2, off.length ? `${off.length} frames, first ${JSON.stringify(off[0])}` : "");
+  }
   await page.close();
 }
 
