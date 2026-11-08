@@ -364,7 +364,7 @@
 .mac .ag-ctx hr { border: 0; border-top: 1px solid var(--d-border); margin: 4px 2px }
 .mac .ag-code, .mac .ag-term { display: block; place-items: initial; padding: 0 }
 .mac .ag-code pre, .mac .ag-term pre { margin: 0; padding: 8px 10px; font: 11.5px/17px var(--mono); color: var(--d-fg); white-space: pre }
-.mac .ag-code .ln { display: inline-block; width: 28px; margin-right: 10px; text-align: right; color: var(--d-dim) } .mac .ag-code .k { color: #C792EA } .mac .ag-code .s { color: #A5D6A7 }
+.mac .ag-code .ln { display: inline-block; width: 28px; margin-right: 10px; text-align: right; color: var(--d-dim); -webkit-user-select: none; user-select: none } .mac .ag-code .k { color: #C792EA } .mac .ag-code .s { color: #A5D6A7 }
 .mac .ag-term { background: #0f1011 } .mac .ag-term .p { color: var(--d-emerald) } .mac .ag-term .cur { display: inline-block; width: 7px; height: 13px; vertical-align: -2px; background: var(--d-fg) }
 .mac .ag-tab:first-child { flex: none }
 .mac .ag-addterm { width: auto; padding: 0 8px; font-size: 11.5px; white-space: nowrap }
