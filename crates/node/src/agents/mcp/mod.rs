@@ -35,6 +35,7 @@ mod reply;
 mod review;
 mod server;
 mod socket;
+mod transcripts;
 
 pub(crate) use machines::over_the_mesh;
 pub(crate) use server::Backend;
@@ -67,6 +68,7 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
     and thinking levels. remote_run runs a command there, never on your own machine; job_status and \
     cancel follow a background command. \
     sync_project syncs Git commits for repositories and files for non-Git folders. Uncommitted Git edits require an explicit handoff; sync_project never copies them. \
+    read_session_transcript reads a coding session on this or another machine by session ID, with pagination. \
     send_files copies files to another machine. start_agent starts another coding agent, of any harness, on any machine, linked to you; agent_status, send_to_agent, stop_agent and list_agents follow your own agents, and the user answers their permission questions. review has your changes reviewed by a reviewer agent and gives its findings. ask_user asks the user a question and waits \
     for the answer. For Rust, C, or C++ builds, check whether sccache is installed and use it \
     when practical to reuse compilation results across worktrees. For Rust, set RUSTC_WRAPPER=sccache \
@@ -228,6 +230,10 @@ impl Backend for Node {
             return Ok(refused);
         }
         Ok(machines::call(&self.offers, &mesh, request).await)
+    }
+
+    async fn read_transcript(&self, args: serde_json::Value) -> Result<Reply> {
+        transcripts::call(&self.offers, args).await
     }
 
     async fn ask(&self, session: &str, question: Asking) -> Result<Answered> {

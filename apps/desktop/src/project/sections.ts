@@ -35,7 +35,7 @@ import { openTile } from "./split.ts";
 import { AG } from "../agents/agents.ts";
 import { barOn, drawProjectComp, workOnIssue, continuePr, reviewPr, fixRun, fixConflict } from "./composer.ts";
 import { redrawSync } from "./syncpage.ts";
-import { loadProjectAgent } from "./loads.ts";
+import { loadProjectAgent, openSyncRepair } from "./loads.ts";
 import { drawProjects } from "./page.ts";
 import { loadThreadChats, threadChats } from "../center/threadcard.ts";
 
@@ -45,7 +45,7 @@ import { loadThreadChats, threadChats } from "../center/threadcard.ts";
 export const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), tile: null as string | null, run: null as { project: string; id: number; host: string } | null };
 
 export const terms = makeTerminals({ invoke, Channel, makeScreen, h, button, ago, redraw: () => redrawProjects(), kept: keptSection("terminals") });
-export const fsync = makeFileSync({ invoke, h, button, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, changeFolder: (project, m) => changeFolder(project, { id: m.machine_id, name: m.machine_name }, m.folder), kept: keptSection("filesync") });
+export const fsync = makeFileSync({ invoke, h, button, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, fixGit: (project, machine, error) => void openSyncRepair(project, machine, error), changeFolder: (project, m) => changeFolder(project, { id: m.machine_id, name: m.machine_name }, m.folder), kept: keptSection("filesync") });
 
 /// The project's branches and their reviews: the Branches list and the
 /// review view.

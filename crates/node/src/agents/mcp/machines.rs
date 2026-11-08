@@ -482,14 +482,18 @@ pub(crate) async fn over_the_mesh(
         .context("the machine closed the call before answering")
 }
 
-/// Opens `tools/1` on `peer`. A link replaced while it opens (two machines
+/// Opens `protocol` on `peer`. A link replaced while it opens (two machines
 /// dialing each other keep one) is tried again; nothing has run yet.
-async fn handshake(mesh: &Mesh, peer: EndpointId, protocol: &str) -> Result<(LinkTx, LinkRx)> {
+pub(super) async fn handshake(
+    mesh: &Mesh,
+    peer: EndpointId,
+    protocol: &str,
+) -> Result<(LinkTx, LinkRx)> {
     let mut tries = HANDSHAKES;
     loop {
         match try_handshake(mesh, peer, protocol).await {
             Err(e) if tries > 1 => {
-                log::debug!("opening tools/1 on {peer} failed, trying again: {e:#}");
+                log::debug!("opening {protocol} on {peer} failed, trying again: {e:#}");
                 tries -= 1;
             }
             Err(e) => return Err(e),
