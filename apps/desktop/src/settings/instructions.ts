@@ -3,25 +3,20 @@ import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { Ago, Kid, MakeButton, MakeEl } from "../ui/dom.ts";
 import { MAX_BYTES, agentName, bytes, sizeLabel, linesLabel, withoutBeepBlock, appended, syncSummary, fileState, behind, versionLine, mineLayer } from "./instructions-state.ts";
 import type { AgentFile, MachineAgentFiles, SyncSummary, VersionRow } from "./instructions-state.ts";
-import type { ViewName } from "../center/state.ts";
+import type { CenterView, InstructionsTab } from "../center/state.ts";
 import { plural } from "../ui/format.ts";
 import { emptyPanel, note, secBlock } from "../ui/parts.ts";
 
 /// The view's tabs.
-type InstructionsTab = "editor" | "import" | "sync" | "history";
 
 const TABS: [InstructionsTab, string][] = [["editor", "Editor"], ["import", "Import"], ["sync", "Sync"], ["history", "History"]];
 
 /// The view as the window registers it.
-interface InstructionsView {
-  title: () => { title: string; sub: string; tools: Node[] };
-  /// `arg.tab` opens on that tab.
-  mount(root: HTMLElement, arg?: unknown): void;
-}
+
 
 /// What the window hands `registerInstructions`.
 interface InstructionsDeps {
-  registerView: (name: ViewName, view: InstructionsView) => void;
+  registerView: (name: "instructions", view: CenterView<"instructions">) => void;
   invoke: typeof Invoke;
   h: MakeEl;
   button: MakeButton;
@@ -317,8 +312,7 @@ export function registerInstructions(deps: InstructionsDeps) {
     title: () => ({ title: "Instructions", sub: "Your rules for every agent Beep runs", tools: [button("Settings", "quiet small", () => deps.openSettings())] }),
     mount(root, arg) {
       el = root;
-      const tab = arg && typeof arg === "object" && "tab" in arg ? arg.tab : null;
-      if (tab) st.tab = tab as InstructionsTab;
+      if (arg?.tab) st.tab = arg.tab;
       st.error = "";
       draw();
       load();

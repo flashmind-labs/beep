@@ -11,7 +11,7 @@ import { registerInstructions } from "./instructions.ts";
 import { registerProviders } from "./providers.ts";
 import { type ViewArg, type ViewName, views } from "../center/state.ts";
 import { skeleton } from "../ui/pieces.ts";
-import { shown, shownArg, registerView, windowProject, toMain, drawTop } from "../center/views.ts";
+import { currentLocation, registerView, windowProject, toMain, drawTop } from "../center/views.ts";
 
 /// Settings as a sheet over the window: a dimmed backdrop and a centered sheet
 /// with its sections on the left.
@@ -58,13 +58,13 @@ let embedded: { name: ViewName; tools?: (nodes: Node[]) => void } | null = null;
 
 /// Mounts view `name` into `root` in the sheet. What it returns mounts the
 /// view back into its own element when the window shows it.
-export function embedView(name: ViewName, root: HTMLElement, arg: unknown, tools?: (nodes: Node[]) => void) {
+export function embedView(name: ViewName, root: HTMLElement, arg: ViewArg, tools?: (nodes: Node[]) => void) {
   const view = views.get(name);
   if (!view) return () => {};
   const mine = { name, tools };
   unembed();
   embedded = mine;
-  view.mount(root, arg as ViewArg);
+  view.mount(root, arg);
   drawEmbedTools();
   return () => {
     if (embedded !== mine) return;
@@ -75,9 +75,11 @@ export function embedView(name: ViewName, root: HTMLElement, arg: unknown, tools
 function unembed() {
   const was = embedded;
   embedded = null;
-  if (was && shown === was.name) {
-    const view = views.get(was.name)!;
-    view.mount(view.el, shownArg);
+  const page = currentLocation();
+  if (was && page && page.view === was.name) {
+    const view = views.get(was.name);
+    if (!view) return;
+    view.mount(view.el, page.arg);
     drawTop();
   }
 }
@@ -113,6 +115,6 @@ function trapTab(e: KeyboardEvent, sheet: HTMLElement) {
 
 registerInstructions({ registerView, invoke, h, button, ago, openSettings });
 registerProviders({ registerView, invoke, h, button, openSettings, redrawTop: () => {
-  if (shown === "providers") drawTop();
+  if (currentLocation()?.view === "providers") drawTop();
   if (embedded?.name === "providers") drawEmbedTools();
 } });

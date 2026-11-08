@@ -9,7 +9,6 @@ import { RESEARCHES } from "../research/researches.ts";
 import { dayDiff } from "../lists/memories.ts";
 import { withoutResearch } from "../research/research-list.ts";
 import { esc } from "../ui/format.ts";
-import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 

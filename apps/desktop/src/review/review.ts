@@ -3,7 +3,6 @@ import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts
 // makeReviews here.
 // A project's branches and the review of one before a merge.
 import { harnessEl } from "../ui/harnessicon.ts";
-import { pageShown } from "../ui/active.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import { agentLabel } from "../project/projects-state.ts";
 import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";

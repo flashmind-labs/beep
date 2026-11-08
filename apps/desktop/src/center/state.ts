@@ -21,7 +21,28 @@ export interface Started {
 // ---------- Window state ----------
 
 /// What a view's mount gets: a pane target, the Projects page's pick, or a research.
-export type ViewArg = PaneTarget | ProjectsArg | ResearchArg | undefined;
+export interface ViewArgs {
+  home: null;
+  pane: PaneTarget;
+  projects: ProjectsArg | null;
+  providers: ProvidersArg | null;
+  research: null;
+  researchopen: ResearchArg;
+  sync: null;
+  instructions: InstructionsArg | null;
+  terminals: null;
+}
+
+export interface ProvidersArg { agent: string | null; settings: boolean }
+export type InstructionsTab = "editor" | "import" | "sync" | "history";
+export interface InstructionsArg { tab: InstructionsTab | null }
+/// The names of the views the window can show, one per `registerView`.
+export type ViewName = keyof ViewArgs;
+export type ViewArg = ViewArgs[ViewName];
+export type Location = { [K in ViewName]: { view: K; arg: ViewArgs[K] } }[ViewName];
+export type NavigationArgs = { [K in ViewName]: null extends ViewArgs[K]
+  ? [view: K, arg?: ViewArgs[K]]
+  : [view: K, arg: ViewArgs[K]] }[ViewName];
 /// `run` opens that run on the Actions tile.
 export interface ProjectsArg { project: string | null; tile?: string | null; run?: RunAt | null }
 export interface RunAt { id: number; host: string }
@@ -31,12 +52,12 @@ export interface ResearchArg { session: string }
 /// A view's header: its title and line, buttons, and an element beside the title.
 export interface ViewHead { title: string; sub?: string; tools?: Node[]; scope?: Node }
 
-export interface CenterView {
+export interface CenterView<K extends ViewName = ViewName> {
   el?: HTMLElement;
   title?: string | (() => ViewHead);
-  mount(el: HTMLElement, arg: ViewArg): void | Promise<void>;
+  mount(el: HTMLElement, arg: ViewArgs[K]): void | Promise<void>;
   /// The current location, including selections made since mounting.
-  currentArg?(): ViewArg;
+  currentArg?(): ViewArgs[K];
   unmount?(): void;
 }
 
@@ -153,9 +174,6 @@ export function warm(name: string) {
 export function pageFresh(section: PageSection, id: string, loading: boolean) {
   return freshness(pages.at(section, id), loading, Date.now());
 }
-
-/// The names of the views the window can show, one per `registerView`.
-export type ViewName = "home" | "pane" | "projects" | "providers" | "research" | "researchopen" | "sync" | "instructions" | "terminals";
 
 /// The views the window can show, by name.
 export const views = new Map<ViewName, CenterView & { el: HTMLElement }>();

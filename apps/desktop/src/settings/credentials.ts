@@ -3,7 +3,6 @@
 
 type Esc = (s: unknown) => string;
 /// "today", "3 days ago": how long ago a time in milliseconds was.
-type Ago = (ms: number) => string;
 
 /// A saved credential (CredentialView), with what its kind adds.
 export type Credential = {
@@ -177,14 +176,6 @@ function form(state: CredState, esc: Esc, { title, noteHtml, url }: FormText) {
       <button class="dbtn pri" id="credSave"${state.busy ? " disabled" : ""}>${state.busy ? "Checking…" : "Check and save"}</button><button class="dbtn quiet" id="credCancel">Cancel</button></div></div>
     ${noteHtml ? note(noteHtml) : ""}
     <div class="derr" id="credErr">${esc(state.error || "")}</div></div>`;
-}
-
-/// The last 4 of a saved secret, or a prompt to enter it again when the
-/// server can no longer open it.
-function shown(esc: Esc, cred: { last4: string; unreadable?: boolean }, what: string) {
-  return cred.unreadable
-    ? `<span class="derr">Re-enter this ${what}</span>`
-    : `<code>…${esc(cred.last4)}</code>`;
 }
 
 /// A link that opens in the browser.
@@ -455,7 +446,7 @@ const addButton = (attr: string, text: string) => `<button class="dbtn small" ${
 
 /// The whole section (see `CredState`). `machines`: the machines list, or
 /// null when it is not known.
-export function credentialsHtml(state: CredState, machines: ToolMachine[] | null, esc: Esc, ago: Ago) {
+export function credentialsHtml(state: CredState, machines: ToolMachine[] | null, esc: Esc) {
   const list = state.list ?? [];
   const e = state.edit;
   const cli = state.cli;

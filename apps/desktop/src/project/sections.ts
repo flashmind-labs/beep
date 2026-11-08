@@ -10,11 +10,11 @@ import { invoke, Channel, listen } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
 import type { Project, SessionRow } from "./projects-state.ts";
 import { makeProjectLive, type LiveRow } from "./projectlive.ts";
-import { agentFor, pageAgent, workerSession, type ProjectAgent } from "./agent.ts";
+import { pageAgent, workerSession, type ProjectAgent } from "./agent.ts";
 import type { BarTarget } from "./projectbar.ts";
 import { type BaseBranches, DEFAULT_CHECKOUT } from "../agents/agentpick.ts";
 import type { Picked } from "../agents/agentpicker.ts";
-import type { AgentHost, AgentSession } from "../agents/agents.ts";
+import type { AgentHost} from "../agents/agents.ts";
 import { makeTerminals } from "../terminals/terminals.ts";
 import { makeScreen } from "../terminals/termview.ts";
 import type { BranchSessionRow } from "../review/history-state.ts";
@@ -31,7 +31,7 @@ import { makeRuns, type RunDetail } from "./runs.ts";
 import { type Outcome, state, keptSection, views } from "../center/state.ts";
 import { failure } from "../ui/pieces.ts";
 import { openUrl } from "../center/openitems.ts";
-import { shown, ownChats, go, drawTop } from "../center/views.ts";
+import { currentLocation, ownChats, go, drawTop } from "../center/views.ts";
 import { reloadChats } from "../center/sidebar.ts";
 import { openTile } from "./split.ts";
 import { AG } from "../agents/agents.ts";
@@ -122,7 +122,7 @@ onMoves(() => redrawProjects());
 onClosing(() => redrawProjects());
 
 export function redrawProjects() {
-  if (shown === "projects") drawProjects(projectsEl());
+  if (currentLocation()?.view === "projects") drawProjects(projectsEl());
   // The empty agent view has the same bar.
   else if (AG.draft && barOn(AG.draft)) drawProjectComp(AG.draft);
 }
@@ -157,7 +157,7 @@ function viewDiff(project: string, branch: string) {
 
 /// The Projects page and its header, while it shows.
 export function redrawProjectsPage() {
-  if (shown === "projects") { drawProjects(projectsEl()); drawTop(); }
+  if (currentLocation()?.view === "projects") { drawProjects(projectsEl()); drawTop(); }
 }
 
 export const agentActs = {
