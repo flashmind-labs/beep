@@ -469,10 +469,11 @@
   ];
   // A session read from disk (imported, or started outside Beep) shows the
   // subagents its agent wrote there, each with its type or custom agent's
-  // name. Their times are not known, only how many steps each ran.
+  // name. A background subagent can still run after the parent's turn ends,
+  // including while a long command writes no new transcript lines.
   const SUBS_DISK = [
     ["Explore auth module", "Find where the login error text is set", "done", "", 9, "Explore"],
-    ["Check the release notes", "Compare the changelog with the diff", "done", "", 14, "release-checker"],
+    ["Check the release notes", "Compare the changelog with the diff", "run", "", 14, "release-checker"],
   ];
   const subRow = ([n, d, st, el, k, a]) => `<button class="sr" data-open-sub="${n}" title="Open ${n}"><span class="mk">${st === "run" ? '<span class="dspin"></span>' : SG.ok}</span><span class="t"><b>${n}${a ? `<span class="kind">${a}</span>` : ""}</b><small>${[st === "run" ? "working" : "done", el, `${k} steps`].filter(Boolean).join(" · ")}</small></span></button>`;
   // A coding agent another agent started (start_agent): a normal session on
@@ -597,7 +598,7 @@ expected 200, got 401</pre></details></span></div>`;
       stepsOpen ? `<div class="${v === "beeptools" ? "steps" : "tools"}">${v === "beeptools" ? beepSteps : steps}</div>` : "",
       ...(shots ? [`<div class="shots small"><i class="img"></i><i class="img b2"></i></div>`] : []),
       ...(v === "answered" ? [answered] : []), picture,
-      ...(disk ? [`<div class="subgrp"><div class="h">${SG.sub}<b>2 subagents</b><span>2 done</span></div>${SUBS_DISK.map(subRow).join("")}</div>`] : []), answer].join("");
+      ...(disk ? [`<div class="subgrp"><div class="h">${SG.sub}<b>2 subagents</b><span>1 working · 1 done</span></div>${SUBS_DISK.map(subRow).join("")}</div>`] : []), answer].join("");
     // The running turn: earlier steps folded, the newest one, the thought's line.
     const group = kids ? `<div class="subgrp"><div class="h">${SG.sub}<b>2 agents started</b><span>1 working · 1 asks you</span></div>${KIDS.map(kidRow).join("")}</div>` : `<div class="subgrp"><div class="h">${SG.sub}<b>3 subagents</b><span>2 working · 1 done</span></div>${SUBS.map(subRow).join("")}</div>`;
     // Thoughts: each its own line in order with the steps. "Thinking" sweeps
