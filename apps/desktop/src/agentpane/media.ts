@@ -323,6 +323,7 @@ export function showChanges() {
   const d = dockOf(CHANGES);
   P.on[d] = CHANGES;
   P.layout.hidden[d] = false;
+  shell()?.classList.remove("mb-log");
   draw();
   P.zoom = d;
   place();
@@ -420,6 +421,35 @@ export function draw() {
     if (host) drawWorktrees(host, P.on[d] === FILES || P.on[d] === CHANGES);
   }
   place();
+  phoneTabs();
+}
+
+/// On a phone the session shows one pane at a time: Log, the conversation, or one of the
+/// pane's tabs filling the screen. The tabs are the bottom dock's, whose own strip is
+/// hidden by mobile.css; `mb-log` on the shell says the conversation is the one shown.
+function phoneTabs() {
+  const el = shell(), box = main();
+  if (!el || !box || !document.body.classList.contains("mobile")) return;
+  let nav = box.querySelector<HTMLElement>(":scope > #agmnav");
+  if (!nav) {
+    nav = document.createElement("nav");
+    nav.id = "agmnav";
+    nav.className = "agmnav";
+    nav.addEventListener("click", e => {
+      const id = (e.target as Element).closest<HTMLElement>("[data-mnav]")?.dataset.mnav;
+      if (!id) return;
+      el.classList.toggle("mb-log", id === "log");
+      if (id !== "log") P.on.bottom = id;
+      draw();
+    });
+    box.prepend(nav);
+    el.classList.add("mb-log");
+  }
+  const on = el.classList.contains("mb-log") ? "log" : P.on.bottom;
+  const tabs = [...(paneOf("bottom")?.querySelectorAll<HTMLElement>(".agtabs > [data-mtab]") ?? [])]
+    .map(t => ({ id: t.dataset.mtab!, name: t.querySelector("span")?.textContent ?? "" }));
+  nav.innerHTML = [{ id: "log", name: "Log" }, ...tabs]
+    .map(t => `<button data-mnav="${esc(t.id)}" aria-selected="${t.id === on}">${esc(t.name)}</button>`).join("");
 }
 
 /// Draws dock `d` with tabs `ids`, moving into it the views of tabs that

@@ -107,13 +107,12 @@ body.mobile .cc-set-scrim, body.mobile .cc-scrim { padding-left: env(safe-area-i
 /* Wide tables scroll sideways; keyboard hints have no keyboard to point at. */
 body.mobile .cc-mt { overflow-x: auto }
 body.mobile .pj-add { grid-template-columns: minmax(0, 1fr) }
-body.mobile kbd, body.mobile .dhints, body.mobile .agkeys, body.mobile .cc-pal .foot { display: none }
+body.mobile kbd, body.mobile .dhints, body.mobile .agkeys, body.mobile .dv-keys, body.mobile .cc-pal .foot { display: none }
 
-/* A session: the composer takes a full line for its text; the files and changes pane shrinks under the conversation. */
+/* A session: the composer takes a full line for its text. */
 body.mobile .dinput.small { flex-wrap: wrap; gap: 8px; padding: 8px 10px }
 body.mobile .dinput textarea { order: -1; flex: 1 1 100%; min-height: 44px; max-height: 120px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink) }
 body.mobile .agmain > .agdiv { display: none }
-body.mobile .agshell.narrow .agpane { flex: 0 0 auto; max-height: 32% }
 body.mobile .dhead { padding-right: 12px }
 
 /* The pairing screen: a phone with no mesh yet. */
@@ -128,3 +127,22 @@ body.mobile .dhead { padding-right: 12px }
 .pair-actions { flex: none; padding: 16px 24px }
 .pair-actions .dbtn { width: 100%; min-height: 48px; justify-content: center; font-size: 16px; font-weight: 600 }
 .pair-actions .dbtn:disabled { opacity: .5 }
+
+/* A session: the head's second line is its meta (state, folder, branch, machine, usage), and
+   Log, Files, Changes... show one pane at a time. */
+body.mobile .agshell:not(.narrow) .agmnav { display: none }
+body.mobile .dhead { flex-wrap: wrap; row-gap: 8px }
+body.mobile .dhead > .tt, body.mobile .dhead .aglocation, body.mobile .dhead .agfolder { display: contents }
+body.mobile .dhead #agtitle { order: 1; flex: 1 1 calc(100% - 56px); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+body.mobile .dhead .aglocation > span:nth-child(2) { display: none }
+body.mobile .dhead :is(#agstate, #agproj, #agbranch, #aghere, #aguse) { order: 2; flex: none; max-width: 100%; margin: 0; padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+body.mobile .dhead #agstate { order: 2; padding: 0; border: 0 }
+body.mobile .dhead :is(#agbranch, #aguse):empty { display: none }
+body.mobile .dhead #aghere::before { content: "@" }
+body.mobile .agmnav { flex: none; display: flex; gap: 4px; padding: 6px 10px; overflow-x: auto; border-bottom: 1px solid var(--border); scrollbar-width: none }
+body.mobile .agmnav button { flex: none; min-height: 36px; padding: 0 14px; border: 0; border-radius: var(--radius-sm); background: none; font: inherit; font-size: 14px; color: var(--muted) }
+body.mobile .agmnav button[aria-selected="true"] { background: var(--elev); color: var(--fg) }
+body.mobile .agshell.mb-log .agpane, body.mobile .agshell.mb-log .agpstrip { display: none !important }
+body.mobile .agshell:not(.mb-log) .agconv { display: none }
+body.mobile .agshell:not(.mb-log) .agpane { flex: 1 1 0 !important; max-height: none }
+body.mobile .agpane .agphead :is(.agtabs, .agaddterm, [data-pact]) { display: none }
