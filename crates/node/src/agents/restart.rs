@@ -19,6 +19,8 @@ pub(super) const SETTINGS_WAIT: Duration = Duration::from_secs(60);
 /// The first line of a resumed session's transcript.
 const RESUMED: &str = "Resumed after beep-node restarted";
 
+pub(super) const CONTINUE: &str = "The node restarted while you were working. Continue the interrupted task, checking what already completed before repeating any actions. If you were waiting for an answer, ask again.";
+
 /// The most transcript entries kept across a restart for an agent that
 /// does not replay its sessions.
 const KEPT_ENTRIES: usize = 1000;
@@ -155,7 +157,13 @@ impl Agents {
             started_at: live.info.started_at,
             last_activity: live.info.last_activity,
             held: match keep {
-                Keep::Open => live.held.clone(),
+                Keep::Open => {
+                    let mut held = live.held.clone();
+                    if matches!(live.status(), Status::Working | Status::Asking) {
+                        held.insert(0, Prompt::from(CONTINUE.to_owned()));
+                    }
+                    held
+                }
                 Keep::Moving => Vec::new(),
             },
             mode: live.info.mode.clone(),
@@ -396,6 +404,47 @@ done
             .await
             .expect("a closed session no longer holds the restart");
         agents.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn an_interrupted_turn_continues_before_queued_prompts() {
+        let dir = tempfile::tempdir().expect("a temporary folder");
+        let log = dir.path().join("log");
+        let kind = adapter(&log);
+        let before = Agents::new(vec![kind.clone()]);
+        let session = before
+            .start(&kind, Some(&dir.path().to_string_lossy()), begin("first"))
+            .expect("the session starts");
+        let mut live = session.live.clone();
+        until(&mut live, |live| live.status() == Status::Asking).await;
+        let _hold = before.hold();
+        session
+            .order(Command::Prompt("after".to_owned().into()))
+            .await
+            .expect("queued");
+        assert_eq!(before.open_sessions()[0].held[0].text, CONTINUE);
+        before.shutdown().await;
+        let stopped = before.open_sessions();
+        assert_eq!(
+            stopped[0]
+                .held
+                .iter()
+                .map(|p| p.text.as_str())
+                .collect::<Vec<_>>(),
+            vec![CONTINUE, "after"]
+        );
+        let after = Agents::new(vec![kind]);
+        after.settings_arrived();
+        after.reopen(stopped).await;
+        let resumed = after.get("held-1").expect("resumed");
+        let mut live = resumed.live.clone();
+        until(&mut live, |live| live.info.turns == 2).await;
+        let read = std::fs::read_to_string(&log).expect("adapter log");
+        assert!(
+            read.find(CONTINUE).expect("continued")
+                < read.find(r#""text":"after""#).expect("queued prompt")
+        );
+        after.shutdown().await;
     }
 
     #[tokio::test]
