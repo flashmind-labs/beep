@@ -24,7 +24,7 @@ test("visible Git history follows its root and stops reading when closed", async
   await settle();
   assert.equal(reads, 1);
   const reader = calls.find(call => call.cmd === "mesh_watch")!.args as { onEvent: { onmessage(event: MeshEvent): void } };
-  const send = (sequence: number, root = "/srv/project") => reader.onEvent.onmessage({ id: { epoch: "example", sequence }, machine_id: "machine-a", topic: topic("files", root), resync: false });
+  const send = (revision: number, root = "/srv/project") => reader.onEvent.onmessage({ revision, machine_id: "machine-a", topic: topic("files", root), data: {} });
   send(1, "/srv/another");
   t.mock.timers.tick(100);
   await settle();

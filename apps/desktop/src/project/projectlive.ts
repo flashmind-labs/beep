@@ -2,6 +2,7 @@
 // or by polling, and the reads it starts.
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { MakeEl } from "../ui/dom.ts";
+import { installViews, type ViewSnapshot } from "../ui/snapshot-state.ts";
 
 /// What the server says of a followed project (LiveRow).
 export interface LiveRow {
@@ -11,6 +12,7 @@ export interface LiveRow {
   polling_why: string | null;
   lists: boolean;
   runs: boolean;
+  views?: ViewSnapshot[];
 }
 
 /// How a project reads its host: undefined while unknown.
@@ -76,6 +78,8 @@ export function makeProjectLive(deps: LiveDeps) {
   /// What the server said of `row.project_id`.
   function heard(row: LiveRow) {
     const id = row.project_id;
+    if (id !== current) return;
+    installViews(row);
     if (row.live === null) modes.delete(id);
     else modes.set(id, { live: row.live, why: row.polling_why });
     if (row.lists || row.runs) reload(id, row.lists, row.runs);

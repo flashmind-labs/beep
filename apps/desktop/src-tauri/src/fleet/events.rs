@@ -2,7 +2,7 @@
 
 use super::{Fleet, Machines, Opened};
 use crate::error::{DesktopError, Result};
-use beep_proto::node::events::{self, CallReply, EventId, Operation, Reply, Request, Topic};
+use beep_proto::node::events::{self, CallReply, Operation, Reply, Request, Topic};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -10,13 +10,16 @@ use std::{
     sync::{Arc, Mutex, OnceLock, PoisonError},
     time::Duration,
 };
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow, ipc::Channel};
+use tauri::{AppHandle, Manager, State, WebviewWindow, ipc::Channel};
 use tokio::{
     sync::{mpsc, oneshot, watch},
     task::JoinSet,
     time::{sleep, timeout},
 };
 use uuid::Uuid;
+
+mod snapshots;
+pub(crate) use snapshots::Snapshots;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Interest {
@@ -26,11 +29,12 @@ pub struct Interest {
 
 #[derive(Clone, Serialize)]
 pub struct Update {
-    machine_id: String,
-    id: EventId,
-    topic: Topic,
-    resync: bool,
-    data: Option<serde_json::Value>,
+    pub(crate) machine_id: String,
+    pub(crate) revision: u64,
+    pub(crate) topic: Topic,
+    pub(crate) query: Option<u64>,
+    pub(crate) initial: bool,
+    pub(crate) data: Option<serde_json::Value>,
 }
 
 type Sink = Arc<dyn Fn(Update) -> bool + Send + Sync>;
@@ -48,11 +52,108 @@ struct Pending {
     topics: Option<Vec<Interest>>,
 }
 
+type SnapshotKey = (String, Topic, Option<u64>);
+const MAX_NODE_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
+const MAX_SNAPSHOT_BYTES: usize = 64 * 1024 * 1024;
+
+struct CachedSnapshot {
+    update: Update,
+    bytes: usize,
+    used: std::time::Instant,
+}
+
+#[derive(Default)]
+struct Latest {
+    entries: BTreeMap<SnapshotKey, CachedSnapshot>,
+    bytes: usize,
+}
+
+impl Latest {
+    fn values(&self) -> impl Iterator<Item = &Update> {
+        self.entries.values().map(|entry| &entry.update)
+    }
+
+    fn remove(&mut self, key: &SnapshotKey) {
+        if let Some(entry) = self.entries.remove(key) {
+            self.bytes = self.bytes.saturating_sub(entry.bytes);
+        }
+    }
+
+    fn retain(&mut self, mut keep: impl FnMut(&SnapshotKey, &Update) -> bool) {
+        self.entries.retain(|key, entry| keep(key, &entry.update));
+        self.bytes = self.entries.values().map(|entry| entry.bytes).sum();
+    }
+
+    fn resources(&mut self, machine: &str, scope: &Topic, resources: &[Topic]) {
+        if scope.name() != "files" || !scope.is_pattern() {
+            return;
+        }
+        let present: BTreeSet<_> = resources.iter().collect();
+        self.retain(|(source, topic, query), _| {
+            source != machine
+                || query.is_some()
+                || topic.is_pattern()
+                || !scope.covers(topic)
+                || present.contains(topic)
+        });
+    }
+
+    fn clear_node(&mut self, machine: &str, controller: bool) {
+        self.retain(|(source, _, _), update| {
+            source != machine || controller && controller_topic(&update.topic)
+        });
+    }
+
+    fn insert(&mut self, update: Update, bytes: usize) {
+        let key = (
+            update.machine_id.clone(),
+            update.topic.clone(),
+            update.query,
+        );
+        self.remove(&key);
+        if bytes > MAX_NODE_SNAPSHOT_BYTES {
+            return;
+        }
+        loop {
+            let node_bytes: usize = self
+                .entries
+                .values()
+                .filter(|entry| entry.update.machine_id == update.machine_id)
+                .map(|entry| entry.bytes)
+                .sum();
+            let node_full = node_bytes.saturating_add(bytes) > MAX_NODE_SNAPSHOT_BYTES;
+            if !node_full
+                && self.bytes.saturating_add(bytes) <= MAX_SNAPSHOT_BYTES
+                && self.entries.len() < 4096
+            {
+                break;
+            }
+            let oldest = self
+                .entries
+                .iter()
+                .filter(|(_, entry)| !node_full || entry.update.machine_id == update.machine_id)
+                .min_by_key(|(_, entry)| entry.used)
+                .map(|(key, _)| key.clone());
+            let Some(oldest) = oldest else { return };
+            self.remove(&oldest);
+        }
+        self.bytes += bytes;
+        self.entries.insert(
+            key,
+            CachedSnapshot {
+                update,
+                bytes,
+                used: std::time::Instant::now(),
+            },
+        );
+    }
+}
+
 #[derive(Default)]
 struct Registry {
     windows: HashMap<String, Window>,
     pending: VecDeque<Pending>,
-    latest: BTreeMap<String, EventId>,
+    latest: Latest,
 }
 
 impl Registry {
@@ -198,10 +299,12 @@ type Commands = Arc<Mutex<HashMap<EndpointId, (Uuid, mpsc::Sender<Call>)>>>;
 pub(crate) struct Events {
     registry: Mutex<Registry>,
     demand: watch::Sender<Vec<Interest>>,
+    refresh: watch::Sender<()>,
     commands: Commands,
     manager: Mutex<Option<Job>>,
     source: Mutex<Option<Source>>,
     controller: OnceLock<EndpointId>,
+    revision: Mutex<u64>,
 }
 
 impl Default for Events {
@@ -209,10 +312,12 @@ impl Default for Events {
         Self {
             registry: Mutex::default(),
             demand: watch::channel(Vec::new()).0,
+            refresh: watch::channel(()).0,
             commands: Commands::default(),
             manager: Mutex::default(),
             source: Mutex::default(),
             controller: OnceLock::new(),
+            revision: Mutex::new(0),
         }
     }
 }
@@ -248,7 +353,11 @@ impl Events {
     }
 
     fn changed(&self) {
-        let registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let interests = registry.interests();
+        registry
+            .latest
+            .retain(|_, update| receives(&interests, update, self.controller.get()));
         self.publish(&registry);
     }
 
@@ -287,7 +396,7 @@ impl Events {
         topics: Vec<Interest>,
         send: Sink,
         alive: impl Fn() -> bool,
-        data: Option<serde_json::Value>,
+        _data: Option<serde_json::Value>,
     ) -> Result<Option<watch::Receiver<()>>> {
         if !alive() {
             self.remove(window, id);
@@ -307,21 +416,9 @@ impl Events {
         let send = delivery.lock().unwrap_or_else(PoisonError::into_inner);
         let initial: Vec<_> = registry
             .latest
-            .iter()
-            .filter_map(|(machine_id, cursor)| {
-                let update = Update {
-                    machine_id: machine_id.clone(),
-                    id: *cursor,
-                    topic: Topic::new("*"),
-                    resync: true,
-                    data: self
-                        .controller
-                        .get()
-                        .filter(|local| local.to_string() == *machine_id)
-                        .and(data.clone()),
-                };
-                receives(&held.topics, &update, self.controller.get()).then_some(update)
-            })
+            .values()
+            .filter(|update| receives(&held.topics, update, self.controller.get()))
+            .cloned()
             .collect();
         self.publish(&registry);
         drop(registry);
@@ -336,6 +433,7 @@ impl Events {
             self.remove(window, id);
             return Ok(None);
         }
+        self.refresh.send_replace(());
         Ok(Some(stopped))
     }
 
@@ -363,10 +461,18 @@ impl Events {
         self.changed();
     }
 
-    fn dispatch(&self, update: Update) {
+    pub(crate) fn dispatch(&self, update: Update) {
+        let bytes = serde_json::to_vec(&update).map_or(usize::MAX, |bytes| bytes.len());
         let destinations: Vec<_> = {
             let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
-            registry.latest.insert(update.machine_id.clone(), update.id);
+            if !registry
+                .windows
+                .values()
+                .any(|window| receives(&window.topics, &update, self.controller.get()))
+            {
+                return;
+            }
+            registry.latest.insert(update.clone(), bytes);
             registry
                 .windows
                 .iter()
@@ -383,6 +489,123 @@ impl Events {
                 self.remove(&label, id);
             }
         }
+    }
+
+    fn dispatch_node(&self, update: Update) {
+        let aliases: BTreeSet<_> = self
+            .registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .windows
+            .values()
+            .flat_map(|window| &window.topics)
+            .filter(|interest| {
+                interest
+                    .machine
+                    .as_ref()
+                    .is_none_or(|machine| machine == &update.machine_id)
+            })
+            .filter(|interest| {
+                matches!(
+                    (update.topic.name(), interest.topic.name()),
+                    ("agents", "agent")
+                        | ("processes", "process-output")
+                        | ("terminals", "terminal-output")
+                )
+            })
+            .map(|interest| interest.topic.clone())
+            .collect();
+        self.dispatch(update.clone());
+        for topic in aliases {
+            self.dispatch(Update {
+                topic,
+                ..update.clone()
+            });
+        }
+    }
+
+    fn node_wanted(&self, machine: EndpointId, topic: &Topic) -> bool {
+        let id = machine.to_string();
+        self.registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .windows
+            .values()
+            .flat_map(|window| &window.topics)
+            .any(|interest| {
+                interest
+                    .machine
+                    .as_ref()
+                    .is_none_or(|machine| machine == &id)
+                    && (interest.topic.matches(topic)
+                        || matches!(
+                            (topic.name(), interest.topic.name()),
+                            ("agents", "agent")
+                                | ("processes", "process-output")
+                                | ("terminals", "terminal-output")
+                        ))
+            })
+    }
+
+    fn forget_queries(&self, machine: EndpointId, queries: &[events::Query]) {
+        let machine = machine.to_string();
+        let ids: BTreeSet<_> = queries.iter().map(|query| query.id).collect();
+        self.registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .latest
+            .retain(|(source, _, query), _| {
+                source != &machine || query.is_none_or(|query| ids.contains(&query))
+            });
+    }
+
+    fn clear_node(&self, machine: EndpointId) {
+        let controller = self.controller.get() == Some(&machine);
+        self.registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .latest
+            .clear_node(&machine.to_string(), controller);
+    }
+
+    fn resources(&self, machine: EndpointId, scope: &Topic, resources: &[Topic]) {
+        self.registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .latest
+            .resources(&machine.to_string(), scope, resources);
+    }
+
+    pub(crate) fn controller_wanted(&self, topic: &Topic) -> bool {
+        self.registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .windows
+            .values()
+            .flat_map(|window| &window.topics)
+            .any(|interest| interest.machine.is_none() && interest.topic.matches(topic))
+    }
+
+    pub(crate) fn publish_views(&self, machine: EndpointId, topic: Topic, data: serde_json::Value) {
+        if !self.controller_wanted(&topic) {
+            return;
+        }
+        let revision = {
+            let mut revision = self.revision.lock().unwrap_or_else(PoisonError::into_inner);
+            let Some(next) = revision.checked_add(1) else {
+                return;
+            };
+            *revision = next;
+            next
+        };
+        self.dispatch(Update {
+            machine_id: machine.to_string(),
+            revision,
+            topic,
+            query: None,
+            initial: false,
+            data: Some(data),
+        });
     }
 
     pub(crate) async fn call(
@@ -503,7 +726,9 @@ pub async fn mesh_watch(
         window: window.label().to_owned(),
         id,
     };
-    events.start(app, fleet.inner().clone());
+    events.start(app.clone(), fleet.inner().clone());
+    // Retained controller views can be evicted while another window stays subscribed.
+    super::event_views::changed(app, Topic::new("*"));
     let _ = stopped.changed().await;
     Ok(())
 }
@@ -536,7 +761,7 @@ fn validate(topics: &[Interest]) -> Result<()> {
 fn controller_topic(topic: &Topic) -> bool {
     matches!(
         topic.name(),
-        "machines" | "telemetry" | "projects" | "forge" | "home"
+        "machines" | "telemetry" | "projects" | "forge" | "home" | "accounts" | "usage"
     )
 }
 
@@ -551,11 +776,14 @@ fn receives(interests: &[Interest], update: &Update, controller: Option<&Endpoin
                 .as_ref()
                 .is_none_or(|machine| machine == &update.machine_id)
         };
-        source_matches && (update.resync || interest.topic.matches(&update.topic))
+        source_matches && interest.topic.matches(&update.topic)
     })
 }
 
-fn compact_topics(topics: Vec<Topic>) -> Vec<Topic> {
+fn compact_topics(mut topics: Vec<Topic>) -> Vec<Topic> {
+    if topics.iter().any(|topic| topic.name() == "home") {
+        topics.extend(home_sources());
+    }
     let topics: BTreeSet<_> = topics.into_iter().collect();
     topics
         .iter()
@@ -578,9 +806,24 @@ fn topics_for(interests: &[Interest], machine: EndpointId, local: EndpointId) ->
         })
         .map(|interest| interest.topic.clone())
         .collect();
+    if machine != local
+        && interests
+            .iter()
+            .any(|interest| interest.machine.is_none() && interest.topic.name() == "home")
+    {
+        topics.extend(home_sources());
+    }
     topics.sort();
     topics.dedup();
     compact_topics(topics)
+}
+
+fn home_sources() -> [Topic; 3] {
+    [
+        Topic::new("agents"),
+        Topic::new("processes"),
+        Topic::new("moves"),
+    ]
 }
 
 struct Worker {
@@ -601,7 +844,9 @@ async fn run(
     let mut mesh = fleet.mesh.subscribe();
     let mut members = fleet.mesh().map(|mesh| mesh.updates());
     let mut status = fleet.status.changes();
+    let mut local = beep_node::events::system().subscribe();
     let mut revision = *status.borrow_and_update();
+    let mut materialized = Vec::new();
     let mut workers = JoinSet::new();
     let mut held: BTreeMap<EndpointId, Worker> = BTreeMap::new();
     loop {
@@ -610,6 +855,8 @@ async fn run(
         if interests.is_empty() {
             held.clear();
             workers.abort_all();
+            fleet.snapshots.reconcile(&BTreeMap::new());
+            materialized.clear();
             if demand
                 .wait_for(|interests| !interests.is_empty())
                 .await
@@ -635,6 +882,7 @@ async fn run(
                 (!topics.is_empty()).then_some((machine, topics))
             })
             .collect();
+        fleet.snapshots.reconcile(&wanted);
         held.retain(|machine, worker| {
             if wanted.contains_key(machine) {
                 true
@@ -661,28 +909,56 @@ async fn run(
                 held.insert(machine, Worker { topics, task });
             }
         }
+        if materialized != interests {
+            super::event_views::changed(app.clone(), Topic::new("*"));
+            app.state::<Events>().publish_views(
+                fleet.me,
+                Topic::new("telemetry"),
+                telemetry(&fleet),
+            );
+            materialized = interests.clone();
+        }
         tokio::select! {
             changed = demand.changed() => if changed.is_err() { return; },
             changed = mesh.changed() => {
                 if changed.is_err() { return; }
                 mesh.borrow_and_update();
                 held.clear(); workers.abort_all();
-                app.state::<Events>().registry.lock().unwrap_or_else(PoisonError::into_inner).latest.retain(|machine, _| machine == &fleet.me.to_string());
+                app.state::<Events>().registry.lock().unwrap_or_else(PoisonError::into_inner).latest.retain(|(machine, _, _), _| machine == &fleet.me.to_string());
+                fleet.snapshots.reconcile(&BTreeMap::new());
                 members = fleet.mesh().map(|mesh| mesh.updates());
                 beep_node::events::system().changed(Topic::new("projects"));
+                beep_node::events::system().changed(Topic::new("accounts"));
             },
             changed = async { match &mut members { Some(members) => members.changed().await, None => std::future::pending().await } } => {
                 if changed.is_err() { members = None; }
                 beep_node::events::system().changed(Topic::new("projects"));
+                beep_node::events::system().changed(Topic::new("accounts"));
             },
             changed = status.changed() => {
                 if changed.is_err() { return; }
                 let current = *status.borrow_and_update();
-                if current.machines != revision.machines { beep_node::events::system().changed(Topic::new("machines")); }
+                if current.machines != revision.machines {
+                    beep_node::events::system().changed(Topic::new("machines"));
+                    beep_node::events::system().changed(Topic::new("accounts"));
+                }
                 if current.telemetry != revision.telemetry && interests.iter().any(|interest| matches!(interest.topic.name(), "telemetry" | "*")) {
                     beep_node::events::system().changed(Topic::new("telemetry"));
                 }
                 revision = current;
+            },
+            changed = local.recv() => match changed {
+                Ok(change) if change.topic.name() == "telemetry" => {
+                    app.state::<Events>().publish_views(fleet.me, change.topic, telemetry(&fleet));
+                },
+                Ok(change) if matches!(change.topic.name(), "machines" | "projects" | "home" | "usage" | "accounts" | "sync") => {
+                    super::event_views::changed(app.clone(), change.topic);
+                },
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    super::event_views::changed(app.clone(), Topic::new("*"));
+                    app.state::<Events>().publish_views(fleet.me, Topic::new("telemetry"), telemetry(&fleet));
+                },
+                _ => {},
             },
             Some(result) = workers.join_next() => if let Err(error) = result { log::debug!("event reader stopped: {error}"); },
         }
@@ -697,13 +973,12 @@ async fn follow(
     commands: Commands,
 ) {
     let mut pause = Duration::from_secs(1);
-    let mut resume = Resume::default();
     loop {
         if wanted.has_changed().is_err() {
             return;
         }
         let started = std::time::Instant::now();
-        let result = stream(&app, &fleet, machine, &mut wanted, &commands, &mut resume).await;
+        let result = stream(&app, &fleet, machine, &mut wanted, &commands).await;
 
         if started.elapsed() >= Duration::from_secs(10) {
             pause = Duration::from_secs(1);
@@ -723,23 +998,32 @@ async fn stream(
     machine: EndpointId,
     wanted: &mut watch::Receiver<Vec<Topic>>,
     commands: &Commands,
-    resume: &mut Resume,
 ) -> Result<()> {
     let client = fleet.client(machine).await?;
     let topics = wanted.borrow_and_update().clone();
-    let after = (resume.topics == topics).then_some(resume.cursor).flatten();
+    let generation = Uuid::new_v4();
+    fleet.snapshots.begin(machine, generation);
+    let _snapshots = SnapshotConnection {
+        snapshots: &fleet.snapshots,
+        machine,
+        generation,
+    };
+    let mut query_changes = fleet.snapshots.changes();
+    let mut refresh = app.state::<Events>().refresh.subscribe();
+    let queries = fleet.snapshots.queries(machine);
+    app.state::<Events>().forget_queries(machine, &queries);
+    let mut sent = (topics.clone(), queries.clone());
     let (mut tx, mut rx) = client
         .open_sending(
             events::PROTOCOL,
             &Request::Watch {
                 id: 1,
                 topics: topics.clone(),
-                after,
+                queries,
             },
         )
         .await?;
     let (orders, mut input) = mpsc::channel::<Call>(16);
-    let generation = Uuid::new_v4();
     let _registered = Registered {
         machine,
         commands,
@@ -749,11 +1033,17 @@ async fn stream(
     let mut watches = HashMap::from([(1, topics)]);
     let mut next = 1_u64;
     let mut dirty = false;
-    let mut reconcile = after.is_some();
+    let mut revision = 0;
     loop {
         if dirty && watches.is_empty() {
             let topics = wanted.borrow_and_update().clone();
-            let after = None;
+            let queries = fleet.snapshots.queries(machine);
+            app.state::<Events>().forget_queries(machine, &queries);
+            if (topics.clone(), queries.clone()) == sent {
+                dirty = false;
+                continue;
+            }
+            sent = (topics.clone(), queries.clone());
             next = next
                 .checked_add(1)
                 .ok_or_else(|| DesktopError::BadRequest("request sequence exhausted".into()))?;
@@ -763,7 +1053,7 @@ async fn stream(
                 tx.send(&Request::Watch {
                     id: next,
                     topics,
-                    after,
+                    queries,
                 }),
             )
             .await
@@ -772,6 +1062,13 @@ async fn stream(
         }
         tokio::select! {
             changed = wanted.changed() => { if changed.is_err() { return Ok(()); } dirty = true; },
+            changed = query_changes.changed() => { if changed.is_err() { return Ok(()); } dirty = true; },
+            changed = refresh.changed() => {
+                if changed.is_err() { return Ok(()); }
+                next = next.checked_add(1).ok_or_else(|| DesktopError::BadRequest("request sequence exhausted".into()))?;
+                watches.insert(next, wanted.borrow().clone());
+                timeout(Duration::from_secs(15), tx.send(&Request::Refresh { id: next })).await.map_err(|_| DesktopError::Lost("the machine".into()))??;
+            },
             call = input.recv(), if pending.len() < 16 => if let Some(call) = call {
                 next = next.checked_add(1).ok_or_else(|| DesktopError::BadRequest("command sequence exhausted".into()))?;
                 timeout(Duration::from_secs(15), tx.send(&Request::Call { id: next, operation: Box::new(call.operation) })).await.map_err(|_| DesktopError::Unsure("the machine".into()))??;
@@ -780,30 +1077,37 @@ async fn stream(
             reply = timeout(Duration::from_secs(35), rx.recv::<Reply>()) => {
                 let reply = reply.map_err(|_| DesktopError::Lost("the machine".into()))??.ok_or_else(|| DesktopError::Lost("the machine".into()))?;
                 match reply {
-                    Reply::Ready => { commands.lock().unwrap_or_else(PoisonError::into_inner).insert(machine, (generation, orders.clone())); },
-                    Reply::Watching { id } => if let Some(topics) = watches.remove(&id) {
-                        resume.topics = topics;
-                        resume.cursor = None;
+                    Reply::Ready => {
+                        app.state::<Events>().clear_node(machine);
+                        commands.lock().unwrap_or_else(PoisonError::into_inner).insert(machine, (generation, orders.clone()));
                     },
-                    Reply::Changed(event) => {
-                        invalidate(app, event.topic.name());
-                        app.state::<Events>().dispatch(Update { machine_id: machine.to_string(), id: event.id, data: (event.topic.name() == "telemetry").then(|| telemetry(&app.state::<Arc<Fleet>>())), topic: event.topic, resync: false });
-                        resume.cursor = Some(event.id);
-                    },
-                    Reply::Resync { cursor: current } => {
-                        invalidate(app, "*");
-                        app.state::<Events>().dispatch(Update { machine_id: machine.to_string(), id: current, topic: Topic::new("*"), resync: true, data: Some(telemetry(&app.state::<Arc<Fleet>>())) });
-                        reconcile = false;
-                        resume.cursor = Some(current);
-                    },
-                    Reply::CaughtUp { cursor: current } => {
-                        if !watches.is_empty() { continue; }
-                        if reconcile {
-                            invalidate(app, "*");
-                            app.state::<Events>().dispatch(Update { machine_id: machine.to_string(), id: current, topic: Topic::new("*"), resync: true, data: Some(telemetry(&app.state::<Arc<Fleet>>())) });
-                            reconcile = false;
+                    Reply::Watching { id } => { watches.remove(&id); },
+                    Reply::Snapshot(snapshot) => {
+                        revision = snapshot.revision;
+                        let Some(initial) = fleet.snapshots.install(machine, generation, &snapshot) else { continue; };
+                        if let events::Value::Resources(resources) = &snapshot.value {
+                            app.state::<Events>().resources(machine, &snapshot.topic, resources);
                         }
-                        resume.cursor = Some(current);
+                        if !initial { invalidate(app, snapshot.topic.name()); }
+                        if !initial && (machine == fleet.me || matches!(snapshot.topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves" | "sync")) {
+                            super::event_views::changed(app.clone(), snapshot.topic.clone());
+                        }
+                        if (machine != fleet.me || !controller_topic(&snapshot.topic))
+                            && app.state::<Events>().node_wanted(machine, &snapshot.topic) {
+                            let data = serde_json::to_value(&snapshot.value).ok();
+                            app.state::<Events>().dispatch_node(Update { machine_id: machine.to_string(), revision: snapshot.revision, query: snapshot.query, initial, data, topic: snapshot.topic });
+                        }
+                    },
+                    Reply::SnapshotError { query, topic, reason } => {
+                        log::debug!("node snapshot failed for {topic}: {reason}");
+                        if let Some(query) = query && !fleet.snapshots.failed(machine, generation, query, reason.clone()) { continue; }
+                        invalidate(app, topic.name());
+                        if machine == fleet.me || matches!(topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves" | "sync") {
+                            super::event_views::failed(app, &topic, &reason);
+                        }
+                        if (machine != fleet.me || !controller_topic(&topic)) && app.state::<Events>().node_wanted(machine, &topic) {
+                            app.state::<Events>().dispatch_node(Update { machine_id: machine.to_string(), revision, query, initial: false, data: Some(serde_json::json!({ "error": reason })), topic });
+                        }
                     },
                     Reply::Result { id, reply } => if let Some(waiter) = pending.remove(&id) { let _ = waiter.send(Ok(*reply)); },
                     Reply::Error { id, reason } => {
@@ -817,10 +1121,15 @@ async fn stream(
     }
 }
 
-#[derive(Default)]
-struct Resume {
-    cursor: Option<EventId>,
-    topics: Vec<Topic>,
+struct SnapshotConnection<'a> {
+    snapshots: &'a Snapshots,
+    machine: EndpointId,
+    generation: Uuid,
+}
+impl Drop for SnapshotConnection<'_> {
+    fn drop(&mut self) {
+        self.snapshots.end(self.machine, self.generation);
+    }
 }
 
 struct Registered<'a> {
@@ -841,7 +1150,7 @@ impl Drop for Registered<'_> {
 }
 
 fn invalidate(app: &AppHandle, topic: &str) {
-    if matches!(topic, "agents" | "processes" | "*") {
+    if matches!(topic, "agents" | "agent" | "processes" | "*") {
         let outside = app.state::<crate::machines::list::Outside>();
         outside.sessions.stale();
         outside.scans.stale();
@@ -857,11 +1166,11 @@ fn invalidate(app: &AppHandle, topic: &str) {
 
 /// Hosts without a push feed are read once for all windows. Results arrive as IPC events.
 async fn forge_source(app: AppHandle, mut active: watch::Receiver<bool>) {
-    let mut previous = None;
     loop {
         if active.wait_for(|active| *active).await.is_err() {
             return;
         }
+        let mut previous = None;
         let mut ticks = tokio::time::interval(Duration::from_secs(60));
         loop {
             tokio::select! {
@@ -882,14 +1191,18 @@ async fn forge_source(app: AppHandle, mut active: watch::Receiver<bool>) {
                             let current = serde_json::to_value(&items).ok();
                             if current != previous {
                                 previous = current;
-                                beep_node::events::system().changed(Topic::new("forge"));
-                                if let Err(error) = app.emit("git-items", items) {
-                                    log::debug!("open items listener ended: {error}");
-                                }
+                                let fleet = app.state::<Arc<Fleet>>();
+                                app.state::<Events>().publish_views(fleet.me, Topic::new("forge"),
+                                    serde_json::json!({ "views": [{ "command": "git_items", "args": {}, "value": items }] }));
                             }
                         },
                         Ok(None) => {},
-                        Err(error) => log::debug!("open items source: {error}"),
+                        Err(error) => {
+                            previous = None;
+                            let fleet = app.state::<Arc<Fleet>>();
+                            let view = super::event_views::View::failed("git_items", serde_json::json!({}), &error.to_string());
+                            app.state::<Events>().publish_views(fleet.me, Topic::new("forge"), serde_json::json!({ "views": [view] }));
+                        },
                     }
                 }
             }
@@ -1053,11 +1366,9 @@ mod tests {
         let update = Update {
             machine_id: machine.to_string(),
             topic: Topic::new("reviews"),
-            id: EventId {
-                epoch: Uuid::new_v4(),
-                sequence: 1,
-            },
-            resync: false,
+            revision: 1,
+            query: None,
+            initial: false,
             data: None,
         };
         events.dispatch(update.clone());
@@ -1116,12 +1427,10 @@ mod tests {
     fn update(machine: EndpointId, sequence: u64, topic: &str) -> Update {
         Update {
             machine_id: machine.to_string(),
-            id: EventId {
-                epoch: Uuid::nil(),
-                sequence,
-            },
+            revision: sequence,
+            query: None,
+            initial: false,
             topic: Topic::new(topic),
-            resync: false,
             data: None,
         }
     }
@@ -1164,10 +1473,9 @@ mod tests {
         events.dispatch(update(machine, 8, "reviews"));
         let heard = heard.lock().unwrap();
         assert_eq!(heard.len(), 2);
-        assert!(heard[0].resync);
-        assert_eq!(heard[0].id.sequence, 7);
-        assert!(!heard[1].resync);
-        assert_eq!(heard[1].id.sequence, 8);
+        assert_eq!(heard[0].revision, 7);
+        assert_eq!(heard[0].topic, Topic::new("reviews"));
+        assert_eq!(heard[1].revision, 8);
     }
 
     #[test]
@@ -1318,7 +1626,7 @@ mod tests {
     }
 
     #[test]
-    fn controller_topics_are_unscoped_and_ignore_other_nodes_resyncs() {
+    fn controller_topics_are_unscoped_and_ignore_other_nodes_snapshots() {
         let events = Events::default();
         let local = iroh::SecretKey::generate().public();
         let remote = iroh::SecretKey::generate().public();
@@ -1342,15 +1650,201 @@ mod tests {
             .unwrap()
             .unwrap();
         events.dispatch(Update {
-            resync: true,
             ..update(remote, 1, "*")
         });
         assert!(heard.lock().unwrap().is_empty());
         events.dispatch(Update {
-            resync: true,
             ..update(local, 1, "*")
         });
         assert_eq!(heard.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn home_keeps_agent_sources_live_on_every_node() {
+        let local = iroh::SecretKey::generate().public();
+        let remote = iroh::SecretKey::generate().public();
+        let interests = [interest("home", None)];
+        for machine in [local, remote] {
+            let topics = topics_for(&interests, machine, local);
+            for source in home_sources() {
+                assert!(topics.contains(&source));
+            }
+            assert_eq!(topics.contains(&Topic::new("home")), machine == local);
+        }
+    }
+
+    #[test]
+    fn retained_snapshots_bound_each_node_and_all_nodes_and_remove_oversized_replacements() {
+        let machine = iroh::SecretKey::generate().public();
+        let mut latest = Latest::default();
+        let first = Update {
+            query: Some(1),
+            ..update(machine, 1, "files")
+        };
+        let second = Update {
+            query: Some(2),
+            ..first.clone()
+        };
+        latest.insert(first.clone(), 10 * 1024 * 1024);
+        latest.insert(second.clone(), 10 * 1024 * 1024);
+        assert_eq!(latest.values().count(), 1);
+        assert_eq!(latest.values().next().unwrap().query, Some(2));
+        latest.insert(second, MAX_NODE_SNAPSHOT_BYTES + 1);
+        assert_eq!(latest.values().count(), 0);
+        for _ in 0..10 {
+            latest.insert(
+                update(iroh::SecretKey::generate().public(), 1, "files"),
+                10 * 1024 * 1024,
+            );
+        }
+        assert!(latest.bytes <= MAX_SNAPSHOT_BYTES);
+        assert_eq!(latest.values().count(), 6);
+    }
+
+    #[test]
+    fn resource_directories_remove_absent_defaults_without_removing_queries_or_other_scopes() {
+        let machine = iroh::SecretKey::generate().public();
+        let peer = iroh::SecretKey::generate().public();
+        let removed = Topic::parse("files.org.removed").unwrap();
+        let present = Topic::parse("files.org.present").unwrap();
+        let scope = Topic::parse("files.org.*").unwrap();
+        let mut latest = Latest::default();
+        for event in [
+            Update {
+                topic: removed.clone(),
+                ..update(machine, 1, "files")
+            },
+            Update {
+                topic: present.clone(),
+                ..update(machine, 2, "files")
+            },
+            Update {
+                topic: removed.clone(),
+                query: Some(7),
+                ..update(machine, 3, "files")
+            },
+            Update {
+                topic: removed.clone(),
+                ..update(peer, 1, "files")
+            },
+            Update {
+                topic: scope.clone(),
+                ..update(machine, 4, "files")
+            },
+            Update {
+                topic: Topic::parse("files.other.repository").unwrap(),
+                ..update(machine, 5, "files")
+            },
+        ] {
+            latest.insert(event, 100);
+        }
+        latest.resources(&machine.to_string(), &scope, &[present]);
+        assert_eq!(latest.values().count(), 5);
+        assert_eq!(latest.bytes, 500);
+        assert!(
+            !latest
+                .values()
+                .any(|event| event.machine_id == machine.to_string()
+                    && event.topic == removed
+                    && event.query.is_none())
+        );
+        latest.resources(&machine.to_string(), &scope, &[]);
+        assert_eq!(latest.values().count(), 4);
+    }
+
+    #[test]
+    fn a_new_node_stream_clears_old_resources_and_keeps_controller_owned_views() {
+        let machine = iroh::SecretKey::generate().public();
+        let peer = iroh::SecretKey::generate().public();
+        let mut latest = Latest::default();
+        latest.insert(update(machine, 1, "files"), 100);
+        latest.insert(update(machine, 2, "home"), 100);
+        latest.insert(update(machine, 3, "forge"), 100);
+        latest.insert(update(peer, 1, "files"), 100);
+        latest.clear_node(&machine.to_string(), true);
+        assert_eq!(latest.values().count(), 3);
+        assert!(
+            !latest
+                .values()
+                .any(|event| event.machine_id == machine.to_string()
+                    && event.topic.name() == "files")
+        );
+        latest.clear_node(&machine.to_string(), false);
+        assert_eq!(latest.values().count(), 1);
+        assert_eq!(latest.values().next().unwrap().machine_id, peer.to_string());
+    }
+
+    #[test]
+    fn new_windows_request_fresh_snapshots_and_retired_query_states_are_not_primed() {
+        let events = Events::default();
+        let machine = iroh::SecretKey::generate().public();
+        let mut refresh = events.refresh.subscribe();
+        let topics = vec![interest("processes", Some(machine))];
+        let _one = events
+            .register(
+                "one",
+                Uuid::new_v4(),
+                topics.clone(),
+                Arc::new(|_| true),
+                || true,
+                None,
+            )
+            .unwrap()
+            .unwrap();
+        assert!(refresh.has_changed().unwrap());
+        refresh.borrow_and_update();
+        events.dispatch(Update {
+            query: Some(1),
+            ..update(machine, 1, "processes")
+        });
+        events.forget_queries(machine, &[]);
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let output = heard.clone();
+        let _two = events
+            .register(
+                "two",
+                Uuid::new_v4(),
+                topics,
+                Arc::new(move |update| {
+                    output.lock().unwrap().push(update);
+                    true
+                }),
+                || true,
+                None,
+            )
+            .unwrap()
+            .unwrap();
+        assert!(heard.lock().unwrap().is_empty());
+        assert!(refresh.has_changed().unwrap());
+    }
+
+    #[test]
+    fn output_subscribers_receive_their_projected_state_under_the_requested_topic() {
+        let events = Events::default();
+        let machine = iroh::SecretKey::generate().public();
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let output = heard.clone();
+        let _reader = register(
+            &events,
+            "one",
+            Uuid::new_v4(),
+            vec![interest("process-output", Some(machine))],
+            Arc::new(move |event| {
+                output.lock().unwrap().push(event);
+                true
+            }),
+        );
+        let data = Some(serde_json::json!({ "lines": ["output"] }));
+        events.dispatch_node(Update {
+            query: Some(9),
+            data: data.clone(),
+            ..update(machine, 1, "processes")
+        });
+        let heard = heard.lock().unwrap();
+        assert_eq!(heard.len(), 1);
+        assert_eq!(heard[0].topic, Topic::new("process-output"));
+        assert_eq!(heard[0].query, Some(9));
+        assert_eq!(heard[0].data, data);
     }
 
     #[test]

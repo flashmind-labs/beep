@@ -35,7 +35,7 @@ test("the open conversation follows a completed move even when its target lists 
   const stream = calls.find(c => c.cmd === "mesh_watch")?.args as { onEvent: { onmessage(event: unknown): void } };
   assert.ok(stream);
   const notify = async () => {
-    stream.onEvent.onmessage({ machine_id: "studio", topic: "moves.*", resync: false });
+    stream.onEvent.onmessage({ machine_id: "studio", topic: "moves.*", revision: 1, data: {} });
     t.mock.timers.tick(100);
     await settle();
   };

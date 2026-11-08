@@ -1,4 +1,5 @@
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { snapshotView } from "../ui/snapshot-state.ts";
 // Home reads changed domains; telemetry arrives from the native cache.
 import { invoke, listen } from "../ui/tauri.ts";
 import { onShownChange, pageShown } from "../ui/active.ts";
@@ -16,7 +17,7 @@ import { refreshGit, single } from "./openitems.ts";
 import { shown, drawTop } from "./views.ts";
 import { reloadGroup, reloadChats, drawSide } from "./sidebar.ts";
 import { loadOverview } from "../project/projects.ts";
-import { liveMode, projectsEl } from "../project/sections.ts";
+import { liveMode, projectsEl, runs } from "../project/sections.ts";
 import { drawProjects } from "../project/page.ts";
 import type { MacControl } from "../machines/machine-state.ts";
 import type { SyncRow } from "../project/filesync.ts";
@@ -110,16 +111,17 @@ setTimeout(() => { if (!state.home) draw(); }, CONNECT_STUCK_MS);
 /// Hidden windows rejoin their subscriptions when shown.
 export const onScreen = pageShown;
 onShownChange(visible => {
-  if (!visible) { clearTimeout(retryTimer); liveMode.follow(null); }
+  if (!visible) { clearTimeout(retryTimer); runs.stop(); liveMode.follow(null); }
 });
 
 // These are state changes. Agent tokens and terminal output have their own topics.
-subscribeTopics(["agents", "machines", "home", "projects"].map(name => topic(name)), readHome);
+subscribeTopics(topic("home"), readHome);
 subscribeTopics(topic("machines"), async () => { await refreshMac(); await reloadGroup("machines"); });
 subscribeTopics(topic("projects"), refreshProjects);
 subscribeTopics(topic("sync"), refreshSync);
 subscribeTopics(topic("terminals"), () => allTerms.load(ALL));
-subscribeTopics([topic("forge"), topic("projects")], async () => {
+subscribeTopics(topic("forge"), async () => {
+  if (!snapshotView("git_items")) return;
   await refreshGit();
   if (state.gitError) throw new Error(state.gitError);
 }, null, () => shown === "home");
@@ -132,5 +134,4 @@ subscribeTopics(topic("telemetry"), event => {
 }, null, () => shown === "home");
 // Signed out or removed: the kept project pages go with the account.
 listen<string>("link-state", e => { if (e.payload !== "linked") { pages.setAccount(null); keepPagesFile(undefined); } });
-for (const name of ["link-state", "sessions-changed", "agent-title-changed", "work-question", "work-resolved", "group-approval", "approval-answered", "reconnected", "home-changed"]) listen(name, () => { if (onScreen()) void readHome().catch(e => console.warn("Home:", e)); });
 for (const name of ["sessions-changed", "group-changed", "reconnected"]) listen(name, () => reloadChats());

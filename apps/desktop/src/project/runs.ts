@@ -1,4 +1,5 @@
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { snapshotView } from "../ui/snapshot-state.ts";
 // A project's workflow runs (GitHub Actions or Forgejo Actions) on its page:
 // the Actions section with each run's state and, for a running one, its
 // current job and step; a run opened shows its jobs and steps and, when it
@@ -421,19 +422,40 @@ export function makeRuns(deps: RunDeps) {
   function toggle(id: string, run: Pick<RunRow, "id" | "host">) {
     const s = of(id);
     const key = runKey(run);
-    if (s.open === key) { s.open = null; s.openRun = null; redraw(); return; }
+    if (s.open === key) {
+      s.open = null; s.openRun = null;
+      watchDetail(id, null);
+      redraw(); return;
+    }
     s.open = key;
     s.openRun = { id: run.id, host: run.host ?? null };
+    watchDetail(id, run);
     redraw();
     readDetail(id, run);
+  }
+
+  let detailOwner = Promise.resolve();
+  function watchDetail(id: string, run: Pick<RunRow, "id" | "host"> | null) {
+    detailOwner = detailOwner.then(() => invoke("follow_project_run", {
+      projectId: id, runId: run?.id ?? null, host: run?.host ?? null,
+    })).then(() => {}, error => console.warn("following workflow detail:", error));
   }
 
   /// The visible section follows provider changes over the node stream.
   function schedule(id: string) {
     if (watching === id) return;
+    if (watching) watchDetail(watching, null);
     watching = id;
     unfollow?.();
-    unfollow = subscribeTopics(topic("forge"), async () => { await loads.get(id); await load(id); const run = of(id).openRun; if (run) await loadDetail(id, run, true); if (of(id).error) throw new Error(of(id).error); });
+    if (of(id).openRun) watchDetail(id, of(id).openRun);
+    unfollow = subscribeTopics(topic("forge", id), async () => {
+      if (!snapshotView("center_project_runs", { projectId: id })) return;
+      await loads.get(id);
+      await load(id);
+      const run = of(id).openRun;
+      if (run && snapshotView("center_project_run", { projectId: id, runId: run.id, host: run.host ?? null })) await loadDetail(id, run);
+      if (of(id).error) throw new Error(of(id).error);
+    });
   }
 
   /// Reads again only while a run goes, so nothing is asked while all are
@@ -612,7 +634,10 @@ export function makeRuns(deps: RunDeps) {
 
   return {
     load,
-    stop: () => { unfollow?.(); unfollow = undefined; watching = null; },
+    stop: () => {
+      if (watching) watchDetail(watching, null);
+      unfollow?.(); unfollow = undefined; watching = null;
+    },
     tick,
     section,
     /// The runs of project `id` and why they could not be read, reading

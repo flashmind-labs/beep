@@ -65,7 +65,7 @@ const FOLDER = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stro
 const FILE = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg>';
 const TWIST = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>';
 
-/// Reads of the tree a filter runs at once, and the entries it stops at.
+/// Folder reads run at once, and the entries a filter stops at.
 const WALK_AT_ONCE = 8;
 const WALK_ENTRIES = 50_000;
 
@@ -153,8 +153,14 @@ export function reloadFolder(dir: string) {
 /// Reads every folder the tree was read from again, in place.
 async function refresh() {
   closeFilesMenu();
+  const key = F.key, generation = F.generation;
   F.fresh = true;
-  await Promise.all([...new Set([...F.roots, ...F.reading])].map(dir => load(dir)));
+  const roots = [...new Set([...F.roots, ...F.reading])];
+  for (let offset = 0; offset < roots.length; offset += WALK_AT_ONCE) {
+    if (F.key !== key || F.generation !== generation) return;
+    await Promise.all(roots.slice(offset, offset + WALK_AT_ONCE).map(dir => load(dir)));
+  }
+  if (F.key !== key || F.generation !== generation) return;
   const error = [...F.listings.values()].find(listing => listing.error)?.error;
   if (error) throw new Error(error);
 }

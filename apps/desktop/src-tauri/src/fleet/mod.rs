@@ -10,6 +10,7 @@ pub(crate) mod agents;
 pub(crate) mod alerts;
 pub(crate) mod asked;
 mod carry;
+pub(crate) mod event_views;
 pub(crate) mod events;
 pub(crate) mod files;
 mod mesh;
@@ -126,6 +127,7 @@ pub struct Fleet {
     parents: parents::Parents,
     /// Native session reports, overlaid on the slower transcript scans.
     presence: presence::Presence,
+    snapshots: Arc<events::Snapshots>,
 }
 
 impl Fleet {
@@ -159,6 +161,7 @@ impl Fleet {
             releases: ToolReleases::default(),
             parents: parents::Parents::default(),
             presence: presence::Presence::default(),
+            snapshots: Arc::new(events::Snapshots::default()),
         }
     }
 
@@ -395,13 +398,15 @@ impl Fleet {
     /// connected, then it is offline.
     pub async fn client(&self, machine: EndpointId) -> Result<PeerClient> {
         if machine == self.me {
-            return Ok(PeerClient::local(self.session.clone()));
+            return Ok(PeerClient::local(self.session.clone())
+                .with_snapshot_reader(self.snapshots.reader(machine)));
         }
         let mesh = timeout(OPENING, self.ready())
             .await
             .map_err(|_| DesktopError::NoMesh("still opening".into()))??;
         with_deadline(machine, &mesh)
             .await
+            .map(|client| client.with_snapshot_reader(self.snapshots.reader(machine)))
             .map_err(|_| DesktopError::Offline(self.name_of(machine)))
     }
 

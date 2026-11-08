@@ -406,6 +406,7 @@ fn main() {
             projects::list::projects_on_top,
             projects::list::remove_project,
             projects::live::follow_project,
+            projects::live::follow_project_run,
             projects::live::unfollow_project,
             projects::overview::project_overview,
             projects::page::center_open_project,
@@ -679,6 +680,8 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(center::AgentsShown::default());
     app.manage(agents::follow::Follows::default());
     app.manage(fleet::events::Events::default());
+    app.manage(fleet::event_views::Views::default());
+    fleet::event_views::listen(&handle);
     app.manage(center::Pending::default());
     app.manage(tray::waiting::WaitingList::default());
     app.manage(Arc::new(notices::history::Notes::load(

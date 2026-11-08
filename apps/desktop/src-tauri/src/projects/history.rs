@@ -11,7 +11,7 @@ use crate::{
     },
 };
 use beep_projects::history::{self, ChangedFile, CommitId, History, HistoryAsk};
-use beep_proto::node::agent::DiffAsk;
+use beep_proto::node::{agent::DiffAsk, events::GitRead};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -54,6 +54,15 @@ pub async fn project_git_history(
     let place = location(&beep, &fleet, &project, machine_id.as_deref()).await?;
     let shell = PeerShell::on(&fleet, place.machine)
         .await?
+        .snapshot_git(
+            &place.folder,
+            GitRead::History {
+                revision: revision.clone(),
+                offset,
+                search: search.clone(),
+            },
+        )
+        .await?
         .complete_output();
     let revision = revision.as_deref().map(CommitId::parse).transpose()?;
     let ask = HistoryAsk {
@@ -83,6 +92,13 @@ pub async fn project_git_files(
 ) -> Result<Vec<ChangedFile>> {
     let place = location(&beep, &fleet, &project, Some(&machine_id)).await?;
     let shell = PeerShell::on(&fleet, place.machine)
+        .await?
+        .snapshot_git(
+            &place.folder,
+            GitRead::Files {
+                commit: commit.clone(),
+            },
+        )
         .await?
         .complete_output();
     let id = CommitId::parse(&commit)?;
