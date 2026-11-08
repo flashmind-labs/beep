@@ -76,6 +76,8 @@ tauri-plugin-barcode-scanner = "2"
 # The iPhone keeps its key in the Keychain.
 [target.'cfg(target_os = "ios")'.dependencies]
 security-framework = "3"
+# Removes the web view's bar above the keyboard.
+objc2 = "0.6"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 tauri-plugin-global-shortcut = "2"
