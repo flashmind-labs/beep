@@ -23,6 +23,7 @@ struct Entry {
 struct Machine {
     topics: Vec<Topic>,
     generation: Option<Uuid>,
+    ready: bool,
     entries: BTreeMap<u64, Entry>,
 }
 
@@ -55,6 +56,7 @@ impl Snapshots {
             let machine = held.machines.entry(*id).or_insert_with(|| Machine {
                 topics: Vec::new(),
                 generation: None,
+                ready: false,
                 entries: BTreeMap::new(),
             });
             if machine.topics != *topics {
@@ -85,10 +87,22 @@ impl Snapshots {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(machine) = held.machines.get_mut(&id) {
             machine.generation = Some(generation);
+            machine.ready = false;
             for entry in machine.entries.values() {
                 entry.current.send_replace(None);
             }
         }
+    }
+
+    pub(super) fn ready(&self, id: EndpointId, generation: Uuid) -> bool {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(machine) = held.machines.get_mut(&id)
+            && machine.generation == Some(generation)
+        {
+            machine.ready = true;
+            return true;
+        }
+        false
     }
 
     pub(super) fn end(&self, id: EndpointId, generation: Uuid) {
@@ -97,6 +111,7 @@ impl Snapshots {
             && machine.generation == Some(generation)
         {
             machine.generation = None;
+            machine.ready = false;
             for entry in machine.entries.values() {
                 entry.current.send_replace(None);
             }
@@ -133,7 +148,7 @@ impl Snapshots {
         let machine = held
             .machines
             .get(&id)
-            .filter(|machine| machine.generation == Some(generation))?;
+            .filter(|machine| machine.generation == Some(generation) && machine.ready)?;
         let Some(query) = snapshot.query else {
             return Some(false);
         };
@@ -157,6 +172,7 @@ impl Snapshots {
         let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(machine) = held.machines.get(&id)
             && machine.generation == Some(generation)
+            && machine.ready
             && let Some(entry) = machine.entries.get(&query)
         {
             entry.current.send_replace(Some(Err(reason)));
@@ -180,6 +196,9 @@ impl Snapshots {
         let topic = read.topic()?;
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         let machine = held.machines.get(&id)?;
+        if !machine.ready {
+            return None;
+        }
         let owners: Vec<_> = machine
             .topics
             .iter()
@@ -305,6 +324,7 @@ mod tests {
         snapshots.reconcile(&BTreeMap::from([(id, vec![Topic::new(topic)])]));
         let generation = Uuid::new_v4();
         snapshots.begin(id, generation);
+        assert!(snapshots.ready(id, generation));
         (id, generation)
     }
 
@@ -353,6 +373,7 @@ mod tests {
         assert_eq!(snapshots.install(id, generation, &snapshot), None);
         assert!(current.borrow().is_none());
         snapshots.end(id, generation);
+        assert!(snapshots.ready(id, replacement));
         assert_eq!(snapshots.install(id, replacement, &snapshot), Some(true));
         assert!(current.borrow().is_some());
     }
@@ -442,6 +463,9 @@ mod tests {
         let id = iroh::SecretKey::generate().public();
         let root = "/srv/project-a";
         snapshots.reconcile(&BTreeMap::from([(id, vec![Topic::keyed("files", root)])]));
+        let generation = Uuid::new_v4();
+        snapshots.begin(id, generation);
+        assert!(snapshots.ready(id, generation));
         let read = Read::Sessions(Box::new(SessionsRequest::Folder {
             root: root.into(),
             path: String::new(),
@@ -467,6 +491,9 @@ mod tests {
             id,
             vec![Topic::parse("files.org.project-a").unwrap()],
         )]));
+        let generation = Uuid::new_v4();
+        snapshots.begin(id, generation);
+        assert!(snapshots.ready(id, generation));
         let read = Read::Sessions(Box::new(SessionsRequest::Folder {
             root: "/srv/project-a".into(),
             path: String::new(),
@@ -498,5 +525,24 @@ mod tests {
             ..snapshot
         };
         assert_eq!(snapshots.install(id, generation, &topic), Some(false));
+    }
+
+    #[test]
+    fn reads_use_finite_rpc_until_a_stream_is_accepted_and_after_it_ends() {
+        let snapshots = Snapshots::default();
+        let id = iroh::SecretKey::generate().public();
+        assert!(snapshots.register(id, Read::TerminalList).is_none());
+        snapshots.reconcile(&BTreeMap::from([(id, vec![Topic::new("terminals")])]));
+        assert!(snapshots.register(id, Read::TerminalList).is_none());
+        let generation = Uuid::new_v4();
+        snapshots.begin(id, generation);
+        assert!(snapshots.register(id, Read::TerminalList).is_none());
+        assert!(snapshots.queries(id).is_empty());
+        assert!(!snapshots.ready(id, Uuid::new_v4()));
+        assert!(snapshots.register(id, Read::TerminalList).is_none());
+        assert!(snapshots.ready(id, generation));
+        assert!(snapshots.register(id, Read::TerminalList).is_some());
+        snapshots.end(id, generation);
+        assert!(snapshots.register(id, Read::TerminalList).is_none());
     }
 }

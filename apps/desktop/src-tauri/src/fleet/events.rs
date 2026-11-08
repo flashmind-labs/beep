@@ -1078,6 +1078,7 @@ async fn stream(
                 let reply = reply.map_err(|_| DesktopError::Lost("the machine".into()))??.ok_or_else(|| DesktopError::Lost("the machine".into()))?;
                 match reply {
                     Reply::Ready => {
+                        if !fleet.snapshots.ready(machine, generation) { return Ok(()); }
                         app.state::<Events>().clear_node(machine);
                         commands.lock().unwrap_or_else(PoisonError::into_inner).insert(machine, (generation, orders.clone()));
                     },

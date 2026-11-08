@@ -847,6 +847,36 @@ mod tests {
     }
 
     #[test]
+    fn structured_tool_updates_change_the_cursor_and_invalidate_old_resume_positions() {
+        let mut before = page(0, &["command"]);
+        before.entries[0].tool = Some(beep_proto::AgentToolCall {
+            name: Some("command".into()),
+            input: Some("echo example".into()),
+            ..Default::default()
+        });
+        before.cursor.fingerprint = fingerprint(0, &before.entries).unwrap();
+        let mut after = before.clone();
+        after.entries[0].tool.as_mut().unwrap().result = Some("example".into());
+        let (current, delta) = next_update(after.clone(), Some(&before), &request(None)).unwrap();
+        assert_ne!(current.cursor.fingerprint, before.cursor.fingerprint);
+        assert!(
+            matches!(delta, SessionUpdate::Delta(ref delta) if delta.earlier == 0 && delta.entries[0].tool.as_ref().unwrap().result.as_deref() == Some("example"))
+        );
+        let (_, update) = next_update(after, None, &request(Some(before.cursor))).unwrap();
+        assert!(matches!(update, SessionUpdate::Snapshot(ref snapshot) if !snapshot.resumed));
+        let mut large = page(0, &["tool", "tool", "tool"]);
+        for entry in &mut large.entries {
+            entry.tool = Some(beep_proto::AgentToolCall {
+                result: Some("x".repeat(RETAINED_BYTES / 2 - 128)),
+                ..Default::default()
+            });
+        }
+        let bounded = retained(large).unwrap();
+        assert_eq!(bounded.earlier, 1);
+        assert_eq!(bounded.entries.len(), 2);
+    }
+
+    #[test]
     fn retention_counts_complete_encoded_entries_and_rejects_an_oversized_entry() {
         let entry = Entry::new(EntryKind::Tool, "x".repeat(RETAINED_BYTES / 2 - 64));
         let mut snapshot = page(0, &[]);
