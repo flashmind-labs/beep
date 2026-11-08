@@ -14,13 +14,13 @@ mod snapshot;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod linux;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 mod macos;
 #[cfg(windows)]
 mod windows;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use linux as os;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 use macos as os;
 #[cfg(windows)]
 use windows as os;
