@@ -24,8 +24,8 @@ npm ci --silent
 bash ../../scripts/tauri-init.sh ios
 if [[ ${1:-} == --ipa ]]; then
     # Signed for development: installs on the team's registered devices.
-    npm run tauri -- ios build --export-method debugging
+    npm run tauri -- ios build -v --export-method debugging
     ls -t src-tauri/gen/apple/build/arm64/*.ipa | head -1
 else
-    npm run tauri -- ios run --release --no-watch ${1:+"$1"}
+    npm run tauri -- ios run -v --release --no-watch ${1:+"$1"}
 fi
