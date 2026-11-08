@@ -167,7 +167,7 @@ internal fun WorkspaceCode(text: String) {
 
 @Composable
 internal fun WorkspaceProse(text: String) {
-    SelectionContainer { Text(text, Modifier.fillMaxWidth().padding(12.dp), fontSize = 13.sp, lineHeight = 20.sp) }
+    Box(Modifier.fillMaxWidth().padding(10.dp)) { MessageContent(text, role = "agent", compact = true) }
 }
 
 @Composable
