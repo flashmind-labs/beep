@@ -138,6 +138,7 @@ fn configure(kind: &AgentKind, config: &HarnessConfig) -> AgentKind {
             .insert(known.home_var.to_owned(), expand_home(home.trim()));
     }
     kind.args.extend(config.args.iter().cloned());
+    kind.default_model.clone_from(&config.default_model);
     kind.compact = config.compact;
     kind.compact_models.clone_from(&config.compact_models);
     for var in &config.env {
@@ -426,6 +427,7 @@ async fn info(found: &Found, config: Option<HarnessConfig>, npm: &install::Npm) 
         env: Default::default(),
         compact: None,
         compact_models: Vec::new(),
+        default_model: None,
     });
     let kind = match &config {
         Some(config) => configure(&base, config),
@@ -543,6 +545,7 @@ mod tests {
             env: BTreeMap::from([("INITIAL_AGENT_MODE".into(), "agent-full-access".into())]),
             compact: None,
             compact_models: Vec::new(),
+            default_model: None,
         }
     }
 
@@ -651,5 +654,14 @@ mod tests {
         assert!(versions.is_empty());
         assert!(checked_at > 0);
         assert!(rustls::crypto::CryptoProvider::get_default().is_none());
+    }
+    #[test]
+    fn configuring_a_harness_passes_its_default_model_to_sessions() {
+        let mut config = HarnessConfig::new("codex");
+        config.default_model = Some("model-large".into());
+        assert_eq!(
+            configure(&kind("codex"), &config).default_model,
+            config.default_model
+        );
     }
 }

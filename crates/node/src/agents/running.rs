@@ -164,7 +164,12 @@ impl Agents {
             .settings
             .configured(&kind)
             .unwrap_or_else(|_| kind.clone());
-        Some(self.models.get(name, models::find(kind)).await)
+        let default_model = kind.default_model.clone();
+        let mut list = self.models.get(name, models::find(kind)).await;
+        if let Some(model) = default_model {
+            list.current = Some(model.to_string());
+        }
+        Some(list)
     }
 
     /// The CLI of `agent`, with `args`, as a plan read starts it: signed
@@ -463,6 +468,7 @@ impl Agents {
             }),
             resume: begin.resume,
             earlier: begin.earlier,
+            timestamps: begin.timestamps,
             model: begin.model,
             mode: begin.mode,
             effort: begin.effort,
@@ -477,7 +483,6 @@ impl Agents {
             alerts,
             node: NodeMode {
                 stopping: self.stopping.clone(),
-                holding: self.holding.subscribe(),
             },
         })?;
         session.reviewer = begin.review;
@@ -540,6 +545,7 @@ pub(super) struct Begin {
     pub(super) resume: Option<String>,
     /// The resumed session's transcript from before the node restarted.
     pub(super) earlier: Vec<agent::Entry>,
+    pub(super) timestamps: Option<(u64, u64)>,
     pub(super) model: Option<ModelId>,
     pub(super) effort: Option<agent::Effort>,
     /// The session mode it was in before the node restarted.

@@ -76,3 +76,31 @@ test("Back and Forward restore the project section a resumed session came from",
   assert.equal(state.picked, "acme/widget");
   assert.equal(tile, "running");
 });
+
+test("notifications keep the project return target across conversations", () => {
+  let sessionArg: ViewArg;
+  registerView("pane", { el: element(), mount(_el, arg) { sessionArg = arg; } });
+  const agent = { machine_id: "build-box", machine_name: "build-box", id: "notice", cwd: "/srv/project", agent: "codex", status: "idle", external: false };
+  const project = { project: "acme/widget", tile: "running" };
+  go("projects", project);
+  go("pane", { agent });
+  go("pane", { agent: { ...agent, id: "second-notice" } });
+  assert.deepEqual((sessionArg as { from: unknown }).from, { view: "projects", arg: project });
+});
+
+test("a notification from the project composer returns to the project", () => {
+  let sessionArg: ViewArg;
+  registerView("pane", { el: element(), mount(_el, arg) { sessionArg = arg; } });
+  go("pane", { draft: { project: "acme/widget", machine: "build-box" } });
+  go("pane", { agent: { machine_id: "build-box", machine_name: "build-box", id: "notice", cwd: "/srv/project", agent: "codex", status: "idle", external: false } });
+  assert.deepEqual((sessionArg as { from: unknown }).from, { view: "projects", arg: { project: "acme/widget" } });
+});
+
+test("explicit return targets take priority when opening a conversation", () => {
+  let sessionArg: ViewArg;
+  registerView("pane", { el: element(), mount(_el, arg) { sessionArg = arg; } });
+  go("pane", { draft: { project: "acme/widget", machine: null } });
+  const from = { view: "home" as const, arg: undefined };
+  go("pane", { agentnew: { prompt: "" }, from });
+  assert.deepEqual((sessionArg as { from: unknown }).from, from);
+});

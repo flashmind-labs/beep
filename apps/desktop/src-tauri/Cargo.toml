@@ -90,7 +90,7 @@ block2 = "0.6"
 # notification plugin shows them through the same crate but drops actions.
 mac-notification-sys = "0.6"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSEvent", "NSBitmapImageRep", "NSImageRep", "NSRunningApplication", "NSWorkspace", "NSGraphics", "block2", "objc2-core-graphics"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSEvent", "NSBitmapImageRep", "NSImageRep", "NSRunningApplication", "NSWorkspace", "NSGraphics", "block2", "objc2-core-graphics"] }
 # Desktop control: the accessibility tree and Accessibility permission.
 objc2-application-services = { version = "0.3", default-features = false, features = ["std", "HIServices", "libc", "AXUIElement", "AXValue", "AXError"] }
 objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware", "objc2-core-audio-types"] }

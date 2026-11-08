@@ -36,6 +36,7 @@ fn sh_agent(name: &str, script: &str) -> AgentKind {
         env: BTreeMap::new(),
         compact: None,
         compact_models: Vec::new(),
+        default_model: None,
     }
 }
 
@@ -208,6 +209,7 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
         env: BTreeMap::new(),
         compact: None,
         compact_models: Vec::new(),
+        default_model: None,
     };
     let begin = Begin {
         resume: Some(CLAUDE_ID.into()),
@@ -760,6 +762,7 @@ mod actor_tests {
                 done
             "#.into()],
             env: BTreeMap::new(), compact: None, compact_models: Vec::new(),
+            default_model: None,
         };
         let agents = Arc::new(Agents::new(vec![kind.clone()]));
         let session = agents

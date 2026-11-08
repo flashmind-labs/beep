@@ -1,3 +1,4 @@
+import "../agents/copy-markdown.ts";
 import { initConversationSwitcher } from "../agents/conversation-switcher.ts";
 import { openAgent } from "../agents/session.ts";
 import "../ui/contextmenu.ts";

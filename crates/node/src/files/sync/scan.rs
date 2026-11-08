@@ -88,6 +88,20 @@ pub(super) struct Walked {
 }
 
 impl Walked {
+    pub(super) fn check_limits(&self) -> Result<()> {
+        let bytes = self
+            .files
+            .iter()
+            .fold(0u64, |sum, file| sum.saturating_add(file.stat.size));
+        ensure!(
+            self.files.len() <= MAX_FILES && bytes <= MAX_BYTES,
+            "the project holds more than {MAX_FILES} files or {} GiB to sync; pin it \
+             to keep it on one machine, or leave more out in .beepignore",
+            MAX_BYTES >> 30
+        );
+        Ok(())
+    }
+
     fn skip(
         &mut self,
         limit: usize,
@@ -111,15 +125,21 @@ impl Walked {
 
 /// Walks `root` under `rules`, listing at most `skipped` left-out paths.
 pub(super) fn walk(root: &Path, rules: &Rules, skipped: usize) -> Result<Walked> {
-    walk_inner(root, rules, skipped, false)
+    walk_inner(root, rules, skipped, false, false)
 }
 
 /// Git projects only scan metadata needed to seed a new checkout.
-pub(super) fn walk_git(root: &Path, rules: &Rules) -> Result<Walked> {
-    walk_inner(root, rules, 0, true)
+pub(super) fn walk_git(root: &Path, rules: &Rules, packed: bool) -> Result<Walked> {
+    walk_inner(root, rules, 0, true, packed)
 }
 
-fn walk_inner(root: &Path, rules: &Rules, skipped: usize, git_only: bool) -> Result<Walked> {
+fn walk_inner(
+    root: &Path,
+    rules: &Rules,
+    skipped: usize,
+    git_only: bool,
+    packed: bool,
+) -> Result<Walked> {
     let mut walked = Walked {
         dirs: vec![root.to_owned()],
         ..Walked::default()
@@ -141,6 +161,10 @@ fn walk_inner(root: &Path, rules: &Rules, skipped: usize, git_only: bool) -> Res
             };
             let path = format!("{prefix}{name}");
             if git_only && path != gitdir::GIT && !gitdir::in_git(&path) {
+                continue;
+            }
+            // A bootstrap pack supplies these objects instead of individual files.
+            if packed && path == ".git/objects" {
                 continue;
             }
             let Ok(kind) = item.file_type() else {

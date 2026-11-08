@@ -177,7 +177,11 @@ function row(hit: Hit, i: number, q: string) {
   b.tabIndex = -1;
   b.setAttribute("role", "option");
   b.id = `pal-opt-${i}`;
-  b.addEventListener("mousemove", () => { if (sel !== i) { sel = i; mark(); } });
+  b.addEventListener("mousemove", e => {
+    // Scrolling rows beneath a stationary pointer can also emit mousemove.
+    if (e.movementX === 0 && e.movementY === 0) return;
+    if (sel !== i) { sel = i; mark(); }
+  });
   b.addEventListener("click", () => pick(hit));
   return b;
 }

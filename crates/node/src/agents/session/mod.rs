@@ -181,6 +181,7 @@ pub(super) struct Start<'a> {
     pub(super) resume: Option<String>,
     /// The resumed session's transcript from before the node restarted.
     pub(super) earlier: Vec<Entry>,
+    pub(super) timestamps: Option<(u64, u64)>,
     /// The model to run a new session on, rather than the agent's own.
     pub(super) model: Option<ModelId>,
     /// How hard a new session thinks, rather than the agent's own level.
@@ -234,17 +235,13 @@ pub(super) struct NodeMode {
     /// Set once the node is stopping: an agent that ends then ended with
     /// the node, whatever its exit says.
     pub(super) stopping: Arc<AtomicBool>,
-    /// While true, prompts wait instead of starting a turn: the node is
-    /// about to restart for an update.
-    pub(super) holding: watch::Receiver<bool>,
 }
 
 impl Default for NodeMode {
-    /// A node that never holds prompts and is not stopping.
+    /// A node that is not stopping.
     fn default() -> Self {
         Self {
             stopping: Arc::default(),
-            holding: watch::channel(false).1,
         }
     }
 }
@@ -263,6 +260,7 @@ impl Session {
             prompt,
             resume,
             earlier,
+            timestamps,
             model,
             effort,
             mode,
@@ -279,7 +277,9 @@ impl Session {
         } = start;
         // Only a new session takes a model and thinking level; a resumed
         // one keeps its own.
-        let model = model.filter(|_| resume.is_none());
+        let model = model
+            .or_else(|| kind.default_model.clone())
+            .filter(|_| resume.is_none());
         let effort = effort.filter(|_| resume.is_none());
         // An agent whose command line picks the model starts on it; the
         // others switch once the session exists.
@@ -329,7 +329,11 @@ impl Session {
             id: resume.clone().unwrap_or_default(),
             agent: kind.name.clone(),
             cwd: cwd.display().to_string(),
-            started_at: unix_now(),
+            started_at: timestamps
+                .map(|(start, _)| start)
+                .filter(|start| *start != 0)
+                .unwrap_or_else(unix_now),
+            last_activity: timestamps.map_or(0, |(_, activity)| activity),
             parent,
             ..SessionInfo::default()
         };
@@ -345,7 +349,6 @@ impl Session {
             live: live_tx,
             alerts,
             node_stopping: node.stopping,
-            holding: node.holding,
             moving: false,
             agent: kind.name.clone(),
             cwd: cwd.to_path_buf(),

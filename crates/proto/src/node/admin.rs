@@ -221,8 +221,8 @@ pub mod update {
     //!
     //! The server sends one `Request::Update`; the node answers with one
     //! `Event`, finishes the stream, and only then restarts, so the server
-    //! reads the answer before the connection drops. It holds new prompts and
-    //! restarts once its agent sessions are idle, or after a wait.
+    //! reads the answer before the connection drops. It restarts once its
+    //! agent sessions are idle, or after a wait; new prompts can still start.
 
     use serde::{Deserialize, Serialize};
 

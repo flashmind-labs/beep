@@ -106,9 +106,15 @@ export function go(name: ViewName, arg?: ViewArg): boolean {
     openSettings();
     return true;
   }
-  // An agent view opened from another view goes back there on Esc.
-  if (name === "pane" && opensAgent(arg) && !arg.from && shown && shown !== "pane") {
-    arg = { ...arg, from: here() };
+  // Keep the return page when a notification replaces an open conversation.
+  if (name === "pane" && opensAgent(arg) && !arg.from && shown) {
+    const current = here();
+    if (shown !== "pane") arg = { ...arg, from: current };
+    else if (current.arg && typeof current.arg === "object" && "draft" in current.arg) {
+      arg = { ...arg, from: { view: "projects", arg: { project: current.arg.draft.project } } };
+    } else if (opensAgent(current.arg) && current.arg.from) {
+      arg = { ...arg, from: current.arg.from };
+    }
   }
   const view = views.get(name);
   if (!view) return false;
