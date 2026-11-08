@@ -2,7 +2,7 @@
 (() => {
   let current = -1;
   function search(bar, step = 0) {
-    const body = bar.nextElementSibling;
+    const body = bar.parentElement.nextElementSibling;
     body.querySelectorAll('mark.chat-match').forEach(mark => mark.replaceWith(...mark.childNodes));
     body.normalize();
     const input = bar.querySelector('input'), query = input.value, matches = [];
@@ -45,11 +45,12 @@
   function open() {
     const body = document.querySelector('#desk .dbody');
     if (!body) return;
-    let bar = body.previousElementSibling;
+    let bar = body.previousElementSibling?.querySelector('.chat-find');
     if (!bar?.matches('.chat-find')) {
       bar = document.createElement('div'); bar.className = 'chat-find'; bar.setAttribute('role', 'search');
       bar.innerHTML = '<input placeholder="Find in chat" aria-label="Find in chat" aria-describedby="chat-find-status"><button class="chat-find-regex" data-find-regex aria-label="Use regular expression" title="Use regular expression" aria-pressed="false">.*</button><output id="chat-find-status" aria-live="polite"></output><button data-find-step="-1" aria-label="Previous match" title="Previous match (Shift+Enter)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m18 15-6-6-6 6"/></svg></button><button data-find-step="1" aria-label="Next match" title="Next match (Enter)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></button><button data-find-close aria-label="Close search" title="Close search (Esc)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M6 18 18 6"/></svg></button>';
-      body.before(bar); current = 0;
+      const layer = document.createElement('div'); layer.className = 'chat-find-layer';
+      layer.append(bar); body.before(layer); current = 0;
       search(bar);
       bar.querySelector('input').oninput = () => { current = 0; search(bar); };
       bar.onclick = event => {
@@ -65,8 +66,8 @@
     bar.querySelector('input').focus(); bar.querySelector('input').select();
   }
   function close(bar) {
-    bar.nextElementSibling.querySelectorAll('mark.chat-match').forEach(mark => mark.replaceWith(...mark.childNodes));
-    bar.remove();
+    bar.parentElement.nextElementSibling.querySelectorAll('mark.chat-match').forEach(mark => mark.replaceWith(...mark.childNodes));
+    bar.parentElement.remove();
   }
   document.addEventListener('keydown', event => {
     const bar = document.querySelector('#desk .chat-find');
