@@ -23,6 +23,31 @@ use tokio_util::task::AbortOnDropHandle;
 /// How long a worktree list may take, the path check and git together.
 const WORKTREES_WAIT: Duration = Duration::from_secs(8);
 
+/// Read-only session pages for coding agents on other mesh machines.
+pub(crate) const TRANSCRIPT_PROTOCOL: &str = "agent-transcripts/1";
+
+/// This endpoint deliberately accepts only transcript reads, never agent controls.
+pub(crate) async fn serve_transcripts(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    agents: Arc<Agents>,
+) -> Result<()> {
+    let reply = match rx.recv::<SessionsRequest>().await? {
+        Some(SessionsRequest::Transcript {
+            session,
+            last,
+            before,
+            ..
+        }) if !session.trim().is_empty() && session.len() <= 512 && (1..=50).contains(&last) => {
+            agents.transcript_reply(&session, last, false, before).await
+        }
+        _ => SessionsReply::Error {
+            message: "Only bounded transcript reads are accepted.".into(),
+        },
+    };
+    tx.send(&reply).await
+}
+
 impl Agents {
     /// The answer to a transcript read: the last `last` entries of a
     /// session this node runs, or else of a Claude Code session started

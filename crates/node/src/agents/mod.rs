@@ -72,6 +72,7 @@ pub use moving::SessionsAlpn;
 pub(crate) use moving::follow as follow_moves;
 pub(crate) use moving::project_folder;
 pub use requests::serve_sessions;
+pub(crate) use requests::{TRANSCRIPT_PROTOCOL, serve_transcripts};
 pub(crate) use restart::OpenSession;
 pub(crate) use session::{Answered, Asking};
 pub use session_stream::serve_session;

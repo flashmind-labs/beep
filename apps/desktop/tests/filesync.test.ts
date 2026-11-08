@@ -118,3 +118,10 @@ test("a Windows folder shows without its prefix", () => {
   const tile = fileSyncTile(detail([machine({ machine_name: "win", folder: "\\\\?\\C:\\Users\\me\\widget" })]));
   assert.equal(tile.rows[0].title, "win: C:\\Users\\me\\widget");
 });
+
+test("automatic Git divergence has a warning chip until repaired", () => {
+  const failed = machine({ status: "failed", git_only: true, error: "Git commits differ; histories diverged; merge the peer commits to resume sync" });
+  assert.deepEqual(stateChip(failed), { text: "Git sync needs review", wait: true });
+  assert.deepEqual(stateChip({ ...failed, status: "in_sync", error: null }), { text: "in sync", wait: false });
+  assert.deepEqual(stateChip({ ...failed, error: "Waiting for peer Git commits to arrive" }), { text: "not syncing", wait: true });
+});
