@@ -43,6 +43,9 @@ pub struct ProjectRecord {
     /// Project-wide Syncthing preference; absent preserves existing settings.
     #[serde(default)]
     pub syncthing_files: Option<bool>,
+    /// Preserve local edits before an automatic fast-forward, on idle machines only.
+    #[serde(default)]
+    pub git_auto_recovery: bool,
 }
 
 /// `project/<org/repo>/<machine>`: one machine's checkout of a project.

@@ -28,6 +28,9 @@ use std::{
 use super::scan::{Found, Stat};
 use crate::files::paths;
 
+mod recovery;
+mod seed;
+
 pub(super) const GIT: &str = ".git";
 const PREFIX: &str = ".git/";
 /// Where a ref's losing side is kept. `git log --all` shows it, `git gc` keeps
@@ -405,18 +408,22 @@ impl Repo {
         if is_busy(&self.root) {
             bail!("{}", busy_reason(&self.root));
         }
+        if self.has_local_changes()? {
+            bail!(
+                "Git commits differ; commit or stash staged, unstaged and untracked changes before syncing"
+            );
+        }
+        Ok(())
+    }
+
+    pub(super) fn has_local_changes(&self) -> Result<bool> {
         let status = self.run(&[
             "status",
             "--porcelain=v1",
             "--untracked-files=all",
             "--ignore-submodules=none",
         ])?;
-        if !status.stdout.is_empty() {
-            bail!(
-                "Git commits differ; commit or stash staged, unstaged and untracked changes before syncing"
-            );
-        }
-        Ok(())
+        Ok(!status.stdout.is_empty())
     }
 
     /// Moves only to the advertised commit. Never merges divergent histories
@@ -515,7 +522,7 @@ impl Repo {
                 continue;
             };
             let path = format!("{PREFIX}{name}");
-            if !is_ref(&path) {
+            if !is_ref(&path) || name == "refs/stash" || name.starts_with("refs/beep-recovery/") {
                 continue;
             }
             let secs: i64 = when.parse().unwrap_or(0);

@@ -88,6 +88,7 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
             moved = updates.changed() => if moved.is_err() {
                 return;
             },
+            () = tokio::time::sleep(std::time::Duration::from_secs(30)) => {},
         }
     }
 }
@@ -194,6 +195,24 @@ impl Applied {
                 self.projects = Some(projects);
                 self.pending = pending;
             }
+            transfers.syncs().set_git_auto_recovery(
+                &offers.agents,
+                mesh.scan("project/")
+                    .into_iter()
+                    .filter_map(|(key, bytes)| {
+                        let Key::Project(name) = key else {
+                            return None;
+                        };
+                        if !offers.agents.reopened()
+                            || !self.specs.contains_key(&Key::Sync(name.clone()))
+                        {
+                            return None;
+                        }
+                        let record = ProjectRecord::from_bytes(&bytes).ok()?;
+                        record.git_auto_recovery.then_some(name)
+                    })
+                    .collect(),
+            );
         }
     }
 }

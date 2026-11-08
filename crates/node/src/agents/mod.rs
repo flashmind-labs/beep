@@ -44,6 +44,7 @@ pub mod presence;
 mod prices;
 mod processes;
 mod reach;
+mod repository_recovery;
 mod requests;
 mod restart;
 mod reviews;
@@ -128,6 +129,8 @@ fn unix_now() -> u64 {
 /// to the daemon, so they outlive the streams and the connection.
 #[derive(Default)]
 pub struct Agents {
+    /// Checkouts temporarily held for local Git recovery.
+    recovering: Mutex<std::collections::HashSet<PathBuf>>,
     /// The agents it can start, replaced when detection finds others.
     kinds: watch::Sender<Arc<Vec<AgentKind>>>,
     /// The adapters the node installs itself.
@@ -198,6 +201,7 @@ struct Sighted {
 impl Agents {
     pub fn new(kinds: Vec<AgentKind>) -> Self {
         Self {
+            recovering: Mutex::default(),
             kinds: watch::Sender::new(Arc::new(kinds)),
             adapters: adapters::Installs::default(),
             sessions: Mutex::default(),

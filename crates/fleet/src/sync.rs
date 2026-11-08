@@ -41,6 +41,20 @@ fn status_of(state: State, error: bool) -> SyncStatus {
 }
 
 impl Desk {
+    pub async fn project_git_auto_recovery(
+        &self,
+        project: &str,
+        enabled: Option<bool>,
+    ) -> Result<bool> {
+        let _write = WRITES.lock().await;
+        let mut stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+        if let Some(enabled) = enabled {
+            stored.record.git_auto_recovery = enabled;
+            write(&self.mesh, project_key(&stored.name), Some(&stored.record)).await?;
+        }
+        Ok(stored.record.git_auto_recovery)
+    }
+
     /// A replicated choice, applied on each machine when it is reachable.
     pub async fn project_syncthing_mode(
         &self,
