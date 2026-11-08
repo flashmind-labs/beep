@@ -9,15 +9,18 @@
 //! Prompts from before the tags hold the brief bare; `bare_block` and
 //! `untagged` find it by the strings Beep wrote then.
 
-use super::{cut, mcp};
+#[cfg(feature = "host")]
+use super::{brief::BRIEF, text::cut};
 
 const CONTEXT: &str = "beep-context";
 const FROM_SESSION: &str = "from-session";
 const CHILD: &str = "beep-child";
 /// The most of a context a log entry keeps: the user's words come first.
+#[cfg(feature = "host")]
 const MAX_CONTEXT: usize = 2048;
 
 /// How every bare brief Beep wrote began.
+#[cfg(feature = "host")]
 const BARE_STARTS: [&str; 5] = [
     "Beep: the `beep` MCP server's tools",
     "Beep: the user's standing rules",
@@ -27,6 +30,7 @@ const BARE_STARTS: [&str; 5] = [
 ];
 
 /// The worktree brief as bare prompts hold it.
+#[cfg(feature = "host")]
 const BARE_WORKTREE: &str = "Beep: if you will change files and this folder is a git repository's main checkout, first create a new branch and a git worktree for it under the repository's .worktrees/ folder, both named for the work, and work there. Questions that change nothing need neither.";
 
 /// One part of a user entry's text.
@@ -53,11 +57,13 @@ pub enum Part<'a> {
 }
 
 /// `text` as Beep's word to the agent.
+#[cfg(feature = "host")]
 pub(crate) fn context(text: &str) -> String {
     format!("<{CONTEXT}>\n{text}\n</{CONTEXT}>")
 }
 
 /// `text` as session `id`, called `name`, sends it.
+#[cfg(feature = "host")]
 pub(crate) fn from_session(id: &str, name: &str, text: &str) -> String {
     format!(
         "<{FROM_SESSION} id=\"{}\" name=\"{}\">\n{text}\n</{FROM_SESSION}>",
@@ -67,6 +73,7 @@ pub(crate) fn from_session(id: &str, name: &str, text: &str) -> String {
 }
 
 /// `text` about the child `id`, called `name`, which is in `state`.
+#[cfg(feature = "host")]
 pub(crate) fn from_child(id: &str, name: &str, state: &str, text: &str) -> String {
     format!(
         "<{CHILD} id=\"{}\" name=\"{}\" state=\"{}\">\n{text}\n</{CHILD}>",
@@ -122,6 +129,7 @@ pub fn parts(text: &str) -> Vec<Part<'_>> {
 }
 
 /// `parts` written back as text, each context cut to `MAX_CONTEXT`.
+#[cfg(feature = "host")]
 pub(crate) fn join(parts: &[Part<'_>]) -> String {
     let written: Vec<String> = parts
         .iter()
@@ -142,6 +150,7 @@ pub(crate) fn join(parts: &[Part<'_>]) -> String {
 
 /// What was said to the agent, without Beep's context: the user's words and
 /// what other sessions sent, for a title or a last prompt.
+#[cfg(feature = "host")]
 pub(crate) fn said(text: &str) -> String {
     let text = untagged(text);
     let said: Vec<&str> = parts(&text)
@@ -170,6 +179,7 @@ pub fn own_words(text: &str) -> String {
 
 /// One text block of a prompt, its whole text tagged as context when it is a
 /// bare brief: before the tags the brief went as a block of its own.
+#[cfg(feature = "host")]
 pub(crate) fn bare_block(text: &str) -> String {
     if is_bare(text) {
         context(text.trim())
@@ -181,13 +191,14 @@ pub(crate) fn bare_block(text: &str) -> String {
 /// `text` with a bare brief at its start tagged as context, for a harness
 /// that keeps a prompt's blocks as one string. The brief is known by the
 /// exact text it ends with.
+#[cfg(feature = "host")]
 pub(crate) fn untagged(text: &str) -> String {
     let trimmed = text.trim_start();
     if !is_bare(trimmed) {
         return text.to_owned();
     }
-    let old_brief = mcp::BRIEF.split(" For Rust, C, or C++ builds").next();
-    for end in [Some(mcp::BRIEF), old_brief, Some(BARE_WORKTREE)]
+    let old_brief = BRIEF.split(" For Rust, C, or C++ builds").next();
+    for end in [Some(BRIEF), old_brief, Some(BARE_WORKTREE)]
         .into_iter()
         .flatten()
     {
@@ -199,6 +210,7 @@ pub(crate) fn untagged(text: &str) -> String {
     text.to_owned()
 }
 
+#[cfg(feature = "host")]
 fn is_bare(text: &str) -> bool {
     let text = text.trim_start();
     BARE_STARTS.iter().any(|start| text.starts_with(start))
@@ -240,6 +252,7 @@ fn attribute(head: &str, name: &str) -> String {
         .replace("&amp;", "&")
 }
 
+#[cfg(feature = "host")]
 fn escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -315,7 +328,7 @@ mod tests {
 
     #[test]
     fn a_bare_brief_becomes_context() {
-        let brief = mcp::BRIEF;
+        let brief = BRIEF;
         assert_eq!(bare_block(brief), context(brief));
         assert_eq!(bare_block("ok"), "ok");
         let glued = format!("{brief}ok, let's keep going");
