@@ -6,7 +6,7 @@ import { AG, type AgentPage } from "../src/agents/agents.ts";
 import * as agentlog from "../src/agents/agentlog.ts";
 import { drawAgentBody } from "../src/agents/logview.ts";
 import { editQueued, steerMessage } from "../src/agents/messages.ts";
-import { stopAgentFollow } from "../src/agents/session.ts";
+import { pollAgent, stopAgentFollow } from "../src/agents/session.ts";
 import { MN } from "../src/agents/workdrop.ts";
 
 function setup() {
@@ -81,4 +81,53 @@ test("editing a pending steer removes its chat row and restores its text", async
   await editQueued(0, true);
   assert.equal(bar.querySelector("[data-pending-steer]"), null);
   assert.equal(input.value, "Use the existing fixture");
+});
+
+test("a pending steer returns after switching conversations without sending it again", async t => {
+  const { page, input } = setup();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  answers.agent_steer = [];
+  answers.agent_tasks = [];
+  t.after(() => {
+    stopAgentFollow();
+    for (const cmd of ["agent_steer", "agent_view", "agent_tasks"]) delete answers[cmd];
+  });
+  steerMessage(input);
+  await settle();
+  const waiting = { ...page, queued: 1, queued_messages: ["Use the existing fixture"] };
+  const other = { ...page, session: { ...page.session, id: "other-conversation" }, queued: 0, queued_messages: [] };
+  const visit = async (next: AgentPage) => {
+    // Opening a different conversation clears its local composer and queue.
+    Object.assign(AG, {
+      open: { machine_id: next.session.machine_id, agent: next.session.agent, session: next.session.id },
+      page: { ...next, queued: 0, queued_messages: [] }, queue: [], sig: "", rest: "",
+    });
+    await pollAgent(true);
+    await settle();
+  };
+  answers.agent_view = other;
+  await visit(other);
+  assert.equal(bar.querySelector("[data-pending-steer]"), null);
+  answers.agent_view = waiting;
+  await visit(waiting);
+  assert.ok(bar.querySelector("[data-pending-steer]")?.textContent.includes("Use the existing fixture"));
+  assert.equal(calls.filter(call => call.cmd === "agent_steer").length, 1);
+});
+
+test("a send acknowledged after switching updates its original queue", async t => {
+  const { input } = setup();
+  let acknowledge!: (keys: string[]) => void;
+  answers.agent_steer = new Promise<string[]>(resolve => { acknowledge = resolve; });
+  t.after(() => { acknowledge([]); stopAgentFollow(); delete answers.agent_steer; });
+  steerMessage(input);
+  const original = AG.queue;
+  Object.assign(AG, {
+    open: { machine_id: "m1", agent: "claude", session: "other-conversation" },
+    queue: [], note: "Keep this conversation's note",
+  });
+  acknowledge([]);
+  await settle();
+  assert.equal(original[0].state, "sent");
+  assert.equal(AG.note, "Keep this conversation's note");
+  assert.deepEqual(AG.queue, []);
 });

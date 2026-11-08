@@ -92,7 +92,7 @@ function build(el: HTMLElement, session: string) {
     <div class="agshell"><div class="agconv"><div class="dbody rs-log"><div class="dagmain"><div class="dcoderlog"></div></div></div>
       <div class="dinput small"><textarea rows="1" autocomplete="off" spellcheck="false" aria-label="Message the lead"></textarea></div></div>
       <div class="agdiv" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to resize, double-click to reset"></div>
-      <aside class="agpane rs-pane"><div class="agphead"><div class="agtabs" role="tablist"></div></div><div class="agpviews"></div></aside></div></div>`);
+      <aside class="agpane rs-pane"><div class="agpane-content"><div class="agphead"><div class="agtabs" role="tablist"></div></div><div class="agpviews"></div></div></aside></div></div>`);
   el.replaceChildren(root);
   const q = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
   page = { root, head: q(".dhead"), shell: q(".agshell"), log: q(".rs-log"), chat: q(".dcoderlog"), ask: q("textarea"), pane: q(".rs-pane"), tabs: q(".agtabs"), view: q(".agpviews") };
