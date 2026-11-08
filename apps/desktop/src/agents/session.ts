@@ -9,7 +9,7 @@ import { bindTitleEdit } from "./titleedit.ts";
 import { conversationHistory } from "./conversation-state.ts";
 // One coding agent session in the bar: opening it, following it while it
 // shows, its frame, and what a click in it does.
-import { markDelivered, syncSteers, stopPending, type Waiting } from "./agentqueue.ts";
+import { syncSteers, stopPending, type Waiting } from "./agentqueue.ts";
 import { composeField } from "../chat/compose.ts";
 import { $, $$, type AgentReturn, bar, S, windowHooks, changeListeners } from "../bar/core.ts";
 import { failBanner } from "../ui/failbanner.ts";
@@ -56,7 +56,6 @@ import { isNativeSession, nativeSession, nativeUpdate } from "./native-session-s
 
 let firstRead: { open: OpenAgent; at: number } | null = null;
 const steerQueues = new Map<string, Waiting[]>();
-let queueRead: OpenAgent | null = null;
 function finishFirstRead(open: OpenAgent, outcome: "ok" | "error") {
   if (!firstRead || firstRead.open !== open) return;
   recordTiming("data", "agent", performance.now() - firstRead.at, outcome);
@@ -215,10 +214,8 @@ function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, replace = f
   AG.readError = "";
   AG.link = LINKED;
   AG.stopping = stopPending(AG.stopping, page.session.id, AGENT_ACTIVE.has(page.session.status), page.turns);
-  if (queueRead !== o) {
-    syncSteers(AG.queue, page, read);
-    queueRead = o;
-  } else markDelivered(AG.queue, page.queued, read);
+  // The node holds the steers: show those another app sent, drop those it took.
+  syncSteers(AG.queue, page, read);
   // Nothing the log shows changed: no draw.
   const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.answering, AG.log != null, stoppingNow(), AG.queue.map(q => q.state), placed]);
   if (moved || rest !== AG.rest) { AG.rest = rest; drawAgentBody(undefined, true); }
