@@ -39,6 +39,7 @@ const KNOWN_TOOLS: &[(&str, &[&str])] = &[
     ("pi", &["--version"]),
     ("flsh", &["--version"]),
     ("opencode", &["--version"]),
+    ("hermes", &["--version"]),
     ("kubectl", &["version", "--client"]),
     ("adb", &["version"]),
     ("xcodebuild", &["-version"]),
