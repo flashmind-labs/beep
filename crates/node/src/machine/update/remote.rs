@@ -186,7 +186,9 @@ async fn remote(agents: &Agents, now: bool) -> Result<Remote, Error> {
     let note = if next.is_none() {
         not_restarting
     } else if !now && agents.until_idle().now_or_never().is_none() {
-        "It restarts once its agent sessions are idle.".to_owned()
+        format!(
+            "New prompts can still start. It restarts when sessions are idle, or after {WAIT_MINUTES} minutes."
+        )
     } else {
         String::new()
     };

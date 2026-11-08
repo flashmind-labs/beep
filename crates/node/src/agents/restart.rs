@@ -1,5 +1,4 @@
-//! Keeping agent sessions across a node restart: an update holds prompts
-//! until no turn runs (`Hold`), and the next start resumes each noted
+//! Keeping agent sessions across a node restart: the next start resumes each noted
 //! `OpenSession` by the agent's own id, with the prompts that still waited.
 
 use super::{
@@ -11,7 +10,7 @@ use anyhow::{Context, Result};
 use beep_proto::node::agent::{Entry, ParentLink, Status};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc, time::Duration};
-use tokio::{sync::watch, time::timeout};
+use tokio::time::timeout;
 
 /// How long resumed sessions wait for the user's agent settings before
 /// starting without them.
@@ -66,29 +65,7 @@ impl OpenSession {
     }
 }
 
-/// Prompts wait instead of starting turns while this lives.
-pub(crate) struct Hold<'a>(&'a watch::Sender<bool>);
-
-impl Drop for Hold<'_> {
-    fn drop(&mut self) {
-        self.0.send_replace(false);
-    }
-}
-
 impl Agents {
-    /// Holds new prompts in every session until the guard drops: running
-    /// turns finish, the next ones wait.
-    pub(crate) fn hold(&self) -> Hold<'_> {
-        self.holding.send_replace(true);
-        Hold(&self.holding)
-    }
-
-    /// Whether prompts are held now, and when that changes.
-    #[cfg(test)]
-    pub(crate) fn holding_now(&self) -> watch::Receiver<bool> {
-        self.holding.subscribe()
-    }
-
     /// Finishes once no session runs a turn or waits for an answer.
     pub(crate) async fn until_idle(&self) {
         loop {
@@ -112,16 +89,13 @@ impl Agents {
         }
     }
 
-    /// Holds new prompts, waits up to `limit` for no turn to run, then
-    /// runs `restart` still holding them. A session that closes or ends
-    /// meanwhile is done.
+    /// Waits up to `limit` for sessions to become idle, then restarts.
     #[cfg(feature = "cli")]
     pub(crate) async fn restart_when_idle<T>(
         &self,
         limit: Duration,
         restart: impl Future<Output = T>,
     ) -> T {
-        let _hold = self.hold();
         if timeout(limit, self.until_idle()).await.is_err() {
             log::info!("a turn still runs after the wait; restarting anyway");
         }
@@ -279,6 +253,7 @@ mod tests {
     };
     use beep_proto::node::agent::EntryKind;
     use std::{collections::BTreeMap, path::Path, sync::Arc};
+    use tokio::sync::watch;
 
     /// An ACP adapter in shell that logs each line it reads to `$1`. It
     /// asks permission on the prompt "first" and ends that turn once
@@ -344,50 +319,18 @@ done
             .expect("the session is kept");
     }
 
-    /// Starts a session whose first turn asks, holds prompts, queues one
-    /// and answers: the wait ends with the turn, the queued prompt unsent.
-    async fn held_after_a_turn<'a>(
-        agents: &'a Agents,
-        kind: &AgentKind,
-        cwd: &Path,
-    ) -> (Arc<Session>, Hold<'a>) {
+    /// Queues a prompt while the first turn waits for an answer.
+    async fn queued_during_a_turn(agents: &Agents, kind: &AgentKind, cwd: &Path) -> Arc<Session> {
         let session = agents
             .start(kind, Some(&cwd.to_string_lossy()), begin("first"))
             .expect("the session starts");
         let mut live = session.live.clone();
         until(&mut live, |live| live.status() == Status::Asking).await;
-        let question = live
-            .borrow()
-            .info
-            .question
-            .as_ref()
-            .expect("the turn asks")
-            .id;
-        let hold = agents.hold();
-        let idle = agents.until_idle();
-        tokio::pin!(idle);
-        assert!(
-            futures::poll!(&mut idle).is_pending(),
-            "a turn waiting for an answer is not idle"
-        );
         session
             .order(Command::Prompt("after".to_owned().into()))
             .await
             .expect("the prompt is taken");
         session
-            .order(Command::Answer {
-                question,
-                reply: "allow".into(),
-            })
-            .await
-            .expect("the answer is taken");
-        timeout(Duration::from_secs(20), idle)
-            .await
-            .expect("the turn ends and the session is idle");
-        let info = session.info();
-        assert_eq!(info.turns, 1);
-        assert_eq!(info.state.queued, 1, "the next prompt waits");
-        (session, hold)
     }
 
     #[tokio::test]
@@ -396,11 +339,29 @@ done
         let log = dir.path().join("log");
         let kind = adapter(&log);
         let agents = Agents::new(vec![kind.clone()]);
-        let (session, hold) = held_after_a_turn(&agents, &kind, dir.path()).await;
-        // The update gave up: the held prompt goes.
-        drop(hold);
+        let session = queued_during_a_turn(&agents, &kind, dir.path()).await;
         let mut live = session.live.clone();
+        let idle = agents.until_idle();
+        tokio::pin!(idle);
+        assert!(futures::poll!(&mut idle).is_pending());
+        let question = live
+            .borrow()
+            .info
+            .question
+            .as_ref()
+            .expect("the turn asks")
+            .id;
+        session
+            .order(Command::Answer {
+                question,
+                reply: "allow".into(),
+            })
+            .await
+            .expect("the answer is taken");
         until(&mut live, |live| live.info.turns == 2).await;
+        timeout(Duration::from_secs(20), idle)
+            .await
+            .expect("both turns finish");
         let read = std::fs::read_to_string(&log).expect("the adapter's log");
         assert!(read.contains(r#""text":"after""#), "{read}");
         agents.shutdown().await;
@@ -417,10 +378,7 @@ done
             .expect("the session starts");
         let mut live = session.live.clone();
         until(&mut live, |live| live.status() == Status::Asking).await;
-        let holding = agents.holding_now();
-        let restarted = agents.restart_when_idle(Duration::from_secs(600), async {
-            assert!(*holding.borrow(), "prompts stay held through the restart");
-        });
+        let restarted = agents.restart_when_idle(Duration::from_secs(600), async {});
         tokio::pin!(restarted);
         assert!(
             futures::poll!(&mut restarted).is_pending(),
@@ -439,7 +397,7 @@ done
         let log = dir.path().join("log");
         let kind = adapter(&log);
         let before = Agents::new(vec![kind.clone()]);
-        let (_session, _hold) = held_after_a_turn(&before, &kind, dir.path()).await;
+        let _session = queued_during_a_turn(&before, &kind, dir.path()).await;
         before.shutdown().await;
         let stopped = before.open_sessions();
         assert_eq!(stopped.len(), 1);

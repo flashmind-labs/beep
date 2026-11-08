@@ -25,7 +25,7 @@ const FILE: &str = "reopen.json";
 /// Woken when a session or terminal opens or closes.
 static CHANGED: Notify = Notify::const_new();
 
-/// The update's request: hold prompts and say when the sessions are idle.
+/// The update's request: say when the sessions are idle.
 const DRAIN: &str = "drain";
 /// The node's answer: no turn runs.
 const IDLE: &str = "idle";
@@ -112,25 +112,23 @@ pub(crate) async fn listen(dir: &Path, agents: Arc<Agents>) -> Result<()> {
     }
 }
 
-/// Holds prompts while the update that sent `drain` stays connected, and
-/// tells it once the sessions are idle.
+/// Tells the update once the sessions are idle.
 async fn answer(stream: Stream, agents: &Agents) -> Result<()> {
     let (read, mut write) = split(stream);
     let mut lines = BufReader::new(read).lines();
     if lines.next_line().await?.as_deref() != Some(DRAIN) {
         return Ok(());
     }
-    let _hold = agents.hold();
-    log::info!("an update waits: holding new prompts until the sessions are idle");
+    log::info!("an update waits for the sessions to be idle");
     tokio::select! {
         () = agents.until_idle() => {}
-        // The update gave up; prompts go again.
+        // The update gave up.
         _ = lines.next_line() => return Ok(()),
     }
     write.write_all(format!("{IDLE}\n").as_bytes()).await?;
-    // Held until the update restarts the node, or gives up.
+    // Stay connected until the update restarts the node, or gives up.
     while lines.next_line().await?.is_some() {}
-    log::info!("the update went on without restarting the node; prompts go again");
+    log::info!("the update went on without restarting the node");
     Ok(())
 }
 
@@ -145,8 +143,8 @@ mod client {
         time::timeout,
     };
 
-    /// The running node holding its prompts while this lives.
-    pub(crate) struct Holding {
+    /// The connection to the running node.
+    pub(crate) struct UpdateConnection {
         _read: Lines<BufReader<ReadHalf<Stream>>>,
         _write: WriteHalf<Stream>,
     }
@@ -155,14 +153,13 @@ mod client {
     pub(crate) enum Drained {
         /// No node runs there, or one too old to be asked.
         NoNode,
-        /// Its sessions are idle; it holds new prompts.
-        Idle(Holding),
-        /// A turn still ran after the wait; it holds new prompts.
-        TimedOut(Holding),
+        /// Its sessions were idle.
+        Idle(UpdateConnection),
+        /// A turn still ran after the wait.
+        TimedOut(UpdateConnection),
     }
 
-    /// Asks the node in `dir` to hold new prompts and waits up to `limit` for
-    /// its sessions to be idle.
+    /// Asks the node in `dir` to wait up to `limit` for its sessions to be idle.
     pub(crate) async fn drain(dir: &Path, limit: Duration) -> Drained {
         let Ok(stream) = local_socket::connect(&dir.join(SOCKET)).await else {
             return Drained::NoNode;
@@ -177,12 +174,12 @@ mod client {
         }
         let mut lines = BufReader::new(read).lines();
         match timeout(limit, lines.next_line()).await {
-            Ok(Ok(Some(line))) if line == IDLE => Drained::Idle(Holding {
+            Ok(Ok(Some(line))) if line == IDLE => Drained::Idle(UpdateConnection {
                 _read: lines,
                 _write: write,
             }),
             Ok(_) => Drained::NoNode,
-            Err(_) => Drained::TimedOut(Holding {
+            Err(_) => Drained::TimedOut(UpdateConnection {
                 _read: lines,
                 _write: write,
             }),
@@ -190,7 +187,7 @@ mod client {
     }
 }
 #[cfg(feature = "cli")]
-pub(crate) use client::{Drained, Holding, drain};
+pub(crate) use client::{Drained, UpdateConnection, drain};
 
 #[cfg(test)]
 mod tests {
@@ -199,10 +196,9 @@ mod tests {
     use tokio::time::timeout;
 
     #[tokio::test]
-    async fn an_update_holds_prompts_while_it_stays_connected() {
+    async fn an_update_can_wait_for_idle() {
         let dir = tempfile::tempdir().expect("a temporary folder");
         let agents = Arc::new(Agents::new(Vec::new()));
-        let mut holding = agents.holding_now();
         let listening = {
             let (dir, agents) = (dir.path().to_path_buf(), agents.clone());
             tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
@@ -219,12 +215,7 @@ mod tests {
         let Drained::Idle(held) = drained else {
             panic!("a node without sessions is idle at once");
         };
-        assert!(*holding.borrow_and_update());
         drop(held);
-        timeout(Duration::from_secs(20), holding.wait_for(|held| !held))
-            .await
-            .expect("the hold ends with the update's connection")
-            .expect("the node is kept");
     }
 
     #[tokio::test]

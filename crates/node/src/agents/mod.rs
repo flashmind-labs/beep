@@ -180,9 +180,6 @@ pub struct Agents {
     mcp: OnceLock<Arc<Launch>>,
     /// Set once the node is stopping.
     stopping: Arc<AtomicBool>,
-    /// True while an update waits for the sessions to be idle: prompts
-    /// wait instead of starting turns.
-    holding: watch::Sender<bool>,
     /// Set once the server sent the user's agent settings, which resumed
     /// sessions start with.
     settled: watch::Sender<bool>,
@@ -235,7 +232,6 @@ impl Agents {
             reviews: reviews::Reviews::new(events.clone()),
             mcp: OnceLock::new(),
             stopping: Arc::default(),
-            holding: watch::Sender::new(false),
             settled: watch::Sender::new(false),
             reopened: watch::Sender::new(false),
             sighted: AsyncMutex::default(),
