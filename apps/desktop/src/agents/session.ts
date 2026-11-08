@@ -22,11 +22,11 @@ import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, resetMentions } from "./workdrop.ts";
 import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, drawAgents, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, agentAvatar, folderName, where, stateTag } from "./agents.ts";
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
-import { childRow, parentRow } from "./nesting-state.ts";
-import { loadSessions, sessions, sessionsRead } from "./sessions.ts";
+import { childRow } from "./nesting-state.ts";
+import { parentSession, keepNativeSession, loadSessions, sessions, sessionsRead } from "./sessions.ts";
 import { closeSession, shownStatus } from "./closing.ts";
 import { sessionOffers } from "./sessionmenu-state.ts";
-import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest, closeSub, scrolledLog } from "./logview.ts";
+import { thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest, closeSub, scrolledLog } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
 import { readTasks, stopTask } from "./tasks.ts";
@@ -49,6 +49,7 @@ import { movedTo } from "./move-state.ts";
 import { placeName, placeRepo } from "./place-state.ts";
 import { sameSession } from "./running-state.ts";
 import { imageLines } from "./agentlog.ts";
+import { isNativeSession, nativeSession, nativeUpdate } from "./native-session-state.ts";
 
 let firstRead: { open: OpenAgent; at: number } | null = null;
 function finishFirstRead(open: OpenAgent, outcome: "ok" | "error") {
@@ -91,7 +92,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
     page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
-    att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), child: null, queue: [], flushing: false, held: 0, stopping: null, modelOpen: false, modes: null,
+    att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), queue: [], flushing: false, held: 0, stopping: null, modelOpen: false, modes: null,
     older: { stop: "", loading: false, gaveUp: false },
   });
   if (AG.open) firstRead = { open: AG.open, at: performance.now() };
@@ -171,6 +172,11 @@ export function stopAgentFollow() {
 changeListeners.push(() => { if (S.view !== "agent") stopAgentFollow(); });
 
 function applyAgentPage(o: OpenAgent, page: AgentPage, read: number) {
+  if (AG.page) page.session = nativeUpdate(AG.page.session, page.session);
+  if (isNativeSession(page.session.id)) {
+    const row = sessions.find(s => s.machine_id === page.session.machine_id && s.id === page.session.id);
+    if (row) keepNativeSession({ ...row, ...page.session });
+  }
   const sig = JSON.stringify(page);
   const moved = sig !== AG.sig;
   if (moved) { AG.sig = sig; AG.changed = Date.now(); }
@@ -193,7 +199,7 @@ function applyAgentPage(o: OpenAgent, page: AgentPage, read: number) {
   AG.stopping = stopPending(AG.stopping, page.session.id, AGENT_ACTIVE.has(page.session.status), page.turns);
   markDelivered(AG.queue, page.queued, read);
   // Nothing the log shows changed: no draw.
-  const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.answering, AG.child, AG.log != null, stoppingNow(), AG.queue.map(q => q.state), placed]);
+  const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.answering, AG.log != null, stoppingNow(), AG.queue.map(q => q.state), placed]);
   if (moved || rest !== AG.rest) { AG.rest = rest; drawAgentBody(undefined, true); }
   finishFirstRead(o, "ok");
   void readUsage(o, page);
@@ -352,7 +358,7 @@ export function agentHints() {
   const mode: Parameters<typeof hints>[0] = hasModes() ? [["⇧Tab", "mode"]] : [];
   if (q && AG.modes?.plan != null) return slim([[`⌘${ICON.ret}`, "approve"], ["⌘D", "keep planning"], ...mode, ["esc", "back"]]);
   if (q) return slim([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
-  if (AG.child != null) return slim([["esc", "parent session"]]);
+  if (s && isNativeSession(s.id)) return slim([["esc", "parent session"]]);
   if (s && followsOnly(s)) return slim([["esc", "back"]]);
   if (s?.status === "ended") return slim([[ICON.ret, "continue"], ["esc", "back"]]);
   if (turnRuns()) {
@@ -483,7 +489,7 @@ export async function closeOpenSession() {
 /// A session started outside Beep that only shows here: still running there,
 /// or of an agent Beep cannot take over. A closed one continues from the field.
 function followsOnly(s: AgentRow) {
-  return s.external && !(s.status === "ended" && canTakeOver(s.agent));
+  return isNativeSession(s.id) || (s.external && !(s.status === "ended" && canTakeOver(s.agent)));
 }
 
 /// The parts that stay while the session updates: the head, the body and the field.
@@ -492,7 +498,9 @@ function followsOnly(s: AgentRow) {
 /// already drawn, goes back in as it is, where it was scrolled.
 export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const s = AG.page!.session, k = agentKind(s.agent);
-  const field = followsOnly(s)
+  const field = isNativeSession(s.id)
+    ? `<div class="dinput small" id="agfield"><textarea id="agnativemsg" rows="1" aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message"></textarea><span id="agmodel"></span><button class="dbtn" id="agnativeparent">Open parent</button></div>`
+    : followsOnly(s)
     ? `<div class="dmuted dblock dbanner">${canTakeOver(s.agent) ? "Running outside Beep. Beep follows it here. Close it there to continue here." : "Started outside Beep. Beep follows it here."}</div>`
     : `<div id="agmovebox"></div><div id="agplan"></div><div id="agtasks"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
@@ -612,15 +620,23 @@ function agentClick(e: MouseEvent) {
     AG.steps.set(at, prompt.getAttribute("aria-expanded") !== "true");
     return drawAgentBody(clickedRow(prompt));
   }
-  // A subagent opens as its own conversation; the crumb goes back.
-  const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-sub]");
-  if (sub) { AG.child = Number(sub.dataset.sub); drawAgentBody(); $("#agbody")!.scrollTop = 0; return; }
+  const summary = target.closest<HTMLElement>("[data-subsummary]");
+  if (summary) { const at = Number(summary.dataset.subsummary); AG.steps.set(at, !AG.steps.get(at)); drawAgentBody(); return; }
+  const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-native]");
+  if (sub && AG.page && AG.log) {
+    const entry = AG.page.entries[Number(sub.dataset.native) - AG.page.earlier];
+    if (!entry) return;
+    const { title, status, output } = AG.log.parseTool(AG.log.imageLines(entry.text).text);
+    const child = AG.log.subagent(output);
+    const row = child?.session && nativeSession(AG.page.session, child.session, title.split("\n")[0], status);
+    if (row) { keepNativeSession(row, AG.page.session); openAgent(row, { back: AG.back }); }
+    return;
+  }
   // An agent another agent started opens as its own session.
   const kid = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-kid]");
   if (kid) { void openKid(kid.dataset.kid!, kid.dataset.key); return; }
-  const up = target.closest("#agup, #agup2");
-  if (up) { const row = AG.open && parentRow(sessions, { machine_id: AG.open.machine_id, id: AG.open.session }); if (row) openAgent(row, { back: AG.back }); return; }
-  if (target.closest("#agparent")) return closeChild();
+  const up = target.closest("#agup, #agup2, #agnativeparent");
+  if (up) { const row = AG.open && AG.page && parentSession(AG.page.session); if (row) openAgent(row, { back: AG.back }); return; }
   // "Show all N lines" opens the whole output in a box that scrolls.
   const all = target.closest<HTMLElement>("#agbody [data-all]");
   if (all) {
@@ -737,7 +753,6 @@ function agentClick(e: MouseEvent) {
     requestAnimationFrame(() => { const b = $<ChatBody>("#agbody"); if (b) b.stuck = atBottom(b); });
     return;
   }
-  if (target.closest("#agparent2")) return closeChild();
   if (target.closest("#agresume")) return resumeAgent();
   if (target.closest("#agstop")) return void interruptAgent();
 }

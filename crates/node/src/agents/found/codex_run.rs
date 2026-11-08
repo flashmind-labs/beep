@@ -3,7 +3,7 @@
 //! and `task_complete` with what it answered.
 
 use super::newest_files;
-use crate::agents::{RunStep, SubagentRun, cut};
+use crate::agents::{RunStep, SubagentRun, cut, subagent::Conversation};
 use serde_json::Value;
 use std::{
     collections::HashMap,
@@ -82,6 +82,10 @@ impl Reader {
     /// starts at (`subagent_history_start_ordinal`): a forked subagent's
     /// file starts with its parent's history.
     fn header(&mut self, meta: &Value) -> usize {
+        self.run.session = meta["id"].as_str().and_then(|id| {
+            let session = Conversation::Codex(id).to_string();
+            Conversation::parse(&session).is_some().then_some(session)
+        });
         let text = |key: &str| {
             meta[key]
                 .as_str()
@@ -258,6 +262,7 @@ mod tests {
         assert_eq!(
             run,
             SubagentRun {
+                session: Some(format!("subagent:codex:{THREAD}")),
                 steps: vec![
                     RunStep {
                         title: "sleep".into(),

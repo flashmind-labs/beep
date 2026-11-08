@@ -377,6 +377,9 @@ impl ToolCall {
             if let Some(name) = name {
                 text.push_str(&format!("\n[agent] {name}"));
             }
+            if let Some(session) = run.and_then(|run| run.session.as_deref()) {
+                text.push_str(&format!("\n[session] {session}"));
+            }
         }
         let output = run
             .and_then(|run| run.result.as_deref())

@@ -5,8 +5,8 @@ import type { ProviderCredits } from "../ui/credits.ts";
 // answer it: `agentnew` is the start form, `agent` one session, `agents`
 // every session. They run in the bar and in the window's pane alike. This
 // file holds their shared types and state, and the Every session list.
-import { nest, parentRow } from "./nesting-state.ts";
-import { loadSessions, reviewers, sessions } from "./sessions.ts";
+import { nest } from "./nesting-state.ts";
+import { parentSession, loadSessions, reviewers, sessions } from "./sessions.ts";
 import { copiesClick, copiesHtml, keepCopiesFresh, onCopies, onCopyAction } from "./copies.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { emptyPage } from "../lists/memories.ts";
@@ -25,7 +25,6 @@ import { cap } from "../chat/tools.ts";
 import { openAgent, openEditorKey, closeOpenSession, turnRuns } from "./session.ts";
 import { sessionMenu } from "./sessionmenu.ts";
 import { TAKEOVER } from "./sessionmenu-state.ts";
-import { closeChild } from "./logview.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
 import { jumpToStart, jumpToEnd, logJumpKey } from "./older.ts";
 import type { OlderStop } from "./older-state.ts";
@@ -268,8 +267,6 @@ interface AgentState {
   log: typeof import("./agentlog.ts") | null;
   /// The steps whose whole output shows, by place in the session.
   all: Set<number>;
-  /// The subagent opened as its own conversation, by its call's place.
-  child: number | null;
   /// Messages typed while a turn runs: steers, sent at once and shown until
   /// delivered, and queued ones, sent when it stops or ends.
   queue: Waiting[];
@@ -299,7 +296,7 @@ export const AG: AgentState = {
   open: null, draft: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
   sig: "", rest: "", changed: 0, answering: null,
   att: [], attError: "", attTimer: undefined, noImages: null,
-  opened: new Set(), steps: new Map(), log: null, all: new Set(), child: null, queue: [], flushing: false, held: 0, polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
+  opened: new Set(), steps: new Map(), log: null, all: new Set(), queue: [], flushing: false, held: 0, polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
   older: { stop: "", loading: false, gaveUp: false },
 };
 export const agentLog = () => import("./agentlog.ts").then(m => (AG.log = m));
@@ -539,9 +536,9 @@ export function agentBack(closed = false) {
     if (draftEsc(typed) === "project") windowHooks?.goBack({ view: "projects", arg: { project: AG.draft } });
     return;
   }
-  if (!closed && S.view === "agent" && (closeModelPicker() || closeChild())) return;
+  if (!closed && S.view === "agent" && closeModelPicker()) return;
   // Esc from a child opens its parent; closing returns to the previous page.
-  const up = !closed && S.view === "agent" && AG.open ? parentRow(sessions, { machine_id: AG.open.machine_id, id: AG.open.session }) : undefined;
+  const up = !closed && S.view === "agent" && AG.open ? AG.page && parentSession(AG.page.session) : undefined;
   if (up) return openAgent(up, { back: AG.back });
   if (S.view === "agent" && windowHooks && !closed && leavePane()) return;
   if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back);

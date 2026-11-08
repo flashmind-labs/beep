@@ -159,6 +159,19 @@ impl Live {
             .collect()
     }
 
+    pub(crate) fn claude_children(&self, from: u64, len: usize) -> Vec<(usize, String)> {
+        self.tools
+            .iter()
+            .filter_map(|(id, tool)| {
+                if tool.parent.is_some() || tool.subagent.as_ref().is_none_or(|sub| sub.codex) {
+                    return None;
+                }
+                let at = usize::try_from(tool.entry.checked_sub(from)?).ok()?;
+                (at < len).then(|| (at, id.to_string()))
+            })
+            .collect()
+    }
+
     /// The entry of call `id` with its subagent's `run` read from disk,
     /// and where that entry is.
     pub(crate) fn with_run(&self, id: &ToolCallId, run: &Run) -> Option<(u64, String)> {
