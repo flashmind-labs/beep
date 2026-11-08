@@ -493,6 +493,7 @@ dependencies = [
  "rmp-serde",
  "rusqlite",
  "secrecy",
+ "security-framework",
  "serde",
  "serde_bytes",
  "serde_json",
