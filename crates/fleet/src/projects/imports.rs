@@ -60,7 +60,7 @@ impl Desk {
     pub async fn imported(&self) -> Vec<ImportedProject> {
         let names: HashMap<EndpointId, String> = self
             .mesh
-            .devices()
+            .machines()
             .into_iter()
             .map(|status| (status.device.id, status.device.name))
             .collect();

@@ -548,6 +548,7 @@ dependencies = [
  "beep-projects",
  "beep-proto",
  "chrono",
+ "fastrand",
  "futures",
  "iroh",
  "iroh-tickets",
@@ -605,7 +606,7 @@ dependencies = [
 
 [[package]]
 name = "beep-node"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "agent-client-protocol",
  "anyhow",

@@ -271,17 +271,36 @@ impl Core {
         ttl: Duration,
         temporary: bool,
     ) -> Result<JoinTicket, MeshError> {
-        self.desktop()?;
-        let now = now_ms();
-        let ttl_ms = u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX);
-        let ticket = JoinTicket {
+        self.save_ticket(JoinTicket {
             mesh: self.devices.mesh(),
             addr,
             kind,
             secret: JoinSecret::generate(),
-            expires_ms: now.saturating_add(ttl_ms),
+            expires_ms: now_ms().saturating_add(u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX)),
             temporary,
-        };
+            observer: false,
+        })
+    }
+
+    pub(crate) fn invite_observer(
+        &mut self,
+        addr: EndpointAddr,
+        ttl: Duration,
+    ) -> Result<JoinTicket, MeshError> {
+        self.save_ticket(JoinTicket {
+            mesh: self.devices.mesh(),
+            addr,
+            kind: DeviceKind::Desktop,
+            secret: JoinSecret::generate(),
+            expires_ms: now_ms().saturating_add(u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX)),
+            temporary: false,
+            observer: true,
+        })
+    }
+
+    fn save_ticket(&mut self, ticket: JoinTicket) -> Result<JoinTicket, MeshError> {
+        self.desktop()?;
+        let now = now_ms();
         self.tickets.retain(|t| !t.expired(now));
         self.tickets.push(ticket.clone());
         self.save_tickets()?;
@@ -331,6 +350,10 @@ impl Core {
             &rmp_serde::to_vec(&self.redemptions)?,
             true,
         )?;
+        if ticket.observer {
+            self.state
+                .set(Key::Observer(joiner.to_string()), Some(Vec::new()))?;
+        }
         if ticket.temporary {
             self.state
                 .set(Key::Temporary(joiner.to_string()), Some(Vec::new()))?;

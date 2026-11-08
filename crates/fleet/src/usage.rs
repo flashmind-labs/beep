@@ -182,7 +182,7 @@ impl Desk {
     async fn said(&self) -> Said {
         let listens = self
             .mesh
-            .devices()
+            .machines()
             .into_iter()
             .filter(|status| status.online)
             .map(|status| async move {

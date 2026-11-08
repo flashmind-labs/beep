@@ -662,7 +662,7 @@ impl Desk {
                 })
         };
         // Owned values in the futures, so the call stays `Send` for a Tauri command.
-        let mut machines: Vec<AgentMachine> = stream::iter(self.mesh.devices())
+        let mut machines: Vec<AgentMachine> = stream::iter(self.mesh.machines())
             .map(|status| async move {
                 let env = self.agent_env(&status).await;
                 agent_machine(status, env)

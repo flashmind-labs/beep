@@ -1069,6 +1069,7 @@ mod tickets {
             secret: JoinSecret::generate(),
             expires_ms: 1_700_000_000_000,
             temporary: false,
+            observer: false,
         }
     }
 
@@ -1093,13 +1094,14 @@ mod tickets {
         };
         let back = JoinTicket::decode_string(&t.encode_string()).unwrap();
         assert!(back.temporary);
-        // A ticket from before the field: the same array without its last element.
+        // A ticket from before both flags: the same array without its last two elements.
         let mut bytes = rmp_serde::to_vec(&ticket()).expect("encodes");
-        assert_eq!(bytes[0], 0x96, "six fields");
+        assert_eq!(bytes[0], 0x97, "seven fields");
         bytes[0] = 0x95;
-        bytes.pop();
+        bytes.truncate(bytes.len() - 2);
         let old: JoinTicket = beep_proto::lenient::from_slice(&bytes).expect("reads");
         assert!(!old.temporary);
+        assert!(!old.observer);
     }
 
     #[test]
@@ -1324,4 +1326,60 @@ mod local_client {
             "the node refused nope/1: this node does not offer nope/1"
         );
     }
+}
+
+#[tokio::test]
+async fn observer_phones_stay_members_but_never_become_hosts() {
+    let desktop = create("Desktop").await;
+    let node = join(&desktop, DeviceKind::Node, "Build box").await;
+    let ticket = desktop
+        .mesh
+        .invite_observer(Duration::from_secs(300))
+        .await
+        .unwrap();
+    assert!(ticket.observer);
+    let phone = join_with(&ticket, "Phone").await.unwrap();
+    let phone_id = phone.id();
+    assert!(desktop.mesh.is_member(phone_id));
+    assert!(desktop.mesh.is_observer(phone_id));
+    until(&node.mesh, |mesh| mesh.is_observer(phone_id)).await;
+    until(&phone.mesh, |mesh| mesh.is_observer(phone_id)).await;
+    for mesh in [&desktop.mesh, &node.mesh, &phone.mesh] {
+        assert!(
+            !mesh
+                .machines()
+                .iter()
+                .any(|status| status.device.id == phone_id)
+        );
+    }
+    // Controllers still save shared settings and reach hosts.
+    let key = Key::Group("example".into());
+    phone
+        .mesh
+        .set(key.clone(), Some(b"shared".to_vec()))
+        .await
+        .unwrap();
+    until(&node.mesh, |mesh| mesh.get(&key).is_some()).await;
+    let (phone_key, phone_dir) = phone.stop().await;
+    until(&desktop.mesh, |mesh| !online(mesh, phone_id)).await;
+    assert!(
+        !desktop
+            .mesh
+            .machines()
+            .iter()
+            .any(|status| status.device.id == phone_id)
+    );
+    let phone = reopen(phone_key, phone_dir).await;
+    assert!(phone.mesh.is_observer(phone_id));
+    assert!(
+        !phone
+            .mesh
+            .machines()
+            .iter()
+            .any(|status| status.device.id == phone_id)
+    );
+    let (desktop_key, desktop_dir) = desktop.stop().await;
+    let desktop = reopen(desktop_key, desktop_dir).await;
+    assert!(desktop.mesh.is_observer(phone_id));
+    assert_eq!(desktop.mesh.machines().len(), 2);
 }
