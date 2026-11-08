@@ -151,9 +151,16 @@ impl Task {
             return false;
         }
         let aligned = self.shared.align_git().await;
-        if matches!(aligned, Ok(true)) {
+        if aligned
+            .as_ref()
+            .is_ok_and(|alignment| alignment.checkout_changed)
+        {
             self.scan().await;
         }
+        let aligned = aligned.and_then(|alignment| match alignment.warning {
+            Some(warning) => Err(warning),
+            None => Ok(()),
+        });
         if let Err(e) = aligned.and(self.shared.check_git().await) {
             self.pending = 1;
             self.fail("waiting for Git", &e);
