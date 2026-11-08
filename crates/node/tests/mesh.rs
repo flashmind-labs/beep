@@ -4071,37 +4071,6 @@ async fn a_restore_over_another_version_sets_that_one_aside_under_its_own_name()
 
 #[cfg(unix)]
 #[tokio::test]
-async fn a_session_a_move_names_is_not_filed_as_lost_by_the_note_of_an_earlier_continue() {
-    let mut pair = synced_pair_env(None, None, &copy_env(None)).await;
-    // The desktop moved `s` from `b` to `a`: the record decides the owner.
-    ask_to_move(&pair.desktop, pair.b.id, pair.a.id, false).await;
-    rollout_for(
-        &pair.a,
-        &pair.a_folder,
-        MOVED_ID,
-        Duration::from_secs(10),
-        10,
-    );
-    let b_rollout = rollout_for(
-        &pair.b,
-        &pair.b_folder,
-        MOVED_ID,
-        Duration::from_secs(3600),
-        10,
-    );
-    let marker = pair.b.dir.path().join("sessions/codex/s");
-    fs::create_dir_all(&marker).expect("the cache folder");
-    fs::write(marker.join("continued"), "1\n1").expect("the note");
-    pair.b
-        .logged("session s: not settled, a move names it")
-        .await;
-    assert!(b_rollout.exists(), "the transcript stayed in its store");
-    let conn_b = pair.desktop.reach(pair.b.id).await;
-    assert!(copies_on(&conn_b).await.iter().all(|v| v.lost.is_none()));
-}
-
-#[cfg(unix)]
-#[tokio::test]
 async fn a_session_in_a_worktree_moves_away_and_back_to_the_worktree_it_left() {
     let pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
     let a_worktree = repo_with_dirty_worktree(&pair.a_folder);

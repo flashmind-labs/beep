@@ -304,6 +304,9 @@ impl Session {
         let agent_env = native_policy
             .and_then(|policy| policy.env(route, &kind.env))
             .map(|var| (var.name, var.value));
+        // An off switch the node inherited, such as `DISABLE_AUTO_COMPACT`
+        // from the shell that started it, would beat the setting.
+        let cleared = native_policy.and_then(|policy| policy.cleared(route, &kind.env));
         let mut process = command(&kind.program);
         // The credentials this agent may have, such as Claude Code's token.
         spawn_env::apply(&mut process, Scope::for_agent(&kind.name));
@@ -317,6 +320,9 @@ impl Session {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        if let Some(name) = cleared {
+            process.env_remove(name);
+        }
         if let Some(wrapper) = sccache::wrapper(cwd, &kind.env) {
             process.env("RUSTC_WRAPPER", wrapper);
         }

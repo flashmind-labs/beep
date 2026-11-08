@@ -278,14 +278,12 @@ fn every_known_agent_starts_without_permission_prompts() {
     };
     let pair = |name: &str, value: &str| (name.to_owned(), value.to_owned());
     // Claude Code is switched to bypassPermissions by the session, and
-    // shows its thinking as summaries.
-    assert_eq!(
-        launched("claude"),
-        (
-            vec![],
-            vec![pair("CLAUDE_CODE_THINKING_DISPLAY", "summarized")]
-        )
-    );
+    // shows its thinking as summaries, unless the node's own environment
+    // already chose how.
+    let thinking = std::env::var_os("CLAUDE_CODE_THINKING_DISPLAY")
+        .is_none()
+        .then(|| pair("CLAUDE_CODE_THINKING_DISPLAY", "summarized"));
+    assert_eq!(launched("claude"), (vec![], thinking.into_iter().collect()));
     assert_eq!(
         launched("codex"),
         (
