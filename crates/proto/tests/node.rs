@@ -2157,6 +2157,7 @@ mod agent {
                 text: String,
             }
             let thought = Entry {
+                tool: None,
                 kind: EntryKind::Thought,
                 text: "hmm".into(),
                 ms: Some(1200),
@@ -2196,5 +2197,42 @@ mod agent {
             assert_eq!(agent_of(SESSIONS_PROTOCOL), None);
             assert_eq!(agent_of("claude/2"), None);
         }
+    }
+}
+
+mod tool_details {
+    use beep_proto::{
+        AgentToolCall,
+        node::agent::{Entry, EntryKind},
+    };
+    use serde::Deserialize;
+
+    #[test]
+    fn transcript_entries_read_without_details_and_older_readers_skip_details() {
+        let old = (EntryKind::Tool, "Sleep [completed]", None::<u64>);
+        let bytes = rmp_serde::to_vec(&old).unwrap();
+        let entry: Entry = beep_proto::lenient::from_slice(&bytes).unwrap();
+        assert!(entry.tool.is_none());
+        let mut entry = entry;
+        entry.tool = Some(AgentToolCall {
+            name: Some("Sleep".into()),
+            input: Some(r#"{"seconds":45}"#.into()),
+            ..AgentToolCall::default()
+        });
+        let bytes = rmp_serde::to_vec(&entry).unwrap();
+        #[derive(Deserialize)]
+        struct OldEntry {
+            kind: EntryKind,
+            text: String,
+            ms: Option<u64>,
+        }
+        let old: OldEntry = beep_proto::lenient::from_slice(&bytes).unwrap();
+        assert_eq!(old.kind, EntryKind::Tool);
+        assert_eq!(old.text, "Sleep [completed]");
+        assert_eq!(old.ms, None);
+        assert_eq!(
+            beep_proto::lenient::from_slice::<Entry>(&bytes).unwrap(),
+            entry
+        );
     }
 }

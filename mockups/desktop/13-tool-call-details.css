@@ -1,0 +1,10 @@
+.dcoderen.tool .call-details { grid-column: 2 / -1; min-width: 0; cursor: text; user-select: text }
+.call-details dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 8px 0; font-size: 12px; line-height: 16px }
+.call-details dt, .call-details h4 { color: var(--d-dim); font-size: 12px; line-height: 16px; font-weight: 400 }
+.call-details dd { margin: 0; overflow-wrap: anywhere }
+.call-details h4 { margin: 8px 0 4px }
+.call-details pre { margin: 0; padding: 8px; border: 1px solid var(--d-border); border-radius: 4px; font: 12px/16px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto }
+.dcoderen.tool.row[tabindex]:focus-visible { outline: 2px solid var(--d-fg); outline-offset: 2px }
+.dcoderen.tool.row[data-tool-call] { cursor: pointer }
+.dcoderen.tool.row[data-tool-call]:hover { background: color-mix(in srgb, var(--d-fg) 4%, transparent) }
+.dcoderen.tool.row[data-tool-call] .vb { max-width: 180px; overflow: hidden; text-overflow: ellipsis }

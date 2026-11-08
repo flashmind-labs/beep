@@ -103,6 +103,16 @@ export interface AgentEntry {
   /// Cleaned Markdown for child prompt parts, in source order.
   child_html?: string[];
   ms?: number | null;
+  tool?: AgentToolCall | null;
+}
+
+/// Structured details from the harness, separate from its display title.
+export interface AgentToolCall {
+  name: string | null;
+  input: string | null;
+  input_truncated: boolean;
+  result: string | null;
+  result_truncated: boolean;
 }
 
 /// One session in full, as `agent_view` returns it.
