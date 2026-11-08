@@ -3,7 +3,7 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { type RunningProcess, runningRow } from "./running-state.ts";
 import { draw, paneOf, paneSession, shell } from "./media.ts";
 import { DOCKS } from "./media-state.ts";
-import { paneShown } from "../ui/active.ts";
+import { onShownChange, paneShown } from "../ui/active.ts";
 import { h } from "../ui/dom.ts";
 import { esc } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -28,23 +28,27 @@ function syncSession() {
   if (key === next) return;
   key = next;
   unfollow?.();
-  unfollow = s && !s.external ? subscribeChanges([topic("processes"), topic("terminals")], readRunning, s.machine_id, visible) : undefined;
+  unfollow = s?.id && !s.external ? subscribeChanges(topic("processes", s.id), readRunning, s.machine_id, visible) : undefined;
   list = [];
   local = false;
   error = drawn = "";
   stopping.clear();
   el?.remove();
   el = null;
+  if (s?.id && !s.external) queueMicrotask(() => void readRunning());
 }
 
 export function runningCount() { syncSession(); return list.length; }
 
 const visible = () => paneShown() && !!shell()?.clientWidth && DOCKS.some(d => paneOf(d)?.hidden === false);
 
+window.addEventListener("agent-pane-shown", () => void readRunning());
+onShownChange(shown => { if (shown) void readRunning(); }, true);
+
 export async function readRunning() {
   syncSession();
   const s = paneSession(), asked = key, count = list.length;
-  if (!s || s.external || !visible()) return;
+  if (!s?.id || s.external || !visible()) return;
   try {
     const view = await invoke<ProcessesView>("agent_processes", { machineId: s.machine_id, session: s.id }, AGENT_READ_WAIT_MS);
     syncSession();
