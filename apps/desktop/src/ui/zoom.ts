@@ -3,10 +3,11 @@
 // window's entry imports this.
 
 import { invoke, listen } from "./tauri.ts";
+import { onPhone } from "./platform.ts";
 import { nextZoom, zoomKey, ZOOMED } from "./zoom-state.ts";
 
 // Capture, so it comes before a terminal or any page's own keys.
-document.addEventListener("keydown", e => {
+if (!onPhone()) document.addEventListener("keydown", e => {
   const key = zoomKey(e);
   if (!key) return;
   e.preventDefault();
