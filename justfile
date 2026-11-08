@@ -50,8 +50,8 @@ desktop-release version:
     ! git rev-parse -q --verify "refs/tags/desktop-v{{version}}" > /dev/null || { echo "desktop-v{{version}} already exists" >&2; exit 1; }
     sed -i.bak '1,/^version = /s/^version = ".*"$/version = "{{version}}"/' apps/desktop/src-tauri/Cargo.toml && rm apps/desktop/src-tauri/Cargo.toml.bak
     (cd apps/desktop/src-tauri && cargo update --workspace --offline --quiet)
-    git commit --quiet -m "Release Beep for macOS {{version}}" apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock
-    git tag -a "desktop-v{{version}}" -m "Beep for macOS {{version}}"
+    git commit --quiet -m "Release Beep desktop {{version}}" apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock
+    git tag -a "desktop-v{{version}}" -m "Beep desktop {{version}}"
     echo "Tagged desktop-v{{version}}. Publish it with: git push forgejo main desktop-v{{version}}"
 
 # Set the Android app's version, commit it and tag android-v<version>. Pushing

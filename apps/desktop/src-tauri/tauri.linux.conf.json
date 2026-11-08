@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "targets": ["deb", "appimage"]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://releases.flashmind.com/beep/linux/latest.json"]
+    }
+  }
+}

@@ -1,4 +1,4 @@
-# Builds and releases the macOS DMG only for a `desktop-v<version>` tag
+# Builds and releases desktop installers for a `desktop-v<version>` tag
 # (made by `just desktop-release <version>`).
 # It must be signed and notarized, its version must match
 # the tag, and the DMG is attached to a Forgejo release for the tag and
@@ -8,7 +8,7 @@
 # and uv installed for the runner's user. The server's https:// address is the
 # repository variable BEEP_SERVER_URL.
 #
-# Every build requires the Developer ID certificate and App Store Connect API
+# The macOS build requires the Developer ID certificate and App Store Connect API
 # secrets. The app and disk image are signed, notarized, and verified.
 name: desktop
 
@@ -157,7 +157,7 @@ jobs:
         run: |
           set -euo pipefail
           dmg="target/macos-release/Beep-$VERSION-$(uname -m).dmg"
-          release=$(jq -n --arg tag "$GITHUB_REF_NAME" --arg name "Beep for macOS $VERSION" \
+          release=$(jq -n --arg tag "$GITHUB_REF_NAME" --arg name "Beep desktop $VERSION" \
             '{tag_name: $tag, name: $name}' \
             | curl -sSf -X POST -H "Authorization: token $TOKEN" \
                 -H "Content-Type: application/json" --data @- "$API/releases" \
@@ -222,3 +222,152 @@ jobs:
           r2-bucket: ${{ secrets.CF_BUCKET }}
           source-dir: ${{ steps.r2.outputs.manifest }}
           destination-dir: beep/macos
+
+  linux:
+    runs-on: host
+    env:
+      BEEP_SERVER_URL: ${{ vars.BEEP_SERVER_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the version and signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' apps/desktop/src-tauri/Cargo.toml | head -1)
+          [[ "desktop-v$version" == "$GITHUB_REF_NAME" ]]
+          [[ -n "$TAURI_SIGNING_PRIVATE_KEY" ]]
+
+      # Debian 12 keeps the glibc requirement below that of the build host.
+      - name: Build Debian and AppImage installers
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          docker build -f scripts/Dockerfile.desktop-linux --build-arg BEEP_SERVER_URL \
+            --secret id=updater_key,env=TAURI_SIGNING_PRIVATE_KEY \
+            --secret id=updater_password,env=TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
+            --output type=local,dest=dist/linux .
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: beep-linux
+          path: dist/linux/*
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows
+    defaults:
+      run:
+        shell: powershell
+    env:
+      BEEP_SERVER_URL: ${{ vars.BEEP_SERVER_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check the version and signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Select-String -Path apps/desktop/src-tauri/Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+          if ("desktop-v$version" -ne $env:GITHUB_REF_NAME) { throw 'The tag does not match the desktop version' }
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { throw 'Missing updater signing key' }
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build the Windows installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:CARGO_TARGET_DIR = Join-Path $env:GITHUB_WORKSPACE 'target/desktop-windows'
+          $config = Join-Path $env:RUNNER_TEMP 'desktop-updater.json'
+          '{"bundle":{"createUpdaterArtifacts":true}}' | Set-Content -Path $config -Encoding ascii
+          & ./scripts/build-desktop-windows.ps1 -TauriArgs @('--config', $config, '--', '--locked')
+          if ($LASTEXITCODE) { throw 'Windows desktop build failed' }
+          New-Item -ItemType Directory -Force dist/windows | Out-Null
+          Copy-Item "$env:CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe*" dist/windows/
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: beep-windows
+          path: dist/windows/*
+          if-no-files-found: error
+
+  publish-installers:
+    # The DMG job creates the tag's release. Attach the other installers to it.
+    needs: [dmg, linux, windows]
+    runs-on: host
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux, windows]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v3
+        with:
+          name: beep-${{ matrix.platform }}
+          path: dist
+
+      - name: Stage installers and updater manifest
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: python3 scripts/stage-desktop-release.py "$PLATFORM" dist "$RUNNER_TEMP/desktop-release-${{ github.run_id }}-${{ matrix.platform }}"
+
+      - name: Publish the release assets
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          release=$(curl -sSf -H "Authorization: token $TOKEN" \
+            "$API/releases/tags/$GITHUB_REF_NAME" | jq -er .id)
+          for file in "$RUNNER_TEMP/desktop-release-${{ github.run_id }}-${{ matrix.platform }}/files/"*; do
+            name=${file##*/}
+            curl -sSf -X POST -H "Authorization: token $TOKEN" \
+              -F "attachment=@$file" "$API/releases/$release/assets?name=$name" > /dev/null
+          done
+
+      - name: Check the R2 configuration
+        id: r2
+        env:
+          CF_ENDPOINT: ${{ secrets.CF_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CF_ENDPOINT" ]]; then echo "No R2 secrets, skipping"; exit 0; fi
+          account=${CF_ENDPOINT#https://}
+          echo "account=${account%%.*}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload installers to R2
+        if: steps.r2.outputs.account != ''
+        uses: https://github.com/ryand56/r2-upload-action@v1.5
+        with:
+          r2-account-id: ${{ steps.r2.outputs.account }}
+          r2-access-key-id: ${{ secrets.CF_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.CF_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ secrets.CF_BUCKET }}
+          source-dir: ${{ runner.temp }}/desktop-release-${{ github.run_id }}-${{ matrix.platform }}/files
+          destination-dir: beep/${{ matrix.platform }}
+
+      - name: Point installed apps at the update
+        if: steps.r2.outputs.account != ''
+        env:
+          ACCOUNT: ${{ steps.r2.outputs.account }}
+          PLATFORM: ${{ matrix.platform }}
+          CF_ACCESS_KEY_ID: ${{ secrets.CF_ACCESS_KEY_ID }}
+          CF_SECRET_ACCESS_KEY: ${{ secrets.CF_SECRET_ACCESS_KEY }}
+          CF_BUCKET: ${{ secrets.CF_BUCKET }}
+        run: |
+          set -euo pipefail
+          file="$RUNNER_TEMP/desktop-release-${{ github.run_id }}-${{ matrix.platform }}/manifest/latest.json"
+          curl -sSf --retry 3 --aws-sigv4 "aws:amz:auto:s3" \
+            --user "$CF_ACCESS_KEY_ID:$CF_SECRET_ACCESS_KEY" \
+            -H "x-amz-content-sha256: $(sha256sum "$file" | cut -d ' ' -f 1)" \
+            -H "Cache-Control: no-cache" -H "Content-Type: application/json" \
+            -T "$file" "https://$ACCOUNT.r2.cloudflarestorage.com/$CF_BUCKET/beep/$PLATFORM/latest.json" > /dev/null
