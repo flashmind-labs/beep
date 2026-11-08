@@ -79,10 +79,10 @@ export async function editQueued(i: number, edit: boolean) {
   const q = AG.queue[i], o = AG.open;
   if (!q || q.state === "delivered") return;
   AG.queue.splice(i, 1);
-  drawQueue();
+  drawAgentBody();
   if (q.how === "steer" && q.state === "sent") {
     if (!await steerAgent({ drop_steers: null })) {
-      if (isOpen(o)) { AG.queue.splice(i, 0, q); drawQueue(); }
+      if (isOpen(o)) { AG.queue.splice(i, 0, q); drawAgentBody(); }
       return;
     }
     if (!isOpen(o)) return;
@@ -106,8 +106,8 @@ async function sendSteer(q: Waiting, back = true) {
   const o = AG.open;
   if (!o) return false;
   q.state = "sending";
-  drawQueue();
-  redrawAgentHints();
+  q.entryFrom ??= AG.page ? AG.page.earlier + AG.page.entries.length : 0;
+  drawAgentBody();
   if (q.images.length) keepAgentPics(o, q.images);
   const ok = await steerAgent({ steer: outgoing(q.text, q.images) });
   if (!isOpen(o)) return ok;
@@ -120,8 +120,7 @@ async function sendSteer(q: Waiting, back = true) {
     if (at >= 0) AG.queue.splice(at, 1);
     if (back) backInField(q);
   }
-  drawQueue();
-  redrawAgentHints();
+  drawAgentBody();
   return ok;
 }
 

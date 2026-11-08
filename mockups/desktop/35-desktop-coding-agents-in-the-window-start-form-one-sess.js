@@ -488,8 +488,8 @@
   D.dAgentSession = () => {
     const variant = pick("ags", ["nochange", "held", "fromsession", "warning", "working", "asks", "idle", "stepsopen", "failed", "failedopen", "subagents", "subchild", "agentkids", "agentchild", "agentstopped", "answered", "model", "flshmodel", "flshusage", "flshunknown", "ended", "outside", "disksubs", "image", "shots", "shotpanel", "paneright", "panegone", "panebottom", "panepdf", "panecollapsed", "files", "filemulti", "filedelete", "filemenu", "filemenuwith", "filetext", "filefilter", "dragpath", "dropchoice", "term", "termsplit", "dragtab", "pasted", "pastepreview", "artifacts", "running", "runstop", "thinking", "thoughts", "thoughtopen", "steer", "steered", "stopping", "rich", "richopen", "richcmd", "richgroup", "richdone", "richerror", "richjump", "richthink", "richthought"], "nochange");
     const v = variant === "flshusage" || variant === "flshunknown" ? "idle" : variant;
-    // Enter while a turn runs steers: the message waits above the field and
-    // goes to the agent once its current step (tool call) finishes.
+    // Enter while a turn runs shows the message in the chat immediately.
+    // It stays pending until the agent receives it after its current step.
     // Cmd-. stops at once: the turn reads
     // Stopping until the agent confirms.
     const stopping = v === "stopping";
@@ -617,6 +617,7 @@ expected 200, got 401</pre></details></span></div>`;
       subs ? group : thinkV && v !== "thinking" ? dRows(step("run", "Running cargo test -p widget-core")) : thinkV ? "" : dRows(step("run", asks ? "Run rm -rf target && cargo build --release" : "Running cargo test -p widget-core")),
       v === "thinking" ? dThink({ live: true, text: T2 }) : "",
       dLive(asks ? "Waiting for you" : v === "thinking" ? "Thinking" : "Working", "48s", { doing: asks || subs || thinkV ? "" : "Checking why the error text changed" }),
+      ["steer", "steered"].includes(v) ? `<div class="dcoderen user md"${v === "steer" ? ' data-pending-steer' : ""}><b>You</b><div class="said"><p>Use the fixture in tests/data, not a new one</p></div>${v === "steer" ? '<div class="dmuted">Waiting for the current step</div>' : ""}</div>` : "",
     ].join("");
     const kidView = `<div class="crumb"><button data-dact="dset:ags:agentkids">Fix the failing login test</button><span>›</span><b>Build the iOS target</b><span class="sp"></span><button class="dbtn" data-dact="dset:ags:agentkids">Open parent<kbd>esc</kbd></button></div>
       <div class="note">Started by Fix the failing login test on build-box. Codex on mac-box, in widget.</div>

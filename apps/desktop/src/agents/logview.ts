@@ -28,6 +28,7 @@ import { drawModelPill } from "./modelpill.ts";
 import { drawModes } from "./modepill.ts";
 import { backgroundedEntry, drawTasks } from "./tasks.ts";
 import { drawQueue } from "./messages.ts";
+import { pendingSteers } from "./agentqueue.ts";
 import { olderNote } from "./older-state.ts";
 import { holdNote } from "./reconnect-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
@@ -524,7 +525,14 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   const olderText = olderNote(p, AG.older.stop, AG.older.loading);
   const earlier = olderText ? `<div class="dmuted">${esc(olderText)}</div>` : "";
   // The log goes in by turns, and only those near the view are drawn.
-  const units = p.entries.length && AG.log ? [fixed("up", upCrumb(p)), fixed("older", earlier), ...turnUnits(p)] : null;
+  const pending = pendingSteers(AG.queue, p).map((q, i) => {
+    const text = q.typed || q.text;
+    const pics = q.images.length ? `<span class="pics">${q.images.map(a => picTile(a.name, a.url, undefined)).join("")}</span>` : "";
+    const status = q.state === "sending" ? "Sending" : "Waiting for the current step";
+    return fixed(`steer${i}`, userRowHtml(text ? `<p>${esc(text).replace(/\n/g, "<br>")}</p>` : "", " data-pending-steer", `${pics}<div class="dmuted">${status}</div>`, true));
+  });
+  const units = (p.entries.length && AG.log) || pending.length
+    ? [fixed("up", upCrumb(p)), fixed("older", earlier), ...(AG.log ? turnUnits(p) : []), ...pending] : null;
   const entries = units ? '<div class="dcoderlog"></div>'
     : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
   // What stopped an outside session's log from reading is not a failed turn.
