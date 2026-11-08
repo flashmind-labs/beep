@@ -953,3 +953,73 @@ button.cc-note.in-go:hover { border-color: var(--border-hi) }
 .model-context td { font-variant-numeric: tabular-nums; overflow-wrap: anywhere }
 .model-context td small { display: block; color: var(--muted); font-size: 12px }
 .model-context td:last-child { text-align: left }
+
+/* Git history and its selected patch. */
+.gh-layout { grid-template-columns: minmax(280px, 34%) minmax(0, 1fr) }
+.gh-nav { display: flex; flex-direction: column; padding: 0; overflow: hidden; min-width: 0; min-height: 0 }
+.gh-nav-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px 8px; font-size: 14px; line-height: 20px }
+.gh-nav-head b { font-weight: 600 }
+.gh-back, .gh-collapse { border: 0; padding: 0; color: var(--muted); background: transparent; font-size: 12px; line-height: 16px; cursor: pointer }
+.gh-back:hover, .gh-collapse:hover { color: var(--fg) }
+.gh-collapse { margin-left: auto }
+.gh-search { display: block; padding: 4px 12px 12px }
+.gh-search input { display: block; width: 100%; min-width: 0; border: 1px solid var(--border); background: var(--ink); color: var(--fg); border-radius: 4px; padding: 8px; font: inherit; font-size: 12px; line-height: 16px }
+.gh-search input::placeholder { color: var(--muted) }
+.gh-tree { flex: 1; min-height: 0; overflow: auto; scrollbar-width: thin; padding: 0 8px 16px }
+.gh-node { min-width: 0; font-size: 12px; line-height: 16px }
+.gh-node > summary { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 32px; padding: 4px; border-radius: 4px; list-style: none; cursor: pointer; color: var(--fg) }
+.gh-node > summary::-webkit-details-marker { display: none }
+.gh-node > summary:hover, .gh-file:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
+.gh-node > summary svg { flex: none; width: 12px; height: 12px; fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round }
+.gh-node[open] > summary > svg { transform: rotate(90deg) }
+.gh-node > summary > small { margin-left: auto; color: var(--muted); font-size: 12px; flex: none }
+.gh-node > summary b { font-weight: 600 }
+.gh-node > summary code { font-family: var(--mono); font-size: 12px; color: var(--muted) }
+.gh-node > summary[aria-current="true"], .gh-file[aria-current="true"] { background: color-mix(in srgb, var(--fg) 9%, transparent) }
+.gh-children { margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--border); min-width: 0 }
+.gh-commit > summary { flex-wrap: wrap; gap: 4px 8px }
+.gh-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.gh-dot { width: 6px; height: 6px; flex: none; border: 1px solid var(--muted); border-radius: 50% }
+.gh-dot.merge { background: var(--muted) }
+.gh-file { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; border: 0; padding: 8px 4px 8px 16px; border-radius: 4px; text-align: left; background: transparent; color: var(--fg); font: inherit; font-size: 12px; line-height: 16px; cursor: pointer }
+.gh-file > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.gh-status { font-family: var(--mono); color: #c6a866; font-size: 12px }
+.gh-location { padding: 8px; color: var(--muted); font-size: 12px; line-height: 20px; overflow-wrap: anywhere }
+.gh-location code { font-size: 12px }
+.gh-more { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 8px; padding: 8px; margin-top: 8px; border: 0; background: transparent; color: var(--fg); text-align: left; font-size: 12px; cursor: pointer }
+.gh-more span { color: var(--muted) }
+.gh-more:hover { text-decoration: underline }
+.gh-empty { padding: 8px; margin: 0; color: var(--muted); font-size: 12px; line-height: 20px }
+.gh-nav-foot { padding: 8px 16px; color: var(--muted); font-size: 12px; line-height: 16px }
+.gh-detail { height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden }
+.gh-detail-head { padding: 16px 24px 12px }
+.gh-breadcrumb { color: var(--muted); font-size: 12px; line-height: 16px; margin-bottom: 12px }
+.gh-title-row { display: flex; align-items: start; gap: 8px; flex-wrap: wrap }
+.gh-title-row h3 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 28px; font-weight: 600; text-wrap: pretty }
+.gh-detail-head p { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 20px; overflow-wrap: anywhere }
+.gh-tabs { display: flex; align-items: center; gap: 4px; padding: 0 16px 8px }
+.gh-tabs button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12px; line-height: 16px; padding: 8px; border-radius: 4px; cursor: pointer }
+.gh-tabs button[aria-current="true"] { color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, transparent) }
+.gh-detail-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column }
+.gh-diff-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 24px; color: var(--muted); font-size: 12px; line-height: 16px }
+.gh-diff-toolbar button { margin-left: auto; padding: 0; border: 0; color: var(--muted); background: transparent; font-size: 12px; cursor: pointer }
+.gh-diff-toolbar button:hover { color: var(--fg) }
+.gh-facts { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 16px; padding: 24px; font-size: 12px; line-height: 20px }
+.gh-facts > span:nth-child(odd) { color: var(--muted) }
+.gh-facts code { overflow-wrap: anywhere }
+.gh-parent { padding: 0; border: 0; background: transparent; color: var(--fg); cursor: pointer; text-decoration: underline }
+.gh-session-view { padding: 16px 24px; font-size: 14px; line-height: 24px; overflow: auto }
+.gh-session-link { display: grid; gap: 4px; border: 1px solid var(--border); border-radius: 4px; padding: 12px; width: 100%; background: transparent; color: var(--fg); font: inherit; font-size: 14px; text-align: left; cursor: pointer }
+.gh-session-link b { font-weight: 500 }
+.gh-session-link span { color: var(--muted); font-size: 12px }
+.gh-nav button:focus-visible, .gh-detail button:focus-visible, .gh-node summary:focus-visible, .gh-search input:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px }
+@container (max-width: 640px) {
+  .gh-layout { grid-template-columns: minmax(220px, 42%) minmax(0, 1fr) }
+  .gh-title-row h3 { flex-basis: 100% }
+  .gh-detail-head { padding-inline: 16px }
+}
+
+.gh-detail.pj-det { padding: 0; gap: 0; overflow: hidden }
+.gh-detail-body > .dv { flex: 1; min-height: 0; height: auto }
+.gh-detail-body .dv-head .dv-sum .base { display: none }
+.gh-location { white-space: pre-line }

@@ -2,13 +2,13 @@
 // and the acts its agent's cards call.
 import { ago } from "../ui/format.ts";
 import { S } from "../bar/core.ts";
-import { onPlaces } from "../agents/place.ts";
+import { onPlaces, placeOf } from "../agents/place.ts";
 import { onMoves } from "../agents/move-store.ts";
-import { onClosing } from "../agents/closing.ts";
+import { onClosing, sessionVisible, shownStatus } from "../agents/closing.ts";
 import { dbtn as button } from "../ui/parts.ts";
 import { invoke, Channel, listen } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
-import type { Project } from "./projects-state.ts";
+import type { Project, SessionRow } from "./projects-state.ts";
 import { makeProjectLive, type LiveRow } from "./projectlive.ts";
 import { agentFor, pageAgent, workerSession, type ProjectAgent } from "./agent.ts";
 import type { BarTarget } from "./projectbar.ts";
@@ -17,8 +17,10 @@ import type { Picked } from "../agents/agentpicker.ts";
 import type { AgentHost, AgentSession } from "../agents/agents.ts";
 import { makeTerminals } from "../terminals/terminals.ts";
 import { makeScreen } from "../terminals/termview.ts";
+import type { BranchSessionRow } from "../review/history-state.ts";
+import { makeGitHistory } from "../review/history.ts";
 import { branchSession } from "../review/branchsession-state.ts";
-import { loadSessions, sessions } from "../agents/sessions.ts";
+import { sessions } from "../agents/sessions.ts";
 import { showChanges } from "../agentpane/media.ts";
 import { makeReviews, mergeBlock, type ReviewHead } from "../review/review.ts";
 import { makeFileSync } from "./filesync.ts";
@@ -57,6 +59,15 @@ export const revs = makeReviews({
   machines: () => state.home?.machines || [],
   diff: viewDiff,
   kept: keptSection("branches"),
+});
+
+export const gitHistory = makeGitHistory({
+  invoke,
+  back: () => openTile("overview"),
+  sessions: projectSessions,
+  openSession: openBranchSession,
+  reviewBranch: (project, branch) => void revs.openBranch(project, branch),
+  canReview: (project, branch) => (revs.branches(project)?.branches.find(b => b.name === branch)?.ahead ?? 0) > 0,
 });
 
 /// Whether the project shown is live or polling; what its host changed is
@@ -116,17 +127,32 @@ export function redrawProjects() {
   else if (AG.draft && barOn(AG.draft)) drawProjectComp(AG.draft);
 }
 
+/// The project's sessions with their latest status and reported worktree.
+function projectSessions(project: string): BranchSessionRow[] | undefined {
+  const listed = state.sessions.get(project);
+  if (!listed) return undefined;
+  const key = (s: SessionRow) => `${s.machine_id}:${s.agent}:${s.id}`;
+  const latest = new Map(sessions.map(s => [key(s), s]));
+  return listed.filter(sessionVisible).map(s => {
+    const live = latest.get(key(s));
+    const session = live && live.last_activity >= s.last_activity ? live : s;
+    return { ...session, status: shownStatus(session), worktree: placeOf(session)?.folder };
+  });
+}
+
+function openBranchSession(session: SessionRow, changes = false) {
+  go("pane", { agent: session });
+  if (changes) showChanges();
+}
+
 /// View diff: the session working on `branch`, if there is one, as a function that
 /// opens it on the Changes tab, zoomed. A branch with no session has no diff to show.
 function viewDiff(project: string, branch: string) {
   const data = revs.branches(project);
   const worktree = data?.branches.find(b => b.name === branch)?.worktree;
-  const session = branchSession(sessions, data?.machine_id, worktree);
+  const session = branchSession(projectSessions(project) || [], data?.machine_id, worktree, data?.branches.map(b => b.worktree));
   if (!session) return null;
-  return () => {
-    go("pane", { agent: session });
-    showChanges();
-  };
+  return () => openBranchSession(session, true);
 }
 
 /// The Projects page and its header, while it shows.

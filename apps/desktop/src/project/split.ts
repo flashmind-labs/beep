@@ -8,7 +8,6 @@ import { pastSessions, type Project, type WhereRow } from "./projects-state.ts";
 import { el as h, type Kid } from "../ui/dom.ts";
 import { agentFor, pageAgent, tasksSection, workersSection, cardsSection } from "./agent.ts";
 import { terminalTile, type TerminalRow } from "../terminals/terminals.ts";
-import { branchTile } from "../review/review.ts";
 import { taskTile, machineTile, askingSessions } from "./board.ts";
 import { fileSyncTile } from "./filesync.ts";
 import { issueMeta, prChip, prMeta } from "./threads.ts";
@@ -23,7 +22,7 @@ import { terminalLine } from "../terminals/view.ts";
 import { go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { agentsSection, customAgentsCount, customAgentsSection, whereSection } from "./projects.ts";
-import { pa, terms, fsync, revs, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
+import { pa, terms, fsync, revs, gitHistory, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsSection, sessionsList, sessionsDue, loadSessions } from "./loads.ts";
 import { IC } from "../ui/icons.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
@@ -165,7 +164,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     ...(view ? [{ key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat))] }] : []),
     // Running agents have their own rows above; this keeps past sessions and the custom agents.
     { key: "agents", title: "Sessions", sub: past.length ? `${past.length} past` : "None yet", detail: () => sessionTabs(p, running, rows) },
-    { key: "branches", title: "Branches", sub: branchTile(revs.branches(p.name), revs.reviews(p.name), ago).count || "", detail: () => revs.branchesPanel(p.name) },
+    { key: "branches", title: "Git", sub: "History and worktrees", detail: () => [] },
   ] });
   const num = (n: number) => h("span", "num", `#${n}`);
   const prs = thr.prs(pid), issues = thr.issues(pid);
@@ -224,7 +223,8 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     }
   }
   const error = state.pview.get(p.name)?.error;
-  const det = h("div", "pj-det", error ? errorNote(`Could not refresh the project: ${error}`) : null, ...picked.detail!());
+  const history = pa.tile === "branches" ? gitHistory.panels(p.name) : null;
+  const det = history?.detail || h("div", "pj-det", error ? errorNote(`Could not refresh the project: ${error}`) : null, ...picked.detail!());
   const waiting = threads?.filter(t => t.needs_reply).length ?? 0;
   const strip = statusStrip([
     { label: projectBranch(state.gitsync.get(p.name) ?? pages.get<GitRow[]>("gitsync", p.name), state.mac?.id || null) || "", text: "branch", key: "branches" },
@@ -234,7 +234,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     { label: plural(prItems.length, "PR", "PRs"), text: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : "open", key: "overview" },
     { label: plural(issueItems.length, "issue", "issues"), text: "open", key: "issues" },
   ]);
-  return [strip, h("div", "pj-split", list, det)];
+  return [strip, h("div", history ? "pj-split gh-layout" : "pj-split", history?.navigation || list, det)];
 }
 
 /// The strip under the project's title: its branch, Actions, agents, machines,

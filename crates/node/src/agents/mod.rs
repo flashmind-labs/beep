@@ -61,6 +61,7 @@ mod work_diff;
 mod work_folder;
 mod worktrees;
 
+pub use work_diff::parse_git_patch;
 pub use work_folder::{local_read, local_tree};
 
 pub(crate) use acp::{Line, LineReader};

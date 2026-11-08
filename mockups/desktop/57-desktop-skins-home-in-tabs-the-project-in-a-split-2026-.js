@@ -800,15 +800,7 @@
       + csec("Past sessions", 2, `<div class="cc-panel">
         <div class="pv-row" style="cursor:pointer" data-dgo="dAgentSession"><span class="t">Retry uploads when the token expires</span><span class="m" style="align-items:center">${pvMark("claude")}<span>ended</span><span>build-box</span><span>widget</span><span>2 h</span></span></div>
         <div class="pv-row" style="cursor:pointer" data-dgo="dAgentSession"><span class="t">Bump the toolchain</span><span class="m" style="align-items:center">${pvMark("codex")}<span>ended</span><span>studio</span><span>widget</span><span>1 d</span></span></div></div>`),
-    branches: () => {
-      const br = (name, marks, subject, acts) => `<div class="pj-task pj-br"><span class="t"><code>${name}</code>${marks}</span><span class="m"><span>${subject}</span></span>${acts ? `<span class="acts rv-acts">${acts}</span>` : ""}</div>`;
-      const add = n => `<span class="br-add">+${n}</span>`, tag = t => `<span class="br-tag">${t}</span>`;
-      return `<div><div class="cc-sec"><h4>Branches</h4><small>read on build-box</small>${pb("Refresh", "quiet small")}</div><div class="cc-panel">
-        ${br("main", tag("default"), "Merge the sync crate bump · 1 h", "")}
-        ${br("login-copy", add(3) + tag("worktree"), "Say the same thing for a wrong email · 2 h", pb("View diff", "quiet small") + pb("Open review · needs changes", "small") + pb("Review again", "quiet small"))}
-        ${br("fix-approval", add(2) + tag("worktree") + tag("not pushed"), "Swipe to approve · 1 min", pb("View diff", "quiet small") + pb("Review", "pri small"))}
-        ${br("bump-sync", add(1), "Bump the sync crate · 9 d", pb("Review", "pri small") + pb("Add worktree", "small") + pb("Other machine…", "quiet small"))}</div></div>`;
-    },
+    branches: () => window.gitTreeMock(),
     machines: () => S.d.pwr === "one" ? csec("Where it lives", "", `<div class="cc-mt cc-pt pj-where" style="grid-template-columns:fit-content(40%) minmax(0,1fr) auto"><span class="th">Machine</span><span class="th">Folder</span><span class="th"></span>
         <span class="nm"><b>build-box</b></span><span class="nm"><span class="os">/srv/project/widget</span>${gnote("main", "")}</span><span class="acts">${gpair(0, 0, false, false)}${pb("Copy path", "quiet small")}${pb("Start an agent here", "small")}${rmb("build-box", "A project stays on at least one machine.")}</span>
         <span class="nm"><b>laptop</b></span><span class="nm"><span class="os">Not on laptop</span></span><span class="acts"><button class="dbtn small" data-dact="dset:pa:form" data-dgo="dAddToMachine">Add</button></span>
