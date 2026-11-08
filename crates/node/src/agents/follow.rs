@@ -16,7 +16,7 @@ use tokio::{
 static READERS: Semaphore = Semaphore::const_new(32);
 const RETAINED_ENTRIES: usize = 5000;
 // Leave room for source metadata inside the transport's 8 MiB frame limit.
-const RETAINED_TEXT: usize = 4 * 1024 * 1024;
+const RETAINED_BYTES: usize = 4 * 1024 * 1024;
 
 const HEARTBEAT: Duration = Duration::from_secs(10);
 const WRITE_WAIT: Duration = Duration::from_secs(15);
@@ -345,14 +345,14 @@ async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Res
         let prior = previous.take();
         let requested = request.clone();
         let (snapshot, update, changed) = spawn_blocking(move || {
-            let (snapshot, update) = next_update(snapshot, prior.as_ref(), &requested);
+            let (snapshot, update) = next_update(snapshot, prior.as_ref(), &requested)?;
             let changed = prior.as_ref().is_none_or(|prior| {
                 prior.cursor != snapshot.cursor || prior.source != snapshot.source
             });
-            (snapshot, update, changed)
+            Ok::<_, anyhow::Error>((snapshot, update, changed))
         })
         .await
-        .context("preparing transcript update")?;
+        .context("preparing transcript update")??;
         previous = Some(snapshot);
         if changed {
             send(tx, &update).await?;
@@ -419,50 +419,37 @@ fn recent_deadline(session: &beep_proto::node::agent::ExternalSession) -> Option
 }
 
 /// Hash exactly the canonical window the client can retain and validate on reconnect.
-fn fingerprint(start: u64, entries: &[Entry]) -> String {
+fn fingerprint(start: u64, entries: &[Entry]) -> Result<String> {
+    let wire = rmp_serde::to_vec(entries).context("encoding transcript checkpoint")?;
     let mut hash = blake3::Hasher::new();
     hash.update(b"session-window/1");
     hash.update(&start.to_le_bytes());
-    for entry in entries {
-        let kind = entry.kind.as_str().as_bytes();
-        hash.update(&(kind.len() as u64).to_le_bytes());
-        hash.update(kind);
-        hash.update(&(entry.text.len() as u64).to_le_bytes());
-        hash.update(entry.text.as_bytes());
-        match entry.ms {
-            Some(ms) => {
-                hash.update(&[1]);
-                hash.update(&ms.to_le_bytes());
-            }
-            None => {
-                hash.update(&[0]);
-            }
-        }
-    }
-    hash.finalize().to_hex().to_string()
+    hash.update(&u64::try_from(wire.len())?.to_le_bytes());
+    hash.update(&wire);
+    Ok(hash.finalize().to_hex().to_string())
 }
 
-fn window(mut snapshot: SessionSnapshot, start: u64) -> SessionSnapshot {
+fn window(mut snapshot: SessionSnapshot, start: u64) -> Result<SessionSnapshot> {
     let skip = start
         .saturating_sub(snapshot.earlier)
         .min(snapshot.entries.len() as u64) as usize;
     snapshot.entries.drain(..skip);
     snapshot.earlier += skip as u64;
     snapshot.cursor.start = snapshot.earlier;
-    snapshot.cursor.fingerprint = fingerprint(snapshot.earlier, &snapshot.entries);
-    snapshot
+    snapshot.cursor.fingerprint = fingerprint(snapshot.earlier, &snapshot.entries)?;
+    Ok(snapshot)
 }
 
-fn validates(snapshot: &SessionSnapshot, cursor: &SessionCursor) -> bool {
+fn validates(snapshot: &SessionSnapshot, cursor: &SessionCursor) -> Result<bool> {
     if cursor.start < snapshot.earlier
         || cursor.next < cursor.start
         || cursor.next > snapshot.cursor.next
     {
-        return false;
+        return Ok(false);
     }
     let start = (cursor.start - snapshot.earlier) as usize;
     let end = (cursor.next - snapshot.earlier) as usize;
-    fingerprint(cursor.start, &snapshot.entries[start..end]) == cursor.fingerprint
+    Ok(fingerprint(cursor.start, &snapshot.entries[start..end])? == cursor.fingerprint)
 }
 
 /// Keeps only the suffix that replaces entries the reader already holds.
@@ -491,11 +478,40 @@ fn suffix(snapshot: &SessionSnapshot, skip: usize, resumed: bool) -> SessionSnap
     }
 }
 
+fn retained(mut snapshot: SessionSnapshot) -> Result<SessionSnapshot> {
+    // Reserve the largest compact array header before counting complete entries.
+    let mut bytes = 5usize;
+    let mut kept = 0;
+    for entry in snapshot.entries.iter().rev() {
+        let encoded = rmp_serde::to_vec(entry).context("measuring transcript entry")?;
+        let next = bytes
+            .checked_add(encoded.len())
+            .context("transcript size overflow")?;
+        if next > RETAINED_BYTES {
+            break;
+        }
+        bytes = next;
+        kept += 1;
+    }
+    if kept == 0 && !snapshot.entries.is_empty() {
+        bail!("a transcript entry exceeds the retained window limit");
+    }
+    let removed = snapshot.entries.len() - kept;
+    snapshot.entries.drain(..removed);
+    snapshot.earlier = snapshot
+        .earlier
+        .checked_add(u64::try_from(removed)?)
+        .context("transcript position overflow")?;
+    snapshot.cursor.start = snapshot.earlier;
+    Ok(snapshot)
+}
+
 fn next_update(
     snapshot: SessionSnapshot,
     previous: Option<&SessionSnapshot>,
     request: &FollowSession,
-) -> (SessionSnapshot, SessionUpdate) {
+) -> Result<(SessionSnapshot, SessionUpdate)> {
+    let snapshot = retained(snapshot)?;
     let initial_start = snapshot
         .cursor
         .next
@@ -503,23 +519,23 @@ fn next_update(
     if let Some(previous) = previous {
         // Retention loss, a source reset, or truncation before our window requires a fresh view.
         if snapshot.earlier <= previous.cursor.next && previous.earlier < snapshot.cursor.next {
-            let snapshot = window(snapshot, previous.earlier);
+            let snapshot = window(snapshot, previous.earlier)?;
             let delta = since(&snapshot, previous);
-            return (snapshot, SessionUpdate::Delta(Box::new(delta)));
+            return Ok((snapshot, SessionUpdate::Delta(Box::new(delta))));
         }
     } else if let Some(after) = &request.after
-        && validates(&snapshot, after)
+        && validates(&snapshot, after)?
     {
-        let snapshot = window(snapshot, after.start);
+        let snapshot = window(snapshot, after.start)?;
         let skip = (after.next - snapshot.earlier) as usize;
         let update = suffix(&snapshot, skip, true);
-        return (snapshot, SessionUpdate::Snapshot(Box::new(update)));
+        return Ok((snapshot, SessionUpdate::Snapshot(Box::new(update))));
     }
-    let snapshot = window(snapshot, initial_start);
-    (
+    let snapshot = window(snapshot, initial_start)?;
+    Ok((
         snapshot.clone(),
         SessionUpdate::Snapshot(Box::new(snapshot)),
-    )
+    ))
 }
 
 async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSnapshot> {
@@ -551,7 +567,7 @@ async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSna
     };
     // Source readers already bound their retained transcript and memoize disk parsing.
     // Read enough to validate the cached window, including mutable tools before its tail.
-    let (mut entries, mut earlier) = if let Some(session) = agents.get(&request.session) {
+    let (entries, earlier) = if let Some(session) = agents.get(&request.session) {
         agents
             .live_transcript(&session, RETAINED_ENTRIES, None)
             .await
@@ -575,20 +591,6 @@ async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSna
         }
         (read.entries, read.earlier)
     };
-    let mut bytes = 0usize;
-    let kept = entries
-        .iter()
-        .rev()
-        .take_while(|entry| {
-            bytes = bytes.saturating_add(entry.text.len());
-            bytes <= RETAINED_TEXT
-        })
-        .count();
-    let removed = entries.len() - kept;
-    entries.drain(..removed);
-    earlier = earlier
-        .checked_add(u64::try_from(removed)?)
-        .context("transcript position overflow")?;
     let next = earlier
         .checked_add(u64::try_from(entries.len())?)
         .context("transcript position overflow")?;
@@ -803,7 +805,8 @@ mod tests {
                         .iter()
                         .map(|text| Entry::new(EntryKind::Agent, (*text).into()))
                         .collect::<Vec<_>>(),
-                ),
+                )
+                .unwrap(),
             },
             resumed: false,
         }
@@ -819,17 +822,58 @@ mod tests {
     }
 
     #[test]
+    fn fingerprints_cover_the_complete_compact_entry_encoding() {
+        let mut entry = Entry::new(EntryKind::Thought, "thinking".into());
+        entry.ms = Some(123);
+        let entries = vec![entry];
+        let encoded = rmp_serde::to_vec(&entries).unwrap();
+        let mut expected = blake3::Hasher::new();
+        expected.update(b"session-window/1");
+        expected.update(&7_u64.to_le_bytes());
+        expected.update(&(encoded.len() as u64).to_le_bytes());
+        expected.update(&encoded);
+        assert_eq!(
+            fingerprint(7, &entries).unwrap(),
+            expected.finalize().to_hex().to_string()
+        );
+        let before = page(7, &["thinking"]);
+        let mut changed = before.clone();
+        changed.entries[0].ms = Some(123);
+        let (after, update) = next_update(changed, Some(&before), &request(None)).unwrap();
+        assert_ne!(after.cursor.fingerprint, before.cursor.fingerprint);
+        assert!(
+            matches!(update, SessionUpdate::Delta(ref delta) if delta.entries[0].ms == Some(123))
+        );
+    }
+
+    #[test]
+    fn retention_counts_complete_encoded_entries_and_rejects_an_oversized_entry() {
+        let entry = Entry::new(EntryKind::Tool, "x".repeat(RETAINED_BYTES / 2 - 64));
+        let mut snapshot = page(0, &[]);
+        snapshot.entries = vec![entry; 3];
+        snapshot.cursor.next = 3;
+        let retained = retained(snapshot).unwrap();
+        assert_eq!(retained.earlier, 1);
+        assert_eq!(retained.entries.len(), 2);
+        assert!(rmp_serde::to_vec(&retained.entries).unwrap().len() <= RETAINED_BYTES);
+        let mut snapshot = page(0, &[]);
+        snapshot.entries = vec![Entry::new(EntryKind::Tool, "x".repeat(RETAINED_BYTES))];
+        snapshot.cursor.next = 1;
+        assert!(next_update(snapshot, None, &request(None)).is_err());
+    }
+
+    #[test]
     fn deltas_replace_same_count_edits_and_truncate_the_suffix() {
         let before = page(3, &["one", "thi"]);
         let (retained, update) =
-            next_update(page(3, &["one", "thinking"]), Some(&before), &request(None));
+            next_update(page(3, &["one", "thinking"]), Some(&before), &request(None)).unwrap();
         let SessionUpdate::Delta(update) = update else {
             panic!("expected delta")
         };
         assert_eq!(update.earlier, 4);
         assert_eq!(update.entries[0].text, "thinking");
         assert_eq!(update.cursor, retained.cursor);
-        let (_, update) = next_update(page(3, &["one"]), Some(&retained), &request(None));
+        let (_, update) = next_update(page(3, &["one"]), Some(&retained), &request(None)).unwrap();
         let SessionUpdate::Delta(update) = update else {
             panic!("expected delta")
         };
@@ -845,7 +889,8 @@ mod tests {
             page(4, &["two", "three", "four"]),
             Some(&before),
             &request(None),
-        );
+        )
+        .unwrap();
         let SessionUpdate::Delta(update) = update else {
             panic!("expected delta")
         };
@@ -858,7 +903,7 @@ mod tests {
             page(0, &["reset", "before", "window"]),
         ] {
             assert!(matches!(
-                next_update(fresh, Some(&before), &request(None)).1,
+                next_update(fresh, Some(&before), &request(None)).unwrap().1,
                 SessionUpdate::Snapshot(_)
             ));
         }
@@ -868,7 +913,8 @@ mod tests {
     fn reconnect_validates_the_retained_prefix_and_only_sends_new_entries() {
         let before = page(3, &["one", "two"]);
         let after = page(3, &["one", "two", "three"]);
-        let (_, update) = next_update(after.clone(), None, &request(Some(before.cursor.clone())));
+        let (_, update) =
+            next_update(after.clone(), None, &request(Some(before.cursor.clone()))).unwrap();
         let SessionUpdate::Snapshot(update) = update else {
             panic!("expected snapshot")
         };
@@ -883,7 +929,7 @@ mod tests {
                 ..before.cursor.clone()
             },
         ] {
-            let (_, update) = next_update(after.clone(), None, &request(Some(cursor)));
+            let (_, update) = next_update(after.clone(), None, &request(Some(cursor))).unwrap();
             let SessionUpdate::Snapshot(update) = update else {
                 panic!("expected snapshot")
             };
@@ -925,14 +971,14 @@ mod tests {
         };
         let raw = snapshot(&agents, &request).await.unwrap();
         assert_eq!(raw.entries.len(), 250);
-        let (initial, _) = next_update(raw, None, &request);
+        let (initial, _) = next_update(raw, None, &request).unwrap();
         assert_eq!(initial.entries.len(), 200);
         assert_eq!(initial.cursor.start, 50);
         text.push_str(&line(250));
         std::fs::write(file, text).unwrap();
         request.after = Some(initial.cursor);
         let raw = snapshot(&agents, &request).await.unwrap();
-        let (retained, update) = next_update(raw, None, &request);
+        let (retained, update) = next_update(raw, None, &request).unwrap();
         assert_eq!(retained.entries.len(), 201);
         let SessionUpdate::Snapshot(update) = update else {
             panic!("expected snapshot")

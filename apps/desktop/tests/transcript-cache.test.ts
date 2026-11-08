@@ -77,3 +77,14 @@ test("late readers cannot alter a cached session after navigating away and retur
   readers[2](update("snapshot", 1, ["current"], 0, true));
   assert.deepEqual(cache.get("one")?.page.entries.map(e => e.text), ["first", "current"]);
 });
+
+
+test("cache budget includes structured tool payloads", () => {
+  const cache = new TranscriptCache<Run>(8, 90);
+  const first = update("snapshot", 0, ["a"]);
+  Object.assign(first.page.entries[0], { tool: { result: "x".repeat(80) } });
+  cache.receive("one", first);
+  cache.receive("two", update("snapshot", 0, ["b"]));
+  assert.equal(cache.get("one"), undefined);
+  assert.ok(cache.get("two"));
+});
