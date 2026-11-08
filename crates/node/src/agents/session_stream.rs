@@ -124,10 +124,20 @@ pub async fn serve_session(
     }
     let info = live.borrow_and_update().info.clone();
     let mut seen = Seen::new(&info);
-    tx.send(&Event::Attached {
-        session: Box::new(info),
-    })
-    .await?;
+    let session_id = info.id.clone();
+    if let Err(error) = tx
+        .send(&Event::Attached {
+            session: Box::new(info),
+        })
+        .await
+    {
+        log::warn!(
+            "{} session {session_id}: failed to send attachment: {error:#}",
+            kind.name
+        );
+        return Err(error);
+    }
+    log::info!("{} session {session_id}: attachment sent", kind.name);
     if seen.state.status == Status::Ended {
         return tx
             .send(&Event::Ended {
