@@ -12,8 +12,8 @@ pub const LABEL: &str = "center";
 /// The window never shrinks below this.
 #[cfg_attr(mobile, allow(dead_code))]
 const MIN_WIDTH: f64 = 1000.0;
-const MIN_HEIGHT: f64 = 640.0;
 #[cfg_attr(mobile, allow(dead_code))]
+const MIN_HEIGHT: f64 = 640.0;
 /// Share of the screen the window opens at.
 #[cfg_attr(mobile, allow(dead_code))]
 const SHARE: f64 = 0.95;
