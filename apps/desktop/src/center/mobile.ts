@@ -133,12 +133,25 @@ function longPress() {
   }, true);
 }
 
-/// The soft keyboard takes the tab bar's place instead of squeezing the page.
+const HIDE_KEYBOARD = "M4 7h16v8H4z M7 10h.1M10 10h.1M13 10h.1M16 10h.1M8 13h8 M9 18l3 3 3-3";
+
+/// The soft keyboard takes the tab bar's place instead of squeezing the page. While it is up,
+/// the composer being typed in shows a button that puts it away.
 function keyboard() {
   const vv = window.visualViewport;
   if (!vv) return;
   const check = () => document.body.classList.toggle("mb-kbd", window.innerHeight - vv.height > 150);
   vv.addEventListener("resize", check);
+  const hide = h("button", "mb-kbdhide", svg(HIDE_KEYBOARD, 20));
+  hide.type = "button";
+  hide.setAttribute("aria-label", "Hide the keyboard");
+  // Pressing it must not take the focus first, or the field loses it before the tap lands.
+  hide.addEventListener("pointerdown", e => e.preventDefault());
+  hide.addEventListener("click", () => (document.activeElement as HTMLElement | null)?.blur());
+  document.addEventListener("focusin", e => {
+    const field = e.target instanceof Element ? e.target.closest(".dinput") : null;
+    if (field && hide.parentElement !== field) field.append(hide);
+  });
 }
 
 /// Tooltips that name a shortcut lose it; the key handlers stay for a connected keyboard.
