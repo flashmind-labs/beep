@@ -1,6 +1,6 @@
 //! Coding-agent sessions on the user's machines.
 
-use crate::{AgentEffort, ApiError, MachineCapability, ModelId, Upload};
+use crate::{AgentEffort, ApiError, MachineCapability, ModelId, ProviderCredits, Upload};
 use std::time::SystemTime;
 use uuid::Uuid;
 
@@ -120,6 +120,9 @@ ffi_structs! {
         /// What its finished turns cost at API prices, in US dollars; `None`
         /// for an agent that reports no cost, as Codex and Gemini do.
         pub cost_usd: Option<f64>,
+        /// Provider balances as this session last reported them.
+        #[serde(default)]
+        pub credits: Vec<ProviderCredits>,
     }
 
     /// The modes a session Beep runs can be switched between, as

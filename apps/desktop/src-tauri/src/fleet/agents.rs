@@ -269,6 +269,7 @@ pub(crate) async fn usage(
         context: info.context,
         tokens: info.tokens,
         cost_usd: info.cost_usd,
+        credits: info.credits,
     })
 }
 

@@ -2,7 +2,7 @@ import { answers, bar, calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { S, connectWindow, windowHooks, type BackTo, type WindowHooks } from "../src/bar/core.ts";
-import { AG, type AgentPage, type AgentRow, agentBack, agentKeys, drawAgents } from "../src/agents/agents.ts";
+import { AG, type AgentPage, type AgentRow, agentBack, agentKeys, drawAgents, usageLine } from "../src/agents/agents.ts";
 import { closeSession, visibleRunning } from "../src/agents/closing.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
 import { agentHints, closeOpenSession, pollAgent } from "../src/agents/session.ts";
@@ -363,8 +363,7 @@ for (const from of [{ view: "home" }, { view: "projects", arg: { project: "acme/
     closeDestination(t, from);
     AG.modelOpen = true;
     t.after(() => { AG.modelOpen = false; });
-    const button = { hidden: false, disabled: false, textContent: "" };
-    show({ "#agclose": button });
+    show({});
     let finish!: (value: null) => void;
     answers.agent_steer = new Promise(resolve => { finish = resolve; });
     let prevented = 0;
@@ -375,7 +374,6 @@ for (const from of [{ view: "home" }, { view: "projects", arg: { project: "acme/
     assert.equal(agentKeys(event, true), false);
     assert.deepEqual(steers(), ["close"]);
     assert.equal(prevented, 1);
-    assert.equal(button.disabled, true);
     S.view = "chat";
     finish(null);
     await settle();
@@ -443,4 +441,14 @@ test("an image can be sent with no prompt", async () => {
   assert.equal(input.value, "");
   assert.deepEqual(AG.att, []);
   assert.equal(page.entries[0].text, "[image: shot.png]");
+});
+
+test("session usage shows cumulative tokens and spend apart from the remaining key budget", () => {
+  const credit = { provider: "openrouter", scope: "api_key", unit: "usd", remaining: "7.25", total: "10", used: "2.75", resets: "monthly" };
+  const usage = { context: { used: 441_000, size: 1_050_000 }, tokens: 182_000, cost_usd: 1.27, credits: [credit] };
+  assert.equal(usageLine(usage), "42%/1.05M · 182k tokens · $1.27 / $7.25");
+  assert.equal(usageLine({ ...usage, credits: [{ ...credit, remaining: null }] }), "42%/1.05M · 182k tokens · $1.27 / ?");
+  assert.equal(usageLine({ ...usage, credits: [{ ...credit, scope: "account" }] }), "42%/1.05M · 182k tokens · $1.27 / $7.25");
+  assert.equal(usageLine({ ...usage, credits: [{ ...credit, remaining: "0" }] }), "42%/1.05M · 182k tokens · $1.27 / $0.00");
+  assert.equal(usageLine({ context: null, tokens: 0, cost_usd: null }), "");
 });

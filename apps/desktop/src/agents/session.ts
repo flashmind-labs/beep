@@ -20,7 +20,7 @@ import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, dra
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
 import { childRow, parentRow } from "./nesting-state.ts";
 import { loadSessions, sessions, sessionsRead } from "./sessions.ts";
-import { closeSession, onClosing, shownStatus } from "./closing.ts";
+import { closeSession, shownStatus } from "./closing.ts";
 import { sessionOffers } from "./sessionmenu-state.ts";
 import { closeChild, thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest, closeSub, scrolledLog } from "./logview.ts";
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
@@ -325,18 +325,18 @@ export const sessionPicks = new Map<string, { model: string; effort: string | nu
 /// The session the mentions waiting above the field belong to.
 let paneSessionKey = "";
 
-/// The head's usage line, the session it is of, and the turns it counts.
+/// The header's usage line, the session it is of, and the turns it counts.
 let usage = { of: "", turns: -1, text: "" };
 const usageKey = (s: AgentRow) => `${s.machine_id}\n${s.agent}\n${s.id}`;
 
-/// Reads the open session's usage once per finished turn into the head.
+/// Reads the open session's usage once per finished turn into the header.
 async function readUsage(o: OpenAgent, page: AgentPage) {
   const s = page.session, of = usageKey(s);
   if (s.external || (usage.of === of && usage.turns === page.turns)) return;
   usage = { of, turns: page.turns, text: usage.of === of ? usage.text : "" };
   try {
     const u = await invoke<AgentUsage | null>("agent_usage", where(o));
-    if (usage.of !== of || !u) return;
+    if (usage.of !== of || usage.turns !== page.turns || !u) return;
     usage.text = usageLine(u);
     const line = $("#aguse");
     if (line && isOpen(o)) line.textContent = usage.text;
@@ -348,6 +348,7 @@ async function readUsage(o: OpenAgent, page: AgentPage) {
 
 /// The folder on this Mac the head's Open in button opens, for ⌘O.
 let editorFolder: string | null = null;
+let editorHead: { target: HTMLElement; key: string } | null = null;
 
 /// ⌘O: the folder in the first editor, when this Mac has it.
 export function openEditorKey() {
@@ -357,13 +358,17 @@ export function openEditorKey() {
 /// Open in an editor, in the head, when this Mac has the folder `cwd` of
 /// `machine`; `current` says the head still belongs to it.
 export async function drawEditors(machine: string, cwd: string, current: () => boolean) {
+  const target = $("#agedit"), key = JSON.stringify([machine, cwd]);
+  if (!target || (editorHead?.target === target && editorHead.key === key)) return;
+  const head = editorHead = { target, key };
   editorFolder = null;
+  target.replaceChildren();
   const folder = await invoke<string | null>("session_folder_here", { machineId: machine, cwd })
     .catch(e => { console.warn("session folder not read", e); return null; });
   const draw = () => {
-    if (!current()) return;
+    if (!current() || editorHead !== head || $("#agedit") !== target) return;
     editorFolder = folder;
-    $("#agedit")?.replaceChildren(...editorTools(folder, draw));
+    target.replaceChildren(...editorTools(folder, draw));
   };
   draw();
 }
@@ -372,7 +377,6 @@ export async function drawEditors(machine: string, cwd: string, current: () => b
 function drawAgentHeading() {
   const s = AG.page?.session;
   if (!s) return;
-  drawSessionClose();
   const title = $("#agtitle");
   if (!title) return;
   if (!title.querySelector("input")) {
@@ -386,18 +390,10 @@ function drawAgentHeading() {
   const here = $("#aghere");
   // Keep the machine menu when checkout details change.
   if (here && !here.querySelector(".mvb")) here.textContent = s.machine_name;
+  void drawEditors(s.machine_id, s.cwd, () => !!AG.page && usageKey(AG.page.session) === usageKey(s));
 }
 onPlaces(drawAgentHeading);
 
-function drawSessionClose() {
-  const s = AG.page?.session, button = $<HTMLButtonElement>("#agclose");
-  if (!s || !button) return;
-  const status = shownStatus(s);
-  button.hidden = !sessionOffers({ ...s, status }).close;
-  button.disabled = status === "closing";
-  button.textContent = button.disabled ? "Closing…" : "Close session";
-}
-onClosing(() => { if (S.view === "agent") drawSessionClose(); });
 
 /// Closes the open session, preserving its conversation for later.
 export async function closeOpenSession() {
@@ -437,7 +433,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     : `<div id="agmovebox"></div><div id="agplan"></div><div id="agtasks"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button></div><div id="agpickm"></div>`;
   // The conversation fills the window; the media pane sits beside it or under it.
   const project = windowHooks?.sessionProject?.(s);
-  const head = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b id="agtitle" title="${esc(s.title || k.name)}">${esc(s.title || k.name)}</b><small class="aglocation" title="${esc(s.cwd)}"><span class="agfolder">${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button>` : `<span id="agproj">${esc(shortCwd(s.cwd) || k.name)}</span>`}<span id="agbranch"></span></span><span>@</span><span id="aghere">${esc(s.machine_name)}</span></small></span><small id="aguse" class="aguse">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span><button class="dbtn quiet" id="agclose" title="Close session (⇧⌘W)">Close session</button></div>`;
+  const head = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b id="agtitle" title="${esc(s.title || k.name)}">${esc(s.title || k.name)}</b><small class="aglocation" title="${esc(s.cwd)}"><span class="agfolder">${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button>` : `<span id="agproj">${esc(shortCwd(s.cwd) || k.name)}</span>`}<span id="agbranch"></span></span><span>@</span><span id="aghere">${esc(s.machine_name)}</span></small></span><small id="aguse" class="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span></div>`;
   const conv = `<div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>`;
   // Out of the page a box reads 0: it keeps where the reader left it.
   const keptTop = kept ? (kept.isConnected ? kept.scrollTop : kept.top ?? 0) : 0;
@@ -465,7 +461,6 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   MN.error = agentAttachError;
   const place = { ...s, project: project?.name };
   if (inPlace) rebindPane(place); else startPane(place);
-  void drawEditors(s.machine_id, s.cwd, () => !!AG.page && usageKey(AG.page.session) === usageKey(s));
   void refreshMoves().then(drawMove);
   const msg = $<HTMLTextAreaElement>("#agmsg");
   if (msg) {
@@ -515,25 +510,6 @@ async function openKid(id: string, key?: string) {
   if (row) openAgent(row, { back: AG.back });
 }
 
-/// The X on a finished row in the pane: a child that is done closes on its
-/// machine first, and its row stays if that fails. Its transcript stays.
-async function closeRow(x: HTMLElement) {
-  const at = Number(x.dataset.subclose);
-  const kid = x.closest<HTMLElement>("[data-kid]");
-  if (kid && "endkid" in x.dataset) {
-    const row = await kidSession(kid.dataset.kid!, kid.dataset.key);
-    if (row) {
-      try {
-        await closeSession(row);
-      } catch (e) {
-        AG.note = readError(e);
-        return drawAgentBody();
-      }
-    }
-  }
-  closeSub(at);
-}
-
 /// Stop on a running child's row: stops its turn, as Stop in its own log does.
 async function stopKid(x: HTMLElement) {
   const kid = x.closest<HTMLElement>("[data-kid]");
@@ -550,7 +526,6 @@ async function stopKid(x: HTMLElement) {
 function agentClick(e: MouseEvent) {
   if (S.view !== "agent") return;
   const target = e.target as HTMLElement;
-  if (target.closest("#agclose")) return void closeOpenSession();
   const opt = target.closest<HTMLElement>("[data-agopt]");
   if (opt) return answerAgentQuestion(Number(opt.dataset.agopt));
   if (target.closest("#agmodelb")) return toggleModelPicker();
@@ -561,7 +536,7 @@ function agentClick(e: MouseEvent) {
   const queued = target.closest<HTMLElement>("[data-agq]");
   if (queued) return void editQueued(Number(queued.dataset.agq), queued.dataset.act === "edit");
   const closing = target.closest<HTMLElement>(".agpane [data-subclose]");
-  if (closing) return void closeRow(closing);
+  if (closing) return closeSub(Number(closing.dataset.subclose));
   const stopping = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-kidstop]");
   if (stopping) return void stopKid(stopping);
   const prompt = target.closest<HTMLElement>("#agbody [data-prompt]");

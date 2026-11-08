@@ -1,7 +1,7 @@
 //! One agent session's stream: what the server asks and what the node sends.
 
 use super::{CheckoutPlan, Effort};
-use crate::{AgentContext, ModelId, Upload};
+use crate::{AgentContext, ModelId, ProviderCredits, Upload};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -149,6 +149,9 @@ pub struct SessionInfo {
     /// A temporary reviewer of its parent's changes. Only `ListAll` lists
     /// reviewers.
     pub reviewer: bool,
+    /// Provider balances as this session last reported them.
+    #[serde(default)]
+    pub credits: Vec<ProviderCredits>,
 }
 
 /// Who started a session and how deep the chain goes, as the node that

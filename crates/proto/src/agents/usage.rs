@@ -41,9 +41,9 @@ wire_structs! {
         pub week: ProjectSpend,
     }
 
-    /// How much of one coding agent's plan is used.
+    /// A coding agent's plan usage and provider balances.
     pub struct PlanLimits {
-        /// `claude` or `codex`.
+        /// The agent, such as `claude`, `codex` or `flsh`.
         pub agent: AgentSlug,
         /// The plan, such as `max` or `pro`, when the agent says: free-form
         /// text the agent reports.
@@ -54,6 +54,9 @@ wire_structs! {
         pub as_of: SystemTime,
         /// The shortest window first.
         pub windows: Vec<PlanWindow>,
+        /// Provider balances, separate from subscription windows and session cost.
+        #[serde(default)]
+        pub credits: Vec<ProviderCredits>,
     }
 
     /// One rate limit window of a plan.
@@ -159,4 +162,40 @@ wire_structs! {
         /// The tokens by model, the most first, when it says.
         pub models: Vec<ModelSpend>,
     }
+}
+
+ffi_structs! {
+    /// A provider's credit snapshot, with decimal amounts encoded as strings.
+    pub struct ProviderCredits {
+        pub provider: String,
+        pub scope: CreditScope,
+        pub unit: CreditUnit,
+        pub remaining: Option<String>,
+        pub total: Option<String>,
+        pub used: Option<String>,
+        pub resets: Option<String>,
+    }
+}
+
+/// What a provider's balance applies to.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CreditScope {
+    Account,
+    ApiKey,
+    Budget,
+    #[serde(other)]
+    Unknown,
+}
+
+/// The unit of a provider's balance.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CreditUnit {
+    Usd,
+    Credits,
+    #[serde(other)]
+    Unknown,
 }
