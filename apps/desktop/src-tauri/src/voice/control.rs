@@ -251,7 +251,7 @@ impl Voice {
                 return;
             };
             LiveEvent::View {
-                phase: Into::<&'static str>::into(&s.live.phase()),
+                phase: Into::<&'static str>::into(s.live.phase()),
                 words: s.live.text(),
                 line: s.line.clone(),
                 prev: s.prev.clone(),

@@ -103,7 +103,7 @@ impl From<ResearchSummary> for ResearchItem {
         Self {
             session: research.session_id,
             topic: research.topic,
-            status: Into::<&'static str>::into(&research.status),
+            status: Into::<&'static str>::into(research.status),
             round: research.round,
             sources: research.sources,
             started_at: research.started_at,
