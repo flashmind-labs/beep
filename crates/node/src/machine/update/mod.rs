@@ -144,8 +144,8 @@ pub async fn update(options: Options) -> Result<(), Error> {
     }
     println!("Downloading beep-node {latest} for {}", Target::current()?);
     let download = download(&client, &base, &latest).await?;
-    // Kept until the restart, so the node holds new prompts until then.
-    let _holding = match wait {
+    // Keep the update connection until the restart.
+    let _connection = match wait {
         Some(limit) => wait_for_idle(&dir, limit).await,
         None => None,
     };
@@ -236,22 +236,22 @@ impl Download {
     }
 }
 
-/// Asks the running node to finish its agents' turns and hold new prompts,
-/// waiting up to `limit`. What holds them, while the node does.
-async fn wait_for_idle(dir: &Path, limit: Duration) -> Option<restart::Holding> {
+/// Asks the running node to finish its agents' turns,
+/// waiting up to `limit`. Returns the connection while the update continues.
+async fn wait_for_idle(dir: &Path, limit: Duration) -> Option<restart::UpdateConnection> {
     println!(
         "Waiting up to {} min for the agent sessions to finish their turns \
-         (`--now` skips this); new prompts wait until the restart",
+         (`--now` skips this); new prompts can still start",
         limit.as_secs().div_ceil(60)
     );
     match restart::drain(dir, limit).await {
         Drained::NoNode => None,
-        Drained::Idle(holding) => Some(holding),
-        Drained::TimedOut(holding) => {
+        Drained::Idle(connection) => Some(connection),
+        Drained::TimedOut(connection) => {
             println!(
                 "A turn still runs; restarting anyway. Its session resumes after the restart."
             );
-            Some(holding)
+            Some(connection)
         }
     }
 }

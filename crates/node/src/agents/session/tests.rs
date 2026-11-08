@@ -90,6 +90,7 @@ fn script(name: &str, script: &str, log: &Path) -> AgentKind {
         env: Default::default(),
         compact: None,
         compact_models: Vec::new(),
+        default_model: None,
     }
 }
 
@@ -772,6 +773,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         prompt: Some(String::from("go").into()),
         resume: None,
         earlier: Vec::new(),
+        timestamps: None,
         model: model.map(ModelId::new),
         effort: None,
         mode: None,
@@ -913,7 +915,8 @@ async fn a_resumed_session_switches_its_model_with_what_load_offers() {
     let temp = tempfile::tempdir().unwrap();
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
-    let kind = script("codex", RESUMED_CODEX_ADAPTER, &log);
+    let mut kind = script("codex", RESUMED_CODEX_ADAPTER, &log);
+    kind.default_model = Some(ModelId::new("deep"));
     let start = Start {
         resume: Some("0f3c2a9e-1111-4222-8333-944455556666".into()),
         ..start_on(&kind, dir, None)
@@ -2022,4 +2025,23 @@ async fn an_explicit_close_refuses_late_uploads_before_the_agent_stops() {
     .unwrap_err();
     assert!(error.to_string().contains("session is closed"), "{error:#}");
     until(&session, |live| live.status() == Status::Ended).await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_harness_default_model_is_used_unless_the_session_picks_one() {
+    for (requested, expected) in [(None, "deep"), (Some("fast"), "fast")] {
+        let temp = tempfile::tempdir().unwrap();
+        let log = temp.path().join("sent.jsonl");
+        let mut kind = script("codex", MODEL_ADAPTER, &log);
+        kind.default_model = Some(ModelId::new("deep"));
+        let session = Session::start(start_on(&kind, temp.path(), requested)).unwrap();
+        settle(&session).await;
+        assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
+        let sent = sent(&log);
+        let switched = sent
+            .iter()
+            .find(|message| message["method"] == "session/set_model");
+        assert_eq!(switched.unwrap()["params"]["modelId"], expected);
+    }
 }

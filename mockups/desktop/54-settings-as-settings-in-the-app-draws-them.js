@@ -406,7 +406,7 @@ const SETV = (() => {
     : v === "acct-old" ? `<div class="dmuted">The server needs an update before it keeps agent accounts.</div>`
     : v === "acct-load" ? skel(2)
     : `<div style="font-size:12.5px;color:var(--d-muted);margin-top:4px">How your coding agents sign in on your machines.</div>${claudeBox(v)}${codexBox(v)}`;
-  const CODING = [["claude", "Claude Code"], ["codex", "Codex"], ["gemini", "Gemini CLI"], ["pi", "pi"], ["opencode", "OpenCode"], ["flsh", "flsh"]];
+  const CODING = [["claude", "Claude Code"], ["codex", "Codex"], ["gemini", "Gemini CLI"], ["pi", "pi"], ["opencode", "OpenCode"], ["flsh", "flsh"], ["hermes", "Hermes"]];
   const codingAgents = () => `<div class="dset-h">Coding agents</div><div class="dset-box">${CODING.map(([a, n]) => `<div class="dset-row" role="button" tabindex="0" ${dsetGo(`acct-${a}`)}>${tile(a)}<span class="tt"><b>${n}</b><small>Version and updates, on or off, binary path, launch arguments and env vars on each machine</small></span>${chev}</div>`).join("")}</div>`;
 
   // Credentials: credentials.ts.
@@ -590,11 +590,38 @@ const SETV = (() => {
   const hvField = (label, help, ctl, names = []) => `<div class="hv-f"><span><b>${label}</b>${names.length ? `<span class="hv-diff" title="Not the same on ${names.join(", ")}">differs on ${names.length} machine${names.length === 1 ? "" : "s"}</span>` : ""}<small>${help}</small></span>${ctl}</div>`;
   const hvEnv = () => `<div class="hv-envs"><div class="hv-env">${hvIn("HTTPS_PROXY", "NAME", "Variable name")}<input class="hv-in" type="password" placeholder="saved; type to replace" aria-label="Value"><button class="dbtn quiet small" aria-label="Remove HTTPS_PROXY" data-toast="Removed">&#215;</button></div><div class="hv-env">${hvIn("", "NAME", "Variable name")}<input class="hv-in" type="password" placeholder="value" aria-label="Value"><span></span></div></div>`;
   const hvRuntime = (a, h, saved) => `<h4>Runtime</h4>${hvField("Binary path", `The command Beep starts for ${h.name} on build-box.`, hvIn("", h.prog, "Binary path"), h.diffs?.program)}${hvField(h.home, "Its home and config folder.", hvIn("", h.hdef, h.home))}${hvField("Launch arguments", "Added to every session it starts.", hvIn("", "none", "Launch arguments"), h.diffs?.args)}${a === "flsh" || a === "gemini" || a === "hermes" ? "" : hvField("Auto-compact", a === "opencode" ? "Compact when the conversation nears the window." : "Compact at this share of the window, or this many tokens.", `<span class="fl-row">${swi(true, `Auto-compact for ${h.name}`)}${a === "opencode" ? "" : hvIn("", "80% or 350000", "Auto-compact threshold")}</span>`)}${hvField("Environment", "Encrypted, never shown again. Put keys in Credentials.", hvEnv())}
-    <div class="hv-acts hv-save"><button class="dbtn pri" title="Save for build-box only"${saved === "dirty" ? ' data-toast="Saved for build-box"' : " disabled"}>Save</button><button class="dbtn" title="Save these settings on every machine; offline ones get them when they next connect" data-toast="Saved to 3 machines">Save to all hosts</button><label class="hv-incl" title="Binary paths usually differ between machines"><input type="checkbox"> Include binary path</label>${saved === "dirty" ? '<button class="dbtn quiet">Discard</button>' : ""}<span class="hv-ok">${saved === "all" ? "Saved to 3 machines" : ""}</span></div>${["codex", "claude", "pi"].includes(a) ? hvModels() : ""}`;
-  const hvModels = () => `<h4>Models and context</h4><div class="hv-note">Limits from this machine's harness. Maximum usable can be smaller than the API limit.</div><div class="hv-note">Overrides apply to new or resumed sessions on every machine, between turns. Blank uses Auto-compact above; off disables Beep's trigger. The harness may compact earlier. Enter 80%, 350000, or off.</div>
+    <div class="hv-acts hv-save"><button class="dbtn pri" title="Save for build-box only"${saved === "dirty" ? ' data-toast="Saved for build-box"' : " disabled"}>Save</button><button class="dbtn" title="Save these settings on every machine; offline ones get them when they next connect" data-toast="Saved to 3 machines">Save to all hosts</button><label class="hv-incl" title="Binary paths usually differ between machines"><input type="checkbox"> Include binary path</label>${saved === "dirty" ? '<button class="dbtn quiet">Discard</button>' : ""}<span class="hv-ok">${saved === "all" ? "Saved to 3 machines" : ""}</span></div>${hvModels(a)}`;
+  const hvDefaultModel = a => {
+    const saved = S.d.harnessDefaults?.[a] || "";
+    const draft = S.d.harnessModelDrafts?.[a] ?? saved;
+    const models = a === "flsh" ? ["openrouter:vendor/model-large", "openrouter:vendor/model-fast"] : ["model-large", "model-fast"];
+    return hvField("Default model", "Used for new sessions on every machine. Blank uses the harness default.",
+      `<div class="hv-default-model" data-harness="${a}"><input class="hv-in" value="${esc(draft)}" list="harness-default-models-${a}" aria-label="Default model" placeholder="Harness default" autocomplete="off" spellcheck="false"><datalist id="harness-default-models-${a}">${models.map(m => `<option value="${m}"></option>`).join("")}</datalist><div class="hv-acts"><button class="dbtn pri" data-save-harness-model${draft.trim() === saved ? " disabled" : ""}>Save default model</button><span class="hv-ok" role="status">${S.d.harnessModelSaved === a ? "Default model saved" : ""}</span></div></div>`);
+  };
+  document.addEventListener("input", event => {
+    const row = event.target.closest(".hv-default-model");
+    if (!row) return;
+    const agent = row.dataset.harness;
+    S.d.harnessModelDrafts ??= {};
+    S.d.harnessModelDrafts[agent] = event.target.value;
+    row.querySelector("[data-save-harness-model]").disabled = event.target.value.trim() === (S.d.harnessDefaults?.[agent] || "");
+    row.querySelector('[role="status"]').textContent = "";
+    S.d.harnessModelSaved = null;
+  });
+  document.addEventListener("click", event => {
+    const button = event.target.closest("[data-save-harness-model]");
+    if (!button || button.disabled) return;
+    const row = button.closest(".hv-default-model"), agent = row.dataset.harness;
+    S.d.harnessDefaults ??= {};
+    S.d.harnessDefaults[agent] = row.querySelector("input").value.trim();
+    delete S.d.harnessModelDrafts[agent];
+    S.d.harnessModelSaved = agent;
+    render();
+  });
+  const hvModels = a => `<h4>Models and context</h4>${hvDefaultModel(a)}${["codex", "claude", "pi"].includes(a) ? `<div class="hv-note">Limits from this machine's harness. Maximum usable can be smaller than the API limit.</div><div class="hv-note">Overrides apply to new or resumed sessions on every machine, between turns. Blank uses Auto-compact above; off disables Beep's trigger. The harness may compact earlier. Enter 80%, 350000, or off.</div>
     <input class="hv-in" placeholder="Filter models" aria-label="Filter models"><div class="model-context-scroll"><table class="fl-tbl model-context"><thead><tr><th>Model</th><th>Default usable</th><th>Maximum usable</th><th>Compact at</th></tr></thead><tbody>
     <tr><td>model-large</td><td>360,000</td><td>720,000</td><td>${hvIn("350000", "Harness setting", "Compact at for model-large")}</td></tr>
-    <tr><td>model-small</td><td>Not reported</td><td>Not reported</td><td>${hvIn("", "Harness setting", "Compact at for model-small")}</td></tr></tbody></table></div><div class="hv-acts"><button class="dbtn small" data-toast="Added">Add model</button><button class="dbtn pri" data-toast="Model overrides saved">Save model overrides</button><button class="dbtn quiet" data-toast="Changes discarded">Discard</button></div>`;
+    <tr><td>model-small</td><td>Not reported</td><td>Not reported</td><td>${hvIn("", "Harness setting", "Compact at for model-small")}</td></tr></tbody></table></div><div class="hv-acts"><button class="dbtn small" data-toast="Added">Add model</button><button class="dbtn pri" data-toast="Model overrides saved">Save model overrides</button><button class="dbtn quiet" data-toast="Changes discarded">Discard</button></div>` : '<div class="hv-note">Choose a model from this harness, or enter a model id.</div>'}`;
   const flshOwn = () => {
     const tri = (opts, on, label) => `<span class="fl-seg" role="group" aria-label="${label}">${opts.map(o => `<button class="dchip" aria-pressed="${o === on}">${o}</button>`).join("")}</span>`;
     const quants = `<span class="fl-chips" role="group" aria-label="Allowed quantizations">${["int4", "int8", "fp4", "fp6", "fp8", "fp16", "bf16", "fp32", "unknown"].map(q => `<button class="dchip" aria-pressed="${["fp8", "fp16", "bf16"].includes(q)}">${q}</button>`).join("")}</span>`;

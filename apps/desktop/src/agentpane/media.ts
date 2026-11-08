@@ -76,6 +76,7 @@ export interface MediaTab {
   rel?: string;
   root?: string;
   text?: TreeText;
+  preview?: { active: boolean; loading: boolean; src: string; error: string };
   /// A terminal tab's terminal, once it started.
   term?: PaneTerm;
   /// Where a new terminal tab starts its shell (its machine and folder stay

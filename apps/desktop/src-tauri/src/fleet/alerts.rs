@@ -327,6 +327,7 @@ cat > /dev/null
             env: BTreeMap::new(),
             compact: None,
             compact_models: Vec::new(),
+            default_model: None,
         };
         let offers = Offers::local(&[agent], Provision::new(dir.path()));
         let fleet = Arc::new(Fleet::new(bind().await, dir.path(), "Studio", offers));

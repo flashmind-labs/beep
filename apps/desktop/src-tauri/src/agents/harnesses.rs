@@ -11,6 +11,7 @@ use crate::{
     projects::unknown_op,
     settings::credentials::plain,
 };
+use beep_proto::ModelId;
 use beep_proto::{
     AgentHarness, AgentHarnesses, HarnessEnv, HarnessSettings, HarnessSignIn, ListAgentHarnesses,
     MachineHarnessSettings, SecretText, UpdateAgentHarness,
@@ -326,4 +327,25 @@ pub async fn harness_model_compacts_save(
         .save_harness_model_compacts(&agent, rules)
         .await?;
     Ok(())
+}
+
+/// Default model for new sessions on every machine.
+#[tauri::command]
+pub async fn harness_default_model(
+    fleet: FleetState<'_>,
+    agent: String,
+) -> Result<Option<ModelId>> {
+    Ok(desk(&fleet).await?.harness_default_model(&agent)?)
+}
+
+#[tauri::command]
+pub async fn harness_default_model_save(
+    fleet: FleetState<'_>,
+    agent: String,
+    model: Option<ModelId>,
+) -> Result<()> {
+    Ok(desk(&fleet)
+        .await?
+        .save_harness_default_model(&agent, model)
+        .await?)
 }

@@ -9,6 +9,7 @@ use crate::{
     records::{SavedVersion, WRITES, now_ms, read, scan, time, write},
 };
 use beep_mesh::Key;
+use beep_proto::ModelId;
 use beep_proto::{
     ApiError, FlshSettings, HarnessEnv, HarnessSettings, InstructionsVersion,
     MachineHarnessSettings, check_agent, check_settings, merged_env,
@@ -148,6 +149,33 @@ impl Desk {
         Ok(devices)
     }
 
+    /// Default model for new sessions, shared by every machine.
+    pub fn harness_default_model(&self, agent: &str) -> Result<Option<ModelId>> {
+        check_agent(agent)?;
+        Ok(read::<HarnessConfig>(&self.mesh, &Self::harness_key(agent))
+            .and_then(|config| config.default_model))
+    }
+
+    pub async fn save_harness_default_model(
+        &self,
+        agent: &str,
+        model: Option<ModelId>,
+    ) -> Result<()> {
+        check_agent(agent)?;
+        if model
+            .as_ref()
+            .is_some_and(|model| !valid_model(model.as_ref()))
+        {
+            return Err(FleetError::refused("Enter a valid model id."));
+        }
+        let key = Self::harness_key(agent);
+        let config = HarnessConfig {
+            default_model: model,
+            ..read::<HarnessConfig>(&self.mesh, &key).unwrap_or_else(|| HarnessConfig::new(agent))
+        };
+        write(&self.mesh, key, Some(&config)).await
+    }
+
     /// When the nodes compact `agent`'s sessions, the same on every machine; `None` is the default.
     pub fn harness_compact(&self, agent: &str) -> Result<Option<AutoCompact>> {
         check_agent(agent)?;
@@ -276,6 +304,9 @@ impl Desk {
         let kept = read::<HarnessConfig>(&self.mesh, &key);
         let kept_env = kept.as_ref().map(|config| config.env.clone());
         let compact = kept.as_ref().and_then(|config| config.compact);
+        let default_model = kept
+            .as_ref()
+            .and_then(|config| config.default_model.clone());
         let compact_models = kept.map(|config| config.compact_models).unwrap_or_default();
         let config = HarnessConfig {
             agent: agent.to_owned(),
@@ -286,6 +317,7 @@ impl Desk {
             env: merged_env(kept_env.unwrap_or_default(), settings.env),
             compact,
             compact_models,
+            default_model,
         };
         write(&self.mesh, key, Some(&config)).await?;
         // A record goes once its variable has a value in the mesh, or was taken out. One submitted

@@ -1165,8 +1165,8 @@ requests! {
     383 ListWorkTree { machine_id: String, root: String, path: String, ignored: bool, depth: u32 } => Call<WorkTree>
     /// Has one of the caller's online machines install the newest
     /// beep-node over itself and restart, as `beep-node update` does
-    /// there. It holds new prompts and restarts once its agent sessions
-    /// are idle, or after a wait; `stop_sessions` restarts at once. The
+    /// there. It restarts once its agent sessions are idle, or after a wait;
+    /// new prompts can still start. `stop_sessions` restarts at once. The
     /// sessions resume after the restart. The reply comes once it is
     /// installed, before the restart. `NotFound` when the machine is not
     /// the caller's; `BadRequest` saying why when it is offline, too old to

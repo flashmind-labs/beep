@@ -968,6 +968,16 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
             .is_err(),
         "a percent over 100 is refused"
     );
+    studio
+        .save_harness_default_model("codex", Some("model-large".into()))
+        .await
+        .expect("default saved");
+    assert!(
+        studio
+            .save_harness_default_model("codex", Some("bad\nmodel".into()))
+            .await
+            .is_err()
+    );
     let rules = vec![ModelCompact {
         model: "model-small".into(),
         compact: AutoCompact {
@@ -1049,6 +1059,19 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
     // Saving the other settings keeps the compaction setting.
     assert_eq!(config.compact, Some(compact));
     assert_eq!(config.compact_models, rules);
+    assert_eq!(
+        config.default_model.as_ref().map(AsRef::as_ref),
+        Some("model-large")
+    );
+    assert_eq!(
+        laptop.harness_default_model("codex").unwrap(),
+        config.default_model
+    );
+    laptop
+        .save_harness_default_model("codex", None)
+        .await
+        .unwrap();
+    assert_eq!(laptop.harness_default_model("codex").unwrap(), None);
     assert_eq!(
         laptop.harness_model_compacts("codex").expect("model rules"),
         rules

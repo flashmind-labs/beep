@@ -29,7 +29,6 @@ impl ImageClipboard {
 }
 
 #[cfg(desktop)]
-
 impl ImageClipboard {
     pub(crate) fn copy_png(&self, png: &str) -> Result<()> {
         let image = decode(png)?;
