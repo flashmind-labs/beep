@@ -13,7 +13,7 @@ use beep_proto::{
     node::agent::Effort,
 };
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager, WebviewWindow};
 
 /// What `agent_steer` does to a session, as the page sends it.
 #[derive(Debug, Deserialize)]
@@ -162,8 +162,10 @@ fn older_than(error: &DesktopError, ops: &[u8]) -> bool {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn agent_steer(
     app: AppHandle,
+    window: WebviewWindow,
     beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
@@ -171,13 +173,24 @@ pub async fn agent_steer(
     session: String,
     steer: Steer,
 ) -> Result<Vec<String>, SteerError> {
-    Ok(sent(app, beep, fleet, machine_id, agent, session, steer).await?)
+    Ok(sent(
+        app,
+        window.label(),
+        beep,
+        fleet,
+        machine_id,
+        agent,
+        session,
+        steer,
+    )
+    .await?)
 }
 
 // The arguments are those of `agent_steer`.
 #[allow(clippy::too_many_arguments)]
 async fn sent(
     app: AppHandle,
+    window: &str,
     beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
@@ -201,6 +214,39 @@ async fn sent(
     };
     if let Some(machine) = fleet.member(&machine_id) {
         let close = matches!(steer, AgentSteer::Close {});
+        let operation = beep_proto::node::events::Operation::Agent {
+            agent: agent.clone(),
+            session: session.clone(),
+            request: beep_mesh::machine::node_request(steer.clone())?,
+        };
+        if let Some(reply) = app
+            .state::<crate::fleet::events::Events>()
+            .call(window, machine, operation)
+            .await?
+        {
+            let beep_proto::node::events::CallReply::Agent { info } = reply else {
+                return Err(DesktopError::BadRequest(
+                    "unexpected session acknowledgement".into(),
+                ));
+            };
+            if let Some(prompt) = &indexed_prompt {
+                let host = beep_mesh::machine::Host {
+                    id: machine_id.clone(),
+                    name: fleet.name_of(machine),
+                };
+                crate::palette::prompts::sent(
+                    &app,
+                    beep_mesh::machine::beep_session(&host, *info),
+                    prompt,
+                )
+                .await;
+            }
+            if close {
+                closed(&app, &machine_id, &session);
+            }
+            return Ok(keys);
+        }
+
         let order = SteerAgentSession {
             machine_id: machine_id.clone(),
             agent,

@@ -129,6 +129,14 @@ fn main() {
                     .app_handle()
                     .state::<center::AgentsShown>()
                     .clear(window.label());
+                window
+                    .app_handle()
+                    .state::<agents::follow::Follows>()
+                    .clear(window.label());
+                window
+                    .app_handle()
+                    .state::<fleet::events::Events>()
+                    .clear(window.label());
                 center::closed(window.app_handle(), window.label());
             }
             _ => {}
@@ -207,6 +215,11 @@ fn main() {
             agents::sessions::agent_modes,
             agents::sessions::agent_tasks,
             agents::sessions::agent_view,
+            agents::follow::agent_follow,
+            fleet::events::mesh_watch,
+            fleet::events::mesh_topics,
+            fleet::events::mesh_command,
+            agents::follow::agent_unfollow,
             agents::steer::agent_steer,
             bar::app::allow_mac_permission,
             bar::app::link_offer,
@@ -646,6 +659,8 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(platform::update::Updates::default());
     app.manage(center::Shown::default());
     app.manage(center::AgentsShown::default());
+    app.manage(agents::follow::Follows::default());
+    app.manage(fleet::events::Events::default());
     app.manage(center::Pending::default());
     app.manage(tray::waiting::WaitingList::default());
     app.manage(Arc::new(notices::history::Notes::load(

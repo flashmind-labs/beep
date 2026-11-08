@@ -61,7 +61,7 @@ async fn limited<T>(call: impl Future<Output = std::result::Result<T, MeshError>
 }
 
 impl Fleet {
-    pub(super) fn host_of(&self, machine: EndpointId) -> Host {
+    pub(crate) fn host_of(&self, machine: EndpointId) -> Host {
         Host {
             id: machine.to_string(),
             name: self.name_of(machine),

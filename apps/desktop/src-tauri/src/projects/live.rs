@@ -83,7 +83,7 @@ pub async fn follow_project(
     followed: State<'_, Followed>,
     project_id: Uuid,
 ) -> Result<()> {
-    let on_mesh = mesh_project(&fleet, project_id).await?.is_some();
+    let on_mesh = mesh_project(&fleet, project_id).await?;
     let mut tasks = followed
         .tasks
         .lock()
@@ -94,8 +94,8 @@ pub async fn follow_project(
     if tasks.len() >= MAX_FOLLOWED {
         tasks.remove(0);
     }
-    let task = if on_mesh {
-        tauri::async_runtime::spawn(poll(app, project_id))
+    let task = if let Some((_, project)) = on_mesh {
+        tauri::async_runtime::spawn(poll(app, fleet.inner().clone(), project_id, project))
     } else {
         tauri::async_runtime::spawn(follow(app, beep.inner().clone(), project_id))
     };
@@ -143,23 +143,50 @@ pub(crate) fn changed(app: AppHandle) -> impl Fn(Changed) + Send + Sync + 'stati
 }
 
 /// Tells the page of a mesh project that it polls, then to read again every [`POLL_EVERY`].
-async fn poll(app: AppHandle, project_id: Uuid) {
-    let mut row = LiveRow {
-        project_id,
-        live: Some(false),
-        polling_why: Some(POLLING_WHY.to_owned()),
-        lists: false,
-        runs: false,
-    };
-    emit(&app, &row);
-    row.lists = true;
-    row.runs = true;
+async fn poll(app: AppHandle, fleet: Arc<beep_fleet::Session>, project_id: Uuid, project: String) {
+    let mut before_lists = None;
+    let mut before_runs = None;
     let mut ticks = interval(POLL_EVERY);
-    // The first tick is at once, and the page has just read.
-    ticks.tick().await;
     loop {
         ticks.tick().await;
-        emit(&app, &row);
+        let (lists, runs) = tokio::join!(fleet.lists(&project, true), fleet.runs(&project, true));
+        let lists_changed = match lists {
+            Ok(mut lists) => {
+                lists.lists.synced_at = None;
+                let changed = before_lists.as_ref() != Some(&lists);
+                before_lists = Some(lists);
+                changed
+            }
+            Err(error) => {
+                log::debug!("project lists source: {error}");
+                false
+            }
+        };
+        let runs_changed = match runs {
+            Ok(runs) => {
+                let changed = before_runs.as_ref() != Some(&runs);
+                before_runs = Some(runs);
+                changed
+            }
+            Err(error) => {
+                log::debug!("project runs source: {error}");
+                false
+            }
+        };
+        if lists_changed || runs_changed {
+            emit(
+                &app,
+                &LiveRow {
+                    project_id,
+                    live: Some(false),
+                    polling_why: Some(POLLING_WHY.into()),
+                    lists: lists_changed,
+                    runs: runs_changed,
+                },
+            );
+            beep_node::events::system()
+                .changed(beep_proto::node::events::Topic::keyed("forge", &project));
+        }
     }
 }
 
