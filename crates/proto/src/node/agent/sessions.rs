@@ -257,7 +257,7 @@ pub enum SessionsRequest {
     },
     /// Starts a temporary reviewer of `order.cwd`'s changes, a child of
     /// `order.parent` when given. Answered with `Review` once it runs, or
-    /// `Error` saying why not. The reviewer never shows in `List`, and goes
+    /// `Error` saying why not. The reviewer never shows in `List`, only in `ListAll` under its parent, and goes
     /// once it submitted or failed; its review stays. A node from before it
     /// answers `Error`.
     StartReview {
@@ -307,6 +307,9 @@ pub enum SessionsRequest {
         #[serde(with = "serde_bytes")]
         data: Vec<u8>,
     },
+    /// `List` with the running reviewers that have a parent, marked by
+    /// `SessionInfo::reviewer`. A node from before it answers `Error`.
+    ListAll {},
 }
 
 /// File browser operations. Destinations must not already exist.
@@ -331,6 +334,7 @@ impl SessionsRequest {
     pub fn is_read(&self) -> bool {
         match self {
             Self::List {}
+            | Self::ListAll {}
             | Self::Transcript { .. }
             | Self::External { .. }
             | Self::Folders { .. }

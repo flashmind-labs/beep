@@ -5,6 +5,8 @@ import { refreshMoves, withoutCopies } from "./move-store.ts";
 
 /// Every session on the user's machines, as the last `loadSessions` read it.
 export let sessions: AgentSession[] = [];
+/// The reviewers running as a child, kept apart: they list only under their parent.
+export let reviewers: AgentSession[] = [];
 
 let loading: Promise<AgentSession[]> | null = null;
 /// Called after each read of the sessions, with the new list in `sessions`.
@@ -19,7 +21,8 @@ export function loadSessions() {
   loading ??= Promise.all([invoke<AgentSession[]>("agent_sessions"), refreshMoves()])
     // A session that moved is on two machines for a while: it shows once.
     .then(([list]) => {
-      sessions = withoutCopies(list);
+      sessions = withoutCopies(list.filter(s => !s.reviewer));
+      reviewers = list.filter(s => s.reviewer);
       for (const f of sessionsRead) f();
       return sessions;
     })

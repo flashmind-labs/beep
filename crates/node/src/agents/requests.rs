@@ -100,7 +100,9 @@ const SLOW_ANSWER: Duration = Duration::from_secs(20);
 /// watched (#428).
 fn watch_slow(request: &SessionsRequest, caller: EndpointId) -> Option<AbortOnDropHandle<()>> {
     let limit = match request {
-        SessionsRequest::List {} | SessionsRequest::Transcript { .. } => Duration::from_secs(2),
+        SessionsRequest::List {}
+        | SessionsRequest::ListAll {}
+        | SessionsRequest::Transcript { .. } => Duration::from_secs(2),
         _ => SLOW_ANSWER,
     };
     let what = match request {
@@ -147,7 +149,7 @@ pub async fn serve_sessions(
         return Ok(());
     };
     let operation = match &request {
-        SessionsRequest::List {} => Some("list"),
+        SessionsRequest::List {} | SessionsRequest::ListAll {} => Some("list"),
         SessionsRequest::Transcript { .. } => Some("transcript"),
         _ => None,
     };
@@ -156,6 +158,9 @@ pub async fn serve_sessions(
     let reply = match request {
         SessionsRequest::List {} => SessionsReply::Sessions {
             sessions: agents.list(),
+        },
+        SessionsRequest::ListAll {} => SessionsReply::Sessions {
+            sessions: agents.listed(true),
         },
         SessionsRequest::Transcript {
             session,
