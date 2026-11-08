@@ -1,6 +1,7 @@
 import { AgentFeed } from "./agentfeed-state.ts";
 import { agentDrop } from "../chat/attach.ts";
 import { filePicker } from "./file-picker.ts";
+import { fileLinkMenu } from "./filelinks.ts";
 import { bindTitleEdit } from "./titleedit.ts";
 import { conversationHistory } from "./conversation-state.ts";
 // One coding agent session in the bar: opening it, following it while it
@@ -544,6 +545,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     };
     b.addEventListener("wheel", () => { b.wheel = performance.now(); }, { passive: true });
   }
+  b.oncontextmenu = e => fileLinkMenu(e, { machineId: s.machine_id, root: s.cwd }, openLinked);
   drawAgentBody();
   $("#agmsg")?.focus();
   bar.onclick = agentClick;
