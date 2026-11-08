@@ -45,7 +45,7 @@ export function patchChildren(container: Element, next: Element[]) {
   const nodes: Element[] = [];
   steps.forEach((step, i) => {
     const old = was.nodes[i];
-    if (step === "keep") return nodes.push(old);
+    if (step === "keep" || old === next[i]) return nodes.push(old);
     if (step === "add") { container.append(next[i]); return nodes.push(next[i]); }
     const path = focus && old.contains(focus) ? pathTo(old, focus) : null;
     old.replaceWith(next[i]);
