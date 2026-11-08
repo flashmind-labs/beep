@@ -1199,14 +1199,14 @@ impl App {
         log::info!(
             "turn timing; run_id={} status={} model={model} {timer}",
             run.id,
-            status.as_str()
+            status.as_ref()
         );
         // Asked only once the turn is saved, so the answer finds the open call.
         if let Some(parked) = parked {
             self.park(user, run, live, parked);
         }
         live.push(RunEvent::RunFinished {
-            status: status.as_str().to_owned(),
+            status: status.as_ref().to_owned(),
             updated_at: finished.map(|saved| SystemTime::from(saved.updated_at)),
         });
         // A chat made for a silent routine run is deleted, but only while still empty: another
@@ -1243,7 +1243,7 @@ impl App {
         let status = self.stopped();
         user.finish(run, None, status).await?;
         live.push(RunEvent::RunFinished {
-            status: status.as_str().to_owned(),
+            status: status.as_ref().to_owned(),
             updated_at: None,
         });
         Ok(())

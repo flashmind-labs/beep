@@ -45,14 +45,14 @@ async fn harness(roles: Roles, visibility: Visibility) -> Harness {
     let (home, shell) = fleet.add(1, "build-box", &[], "/srv");
     fleet.add(2, "gpu-box", &[Capability::Cuda], "/data");
     let project = user
-        .ensure_project(&RepoName::parse("acme/widget").unwrap())
+        .ensure_project(&"acme/widget".parse::<RepoName>().unwrap())
         .await
         .unwrap();
     user.add_checkout(
         project.id,
         &CheckoutRow {
             machine: home,
-            path: MachinePath::parse("/srv/widget").unwrap(),
+            path: "/srv/widget".parse::<MachinePath>().unwrap(),
             home: true,
         },
     )
@@ -74,7 +74,7 @@ async fn harness(roles: Roles, visibility: Visibility) -> Harness {
 
 impl Harness {
     fn tools(&self, level: PermissionLevel, approved: Option<&str>) -> Arc<ProjectTools> {
-        let rules = Rules::from_rows(vec![AppPermissionRow {
+        let rules = Rules::from(vec![AppPermissionRow {
             app: "project".into(),
             level,
             allowed: Vec::new(),
@@ -359,7 +359,7 @@ async fn always_is_saved_per_action() {
 
     // Allowing drops always leaves updates asking.
     make_tasks(&private, &["Build"]).await;
-    let rules = Rules::from_rows(vec![AppPermissionRow {
+    let rules = Rules::from(vec![AppPermissionRow {
         app: "project".into(),
         level: PermissionLevel::Ask {},
         allowed: vec!["PROJECT_TASKS_DROP".into()],

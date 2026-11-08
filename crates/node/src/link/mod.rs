@@ -5,6 +5,7 @@
 pub(crate) mod from_mesh;
 pub(crate) use from_mesh::Membership;
 mod events;
+pub(crate) use events::sources::Registry as EventSources;
 pub(crate) mod local_socket;
 pub mod local_status;
 pub(crate) mod note;

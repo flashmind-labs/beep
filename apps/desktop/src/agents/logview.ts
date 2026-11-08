@@ -22,6 +22,7 @@ import { childRow } from "./nesting-state.ts";
 import { childReplyHtml } from "./childreply-state.ts";
 import { parentSession, sessions } from "./sessions.ts";
 import { fillAgentPics } from "./images.ts";
+import { prepareInlineImages } from "./inline-images.ts";
 import { picTile } from "./pic-state.ts";
 import { planHtml, questionHtml } from "./coderhtml.ts";
 import { drawModelPill } from "./modelpill.ts";
@@ -606,13 +607,14 @@ function showLog(b: HTMLElement, html: string, units: Unit[] | null, polled: boo
     startPatching(main);
   }
   const next = document.createElement("template");
-  next.innerHTML = html;
+  next.innerHTML = prepareInlineImages(html);
   const sel = getSelection(), held: Node[] = [];
   if (polled && sel && (!sel.isCollapsed || b.matches(":active"))) {
     if (sel.anchorNode) held.push(sel.anchorNode);
     if (sel.focusNode) held.push(sel.focusNode);
   }
-  return patchRows(main, next.content, units, held);
+  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(prepareInlineImages) })) ?? null;
+  return patchRows(main, next.content, prepared, held);
 }
 
 const DOWN_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>';

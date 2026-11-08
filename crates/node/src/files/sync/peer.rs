@@ -587,9 +587,9 @@ async fn serve_objects(
                 }
             }
         }
-        let mut input = format!("{}\n", commit.hex());
+        let mut input = format!("{commit}\n");
         if let Some(have) = have.filter(|have| repo.is_ancestor(*have, commit) == Some(true)) {
-            input.push_str(&format!("^{}\n", have.hex()));
+            input.push_str(&format!("^{have}\n"));
         }
         let mut command = repo.git();
         command

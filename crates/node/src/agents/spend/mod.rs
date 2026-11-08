@@ -200,7 +200,7 @@ impl Spend {
     /// Notes that the server has `spend` as it stands; it is sent again
     /// only once it changes.
     pub(crate) fn sent(&self, spend: &SessionSpend) {
-        let Some(agent) = Agent::from_name(spend.agent.as_str()) else {
+        let Some(agent) = spend.agent.as_ref().parse::<Agent>().ok() else {
             return;
         };
         let mut guard = lock(&self.ledger);

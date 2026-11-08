@@ -65,8 +65,8 @@ enum Follows {
     Runs,
 }
 
-impl Follows {
-    fn name(self) -> &'static str {
+impl AsRef<str> for Follows {
+    fn as_ref(&self) -> &str {
         match self {
             Follows::Alerts => "alerts",
             Follows::Runs => "runs",
@@ -140,7 +140,7 @@ impl Drop for Running {
     }
 }
 
-/// Runs one task per member of `mesh`, started by `start`, as members come and go. Ends when the
+/// Runs one task per code host of `mesh`, started by `start`, as hosts come and go. Ends when the
 /// mesh closes; the tasks end with it.
 pub async fn each_machine(mesh: &Mesh, start: impl FnMut(EndpointId) -> JoinHandle<()>) {
     let mut start = start;
@@ -148,7 +148,7 @@ pub async fn each_machine(mesh: &Mesh, start: impl FnMut(EndpointId) -> JoinHand
     let mut updates = mesh.updates();
     loop {
         updates.borrow_and_update();
-        let machines = mesh.machines().into_iter().map(|d| d.device.id).collect();
+        let machines = mesh.code_hosts().into_iter().map(|d| d.device.id).collect();
         running.keep(&machines, &mut start);
         if updates.changed().await.is_err() {
             return;
@@ -198,7 +198,7 @@ async fn follow_one(
                 if logged.as_ref() != Some(&error) {
                     log::debug!(
                         "following {} from {}: {error}",
-                        what.name(),
+                        what.as_ref(),
                         name_of(mesh, id)
                     );
                     logged = Some(error);

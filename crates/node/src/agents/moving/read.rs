@@ -29,6 +29,7 @@ use std::{
 use tokio::{
     fs::{self, File},
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
+    sync::watch,
     task::spawn_blocking,
     time::timeout,
 };
@@ -44,6 +45,7 @@ pub(super) const MAX_TRANSCRIPT: u64 = 1024 * 1024 * 1024;
 /// so a stalled stream fails and is tried again. The source hashes the copy
 /// and may snapshot a worktree before it answers.
 const QUIET_FOR: Duration = Duration::from_secs(60);
+const AUTHORIZE_FOR: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -158,8 +160,32 @@ pub(crate) struct Offer {
     pub(crate) hash: Vec<u8>,
 }
 
-/// Whether the peer may make a request of this kind about session `id`.
-pub(super) type Allow<'a> = &'a (dyn Fn(Asked, &str) -> bool + Send + Sync);
+/// Checks the peer's access again while the move record reaches this machine.
+pub(super) struct Access<'a> {
+    pub(super) check: &'a (dyn Fn(Asked, &str) -> bool + Send + Sync),
+    pub(super) updates: Option<watch::Receiver<u64>>,
+}
+
+impl Access<'_> {
+    async fn allows(&mut self, ask: Asked, id: &str) -> bool {
+        if (self.check)(ask, id) {
+            return true;
+        }
+        let Some(updates) = self.updates.as_mut() else {
+            return false;
+        };
+        timeout(AUTHORIZE_FOR, async {
+            while updates.changed().await.is_ok() {
+                if (self.check)(ask, id) {
+                    return true;
+                }
+            }
+            false
+        })
+        .await
+        .unwrap_or(false)
+    }
+}
 
 /// The source turned a read away, for good: asking again changes nothing.
 #[derive(Debug)]
@@ -194,7 +220,7 @@ pub(super) async fn serve(
     mut rx: LinkRx,
     agents: &Agents,
     me: &str,
-    allow: Allow<'_>,
+    mut access: Access<'_>,
     projects: &[Project],
 ) -> Result<()> {
     let refuse = |message: &str| Reply::Refused {
@@ -208,7 +234,7 @@ pub(super) async fn serve(
             prefix_hash,
             worktree,
         }) => {
-            if !allow(Asked::Read, &id) {
+            if !access.allows(Asked::Read, &id).await {
                 return tx.send(&refuse("no move of that session to you")).await;
             }
             if let Some(why) = agents.moves.refusal(&id) {
@@ -271,7 +297,7 @@ pub(super) async fn serve(
             }
         }
         Some(Request::WorktreeBundle { id, head }) => {
-            if !allow(Asked::Read, &id) {
+            if !access.allows(Asked::Read, &id).await {
                 return tx.send(&refuse("no move of that session to you")).await;
             }
             if let Some(why) = agents.moves.refusal(&id) {
@@ -295,7 +321,7 @@ pub(super) async fn serve(
             tx.finish().await
         }
         Some(Request::List {}) => {
-            if !allow(Asked::Background, "") {
+            if !access.allows(Asked::Background, "").await {
                 return tx.send(&refuse("not in the mesh")).await;
             }
             let offers = offers(agents, projects).await;
@@ -308,7 +334,7 @@ pub(super) async fn serve(
             from,
             prefix_hash,
         }) => {
-            if !allow(Asked::Background, &id) {
+            if !access.allows(Asked::Background, &id).await {
                 return tx.send(&refuse("not in the mesh")).await;
             }
             // Only what `List` offers: a session of a mesh project.
@@ -333,7 +359,7 @@ pub(super) async fn serve(
             }
         }
         Some(Request::State { id, at }) => {
-            if !allow(Asked::State, &id) {
+            if !access.allows(Asked::State, &id).await {
                 return tx.send(&refuse("no move of that session from you")).await;
             }
             let (taken, failed, landed) = match agents.moves.target(&id, at) {
@@ -366,8 +392,11 @@ async fn locate(
     agent: &AgentSlug,
     id: &str,
 ) -> std::result::Result<Found, String> {
-    let movable = Agent::from_name(agent.as_str())
-        .and_then(Harness::of)
+    let movable = agent
+        .as_ref()
+        .parse::<Agent>()
+        .ok()
+        .and_then(|agent| Harness::try_from(agent).ok())
         .ok_or_else(|| format!("{agent} sessions cannot move"))?;
     let path = match agents.transcript_file(movable, id).await {
         Some(path) => path,

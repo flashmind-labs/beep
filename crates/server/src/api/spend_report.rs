@@ -245,7 +245,7 @@ mod tests {
         let shown: Vec<(&str, bool, Option<f64>, u64)> = period
             .harnesses
             .iter()
-            .map(|h| (h.agent.as_str(), h.subscription, h.cost_usd, h.tokens))
+            .map(|h| (h.agent.as_ref(), h.subscription, h.cost_usd, h.tokens))
             .collect();
         assert_eq!(
             shown,
@@ -272,7 +272,7 @@ mod tests {
         let covered: Vec<(&str, u64)> = widget
             .subscription
             .iter()
-            .map(|t| (t.agent.as_str(), t.tokens))
+            .map(|t| (t.agent.as_ref(), t.tokens))
             .collect();
         assert_eq!(covered, [("claude", 1_000_000), ("codex", 50_000)]);
 

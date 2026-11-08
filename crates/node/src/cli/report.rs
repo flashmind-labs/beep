@@ -133,7 +133,7 @@ fn fallback_answer(e: &anyhow::Error) -> Answer {
 async fn own_share(id: EndpointId, name: &str, since: i64, answer: Answer, status: &str) -> Share {
     // A log that cannot be read still leaves the rest worth sending.
     let max = usize::try_from(MAX_BYTES).unwrap_or(usize::MAX);
-    let log = spawn_blocking(move || Logs::service().window(since, max))
+    let log = spawn_blocking(move || Logs::default().window(since, max))
         .await
         .map_err(anyhow::Error::from)
         .and_then(|read| read)

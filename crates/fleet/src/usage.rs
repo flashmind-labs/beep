@@ -163,7 +163,7 @@ impl Desk {
         let env = self.peers.last_env(machine);
         let runs = |agent: &AgentSlug| {
             env.as_ref()
-                .is_none_or(|env| env.tools.iter().any(|tool| tool.name == agent.as_str()))
+                .is_none_or(|env| env.tools.iter().any(|tool| tool.name == agent.as_ref()))
         };
         let waiting: BTreeSet<AgentSlug> = PLAN_AGENTS
             .into_iter()
@@ -182,7 +182,7 @@ impl Desk {
     async fn said(&self) -> Said {
         let listens = self
             .mesh
-            .machines()
+            .code_hosts()
             .into_iter()
             .filter(|status| status.online)
             .map(|status| async move {

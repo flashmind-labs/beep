@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use futures::future::join_all;
 use serde::Deserialize;
 use std::{collections::HashMap, time::SystemTime};
+use strum::AsRefStr;
 use url::Url;
 
 pub const HOST: &str = "github.com";
@@ -14,20 +15,27 @@ const SEARCH: &str = "https://api.github.com/search/issues";
 const PER_PAGE: &str = "100";
 
 /// One search and what its hits say about an item.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsRefStr)]
 enum Query {
     /// PRs and issues the user opened.
+    #[strum(serialize = "is:open is:pr author:@me archived:false")]
     AuthoredPulls,
+    #[strum(serialize = "is:open is:issue author:@me archived:false")]
     AuthoredIssues,
     /// Issues assigned to the user.
+    #[strum(serialize = "is:open is:issue assignee:@me archived:false")]
     Assigned,
     /// PRs asking for the user's review.
+    #[strum(serialize = "is:open is:pr review-requested:@me archived:false")]
     ReviewRequested,
     /// The user's PRs that are approved.
+    #[strum(serialize = "is:open is:pr author:@me review:approved archived:false")]
     Approved,
     /// The user's PRs with changes requested.
+    #[strum(serialize = "is:open is:pr author:@me review:changes_requested archived:false")]
     ChangesRequested,
     /// PRs the user is in whose checks fail.
+    #[strum(serialize = "is:open is:pr involves:@me status:failure archived:false")]
     Failing,
 }
 
@@ -41,21 +49,6 @@ impl Query {
         Query::ChangesRequested,
         Query::Failing,
     ];
-
-    fn text(self) -> &'static str {
-        match self {
-            // Apart, so a long list of issues does not push the PRs off the page.
-            Query::AuthoredPulls => "is:open is:pr author:@me archived:false",
-            Query::AuthoredIssues => "is:open is:issue author:@me archived:false",
-            Query::Assigned => "is:open is:issue assignee:@me archived:false",
-            Query::ReviewRequested => "is:open is:pr review-requested:@me archived:false",
-            Query::Approved => "is:open is:pr author:@me review:approved archived:false",
-            Query::ChangesRequested => {
-                "is:open is:pr author:@me review:changes_requested archived:false"
-            }
-            Query::Failing => "is:open is:pr involves:@me status:failure archived:false",
-        }
-    }
 
     /// Whether its hits are items of their own rather than marks on others.
     fn lists(self) -> bool {
@@ -98,7 +91,7 @@ pub async fn items(caller: &Caller<'_>) -> Result<Vec<Found>, HostError> {
         let url = Url::parse_with_params(
             SEARCH,
             &[
-                ("q", query.text()),
+                ("q", query.as_ref()),
                 ("per_page", PER_PAGE),
                 ("sort", "updated"),
             ],

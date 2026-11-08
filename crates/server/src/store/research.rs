@@ -181,7 +181,7 @@ impl Store {
             "SELECT {COLUMNS} FROM researches WHERE chat_id=$1 AND user_id=$2"
         ))
         .bind(chat)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_optional(&self.pool)
         .await?;
         row.as_ref().map(research_from).transpose()
@@ -194,7 +194,7 @@ impl Store {
                     (SELECT COUNT(*) FROM research_sources s WHERE s.research_id = r.id)
              FROM researches r WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(MAX_LISTED)
         .fetch_all(&self.pool)
         .await?;
@@ -227,14 +227,14 @@ impl Store {
             Status::Interrupted,
         ]
         .into_iter()
-        .map(Status::as_str)
+        .map(<&'static str>::from)
         .collect();
         let moved = sqlx::query(
             "UPDATE researches SET status=$2, plan=$3, finished_at=NULL
              WHERE id=$1 AND status = ANY($4)",
         )
         .bind(id)
-        .bind(Status::Researching.as_str())
+        .bind(Status::Researching.as_ref())
         .bind(serde_json::to_value(plan)?)
         .bind(&can_start)
         .execute(&self.pool)
@@ -261,8 +261,8 @@ impl Store {
              WHERE id=$1 AND status=$2",
         )
         .bind(id)
-        .bind(from.as_str())
-        .bind(to.as_str())
+        .bind(from.as_ref())
+        .bind(to.as_ref())
         .bind(!to.is_running())
         .execute(&self.pool)
         .await?
@@ -274,13 +274,13 @@ impl Store {
     pub(crate) async fn stop_research(&self, id: Uuid) -> Result<bool> {
         let running: Vec<&str> = [Status::Researching, Status::Reviewing, Status::Writing]
             .into_iter()
-            .map(Status::as_str)
+            .map(<&'static str>::from)
             .collect();
         let moved = sqlx::query(
             "UPDATE researches SET status=$2, finished_at=now() WHERE id=$1 AND status = ANY($3)",
         )
         .bind(id)
-        .bind(Status::Stopped.as_str())
+        .bind(Status::Stopped.as_ref())
         .bind(&running)
         .execute(&self.pool)
         .await?
@@ -406,7 +406,7 @@ async fn start_research_in(
     chat: Uuid,
     topic: &str,
 ) -> Result<ResearchRow> {
-    if ensure_session(conn, user.as_str(), chat).await? == SessionChat::Taken {
+    if ensure_session(conn, user.as_ref(), chat).await? == SessionChat::Taken {
         bail!("the chat is not the user's");
     }
     sqlx::query(
@@ -415,7 +415,7 @@ async fn start_research_in(
     )
     .bind(Uuid::new_v4())
     .bind(chat)
-    .bind(user.as_str())
+    .bind(user.as_ref())
     .bind(topic.trim())
     .execute(&mut *conn)
     .await?;
@@ -423,7 +423,7 @@ async fn start_research_in(
         "SELECT {COLUMNS} FROM researches WHERE chat_id=$1 AND user_id=$2"
     ))
     .bind(chat)
-    .bind(user.as_str())
+    .bind(user.as_ref())
     .fetch_one(&mut *conn)
     .await?;
     research_from(&row)

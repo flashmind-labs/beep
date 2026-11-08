@@ -41,9 +41,11 @@ impl From<ForgejoUrlError> for SlotError {
     }
 }
 
-impl Slot {
+impl TryFrom<&CredentialKind> for Slot {
+    type Error = SlotError;
+
     /// The slot a request names, with a Forgejo URL made canonical.
-    pub fn from_wire(kind: &CredentialKind) -> Result<Self, SlotError> {
+    fn try_from(kind: &CredentialKind) -> Result<Self, Self::Error> {
         Ok(match kind {
             CredentialKind::GitHub {} => Self::GitHub,
             CredentialKind::Forgejo { url } => Self::Forgejo(url.parse()?),
@@ -53,7 +55,9 @@ impl Slot {
             ),
         })
     }
+}
 
+impl Slot {
     /// The env var the machines get it as; `None` for Forgejo (teacli's config).
     pub fn env_var(&self) -> Option<&'static str> {
         match self {

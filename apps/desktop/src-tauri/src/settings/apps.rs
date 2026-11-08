@@ -107,7 +107,7 @@ pub struct ActionView {
 impl From<AppPermissions> for PermissionsView {
     fn from(permissions: AppPermissions) -> Self {
         Self {
-            level: permissions.level.as_str(),
+            level: Into::<&'static str>::into(&permissions.level),
             actions: permissions
                 .actions
                 .into_iter()
@@ -209,8 +209,9 @@ pub async fn set_app_permissions(
     level: String,
     allowed: Vec<String>,
 ) -> Result<()> {
-    let level = PermissionLevel::parse(&level)
-        .ok_or_else(|| DesktopError::BadRequest(format!("no permission level {level}")))?;
+    let level = level
+        .parse::<PermissionLevel>()
+        .map_err(|_| DesktopError::BadRequest(format!("no permission level {level}")))?;
     beep.call(SetAppPermissions {
         slug,
         level,

@@ -55,30 +55,15 @@ ffi_enum! {
     /// How freely Beep acts in an app. Reading is always allowed; the level
     /// covers tools that send, change or delete.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(strum::AsRefStr, strum::IntoStaticStr)]
+    #[derive(strum::EnumString)]
     pub enum PermissionLevel {
+        #[strum(serialize = "ask")]
         0 Ask {}
+        #[strum(serialize = "allow")]
         1 Allow {}
+        #[strum(serialize = "read")]
         2 ReadOnly {}
-    }
-}
-
-impl PermissionLevel {
-    /// The name stored on the server.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Ask {} => "ask",
-            Self::Allow {} => "allow",
-            Self::ReadOnly {} => "read",
-        }
-    }
-
-    pub fn parse(name: &str) -> Option<Self> {
-        match name {
-            "ask" => Some(Self::Ask {}),
-            "allow" => Some(Self::Allow {}),
-            "read" => Some(Self::ReadOnly {}),
-            _ => None,
-        }
     }
 }
 

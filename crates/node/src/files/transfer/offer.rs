@@ -32,8 +32,8 @@ pub(crate) struct Identity {
     pub(crate) inode: u64,
 }
 
-impl Identity {
-    fn of(metadata: &Metadata) -> Self {
+impl From<&Metadata> for Identity {
+    fn from(metadata: &Metadata) -> Self {
         let id = fsat::id_of_metadata(metadata);
         Self {
             device: id.device,
@@ -93,7 +93,7 @@ fn walk(root: &Path) -> Result<Walked> {
                     path: item.path(),
                     size: metadata.len(),
                     executable: fsat::is_executable(&metadata),
-                    identity: Identity::of(&metadata),
+                    identity: Identity::from(&metadata),
                 });
                 ensure!(
                     walked.entries.len() as u64 <= MAX_FILES,
@@ -131,8 +131,8 @@ pub(super) struct Offered {
 pub(crate) fn check_same(path: &Path, identity: Identity) -> Result<()> {
     let file = fsat::open_no_follow(OpenOptions::new().read(true), path)
         .with_context(|| format!("opening {}", path.display()))?;
-    let opened = Identity::of(&file.metadata()?);
-    let named = Identity::of(&fs::symlink_metadata(path)?);
+    let opened = Identity::from(&file.metadata()?);
+    let named = Identity::from(&fs::symlink_metadata(path)?);
     if opened != identity || named != identity {
         bail!("{} changed while it was being sent", path.display());
     }
@@ -207,7 +207,7 @@ pub(super) async fn offer(
             path: path.to_owned(),
             size: metadata.len(),
             executable: fsat::is_executable(&metadata),
-            identity: Identity::of(&metadata),
+            identity: Identity::from(&metadata),
         };
         let mut ticker = Ticker::new(Stage::Hashing, entry.size);
         let tag = add_file(store, &entry, 0, &mut ticker, tx).await?;
@@ -338,7 +338,7 @@ mod tests {
         let file = dir.join("render.png");
         fs::write(&file, "a").expect("written");
         fs::write(dir.join("other.png"), "b").expect("written");
-        let walked = Identity::of(&fs::metadata(&file).expect("exists"));
+        let walked = Identity::from(&fs::metadata(&file).expect("exists"));
         check_same(&file, walked).unwrap();
 
         fs::remove_file(&file).expect("removed");

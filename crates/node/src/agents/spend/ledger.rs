@@ -8,7 +8,7 @@ use crate::{
     agents::prices::{self, Tokens},
 };
 use beep_proto::{
-    ModelId,
+    AgentSlug, ModelId,
     node::usage::{Billing, HourSpend, MAX_SESSION_HOURS, SessionSpend},
 };
 use serde::{Deserialize, Serialize};
@@ -316,7 +316,7 @@ impl Ledger {
             })
             .collect();
         Some(SessionSpend {
-            agent: key.agent.slug(),
+            agent: Into::<AgentSlug>::into(key.agent),
             session: key.session.clone(),
             cwd,
             since,

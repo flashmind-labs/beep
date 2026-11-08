@@ -56,7 +56,7 @@ export const revs = makeReviews({
   redraw: () => redrawProjects(),
   openUrl,
   openTile: (key: string) => openTile(key),
-  machines: () => state.home?.machines || [],
+  machines: () => (state.home?.machines || []).filter(m => m.can_host !== false),
   diff: viewDiff,
   kept: keptSection("branches"),
 });

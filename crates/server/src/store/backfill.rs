@@ -278,7 +278,7 @@ mod tests {
             .filter(|update| matches!(update, Update::Message { .. }))
             .count();
         assert_eq!((chats, messages), (2, 7));
-        assert_eq!(page.last, store.last_update(alice.as_str()).await.unwrap());
+        assert_eq!(page.last, store.last_update(alice.as_ref()).await.unwrap());
 
         let page = store.updates_page(&bob, 0).await.unwrap();
         let group_messages: Vec<_> = page

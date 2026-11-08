@@ -27,8 +27,10 @@ pub struct RepoName {
     slash: usize,
 }
 
-impl RepoName {
-    pub fn parse(text: &str) -> Result<Self, RepoNameError> {
+impl FromStr for RepoName {
+    type Err = RepoNameError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
         let (owner, repo) = text.split_once('/').ok_or(RepoNameError::Shape)?;
         if repo.contains('/') {
             return Err(RepoNameError::Shape);
@@ -49,7 +51,9 @@ impl RepoName {
             slash: owner.len(),
         })
     }
+}
 
+impl RepoName {
     pub fn owner(&self) -> &str {
         &self.name[..self.slash]
     }
@@ -80,8 +84,10 @@ pub enum PathError {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MachinePath(String);
 
-impl MachinePath {
-    pub fn parse(text: &str) -> Result<Self, PathError> {
+impl FromStr for MachinePath {
+    type Err = PathError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
         let rest = text.strip_prefix('/').ok_or(PathError::Relative)?;
         if rest.ends_with('/') || rest.is_empty() {
             return Err(PathError::TrailingSlash);
@@ -91,7 +97,9 @@ impl MachinePath {
         }
         Ok(Self(text.to_owned()))
     }
+}
 
+impl MachinePath {
     /// `rel` under this path; empty, `.` and `..` parts are dropped so it stays inside.
     pub fn join(&self, rel: &str) -> MachinePath {
         let mut joined = self.0.clone();
@@ -112,8 +120,10 @@ impl MachinePath {
             .strip_prefix(&self.0)
             .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
     }
+}
 
-    pub fn as_str(&self) -> &str {
+impl AsRef<str> for MachinePath {
+    fn as_ref(&self) -> &str {
         &self.0
     }
 }
@@ -139,17 +149,6 @@ impl TaskSlug {
         }
     }
 
-    /// A slug as stored, if it is one.
-    pub fn parse(text: &str) -> Option<TaskSlug> {
-        let valid = !text.is_empty()
-            && !text.starts_with('-')
-            && !text.ends_with('-')
-            && text
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
-        valid.then(|| TaskSlug(text.into()))
-    }
-
     /// `slug-n`, for a slug already taken.
     pub fn suffixed(&self, n: u32) -> TaskSlug {
         TaskSlug(format!("{}-{n}", self.0))
@@ -167,9 +166,31 @@ impl TaskSlug {
     pub fn incoming(&self, worktree: &MachinePath) -> MachinePath {
         worktree.join(&format!(".beep/incoming/{}", self.0))
     }
+}
 
-    pub fn as_str(&self) -> &str {
+impl AsRef<str> for TaskSlug {
+    fn as_ref(&self) -> &str {
         &self.0
+    }
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("a task slug contains lowercase letters, digits and '-', with no leading or trailing '-'")]
+pub struct TaskSlugError;
+
+impl FromStr for TaskSlug {
+    type Err = TaskSlugError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let valid = !text.is_empty()
+            && !text.starts_with('-')
+            && !text.ends_with('-')
+            && text
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        valid
+            .then(|| Self(Into::<String>::into(text)))
+            .ok_or(TaskSlugError)
     }
 }
 
@@ -191,19 +212,31 @@ pub enum Visibility {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ForgejoHost(String);
 
-impl ForgejoHost {
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error(
+    "a Forgejo hostname contains letters, digits, '.' and '-', starting and ending with a letter or digit"
+)]
+pub struct ForgejoHostError;
+
+impl FromStr for ForgejoHost {
+    type Err = ForgejoHostError;
+
     /// A hostname of letters, digits, `.` and `-`, if `text` is one.
-    pub fn parse(text: &str) -> Option<ForgejoHost> {
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
         let valid = !text.is_empty()
             && !text.starts_with(['.', '-'])
             && !text.ends_with(['.', '-'])
             && text
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'));
-        valid.then(|| ForgejoHost(text.to_ascii_lowercase()))
+        valid
+            .then(|| Self(text.to_ascii_lowercase()))
+            .ok_or(ForgejoHostError)
     }
+}
 
-    pub fn as_str(&self) -> &str {
+impl AsRef<str> for ForgejoHost {
+    fn as_ref(&self) -> &str {
         &self.0
     }
 }
@@ -217,11 +250,13 @@ pub struct ForgejoUrlError(pub &'static str);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForgejoUrl(Url);
 
-impl ForgejoUrl {
-    pub fn as_str(&self) -> &str {
+impl AsRef<str> for ForgejoUrl {
+    fn as_ref(&self) -> &str {
         self.0.as_str().trim_end_matches('/')
     }
+}
 
+impl ForgejoUrl {
     /// The parsed URL.
     pub fn url(&self) -> &Url {
         &self.0
@@ -273,7 +308,7 @@ impl FromStr for ForgejoUrl {
 
 impl fmt::Display for ForgejoUrl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+        f.write_str(self.as_ref())
     }
 }
 
@@ -284,30 +319,40 @@ pub enum IssueHost {
     Forgejo(ForgejoHost),
 }
 
-impl IssueHost {
+impl From<&IssueHost> for String {
     /// `github` or `forgejo:<host>`, as the store keeps it.
-    pub fn stored(&self) -> String {
-        match self {
-            Self::Github => "github".into(),
-            Self::Forgejo(host) => format!("forgejo:{}", host.as_str()),
+    fn from(host: &IssueHost) -> Self {
+        match host {
+            IssueHost::Github => "github".into(),
+            IssueHost::Forgejo(host) => format!("forgejo:{}", host.as_ref()),
         }
     }
+}
 
+impl IssueHost {
     /// GitHub for `github.com` or `www.github.com`, else Forgejo.
     pub fn of_hostname(hostname: &str) -> Option<IssueHost> {
         let hostname = hostname.to_ascii_lowercase();
         if is_github(&hostname) {
             return Some(Self::Github);
         }
-        ForgejoHost::parse(&hostname).map(Self::Forgejo)
+        hostname.parse().ok().map(Self::Forgejo)
     }
+}
 
-    pub fn from_stored(text: &str) -> Option<IssueHost> {
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("an issue host is 'github' or 'forgejo:<hostname>'")]
+pub struct IssueHostError;
+
+impl FromStr for IssueHost {
+    type Err = IssueHostError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
         if text == "github" {
-            return Some(Self::Github);
+            return Ok(Self::Github);
         }
-        let host = text.strip_prefix("forgejo:")?;
-        ForgejoHost::parse(host).map(Self::Forgejo)
+        let host = text.strip_prefix("forgejo:").ok_or(IssueHostError)?;
+        host.parse().map(Self::Forgejo).map_err(|_| IssueHostError)
     }
 }
 
@@ -328,7 +373,7 @@ impl fmt::Display for IssueHost {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Github => f.write_str("GitHub"),
-            Self::Forgejo(host) => write!(f, "Forgejo at {}", host.as_str()),
+            Self::Forgejo(host) => write!(f, "Forgejo at {}", host.as_ref()),
         }
     }
 }
@@ -439,30 +484,33 @@ mod tests {
 
     #[test]
     fn repo_names_parse() {
-        let name = RepoName::parse("acme/widget").expect("a valid name");
+        let name = RepoName::from_str("acme/widget").expect("a valid name");
         assert_eq!(name.to_string(), "acme/widget");
         assert_eq!(name.repo(), "widget");
         for bad in [
             "acme", "a/b/c", "../x", "acme/", "ac me/x", "./x", "acme/..",
         ] {
-            assert!(RepoName::parse(bad).is_err(), "{bad} should not parse");
+            assert!(RepoName::from_str(bad).is_err(), "{bad} should not parse");
         }
     }
 
     #[test]
     fn paths_join_and_contain() {
-        let project = MachinePath::parse("/srv/project").expect("a valid path");
-        let inside = MachinePath::parse("/srv/project/.worktrees/x").expect("a valid path");
-        let beside = MachinePath::parse("/srv/project-old").expect("a valid path");
+        let project = MachinePath::from_str("/srv/project").expect("a valid path");
+        let inside = MachinePath::from_str("/srv/project/.worktrees/x").expect("a valid path");
+        let beside = MachinePath::from_str("/srv/project-old").expect("a valid path");
         assert!(project.contains(&inside));
         assert!(project.contains(&project));
         assert!(!project.contains(&beside));
         assert!(!inside.contains(&project));
         assert_eq!(project.join(".worktrees/x"), inside);
         // A join cannot climb out of the path.
-        assert_eq!(project.join("../x").as_str(), "/srv/project/x");
+        assert_eq!(project.join("../x").as_ref(), "/srv/project/x");
         for bad in ["/srv/../etc", "srv/project", "/srv/project/", "", "/srv//x"] {
-            assert!(MachinePath::parse(bad).is_err(), "{bad} should not parse");
+            assert!(
+                MachinePath::from_str(bad).is_err(),
+                "{bad} should not parse"
+            );
         }
     }
 
@@ -479,15 +527,15 @@ mod tests {
     #[test]
     fn forgejo_urls_are_made_canonical() {
         let url: ForgejoUrl = " https://git.example.com/api/v1/?x=1 ".parse().unwrap();
-        assert_eq!(url.as_str(), "https://git.example.com");
+        assert_eq!(url.as_ref(), "https://git.example.com");
         let url: ForgejoUrl = "https://code.example.org:3000/forge/".parse().unwrap();
-        assert_eq!(url.as_str(), "https://code.example.org:3000/forge");
+        assert_eq!(url.as_ref(), "https://code.example.org:3000/forge");
         assert_eq!(url.host(), "code.example.org:3000");
         let url: ForgejoUrl = "http://forge.local:3000".parse().unwrap();
-        assert_eq!(url.as_str(), "http://forge.local:3000");
+        assert_eq!(url.as_ref(), "http://forge.local:3000");
         // Over a VPN a server named like one on the internet can be plain http.
         let url: ForgejoUrl = "http://git.example.com:3000".parse().unwrap();
-        assert_eq!(url.as_str(), "http://git.example.com:3000");
+        assert_eq!(url.as_ref(), "http://git.example.com:3000");
         assert!("ftp://git.example.com".parse::<ForgejoUrl>().is_err());
         assert!("git.example.com".parse::<ForgejoUrl>().is_err());
         assert!(

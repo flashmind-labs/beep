@@ -160,7 +160,7 @@ pub(super) async fn register(
         let member = Arc::new(apps.member);
         for tool in apps.tools {
             let slug = ToolSlug::new(tool.name());
-            if !GROUP_TOOLS.contains(&slug.as_str()) {
+            if !GROUP_TOOLS.contains(&slug.as_ref()) {
                 continue;
             }
             let Some((app, acts)) = permissions::call_acts(tool.name(), &Value::Null) else {
@@ -170,7 +170,7 @@ pub(super) async fn register(
                 continue;
             }
             by_name
-                .entry(slug.as_str().to_owned())
+                .entry(slug.as_ref().to_owned())
                 .or_default()
                 .push(Owned {
                     member: member.clone(),

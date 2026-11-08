@@ -81,7 +81,7 @@ async fn other_users_tasks_are_not_found() {
     ));
     let listed = project_tasks(&h.alice, project).await.unwrap();
     assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].slug, task.slug.as_str());
+    assert_eq!(listed[0].slug, task.slug.as_ref());
     assert_eq!(listed[0].state, ProjectTaskState::Planned {});
 }
 

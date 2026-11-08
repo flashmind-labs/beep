@@ -24,6 +24,7 @@ const MAX_MODEL: usize = 200;
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 #[non_exhaustive]
+#[derive(strum::AsRefStr)]
 pub enum Effort {
     Off,
     Minimal,
@@ -32,13 +33,6 @@ pub enum Effort {
     High,
     Xhigh,
     Max,
-}
-
-impl Effort {
-    /// The value an agent's `thought_level` option takes.
-    pub fn as_str(self) -> &'static str {
-        self.into()
-    }
 }
 
 impl From<AgentEffort> for Effort {

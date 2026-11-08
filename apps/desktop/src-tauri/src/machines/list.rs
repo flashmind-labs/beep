@@ -41,6 +41,7 @@ pub struct MachineView {
     id: String,
     name: String,
     online: bool,
+    can_host: bool,
     /// When it last connected or reported, in milliseconds since the Unix
     /// epoch.
     seen_at: u64,
@@ -59,6 +60,7 @@ impl From<Machine> for MachineView {
             id: machine.id,
             name: machine.name,
             online: machine.online,
+            can_host: true,
             seen_at: epoch_ms(machine.seen_at),
             version: machine.version,
             env: machine.env,
@@ -332,6 +334,8 @@ pub async fn list_machines(
         .map(|view| {
             let id = view.id.parse::<EndpointId>().ok();
             MachineView {
+                can_host: id
+                    .is_none_or(|id| !fleet.mesh().is_some_and(|mesh| mesh.is_observer(id))),
                 temporary: id.is_some_and(|id| temporary.contains(&id)),
                 adapters: id
                     .and_then(|id| fleet.status().last_env(id))

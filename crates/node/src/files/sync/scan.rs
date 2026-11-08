@@ -38,8 +38,8 @@ pub(super) struct Stat {
     pub(super) executable: bool,
 }
 
-impl Stat {
-    pub(super) fn of(meta: &Metadata) -> Self {
+impl From<&Metadata> for Stat {
+    fn from(meta: &Metadata) -> Self {
         let id = fsat::id_of_metadata(meta);
         Self {
             size: meta.len(),
@@ -50,15 +50,19 @@ impl Stat {
             executable: fsat::is_executable(meta),
         }
     }
+}
 
+impl Stat {
     pub(super) fn mtime_ms(&self) -> i64 {
         self.mtime_ns.div_euclid(1_000_000)
     }
+}
 
-    fn identity(&self) -> Identity {
-        Identity {
-            device: self.device,
-            inode: self.inode,
+impl From<&Stat> for Identity {
+    fn from(stat: &Stat) -> Self {
+        Self {
+            device: stat.device,
+            inode: stat.inode,
         }
     }
 }
@@ -179,7 +183,7 @@ fn walk_inner(root: &Path, rules: &Rules, skipped: usize, git_only: bool) -> Res
                 walked.files.push(Found {
                     path,
                     abs: item.path(),
-                    stat: Stat::of(&meta),
+                    stat: Stat::from(&meta),
                 });
                 ensure!(
                     walked.files.len() <= MAX_FILES && bytes <= MAX_BYTES,
@@ -208,7 +212,7 @@ pub(super) async fn import_copy(store: &Store, found: &Found) -> Result<TempTag>
 }
 
 async fn import_as(store: &Store, found: &Found, mode: ImportMode) -> Result<TempTag> {
-    let identity = found.stat.identity();
+    let identity = Identity::from(&found.stat);
     let check =
         |path: PathBuf| async move { spawn_blocking(move || check_same(&path, identity)).await? };
     check(found.abs.clone()).await?;

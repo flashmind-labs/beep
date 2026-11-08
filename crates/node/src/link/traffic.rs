@@ -85,11 +85,11 @@ impl Tally {
             match (&mut live.closed).now_or_never() {
                 None => {
                     if let Some(connection) = live.handle.upgrade() {
-                        live.last = (&connection.stats()).into();
+                        live.last = Into::<Bytes>::into(&connection.stats());
                     }
                     return true;
                 }
-                Some(Some(closed)) => live.last = (&closed.stats).into(),
+                Some(Some(closed)) => live.last = Into::<Bytes>::into(&closed.stats),
                 Some(None) => {}
             }
             ended.entry(live.alpn.clone()).or_default().add(live.last);
@@ -138,7 +138,7 @@ impl Traffic {
             alpn: connection.alpn().to_vec(),
             closed: Box::pin(handle.closed()),
             handle,
-            last: (&connection.stats()).into(),
+            last: Into::<Bytes>::into(&connection.stats()),
         });
     }
 

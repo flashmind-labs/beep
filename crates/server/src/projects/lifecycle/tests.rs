@@ -41,14 +41,14 @@ async fn harness() -> Harness {
     let mut fleet = FakeFleet::default();
     let (home, shell) = fleet.add(1, "build-box", &[], "/srv");
     let project = user
-        .ensure_project(&RepoName::parse("acme/widget").expect("a repo"))
+        .ensure_project(&"acme/widget".parse::<RepoName>().expect("a repo"))
         .await
         .expect("the project");
     user.add_checkout(
         project.id,
         &CheckoutRow {
             machine: home,
-            path: MachinePath::parse("/srv/widget").expect("a path"),
+            path: "/srv/widget".parse::<MachinePath>().expect("a path"),
             home: true,
         },
     )
@@ -133,7 +133,7 @@ impl Harness {
         )
         .await
         .expect("the issue");
-        let checkout = MachinePath::parse("/srv/widget").expect("a path");
+        let checkout = "/srv/widget".parse::<MachinePath>().expect("a path");
         // Nothing starts workers now; a row as an older server left it.
         let pool = self._db.raw_pool().await.expect("a pool");
         let id: Uuid = sqlx::query_scalar(

@@ -1,6 +1,6 @@
 //! Finding memories by meaning: search, similar and closest.
 
-use super::{super::Store, CATEGORY, CLOSEST_CANDIDATES, SCOPE, Scope, Scored, USER, from_result};
+use super::{super::Store, CATEGORY, CLOSEST_CANDIDATES, SCOPE, Scope, Scored, USER};
 use crate::account::user::UserKey;
 use anyhow::Result;
 
@@ -24,7 +24,7 @@ impl Store {
         let mut search = self
             .memories
             .search(query)
-            .filter(USER, user.as_str())
+            .filter(USER, user.as_ref())
             .limit(read);
         if let Some(category) = category {
             search = search.filter(CATEGORY, category);
@@ -35,7 +35,7 @@ impl Store {
         Ok(search
             .await?
             .into_iter()
-            .filter_map(from_result)
+            .filter_map(|result| Scored::try_from(result).ok())
             .filter(|found| scope.is_none_or(|scope| found.row.scope == *scope))
             .take(limit)
             .collect())
@@ -52,12 +52,12 @@ impl Store {
         Ok(self
             .memories
             .similar(query)
-            .filter(USER, user.as_str())
+            .filter(USER, user.as_ref())
             .threshold(threshold)
             .limit(limit)
             .await?
             .into_iter()
-            .filter_map(from_result)
+            .filter_map(|result| Scored::try_from(result).ok())
             .collect())
     }
 
@@ -72,7 +72,7 @@ impl Store {
         let mut similar = self
             .memories
             .similar(text)
-            .filter(USER, user.as_str())
+            .filter(USER, user.as_ref())
             .threshold(threshold)
             .limit(CLOSEST_CANDIDATES);
         let stored = scope.stored();
@@ -82,7 +82,7 @@ impl Store {
         Ok(similar
             .await?
             .into_iter()
-            .filter_map(from_result)
+            .filter_map(|result| Scored::try_from(result).ok())
             .find(|found| found.row.scope == *scope))
     }
 }

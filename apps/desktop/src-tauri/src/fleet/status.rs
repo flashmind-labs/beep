@@ -437,7 +437,7 @@ impl Follower {
                 !finished
             });
             ended.retain(|id, _| self.shared.peers().contains_key(id));
-            for status in self.mesh.machines().into_iter().filter(|s| s.online) {
+            for status in self.mesh.code_hosts().into_iter().filter(|s| s.online) {
                 let id = status.device.id;
                 if running.contains_key(&id) || !retry_due(ended.get(&id).copied()) {
                     continue;

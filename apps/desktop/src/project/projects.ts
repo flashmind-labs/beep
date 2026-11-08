@@ -248,7 +248,8 @@ export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
     const cells = whereRow(p, m);
     if (m.kind === "here" && p.imported) cells[2]?.append(removeButton(p.name, rows, m));
     where.append(...cells);
-    if (m.id) machineMenuWith({ id: m.id, name: m.name, online: m.kind !== "offline" }, () => p.imported ? [...changeFolderItems(p.name, m), ...removeMenuItems(p.name, rows, m)] : [], ...cells);
+    const canHost = state.home?.machines?.find(x => x.id === m.id)?.can_host;
+    if (m.id) machineMenuWith({ id: m.id, name: m.name, online: m.kind !== "offline", can_host: canHost }, () => p.imported && canHost !== false ? [...changeFolderItems(p.name, m), ...removeMenuItems(p.name, rows, m)] : [], ...cells);
   }
   // Once every machine answered, the note says the count instead.
   return section("sec-where", "Where it lives", known ? "" : rows.filter(m => m.kind === "here").length, null, where,

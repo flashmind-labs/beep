@@ -1085,7 +1085,7 @@ async fn a_full_window_is_compacted_before_the_next_prompt() {
         .filter(|entry| entry.text == COMPACTED_ENTRY)
         .collect();
     assert_eq!(compacted.len(), 1, "{entries:?}");
-    assert_eq!(compacted[0].kind, EntryKind::Other);
+    assert_eq!(compacted[0].kind, EntryKind::Compacted);
     assert!(
         !entries.iter().any(|entry| entry.text == COMPACT_PROMPT),
         "the node's /compact is not shown as the user's"

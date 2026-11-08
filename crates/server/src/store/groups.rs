@@ -175,7 +175,7 @@ impl Store {
             "INSERT INTO chat_members (chat_id, user_id, name, creator) VALUES ($1, $2, $3, TRUE)",
         )
         .bind(id)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(member_name)
         .execute(&mut *tx)
         .await?;
@@ -192,7 +192,7 @@ impl Store {
              FROM chats c JOIN chat_members m ON m.chat_id = c.id
              WHERE c.kind = 'group' AND m.user_id = $1 ORDER BY c.updated_at DESC LIMIT 200",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?
         .iter()
@@ -244,7 +244,7 @@ impl Store {
 
     async fn is_member(&self, user: &UserKey, id: Uuid) -> Result<bool> {
         let mut conn = self.pool.acquire().await?;
-        member_of(&mut conn, user.as_str(), id).await
+        member_of(&mut conn, user.as_ref(), id).await
     }
 
     async fn joined_group(&self, id: Uuid) -> Result<Option<JoinedGroup>> {
@@ -313,7 +313,7 @@ impl Store {
              WHERE m.chat_id = $1 AND m.user_id = $2 AND c.kind = 'group'",
         )
         .bind(new.group_id)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_optional(&mut *tx)
         .await?;
         let Some(name) = name else {
@@ -326,7 +326,7 @@ impl Store {
              RETURNING {MESSAGE_COLUMNS}"
         ))
         .bind(new.group_id)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(name.unwrap_or_default())
         .bind(new.request_id)
         .bind(new.content)
@@ -436,7 +436,7 @@ impl Store {
              RETURNING chat_id",
         )
         .bind(token)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(name)
         .fetch_optional(&mut *tx)
         .await;
@@ -467,7 +467,7 @@ impl Store {
                 id,
                 &backlog,
                 UpdateOp::Message,
-                Readers::User(user.as_str()),
+                Readers::User(user.as_ref()),
             )
             .await?,
         );
@@ -504,7 +504,7 @@ impl Store {
             "UPDATE chat_members SET {column} = $3 WHERE chat_id = $1 AND user_id = $2"
         ))
         .bind(id)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(value)
         .execute(&mut *tx)
         .await?
@@ -513,7 +513,7 @@ impl Store {
             tx.rollback().await?;
             return Ok(false);
         }
-        let bumped = log_chat(&mut tx, id, UpdateOp::Chat, Readers::User(user.as_str())).await?;
+        let bumped = log_chat(&mut tx, id, UpdateOp::Chat, Readers::User(user.as_ref())).await?;
         tx.commit().await?;
         self.announce(&bumped);
         Ok(true)
@@ -522,7 +522,7 @@ impl Store {
     /// Removes `user` from group `id`, deleting it when empty; false when not a member.
     pub(crate) async fn leave_group(&self, user: &UserKey, id: Uuid) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
-        if !member_of(&mut tx, user.as_str(), id).await? {
+        if !member_of(&mut tx, user.as_ref(), id).await? {
             tx.rollback().await?;
             return Ok(false);
         }
@@ -530,12 +530,12 @@ impl Store {
             &mut tx,
             id,
             UpdateOp::ChatDeleted,
-            Readers::User(user.as_str()),
+            Readers::User(user.as_ref()),
         )
         .await?;
         sqlx::query("DELETE FROM chat_members WHERE chat_id = $1 AND user_id = $2")
             .bind(id)
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .execute(&mut *tx)
             .await?;
         let left: bool =

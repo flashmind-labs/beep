@@ -42,23 +42,15 @@ pub(crate) enum Signal {
 }
 
 /// Why a scope is curated.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, strum::AsRefStr, strum::Display, strum::IntoStaticStr,
+)]
+#[strum(serialize_all = "snake_case")]
 pub(crate) enum Need {
     Ended,
     Close,
     Crowded,
     Grew,
-}
-
-impl Need {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Need::Ended => "ended",
-            Need::Close => "close",
-            Need::Crowded => "crowded",
-            Need::Grew => "grew",
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

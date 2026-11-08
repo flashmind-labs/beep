@@ -4,7 +4,7 @@ use crate::{Shell, branches::tail, quote};
 use anyhow::{Context, Result, bail, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Serialize;
-use std::{collections::BTreeMap, time::Duration};
+use std::{collections::BTreeMap, str::FromStr, time::Duration};
 
 pub const PAGE_SIZE: usize = 50;
 const READ_LIMIT: Duration = Duration::from_secs(30);
@@ -13,15 +13,20 @@ const READ_LIMIT: Duration = Duration::from_secs(30);
 #[serde(transparent)]
 pub struct CommitId(String);
 
-impl CommitId {
-    pub fn parse(value: &str) -> Result<Self> {
+impl FromStr for CommitId {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self> {
         ensure!(
             matches!(value.len(), 40 | 64) && value.bytes().all(|b| b.is_ascii_hexdigit()),
             "Invalid commit ID"
         );
         Ok(Self(value.to_ascii_lowercase()))
     }
-    pub fn as_str(&self) -> &str {
+}
+
+impl AsRef<str> for CommitId {
+    fn as_ref(&self) -> &str {
         &self.0
     }
 }
@@ -94,7 +99,7 @@ fn framed(folder: &str, parts: &[(&str, String)]) -> String {
 pub fn history_script(ask: &HistoryAsk<'_>) -> String {
     let revision = ask
         .revision
-        .map(|id| quote(id.as_str()))
+        .map(|id| quote(id.as_ref()))
         .unwrap_or_else(|| "--all".to_owned());
     let search = if ask.search.is_empty() {
         String::new()
@@ -126,13 +131,13 @@ pub fn patch_script(folder: &str, commit: &CommitId, paths: &[String]) -> String
             ("root", "git rev-parse --show-toplevel".to_owned()),
             (
                 "parents",
-                format!("git rev-list --parents --no-walk {}", commit.as_str()),
+                format!("git rev-list --parents --no-walk {}", commit.as_ref()),
             ),
             (
                 "patch",
                 format!(
                     "git --literal-pathspecs -c core.quotepath=off show --format= --root --diff-merges=first-parent --no-ext-diff --no-textconv --no-color --find-renames {} -- {paths}",
-                    commit.as_str()
+                    commit.as_ref()
                 ),
             ),
         ],
@@ -213,10 +218,10 @@ pub fn parse_history(mut parts: BTreeMap<String, String>, offset: u32) -> Result
         let seconds: u64 = fields.next().context("Missing commit date")?.parse()?;
         let subject = fields.next().context("Missing commit subject")?;
         commits.push(Commit {
-            id: CommitId::parse(id)?,
+            id: CommitId::from_str(id)?,
             parents: parents
                 .split_whitespace()
-                .map(CommitId::parse)
+                .map(CommitId::from_str)
                 .collect::<Result<_>>()?,
             author: author.to_owned(),
             committed_at: seconds.checked_mul(1000).context("Commit date overflow")?,
@@ -256,7 +261,7 @@ pub fn parse_history(mut parts: BTreeMap<String, String>, offset: u32) -> Result
         };
         found_refs.push(GitRef {
             name: name.to_owned(),
-            head: CommitId::parse(head)?,
+            head: CommitId::from_str(head)?,
             kind,
         });
     }
@@ -272,7 +277,7 @@ pub fn parse_history(mut parts: BTreeMap<String, String>, offset: u32) -> Result
             if let Some(value) = field.strip_prefix("HEAD ")
                 && !value.bytes().all(|b| b == b'0')
             {
-                head = Some(CommitId::parse(value)?);
+                head = Some(CommitId::from_str(value)?);
             }
             if let Some(value) = field.strip_prefix("branch refs/heads/") {
                 branch = Some(value.to_owned());
@@ -310,7 +315,7 @@ pub fn files_script(folder: &str, commit: &CommitId) -> String {
             "files",
             format!(
                 "git -c core.quotepath=off show --format= --root --diff-merges=first-parent --no-ext-diff --no-textconv --name-status --find-renames -z {} --",
-                commit.as_str()
+                commit.as_ref()
             ),
         )],
     )
@@ -389,7 +394,7 @@ mod tests {
         std::fs::write(dir.join("first.txt"), "first\n").expect("file");
         git(dir, &["add", "."]);
         git(dir, &["commit", "-m", "Initial"]);
-        let initial = CommitId::parse(git(dir, &["rev-parse", "HEAD"]).trim()).expect("SHA");
+        let initial = CommitId::from_str(git(dir, &["rev-parse", "HEAD"]).trim()).expect("SHA");
         let root_patch = script(&patch_script(dir.to_str().expect("path"), &initial, &[]));
         assert!(root_patch["patch"].contains("+first"));
         git(dir, &["checkout", "-b", "feature"]);
@@ -475,7 +480,7 @@ mod tests {
         std::fs::write(dir.join(name), "content\n").expect("file");
         git(dir, &["add", "."]);
         git(dir, &["commit", "-m", "File"]);
-        let id = CommitId::parse(git(dir, &["rev-parse", "HEAD"]).trim()).expect("SHA");
+        let id = CommitId::from_str(git(dir, &["rev-parse", "HEAD"]).trim()).expect("SHA");
         let files = parse_files(&script(&files_script(ask.folder, &id))["files"]).expect("files");
         assert_eq!(files[0].path, name);
         assert!(
@@ -487,9 +492,9 @@ mod tests {
     fn rejects_clipped_output_and_non_commit_identifiers() {
         assert!(decode("@@patch 12\nYWJj\n@@end\n").is_err());
         assert!(decode("@@patch 3\nYWJj\n").is_err());
-        assert!(CommitId::parse("--all").is_err());
-        assert!(CommitId::parse("HEAD; echo no").is_err());
-        assert!(CommitId::parse(&"a".repeat(40)).is_ok());
+        assert!(CommitId::from_str("--all").is_err());
+        assert!(CommitId::from_str("HEAD; echo no").is_err());
+        assert!(CommitId::from_str(&"a".repeat(40)).is_ok());
         let files = parse_files("R100\0old name\0new name\0").expect("rename");
         assert_eq!(files[0].old_path.as_deref(), Some("old name"));
     }

@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn a_repo_has_a_memory_scope_by_its_name() {
-        let name = RepoName::parse("acme/widget").expect("a valid name");
+        let name = "acme/widget".parse::<RepoName>().expect("a valid name");
         assert_eq!(
             memory_scope(&name).expect("a valid scope"),
             Scope::project("widget").expect("a valid scope")

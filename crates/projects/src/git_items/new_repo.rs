@@ -8,6 +8,7 @@ use crate::model::RepoName;
 use futures::future::join_all;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 /// A host's API, and the token's account when it is known already.
 #[derive(Debug, Clone, Copy)]
@@ -135,7 +136,7 @@ pub async fn create(
     if status.is_success() {
         let bad = || CreateError::Host(HostError::BadReply(host.clone()));
         let made: Made = reply.json().await.map_err(|_| bad())?;
-        return RepoName::parse(&made.full_name).map_err(|_| bad());
+        return RepoName::from_str(&made.full_name).map_err(|_| bad());
     }
     let headers = reply.headers().clone();
     // Read only for GitHub's sentence; a reply that cannot be read counts as any other refusal.

@@ -70,7 +70,7 @@ fn open_dirs(dir: &Dir, path: &Path) -> io::Result<Option<Dir>> {
 
 fn found_at(dir: &Dir, name: &OsStr) -> io::Result<Found> {
     Ok(match dir.metadata(name) {
-        Ok(Some(meta)) if meta.is_file() => Found::File(Stat::of(&meta)),
+        Ok(Some(meta)) if meta.is_file() => Found::File(Stat::from(&meta)),
         Ok(Some(_)) => Found::Other,
         Ok(None) => Found::Missing,
         Err(e) if e.kind() == io::ErrorKind::InvalidInput => Found::Other,
@@ -205,7 +205,7 @@ mod tests {
     }
 
     fn stat(path: &Path) -> Stat {
-        Stat::of(&fs::metadata(path).unwrap())
+        Stat::from(&fs::metadata(path).unwrap())
     }
 
     fn put(

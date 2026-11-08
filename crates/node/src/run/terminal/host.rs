@@ -17,6 +17,7 @@ use beep_proto::{
     },
 };
 use futures::{SinkExt, StreamExt};
+use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
     io,
@@ -49,6 +50,8 @@ const MAX_CONNECTIONS: usize = 64;
 
 /// The node's folder, where its host listens.
 static DIR: OnceLock<PathBuf> = OnceLock::new();
+/// The host writes its running set after every lifecycle change.
+static CHANGES: OnceLock<RecommendedWatcher> = OnceLock::new();
 /// Held while the node starts a host, so it starts one.
 static STARTING: AsyncMutex<()> = AsyncMutex::const_new(());
 
@@ -120,6 +123,7 @@ pub fn in_process(dir: &Path) -> Result<impl Future<Output = Result<()>> + use<>
     if DIR.set(dir.to_path_buf()).is_err() {
         bail!("the node's terminals were set up already");
     }
+    watch(dir)?;
     let listener = Listener::bind(&dir.join(SOCKET))?;
     let dir = dir.to_path_buf();
     Ok(async move { serve(&dir, listener, &Terminals::default()).await })
@@ -234,11 +238,45 @@ fn read_note(dir: &Path) -> Vec<OpenTerminal> {
     note::read(&dir.join(NOTE))
 }
 
+fn watch(dir: &Path) -> Result<()> {
+    if CHANGES.get().is_some() {
+        return Ok(());
+    }
+    let dir = dir.canonicalize()?;
+    let path = dir.join(NOTE);
+    let mut current = read_note(&dir);
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        match event {
+            Ok(event)
+                if !event.need_rescan()
+                    && (matches!(event.kind, EventKind::Access(_) | EventKind::Other)
+                        || !event.paths.contains(&path)) =>
+            {
+                return;
+            }
+            Err(error) => log::warn!("terminal host notification failed: {error}"),
+            _ => {}
+        }
+        let next: Vec<OpenTerminal> = note::read(&path);
+        // Lists also rewrite the note, so unchanged contents must not trigger another list.
+        if next != current {
+            current = next;
+            crate::events::system().changed(beep_proto::node::events::Topic::new("terminals"));
+        }
+    })?;
+    watcher.watch(&dir, RecursiveMode::NonRecursive)?;
+    let _ = CHANGES.set(watcher);
+    Ok(())
+}
+
 /// Remembers the node's folder for `relay`, and starts a host there when
 /// the last one died with terminals it noted, which it opens again.
 pub(super) async fn reopen(dir: &Path) {
     if DIR.set(dir.to_path_buf()).is_err() {
         log::debug!("the node's terminals were set up already");
+    }
+    if let Err(error) = watch(dir) {
+        log::warn!("could not watch terminal host changes: {error:#}");
     }
     if read_note(dir).is_empty() || is_listening(&dir.join(SOCKET)) {
         return;

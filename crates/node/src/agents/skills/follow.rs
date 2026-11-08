@@ -126,7 +126,7 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
 /// The other members online now.
 fn online(mesh: &Mesh) -> BTreeSet<EndpointId> {
     let me = mesh.me();
-    mesh.devices()
+    mesh.code_hosts()
         .into_iter()
         .filter(|status| status.online && status.device.id != me)
         .map(|status| status.device.id)

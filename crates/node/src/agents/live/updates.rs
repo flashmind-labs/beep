@@ -176,7 +176,7 @@ impl Live {
             );
             return;
         }
-        self.push(EntryKind::Other, COMPACTED_ENTRY);
+        self.push(EntryKind::Compacted, COMPACTED_ENTRY);
         self.info.context = None;
         self.compacted = true;
     }

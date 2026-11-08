@@ -7,7 +7,7 @@ use beep_proto::node::{
     agent::{SessionsReply, SessionsRequest},
     events::{self, CallReply, Operation, Reply, Request, Topic},
 };
-use futures::{StreamExt, stream};
+use futures::{FutureExt, StreamExt, stream};
 use std::{
     collections::{BTreeMap, HashSet},
     path::PathBuf,
@@ -19,6 +19,7 @@ use tokio::{
     task::JoinSet,
     time::{Instant, MissedTickBehavior, interval_at, timeout},
 };
+use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tokio_util::task::AbortOnDropHandle;
 
 const WRITE_WAIT: Duration = Duration::from_secs(15);
@@ -27,7 +28,9 @@ const MAX_FILE_ROOTS: usize = 512;
 
 mod git;
 mod snapshots;
+pub(crate) mod sources;
 use snapshots::Snapshots;
+use sources::Subscriptions;
 
 type FileBindings = BTreeMap<Topic, Vec<PathBuf>>;
 
@@ -50,12 +53,10 @@ pub(crate) async fn serve(
         .as_ref()
         .map(beep_mesh::Mesh::changes);
     offers.agents.start_event_bridge();
-    let mut changes = offers.agents.events.subscribe();
     let mut topics = Vec::new();
     let mut queries = Vec::new();
-    let roots = Arc::new(Mutex::new(BTreeMap::<Topic, PathBuf>::new()));
-    let mut watcher = None;
-    let mut _source_lease = None;
+    let mut subscriptions = Subscriptions::new();
+    let mut roots = BTreeMap::new();
     let mut snapshots = Snapshots::new();
     let mut calls = JoinSet::new();
     let mut pending = HashSet::new();
@@ -80,18 +81,21 @@ pub(crate) async fn serve(
                 Some(Request::Watch { id, topics: wanted, queries: wanted_queries }) => {
                     let valid = if wanted.len() > events::MAX_TOPICS {
                         Err(anyhow::anyhow!("too many subscription topics"))
+                    } else if wanted.iter().any(|topic| !topic.valid()) {
+                        Err(anyhow::anyhow!("invalid subscription topics"))
                     } else { Snapshots::validate(&wanted_queries) };
                     let source_topics = sources(&wanted, &wanted_queries);
                     let result = match valid {
-                        Ok(()) => subscribe(&offers, &mut watcher, &roots, &source_topics).await,
+                        Ok(()) => sources::subscribe(&offers, &source_topics).await,
                         Err(error) => Err(error),
                     };
                     match result {
-                        Ok(lease) => {
-                            _source_lease = lease;
+                        Ok(next) => {
+                            subscriptions = next;
+                            roots = sources::roots(&subscriptions);
                             topics = wanted;
                             queries = wanted_queries;
-                            snapshots.replace(&offers, &topics, &queries, &crate::lock(&roots));
+                            snapshots.replace(&offers, &topics, &queries, &roots);
                             send(&mut tx, &Reply::Watching { id }).await?;
                         }
                         Err(error) => send(&mut tx, &Reply::Error { id, reason: format!("{error:#}") }).await?,
@@ -122,32 +126,47 @@ pub(crate) async fn serve(
                 send(&mut tx, &reply).await?;
             },
             snapshot = snapshots.next() => if let Some(snapshot) = snapshot? { send(&mut tx, &snapshot).await?; },
-            event = changes.recv() => {
-                match event {
-                    Ok(event) => {
-                        if broad_files(&sources(&topics, &queries)) && matches!(event.topic.name(), "agents" | "projects" | "*") {
-                            watch(&offers, &mut watcher, &roots, &sources(&topics, &queries)).await?;
-                            snapshots.replace(&offers, &topics, &queries, &crate::lock(&roots));
-                        }
-                        // Publication can add a previously unknown exact plugin topic.
-                        if !snapshots.contains(&event.topic) && offers.agents.events.current(&event.topic).is_some() {
-                            snapshots.replace(&offers, &topics, &queries, &crate::lock(&roots));
-                        }
-                        snapshots.changed(&event.topic);
+            Some((_, event)) = subscriptions.next(), if !subscriptions.is_empty() => {
+                // Overlapping keys can receive the same broad invalidation.
+                // Drain a bounded ready batch before reconciling its sources.
+                let mut batch = vec![event];
+                for _ in 0..subscriptions.len() {
+                    let Some(Some((_, event))) = subscriptions.next().now_or_never() else {
+                        break;
+                    };
+                    batch.push(event);
+                }
+                let mut changed = HashSet::new();
+                let mut lagged = false;
+                for event in batch {
+                    match event {
+                        Ok(event) => { changed.insert(event.topic); }
+                        Err(BroadcastStreamRecvError::Lagged(_)) => lagged = true,
                     }
-                    Err(RecvError::Lagged(_)) => {
-                        watch(&offers, &mut watcher, &roots, &sources(&topics, &queries)).await?;
-                        snapshots.replace(&offers, &topics, &queries, &crate::lock(&roots));
-                        snapshots.reset();
-                    }
-                    Err(RecvError::Closed) => return Ok(()),
+                }
+                let reconcile = lagged || broad_files(&sources(&topics, &queries))
+                    && changed.iter().any(|topic| matches!(topic.name(), "agents" | "projects" | "*"));
+                if reconcile {
+                    sources::reconcile(&offers, &subscriptions).await?;
+                    roots = sources::roots(&subscriptions);
+                }
+                // Publication can add a previously unknown exact plugin topic.
+                if reconcile || changed.iter().any(|topic| !snapshots.contains(topic) && offers.agents.events.current(topic).is_some()) {
+                    snapshots.replace(&offers, &topics, &queries, &roots);
+                }
+                if lagged {
+                    snapshots.reset();
+                }
+                for topic in changed {
+                    snapshots.changed(&topic);
                 }
             },
             changed = membership.changed(), if watches_files(&sources(&topics, &queries)) => {
                 if changed.is_err() { return Ok(()); }
                 project_changes = membership.borrow_and_update().as_ref().map(beep_mesh::Mesh::changes);
-                watch(&offers, &mut watcher, &roots, &sources(&topics, &queries)).await?;
-                snapshots.replace(&offers, &topics, &queries, &crate::lock(&roots));
+                sources::reconcile(&offers, &subscriptions).await?;
+                roots = sources::roots(&subscriptions);
+                snapshots.replace(&offers, &topics, &queries, &roots);
             },
             change = async { match &mut project_changes { Some(changes) => changes.recv().await, None => std::future::pending().await } }, if watches_files(&sources(&topics, &queries)) => {
                 let reconcile = match change {
@@ -156,8 +175,9 @@ pub(crate) async fn serve(
                     _ => false,
                 };
                 if reconcile {
-                    watch(&offers, &mut watcher, &roots, &sources(&topics, &queries)).await?;
-                    snapshots.replace(&offers, &topics, &queries, &crate::lock(&roots));
+                    sources::reconcile(&offers, &subscriptions).await?;
+                    roots = sources::roots(&subscriptions);
+                    snapshots.replace(&offers, &topics, &queries, &roots);
                 }
             },
             _ = heartbeat.tick() => send(&mut tx, &Reply::Pong { id: 0 }).await?,
@@ -168,6 +188,27 @@ pub(crate) async fn serve(
 fn sources(topics: &[Topic], queries: &[events::Query]) -> Vec<Topic> {
     let mut sources = topics.to_vec();
     sources.extend(queries.iter().map(|query| query.topic.clone()));
+    if sources.iter().any(|topic| topic.name() == "agents") {
+        sources.extend([Topic::new("agent"), Topic::new("moves")]);
+    }
+    if sources.iter().any(|topic| topic.name() == "agent") {
+        sources.push(Topic::new("agents"));
+    }
+    if sources
+        .iter()
+        .any(|topic| matches!(topic.name(), "processes" | "process-output"))
+    {
+        sources.extend([Topic::new("processes"), Topic::new("process-output")]);
+    }
+    if sources
+        .iter()
+        .any(|topic| matches!(topic.name(), "terminals" | "terminal-output"))
+    {
+        sources.extend([Topic::new("terminals"), Topic::new("terminal-output")]);
+    }
+    if broad_files(&sources) {
+        sources.extend([Topic::new("agents"), Topic::new("projects")]);
+    }
     sources.sort();
     sources.dedup();
     sources
@@ -189,30 +230,6 @@ fn broad_files(topics: &[Topic]) -> bool {
     topics
         .iter()
         .any(|topic| topic.name() == "*" || (topic.name() == "files" && topic.key().is_none()))
-}
-
-async fn subscribe(
-    offers: &Offers,
-    watcher: &mut Option<FileWatcher>,
-    roots: &Arc<Mutex<BTreeMap<Topic, PathBuf>>>,
-    topics: &[Topic],
-) -> Result<Option<Arc<crate::agents::follow::Sources>>> {
-    if topics.len() > events::MAX_TOPICS + events::MAX_QUERIES
-        || topics.iter().any(|topic| !topic.valid())
-    {
-        bail!("invalid subscription topics");
-    }
-    let lease = if broad_files(topics)
-        || topics
-            .iter()
-            .any(|topic| matches!(topic.name(), "agent" | "agents" | "*"))
-    {
-        Some(offers.agents.watch_event_sources().await?)
-    } else {
-        None
-    };
-    watch(offers, watcher, roots, topics).await?;
-    Ok(lease)
 }
 
 async fn watch(

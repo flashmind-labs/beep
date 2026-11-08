@@ -19,8 +19,10 @@ struct Args {
     machine: Option<String>,
 }
 
-impl Args {
-    fn parse(request: &Request) -> Result<Self, String> {
+impl TryFrom<&Request> for Args {
+    type Error = String;
+
+    fn try_from(request: &Request) -> Result<Self, Self::Error> {
         let mut args: Self = serde_json::from_str(&request.args)
             .map_err(|e| format!("The arguments do not fit: {e}"))?;
         args.harness = args.harness.trim().to_owned();
@@ -61,7 +63,7 @@ impl HarnessInfo {
 /// Routes discovery to the named machine, defaulting to this node even
 /// when it has not joined a mesh.
 pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
-    let args = match Args::parse(request) {
+    let args = match Args::try_from(request) {
         Ok(args) => args,
         Err(e) => return failed(e),
     };
@@ -91,7 +93,7 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
 /// Answers here, including when a peer sent the request. Never forwards
 /// a peer's request to another machine.
 pub(crate) async fn answer(agents: &Agents, request: &Request) -> Reply {
-    let args = match Args::parse(request) {
+    let args = match Args::try_from(request) {
         Ok(args) => args,
         Err(e) => return failed(e),
     };

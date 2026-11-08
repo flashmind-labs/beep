@@ -5,10 +5,7 @@
 //! `trigger_to_client` or `chunked-trigger_to_client`, naming the account's outside id. A dropped
 //! connection reconnects with backoff.
 
-use super::{
-    normalize::{self, TriggerMessage},
-    submit,
-};
+use super::{AppEvent, normalize::TriggerMessage, submit};
 use crate::{app::App, apps::Composio};
 use anyhow::{Context, Result, bail};
 use futures::{SinkExt, StreamExt};
@@ -302,7 +299,7 @@ impl Chunks {
 
 /// Hands one trigger payload to the pipeline, for the user it names.
 pub async fn deliver(app: &App, payload: &Value) {
-    let Some(message) = TriggerMessage::parse(payload) else {
+    let Ok(message) = TriggerMessage::try_from(payload) else {
         log::debug!("events: trigger payload in an unknown shape");
         return;
     };
@@ -315,9 +312,9 @@ pub async fn deliver(app: &App, payload: &Value) {
         log::debug!("events: trigger for a user this server does not have");
         return;
     };
-    match normalize::from_trigger(&message) {
-        Some(event) => submit(app, user.id(), event).await,
-        None => log::debug!(
+    match AppEvent::try_from(&message) {
+        Ok(event) => submit(app, user.id(), event).await,
+        Err(_) => log::debug!(
             "events: trigger {} made no event; user={user}",
             message.slug
         ),

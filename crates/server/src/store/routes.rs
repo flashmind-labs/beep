@@ -18,7 +18,7 @@ impl Store {
             "INSERT INTO route_cards (user_id, call_id, chat_id, card) VALUES ($1, $2, $3, $4)
              ON CONFLICT (user_id, call_id) DO UPDATE SET card = excluded.card",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(call_id)
         .bind(chat)
         .bind(serde_json::to_value(card)?)
@@ -35,7 +35,7 @@ impl Store {
     ) -> Result<Option<RouteCard>> {
         let card: Option<Value> =
             sqlx::query_scalar("SELECT card FROM route_cards WHERE user_id = $1 AND call_id = $2")
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .bind(call_id)
                 .fetch_optional(&self.pool)
                 .await?;

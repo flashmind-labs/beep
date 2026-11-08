@@ -77,7 +77,7 @@ pub(super) fn copy_name(name: &str, n: u32) -> String {
         1 => "-copy".to_owned(),
         n => format!("-copy-{n}"),
     };
-    let longest = match RepoName::parse(name) {
+    let longest = match name.parse::<RepoName>() {
         Ok(repo) => repo.owner().len() + 1 + MAX_REPO_PART,
         Err(_) => MAX_NAME,
     };
@@ -122,7 +122,9 @@ mod tests {
 
     /// Every rule a project name must pass across imports, sync, memory and checkout folders.
     fn passes_every_rule(name: &str) {
-        let repo = RepoName::parse(name).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let repo = (name)
+            .parse::<RepoName>()
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
         // A project's memories are scoped by its repository part.
         memory_scope(&repo).expect("a memory scope");
         assert_eq!(project_name(name).ok(), Some(name));
@@ -144,7 +146,7 @@ mod tests {
         passes_every_rule(&copy_name("acme/app", 1));
         passes_every_rule(&copy_name("Acme/My_App.rs", 12));
         // The old form fails the import's rules.
-        assert!(RepoName::parse("acme/app (2)").is_err());
+        assert!("acme/app (2)".parse::<RepoName>().is_err());
         assert!(RepoRef::parse("acme/app (2)", &[]).is_err());
 
         let long = format!("acme/{}", "r".repeat(MAX_REPO_PART));

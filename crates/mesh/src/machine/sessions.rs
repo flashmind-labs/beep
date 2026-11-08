@@ -2,7 +2,7 @@
 //! `Sessions` is anything that can send one; the typed requests below are
 //! written once for every caller.
 
-use super::{said, unexpected};
+use super::{said, timed_out, unexpected};
 use crate::{MeshError, PeerClient};
 use beep_proto::{
     CustomAgent, ListWorkTree, WorkDiff, WorkFolder, WorkTree,
@@ -54,7 +54,7 @@ impl Sessions for PeerClient {
         if read.topic().is_some()
             && let Some(value) = tokio::time::timeout(limit, self.snapshot(read))
                 .await
-                .map_err(|_| said("the session subscription did not answer in time"))?
+                .map_err(|e| timed_out(e, "the session subscription did not answer in time"))?
         {
             return match value? {
                 beep_proto::node::events::Value::Sessions(reply) => Ok(*reply),

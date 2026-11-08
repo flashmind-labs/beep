@@ -244,7 +244,7 @@ fn syncthing_lines(project: &str, machines: &[Machine], checkouts: &[CheckoutRow
         let Some(machine) = machines.iter().find(|m| m.id == checkout.machine) else {
             continue;
         };
-        let path = checkout.path.as_str();
+        let path = checkout.path.as_ref();
         let Some(folder) = machine
             .syncthing
             .iter()

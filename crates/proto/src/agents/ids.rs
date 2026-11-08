@@ -1,13 +1,11 @@
-//! Names of coding agents and their models as they cross the wire. Both
-//! encode as plain text, so a field that held a `String` can hold one of
-//! these without changing its bytes.
+//! Agent, model and session identifiers encode as plain text, preserving
+//! the wire representation of older string fields.
 
 use crate::AgentAccount;
 use serde::{Deserialize, Serialize};
 use std::{borrow::Borrow, borrow::Cow, convert::Infallible, fmt, str::FromStr};
 
-/// What every id made of text has: `new`, `as_str`, and reading and comparing
-/// it as text.
+/// Construction, borrowed access, formatting, parsing and text comparison.
 macro_rules! text_id {
     ($id:ident) => {
         impl $id {
@@ -15,12 +13,14 @@ macro_rules! text_id {
                 Self(id.into().into())
             }
 
-            pub fn as_str(&self) -> &str {
-                &self.0
-            }
-
             pub fn is_empty(&self) -> bool {
                 self.0.is_empty()
+            }
+        }
+
+        impl AsRef<str> for $id {
+            fn as_ref(&self) -> &str {
+                &self.0
             }
         }
 
@@ -87,7 +87,7 @@ impl AgentSlug {
 
 impl From<AgentAccount> for AgentSlug {
     fn from(account: AgentAccount) -> Self {
-        Self(Cow::Borrowed(account.slug()))
+        Self(Cow::Borrowed(Into::<&'static str>::into(account)))
     }
 }
 
@@ -98,6 +98,14 @@ impl From<AgentAccount> for AgentSlug {
 pub struct ModelId(String);
 
 text_id!(ModelId);
+
+/// A session's identifier, assigned by Beep or by a coding agent harness.
+/// Harnesses do not all use UUIDs, so its text is preserved on the wire.
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SessionId(String);
+
+text_id!(SessionId);
 
 // Kotlin and Swift see a model id as its text.
 #[cfg(feature = "uniffi")]

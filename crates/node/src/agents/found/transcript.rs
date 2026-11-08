@@ -47,7 +47,7 @@ impl Stores {
                 .read(file, || flsh(file).map(Arc::new))?,
             (agent, _) => bail!(
                 "{}'s transcript cannot be read yet, only its title and folder",
-                agent.as_str()
+                agent.as_ref()
             ),
         };
         let range = window(0, entries.len(), last, before);
@@ -232,7 +232,7 @@ fn codex(path: &Path) -> io::Result<Vec<Entry>> {
                 }
                 None
             }
-            (Some("compacted"), _) => entry(EntryKind::Other, "[conversation compacted]"),
+            (Some("compacted"), _) => entry(EntryKind::Compacted, "[conversation compacted]"),
             _ => None,
         };
         entries.extend(made);

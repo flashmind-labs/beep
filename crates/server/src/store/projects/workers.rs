@@ -34,7 +34,7 @@ impl Store {
             "SELECT {WORKER_COLUMNS} FROM project_workers w
              WHERE w.user_id=$1 AND w.state = ANY($2) ORDER BY w.started_at"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(live_states())
         .fetch_all(&self.pool)
         .await?;
@@ -65,7 +65,7 @@ impl Store {
             "SELECT {WORKER_COLUMNS} FROM project_workers w WHERE w.id=$1 AND w.user_id=$2"
         ))
         .bind(id.0)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_optional(&self.pool)
         .await?;
         row.as_ref().map(worker_from).transpose()

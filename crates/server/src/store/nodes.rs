@@ -32,7 +32,7 @@ impl Store {
                  version=excluded.version, connected_at=now(), seen_at=now()",
         )
         .bind(node.endpoint.to_string())
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(node.name)
         .bind(node.version)
         .execute(&self.pool)
@@ -48,7 +48,7 @@ impl Store {
     ) -> Result<()> {
         sqlx::query("UPDATE nodes SET env=$3, seen_at=now() WHERE endpoint_id=$1 AND user_id=$2")
             .bind(endpoint.to_string())
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(serde_json::to_value(env)?)
             .execute(&self.pool)
             .await?;
@@ -59,7 +59,7 @@ impl Store {
         let rows = sqlx::query(
             "SELECT endpoint_id, name, version, env, seen_at FROM nodes WHERE user_id=$1 ORDER BY name",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         rows.iter()

@@ -67,8 +67,12 @@ ffi_structs! {
 ffi_enum! {
     /// What kind of client a key belongs to.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(strum::AsRefStr, strum::IntoStaticStr)]
+    #[derive(strum::EnumString)]
     pub enum DeviceKind {
+        #[strum(serialize = "phone")]
         0 Phone {}
+        #[strum(serialize = "desktop")]
         1 Desktop {}
     }
 }
@@ -79,26 +83,11 @@ impl Default for DeviceKind {
     }
 }
 
-impl DeviceKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Phone {} => "phone",
-            Self::Desktop {} => "desktop",
-        }
-    }
-
-    pub fn parse(name: &str) -> Option<Self> {
-        match name {
-            "phone" => Some(Self::Phone {}),
-            "desktop" => Some(Self::Desktop {}),
-            _ => None,
-        }
-    }
-}
-
 ffi_enum! {
     /// Which app a request comes from.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(strum::AsRefStr, strum::IntoStaticStr, strum::EnumString)]
+    #[strum(serialize_all = "lowercase")]
     pub enum Platform {
         0 Android {}
         1 Ios {}

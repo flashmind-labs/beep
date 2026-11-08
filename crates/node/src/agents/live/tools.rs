@@ -68,7 +68,10 @@ impl Live {
         self.in_message = false;
         // Codex saying a subagent it started began or ended goes on the
         // call that started it.
-        if let Some(activity) = call.raw_input.as_ref().and_then(Activity::of)
+        if let Some(activity) = call
+            .raw_input
+            .as_ref()
+            .and_then(|input| Activity::try_from(input).ok())
             && let Some(owner) = self.codex_threads.get(&activity.thread).cloned()
         {
             self.codex_activity(&owner, activity);
@@ -98,7 +101,12 @@ impl Live {
             ),
             backgrounded: false,
             details: AgentToolCall {
-                name: tool_details::name(call.meta.as_ref()),
+                name: call
+                    .name
+                    .as_deref()
+                    .filter(|name| !name.is_empty())
+                    .map(|name| cut(name, 240))
+                    .or_else(|| tool_details::name(call.meta.as_ref())),
                 ..AgentToolCall::default()
             },
         };
@@ -206,7 +214,13 @@ impl Live {
             return;
         };
         let fields = &update.fields;
-        if let Some(name) = tool_details::name(update.meta.as_ref()) {
+        if let Some(name) = fields
+            .name
+            .as_deref()
+            .filter(|name| !name.is_empty())
+            .map(|name| cut(name, 240))
+            .or_else(|| tool_details::name(update.meta.as_ref()))
+        {
             call.details.name = Some(name);
         }
         update_details(

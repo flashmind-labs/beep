@@ -183,7 +183,7 @@ fn prompt(today: &str, known: &[Hit], machines: &[NodeRow], transcript: &str) ->
             "- {} [{}, {}, {}, scope {}]{}: {}",
             hit.id,
             hit.category,
-            hit.source.as_str(),
+            hit.source.as_ref(),
             hit.date,
             scope_name(&hit.scope, machines),
             days(&hit.valid),

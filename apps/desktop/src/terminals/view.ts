@@ -23,7 +23,7 @@ export const allTerms = makeTerminals({
 });
 
 /// The machines terminals are listed under, as Home has them.
-export const termMachines = () => (state.home?.machines || []).map(m => ({ id: m.id, name: m.name, online: m.online }));
+export const termMachines = () => (state.home?.machines || []).filter(m => m.can_host !== false).map(m => ({ id: m.id, name: m.name, online: m.online }));
 
 /// Opens the Terminals page with terminal `id`, or the New terminal form on
 /// machine `newOn`.
@@ -67,6 +67,7 @@ registerView("terminals", {
     const list = allTerms.list(ALL);
     const sub = list ? terminalsCount(byMachine(termMachines(), list)) : "";
     const add = button("New terminal", "pri small", () => allTerms.newOn(termMachines().find(m => m.online)?.id || null));
+    add.disabled = !termMachines().some(m => m.online);
     return { title: "Terminals", sub, tools: list === null ? [] : [add] };
   },
   mount() {

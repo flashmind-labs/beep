@@ -167,7 +167,9 @@ impl Digest {
             "assistant" => self.assistant(&value),
             "system" => match value["subtype"].as_str() {
                 Some("turn_duration") => self.turns_ended += 1,
-                Some("compact_boundary") => self.push(EntryKind::Other, "[conversation compacted]"),
+                Some("compact_boundary") => {
+                    self.push(EntryKind::Compacted, "[conversation compacted]")
+                }
                 _ => {}
             },
             "ai-title" => self.title = text_field(&value, "aiTitle"),
@@ -794,7 +796,7 @@ pub(super) mod tests {
                 (EntryKind::Tool, "Bash: cargo test net (failed)"),
                 (EntryKind::Agent, "The test raced the server. Fixed it."),
                 (EntryKind::User, "/compact keep the test names"),
-                (EntryKind::Other, "[conversation compacted]"),
+                (EntryKind::Compacted, "[conversation compacted]"),
                 (EntryKind::User, "now run the whole suite"),
                 (EntryKind::Tool, "Bash: cargo test"),
                 (EntryKind::Agent, "All 42 tests pass now."),

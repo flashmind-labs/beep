@@ -117,7 +117,7 @@ impl Store {
             "SELECT EXISTS(SELECT 1 FROM chat_members WHERE chat_id = $1 AND user_id = $2)",
         )
         .bind(chat)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_one(&self.pool)
         .await?)
     }
@@ -129,7 +129,7 @@ impl Store {
              WHERE c.id = $1 AND c.kind = 'session' AND m.user_id = $2)",
         )
         .bind(chat)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_one(&self.pool)
         .await?)
     }
@@ -145,7 +145,7 @@ impl Store {
              FROM chats c JOIN chat_members m ON m.chat_id = c.id AND m.user_id = $1
              WHERE c.id = ANY($2)"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(ids)
         .fetch_all(&self.pool)
         .await?;
@@ -165,7 +165,7 @@ impl Store {
                 .or_default()
                 .push(GroupMember {
                     name: row.try_get(2)?,
-                    you: member == user.as_str(),
+                    you: member == user.as_ref(),
                     creator: row.try_get(3)?,
                     joined_at: joined_at.timestamp_millis(),
                 });
@@ -200,7 +200,7 @@ impl Store {
         let after = after.saturating_abs();
         let counters =
             sqlx::query("SELECT last, pruned_below FROM sync_counters WHERE user_id = $1")
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .fetch_optional(&self.pool)
                 .await?;
         let (last, pruned_below): (i64, i64) = match counters {
@@ -216,7 +216,7 @@ impl Store {
             "SELECT update_id, chat_id, message_id, op::text FROM updates
              WHERE user_id = $1 AND update_id > $2 ORDER BY update_id LIMIT $3",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(after)
         .bind(PAGE_UPDATES)
         .fetch_all(&self.pool)
@@ -225,11 +225,15 @@ impl Store {
         let logged = rows
             .iter()
             .map(|row| {
+                let op: &str = row.try_get(3)?;
+                let op = op
+                    .parse::<UpdateOp>()
+                    .map_err(|_| anyhow::anyhow!("unknown update op {op}"))?;
                 Ok(Logged {
                     update_id: row.try_get(0)?,
                     chat_id: row.try_get(1)?,
                     message_id: row.try_get(2)?,
-                    op: UpdateOp::parse(row.try_get(3)?)?,
+                    op,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -280,7 +284,7 @@ impl Store {
                     Update::Message {
                         update_id: row.update_id,
                         chat_id: row.chat_id,
-                        message: message.to_wire(user.as_str()),
+                        message: message.to_wire(user.as_ref()),
                     }
                 }
                 (UpdateOp::Deleted, Some(message_id)) => Update::Deleted {
@@ -461,7 +465,7 @@ mod tests {
             ["chat"]
         );
 
-        let seen = store.last_update(alice.as_str()).await.unwrap();
+        let seen = store.last_update(alice.as_ref()).await.unwrap();
         assert!(store.leave_group(&bob, g1).await.unwrap());
         assert_eq!(
             labels(&store.updates_page(&bob, 0).await.unwrap()),
@@ -485,7 +489,7 @@ mod tests {
             .delete_turn(&alice, s1, 1000, TurnsToDelete::One)
             .await
             .unwrap();
-        let last = store.last_update(alice.as_str()).await.unwrap();
+        let last = store.last_update(alice.as_ref()).await.unwrap();
         assert_eq!(store.prune_updates().await.unwrap(), 0);
 
         sqlx::query(
@@ -518,7 +522,7 @@ mod tests {
                 .create_group(&alice, chat, "Trip", "Ali")
                 .await
                 .unwrap();
-            let before = store.last_update(alice.as_str()).await.unwrap();
+            let before = store.last_update(alice.as_ref()).await.unwrap();
             sqlx::query(
                 "WITH added AS (
                      INSERT INTO messages (chat_id, role, content)
@@ -536,12 +540,12 @@ mod tests {
             .bind(chat)
             .bind(bytes as i32)
             .bind(count)
-            .bind(alice.as_str())
+            .bind(alice.as_ref())
             .bind(before)
             .execute(store.pool())
             .await
             .unwrap();
-            let newest = store.last_update(alice.as_str()).await.unwrap();
+            let newest = store.last_update(alice.as_ref()).await.unwrap();
 
             // Both a new device and a stale cache must finish the rebuild.
             for start in [0, before] {
@@ -583,7 +587,7 @@ mod tests {
         let store = db.store().await.unwrap();
         let alice = UserKey::for_test("alice");
         sqlx::query("INSERT INTO sync_counters (user_id, last, pruned_below) VALUES ($1, 10, 11)")
-            .bind(alice.as_str())
+            .bind(alice.as_ref())
             .execute(store.pool())
             .await
             .unwrap();
@@ -603,7 +607,7 @@ mod tests {
         let db = TestDb::new().await.unwrap();
         let store = db.store().await.unwrap();
         let alice = UserKey::for_test("alice");
-        let mut watch = store.watch_updates(alice.as_str()).await.unwrap();
+        let mut watch = store.watch_updates(alice.as_ref()).await.unwrap();
         assert_eq!(*watch.borrow_and_update(), 0);
         test_turn(&store, &alice, test_chat("s1"), "one", 1000)
             .await
@@ -611,7 +615,7 @@ mod tests {
         assert!(watch.has_changed().unwrap());
         assert_eq!(
             *watch.borrow_and_update(),
-            store.last_update(alice.as_str()).await.unwrap()
+            store.last_update(alice.as_ref()).await.unwrap()
         );
     }
 }

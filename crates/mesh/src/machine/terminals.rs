@@ -5,7 +5,7 @@
 use super::{
     Tasks,
     node::{TASK_LIMIT, Words, exchange},
-    said, unexpected,
+    said, timed_out, unexpected,
 };
 use crate::{MeshError, PeerClient};
 use beep_proto::{
@@ -36,13 +36,17 @@ pub async fn request(client: &PeerClient, request: &Request) -> Result<Reply, Me
             client.snapshot(beep_proto::node::events::Read::TerminalList),
         )
         .await
-        .map_err(|_| said("the terminal subscription did not answer in time"))?
+        .map_err(|e| timed_out(e, "the terminal subscription did not answer in time"))?
     {
         return match value? {
             beep_proto::node::events::Value::Terminals(reply) => Ok(reply),
             _ => Err(said("the terminal subscription returned another resource")),
         };
     }
+    request_fresh(client, request).await
+}
+
+async fn request_fresh(client: &PeerClient, request: &Request) -> Result<Reply, MeshError> {
     let words = Words {
         silent: "the node stopped answering",
         closed: "the node closed the terminal session",
@@ -67,6 +71,14 @@ pub async fn open(
 /// The node's interactive terminals.
 pub async fn list_ptys(client: &PeerClient) -> Result<Vec<Task>, MeshError> {
     match request(client, &Request::List {}).await? {
+        Reply::Terminals { terminals } => Ok(terminals),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// Reads the node directly before deciding whether a terminal still exists.
+pub async fn list_ptys_fresh(client: &PeerClient) -> Result<Vec<Task>, MeshError> {
+    match request_fresh(client, &Request::List {}).await? {
         Reply::Terminals { terminals } => Ok(terminals),
         other => Err(unexpected(&other)),
     }
@@ -104,7 +116,7 @@ pub async fn stop(client: &PeerClient, kept: &Kept<'_>) -> Result<(), MeshError>
     if !kept.pty {
         return Tasks(client).stop(id, kept.command).await;
     }
-    let running = list_ptys(client)
+    let running = list_ptys_fresh(client)
         .await?
         .iter()
         .any(|task| task.id == id && task.command == kept.command && task.state.is_running());

@@ -27,7 +27,7 @@ impl Store {
              GROUP BY p.id, p.name
              ORDER BY p.name",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(live_states())
         .fetch_all(&self.pool)
         .await?;
@@ -37,7 +37,7 @@ impl Store {
              WHERE p.user_id = $1 AND t.state <> 'dropped'
              ORDER BY t.project_id, t.updated_at DESC, t.slug"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         let mut latest = latest

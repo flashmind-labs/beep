@@ -795,7 +795,7 @@ impl<S: Speech> Driver<S> {
 
     fn apply(&mut self, effects: Vec<Effect>) {
         for effect in effects {
-            log::debug!("live: {}", effect.name());
+            log::debug!("live: {}", effect.as_ref());
             match effect {
                 Effect::Transcribe => self.transcribe(),
                 Effect::EndTranscription => self.end_transcription(),
@@ -807,7 +807,7 @@ impl<S: Speech> Driver<S> {
                 Effect::CancelReply => self.cancel_reply(),
                 Effect::Leave { draft, why } => self.leave(draft, why),
                 Effect::Toast(toast) => self.emit(LiveEvent::Toast {
-                    text: toast.text().into(),
+                    text: toast.as_ref().into(),
                 }),
                 Effect::Soon(after) => self.emit(LiveEvent::Soon {
                     after_ms: after.map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX)),

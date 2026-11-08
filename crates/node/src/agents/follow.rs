@@ -292,7 +292,7 @@ async fn send(tx: &mut LinkTx, update: &SessionUpdate) -> Result<()> {
 async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Result<()> {
     let mut presence = agents.presence.subscribe();
     let mut live = agents
-        .get(&request.session)
+        .get(request.session.as_ref())
         .map(|session| session.live.clone());
     // Install file notifications before the initial read so a write cannot fall between them.
     let paths = paths(agents, &request).await?;
@@ -399,7 +399,7 @@ async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Res
         sleep(Duration::from_millis(40)).await;
         if live.is_none() {
             live = agents
-                .get(&request.session)
+                .get(request.session.as_ref())
                 .map(|session| session.live.clone());
         }
     }
@@ -539,10 +539,10 @@ fn next_update(
 }
 
 async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSnapshot> {
-    let source = match agents.get(&request.session) {
+    let source = match agents.get(request.session.as_ref()) {
         Some(session) => {
             let info = session.live.borrow().info.clone();
-            if info.agent != request.agent {
+            if info.agent != request.agent.as_ref() {
                 bail!("session belongs to another agent");
             }
             SessionSource::Owned(Box::new(info))
@@ -551,43 +551,43 @@ async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSna
             let found = if request.agent == "claude" {
                 agents
                     .external
-                    .list(1, Some(request.session.clone()), agents.owned())
+                    .list(1, Some(request.session.to_string()), agents.owned())
                     .await?
             } else {
                 agents
-                    .stores_external(&request.agent, 1, Some(request.session.clone()))
+                    .stores_external(request.agent.as_ref(), 1, Some(request.session.to_string()))
                     .await?
             };
             let found = found
                 .into_iter()
-                .find(|session| session.id == request.session)
+                .find(|session| session.id == request.session.as_ref())
                 .context("session is no longer on the machine")?;
             SessionSource::External(Box::new(found))
         }
     };
     // Source readers already bound their retained transcript and memoize disk parsing.
     // Read enough to validate the cached window, including mutable tools before its tail.
-    let (entries, earlier) = if let Some(session) = agents.get(&request.session) {
+    let (entries, earlier) = if let Some(session) = agents.get(request.session.as_ref()) {
         agents
             .live_transcript(&session, RETAINED_ENTRIES, None)
             .await
     } else {
         let read = match agents
             .external
-            .transcript(&request.session, RETAINED_ENTRIES, None)
+            .transcript(request.session.as_ref(), RETAINED_ENTRIES, None)
             .await?
         {
             Some(read) => read,
             None => {
                 let stores = agents.stores.clone();
                 let session = request.session.clone();
-                spawn_blocking(move || stores.transcript(&session, RETAINED_ENTRIES, None))
+                spawn_blocking(move || stores.transcript(session.as_ref(), RETAINED_ENTRIES, None))
                     .await??
                     .context("session transcript is no longer on the machine")?
             }
         };
         for picture in read.pictures {
-            agents.images.keep(&request.session, picture);
+            agents.images.keep(request.session.as_ref(), picture);
         }
         (read.entries, read.earlier)
     };
@@ -608,15 +608,15 @@ async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSna
 }
 
 async fn paths(agents: &Agents, request: &FollowSession) -> Result<Vec<PathBuf>> {
-    if agents.get(&request.session).is_some() {
+    if agents.get(request.session.as_ref()).is_some() {
         return Ok(Vec::new());
     }
     let mut paths = Vec::new();
-    if let Some(file) = agents.session_file(&request.session).await? {
-        if request.session.starts_with("subagent:claude:") {
+    if let Some(file) = agents.session_file(request.session.as_ref()).await? {
+        if request.session.as_ref().starts_with("subagent:claude:") {
             paths.push(file.with_extension("meta.json"));
         }
-        if matches!(request.agent.as_str(), "flsh" | "opencode") {
+        if matches!(request.agent.as_ref(), "flsh" | "opencode") {
             let mut wal = file.as_os_str().to_owned();
             wal.push("-wal");
             paths.push(PathBuf::from(wal));

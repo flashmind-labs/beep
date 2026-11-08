@@ -348,7 +348,7 @@ mod tests {
         let path = dir.path().join("beep.log");
         std::fs::write(&path, log).expect("the temp folder is writable");
         let offers = Offers {
-            log: Logs::file(path),
+            log: Logs::from(path),
             ..Offers::default()
         };
         let endpoint = Endpoint::builder(presets::Minimal)

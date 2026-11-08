@@ -24,7 +24,7 @@ impl Store {
         let mut tx = self.pool.begin().await?;
         let offered =
             sqlx::query("UPDATE users SET digest_offered=TRUE WHERE id=$1 AND NOT digest_offered")
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .execute(&mut *tx)
                 .await?
                 .rows_affected();
@@ -36,7 +36,7 @@ impl Store {
             "INSERT INTO crons (user_id, id, label, prompt, schedule, enabled, run_once, kind)
              VALUES ($1, $2, $3, $4, $5, TRUE, FALSE, $6)",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(job.id.to_string())
         .bind(label)
         .bind(&job.task)
@@ -54,7 +54,7 @@ impl Store {
         Ok(sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM crons WHERE user_id=$1 AND kind=$2 AND enabled)",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(DIGEST_KIND)
         .fetch_one(&self.pool)
         .await?)
@@ -65,8 +65,8 @@ impl Store {
             "INSERT INTO attention_items (user_id, mailbox, message_id, received_at, text)
              VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
         )
-        .bind(user.as_str())
-        .bind(item.mailbox.slug())
+        .bind(user.as_ref())
+        .bind(item.mailbox.as_ref())
         .bind(&item.message_id)
         .bind(item.received)
         .bind(&item.text)
@@ -85,7 +85,7 @@ impl Store {
             "DELETE FROM attention_items WHERE user_id=$1
                  AND received_at < now() - make_interval(secs => $2)",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(keep.as_secs_f64())
         .execute(&self.pool)
         .await?;
@@ -93,13 +93,13 @@ impl Store {
             "SELECT mailbox, message_id, received_at, text FROM attention_items
              WHERE user_id=$1 ORDER BY received_at",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         let mut items = Vec::new();
         for row in rows {
             let slug: String = row.try_get("mailbox")?;
-            let Some(Feed::Mail(mailbox)) = Feed::from_slug(&slug) else {
+            let Some(Feed::Mail(mailbox)) = slug.parse::<Feed>().ok() else {
                 continue;
             };
             items.push(AttentionItem {
@@ -123,8 +123,8 @@ impl Store {
             "DELETE FROM attention_items WHERE user_id=$1 AND mailbox=$2
                  AND message_id = ANY($3)",
         )
-        .bind(user.as_str())
-        .bind(mailbox.slug())
+        .bind(user.as_ref())
+        .bind(mailbox.as_ref())
         .bind(ids)
         .execute(&self.pool)
         .await?;

@@ -339,6 +339,10 @@ export function whereRow(p: Project, m: WhereRow) {
     note.title = `Syncthing folder "${m.syncthing}". Beep does not sync it.`;
     what.append(" ", note);
   }
+  if (state.home?.machines?.some(x => x.id === m.id && x.can_host === false)) {
+    what.classList.add("wide");
+    return [name, what];
+  }
   if (m.kind === "none" && m.add) {
     const add = button("Add", "small", () => openAddToMachine({
       project: p.name,

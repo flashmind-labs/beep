@@ -155,7 +155,7 @@ impl Agents {
         for native in self.presence.snapshot() {
             if seen
                 .iter()
-                .any(|seen| seen.agent.as_str() == native.agent && seen.id == native.id)
+                .any(|seen| seen.agent.as_ref() == native.agent && seen.id == native.id)
             {
                 continue;
             }
@@ -249,7 +249,9 @@ impl Agents {
         limit: u32,
         session: Option<String>,
     ) -> Result<Vec<ExternalSession>> {
-        let agent = Agent::from_name(agent)
+        let agent = agent
+            .parse::<Agent>()
+            .ok()
             .filter(|agent| *agent != Agent::Claude)
             .with_context(|| format!("this node lists no {agent} sessions started outside Beep"))?;
         let owned = self.owned();
@@ -291,7 +293,7 @@ impl Agents {
         }
         self.presence.merge(&mut sessions);
         sessions.retain(|found| {
-            found.agent == agent.as_str() && only.as_ref().is_none_or(|id| found.id == *id)
+            found.agent == agent.as_ref() && only.as_ref().is_none_or(|id| found.id == *id)
         });
         sessions.sort_by_key(|session| Reverse(session.last_activity));
         if only.is_none() {
@@ -371,7 +373,7 @@ impl Agents {
         }
         // ACP can reload a session this node ran without a reader for the
         // harness's private store. Outside sessions still need that reader.
-        let Some(agent) = Agent::from_name(&kind.name) else {
+        let Some(agent) = kind.name.parse::<Agent>().ok() else {
             let previous = ours.with_context(|| {
                 format!(
                     "{} sessions started outside Beep cannot be taken over",
@@ -434,7 +436,7 @@ impl Agents {
             .presence
             .snapshot()
             .into_iter()
-            .find(|native| native.agent == agent.as_str() && native.id == found.id)
+            .find(|native| native.agent == agent.as_ref() && native.id == found.id)
         {
             return registered.presence;
         }
@@ -512,7 +514,7 @@ impl Agents {
                 let Some(id) = running.live.borrow().agent_session.clone() else {
                     return Ok(None);
                 };
-                (Agent::from_name(&running.agent), id)
+                (running.agent.parse::<Agent>().ok(), id)
             }
             None => (None, session.to_owned()),
         };

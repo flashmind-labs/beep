@@ -336,6 +336,13 @@ struct Source {
 impl Events {
     pub(crate) fn clear(&self, window: &str) {
         let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
+        for pending in registry
+            .pending
+            .iter_mut()
+            .filter(|pending| pending.window == window)
+        {
+            pending.topics = None;
+        }
         if let Some(current) = registry.windows.get(window) {
             let id = current.id;
             registry.remove(window, id);

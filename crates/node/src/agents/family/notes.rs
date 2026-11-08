@@ -22,8 +22,9 @@ use std::{
 use tokio::sync::watch;
 
 /// What a child came to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, strum::AsRefStr)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub(crate) enum NoteState {
     /// Its turn ended with nothing queued behind it.
     Finished,
@@ -33,17 +34,6 @@ pub(crate) enum NoteState {
     Stopped,
     /// The user closed its session.
     Closed,
-}
-
-impl NoteState {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Finished => "finished",
-            Self::Asking => "asking",
-            Self::Stopped => "stopped",
-            Self::Closed => "closed",
-        }
-    }
 }
 
 /// What a child's node tells the parent's: JSON in an `AgentNote` call.
@@ -85,7 +75,7 @@ impl ChildNote {
                 format!("[child {id} was stopped by the user] {}", self.text).trim_end()
             ),
         };
-        tags::from_child(id, &self.name, self.state.as_str(), &body)
+        tags::from_child(id, &self.name, self.state.as_ref(), &body)
     }
 }
 

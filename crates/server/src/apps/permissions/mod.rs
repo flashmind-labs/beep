@@ -104,8 +104,10 @@ impl ToolSlug {
     pub(crate) fn new(tool: &str) -> Self {
         Self(tool.to_ascii_uppercase())
     }
+}
 
-    pub(crate) fn as_str(&self) -> &str {
+impl AsRef<str> for ToolSlug {
+    fn as_ref(&self) -> &str {
         &self.0
     }
 }
@@ -122,15 +124,17 @@ pub(crate) enum ToolApp {
 /// The rules' name for media made with the user's keys.
 const MEDIA_APP: &str = "media";
 
-impl ToolApp {
-    pub(crate) fn slug(&self) -> &str {
+impl AsRef<str> for ToolApp {
+    fn as_ref(&self) -> &str {
         match self {
             ToolApp::Catalog(app) => app.slug,
             ToolApp::Added(slug) => slug,
             ToolApp::Media => MEDIA_APP,
         }
     }
+}
 
+impl ToolApp {
     /// The app's name on an approval: "My notes" for `mcp_my-notes`.
     pub(crate) fn name(&self) -> String {
         match self {
@@ -146,8 +150,8 @@ impl ToolApp {
 /// The app a tool belongs to and whether it acts; every added server's tool acts.
 pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
     let tool = ToolSlug::new(tool);
-    let tool = tool.as_str();
-    if MediaKind::from_tool(tool).is_some() {
+    let tool = tool.as_ref();
+    if tool.parse::<MediaKind>().is_ok() {
         return Some((ToolApp::Media, Acts::Always));
     }
     for app in CATALOG {
@@ -180,7 +184,7 @@ const PROJECT_ONLY: [&str; 2] = ["EXEC", "PROCESS"];
 
 /// [`lookup`] in a chat that may be a project's.
 pub(crate) fn lookup_in(tool: &str, is_project: bool) -> Option<(ToolApp, Acts)> {
-    if is_project && let Some(found) = project_tool(ToolSlug::new(tool).as_str()) {
+    if is_project && let Some(found) = project_tool(ToolSlug::new(tool).as_ref()) {
         return Some(found);
     }
     lookup(tool)
@@ -206,14 +210,14 @@ pub(crate) fn call_acts(tool: &str, args: &Value) -> Option<(&'static CatalogApp
 pub(crate) fn approval_for(app: &ToolApp, tool: &str, args: &Value) -> Approval {
     Approval {
         app: app.name(),
-        action: action_name(app, ToolSlug::new(tool).as_str()),
+        action: action_name(app, ToolSlug::new(tool).as_ref()),
         fields: call_fields(app, tool, args),
     }
 }
 
 /// The arguments a card shows; media calls always show service and model.
 fn call_fields(app: &ToolApp, tool: &str, args: &Value) -> Vec<ApprovalField> {
-    match (app, MediaKind::from_tool(tool)) {
+    match (app, tool.parse::<MediaKind>().ok()) {
         (ToolApp::Media, Some(kind)) => media::approval_fields(kind, args),
         _ => fields(args),
     }
@@ -240,10 +244,10 @@ fn action_tools(app: &CatalogApp) -> Vec<String> {
 
 /// "send email" for `GMAIL_SEND_EMAIL`.
 pub(crate) fn action_name(app: &ToolApp, tool: &str) -> String {
-    if let (ToolApp::Media, Some(kind)) = (app, MediaKind::from_tool(tool)) {
+    if let (ToolApp::Media, Some(kind)) = (app, tool.parse::<MediaKind>().ok()) {
         return kind.action().to_owned();
     }
-    let prefix = format!("{}_", app.slug().to_uppercase());
+    let prefix = format!("{}_", app.as_ref().to_uppercase());
     tool.strip_prefix(&prefix)
         .unwrap_or(tool)
         .to_lowercase()
@@ -278,8 +282,8 @@ impl Default for Rule {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Rules(HashMap<String, Rule>);
 
-impl Rules {
-    pub(crate) fn from_rows(rows: Vec<AppPermissionRow>) -> Self {
+impl From<Vec<AppPermissionRow>> for Rules {
+    fn from(rows: Vec<AppPermissionRow>) -> Self {
         Self(
             rows.into_iter()
                 .map(|row| {
@@ -292,7 +296,9 @@ impl Rules {
                 .collect(),
         )
     }
+}
 
+impl Rules {
     pub(crate) fn level(&self, app: &str) -> PermissionLevel {
         self.0
             .get(app)

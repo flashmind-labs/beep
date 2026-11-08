@@ -12,7 +12,7 @@ impl Store {
             "SELECT project, endpoint_id, folder FROM project_sync WHERE user_id=$1
              ORDER BY project, endpoint_id",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         rows.iter()
@@ -34,7 +34,7 @@ impl Store {
              ON CONFLICT (user_id, project, endpoint_id)
              DO UPDATE SET folder=excluded.folder, updated_at=now()",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(&row.project)
         .bind(&row.endpoint)
         .bind(&row.folder)
@@ -53,7 +53,7 @@ impl Store {
         let done = sqlx::query(
             "DELETE FROM project_sync WHERE user_id=$1 AND project=$2 AND endpoint_id=$3",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(project)
         .bind(endpoint)
         .execute(&self.pool)
@@ -65,7 +65,7 @@ impl Store {
         Ok(sqlx::query_scalar(
             "SELECT project FROM pinned_projects WHERE user_id=$1 ORDER BY project",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?)
     }
@@ -83,18 +83,18 @@ impl Store {
                 "INSERT INTO pinned_projects (user_id, project) VALUES ($1, $2)
                  ON CONFLICT DO NOTHING",
             )
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(project)
             .execute(&mut *tx)
             .await?;
             sqlx::query("DELETE FROM project_sync WHERE user_id=$1 AND project=$2")
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .bind(project)
                 .execute(&mut *tx)
                 .await?;
         } else {
             sqlx::query("DELETE FROM pinned_projects WHERE user_id=$1 AND project=$2")
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .bind(project)
                 .execute(&mut *tx)
                 .await?;
@@ -109,7 +109,7 @@ impl Store {
             sqlx::query_scalar(
                 "SELECT project FROM paused_syncs WHERE user_id=$1 ORDER BY project",
             )
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .fetch_all(&self.pool)
             .await?,
         )
@@ -128,7 +128,7 @@ impl Store {
             "DELETE FROM paused_syncs WHERE user_id=$1 AND project=$2"
         };
         let done = sqlx::query(query)
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(project)
             .execute(&self.pool)
             .await?;
@@ -141,7 +141,7 @@ impl Store {
             "SELECT project FROM projects_on_top WHERE user_id=$1
              ORDER BY pinned_at, project",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?)
     }
@@ -160,7 +160,7 @@ impl Store {
             "DELETE FROM projects_on_top WHERE user_id=$1 AND project=$2"
         };
         sqlx::query(sql)
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(project)
             .execute(&self.pool)
             .await?;

@@ -47,7 +47,7 @@ impl Store {
             "SELECT version, text, note, saved_at FROM instructions_versions
              WHERE user_id=$1 ORDER BY version DESC LIMIT $2",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(limit.min(LISTED))
         .fetch_all(&self.pool)
         .await?;
@@ -65,12 +65,12 @@ impl Store {
         let mut tx = self.pool.begin().await?;
         // One save at a time per user, so two never take the same number.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtext('instructions:' || $1))")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .execute(&mut *tx)
             .await?;
         let newest: Option<i32> =
             sqlx::query_scalar("SELECT MAX(version) FROM instructions_versions WHERE user_id=$1")
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .fetch_one(&mut *tx)
                 .await?;
         let newest = newest.map(u32::try_from).transpose()?;
@@ -84,7 +84,7 @@ impl Store {
             "INSERT INTO instructions_versions (user_id, version, text, note)
              VALUES ($1, $2, $3, $4) RETURNING version, text, note, saved_at",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(next)
         .bind(text)
         .bind(note)

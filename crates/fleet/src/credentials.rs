@@ -232,7 +232,7 @@ impl Desk {
                 }
                 Slot::Forgejo(url) => (
                     CredentialKind::Forgejo {
-                        url: url.as_str().to_owned(),
+                        url: url.as_ref().to_owned(),
                     },
                     None,
                     String::new(),
@@ -268,7 +268,7 @@ impl Desk {
             .into_iter()
             .map(|(_, credential)| credential)
             .filter(|credential| {
-                let Ok(slot) = Slot::from_wire(&credential.kind) else {
+                let Ok(slot) = Slot::try_from(&credential.kind) else {
                     return false;
                 };
                 if slot == Slot::GitHub {
@@ -304,7 +304,7 @@ impl Desk {
     /// not say whose it is; the others wait for their own token.
     async fn settle_unmoved(&self, slot: &Slot, login: Option<&str>) -> Result<()> {
         for (key, credential) in self.unmoved_credentials() {
-            let same = Slot::from_wire(&credential.kind).is_ok_and(|held| held == *slot);
+            let same = Slot::try_from(&credential.kind).is_ok_and(|held| held == *slot);
             let whose = match (login, credential.account.as_deref()) {
                 (Some(saved), Some(record)) => saved.eq_ignore_ascii_case(record),
                 _ => true,
@@ -323,7 +323,7 @@ impl Desk {
         kind: &CredentialKind,
         secret: &SecretText,
     ) -> Result<Credential> {
-        let slot = Slot::from_wire(kind).map_err(|e| FleetError::refused(e.to_string()))?;
+        let slot = Slot::try_from(kind).map_err(|e| FleetError::refused(e.to_string()))?;
         if !slot.always_to_machines() {
             return Err(FleetError::refused(
                 "API keys are kept on the server, not on your machines.",
@@ -345,7 +345,7 @@ impl Desk {
             Slot::Forgejo(url) => (
                 make_id(FORGEJO, saved_ms, &url.host()),
                 Value::Forgejo(ForgejoLogin {
-                    url: url.as_str().to_owned(),
+                    url: url.as_ref().to_owned(),
                     token: SecretText::new(secret.expose_secret()),
                 }),
             ),
@@ -662,7 +662,7 @@ impl Desk {
                 })
         };
         // Owned values in the futures, so the call stays `Send` for a Tauri command.
-        let mut machines: Vec<AgentMachine> = stream::iter(self.mesh.machines())
+        let mut machines: Vec<AgentMachine> = stream::iter(self.mesh.code_hosts())
             .map(|status| async move {
                 let env = self.agent_env(&status).await;
                 agent_machine(status, env)
@@ -710,7 +710,7 @@ impl Desk {
         {
             self.drop_keys(&old.id).await?;
         }
-        let id = make_id(AGENT, saved_ms, agent.slug());
+        let id = make_id(AGENT, saved_ms, agent.as_ref());
         crate::records::write(&self.mesh, key(&id), Some(&env(agent.env_var(), &secret))).await?;
         Ok(AgentToken {
             last4: last4(secret.expose_secret()),

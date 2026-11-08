@@ -135,6 +135,7 @@ pub struct Agents {
     /// Checkouts temporarily held for local Git recovery.
     recovering: Mutex<std::collections::HashSet<PathBuf>>,
     pub events: crate::events::Hub,
+    pub(crate) event_sources: crate::link::EventSources,
     event_watcher: Mutex<std::sync::Weak<follow::Sources>>,
     event_forward: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,
     /// The agents it can start, replaced when detection finds others.
@@ -210,6 +211,7 @@ impl Agents {
         Self {
             recovering: Mutex::default(),
             events: events.clone(),
+            event_sources: Default::default(),
             event_watcher: Mutex::default(),
             event_forward: OnceLock::new(),
             kinds: watch::Sender::new(Arc::new(kinds)),

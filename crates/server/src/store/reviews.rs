@@ -199,7 +199,7 @@ impl Store {
         let row = sqlx::query(&format!(
             "SELECT {REVIEW_COLUMNS} FROM branch_reviews WHERE user_id=$1 AND id=$2"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(id)
         .fetch_optional(&self.pool)
         .await?;
@@ -219,7 +219,7 @@ impl Store {
                  WHERE user_id=$1 AND project=$2 ORDER BY branch, started_at DESC
              ) newest ORDER BY started_at DESC LIMIT $3"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(project)
         .bind(i64::from(limit))
         .fetch_all(&self.pool)
@@ -262,7 +262,7 @@ impl Store {
              FROM branch_reviews r
              WHERE f.review_id=r.id AND r.user_id=$1 AND r.id=$2 AND f.id=$3",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(review)
         .bind(to_int(finding)?)
         .bind(dismissed)

@@ -2,7 +2,7 @@
 
 use super::{
     offers::projects_of,
-    read::{Asked, serve},
+    read::{Access, Asked, serve},
 };
 use crate::{agents::Agents, link::Membership};
 use beep_mesh::{Key, Mesh};
@@ -110,12 +110,15 @@ impl ProtocolHandler for SessionsAlpn {
                         continue;
                     };
                     streams.spawn(async move {
+                        let updates = Some(mesh.updates());
                         let allow = |ask: Asked, id: &str| {
-                            permits(record_of(&mesh, id).as_ref(), mesh.me(), peer, ask, id)
+                            mesh.is_member(peer)
+                                && permits(record_of(&mesh, id).as_ref(), mesh.me(), peer, ask, id)
                         };
                         let projects = projects_of(&mesh);
                         let me = name_of_me(&mesh);
-                        serve(tx, rx, &agents, &me, &allow, &projects).await
+                        let access = Access { check: &allow, updates };
+                        serve(tx, rx, &agents, &me, access, &projects).await
                     });
                 }
                 Some(ended) = streams.join_next() => {

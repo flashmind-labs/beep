@@ -60,7 +60,7 @@ impl Store {
             "INSERT INTO node_tokens (hash, user_id, name, expires_at) VALUES ($1, $2, $3, $4)",
         )
         .bind(hash)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(name)
         .bind(expires_at)
         .execute(&mut *tx)
@@ -74,7 +74,7 @@ impl Store {
         let deleted =
             sqlx::query("DELETE FROM node_tokens WHERE hash=$1 AND user_id=$2 AND used_at IS NULL")
                 .bind(hash)
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .execute(&self.pool)
                 .await?
                 .rows_affected();
@@ -90,7 +90,7 @@ impl Store {
         Ok(
             sqlx::query_scalar("SELECT endpoint_id FROM node_tokens WHERE hash=$1 AND user_id=$2")
                 .bind(hash)
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .fetch_optional(&self.pool)
                 .await?,
         )
@@ -142,7 +142,7 @@ impl Store {
         .bind(&endpoint)
         .bind(&user)
         .bind(&name)
-        .bind(DeviceKind::Desktop {}.as_str())
+        .bind(DeviceKind::Desktop {}.as_ref())
         .execute(&mut *tx)
         .await?
         .rows_affected()

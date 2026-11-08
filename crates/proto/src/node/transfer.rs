@@ -110,8 +110,8 @@ pub const MANIFEST_NAME: &str = "/beep/manifest";
 /// The largest manifest a target reads.
 pub const MAX_MANIFEST: u64 = 8 << 20;
 
-/// What a folder's paths and blobs alone do not say, as msgpack with named
-/// fields. Paths are relative, parts joined with `/`.
+/// What a folder's paths and blobs alone do not say, as positional msgpack.
+/// Paths are relative, parts joined with `/`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Manifest {

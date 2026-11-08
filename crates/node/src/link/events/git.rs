@@ -78,7 +78,10 @@ fn script(root: &str, query: GitRead) -> Result<String> {
             offset,
             search,
         } => {
-            let revision = revision.as_deref().map(CommitId::parse).transpose()?;
+            let revision = revision
+                .as_deref()
+                .map(str::parse::<CommitId>)
+                .transpose()?;
             history::history_script(&HistoryAsk {
                 folder: root,
                 revision: revision.as_ref(),
@@ -86,7 +89,7 @@ fn script(root: &str, query: GitRead) -> Result<String> {
                 search: &search,
             })
         }
-        GitRead::Files { commit } => history::files_script(root, &CommitId::parse(&commit)?),
+        GitRead::Files { commit } => history::files_script(root, &commit.parse::<CommitId>()?),
     })
 }
 

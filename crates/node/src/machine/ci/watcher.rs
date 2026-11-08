@@ -569,7 +569,7 @@ impl World for MeshWorld {
 
     fn online(&self) -> BTreeSet<EndpointId> {
         self.mesh
-            .devices()
+            .code_hosts()
             .into_iter()
             .filter(|status| status.online && status.device.id != self.me)
             .map(|status| status.device.id)

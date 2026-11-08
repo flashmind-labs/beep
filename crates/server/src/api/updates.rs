@@ -15,7 +15,11 @@ pub(super) async fn list_updates(cx: Cx, _: ListUpdates) -> Reply<Vec<AppUpdate>
         .map(|row| AppUpdate {
             id: row.id,
             summary: row.summary,
-            app: row.app.map(EventApp::slug).unwrap_or_default().to_owned(),
+            app: row
+                .app
+                .map(<&'static str>::from)
+                .unwrap_or_default()
+                .to_owned(),
             app_name: row.app.map(EventApp::name).unwrap_or_default().to_owned(),
             at: SystemTime::from(row.decided_at),
         })

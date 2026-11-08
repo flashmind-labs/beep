@@ -68,7 +68,7 @@ pub(crate) async fn listen(socket: &Path, hub: &Hub, live: &Live) -> Result<()> 
                 log::debug!(
                     "hook: session {} {}",
                     activity.session,
-                    activity.kind.as_str()
+                    activity.kind.as_ref()
                 );
                 crate::events::system().changed(beep_proto::node::events::Topic::keyed(
                     "agent",

@@ -8,6 +8,7 @@ use crate::{
     },
     model::RepoName,
 };
+use std::str::FromStr;
 
 /// The user's fork of an imported repository.
 #[derive(Debug, Clone)]
@@ -28,7 +29,7 @@ pub async fn find(
     login: Option<&str>,
     repo: &RepoRef,
 ) -> Option<UsedFork> {
-    let upstream = RepoName::parse(&repo.project()).ok()?;
+    let upstream = RepoName::from_str(&repo.project()).ok()?;
     let lookup = Lookup {
         api,
         base,

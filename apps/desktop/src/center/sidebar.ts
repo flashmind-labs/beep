@@ -566,7 +566,7 @@ function landed(p: { name: string }) {
 /// Opens the Import a project sheet; the project is selected once it is in.
 export function importSheet(repo: string | null = null, machine: string | null = null) {
   openImportProject({
-    machines: state.home?.machines || [],
+    machines: (state.home?.machines || []).filter(m => m.can_host !== false),
     macId: state.mac?.id || null,
     repo,
     machine,
@@ -577,17 +577,17 @@ export function importSheet(repo: string | null = null, machine: string | null =
 /// Opens the Add a project sheet: found folders, a folder, a clone, or a new project.
 export function addProject() {
   openAddProject({
-    machines: state.home?.machines || [],
+    machines: (state.home?.machines || []).filter(m => m.can_host !== false),
     onImported: landed,
     onChoose: () => openAddFolder({
-      machines: state.home?.machines || [],
+      machines: (state.home?.machines || []).filter(m => m.can_host !== false),
       macId: state.mac?.id || null,
       onDone: landed,
       onBack: addProject,
     }),
     onClone: repo => importSheet(repo ?? null),
     onNew: () => openNewProject({
-      machines: state.home?.machines || [],
+      machines: (state.home?.machines || []).filter(m => m.can_host !== false),
       onDone: landed,
       onBack: addProject,
       onClone: repo => importSheet(repo),

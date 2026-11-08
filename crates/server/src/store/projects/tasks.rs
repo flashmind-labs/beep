@@ -36,14 +36,14 @@ pub(super) async fn tasks_in(
         let base = TaskSlug::from_title(&task.title);
         let mut slug = base.clone();
         let mut n = 1;
-        while taken.contains(slug.as_str()) {
+        while taken.contains(slug.as_ref()) {
             n += 1;
             if n > MAX_SLUG_SUFFIX {
                 bail!("no free slug for {base}");
             }
             slug = base.suffixed(n);
         }
-        taken.insert(slug.as_str().to_owned());
+        taken.insert(slug.as_ref().to_owned());
         let depends_on = match task.depends_on {
             None => None,
             Some(After::Task(id)) => Some(id),
@@ -61,7 +61,7 @@ pub(super) async fn tasks_in(
         ))
         .bind(Uuid::new_v4())
         .bind(project.0)
-        .bind(slug.as_str())
+        .bind(slug.as_ref())
         .bind(task.title.trim())
         .bind(task.body.trim())
         .bind(depends_on.map(|id| id.0))
@@ -96,7 +96,7 @@ pub(super) async fn track_in(
          ORDER BY t.created_at LIMIT 1"
     ))
     .bind(project.0)
-    .bind(host.stored())
+    .bind(String::from(host))
     .bind(number)
     .fetch_optional(&mut *tx)
     .await?;
@@ -111,7 +111,7 @@ pub(super) async fn track_in(
          WHERE t.id=$1 RETURNING {TASK_COLUMNS}"
     ))
     .bind(made.id.0)
-    .bind(host.stored())
+    .bind(String::from(host))
     .bind(number)
     .bind(&issue.url)
     .bind(author == IssueAuthor::Other)
@@ -151,7 +151,7 @@ impl Store {
              WHERE t.id=$1 AND p.user_id=$2"
         ))
         .bind(id.0)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_optional(&self.pool)
         .await?;
         row.as_ref().map(task_from).transpose()
@@ -211,7 +211,7 @@ impl Store {
              WHERE id=$1",
         )
         .bind(id.0)
-        .bind(host.stored())
+        .bind(String::from(host))
         .bind(i64::try_from(issue.number)?)
         .bind(&issue.url)
         .execute(&self.pool)
@@ -313,7 +313,7 @@ impl Store {
              WHERE p.user_id=$1 AND t.start IS NOT NULL AND t.state = ANY($2)
              ORDER BY t.created_at, t.slug"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(&waiting)
         .fetch_all(&self.pool)
         .await?;

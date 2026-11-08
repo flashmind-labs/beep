@@ -172,8 +172,8 @@ impl Store {
 
     /// The transcript of session `id`.
     pub(super) fn find(&self, id: &str) -> Option<PathBuf> {
-        if let Some(crate::agents::subagent::Conversation::Claude { parent, agent }) =
-            crate::agents::subagent::Conversation::parse(id)
+        if let Ok(crate::agents::subagent::Conversation::Claude { parent, agent }) =
+            crate::agents::subagent::Conversation::try_from(id)
         {
             let path = self
                 .find(parent)?

@@ -73,7 +73,7 @@ impl Store {
              ON CONFLICT (user_id, call_id) DO NOTHING RETURNING id",
         )
         .bind(Uuid::new_v4())
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(grant.routine.to_string())
         .bind(grant.tool)
         .bind(&grant.constraints)
@@ -88,7 +88,7 @@ impl Store {
         }
         Ok(
             sqlx::query_scalar("SELECT id FROM grants WHERE user_id=$1 AND call_id=$2")
-                .bind(user.as_str())
+                .bind(user.as_ref())
                 .bind(grant.call_id)
                 .fetch_one(&self.pool)
                 .await?,
@@ -98,7 +98,7 @@ impl Store {
     /// The user's grants in force, newest first.
     pub(crate) async fn live_grants(&self, user: &UserKey) -> Result<Vec<GrantRow>> {
         let rows = sqlx::query(&format!("{LIVE} ORDER BY g.created_at DESC LIMIT 200"))
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .fetch_all(&self.pool)
             .await?;
         rows.iter().map(grant_from).collect()
@@ -114,7 +114,7 @@ impl Store {
         let rows = sqlx::query(&format!(
             "{LIVE} AND g.routine_id = $2 AND g.tool = $3 ORDER BY g.created_at"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(routine.to_string())
         .bind(tool)
         .fetch_all(&self.pool)
@@ -139,7 +139,7 @@ impl Store {
              FOR UPDATE OF g",
         )
         .bind(id)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_optional(&mut *tx)
         .await?;
         // An early return rolls back now: a dropped transaction would keep
@@ -204,7 +204,7 @@ impl Store {
              WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL",
         )
         .bind(id)
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .execute(&self.pool)
         .await?
         .rows_affected();

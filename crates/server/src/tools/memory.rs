@@ -32,7 +32,17 @@ impl MemoryWriter {
 pub(crate) const NAME: &str = "memory";
 
 /// What a `memory` call does, by its `action`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString, strum::IntoStaticStr)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    strum::EnumString,
+    strum::IntoStaticStr,
+    strum::AsRefStr,
+    strum::Display,
+)]
 #[strum(serialize_all = "snake_case")]
 pub(crate) enum Action {
     Recall,
@@ -51,10 +61,6 @@ impl Action {
         Action::Forget,
         Action::History,
     ];
-
-    pub(crate) fn as_str(self) -> &'static str {
-        self.into()
-    }
 }
 
 /// `memory`: the user's memories tool; without a writer it only reads.
@@ -93,7 +99,7 @@ impl MemoryTool {
     fn writer(&self, action: Action) -> Result<&MemoryWriter> {
         self.writer
             .as_ref()
-            .ok_or_else(|| anyhow!("memory {} is not available here", action.as_str()))
+            .ok_or_else(|| anyhow!("memory {} is not available here", action.as_ref()))
     }
 }
 
@@ -238,7 +244,7 @@ impl Tool for MemoryTool {
         }
     }
     fn parameters(&self) -> Value {
-        let actions: Vec<&str> = self.actions().iter().map(|a| a.as_str()).collect();
+        let actions: Vec<&str> = self.actions().iter().map(|a| a.as_ref()).collect();
         let mut properties = json!({
             "action": {"type": "string", "enum": actions},
             "query": {"type": "string", "description": "recall: what to look for."},
@@ -273,7 +279,7 @@ impl Tool for MemoryTool {
             Ok(action) => {
                 return Ok(ToolResult::failure(
                     ctx.tool_call_id,
-                    format!("memory {} is not available here.", action.as_str()),
+                    format!("memory {} is not available here.", action.as_ref()),
                 ));
             }
             Err(error) => return Ok(ToolResult::failure(ctx.tool_call_id, error.to_string())),

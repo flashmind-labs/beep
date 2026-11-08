@@ -25,14 +25,14 @@ impl Store {
         let rows = sqlx::query(
             "SELECT scope, curated_at, size, close, crowded FROM memory_curation WHERE user_id = $1",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         let mut states = HashMap::new();
         for row in rows {
             let scope: String = row.try_get(0)?;
             let curated_at: Option<DateTime<Utc>> = row.try_get(1)?;
-            let scope = Scope::from_stored(Some(scope.as_str()).filter(|s| !s.is_empty()));
+            let scope = Scope::from(Some(scope.as_str()).filter(|s| !s.is_empty()));
             states.insert(
                 scope,
                 ScopeState {
@@ -64,7 +64,7 @@ impl Store {
             }
         };
         sqlx::query(query)
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(column(scope))
             .execute(&self.pool)
             .await?;
@@ -86,7 +86,7 @@ impl Store {
                  close = GREATEST(memory_curation.close - $4, 0),
                  crowded = GREATEST(memory_curation.crowded - $5, 0)",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(column(scope))
         .bind(i32::try_from(size)?)
         .bind(i32::try_from(counted.close)?)

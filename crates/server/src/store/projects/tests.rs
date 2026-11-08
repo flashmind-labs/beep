@@ -3,7 +3,7 @@ use crate::{account::user::UserKey, projects::model::TaskState, store::TestDb};
 use beep_projects::model::{RepoName, Visibility};
 
 fn repo(name: &str) -> RepoName {
-    RepoName::parse(name).expect("a valid repo name")
+    name.parse::<RepoName>().expect("a valid repo name")
 }
 
 fn new_task(title: &str) -> NewTask {
@@ -73,13 +73,13 @@ async fn slugs_stay_unique() {
         .create_tasks(project.id, &[new_task("Fix it"), new_task("Fix it")])
         .await
         .unwrap();
-    let slugs: Vec<&str> = made.iter().map(|task| task.slug.as_str()).collect();
+    let slugs: Vec<&str> = made.iter().map(|task| task.slug.as_ref()).collect();
     assert_eq!(slugs, ["fix-it", "fix-it-2"]);
     let third = store
         .create_tasks(project.id, &[new_task("Fix it!")])
         .await
         .unwrap();
-    assert_eq!(third[0].slug.as_str(), "fix-it-3");
+    assert_eq!(third[0].slug.as_ref(), "fix-it-3");
     let found = store
         .task_by_slug(project.id, "fix-it-2")
         .await

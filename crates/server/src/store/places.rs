@@ -112,7 +112,7 @@ impl Store {
         let rows = sqlx::query(&format!(
             "SELECT {PLACE_COLUMNS} FROM places WHERE user_id=$1 ORDER BY lower(name) LIMIT 200"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(place_from).collect()
@@ -122,7 +122,7 @@ impl Store {
         let row = sqlx::query(&format!(
             "SELECT {PLACE_COLUMNS} FROM places WHERE user_id=$1 AND id=$2"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(id.to_string())
         .fetch_optional(&self.pool)
         .await?;
@@ -138,7 +138,7 @@ impl Store {
         let row = sqlx::query(&format!(
             "SELECT {PLACE_COLUMNS} FROM places WHERE user_id=$1 AND lower(name)=lower($2)"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(name.trim())
         .fetch_optional(&self.pool)
         .await?;
@@ -168,7 +168,7 @@ impl Store {
                  last_here_at=COALESCE(excluded.last_here_at, places.last_here_at)
              RETURNING id",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(Uuid::new_v4().to_string())
         .bind(new.name.trim())
         .bind(new.latitude)
@@ -211,7 +211,7 @@ impl Store {
             "UPDATE places SET name=COALESCE($3, name), radius=COALESCE($4, radius)
              WHERE user_id=$1 AND id=$2",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(id.to_string())
         .bind(name.map(str::trim))
         .bind(radius)
@@ -227,7 +227,7 @@ impl Store {
     /// Forgets a place and its routines; false when missing.
     pub(crate) async fn delete_place(&self, user: &UserKey, id: Uuid) -> Result<bool> {
         let deleted = sqlx::query("DELETE FROM places WHERE user_id=$1 AND id=$2")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(id.to_string())
             .execute(&self.pool)
             .await?
@@ -252,7 +252,7 @@ impl Store {
                      last_here_at=CASE WHEN $3 THEN $4 ELSE last_here_at END
                  WHERE user_id=$1 AND id=$2 AND inside<>$3",
             )
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(place.id.to_string())
             .bind(inside)
             .bind(fix.updated_at)
@@ -264,7 +264,7 @@ impl Store {
             }
         }
         sqlx::query("UPDATE places SET last_here_at=$2 WHERE user_id=$1 AND inside")
-            .bind(user.as_str())
+            .bind(user.as_ref())
             .bind(fix.updated_at)
             .execute(&self.pool)
             .await?;
@@ -284,7 +284,7 @@ impl Store {
             "UPDATE places SET inside=$3, last_here_at=$4
              WHERE user_id=$1 AND id=$2 AND inside<>$3",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(id.to_string())
         .bind(inside)
         .bind(at)
@@ -309,7 +309,7 @@ impl Store {
             "SELECT {COLUMNS} FROM crons WHERE user_id=$1 AND place_id=$2 AND enabled
              ORDER BY created_at"
         ))
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(place.to_string())
         .fetch_all(&self.pool)
         .await?;
@@ -319,7 +319,7 @@ impl Store {
             let JobSchedule::Cron(schedule) = &job.schedule else {
                 continue;
             };
-            let Some(trigger) = PlaceTrigger::parse(schedule) else {
+            let Some(trigger) = schedule.parse::<PlaceTrigger>().ok() else {
                 continue;
             };
             if trigger.event == event {
@@ -342,7 +342,7 @@ impl Store {
              WHERE user_id=$1 AND id=$2 AND ($4::timestamptz IS NULL OR last_run_at IS NULL
                  OR last_run_at < $4)",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(id.to_string())
         .bind(now)
         .bind(since)
@@ -374,7 +374,7 @@ impl Store {
             "INSERT INTO crons (user_id, id, label, prompt, schedule, run_once, chat_id)
              VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
-        .bind(user.as_str())
+        .bind(user.as_ref())
         .bind(id.to_string())
         .bind(label)
         .bind(task)
@@ -391,7 +391,7 @@ impl Store {
         if !PlaceTrigger::claims(schedule) {
             return Ok(());
         }
-        let Some(trigger) = PlaceTrigger::parse(schedule) else {
+        let Some(trigger) = schedule.parse::<PlaceTrigger>().ok() else {
             bail!(
                 "a place schedule is arrive:<place id> or leave:<place id>, ending in :daily for once a day at most or :once for only the next time"
             );
@@ -609,7 +609,10 @@ mod tests {
                 .await
                 .is_err()
         );
-        let trigger = PlaceTrigger::parse(&format!("arrive:{}", place.id)).unwrap();
+        let trigger = format!("arrive:{}", place.id)
+            .parse::<PlaceTrigger>()
+            .ok()
+            .unwrap();
         let (label, task, long) = ("é".repeat(200), "é".repeat(4000), "é".repeat(4001));
         let fits = NewPlaceRoutine {
             label: &label,

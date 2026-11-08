@@ -94,7 +94,7 @@ fn header_with_children(line: &str, children: bool) -> Option<Seen> {
 
 /// Explicit native lookups do not add child threads to the top-level listing.
 pub(super) fn native(root: &Path, id: &str) -> Option<Seen> {
-    let Conversation::Codex(thread) = Conversation::parse(id)? else {
+    let Conversation::Codex(thread) = Conversation::try_from(id).ok()? else {
         return None;
     };
     let file = super::codex_run::rollout(root, thread)?;

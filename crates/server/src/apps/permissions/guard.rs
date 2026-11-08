@@ -37,7 +37,7 @@ pub(super) fn classify(tool: &str, hinted: &HashSet<ToolSlug>) -> Option<(ToolAp
     let over_hints = matches!(&app, ToolApp::Catalog(catalog) if catalog
         .tools
         .iter()
-        .any(|picked| picked.over_hints && picked.slug == slug.as_str()));
+        .any(|picked| picked.over_hints && picked.slug == slug.as_ref()));
     if hinted.contains(&slug) && !over_hints {
         return Some((app, Acts::Always));
     }
@@ -84,7 +84,7 @@ pub(crate) fn guard(
             else {
                 return Some(tool);
             };
-            let level = shared.rules.level(app.slug());
+            let level = shared.rules.level(app.as_ref());
             if level == (PermissionLevel::ReadOnly {}) && acts == Acts::Always {
                 return None;
             }
@@ -92,7 +92,7 @@ pub(crate) fn guard(
             // The model only drafts in a send tool when it knows the user sees the call first.
             let description = if acts == Acts::Always
                 && level == (PermissionLevel::Ask {})
-                && !shared.rules.allows(app.slug(), slug.as_str())
+                && !shared.rules.allows(app.as_ref(), slug.as_ref())
             {
                 format!("{} {ASKS_FIRST}", tool.description())
             } else {
@@ -121,14 +121,14 @@ pub(crate) enum Check {
 
 /// What the rules say about `tool`, of `app`, acting with `args`.
 pub(crate) fn check(rules: &Rules, app: &ToolApp, tool: &str, args: &Value) -> Check {
-    match rules.level(app.slug()) {
+    match rules.level(app.as_ref()) {
         PermissionLevel::Allow {} => Check::Run,
         PermissionLevel::ReadOnly {} => Check::Refuse(format!(
             "{READ_ONLY} {} to read only. Tell them, and that they \
              can change it under Apps in Beep's menu.",
             app.name()
         )),
-        PermissionLevel::Ask {} if rules.allows(app.slug(), ToolSlug::new(tool).as_str()) => {
+        PermissionLevel::Ask {} if rules.allows(app.as_ref(), ToolSlug::new(tool).as_ref()) => {
             Check::Run
         }
         PermissionLevel::Ask {} => Check::Ask(approval_for(app, tool, args)),
@@ -227,7 +227,7 @@ pub(crate) fn waiting_approval(
     Some(HistoryEntry::Approval {
         approval: Approval {
             app: app.name(),
-            action: action_name(&app, ToolSlug::new(&call.name).as_str()),
+            action: action_name(&app, ToolSlug::new(&call.name).as_ref()),
             fields,
         },
         query_id: call.id,
@@ -240,7 +240,7 @@ pub(crate) async fn allow_always_in(user: &User, tool: &str, is_project: bool) -
         return Ok(());
     };
     let rules = user.app_rules().await?;
-    let mut rule = rules.0.get(app.slug()).cloned().unwrap_or_default();
+    let mut rule = rules.0.get(app.as_ref()).cloned().unwrap_or_default();
     rule.allowed.insert(ToolSlug::new(tool).0);
     let row = match app {
         ToolApp::Catalog(app) => row(app, rule.level, rule.allowed.into_iter().collect()),
@@ -248,7 +248,7 @@ pub(crate) async fn allow_always_in(user: &User, tool: &str, is_project: bool) -
             let mut allowed: Vec<String> = rule.allowed.into_iter().collect();
             allowed.sort();
             AppPermissionRow {
-                app: other.slug().to_owned(),
+                app: other.as_ref().to_owned(),
                 level: rule.level,
                 allowed,
             }
@@ -268,7 +268,7 @@ pub(crate) async fn allow_in_chat(
         return Ok(());
     };
     let allow = ChatAllow {
-        app: app.slug().to_owned(),
+        app: app.as_ref().to_owned(),
         tool: ToolSlug::new(tool).0,
     };
     user.allow_in_chat(chat, &allow).await
@@ -292,7 +292,7 @@ impl Tool for Guarded {
         if !self.acts.on(&ctx.args) {
             return self.tool.execute(ctx).await;
         }
-        match check(&self.shared.rules, &self.app, self.slug.as_str(), &ctx.args) {
+        match check(&self.shared.rules, &self.app, self.slug.as_ref(), &ctx.args) {
             Check::Run => self.tool.execute(ctx).await,
             Check::Refuse(reason) => Ok(ToolResult::success(ctx.tool_call_id, reason)),
             Check::Ask(_) if self.shared.approved.0.as_deref() == Some(ctx.tool_call_id) => {
@@ -301,13 +301,13 @@ impl Tool for Guarded {
             Check::Ask(approval) => {
                 if let Some(grants) = &self.shared.grants
                     && let Some(grant) = grants
-                        .claim(self.slug.as_str(), &ctx.args, ctx.tool_call_id)
+                        .claim(self.slug.as_ref(), &ctx.args, ctx.tool_call_id)
                         .await
                 {
                     let args = ctx.args.clone();
                     let result = self.tool.execute(ctx).await?;
                     if result.is_success() && went_through(&result.output()) {
-                        grants.report(&grant, self.slug.as_str(), &args);
+                        grants.report(&grant, self.slug.as_ref(), &args);
                     }
                     return Ok(result);
                 }

@@ -170,7 +170,7 @@ impl SetupTool {
                 command_name(&machine.name)
             )));
         }
-        let path = match args.path.as_deref().map(MachinePath::parse) {
+        let path = match args.path.as_deref().map(str::parse::<MachinePath>) {
             Some(Ok(path)) => path,
             Some(Err(error)) => return Ok(Err(format!("Not a usable path: {error}."))),
             None => return Ok(Err("Give the checkout's `path`.".to_owned())),

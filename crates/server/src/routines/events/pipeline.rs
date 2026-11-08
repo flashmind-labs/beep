@@ -250,9 +250,9 @@ pub async fn accept(app: &App, user: &User, event: AppEvent) -> Result<Accepted>
     };
     log::info!(
         "events: stored; user={user} id={id} app={} kind={} source={}",
-        event.app.slug(),
-        event.kind.as_str(),
-        event.source.as_str()
+        event.app.as_ref(),
+        event.kind.as_ref(),
+        event.source.as_ref()
     );
     app.events.mark_pending(user.id(), now);
     Ok(Accepted::Stored(id))
@@ -368,7 +368,7 @@ pub(super) async fn wake_rows(
     let read_only = match user.app_rules().await {
         Ok(rules) => apps_of(rows)
             .into_iter()
-            .filter(|app| rules.read_only(app.slug()))
+            .filter(|app| rules.read_only(app.as_ref()))
             .collect(),
         Err(error) => {
             log::warn!("events: unable to read app permissions: {error:#}; user={user}");
@@ -439,7 +439,7 @@ pub(super) fn write_event(text: &mut String, row: &EventRow) {
         "\n\n[#{}] {}, {}, {}: {}",
         row.id,
         row.app.name(),
-        row.kind.as_str().replace('_', " "),
+        row.kind.as_ref().replace('_', " "),
         row.occurred.format("%Y-%m-%d %H:%M UTC"),
         row.summary
     );

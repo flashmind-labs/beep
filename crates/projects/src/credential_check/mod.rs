@@ -96,7 +96,7 @@ impl Checker {
     /// `GET <url>/api/v1/user` with `token`.
     pub async fn forgejo(&self, url: &ForgejoUrl, token: &SecretString) -> Checked {
         let host = url.host();
-        self.user(&format!("{}/api/v1/user", url.as_str()), &host, token)
+        self.user(&format!("{}/api/v1/user", url.as_ref()), &host, token)
             .await
     }
 

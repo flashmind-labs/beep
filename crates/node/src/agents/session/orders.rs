@@ -298,7 +298,7 @@ impl Actor {
                     "{title} here cannot switch models in a running session"
                 ));
             };
-            let request = acp::switch_model(&session, switch, model.as_str())
+            let request = acp::switch_model(&session, switch, model.as_ref())
                 .map_err(|e| format!("{title} could not switch to {model}: {e}"))?;
             requests.push((request, model.to_string(), Some(model)));
         }
@@ -307,8 +307,8 @@ impl Actor {
                 return Err(format!("{title} here cannot change how hard it thinks"));
             };
             let request = acp::set_effort(&session, id, effort)
-                .map_err(|e| format!("{title} could not think at {}: {e}", effort.as_str()))?;
-            requests.push((request, format!("thinking {}", effort.as_str()), None));
+                .map_err(|e| format!("{title} could not think at {}: {e}", effort.as_ref()))?;
+            requests.push((request, format!("thinking {}", effort.as_ref()), None));
         }
         if requests.is_empty() {
             return Err("nothing to switch".into());
@@ -559,7 +559,7 @@ pub(super) fn choose<'a>(options: &'a [AnswerOption], reply: &str) -> Option<&'a
                 .iter()
                 .find(|option| option.name.to_lowercase() == reply)
         })
-        .or_else(|| options.iter().find(|option| option.kind.as_str() == reply))
+        .or_else(|| options.iter().find(|option| option.kind.as_ref() == reply))
         .or_else(|| match reply.as_str() {
             "allow" | "yes" | "y" | "approve" | "ok" => by_kind(OptionKind::AllowOnce),
             "always" => by_kind(OptionKind::AllowAlways),

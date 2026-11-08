@@ -2,6 +2,7 @@
 //! call that started one, and what its entry says of it (written in
 //! `super::live`).
 
+use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
 /// A native conversation, addressed separately from the process that owns it.
@@ -11,20 +12,34 @@ pub(crate) enum Conversation<'a> {
     Claude { parent: &'a str, agent: &'a str },
 }
 
-impl<'a> Conversation<'a> {
-    pub(crate) fn parse(id: &'a str) -> Option<Self> {
-        let mut parts = id.strip_prefix("subagent:")?.split(':');
-        let harness = parts.next()?;
-        let first = parts.next().filter(|part| valid_id(part))?;
+impl<'a> TryFrom<&'a str> for Conversation<'a> {
+    type Error = anyhow::Error;
+
+    fn try_from(id: &'a str) -> Result<Self> {
+        let mut parts = id
+            .strip_prefix("subagent:")
+            .context("missing subagent prefix")?
+            .split(':');
+        let harness = parts.next().context("missing subagent harness")?;
+        let first = parts
+            .next()
+            .filter(|part| valid_id(part))
+            .context("invalid subagent id")?;
         let found = match harness {
             "codex" => Self::Codex(first),
             "claude" => Self::Claude {
                 parent: first,
-                agent: parts.next().filter(|part| valid_id(part))?,
+                agent: parts
+                    .next()
+                    .filter(|part| valid_id(part))
+                    .context("invalid Claude agent id")?,
             },
-            _ => return None,
+            _ => bail!("unknown subagent harness"),
         };
-        parts.next().is_none().then_some(found)
+        if parts.next().is_some() {
+            bail!("too many subagent id parts");
+        }
+        Ok(found)
     }
 }
 
@@ -85,7 +100,7 @@ impl Subagent {
                 ..Self::default()
             });
         }
-        if let Some(activity) = Activity::of(input) {
+        if let Ok(activity) = Activity::try_from(input) {
             return Some(Self {
                 threads: vec![activity.thread],
                 ended: activity.ended,
@@ -124,12 +139,14 @@ pub(crate) struct Activity {
     pub(crate) ended: bool,
 }
 
-impl Activity {
-    /// The activity `input` reports; `None` for any other call, and for
+impl TryFrom<&Value> for Activity {
+    type Error = anyhow::Error;
+
+    /// The activity `input` reports; rejects any other call, and
     /// the root agent's own.
-    pub(crate) fn of(input: &Value) -> Option<Self> {
-        let thread = text(input, "agentThreadId")?;
-        let path = input["agentPath"].as_str()?;
+    fn try_from(input: &Value) -> Result<Self> {
+        let thread = text(input, "agentThreadId").context("missing agent thread id")?;
+        let path = input["agentPath"].as_str().context("missing agent path")?;
         let task = path
             .trim()
             .trim_end_matches('/')
@@ -137,12 +154,13 @@ impl Activity {
             .next()
             .map(str::trim)
             .filter(|task| !task.is_empty() && *task != "root")
-            .map(|task| crate::agents::cut(task, MAX_NAME))?;
+            .map(|task| crate::agents::cut(task, MAX_NAME))
+            .context("not a subagent path")?;
         let ended = matches!(
             input["activityKind"].as_str(),
             Some("completed" | "interrupted")
         );
-        Some(Self {
+        Ok(Self {
             thread,
             task,
             ended,
@@ -206,7 +224,7 @@ mod tests {
     fn conversation_ids_are_bounded_store_ids_not_paths() {
         for id in ["subagent:codex:thread-1", "subagent:claude:parent:child"] {
             assert_eq!(
-                Conversation::parse(id).expect("a native id").to_string(),
+                Conversation::try_from(id).expect("a native id").to_string(),
                 id
             );
         }
@@ -216,7 +234,7 @@ mod tests {
             "subagent:claude:parent:",
             "subagent:codex:/tmp/file",
         ] {
-            assert_eq!(Conversation::parse(id), None);
+            assert_eq!(Conversation::try_from(id).ok(), None);
         }
     }
 

@@ -29,9 +29,7 @@ impl User {
 
     /// What Beep may do in each app.
     pub(crate) async fn app_rules(&self) -> Result<Rules> {
-        Ok(Rules::from_rows(
-            self.store.app_permissions(&self.key).await?,
-        ))
+        Ok(Rules::from(self.store.app_permissions(&self.key).await?))
     }
 
     /// The model the user picked, if any.

@@ -579,7 +579,7 @@ expected 200, got 401</pre></details></span></div>`;
     const answer = media
       ? `<div class="dcoderen agent md">The turntable renders cleanly now. The model is ${mlink("out/turntable.glb", "paneright")}, the render ${mlink("out/walkcycle.mp4", "panebottom")} and the contact sheet ${mlink("out/contact-sheet.pdf", "panepdf")}.<div class="shots"><i class="img big b2" data-dact="dset:ags:shotpanel"></i></div></div>`
       : shots
-      ? `<div class="dcoderen agent md">The button no longer overlaps the label. Before and after are in <a class="imgl" data-dact="dset:ags:shotpanel">shots/login-before.png</a> and <a class="imgl" data-dact="dset:ags:shotpanel">shots/login-after.png</a>.<div class="shots"><i class="img big" data-dact="dset:ags:shotpanel"></i><i class="img big b2" data-dact="dset:ags:shotpanel"></i></div></div>`
+      ? `<div class="dcoderen agent md">The button no longer overlaps the label. Before and after are in <a class="imgl" data-dact="dset:ags:shotpanel">shots/login-before.png</a> and <a class="imgl" data-dact="dset:ags:shotpanel">shots/login-after.png</a>.<p>Latest screenshot:</p><p><img class="img big" src="assets/inline-image.svg" alt="Sign-in screen" data-dact="dset:ags:shotpanel" width="240" height="160"></p></div>`
       : v === "beeptools"
       ? `<div class="dcoderen agent md">The release build passes on build-box, and the iOS UI tests are running on mac-mini (job-7f2c). win-box is offline, so the Windows run waits.</div>`
       : arts

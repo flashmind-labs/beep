@@ -48,7 +48,7 @@ impl User {
         message: &str,
     ) -> Result<Option<CreateRun>> {
         self.store
-            .run_for_request(self.key.as_str(), session, request, Some(message))
+            .run_for_request(self.key.as_ref(), session, request, Some(message))
             .await
     }
 
@@ -59,7 +59,7 @@ impl User {
         request: &str,
     ) -> Result<Option<CreateRun>> {
         self.store
-            .run_for_request(self.key.as_str(), session, request, None)
+            .run_for_request(self.key.as_ref(), session, request, None)
             .await
     }
 

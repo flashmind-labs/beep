@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="320" viewBox="0 0 480 320">
+  <rect width="480" height="320" fill="#161719"/>
+  <rect x="80" y="40" width="320" height="240" rx="12" fill="#242629"/>
+  <g fill="#e5e7eb" font-family="sans-serif" font-size="20">
+    <text x="112" y="90">Sign in</text>
+    <text x="112" y="135" font-size="14">Email</text>
+    <text x="112" y="180" font-size="14">Password</text>
+    <text x="160" y="240" font-size="16">Continue</text>
+  </g>
+  <path d="M112 146h256M112 191h256" stroke="#62656a"/>
+</svg>

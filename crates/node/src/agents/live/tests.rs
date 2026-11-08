@@ -469,7 +469,7 @@ async fn a_running_cost_is_counted_per_turn() {
     });
     let first = usage.next_turn().await;
     assert_eq!(first.cost_usd, Some(1.25));
-    assert_eq!((first.tokens, first.agent.as_str()), (900, "opencode"));
+    assert_eq!((first.tokens, first.agent.as_ref()), (900, "opencode"));
     live.apply(&cost(1.5));
     live.spent(TurnTokens::default());
     assert_eq!(usage.next_turn().await.cost_usd, Some(0.25));
@@ -514,7 +514,7 @@ fn usage_commands_and_compactions_are_kept() {
     live.apply(&compaction("completed"));
     let (entries, _) = live.transcript(10);
     assert_eq!(entries.len(), 1, "shown once");
-    assert_eq!(entries[0].kind, EntryKind::Other);
+    assert_eq!(entries[0].kind, EntryKind::Compacted);
     assert_eq!(entries[0].text, COMPACTED_ENTRY);
     assert_eq!(live.info.context, None, "the usage before no longer holds");
     assert!(live.take_compacted());

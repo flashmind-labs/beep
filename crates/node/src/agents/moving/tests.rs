@@ -93,9 +93,9 @@ fn a_folder_that_only_shares_a_prefix_is_not_inside() {
 
 #[test]
 fn only_stores_in_files_have_a_harness() {
-    assert_eq!(Harness::of(Agent::Pi), Some(Harness::Pi));
-    assert_eq!(Harness::of(Agent::Flsh), Some(Harness::Flsh));
-    assert_eq!(Harness::of(Agent::OpenCode), None);
+    assert_eq!(Harness::try_from(Agent::Pi).ok(), Some(Harness::Pi));
+    assert_eq!(Harness::try_from(Agent::Flsh).ok(), Some(Harness::Flsh));
+    assert_eq!(Harness::try_from(Agent::OpenCode).ok(), None);
 }
 
 #[test]
