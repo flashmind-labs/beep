@@ -96,6 +96,8 @@ export function syncMobile() {
   tabBtns.get("home")!.classList.toggle("dot", !!state.home?.needs_you.length && tab !== "home");
   backBtn.hidden = backTo(now) === null;
   document.body.classList.toggle("mb-full", fullScreen(now));
+  // The plans' usage shows on Home only.
+  document.body.classList.toggle("mb-home", now.page === "home");
 }
 
 function apply() {
