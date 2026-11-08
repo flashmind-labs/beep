@@ -91,6 +91,14 @@ aarch64-apple-ios-sim`. Android builds need the SDK and NDK with
 `ANDROID_HOME` and `NDK_HOME` set, and `rustup target add
 aarch64-linux-android`.
 
+### Releases
+
+`just android-release <version>` and `just ios-release <version>` set the
+phone version in `apps/desktop/src-tauri/tauri.android.conf.json` or
+`tauri.ios.conf.json`, commit and tag `android-v*` or `ios-v*`. The tag makes
+CI build the Tauri app and upload it to Play's beta track or to TestFlight.
+`just release` tags the desktop, node, Android and iOS together.
+
 ## Wire protocol
 
 ALPN `beep/2`. Each request opens its own bi stream of length-delimited

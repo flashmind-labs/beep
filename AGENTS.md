@@ -87,8 +87,10 @@ and `just report-solved <reference>` manage stored reports.
 
 ## Release details
 
-Desktop and node tags trigger signed builds and release uploads. The phone app
-has no release workflow yet. Read the relevant
+Desktop and node tags trigger signed builds and release uploads. The phone
+app is the desktop Tauri app: `android-v*` and `ios-v*` tags build it and
+upload to Play and TestFlight, and each phone version lives in
+`tauri.android.conf.json` or `tauri.ios.conf.json`. Read the relevant
 `.forgejo/workflows/` file and `justfile` before releasing. Android releases
 stay off production while apps are on 0.x.
 
