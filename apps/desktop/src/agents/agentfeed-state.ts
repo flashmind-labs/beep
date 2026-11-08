@@ -7,6 +7,7 @@ interface Reader<K> {
   version: number;
   retryAt: number;
   ended: boolean;
+  startedAt: number;
 }
 
 interface Transport<K, T> {
@@ -28,12 +29,17 @@ export class AgentFeed<K, T> {
 
   live(key: K) { return this.reader?.key === key && this.reader.live; }
   version(key: K) { return this.reader?.key === key ? this.reader.version : 0; }
+  waiting(key: K) {
+    const reader = this.reader;
+    return reader?.key === key && !reader.live && !reader.ended
+      && this.transport.now() - reader.startedAt < 3000;
+  }
 
   follow(key: K) {
     const current = this.reader;
     if (current?.key === key && (!current.ended || this.transport.now() < current.retryAt)) return;
     this.stop();
-    const reader: Reader<K> = { key, id: this.transport.id(), live: false, version: ++this.serial, retryAt: 0, ended: false };
+    const reader: Reader<K> = { key, id: this.transport.id(), live: false, version: ++this.serial, retryAt: 0, ended: false, startedAt: this.transport.now() };
     this.reader = reader;
     const receive = (update: T) => {
       if (this.reader !== reader || reader.ended) return;

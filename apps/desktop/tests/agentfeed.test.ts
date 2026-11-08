@@ -82,3 +82,16 @@ test("nodes without streaming keep the fallback available without a tight retry 
   feed.follow("first");
   assert.equal(readers.length, 2);
 });
+
+test("the opening snapshot gets a bounded wait before fallback reads are needed", async () => {
+  const { feed, readers, advance } = setup();
+  feed.follow("first");
+  assert.equal(feed.waiting("first"), true);
+  advance(3000);
+  assert.equal(feed.waiting("first"), false);
+  feed.follow("second");
+  assert.equal(feed.waiting("second"), true);
+  readers[1].fail("unsupported");
+  await Promise.resolve();
+  assert.equal(feed.waiting("second"), false);
+});

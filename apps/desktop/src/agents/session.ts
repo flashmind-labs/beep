@@ -1,4 +1,5 @@
 import { AgentFeed } from "./agentfeed-state.ts";
+import { TranscriptCache, transcriptKey, type TranscriptUpdate } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.ts";
 import { filePicker } from "./file-picker.ts";
 import { fileLinkMenu } from "./filelinks.ts";
@@ -90,7 +91,8 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   AG.draft = null;
   Object.assign(AG, {
     open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
-    page: { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
+    page: transcripts.get(transcriptKey({ machine_id: s.machine_id, agent: s.agent, session: s.id }))?.page
+      ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
     att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(), queue: [], flushing: false, held: 0, stopping: null, modelOpen: false, modes: null,
     older: { stop: "", loading: false, gaveUp: false },
@@ -132,8 +134,9 @@ const sessionKey = (s: AgentRow) => `${s.machine_id}\n${s.id}`;
 
 export const isOpen = (o: OpenAgent | null) => S.view === "agent" && AG.open && o === AG.open;
 
-interface FeedUpdate {
-  page: AgentPage;
+const transcripts = new TranscriptCache<AgentPage>();
+
+interface FeedUpdate extends TranscriptUpdate<AgentPage> {
   modes: typeof AG.modes;
   tasks: typeof AG.tasks;
 }
@@ -144,14 +147,21 @@ const feed = new AgentFeed<OpenAgent, FeedUpdate>({
   open: (o, id, receive) => {
     const onEvent = new Channel<FeedUpdate>();
     onEvent.onmessage = receive;
-    return invoke<void>("agent_follow", { ...where(o), id, last: 200, onEvent });
+    return invoke<void>("agent_follow", { ...where(o), id, last: 200, after: transcripts.get(transcriptKey(o))?.cursor ?? null, onEvent });
   },
   close: id => { void invoke("agent_unfollow", { id }).catch(e => console.warn("session detach:", e)); },
   receive: (o, update) => {
     if (!isOpen(o) || !agentOnScreen()) { feed.stop(); return; }
+    const page = transcripts.receive(transcriptKey(o), update);
+    if (!page) {
+      feed.stop();
+      void pollAgent(true);
+      return;
+    }
     AG.modes = update.modes;
     AG.tasks = update.tasks;
-    applyAgentPage(o, update.page, ++AG.polls);
+    // Normal updates only compare and redraw their changed suffix.
+    applyAgentPage(o, update.kind === "delta" ? update.page : page, ++AG.polls, update.kind === "snapshot");
   },
   disconnected: (o, error) => {
     if (!isOpen(o) || !agentOnScreen()) return;
@@ -171,7 +181,7 @@ export function stopAgentFollow() {
 
 changeListeners.push(() => { if (S.view !== "agent") stopAgentFollow(); });
 
-function applyAgentPage(o: OpenAgent, page: AgentPage, read: number) {
+function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, replace = false) {
   if (AG.page) page.session = nativeUpdate(AG.page.session, page.session);
   if (isNativeSession(page.session.id)) {
     const row = sessions.find(s => s.machine_id === page.session.machine_id && s.id === page.session.id);
@@ -187,7 +197,7 @@ function applyAgentPage(o: OpenAgent, page: AgentPage, read: number) {
   const field = !!AG.page && followsOnly(AG.page.session) !== followsOnly(page.session);
   const news = hasNews(AG.page, page);
   // The older entries held stay while the newest are read again.
-  AG.page = joinRuns(AG.page, page);
+  AG.page = replace ? page : joinRuns(AG.page, page);
   drawAgentHeading();
   // The frame around the log is drawn again; the log itself stays.
   if (placed) drawAgentFrame(false, $<ChatBody>("#agbody"));
@@ -242,10 +252,9 @@ export async function pollAgent(readNow = false) {
   }
   if (agentOnScreen()) feed.follow(o);
   else feed.stop();
-  if (feed.live(o) && !readNow) {
-    // Session content arrives through the subscription; only the process pane needs a read.
-    return;
-  }
+  if (feed.live(o)) return;
+  // Give the initial snapshot a chance to arrive before asking an older node for a fallback.
+  if (feed.waiting(o)) { AG.timer = setTimeout(pollAgent, 3000); return; }
   const version = feed.version(o);
   AG.inflight = o;
   const read = ++AG.polls;
