@@ -3,12 +3,16 @@
 //! `digest_tail`, `head`).
 
 use super::subagents;
+use crate::agents::tool_details;
 use crate::{
     agents::mcp::calls::Tool as BeepTool,
     agents::tags::{self, Part},
     agents::{Picture, block_picture, cut, found::memo::Memo, window::window},
 };
-use beep_proto::node::agent::{Entry, EntryKind};
+use beep_proto::{
+    AgentToolCall,
+    node::agent::{Entry, EntryKind},
+};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
@@ -206,6 +210,15 @@ impl Digest {
                     {
                         spawn.agent_id = Some(agent_id.to_owned());
                     }
+                    if let Some(entry) = self
+                        .tools
+                        .get(id)
+                        .and_then(|&index| self.entries.get_mut(index))
+                        && let Some(tool) = &mut entry.tool
+                    {
+                        (tool.result, tool.result_truncated) =
+                            tool_details::json(block.get("content"));
+                    }
                     self.tool_pictures(id, &block["content"]);
                 }
                 if let Some(pictures) = &mut self.pictures {
@@ -306,6 +319,13 @@ impl Digest {
                     };
                     self.push(EntryKind::Tool, &line);
                     let entry = self.entries.len() - 1;
+                    let (input, input_truncated) = tool_details::json(block.get("input"));
+                    self.entries[entry].tool = Some(AgentToolCall {
+                        name: text_field(block, "name"),
+                        input,
+                        input_truncated,
+                        ..AgentToolCall::default()
+                    });
                     let Some(id) = id else {
                         continue;
                     };
@@ -698,6 +718,25 @@ pub(super) fn entries(
 pub(super) mod tests {
     use super::*;
     use std::{fs, io::Write};
+
+    #[test]
+    fn historical_calls_keep_arguments_and_results() {
+        let mut digest = Digest::default();
+        for line in [
+            serde_json::json!({"type": "assistant", "timestamp": "2026-10-29T12:34:00Z", "message": {"content": [
+                {"type": "tool_use", "id": "wait", "name": "Bash", "input": {"command": "sleep 45"}}
+            ]}}),
+            serde_json::json!({"type": "user", "timestamp": "2026-10-29T12:34:45Z", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "wait", "content": "Finished waiting"}
+            ]}}),
+        ] {
+            digest.line(&line.to_string());
+        }
+        let tool = digest.entries[0].tool.as_ref().unwrap();
+        assert_eq!(tool.name.as_deref(), Some("Bash"));
+        assert_eq!(tool.input.as_deref(), Some(r#"{"command":"sleep 45"}"#));
+        assert_eq!(tool.result.as_deref(), Some(r#""Finished waiting""#));
+    }
 
     /// A fabricated transcript in Claude Code's format.
     pub(crate) const FIXTURE: &str = include_str!("fixtures/session.jsonl");

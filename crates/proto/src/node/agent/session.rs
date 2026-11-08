@@ -1,7 +1,7 @@
 //! One agent session's stream: what the server asks and what the node sends.
 
 use super::{CheckoutPlan, Effort};
-use crate::{AgentContext, ModelId, ProviderCredits, Upload};
+use crate::{AgentContext, AgentToolCall, ModelId, ProviderCredits, Upload};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -476,6 +476,8 @@ pub struct Entry {
     /// `EntryKind::Thought` entries.
     #[serde(default)]
     pub ms: Option<u64>,
+    #[serde(default)]
+    pub tool: Option<AgentToolCall>,
 }
 
 impl Entry {
@@ -484,6 +486,7 @@ impl Entry {
             kind,
             text,
             ms: None,
+            tool: None,
         }
     }
 }

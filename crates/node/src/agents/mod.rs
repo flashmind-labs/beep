@@ -55,6 +55,7 @@ mod session_stream;
 mod spend;
 mod subagent;
 pub mod tags;
+mod tool_details;
 mod tool_diff;
 pub(crate) mod uploads;
 mod usage;

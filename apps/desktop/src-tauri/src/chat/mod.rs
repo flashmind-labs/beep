@@ -3,6 +3,7 @@
 
 pub(crate) mod approvals;
 pub(crate) mod cards;
+pub(crate) mod clipboard;
 pub(crate) mod files;
 pub(crate) mod groups;
 pub(crate) mod history;

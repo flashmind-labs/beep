@@ -6,7 +6,7 @@ use super::{
 };
 use crate::files::sync::{
     disk::{self},
-    gitdir::{self, Checkout, Oid, Repo, WriteGuard},
+    gitdir::{self, BranchTip, Checkout, Oid, Repo, WriteGuard},
     ignored::IgnoredRoot,
     map::{Changes, Entry, Replica, is_conflict, original_of, valid_path},
     rules::Rules,
@@ -37,7 +37,7 @@ const MATCH_SCAN: Duration = Duration::from_secs(30);
 /// What a project's task shares with the pulls and the node.
 pub(in crate::files::sync) struct Shared {
     pub(super) bootstrap_paths: RwLock<Option<HashSet<String>>>,
-    recovery: Arc<Mutex<Option<std::sync::Weak<crate::agents::Agents>>>>,
+    pub(super) recovery: Arc<Mutex<Option<std::sync::Weak<crate::agents::Agents>>>>,
     pub(super) name: String,
     pub(super) key: Key,
     pub(super) root: Arc<Folder>,
@@ -68,7 +68,8 @@ pub(in crate::files::sync) struct Shared {
     /// Unlike `unheard`, a pull that failed does not set it.
     caught: Mutex<HashMap<EndpointId, Instant>>,
     /// Commits peers advertised on their current pulls.
-    peer_heads: Mutex<HashMap<EndpointId, (Checkout, Option<String>)>>,
+    pub(super) peer_heads: Mutex<HashMap<EndpointId, (Checkout, Option<String>)>>,
+    pub(super) peer_branches: Mutex<HashMap<EndpointId, Vec<BranchTip>>>,
     /// When the last round that brought the folder in line with the list
     /// began. It saw every merge made before that.
     applied: Mutex<Instant>,
@@ -123,6 +124,20 @@ impl Shared {
             folder: start.root.path().to_string_lossy().into_owned(),
             ..ProjectStatus::default()
         };
+        let mut peer_branches = HashMap::new();
+        if matches!(state.saved.git_copy, Some(GitCopy::Finished))
+            && let Some(repo) = Repo::open(start.root.path())
+        {
+            for peer in &start.peers {
+                match repo.cached_branches(&peer.id) {
+                    Ok(tips) if !tips.is_empty() => {
+                        peer_branches.insert(peer.id, tips);
+                    }
+                    Ok(_) => {}
+                    Err(e) => log::warn!("cached Git branch tips could not be read: {e:#}"),
+                }
+            }
+        }
         Ok(Arc::new(Self {
             bootstrap_paths: RwLock::new(
                 start
@@ -153,6 +168,7 @@ impl Shared {
             unheard: Mutex::new(unheard),
             caught: Mutex::default(),
             peer_heads: Mutex::default(),
+            peer_branches: Mutex::new(peer_branches),
             applied: Mutex::new(Instant::now()),
             pull_again: watch::Sender::new(0),
         }))
@@ -378,6 +394,20 @@ impl Shared {
         self.merged.notify_one();
     }
 
+    pub(in crate::files::sync) fn observe_branches(&self, peer: &EndpointId, tips: Vec<BranchTip>) {
+        crate::lock(&self.peer_branches).insert(*peer, tips);
+        self.merged.notify_one();
+    }
+
+    pub(in crate::files::sync) fn branch_aware(&self, peer: &EndpointId) -> bool {
+        crate::lock(&self.peer_branches).contains_key(peer)
+    }
+
+    pub(in crate::files::sync) fn forget_branches(&self, peer: &EndpointId) {
+        crate::lock(&self.peer_branches).remove(peer);
+        self.merged.notify_one();
+    }
+
     /// Checks the checkout before accepting a peer's files. Different
     /// commits wait for the user or an agent to push and pull through Git.
     pub(in crate::files::sync) async fn first_contact(
@@ -404,7 +434,7 @@ impl Shared {
                     state.unsaved = true;
                 }
             }
-        } else if own.differs(checkout) {
+        } else if own.differs(checkout) && !self.branch_aware(peer) {
             bail!("Git commits differ; push and pull through Git before syncing files");
         }
         if copies_git && checkout.present {
@@ -434,122 +464,15 @@ impl Shared {
             Ok(Checkout::read(&root))
         })
         .await??;
+        let aware: HashSet<_> = crate::lock(&self.peer_branches).keys().copied().collect();
         let heads = crate::lock(&self.peer_heads);
         if heads
             .iter()
-            .any(|(peer, head)| self.has_peer(peer) && own.differs(head.0))
+            .any(|(peer, head)| self.has_peer(peer) && !aware.contains(peer) && own.differs(head.0))
         {
             bail!("Git commits differ; push and pull through Git before syncing files");
         }
         Ok(())
-    }
-
-    /// Called by the project task, so fetching and checkout cannot overlap
-    /// this node's own file writes or scans.
-    pub(super) async fn align_git(&self) -> Result<bool> {
-        if self.copies_git() {
-            return Ok(false);
-        }
-        let own = self.head().await?;
-        let candidates: Vec<_> = {
-            let heads = crate::lock(&self.peer_heads);
-            heads
-                .iter()
-                .filter(|(peer, head)| self.has_peer(peer) && own.differs(head.0))
-                .map(|(_, head)| (head.0.commit, head.1.clone()))
-                .collect()
-        };
-        if candidates.is_empty() {
-            return Ok(false);
-        }
-        let repo = Repo::open(self.root())
-            .context("Git commits differ; the local repository is unavailable")?;
-        let recovery = crate::lock(&self.recovery)
-            .as_ref()
-            .and_then(std::sync::Weak::upgrade);
-        let can_recover = recovery.is_some();
-        let (repo, branch, target) = spawn_blocking(move || -> Result<_> {
-            repo.check_recovery()?;
-            if !can_recover { repo.require_clean()?; }
-            let branch = repo
-                .head_ref()
-                .context("Git commits differ; checkout is detached")?;
-            let own_commit = own
-                .commit
-                .context("Git commits differ; checkout has no commit")?;
-            let mut target = None;
-            for (candidate, peer_branch) in candidates {
-                if peer_branch.as_deref() != Some(branch.as_str()) {
-                    bail!("Git commits differ between branches");
-                }
-                let candidate = candidate.context("Git commits differ; peer has no commit")?;
-                if repo.is_ancestor(candidate, own_commit) == Some(true) {
-                    continue;
-                }
-                match repo.is_ancestor(own_commit, candidate) {
-                    Some(true) => {}
-                    Some(false) => bail!("Git commits differ; histories diverged; merge the peer commits to resume sync"),
-                    None => bail!("Git commits differ; waiting for peer commits to arrive"),
-                }
-                if let Some(previous) = target {
-                    if repo.is_ancestor(candidate, previous) == Some(true) {
-                        continue;
-                    }
-                    if repo.is_ancestor(previous, candidate) != Some(true) {
-                        bail!("Git commits differ; histories diverged between peers; merge their commits to resume sync");
-                    }
-                }
-                target = Some(candidate);
-            }
-            let target =
-                target.context("Git commits differ; this checkout is ahead of the peers")?;
-            Ok((repo, branch, target))
-        })
-        .await??;
-        let dirty = {
-            let root = self.root().to_owned();
-            spawn_blocking(move || {
-                Repo::open(&root)
-                    .context("Git checkout is unavailable")?
-                    .has_local_changes()
-            })
-            .await??
-        };
-        let _hold = if dirty {
-            let agents = recovery.context(
-                "Local edits block Git sync; enable automatic recovery or commit or stash them.",
-            )?;
-            Some(agents.reserve_repository(self.root()).await?)
-        } else {
-            None
-        };
-        let (snapshot, file) = {
-            let mut state = self.lock();
-            state.saved.fast_forward = Some(target);
-            state.unsaved = true;
-            (state.saved.clone(), self.file.clone())
-        };
-        let policy = self.recovery.clone();
-        if dirty {
-            // Old lists may still name private staged blobs. Refuse those before creating a stash.
-            *crate::write_lock(&self.bootstrap_paths) = Some(HashSet::new());
-        }
-        spawn_blocking(move || {
-            let _hold = _hold;
-            anyhow::ensure!(
-                !dirty || crate::lock(&policy).is_some(),
-                "Automatic Git recovery was disabled; local edits stay in place."
-            );
-            crate::link::note::write(&file, &rmp_serde::to_vec(&snapshot)?)?;
-            if dirty {
-                repo.recover_fast_forward(own, target, &branch)
-            } else {
-                repo.fast_forward(own, target, &branch)
-            }
-        })
-        .await??;
-        self.pull_again();
-        Ok(true)
     }
 
     /// A list can only travel under the checkout its completed scan read.

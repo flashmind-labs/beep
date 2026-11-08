@@ -23,6 +23,9 @@ targets:
       - target: BeepNotifications
     sources:
       - path: Beep
+      - path: ../diagrams/assets
+        type: folder
+        buildPhase: resources
       - path: Shared
       - path: ../android/app/src/main/res/font/inter.ttf
         buildPhase: resources

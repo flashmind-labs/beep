@@ -1,15 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type Attached, batches, dropDelivered, markDelivered, stopPending, type Waiting } from "../src/agents/agentqueue.ts";
+import { type Attached, dropDelivered, markDelivered, stopPending, type Waiting } from "../src/agents/agentqueue.ts";
 
 const img = (name: string, size = 10): Attached => ({ name, mime: "image/png", size, data: "", url: "" });
-const item = (text: string, images: Attached[] = []): Waiting => ({ how: "queue", typed: text, text, paths: [], images, state: null, after: 0 });
+const item = (text: string, images: Attached[] = []): Waiting => ({ how: "steer", typed: text, text, paths: [], images, state: null, after: 0 });
 const steer = (text: string, after: number): Waiting => ({ ...item(text), how: "steer", state: "sent", after });
-
-test("images past what one message takes start the next message", () => {
-  const out = batches([item("one", [img("a"), img("b")]), item("two", [img("c")]), item("three", [img("d", 95)])], 2, 100);
-  assert.deepEqual(out.map(b => b.text), ["one", "two", "three"]);
-});
 
 test("a steer counts as delivered only from reads after the node took it", () => {
   const q = [steer("old", 1), steer("new", 5)];
