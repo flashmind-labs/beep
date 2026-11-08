@@ -24,6 +24,10 @@ export APPLE_DEVELOPMENT_TEAM=$team
 target=aarch64-apple-ios
 [[ ${1:-} == --sim ]] && target=aarch64-apple-ios-sim
 
+# On Xcode 27, swift-rs needs llvm-objcopy to export the Swift plugin symbols
+# (`_register_plugin` and the like); without it linking fails.
+rustup component add llvm-tools
+
 npm ci --silent
 bash ../../scripts/tauri-init.sh ios
 

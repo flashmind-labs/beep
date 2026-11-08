@@ -141,6 +141,7 @@ desktop-check:
 
 # Build the phone app (the desktop app built for iOS) for the simulator
 ios-build:
+    rustup component add llvm-tools
     bash scripts/tauri-init.sh ios
     cd apps/desktop && npm ci --silent && npm run tauri -- ios build -v --debug --target aarch64-sim
 
