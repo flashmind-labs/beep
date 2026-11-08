@@ -1,4 +1,5 @@
-//! This computer's key, kept in a file only the user can read.
+//! This computer's key: in the Keychain on an iPhone, elsewhere in a file
+//! only the user can read.
 
 use anyhow::{Context, Result};
 use beep_proto::link::MAX_NAME;
@@ -16,8 +17,17 @@ use tauri::{AppHandle, Manager};
 /// The key's 32 bytes, which never print.
 pub type Identity = SecretBox<[u8; 32]>;
 
-/// Reads the key at `path`, making one on first launch.
+/// Reads the key, making one on first launch. On an iPhone it is in the
+/// Keychain and `path` only holds a key from a build before that.
 pub fn load_or_create(path: &Path) -> Result<Identity> {
+    #[cfg(target_os = "ios")]
+    return keychain::load_or_create(path);
+    #[cfg(not(target_os = "ios"))]
+    load_or_create_file(path)
+}
+
+#[cfg_attr(target_os = "ios", allow(dead_code))]
+fn load_or_create_file(path: &Path) -> Result<Identity> {
     if let Ok(bytes) = fs::read(path) {
         let bytes: [u8; 32] = bytes
             .try_into()
@@ -90,6 +100,8 @@ pub fn forget(app: &AppHandle) -> Result<()> {
         Err(e) if e.kind() == ErrorKind::NotFound => {}
         Err(e) => return Err(e.into()),
     }
+    #[cfg(target_os = "ios")]
+    keychain::delete()?;
     for file in [
         "identity.key",
         "state.json",
@@ -104,4 +116,67 @@ pub fn forget(app: &AppHandle) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The iPhone's key in the Keychain. It is readable after the first unlock,
+/// so background work can use it, and backups and a new iPhone carry it.
+#[cfg(target_os = "ios")]
+mod keychain {
+    use super::Identity;
+    use anyhow::{Context, Result};
+    use iroh::SecretKey;
+    use secrecy::SecretBox;
+    use security_framework::{
+        access_control::{ProtectionMode, SecAccessControl},
+        passwords::{delete_generic_password, generic_password, set_generic_password_options},
+        passwords_options::PasswordOptions,
+    };
+    use std::{fs, io::ErrorKind, path::Path};
+
+    const SERVICE: &str = "com.flashmind.beep";
+    const ACCOUNT: &str = "mesh-key";
+    /// `errSecItemNotFound`.
+    const NOT_FOUND: i32 = -25300;
+
+    pub(super) fn load_or_create(old_file: &Path) -> Result<Identity> {
+        match generic_password(PasswordOptions::new_generic_password(SERVICE, ACCOUNT)) {
+            Ok(bytes) => return identity(bytes),
+            Err(e) if e.code() == NOT_FOUND => {}
+            Err(e) => return Err(e).context("reading the key from the Keychain"),
+        }
+        // A build that kept the key in a file paired with it: keep it.
+        let (key, moved) = match fs::read(old_file) {
+            Ok(bytes) => (identity(bytes)?, true),
+            Err(e) if e.kind() == ErrorKind::NotFound => (
+                SecretBox::new(Box::new(SecretKey::generate().to_bytes())),
+                false,
+            ),
+            Err(e) => return Err(e).context("reading the old key file"),
+        };
+        let mut options = PasswordOptions::new_generic_password(SERVICE, ACCOUNT);
+        options.set_access_control(SecAccessControl::create_with_protection(
+            Some(ProtectionMode::AccessibleAfterFirstUnlock),
+            0,
+        )?);
+        set_generic_password_options(secrecy::ExposeSecret::expose_secret(&key), options)
+            .context("saving the key in the Keychain")?;
+        if moved {
+            fs::remove_file(old_file).context("removing the old key file")?;
+        }
+        Ok(key)
+    }
+
+    pub(super) fn delete() -> Result<()> {
+        match delete_generic_password(SERVICE, ACCOUNT) {
+            Err(e) if e.code() != NOT_FOUND => Err(e).context("deleting the key from the Keychain"),
+            _ => Ok(()),
+        }
+    }
+
+    fn identity(bytes: Vec<u8>) -> Result<Identity> {
+        let bytes: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("the Keychain key is not 32 bytes"))?;
+        Ok(SecretBox::new(Box::new(bytes)))
+    }
 }
