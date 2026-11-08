@@ -6,6 +6,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { outputBatch } from "./output-batch.ts";
 import { leavesTerminal } from "../agentpane/media-state.ts";
 import { wordKeyBytes } from "./keys-state.ts";
+import { isTouchDevice, makeTouchBar } from "./touchbar.ts";
 import { ZOOMED } from "../ui/zoom-state.ts";
 import type { Screen } from "./terminals.ts";
 
@@ -48,6 +49,21 @@ export function makeScreen(): Screen {
     escape();
     return false;
   });
+  // On a touch device: a key bar above the soft keyboard, and a terminal that
+  // shrinks to the visual viewport so the keyboard does not cover it.
+  const bar = isTouchDevice() ? makeTouchBar(data => term.input(data, true)) : null;
+  let inputOn = false;
+  const layout = () => {
+    if (!bar) return;
+    const vv = window.visualViewport;
+    const shown = inputOn && el.isConnected && !document.hidden && el.clientWidth > 0 && el.clientHeight > 0;
+    bar.setShown(shown);
+    if (!shown) { el.style.maxHeight = ""; return; }
+    const bottom = vv ? vv.height + vv.offsetTop : window.innerHeight;
+    bar.el.style.bottom = `${Math.max(0, window.innerHeight - bottom)}px`;
+    const room = bottom - el.getBoundingClientRect().top - bar.height();
+    el.style.maxHeight = `${Math.max(120, Math.floor(room))}px`;
+  };
   const output = outputBatch(data => term.write(data));
   const fit = new FitAddon();
   term.loadAddon(fit);
@@ -64,6 +80,7 @@ export function makeScreen(): Screen {
   // Opened and fitted once the element is on the page with a size; output
   // written before then waits in the terminal's buffer.
   const fitNow = () => {
+    layout();
     if (document.hidden || !el.isConnected || !el.clientWidth || !el.clientHeight) {
       // Hidden terminals keep their buffers, but need no GPU context.
       dropGpu();
@@ -98,6 +115,11 @@ export function makeScreen(): Screen {
   // A zoom changes the size of a cell, not always of the element.
   window.addEventListener(ZOOMED, fitNow);
   document.addEventListener("visibilitychange", fitNow);
+  if (bar) {
+    document.body.append(bar.el);
+    window.visualViewport?.addEventListener("resize", fitNow);
+    window.visualViewport?.addEventListener("scroll", fitNow);
+  }
   return {
     el,
     write: data => output.write(data),
@@ -106,11 +128,13 @@ export function makeScreen(): Screen {
     fit: fitNow,
     focus: () => { if (opened) term.focus(); else wantFocus = true; },
     focused: () => el.contains(document.activeElement),
-    onData: cb => { term.onData(cb); },
+    onData: cb => { term.onData(data => cb(bar ? bar.apply(data) : data)); },
     onResize: cb => { term.onResize(cb); },
     onEscape: cb => { escape = cb; },
     setInput: on => {
       term.options.disableStdin = !on;
+      inputOn = on;
+      layout();
       term.options.cursorBlink = on;
     },
     dispose: () => {
@@ -118,6 +142,9 @@ export function makeScreen(): Screen {
       resized.disconnect();
       window.removeEventListener(ZOOMED, fitNow);
       document.removeEventListener("visibilitychange", fitNow);
+      window.visualViewport?.removeEventListener("resize", fitNow);
+      window.visualViewport?.removeEventListener("scroll", fitNow);
+      bar?.el.remove();
       dropGpu();
       term.dispose();
     },
