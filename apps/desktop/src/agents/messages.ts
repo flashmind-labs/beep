@@ -103,24 +103,23 @@ export function steerMessage(input: HTMLTextAreaElement) {
 }
 
 async function sendSteer(q: Waiting, back = true) {
-  const o = AG.open;
+  const o = AG.open, queue = AG.queue;
   if (!o) return false;
   q.state = "sending";
   q.entryFrom ??= AG.page ? AG.page.earlier + AG.page.entries.length : 0;
   drawAgentBody();
   if (q.images.length) keepAgentPics(o, q.images);
   const ok = await steerAgent({ steer: outgoing(q.text, q.images) });
-  if (!isOpen(o)) return ok;
   if (ok) {
     q.state = "sent";
     q.after = AG.polls;
   } else {
     // Nothing went: it waits in the field again, under the note that says why.
-    const at = AG.queue.indexOf(q);
-    if (at >= 0) AG.queue.splice(at, 1);
-    if (back) backInField(q);
+    const at = queue.indexOf(q);
+    if (at >= 0) queue.splice(at, 1);
+    if (back && AG.queue === queue && isOpen(AG.open)) backInField(q);
   }
-  drawAgentBody();
+  if (AG.queue === queue && isOpen(AG.open)) drawAgentBody();
   return ok;
 }
 
@@ -191,8 +190,7 @@ export async function steerAgent(steer: Steer) {
     }
     if (AG.open === o) AG.held--;
   }
-  AG.note = failed?.message ?? "";
-  if (isOpen(o)) { drawAgentBody(); resumeAgent(); }
+  if (isOpen(o)) { AG.note = failed?.message ?? ""; drawAgentBody(); resumeAgent(); }
   return !failed;
 }
 

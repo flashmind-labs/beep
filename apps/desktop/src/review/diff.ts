@@ -136,6 +136,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     loading: false,
     /// Folded or not, as the user left each file while the view is open.
     folded: new Map<string, boolean>(),
+    closedFolders: new Set<string>(),
     filter: "",
     /// Side by side is chosen; it shows only while the viewer is not narrow.
     split: loadSplit(),
@@ -158,6 +159,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
   let sections = new Map<string, HTMLElement>();
   /// The chunks of rows of every open file.
   const chunks = new Map<Element, Chunk>();
+  const bodyModes = new Map<string, boolean>();
+  const visibleFiles = new Set<string>();
   const find = el("input", "dv-find");
   find.placeholder = "Filter";
   find.setAttribute("aria-label", "Filter files");
@@ -222,8 +225,21 @@ export function diffView(src: DiffSource): DiffViewHandle {
   const head = el("div", "dv-head", sum, find, tools, el("span", "dv-sp"), flash, feedback.el, send);
   const tree = el("nav", "dv-tree");
   tree.setAttribute("aria-label", "Changed files");
+  const treeFiles = new Map<string, HTMLButtonElement>();
+  const treeFolders = new Map<string, { group: HTMLDetailsElement; children: HTMLElement }>();
   const files = el("div", "dv-files");
   files.style.position = "relative";
+  const fileObserver = new IntersectionObserver(entries => {
+    const near: string[] = [];
+    for (const entry of entries) {
+      const path = (entry.target as HTMLElement).dataset.path!;
+      if (entry.isIntersecting) {
+        visibleFiles.add(path);
+        near.push(path);
+      } else visibleFiles.delete(path);
+    }
+    updateBodyModes(near);
+  }, { root: files, rootMargin: `${MARGIN}px 0px` });
   const chunkObserver = new IntersectionObserver(entries => {
     const top = files.getBoundingClientRect().top;
     const changes = entries.flatMap(entry => {
@@ -296,9 +312,14 @@ export function diffView(src: DiffSource): DiffViewHandle {
   function drawFiles() {
     const v = st.view;
     chunkObserver.disconnect();
+    fileObserver.disconnect();
     chunks.clear();
+    bodyModes.clear();
+    visibleFiles.clear();
     markedPath = null;
     tree.replaceChildren();
+    treeFiles.clear();
+    treeFolders.clear();
     files.replaceChildren();
     sections = new Map();
     placedCache = null;
@@ -318,31 +339,62 @@ export function diffView(src: DiffSource): DiffViewHandle {
     for (const f of v.files) {
       const { dir, name } = splitPath(f.path);
       const row = el("button", "dv-tr", el("span", `dv-st ${STATUS_LETTER[f.status]}`, STATUS_LETTER[f.status]),
-        el("span", "nm", dir ? el("i", "", dir) : null, el("b", "", name)), el("span", "ct", ...counts(f.additions, f.deletions)));
+        el("span", "nm", el("b", "", name)), el("span", "ct", ...counts(f.additions, f.deletions)));
       row.type = "button";
       row.title = f.old_path ? `${f.old_path} -> ${f.path}` : f.path;
       row.dataset.path = f.path;
       row.addEventListener("click", () => jump(f.path));
       row.addEventListener("contextmenu", e => fileMenu(e, f));
-      tree.append(row);
+      treeFiles.set(f.path, row);
+      folderChildren(dir).append(row);
       const section = fileSection(f);
       sections.set(f.path, section);
       files.append(section);
+      fileObserver.observe(section);
     }
     if (v.more) files.append(el("div", "dv-more", `And ${v.more.toLocaleString("en-US")} more files not shown.`));
     applyFilter();
     drawReview();
   }
 
+  function folderChildren(path: string): HTMLElement {
+    if (!path) return tree;
+    const held = treeFolders.get(path);
+    if (held) return held.children;
+    const { dir, name } = splitPath(path.slice(0, -1));
+    const group = el("details", "dv-dir");
+    group.dataset.folder = path;
+    group.open = !st.closedFolders.has(path);
+    const chevron = icon(SVG.chev);
+    chevron.className = "dv-dir-chevron";
+    const summary = el("summary", "dv-tr", chevron, el("span", "nm", el("b", "", name)));
+    summary.title = path;
+    const children = el("div", "dv-dir-children");
+    group.append(summary, children);
+    summary.addEventListener("click", () => {
+      if (!st.filter.trim()) {
+        if (group.open) st.closedFolders.add(path); else st.closedFolders.delete(path);
+      }
+    });
+    folderChildren(dir).append(group);
+    treeFolders.set(path, { group, children });
+    return children;
+  }
+
   /// Hides the files that do not match, without drawing any again.
   function applyFilter() {
     const v = st.view;
     if (!v) return;
-    v.files.forEach((f, i) => {
+    v.files.forEach(f => {
       const hide = !matchesFilter(f, st.filter);
       sections.get(f.path)!.hidden = hide;
-      tree.children[i].toggleAttribute("hidden", hide);
+      treeFiles.get(f.path)!.hidden = hide;
     });
+    // Check child folders before deciding whether to hide their parents.
+    for (const [path, { group, children }] of [...treeFolders].reverse()) {
+      group.hidden = [...children.children].every(child => (child as HTMLElement).hidden);
+      group.open = !!st.filter.trim() || !st.closedFolders.has(path);
+    }
     matchNote.hidden = !st.filter.trim();
     matchNote.textContent = `${shown().length} of ${v.files.length} files match`;
     markCurrent();
@@ -409,6 +461,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
   }
 
   function fileBody(f: DiffFile): HTMLElement {
+    bodyModes.set(f.path, st.split && !st.narrow);
     const note = leftOutNote(f);
     if (note) {
       const box = el("div", "dv-note", note.text);
@@ -608,18 +661,30 @@ export function diffView(src: DiffSource): DiffViewHandle {
     root.focus({ preventScroll: true });
   }
 
-  /// Draws the lines of every open file again for the current mode; folded
-  /// files are emptied and draw when they open.
-  function redrawBodies() {
-    const keep = files.scrollTop;
-    for (const [path, section] of sections) {
-      const f = st.view?.files.find(x => x.path === path);
-      const inner = section.querySelector(".dv-fold > div");
-      if (!f || !inner || !inner.childNodes.length) continue;
-      inner.replaceChildren(...(isFolded(f, st.folded) ? [] : [fileBody(f)]));
-    }
-    files.scrollTop = keep;
+  function updateBodyMode(path: string) {
+    if (bodyModes.get(path) === (st.split && !st.narrow)) return;
+    const section = sections.get(path), f = st.view?.files.find(x => x.path === path);
+    const inner = section?.querySelector(".dv-fold > div");
+    if (!f || !inner || isFolded(f, st.folded)) return;
+    inner.replaceChildren(fileBody(f));
+  }
+
+  function updateBodyModes(paths: Iterable<string>) {
+    const stale = [...paths].filter(path => bodyModes.has(path) && bodyModes.get(path) !== (st.split && !st.narrow));
+    if (!stale.length) return;
+    const top = files.scrollTop;
+    const anchor = sections.get(shown()[currentFile(tops(), top)]?.path ?? "");
+    const before = anchor?.offsetTop ?? 0;
+    for (const path of stale) updateBodyMode(path);
+    const next = top + (anchor?.offsetTop ?? 0) - before;
+    if (files.scrollTop !== next) files.scrollTop = next;
     pruneChunks();
+  }
+
+  /// Only the files near the viewport change modes now. Others update
+  /// when they scroll into view or open, so resizing stays cheap.
+  function redrawBodies() {
+    updateBodyModes(visibleFiles);
   }
 
   function setFolded(path: string, folded: boolean) {
@@ -629,6 +694,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (!section || !f) return;
     const inner = section.querySelector(".dv-fold > div");
     if (!folded && inner && !inner.childNodes.length) inner.append(fileBody(f));
+    if (!folded) updateBodyMode(path);
     section.classList.toggle("closed", folded);
     section.querySelector(".dv-fh")?.setAttribute("aria-expanded", String(!folded));
     drawFold();
@@ -669,6 +735,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
   function jump(path: string) {
     const section = sections.get(path);
     if (!section) return;
+    for (const [folder, { group }] of treeFolders) {
+      if (path.startsWith(folder)) { st.closedFolders.delete(folder); group.open = true; }
+    }
     st.cur = path;
     markCurrent();
     files.scrollTo({ top: section.offsetTop - 10, behavior: typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });

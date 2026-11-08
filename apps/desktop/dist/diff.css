@@ -52,6 +52,12 @@
 .dv-tr { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 3px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--fg); text-align: left; font: 12px var(--mono); cursor: pointer }
 .dv-tr:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .dv-tr.on { background: color-mix(in srgb, var(--accent) 20%, transparent) }
+.dv-tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
+.dv-dir > summary { list-style: none; color: var(--muted) }
+.dv-dir > summary::-webkit-details-marker { display: none }
+.dv-dir-chevron { display: grid }
+.dv-dir[open] > summary .dv-dir-chevron { transform: rotate(90deg) }
+.dv-dir-children { padding-left: 16px }
 .dv-tr .nm { display: flex; min-width: 0; white-space: nowrap }
 .dv-tr .nm i { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-style: normal }
 .dv-tr .nm b { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-weight: 400 }
@@ -91,7 +97,7 @@
 /* Unified lines are as wide as the longest line, drawn or not. */
 .dv-lines:not(.split) { min-width: max(100%, calc(var(--nw, 3) * 2ch + 28px + var(--len, 0) * 1ch + 40px)) }
 .dv-lines.split .dv-g { position: static }
-.dv-file[hidden], .dv-tr[hidden] { display: none }
+.dv-file[hidden], .dv-tr[hidden], .dv-dir[hidden] { display: none }
 .dv-l { display: flex; min-width: 100% }
 .dv-g { position: sticky; left: 0; z-index: 1; flex: none; display: flex; background: var(--dv-gut-bg); color: var(--dim); user-select: none; border-right: 1px solid var(--border) }
 .dv-g span { width: calc(var(--nw, 3) * 1ch + 14px); padding: 0 7px; text-align: right; font-variant-numeric: tabular-nums }

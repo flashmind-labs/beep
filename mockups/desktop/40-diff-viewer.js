@@ -32,6 +32,13 @@
 .mac .dv.resizing, .mac .dv.resizing * { cursor: col-resize; user-select: none }
 .mac .dv-tr { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 3px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--fg); text-align: left; font: 12px var(--mono) }
 .mac .dv-tr.on { background: rgba(94,106,210,.2) } .mac .dv-tr .nm { display: flex; min-width: 0; white-space: nowrap } .mac .dv-tr .nm i { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-style: normal } .mac .dv-tr .nm b { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-weight: 400 } .mac .dv-tr .ct { font-size: 11px; display: flex; gap: 6px }
+.mac .dv-dir > summary { list-style: none; color: var(--muted); cursor: pointer }
+.mac .dv-dir > summary::-webkit-details-marker { display: none }
+.mac .dv-dir > summary .dv-dir-chevron { display: grid }
+.mac .dv-dir[open] > summary .dv-dir-chevron { transform: rotate(90deg) }
+.mac .dv-dir-children { padding-left: 16px }
+.mac .dv-tr:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
+.mac .dv-tr:focus-visible { outline: 2px solid var(--emerald); outline-offset: -2px }
 .mac .dv-st { font: 600 10.5px var(--mono); text-align: center; color: var(--muted) } .mac .dv-st.A { color: var(--dv-add-fg) } .mac .dv-st.D { color: var(--dv-del-fg) } .mac .dv-st.M { color: #E5B567 } .mac .dv-st.R { color: var(--dv-hunk-fg) }
 .mac .dv-files { min-height: 0; min-width: 0; overflow: auto; padding: 0 10px 10px; display: flex; flex-direction: column; gap: 10px }
 .mac .dv-file { flex: none; min-width: 0; border: 1px solid var(--border); border-radius: 9px; background: var(--dv-file-bg) } .mac .dv-file:first-child { margin-top: 10px }
@@ -153,10 +160,24 @@
     const shown = FILES.filter(f => !q || f.path.includes(q));
     const fold = f => v === "collapsed" ? true : v === "expanded" ? false : !!f.fold;
     const add = FILES.reduce((s, f) => s + f.a, 0), del = FILES.reduce((s, f) => s + f.d, 0);
-    const tree = shown.map((f, i) => {
-      const cut = f.path.lastIndexOf("/");
-      return `<button class="dv-tr${i === 0 ? " on" : ""}" title="${f.path}" data-toast="Jumps to ${f.path}"><span class="dv-st ${LETTER[f.st]}">${LETTER[f.st]}</span><span class="nm"><i>${f.path.slice(0, cut + 1)}</i><b>${f.path.slice(cut + 1)}</b></span><span class="ct">${f.a ? `<i class="dv-plus">+${f.a}</i>` : ""}${f.d ? `<i class="dv-minus">-${f.d}</i>` : ""}</span></button>`;
-    }).join("");
+    const folders = new Map(), roots = [], closed = new Set(S.d.diffClosed || []);
+    shown.forEach((f, i) => {
+      const parts = f.path.split('/'), name = parts.pop();
+      let children = roots, path = '';
+      for (const part of parts) {
+        path += `${part}/`;
+        if (!folders.has(path)) {
+          const folder = { path, name: part, children: [] };
+          folders.set(path, folder); children.push(folder);
+        }
+        children = folders.get(path).children;
+      }
+      children.push({ f, name, current: i === 0 });
+    });
+    const rows = nodes => nodes.map(node => node.f
+      ? `<button class="dv-tr${node.current ? " on" : ""}" title="${node.f.path}" data-toast="Jumps to ${node.f.path}"><span class="dv-st ${LETTER[node.f.st]}">${LETTER[node.f.st]}</span><span class="nm"><b>${node.name}</b></span><span class="ct">${node.f.a ? `<i class="dv-plus">+${node.f.a}</i>` : ""}${node.f.d ? `<i class="dv-minus">-${node.f.d}</i>` : ""}</span></button>`
+      : `<details class="dv-dir" data-folder="${node.path}"${q || !closed.has(node.path) ? ' open' : ''}><summary class="dv-tr" title="${node.path}"><span class="dv-dir-chevron">${CHEV}</span><span class="nm"><b>${node.name}</b></span></summary><div class="dv-dir-children">${rows(node.children)}</div></details>`).join('');
+    const tree = rows(roots);
     const files = shown.map((f, i) => fileBox(f, fold(f), i === 0, v === "pane")).join("");
     const more = q ? `<div class="dv-note" style="padding:2px">${shown.length} of ${FILES.length} files match</div>` : "";
     return `<div class="dv${wide ? " wide" : ""}${v === "light" ? " light" : ""}"><div class="dv-head"><span class="dv-sum"><b>${FILES.length} files</b><i class="dv-plus">+${add.toLocaleString("en-US")}</i><i class="dv-minus">-${del.toLocaleString("en-US")}</i><span class="base" title="Against origin/main at 3f2c1a0, uncommitted included">vs <code>origin/main</code></span></span>
@@ -189,6 +210,15 @@ const DV_IC = {
   VARIANTS.dWinDiff = [["Default folds (big and deleted folded)", "mixed"], ["Side by side", "split"], ["All expanded", "expanded"], ["All collapsed", "collapsed"], ["Filtered", "filter"], ["Session Changes tab", "pane"], ["No changes", "empty"], ["Light theme tokens", "light"]]
     .map(([l, k]) => [l, () => { S.d.dv = k; render(); }, () => (S.d.dv || "mixed") === k]);
   window.__dvBody = dvBody;
+  document.addEventListener('click', e => {
+    const summary = e.target.closest('.dv-dir > summary');
+    if (!summary) return;
+    const folder = summary.parentElement;
+    if (folder.closest('.dv').querySelector('.dv-find').value.trim()) return;
+    const closed = new Set(S.d.diffClosed || []);
+    if (folder.open) closed.add(folder.dataset.folder); else closed.delete(folder.dataset.folder);
+    S.d.diffClosed = [...closed];
+  }, true);
   const resize = (grip, width) => {
     const body = grip.parentElement;
     const max = Math.max(180, Math.min(600, body.clientWidth - 321));
