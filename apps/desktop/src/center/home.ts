@@ -1,5 +1,6 @@
 // Home: its tabs, the Needs you, Updates, Running and Coming up sections, and the Connecting page before Home first loads.
 import { sessionMenu } from "../agents/sessionmenu.ts";
+import { syncMobile } from "./mobile.ts";
 import { patchChildren } from "../ui/patch.ts";
 import { harnessEl } from "../ui/harnessicon.ts";
 import { plural } from "../ui/format.ts";
@@ -205,6 +206,7 @@ const BOX_ROWS = 5;
 
 function openHomeTab(tab: HomeTab) {
   homeTab = tab;
+  syncMobile();
   draw();
   $("#view").scrollTop = 0;
 }
@@ -402,6 +404,7 @@ export function jump(id?: string) {
   const tab = !id ? "overview" : id.startsWith("m-") ? "machines" : TAB_OF[id];
   if (tab && tab !== homeTab) {
     homeTab = tab;
+    syncMobile();
     if (state.home) draw();
   }
   const view = $("#view");
