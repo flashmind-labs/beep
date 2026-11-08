@@ -12,6 +12,7 @@ enum Source {
     Missing,
     Reviews,
     Agent(String),
+    Resources(Vec<Topic>),
 }
 
 #[derive(Clone)]
@@ -117,6 +118,22 @@ impl Snapshots {
                 Topic::new("moves"),
                 Source::Read(Read::Sessions(Box::new(SessionsRequest::Copies {}))),
             ));
+        }
+        for topic in topics
+            .iter()
+            .filter(|topic| topic.is_pattern() && matches!(topic.name(), "files" | "*"))
+        {
+            let scope = if topic.name() == "*" {
+                Topic::new("files")
+            } else {
+                topic.clone()
+            };
+            let resources = roots
+                .keys()
+                .filter(|topic| scope.covers(topic))
+                .cloned()
+                .collect();
+            wanted.push((scope, Source::Resources(resources)));
         }
         for (topic, root) in roots {
             if topics.iter().any(|wanted| wanted.matches(topic)) {
@@ -301,6 +318,7 @@ impl Snapshots {
                             runs: offers.agents.review_snapshots(),
                         }))),
                         Source::Missing => Ok(Value::Missing),
+                        Source::Resources(resources) => Ok(Value::Resources(resources)),
                         Source::Plugin => offers
                             .agents
                             .events
@@ -334,41 +352,47 @@ impl Snapshots {
         }
     }
 
-    pub(super) async fn next(&mut self) -> Option<Reply> {
+    pub(super) async fn next(&mut self) -> Result<Option<Reply>> {
         let Some(result) = self.reads.join_next().await else {
             return std::future::pending().await;
         };
-        let Ok(Completed {
+        let Completed {
             generation,
             key,
             result,
-        }) = result
-        else {
-            return None;
+        } = match result {
+            Ok(completed) => completed,
+            Err(error) if error.is_cancelled() => return Ok(None),
+            Err(error) => return Err(error.into()),
         };
         if generation != self.generation {
-            return None;
+            return Ok(None);
         }
         let retained: usize = self.entries.values().map(|entry| entry.bytes).sum();
-        let entry = self.entries.get_mut(&key)?;
+        let Some(entry) = self.entries.get_mut(&key) else {
+            return Ok(None);
+        };
         entry.running = false;
-        Some(match result {
+        Ok(Some(match result {
             Ok((value, bytes)) => {
                 if entry.previous.as_ref() == Some(&value) {
-                    return None;
+                    return Ok(None);
                 }
                 if retained.saturating_sub(entry.bytes).saturating_add(bytes) > MAX_RETAINED_BYTES {
                     entry.previous = None;
                     entry.bytes = 0;
-                    return Some(Reply::SnapshotError {
+                    return Ok(Some(Reply::SnapshotError {
                         query: entry.query,
                         topic: entry.topic.clone(),
                         reason: "snapshot cache budget exceeded; narrow the subscription".into(),
-                    });
+                    }));
                 }
                 entry.bytes = bytes;
                 entry.previous = Some(value.clone());
-                self.revision = self.revision.checked_add(1)?;
+                self.revision = self
+                    .revision
+                    .checked_add(1)
+                    .context("snapshot revision exhausted")?;
                 Reply::Snapshot(Box::new(Snapshot {
                     topic: entry.topic.clone(),
                     query: entry.query,
@@ -385,7 +409,7 @@ impl Snapshots {
                     reason: format!("{error:#}"),
                 }
             }
-        })
+        }))
     }
 }
 
@@ -402,6 +426,9 @@ fn affected(read: &Topic, change: &Topic) -> bool {
 
 async fn read_value(offers: Offers, caller: iroh::EndpointId, read: Read) -> Result<Value> {
     match read {
+        Read::Git { root, query } => super::git::read(&offers.agents, &root, query)
+            .await
+            .map(Value::Git),
         Read::Sessions(request) => {
             match execute(offers.agents, caller, Operation::Sessions(*request)).await? {
                 CallReply::Sessions(reply) => Ok(Value::Sessions(reply)),
@@ -469,7 +496,7 @@ mod tests {
             }
         });
         assert!(matches!(
-            snapshots.next().await,
+            snapshots.next().await.unwrap(),
             Some(Reply::SnapshotError { query: Some(7), .. })
         ));
         let entry = snapshots.entries.get(&key).unwrap();
@@ -484,7 +511,7 @@ mod tests {
                 result: Ok((restored, 1)),
             }
         });
-        let Some(Reply::Snapshot(snapshot)) = snapshots.next().await else {
+        let Some(Reply::Snapshot(snapshot)) = snapshots.next().await.unwrap() else {
             panic!("expected recovered state")
         };
         assert_eq!(snapshot.value, value);

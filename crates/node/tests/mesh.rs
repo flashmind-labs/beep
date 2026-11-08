@@ -5087,6 +5087,29 @@ mod topic_streams {
         fs::write(first.join("after.txt"), "after removal").unwrap();
         place(&desktop, node.id, "org/repo", &first).await;
         file(&mut stream.rx, &alias, "after.txt").await;
+        let scope = Topic::parse("files.org.*").unwrap();
+        let mut wildcard = subscribe(&client, vec![scope.clone()]).await;
+        assert!(
+            matches!(snapshot(&mut wildcard.rx, &scope).await.value, Value::Resources(ref resources) if resources.contains(&alias))
+        );
+        drop(wildcard);
+        desktop
+            .mesh
+            .set(Key::Project(format!("org/repo/{}", node.id)), None)
+            .await
+            .unwrap();
+        loop {
+            if snapshot(&mut stream.rx, &alias).await.value == Value::Missing {
+                break;
+            }
+        }
+        // The new stream has no previous resources to tombstone. Its directory snapshot
+        // must remove the alias that disappeared while this subscriber was offline.
+        let mut resumed = subscribe(&client, vec![scope.clone()]).await;
+        assert_eq!(
+            snapshot(&mut resumed.rx, &scope).await.value,
+            Value::Resources(vec![])
+        );
     }
 
     #[tokio::test]

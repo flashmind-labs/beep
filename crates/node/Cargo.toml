@@ -101,6 +101,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+async-trait = "0.1"
 tokio = { version = "1", features = ["test-util"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"

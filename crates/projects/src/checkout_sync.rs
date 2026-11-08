@@ -36,16 +36,30 @@ const NO_PROMPT: &str = "export GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never; ";
 /// Prints the branch, its upstream and the distance to it. The fetch only moves remote refs and
 /// its failure (offline, no sign-in) leaves the last known counts. Exits 3 with no folder.
 pub fn state_script(folder: &str) -> String {
+    state_read(folder, true)
+}
+
+/// Reads the current local refs without fetching or writing files watched by subscriptions.
+pub fn local_state_script(folder: &str) -> String {
+    state_read(folder, false)
+}
+
+fn state_read(folder: &str, fetch: bool) -> String {
     format!(
         "cd -- {folder} || exit 3; {NO_PROMPT}\
          b=$(git symbolic-ref -q --short HEAD) || {{ echo '@@detached'; exit 0; }}; \
          echo \"@@branch $b\"; \
-         git fetch --quiet --no-write-fetch-head >/dev/null 2>&1; \
+         {fetch}\
          if u=$(git rev-parse --abbrev-ref '@{{upstream}}' 2>/dev/null); then \
            echo \"@@upstream $u\"; \
            echo \"@@ab $(git rev-list --left-right --count 'HEAD...@{{upstream}}' 2>/dev/null)\"; \
          fi; exit 0",
         folder = quote(folder),
+        fetch = if fetch {
+            "git fetch --quiet --no-write-fetch-head >/dev/null 2>&1; "
+        } else {
+            ""
+        },
     )
 }
 

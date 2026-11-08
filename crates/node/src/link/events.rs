@@ -7,6 +7,7 @@ use beep_proto::node::{
     agent::{SessionsReply, SessionsRequest},
     events::{self, CallReply, Operation, Reply, Request, Topic},
 };
+use futures::{StreamExt, stream};
 use std::{
     collections::{BTreeMap, HashSet},
     path::PathBuf,
@@ -24,8 +25,16 @@ const WRITE_WAIT: Duration = Duration::from_secs(15);
 const MAX_CALLS: usize = 16;
 const MAX_FILE_ROOTS: usize = 512;
 
+mod git;
 mod snapshots;
 use snapshots::Snapshots;
+
+type FileBindings = BTreeMap<Topic, Vec<PathBuf>>;
+
+struct FileWatcher {
+    paths: crate::events::paths::Paths,
+    bindings: Arc<Mutex<FileBindings>>,
+}
 
 pub(crate) async fn serve(
     mut tx: LinkTx,
@@ -81,6 +90,10 @@ pub(crate) async fn serve(
                         Err(error) => send(&mut tx, &Reply::Error { id, reason: format!("{error:#}") }).await?,
                     }
                 }
+                Some(Request::Refresh { id }) => {
+                    snapshots.reset();
+                    send(&mut tx, &Reply::Watching { id }).await?;
+                },
                 Some(Request::Ping { id }) => send(&mut tx, &Reply::Pong { id }).await?,
                 Some(Request::Call { id, operation }) => {
                     if calls.len() >= MAX_CALLS || !pending.insert(id) {
@@ -101,7 +114,7 @@ pub(crate) async fn serve(
                 };
                 send(&mut tx, &reply).await?;
             },
-            snapshot = snapshots.next() => if let Some(snapshot) = snapshot { send(&mut tx, &snapshot).await?; },
+            snapshot = snapshots.next() => if let Some(snapshot) = snapshot? { send(&mut tx, &snapshot).await?; },
             event = changes.recv() => {
                 match event {
                     Ok(event) => {
@@ -173,7 +186,7 @@ fn broad_files(topics: &[Topic]) -> bool {
 
 async fn subscribe(
     offers: &Offers,
-    watcher: &mut Option<crate::events::paths::Paths>,
+    watcher: &mut Option<FileWatcher>,
     roots: &Arc<Mutex<BTreeMap<Topic, PathBuf>>>,
     topics: &[Topic],
 ) -> Result<Option<Arc<crate::agents::follow::Sources>>> {
@@ -197,7 +210,7 @@ async fn subscribe(
 
 async fn watch(
     offers: &Offers,
-    watcher: &mut Option<crate::events::paths::Paths>,
+    watcher: &mut Option<FileWatcher>,
     roots: &Arc<Mutex<BTreeMap<Topic, PathBuf>>>,
     topics: &[Topic],
 ) -> Result<()> {
@@ -248,20 +261,39 @@ async fn watch(
     if wanted.is_empty() {
         *watcher = None;
     } else {
+        let bindings = stream::iter(wanted.clone())
+            .map(|(topic, root)| async move {
+                let mut dependencies = vec![root.clone()];
+                match git::watch_paths(&root).await {
+                    Ok(paths) => dependencies.extend(paths),
+                    Err(error) => log::debug!("Git metadata notifications unavailable: {error:#}"),
+                }
+                (topic, dependencies)
+            })
+            .buffer_unordered(8)
+            .collect::<FileBindings>()
+            .await;
         if watcher.is_none() {
-            let changed_roots = roots.clone();
+            let bindings = Arc::new(Mutex::new(BTreeMap::<Topic, Vec<PathBuf>>::new()));
+            let changed_roots = bindings.clone();
             let hub = offers.agents.events.clone();
-            *watcher = Some(crate::events::paths::Paths::new(move |paths| {
+            let paths = crate::events::paths::Paths::new(move |paths| {
                 let held = crate::lock(&changed_roots);
-                for (topic, root) in held.iter() {
-                    if paths.iter().any(|path| path == root) {
+                for (topic, dependencies) in held.iter() {
+                    if dependencies
+                        .iter()
+                        .any(|root| paths.iter().any(|path| path == root))
+                    {
                         hub.changed(topic.clone());
                     }
                 }
-            })?);
+            })?;
+            *watcher = Some(FileWatcher { paths, bindings });
         }
         if let Some(watcher) = watcher.as_ref() {
-            watcher.replace(wanted.values().cloned().collect()).await?;
+            let paths = bindings.values().flatten().cloned().collect();
+            watcher.paths.replace(paths).await?;
+            *crate::lock(&watcher.bindings) = bindings;
         }
     }
     // A root can appear or disappear while a broad subscription remains active.
@@ -464,6 +496,25 @@ mod tests {
                 other => panic!("unexpected reply: {other:?}"),
             }
         }
+    }
+
+    #[tokio::test]
+    async fn refresh_sends_current_state_even_when_it_has_not_changed() {
+        let offers = Offers::default();
+        let topic = Topic::keyed("plugin", "example");
+        offers
+            .agents
+            .events
+            .publish(topic.clone(), vec![1])
+            .unwrap();
+        let (mut tx, mut rx, _task) = start(offers).await;
+        watch(&mut tx, &mut rx, 1, vec![topic.clone()], vec![]).await;
+        let initial = state(&mut rx, &topic).await;
+        tx.send(&Request::Refresh { id: 2 }).await.unwrap();
+        assert_eq!(next(&mut rx).await, Reply::Watching { id: 2 });
+        let refreshed = state(&mut rx, &topic).await;
+        assert_eq!(refreshed.value, initial.value);
+        assert!(refreshed.revision > initial.revision);
     }
 
     #[tokio::test]
