@@ -41,9 +41,14 @@
 .dv-btn:disabled { opacity: .45; cursor: default }
 .dv-btn.icon { width: 26px; padding: 0; display: inline-grid; place-items: center; color: var(--muted) }
 .dv-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) }
-.dv.wide .dv-body { grid-template-columns: 250px minmax(0, 1fr) }
-.dv-tree { display: none; min-height: 0; overflow: auto; padding: 6px; border-right: 1px solid var(--border); scrollbar-width: thin }
+.dv.wide .dv-body { grid-template-columns: var(--dv-tree-width, 250px) 1px minmax(0, 1fr) }
+.dv-tree { display: none; min-width: 0; min-height: 0; overflow: auto; padding: 6px; scrollbar-width: thin }
 .dv.wide .dv-tree { display: block }
+.dv-resize { display: none; position: relative; width: 9px; margin: 0 -4px; z-index: 3; cursor: col-resize; touch-action: none; outline: 0 }
+.dv.wide .dv-resize { display: block }
+.dv-resize::after { content: ""; position: absolute; inset: 0 4px; background: var(--border) }
+.dv-resize:hover::after, .dv-resize:focus-visible::after, .dv-body.resizing .dv-resize::after { inset: 0 3px; background: var(--accent) }
+.dv-body.resizing, .dv-body.resizing * { cursor: col-resize; user-select: none }
 .dv-tr { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 3px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--fg); text-align: left; font: 12px var(--mono); cursor: pointer }
 .dv-tr:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .dv-tr.on { background: color-mix(in srgb, var(--accent) 20%, transparent) }
