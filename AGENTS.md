@@ -17,8 +17,8 @@ Check the implementation when changing a feature; these notes may lag behind it.
 ## UI
 
 Update the platform mock before changing an app's UI, then match the app to it:
-`mockups/android/index.html`, `mockups/ios/index.html` or
-`mockups/desktop/index.html` (including the tray bar).
+`mockups/desktop/index.html` (including the tray bar), and for the phone
+layout of the same app `mockups/ios/index.html` or `mockups/android/index.html`.
 
 ## Tests and development
 
@@ -26,10 +26,10 @@ Update the platform mock before changing an app's UI, then match the app to it:
   needs `BEEP_TEST_DATABASE_URL`.
 - The desktop is a separate Cargo workspace. Use `just desktop-dev`,
   `just desktop-check` and `just desktop-build`.
-- Use `just ios-run` for a connected iPhone and `just ios-sim-run` for the
-  simulator.
-- Do not hand-install APKs on the phone: local signing differs from Play. Use
-  `./gradlew assembleDebug` on an emulator.
+- The phone app is `apps/desktop` built for iOS and Android. Use `just ios-run`
+  for a connected iPhone, `just ios-sim-run` for the simulator and
+  `just android-run` for Android. On a phone it is a mesh observer
+  (`cfg(mobile)`): no node, no agents, no terminals hosted.
 - For app tools, check actual arguments with `just tool-schema` before coding.
   When adding an acting tool that takes an ID, add its read tool to `LOOKUPS`
   in `crates/server/src/apps/permissions/`.
@@ -83,12 +83,12 @@ and `just report-solved <reference>` manage stored reports.
 - `crates/server`: server API, agents, app tools, storage, memory and voice.
 - `apps/desktop/src`: UI grouped by feature; `*-state.ts` contains tested logic.
   `apps/desktop/src-tauri/src` contains the desktop commands and mesh integration.
-- `apps/android` and `apps/ios`: phone apps; `crates/android-bridge` serves both.
+- `apps/desktop/src-tauri/gen`: the generated iOS and Android projects.
 
 ## Release details
 
-Android and iOS release tags trigger Play and TestFlight builds. Desktop and
-node tags trigger signed builds and release uploads. Read the relevant
+Desktop and node tags trigger signed builds and release uploads. The phone app
+has no release workflow yet. Read the relevant
 `.forgejo/workflows/` file and `justfile` before releasing. Android releases
 stay off production while apps are on 0.x.
 
