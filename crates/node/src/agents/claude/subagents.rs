@@ -77,8 +77,7 @@ const MAX_STEPS: usize = 30;
 const MAX_STEP: usize = 120;
 /// The longest subagent entry.
 const MAX_ENTRY: usize = 12 * 1024;
-/// A subagent not marked finished whose file changed this recently still
-/// runs.
+/// Legacy subagents without lifecycle metadata use recent file activity.
 const RUNNING: Duration = Duration::from_secs(2 * 60);
 
 /// What `agent-<id>.meta.json` says.
@@ -194,7 +193,7 @@ fn add_conversation(text: &mut String, id: &str) {
     );
 }
 
-/// ACP keeps a live transcript; correlate its spawn calls with the harness's child files.
+/// Refresh ACP spawn calls from the harness's child files.
 pub(super) fn attach_live(session: &Path, calls: &[(usize, String)], entries: &mut [Entry]) {
     let found = agents(&session.with_extension("").join("subagents"));
     let digest = transcript::digest_tail(session, entries.len()).ok();
@@ -212,6 +211,7 @@ pub(super) fn attach_live(session: &Path, calls: &[(usize, String)], entries: &m
         if let Some(id) = conversation(session, &agent.id)
             && let Some(entry) = entries.get_mut(*at)
         {
+            entry.text = text(spawn, agent, &read(&agent.transcript));
             add_conversation(&mut entry.text, &id);
         }
     }
@@ -346,15 +346,17 @@ impl Run {
     }
 }
 
-/// How the subagent stands: failed when its call failed or the user
-/// stopped it, done when it says it finished or its file has not changed
-/// lately, else still working.
+/// Correlated metadata owns completion. File age is only a fallback for
+/// older subagents without it: a long tool call can leave the file quiet.
 fn status(spawn: &Spawn, agent: &Found) -> Status {
     if spawn.failed || agent.meta.stopped_by_user == Some(true) {
         return Status::Failed;
     }
     if agent.meta.finished == Some(true) {
         return Status::Completed;
+    }
+    if agent.meta.tool_use_id.is_some() || agent.meta.finished == Some(false) {
+        return Status::InProgress;
     }
     let changed = fs::metadata(&agent.transcript).and_then(|meta| meta.modified());
     let recent = changed
@@ -570,5 +572,70 @@ mod tests {
         let read = entries(&path, 1, None, &Memo::new(2)).expect("the transcript");
         assert_eq!(read.entries.len(), 1);
         assert_eq!(read.entries[0].text, "Both checks are done.");
+    }
+
+    #[test]
+    fn a_correlated_subagent_keeps_running_until_its_meta_marks_it_finished() {
+        let root = tempfile::tempdir().expect("a temp folder");
+        let path = session(root.path());
+        let transcript = path.with_extension("").join("subagents/agent-a2.jsonl");
+        let old = SystemTime::now() - RUNNING - Duration::from_secs(60);
+        fs::File::options()
+            .write(true)
+            .open(&transcript)
+            .expect("the child file")
+            .set_times(fs::FileTimes::new().set_modified(old))
+            .expect("an old modification time");
+        let mut agent = Found {
+            id: "a2".into(),
+            transcript,
+            meta: serde_json::from_value(json!({"toolUseId": "call_release"}))
+                .expect("unfinished meta"),
+        };
+        let spawn = Spawn::default();
+        assert_eq!(status(&spawn, &agent), Status::InProgress);
+        agent.meta.finished = Some(true);
+        assert_eq!(status(&spawn, &agent), Status::Completed);
+        agent.meta.stopped_by_user = Some(true);
+        assert_eq!(status(&spawn, &agent), Status::Failed);
+        agent.meta = Meta::default();
+        assert_eq!(status(&spawn, &agent), Status::Completed);
+    }
+
+    #[test]
+    fn a_live_background_spawn_uses_its_childs_status_and_steps() {
+        let root = tempfile::tempdir().expect("a temp folder");
+        let path = session(root.path());
+        let mut live = vec![
+            Entry::new(
+                EntryKind::Tool,
+                "Check the release notes [completed]\n[steps] 0\nStarted in the background".into(),
+            ),
+            Entry::new(EntryKind::Tool, "Explore [completed]\n[steps] 0".into()),
+        ];
+        attach_live(
+            &path,
+            &[(0, "call_release".into()), (1, "call_explore".into())],
+            &mut live,
+        );
+        assert!(
+            live[0]
+                .text
+                .starts_with("Check the release notes [in_progress]\n")
+        );
+        assert!(
+            live[1]
+                .text
+                .starts_with("Find the config loader [completed]\n[steps] 2\n")
+        );
+        let meta = path.with_extension("").join("subagents/agent-a2.meta.json");
+        fs::write(meta, r#"{"toolUseId":"call_release","finished":true}"#).expect("finished meta");
+        attach_live(&path, &[(0, "call_release".into())], &mut live);
+        assert!(
+            live[0]
+                .text
+                .starts_with("Check the release notes [completed]\n")
+        );
+        assert_eq!(live[0].text.matches("[session]").count(), 1);
     }
 }
