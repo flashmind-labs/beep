@@ -1,5 +1,5 @@
 // The touch key bar above the soft keyboard, for termview.ts. Drawn as in the
-// phone mock (mockups/ios/31-command-center.js, 06-command-center.css).
+// phone mock (mockups/ios/index.html).
 import { KEY_ROWS, labelKey, TermKeyState, type TermMod } from "./touchkeys-state.ts";
 
 /// Whether the main pointer is a finger, as on a phone or tablet.
