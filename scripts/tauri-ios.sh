@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds, installs and launches the phone app (the desktop app built for iOS)
+# Builds (release mode), installs and launches the phone app (the desktop app built for iOS)
 # on a device or simulator by name. Without a name, Tauri picks the connected
 # iPhone or asks.
 set -euo pipefail
@@ -21,4 +21,4 @@ export APPLE_DEVELOPMENT_TEAM=$team
 
 npm ci --silent
 bash ../../scripts/tauri-init.sh ios
-npm run tauri -- ios run --no-watch ${1:+"$1"}
+npm run tauri -- ios run --release --no-watch ${1:+"$1"}
