@@ -6,6 +6,7 @@ import {
   type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitCell, type SplitRow, STATUS_LETTER, allFolded, baseTitle, changedLabel, currentFile, diffRows, isFolded, leftOutNote,
   inView, lineKey, lineLabel, matchesFilter, numberWidth, parseDraft, placeComments, reviewText, splitHeight, splitPath, splitRows, stepFile, withLoaded,
 } from "./diff-state.ts";
+import { initTreeResize } from "./treewidth.ts";
 import { loadDraft, saveDraft } from "./draftstore.ts";
 import { feedbackButton } from "./feedback.ts";
 import { mergeComments } from "./feedback-state.ts";
@@ -221,7 +222,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
   tree.setAttribute("aria-label", "Changed files");
   const files = el("div", "dv-files");
   files.style.position = "relative";
-  const body = el("div", "dv-body", tree, files);
+  const grip = el("div", "dv-resize");
+  const body = el("div", "dv-body", tree, grip, files);
+  initTreeResize(body, grip);
   const keys = el("div", "dv-keys");
   keys.innerHTML = "<span><kbd>j</kbd><kbd>k</kbd>next, previous file</span><span><kbd>x</kbd>fold the file</span><span><kbd>/</kbd>filter</span>";
   root.append(head, feedback.note, body, keys);
