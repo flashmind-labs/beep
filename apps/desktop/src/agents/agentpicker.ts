@@ -120,11 +120,10 @@ export interface PickerOpts {
   changed: (what: "agent" | "model" | "effort" | "models") => void;
 }
 
-/// The pill's inside: the harness's badge and name, then the model and
-/// thinking picked.
+/// The pill's inside: the harness badge, thinking level and model.
 export function pillInner(agent: string, model: string, effort: string | null, machine: string | null) {
   const detail = pillDetail(modelLabel(knownModels(machine, agent), model), agent, effort);
-  return `${harnessTile(agent)}${esc(agentKind(agent).name)} <small>${esc(detail)}</small>${CARET}`;
+  return `${harnessTile(agent)}${esc(detail)}${CARET}`;
 }
 
 /// The picker open now, for placing it again on resize and scroll.
