@@ -10,8 +10,7 @@ import type { ChatBody } from "../ui/turn.ts";
 import { onZoomKey, paneSize } from "../agentpane/media-state.ts";
 import { composeField, composeMessage } from "../chat/compose.ts";
 import { reloadGroup } from "../center/sidebar.ts";
-import type { ResearchArg } from "../center/state.ts";
-import { registerView, shown } from "../center/views.ts";
+import { currentLocation, registerView } from "../center/views.ts";
 import { h } from "../ui/dom.ts";
 import { esc } from "../ui/format.ts";
 import { writeClipboard } from "../ui/parts.ts";
@@ -63,7 +62,7 @@ let paneWidth: number | null = null;
 try { paneWidth = Number(localStorage.getItem(WIDTH_KEY)) || null; } catch { /* kept while the window is open */ }
 
 const ignore = () => {};
-const active = () => shown === "researchopen" && !!page?.root.isConnected;
+const active = () => currentLocation()?.view === "researchopen" && !!page?.root.isConnected;
 /// The side pane is zoomed by ⇧esc. Not kept: another research starts unzoomed.
 let zoomed = false;
 let watch: ResizeObserver | null = null;
@@ -71,7 +70,7 @@ let watch: ResizeObserver | null = null;
 registerView("researchopen", {
   title: () => ({ title: "Research" }),
   mount(el, arg) {
-    const { session } = arg as ResearchArg;
+    const { session } = arg;
     if (R.session !== session || !page || page.root.parentElement !== el) build(el, session);
     if (!inflight) void poll(true);
     page!.ask.focus();

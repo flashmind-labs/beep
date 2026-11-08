@@ -26,6 +26,25 @@ Update the platform mock before changing an app's UI, then match the app to it:
 `mockups/android/index.html`, `mockups/ios/index.html` or
 `mockups/desktop/index.html` (including the tray bar).
 
+## TypeScript and frontend development
+
+- Write application code in TypeScript, not plain JavaScript. Use its type
+  system to enforce domain rules and catch invalid states before runtime.
+- Use named domain types and discriminated unions for identifiers, navigation,
+  requests and state. Prefer exhaustive handling over generic strings,
+  loosely typed objects and collections of optional fields.
+- Avoid `undefined` in application models and APIs. Model absence explicitly
+  with `null` or a named union variant; make required values required. Handle
+  missing values from browser and library APIs at the boundary.
+- Avoid `any`, non-null assertions and casts that bypass checking. Narrow and
+  validate external data before using it.
+- Prefer established frameworks and typed libraries for UI, navigation,
+  keyboard shortcuts and other shared behavior over handwritten DOM wiring
+  and scattered event handlers. Choose tools that fit the application.
+- Organize modules around a clear responsibility. Put the main flow before
+  supporting details where practical, so code reads from top to bottom.
+  Keep state ownership explicit and related logic together.
+
 ## Rust types and conversions
 
 Use domain types for identifiers, names with domain meaning, and paths. Reserve

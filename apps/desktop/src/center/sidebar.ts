@@ -9,7 +9,7 @@ import { invoke } from "../ui/tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { openPalette } from "./palette.ts";
 import { pane } from "../bar/pane.ts";
-import { live, S } from "../bar/core.ts";
+import { live, S, type View } from "../bar/core.ts";
 import { openAddMachine as openAddMachineSheet } from "../machines/addmachine.ts";
 import { openImportProject } from "../addproject/importproject.ts";
 import { openAddProject, importFound, rescanAll } from "../addproject/addproject.ts";
@@ -33,7 +33,7 @@ import { projectDot, skeleton } from "../ui/pieces.ts";
 import { stuck, problem, draw, jump } from "./home.ts";
 import { allTerms } from "../terminals/view.ts";
 import { single } from "./openitems.ts";
-import { shown, go, drawTop, openResearch } from "./views.ts";
+import { currentLocation, go, drawTop, openResearch } from "./views.ts";
 import { groupHeading } from "../project/groups.ts";
 import { loadOverview } from "../project/projects.ts";
 import { projectsEl, redrawProjects, redrawProjectsPage } from "../project/sections.ts";
@@ -95,8 +95,8 @@ export function sideItem(svg: string | null, label: string, count: number | unde
 }
 
 /// What the pane shows, for the sidebar's highlight.
-export function paneOn(): { view: string | null; session: string | null; group: string | null } {
-  return shown === "pane" ? pane.current() : { view: null, session: null, group: null };
+export function paneOn(): { view: View | null; session: string | null; group: string | null } {
+  return currentLocation()?.view === "pane" ? pane.current() : { view: null, session: null, group: null };
 }
 
 export function drawSide() {
@@ -105,14 +105,14 @@ export function drawSide() {
   head.setAttribute("data-tauri-drag-region", "");
   const top = h("div", "cc-grp",
     sideItem(IC.find, "Search", 0, { cls: "cc-search", on: openPalette, kbd: WINDOWS ? "Ctrl+K" : "⌘K" }),
-    sideItem(IC.home, "Home", home?.needs_you.length, { current: shown === "home", hot: true, on: () => go("home") }));
+    sideItem(IC.home, "Home", home?.needs_you.length, { current: currentLocation()?.view === "home", hot: true, on: () => go("home") }));
   // Running opens the coding agents' list, the full view of Home's section.
   if (home?.running) top.append(sideItem(IC.run, "Running", visibleRunning(home.running).length, { current: paneOn().view === "agents", on: () => go("pane", "agents") }));
   // Terminals on every machine, once the server lists them.
   const termList = allTerms.list(ALL);
-  if (home?.machines && termList) top.append(sideItem(IC.term, "Terminals", termList.length, { current: shown === "terminals", on: () => go("terminals") }));
+  if (home?.machines && termList) top.append(sideItem(IC.term, "Terminals", termList.length, { current: currentLocation()?.view === "terminals", on: () => go("terminals") }));
   // Sync, once a project syncs: the conflicts waiting across them.
-  if (syncProjects().length) top.append(sideItem(IC.sync, "Sync", syncConflicts(), { current: shown === "sync", hot: true, on: () => go("sync") }));
+  if (syncProjects().length) top.append(sideItem(IC.sync, "Sync", syncConflicts(), { current: currentLocation()?.view === "sync", hot: true, on: () => go("sync") }));
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
   const side = [h("div", "cc-brand", h("b", "", "Beep")), top];
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
@@ -160,7 +160,7 @@ export function drawSide() {
   }
   patchChildren(list, side);
   // A chat's title comes from the list, which may just have loaded.
-  if (shown === "pane") drawTop();
+  if (currentLocation()?.view === "pane") drawTop();
 }
 
 function footer(machines: MachineCard[] | null | undefined): Kid[] {
@@ -372,7 +372,7 @@ function projectRow(p: Placed<Project>, label: string, pinned: boolean) {
   const openBtn = h("button", "open", projectDot(p.i), h("span", "tt", label));
   openBtn.type = "button";
   openBtn.title = p.machines.map(m => `${m.name}: ${m.folder}`).join("\n") || p.name;
-  if (shown === "projects" && state.picked === p.name) openBtn.setAttribute("aria-current", "true");
+  if (currentLocation()?.view === "projects" && state.picked === p.name) openBtn.setAttribute("aria-current", "true");
   if (p.agents) openBtn.append(h("span", "n", String(p.agents)));
   const toggle = pinToggle(p.name, pinned, () => setProjectOnTop(p.name, !pinned));
   const row = h("div", `cc-si cc-chat${pinned ? "" : " pj-repo"}`, openBtn, toggle);
@@ -427,7 +427,7 @@ export function removeProject(name: string) {
       if (state.home?.projects) state.home = { ...state.home, projects: state.home.projects.filter(p => p.name !== name) };
       state.where.delete(name);
       state.pview.delete(name);
-      if (shown === "projects" && state.picked === name) openProjects();
+      if (currentLocation()?.view === "projects" && state.picked === name) openProjects();
       else { draw(); redrawProjectsPage(); }
       loadFound();
       loadOverview();
@@ -479,9 +479,9 @@ registerSidebarGroup("views", {
   order: 6,
   title: "Beep",
   load: async () => beepViews([
-    { view: "memories", label: "Memories", svg: IC.mem },
-    { view: "routines", label: "Routines", svg: IC.loop },
-    { view: "settings", label: "Settings", svg: IC.gear },
+    { view: "memories" as const, label: "Memories", svg: IC.mem },
+    { view: "routines" as const, label: "Routines", svg: IC.loop },
+    { view: "settings" as const, label: "Settings", svg: IC.gear },
   ], state.subscribed),
   row: v => sideItem(v.svg, v.label, 0, { current: v.view !== "settings" && paneOn().view === v.view, kbd: v.view === "settings" ? (WINDOWS ? "Ctrl+," : "⌘,") : "" }),
   onPick: v => go("pane", v.view),
@@ -512,7 +512,7 @@ function foldable(head: HTMLButtonElement, p: OrgHeading | GroupHeading) {
   head.type = "button";
   head.prepend(h("span", `twist${p.folded ? "" : " open"}`, icon(IC.twist)));
   head.setAttribute("aria-expanded", String(!p.folded));
-  if (shown === "projects" && state.picked && p.folded?.includes(state.picked)) head.setAttribute("aria-current", "true");
+  if (currentLocation()?.view === "projects" && state.picked && p.folded?.includes(state.picked)) head.setAttribute("aria-current", "true");
   head.addEventListener("click", () => toggleFold(p));
   // A group's heading has a menu of its own, which takes the item.
   if (p.group === undefined) head.addEventListener("contextmenu", e => openMenu(e, p.org ?? "", [foldItem(p)]));

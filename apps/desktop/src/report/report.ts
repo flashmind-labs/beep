@@ -3,7 +3,7 @@
 import { invoke } from "../ui/tauri.ts";
 import { button, el, present } from "../ui/dom.ts";
 import { copyButton, openSheet } from "../ui/parts.ts";
-import { PERIODS, START, answerLabel, canSend, issueHint, next, sizeLabel, type Draft, type ReportEvent, type ReportState, type Sent } from "./report-state.ts";
+import { PERIODS, START, answerLabel, canSend, issueHint, next, sizeLabel, type Draft, type ReportEvent, type Sent } from "./report-state.ts";
 
 let state = START, sheet: HTMLDivElement | null = null, close: (() => void) | null = null;
 /// The file whose text shows under the list, and the issue body before Yes.

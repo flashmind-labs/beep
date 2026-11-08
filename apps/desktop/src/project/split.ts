@@ -24,7 +24,7 @@ import { sessionMenu } from "../agents/sessionmenu.ts";
 import { agentsSection, customAgentsCount, customAgentsSection, whereSection } from "./projects.ts";
 import { pa, terms, fsync, revs, gitHistory, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsSection, sessionsList, sessionsDue, loadSessions } from "./loads.ts";
-import { BEEP_MARK, IC } from "../ui/icons.ts";
+import { BEEP_MARK} from "../ui/icons.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
 import { runningLineAt } from "../agents/place.ts";
 

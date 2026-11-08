@@ -1,14 +1,13 @@
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 import { paneShown } from "../ui/active.ts";
 import { type AgentReport, cardKey, parseAgentReport, type ReportStep } from "./agentcard.ts";
-import { AGENT_ACTIVE, type AgentPage, type AgentQuestion, type AgentSession, agentAvatar, agentKind, stateTag } from "../agents/agents.ts";
+import { type AgentPage, type AgentSession, agentAvatar, agentKind, stateTag } from "../agents/agents.ts";
 import { loadSessions } from "../agents/sessions.ts";
 import { filesHtml, planHtml, questionHtml } from "../agents/coderhtml.ts";
 import { openAgent } from "../agents/session.ts";
 import { ANSWER } from "./chat.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
-import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { Turn } from "../ui/turn.ts";
 

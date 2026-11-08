@@ -4,7 +4,7 @@
 import { el as h } from "../ui/dom.ts";
 import { emptyPanel, svgEl as icon } from "../ui/parts.ts";
 import { state, views } from "../center/state.ts";
-import { shown, registerView, drawTop, go } from "../center/views.ts";
+import { currentLocation, registerView, drawTop, go } from "../center/views.ts";
 import { drawSide } from "../center/sidebar.ts";
 import { refresh } from "../center/refresh.ts";
 import { draw } from "../center/home.ts";
@@ -37,15 +37,15 @@ export function conflictLines() {
 
 /// Reads the projects' sync that are due; what changed draws itself.
 export async function readSync(changed = false) {
-  const age = shown === "sync" ? PAGE_MAX_AGE_MS : undefined;
+  const age = currentLocation()?.view === "sync" ? PAGE_MAX_AGE_MS : undefined;
   await Promise.all(syncProjects().map(p => changed ? fsync.reload(p) : fsync.ensure(p, age)));
 }
 
 /// The sidebar's count, and the page while it shows.
 export function redrawSync() {
   drawSide();
-  if (shown === "home") draw();
-  if (shown !== "sync") return;
+  if (currentLocation()?.view === "home") draw();
+  if (currentLocation()?.view !== "sync") return;
   drawSync();
   drawTop();
 }

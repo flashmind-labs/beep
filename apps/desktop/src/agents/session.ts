@@ -11,7 +11,7 @@ import { conversationHistory } from "./conversation-state.ts";
 // shows, its frame, and what a click in it does.
 import { markDelivered, syncSteers, stopPending, type Waiting } from "./agentqueue.ts";
 import { composeField } from "../chat/compose.ts";
-import { $, $$, type BackTo, bar, S, windowHooks, changeListeners } from "../bar/core.ts";
+import { $, $$, type AgentReturn, bar, S, windowHooks, changeListeners } from "../bar/core.ts";
 import { failBanner } from "../ui/failbanner.ts";
 import { hints } from "../bar/hints.ts";
 import { SHORTCUTS } from "../ui/shortcuts.ts";
@@ -66,7 +66,7 @@ function finishFirstRead(open: OpenAgent, outcome: "ok" | "error") {
 /// Opens session `s` (a session row) and follows it while it is on screen. With `adopt`,
 /// the empty view that started it becomes the session in place: its pane, terminal
 /// tabs included, stays as it is.
-export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: { why?: string; back?: string | BackTo; adopt?: boolean } = {}) {
+export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: { why?: string; back?: AgentReturn; adopt?: boolean } = {}) {
   conversationHistory.visit(s);
   traceSession("opening", { machine_id: s.machine_id, agent: s.agent, session: s.id }, { status: s.status, adopt });
   // Already open: keep its log, draft, queue and scroll, and only ask for news.
