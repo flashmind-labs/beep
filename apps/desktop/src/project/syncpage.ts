@@ -36,9 +36,9 @@ export function conflictLines() {
 }
 
 /// Reads the projects' sync that are due; what changed draws itself.
-export function readSync() {
+export async function readSync(changed = false) {
   const age = shown === "sync" ? PAGE_MAX_AGE_MS : undefined;
-  for (const p of syncProjects()) fsync.ensure(p, age);
+  await Promise.all(syncProjects().map(p => changed ? fsync.reload(p) : fsync.ensure(p, age)));
 }
 
 /// The sidebar's count, and the page while it shows.

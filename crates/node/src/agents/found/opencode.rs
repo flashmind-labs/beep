@@ -36,14 +36,25 @@ const QUERY: &str = "SELECT s.id, s.title, s.directory, s.time_created, s.time_u
 /// Where OpenCode keeps its sessions here: its databases, the one
 /// `OPENCODE_DB` names or every `opencode*.db` in its data folder.
 pub(super) fn locate() -> Option<PathBuf> {
-    let data = data_dir()?;
-    match env::var_os("OPENCODE_DB") {
-        Some(named) if !named.is_empty() => {
-            let database = data.join(named);
-            database.is_file().then_some(database)
+    configured().filter(|path| {
+        if configured_file() {
+            path.is_file()
+        } else {
+            path.is_dir()
         }
-        _ => data.is_dir().then_some(data),
-    }
+    })
+}
+
+pub(super) fn configured_file() -> bool {
+    env::var_os("OPENCODE_DB").is_some_and(|named| !named.is_empty())
+}
+
+pub(super) fn configured() -> Option<PathBuf> {
+    let data = data_dir()?;
+    Some(match env::var_os("OPENCODE_DB") {
+        Some(named) if !named.is_empty() => data.join(named),
+        _ => data,
+    })
 }
 
 /// OpenCode's data folder, which follows XDG on every platform.

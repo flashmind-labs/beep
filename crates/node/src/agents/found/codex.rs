@@ -23,11 +23,16 @@ const MAX_TAIL: u64 = 2 * 1024 * 1024;
 
 /// Codex's folder, when it has sessions here.
 pub(super) fn locate() -> Option<PathBuf> {
+    let root = configured()?;
+    root.join("sessions").is_dir().then_some(root)
+}
+
+pub(super) fn configured() -> Option<PathBuf> {
     let root = match env::var_os("CODEX_HOME") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
         _ => dirs::home_dir()?.join(".codex"),
     };
-    root.join("sessions").is_dir().then_some(root)
+    Some(root)
 }
 
 /// The newest sessions under `root`, sub-agents left out.

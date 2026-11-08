@@ -25,6 +25,7 @@ mod custom_agents;
 mod delete;
 mod family;
 mod flsh_config;
+pub(crate) mod follow;
 mod found_sessions;
 mod harnesses;
 mod holders;
@@ -43,7 +44,7 @@ mod plans;
 pub mod presence;
 mod prices;
 mod processes;
-mod reach;
+pub(crate) mod reach;
 mod requests;
 mod restart;
 mod reviews;
@@ -65,6 +66,7 @@ pub use work_diff::parse_git_patch;
 pub use work_folder::{local_read, local_tree};
 
 pub(crate) use acp::{Line, LineReader};
+pub use follow::serve_follow;
 pub(crate) use images::{Picture, block_picture};
 pub use kinds::{AgentKind, detect};
 pub(crate) use live::cut;
@@ -128,6 +130,9 @@ fn unix_now() -> u64 {
 /// to the daemon, so they outlive the streams and the connection.
 #[derive(Default)]
 pub struct Agents {
+    pub events: crate::events::Hub,
+    event_watcher: Mutex<std::sync::Weak<follow::Sources>>,
+    event_forward: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,
     /// The agents it can start, replaced when detection finds others.
     kinds: watch::Sender<Arc<Vec<AgentKind>>>,
     /// The adapters the node installs itself.
@@ -197,7 +202,11 @@ struct Sighted {
 
 impl Agents {
     pub fn new(kinds: Vec<AgentKind>) -> Self {
+        let events = crate::events::Hub::default();
         Self {
+            events: events.clone(),
+            event_watcher: Mutex::default(),
+            event_forward: OnceLock::new(),
             kinds: watch::Sender::new(Arc::new(kinds)),
             adapters: adapters::Installs::default(),
             sessions: Mutex::default(),
@@ -216,7 +225,7 @@ impl Agents {
             latest: harnesses::Latest::default(),
             folders: OnceLock::new(),
             family: family::Family::default(),
-            reviews: reviews::Reviews::default(),
+            reviews: reviews::Reviews::new(events.clone()),
             mcp: OnceLock::new(),
             stopping: Arc::default(),
             holding: watch::Sender::new(false),

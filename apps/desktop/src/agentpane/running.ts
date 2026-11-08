@@ -1,4 +1,5 @@
-// Commands the session left running, refreshed with its visible-session poll.
+// Commands the session left running, following changes while its pane shows.
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { type RunningProcess, runningRow } from "./running-state.ts";
 import { draw, paneOf, paneSession, shell } from "./media.ts";
 import { DOCKS } from "./media-state.ts";
@@ -11,6 +12,7 @@ import { readError } from "./read.ts";
 
 interface ProcessesView { processes: RunningProcess[]; local: boolean }
 let key = "";
+let unfollow: (() => void) | undefined;
 let list: RunningProcess[] = [];
 let local = false;
 let el: HTMLElement | null = null;
@@ -25,6 +27,8 @@ function syncSession() {
   const next = s ? `${s.machine_id}\n${s.id}` : "";
   if (key === next) return;
   key = next;
+  unfollow?.();
+  unfollow = s && !s.external ? subscribeChanges([topic("processes"), topic("terminals")], readRunning, s.machine_id, visible) : undefined;
   list = [];
   local = false;
   error = drawn = "";

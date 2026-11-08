@@ -252,7 +252,6 @@ interface AgentState {
   /// The rest of what the log was last drawn from; empty to draw again.
   rest: string;
   changed: number;
-  paused: boolean;
   answering: number | null;
   /// Images pasted or dropped into the session's field, the error from the last
   /// one and when it goes, and the session the server turned images down for.
@@ -298,7 +297,7 @@ export const AG: AgentState = {
   hosts: null, error: "", busy: false,
   form: { prompt: "", machine: "", agent: null, cwd: "", chat: null },
   open: null, draft: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
-  sig: "", rest: "", changed: 0, paused: false, answering: null,
+  sig: "", rest: "", changed: 0, answering: null,
   att: [], attError: "", attTimer: undefined, noImages: null,
   opened: new Set(), steps: new Map(), log: null, all: new Set(), child: null, queue: [], flushing: false, held: 0, polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
   older: { stop: "", loading: false, gaveUp: false },
@@ -326,10 +325,9 @@ export const AGENT_THINK_POLL_MS = 300;
 /// How often while a stopped turn has not ended yet.
 export const AGENT_STOP_POLL_MS = 400;
 /// A quiet session (idle, or started outside Beep) unchanged this long is
-/// asked every `AGENT_SLOW_MS`, and after `AGENT_PAUSE_AFTER` no more.
+/// asked every `AGENT_SLOW_MS` when its node cannot stream changes.
 export const AGENT_SLOW_AFTER = 2 * 60_000;
 export const AGENT_SLOW_MS = 10_000;
-export const AGENT_PAUSE_AFTER = 5 * 60_000;
 export const AGENT_ACTIVE = new Set<string | undefined>(["asking", "working", "running", "starting"]);
 export const AGENT_LAST = 60;
 /// How long the page waits on a read of the session, and on a prompt or a

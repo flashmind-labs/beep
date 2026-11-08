@@ -1,3 +1,4 @@
+import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // The "Add <project> to <machine>" sheet of a project's "Where it lives": the
 // folder there, then how far Beep's sync has brought the files. With `from`
 // it is the "Change folder" sheet: the machine points at another folder,
@@ -13,9 +14,6 @@ import { defaultParent } from "../addproject/importproject-state.ts";
 import { browseStart, copyLine, destination, shortName, type CopyLine } from "./addmachine-state.ts";
 import type { SyncDetail } from "./filesync.ts";
 import { plainPath, type MachineFolder } from "./projects-state.ts";
-
-/// How often the sheet reads the sync while it copies.
-const POLL_MS = 1000;
 
 /// What the page hands the sheet.
 export interface AddToMachine {
@@ -39,9 +37,9 @@ export function openAddToMachine(o: AddToMachine) {
   const title = change ? `Change the folder of ${name} on ${machine.name}` : `Add ${name} to ${machine.name}`;
   let folder = "", browsing: MachineFolder | null = null, reading = false, error: string | null = null;
   let adding = false, copying: CopyLine | null = null, open = true;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let unfollow: (() => void) | undefined;
   const { sheet, close } = openSheet(title, "am-sheet ip-sheet ip-add", {
-    onClose: () => { open = false; clearTimeout(timer); },
+    onClose: () => { open = false; unfollow?.(); },
   });
 
   const draw = () => {
@@ -111,7 +109,7 @@ export function openAddToMachine(o: AddToMachine) {
     if (!open) return;
     if (copying?.done) { close(); return; }
     draw();
-    timer = setTimeout(poll, POLL_MS);
+    unfollow ??= subscribeTopics(topic("sync"), () => poll(), machine.id, () => open);
   };
 
   function form() {

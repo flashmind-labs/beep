@@ -137,7 +137,9 @@ impl Agents {
 
     /// The Claude Code sessions started outside Beep, newest first.
     pub async fn external_sessions(&self, limit: u32) -> Result<Vec<ExternalSession>> {
-        self.external.list(limit, None, self.owned()).await
+        let sessions = self.external.list(limit, None, self.owned()).await?;
+        self.observe_external(&sessions);
+        Ok(sessions)
     }
 
     /// Every session the agents' stores hold, with the folder it ran in.
@@ -273,7 +275,11 @@ impl Agents {
         let held = self.held(agent, &sessions).await;
         for found in &mut sessions {
             let held = held.get(&found.id).copied();
-            found.presence = holders::settle(found.presence, found.pid, held);
+            found.presence =
+                holders::settle(found.presence, found.pid, held.map(|pid| pid.is_some()));
+            if found.pid.is_none() {
+                found.pid = held.flatten();
+            }
         }
         self.presence.merge(&mut sessions);
         sessions.retain(|found| {
@@ -421,13 +427,17 @@ impl Agents {
             return registered.presence;
         }
         let held = self.held(agent, std::slice::from_ref(found)).await;
-        holders::settle(found.presence, found.pid, held.get(&found.id).copied())
+        holders::settle(
+            found.presence,
+            found.pid,
+            held.get(&found.id).map(Option::is_some),
+        )
     }
 
     /// Whether a process holds the file of each of `found` that no process
     /// was seen running, by session id, all looked up at once; a session
     /// missing from it cannot be told.
-    async fn held(&self, agent: Agent, found: &[ExternalSession]) -> HashMap<String, bool> {
+    async fn held(&self, agent: Agent, found: &[ExternalSession]) -> HashMap<String, Option<u32>> {
         let ids: Vec<String> = found
             .iter()
             .filter(|found| found.pid.is_none())
@@ -436,7 +446,7 @@ impl Agents {
         // Claude Code does not keep its transcript open, but its processes
         // were looked at already and none runs these sessions.
         if agent == Agent::Claude {
-            return ids.into_iter().map(|id| (id, false)).collect();
+            return ids.into_iter().map(|id| (id, None)).collect();
         }
         if ids.is_empty() {
             return HashMap::new();
@@ -457,7 +467,7 @@ impl Agents {
         };
         files
             .into_iter()
-            .map(|(file, id)| (id, open.contains(&file)))
+            .map(|(file, id)| (id, open.get(&file).copied()))
             .collect()
     }
 
@@ -484,7 +494,7 @@ impl Agents {
 
     /// The file the agent keeps `session` in: for one of this node's, the
     /// agent's own session it runs.
-    async fn session_file(&self, session: &str) -> Result<Option<PathBuf>> {
+    pub(super) async fn session_file(&self, session: &str) -> Result<Option<PathBuf>> {
         let (agent, id) = match self.get(session) {
             Some(running) => {
                 let Some(id) = running.live.borrow().agent_session.clone() else {

@@ -1,3 +1,4 @@
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // machines/: the Machines list, Home's machine table (table.ts) and the
 // Add a machine sheet. Entry: this file.
 import { openAddMachine } from "./addmachine.ts";
@@ -192,7 +193,7 @@ async function readList() {
 export function followToolUpdates() {
   // Opened before the machines connected: the page follows them as they come.
   for (const name of ["home-changed", "reconnected"]) listen(name, () => { if (shown()) { void readList(); void loadToolUpdates(); } });
-  setInterval(() => { if (shown()) void loadToolUpdates(); }, 60 * 60 * 1000);
+  subscribeChanges(topic("machines"), () => readList(), null, shown);
 }
 
 async function loadNodeRelease() {
@@ -363,32 +364,47 @@ async function runUpdate(id: string) {
   if (shown()) drawMachines();
 }
 
-/// How often, and how many times, the list is read while a node restarts;
-/// one waiting for its sessions has up to half an hour more.
+/// Restart deadlines, including extra time for running sessions to finish.
 const RESTART_POLL_MS = 3000, RESTART_POLLS = 60, IDLE_POLLS = RESTART_POLLS + 600;
 
-/// Reads the list `polls` times until machine `id` is back on `to`, or
-/// gives up.
+/// Follows restart reports until the requested version appears, with the existing deadline.
 async function waitForNode(id: string, to: string, polls: number) {
-  for (let i = 0; i < polls; i++) {
-    await new Promise(r => setTimeout(r, RESTART_POLL_MS));
-    const now = MC.updates.get(id);
-    if (now?.step !== "restarting" || now.to !== to) return;
-    try {
-      MC.list = await invoke<Machine[]>("list_machines");
-    } catch (e) {
-      console.warn("machines while a node restarts:", e);
-      continue;
-    }
-    const m = MC.list.find(m => m.id === id);
-    if (m && updatedTo(m, to)) {
-      MC.updates.delete(id);
-      if (shown()) drawMachines();
-      return;
-    }
-  }
-  MC.updates.set(id, { step: "failed", error: `It did not come back on beep-node ${to} yet. Check the machine.` });
-  if (shown()) drawMachines();
+  await new Promise<void>(resolve => {
+    let reading = false, again = false, done = false;
+    const finish = () => { done = true; clearTimeout(deadline); unfollow(); resolve(); };
+    const check = async () => {
+      if (reading) { again = true; return; }
+      reading = true;
+      do {
+        again = false;
+        const now = MC.updates.get(id);
+        if (done) break;
+        if (now?.step !== "restarting" || now.to !== to) { finish(); break; }
+        try {
+          const list = await invoke<Machine[]>("list_machines");
+          if (done) break;
+          MC.list = list;
+          const machine = list.find(machine => machine.id === id);
+          if (machine && updatedTo(machine, to)) {
+            MC.updates.delete(id);
+            if (shown()) drawMachines();
+            finish();
+          }
+        } catch (error) { console.warn("machines while a node restarts:", error); }
+      } while (again && !done);
+      reading = false;
+    };
+    const unfollow = subscribeChanges(topic("machines"), () => check());
+    const deadline = setTimeout(() => {
+      const now = MC.updates.get(id);
+      if (now?.step === "restarting" && now.to === to) {
+        MC.updates.set(id, { step: "failed", error: `It did not come back on beep-node ${to} yet. Check the machine.` });
+        if (shown()) drawMachines();
+      }
+      finish();
+    }, RESTART_POLL_MS * polls);
+    void check();
+  });
 }
 
 /// The beep-node row's end on a machine's page: Update, its progress, or

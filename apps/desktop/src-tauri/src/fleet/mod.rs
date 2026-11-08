@@ -10,6 +10,7 @@ pub(crate) mod agents;
 pub(crate) mod alerts;
 pub(crate) mod asked;
 mod carry;
+pub(crate) mod events;
 pub(crate) mod files;
 mod mesh;
 pub(crate) mod migrate;

@@ -1,3 +1,4 @@
+import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // The Files tab of a coding agent session's pane: the session's working folder
 // on its machine as a tree, read three levels at a time, what git ignores left
 // out unless asked, git's marks beside what changed.
@@ -16,7 +17,7 @@ import { confirmSheet, renameSheet, arrowFocus } from "../ui/menu.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
-import { onShownChange, paneShown } from "../ui/active.ts";
+import { paneShown } from "../ui/active.ts";
 
 /// The type a row of the tree drags as, its path relative to the session's folder.
 export const PATH_TYPE = "application/x-beep-path";
@@ -29,13 +30,14 @@ const F = {
   roots: new Set<string>(),
   /// Folders being read now.
   reading: new Set<string>(),
+  again: new Set<string>(),
   /// The node reads one folder at a time (from before trees).
   flat: false,
   /// A filter is reading the rest of the tree.
   walking: false,
   /// That read stopped at `WALK_ENTRIES`.
   capped: false,
-  timer: undefined as ReturnType<typeof setInterval> | undefined,
+  unfollow: null as (() => void) | null,
   open: new Set<string>(),
   filter: "",
   ignored: false,
@@ -63,8 +65,6 @@ const FOLDER = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stro
 const FILE = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg>';
 const TWIST = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>';
 
-/// How often an open Files view reads its folders again.
-const REFRESH_MS = 30_000;
 /// Reads of the tree a filter runs at once, and the entries it stops at.
 const WALK_AT_ONCE = 8;
 const WALK_ENTRIES = 50_000;
@@ -75,10 +75,10 @@ export function filesView() {
   const key = s ? `${s.machine_id}\n${paneRoot()}` : "";
   if (F.el && F.key === key) return F.el;
   F.el?.remove();
-  clearInterval(F.timer);
+  F.unfollow?.();
   Object.assign(F, {
-    key, listings: new Map(), roots: new Set(), reading: new Set(), flat: false, walking: false, capped: false, open: new Set(), filter: "", picked: null, anchor: null, selected: new Set(), busy: false, fresh: false, generation: F.generation + 1, reveal: null, drawn: "",
-    timer: setInterval(() => { if (filesShown()) refresh(); }, REFRESH_MS),
+    key, listings: new Map(), roots: new Set(), reading: new Set(), again: new Set(), flat: false, walking: false, capped: false, open: new Set(), filter: "", picked: null, anchor: null, selected: new Set(), busy: false, fresh: false, generation: F.generation + 1, reveal: null, drawn: "",
+    unfollow: s ? subscribeTopics(topic("files", paneRoot()), () => refresh(), s.machine_id, filesShown) : null,
   });
   const el = h(`<div class="agpview files"><div class="agfbar"><input class="agffind" placeholder="Filter files" aria-label="Filter files" spellcheck="false">`
     + `<label class="agfign"><input type="checkbox"${F.ignored ? " checked" : ""}> Show ignored</label>`
@@ -107,8 +107,10 @@ export function pointFilesAt() {
   const key = s ? `${s.machine_id}\n${paneRoot()}` : "";
   if (!F.el || !s || key === F.key) return;
   closeFilesMenu();
+  F.unfollow?.();
+  F.unfollow = subscribeTopics(topic("files", paneRoot()), () => refresh(), s.machine_id, filesShown);
   Object.assign(F, {
-    key, listings: new Map(), roots: new Set(), reading: new Set(), flat: false, walking: false, capped: false, open: new Set(), picked: null, anchor: null, selected: new Set(), busy: false, fresh: false, generation: F.generation + 1, reveal: null,
+    key, listings: new Map(), roots: new Set(), reading: new Set(), again: new Set(), flat: false, walking: false, capped: false, open: new Set(), picked: null, anchor: null, selected: new Set(), busy: false, fresh: false, generation: F.generation + 1, reveal: null,
   });
   const meta = F.el.querySelector(".agpacts .meta");
   if (meta) { meta.textContent = paneRoot(); meta.setAttribute("title", paneRoot()); }
@@ -149,17 +151,17 @@ export function reloadFolder(dir: string) {
 }
 
 /// Reads every folder the tree was read from again, in place.
-function refresh() {
+async function refresh() {
   closeFilesMenu();
-  for (const dir of F.roots) load(dir);
+  F.fresh = true;
+  await Promise.all([...new Set([...F.roots, ...F.reading])].map(dir => load(dir)));
+  const error = [...F.listings.values()].find(listing => listing.error)?.error;
+  if (error) throw new Error(error);
 }
 
 /// Whether the tree can be seen: its tab is picked in a dock not folded
 /// (`offsetParent` is null under a hidden one), and the pane shows.
 const filesShown = () => !!F.el?.offsetParent && paneShown();
-
-// Back on screen, the tree is read once at once.
-onShownChange(shown => { if (shown && filesShown()) refresh(); }, true);
 
 /// Reads the rest of the tree while a filter is typed, so it finds what no
 /// folder opened yet shows.
@@ -183,10 +185,27 @@ async function readAll() {
 
 /// Reads the tree from `dir` down and merges it in. `deep` is a filter's
 /// read: as far as one read goes, and not read again on refresh.
-async function load(dir: string, deep = false) {
+const reads = new Map<string, Promise<void>>();
+function load(dir: string, deep = false): Promise<void> {
+  const key = F.key, generation = F.generation;
+  const token = JSON.stringify([key, generation, dir]);
+  const pending = reads.get(token);
+  if (pending) { if (!deep) F.again.add(dir); return pending; }
+  const read = (async () => {
+    do {
+      F.again.delete(dir);
+      await readFolder(dir, deep);
+      deep = false;
+    } while (F.key === key && F.generation === generation && F.again.has(dir));
+  })().finally(() => reads.delete(token));
+  reads.set(token, read);
+  return read;
+}
+
+async function readFolder(dir: string, deep: boolean) {
   const s = paneSession();
   // A session with no folder yet has nothing to read.
-  if (!s?.cwd || F.reading.has(dir)) return;
+  if (!s?.cwd) return;
   const key = F.key, generation = F.generation;
   const had = F.listings.get(dir);
   F.listings.set(dir, { entries: had?.entries ?? null, more: had?.more ?? 0, error: "" });
@@ -205,7 +224,9 @@ async function load(dir: string, deep = false) {
     if (F.key !== key || F.generation !== generation) return;
     F.listings.set(dir, failedListing(String(e instanceof Error ? e.message : e), had));
   } finally {
-    if (F.key === key && F.generation === generation) F.reading.delete(dir);
+    if (F.key === key && F.generation === generation) {
+      F.reading.delete(dir);
+    }
   }
   if (changed || !had?.entries) draw();
   if (F.key === key && F.generation === generation && F.filter.trim()) readAll();
@@ -281,7 +302,7 @@ function wire(el: HTMLElement) {
   find.addEventListener("keydown", e => { if (e.key === "Escape" && find.value) { e.stopPropagation(); e.preventDefault(); find.value = ""; F.filter = ""; draw(); } });
   el.querySelector<HTMLInputElement>(".agfign input")!.addEventListener("change", e => {
     F.ignored = (e.target as HTMLInputElement).checked;
-    refresh();
+    void refresh().catch(e => console.warn("files:", e));
   });
   el.querySelector("[data-frefresh]")!.addEventListener("click", refresh);
   tree.addEventListener("click", e => {
@@ -416,7 +437,7 @@ function menu(path: string, folder: boolean, x: number, y: number) {
     else if (act === "paste") void paste(dir);
     else if (act === "rename") renameItem();
     else if (act === "newfile" || act === "newfolder") createItem(act === "newfolder", dir);
-    else if (act === "refresh") refresh();
+    else if (act === "refresh") void refresh().catch(e => console.warn("files:", e));
     else if (act === "delete") deleteItems();
     else if (act === "save") void saveItems();
   });
@@ -472,7 +493,7 @@ async function edit(action: FileAction, at = target()) {
       F.listings.clear();
       F.drawn = "";
       F.roots = new Set(["", ...F.open]);
-      refresh();
+      void refresh().catch(e => console.warn("files:", e));
     }
   }
 }

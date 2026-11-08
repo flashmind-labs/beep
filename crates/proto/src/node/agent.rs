@@ -18,6 +18,7 @@
 //! else runs it.
 mod checkout;
 mod external;
+mod follow;
 mod models;
 mod review;
 mod session;
@@ -25,6 +26,7 @@ mod sessions;
 
 pub use checkout::*;
 pub use external::*;
+pub use follow::*;
 pub use models::*;
 pub use review::*;
 pub use session::*;
