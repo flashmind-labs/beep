@@ -231,7 +231,7 @@
     const np = v === "noproj" || v === "noprojfolder" || none || looking;
     const h = v === "hermes" ? "hermes" : v === "flsh" ? "flsh" : "claude";
     const chosenHost = ["nohost", "host", "pickernomachine", "project", "none", "looking"].includes(v) ? null : "build-box";
-    const pillText = none ? "No agent" : `${av(h)}${AGK[h][1]} <small>Default</small>`;
+    const pillText = none ? "No agent" : `${av(h)}${chosenHost ? (MODELS[h]?.[0]?.[1] || "Default") : "Default"}`;
     const open = v === "picker" || v === "flsh" || v === "hermes" || v === "pickernomachine";
     const picker = open ? agcPicker({ agent: h, offered: ["claude", "codex", "pi", "flsh", "hermes"], machine: chosenHost, models: v !== "pickernomachine" }) : "";
     // Every menu under the box opens upward over the page; the key hints hide while one is open.

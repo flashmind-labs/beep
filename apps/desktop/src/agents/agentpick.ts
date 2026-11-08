@@ -63,11 +63,10 @@ export function keepEffort(agent: string | null, effort: string | null | undefin
   return effort && effortsOf(agent).some(e => e.value === effort) ? effort : null;
 }
 
-/// The pill's text after the harness's name: the model, then the thinking
-/// level when one is picked.
+/// The pill's thinking level, when picked, followed by the model.
 export function pillDetail(modelLabel: string, agent: string | null, effort: string | null | undefined): string {
   const think = effortsOf(agent).find(e => e.value === effort)?.label;
-  return [modelLabel || "Default", think].filter(Boolean).join(" · ");
+  return [think, modelLabel || "Default"].filter(Boolean).join(" ");
 }
 
 /// A row of the model column.
@@ -101,10 +100,13 @@ export function modelRows(list: AgentModels | null | undefined, query: string): 
   return { rows, note: rows.length ? "" : "No model matches." };
 }
 
-/// The model's name for the pill: Default, or its name in `list`.
+/// The model's name for the pill, resolving the default when known.
 export function modelLabel(list: AgentModels | null | undefined, model: string | null | undefined): string {
-  if (!model) return "Default";
-  return list?.models.find(m => m.id === model)?.name || model;
+  if (model && model.toLowerCase() !== "default") return list?.models.find(m => m.id === model)?.name || model;
+  const current = list?.current;
+  if (current && current.toLowerCase() !== "default") return list?.models.find(m => m.id === current)?.name || current;
+  const own = list?.models.find(m => m.id.toLowerCase() === "default" || /^default\b/i.test(m.name));
+  return own?.description?.split(/ · | - |\. |, /)[0].trim() || "Default";
 }
 
 /// A machine as the Machine menu lists it.
