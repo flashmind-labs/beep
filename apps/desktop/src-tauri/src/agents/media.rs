@@ -16,7 +16,7 @@ use beep_proto::{
     GetAgentThumb, MAX_AGENT_FILE, image_key,
 };
 use serde::Serialize;
-use std::{fs, path::PathBuf, process::Command};
+use std::{fs, path::PathBuf};
 use tauri::{AppHandle, Manager};
 
 /// The picture of the `[image: image-<key>]` line of `session`, read from
@@ -168,10 +168,7 @@ pub async fn agent_file_open(
     let of = image_key(format!("{machine_id}\n{path}").as_bytes());
     let to = dir.join(format!("{of}-{}", file_name(&path)));
     fs::write(&to, &data).map_err(anyhow::Error::from)?;
-    Command::new("open")
-        .arg(&to)
-        .spawn()
-        .map_err(anyhow::Error::from)?;
+    crate::platform::open(&to)?;
     Ok(())
 }
 

@@ -1751,6 +1751,8 @@ enum Destination: Equatable {
     case newChat
     /// A chat someone shared, from its link.
     case shared(String)
+    /// A coding agent's session, from its question's notification.
+    case codingSession(String, String, String)
 }
 
 func nowMillis() -> Int64 { Int64(Date.now.timeIntervalSince1970 * 1000) }

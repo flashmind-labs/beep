@@ -27,6 +27,7 @@ use url::Url;
 const DEADLINE: Duration = Duration::from_secs(8);
 /// Where Homebrew and installers put tools, for an app that did not get
 /// the login shell's `PATH`.
+#[cfg(unix)]
 const TOOL_DIRS: [&str; 2] = ["/opt/homebrew/bin", "/usr/local/bin"];
 
 /// A CLI's sign-in on this Mac.
@@ -305,11 +306,12 @@ fn parse_login(out: &str) -> Option<String> {
 /// The first `name` on `PATH`, then in the usual tool folders.
 pub(crate) fn find_tool(name: &str) -> Option<PathBuf> {
     let path = env::var_os("PATH").unwrap_or_default();
-    let home = env::var_os("HOME").map(PathBuf::from);
+    let home = env::var_os("HOME")
+        .or_else(|| env::var_os("USERPROFILE"))
+        .map(PathBuf::from);
     tool_dirs(&path, home.as_deref())
         .into_iter()
-        .map(|dir| dir.join(name))
-        .find(|file| file.is_file())
+        .find_map(|dir| which::which_in(name, Some(dir.as_os_str()), ".").ok())
 }
 
 /// Where to look for a tool: `PATH` first, then Homebrew's folders and
@@ -318,7 +320,11 @@ fn tool_dirs(path: &OsStr, home: Option<&Path>) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = env::split_paths(path)
         .filter(|dir| dir.is_absolute())
         .collect();
-    let extra = TOOL_DIRS
+    #[cfg(unix)]
+    let system_dirs = TOOL_DIRS;
+    #[cfg(windows)]
+    let system_dirs: &[&str] = &[];
+    let extra = system_dirs
         .iter()
         .map(PathBuf::from)
         .chain(home.map(|home| home.join(".local/bin")));
@@ -356,7 +362,11 @@ fn tea_config() -> Option<PathBuf> {
     let config = env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|dir| dir.is_absolute())
-        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
+        .or_else(|| {
+            env::var_os("HOME")
+                .or_else(|| env::var_os("USERPROFILE"))
+                .map(|home| PathBuf::from(home).join(".config"))
+        })?;
     Some(config.join("teacli").join("teacli.ini"))
 }
 
@@ -500,6 +510,19 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_tools_use_native_paths_and_the_user_profile() {
+        let tools = PathBuf::from(r"C:\Tools");
+        let home = PathBuf::from(r"C:\Profile");
+        let path = env::join_paths([tools.as_path(), Path::new("relative")]).expect("test PATH");
+        assert_eq!(
+            tool_dirs(&path, Some(&home)),
+            vec![tools, home.join(".local/bin")]
+        );
+    }
+
+    #[cfg(unix)]
     #[test]
     fn tools_are_looked_for_past_a_bare_path() {
         let dirs = tool_dirs(

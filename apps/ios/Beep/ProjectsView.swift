@@ -3,7 +3,7 @@ import SwiftUI
 struct ProjectsView: View {
     @Environment(AppModel.self) private var model
     @Binding var path: [Route]
-    var home = false
+    @Environment(\.tabRoot) private var tabRoot
     @State private var query = ""
     @State private var adding = false
 
@@ -17,8 +17,7 @@ struct ProjectsView: View {
     }
 
     var body: some View {
-        WorkspacePage(title: "Projects", back: { if !path.isEmpty { path.removeLast() } }, showsBack: !home) {
-            if home { Button("Devices") { path.append(.devices) }.buttonStyle(TextAction()) }
+        WorkspacePage(title: "Projects", back: { if !path.isEmpty { path.removeLast() } }) {
             Button("Add") { adding = true }.buttonStyle(TextAction())
         } content: {
             ScrollView {
@@ -41,17 +40,15 @@ struct ProjectsView: View {
                             }
                         }
                     }
+                    if !tabRoot {
                     WorkspaceHeading(title: "Workspace")
-                    WorkspaceFacts(rows: [("Projects", "\(Set(model.workspace.projects.map(\.project) + model.workspace.projectAgents.map(\.name)).count)"),
-                                          ("Open tasks", "\(model.workspace.projectAgents.reduce(0) { $0 + $1.openTasks })"),
-                                          ("Working agents", "\(model.workspace.projectAgents.reduce(0) { $0 + $1.openWorkers })"),
-                                          ("Machines", "\(model.workspace.machines.filter(\.online).count) online")])
                     WorkspaceBox {
                         WorkspaceRow(icon: "bubble.left.and.text.bubble.right", title: "Coding agents", detail: "Sessions across your machines") { path.append(.codingAgents) }
                         Divider().overlay(Mint.soft)
                         WorkspaceRow(icon: "server.rack", title: "Machines", badge: "\(model.workspace.machines.filter(\.online).count) online", color: Mint.ok) { path.append(.machines) }
                         Divider().overlay(Mint.soft)
                         WorkspaceRow(icon: "terminal", title: "Terminals") { path.append(.terminals) }
+                    }
                     }
                 }.padding(16)
             }.refreshable { await model.workspace.refresh() }

@@ -2894,3 +2894,85 @@ async fn project_syncthing_choice_reaches_a_machine_that_joins_later() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn session_title_overrides_replicate_and_clear_without_changing_generated_titles() {
+    use beep_fleet::session_titles;
+    use beep_proto::{AgentStatus, MachineSession};
+
+    let desktop = create("desktop").await;
+    let other = join(&desktop, DeviceKind::Desktop, "other-desktop").await;
+    let machine = desktop.id.to_string();
+    session_titles::save(
+        &desktop.mesh,
+        &machine,
+        "codex",
+        "session-1",
+        "  My title  ",
+    )
+    .await
+    .expect("title is saved");
+    until(&other.mesh, |mesh| {
+        session_titles::get(mesh, &machine, "codex", "session-1").as_deref() == Some("My title")
+    })
+    .await;
+    assert_eq!(
+        session_titles::get(&desktop.mesh, &machine, "claude", "session-1"),
+        None
+    );
+    assert_eq!(
+        session_titles::get(&desktop.mesh, "other-machine", "codex", "session-1"),
+        None
+    );
+    assert!(
+        session_titles::save(
+            &desktop.mesh,
+            &machine,
+            "codex",
+            "session-1",
+            &"x".repeat(201)
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        session_titles::save(&desktop.mesh, &machine, "codex", "session-1", "two\nlines")
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        session_titles::get(&desktop.mesh, &machine, "codex", "session-1").as_deref(),
+        Some("My title")
+    );
+    let generated = MachineSession {
+        machine_id: machine.clone(),
+        machine_name: "build-box".into(),
+        id: "session-1".into(),
+        agent: "codex".into(),
+        title: Some("Generated title".into()),
+        cwd: "/srv/project".into(),
+        status: AgentStatus::Idle {},
+        doing: None,
+        started_at: UNIX_EPOCH,
+        last_activity: UNIX_EPOCH,
+        external: false,
+        question: None,
+    };
+    let mut refreshed = generated.clone();
+    session_titles::apply(&other.mesh, &mut refreshed);
+    assert_eq!(refreshed.title.as_deref(), Some("My title"));
+    refreshed = generated.clone();
+    refreshed.title = Some("A newer generated title".into());
+    session_titles::apply(&other.mesh, &mut refreshed);
+    assert_eq!(refreshed.title.as_deref(), Some("My title"));
+    session_titles::save(&desktop.mesh, &machine, "codex", "session-1", " ")
+        .await
+        .expect("override is cleared");
+    until(&other.mesh, |mesh| {
+        session_titles::get(mesh, &machine, "codex", "session-1").is_none()
+    })
+    .await;
+    let mut refreshed = generated;
+    session_titles::apply(&other.mesh, &mut refreshed);
+    assert_eq!(refreshed.title.as_deref(), Some("Generated title"));
+}

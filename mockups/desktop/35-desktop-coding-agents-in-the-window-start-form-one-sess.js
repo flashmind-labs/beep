@@ -734,8 +734,8 @@ expected 200, got 401</pre></details></span></div>`;
     const mention = (p, up) => `<span class="ag-ment" title="Goes in the message as @${p}">${FI.file}${p}${up ? `<small>${up}</small>` : ""}<em data-toast="Removed">&#215;</em></span>`;
     const att = image ? `<div class="ag-att"><span><i></i>Screenshot 2026-10-07.png<em data-toast="Removed">&#215;</em></span></div>`
       : v === "dragpath" ? `<div class="ag-att">${mention("src/errors.rs")}<span class="ag-dropin">${FI.file}Drop to mention src/login.rs</span></div>`
-      : v === "dropchoice" ? `<div class="ag-att"><div class="ag-upask"><span>Upload 2 files (1.4 MB) to build-box:</span><button class="dbtn pri" data-toast="Uploading to src/auth/">Into src/auth/</button><button class="dbtn" data-toast="Uploading to .beep/uploads/">Into .beep/uploads/</button><button class="dbtn quiet" data-toast="Not uploaded">Cancel</button></div></div>`
-      : (v === "filemenu" || v === "filemenuwith") ? `<div class="ag-att">${mention(".beep/uploads/build.log", "62%")}${mention("src/login.rs")}</div>` : "";
+      : v === "dropchoice" ? `<div class="ag-att"><div class="ag-upask"><span>Upload 2 files (1.4 MB) to build-box:</span><button class="dbtn pri" data-toast="Uploading to src/auth/">Into src/auth/</button><button class="dbtn" title="Outside the project. Deleted when this session is closed." data-toast="Uploading as temporary attachments">Temporary attachments</button><button class="dbtn quiet" data-toast="Not uploaded">Cancel</button></div></div>`
+      : (v === "filemenu" || v === "filemenuwith") ? `<div class="ag-att">${mention("build.log", "62%")}${mention("src/login.rs")}</div>` : "";
     // The model pill: harness, model and thinking; a switch applies from the next turn.
     const canSwitch = !ended && !outside;
     const pillAgent = v === "flshmodel" ? "flsh" : "claude", pillName = pillAgent === "flsh" ? "flsh" : "Claude Code";
@@ -1062,11 +1062,11 @@ expected 200, got 401</pre></details></span></div>`;
   D.dAgents = () => {
     const agl = pick("agl", ["list", "empty", "menurun", "menukid", "menuended", "copies", "closing", "closefailed"], "list"), empty = agl === "empty";
     const rows = [
-      ["Fix the failing login test", "Claude Code · widget · build-box", '<span class="run"><span class="dspin"></span>Running cargo test</span>', "working"],
-      ["Build the iOS target", "Codex · widget · mac-box · started by Fix the failing login test", '<span class="dstate ask">Needs you</span>', "asks", true],
+      ["Fix the failing login test", "Claude Code · acme/widget · build-box", '<span class="run"><span class="dspin"></span>Running cargo test</span>', "working"],
+      ["Build the iOS target", "Codex · acme/widget · ios-build · mac-box · started by Fix the failing login test", '<span class="dstate ask">Needs you</span>', "asks", true],
       ["Render the turntable", "Claude Code · scenes · win-box", '<span class="w">Idle</span>', "idle"],
       ["Tidy the parser module", "Claude Code · relay · build-box", '<span class="w">In terminal</span>', "outside"],
-      ["Update the changelog", "Codex · widget · build-box", '<span class="w">Ended</span>', "ended"],
+      ["Update the changelog", "Codex · acme/widget · build-box", '<span class="w">Ended</span>', "ended"],
     ];
     const visible = agl === "closing" ? rows.filter((_, i) => i !== 2) : rows;
     const list = `<div class="dlist" role="listbox">${visible.map(([t, s, r, k, kid], i) => `<button class="dchat${kid ? " kid" : ""}" role="option" aria-selected="${i === 0}" data-dact="dset:ags:${k}" data-dgo="dAgentSession"><span class="t"><span>${t}</span><small>${s}</small></span>${r}</button>`).join("")}</div>`;

@@ -70,20 +70,21 @@ interface DeviceList {
 /// link stands, and the two permissions desktop control needs.
 function thisMac(mac: MacControl) {
   const p = mac.permissions;
-  const sub = !mac.enabled ? "Beep can see the screen, click, type and run commands here when you ask"
+  const desktopControl = !navigator.userAgent.includes("Windows");
+  const sub = !mac.enabled ? (desktopControl ? "Beep can see the screen, click, type and run commands here when you ask" : "Beep can run commands and coding agents here when you ask")
     : mac.status === "failed" ? `Couldn't connect: ${esc(mac.error || "unknown error")}`
-    : mac.status === "connected" ? (p.screen_recording && p.accessibility ? "Connected" : "Connected. Allow both below")
+    : mac.status === "connected" ? (!desktopControl || p.screen_recording && p.accessibility ? "Connected" : "Connected. Allow both below")
     : "Connecting…";
   const perm = (key: string, name: string, why: string, ok: boolean) => `<div class="dtoggle"><span><b>${name}</b><small>${why}</small></span>${ok
     ? '<span class="dtag ok">Allowed</span>'
     : `<button class="dbtn" data-allow="${key}">Allow…</button>`}</div>`;
-  const rows = mac.enabled
+  const rows = mac.enabled && desktopControl
     ? perm("ScreenRecording", "Screen Recording", "To see the screen", p.screen_recording)
       + perm("Accessibility", "Accessibility", "To click, type and read app controls", p.accessibility)
     : "";
-  return `<div class="dsec flat top">This Mac</div>
-    <div class="dtoggle"><span><b>Let Beep use this Mac</b><small>${sub}</small></span>
-      ${switchHtml(mac.enabled, "Let Beep use this Mac", `id="usemac"`)}</div>${rows}`;
+  return `<div class="dsec flat top">This computer</div>
+    <div class="dtoggle"><span><b>Let Beep use this computer</b><small>${sub}</small></span>
+      ${switchHtml(mac.enabled, "Let Beep use this computer", `id="usemac"`)}</div>${rows}`;
 }
 
 /// Settings: what a new notice does while you are at this Mac.
@@ -186,17 +187,17 @@ function setDevicesHtml(set: MacSettings) {
   // Whether this Mac made the account, and so links and removes devices.
   const owner = devices.some(d => d.this_device && d.primary);
   const row = (d: Device) => {
-    const tags = [d.this_device ? "This Mac" : "", d.primary ? "Owner" : ""].filter(Boolean)
+    const tags = [d.this_device ? "This computer" : "", d.primary ? "Owner" : ""].filter(Boolean)
       .map(t => `<span class="dtag">${t}</span>`).join("");
     const remove = owner && !d.this_device ? `<button class="dbtn quiet" data-remove="${esc(d.id)}" aria-label="Remove ${esc(d.name)}">${ICON.x}</button>` : "";
     return `<div class="dtoggle"><span><b class="dline tight">${esc(d.name)}${tags}</b><small>${d.kind === "phone" ? "Phone" : "Computer"}</small></span>${remove}</div>`;
   };
   const ask = SET.confirm === "unlink" ? `<div class="dcard"><div class="dask">
-      <b class="dtitle">Unlink this Mac?</b><div class="dmuted dblock">This Mac stops seeing your chats and memories. Your phone keeps them. To use Beep here again, start over and link it from the phone.</div>
+      <b class="dtitle">Unlink this computer?</b><div class="dmuted dblock">This computer stops seeing your chats and memories. Your phone keeps them. To use Beep here again, start over and link it from the phone.</div>
       <div class="dline"><button class="dbtn warn" id="unlinkYes">Unlink</button><button class="dbtn quiet" id="unlinkNo">Cancel</button></div>
       <div class="derr" id="unlinkErr"></div></div></div>` : "";
   const link = !owner && SET.confirm === "unlink" ? "" : '<button class="dbtn" id="invite">Link a phone…</button>';
-  const unlink = owner || SET.confirm === "unlink" ? "" : `<div class="dtoggle"><span><small>This Mac: ${esc(set.name)}</small></span><button class="dbtn warn" id="unlink">Unlink this Mac</button></div>`;
+  const unlink = owner || SET.confirm === "unlink" ? "" : `<div class="dtoggle"><span><small>This computer: ${esc(set.name)}</small></span><button class="dbtn warn" id="unlink">Unlink this computer</button></div>`;
   return `<div class="dsec flat dgroup">Devices${link}</div><div class="dcard ddevices">${devices.map(row).join("")}${unlink}</div>` + ask;
 }
 
@@ -415,7 +416,7 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
   // A page drawn by its own code, into this box.
   const host = (id: SettingsPage) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dset-host" id="set-${id}-host"></div></section>`;
   const out: [SettingsPage, string][] = [["general", `<section id="set-general-sec" data-sec="general"><div class="dsec flat top">General</div>
-      <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the menu bar after a restart</small></span>
+      <div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the tray after a restart</small></span>
         ${switchHtml(set.autostart, "Launch at login", `id="autostart"`)}</div>
       ${S.server ? voiceNotesRow(set.notice_voice) + sendRow(set.send_on_pause) : ""}${agentNoticesRow(set.agent_notices)}
       <div id="skillSyncSetting"></div>
@@ -531,7 +532,7 @@ function drawSheet() {
   // The page's sections are drawn from where the sub stands now.
   const page = settingsSections(local.set, local.mac, local.linked, true).find(([id]) => id === path.page)?.[1] ?? "";
   const focus = focusKey(el);
-  el.innerHTML = `<nav class="dset-nav" aria-label="Settings pages"><b>Settings</b><div class="dset-pages">${navHtml(shown, path)}</div><small class="dset-ver">Beep for macOS ${esc(local.set.version)}</small></nav>
+  el.innerHTML = `<nav class="dset-nav" aria-label="Settings pages"><b>Settings</b><div class="dset-pages">${navHtml(shown, path)}</div><small class="dset-ver">Beep desktop ${esc(local.set.version)}</small></nav>
     <div class="dset-body"><div class="dset-top"><span class="dset-crumbs">${crumbsHtml(path)}</span><kbd>esc</kbd></div>
     <div class="dset-page dform">${page}</div></div>`;
   bindNav(el);
@@ -679,7 +680,7 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
     drawSheet();
   } else {
     const sections = settingsSections(set, mac, linked, false).map(([, html]) => html).join("");
-    el.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep for macOS ${esc(set.version)}</small></span></div>
+    el.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep desktop ${esc(set.version)}</small></span></div>
       <div class="dform dformcol">${sections}</div>${hints([["esc", "close"]])}`;
     bindSettings(el);
   }

@@ -75,7 +75,7 @@ pub(super) struct Npm {
 /// The arguments that make `agent` update itself, when it can.
 fn own_updater(agent: &str) -> Option<&'static [&'static str]> {
     match agent {
-        "claude" => Some(&["update"]),
+        "claude" | "hermes" => Some(&["update"]),
         "opencode" => Some(&["upgrade"]),
         _ => None,
     }
@@ -337,6 +337,33 @@ fn last_chars(text: &str, max: usize) -> String {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+
+    #[test]
+    fn hermes_uses_its_own_updater_without_an_npm_package() {
+        let cli = Path::new("/srv/tools/hermes");
+        assert_eq!(
+            plan(
+                &Target {
+                    agent: "hermes",
+                    cli: Some(cli),
+                    npm_adapter: None
+                },
+                &npm_none()
+            ),
+            [Step::new(cli.display().to_string(), &["update"])]
+        );
+        assert!(
+            plan(
+                &Target {
+                    agent: "hermes",
+                    cli: None,
+                    npm_adapter: None
+                },
+                &npm_none()
+            )
+            .is_empty()
+        );
+    }
 
     fn npm_none() -> Npm {
         Npm {

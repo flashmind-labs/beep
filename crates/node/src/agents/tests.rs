@@ -307,6 +307,11 @@ fn every_known_agent_starts_without_permission_prompts() {
     // Neither has permission prompts to turn off.
     assert_eq!(launched("pi"), (vec![], vec![]));
     assert_eq!(launched("flsh"), (vec!["acp".into()], vec![]));
+    assert_eq!(launched("hermes"), (vec!["acp".into()], vec![]));
+    assert_eq!(
+        kinds::known("hermes").unwrap().bypass_mode,
+        Some("dont_ask")
+    );
     let rules: serde_json::Value =
         serde_json::from_str(&launched("opencode").1[0].1).expect("JSON");
     assert_eq!(rules, serde_json::json!({"*": "allow"}));
@@ -381,6 +386,78 @@ async fn an_ended_node_session_resumes_from_the_agents_session() {
     assert!(err.to_string().contains(id), "{err}");
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn hermes_sessions_started_here_resume_over_acp_without_a_store_reader() {
+    let kind = sh_agent(
+        "hermes",
+        r#"
+id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
+reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+loaded=false
+while read -r line; do
+case "$line" in
+*'"initialize"'*) reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}' ;;
+*'"session/new"'*) reply '{"sessionId":"hermes-session"}' ;;
+*'"session/load"'*) loaded=true; reply '{}' ;;
+*'"session/prompt"'*)
+  if [ "$loaded" != true ]; then reply '{"stopReason":"end_turn"}'; continue; fi
+  echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"hermes-session","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Resumed."}}}}'
+  reply '{"stopReason":"end_turn"}' ;;
+*) reply '{}' ;;
+esac
+done
+"#,
+    );
+    let agents = Agents::new(vec![kind.clone()]);
+    let root = tempfile::tempdir().unwrap();
+    let first = agents
+        .start(
+            &kind,
+            root.path().to_str(),
+            Begin {
+                mode: Some("accept_edits".into()),
+                ..Begin::default()
+            },
+        )
+        .unwrap();
+    let mut live = first.live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        live.wait_for(|live| live.status() == Status::Idle || live.status() == Status::Ended),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    first.close().await;
+    let resumed = agents
+        .resume(&kind, "hermes-session", Some("continue".into()))
+        .await
+        .unwrap();
+    let mut live = resumed.live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        live.wait_for(|live| live.info.turns == 1 || live.status() == Status::Ended),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(resumed.info().turns, 1, "{:?}", resumed.info().state.error);
+    assert_eq!(resumed.info().cwd, first.info().cwd);
+    assert_eq!(resumed.info().mode.as_deref(), Some("accept_edits"));
+    assert!(
+        resumed
+            .live
+            .borrow()
+            .transcript(10)
+            .0
+            .iter()
+            .any(|entry| entry.text == "Resumed.")
+    );
+    resumed.close().await;
+    assert!(agents.resume(&kind, "outside-session", None).await.is_err());
+}
+
 /// Answers `initialize` and `session/new` with the agent's own id, then
 /// anything else with nothing, until its input closes.
 #[cfg(unix)]
@@ -425,6 +502,77 @@ async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
     let ended = session.info();
     assert_eq!(ended.state.status, Status::Ended);
     assert_eq!(ended.state.error.as_deref(), Some(session::NODE_STOPPED));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_resumed_session_replaces_the_ended_run_in_listings() {
+    const AGENT_ID: &str = "0199b2c3-4d5e-7f60-8a9b-0c1d2e3f4a5b";
+    let script = NAMING_ADAPTER
+        .replace(
+            "\"agentCapabilities\":{}",
+            "\"agentCapabilities\":{\"loadSession\":true}",
+        )
+        .replace(
+            "while read -r line; do reply '{}'; done",
+            r#"while read -r line; do
+case "$line" in
+*session/prompt*) reply '{"stopReason":"end_turn"}' ;;
+*) reply '{}' ;;
+esac
+done"#,
+        );
+    let kind = sh_agent("codex", &script);
+    let agents = Agents::new(vec![kind.clone()]);
+    let first = agents.start(&kind, Some("/"), Begin::default()).unwrap();
+    first.named_info().await.unwrap();
+    assert_ne!(first.id, AGENT_ID);
+    first.close().await;
+
+    let resumed = agents
+        .start(
+            &kind,
+            Some("/"),
+            Begin {
+                resume: Some(AGENT_ID.into()),
+                ..Begin::default()
+            },
+        )
+        .unwrap();
+    let mut live = resumed.live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        live.wait_for(|live| live.status() == Status::Idle),
+    )
+    .await
+    .expect("the resumed session loads")
+    .unwrap();
+    let listed = agents.list();
+    assert_eq!(
+        listed.len(),
+        1,
+        "the ended run must not shadow the resumed one"
+    );
+    assert_eq!(listed[0].id, AGENT_ID);
+    assert_eq!(listed[0].state.status, Status::Idle);
+    assert!(agents.get(&first.id).is_none());
+    let current = agents.get(AGENT_ID).unwrap();
+    assert!(Arc::ptr_eq(&current, &resumed));
+    current
+        .order(Command::Prompt("Continue the work".to_owned().into()))
+        .await
+        .unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        live.wait_for(|live| live.info.turns == 1 && live.status() == Status::Idle),
+    )
+    .await
+    .expect("the prompt reaches the resumed run")
+    .unwrap();
+    assert!(resumed.live.borrow().transcript(10).0.iter().any(|entry| {
+        entry.kind == agent::EntryKind::User && entry.text == "Continue the work"
+    }));
+    resumed.close().await;
 }
 
 #[cfg(unix)]

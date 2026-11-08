@@ -34,7 +34,7 @@ function textView(t: MediaTab, text: TreeText) {
   let body: string;
   let lines = 0;
   if (text.binary) {
-    body = `<div class="agpmsg">${esc(t.name)} is not text (${esc(shortSize(text.size))}). Save it to open it on this Mac.</div>`;
+    body = `<div class="agpmsg">${esc(t.name)} is not text (${esc(shortSize(text.size))}). Save it to open it on this computer.</div>`;
   } else {
     const all = text.text.split("\n");
     if (all.length > 1 && all.at(-1) === "") all.pop();

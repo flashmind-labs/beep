@@ -12,7 +12,7 @@ use crate::{
 };
 use beep_proto::node::desktop::Permission;
 use serde::Serialize;
-use std::{path::Path, process::Command, sync::Arc};
+use std::{path::Path, sync::Arc};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
 
@@ -162,9 +162,6 @@ pub fn open_log() -> Result<()> {
 
 /// Hands `target`, a file, folder or link, to macOS's `open`.
 pub(crate) fn open(target: impl AsRef<Path>) -> Result<()> {
-    Command::new("open")
-        .arg(target.as_ref())
-        .spawn()
-        .map_err(anyhow::Error::from)?;
+    crate::platform::open(target.as_ref())?;
     Ok(())
 }

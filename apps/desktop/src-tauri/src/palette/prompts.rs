@@ -280,7 +280,7 @@ pub async fn center_find_prompts(
     let projects = app.state::<PaletteCache>().projects();
     let fleet = app.state::<Arc<Fleet>>();
     let members: Option<Vec<_>> = fleet.mesh().map(|mesh| {
-        mesh.devices()
+        mesh.machines()
             .into_iter()
             .map(|d| d.device.id.to_string())
             .collect()

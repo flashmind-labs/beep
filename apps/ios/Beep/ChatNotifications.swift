@@ -29,6 +29,7 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
         center.setNotificationCategories([
             UNNotificationCategory(identifier: Key.chat, actions: [reply, read], intentIdentifiers: []),
             UNNotificationCategory(identifier: Key.approval, actions: [allow, deny], intentIdentifiers: []),
+            AskAlerts.categoryDefinition,
         ])
     }
 
@@ -153,6 +154,10 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
 
     @MainActor func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let info = response.notification.request.content.userInfo
+        if info["askMachine"] != nil {
+            await answerAsk(info, action: response.actionIdentifier)
+            return
+        }
         guard let thread = info["thread"] as? String else { return }
         let group = info["group"] as? Bool ?? false
         switch response.actionIdentifier {
@@ -173,6 +178,33 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
             model?.destination = group ? .group(thread) : .chat(thread)
         default:
             break
+        }
+    }
+
+    /// Allow or Deny on a coding agent's question. The app may be in the background.
+    @MainActor private func answerAsk(_ info: [AnyHashable: Any], action: String) async {
+        guard let model, let machine = info["askMachine"] as? String, let agent = info["askAgent"] as? String,
+              let session = info["askSession"] as? String else { return }
+        if action == UNNotificationDefaultActionIdentifier {
+            model.destination = .codingSession(machine, agent, session)
+            return
+        }
+        guard action == AskAlerts.allow || action == AskAlerts.deny, let question = info["askQuestion"] as? Int else { return }
+        let key = questionKey(machine: machine, agent: agent, session: session, question: UInt32(question))
+        let reply = info[action == AskAlerts.allow ? "askAllow" : "askDeny"] as? String ?? ""
+        func failed(_ detail: String) {
+            AskAlerts.forget(key)
+            AskAlerts.postFailure(machine: machine, agent: agent, session: session, detail: detail)
+        }
+        guard !reply.isEmpty else { return failed("The agent offers no such answer. Open the session to answer.") }
+        let task = UIApplication.shared.beginBackgroundTask(withName: "answer")
+        defer { UIApplication.shared.endBackgroundTask(task) }
+        model.connect()
+        do {
+            try await model.workspace.client().answerCoding(machineId: machine, agent: agent, session: session,
+                                                            question: UInt32(question), reply: reply)
+        } catch {
+            failed(describe(error))
         }
     }
 

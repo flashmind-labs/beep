@@ -23,8 +23,13 @@
 .mac .dv-btn { height: 26px; padding: 0 9px; border-radius: 7px; border: 1px solid var(--border); background: transparent; color: var(--fg); font: 12px var(--body); white-space: nowrap }
 .mac .dv-btn.icon { width: 26px; padding: 0; display: inline-grid; place-items: center; color: var(--muted) }
 .mac .dv-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) }
-.mac .dv.wide .dv-body { grid-template-columns: 250px minmax(0, 1fr) }
-.mac .dv-tree { display: none; min-height: 0; overflow: auto; padding: 6px; border-right: 1px solid var(--border) } .mac .dv.wide .dv-tree { display: block }
+.mac .dv.wide .dv-body { grid-template-columns: clamp(180px, var(--dv-tree-width, 250px), min(600px, calc(100% - 321px))) 1px minmax(0, 1fr) }
+.mac .dv-tree { display: none; min-width: 0; min-height: 0; overflow: auto; padding: 6px } .mac .dv.wide .dv-tree { display: block }
+.mac .dv-resize { display: none; position: relative; width: 9px; margin: 0 -4px; z-index: 3; cursor: col-resize; touch-action: none; outline: 0 }
+.mac .dv.wide .dv-resize { display: block }
+.mac .dv-resize::after { content: ""; position: absolute; inset: 0 4px; background: var(--border) }
+.mac .dv-resize:hover::after, .mac .dv-resize:focus-visible::after, .mac .dv.resizing .dv-resize::after { inset: 0 3px; background: var(--emerald) }
+.mac .dv.resizing, .mac .dv.resizing * { cursor: col-resize; user-select: none }
 .mac .dv-tr { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 3px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--fg); text-align: left; font: 12px var(--mono) }
 .mac .dv-tr.on { background: rgba(94,106,210,.2) } .mac .dv-tr .nm { display: flex; min-width: 0; white-space: nowrap } .mac .dv-tr .nm i { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-style: normal } .mac .dv-tr .nm b { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-weight: 400 } .mac .dv-tr .ct { font-size: 11px; display: flex; gap: 6px }
 .mac .dv-st { font: 600 10.5px var(--mono); text-align: center; color: var(--muted) } .mac .dv-st.A { color: var(--dv-add-fg) } .mac .dv-st.D { color: var(--dv-del-fg) } .mac .dv-st.M { color: #E5B567 } .mac .dv-st.R { color: var(--dv-hunk-fg) }
@@ -156,7 +161,7 @@
     const more = q ? `<div class="dv-note" style="padding:2px">${shown.length} of ${FILES.length} files match</div>` : "";
     return `<div class="dv${wide ? " wide" : ""}${v === "light" ? " light" : ""}"><div class="dv-head"><span class="dv-sum"><b>${FILES.length} files</b><i class="dv-plus">+${add.toLocaleString("en-US")}</i><i class="dv-minus">-${del.toLocaleString("en-US")}</i><span class="base" title="Against origin/main at 3f2c1a0, uncommitted included">vs <code>origin/main</code></span></span>
       <input class="dv-find" placeholder="Filter" aria-label="Filter files" value="${q}"><span class="dv-tools">${v === "pane" ? `<button class="dv-btn icon" aria-pressed="false" title="Uncommitted only: hide the branch's commits">${DV_IC.dirty}</button>` : ""}<button class="dv-btn icon dv-splitbtn" aria-pressed="${dvSplit}" title="${dvSplit ? "Unified" : "Side by side"}" data-dact="dset:dv:${dvSplit ? "mixed" : "split"}">${DV_IC.split}</button><button class="dv-btn icon" title="${v === "collapsed" ? "Expand all" : "Collapse all"}" data-dact="dset:dv:${v === "collapsed" ? "expanded" : "collapsed"}">${v === "collapsed" ? DV_IC.unfold : DV_IC.fold}</button><button class="dv-btn icon" title="Read again" data-toast="Read the changes again">${REFRESH}</button></span><span class="dv-sp"></span><i class="dv-acts"></i></div>
-      <div class="dv-body"><nav class="dv-tree" aria-label="Changed files">${tree}</nav><div class="dv-files">${more}${files}</div></div>
+      <div class="dv-body"><nav class="dv-tree" aria-label="Changed files">${tree}</nav><div class="dv-resize" role="separator" tabindex="0" aria-label="Resize changed files" aria-orientation="vertical" aria-valuemin="180" aria-valuemax="600" aria-valuenow="250" title="Drag to resize, double-click to reset"></div><div class="dv-files">${more}${files}</div></div>
       <div class="dv-keys"><span><kbd>j</kbd><kbd>k</kbd>next, previous file</span><span><kbd>x</kbd>fold the file</span><span><kbd>/</kbd>filter</span></div></div>`;
   };
 const DV_IC = {
@@ -184,5 +189,49 @@ const DV_IC = {
   VARIANTS.dWinDiff = [["Default folds (big and deleted folded)", "mixed"], ["Side by side", "split"], ["All expanded", "expanded"], ["All collapsed", "collapsed"], ["Filtered", "filter"], ["Session Changes tab", "pane"], ["No changes", "empty"], ["Light theme tokens", "light"]]
     .map(([l, k]) => [l, () => { S.d.dv = k; render(); }, () => (S.d.dv || "mixed") === k]);
   window.__dvBody = dvBody;
+  const resize = (grip, width) => {
+    const body = grip.parentElement;
+    const max = Math.max(180, Math.min(600, body.clientWidth - 321));
+    S.d.diffWidth = Math.round(Math.max(180, Math.min(max, width)));
+    body.style.setProperty("--dv-tree-width", `${S.d.diffWidth}px`);
+    grip.setAttribute("aria-valuenow", String(S.d.diffWidth));
+    grip.setAttribute("aria-valuemax", String(max));
+  };
+  const previousRender = render;
+  render = function() {
+    previousRender();
+    document.querySelectorAll(".dv-resize").forEach(grip => resize(grip, S.d.diffWidth || 250));
+  };
+  document.addEventListener("pointerdown", e => {
+    const grip = e.target.closest(".dv-resize");
+    if (!grip || e.button !== 0) return;
+    e.preventDefault();
+    const from = e.clientX, start = grip.previousElementSibling.getBoundingClientRect().width;
+    const root = grip.closest(".dv");
+    root.classList.add("resizing");
+    grip.setPointerCapture(e.pointerId);
+    const move = ev => resize(grip, start + ev.clientX - from);
+    const end = () => {
+      root.classList.remove("resizing");
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", end);
+      grip.removeEventListener("pointercancel", end);
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", end);
+    grip.addEventListener("pointercancel", end);
+  });
+  document.addEventListener("dblclick", e => {
+    const grip = e.target.closest(".dv-resize");
+    if (grip) resize(grip, 250);
+  });
+  document.addEventListener("keydown", e => {
+    const grip = e.target.closest(".dv-resize");
+    const step = e.key === "ArrowLeft" ? -16 : e.key === "ArrowRight" ? 16 : 0;
+    if (!grip || !step) return;
+    e.preventDefault();
+    e.stopPropagation();
+    resize(grip, grip.previousElementSibling.getBoundingClientRect().width + step);
+  });
   const pick = (key, ok, def) => ok.includes(S.d[key]) ? S.d[key] : def;
 }

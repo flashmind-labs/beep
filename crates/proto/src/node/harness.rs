@@ -63,6 +63,12 @@ pub const HARNESSES: &[Harness] = &[
         home_default: "~/.config/opencode",
         npm: Some("opencode-ai"),
     },
+    Harness {
+        agent: "hermes",
+        home_var: "HERMES_HOME",
+        home_default: "~/.hermes",
+        npm: None,
+    },
 ];
 
 /// The harness `agent` names, when Beep knows it.

@@ -4,4 +4,6 @@
 mod menu;
 pub(crate) mod waiting;
 
-pub(crate) use menu::{REPORT, Recent, became_linked, install, refresh, refresh_recent};
+#[cfg(not(target_os = "windows"))]
+pub(crate) use menu::REPORT;
+pub(crate) use menu::{Recent, became_linked, install, refresh, refresh_recent};

@@ -1,3 +1,4 @@
+import { WINDOWS } from "./platform.ts";
 // The Keyboard shortcuts sheet: the list in shortcuts.ts, with a filter.
 import { S } from "../bar/core.ts";
 import { el } from "./dom.ts";
@@ -29,7 +30,7 @@ export function toggleShortcuts() {
 function sections(found: readonly ShortcutSection[]) {
   if (!found.length) return [el("p", "am-sub", "No shortcut matches.")];
   return found.map(s => el("section", "ks-sec", el("div", "ks-h", s.title), ...s.rows.map(r =>
-    el("div", "ks-row", el("span", "", r.does), el("span", "ks-keys", ...caps(r.keys))))));
+    el("div", "ks-row", el("span", "", r.does), el("span", "ks-keys", ...caps(WINDOWS ? r.keys.replace("⌥ ⌥", "Ctrl+Alt+Space").replaceAll("⌘", "Ctrl+").replaceAll("⌥", "Alt+").replaceAll("⇧", "Shift+") : r.keys))))));
 }
 
 /// Key caps for "⌃← / ⌥←": one cap per key, "or" between alternatives.

@@ -1,5 +1,6 @@
 //! The desktop side of projects, credentials, settings and usage over the mesh.
 
+pub mod alerts;
 mod credentials;
 mod desk;
 mod error;
@@ -15,6 +16,7 @@ mod projects;
 mod records;
 mod runs;
 mod session;
+pub mod session_titles;
 mod settings;
 mod sync;
 pub mod temporary;

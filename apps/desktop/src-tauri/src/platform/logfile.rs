@@ -21,8 +21,15 @@ const FILES_KEPT: usize = 3;
 const WEBVIEW_CHARS: usize = 4000;
 
 pub(crate) fn dir() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join("Library/Logs/Beep"))
+    #[cfg(windows)]
+    {
+        Some(PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("Beep/Logs"))
+    }
+    #[cfg(not(windows))]
+    {
+        let home = std::env::var_os("HOME")?;
+        Some(PathBuf::from(home).join("Library/Logs/Beep"))
+    }
 }
 
 /// The file being written now.

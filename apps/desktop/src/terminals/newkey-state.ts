@@ -1,3 +1,4 @@
+import { commandKey, WINDOWS } from "../ui/platform.ts";
 // ⌘N with a terminal on screen: a new terminal like it, not a new agent.
 
 /// A terminal on screen: where it runs, and whether it has the keys.
@@ -11,7 +12,7 @@ export interface TermShown {
 
 /// ⌘N and no other modifier.
 export function isNewKey(e: Pick<KeyboardEvent, "key" | "metaKey" | "shiftKey" | "altKey" | "ctrlKey">) {
-  return e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === "n";
+  return commandKey(e) && !e.shiftKey && !e.altKey && (!e.ctrlKey || WINDOWS) && e.key.toLowerCase() === "n";
 }
 
 /// The terminal ⌘N starts another like: the focused one, else the first on

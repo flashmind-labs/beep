@@ -50,15 +50,15 @@ export async function firstRun(subscribed: boolean, after: () => void, signedOut
   const choose = () => {
     card.replaceChildren(
       el("div", "fr-head", svgEl(LOGO), el("div", "", el("b", "", "Welcome to Beep"), el("div", "fr-sub", "Run coding agents on your machines."))),
-      big("Start", "Use Beep on this Mac. You can add machines later.", "pri", leave),
-      big("Link other desktop", "You already use Beep on another Mac. Share its machines, projects and keys with this one.", "", link));
+      big("Start", "Use Beep on this computer. You can add machines later.", "pri", leave),
+      big("Link another desktop", "You already use Beep on another computer. Share its machines, projects and keys with this one.", "", link));
     card.querySelector("button")?.focus();
   };
   const link = () => {
     const fields = joinFields(leave, button("Back", "dbtn quiet", choose));
     card.replaceChildren(
-      el("div", "fr-head", svgEl(LOGO), el("div", "", el("b", "", "Link other desktop"),
-        el("div", "fr-sub", "On your other desktop, open Machines, then Add a machine, and copy the ticket. This Mac then shares its machines, projects and keys."))),
+      el("div", "fr-head", svgEl(LOGO), el("div", "", el("b", "", "Link another desktop"),
+        el("div", "fr-sub", "On your other desktop, open Machines, then Add a machine, choose Desktop and copy the ticket. This computer then shares its machines, projects and keys."))),
       ...fields.nodes);
     fields.input.focus();
   };

@@ -337,10 +337,11 @@ export const AGENT_KINDS: Record<string, AgentKind> = {
   pi: { ini: "PI", name: "pi", cls: "pi" },
   flsh: { ini: "FL", name: "flsh", cls: "flsh" },
   opencode: { ini: "OC", name: "OpenCode", cls: "opencode" },
+  hermes: { ini: "HE", name: "Hermes", cls: "hermes" },
 };
 /// Agents whose outside sessions a node can take over (the ones it reads sessions of).
 export const canTakeOver = (a: string) => TAKEOVER.has(a);
-export const AGENT_ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
+export const AGENT_ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh", "hermes"];
 export const AGENT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>';
 
 export const agentKind = (a: string): AgentKind => AGENT_KINDS[a] ?? { ini: String(a || "?").slice(0, 2).toUpperCase(), name: a || "Agent", cls: "" };
@@ -395,8 +396,8 @@ export async function renderAgents() {
   if (S.view === "agents") drawAgents(false);
 }
 
-/// A row's sub line: the harness, and the folder and machine; in a linked
-/// worktree the repository, the worktree and the machine.
+/// A row's sub line: the harness, repository and machine; in a linked
+/// worktree, also the worktree name. The folder is the fallback.
 function sessionSub(s: AgentSession, harness: string, folder: string) {
   const worktree = placeSub(placeOf(s), s.machine_name);
   const machine = moveLabel(s)?.sub ?? s.machine_name;
@@ -528,17 +529,17 @@ export function agentBack(closed = false) {
     return;
   }
   if (!closed && S.view === "agent" && (closeModelPicker() || closeChild())) return;
-  // A session an agent started goes back to the session that started it.
-  const up = S.view === "agent" && AG.open ? parentRow(sessions, { machine_id: AG.open.machine_id, id: AG.open.session }) : undefined;
+  // Esc from a child opens its parent; closing returns to the previous page.
+  const up = !closed && S.view === "agent" && AG.open ? parentRow(sessions, { machine_id: AG.open.machine_id, id: AG.open.session }) : undefined;
   if (up) return openAgent(up, { back: AG.back });
-  // In the window a session's parent is its project, wherever it was opened from.
+  if (S.view === "agent" && windowHooks && !closed && leavePane()) return;
+  if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back);
+  if ((S.view === "agent" || S.view === "agentnew") && AG.back === "agents") return renderAgents();
+  // A session without a return target goes to its project.
   if (S.view === "agent" && windowHooks) {
-    if (!closed && leavePane()) return;
     const project = AG.page && windowHooks.sessionProject?.(AG.page.session);
     if (project) return project.open();
   }
-  if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back);
-  if ((S.view === "agent" || S.view === "agentnew") && AG.back === "agents") return renderAgents();
   if (S.link === "unlinked" && !windowHooks) return void invoke("hide_bar");
   return S.session ? openSession(S.session) : renderChat();
 }

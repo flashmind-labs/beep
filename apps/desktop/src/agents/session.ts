@@ -1,3 +1,4 @@
+import { bindTitleEdit } from "./titleedit.ts";
 import { conversationHistory } from "./conversation-state.ts";
 // One coding agent session in the bar: opening it, following it while it
 // shows, its frame, and what a click in it does.
@@ -15,7 +16,7 @@ import { atBottom, followsAfterScroll, returnScroll } from "./logscroll.ts";
 import { copyCode, stopFace, toggleThought } from "./turnrows.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, resetMentions } from "./workdrop.ts";
-import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, agentAvatar, folderName, where, stateTag } from "./agents.ts";
+import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, drawAgents, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_PAUSE_AFTER, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, agentAvatar, folderName, where, stateTag } from "./agents.ts";
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
 import { childRow, parentRow } from "./nesting-state.ts";
 import { loadSessions, sessions, sessionsRead } from "./sessions.ts";
@@ -249,6 +250,10 @@ onShownChange(shown => {
   if (!shown) clearTimeout(AG.timer);
   else if (S.view === "agent") pollAgent();
 }, true);
+listen("agent-title-changed", () => {
+  if (S.view === "agent") void pollAgent(true);
+  void loadSessions().then(() => { if (S.view === "agents") drawAgents(false); }).catch(e => console.warn("session titles:", e));
+});
 // A notice about a session that asks may mean it was answered elsewhere.
 for (const name of ["sessions-changed", "work-resolved"]) {
   listen(name, () => { if (AG.page?.session.status === "asking" && S.view === "agent") pollAgent(); });
@@ -313,7 +318,7 @@ export function shortCwd(cwd: string) {
 }
 
 /// The harnesses that switch models in a running session.
-export const SWITCHES = new Set(["claude", "codex", "opencode", "flsh"]);
+export const SWITCHES = new Set(["claude", "codex", "opencode", "flsh", "hermes"]);
 /// The model and thinking switched to in each session from here, by session.
 export const sessionPicks = new Map<string, { model: string; effort: string | null }>();
 
@@ -370,7 +375,10 @@ function drawAgentHeading() {
   drawSessionClose();
   const title = $("#agtitle");
   if (!title) return;
-  title.textContent = title.title = s.title || agentKind(s.agent).name;
+  if (!title.querySelector("input")) {
+    title.textContent = s.title || agentKind(s.agent).name;
+    title.title = `${title.textContent}\nDouble-click to rename (Enter)`;
+  }
   const project = windowHooks?.sessionProject?.(s), place = placeOf(s);
   const folder = $("#agproj"), branch = $("#agbranch");
   if (folder) folder.textContent = project?.label || (place ? placeRepo(place) : shortCwd(s.cwd)) || agentKind(s.agent).name;
@@ -441,6 +449,17 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   }
   if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
   if (project) $("#agproj")?.addEventListener("click", project.open);
+  const open = AG.open;
+  bindTitleEdit($$("#agtitle"), {
+    value: () => AG.page?.session.title || agentKind(s.agent).name,
+    save: async title => {
+      await invoke("agent_title_save", { machineId: s.machine_id, agent: s.agent, session: s.id, title });
+      if (AG.open !== open) return;
+      if (AG.page) AG.page.session.title = title || null;
+      await pollAgent(true);
+      void loadSessions().catch(e => console.warn("session titles:", e));
+    },
+  });
   drawAgentHeading();
   MN.redraw = drawAgentAttached;
   MN.error = agentAttachError;

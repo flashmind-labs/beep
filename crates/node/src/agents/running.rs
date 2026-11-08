@@ -394,8 +394,11 @@ impl Agents {
         // Only ACP's id is published in SessionInfo.
         let id = match &begin.resume {
             Some(resume) => {
-                // Ended under that id before: the new run takes its place.
-                sessions.remove(resume);
+                // The ended run may be keyed by its original private handle.
+                // Remove it too, so listings cannot shadow the resumed run.
+                sessions.retain(|handle, session| {
+                    handle != resume && session.live.borrow().agent_session.as_ref() != Some(resume)
+                });
                 resume.clone()
             }
             None => loop {

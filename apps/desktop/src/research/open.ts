@@ -1,3 +1,4 @@
+import { commandKey } from "../ui/platform.ts";
 // An opened research, as a page of the command center laid out like a coding
 // agent session: the lead's chat on the left, the paper, notes, sources and the
 // team as the tabs of a side pane on the right. The page is drawn once and
@@ -398,10 +399,10 @@ document.addEventListener("selectionchange", () => { if (!selectedText()) docume
 
 document.addEventListener("keydown", e => {
   if (!active()) return;
-  if (e.metaKey && e.key === "Enter" && R.research?.status === "planning" && R.sending === null) {
+  if (commandKey(e) && e.key === "Enter" && R.research?.status === "planning" && R.sending === null) {
     e.preventDefault();
     return void send("Go");
   }
   if (e.key === "Escape" && R.menu) { R.menu = false; return drawPane(); }
-  if (e.metaKey && e.key === "'" && selectedText()) { e.preventDefault(); quote(); }
+  if (commandKey(e) && e.key === "'" && selectedText()) { e.preventDefault(); quote(); }
 });

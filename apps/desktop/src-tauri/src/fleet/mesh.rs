@@ -43,7 +43,11 @@ pub(super) const LATER: [&str; 4] = [
 
 /// The folders sync follows, wherever the projects are: the user's home.
 pub(super) fn home_folders() -> Folders {
-    let home: Vec<PathBuf> = env::var_os("HOME").map(Into::into).into_iter().collect();
+    let home: Vec<PathBuf> = env::var_os("HOME")
+        .or_else(|| env::var_os("USERPROFILE"))
+        .map(Into::into)
+        .into_iter()
+        .collect();
     Folders::new(&home)
 }
 
