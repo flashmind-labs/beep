@@ -124,52 +124,128 @@ pub fn forget(app: &AppHandle) -> Result<()> {
 mod keychain {
     use super::Identity;
     use anyhow::{Context, Result};
+    use beep_proto::names::username;
     use iroh::SecretKey;
-    use secrecy::SecretBox;
+    use secrecy::{ExposeSecret, SecretBox};
     use security_framework::{
         access_control::{ProtectionMode, SecAccessControl},
         passwords::{delete_generic_password, generic_password, set_generic_password_options},
         passwords_options::PasswordOptions,
     };
-    use std::{fs, io::ErrorKind, path::Path};
+    use std::{
+        fs,
+        io::ErrorKind,
+        path::{Path, PathBuf},
+    };
 
     const SERVICE: &str = "com.flashmind.beep";
     const ACCOUNT: &str = "mesh-key";
     /// `errSecItemNotFound`.
     const NOT_FOUND: i32 = -25300;
 
+    /// The saved key, unless it is unpaired and an older build paired another:
+    /// then that one, so the phone stays paired across the move to this app.
     pub(super) fn load_or_create(old_file: &Path) -> Result<Identity> {
-        match generic_password(PasswordOptions::new_generic_password(SERVICE, ACCOUNT)) {
-            Ok(bytes) => return identity(bytes),
-            Err(e) if e.code() == NOT_FOUND => {}
+        let data = old_file.parent().context("the key file has no folder")?;
+        let saved = match generic_password(PasswordOptions::new_generic_password(SERVICE, ACCOUNT))
+        {
+            Ok(bytes) => Some(identity(bytes)?),
+            Err(e) if e.code() == NOT_FOUND => None,
             Err(e) => return Err(e).context("reading the key from the Keychain"),
-        }
-        // A build that kept the key in a file paired with it: keep it.
-        let (key, moved) = match fs::read(old_file) {
-            Ok(bytes) => (identity(bytes)?, true),
-            Err(e) if e.kind() == ErrorKind::NotFound => (
-                SecretBox::new(Box::new(SecretKey::generate().to_bytes())),
-                false,
-            ),
+        };
+        let saved = match saved {
+            Some(key) if paired(data, key.expose_secret()) => return Ok(key),
+            saved => saved,
+        };
+        let from_file = match fs::read(old_file) {
+            Ok(bytes) => Some(identity(bytes)?),
+            Err(e) if e.kind() == ErrorKind::NotFound => None,
             Err(e) => return Err(e).context("reading the old key file"),
         };
+        let key = if let Some(key) = from_file {
+            key
+        } else if let Some(native) = adopt_native(data) {
+            SecretBox::new(Box::new(native))
+        } else if let Some(saved) = saved {
+            return Ok(saved);
+        } else {
+            SecretBox::new(Box::new(SecretKey::generate().to_bytes()))
+        };
+        save(&key)?;
+        match fs::remove_file(old_file) {
+            Err(e) if e.kind() != ErrorKind::NotFound => {
+                return Err(e).context("removing the old key file");
+            }
+            _ => {}
+        }
+        Ok(key)
+    }
+
+    /// Whether the mesh of `key` is in `data`, where the phone opens it.
+    fn paired(data: &Path, key: &[u8; 32]) -> bool {
+        mesh_dir(data, key).is_dir()
+    }
+
+    fn mesh_dir(data: &Path, key: &[u8; 32]) -> PathBuf {
+        data.join("workspace")
+            .join(SecretKey::from_bytes(key).public().to_string())
+    }
+
+    fn save(key: &Identity) -> Result<()> {
         let mut options = PasswordOptions::new_generic_password(SERVICE, ACCOUNT);
         options.set_access_control(SecAccessControl::create_with_protection(
             Some(ProtectionMode::AccessibleAfterFirstUnlock),
             0,
         )?);
-        set_generic_password_options(secrecy::ExposeSecret::expose_secret(&key), options)
-            .context("saving the key in the Keychain")?;
-        if moved {
-            fs::remove_file(old_file).context("removing the old key file")?;
-        }
-        Ok(key)
+        set_generic_password_options(key.expose_secret(), options)
+            .context("saving the key in the Keychain")
     }
 
     pub(super) fn delete() -> Result<()> {
         match delete_generic_password(SERVICE, ACCOUNT) {
             Err(e) if e.code() != NOT_FOUND => Err(e).context("deleting the key from the Keychain"),
             _ => Ok(()),
+        }
+    }
+
+    /// The native app's mesh key: Keychain item `workspace-<name>`, named
+    /// after its account key in item `identity`.
+    fn native_app_key() -> Option<[u8; 32]> {
+        let account: [u8; 32] =
+            generic_password(PasswordOptions::new_generic_password(SERVICE, "identity"))
+                .ok()?
+                .try_into()
+                .ok()?;
+        let name = username(&SecretKey::from_bytes(&account).public());
+        generic_password(PasswordOptions::new_generic_password(
+            SERVICE,
+            &format!("workspace-{name}"),
+        ))
+        .ok()?
+        .try_into()
+        .ok()
+    }
+
+    /// The native app's key, after moving its mesh from
+    /// `Application Support/workspace/<id>` into `data`. None if it never paired.
+    fn adopt_native(data: &Path) -> Option<[u8; 32]> {
+        let key = native_app_key()?;
+        let from = data
+            .parent()?
+            .join("workspace")
+            .join(SecretKey::from_bytes(&key).public().to_string());
+        if !from.is_dir() {
+            return None;
+        }
+        let to = mesh_dir(data, &key);
+        let moved =
+            fs::create_dir_all(data.join("workspace")).and_then(|()| fs::rename(&from, &to));
+        match moved {
+            Ok(()) => Some(key),
+            Err(e) => {
+                log::warn!("moving the native app's mesh: {e}");
+                None
+            }
         }
     }
 
