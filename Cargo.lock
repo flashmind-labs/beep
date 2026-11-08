@@ -277,19 +277,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-compat"
-version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c97d7ff3c25d6c10d64170c12acaf5d4245e76dece3779c1d92b153a64f11df"
-dependencies = [
- "futures-core",
- "futures-io",
- "once_cell",
- "pin-project-lite",
- "tokio",
-]
-
-[[package]]
 name = "async-compression"
 version = "0.4.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -513,30 +500,6 @@ name = "beef"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a8241f3ebb85c056b509d4327ad0358fbbba6ffb340bf388f26350aeda225b1"
-
-[[package]]
-name = "beep-android"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "beep-fleet",
- "beep-live",
- "beep-mesh",
- "beep-proto",
- "futures",
- "iroh",
- "iroh-tickets",
- "log",
- "rmp-serde",
- "serde",
- "serde_bytes",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "uniffi",
- "uuid",
-]
 
 [[package]]
 name = "beep-fleet"
@@ -8682,9 +8645,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76407f5f396a2c949a069eff4a9fca9ce462410eb872bffef4c2b7b89804a77a"
 dependencies = [
  "anyhow",
- "camino",
  "cargo_metadata",
- "clap",
  "uniffi_bindgen",
  "uniffi_core",
  "uniffi_macros",
@@ -8724,7 +8685,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7530ae8efeaaa488622865966763fe0294832779fff80508c36d69c6a874a6a"
 dependencies = [
  "anyhow",
- "async-compat",
  "bytes",
  "once_cell",
  "static_assertions",
