@@ -48,6 +48,8 @@ export PATH="$work:$PATH"
 export CARGO_TERM_PROGRESS_WHEN=always CARGO_TERM_PROGRESS_WIDTH=$(tput cols 2>/dev/null || echo 100)
 tail -n +1 -f "$progress" &
 follower=$!
+# Stopped quietly at exit, without the shell's "Terminated" line.
+disown "$follower"
 trap 'kill "$follower" 2>/dev/null; rm -rf "$work"' EXIT
 
 case ${1:-} in
