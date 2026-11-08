@@ -390,6 +390,7 @@ mod tests {
             env: [("FLASHMIND_HOME".into(), dir.path().display().to_string())].into(),
             compact: None,
             compact_models: Vec::new(),
+            default_model: None,
         };
         assert_eq!(flsh(&kind).await.current.as_deref(), Some("set:home"));
     }
@@ -415,6 +416,7 @@ cat > /dev/null
             env: Default::default(),
             compact: None,
             compact_models: Vec::new(),
+            default_model: None,
         }
     }
 

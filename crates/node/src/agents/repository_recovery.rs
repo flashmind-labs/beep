@@ -97,6 +97,7 @@ mod tests {
             env: Default::default(),
             compact: None,
             compact_models: Vec::new(),
+            default_model: None,
         };
         let agents = Arc::new(Agents::new(vec![kind.clone()]));
         let hold = agents.reserve_repository(root).await.unwrap();

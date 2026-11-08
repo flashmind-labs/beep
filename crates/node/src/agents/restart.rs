@@ -315,6 +315,7 @@ done
             env: BTreeMap::new(),
             compact: None,
             compact_models: Vec::new(),
+            default_model: None,
         }
     }
 

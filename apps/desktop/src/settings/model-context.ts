@@ -5,7 +5,7 @@ import type { AgentModels } from "../agents/agentmodels.ts";
 import { modelDraft, modelProblem, modelRules } from "./model-context-state.ts";
 import type { ModelCompact, ModelCompactDraft } from "./model-context-state.ts";
 interface Deps { invoke: typeof Invoke; h: MakeEl; button: MakeButton; redraw: () => void }
-interface State { models: AgentModels | null; saved: ModelCompact[]; draft: ModelCompactDraft[]; loading: boolean; saving: boolean; error: string; loaded: boolean; filter: string }
+interface State { models: AgentModels | null; saved: ModelCompact[]; draft: ModelCompactDraft[]; loading: boolean; saving: boolean; error: string; loaded: boolean; filter: string; defaultModel: string; savedDefault: string; savingDefault: boolean; defaultError: string }
 const supportsOverrides = (agent: string) => ["codex", "claude", "pi"].includes(agent);
 export function modelContextPanel({ invoke, h, button, redraw }: Deps) {
   const states = new Map<string, State>();
@@ -13,11 +13,14 @@ export function modelContextPanel({ invoke, h, button, redraw }: Deps) {
     st.loading = true;
     st.error = "";
     try {
-      const [models, rules] = await Promise.all([
+      const [models, rules, defaultModel] = await Promise.all([
         invoke<AgentModels | null>("agent_models", { machineId: machine, agent }),
         supportsOverrides(agent) ? invoke<ModelCompact[]>("harness_model_compacts", { agent }) : Promise.resolve([]),
+        invoke<string | null>("harness_default_model", { agent }),
       ]);
       st.models = models;
+      st.defaultModel = defaultModel ?? "";
+      st.savedDefault = st.defaultModel;
       st.saved = rules;
       st.draft = modelDraft(rules);
       st.loaded = true;
@@ -42,13 +45,43 @@ export function modelContextPanel({ invoke, h, button, redraw }: Deps) {
     const key = `${machine} ${agent}`;
     let st = states.get(key);
     if (!st) {
-      st = { models: null, saved: [], draft: [], loading: false, saving: false, error: "", loaded: false, filter: "" };
+      st = { models: null, saved: [], draft: [], loading: false, saving: false, error: "", loaded: false, filter: "", defaultModel: "", savedDefault: "", savingDefault: false, defaultError: "" };
       states.set(key, st);
       void load(machine, agent, st);
     }
     const state = st, title = h("h4", "", "Models and context");
     if (st.loading) return [title, h("div", "hv-note", "Loading models and context limits…")];
     if (!st.loaded) return [title, h("div", "derr", st.error), button("Try again", "", () => { void load(machine, agent, state); redraw(); })];
+    const defaultInput = h("input", "hv-in");
+    defaultInput.value = st.defaultModel;
+    defaultInput.placeholder = "Harness default";
+    defaultInput.setAttribute("aria-label", "Default model");
+    defaultInput.setAttribute("list", "harness-default-models");
+    defaultInput.disabled = st.savingDefault;
+    const choices = h("datalist", "");
+    choices.id = "harness-default-models";
+    for (const model of st.models?.models ?? []) {
+      if (model.id.toLowerCase() === "default") continue;
+      const option = h("option", ""); option.value = model.id; option.label = model.name; choices.append(option);
+    }
+    const defaultError = h("span", "derr", st.defaultError);
+    const saveDefault = button(st.savingDefault ? "Saving…" : "Save default model", "pri", () => {
+      const model = state.defaultModel.trim();
+      if (state.savingDefault || model === state.savedDefault) return;
+      state.savingDefault = true; state.defaultError = ""; redraw();
+      void invoke("harness_default_model_save", { agent, model: model || null }).then(() => {
+        state.savedDefault = model; state.defaultModel = model;
+        for (const [otherKey, other] of states) if (otherKey.endsWith(` ${agent}`) && other !== state) states.delete(otherKey);
+      }).catch(e => { state.defaultError = String(e); }).finally(() => { state.savingDefault = false; redraw(); });
+    });
+    saveDefault.disabled = st.savingDefault || st.defaultModel.trim() === st.savedDefault;
+    defaultInput.addEventListener("input", () => {
+      state.defaultModel = defaultInput.value;
+      saveDefault.disabled = state.savingDefault || state.defaultModel.trim() === state.savedDefault;
+    });
+    const defaultRow = h("div", "hv-f", h("span", "", h("b", "", "Default model"),
+      h("small", "", "Used for new sessions on every machine. Blank uses the harness default.")),
+      h("div", "", defaultInput, choices, saveDefault, defaultError));
     const editable = supportsOverrides(agent), models = st.models?.models ?? [];
     const note = h("div", "hv-note", "Limits from this machine's harness. Maximum usable can be smaller than the API limit.");
     const help = editable ? h("div", "hv-note", "Overrides apply to new or resumed sessions on every machine, between turns. Blank uses Auto-compact above; off disables Beep's trigger. The harness may compact earlier. Enter 80%, 350000, or off.") : null;
@@ -92,7 +125,7 @@ export function modelContextPanel({ invoke, h, button, redraw }: Deps) {
       idInput.focus();
     });
     add.disabled = st.saving; refresh();
-    return [title, note, ...(help ? [help] : []), ...(!ids.length ? [h("div", "hv-note", "This harness did not list its models.")] : []), filter, h("div", "model-context-scroll", table), ...(editable ? [h("div", "hv-acts", add, saveBtn, button("Discard", "quiet", () => { state.draft = modelDraft(state.saved); redraw(); }), problem)] : []), ...(st.error ? [h("div", "derr", st.error)] : [])];
+    return [title, defaultRow, note, ...(help ? [help] : []), ...(!ids.length ? [h("div", "hv-note", "This harness did not list its models.")] : []), filter, h("div", "model-context-scroll", table), ...(editable ? [h("div", "hv-acts", add, saveBtn, button("Discard", "quiet", () => { state.draft = modelDraft(state.saved); redraw(); }), problem)] : []), ...(st.error ? [h("div", "derr", st.error)] : [])];
   }
   return { render };
 }

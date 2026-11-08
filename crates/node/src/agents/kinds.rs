@@ -1,6 +1,7 @@
 //! The agents a node knows how to start, and how it starts them.
 
 use super::{Route, adapters, locate};
+use beep_proto::ModelId;
 use beep_proto::node::harness::{AutoCompact, ModelCompact};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -24,6 +25,8 @@ pub struct AgentKind {
     pub compact: Option<AutoCompact>,
     #[serde(default)]
     pub compact_models: Vec<ModelCompact>,
+    #[serde(default)]
+    pub default_model: Option<ModelId>,
 }
 
 /// Shows the names of its variables, never their values, which may be the
@@ -413,6 +416,7 @@ pub(super) fn launch(
         env,
         compact: None,
         compact_models: Vec::new(),
+        default_model: None,
     };
     Some(if on_own_node {
         Launch::OnOwnNode(kind)

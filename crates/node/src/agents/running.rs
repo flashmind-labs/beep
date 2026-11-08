@@ -164,7 +164,12 @@ impl Agents {
             .settings
             .configured(&kind)
             .unwrap_or_else(|_| kind.clone());
-        Some(self.models.get(name, models::find(kind)).await)
+        let default_model = kind.default_model.clone();
+        let mut list = self.models.get(name, models::find(kind)).await;
+        if let Some(model) = default_model {
+            list.current = Some(model.to_string());
+        }
+        Some(list)
     }
 
     /// The CLI of `agent`, with `args`, as a plan read starts it: signed
