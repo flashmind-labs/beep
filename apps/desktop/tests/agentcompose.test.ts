@@ -269,11 +269,22 @@ test("replacing the shared session list does not change what a drawn row opens",
 
 test("the open session title follows the title returned by its machine", async () => {
   const page = openSession("idle");
-  const title = { textContent: "", title: "" };
+  const title = { textContent: "", title: "", querySelector: () => null };
   show({ "#agtitle": title });
   await read({ ...page, session: { ...page.session, title: "Fix the retry" } });
   assert.equal(title.textContent, "Fix the retry");
-  assert.equal(title.title, "Fix the retry");
+  assert.equal(title.title, "Fix the retry\nDouble-click to rename (Enter)");
+});
+
+test("a session refresh preserves a title being edited", async () => {
+  const page = openSession("idle");
+  const input = { value: "My unfinished title" };
+  const title = { textContent: "", title: "", querySelector: () => input };
+  show({ "#agtitle": title });
+  await read({ ...page, session: { ...page.session, title: "New generated title" } });
+  assert.equal(title.textContent, "");
+  assert.equal(input.value, "My unfinished title");
+  assert.equal(AG.page?.session.title, "New generated title");
 });
 
 test("close refuses ended and external sessions and empty drafts", async () => {
