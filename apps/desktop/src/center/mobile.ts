@@ -6,7 +6,7 @@ import { el as h } from "../ui/dom.ts";
 import { allTerms } from "../terminals/view.ts";
 import { openTile } from "../project/split.ts";
 import { pa } from "../project/sections.ts";
-import { homeTab, jump } from "./home.ts";
+import { HOME_TAB_EVENT, homeTab, jump } from "./home.ts";
 import { go, goHistory, shown } from "./views.ts";
 import { openProjects, paneOn } from "./sidebar.ts";
 import { activeTab, backTo, fullScreen, TABS, type MobileAt, type MobileTab } from "./mobile-state.ts";
@@ -179,6 +179,7 @@ export function initMobile() {
   apply();
   window.addEventListener("resize", apply);
   window.matchMedia("(pointer: coarse)").addEventListener("change", apply);
+  document.addEventListener(HOME_TAB_EVENT, syncMobile);
   longPress();
   keyboard();
   plainTips();
