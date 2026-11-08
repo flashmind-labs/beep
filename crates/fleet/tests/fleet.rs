@@ -782,6 +782,7 @@ async fn usage_sums_every_machine() {
                 used_percent: used,
                 ..Default::default()
             }],
+            credits: Vec::new(),
             at,
         },
     };
@@ -823,6 +824,7 @@ fn plan_reply(agent: &str, used: f64, at: u64) -> SessionsReply {
                 used_percent: used,
                 ..Default::default()
             }],
+            credits: Vec::new(),
             at,
         },
     }

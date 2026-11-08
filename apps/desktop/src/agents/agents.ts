@@ -1,3 +1,4 @@
+import type { ProviderCredits } from "../ui/credits.ts";
 // agents/: coding agents in the bar: the start form, the picker, one
 // session's log and messages, and every session. Entry: this file.
 // Start a coding agent on one of the user's machines, follow it live and
@@ -31,7 +32,7 @@ import type { OlderStop } from "./older-state.ts";
 import { closeModelPicker } from "./modelpill.ts";
 import { queueMessage, steerMessage, interruptAgent, answerFirst, sendAgentMessage } from "./messages.ts";
 import { cycleMode } from "./modepill.ts";
-import { esc, money, tokenCount } from "../ui/format.ts";
+import { esc, money } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -126,6 +127,7 @@ export interface AgentUsage {
   context: { used: number; size: number } | null;
   tokens: number;
   cost_usd: number | null;
+  credits?: ProviderCredits[];
 }
 
 /// The modes of a session, as `agent_modes` returns them. `plan` is the plan
@@ -150,12 +152,20 @@ export interface AgentTask {
   entry: number | null;
 }
 
-/// "62% context · 184K tokens · $1.42", leaving out what is not known.
+const sessionTokens = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+const contextTokens = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 });
+
+/// Context, session totals and provider balances in the session header.
 export function usageLine(u: AgentUsage) {
   const parts: string[] = [];
-  if (u.context?.size) parts.push(`${Math.round((u.context.used * 100) / u.context.size)}% context`);
-  if (u.tokens) parts.push(`${tokenCount(u.tokens)} tokens`);
-  if (u.cost_usd != null) parts.push(money(u.cost_usd));
+  if (u.context?.size) parts.push(`${Math.round((u.context.used * 100) / u.context.size)}%/${contextTokens.format(u.context.size).replace("K", "k")}`);
+  if (u.tokens) parts.push(`${sessionTokens.format(u.tokens).replace("K", "k")} tokens`);
+  const credit = u.credits?.find(c => c.unit === "usd");
+  const spent = u.cost_usd == null ? "?" : money(u.cost_usd);
+  if (credit) {
+    const remaining = credit.remaining == null ? NaN : Number(credit.remaining);
+    parts.push(`${spent} / ${Number.isFinite(remaining) ? money(remaining) : "?"}`);
+  } else if (u.cost_usd != null) parts.push(spent);
   return parts.join(" · ");
 }
 

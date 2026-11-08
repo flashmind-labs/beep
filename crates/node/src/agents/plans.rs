@@ -192,6 +192,7 @@ fn claude_plan(usage: &Value, at: u64) -> Option<PlanUsage> {
         agent: AgentSlug::CLAUDE,
         plan: usage["subscription_type"].as_str().map(str::to_owned),
         windows,
+        credits: Vec::new(),
         at,
     })
 }
@@ -223,6 +224,7 @@ fn codex_plan(result: &Value, at: u64) -> Option<PlanUsage> {
         agent: AgentSlug::CODEX,
         plan: limits["planType"].as_str().map(str::to_owned),
         windows,
+        credits: Vec::new(),
         at,
     })
 }

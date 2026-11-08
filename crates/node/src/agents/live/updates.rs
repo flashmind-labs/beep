@@ -19,6 +19,7 @@ use beep_proto::{
     AgentContext,
     node::agent::{AgentCommand, EntryKind, PlanEntry, PlanStatus, Status},
 };
+use serde_json::Value;
 use std::{
     path::PathBuf,
     time::{Duration, Instant, SystemTime},
@@ -104,10 +105,14 @@ impl Live {
                 }
             }
             SessionUpdate::UsageUpdate(usage) => {
-                self.info.context = Some(AgentContext {
-                    used: usage.used,
-                    size: usage.size,
-                });
+                if !usage.meta.as_ref().is_some_and(|meta| {
+                    meta.get("flsh/contextUsageAvailable") == Some(&Value::Bool(false))
+                }) {
+                    self.info.context = Some(AgentContext {
+                        used: usage.used,
+                        size: usage.size,
+                    });
+                }
                 let cost = usage
                     .cost
                     .as_ref()
