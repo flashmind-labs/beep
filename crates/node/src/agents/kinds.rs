@@ -202,6 +202,21 @@ pub(super) const KNOWN: &[Known] = &[
         compact: Route::OwnTrigger,
         async_tasks: false,
     },
+    // Hermes speaks ACP itself and keeps its provider setup and memory.
+    Known {
+        name: "hermes",
+        title: "Hermes",
+        cli: "hermes",
+        adapter: Adapter::Flags(&["acp"]),
+        env: &[],
+        thinking_env: &[],
+        bypass_mode: Some("dont_ask"),
+        full_mode: Some("dont_ask"),
+        read_only_mode: None,
+        model_flag: false,
+        compact: Route::OwnTrigger,
+        async_tasks: false,
+    },
     // Merged over its config as the last rule, which wins over the defaults
     // that ask (`doom_loop`, `external_directory`, reading `.env` files).
     Known {
@@ -430,7 +445,7 @@ mod tests {
 
     #[test]
     fn a_native_cli_with_no_adapter_and_no_npx_lacks_its_adapter() {
-        let natives = has(&["claude", "codex", "pi", "gemini"]);
+        let natives = has(&["claude", "codex", "pi", "gemini", "hermes"]);
         for name in ["claude", "codex", "pi"] {
             assert_eq!(
                 launch(known(name), &natives, None),
@@ -443,6 +458,11 @@ mod tests {
             launch(known("gemini"), &natives, None),
             Some(Launch::Ready(_))
         ));
+        assert!(matches!(
+            launch(known("hermes"), &natives, None),
+            Some(Launch::Ready(_))
+        ));
+        assert_eq!(launch(known("hermes"), &has(&["npx"]), None), None);
         // No CLI, nothing to install.
         assert_eq!(launch(known("opencode"), &natives, None), None);
         assert_eq!(launch(known("claude"), &has(&["npx"]), None), None);

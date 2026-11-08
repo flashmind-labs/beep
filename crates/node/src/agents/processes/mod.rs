@@ -37,7 +37,9 @@ struct Process {
 }
 
 /// The coding agents' own programs, never a command they ran.
-const HARNESSES: [&str; 6] = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
+const HARNESSES: [&str; 7] = [
+    "claude", "codex", "gemini", "opencode", "pi", "flsh", "hermes",
+];
 /// The npm packages an agent's CLI runs from, as Node starts it.
 const HARNESS_PACKAGES: [&str; 3] = [
     "@openai/codex",

@@ -318,7 +318,7 @@ export function shortCwd(cwd: string) {
 }
 
 /// The harnesses that switch models in a running session.
-export const SWITCHES = new Set(["claude", "codex", "opencode", "flsh"]);
+export const SWITCHES = new Set(["claude", "codex", "opencode", "flsh", "hermes"]);
 /// The model and thinking switched to in each session from here, by session.
 export const sessionPicks = new Map<string, { model: string; effort: string | null }>();
 
