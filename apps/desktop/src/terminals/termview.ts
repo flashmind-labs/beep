@@ -7,6 +7,7 @@ import { outputBatch } from "./output-batch.ts";
 import { leavesTerminal } from "../agentpane/media-state.ts";
 import { wordKeyBytes } from "./keys-state.ts";
 import { ZOOMED } from "../ui/zoom-state.ts";
+import { WINDOWS } from "../ui/platform.ts";
 import type { Screen } from "./terminals.ts";
 
 /// The terminal's colours, as the mock's terminal pane.
@@ -61,15 +62,18 @@ export function makeScreen(): Screen {
     if (!opened) {
       term.open(el);
       opened = true;
-      // GPU rendering needs an open terminal. Disposing it restores the DOM renderer.
-      let webgl: WebglAddon | undefined;
-      try {
-        webgl = new WebglAddon();
-        webgl.onContextLoss(() => webgl?.dispose());
-        term.loadAddon(webgl);
-      } catch (e) {
-        webgl?.dispose();
-        console.warn("Terminal GPU rendering unavailable:", e);
+      // Keep WebKit terminals on the DOM renderer: a hung GPU process can
+      // terminate the whole window before the context-loss handler runs.
+      if (WINDOWS) {
+        let webgl: WebglAddon | undefined;
+        try {
+          webgl = new WebglAddon();
+          webgl.onContextLoss(() => webgl?.dispose());
+          term.loadAddon(webgl);
+        } catch (e) {
+          webgl?.dispose();
+          console.warn("Terminal GPU rendering unavailable:", e);
+        }
       }
       if (wantFocus) { wantFocus = false; term.focus(); }
     }
