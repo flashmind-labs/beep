@@ -33,7 +33,7 @@ pub use git_board::{GitKept, GitUpdate};
 pub use issues::{has_project, places, project_id, project_names};
 pub use moves::{AskedWorktree, CopyState, MoveAsk};
 pub use nearest::nearest_first;
-pub use notice_read::{mark_read, read_marks};
+pub use notice_read::{Read, digest, mark_read, read_marks};
 pub use observer::{observe, phone_ticket};
 pub use peer::Peers;
 pub use projects::ImportJob;

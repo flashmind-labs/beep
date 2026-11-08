@@ -11,6 +11,7 @@ async-trait = "0.1"
 beep-mesh = { path = "../mesh" }
 beep-projects = { path = "../projects" }
 beep-proto = { path = "../proto", features = ["https"] }
+blake3 = "1"
 chrono = "0.4"
 fastrand = "2"
 futures = "0.3"

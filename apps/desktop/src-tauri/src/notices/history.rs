@@ -12,6 +12,7 @@ use crate::{
     tray::waiting,
 };
 use anyhow::Context;
+use beep_fleet::{Read, digest};
 use beep_proto::{
     AgentNoticeKey, ApiError, Notice, RunState,
     node::{
@@ -23,7 +24,7 @@ use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Reverse,
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     fs,
     path::{Component, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
@@ -85,6 +86,11 @@ pub struct Note {
 }
 
 impl Note {
+    /// What names this version of the note, the same on every app.
+    pub(crate) fn digest(&self) -> u64 {
+        digest(&[&format!("{:?}", self.kind), &self.title, &self.text])
+    }
+
     /// An unread note made now, with no text and nothing to open.
     pub(crate) fn new(kind: NoteKind, id: String, title: String, source: String) -> Self {
         Self {
@@ -107,17 +113,18 @@ pub(crate) fn now_ms() -> u64 {
     epoch_ms(SystemTime::now())
 }
 
-/// Whether an app read `note` after it was made. A newer note with the same id is unread.
-fn read_since(marks: &HashMap<String, u64>, note: &Note) -> bool {
-    marks.get(&note.id).is_some_and(|at| *at >= note.at)
+/// Whether an app read this version of `note`. A later turn under the same id says something
+/// else, so it is unread.
+fn read_since(marks: &HashSet<Read>, note: &Note) -> bool {
+    marks.contains(&(note.id.clone(), note.digest()))
 }
 
 /// The notes and the file they are kept in.
 pub struct Notes {
     path: PathBuf,
     list: Mutex<Vec<Note>>,
-    /// When each note was last read on any app of the mesh, by id. Locked before `list`.
-    marks: Mutex<HashMap<String, u64>>,
+    /// The notes read on any app of the mesh, by id and digest. Locked before `list`.
+    marks: Mutex<HashSet<Read>>,
     /// One write at a time, each of the newest list.
     saving: Mutex<()>,
 }
@@ -135,7 +142,7 @@ impl Notes {
         Self {
             path,
             list: Mutex::new(list),
-            marks: Mutex::new(HashMap::new()),
+            marks: Mutex::new(HashSet::new()),
             saving: Mutex::new(()),
         }
     }
@@ -144,7 +151,7 @@ impl Notes {
         self.list.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn lock_marks(&self) -> MutexGuard<'_, HashMap<String, u64>> {
+    fn lock_marks(&self) -> MutexGuard<'_, HashSet<Read>> {
         self.marks.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -188,14 +195,14 @@ impl Notes {
         })
     }
 
-    /// Marks read the notes in `ids` that are not yet; returns their ids.
-    fn read(&self, ids: &[String]) -> Vec<String> {
+    /// Marks read the notes in `ids` that are not yet; returns what was read.
+    fn read(&self, ids: &[String]) -> Vec<Read> {
         let mut read = Vec::new();
         self.change(|note| {
             let now = !note.read && ids.contains(&note.id);
             note.read |= now;
             if now {
-                read.push(note.id.clone());
+                read.push((note.id.clone(), note.digest()));
             }
             now
         });
@@ -203,7 +210,7 @@ impl Notes {
     }
 
     /// Takes the reads the apps of the mesh share; true when a note became read.
-    fn shared_reads(&self, marks: HashMap<String, u64>) -> bool {
+    fn shared_reads(&self, marks: HashSet<Read>) -> bool {
         let mut held = self.lock_marks();
         *held = marks;
         self.change(|note| {

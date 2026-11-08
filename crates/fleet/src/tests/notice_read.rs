@@ -4,7 +4,12 @@ fn mark(id: &str, at_ms: u64) -> Mark {
     Mark {
         id: id.into(),
         at_ms,
+        digest: 7,
     }
+}
+
+fn read_of(id: &str) -> Read {
+    (id.into(), 7)
 }
 
 fn listed(ids: &[&str]) -> HashSet<String> {
@@ -14,14 +19,14 @@ fn listed(ids: &[&str]) -> HashSet<String> {
 #[test]
 fn a_new_read_replaces_the_old_mark_of_its_id() {
     let held = vec![mark("a", 1), mark("b", 2)];
-    let marks = merge(held, &["a".into()], &listed(&["a", "b"]), 9);
+    let marks = merge(held, &[read_of("a")], &listed(&["a", "b"]), 9);
     assert_eq!(marks, [mark("a", 9), mark("b", 2)]);
 }
 
 #[test]
 fn marks_of_notifications_no_longer_listed_are_dropped() {
     let held = vec![mark("gone", 5), mark("b", 2)];
-    let marks = merge(held, &["a".into()], &listed(&["a", "b"]), 9);
+    let marks = merge(held, &[read_of("a")], &listed(&["a", "b"]), 9);
     assert_eq!(marks, [mark("a", 9), mark("b", 2)]);
 }
 
@@ -46,8 +51,17 @@ fn marks_are_positional_msgpack() {
     }
     .to_bytes()
     .expect("encodes");
-    // [[["a", 1]]]
-    assert_eq!(bytes, [0x91, 0x91, 0x92, 0xa1, b'a', 0x01]);
+    // [[["a", 1, 7]]]
+    assert_eq!(bytes, [0x91, 0x91, 0x93, 0xa1, b'a', 0x01, 0x07]);
     let back = Marks::from_bytes(&bytes).expect("reads");
     assert_eq!(back.marks, [mark("a", 1)]);
+}
+
+#[test]
+fn the_digest_is_stable_and_tells_versions_apart() {
+    assert_eq!(digest(&["Done", "ok"]), digest(&["Done", "ok"]));
+    assert_ne!(digest(&["Done", "ok"]), digest(&["Done", "more"]));
+    assert_ne!(digest(&["ab", "c"]), digest(&["a", "bc"]));
+    // Pinned, so a change of hash is noticed: apps would stop agreeing.
+    assert_eq!(digest(&["a"]), 12_559_661_471_446_138_455);
 }

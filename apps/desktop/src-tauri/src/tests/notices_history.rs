@@ -60,7 +60,7 @@ fn read_finish_and_dismiss_say_when_they_changed_something() {
     let notes = store(&dir);
     notes.put(note("a", 1), 1);
     notes.put(note("b", 2), 2);
-    assert_eq!(notes.read(&["a".into()]), ["a"]);
+    assert_eq!(notes.read(&["a".into()]).len(), 1);
     assert!(notes.read(&["a".into(), "gone".into()]).is_empty());
     assert!(notes.get("a").is_some_and(|n| n.read));
     assert!(notes.get("b").is_some_and(|n| !n.read));
@@ -71,10 +71,8 @@ fn read_finish_and_dismiss_say_when_they_changed_something() {
     assert_eq!(ids(&notes), ["b"]);
 }
 
-fn marks(list: &[(&str, u64)]) -> HashMap<String, u64> {
-    list.iter()
-        .map(|(id, at)| ((*id).to_owned(), *at))
-        .collect()
+fn marks(list: &[&Note]) -> HashSet<Read> {
+    list.iter().map(|n| (n.id.clone(), n.digest())).collect()
 }
 
 #[test]
@@ -83,29 +81,32 @@ fn a_read_on_another_app_reads_the_note_here() {
     let notes = store(&dir);
     notes.put(note("a", 10), 10);
     notes.put(note("b", 10), 10);
-    assert!(notes.shared_reads(marks(&[("a", 20), ("other", 20)])));
+    let other = note("other", 10);
+    assert!(notes.shared_reads(marks(&[&note("a", 99), &other])));
     assert!(notes.get("a").is_some_and(|n| n.read));
     assert!(notes.get("b").is_some_and(|n| !n.read));
     // Told again, it changes nothing.
-    assert!(!notes.shared_reads(marks(&[("a", 20)])));
+    assert!(!notes.shared_reads(marks(&[&note("a", 99)])));
 }
 
 #[test]
-fn a_read_that_came_first_reads_the_note_that_comes_later() {
+fn a_note_that_arrives_after_the_read_is_read_whatever_its_time() {
     let dir = TempDir::new().expect("a temp dir");
     let notes = store(&dir);
-    notes.shared_reads(marks(&[("a", 20)]));
-    notes.put(note("a", 15), 20);
+    // This app was offline: the note is made here long after it was read elsewhere.
+    notes.shared_reads(marks(&[&note("a", 20)]));
+    notes.put(note("a", 5000), 5000);
     assert!(notes.get("a").is_some_and(|n| n.read));
 }
 
 #[test]
-fn a_note_made_after_the_read_is_unread() {
+fn a_later_turn_under_the_same_id_is_unread() {
     let dir = TempDir::new().expect("a temp dir");
     let notes = store(&dir);
-    notes.shared_reads(marks(&[("a", 20)]));
-    // The same session finished another turn.
-    notes.put(note("a", 30), 30);
+    notes.shared_reads(marks(&[&note("a", 20)]));
+    let mut again = note("a", 30);
+    again.text = "Finished another turn".into();
+    notes.put(again, 30);
     assert!(notes.get("a").is_some_and(|n| !n.read));
 }
 
