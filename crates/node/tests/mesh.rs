@@ -652,6 +652,8 @@ async fn another_node_gets_no_shell_but_can_use_agent_tools() {
         SHELL,
         "process/1",
         "agents/1",
+        beep_proto::node::events::PROTOCOL,
+        beep_proto::node::agent::SESSION_FOLLOW_PROTOCOL,
         "files/1",
         "terminal/1",
         "codex/1",
@@ -4804,4 +4806,265 @@ async fn skill_sync_can_pause_survive_a_restart_and_resume_without_removing_file
         tree(&a.home.path().join(".claude/skills/notes"))
     );
     assert_eq!(tree(&b.home.path().join(".claude/skills/local")), local);
+}
+
+mod topic_streams {
+    use super::*;
+    use beep_mesh::PeerClient;
+    use beep_proto::node::events::{self, CallReply, EventId, Operation, Topic};
+
+    async fn receive(rx: &mut LinkRx) -> events::Reply {
+        timeout(LIMIT, rx.recv::<events::Reply>())
+            .await
+            .expect("the topic stream answers in time")
+            .expect("a topic reply decodes")
+            .expect("the topic stream stays open")
+    }
+
+    async fn subscribe(client: &PeerClient, topics: Vec<Topic>, after: Option<EventId>) -> Stream {
+        let (tx, rx) = client
+            .open_sending(
+                events::PROTOCOL,
+                &events::Request::Watch {
+                    id: 1,
+                    topics,
+                    after,
+                },
+            )
+            .await
+            .expect("the first attempt opens the topic stream");
+        Stream { tx, rx }
+    }
+
+    async fn watching(rx: &mut LinkRx) {
+        loop {
+            match receive(rx).await {
+                events::Reply::Watching { id: 1 } => return,
+                events::Reply::CaughtUp { .. } => {}
+                other => panic!("the subscription was not acknowledged: {other:?}"),
+            }
+        }
+    }
+
+    async fn initial_snapshot(rx: &mut LinkRx) -> EventId {
+        assert_eq!(receive(rx).await, events::Reply::Ready);
+        watching(rx).await;
+        loop {
+            match receive(rx).await {
+                events::Reply::Resync { cursor } => return cursor,
+                events::Reply::CaughtUp { .. } => {}
+                other => panic!("initial subscription did not request current state: {other:?}"),
+            }
+        }
+    }
+
+    async fn replaced_connection(desktop: &Member, node: EndpointId, previous: usize) {
+        let mut changes = desktop.mesh.updates();
+        timeout(LIMIT, async {
+            loop {
+                changes.borrow_and_update();
+                if desktop.mesh.peer(node).is_some_and(|connection| {
+                    connection.stable_id() != previous && connection.close_reason().is_none()
+                }) {
+                    return;
+                }
+                changes.changed().await.expect("the mesh stays open");
+            }
+        })
+        .await
+        .expect("the mesh replaces the closed connection");
+    }
+
+    #[tokio::test]
+    async fn topic_streams_subscribe_on_the_first_attempt_and_carry_commands_both_ways() {
+        let root = TempDir::new().expect("a shared directory");
+        let desktop = desktop().await;
+        let node = Node::start(Config {
+            files: vec![root.path().to_owned()],
+            ..Config::default()
+        })
+        .await;
+        node.join(&desktop.ticket(DeviceKind::Node).await).await;
+        let conn = desktop.reach(node.id).await;
+        let client = PeerClient::over(conn.mesh, conn.id);
+        let files = Topic::keyed("files", root.path().to_str().expect("a UTF-8 path"));
+        let mut stream =
+            subscribe(&client, vec![files.clone(), Topic::new("processes")], None).await;
+        let initial = initial_snapshot(&mut stream.rx).await;
+        // Both calls are sent before reading any reply; notifications can arrive between them.
+        stream
+            .tx
+            .send(&events::Request::Call {
+                id: 2,
+                operation: Box::new(Operation::Process(ProcessRequest::Start {
+                    command: "echo duplex-output".to_owned(),
+                    cwd: None,
+                })),
+            })
+            .await
+            .expect("a process command is sent");
+        stream
+            .tx
+            .send(&events::Request::Call {
+                id: 3,
+                operation: Box::new(Operation::Process(ProcessRequest::List {})),
+            })
+            .await
+            .expect("another command shares the stream");
+        fs::write(root.path().join("example.txt"), "changed")
+            .expect("a file changes after subscribing");
+        let (mut started, mut listed, mut file_changed, mut process_changed) =
+            (false, false, false, false);
+        let mut last = initial;
+        timeout(LIMIT, async {
+            while !(started && listed && file_changed && process_changed) {
+                match receive(&mut stream.rx).await {
+                    events::Reply::Result { id: 2, reply } => {
+                        assert!(matches!(
+                            *reply,
+                            CallReply::Process(ProcessReply::Started { .. })
+                        ));
+                        started = true;
+                    }
+                    events::Reply::Result { id: 3, reply } => {
+                        assert!(matches!(
+                            *reply,
+                            CallReply::Process(ProcessReply::Tasks { .. })
+                        ));
+                        listed = true;
+                    }
+                    events::Reply::Changed(event) => {
+                        assert_eq!(event.id.epoch, initial.epoch);
+                        assert!(
+                            event.id.sequence > last.sequence,
+                            "live events stay ordered"
+                        );
+                        last = event.id;
+                        file_changed |= event.topic == files;
+                        process_changed |= event.topic == Topic::new("processes");
+                    }
+                    events::Reply::Error { reason, .. } => panic!("a duplex call failed: {reason}"),
+                    events::Reply::CaughtUp { .. } => {}
+                    other => panic!("unexpected topic reply: {other:?}"),
+                }
+            }
+        })
+        .await
+        .expect("commands and topic updates complete without reconnecting");
+        stream
+            .tx
+            .send(&events::Request::Ping { id: 4 })
+            .await
+            .expect("the writer stays usable");
+        loop {
+            match receive(&mut stream.rx).await {
+                events::Reply::Pong { id: 4 } => break,
+                events::Reply::Changed(_) | events::Reply::CaughtUp { .. } => {}
+                other => panic!("the live duplex stream did not answer ping: {other:?}"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn topic_streams_replay_after_a_connection_loss_and_resync_after_a_restart() {
+        let desktop = desktop().await;
+        let node = Node::start(Config::default()).await;
+        node.join(&desktop.ticket(DeviceKind::Node).await).await;
+        let conn = desktop.reach(node.id).await;
+        let client = PeerClient::over(conn.mesh.clone(), conn.id);
+        let topics = vec![Topic::new("processes")];
+        let mut first = subscribe(&client, topics.clone(), None).await;
+        let cursor = initial_snapshot(&mut first.rx).await;
+        drop(first);
+        // An independent observer confirms the update entered the node's replay history.
+        let mut observer = subscribe(&client, topics.clone(), None).await;
+        initial_snapshot(&mut observer.rx).await;
+        let mut process = ready(&conn, "process/1").await;
+        process
+            .tx
+            .send(&ProcessRequest::Start {
+                command: "echo during-the-gap".to_owned(),
+                cwd: None,
+            })
+            .await
+            .expect("a command runs while the first subscription is gone");
+        assert!(matches!(
+            process
+                .rx
+                .recv::<ProcessReply>()
+                .await
+                .expect("a process reply decodes"),
+            Some(ProcessReply::Started { .. })
+        ));
+        let missed = loop {
+            match receive(&mut observer.rx).await {
+                events::Reply::Changed(event) => break event,
+                events::Reply::CaughtUp { .. } => {}
+                other => panic!("the observer missed the process event: {other:?}"),
+            }
+        };
+        assert_eq!(missed.topic, Topic::new("processes"));
+        assert!(missed.id.sequence > cursor.sequence);
+        drop((observer, process));
+        let connection = desktop
+            .mesh
+            .peer(node.id)
+            .expect("the original connection exists");
+        let previous = connection.stable_id();
+        connection.close(0u32.into(), b"test reconnect");
+        replaced_connection(&desktop, node.id, previous).await;
+        let mut resumed = subscribe(&client, topics.clone(), Some(cursor)).await;
+        assert_eq!(receive(&mut resumed.rx).await, events::Reply::Ready);
+        watching(&mut resumed.rx).await;
+        let mut last = cursor;
+        let caught_up = loop {
+            match receive(&mut resumed.rx).await {
+                events::Reply::Changed(event) => {
+                    if last == cursor {
+                        assert_eq!(event.id, missed.id);
+                    }
+                    assert_eq!(event.id.epoch, cursor.epoch);
+                    assert!(
+                        event.id.sequence > last.sequence,
+                        "replayed events are not duplicated"
+                    );
+                    last = event.id;
+                }
+                events::Reply::CaughtUp { cursor: caught_up }
+                    if caught_up.sequence >= missed.id.sequence =>
+                {
+                    break caught_up;
+                }
+                events::Reply::CaughtUp { .. } => {}
+                other => panic!("the cached cursor should replay: {other:?}"),
+            }
+        };
+        assert!(last.sequence >= missed.id.sequence);
+        drop(resumed);
+        let previous = desktop
+            .mesh
+            .peer(node.id)
+            .expect("the replacement connection exists")
+            .stable_id();
+        let node = node.restart().await;
+        replaced_connection(&desktop, node.id, previous).await;
+        let mut restarted = subscribe(&client, topics, Some(caught_up)).await;
+        let current = initial_snapshot(&mut restarted.rx).await;
+        assert_ne!(
+            current.epoch, cursor.epoch,
+            "a new node run has a new history epoch"
+        );
+        restarted
+            .tx
+            .send(&events::Request::Ping { id: 5 })
+            .await
+            .expect("the restarted stream accepts commands");
+        loop {
+            match receive(&mut restarted.rx).await {
+                events::Reply::Pong { id: 5 } => break,
+                events::Reply::CaughtUp { .. } => {}
+                other => panic!("the restarted stream did not answer ping: {other:?}"),
+            }
+        }
+    }
 }
