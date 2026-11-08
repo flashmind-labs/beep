@@ -265,6 +265,7 @@ pub(crate) struct Rules {
     stignores: Vec<Stignore>,
     defaults: Vec<Found>,
     beepignore: Option<Gitignore>,
+    ignored_parent: Option<(PathBuf, Box<Rules>)>,
 }
 
 /// The file that tells a project folder from another (see `root`).
@@ -296,6 +297,7 @@ impl Rules {
     pub(crate) fn load(root: &Path) -> Result<Self> {
         let mut rules = Self {
             tracked: tracked(root),
+            ignored_parent: None,
             git_stays: None,
             stignores: Stignore::load_above(root)?,
             defaults: defaults(root)?,
@@ -310,6 +312,15 @@ impl Rules {
             None
         };
         Ok(rules)
+    }
+
+    pub(super) fn ignored_within(&mut self, relative: PathBuf, parent: Rules) {
+        self.git_stays = Some(Skip::rule(Rule::Git));
+        self.ignored_parent = Some((relative, Box::new(parent)));
+    }
+
+    pub(super) fn ignored_only(&self) -> bool {
+        self.ignored_parent.is_some()
     }
 
     fn stignored(&self, path: &Path, is_dir: bool) -> bool {
@@ -331,6 +342,11 @@ impl Rules {
     /// Why `path`, relative to the project folder, is left out, or `None`
     /// when it syncs.
     pub(super) fn skip(&self, path: &Path, is_dir: bool) -> Option<Skip> {
+        if let Some((prefix, parent)) = &self.ignored_parent
+            && parent.skips_any(&prefix.join(path), is_dir)
+        {
+            return Some(Skip::rule(Rule::Other));
+        }
         let mut parts = path.components().peekable();
         if parts
             .peek()

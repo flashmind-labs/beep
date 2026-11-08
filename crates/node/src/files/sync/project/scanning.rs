@@ -44,6 +44,7 @@ impl Task {
     }
 
     async fn try_scan(&mut self) -> Result<()> {
+        self.shared.check_ignored().await?;
         let checked = self.check_root().await?;
         let root = self.shared.root().to_owned();
         let checkout = {
@@ -58,7 +59,12 @@ impl Task {
         };
         let rules = {
             let root = root.clone();
-            spawn_blocking(move || Rules::load(&root)).await??
+            let ignored = self.shared.ignored.clone();
+            spawn_blocking(move || match ignored {
+                Some(scope) => scope.rules(&root),
+                None => Rules::load(&root),
+            })
+            .await??
         };
         // A repository created locally before any donor was selected is
         // already owned by Git and must never receive a raw Git copy.
@@ -105,7 +111,7 @@ impl Task {
         let repo_gone = repo.is_none();
         let refs = repo.unwrap_or_default();
         let git_only = self.shared.lock().saved.git_only;
-        let walked = {
+        let mut walked = {
             let (root, rules) = (root.clone(), self.shared.rules.clone());
             spawn_blocking(move || {
                 let rules = read_lock(&rules);
@@ -117,6 +123,11 @@ impl Task {
             })
             .await??
         };
+        if let Some(scope) = &self.shared.ignored {
+            walked.dirs.extend(scope.watch_dirs());
+            walked.dirs.sort();
+            walked.dirs.dedup();
+        }
         self.mode = self
             .watcher
             .set_dirs(self.shared.key, walked.dirs.clone())
@@ -184,6 +195,7 @@ impl Task {
                 }
             }
         }
+        self.shared.check_ignored().await?;
         // HEAD last: a peer applying part of the list finds what it names.
         hashed.sort_by_key(|(found, ..)| gitdir::kind(&found.path) == Some(gitdir::Kind::Head));
         let first = self.first;
@@ -334,6 +346,7 @@ impl Task {
     }
 
     async fn try_send_deletes(&mut self, held: BTreeSet<String>) -> Result<()> {
+        self.shared.check_ignored().await?;
         let (saved, seen_any) = self.saved_root();
         let folder = self.shared.root.clone();
         let checked = {

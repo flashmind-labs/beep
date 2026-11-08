@@ -242,6 +242,7 @@ async fn sync(out: &mut Writer<'_>, projects: &[ProjectSync]) -> Result<()> {
             continue;
         }
         let spec = SyncSpec {
+            ignored: Default::default(),
             folders,
             paused: false,
         };

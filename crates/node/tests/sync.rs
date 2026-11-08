@@ -2259,3 +2259,178 @@ async fn explicit_handoff_brings_edits_and_live_sync_does_not_undo_them() {
     assert!(a.status().conflicts.is_empty());
     assert!(b.status().conflicts.is_empty());
 }
+
+async fn ignored_config(node: &Node, peer: &Node, enabled: bool, paused: bool) {
+    use beep_proto::node::sync::ignored_project;
+    let mut projects = vec![Project {
+        name: PROJECT.into(),
+        folder: node.folder().to_string_lossy().into_owned(),
+        peers: vec![peer.addr()],
+        paused,
+    }];
+    if enabled {
+        projects.push(Project {
+            name: ignored_project(PROJECT, "assets/models"),
+            folder: node.path("assets/models").to_string_lossy().into_owned(),
+            peers: vec![peer.addr()],
+            paused,
+        });
+    }
+    let refused = node.running().transfers.syncs().configure(projects).await;
+    assert!(refused.is_empty(), "{refused:?}");
+}
+
+fn ignored_status(node: &Node) -> ProjectStatus {
+    let name = beep_proto::node::sync::ignored_project(PROJECT, "assets/models");
+    node.running()
+        .transfers
+        .syncs()
+        .status()
+        .into_iter()
+        .find(|s| s.name == name)
+        .unwrap()
+}
+
+async fn ignored_pair() -> (Node, Node) {
+    let (a, b) = synced_repo().await;
+    commit(&a, ".gitignore", "assets/models/\n.env\n");
+    in_step(&a, &b).await;
+    ignored_config(&a, &b, true, false).await;
+    ignored_config(&b, &a, true, false).await;
+    (a, b)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn selected_ignored_folders_sync_while_git_histories_differ_and_other_edits_stay_local() {
+    let (a, b) = synced_repo().await;
+    commit(&a, ".gitignore", "assets/models/\n.env\n");
+    in_step(&a, &b).await;
+    a.pause(&b, true).await;
+    b.pause(&a, true).await;
+    let ours = commit(&a, "code.txt", "ours\n");
+    let theirs = commit(&b, "code.txt", "theirs\n");
+    fs::write(a.path("README.md"), "uncommitted source\n").unwrap();
+    fs::write(a.path(".env"), "LOCAL_SETTING=fixture\n").unwrap();
+    ignored_config(&a, &b, true, false).await;
+    ignored_config(&b, &a, true, false).await;
+    let model = "assets/models/scene.blend";
+    write(&a.path(model), b"model\0one");
+    eventually("ignored binary data to cross differing commits", || {
+        read(&b.path(model)).as_deref() == Some(b"model\0one")
+    })
+    .await;
+    assert_eq!(head(&a).as_deref(), Some(ours.as_str()));
+    assert_eq!(head(&b).as_deref(), Some(theirs.as_str()));
+    assert!(!b.path(".env").exists());
+    assert_ne!(read(&b.path("README.md")), read(&a.path("README.md")));
+    write(&b.path(model), b"model\0two");
+    eventually("ignored content to sync back", || {
+        read(&a.path(model)).as_deref() == Some(b"model\0two")
+    })
+    .await;
+    fs::remove_file(b.path(model)).unwrap();
+    eventually("ignored file deletion to sync", || !a.path(model).exists()).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn disabling_ignored_folder_sync_leaves_files_and_stops_transferring() {
+    let (a, b) = ignored_pair().await;
+    let model = "assets/models/scene.blend";
+    write(&a.path(model), "original");
+    eventually("first ignored model", || {
+        read(&b.path(model)).as_deref() == Some(b"original")
+    })
+    .await;
+    ignored_config(&a, &b, false, false).await;
+    ignored_config(&b, &a, false, false).await;
+    write(&a.path(model), "kept locally");
+    // Rescans and a complete peer exchange are the synchronization barrier.
+    a.running().transfers.syncs().rescan(PROJECT).await.unwrap();
+    b.running().transfers.syncs().rescan(PROJECT).await.unwrap();
+    assert_eq!(
+        read(&b.path(model)).as_deref(),
+        Some(b"original".as_slice())
+    );
+    assert_eq!(
+        read(&a.path(model)).as_deref(),
+        Some(b"kept locally".as_slice())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ignored_folder_sync_cannot_overwrite_a_force_added_model_or_its_index() {
+    let (a, b) = ignored_pair().await;
+    let model = "assets/models/scene.blend";
+    write(&a.path(model), "original");
+    eventually("first ignored model", || {
+        read(&b.path(model)).as_deref() == Some(b"original")
+    })
+    .await;
+    git(&b.folder(), &["add", "-f", model]);
+    let index = read(&b.path(".git/index"));
+    write(&a.path(model), "peer edit");
+    eventually("force-added content to block ignored-folder sync", || {
+        ignored_status(&b)
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("tracked or staged"))
+    })
+    .await;
+    assert_eq!(
+        read(&b.path(model)).as_deref(),
+        Some(b"original".as_slice())
+    );
+    assert_eq!(read(&b.path(".git/index")), index);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn concurrent_ignored_model_edits_keep_both_versions_and_can_be_resolved() {
+    let (a, b) = ignored_pair().await;
+    let model = "assets/models/scene.blend";
+    write(&a.path(model), "baseline");
+    eventually("model baseline", || {
+        read(&b.path(model)).as_deref() == Some(b"baseline")
+    })
+    .await;
+    ignored_config(&a, &b, true, true).await;
+    ignored_config(&b, &a, true, true).await;
+    write(&a.path(model), "local model");
+    write(&b.path(model), "peer model");
+    ignored_config(&a, &b, true, false).await;
+    ignored_config(&b, &a, true, false).await;
+    eventually("a conflict copy for ignored binary content", || {
+        !ignored_status(&a).conflicts.is_empty() && !ignored_status(&b).conflicts.is_empty()
+    })
+    .await;
+    let copies = files(&a.path("assets/models"));
+    let contents: Vec<_> = copies
+        .iter()
+        .filter_map(|path| read(&a.path("assets/models").join(path)))
+        .collect();
+    assert!(contents.iter().any(|v| v == b"local model"));
+    assert!(contents.iter().any(|v| v == b"peer model"));
+    let name = beep_proto::node::sync::ignored_project(PROJECT, "assets/models");
+    timeout(
+        LIMIT,
+        a.running().transfers.syncs().have_all_from(
+            &name,
+            &b.addr().id,
+            tokio::time::Instant::now(),
+            |_| {},
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let conflict = ignored_status(&a).conflicts[0].clone();
+    a.running()
+        .transfers
+        .syncs()
+        .resolve(&name, &conflict, Keep::Original)
+        .await
+        .unwrap();
+    eventually("resolved ignored conflict to propagate", || {
+        ignored_status(&a).conflicts.is_empty() && ignored_status(&b).conflicts.is_empty()
+    })
+    .await;
+}
