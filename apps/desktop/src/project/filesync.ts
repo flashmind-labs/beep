@@ -53,6 +53,7 @@ export interface MachineDetail {
 
 /// A project's sync, as `project_sync_detail` gives it (SyncDetailView).
 export interface SyncDetail {
+  ignored_folders?: string[];
   project: string;
   pinned: boolean;
   paused: boolean;
@@ -556,6 +557,10 @@ export function makeFileSync(deps: FileSyncDeps) {
 
       : [h("div", "cc-empty", h("span", "", d.pinned ? "Pinned: never syncs." : "No machine syncs this project."))])));
 
+    if (d.ignored_folders?.length) {
+      out.push(h("div", "fs-m", `File sync for ignored folders: ${d.ignored_folders.join(", ")}`));
+    }
+
     const conflicts = conflictList(d);
     if (conflicts.length) {
       out.push(secHead("Conflicts", h("small", "", "edited on two machines at once")));
@@ -568,7 +573,9 @@ export function makeFileSync(deps: FileSyncDeps) {
       out.push(h("div", "cc-panel fs-list", ...waiting.map(w => h("div", "fs-wait", h("code", "", w.path), h("span", "dmuted", w.machines.join(", "))))));
     }
     out.push(h("div", "dmuted fs-note", d.machines.some(machine => machine.git_only)
-      ? "Git checkouts sync commits. Uncommitted edits stay on their machine; use Bring work here under Where it lives for an explicit handoff."
+      ? d.ignored_folders?.length
+        ? "Git syncs commits. Selected ignored folders use file sync. Other uncommitted edits stay local."
+        : "Git checkouts sync commits. Uncommitted edits stay on their machine; use Bring work here under Where it lives for an explicit handoff."
       : "Builds, ignored files and links stay on each machine."));
     return out;
   }

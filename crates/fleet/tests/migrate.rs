@@ -278,6 +278,7 @@ async fn a_newer_mesh_value_is_never_overwritten() {
     let server = Server::new();
     // The user changed these in the mesh before the move ran.
     let newer = SyncSpec {
+        ignored: Default::default(),
         folders: [(server.box_id, "/elsewhere".to_owned())].into(),
         paused: true,
     }

@@ -18,7 +18,7 @@ use beep_proto::{
         MachineCredentials,
         harness::{AgentSettings, HarnessConfig},
         mesh_state::{Credential, Place, ProjectRecord, StateValue, SyncSpec},
-        sync::Project,
+        sync::{Project, ignored_project},
     },
 };
 use iroh::{EndpointAddr, EndpointId};
@@ -366,13 +366,31 @@ fn projects(
                     )
                 })
                 .collect();
-            Some(Project {
+            let main = Project {
                 name: name.clone(),
                 folder,
                 peers,
                 paused: spec.paused,
-            })
+            };
+            let mut all = vec![main.clone()];
+            if let Ok(config) = spec.ignored.clone().normalized()
+                && config.enabled
+            {
+                all.extend(config.folders.iter().map(|path| {
+                    Project {
+                        name: ignored_project(name, path),
+                        folder: std::path::Path::new(&main.folder)
+                            .join(path)
+                            .to_string_lossy()
+                            .into_owned(),
+                        peers: main.peers.clone(),
+                        paused: main.paused,
+                    }
+                }));
+            }
+            Some(all)
         })
+        .flatten()
         .collect();
     (projects, pending)
 }
@@ -383,6 +401,36 @@ mod tests {
     use beep_mesh::transport_config;
     use iroh::{Endpoint, SecretKey, endpoint::presets};
     use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn selected_ignored_folders_are_independent_datasets_with_the_same_peers_and_pause() {
+        use beep_proto::node::sync::IgnoredSync;
+        let (mesh, _dir) = lone_mesh().await;
+        let me = mesh.me();
+        let spec = SyncSpec {
+            folders: [(me, "/srv/project".to_owned())].into(),
+            paused: true,
+            ignored: IgnoredSync {
+                enabled: true,
+                folders: vec!["assets/models".into()],
+            },
+        };
+        mesh.set(
+            Key::Sync("acme/widget".into()),
+            Some(spec.to_bytes().unwrap()),
+        )
+        .await
+        .unwrap();
+        let (configured, _) = projects(&mesh, me, &mut BTreeMap::new());
+        assert_eq!(configured.len(), 2);
+        assert_eq!(configured[0].name, "acme/widget");
+        assert_eq!(
+            configured[1].name,
+            ignored_project("acme/widget", "assets/models")
+        );
+        assert_eq!(configured[1].folder, "/srv/project/assets/models");
+        assert!(configured.iter().all(|p| p.paused));
+    }
 
     async fn lone_mesh() -> (Mesh, TempDir) {
         let dir = TempDir::new().expect("a temp folder");
@@ -429,6 +477,7 @@ mod tests {
         let (mesh, _dir) = lone_mesh().await;
         let (me, other) = (mesh.me(), SecretKey::generate().public());
         let spec = |ids: &[EndpointId]| SyncSpec {
+            ignored: Default::default(),
             folders: ids.iter().map(|id| (*id, "/srv/app".to_owned())).collect(),
             paused: false,
         };

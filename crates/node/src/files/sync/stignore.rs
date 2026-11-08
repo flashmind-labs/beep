@@ -138,7 +138,7 @@ fn read_lines_for_project(
             } else {
                 format!("/{relative}")
             };
-            *line == pattern
+            (*line == pattern || *line == "/**" || pattern.starts_with(&format!("{line}/")))
                 && at > 0
                 && lines[at - 1] == PROJECT_IGNORE_BEGIN
                 && lines.get(at + 1) == Some(&PROJECT_IGNORE_END)
@@ -296,6 +296,21 @@ mod tests {
         let (_dir, rules) = rules("# build output\n*.raw\n#also a note\n");
         assert!(ignored(&rules, "a.raw"));
         assert!(!ignored(&rules, "build output"));
+    }
+
+    #[test]
+    fn an_ignored_dataset_under_a_beep_owned_project_keeps_user_exclusions() {
+        let dir = TempDir::new().unwrap();
+        let project = dir.path().join("owner/widget/models");
+        fs::create_dir_all(&project).unwrap();
+        fs::write(
+            dir.path().join(STIGNORE),
+            format!("{PROJECT_IGNORE_BEGIN}\n/owner/widget\n{PROJECT_IGNORE_END}\n*.tmp\n"),
+        )
+        .unwrap();
+        let rules = Stignore::load_above(&project).unwrap();
+        assert!(!ignored(&rules, "scene.blend"));
+        assert!(ignored(&rules, "cache.tmp"));
     }
 
     #[test]
