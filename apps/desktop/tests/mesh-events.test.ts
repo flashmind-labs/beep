@@ -246,3 +246,17 @@ test("subscription changes are ordered and unchanged demand does not issue IPC",
   await settle();
   assert.equal(calls.filter(call => call.cmd === "mesh_topics").length, 2);
 });
+
+test("subscription visibility waits until module state is initialized", async t => {
+  nativeEvent("center-shown");
+  let initialized = false, checked = 0;
+  const stop = subscribeTopics(topic("agents"), () => {}, null, () => {
+    assert.ok(initialized);
+    checked++;
+    return false;
+  });
+  t.after(stop);
+  initialized = true;
+  await settle();
+  assert.ok(checked > 0);
+});

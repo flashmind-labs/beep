@@ -48,7 +48,8 @@ function subscribe(topics: Topic | Topic[], receive: Receive, machine: string | 
     receive, active: when, coalesce, running: false, failures: 0,
   };
   subscribers.add(subscriber);
-  refreshTopicSubscriptions();
+  // Module-level subscribers can depend on state in a circular import.
+  queueMicrotask(refreshTopicSubscriptions);
   return () => {
     clearTimeout(subscriber.timer);
     subscribers.delete(subscriber);
