@@ -28,7 +28,7 @@ impl From<Memory> for MemoryView {
             id: m.id,
             content: m.content,
             category: m.category,
-            source: Into::<&'static str>::into(&m.source),
+            source: Into::<&'static str>::into(m.source),
             updated: m.updated,
             valid_from: m.valid_from,
             valid_until: m.valid_until,

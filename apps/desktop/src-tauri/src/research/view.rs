@@ -139,7 +139,7 @@ fn view(cached: &Cached, after: i64) -> ResearchView {
     let research = &cached.research;
     ResearchView {
         topic: research.topic.clone(),
-        status: Into::<&'static str>::into(&research.status),
+        status: Into::<&'static str>::into(research.status),
         agents: research
             .agents
             .iter()

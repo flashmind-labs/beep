@@ -32,8 +32,8 @@ impl From<CustomAgent> for CustomAgentRow {
     fn from(a: CustomAgent) -> Self {
         Self {
             name: a.name,
-            harness: Into::<&'static str>::into(&a.harness),
-            scope: Into::<&'static str>::into(&a.scope),
+            harness: Into::<&'static str>::into(a.harness),
+            scope: Into::<&'static str>::into(a.scope),
             description: a.description,
             model: a.model,
             tools: a.tools,

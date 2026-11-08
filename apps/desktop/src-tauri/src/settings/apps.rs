@@ -107,7 +107,7 @@ pub struct ActionView {
 impl From<AppPermissions> for PermissionsView {
     fn from(permissions: AppPermissions) -> Self {
         Self {
-            level: Into::<&'static str>::into(&permissions.level),
+            level: Into::<&'static str>::into(permissions.level),
             actions: permissions
                 .actions
                 .into_iter()
