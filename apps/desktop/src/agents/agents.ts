@@ -5,7 +5,7 @@
 // every session. They run in the bar and in the window's pane alike. This
 // file holds their shared types and state, and the Every session list.
 import { nest, parentRow } from "./nesting-state.ts";
-import { loadSessions, sessions } from "./sessions.ts";
+import { loadSessions, reviewers, sessions } from "./sessions.ts";
 import { copiesClick, copiesHtml, keepCopiesFresh, onCopies, onCopyAction } from "./copies.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { emptyPage } from "../lists/memories.ts";
@@ -68,6 +68,8 @@ export interface AgentSession {
   question: AgentQuestion | null;
   /// The session whose agent started this one, when an agent did.
   parent?: AgentParent | null;
+  /// A temporary reviewer of its parent's changes.
+  reviewer?: boolean;
 }
 
 /// Where the session that started another runs and the ids it is listed
@@ -414,13 +416,14 @@ function sessionRow({ row, depth }: { row: AgentSession; depth: number }, i: num
   const s = { ...row, status: shownStatus(row) };
   const k = agentKind(s.agent), folder = folderName(s.cwd);
   const moving = moveLabel(s);
-  const tail = moving ? `<span class="dstate ${moving.chip === "Moving" ? "run" : "ask"}"${moving.why ? ` title="${esc(moving.why)}"` : ""}>${moving.chip}</span>`
+  const tail = s.reviewer ? '<span class="w">Reviewing</span>'
+    : moving ? `<span class="dstate ${moving.chip === "Moving" ? "run" : "ask"}"${moving.why ? ` title="${esc(moving.why)}"` : ""}>${moving.chip}</span>`
     : s.status === "asking" ? '<span class="dstate ask">Needs you</span>'
     : s.status === "working" || s.status === "running" || s.status === "starting" ? `<span class="run" title="${esc(s.doing || "Working")}"><span class="dspin"></span><span class="tx">${esc(s.doing || "Working")}</span></span>`
     : `<span class="w">${s.external && s.status !== "ended" ? "In terminal" : esc(cap(s.status))}</span>`;
   const kid = depth ? ` kid" style="--depth:${depth}` : "";
   return `<button class="dchat${kid}" role="option" aria-selected="${i === AG.sel}" data-agi="${i}">
-      <span class="t"><span>${esc(s.title || folder || k.name)}</span><small>${esc(sessionSub(s, k.name, folder))}</small></span>${tail}</button>`;
+      <span class="t"><span>${esc(s.reviewer ? "Review" : s.title || folder || k.name)}</span><small>${esc(sessionSub(s, k.name, folder))}</small></span>${tail}</button>`;
 }
 
 /// The sessions the list on screen shows, which its rows index. Another page
@@ -428,7 +431,7 @@ function sessionRow({ row, depth }: { row: AgentSession; depth: number }, i: num
 let drawn: AgentSession[] = [];
 
 export function drawAgents(loading: boolean) {
-  const list = sessions.filter(sessionVisible), shown = nest(list);
+  const list = sessions.filter(sessionVisible), shown = nest([...list, ...reviewers]);
   drawn = shown.map(n => n.row);
   AG.sel = Math.min(AG.sel, Math.max(0, drawn.length - 1));
   const machines = new Set(list.map(s => s.machine_id)).size;
