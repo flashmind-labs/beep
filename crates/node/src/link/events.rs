@@ -24,12 +24,17 @@ const WRITE_WAIT: Duration = Duration::from_secs(15);
 const MAX_CALLS: usize = 16;
 const MAX_FILE_ROOTS: usize = 512;
 
+mod snapshots;
+use snapshots::Snapshots;
+
 pub(crate) async fn serve(
     mut tx: LinkTx,
     mut rx: LinkRx,
     offers: Offers,
     caller: iroh::EndpointId,
 ) -> Result<()> {
+    static READERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(32);
+    let _reader = READERS.try_acquire().context("too many topic readers")?;
     let mut membership = offers.mesh.subscribe();
     let mut project_changes = membership
         .borrow_and_update()
@@ -37,11 +42,12 @@ pub(crate) async fn serve(
         .map(beep_mesh::Mesh::changes);
     offers.agents.start_event_bridge();
     let mut changes = offers.agents.events.subscribe();
-    let mut topics: Vec<Topic> = Vec::new();
-    let mut considered = offers.agents.events.cursor();
+    let mut topics = Vec::new();
+    let mut queries = Vec::new();
     let roots = Arc::new(Mutex::new(BTreeMap::<Topic, PathBuf>::new()));
     let mut watcher = None;
     let mut _source_lease = None;
+    let mut snapshots = Snapshots::new();
     let mut calls = JoinSet::new();
     let mut pending = HashSet::new();
     let mut heartbeat = interval_at(
@@ -51,30 +57,26 @@ pub(crate) async fn serve(
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
     send(&mut tx, &Reply::Ready).await?;
     loop {
+        snapshots.start(&offers, caller);
         tokio::select! {
             request = rx.recv::<Request>() => match request? {
                 None => return Ok(()),
-                Some(Request::Watch { id, topics: wanted, after }) => {
-                    match subscribe(&offers, &mut watcher, &roots, &wanted).await {
+                Some(Request::Watch { id, topics: wanted, queries: wanted_queries }) => {
+                    let valid = if wanted.len() > events::MAX_TOPICS {
+                        Err(anyhow::anyhow!("too many subscription topics"))
+                    } else { Snapshots::validate(&wanted_queries) };
+                    let source_topics = sources(&wanted, &wanted_queries);
+                    let result = match valid {
+                        Ok(()) => subscribe(&offers, &mut watcher, &roots, &source_topics).await,
+                        Err(error) => Err(error),
+                    };
+                    match result {
                         Ok(lease) => {
                             _source_lease = lease;
                             topics = wanted;
-                            // Connection-owned file watchers were absent during a disconnect.
-                            // Reconcile those resources as identified events before catching up.
-                            if after.is_some() {
-                                for topic in topics.iter().filter(|topic| topic.name() == "files") {
-                                    offers.agents.events.changed(topic.clone());
-                                }
-                            }
+                            queries = wanted_queries;
+                            snapshots.replace(&offers, &topics, &queries, &crate::lock(&roots));
                             send(&mut tx, &Reply::Watching { id }).await?;
-                            let replay = offers.agents.events.replay(after);
-                            considered = replay.cursor;
-                            if replay.resync {
-                                send(&mut tx, &Reply::Resync { cursor: considered }).await?;
-                            } else {
-                                for event in replay.events { deliver(&mut tx, &topics, event).await?; }
-                                send(&mut tx, &Reply::CaughtUp { cursor: considered }).await?;
-                            }
                         }
                         Err(error) => send(&mut tx, &Reply::Error { id, reason: format!("{error:#}") }).await?,
                     }
@@ -99,73 +101,62 @@ pub(crate) async fn serve(
                 };
                 send(&mut tx, &reply).await?;
             },
+            snapshot = snapshots.next() => if let Some(snapshot) = snapshot { send(&mut tx, &snapshot).await?; },
             event = changes.recv() => {
                 match event {
-                    Ok(event) if event.id.epoch != considered.epoch || event.id.sequence > considered.sequence => {
-                        if broad_files(&topics) && matches!(event.topic.name(), "agents" | "projects" | "*")
-                            && let Err(error) = watch(&offers, &mut watcher, &roots, &topics).await
-                        {
-                            log::debug!("file subscription roots could not be refreshed: {error}");
-                            send(&mut tx, &Reply::Resync { cursor: event.id }).await?;
+                    Ok(event) => {
+                        if broad_files(&sources(&topics, &queries)) && matches!(event.topic.name(), "agents" | "projects" | "*") {
+                            watch(&offers, &mut watcher, &roots, &sources(&topics, &queries)).await?;
+                            snapshots.replace(&offers, &topics, &queries, &crate::lock(&roots));
                         }
-                        considered = event.id;
-                        deliver(&mut tx, &topics, event).await?;
+                        // Publication can add a previously unknown exact plugin topic.
+                        if !snapshots.contains(&event.topic) && offers.agents.events.current(&event.topic).is_some() {
+                            snapshots.replace(&offers, &topics, &queries, &crate::lock(&roots));
+                        }
+                        snapshots.changed(&event.topic);
                     }
-                    Ok(_) => {},
                     Err(RecvError::Lagged(_)) => {
-                        if broad_files(&topics)
-                            && let Err(error) = watch(&offers, &mut watcher, &roots, &topics).await
-                        {
-                            log::debug!("file subscription roots could not be reconciled: {error}");
-                        }
-                        considered = offers.agents.events.cursor();
-                        send(&mut tx, &Reply::Resync { cursor: considered }).await?;
+                        watch(&offers, &mut watcher, &roots, &sources(&topics, &queries)).await?;
+                        snapshots.replace(&offers, &topics, &queries, &crate::lock(&roots));
+                        snapshots.reset();
                     }
                     Err(RecvError::Closed) => return Ok(()),
                 }
             },
-            changed = membership.changed(), if watches_files(&topics) => {
+            changed = membership.changed(), if watches_files(&sources(&topics, &queries)) => {
                 if changed.is_err() { return Ok(()); }
                 project_changes = membership.borrow_and_update().as_ref().map(beep_mesh::Mesh::changes);
-                if let Err(error) = watch(&offers, &mut watcher, &roots, &topics).await {
-                    watcher = None;
-                    crate::lock(&roots).clear();
-                    log::debug!("file project bindings could not be refreshed: {error}");
-                    send(&mut tx, &Reply::Resync { cursor: offers.agents.events.cursor() }).await?;
-                }
+                watch(&offers, &mut watcher, &roots, &sources(&topics, &queries)).await?;
+                snapshots.replace(&offers, &topics, &queries, &crate::lock(&roots));
             },
-            change = async { match &mut project_changes { Some(changes) => changes.recv().await, None => std::future::pending().await } }, if watches_files(&topics) => {
+            change = async { match &mut project_changes { Some(changes) => changes.recv().await, None => std::future::pending().await } }, if watches_files(&sources(&topics, &queries)) => {
                 let reconcile = match change {
                     Ok(beep_mesh::Key::Project(_) | beep_mesh::Key::Sync(_)) | Err(RecvError::Lagged(_)) => true,
                     Err(RecvError::Closed) => { project_changes = None; false },
                     _ => false,
                 };
-                if reconcile && let Err(error) = watch(&offers, &mut watcher, &roots, &topics).await {
-                    watcher = None;
-                    crate::lock(&roots).clear();
-                    log::debug!("file project bindings could not be reconciled: {error}");
-                    send(&mut tx, &Reply::Resync { cursor: offers.agents.events.cursor() }).await?;
+                if reconcile {
+                    watch(&offers, &mut watcher, &roots, &sources(&topics, &queries)).await?;
+                    snapshots.replace(&offers, &topics, &queries, &crate::lock(&roots));
                 }
             },
-            _ = heartbeat.tick() => send(&mut tx, &Reply::CaughtUp { cursor: considered }).await?,
+            _ = heartbeat.tick() => send(&mut tx, &Reply::Pong { id: 0 }).await?,
         }
     }
+}
+
+fn sources(topics: &[Topic], queries: &[events::Query]) -> Vec<Topic> {
+    let mut sources = topics.to_vec();
+    sources.extend(queries.iter().map(|query| query.topic.clone()));
+    sources.sort();
+    sources.dedup();
+    sources
 }
 
 async fn send(tx: &mut LinkTx, reply: &Reply) -> Result<()> {
     timeout(WRITE_WAIT, tx.send(reply))
         .await
         .context("event reader stopped receiving")?
-}
-
-async fn deliver(tx: &mut LinkTx, topics: &[Topic], event: events::Event) -> Result<()> {
-    if event.topic.name() == "*" {
-        send(tx, &Reply::Resync { cursor: event.id }).await
-    } else if topics.iter().any(|topic| topic.matches(&event.topic)) {
-        send(tx, &Reply::Changed(event)).await
-    } else {
-        Ok(())
-    }
 }
 
 fn watches_files(topics: &[Topic]) -> bool {
@@ -186,7 +177,9 @@ async fn subscribe(
     roots: &Arc<Mutex<BTreeMap<Topic, PathBuf>>>,
     topics: &[Topic],
 ) -> Result<Option<Arc<crate::agents::follow::Sources>>> {
-    if topics.len() > events::MAX_TOPICS || topics.iter().any(|topic| !topic.valid()) {
+    if topics.len() > events::MAX_TOPICS + events::MAX_QUERIES
+        || topics.iter().any(|topic| !topic.valid())
+    {
         bail!("invalid subscription topics");
     }
     let lease = if broad_files(topics)
@@ -370,250 +363,220 @@ async fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beep_proto::node::{events::Event, local_link, process};
+    use beep_proto::node::{
+        events::{Query, Read, Value},
+        local_link, process,
+    };
 
     async fn next(rx: &mut LinkRx) -> Reply {
         loop {
-            let reply = timeout(Duration::from_secs(5), rx.recv::<Reply>())
+            let reply = timeout(Duration::from_secs(10), rx.recv::<Reply>())
                 .await
-                .expect("the stream answers")
-                .expect("a valid reply")
-                .expect("the stream stays open");
-            if !matches!(reply, Reply::Pong { id: 0 } | Reply::CaughtUp { .. }) {
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            if !matches!(reply, Reply::Pong { id: 0 }) {
                 return reply;
             }
         }
     }
 
-    async fn subscribe(tx: &mut LinkTx, rx: &mut LinkRx, id: u64, topics: Vec<Topic>) {
+    async fn start(offers: Offers) -> (LinkTx, LinkRx, AbortOnDropHandle<Result<()>>) {
+        let link = local_link();
+        let task = AbortOnDropHandle::new(tokio::spawn(serve(
+            link.node.0,
+            link.node.1,
+            offers,
+            iroh::SecretKey::generate().public(),
+        )));
+        let (tx, mut rx) = link.caller;
+        assert_eq!(next(&mut rx).await, Reply::Ready);
+        (tx, rx, task)
+    }
+
+    async fn watch(
+        tx: &mut LinkTx,
+        rx: &mut LinkRx,
+        id: u64,
+        topics: Vec<Topic>,
+        queries: Vec<Query>,
+    ) {
         tx.send(&Request::Watch {
             id,
             topics,
-            after: None,
+            queries,
         })
         .await
         .unwrap();
         loop {
-            match next(rx).await {
-                Reply::Changed(_) => continue,
-                reply => {
-                    assert_eq!(reply, Reply::Watching { id });
-                    break;
-                }
+            if matches!(next(rx).await, Reply::Watching { id: ack } if ack == id) {
+                break;
             }
         }
-        assert!(matches!(next(rx).await, Reply::Resync { .. }));
+    }
+
+    async fn state(rx: &mut LinkRx, topic: &Topic) -> events::Snapshot {
+        loop {
+            if let Reply::Snapshot(snapshot) = next(rx).await
+                && &snapshot.topic == topic
+            {
+                return *snapshot;
+            }
+        }
     }
 
     #[tokio::test]
-    async fn topics_and_correlated_calls_share_one_connection() {
+    async fn snapshots_and_correlated_commands_share_one_connection() {
         let offers = Offers::default();
+        let topic = Topic::keyed("plugin", "example");
+        offers
+            .agents
+            .events
+            .publish(topic.clone(), vec![1])
+            .unwrap();
         let hub = offers.agents.events.clone();
-        let link = local_link();
-        let task = AbortOnDropHandle::new(tokio::spawn(serve(
-            link.node.0,
-            link.node.1,
-            offers,
-            iroh::SecretKey::generate().public(),
-        )));
-        let (mut tx, mut rx) = link.caller;
-        assert_eq!(next(&mut rx).await, Reply::Ready);
-        subscribe(
-            &mut tx,
-            &mut rx,
-            1,
-            vec![Topic::keyed("plugin.example", "one")],
-        )
-        .await;
-        hub.changed(Topic::keyed("plugin.example", "other"));
-        hub.changed(Topic::new("reviews"));
-        hub.changed(Topic::keyed("plugin.example", "one"));
-        let Reply::Changed(event) = next(&mut rx).await else {
-            panic!("expected a selected event")
-        };
-        assert_eq!(event.topic, Topic::keyed("plugin.example", "one"));
+        let (mut tx, mut rx, _task) = start(offers).await;
+        watch(&mut tx, &mut rx, 1, vec![topic.clone()], vec![]).await;
+        assert_eq!(state(&mut rx, &topic).await.value, Value::Plugin(vec![1]));
+        hub.publish(topic.clone(), vec![2]).unwrap();
         tx.send(&Request::Call {
-            id: 8,
+            id: 2,
             operation: Box::new(Operation::Process(process::Request::List {})),
         })
         .await
         .unwrap();
-        let Reply::Result { id, reply } = next(&mut rx).await else {
-            panic!("expected a correlated reply")
-        };
-        assert_eq!(id, 8);
-        assert!(matches!(
-            *reply,
-            CallReply::Process(process::Reply::Tasks { .. })
-        ));
-        subscribe(&mut tx, &mut rx, 2, vec![Topic::new("*")]).await;
-        hub.changed(Topic::new("plugin.another"));
-        assert!(
-            matches!(next(&mut rx).await, Reply::Changed(Event { topic, .. }) if topic.name() == "plugin.another")
-        );
-        subscribe(&mut tx, &mut rx, 3, Vec::new()).await;
-        hub.changed(Topic::new("plugin.another"));
-        tx.send(&Request::Ping { id: 99 }).await.unwrap();
-        assert_eq!(next(&mut rx).await, Reply::Pong { id: 99 });
-        drop(tx);
-        task.await.unwrap().unwrap();
+        tx.send(&Request::Ping { id: 3 }).await.unwrap();
+        let (mut snapshot, mut call, mut pong) = (false, false, false);
+        while !(snapshot && call && pong) {
+            match next(&mut rx).await {
+                Reply::Snapshot(s) if s.topic == topic => {
+                    assert_eq!(s.value, Value::Plugin(vec![2]));
+                    snapshot = true;
+                }
+                Reply::Result { id: 2, reply } => {
+                    assert!(matches!(
+                        *reply,
+                        CallReply::Process(process::Reply::Tasks { .. })
+                    ));
+                    call = true;
+                }
+                Reply::Pong { id: 3 } => pong = true,
+                other => panic!("unexpected reply: {other:?}"),
+            }
+        }
     }
 
     #[tokio::test]
-    async fn reconnect_replays_selected_events_after_the_last_received_id_once() {
+    async fn reconnect_reads_latest_state_without_replaying_intermediate_updates() {
         let offers = Offers::default();
-        let hub = offers.agents.events.clone();
-        let caller = iroh::SecretKey::generate().public();
-        let link = local_link();
-        let task = AbortOnDropHandle::new(tokio::spawn(serve(
-            link.node.0,
-            link.node.1,
-            offers.clone(),
-            caller,
-        )));
-        let (mut tx, mut rx) = link.caller;
-        assert_eq!(next(&mut rx).await, Reply::Ready);
-        let topic = Topic::new("plugin.replay");
-        subscribe(&mut tx, &mut rx, 1, vec![topic.clone()]).await;
-        hub.changed(topic.clone());
-        let Reply::Changed(first) = next(&mut rx).await else {
-            panic!("first event")
-        };
+        let topic = Topic::keyed("plugin", "example");
+        offers
+            .agents
+            .events
+            .publish(topic.clone(), vec![1])
+            .unwrap();
+        let (mut tx, mut rx, task) = start(offers.clone()).await;
+        watch(&mut tx, &mut rx, 1, vec![topic.clone()], vec![]).await;
+        state(&mut rx, &topic).await;
+        drop(task);
         drop(tx);
         drop(rx);
-        task.await.unwrap().unwrap();
-        hub.changed(topic.clone());
-        let second = hub.cursor();
-        hub.changed(Topic::new("plugin.unselected"));
-        hub.changed(topic.clone());
-        let third = hub.cursor();
-        let link = local_link();
-        let _task = AbortOnDropHandle::new(tokio::spawn(serve(
-            link.node.0,
-            link.node.1,
-            offers,
-            caller,
-        )));
-        let (mut tx, mut rx) = link.caller;
-        assert_eq!(next(&mut rx).await, Reply::Ready);
-        tx.send(&Request::Watch {
-            id: 2,
-            topics: vec![topic],
-            after: Some(first.id),
-        })
-        .await
-        .unwrap();
-        assert_eq!(next(&mut rx).await, Reply::Watching { id: 2 });
-        let Reply::Changed(event) = next(&mut rx).await else {
-            panic!("replayed second event")
-        };
-        assert_eq!(event.id, second);
-        let Reply::Changed(event) = next(&mut rx).await else {
-            panic!("replayed third event")
-        };
-        assert_eq!(event.id, third);
-        tx.send(&Request::Ping { id: 3 }).await.unwrap();
-        assert_eq!(next(&mut rx).await, Reply::Pong { id: 3 });
+        offers
+            .agents
+            .events
+            .publish(topic.clone(), vec![2])
+            .unwrap();
+        offers
+            .agents
+            .events
+            .publish(topic.clone(), vec![3])
+            .unwrap();
+        let (mut tx, mut rx, _task) = start(offers).await;
+        watch(&mut tx, &mut rx, 1, vec![topic.clone()], vec![]).await;
+        assert_eq!(state(&mut rx, &topic).await.value, Value::Plugin(vec![3]));
     }
 
     #[tokio::test]
-    async fn invalid_topics_leave_the_previous_subscription_in_place() {
+    async fn adding_queries_preserves_default_snapshots_and_rejects_mutations() {
         let offers = Offers::default();
-        let hub = offers.agents.events.clone();
-        let link = local_link();
-        let _task = AbortOnDropHandle::new(tokio::spawn(serve(
-            link.node.0,
-            link.node.1,
-            offers,
-            iroh::SecretKey::generate().public(),
-        )));
-        let (mut tx, mut rx) = link.caller;
-        assert_eq!(next(&mut rx).await, Reply::Ready);
-        subscribe(&mut tx, &mut rx, 1, vec![Topic::new("reviews")]).await;
-        tx.send(&Request::Watch {
-            id: 2,
-            topics: vec![Topic::new("")],
-            after: None,
-        })
-        .await
-        .unwrap();
-        assert!(matches!(next(&mut rx).await, Reply::Error { id: 2, .. }));
-        hub.changed(Topic::new("reviews"));
-        assert!(matches!(next(&mut rx).await, Reply::Changed(_)));
-    }
-
-    #[tokio::test]
-    async fn a_source_gap_is_a_snapshot_request_with_an_event_id() {
-        let link = local_link();
-        let (mut tx, _) = link.node;
-        let (_, mut rx) = link.caller;
-        let cursor = crate::events::Hub::default().cursor();
-        deliver(
+        let topic = Topic::keyed("plugin", "example");
+        offers
+            .agents
+            .events
+            .publish(topic.clone(), vec![1])
+            .unwrap();
+        let (mut tx, mut rx, _task) = start(offers).await;
+        watch(&mut tx, &mut rx, 1, vec![topic.clone()], vec![]).await;
+        state(&mut rx, &topic).await;
+        let process_topic = Topic::new("processes");
+        watch(
             &mut tx,
-            &[],
-            Event {
-                topic: Topic::new("*"),
-                id: cursor,
-            },
+            &mut rx,
+            2,
+            vec![topic.clone()],
+            vec![Query {
+                id: 7,
+                topic: process_topic.clone(),
+                read: Read::Process(process::Request::List {}),
+            }],
         )
+        .await;
+        let snapshot = state(&mut rx, &process_topic).await;
+        assert_eq!(snapshot.query, Some(7));
+        tx.send(&Request::Watch {
+            id: 3,
+            topics: vec![],
+            queries: vec![Query {
+                id: 8,
+                topic: process_topic,
+                read: Read::Process(process::Request::Start {
+                    command: "false".into(),
+                    cwd: None,
+                }),
+            }],
+        })
         .await
         .unwrap();
-        assert_eq!(next(&mut rx).await, Reply::Resync { cursor });
+        loop {
+            match next(&mut rx).await {
+                Reply::Error { id: 3, .. } => break,
+                Reply::Snapshot(_) => {}
+                other => panic!("unexpected invalid-query response: {other:?}"),
+            }
+        }
+        // The rejected Watch leaves the previous subscription live.
+        tx.send(&Request::Ping { id: 4 }).await.unwrap();
+        loop {
+            match next(&mut rx).await {
+                Reply::Pong { id: 4 } => break,
+                Reply::Snapshot(_) => {}
+                other => panic!("unexpected ping response: {other:?}"),
+            }
+        }
     }
 
     #[tokio::test]
-    async fn broad_files_watch_shared_roots_and_alias_removal_keeps_the_watch() {
-        let root = tempfile::tempdir().unwrap();
-        let offers = Offers::default();
-        offers.agents.share_folders(vec![root.path().to_owned()]);
-        let link = local_link();
-        let _task = AbortOnDropHandle::new(tokio::spawn(serve(
-            link.node.0,
-            link.node.1,
-            offers,
-            iroh::SecretKey::generate().public(),
-        )));
-        let (mut tx, mut rx) = link.caller;
-        assert_eq!(next(&mut rx).await, Reply::Ready);
-        subscribe(&mut tx, &mut rx, 1, vec![Topic::new("files")]).await;
-        std::fs::write(root.path().join("first.txt"), "one").unwrap();
-        assert!(
-            matches!(next(&mut rx).await, Reply::Changed(event) if event.topic.name() == "files")
-        );
-        let primary = Topic::keyed("files", root.path().to_str().unwrap());
-        let alias = Topic::keyed("files", root.path().join(".").to_str().unwrap());
-        subscribe(&mut tx, &mut rx, 2, vec![primary, alias.clone()]).await;
-        subscribe(&mut tx, &mut rx, 3, vec![alias.clone()]).await;
-        std::fs::write(root.path().join("second.txt"), "two").unwrap();
-        assert!(matches!(next(&mut rx).await, Reply::Changed(event) if event.topic == alias));
-    }
-
-    #[tokio::test]
-    async fn file_subscriptions_watch_real_changes_and_enforce_reach() {
+    async fn file_snapshots_include_new_entries_and_enforce_reach() {
         let root = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         let offers = Offers::default();
         offers.agents.share_folders(vec![root.path().to_owned()]);
-        let link = local_link();
-        let _task = AbortOnDropHandle::new(tokio::spawn(serve(
-            link.node.0,
-            link.node.1,
-            offers,
-            iroh::SecretKey::generate().public(),
-        )));
-        let (mut tx, mut rx) = link.caller;
-        assert_eq!(next(&mut rx).await, Reply::Ready);
+        let (mut tx, mut rx, _task) = start(offers).await;
         tx.send(&Request::Watch {
             id: 1,
             topics: vec![Topic::keyed("files", outside.path().to_str().unwrap())],
-            after: None,
+            queries: vec![],
         })
         .await
         .unwrap();
         assert!(matches!(next(&mut rx).await, Reply::Error { id: 1, .. }));
         let topic = Topic::keyed("files", root.path().to_str().unwrap());
-        subscribe(&mut tx, &mut rx, 2, vec![topic.clone()]).await;
+        watch(&mut tx, &mut rx, 2, vec![topic.clone()], vec![]).await;
+        state(&mut rx, &topic).await;
         std::fs::write(root.path().join("example.txt"), "updated").unwrap();
-        assert!(matches!(next(&mut rx).await, Reply::Changed(event) if event.topic == topic));
+        let snapshot = state(&mut rx, &topic).await;
+        assert!(
+            matches!(snapshot.value, Value::Sessions(reply) if matches!(*reply, SessionsReply::Tree { ref tree } if tree.folders.iter().any(|folder| folder.entries.iter().any(|entry| entry.name == "example.txt"))))
+        );
     }
 }

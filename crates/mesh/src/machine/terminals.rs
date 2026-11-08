@@ -30,6 +30,19 @@ pub struct Kept<'a> {
 
 /// Sends one `terminal/1` request.
 pub async fn request(client: &PeerClient, request: &Request) -> Result<Reply, MeshError> {
+    if matches!(request, Request::List {})
+        && let Some(value) = tokio::time::timeout(
+            TASK_LIMIT,
+            client.snapshot(beep_proto::node::events::Read::TerminalList),
+        )
+        .await
+        .map_err(|_| said("the terminal subscription did not answer in time"))?
+    {
+        return match value? {
+            beep_proto::node::events::Value::Terminals(reply) => Ok(reply),
+            _ => Err(said("the terminal subscription returned another resource")),
+        };
+    }
     let words = Words {
         silent: "the node stopped answering",
         closed: "the node closed the terminal session",

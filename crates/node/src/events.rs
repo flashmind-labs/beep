@@ -1,116 +1,92 @@
-//! Bounded topic history, shared by node features and user plugins.
+//! Change signals and the latest plugin state. Reconnect reads current resources.
 
-use beep_proto::node::events::{Event, EventId, Topic};
+use beep_proto::node::events::{Topic, Value};
 use std::{
-    collections::VecDeque,
+    collections::BTreeMap,
     sync::{Arc, LazyLock, Mutex},
 };
 use tokio::sync::broadcast;
-use uuid::Uuid;
 
 pub(crate) mod exits;
 pub(crate) mod paths;
 
-const RETAINED: usize = 1024;
+const SIGNAL_CAPACITY: usize = 1024;
+const MAX_PLUGIN_TOPICS: usize = 128;
+const MAX_PLUGIN_STATE: usize = 1024 * 1024;
+
+#[derive(Clone, Debug)]
+pub struct Change {
+    pub topic: Topic,
+}
 
 #[derive(Clone, Debug)]
 pub struct Hub(Arc<Inner>);
 
 #[derive(Debug)]
 struct Inner {
-    history: Mutex<History>,
-    events: broadcast::Sender<Event>,
-}
-
-#[derive(Debug)]
-struct History {
-    cursor: EventId,
-    entries: VecDeque<Event>,
-}
-
-/// Ordered events after the cursor, or an empty list when a snapshot is required.
-pub struct Replay {
-    pub cursor: EventId,
-    pub events: Vec<Event>,
-    pub resync: bool,
+    states: Mutex<BTreeMap<Topic, Value>>,
+    changes: broadcast::Sender<Change>,
 }
 
 impl Default for Hub {
     fn default() -> Self {
         Self(Arc::new(Inner {
-            history: Mutex::new(History {
-                cursor: EventId {
-                    epoch: Uuid::new_v4(),
-                    sequence: 0,
-                },
-                entries: VecDeque::with_capacity(RETAINED),
-            }),
-            events: broadcast::channel(RETAINED).0,
+            states: Mutex::new(BTreeMap::new()),
+            changes: broadcast::channel(SIGNAL_CAPACITY).0,
         }))
     }
 }
 
 impl Hub {
-    pub fn subscribe(&self) -> broadcast::Receiver<Event> {
-        self.0.events.subscribe()
-    }
-
-    pub fn cursor(&self) -> EventId {
-        crate::lock(&self.0.history).cursor
-    }
-
-    /// Subscribe before calling this, then discard queued events at or before its cursor.
-    pub fn replay(&self, after: Option<EventId>) -> Replay {
-        let history = crate::lock(&self.0.history);
-        let after = after.filter(|after| {
-            after.epoch == history.cursor.epoch
-                && after.sequence <= history.cursor.sequence
-                && history
-                    .entries
-                    .front()
-                    .is_none_or(|first| after.sequence >= first.id.sequence.saturating_sub(1))
-        });
-        let events = after
-            .map(|after| {
-                history
-                    .entries
-                    .iter()
-                    .filter(|event| event.id.sequence > after.sequence)
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default();
-        Replay {
-            cursor: history.cursor,
-            events,
-            resync: after.is_none(),
-        }
+    pub fn subscribe(&self) -> broadcast::Receiver<Change> {
+        self.0.changes.subscribe()
     }
 
     pub fn changed(&self, topic: Topic) {
-        if !topic.valid() {
-            return;
+        if topic.valid() {
+            let _ = self.0.changes.send(Change { topic });
         }
-        let mut history = crate::lock(&self.0.history);
-        match history.cursor.sequence.checked_add(1) {
-            Some(sequence) => history.cursor.sequence = sequence,
-            None => {
-                history.cursor = EventId {
-                    epoch: Uuid::new_v4(),
-                    sequence: 1,
-                };
-                history.entries.clear();
+    }
+
+    /// Replaces a plugin's current compact MessagePack state, never its event history.
+    pub fn publish(&self, topic: Topic, state: Vec<u8>) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            topic.valid() && !topic.is_pattern(),
+            "a published topic must be exact"
+        );
+        anyhow::ensure!(state.len() <= MAX_PLUGIN_STATE, "plugin state is too large");
+        {
+            let mut states = crate::lock(&self.0.states);
+            anyhow::ensure!(
+                states.contains_key(&topic) || states.len() < MAX_PLUGIN_TOPICS,
+                "too many plugin topics"
+            );
+            let value = Value::Plugin(state);
+            if states.get(&topic) == Some(&value) {
+                return Ok(());
             }
+            states.insert(topic.clone(), value);
         }
-        let event = Event {
-            topic,
-            id: history.cursor,
-        };
-        if history.entries.len() == RETAINED {
-            history.entries.pop_front();
+        self.changed(topic);
+        Ok(())
+    }
+
+    pub(crate) fn current(&self, topic: &Topic) -> Option<Value> {
+        let local = crate::lock(&self.0.states).get(topic).cloned();
+        local.or_else(|| {
+            (!Arc::ptr_eq(&self.0, &system().0))
+                .then(|| crate::lock(&system().0.states).get(topic).cloned())
+                .flatten()
+        })
+    }
+
+    pub(crate) fn published(&self) -> Vec<Topic> {
+        let mut topics: std::collections::BTreeSet<_> =
+            crate::lock(&self.0.states).keys().cloned().collect();
+        if !Arc::ptr_eq(&self.0, &system().0) {
+            topics.extend(crate::lock(&system().0.states).keys().cloned());
         }
-        history.entries.push_back(event.clone());
-        let _ = self.0.events.send(event);
+        topics.into_iter().collect()
     }
 }
 
@@ -124,60 +100,29 @@ pub fn system() -> &'static Hub {
 mod tests {
     use super::*;
 
-    #[test]
-    fn history_replays_a_disconnect_and_detects_expiry_restart_and_future_cursors() {
+    #[tokio::test]
+    async fn plugin_reconnect_reads_latest_state_without_retaining_updates() {
         let hub = Hub::default();
-        let initial_snapshot = hub.replay(None);
-        assert!(initial_snapshot.events.is_empty());
-        assert!(initial_snapshot.resync);
-        let initial = hub.cursor();
-        hub.changed(Topic::new("files"));
-        let first = hub.cursor();
-        hub.changed(Topic::new("reviews"));
-        let replay = hub.replay(Some(initial));
-        assert_eq!(
-            replay
-                .events
-                .iter()
-                .map(|event| event.topic.name())
-                .collect::<Vec<_>>(),
-            ["files", "reviews"]
-        );
-        assert!(!replay.resync);
-        assert_eq!(hub.replay(Some(first)).events.len(), 1);
-        let caught_up = hub.replay(Some(hub.cursor()));
-        assert!(caught_up.events.is_empty());
-        assert!(!caught_up.resync);
-        let restarted = Hub::default().replay(Some(first));
-        assert!(restarted.events.is_empty());
-        assert!(restarted.resync);
-        let future = hub.replay(Some(EventId {
-            sequence: 99,
-            ..first
-        }));
-        assert!(future.events.is_empty());
-        assert!(future.resync);
-        for _ in 0..RETAINED {
-            hub.changed(Topic::new("files"));
-        }
-        let expired = hub.replay(Some(first));
-        assert!(expired.events.is_empty());
-        assert!(expired.resync);
-        assert_eq!(crate::lock(&hub.0.history).entries.len(), RETAINED);
+        let topic = Topic::keyed("plugin", "example");
+        let mut changes = hub.subscribe();
+        hub.publish(topic.clone(), vec![1]).unwrap();
+        hub.publish(topic.clone(), vec![2]).unwrap();
+        assert_eq!(changes.recv().await.unwrap().topic, topic);
+        assert_eq!(hub.current(&topic), Some(Value::Plugin(vec![2])));
+        assert_eq!(crate::lock(&hub.0.states).len(), 1);
+        assert!(hub.publish(Topic::new("plugin"), vec![]).is_err());
     }
 
     #[tokio::test]
-    async fn subscribe_and_replay_have_no_gap_or_duplicate() {
+    async fn unchanged_plugin_state_does_not_wake_readers() {
         let hub = Hub::default();
-        let before = hub.cursor();
-        hub.changed(Topic::new("first"));
-        let mut receiver = hub.subscribe();
-        hub.changed(Topic::new("during"));
-        let replay = hub.replay(Some(before));
-        assert_eq!(replay.events.len(), 2);
-        assert!(!replay.resync);
-        hub.changed(Topic::new("after"));
-        assert!(receiver.recv().await.unwrap().id.sequence <= replay.cursor.sequence);
-        assert!(receiver.recv().await.unwrap().id.sequence > replay.cursor.sequence);
+        let topic = Topic::keyed("plugin", "example");
+        hub.publish(topic.clone(), vec![1]).unwrap();
+        let mut changes = hub.subscribe();
+        hub.publish(topic, vec![1]).unwrap();
+        assert!(matches!(
+            changes.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ));
     }
 }

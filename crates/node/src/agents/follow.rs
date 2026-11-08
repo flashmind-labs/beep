@@ -4,7 +4,7 @@ use super::{Agents, MAX_TRANSCRIPT, found::Agent};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
-    agent::{FollowSession, SessionSnapshot, SessionSource, SessionUpdate, SessionsReply},
+    agent::{Entry, FollowSession, SessionCursor, SessionSnapshot, SessionSource, SessionUpdate},
 };
 use std::{future::pending, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
@@ -14,6 +14,10 @@ use tokio::{
 };
 
 static READERS: Semaphore = Semaphore::const_new(32);
+const RETAINED_ENTRIES: usize = 5000;
+// Leave room for source metadata inside the transport's 8 MiB frame limit.
+const RETAINED_TEXT: usize = 4 * 1024 * 1024;
+
 const HEARTBEAT: Duration = Duration::from_secs(10);
 const WRITE_WAIT: Duration = Duration::from_secs(15);
 
@@ -338,10 +342,20 @@ async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Res
             });
             observed_pid = pid;
         }
-        if previous.as_ref() != Some(&snapshot) {
-            let update = since(&snapshot, previous.as_ref());
-            send(tx, &SessionUpdate::Snapshot(Box::new(update))).await?;
-            previous = Some(snapshot);
+        let prior = previous.take();
+        let requested = request.clone();
+        let (snapshot, update, changed) = spawn_blocking(move || {
+            let (snapshot, update) = next_update(snapshot, prior.as_ref(), &requested);
+            let changed = prior.as_ref().is_none_or(|prior| {
+                prior.cursor != snapshot.cursor || prior.source != snapshot.source
+            });
+            (snapshot, update, changed)
+        })
+        .await
+        .context("preparing transcript update")?;
+        previous = Some(snapshot);
+        if changed {
+            send(tx, &update).await?;
         }
         let follow_presence = live.is_none();
         loop {
@@ -404,31 +418,108 @@ fn recent_deadline(session: &beep_proto::node::agent::ExternalSession) -> Option
     Instant::now().checked_add(Duration::from_secs(remaining.max(1)))
 }
 
-/// Keeps only the suffix that replaces entries the reader already holds.
-fn since(snapshot: &SessionSnapshot, previous: Option<&SessionSnapshot>) -> SessionSnapshot {
-    let mut update = snapshot.clone();
-    let Some(previous) = previous else {
-        return update;
-    };
-    let Some(offset) = snapshot
-        .earlier
-        .checked_sub(previous.earlier)
-        .and_then(|offset| usize::try_from(offset).ok())
-    else {
-        return update;
-    };
-    if offset > previous.entries.len() {
-        return update;
+/// Hash exactly the canonical window the client can retain and validate on reconnect.
+fn fingerprint(start: u64, entries: &[Entry]) -> String {
+    let mut hash = blake3::Hasher::new();
+    hash.update(b"session-window/1");
+    hash.update(&start.to_le_bytes());
+    for entry in entries {
+        let kind = entry.kind.as_str().as_bytes();
+        hash.update(&(kind.len() as u64).to_le_bytes());
+        hash.update(kind);
+        hash.update(&(entry.text.len() as u64).to_le_bytes());
+        hash.update(entry.text.as_bytes());
+        match entry.ms {
+            Some(ms) => {
+                hash.update(&[1]);
+                hash.update(&ms.to_le_bytes());
+            }
+            None => {
+                hash.update(&[0]);
+            }
+        }
     }
-    let same = snapshot
-        .entries
-        .iter()
-        .zip(previous.entries.iter().skip(offset))
-        .take_while(|(new, old)| new == old)
-        .count();
-    update.entries.drain(..same);
-    update.earlier += same as u64;
-    update
+    hash.finalize().to_hex().to_string()
+}
+
+fn window(mut snapshot: SessionSnapshot, start: u64) -> SessionSnapshot {
+    let skip = start
+        .saturating_sub(snapshot.earlier)
+        .min(snapshot.entries.len() as u64) as usize;
+    snapshot.entries.drain(..skip);
+    snapshot.earlier += skip as u64;
+    snapshot.cursor.start = snapshot.earlier;
+    snapshot.cursor.fingerprint = fingerprint(snapshot.earlier, &snapshot.entries);
+    snapshot
+}
+
+fn validates(snapshot: &SessionSnapshot, cursor: &SessionCursor) -> bool {
+    if cursor.start < snapshot.earlier
+        || cursor.next < cursor.start
+        || cursor.next > snapshot.cursor.next
+    {
+        return false;
+    }
+    let start = (cursor.start - snapshot.earlier) as usize;
+    let end = (cursor.next - snapshot.earlier) as usize;
+    fingerprint(cursor.start, &snapshot.entries[start..end]) == cursor.fingerprint
+}
+
+/// Keeps only the suffix that replaces entries the reader already holds.
+fn since(snapshot: &SessionSnapshot, previous: &SessionSnapshot) -> SessionSnapshot {
+    let offset = (snapshot.earlier - previous.earlier) as usize;
+    let same = if snapshot.cursor == previous.cursor {
+        snapshot.entries.len()
+    } else {
+        snapshot
+            .entries
+            .iter()
+            .zip(previous.entries.iter().skip(offset))
+            .take_while(|(new, old)| new == old)
+            .count()
+    };
+    suffix(snapshot, same, false)
+}
+
+fn suffix(snapshot: &SessionSnapshot, skip: usize, resumed: bool) -> SessionSnapshot {
+    SessionSnapshot {
+        source: snapshot.source.clone(),
+        entries: snapshot.entries[skip..].to_vec(),
+        earlier: snapshot.earlier + skip as u64,
+        cursor: snapshot.cursor.clone(),
+        resumed,
+    }
+}
+
+fn next_update(
+    snapshot: SessionSnapshot,
+    previous: Option<&SessionSnapshot>,
+    request: &FollowSession,
+) -> (SessionSnapshot, SessionUpdate) {
+    let initial_start = snapshot
+        .cursor
+        .next
+        .saturating_sub(u64::from(request.last.clamp(1, MAX_TRANSCRIPT)));
+    if let Some(previous) = previous {
+        // Retention loss, a source reset, or truncation before our window requires a fresh view.
+        if snapshot.earlier <= previous.cursor.next && previous.earlier < snapshot.cursor.next {
+            let snapshot = window(snapshot, previous.earlier);
+            let delta = since(&snapshot, previous);
+            return (snapshot, SessionUpdate::Delta(Box::new(delta)));
+        }
+    } else if let Some(after) = &request.after
+        && validates(&snapshot, after)
+    {
+        let snapshot = window(snapshot, after.start);
+        let skip = (after.next - snapshot.earlier) as usize;
+        let update = suffix(&snapshot, skip, true);
+        return (snapshot, SessionUpdate::Snapshot(Box::new(update)));
+    }
+    let snapshot = window(snapshot, initial_start);
+    (
+        snapshot.clone(),
+        SessionUpdate::Snapshot(Box::new(snapshot)),
+    )
 }
 
 async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSnapshot> {
@@ -458,19 +549,60 @@ async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSna
             SessionSource::External(Box::new(found))
         }
     };
-    let last = request.last.clamp(1, MAX_TRANSCRIPT);
-    match agents
-        .transcript_reply(&request.session, last, true, None)
-        .await
-    {
-        SessionsReply::Transcript { entries, earlier } => Ok(SessionSnapshot {
-            source,
-            entries,
-            earlier: u64::from(earlier),
-        }),
-        SessionsReply::Error { message } => bail!(message),
-        _ => bail!("unexpected transcript reply"),
-    }
+    // Source readers already bound their retained transcript and memoize disk parsing.
+    // Read enough to validate the cached window, including mutable tools before its tail.
+    let (mut entries, mut earlier) = if let Some(session) = agents.get(&request.session) {
+        agents
+            .live_transcript(&session, RETAINED_ENTRIES, None)
+            .await
+    } else {
+        let read = match agents
+            .external
+            .transcript(&request.session, RETAINED_ENTRIES, None)
+            .await?
+        {
+            Some(read) => read,
+            None => {
+                let stores = agents.stores.clone();
+                let session = request.session.clone();
+                spawn_blocking(move || stores.transcript(&session, RETAINED_ENTRIES, None))
+                    .await??
+                    .context("session transcript is no longer on the machine")?
+            }
+        };
+        for picture in read.pictures {
+            agents.images.keep(&request.session, picture);
+        }
+        (read.entries, read.earlier)
+    };
+    let mut bytes = 0usize;
+    let kept = entries
+        .iter()
+        .rev()
+        .take_while(|entry| {
+            bytes = bytes.saturating_add(entry.text.len());
+            bytes <= RETAINED_TEXT
+        })
+        .count();
+    let removed = entries.len() - kept;
+    entries.drain(..removed);
+    earlier = earlier
+        .checked_add(u64::try_from(removed)?)
+        .context("transcript position overflow")?;
+    let next = earlier
+        .checked_add(u64::try_from(entries.len())?)
+        .context("transcript position overflow")?;
+    Ok(SessionSnapshot {
+        source,
+        entries,
+        earlier,
+        cursor: SessionCursor {
+            start: earlier,
+            next,
+            fingerprint: String::new(),
+        },
+        resumed: false,
+    })
 }
 
 async fn paths(agents: &Agents, request: &FollowSession) -> Result<Vec<PathBuf>> {
@@ -632,6 +764,7 @@ mod tests {
             agent: "flsh".into(),
             session: "example".into(),
             last: 200,
+            after: None,
         })
         .await
         .unwrap();
@@ -661,38 +794,156 @@ mod tests {
                 .map(|text| Entry::new(EntryKind::Agent, (*text).into()))
                 .collect(),
             earlier,
+            cursor: SessionCursor {
+                start: earlier,
+                next: earlier + text.len() as u64,
+                fingerprint: fingerprint(
+                    earlier,
+                    &text
+                        .iter()
+                        .map(|text| Entry::new(EntryKind::Agent, (*text).into()))
+                        .collect::<Vec<_>>(),
+                ),
+            },
+            resumed: false,
+        }
+    }
+
+    fn request(after: Option<SessionCursor>) -> FollowSession {
+        FollowSession {
+            agent: "example".into(),
+            session: "example".into(),
+            last: 200,
+            after,
         }
     }
 
     #[test]
-    fn updates_replace_a_changed_entry_and_send_only_the_changed_suffix() {
+    fn deltas_replace_same_count_edits_and_truncate_the_suffix() {
         let before = page(3, &["one", "thi"]);
-        let after = page(3, &["one", "thinking", "done"]);
-        assert_eq!(since(&after, Some(&before)), page(4, &["thinking", "done"]));
-        assert_eq!(since(&after, None), after);
-        assert_eq!(since(&after, Some(&after)), page(6, &[]));
+        let (retained, update) =
+            next_update(page(3, &["one", "thinking"]), Some(&before), &request(None));
+        let SessionUpdate::Delta(update) = update else {
+            panic!("expected delta")
+        };
+        assert_eq!(update.earlier, 4);
+        assert_eq!(update.entries[0].text, "thinking");
+        assert_eq!(update.cursor, retained.cursor);
+        let (_, update) = next_update(page(3, &["one"]), Some(&retained), &request(None));
+        let SessionUpdate::Delta(update) = update else {
+            panic!("expected delta")
+        };
+        assert_eq!(update.earlier, 4);
+        assert!(update.entries.is_empty());
+        assert_eq!(update.cursor.next, 4);
     }
 
     #[test]
-    fn a_moving_window_keeps_indices_and_a_gap_or_truncation_resynchronizes() {
+    fn moving_retention_keeps_overlap_and_gaps_reset_the_snapshot() {
         let before = page(3, &["one", "two", "three"]);
-        assert_eq!(
-            since(&page(4, &["two", "three", "four"]), Some(&before)),
-            page(6, &["four"])
+        let (_, update) = next_update(
+            page(4, &["two", "three", "four"]),
+            Some(&before),
+            &request(None),
         );
-        assert_eq!(
-            since(&page(8, &["later"]), Some(&before)),
-            page(8, &["later"])
-        );
-        assert_eq!(
-            since(&page(0, &["reset"]), Some(&before)),
-            page(0, &["reset"])
-        );
-        assert_eq!(since(&page(3, &["one"]), Some(&before)), page(4, &[]));
+        let SessionUpdate::Delta(update) = update else {
+            panic!("expected delta")
+        };
+        assert_eq!(update.earlier, 6);
+        assert_eq!(update.cursor.start, 4);
+        assert_eq!(update.entries[0].text, "four");
+        for fresh in [
+            page(8, &["later"]),
+            page(0, &["reset"]),
+            page(0, &["reset", "before", "window"]),
+        ] {
+            assert!(matches!(
+                next_update(fresh, Some(&before), &request(None)).1,
+                SessionUpdate::Snapshot(_)
+            ));
+        }
+    }
+
+    #[test]
+    fn reconnect_validates_the_retained_prefix_and_only_sends_new_entries() {
+        let before = page(3, &["one", "two"]);
+        let after = page(3, &["one", "two", "three"]);
+        let (_, update) = next_update(after.clone(), None, &request(Some(before.cursor.clone())));
+        let SessionUpdate::Snapshot(update) = update else {
+            panic!("expected snapshot")
+        };
+        assert!(update.resumed);
+        assert_eq!(update.earlier, 5);
+        assert_eq!(update.entries[0].text, "three");
+        for cursor in [
+            page(3, &["changed", "two"]).cursor,
+            page(0, &["missing"]).cursor,
+            SessionCursor {
+                next: 99,
+                ..before.cursor.clone()
+            },
+        ] {
+            let (_, update) = next_update(after.clone(), None, &request(Some(cursor)));
+            let SessionUpdate::Snapshot(update) = update else {
+                panic!("expected snapshot")
+            };
+            assert!(!update.resumed);
+            assert_eq!(update.earlier, 3);
+            assert_eq!(update.entries.len(), 3);
+        }
     }
 
     #[tokio::test]
-    async fn an_external_transcript_pushes_appends_and_reconnects_with_a_full_snapshot() {
+    async fn a_resume_window_can_extend_beyond_the_initial_two_hundred_entries() {
+        let root = tempfile::tempdir().unwrap();
+        let folder = root.path().join("projects/project");
+        std::fs::create_dir_all(&folder).unwrap();
+        let id = "0f3c2a9e-1111-4222-8333-944455556666";
+        let line = |n| {
+            if n % 2 == 0 {
+                format!(
+                    "{{\"type\":\"user\",\"message\":{{\"role\":\"user\",\"content\":\"entry {n}\"}}}}\n"
+                )
+            } else {
+                format!(
+                    "{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"entry {n}\"}}]}}}}\n"
+                )
+            }
+        };
+        let mut text: String = (0..250).map(line).collect();
+        let file = folder.join(format!("{id}.jsonl"));
+        std::fs::write(&file, &text).unwrap();
+        let agents = Agents {
+            external: super::super::claude::External::locate_in(root.path()),
+            ..Agents::default()
+        };
+        let mut request = FollowSession {
+            agent: "claude".into(),
+            session: id.into(),
+            last: 200,
+            after: None,
+        };
+        let raw = snapshot(&agents, &request).await.unwrap();
+        assert_eq!(raw.entries.len(), 250);
+        let (initial, _) = next_update(raw, None, &request);
+        assert_eq!(initial.entries.len(), 200);
+        assert_eq!(initial.cursor.start, 50);
+        text.push_str(&line(250));
+        std::fs::write(file, text).unwrap();
+        request.after = Some(initial.cursor);
+        let raw = snapshot(&agents, &request).await.unwrap();
+        let (retained, update) = next_update(raw, None, &request);
+        assert_eq!(retained.entries.len(), 201);
+        let SessionUpdate::Snapshot(update) = update else {
+            panic!("expected snapshot")
+        };
+        assert!(update.resumed);
+        assert_eq!(update.earlier, 250);
+        assert_eq!(update.entries.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_external_transcript_pushes_deltas_and_reconnects_from_a_checkpoint() {
         use super::super::claude::External;
         use std::{fs::OpenOptions, io::Write};
         let root = tempfile::tempdir().unwrap();
@@ -705,10 +956,11 @@ mod tests {
             external: External::locate_in(root.path()),
             ..Agents::default()
         });
-        let request = FollowSession {
+        let mut request = FollowSession {
             agent: "claude".into(),
             session: id.into(),
             last: 200,
+            after: None,
         };
         async fn connect(
             agents: Arc<Agents>,
@@ -727,7 +979,7 @@ mod tests {
                 .unwrap()
                 .unwrap()
             {
-                SessionUpdate::Snapshot(snapshot) => *snapshot,
+                SessionUpdate::Snapshot(snapshot) | SessionUpdate::Delta(snapshot) => *snapshot,
                 other => panic!("expected a snapshot, got {other:?}"),
             }
         }
@@ -738,16 +990,31 @@ mod tests {
         let update = next(&mut rx).await;
         assert_eq!(update.earlier, 1);
         assert_eq!(update.entries[0].text, "world");
+        request.after = Some(update.cursor);
         drop(tx);
         timeout(Duration::from_secs(5), task)
             .await
             .unwrap()
             .unwrap()
             .unwrap();
+        writeln!(writer, "{{\"type\":\"user\",\"timestamp\":\"2026-10-29T08:00:02Z\",\"message\":{{\"role\":\"user\",\"content\":\"offline\"}}}}").unwrap();
         let (tx, mut rx, task) = connect(agents, &request).await;
         let snapshot = next(&mut rx).await;
-        assert_eq!(snapshot.earlier, 0);
-        assert_eq!(snapshot.entries.len(), 2);
+        assert!(snapshot.resumed);
+        assert_eq!(snapshot.earlier, 2);
+        assert_eq!(snapshot.entries.len(), 1);
+        assert_eq!(snapshot.entries[0].text, "offline");
+        let original = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, original.replace("world", "changed")).unwrap();
+        let edited = next(&mut rx).await;
+        assert_eq!(edited.earlier, 1);
+        assert_eq!(edited.entries[0].text, "changed");
+        assert_eq!(edited.cursor.next, 3);
+        std::fs::write(&file, original.lines().next().unwrap().to_owned() + "\n").unwrap();
+        let truncated = next(&mut rx).await;
+        assert_eq!(truncated.earlier, 1);
+        assert!(truncated.entries.is_empty());
+        assert_eq!(truncated.cursor.next, 1);
         drop(tx);
         timeout(Duration::from_secs(5), task)
             .await

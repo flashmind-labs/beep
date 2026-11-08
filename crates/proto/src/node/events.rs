@@ -1,8 +1,7 @@
 //! Topic subscriptions and correlated commands on one bidirectional mesh stream.
 
-use super::{agent, process};
+use super::{agent, process, sync, terminal};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 pub const PROTOCOL: &str = "events/1";
 pub const MAX_TOPICS: usize = 64;
@@ -10,18 +9,78 @@ pub const MAX_TOPICS: usize = 64;
 mod topic;
 pub use topic::{MAX_TOPIC_BYTES, Topic, TopicError};
 
-/// The epoch changes when the node restarts or its history is replaced.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EventId {
-    pub epoch: Uuid,
-    pub sequence: u64,
+pub const MAX_QUERIES: usize = 128;
+
+/// A projection of current resource state. Mutating and following requests are rejected.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Read {
+    Sessions(Box<agent::SessionsRequest>),
+    Process(process::Request),
+    TerminalList,
+    SyncList,
+}
+
+impl Read {
+    /// The source that owns this projection, also the read-only allowlist.
+    pub fn topic(&self) -> Option<Topic> {
+        use agent::SessionsRequest as S;
+        Some(match self {
+            Self::Sessions(request) => match request.as_ref() {
+                S::List {}
+                | S::ListAll {}
+                | S::External { .. }
+                | S::Folders { .. }
+                | S::InFolders { .. } => Topic::new("agents"),
+                S::Folder { root, .. } | S::ReadFile { root, .. } => Topic::keyed("files", root),
+                S::Diff { ask } => Topic::keyed("files", &ask.root),
+                S::Worktrees { folder } => Topic::keyed("files", folder),
+                S::Present { .. } => Topic::new("files"),
+                S::Live { session } | S::Commands { session } => Topic::keyed("agent", session),
+                S::MoveProgress { session } => Topic::keyed("moves", session),
+                S::Copies {} => Topic::new("moves"),
+                S::Review { .. } | S::Reviews { .. } => Topic::new("reviews"),
+                S::Processes { .. } => Topic::new("processes"),
+                // Transcript paging and media are finite reads. The conversation stream
+                // owns live transcript cursors and suffix replacements.
+                _ => return None,
+            },
+            Self::Process(process::Request::List {} | process::Request::Status { .. }) => {
+                Topic::new("processes")
+            }
+            Self::Process(_) => return None,
+            Self::TerminalList => Topic::new("terminals"),
+            Self::SyncList => Topic::new("sync"),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-/// A wildcard topic invalidates its scope for every matching subscriber.
-pub struct Event {
+pub enum Value {
+    /// The resource has no current state, including an unbound project topic.
+    Missing,
+    Sessions(Box<agent::SessionsReply>),
+    Process(process::Reply),
+    Terminals(terminal::Reply),
+    Sync(Box<sync::Reply>),
+    /// A plugin's compact MessagePack state, published under its topic.
+    Plugin(#[serde(with = "serde_bytes")] Vec<u8>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Query {
+    pub id: u64,
     pub topic: Topic,
-    pub id: EventId,
+    pub read: Read,
+}
+
+/// A complete replacement for one projection. Reconnect starts with fresh snapshots.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Snapshot {
+    pub topic: Topic,
+    pub query: Option<u64>,
+    /// Delivery order within this stream, never a replay cursor.
+    pub revision: u64,
+    pub value: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -48,7 +107,7 @@ pub enum Request {
     Watch {
         id: u64,
         topics: Vec<Topic>,
-        after: Option<EventId>,
+        queries: Vec<Query>,
     },
     /// Executed once on this connection. A lost reply has an unknown outcome.
     Call {
@@ -66,14 +125,11 @@ pub enum Reply {
     Watching {
         id: u64,
     },
-    Changed(Event),
-    /// Initial connection, a changed subscription, or a slow reader: read current state.
-    Resync {
-        cursor: EventId,
-    },
-    /// All events through this cursor were considered, including unselected topics.
-    CaughtUp {
-        cursor: EventId,
+    Snapshot(Box<Snapshot>),
+    SnapshotError {
+        query: Option<u64>,
+        topic: Topic,
+        reason: String,
     },
     Result {
         id: u64,
@@ -91,6 +147,73 @@ pub enum Reply {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_queries_only_accept_reads() {
+        assert!(
+            Read::Sessions(Box::new(agent::SessionsRequest::ListAll {}))
+                .topic()
+                .is_some()
+        );
+        assert!(
+            Read::Sessions(Box::new(agent::SessionsRequest::WriteFile {
+                root: "/srv/project".into(),
+                path: "file".into(),
+                offset: 0,
+                size: 0,
+                data: vec![]
+            }))
+            .topic()
+            .is_none()
+        );
+        assert!(
+            Read::Process(process::Request::Start {
+                command: "false".into(),
+                cwd: None
+            })
+            .topic()
+            .is_none()
+        );
+        assert!(
+            Read::Sessions(Box::new(agent::SessionsRequest::FollowPresence {}))
+                .topic()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn snapshot_subscriptions_roundtrip_compact_messagepack() {
+        let read = Read::Sessions(Box::new(agent::SessionsRequest::Folder {
+            root: "/srv/project".into(),
+            path: String::new(),
+            ignored: false,
+            depth: 1,
+        }));
+        let request = Request::Watch {
+            id: 1,
+            topics: vec![Topic::parse("files.org.repo").unwrap()],
+            queries: vec![Query {
+                id: 2,
+                topic: read.topic().unwrap(),
+                read,
+            }],
+        };
+        let bytes = rmp_serde::to_vec(&request).unwrap();
+        assert_eq!(
+            crate::lenient::from_slice::<Request>(&bytes).unwrap(),
+            request
+        );
+        let reply = Reply::Snapshot(Box::new(Snapshot {
+            topic: Topic::parse("files.org.repo").unwrap(),
+            query: Some(2),
+            revision: 1,
+            value: Value::Missing,
+        }));
+        assert_eq!(
+            crate::lenient::from_slice::<Reply>(&rmp_serde::to_vec(&reply).unwrap()).unwrap(),
+            reply
+        );
+    }
 
     #[test]
     fn subscriptions_match_a_resource_a_namespace_or_everything() {

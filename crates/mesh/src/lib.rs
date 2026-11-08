@@ -13,7 +13,10 @@ mod store;
 mod wire;
 
 pub(crate) use client::CALL_TIMEOUT;
-pub use client::{DEADLINE, OPEN_TIMEOUT, Offline, PeerClient, SessionFn, with_deadline};
+pub use client::{
+    DEADLINE, OPEN_TIMEOUT, Offline, PeerClient, SessionFn, SnapshotFuture, SnapshotReader,
+    with_deadline,
+};
 pub use devices::{Device, DeviceKind, MeshError};
 pub(crate) use devices::{DeviceOp, Devices, Merged, WriteLimit};
 pub use join::{JoinSecret, JoinTicket, TicketError};

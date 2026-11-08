@@ -85,6 +85,13 @@ impl Reviews {
 }
 
 impl Agents {
+    pub(crate) fn review_snapshots(&self) -> Vec<ReviewRun> {
+        crate::lock(&self.reviews.kept)
+            .iter()
+            .map(|kept| kept.run.clone())
+            .collect()
+    }
+
     /// Starts a reviewer as `order` says and gives its review as it starts.
     pub(crate) async fn start_review(
         self: &Arc<Self>,
