@@ -79,8 +79,16 @@ impl Default for External {
 }
 
 impl External {
-    pub(crate) fn follow_root(&self) -> Option<PathBuf> {
-        self.root.as_ref().map(|root| root.join("projects"))
+    pub(crate) fn follow_paths(&self) -> Vec<PathBuf> {
+        self.root
+            .as_ref()
+            .into_iter()
+            .flat_map(|root| [root.join("projects"), root.join("sessions")])
+            .collect()
+    }
+
+    pub(crate) fn presence_path(&self) -> Option<PathBuf> {
+        self.root.as_ref().map(|root| root.join("sessions"))
     }
 
     /// Looks for Claude Code's folder; without one there is nothing to list.
