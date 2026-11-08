@@ -1,6 +1,6 @@
-//! The user's instructions for every agent, kept between markers in agent files on their machines.
+//! The user's saved agent instructions and their versions.
 
-use super::{Reply, own_nodes::retired};
+use super::Reply;
 use crate::{
     api::router::Cx,
     protocol::*,
@@ -56,15 +56,6 @@ pub(super) async fn list_instructions_versions(
         .into_iter()
         .map(view)
         .collect())
-}
-
-/// The agent files are on the machines, which a desktop reaches now.
-pub(super) async fn read_agent_files(_: Cx, _: ReadAgentFiles) -> Reply<Vec<MachineAgentFiles>> {
-    Ok(Vec::new())
-}
-
-pub(super) async fn sync_agent_files(_: Cx, _: SyncAgentFiles) -> Reply<MachineAgentFiles> {
-    retired()
 }
 
 async fn newest(cx: &Cx) -> Result<Option<InstructionsRow>, ApiError> {

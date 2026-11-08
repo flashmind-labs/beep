@@ -2,6 +2,7 @@
 //! temporary reviewer it starts as a child (`agents::reviews`), and the
 //! reviewer hands its findings in. Both run on the caller's own node.
 
+use super::reply::{fail, ok};
 use crate::agents::{
     family::{WAIT_LIMIT, WAIT_POLL},
     reviews::MAX_FINDINGS,
@@ -58,20 +59,6 @@ impl From<ReviewRun> for ReviewView {
             error: run.error,
             note: None,
         }
-    }
-}
-
-fn fail(text: impl Into<String>) -> Reply {
-    Reply::Done {
-        text: text.into(),
-        failed: true,
-    }
-}
-
-fn ok(text: impl Into<String>) -> Reply {
-    Reply::Done {
-        text: text.into(),
-        failed: false,
     }
 }
 

@@ -14,7 +14,7 @@ import { onlineMachines } from "./center.ts";
 import { CONNECT_STUCK_MS, CONNECT_RETRY_MS, state, pages, pagesAccount, keepPagesFile } from "./state.ts";
 import { cardKey, dismissedUpdates, problem, draw } from "./home.ts";
 import { allTerms } from "../terminals/view.ts";
-import { refreshGit } from "./openitems.ts";
+import { refreshGit, single } from "./openitems.ts";
 import { shown, drawTop } from "./views.ts";
 import { reloadGroup, reloadChats, projectRows, drawSide } from "./sidebar.ts";
 import { loadOverview } from "../project/projects.ts";
@@ -34,28 +34,38 @@ export let fresh = false;
 
 export let loading = false, again = false, retryTimer: ReturnType<typeof setTimeout> | undefined;
 
+/// Optional machine details refresh independently of Home and its retry loop.
+const refreshDetails = single(async () => {
+  const [mac, sync, traffic, top, projectGroups] = await Promise.all([
+    invoke<MacControl>("mac_control").catch(e => { console.warn("this computer's state:", e); return state.mac; }),
+    invoke<SyncRow[]>("project_sync").catch(e => { console.warn("project sync:", e); return state.sync; }),
+    invoke<MachineTraffic[]>("machine_traffic").catch(e => { console.warn("machine traffic:", e); return state.traffic; }),
+    invoke<string[]>("projects_on_top").catch(e => { console.warn("projects on top:", e); return state.top; }),
+    invoke<ProjectGroup[] | null>("project_groups").catch(e => { console.warn("project groups:", e); return state.groups; }),
+  ]);
+  state.mac = mac;
+  pagesAccount(mac);
+  state.top = top || [];
+  state.groups = projectGroups;
+  state.sync = sync;
+  state.traffic = traffic;
+  await Promise.all(["projects", "pinned"].map(name => reloadGroup(name, false)));
+  if (onScreen()) {
+    draw();
+    drawSide();
+    readSync();
+    if (shown === "projects") { drawProjects(projectsEl()); drawTop(); }
+  }
+});
+
 /// Fetches Home. Never two calls at once: a request during one runs once more after it.
 export async function refresh() {
   if (loading) { again = true; return; }
   clearTimeout(retryTimer);
   loading = true;
+  void refreshDetails();
   try {
-    const [home, mac, sync, traffic, top, projectGroups] = await Promise.all([
-      invoke<HomeView>("center_home"),
-      invoke<MacControl>("mac_control").catch(e => { console.warn("this computer's state:", e); return state.mac; }),
-      // Sync rows only add to the machines table; Home draws without them.
-      invoke<SyncRow[]>("project_sync").catch(e => { console.warn("project sync:", e); return state.sync; }),
-      // So does traffic, and an older server has none.
-      invoke<MachineTraffic[]>("machine_traffic").catch(e => { console.warn("machine traffic:", e); return state.traffic; }),
-      invoke<string[]>("projects_on_top").catch(e => { console.warn("projects on top:", e); return state.top; }),
-      invoke<ProjectGroup[] | null>("project_groups").catch(e => { console.warn("project groups:", e); return state.groups; }),
-    ]);
-    state.mac = mac;
-    pagesAccount(mac);
-    state.top = top || [];
-    state.groups = projectGroups;
-    state.sync = sync;
-    state.traffic = traffic;
+    const home = await invoke<HomeView>("center_home");
     if (home.updates) home.updates = withoutDismissed(home.updates, dismissedUpdates);
     const was = onlineMachines(state.home);
     state.home = home;

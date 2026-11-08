@@ -107,6 +107,10 @@ async function poll() {
   try {
     const id = await invoke<string | null>("node_token_machine", { token });
     if (!id) return;
+    if (kind === "phone") {
+      if (state.step === "waiting" && state.token === token) update({ type: "paired" });
+      return;
+    }
     // Matched by id, so a machine set up again is found too.
     const machine = machineById(await invoke<MachineView[]>("list_machines"), id);
     if (machine && state.step === "waiting" && state.token === token) update({ type: "found", machine });
@@ -160,7 +164,7 @@ function statusLine() {
 
 /// "Use this Mac" and where it stands, above the steps for other machines.
 function macBlock() {
-  if (state.step === "linked") return null;
+  if (state.step === "linked" || state.step === "paired") return null;
   const option = macOption(mac, macAsked);
   if (!option) return null;
   const status = option.busy
@@ -194,8 +198,8 @@ function tickOnly() {
 function draw() {
   const box = sheet!;
   const mine = macBlock();
-  const other = mine && state.step !== "linked" ? el("div", "am-label am-other", "Another machine") : null;
-  const done = state.step === "linked" || state.step === "expired";
+  const other = mine && state.step !== "linked" && state.step !== "paired" ? el("div", "am-label am-other", "Another machine") : null;
+  const done = state.step === "linked" || state.step === "paired" || state.step === "expired";
   box.replaceChildren(el("div", "am-head", el("b", "", "Add a machine"), el("kbd", "", "esc")), ...present([done ? null : kindPicker(), mine, other, ...body()]));
   const first = box.querySelector("button");
   if (first && !box.contains(document.activeElement)) first.focus();
@@ -252,6 +256,12 @@ function body() {
         commandLine(),
         statusLine(),
       ]);
+    case "paired":
+      return [
+        el("div", "am-done", el("span", "ddot"), el("b", "", "Phone paired")),
+        el("div", "am-sub", "Observe projects and agents from your phone. Phones do not host projects or run code, and stay out of Machines."),
+        button("Done", "dbtn pri", closeAddMachine),
+      ];
     case "linked": {
       const what = describeMachine(state.machine);
       return [

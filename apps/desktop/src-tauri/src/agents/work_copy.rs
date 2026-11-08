@@ -199,7 +199,7 @@ fn stays_inside(root: &Path, folder: &Path) -> bool {
 /// folders Beep's sync keeps. Nothing is asked of any machine.
 fn recorded(mesh: &Mesh) -> (Vec<ImportedProject>, Vec<ProjectSync>) {
     let names: HashMap<EndpointId, String> = mesh
-        .devices()
+        .machines()
         .into_iter()
         .map(|status| (status.device.id, status.device.name))
         .collect();
