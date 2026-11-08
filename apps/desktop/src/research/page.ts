@@ -5,10 +5,10 @@ import { invoke } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
 import { chipClass, newestFirst, phaseStep, PHASES, progressLine, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
 import { RESEARCHES } from "./researches.ts";
-import { type ResearchArg, state, views } from "../center/state.ts";
+import { state, views } from "../center/state.ts";
 import { groupShown } from "../settings/subscription.ts";
 import { failure, tag, skeleton } from "../ui/pieces.ts";
-import { shown, shownArg, registerView, go, drawTop, openResearch } from "../center/views.ts";
+import { currentLocation, registerView, go, drawTop, openResearch } from "../center/views.ts";
 import { registerSidebarGroup, reloadGroup, sideItem, reloadChats, plusButton, emptyRow } from "../center/sidebar.ts";
 import { IC } from "../ui/icons.ts";
 
@@ -33,7 +33,7 @@ async function fetchResearch() {
     console.warn("listing researches:", e);
     research.error = failure(e);
   }
-  if (shown === "research") { drawResearch(); drawTop(); }
+  if (currentLocation()?.view === "research") { drawResearch(); drawTop(); }
   return research.list;
 }
 
@@ -160,7 +160,8 @@ registerSidebarGroup<ResearchRow>("research", {
     const b = sideItem(IC.doc, r.topic, 0);
     b.title = `${r.topic}\n${STATE_LABEL[researchState(r.status)]}`;
     if (researchState(r.status) === "running") b.append(h("span", "dspin cc-run"));
-    if (shown === "researchopen" && (shownArg as ResearchArg).session === r.session) b.setAttribute("aria-current", "true");
+    const location = currentLocation();
+    if (location?.view === "researchopen" && location.arg.session === r.session) b.setAttribute("aria-current", "true");
     return b;
   },
   onPick: r => openResearch(r.session),

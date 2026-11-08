@@ -42,17 +42,18 @@ try {
   await page.waitForFunction(() => steerCheck.AG.page?.entries.length);
   await page.locator("#agmsg").fill("Use the existing fixture");
   await page.evaluate(() => steerCheck.steerMessage(document.querySelector("#agmsg")));
-  assert.equal(await page.locator("[data-pending-steer]").count(), 1);
+  assert.equal(await page.locator("#agqueue .it").count(), 1);
   await page.evaluate(() => steerCheck.openAgent(window.__pages.second.session));
-  assert.equal(await page.locator("[data-pending-steer]").count(), 0);
+  assert.equal(await page.locator("#agqueue .it").count(), 0);
   await page.evaluate(() => {
     window.__pages.first.queued = 1;
     window.__pages.first.queued_messages = ["Use the existing fixture"];
     window.__acknowledge([]);
   });
   await page.evaluate(() => steerCheck.openAgent(window.__pages.first.session));
-  await page.waitForFunction(() => document.querySelector("[data-pending-steer]")?.textContent.includes("Waiting for the current step"));
-  assert.equal(await page.locator("[data-pending-steer]").count(), 1);
+  await page.waitForFunction(() => document.querySelector("#agqueue")?.textContent.includes("after the current step"));
+  assert.equal(await page.locator("#agqueue .it").count(), 1);
+  assert.equal(await page.locator("#agbody").textContent().then(text => text.includes("Use the existing fixture")), false);
   assert.equal(await page.evaluate(() => window.__sent), 1);
   assert.deepEqual(await page.evaluate(() => window.__errors), []);
   console.log("chromium: pending steers survive navigation and acknowledgments without resending");

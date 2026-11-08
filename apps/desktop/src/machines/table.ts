@@ -8,7 +8,7 @@ import { trafficRows, trafficSummary } from "./traffic-state.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { ALL, byMachine } from "../terminals/terminals.ts";
 import { OFFLINE_NOTE_MS, state } from "../center/state.ts";
-import { shown } from "../center/views.ts";
+import { currentLocation } from "../center/views.ts";
 import { dot, section, plusLabel, rowButton } from "../ui/pieces.ts";
 import { draw } from "../center/home.ts";
 import { allTerms, termMachines, openTerminals, terminalRow } from "../terminals/view.ts";
@@ -67,7 +67,7 @@ function machineTable(machines: MachineCard[]) {
 /// Reads the sync detail of the projects in `state.sync` that are due, then
 /// draws them, while Home shows.
 function readSyncDetails() {
-  if (shown !== "home") return;
+  if (currentLocation()?.view !== "home") return;
   const moving = new Set(state.sync.filter(r => r.status === "syncing" || r.status === "scanning").map(r => r.project));
   const reads = [...new Set(state.sync.map(r => r.project))].map(p => fsync.ensure(p, moving.has(p) ? MOVING_MAX_AGE_MS : undefined)).filter(r => r);
   if (reads.length) Promise.all(reads).then(draw);

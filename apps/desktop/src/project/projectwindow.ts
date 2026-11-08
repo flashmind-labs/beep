@@ -1,5 +1,6 @@
 // A project in a window of its own.
-import type { ViewName } from "../center/state.ts";
+import type { PaneTarget } from "../bar/pane.ts";
+import type { Location } from "../center/state.ts";
 
 /// What a click needs to say, as a `MouseEvent` has it.
 export interface ClickLike {
@@ -56,18 +57,17 @@ export function agentInProject(agent: AgentLike, folders: ProjectScope["folders"
 }
 
 /// Where `go(view, arg)` opens.
-export function route(scope: ProjectScope | null, view: ViewName, arg?: unknown): Route {
+export function route(scope: ProjectScope | null, page: Location): Route {
   if (!scope) return "here";
-  if (view === "projects") {
-    const project = (arg as { project?: string | null } | undefined)?.project;
-    return project === scope.project ? "here" : "main";
-  }
-  if (view !== "pane" || !arg || typeof arg !== "object") return "main";
-  if ("agentnew" in arg) return "here";
-  if ("draft" in arg) return (arg as { draft: { project: string } }).draft.project === scope.project ? "here" : "main";
-  if ("agent" in arg) return agentInProject((arg as { agent: AgentLike }).agent, scope.folders) ? "here" : "main";
-  if ("chat" in arg) {
-    const session = (arg as { chat: { session: string | null } }).chat.session;
+  if (page.view === "projects") return page.arg?.project === scope.project ? "here" : "main";
+  if (page.view !== "pane") return "main";
+  const target = page.arg;
+  if (!target || typeof target !== "object") return "main";
+  if ("agentnew" in target) return "here";
+  if ("draft" in target) return target.draft.project === scope.project ? "here" : "main";
+  if ("agent" in target) return agentInProject(target.agent, scope.folders) ? "here" : "main";
+  if ("chat" in target) {
+    const session = target.chat.session;
     return session && scope.chatProject(session) === scope.project ? "here" : "main";
   }
   return "main";
@@ -95,44 +95,36 @@ export interface AgentTarget {
   external: boolean;
 }
 
-/// Pane pages the main window opens by name.
-const PANE_PAGES = new Set(["chats", "memories", "routines", "skills", "apps", "settings"]);
-/// Window views the main window opens by name.
-const VIEWS = new Set(["home", "instructions", "providers", "terminals", "research"]);
-
-/// The main window's target for `go(view, arg)`; Home for anything it
-/// cannot be told.
-export function mainTarget(view: ViewName, arg?: unknown): CenterTarget {
-  // Every name in VIEWS is also a CenterTarget string.
-  if (VIEWS.has(view)) return view as CenterTarget;
-  if (view === "researchopen") return { open_research: { session: (arg as { session: string }).session } };
-  if (view === "projects") {
-    const a = arg as { project?: string | null; run?: { id: number; host: string } | null } | undefined;
-    return { projects: { project: a?.project ?? null, run: a?.run ?? null } };
+/// The main window's wire target for a typed location. Internal-only pages
+/// fall back to Home, as the native window protocol cannot represent them.
+export function mainTarget(page: Location): CenterTarget {
+  switch (page.view) {
+    case "home": case "instructions": case "providers": case "terminals": case "research": return page.view;
+    case "researchopen": return { open_research: { session: page.arg.session } };
+    case "projects": return { projects: { project: page.arg?.project ?? null, run: page.arg?.run ?? null } };
+    case "sync": return "home";
+    case "pane": return paneTarget(page.arg);
   }
-  if (view !== "pane") return "home";
-  if (typeof arg === "string") return PANE_PAGES.has(arg) ? arg as CenterTarget : "home";
-  if (!arg || typeof arg !== "object") return "home";
-  if ("chat" in arg) return { chat: { session: (arg as { chat: { session: string | null } }).chat.session ?? null } };
-  if ("group" in arg) return { group: { id: (arg as { group: { id: string } }).group.id } };
-  if ("agent" in arg) {
-    const a = (arg as { agent: Partial<AgentTarget> & { machine_id: string; id: string } }).agent;
-    return {
-      agent: {
-        kind: "agent",
-        machine_id: a.machine_id,
-        machine_name: a.machine_name ?? "",
-        id: a.id,
-        agent: a.agent ?? "",
-        title: a.title ?? null,
-        cwd: a.cwd ?? "",
-        status: a.status ?? "idle",
-        doing: a.doing ?? null,
-        started_at: a.started_at ?? 0,
-        last_activity: a.last_activity ?? 0,
-        external: a.external ?? false,
-      },
-    };
+}
+
+function paneTarget(target: PaneTarget): CenterTarget {
+  if (typeof target === "string") {
+    switch (target) {
+      case "chats": case "memories": case "routines": case "skills": case "apps": case "settings": return target;
+      default: return "home";
+    }
+  }
+  if (!target) return "home";
+  if ("chat" in target) return { chat: { session: target.chat.session } };
+  if ("group" in target) return { group: { id: target.group.id } };
+  if ("agent" in target) {
+    const agent = target.agent;
+    return { agent: {
+      kind: "agent", machine_id: agent.machine_id, machine_name: agent.machine_name ?? "",
+      id: agent.id, agent: agent.agent ?? "", title: agent.title ?? null, cwd: agent.cwd ?? "",
+      status: agent.status ?? "idle", doing: agent.doing ?? null, started_at: agent.started_at ?? 0,
+      last_activity: agent.last_activity ?? 0, external: agent.external ?? false,
+    } };
   }
   return "home";
 }

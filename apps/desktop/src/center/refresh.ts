@@ -14,7 +14,7 @@ import { CONNECT_STUCK_MS, CONNECT_RETRY_MS, state, pages, pagesAccount, keepPag
 import { cardKey, dismissedUpdates, problem, draw } from "./home.ts";
 import { allTerms } from "../terminals/view.ts";
 import { refreshGit, single } from "./openitems.ts";
-import { shown, drawTop } from "./views.ts";
+import { currentLocation, drawTop } from "./views.ts";
 import { reloadGroup, reloadChats, drawSide } from "./sidebar.ts";
 import { loadOverview } from "../project/projects.ts";
 import { liveMode, projectsEl, runs } from "../project/sections.ts";
@@ -57,7 +57,7 @@ async function readHome(): Promise<void> {
       } finally {
         if (onScreen()) {
           draw();
-          if (shown === "projects") { drawProjects(projectsEl()); drawTop(); }
+          if (currentLocation()?.view === "projects") { drawProjects(projectsEl()); drawTop(); }
           drawSide();
         }
       }
@@ -82,7 +82,7 @@ const refreshProjects = single(async () => {
   await Promise.all(["projects", "pinned"].map(name => reloadGroup(name, false)));
   if (onScreen()) {
     drawSide();
-    if (shown === "projects") { drawProjects(projectsEl()); drawTop(); }
+    if (currentLocation()?.view === "projects") { drawProjects(projectsEl()); drawTop(); }
   }
 });
 
@@ -97,8 +97,8 @@ export async function refresh() {
   try {
     await Promise.all([readHome(), refreshMac(), refreshSync(), refreshProjects(),
       ...["machines", "research"].map(name => reloadGroup(name, false))]);
-    if (onScreen() && (shown === "home" || shown === "terminals")) await allTerms.load(ALL);
-    if (shown === "projects" && !state.picked && onScreen()) loadOverview();
+    if (onScreen() && (currentLocation()?.view === "home" || currentLocation()?.view === "terminals")) await allTerms.load(ALL);
+    if (currentLocation()?.view === "projects" && !state.picked && onScreen()) loadOverview();
   } catch (error) {
     console.warn("Home:", error);
     if (!fresh && !problem() && onScreen()) retryTimer = setTimeout(refresh, CONNECT_RETRY_MS);
@@ -124,14 +124,14 @@ subscribeTopics(topic("forge"), async () => {
   if (!snapshotView("git_items")) return;
   await refreshGit();
   if (state.gitError) throw new Error(state.gitError);
-}, null, () => shown === "home");
+}, null, () => currentLocation()?.view === "home");
 subscribeTopics(topic("telemetry"), event => {
   if (!event.data) return;
   telemetry = event.data as Telemetry;
   state.traffic = telemetry.traffic;
   if (state.home) state.home = applyTelemetry(state.home, telemetry);
-  if (shown === "home") draw();
-}, null, () => shown === "home");
+  if (currentLocation()?.view === "home") draw();
+}, null, () => currentLocation()?.view === "home");
 // Signed out or removed: the kept project pages go with the account.
 listen<string>("link-state", e => { if (e.payload !== "linked") { pages.setAccount(null); keepPagesFile(undefined); } });
 for (const name of ["sessions-changed", "group-changed", "reconnected"]) listen(name, () => reloadChats());

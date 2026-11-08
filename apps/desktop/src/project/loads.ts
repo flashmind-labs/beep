@@ -16,10 +16,10 @@ import { el as h } from "../ui/dom.ts";
 import { ITEMS_SHOWN, repoUrl } from "../center/openitems-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { agentFor, pageAgent, type ProjectAgent, type ProjectView } from "./agent.ts";
-import { type Started, state, pages, keep, pageFresh } from "../center/state.ts";
+import { state, pages, keep, pageFresh } from "../center/state.ts";
 import { failure, section, rowButton } from "../ui/pieces.ts";
 import { openUrl, openItemRow, repoLine, refreshGit } from "../center/openitems.ts";
-import { shown, go } from "../center/views.ts";
+import { currentLocation, go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { projectRows, importSheet, addProject, importFromPage } from "../center/sidebar.ts";
 import { terms, fsync, revs, thr, runs, projectsEl, redrawProjects, redrawProjectsPage } from "./sections.ts";
@@ -49,7 +49,7 @@ const viewReads = keyedReads<ProjectView>({
     keep("view", name, view);
   },
   failed: (name, e) => state.pview.set(name, { view: state.pview.get(name)?.view ?? null, error: failure(e) }),
-  shown: () => (shown === "projects" ? state.picked : null),
+  shown: () => (currentLocation()?.view === "projects" ? state.picked : null),
   redraw: redrawProjectsPage,
 });
 
@@ -213,7 +213,7 @@ export async function loadGit(name: string) {
   } finally {
     readingGit.delete(name);
   }
-  if (shown === "projects" && state.picked === name) redrawProjectsPage();
+  if (currentLocation()?.view === "projects" && state.picked === name) redrawProjectsPage();
 }
 
 /// A running move's direction and a refused one's reason, by project and machine.
@@ -370,7 +370,7 @@ export const readingWhere = new Set<string>();
 subscribeChanges([topic("projects"), topic("machines"), topic("sync")], async () => {
   const name = state.picked;
   if (name) { await whereReads.get(name); await loadWhere(name); }
-}, null, () => shown === "projects" && !!state.picked);
+}, null, () => currentLocation()?.view === "projects" && !!state.picked);
 /// Projects whose kept places are due another read on the next draw.
 export const whereDue = new Set<string>();
 const whereReads = new Map<string, Promise<void>>();
@@ -474,7 +474,7 @@ export async function loadSessions(name: string) {
   const { list, changed } = nextSessions(state.sessions.get(name), got);
   state.sessions.set(name, list);
   if (got) keep("sessions", name, list);
-  if (shown !== "projects" || state.picked !== name) return;
+  if (currentLocation()?.view !== "projects" || state.picked !== name) return;
   if (changed) drawProjects(projectsEl());
   else for (const el of document.querySelectorAll(".ss-updating")) el.remove();
 }

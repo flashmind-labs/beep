@@ -1,3 +1,4 @@
+import type { NavigationArgs } from "./state.ts";
 import { commandKey } from "../ui/platform.ts";
 // The Cmd+K palette: one search over actions, settings, projects, pull
 // requests, coding agents, chats, memories, routines and machines. The
@@ -18,9 +19,11 @@ import { IC } from "../ui/icons.ts";
 type Hit = FoundHit<AgentRow>;
 type Index = PaletteIndex<AgentRow>;
 
+type PaletteNavigation = Extract<NavigationArgs, [view: "home" | "pane", ...rest: unknown[]]>;
+
 /// What the window lends the palette.
 export interface PaletteDeps {
-  go(view: "home" | "pane", arg?: PaneTarget): unknown;
+  go(...args: PaletteNavigation): unknown;
   /// Home, scrolled to the element with this id.
   jump(id: string): void;
   settings(section: string): void;
@@ -52,7 +55,7 @@ const GROUPS: Record<HitKind, string> = { action: "Actions", setting: "Settings"
 /// The icon each kind draws with, from ICONS or IC; one not here has its own name.
 const ICON_OF: Partial<Record<HitKind | "research", keyof typeof ICONS | keyof typeof IC>> = { branch: "code", project_chat: "project", folder: "project", setting: "gear", action: "plus", chat: "chat", memory: "mem", research: "doc", routine: "loop" };
 /// Where each action goes: a pane view, or Home.
-const ACTION_VIEWS: Record<string, string> = { all_chats: "chats", memories: "memories", routines: "routines", skills: "skills", apps: "apps", settings: "settings" };
+const ACTION_VIEWS: Record<string, PaneTarget> = { all_chats: "chats", memories: "memories", routines: "routines", skills: "skills", apps: "apps", settings: "settings" };
 
 let deps: PaletteDeps | null = null;
 let root: HTMLDivElement | null = null, input: HTMLInputElement | null = null, list: HTMLDivElement | null = null;

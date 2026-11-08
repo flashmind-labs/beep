@@ -7,7 +7,6 @@ export { creditAmount, creditScope, type ProviderCredits } from "../ui/credits.t
 import { agentLabel } from "../project/projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { money, tokenCount } from "../ui/format.ts";
-import { onShownChange, pageShown } from "../ui/active.ts";
 
 export interface UsageWindow {
   minutes: number;
@@ -15,7 +14,6 @@ export interface UsageWindow {
   resets_at: number | null;
   scope: string | null;
 }
-
 
 export interface PlanLimits {
   agent: string;
@@ -188,7 +186,6 @@ export function hasUsage(view: UsageView | null): view is UsageView {
   const spent = (p: Period | null) => !!p && (p.total.cost_usd > 0 || p.tokens > 0 || p.projects.length > 0 || p.harnesses.length > 0);
   return view.limits.some(p => p.windows.length || p.credits?.length) || spent(view.today) || spent(view.week) || spent(view.month);
 }
-
 
 function bar(used: number, cls: string) {
   const i = h("i", used > WARN_USED ? "warn" : "");
