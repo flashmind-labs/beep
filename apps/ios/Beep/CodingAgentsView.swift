@@ -302,7 +302,7 @@ struct CodingSessionView: View {
             WorkspaceBox {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(entry.kind == .user ? "You" : entry.kind == .question ? "Permission" : agentName(agent)).font(.body(11)).foregroundStyle(Mint.muted)
-                    Text(entry.text).font(.body(13)).textSelection(.enabled)
+                    MarkdownText(text: entry.text, size: 13).textSelection(.enabled)
                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
