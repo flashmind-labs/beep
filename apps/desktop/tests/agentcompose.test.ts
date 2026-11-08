@@ -27,16 +27,17 @@ function openSession(status: string, polls = false): AgentPage {
   const session: AgentRow = { machine_id: "m1", machine_name: "build-box", id: "s1", agent: "claude", cwd: "/srv/project", status, external: false, question: null };
   const page: AgentPage = { session, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 };
   S.view = "agent";
-  Object.assign(AG, { open: { machine_id: "m1", agent: "claude", session: "s1" }, page, queue: [], note: "", att: [], flushing: false, inflight: null, stopping: null });
+  Object.assign(AG, { open: { machine_id: "m1", agent: "claude", session: "s1" }, page, queue: [], note: "", att: [], inflight: null, stopping: null });
   visible(polls);
   Object.assign(MN, { paths: [], uploads: [], ask: null });
+  MN.files.clear();
   calls.length = 0;
   delete answers.agent_steer;
   return page;
 }
 
-/// A queued message of plain words.
-const words = (text: string): Waiting => ({ how: "queue", typed: text, text, paths: [], images: [], state: null, after: 0 });
+/// A pending steer of plain words.
+const words = (text: string): Waiting => ({ how: "steer", typed: text, text, paths: [], images: [], state: null, after: 0 });
 
 const png = { name: "shot.png", mime: "image/png", size: 8, data: "iVBORw0KGgo=", url: "data:image/png;base64,iVBORw0KGgo=" };
 
@@ -66,26 +67,6 @@ async function read(page: AgentPage) {
 function refuse(cmd: string, why: string) {
   Object.defineProperty(answers, cmd, { get() { throw why; }, configurable: true, enumerable: true });
 }
-
-test("an ended session puts the queue back in the field before what is typed there", async () => {
-  const page = openSession("working", true);
-  const input = field("and one more");
-  show({ "#agmsg": input });
-  AG.queue = [words("first"), words("second")];
-  answers.agent_view = { ...page, session: { ...page.session, status: "ended" } };
-  await pollAgent();
-  assert.equal(input.value, "first\n\nsecond\n\nand one more");
-  assert.deepEqual(AG.queue, []);
-});
-
-test("an ended session keeps the queue while no field shows", async () => {
-  const page = openSession("working", true);
-  show({});
-  AG.queue = [words("first")];
-  answers.agent_view = { ...page, session: { ...page.session, status: "ended" } };
-  await pollAgent();
-  assert.deepEqual(AG.queue.map(q => q.text), ["first"]);
-});
 
 test("opening a session reads it once even when the webview reports hidden", async () => {
   const page = openSession("starting");
@@ -167,6 +148,27 @@ test("a text message that fails to send goes back in the field under the error",
   assert.deepEqual(page.entries, []);
 });
 
+for (const status of ["idle", "working", "ended"]) {
+  test(`a refused ${status} message keeps attachment bytes for a later stash`, async t => {
+    openSession(status);
+    const input = field("check the attachment"), path = ".beep/uploads/sample.bin";
+    const file = { name: "sample.bin", mime: "application/octet-stream", size: 4, data: "AAH+/w==" };
+    show({ "#agmsg": input });
+    MN.paths = [path];
+    MN.files.set(path, file);
+    AG.att = [png];
+    refuse("agent_steer", "bad request: refused");
+    refuse("agent_resume", "bad request: refused");
+    t.after(() => { delete answers.agent_resume; });
+    if (status === "working") { enter(input); await settle(); }
+    else await sendAgentMessage();
+    assert.equal(input.value, "check the attachment");
+    assert.deepEqual(MN.paths, [path]);
+    assert.deepEqual(MN.files.get(path), file);
+    assert.deepEqual(AG.att, [png]);
+  });
+}
+
 test("the model pill keeps the model that runs", async () => {
   const page = openSession("idle");
   const pill = { innerHTML: "" };
@@ -207,23 +209,20 @@ test("flsh can switch its model and thinking from a working session", async () =
   assert.match(pill.innerHTML, /High/);
 });
 
-test("a message queued while the turn runs keeps its file and image when it goes", async () => {
-  const page = openSession("working");
+test("Option-Enter steers immediately with its files and images", async () => {
+  openSession("working");
+  answers.agent_steer = [];
   const input = field("look at this log");
   show({ "#agmsg": input });
   MN.paths = [".beep/uploads/whatever.log"];
   AG.att = [png];
   assert.equal(enter(input, true), true);
+  await settle();
+  const [sent] = steers() as { steer: { text: string; images: { name: string }[] } }[];
+  assert.match(sent.steer.text, /look at this log/);
+  assert.match(sent.steer.text, /@\.beep\/uploads\/whatever\.log/);
+  assert.deepEqual(sent.steer.images.map(i => i.name), ["shot.png"]);
   assert.equal(input.value, "");
-  assert.deepEqual(MN.paths, [], "the chip goes with the message");
-  assert.deepEqual(AG.att, []);
-  assert.deepEqual(steers(), [], "nothing goes while the turn runs");
-
-  await read({ ...page, session: { ...page.session, status: "idle" } });
-  const [sent] = steers() as { prompt: { text: string; images: { name: string }[] } }[];
-  assert.match(sent.prompt.text, /^look at this log/);
-  assert.match(sent.prompt.text, /@\.beep\/uploads\/whatever\.log/);
-  assert.deepEqual(sent.prompt.images.map(i => i.name), ["shot.png"]);
 });
 
 test("Enter while the turn runs steers it, with what is attached", async () => {
@@ -262,23 +261,23 @@ test("an image attached after a steer goes with the next message, not the steer"
   assert.deepEqual(AG.att.map(a => a.name), ["shot.png"]);
 });
 
-test("Esc stops at once and sends the queue, leaving steers to the node (#378)", async () => {
+test("Stopping leaves pending steers with the node (#378)", async () => {
   const page = openSession("working");
   show({ "#agmsg": field() });
-  AG.queue = [{ ...words("steer me"), how: "steer", state: "sent", after: 0 }, words("then this")];
+  AG.queue = [{ ...words("steer me"), how: "steer", state: "sent", after: 0 }];
   assert.equal(interruptAgent(), true);
   assert.deepEqual(AG.stopping, { id: "s1", turns: 0 });
   assert.doesNotMatch(agentHints(), /interrupt/, "already stopping");
   await settle();
   assert.deepEqual(steers(), ["cancel"]);
-  assert.deepEqual(AG.queue.map(q => q.how), ["steer", "queue"]);
+  assert.deepEqual(AG.queue.map(q => q.how), ["steer"]);
 
   // The node sends a steer it holds once the turn stops, or it had just
   // delivered it: sent from here too, the agent would get it twice.
   calls.length = 0;
   await read({ ...page, session: { ...page.session, status: "idle" } });
   assert.equal(AG.stopping, null);
-  assert.deepEqual(steers(), [{ prompt: { text: "then this" } }]);
+  assert.deepEqual(steers(), []);
 });
 
 test("replacing the shared session list does not change what a drawn row opens", async () => {
@@ -467,7 +466,7 @@ test("an image can be sent with no prompt", async () => {
   AG.att = [png];
   answers.agent_steer = ["picture-key"];
   await sendAgentMessage();
-  assert.deepEqual(steers(), [{ prompt: { text: "", images: [{ name: png.name, mime: png.mime, data: png.data }] } }]);
+  assert.deepEqual(steers(), [{ steer: { text: "", images: [{ name: png.name, mime: png.mime, data: png.data }] } }]);
   assert.equal(input.value, "");
   assert.deepEqual(AG.att, []);
   assert.equal(page.entries[0].text, "[image: shot.png]");

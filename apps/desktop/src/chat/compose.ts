@@ -10,22 +10,8 @@ import { invoke } from "../ui/tauri.ts";
 /// The texts behind every field's pills, so a pill copied from one field to
 /// another still finds its text.
 const pastes = new Pastes();
-// Shared by composers in this window, and discarded when it closes.
-const stash: string[] = [];
-let stashNote: HTMLElement | null = null;
-let stashTimer: ReturnType<typeof setTimeout> | undefined;
-
-function showStashNote(text: string) {
-  stashNote?.remove();
-  const note = document.createElement("div");
-  note.className = "dsaved";
-  note.setAttribute("role", "status");
-  note.textContent = text;
-  document.body.append(note);
-  stashNote = note;
-  clearTimeout(stashTimer);
-  stashTimer = setTimeout(() => { note.remove(); if (stashNote === note) stashNote = null; }, 1600);
-}
+/// The editable draft, including the full text behind paste pills.
+export function draftText(value: string) { return expandPills(value, pastes); }
 
 /// What a composer sends for what is in its field: pills expanded, then fenced.
 export function composeMessage(value: string) {
@@ -224,24 +210,6 @@ async function readImage(path: string) {
 
 function key(field: HTMLTextAreaElement, e: KeyboardEvent) {
   const f = fields.get(field)!;
-  if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !e.isComposing && !f.composing && (e.key === "s" || e.key === "p")) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.key === "s") {
-      if (!field.value.trim()) return;
-      stash.push(expandPills(field.value, pastes));
-      field.value = "";
-      showStashNote(`Stashed ${stash.length}`);
-    } else {
-      const text = stash.pop();
-      if (text === undefined) { showStashNote("Stash empty"); return; }
-      field.value = text;
-      field.setSelectionRange(text.length, text.length);
-      showStashNote(`Popped (${stash.length} left)`);
-    }
-    field.dispatchEvent(new Event("input", { bubbles: true }));
-    return;
-  }
   if (e.key === "Escape" && f.pop) {
     e.preventDefault();
     e.stopPropagation();

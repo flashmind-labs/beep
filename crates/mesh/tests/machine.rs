@@ -139,6 +139,7 @@ mod listing {
         let entries = vec![
             agent::Entry::new(agent::EntryKind::User, "go".into()),
             agent::Entry {
+                tool: None,
                 kind: agent::EntryKind::Thought,
                 text: "hmm".into(),
                 ms: Some(4000),
