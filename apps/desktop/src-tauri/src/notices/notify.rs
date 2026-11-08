@@ -16,6 +16,7 @@ use crate::{
 use beep_proto::{AgentNoticeKey, AnswerAgentQuestion, AnswerGroupApproval, ApiError, Notice};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
+#[cfg(not(target_os = "macos"))]
 use tauri_plugin_notification::NotificationExt;
 use uuid::Uuid;
 
@@ -25,9 +26,27 @@ const DENY: &str = "Deny";
 
 /// A notification with nothing to answer or open.
 pub fn text(app: &AppHandle, title: &str, body: &str) {
+    #[cfg(target_os = "macos")]
+    let shown = mac::text(app, title, body);
+    #[cfg(not(target_os = "macos"))]
     let shown = app.notification().builder().title(title).body(body).show();
     if let Err(e) = shown {
         log::warn!("showing a notice: {e}");
+    }
+}
+
+/// Supply the bundled mark instead of relying on the system's cached app icon.
+#[cfg(target_os = "macos")]
+fn notification_icon(app: &AppHandle) -> Option<String> {
+    match app.path().resolve(
+        "notification-icon.png",
+        tauri::path::BaseDirectory::Resource,
+    ) {
+        Ok(path) => Some(path.to_string_lossy().into_owned()),
+        Err(e) => {
+            log::warn!("resolving the notification icon: {e}");
+            None
+        }
     }
 }
 
@@ -237,7 +256,7 @@ fn agent_reply(allow: bool) -> &'static str {
 
 #[cfg(target_os = "macos")]
 mod mac {
-    use super::{ALLOW, DENY, answer, ask, open, text};
+    use super::{ALLOW, DENY, answer, ask, notification_icon, open};
     use crate::center::CenterTarget;
     use beep_proto::Notice;
     use mac_notification_sys::{
@@ -301,7 +320,7 @@ mod mac {
 
     pub(super) fn show(app: &AppHandle, notice: &Notice, target: CenterTarget) {
         let Some(slot) = Slot::take() else {
-            return text(app, &notice.title, &notice.body);
+            return super::text(app, &notice.title, &notice.body);
         };
         let asked = ask(notice);
         let title = notice.title.clone();
@@ -329,8 +348,26 @@ mod mac {
             });
         if let Err(e) = spawned {
             log::warn!("waiting on a notification: {e}");
-            text(app, &notice.title, &notice.body);
+            super::text(app, &notice.title, &notice.body);
         }
+    }
+
+    pub(super) fn text(app: &AppHandle, title: &str, body: &str) -> NotificationResult<()> {
+        sender(app);
+        let icon = notification_icon(app);
+        notification(title, body, icon.as_deref())
+            .asynchronous(true)
+            .send()
+            .map(|_| ())
+    }
+
+    fn notification<'a>(title: &'a str, body: &'a str, icon: Option<&'a str>) -> Notification<'a> {
+        let mut notification = Notification::new();
+        notification.title(title).message(body);
+        if let Some(icon) = icon {
+            notification.app_icon(icon);
+        }
+        notification
     }
 
     /// Shows a notification and blocks until it is clicked, answered or
@@ -342,8 +379,9 @@ mod mac {
         asks: bool,
     ) -> NotificationResult<NotificationResponse> {
         sender(app);
-        let mut notification = Notification::new();
-        notification.title(title).message(body).wait_for_click(true);
+        let icon = notification_icon(app);
+        let mut notification = notification(title, body, icon.as_deref());
+        notification.wait_for_click(true);
         if asks {
             notification
                 .main_button(MainButton::SingleAction(ALLOW))

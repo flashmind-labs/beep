@@ -24,7 +24,7 @@ import { sessionMenu } from "../agents/sessionmenu.ts";
 import { agentsSection, customAgentsCount, customAgentsSection, whereSection } from "./projects.ts";
 import { pa, terms, fsync, revs, gitHistory, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsSection, sessionsList, sessionsDue, loadSessions } from "./loads.ts";
-import { IC } from "../ui/icons.ts";
+import { BEEP_MARK, IC } from "../ui/icons.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
 import { runningLineAt } from "../agents/place.ts";
 
@@ -163,7 +163,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   groups.push({ title: "", items: project });
   const past = sessions ? pastSessions(sessions, running).filter(sessionVisible) : [];
   groups.push({ title: "", items: [
-    ...(view ? [{ key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, IC.chat))] }] : []),
+    ...(view ? [{ key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, BEEP_MARK))] }] : []),
     // Running agents have their own rows above; this keeps past sessions and the custom agents.
     { key: "agents", title: "Sessions", sub: past.length ? `${past.length} past` : "None yet", detail: () => sessionTabs(p, running, rows) },
     { key: "branches", title: "Git", sub: "History and worktrees", detail: () => [] },

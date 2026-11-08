@@ -560,7 +560,7 @@ expected 200, got 401</pre></details></span></div>`;
       step("ok", "Ran cargo test -p widget-core"),
     ].join("");
     // Calls to Beep's own tools: the machine, the command or prompt, the file count and the status, not mcp__beep__run_on.
-    const BEEP_IC = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="9" height="7" rx="1.5"/><rect x="13" y="13" width="9" height="7" rx="1.5"/><path d="M6.5 11v4.5a2 2 0 0 0 2 2H13"/></svg>';
+    const BEEP_IC = DI.tray;
     const bstep = (mk, verb, o = {}) => `<div class="st beep${mk === "bad" ? " bad" : ""}${o.open ? " open" : ""}"${o.act ? ` data-dact="dset:ags:${o.act}"` : ""}><span class="mk">${mk === "run" ? '<span class="dspin"></span>' : mk === "bad" ? SG.bad : SG.ok}</span><span class="tt"${o.tip ? ` title="${o.tip}"` : ""}><span class="bi">${BEEP_IC}</span><span class="v">${verb}</span>${o.m ? `<span class="mc">${o.m}</span>` : ""}${o.d ? `<code>${o.d}</code>` : ""}</span><span class="bs">${[o.files, mk === "run" ? "Running" : mk === "bad" ? "Failed" : "Done"].filter(Boolean).join(" · ")}</span>${o.out ? `<pre class="out">${o.out}</pre>` : ""}</div>`;
     const beepSteps = [
       bstep("ok", "Listed machines", { open: true, out: "build-box · online · Linux · Docker, GPU · claude, codex\nmac-mini · online · macOS · Xcode · claude\nwin-box · offline" }),

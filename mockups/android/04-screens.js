@@ -731,7 +731,6 @@ const R = {
       <button class="setrow" data-go="devices"><span class="logo" style="background:${TINTS[0]}">${I.laptop}</span><div class="grow"><b>Linked devices</b><span>Use Beep from your computer</span></div></button>
       ${S.admin ? `<button class="setrow" data-go="machines"><span class="logo" style="background:${TINTS[1]}">${I.server}</span><div class="grow"><b>Machines</b><span>Where Beep runs commands and coding agents</span></div></button>` : ""}
       <div class="hr" style="margin:10px 4px"></div>
-      ${avatarPicker()}
       <div class="hr" style="margin:10px 4px"></div>
       <div class="label" style="padding:4px">Floating chat</div>
       ${["Beep head", "Bubble", "Off"].map(opt).join("")}

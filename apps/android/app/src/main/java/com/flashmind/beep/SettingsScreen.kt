@@ -106,7 +106,6 @@ internal fun SettingsScreen(
                 }
             }
             HorizontalDivider(color = Beep.colors.softLine)
-            AvatarPicker()
             HorizontalDivider(color = Beep.colors.softLine)
             BubblePicker(onBubbleSettings)
             HorizontalDivider(color = Beep.colors.softLine)

@@ -51,7 +51,6 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.plain)
                     TalkToBeepCard { path.removeAll(); model.live.start(from: .actionButton) }
-                    AvatarPicker()
                 }
                 .padding(.horizontal, Mint.pageInset).padding(.vertical, 8)
             }
@@ -211,49 +210,6 @@ struct SettingsView: View {
         guard (try? data.write(to: url, options: [.atomic, .completeFileProtection])) != nil
         else { return nil }
         return url
-    }
-}
-
-/// Beep's look on the home screen. The pager is the main icon; the others are alternates.
-private struct AvatarPicker: View {
-    private static let avatars: [(key: String, label: String, icon: String?)] = [
-        ("pager", "Pager", nil), ("clay", "Clay", "AppIcon-Clay"), ("jelly", "Jelly", "AppIcon-Jelly"),
-    ]
-    @State private var current = UIApplication.shared.alternateIconName
-    @State private var error = ""
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Avatar").font(.body(12, .semibold)).foregroundStyle(Mint.muted).padding(.bottom, 8)
-            HStack(spacing: 10) {
-                ForEach(Self.avatars, id: \.key) { avatar in
-                    let selected = avatar.icon == current
-                    Button { pick(avatar.icon) } label: {
-                        VStack(spacing: 4) {
-                            Image("avatar_\(avatar.key)").resizable().frame(width: 44, height: 44)
-                                .clipShape(Circle())
-                                .overlay(Circle().stroke(selected ? Mint.ink : .clear, lineWidth: 2))
-                            Text(avatar.label).font(.body(11, selected ? .semibold : .regular))
-                                .foregroundStyle(selected ? Mint.ink : Mint.muted)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(selected ? .isSelected : [])
-                }
-            }
-            Text(error.isEmpty ? "How Beep looks on your home screen." : error)
-                .font(.body(11)).foregroundStyle(error.isEmpty ? Mint.muted : Mint.error).padding(.top, 6)
-        }
-    }
-
-    private func pick(_ icon: String?) {
-        guard icon != current, UIApplication.shared.supportsAlternateIcons else { return }
-        error = ""
-        UIApplication.shared.setAlternateIconName(icon) { failure in
-            Task { @MainActor in
-                if let failure { error = failure.localizedDescription } else { current = icon }
-            }
-        }
     }
 }
 

@@ -64,7 +64,10 @@ struct GroupAvatar: View {
 
     var body: some View {
         SwiftUI.Group {
-            if beep { Image(systemName: "bubble.left") } else { Text(letter) }
+            if beep {
+                Image("flashmind_mark").resizable().renderingMode(.template)
+                    .scaledToFit().frame(width: size * 0.5, height: size * 0.5)
+            } else { Text(letter) }
         }
             .font(.system(size: size * 0.4, weight: .medium))
             .foregroundStyle(beep ? .white : Mint.ink)
