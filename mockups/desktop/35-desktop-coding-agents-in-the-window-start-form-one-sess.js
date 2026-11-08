@@ -1062,11 +1062,11 @@ expected 200, got 401</pre></details></span></div>`;
   D.dAgents = () => {
     const agl = pick("agl", ["list", "empty", "menurun", "menukid", "menuended", "copies", "closing", "closefailed"], "list"), empty = agl === "empty";
     const rows = [
-      ["Fix the failing login test", "Claude Code · widget · build-box", '<span class="run"><span class="dspin"></span>Running cargo test</span>', "working"],
-      ["Build the iOS target", "Codex · widget · mac-box · started by Fix the failing login test", '<span class="dstate ask">Needs you</span>', "asks", true],
+      ["Fix the failing login test", "Claude Code · acme/widget · build-box", '<span class="run"><span class="dspin"></span>Running cargo test</span>', "working"],
+      ["Build the iOS target", "Codex · acme/widget · ios-build · mac-box · started by Fix the failing login test", '<span class="dstate ask">Needs you</span>', "asks", true],
       ["Render the turntable", "Claude Code · scenes · win-box", '<span class="w">Idle</span>', "idle"],
       ["Tidy the parser module", "Claude Code · relay · build-box", '<span class="w">In terminal</span>', "outside"],
-      ["Update the changelog", "Codex · widget · build-box", '<span class="w">Ended</span>', "ended"],
+      ["Update the changelog", "Codex · acme/widget · build-box", '<span class="w">Ended</span>', "ended"],
     ];
     const visible = agl === "closing" ? rows.filter((_, i) => i !== 2) : rows;
     const list = `<div class="dlist" role="listbox">${visible.map(([t, s, r, k, kid], i) => `<button class="dchat${kid ? " kid" : ""}" role="option" aria-selected="${i === 0}" data-dact="dset:ags:${k}" data-dgo="dAgentSession"><span class="t"><span>${t}</span><small>${s}</small></span>${r}</button>`).join("")}</div>`;

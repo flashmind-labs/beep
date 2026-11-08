@@ -34,9 +34,9 @@ export const placeName = (p: WorkPlace) => p.branch ?? base(p.folder);
 /// The repository: `org/repo` from its remote, else its folder's name.
 export const placeRepo = (p: WorkPlace) => remotePath(p.origin) ?? base(p.main);
 
-/// The sub line of a session row in a linked worktree: `org/repo · name ·
-/// machine`. Null for one in the main checkout or one not known.
+/// The sub line of a session row: `org/repo · machine`, with the worktree's
+/// name between them for a linked checkout. Null when the place is unknown.
 export function placeSub(p: WorkPlace | null | undefined, machine: string) {
-  if (!p?.linked) return null;
-  return [placeRepo(p), placeName(p), machine].filter(Boolean).join(" · ");
+  if (!p) return null;
+  return [placeRepo(p), p.linked ? placeName(p) : null, machine].filter(Boolean).join(" · ");
 }
