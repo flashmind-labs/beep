@@ -137,6 +137,10 @@ fn main() {
                     .app_handle()
                     .state::<fleet::events::Events>()
                     .clear(window.label());
+                window
+                    .app_handle()
+                    .state::<projects::live::Followed>()
+                    .clear(window.label());
                 center::closed(window.app_handle(), window.label());
             }
             _ => {}

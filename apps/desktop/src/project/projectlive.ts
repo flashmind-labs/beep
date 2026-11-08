@@ -42,14 +42,35 @@ export function makeProjectLive(deps: LiveDeps) {
   const { invoke, h, redraw, reload } = deps;
   const modes = new Map<string, LiveMode>();
   let current: string | null = null;
+  let pending = Promise.resolve();
+  // A failed reply may still have registered a source. Keep its cleanup until acknowledged.
+  const owned = new Set<string>();
+
+  async function detach(id: string) {
+    try {
+      await invoke("unfollow_project", { projectId: id });
+      owned.delete(id);
+    } catch (error) {
+      console.warn("unfollowing project:", error);
+    }
+  }
 
   /// Follows `id`, the project the window shows, or none.
-  function follow(id: string | null) {
-    if (id === current) return;
-    const was = current;
+  function follow(id: string | null): Promise<void> {
+    if (id === current && [...owned].every(was => was === id)) return pending;
     current = id;
-    if (was) invoke("unfollow_project", { projectId: was }).catch(() => {});
-    if (id) invoke("follow_project", { projectId: id }).catch(() => {});
+    pending = pending.then(async () => {
+      for (const was of owned) if (was !== id) await detach(was);
+      if (!id || owned.has(id)) return;
+      owned.add(id);
+      try {
+        await invoke("follow_project", { projectId: id });
+      } catch (error) {
+        console.warn("following project:", error);
+        await detach(id);
+      }
+    });
+    return pending;
   }
 
   /// What the server said of `row.project_id`.
