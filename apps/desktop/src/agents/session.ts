@@ -291,6 +291,16 @@ export function resumeAgent() {
   pollAgent();
 }
 
+// Put a shown log back before a read or a scroll event can mistake a
+// hidden view's reset for the reader scrolling up.
+function restoreAgentScroll() {
+  const b = $<ChatBody>("#agbody");
+  if (!b) return;
+  b.scrollTop = returnScroll(b, b.top ?? 0);
+  scrolledLog(b);
+  syncJump(b);
+}
+
 // A pane shown again resumes its subscription.
 window.addEventListener("agent-pane-shown", () => {
   if (S.view === "agent") resumeAgent();
@@ -299,7 +309,10 @@ window.addEventListener("agent-pane-shown", () => {
 onShownChange(shown => {
   if (AG.open && S.view === "agent") traceSession("visibility-changed", AG.open, { shown });
   if (!shown) { clearTimeout(AG.timer); feed.stop(); }
-  else if (S.view === "agent") pollAgent();
+  else if (S.view === "agent") {
+    restoreAgentScroll();
+    pollAgent();
+  }
 }, true);
 listen("agent-title-changed", () => {
   if (S.view === "agent") void pollAgent(true);
@@ -535,7 +548,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     b.onscroll = () => {
       frame ||= requestAnimationFrame(() => {
         frame = 0;
-        if (!b.isConnected) return;
+        if (!b.isConnected || !agentOnScreen()) return;
         b.stuck = followsAfterScroll(b.stuck !== false, top, b);
         scrolledLog(b);
         top = b.top = b.scrollTop;

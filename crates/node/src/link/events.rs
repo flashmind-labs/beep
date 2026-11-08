@@ -30,11 +30,16 @@ pub(crate) async fn serve(
     offers: Offers,
     caller: iroh::EndpointId,
 ) -> Result<()> {
+    let mut membership = offers.mesh.subscribe();
+    let mut project_changes = membership
+        .borrow_and_update()
+        .as_ref()
+        .map(beep_mesh::Mesh::changes);
     offers.agents.start_event_bridge();
     let mut changes = offers.agents.events.subscribe();
     let mut topics: Vec<Topic> = Vec::new();
     let mut considered = offers.agents.events.cursor();
-    let roots = Arc::new(Mutex::new(BTreeMap::<String, PathBuf>::new()));
+    let roots = Arc::new(Mutex::new(BTreeMap::<Topic, PathBuf>::new()));
     let mut watcher = None;
     let mut _source_lease = None;
     let mut calls = JoinSet::new();
@@ -57,19 +62,18 @@ pub(crate) async fn serve(
                             // Connection-owned file watchers were absent during a disconnect.
                             // Reconcile those resources as identified events before catching up.
                             if after.is_some() {
-                                for topic in topics.iter().filter(|topic| topic.name == "files") {
+                                for topic in topics.iter().filter(|topic| topic.name() == "files") {
                                     offers.agents.events.changed(topic.clone());
                                 }
                             }
                             send(&mut tx, &Reply::Watching { id }).await?;
                             let replay = offers.agents.events.replay(after);
                             considered = replay.cursor;
-                            match replay.events {
-                                Some(events) => {
-                                    for event in events { deliver(&mut tx, &topics, event).await?; }
-                                    send(&mut tx, &Reply::CaughtUp { cursor: considered }).await?;
-                                }
-                                _ => send(&mut tx, &Reply::Resync { cursor: considered }).await?,
+                            if replay.resync {
+                                send(&mut tx, &Reply::Resync { cursor: considered }).await?;
+                            } else {
+                                for event in replay.events { deliver(&mut tx, &topics, event).await?; }
+                                send(&mut tx, &Reply::CaughtUp { cursor: considered }).await?;
                             }
                         }
                         Err(error) => send(&mut tx, &Reply::Error { id, reason: format!("{error:#}") }).await?,
@@ -98,7 +102,7 @@ pub(crate) async fn serve(
             event = changes.recv() => {
                 match event {
                     Ok(event) if event.id.epoch != considered.epoch || event.id.sequence > considered.sequence => {
-                        if broad_files(&topics) && matches!(event.topic.name.as_str(), "agents" | "projects" | "*")
+                        if broad_files(&topics) && matches!(event.topic.name(), "agents" | "projects" | "*")
                             && let Err(error) = watch(&offers, &mut watcher, &roots, &topics).await
                         {
                             log::debug!("file subscription roots could not be refreshed: {error}");
@@ -120,6 +124,29 @@ pub(crate) async fn serve(
                     Err(RecvError::Closed) => return Ok(()),
                 }
             },
+            changed = membership.changed(), if watches_files(&topics) => {
+                if changed.is_err() { return Ok(()); }
+                project_changes = membership.borrow_and_update().as_ref().map(beep_mesh::Mesh::changes);
+                if let Err(error) = watch(&offers, &mut watcher, &roots, &topics).await {
+                    watcher = None;
+                    crate::lock(&roots).clear();
+                    log::debug!("file project bindings could not be refreshed: {error}");
+                    send(&mut tx, &Reply::Resync { cursor: offers.agents.events.cursor() }).await?;
+                }
+            },
+            change = async { match &mut project_changes { Some(changes) => changes.recv().await, None => std::future::pending().await } }, if watches_files(&topics) => {
+                let reconcile = match change {
+                    Ok(beep_mesh::Key::Project(_) | beep_mesh::Key::Sync(_)) | Err(RecvError::Lagged(_)) => true,
+                    Err(RecvError::Closed) => { project_changes = None; false },
+                    _ => false,
+                };
+                if reconcile && let Err(error) = watch(&offers, &mut watcher, &roots, &topics).await {
+                    watcher = None;
+                    crate::lock(&roots).clear();
+                    log::debug!("file project bindings could not be reconciled: {error}");
+                    send(&mut tx, &Reply::Resync { cursor: offers.agents.events.cursor() }).await?;
+                }
+            },
             _ = heartbeat.tick() => send(&mut tx, &Reply::CaughtUp { cursor: considered }).await?,
         }
     }
@@ -132,7 +159,7 @@ async fn send(tx: &mut LinkTx, reply: &Reply) -> Result<()> {
 }
 
 async fn deliver(tx: &mut LinkTx, topics: &[Topic], event: events::Event) -> Result<()> {
-    if event.topic.name == "*" {
+    if event.topic.name() == "*" {
         send(tx, &Reply::Resync { cursor: event.id }).await
     } else if topics.iter().any(|topic| topic.matches(&event.topic)) {
         send(tx, &Reply::Changed(event)).await
@@ -141,16 +168,22 @@ async fn deliver(tx: &mut LinkTx, topics: &[Topic], event: events::Event) -> Res
     }
 }
 
+fn watches_files(topics: &[Topic]) -> bool {
+    topics
+        .iter()
+        .any(|topic| matches!(topic.name(), "files" | "*"))
+}
+
 fn broad_files(topics: &[Topic]) -> bool {
     topics
         .iter()
-        .any(|topic| topic.name == "*" || (topic.name == "files" && topic.key.is_none()))
+        .any(|topic| topic.name() == "*" || (topic.name() == "files" && topic.key().is_none()))
 }
 
 async fn subscribe(
     offers: &Offers,
     watcher: &mut Option<crate::events::paths::Paths>,
-    roots: &Arc<Mutex<BTreeMap<String, PathBuf>>>,
+    roots: &Arc<Mutex<BTreeMap<Topic, PathBuf>>>,
     topics: &[Topic],
 ) -> Result<Option<Arc<crate::agents::follow::Sources>>> {
     if topics.len() > events::MAX_TOPICS || topics.iter().any(|topic| !topic.valid()) {
@@ -159,7 +192,7 @@ async fn subscribe(
     let lease = if broad_files(topics)
         || topics
             .iter()
-            .any(|topic| matches!(topic.name.as_str(), "agent" | "agents" | "*"))
+            .any(|topic| matches!(topic.name(), "agent" | "agents" | "*"))
     {
         Some(offers.agents.watch_event_sources().await?)
     } else {
@@ -172,26 +205,45 @@ async fn subscribe(
 async fn watch(
     offers: &Offers,
     watcher: &mut Option<crate::events::paths::Paths>,
-    roots: &Arc<Mutex<BTreeMap<String, PathBuf>>>,
+    roots: &Arc<Mutex<BTreeMap<Topic, PathBuf>>>,
     topics: &[Topic],
 ) -> Result<()> {
     let mut wanted = BTreeMap::new();
     if broad_files(topics) {
         for root in offers.agents.notification_roots().await? {
-            let key = root
-                .to_str()
-                .context("a notification root is not UTF-8")?
-                .to_owned();
-            wanted.insert(key, root);
+            let key = root.to_str().context("a notification root is not UTF-8")?;
+            wanted.insert(Topic::keyed("files", key), root);
         }
     }
-    for topic in topics.iter().filter(|topic| topic.name == "files") {
-        if let Some(path) = &topic.key {
-            let root = offers
+    let projects = project_files(offers);
+    for (topic, path) in projects {
+        if topics.iter().any(|wanted| wanted.covers(&topic)) {
+            match offers
                 .agents
-                .reachable(path, crate::agents::reach::Access::Read)
-                .await?;
-            wanted.insert(path.clone(), root);
+                .reachable(&path, crate::agents::reach::Access::Read)
+                .await
+            {
+                Ok(root) => {
+                    wanted.insert(topic, root);
+                }
+                Err(error) if topics.iter().any(|wanted| wanted == &topic) => return Err(error),
+                Err(_) => {}
+            }
+        }
+    }
+    for topic in topics
+        .iter()
+        .filter(|topic| topic.name() == "files" && !topic.is_pattern())
+    {
+        if let [path] = topic.resource_segments() {
+            // Local paths are opaque literal segments. Project aliases use their mesh names.
+            if std::path::Path::new(path).is_absolute() || path.starts_with("~/") {
+                let root = offers
+                    .agents
+                    .reachable(path, crate::agents::reach::Access::Read)
+                    .await?;
+                wanted.insert(topic.clone(), root);
+            }
         }
     }
     if wanted.len() > MAX_FILE_ROOTS {
@@ -208,9 +260,9 @@ async fn watch(
             let hub = offers.agents.events.clone();
             *watcher = Some(crate::events::paths::Paths::new(move |paths| {
                 let held = crate::lock(&changed_roots);
-                for (key, root) in held.iter() {
+                for (topic, root) in held.iter() {
                     if paths.iter().any(|path| path == root) {
-                        hub.changed(Topic::keyed("files", key));
+                        hub.changed(topic.clone());
                     }
                 }
             })?);
@@ -222,10 +274,44 @@ async fn watch(
     // A root can appear or disappear while a broad subscription remains active.
     // Reconcile it after installing the new key mapping, including any watch gap.
     let previous = std::mem::replace(&mut *crate::lock(roots), wanted.clone());
-    for key in previous.keys().chain(wanted.keys()).collect::<HashSet<_>>() {
-        offers.agents.events.changed(Topic::keyed("files", key));
+    for topic in previous.keys().chain(wanted.keys()).collect::<HashSet<_>>() {
+        offers.agents.events.changed(topic.clone());
     }
     Ok(())
+}
+
+/// Resolve public project aliases through this node's signed mesh placement records.
+fn project_files(offers: &Offers) -> BTreeMap<Topic, String> {
+    use beep_mesh::Key;
+    use beep_proto::node::mesh_state::{Place, ProjectRecord, StateValue, SyncSpec};
+    let Some(mesh) = offers.mesh.get() else {
+        return BTreeMap::new();
+    };
+    let mut projects = BTreeMap::new();
+    for (key, bytes) in mesh.scan("sync/") {
+        if let Key::Sync(name) = key
+            && let Ok(spec) = SyncSpec::from_bytes(&bytes)
+            && let Some(folder) = spec.folders.get(&mesh.me())
+        {
+            let topic = Topic::scoped("files", name.split('/'));
+            if topic.valid() {
+                projects.insert(topic, folder.clone());
+            }
+        }
+    }
+    for (key, bytes) in mesh.scan("project/") {
+        if let Key::Project(name) = key
+            && ProjectRecord::from_bytes(&bytes).is_ok()
+            && let Some(bytes) = mesh.get(&Key::Project(format!("{name}/{}", mesh.me())))
+            && let Ok(place) = Place::from_bytes(&bytes)
+        {
+            let topic = Topic::scoped("files", name.split('/'));
+            if topic.valid() {
+                projects.insert(topic, place.folder);
+            }
+        }
+    }
+    projects
 }
 
 async fn execute(
@@ -363,7 +449,7 @@ mod tests {
         subscribe(&mut tx, &mut rx, 2, vec![Topic::new("*")]).await;
         hub.changed(Topic::new("plugin.another"));
         assert!(
-            matches!(next(&mut rx).await, Reply::Changed(Event { topic, .. }) if topic.name == "plugin.another")
+            matches!(next(&mut rx).await, Reply::Changed(Event { topic, .. }) if topic.name() == "plugin.another")
         );
         subscribe(&mut tx, &mut rx, 3, Vec::new()).await;
         hub.changed(Topic::new("plugin.another"));
@@ -492,7 +578,7 @@ mod tests {
         subscribe(&mut tx, &mut rx, 1, vec![Topic::new("files")]).await;
         std::fs::write(root.path().join("first.txt"), "one").unwrap();
         assert!(
-            matches!(next(&mut rx).await, Reply::Changed(event) if event.topic.name == "files")
+            matches!(next(&mut rx).await, Reply::Changed(event) if event.topic.name() == "files")
         );
         let primary = Topic::keyed("files", root.path().to_str().unwrap());
         let alias = Topic::keyed("files", root.path().join(".").to_str().unwrap());
