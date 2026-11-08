@@ -14,7 +14,7 @@ import { attachLive } from "./thoughtlive.ts";
 import { groupThoughts, mergedThought } from "./thoughts-state.ts";
 import { patchable, patchRows, startPatching } from "./logpatch.ts";
 import { fillLog, pinEnd, type Unit } from "./logwindow.ts";
-import { answerHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
+import { answerHtml, collapseActivityHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
 import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentAvatar, agentKind, stateTag } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { promptParts } from "./promptparts-state.ts";
@@ -413,6 +413,7 @@ function turnUnits(p: AgentPage): Unit[] {
     const ms = start == null ? null : running ? Date.now() - start : end == null ? null : end - start;
     // The last tool may need to open on failure inside its progress group.
     const lastStep = t.steps.at(-1);
+    const latestTool = t.steps.findLast(at => entry(at).kind === "tool");
     const newest = running && lastStep != null && entry(lastStep).kind === "tool" ? lastStep : undefined;
     if (newest != null) newestStep = newest;
     // What the agent thinks or does now, on one dim line, unless the
@@ -428,14 +429,18 @@ function turnUnits(p: AgentPage): Unit[] {
         const key = section.ats[0], opened = m.opened.has(key);
         const group: Turn = { key, user: null, steps: section.ats, answer: [] };
         const kept = new Set(keptSteps(p.entries, group, p.earlier, openedSteps()));
+        // Keep the latest call in view until the turn ends. A failed last call
+        // stays visible afterwards; manually opened rows already stay in kept.
+        const preview = latestTool != null && section.ats.includes(latestTool)
+          && (running || AG.log?.parseTool(entry(latestTool).text).status === "failed") ? latestTool : null;
+        if (preview != null) kept.add(preview);
         const folding = section.ats.filter(at => !kept.has(at));
-        const stats = progressSummary(p.entries, group, p.earlier, opened ? section.ats : folding);
-        const head = folding.length || opened
-          ? turnHeadHtml({ state: "working", ms: null, stats, key, opened }) : "";
+        const stats = progressSummary(p.entries, group, p.earlier);
+        const head = turnHeadHtml({ state: "working", ms: null, stats, key, opened });
         const seen = opened ? [] : folding.flatMap(at => AG.log?.imageLines(entry(at).text).names ?? []);
         const pics = seen.length ? `<div class="dcoderen dfoldpics" data-row="${folding[0]}"><span class="pics">${seen.map(entryPic).join("")}</span></div>` : "";
         const rows = rowsOf(p, opened ? section.ats : section.ats.filter(at => kept.has(at)));
-        const collapse = opened ? `<div><button class="dbtn quiet" data-turn="${key}" data-collapse>Collapse</button></div>` : "";
+        const collapse = opened ? collapseActivityHtml(key) : "";
         return [head, pics, ...rows, collapse];
       });
       const head = turnHeadHtml({ state, start, ms, stats: "", key: null, opened: false });
