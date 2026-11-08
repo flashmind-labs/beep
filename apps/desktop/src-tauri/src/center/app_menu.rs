@@ -2,12 +2,13 @@
 //! The tray's menu handler hears every menu's events, so it opens the sheet
 //! for this item too.
 
+#[cfg(not(target_os = "windows"))]
 use crate::tray::REPORT;
-use tauri::{
-    App,
-    menu::{HELP_SUBMENU_ID, Menu, MenuItem, Submenu},
-};
+use tauri::App;
+#[cfg(not(target_os = "windows"))]
+use tauri::menu::{HELP_SUBMENU_ID, Menu, MenuItem, Submenu};
 
+#[cfg(not(target_os = "windows"))]
 pub(crate) fn install(app: &App) -> tauri::Result<()> {
     let handle = app.handle();
     let menu = Menu::default(handle)?;
@@ -18,5 +19,11 @@ pub(crate) fn install(app: &App) -> tauri::Result<()> {
         None => menu.append(&Submenu::with_items(handle, "Help", true, &[&report])?)?,
     }
     handle.set_menu(menu)?;
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn install(app: &App) -> tauri::Result<()> {
+    app.remove_menu()?;
     Ok(())
 }

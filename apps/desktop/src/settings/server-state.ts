@@ -54,7 +54,7 @@ export const ACTION_LABEL: Record<ServerAction, string> = {
 /// The question before signing out: what stops, in a line.
 export const SIGN_OUT_ASK = {
   title: "Sign out of Beep server?",
-  note: "This Mac stops using the server, so the assistant and voice go off. Signing in brings it all back.",
+  note: "This computer stops using the server, so the assistant and voice go off. Signing in brings it all back.",
   confirm: "Sign out",
   cancel: "Cancel",
 };

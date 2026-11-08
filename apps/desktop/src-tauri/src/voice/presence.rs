@@ -114,6 +114,17 @@ mod mac {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+impl Presence {
+    pub fn now() -> Self {
+        Self {
+            idle: Duration::MAX,
+            locked: true,
+            mic_busy: true,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -15,7 +15,7 @@ const { openAddFolder } = await import("../src/addproject/addfolder.ts");
 const folder = (origin: string | null): MachineFolder =>
   ({ path: "/srv/acme/api", parent: "/srv/acme", exists: true, folders: [], more: 0, empty: false, origin });
 
-test("Choose a folder opens the sheet only: the macOS picker waits for Choose… on this Mac", () => {
+test("Choose a folder opens the sheet only: the macOS picker waits for Choose… on this computer", () => {
   const machines = [{ id: "mac", name: "MacBook Air", online: true }, { id: "box", name: "build-box", online: true }];
   openAddFolder({ machines, macId: "mac" });
   assert.ok(!calls.some(c => c.cmd === "pick_folder"), "opening asks for no folder");
@@ -31,7 +31,7 @@ test("Choose a folder opens the sheet only: the macOS picker waits for Choose…
   assert.deepEqual(calls.map(c => c.cmd), ["list_machine_folder"]);
 });
 
-test("the sheet starts on this Mac and a checkout with an origin is what Add project takes", () => {
+test("the sheet starts on this computer and a checkout with an origin is what Add project takes", () => {
   const start = startOn([{ id: "box", online: true }, { id: "mac", online: true }], "mac");
   assert.equal(start.machine, "mac");
   assert.equal(chooseWith("mac", "mac"), "picker");

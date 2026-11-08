@@ -42,7 +42,7 @@ export async function refresh() {
   try {
     const [home, mac, sync, traffic, top, projectGroups] = await Promise.all([
       invoke<HomeView>("center_home"),
-      invoke<MacControl>("mac_control").catch(e => { console.warn("this Mac's state:", e); return state.mac; }),
+      invoke<MacControl>("mac_control").catch(e => { console.warn("this computer's state:", e); return state.mac; }),
       // Sync rows only add to the machines table; Home draws without them.
       invoke<SyncRow[]>("project_sync").catch(e => { console.warn("project sync:", e); return state.sync; }),
       // So does traffic, and an older server has none.

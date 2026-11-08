@@ -1,5 +1,5 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="01-styles.css"></head><body>
-<title>Beep Desktop</title>
+<title>Beep Desktop for macOS and Windows</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=STIX+Two+Text:ital@0;1&display=swap">
 <link rel="stylesheet" href="02-styles.css">
@@ -7,7 +7,8 @@
 <div class="wrap">
   <nav class="index" id="index" aria-label="Screens"></nav>
 
-  <main class="stage">
+  <!-- Windows keeps its native title bar, with no application menu below it. -->
+  <main class="stage" data-windows-menu="none">
     <div class="mac">
       <div class="desk">
         <div id="desk"></div>

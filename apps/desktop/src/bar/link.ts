@@ -75,8 +75,8 @@ export function drawLink(state: LinkState) {
     expired: `<h4>Link to your phone</h4><p>Scan with Beep on your phone: Settings, Linked devices.</p>${qr}<button class="dbtn pri" id="again">New code</button><p class="dfine">A code lasts ten minutes.</p>`,
   };
   const alone = state === "linked" ? "" : `<div class="dor"><span>or</span></div>
-    <button class="dbtn pri" id="here">Use Beep on this Mac</button>
-    <p class="dfine">Starts an account on this Mac. You can link your phone to it later.</p>
+    <button class="dbtn pri" id="here">Use Beep on this computer</button>
+    <p class="dfine">Starts an account on this computer. You can link your phone to it later.</p>
     <button class="dbtn quiet" id="havecode">Have a join code?</button>`;
   bar.innerHTML = `<div class="dwin">${parts[state]}${alone}</div>`;
   $("#again")?.addEventListener("click", renderLink);
@@ -170,7 +170,7 @@ function renderJoinCode(error = "", back: () => unknown = renderLink) {
   bar.innerHTML = `<div class="dwin"><h4>Join an account</h4>
     <label class="dfield${error ? " err" : ""} dwide">Join code<input id="jcode" class="mono" maxlength="20" autocomplete="off" spellcheck="false" placeholder="K7QM4-X9TRP">
       <span class="note">${esc(error || "The code your other computer shows under Settings, Devices.")}</span></label>
-    <p class="dfine">This Mac's chats and memories move to that account.</p>
+    <p class="dfine">This computer's chats and memories move to that account.</p>
     <div class="row dline"><button class="dbtn" id="jback">Back</button><button class="dbtn pri" id="jjoin">Join<kbd>${ICON.ret}</kbd></button></div></div>`;
   $$("#jback").addEventListener("click", back);
   const input = $$<HTMLInputElement>("#jcode");
@@ -181,7 +181,7 @@ function renderJoinCode(error = "", back: () => unknown = renderLink) {
     try {
       const name = await invoke<string>("join_account", { code });
       S.link = "linked";
-      bar.innerHTML = `<div class="dwin"><h4>Joined</h4><p>This Mac is now on ${esc(name)}'s account.</p></div>`;
+      bar.innerHTML = `<div class="dwin"><h4>Joined</h4><p>This computer is now on ${esc(name)}'s account.</p></div>`;
       setTimeout(renderChat, 1800);
     } catch (err) {
       renderJoinCode(/not found/i.test(String(err)) ? "That code is used up or expired. Ask for a new one." : String(err), back);
@@ -206,7 +206,7 @@ export async function renderInvitePhone() {
   if (S.view !== "invite-phone") return;
   const until = Date.now() + inv.expires_in * 1000;
   bar.innerHTML = `<div class="dwin"><h4>Link a phone</h4>
-    <p>Scan with Beep on your phone: Settings, Linked devices. The phone's chats and memories move to this Mac's account.</p>
+    <p>Scan with Beep on your phone: Settings, Linked devices. The phone's chats and memories move to this computer's account.</p>
     <div class="qr" id="iqr">${inv.qr_svg}</div><div class="code big">${esc(inv.code)}</div>
     <p class="dfine" id="ileft">A code lasts ten minutes.</p>
     <div class="dline"><button class="dbtn" id="iback">Back</button><button class="dbtn pri" id="icopy">Copy code</button></div></div>`;
@@ -224,7 +224,7 @@ export async function renderInvitePhone() {
 
 export function renderRevoked() {
   S.view = "revoked";
-  bar.innerHTML = `<div class="dwin"><h4>This Mac was removed</h4>
+  bar.innerHTML = `<div class="dwin"><h4>This computer was removed</h4>
     <p>Your phone took this computer off the account. To use Beep here again, start over with a new key and link it from the phone.</p>
     <button class="dbtn pri" id="over">Start over</button></div>`;
   $$("#over").addEventListener("click", () => invoke("start_over"));

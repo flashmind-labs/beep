@@ -17,10 +17,7 @@ use beep_proto::{
     ListFoundFolders, ListMachineFolder, MachineFolder,
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tokio::sync::oneshot;
@@ -202,10 +199,7 @@ pub fn open_folder(path: PathBuf) -> Result<()> {
             "That folder is not on this Mac.".into(),
         ));
     }
-    Command::new("open")
-        .arg(&path)
-        .spawn()
-        .map_err(anyhow::Error::from)?;
+    crate::platform::open(&path)?;
     Ok(())
 }
 

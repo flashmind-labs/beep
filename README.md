@@ -13,7 +13,7 @@ crates/server/          Server, beep-probe/beep-models, tests
   migrations/           Postgres schema
 crates/android-bridge/  UniFFI wrapper of the client for Kotlin
 apps/android/           Kotlin/Compose app
-apps/desktop/           Tauri tray app (macOS)
+apps/desktop/           Tauri tray app (macOS and Windows)
 deploy/                 Container entrypoint and AppArmor profile
 scripts/                Build helpers
 ```
@@ -130,3 +130,14 @@ just eval     # prompt evals against the real model (costs money)
 
 The integration tests talk to the server over loopback with a
 deterministic model provider.
+
+### Windows desktop
+
+Windows x64 needs the WebView2 runtime. With Rust's MSVC toolchain, Visual
+Studio C++ Build Tools and Node installed, run `scripts/build-desktop-windows.ps1`
+in PowerShell to build the current-user NSIS installer.
+
+On Linux with cargo-xwin and its Clang/LLVM prerequisites, run
+`scripts/build-desktop-windows.sh` to build a portable executable.
+Ctrl+Alt+Space opens the bar; Control replaces Command in app shortcuts.
+Desktop control and live voice are unavailable on Windows.

@@ -4,8 +4,8 @@
 
 use crate::{bar, error::Result};
 use tauri::{
-    ActivationPolicy, AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime,
-    TitleBarStyle, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window,
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, Window,
 };
 
 pub const LABEL: &str = "center";
@@ -63,11 +63,15 @@ fn bring_up<R: Runtime>(window: &WebviewWindow<R>) -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn join_dock<R: Runtime>(app: &AppHandle<R>) {
-    if let Err(e) = app.set_activation_policy(ActivationPolicy::Regular) {
+    if let Err(e) = app.set_activation_policy(tauri::ActivationPolicy::Regular) {
         log::warn!("joining the Dock: {e}");
     }
 }
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn join_dock<R: Runtime>(_: &AppHandle<R>) {}
 
 /// Builds command center window `label` titled `title`, moved down and
 /// right by `offset` from where the main window opens. While it is open
@@ -79,11 +83,15 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
         .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
         .resizable(true)
         .maximizable(true)
-        .title_bar_style(TitleBarStyle::Overlay)
-        .hidden_title(true)
         // Files dragged in from Finder reach the page as HTML drops, as in
         // the bar: a coding agent session uploads them to its machine.
         .disable_drag_drop_handler();
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true);
+    }
     builder = match frame(app, SHARE, LogicalSize::new(MIN_WIDTH, MIN_HEIGHT), 0.0) {
         Some((position, size)) => builder
             .position(position.x + offset, position.y + offset)
@@ -150,6 +158,7 @@ pub fn open_center(app: AppHandle) -> Result<()> {
 /// Whether a command center window, the main one or a project's, is on
 /// screen, leaving out `closing`, which may still be listed. The main
 /// window hides when closed.
+#[cfg(target_os = "macos")]
 fn center_open<R: Runtime>(app: &AppHandle<R>, closing: &str) -> bool {
     app.webview_windows().iter().any(|(label, window)| {
         label != closing && is_center(label) && window.is_visible().unwrap_or(true)
@@ -159,10 +168,11 @@ fn center_open<R: Runtime>(app: &AppHandle<R>, closing: &str) -> bool {
 /// Command center windows are ordinary windows: while one is open Beep sits
 /// in the Dock and Cmd-Tab, and goes back to the menu bar once the last
 /// closes.
+#[cfg(target_os = "macos")]
 pub(crate) fn closed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     if is_center(label)
         && !center_open(app, label)
-        && let Err(e) = app.set_activation_policy(ActivationPolicy::Accessory)
+        && let Err(e) = app.set_activation_policy(tauri::ActivationPolicy::Accessory)
     {
         log::warn!("leaving the Dock: {e}");
     }
@@ -248,6 +258,9 @@ pub fn center_open_project_window(app: AppHandle, project: String) -> Result<()>
 pub fn center_window_project(window: WebviewWindow) -> Option<String> {
     label_project(window.label())
 }
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn closed<R: Runtime>(_: &AppHandle<R>, _: &str) {}
 
 #[cfg(test)]
 mod tests {

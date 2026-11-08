@@ -363,7 +363,7 @@ const SETV = (() => {
       <div style="padding:6px 10px 2px;display:flex;gap:8px;align-items:center">${S.d.mcpRm ? `<span class="dmuted">Beep stops using this server</span><button class="dbtn quiet" data-dact="dset:mcpRm:">Cancel</button><button class="dbtn warn" ${back} data-toast="Team wiki removed">Remove</button>` : `<button class="dbtn warn" data-dact="dset:mcpRm:1">Remove server</button>`}</div></div>`;
   };
 
-  // This Mac: thisMac(mac) in settings.ts.
+  // This computer: thisMac(mac) in settings.ts.
   const macBody = () => dThisMac();
 
   // Agent accounts: agentaccounts.ts.
@@ -383,12 +383,12 @@ const SETV = (() => {
       const why = v === "acct-unread" ? "Beep can no longer read the saved token. Sign in again." : "Sign in for all to give every machine one token. Beep keeps it encrypted and never writes it to their disks.";
       const edit = v === "acct-paste-none";
       return box(`${head("signs in on each machine")}<span style="margin-left:auto;display:flex;gap:6px;flex:none"><button class="dbtn" ${dsetGo("acct-flow")}>Sign in for all</button>${edit ? "" : `<button class="dbtn quiet" ${dsetGo("acct-paste-none")}>Paste a token</button>`}</span></div>
-        <div style="margin-top:6px">${mrow("This Mac", false, "signed in as you@example.com")}${mrow("Workspace", false, "not signed in")}${mrow("gpu-box", true, "not checked")}</div><div style="font-size:12px;color:var(--d-muted);margin-top:6px">${why}</div>${edit ? agentForm("claude") : ""}`);
+        <div style="margin-top:6px">${mrow("This computer", false, "signed in as you@example.com")}${mrow("Workspace", false, "not signed in")}${mrow("gpu-box", true, "not checked")}</div><div style="font-size:12px;color:var(--d-muted);margin-top:6px">${why}</div>${edit ? agentForm("claude") : ""}`);
     }
     const edit = v === "acct-paste";
     return box(`${head(`signed in today · <code style="font-size:11px">…a91f</code>`)}<span style="margin-left:auto;display:flex;gap:6px;flex:none"><button class="dbtn" ${dsetGo("acct-flow")}>Replace</button><button class="dbtn warn" ${dsetGo("acct-none")} data-toast="Revoked">Revoke</button></span></div>
       ${edit ? agentForm("claude") : ""}<div style="font-size:12px;color:var(--d-muted);margin:8px 0 4px">Used on</div>
-      ${mrow("build-box", false, "2 sessions now")}${mrow("Workspace", false, "idle")}${mrow("This Mac", false, "1 session now")}${mrow("gpu-box", true, "offline · gets it when back")}
+      ${mrow("build-box", false, "2 sessions now")}${mrow("Workspace", false, "idle")}${mrow("This computer", false, "1 session now")}${mrow("gpu-box", true, "offline · gets it when back")}
       ${edit ? "" : `<button class="dbtn quiet" ${sm} ${dsetGo("acct-paste")}>Paste a token instead</button>`}`);
   };
   const codexBox = v => {
@@ -400,7 +400,7 @@ const SETV = (() => {
       : v === "acct-start" ? mrow("Workspace", false, '<span class="dspin"></span>starting sign-in')
       : mrow("Workspace", false, `<span>not checked</span><button class="dbtn" ${sm} ${dsetGo("acct-code")}>Sign in</button>`) + (v === "acct-signfail" ? '<div class="derr" style="padding-left:15px">Workspace could not start codex login</div>' : "");
     return box(`<div style="display:flex;align-items:center;gap:10px">${tile("codex")}<span style="display:grid;gap:2px;min-width:0"><b style="font-size:13.5px">Codex</b><span style="font-size:11.5px;color:var(--d-muted)">${sub}</span></span><span style="margin-left:auto;display:flex;gap:6px;flex:none">${form ? "" : acts}</span></div>
-      ${form ? agentForm("codex") : ""}<div style="margin-top:6px">${mrow("build-box", false, "signed in")}${mrow("This Mac", false, "signed in")}${work}${mrow("gpu-box", true, "offline")}</div>`);
+      ${form ? agentForm("codex") : ""}<div style="margin-top:6px">${mrow("build-box", false, "signed in")}${mrow("This computer", false, "signed in")}${work}${mrow("gpu-box", true, "offline")}</div>`);
   };
   const acctBody = v => v === "acct-fail" ? `<div class="dmuted">Could not load your agent accounts.</div>`
     : v === "acct-old" ? `<div class="dmuted">The server needs an update before it keeps agent accounts.</div>`
@@ -440,7 +440,7 @@ const SETV = (() => {
       acts: (extra.use ? `<button class="dbtn pri" ${sm} data-toast="Checked with GitHub and saved">Use gh sign-in</button>` : "") + (dflt ? "" : `<button class="dbtn" ${sm} data-toast="@${login} is now GH_TOKEN on your machines">Make default</button>`) + editRm(`@${login}`, "keys-replace"),
       chips: (extra.unreadable ? chip("Re-enter this token", "", "err") : "") + shown + (more.length ? chip(`+${more.length}`, more.join(", ")) : "") + cliChip("gh", MS) });
   };
-  const choice = (login, active) => `<div style="display:flex;align-items:center;gap:8px;font-size:12.5px"><span style="color:var(--d-muted)">gh on this Mac as @${login}</span>${active ? `<span style="font-size:10.5px;color:var(--d-dim)">active</span>` : ""}<span style="margin-left:auto"><button class="dbtn pri" ${sm} data-toast="Checked with GitHub and saved as @${login}">Use</button></span></div>`;
+  const choice = (login, active) => `<div style="display:flex;align-items:center;gap:8px;font-size:12.5px"><span style="color:var(--d-muted)">gh on this computer as @${login}</span>${active ? `<span style="font-size:10.5px;color:var(--d-dim)">active</span>` : ""}<span style="margin-left:auto"><button class="dbtn pri" ${sm} data-toast="Checked with GitHub and saved as @${login}">Use</button></span></div>`;
   const credsBody = v => {
     if (v === "keys-load") return skel(2);
     if (v === "keys-fail") return `<div class="dmuted">Could not load your credentials.</div>`;
@@ -452,11 +452,11 @@ const SETV = (() => {
     else if (cli) {
       canAdd = false;
       const offer = {
-        in: { account: "gh on this Mac as @you", acts: `<button class="dbtn pri" ${sm} data-toast="Checked with GitHub and saved as @you">Use gh sign-in</button>${paste(true, "keys-cli-paste")}` },
+        in: { account: "gh on this computer as @you", acts: `<button class="dbtn pri" ${sm} data-toast="Checked with GitHub and saved as @you">Use gh sign-in</button>${paste(true, "keys-cli-paste")}` },
         out: { acts: `<button class="dbtn pri" ${sm} ${dsetGo("keys-cli-code")}>Sign in with GitHub</button>${paste(true, "keys-cli-paste")}`, help: "Opens GitHub in your browser, then saves the sign-in here" },
         code: { acts: `<button class="dbtn quiet" ${sm} ${dsetGo("keys-cli-out")}>Cancel</button>`, body: waitCode },
         none: { acts: paste(true, "keys-cli-paste"), help: `Make a token on ${lk(ghPage, "GitHub")}, then paste it.<br>Or install GitHub CLI (${cd("brew install gh")}) and sign in here` },
-        many: { account: "gh on this Mac has 2 accounts", acts: paste(true, "keys-cli-paste"), body: `<div style="display:grid;gap:6px">${choice("octo-one", true)}${choice("octo-two")}</div>` },
+        many: { account: "gh on this computer has 2 accounts", acts: paste(true, "keys-cli-paste"), body: `<div style="display:grid;gap:6px">${choice("octo-one", true)}${choice("octo-two")}</div>` },
       }[cli];
       github = gitRow({ icon: GH, name: "GitHub", account: offer.account, usable: false, acts: offer.acts, chips: cliChip("gh", MS), more: (offer.help ? note(offer.help) : "") + (offer.body || "") });
     } else if (v === "keys-gh2" || v === "keys-gh-add" || v === "keys-gh-code") {
@@ -478,13 +478,13 @@ const SETV = (() => {
       hosts += fj("git.team.example", "", chip("not checked: the server could not reach it", "", "warn") + cliChip("teacli", MS));
       hosts += gitRow({ icon: FJ, name: "git.work.example", account: "@you", acts: editRm("git.work.example", "keys-fjreplace"), chips: chip("token refused", "401 Unauthorized", "err") + cliChip("teacli", MS), more: `<span class="derr">401 Unauthorized</span>` });
     }
-    if (cli === "in") hosts += gitRow({ icon: FJ, name: "git.example.net", account: "teacli on this Mac", usable: false, acts: `<button class="dbtn pri" ${sm} data-toast="Checked with git.example.net and saved">Use teacli sign-in</button>`, more: note("Signed in with teacli here, not in Beep yet") });
+    if (cli === "in") hosts += gitRow({ icon: FJ, name: "git.example.net", account: "teacli on this computer", usable: false, acts: `<button class="dbtn pri" ${sm} data-toast="Checked with git.example.net and saved">Use teacli sign-in</button>`, more: note("Signed in with teacli here, not in Beep yet") });
     const adding = v === "keys-gh-add" || v === "keys-gh-code"
       ? `<div style="padding:10px 0;border-bottom:1px solid var(--d-border);display:grid;gap:6px;font-size:13px"><div style="display:flex;align-items:center;gap:8px"><b style="font-weight:600">Add another GitHub account</b><span style="margin-left:auto"><button class="dbtn quiet" ${sm} ${dsetGo("keys-gh2")}>Cancel</button></span></div>
         <div style="display:grid;gap:6px;padding-left:15px">${v === "keys-gh-code" ? waitCode : `${choice("octo-three", true)}${choice("octo-four")}<div style="display:flex;gap:6px"><button class="dbtn" ${sm} ${dsetGo("keys-gh-code")}>Sign in with GitHub</button>${paste(true, "keys-cli-paste")}</div>${note("Sign in adds the account to gh here too. @octo-one is in Beep already.")}`}</div></div>` : "";
     if (adding) canAdd = false;
     const addingFj = v === "keys-gh";
-    const fjNew = addingFj ? credForm({ title: "New Forgejo/Gitea server", url: "one token per server, teacli on every machine", urlField: true, html: `Make one on your server at ${cd("/user/settings/applications")}, with repository and issue access. Or run ${cd("teacli login https://<server> --token <token>")} on this Mac and use that sign-in.` }) : "";
+    const fjNew = addingFj ? credForm({ title: "New Forgejo/Gitea server", url: "one token per server, teacli on every machine", urlField: true, html: `Make one on your server at ${cd("/user/settings/applications")}, with repository and issue access. Or run ${cd("teacli login https://<server> --token <token>")} on this computer and use that sign-in.` }) : "";
     const adds = (canAdd ? add("keys-gh-add", "+ Add another GitHub account") : "") + (addingFj ? "" : add("keys-gh", "+ Add a Forgejo/Gitea server"));
     return `<div style="display:grid">${head("Git hosts", 4)}${github}${hosts}${adding}${fjNew}${adds ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${adds}</div>` : ""}</div>`;
   };
@@ -555,19 +555,19 @@ const SETV = (() => {
     if (v === "account-out") return bsRow("Signed out", OUT_NOTE, `<button class="dbtn pri" ${dsetGo("account")} data-toast="Signed in. Memories, routines and chats come back">Sign in</button>`, " off");
     if (v === "account-down") return bsRow("Not reachable", "Beep cannot reach the server. Try again, or sign out.", `<button class="dbtn" data-toast="Trying again">Try again</button><button class="dbtn quiet" ${dsetGo("account-signout")}>Sign out…</button>`, " bad");
     const inRow = bsRow("Signed in", "Chats, memories and routines sync with the server.", v === "account-signout" ? "" : `<button class="dbtn" ${dsetGo("account-signout")}>Sign out…</button>`);
-    const signOut = v === "account-signout" ? `<div class="dcard"><div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px"><b style="font-size:13.5px">Sign out of Beep server?</b><div class="dmuted" style="display:block">This Mac stops using the server, so the assistant and voice go off. Signing in brings it all back.</div>
+    const signOut = v === "account-signout" ? `<div class="dcard"><div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px"><b style="font-size:13.5px">Sign out of Beep server?</b><div class="dmuted" style="display:block">This computer stops using the server, so the assistant and voice go off. Signing in brings it all back.</div>
       <div style="display:flex;gap:8px"><button class="dbtn warn" ${dsetGo("account-out")} data-toast="Signed out">Sign out</button><button class="dbtn quiet" ${dsetGo("account")}>Cancel</button></div></div></div>` : "";
     if (v === "account-none") return bsRow("No account", "Adds chats, memories, routines, skills, apps, research, the project agent and phones.", `<button class="dbtn pri" data-dgo="dLink">Sign in</button>`, " off");
     const owner = v === "account" || v === "account-gh" || v === "account-signout";
     const tag = t => `<span class="dtag">${t}</span>`;
     const row = (n, tags, kind, rm) => `<div class="dtoggle"><span><b style="display:flex;gap:7px;align-items:center">${n}${tags.map(tag).join("")}</b><small>${kind}</small></span>${rm ? `<button class="dbtn quiet" aria-label="Remove ${n}" data-toast="${n} removed">${DI.x}</button>` : ""}</div>`;
     if (v === "account-load") return inRow + skel(2);
-    const rows = owner ? row("Alex's MacBook Air", ["This Mac", "Owner"], "Computer", false) + row("Pixel", [], "Phone", true)
-      : row("Pixel", ["Owner"], "Phone", false) + row("Alex's MacBook Air", ["This Mac"], "Computer", false);
-    const ask = v === "account-unlink" ? `<div class="dcard"><div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px"><b style="font-size:13.5px">Unlink this Mac?</b><div class="dmuted" style="display:block">This Mac stops seeing your chats and memories. Your phone keeps them. To use Beep here again, start over and link it from the phone.</div>
+    const rows = owner ? row("Alex's MacBook Air", ["This computer", "Owner"], "Computer", false) + row("Pixel", [], "Phone", true)
+      : row("Pixel", ["Owner"], "Phone", false) + row("Alex's MacBook Air", ["This computer"], "Computer", false);
+    const ask = v === "account-unlink" ? `<div class="dcard"><div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px"><b style="font-size:13.5px">Unlink this computer?</b><div class="dmuted" style="display:block">This computer stops seeing your chats and memories. Your phone keeps them. To use Beep here again, start over and link it from the phone.</div>
       <div style="display:flex;gap:8px"><button class="dbtn warn" ${dsetGo("account-none")} data-toast="Unlinked">Unlink</button><button class="dbtn quiet" ${dsetGo("account-member")}>Cancel</button></div></div></div>` : "";
     const link = v === "account-unlink" ? "" : `<button class="dbtn" data-dgo="dInvite">Link a phone…</button>`;
-    const unlink = owner || v === "account-unlink" ? "" : `<div class="dtoggle"><span><small>This Mac: Alex's MacBook Air</small></span><button class="dbtn warn" ${dsetGo("account-unlink")}>Unlink this Mac</button></div>`;
+    const unlink = owner || v === "account-unlink" ? "" : `<div class="dtoggle"><span><small>This computer: Alex's MacBook Air</small></span><button class="dbtn warn" ${dsetGo("account-unlink")}>Unlink this computer</button></div>`;
     const devices = `<div class="dsec flat dgroup">Devices${link}</div><div class="dcard ddevices">${rows}${unlink}</div>`;
     return inRow + signOut + devices + ask;
   };
@@ -676,7 +676,7 @@ const SETV = (() => {
   };
 
   // What the left pane lists, and which page a variant shows.
-  const PAGES = [["General", "general"], ["Appearance", "appearance"], ["Models", "models"], ["Apps", "apps"], ["This Mac", "mac"], ["Machines", "machines"], ["Agent accounts", "acct"], ["Credentials", "keys"], ["Instructions", "instr"], ["Beep server", "account"]];
+  const PAGES = [["General", "general"], ["Appearance", "appearance"], ["Models", "models"], ["Apps", "apps"], ["This computer", "mac"], ["Machines", "machines"], ["Agent accounts", "acct"], ["Credentials", "keys"], ["Instructions", "instr"], ["Beep server", "account"]];
   const AGENT_SUBS = CODING.map(([a]) => a);
   const agentOf = v => { const a = v.split("-")[1]; return v.startsWith("acct-") && AGENT_SUBS.includes(a) ? a : null; };
   const known = v => {
@@ -707,7 +707,7 @@ const SETV = (() => {
   const page = (v, machPages) => {
     const p = pageOf(v);
     if (machPages[v]) return `<section style="max-width:none">${machPages[v]()}</section>`;
-    if (v === "machines") return host(`<div class="dhead"><span class="tt"><b>No machines linked</b></span></div><div class="dmuted" style="display:block;margin-bottom:10px">To add one, use Add a machine: it gives you a one-time command to run there.</div><button class="dbtn" data-dgo="dAddMachine">Add a machine</button>`);
+    if (v === "machines") return host(`<div class="dhead"><span class="tt"><b>No machines linked</b></span></div><div class="dmuted" style="display:block;margin-bottom:10px">To add one, use Add a machine: it gives you a one-time command to run there.</div><button class="dbtn" data-dact="dset:tk:other" data-dgo="dAddTicket">Link another desktop</button><button class="dbtn" data-dgo="dAddMachine">Add a machine</button>`);
     if (v === "loading") return sec("Models", skel(2));
     if (v === "models-fail") return sec("Models", `<div class="dmuted">Could not load your models.</div>`);
     if (p === "general") return sec("General", generalBody());
@@ -770,7 +770,7 @@ VARIANTS.dMcp.push(["Remove, asking", () => { S.d.mcpRm = "1"; render(); }, () =
   const set0 = { apps: "list", fm: "", mup: "", ins: "editor", setAuto: "on", noServer: false };
   const rows = [["General", "general"], ["Appearance", "appearance"], ["Models, Auto on", "models"], ["Models, Auto off", "models", { setAuto: "off" }], ["Models, loading", "loading"], ["Models, could not load", "models-fail"],
     ["Apps", "apps"], ["Apps, connecting", "apps", { apps: "waiting" }], ["Apps, adding a server", "apps", { apps: "mcpAdd" }], ["Apps > Gmail", "app-gmail"], ["Apps > Fastmail", "app-fastmail", { fm: "two" }], ["Apps > Team wiki", "mcp-wiki"],
-    ["This Mac, off", "mac", { mac: "off" }], ["This Mac, connecting", "mac", { mac: "connecting" }], ["This Mac, failed", "mac", { mac: "failed" }], ["This Mac, allow both", "mac", { mac: "perm" }], ["This Mac, ready", "mac", { mac: "ready" }],
+    ["This computer, off", "mac", { mac: "off" }], ["This computer, connecting", "mac", { mac: "connecting" }], ["This computer, failed", "mac", { mac: "failed" }], ["This computer, allow both", "mac", { mac: "perm" }], ["This computer, ready", "mac", { mac: "ready" }],
     ["Machines, none", "machines"], ["Machines", "machines-list"], ["Machines > build-box", "mach-build"], ["Machines > build-box, Updating", "mach-build", { mup: "updating" }], ["Machines > build-box, Restarting", "mach-build", { mup: "restarting" }], ["Machines > build-box, waits for sessions", "mach-build", { mup: "waiting" }], ["Machines > build-box, update failed", "mach-build", { mup: "failed" }], ["Machines > build-box, Projects in", "mach-build", { mup: "search" }], ["Machines > build-box, Remove", "mach-build", { mup: "asking" }], ["Machines > build-box, Log", "mach-build", { mup: "log" }], ["Machines > build-box, Log reading", "mach-build", { mup: "log-reading" }], ["Machines > build-box, no log", "mach-build", { mup: "log-none" }], ["Machines > build-box, Log empty", "mach-build", { mup: "log-empty" }], ["Machines > build-box, Log on an old node", "mach-build", { mup: "log-old" }], ["Machines > build-box, Sign in starting", "mach-build", { mup: "signin-starting" }], ["Machines > build-box, Sign in with a device code", "mach-build", { mup: "signin-opencode" }], ["Machines > build-box, Sign in with a pasted code", "mach-build", { mup: "signin-claude" }], ["Machines > build-box, Sign in failed", "mach-build", { mup: "signin-failed" }], ["Machines > build-box, Signed in", "mach-build", { mup: "signin-done" }],
     ["Coding agents, no server", "acct", { noServer: true }], ["Agent accounts", "acct"], ["Agent accounts, Claude not signed in", "acct-none"], ["Agent accounts, approve in browser", "acct-flow"], ["Agent accounts, pasting a token", "acct-paste"], ["Agent accounts, token unreadable", "acct-unread"], ["Agent accounts, Codex device code", "acct-code"], ["Agent accounts, Codex starting", "acct-start"], ["Agent accounts, Codex sign-in failed", "acct-signfail"], ["Agent accounts, Codex API key", "acct-apikey"], ["Agent accounts, typing a key", "acct-keyform"], ["Agent accounts, could not load", "acct-fail"], ["Agent accounts, server too old", "acct-old"],
     ["Agent accounts > Claude Code", "acct-claude"], ["Agent accounts > Claude Code, Beep's token", "acct-claude-token"], ["Agent accounts > Claude Code, not signed in", "acct-claude-out"], ["Agent accounts > Claude Code, turned off", "acct-claude-off"], ["Agent accounts > Claude Code, updating", "acct-claude-updating"], ["Agent accounts > Claude Code, update failed", "acct-claude-fail"], ["Agent accounts > Claude Code, edited", "acct-claude-dirty"], ["Agent accounts > Claude Code, saved to all", "acct-claude-saved"], ["Agent accounts > Claude Code, restart node", "acct-claude-stale"], ["Agent accounts > Codex, installing its adapter", "acct-codex-adapting"], ["Agent accounts > Codex, adapter failed", "acct-codex-adapter"], ["Agent accounts > Claude Code, no machine", "acct-claude-none"], ["Agent accounts > Claude Code, asking", "acct-claude-asking"], ["Agent accounts > Claude Code, server too old", "acct-claude-old"],

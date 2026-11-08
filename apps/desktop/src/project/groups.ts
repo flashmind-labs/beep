@@ -116,7 +116,7 @@ registerSidebarGroup<MachineCard | { thisMac: MacRow }>("machines", {
 
 /// The sidebar's This Mac: its state, or Add while it is off.
 function thisMacItem(mac: MacRow) {
-  const title = `This Mac: ${mac.title}`;
+  const title = `This computer: ${mac.title}`;
   if (mac.action) {
     // A row with a button in it, never a button inside a button.
     const row = h("div", "cc-si", h("span", "ddot off"), h("span", "tt", mac.name),

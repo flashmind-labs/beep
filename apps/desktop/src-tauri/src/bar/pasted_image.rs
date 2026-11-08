@@ -50,7 +50,13 @@ pub struct PastedImage {
 /// GIF and WebP files are read.
 #[tauri::command]
 pub async fn read_pasted_image(path: String) -> Result<PastedImage> {
-    let path = full_path(&path, env::var_os("HOME").map(PathBuf::from).as_deref())?;
+    let path = full_path(
+        &path,
+        env::var_os("HOME")
+            .or_else(|| env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .as_deref(),
+    )?;
     tauri::async_runtime::spawn_blocking(move || read(&path))
         .await
         .map_err(anyhow::Error::from)?
@@ -94,14 +100,16 @@ mod tests {
 
     #[test]
     fn only_full_paths_are_read() {
-        let home = Path::new("/home/someone");
+        let dir = std::env::temp_dir();
+        let home = dir.as_path();
         assert_eq!(
             full_path("~/a.png", Some(home)).expect("a home path is full"),
             home.join("a.png")
         );
         assert_eq!(
-            full_path("/tmp/a.png", None).expect("an absolute path is full"),
-            PathBuf::from("/tmp/a.png")
+            full_path(home.join("a.png").to_str().expect("UTF-8 test path"), None)
+                .expect("an absolute path is full"),
+            home.join("a.png")
         );
         assert!(full_path("a.png", Some(home)).is_err());
         assert!(full_path("~/a.png", None).is_err());

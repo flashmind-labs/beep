@@ -1,3 +1,4 @@
+import { commandKey } from "../ui/platform.ts";
 // The media pane of a coding agent session: what kind of file a path
 // names, where a path the agent wrote points, and where the pane sits
 // (each tab docked right or at the bottom, how big each dock is, folded
@@ -247,8 +248,8 @@ export function leavesTerminal(e: Pick<KeyboardEvent, "key" | "shiftKey" | "meta
 }
 
 /// ⌘W: closes the focused pane's tab, else the window.
-export function isCloseKey(e: Pick<KeyboardEvent, "key" | "metaKey" | "shiftKey">) {
-  return e.metaKey && !e.shiftKey && e.key.toLowerCase() === "w";
+export function isCloseKey(e: Pick<KeyboardEvent, "key" | "metaKey" | "shiftKey"> & { ctrlKey?: boolean }) {
+  return commandKey(e) && !e.shiftKey && e.key.toLowerCase() === "w";
 }
 
 /// Runs `toggle` on ⇧esc while `allowed`, ahead of every other Esc handler

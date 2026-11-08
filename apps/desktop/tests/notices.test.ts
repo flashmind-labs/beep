@@ -84,14 +84,14 @@ test("a row says where it came from and when", () => {
   assert.equal(subLine(fromAlert(alert("a", { source: "Places" })), "4 min"), "Places · 4 min");
 });
 
-test("a skill conflict lists its copies and which are on this Mac", () => {
+test("a skill conflict lists its copies and which are on this computer", () => {
   const i = fromNote(note("skill:notes", "skill_conflict", { title: "Skill notes differs on box-a and box-b", text: "box-a ~/.claude/skills\nbox-b ~/.agents/skills", here: ["box-a ~/.claude/skills"] }));
   assert.equal(skillName(i), "notes");
   assert.deepEqual(copies(i), [
     { machine: "box-a", folder: "~/.claude/skills", here: true },
     { machine: "box-b", folder: "~/.agents/skills", here: false },
   ]);
-  // A note saved before `here` existed has no copy on this Mac.
+  // A note saved before `here` existed has no copy on this computer.
   assert.ok(copies(fromNote(note("o", "skill_conflict", { text: "box-a ~/x" }))).every(c => !c.here));
 });
 

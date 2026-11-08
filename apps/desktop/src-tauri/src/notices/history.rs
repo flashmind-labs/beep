@@ -25,7 +25,6 @@ use std::{
     cmp::Reverse,
     fs,
     path::{Component, PathBuf},
-    process::Command,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::SystemTime,
 };
@@ -398,11 +397,7 @@ pub fn skill_reveal(app: AppHandle, folder: String, name: String) -> Result<()> 
     if name.contains(['/', '\\']) || climbs || !skill.starts_with(&home) || !skill.is_dir() {
         return Err(DesktopError::BadRequest("not a skill on this Mac".into()));
     }
-    Command::new("open")
-        .arg("-R")
-        .arg(&skill)
-        .spawn()
-        .map_err(anyhow::Error::from)?;
+    crate::platform::reveal(&skill)?;
     Ok(())
 }
 

@@ -1,3 +1,4 @@
+import { commandKey } from "../ui/platform.ts";
 // Settings as a sheet over the command center window.
 import { ago } from "../ui/format.ts";
 import { dbtn as button, sheetAbove } from "../ui/parts.ts";
@@ -39,7 +40,7 @@ export function openSettings(section?: string) {
     if (sheetAbove(scrim)) return;
     // Esc on a subpage, such as Apps then Gmail, goes back to its page first.
     if (e.key === "Escape") { e.preventDefault(); if (!pane.settingsBack()) closeSettings(); }
-    else if (e.metaKey && e.key === ",") e.preventDefault();
+    else if (commandKey(e) && e.key === ",") e.preventDefault();
     else if (e.key === "Tab") trapTab(e, sheet);
     e.stopImmediatePropagation();
   };

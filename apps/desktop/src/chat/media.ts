@@ -1,3 +1,4 @@
+import { commandKey } from "../ui/platform.ts";
 import { hostOf } from "../settings/apps.ts";
 import { IMAGE_TYPES } from "./compose-text.ts";
 import { focusAsk } from "./chat.ts";
@@ -254,7 +255,7 @@ export function drawViewer() {
       const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
       e.preventDefault();
       buttons[(at + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length]?.focus();
-    } else viewerKeys(e, e.metaKey);
+    } else viewerKeys(e, commandKey(e));
   });
   const old = document.getElementById("viewer");
   old ? old.replaceWith(el) : viewerHost.append(el);

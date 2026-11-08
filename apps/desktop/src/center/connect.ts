@@ -19,7 +19,7 @@ export function connectProblem(error: unknown): ConnectProblem | null {
   if (e === "not linked to a phone yet") {
     return {
       kind: "unlinked",
-      title: "This Mac is not linked yet",
+      title: "This computer is not linked yet",
       text: "Link it to your phone to see your chats, machines and approvals here.",
       action: "Link to your phone",
       view: "link",
@@ -37,7 +37,7 @@ export function connectProblem(error: unknown): ConnectProblem | null {
   if (e === "this computer was removed from the account") {
     return {
       kind: "revoked",
-      title: "This Mac was removed",
+      title: "This computer was removed",
       text: "Your phone took this computer off the account. To use Beep here again, start over and link it from the phone.",
       action: "Start over",
       view: "revoked",
@@ -48,8 +48,8 @@ export function connectProblem(error: unknown): ConnectProblem | null {
   if (refused || e === "not found") {
     return {
       kind: "refused",
-      title: "The server turned this Mac away",
-      text: refused ? refused[1] : "It did not find this Mac's account.",
+      title: "The server turned this computer away",
+      text: refused ? refused[1] : "It did not find this computer's account.",
       action: null,
       view: null,
     };

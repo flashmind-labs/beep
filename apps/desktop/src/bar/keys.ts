@@ -1,3 +1,4 @@
+import { commandKey, WINDOWS } from "../ui/platform.ts";
 import { closeAgentNewMenus, renderAgentNew } from "../agents/agentnew.ts";
 import { keyHidden } from "../settings/subscription.ts";
 import { agentBack, agentKeys } from "../agents/agents.ts";
@@ -123,7 +124,7 @@ export function liveKeys(e: KeyboardEvent, cmd: boolean) {
 let paneMounted = false;
 export function mountPane(on: boolean) { paneMounted = on; }
 document.addEventListener("keydown", e => {
-  const cmd = e.metaKey;
+  const cmd = commandKey(e) && !(WINDOWS && e.target instanceof Element && e.target.closest(".tm-xterm"));
   if (PANE && !paneMounted) return;
   // A key meant for the sidebar (Enter on a row) is not the pane's.
   const t = target(e);

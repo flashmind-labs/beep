@@ -1,3 +1,4 @@
+import { commandKey, WINDOWS } from "./platform.ts";
 // Page zoom: ⌘= (or ⌘+) in, ⌘- out, ⌘0 back to 100%, in steps of 10%.
 
 export const ZOOM_MIN = 70;
@@ -11,7 +12,7 @@ export type ZoomKey = "in" | "out" | "reset";
 
 /// What a key does to the zoom, or null when it is not a zoom key.
 export function zoomKey(e: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey">): ZoomKey | null {
-  if (!e.metaKey || e.ctrlKey || e.altKey) return null;
+  if (!commandKey(e) || (!WINDOWS && e.ctrlKey) || e.altKey) return null;
   if (e.key === "=" || e.key === "+") return "in";
   if (e.key === "-") return "out";
   if (e.key === "0") return "reset";

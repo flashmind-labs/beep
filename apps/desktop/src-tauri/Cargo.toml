@@ -3,7 +3,7 @@ name = "beep-desktop"
 version = "0.5.16"
 edition = "2024"
 rust-version = "1.93"
-description = "Beep for macOS: a tray app with a bar opened by double-tapping Option"
+description = "Beep desktop: projects, coding agents and a quick-access tray bar"
 publish = false
 
 # Its own workspace, so the server's Docker build and Linux checks never see Tauri.
@@ -14,6 +14,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 anyhow = "1"
+open = "5"
+which = "8"
 async-trait = "0.1"
 ammonia = "4"
 base64 = "0.22"
@@ -56,6 +58,10 @@ pulldown-latex = "0.8"
 rmp-serde = "1"
 tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"

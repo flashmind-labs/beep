@@ -72,7 +72,12 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
     item("open-center", "Open Beep", true, None)?;
     item("open-bar", quick, true, None)?;
     // A menu shortcut cannot show a double tap, so it gets a line of its own.
-    item("hotkey", "Or press Option twice, anywhere", false, None)?;
+    let shortcut = if cfg!(target_os = "windows") {
+        "Or press Ctrl+Alt+Space, anywhere"
+    } else {
+        "Or press Option twice, anywhere"
+    };
+    item("hotkey", shortcut, false, None)?;
     separator()?;
     // The server's state, only where there is a server.
     if SERVER_ENABLED {
@@ -81,7 +86,7 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
     }
     // Without a subscription the assistant's items are not there at all.
     if linked {
-        item("new", "New chat", true, Some("cmd+n"))?;
+        item("new", "New chat", true, Some("CmdOrCtrl+n"))?;
         let chats = app
             .state::<Recent>()
             .0
@@ -100,10 +105,10 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
         }
         menu.append(&recent)?;
         for (id, title, keys) in [
-            ("memories", "Memories", "cmd+m"),
-            ("routines", "Routines", "cmd+j"),
-            ("skills", "Skills", "cmd+l"),
-            ("research", "Research", "cmd+r"),
+            ("memories", "Memories", "CmdOrCtrl+m"),
+            ("routines", "Routines", "CmdOrCtrl+j"),
+            ("skills", "Skills", "CmdOrCtrl+l"),
+            ("research", "Research", "CmdOrCtrl+r"),
         ] {
             item(id, title, true, Some(keys))?;
         }
@@ -131,14 +136,14 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
         item("link", title, true, None)?;
     }
     item(REPORT, "Report a Problem", true, None)?;
-    item("settings", "Settings", true, Some("cmd+,"))?;
+    item("settings", "Settings", true, Some("CmdOrCtrl+,"))?;
     match update::ready(app) {
         Some(_) => item("restart-update", "Restart to Update Beep", true, None)?,
         None => item("check-update", "Check for Updates", true, None)?,
     }
     item("show-logs", "Show Logs", true, None)?;
     separator()?;
-    item("quit", "Quit Beep", true, Some("cmd+q"))?;
+    item("quit", "Quit Beep", true, Some("CmdOrCtrl+q"))?;
     Ok(menu)
 }
 

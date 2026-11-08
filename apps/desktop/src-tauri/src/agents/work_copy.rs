@@ -430,7 +430,9 @@ pub(crate) async fn tree(beep: &Beep, fleet: &Fleet, ask: &ListWorkTree) -> Opti
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{env, fs, os::unix::fs::symlink, process};
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
+    use std::{env, fs, process};
 
     fn machine(id: &str, folder: &str) -> MachineSync {
         MachineSync {
@@ -607,6 +609,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn nothing_outside_the_local_folder_counts_as_inside_it() {
         let dir = env::temp_dir().join(format!("beep-work-copy-{}", process::id()));
