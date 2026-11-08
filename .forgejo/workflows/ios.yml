@@ -107,30 +107,10 @@ jobs:
           npm ci
           npm run build
 
-      # `tauri ios init` tries to brew-install CocoaPods and libimobiledevice,
-      # which this Mac does not have and the build does not need. For init
-      # only, `pod` does nothing and `brew` skips libimobiledevice and runs
-      # everything else.
       - name: Generate the Xcode project
-        working-directory: apps/desktop
         env:
           APPLE_DEVELOPMENT_TEAM: ${{ vars.IOS_TEAM_ID }}
-        run: |
-          set -euo pipefail
-          if [ -d src-tauri/gen/apple ]; then exit 0; fi
-          real_brew=$(command -v brew)
-          shims="$RUNNER_TEMP/ios-shims"
-          mkdir -p "$shims"
-          printf '#!/bin/sh\nexit 0\n' > "$shims/pod"
-          cat > "$shims/brew" <<SH
-          #!/bin/sh
-          for arg in "\$@"; do
-            case "\$arg" in libimobiledevice) exit 0 ;; esac
-          done
-          exec "$real_brew" "\$@"
-          SH
-          chmod +x "$shims/pod" "$shims/brew"
-          PATH="$shims:$PATH" npm run tauri -- ios init --ci
+        run: bash scripts/tauri-init.sh ios
 
       - name: Build the IPA
         working-directory: apps/desktop
@@ -167,4 +147,4 @@ jobs:
           security list-keychains -d user -s "${keychains[@]}"
           security delete-keychain "$RUNNER_TEMP/ios-signing.keychain-db" || true
           rm -rf "$RUNNER_TEMP/ios-api-key.p8" "$RUNNER_TEMP/ios-signing.p12" \
-            "$RUNNER_TEMP/ios-keychains.txt" "$RUNNER_TEMP/ios-shims"
+            "$RUNNER_TEMP/ios-keychains.txt"

@@ -67,7 +67,25 @@ jobs:
           sdkmanager "ndk;${NDK_VERSION}" "platforms;android-37" "build-tools;35.0.0"
           echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
 
-      - name: Write signing file
+      - name: Build the web UI
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Generate the Android project
+        run: bash scripts/tauri-init.sh android
+
+      - name: Build the APK and bundle
+        working-directory: apps/desktop
+        run: >-
+          npm run tauri -- android build --apk --aab
+          --config '{"bundle":{"android":{"versionCode":'$((1000000 + ${{ github.run_number }}))'}}}'
+
+      # Tauri builds release outputs unsigned. Without the keystore secrets
+      # they are signed with a throwaway debug key.
+      - name: Sign
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -76,38 +94,26 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
+          store="$RUNNER_TEMP/release.keystore"
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
-            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
-            {
-              echo "storeFile=$RUNNER_TEMP/release.keystore"
-              echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
-              echo "keyAlias=$ANDROID_KEY_ALIAS"
-              echo "keyPassword=$ANDROID_KEY_PASSWORD"
-            } > apps/desktop/src-tauri/gen/android/keystore.properties
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$store"
+            alias=$ANDROID_KEY_ALIAS; storepass=$ANDROID_KEYSTORE_PASSWORD; keypass=$ANDROID_KEY_PASSWORD
           else
-            echo "No signing secrets, using the debug key."
+            echo "No signing secrets, using a debug key."
+            alias=debug; storepass=android; keypass=android
+            keytool -genkeypair -keystore "$store" -alias debug -storepass android -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug" > /dev/null
           fi
-
-      - name: Build the web UI
-        working-directory: apps/desktop
-        run: |
-          set -euo pipefail
-          npm ci
-          npm run build
-
-      - name: Build the APK and bundle
-        working-directory: apps/desktop
-        run: >-
-          npm run tauri -- android build --apk --aab
-          --config '{"bundle":{"android":{"versionCode":'$((1000000 + ${{ github.run_number }}))'}}}'
-
-      - name: Package
-        run: |
-          set -euo pipefail
           out=apps/desktop/src-tauri/gen/android/app/build/outputs
           apk=$(find "$out/apk" -name '*.apk' -path '*elease*' | head -1)
+          aab=$(find "$out/bundle" -name '*.aab' | head -1)
           [ -n "$apk" ] || { echo "No APK was built" >&2; exit 1; }
-          cp "$apk" beep-android.apk
+          [ -n "$aab" ] || { echo "No app bundle was built" >&2; exit 1; }
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$apksigner" sign --ks "$store" --ks-key-alias "$alias" \
+            --ks-pass "pass:$storepass" --key-pass "pass:$keypass" --out beep-android.apk "$apk"
+          jarsigner -keystore "$store" -storepass "$storepass" -keypass "$keypass" \
+            -signedjar beep-android.aab "$aab" "$alias" > /dev/null
           sha256sum beep-android.apk > beep-android.apk.sha256
 
       - uses: actions/upload-artifact@v3
@@ -134,8 +140,7 @@ jobs:
             echo "No Play service account, skipping the upload."
             exit 0
           fi
-          aab=$(find apps/desktop/src-tauri/gen/android/app/build/outputs/bundle -name '*.aab' | head -1)
-          [ -n "$aab" ] || { echo "No app bundle was built" >&2; exit 1; }
+          aab=beep-android.aab
           umask 077
           printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/play.json"
           python3 scripts/play-upload.py "$RUNNER_TEMP/play.json" "$aab" \
@@ -143,4 +148,4 @@ jobs:
 
       - name: Remove signing files
         if: always()
-        run: rm -f apps/desktop/src-tauri/gen/android/keystore.properties "$RUNNER_TEMP/release.keystore" "$RUNNER_TEMP/play.json"
+        run: rm -f "$RUNNER_TEMP/release.keystore" "$RUNNER_TEMP/play.json"

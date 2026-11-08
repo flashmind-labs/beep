@@ -20,4 +20,5 @@ fi
 export APPLE_DEVELOPMENT_TEAM=$team
 
 npm ci --silent
+bash ../../scripts/tauri-init.sh ios
 npm run tauri -- ios run --no-watch ${1:+"$1"}

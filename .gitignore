@@ -12,7 +12,7 @@ __pycache__/
 /apps/desktop/node_modules/
 /apps/desktop/dist/*.js
 /apps/desktop/dist/xterm.css
-/apps/desktop/src-tauri/gen/schemas/
+/apps/desktop/src-tauri/gen/
 admin.sock
 /tests/e2e/.fleet
 /tests/e2e/.logs/
