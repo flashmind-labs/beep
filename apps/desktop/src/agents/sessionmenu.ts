@@ -4,8 +4,7 @@ import { writeClipboard } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { openInEditor } from "../project/editors.ts";
 import type { AgentRow, Started } from "./agents.ts";
-import { parentRow } from "./nesting-state.ts";
-import { loadSessions, sessions } from "./sessions.ts";
+import { parentSession, loadSessions } from "./sessions.ts";
 import { sessionOffers } from "./sessionmenu-state.ts";
 import { closeSession } from "./closing.ts";
 
@@ -17,7 +16,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
   const build = (folder: string | null, reachable: boolean) => {
     const offers = sessionOffers(s, reachable);
     const items: MenuItem[] = [{ label: "Open", on: () => open(s) }];
-    const parent = parentRow(sessions, s);
+    const parent = parentSession(s);
     if (parent) items.push({ label: "Open parent", on: () => open(parent) });
     if (offers.stop) items.push({ label: "Stop turn", on: () => void invoke("agent_steer", { ...at, steer: "cancel" }).catch(err => console.warn("stop turn:", err)) });
     if (offers.resume) {

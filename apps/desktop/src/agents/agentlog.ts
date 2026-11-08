@@ -94,11 +94,12 @@ export interface SubStep {
 
 /// A subagent's call, read from its output: the node writes `[steps] N`
 /// first, then `[step <status>] <title>` for each of the last steps, then
-/// `[agent] <name>` when it knows its type or custom agent's name, then, for
+/// `[agent] <name>` when it knows its type or custom agent's name, then
+/// `[session] <id>` for a native conversation, or, for
 /// an agent another agent started, `[child] <id>@<machine> <state> <key>`
 /// (the session to open), before what the subagent answered. Null for any
 /// other call.
-export function subagent(output: string): { count: number; steps: SubStep[]; result: string; agent?: string; child?: SubChild } | null {
+export function subagent(output: string): { count: number; steps: SubStep[]; result: string; agent?: string; child?: SubChild; session?: string } | null {
   const lines = output.split("\n");
   const head = /^\[steps\] (\d+)$/.exec(lines[0] ?? "");
   if (!head) return null;
@@ -111,13 +112,16 @@ export function subagent(output: string): { count: number; steps: SubStep[]; res
   }
   const named = /^\[agent\] (.+)$/.exec(lines[i] ?? "");
   if (named) i++;
+  const session = /^\[session\] (subagent:\S+)$/.exec(lines[i] ?? "");
+  if (session) i++;
   const kid = /^\[child\] (\S+) (\S+)(?: (\S+))?$/.exec(lines[i] ?? "");
   if (kid) i++;
   // What the child's own session spent: shown on the card, never added to the parent's.
   const spend = kid ? /^\[spend\] (\d+) (\S+)$/.exec(lines[i] ?? "") : null;
   if (spend) i++;
   const result = lines.slice(i).join("\n").trim();
-  const out: { count: number; steps: SubStep[]; result: string; agent?: string; child?: SubChild } = { count: Number(head[1]), steps, result };
+  const out: { count: number; steps: SubStep[]; result: string; agent?: string; child?: SubChild; session?: string } = { count: Number(head[1]), steps, result };
+  if (session) out.session = session[1];
   if (named) out.agent = named[1].trim();
   if (kid) out.child = { id: kid[1], state: kid[2], key: kid[3] ?? "" };
   if (kid && spend) out.child = { ...out.child!, tokens: Number(spend[1]), cost: spend[2] === "-" ? null : Number(spend[2]) };

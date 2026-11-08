@@ -4,6 +4,47 @@
 
 use serde_json::Value;
 
+/// A native conversation, addressed separately from the process that owns it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Conversation<'a> {
+    Codex(&'a str),
+    Claude { parent: &'a str, agent: &'a str },
+}
+
+impl<'a> Conversation<'a> {
+    pub(crate) fn parse(id: &'a str) -> Option<Self> {
+        let mut parts = id.strip_prefix("subagent:")?.split(':');
+        let harness = parts.next()?;
+        let first = parts.next().filter(|part| valid_id(part))?;
+        let found = match harness {
+            "codex" => Self::Codex(first),
+            "claude" => Self::Claude {
+                parent: first,
+                agent: parts.next().filter(|part| valid_id(part))?,
+            },
+            _ => return None,
+        };
+        parts.next().is_none().then_some(found)
+    }
+}
+
+impl std::fmt::Display for Conversation<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Codex(thread) => write!(f, "subagent:codex:{thread}"),
+            Self::Claude { parent, agent } => write!(f, "subagent:claude:{parent}:{agent}"),
+        }
+    }
+}
+
+fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+}
+
 /// The title codex-acp gives the call that starts subagents.
 const CODEX_SPAWN: &str = "spawnAgent";
 /// The longest name or title taken from a call.
@@ -112,6 +153,8 @@ impl Activity {
 /// What a subagent's own log says, read from disk.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct Run {
+    /// The independently readable conversation, when its file exists.
+    pub(crate) session: Option<String>,
     /// Its last steps, oldest first.
     pub(crate) steps: Vec<RunStep>,
     /// How many steps it ran in all.
@@ -158,6 +201,24 @@ fn text(input: &Value, key: &str) -> Option<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn conversation_ids_are_bounded_store_ids_not_paths() {
+        for id in ["subagent:codex:thread-1", "subagent:claude:parent:child"] {
+            assert_eq!(
+                Conversation::parse(id).expect("a native id").to_string(),
+                id
+            );
+        }
+        for id in [
+            "subagent:codex:../thread",
+            "subagent:claude:parent:child:extra",
+            "subagent:claude:parent:",
+            "subagent:codex:/tmp/file",
+        ] {
+            assert_eq!(Conversation::parse(id), None);
+        }
+    }
 
     #[test]
     fn a_codex_spawn_names_its_threads_once_it_has_them() {

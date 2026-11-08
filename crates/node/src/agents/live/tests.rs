@@ -615,6 +615,7 @@ fn a_codex_subagent_shows_on_its_spawn_and_takes_its_rollouts_steps() {
     assert_eq!(children[0].threads, ["t1"]);
 
     let run = Run {
+        session: None,
         steps: vec![RunStep {
             title: "sleep".into(),
             done: true,

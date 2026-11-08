@@ -29,7 +29,7 @@ impl Stores {
         last: usize,
         before: Option<u64>,
     ) -> Result<Option<Excerpt>> {
-        let Some(seen) = self.sessions(None).into_iter().find(|seen| seen.id == id) else {
+        let Some(seen) = self.seen(None, id) else {
             return Ok(None);
         };
         let entries = match (seen.agent, &seen.file) {
@@ -113,8 +113,28 @@ fn prompt_of(content: &Value) -> String {
 /// ones also hold the context Codex adds), its replies, reasoning summaries
 /// and calls, named as a subagent's steps are (`codex_run::call_title`).
 fn codex(path: &Path) -> io::Result<Vec<Entry>> {
-    let mut entries = Vec::new();
-    for value in lines(path)? {
+    let mut entries: Vec<Entry> = Vec::new();
+    let mut calls: HashMap<String, usize> = HashMap::new();
+    let head = super::first_line(path)?.unwrap_or_default();
+    let meta: Value = serde_json::from_str(&head).unwrap_or_default();
+    let native = meta["payload"]["source"].is_object();
+    let skip = meta["payload"]["subagent_history_start_ordinal"]
+        .as_u64()
+        .unwrap_or(0);
+    // Forked threads start with copied parent history. Count original lines,
+    // including malformed ones, before parsing only the child's own entries.
+    let values: Box<dyn Iterator<Item = Value>> = if native {
+        Box::new(
+            BufReader::new(File::open(path)?.take(MAX_READ))
+                .lines()
+                .enumerate()
+                .filter(move |(at, _)| (*at as u64) >= skip)
+                .filter_map(|(_, line)| serde_json::from_str(&line.ok()?).ok()),
+        )
+    } else {
+        Box::new(lines(path)?)
+    };
+    for value in values {
         let payload = &value["payload"];
         let kind = payload["type"].as_str();
         let made = match (value["type"].as_str(), kind) {
@@ -134,7 +154,83 @@ fn codex(path: &Path) -> io::Result<Vec<Entry>> {
                 entry(EntryKind::Thought, &text_of(&payload["summary"]))
             }
             (Some("response_item"), Some("function_call" | "custom_tool_call")) => {
-                codex_run::call_title(payload).and_then(|title| entry(EntryKind::Tool, &title))
+                let title = if native {
+                    let name = payload["name"].as_str().unwrap_or("tool");
+                    let args = payload["arguments"]
+                        .as_str()
+                        .and_then(|text| serde_json::from_str::<Value>(text).ok());
+                    let detail = args
+                        .as_ref()
+                        .and_then(|args| {
+                            ["cmd", "command", "file_path", "path", "pattern", "query"]
+                                .iter()
+                                .find_map(|key| args[key].as_str())
+                        })
+                        .or_else(|| payload["input"].as_str());
+                    Some(
+                        detail
+                            .map_or_else(|| name.to_owned(), |detail| format!("{name}: {detail}")),
+                    )
+                } else {
+                    codex_run::call_title(payload)
+                };
+                if native && let Some(id) = payload["call_id"].as_str() {
+                    calls.insert(id.to_owned(), entries.len());
+                }
+                title.and_then(|title| {
+                    entry(
+                        EntryKind::Tool,
+                        &if native {
+                            format!("{title} [in_progress]")
+                        } else {
+                            title
+                        },
+                    )
+                })
+            }
+            (Some("response_item"), Some("function_call_output" | "custom_tool_call_output"))
+                if native =>
+            {
+                if let Some(call) = payload["call_id"]
+                    .as_str()
+                    .and_then(|id| calls.get(id))
+                    .and_then(|&at| entries.get_mut(at))
+                {
+                    let title = call
+                        .text
+                        .strip_suffix(" [in_progress]")
+                        .unwrap_or(&call.text);
+                    let output = payload["output"]
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| payload["output"].to_string());
+                    let failed = payload["output"]["exit_code"]
+                        .as_i64()
+                        .is_some_and(|code| code != 0)
+                        || output.lines().any(|line| {
+                            ["Process exited with code", "Exit code:"]
+                                .iter()
+                                .any(|prefix| {
+                                    line.trim()
+                                        .strip_prefix(prefix)
+                                        .and_then(|code| {
+                                            code.trim_start_matches([' ', ':'])
+                                                .split_whitespace()
+                                                .next()
+                                        })
+                                        .and_then(|code| code.parse::<i32>().ok())
+                                        .is_some_and(|code| code != 0)
+                                })
+                        });
+                    call.text = cut(
+                        &format!(
+                            "{title} [{}]\n{output}",
+                            if failed { "failed" } else { "completed" }
+                        ),
+                        MAX_ENTRY,
+                    );
+                }
+                None
             }
             (Some("compacted"), _) => entry(EntryKind::Other, "[conversation compacted]"),
             _ => None,

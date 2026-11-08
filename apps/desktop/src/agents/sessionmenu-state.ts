@@ -21,7 +21,8 @@ export const TAKEOVER = new Set(["claude", "codex", "pi", "flsh", "opencode"]);
 /// be continued here, and once it ended its conversation can still be deleted.
 /// A running one must be closed first. `reachable` is whether this Mac can ask
 /// the machine to delete: not one only a server reaches.
-export function sessionOffers(s: { status: string; external: boolean; agent: string }, reachable = true): SessionOffers {
+export function sessionOffers(s: { status: string; external: boolean; agent: string; id?: string }, reachable = true): SessionOffers {
+  if (s.id?.startsWith("subagent:")) return { stop: false, close: false, resume: false, delete: false };
   const ended = s.status === "ended";
   const del = ended && reachable && DELETABLE.has(s.agent);
   if (s.external) return { stop: false, close: false, resume: TAKEOVER.has(s.agent), delete: del };
