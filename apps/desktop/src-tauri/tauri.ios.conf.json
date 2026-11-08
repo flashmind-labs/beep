@@ -1,5 +1,5 @@
 {
   "bundle": {
-    "iOS": { "frameworks": ["SystemConfiguration", "Security"] }
+    "iOS": { "frameworks": ["SystemConfiguration"] }
   }
 }
