@@ -30,19 +30,13 @@ import type { MachineFolder } from "./projects-state.ts";
 import { defaultParent } from "../addproject/importproject-state.ts";
 import { lastImport } from "../addproject/importproject.ts";
 import { refresh } from "../center/refresh.ts";
-import type { Attached } from "../agents/agentqueue.ts";
-import { attachedChips, attachImages, wireAttachedPreviews } from "../agents/images.ts";
-import { agentPics } from "../chat/attach.ts";
-
+import { startAttachments } from "../agents/start-attachments.ts";
 /// How often the bar reads the sync while a project is added to a machine.
 const POLL_MS = 1000;
 
-/// Images pasted or dropped on the bar, sent with the first prompt.
-const barImages: Attached[] = [];
-
 export const projectComp = (() => {
   const composer = makeStartComposer({ presentation: "compact" });
-  const { form, input, choices, machine, folder, harness, pick, att, err, box } = composer;
+  const { form, input, choices, machine, folder, harness, pick } = composer;
   input.title += ", Shift+Tab switches machines";
   machine.title += " (Shift+Tab in the task field)";
   // Work on it's branch, editable, and Clear for what Work on it or
@@ -59,17 +53,9 @@ export const projectComp = (() => {
   clear.title = "Back to a plain start";
   clear.addEventListener("click", () => { pc.target = null; input.value = ""; redrawProjects(); });
   choices.append(branch, clear);
-  // The images waiting, as a session's field shows them.
-  att.addEventListener("click", e => {
-    const b = (e.target as HTMLElement).closest<HTMLElement>("[data-pjatt]");
-    if (!b) return;
-    barImages.splice(Number(b.dataset.pjatt), 1);
-    drawBarImages();
-    input.focus();
-  });
   form.addEventListener("submit", e => { e.preventDefault(); startFromBar(); });
   input.addEventListener("keydown", e => {
-    if (e.key === "Tab" && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.isComposing && !pc.adding) {
+    if (e.key === "Tab" && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.isComposing && !pc.adding && !pc.starting) {
       const p = barProject(), hosts = pc.hosts ?? [];
       const current = p && barPlace(p.places, hosts, pc.machine);
       const next = p && current && nextBarMachine(p.places, hosts, current.machine_id);
@@ -82,28 +68,6 @@ export const projectComp = (() => {
       }
       return;
     }
-  });
-  input.addEventListener("paste", e => {
-    const files = [...(e.clipboardData?.items ?? [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter((f): f is File => !!f);
-    if (!files.length) return;
-    e.preventDefault();
-    e.stopPropagation();
-    void attachToBar(files);
-  });
-  form.addEventListener("dragover", e => {
-    if (!e.dataTransfer?.types.includes("Files")) return;
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = "copy";
-    box.classList.add("dropping");
-  });
-  form.addEventListener("dragleave", e => { if (!form.contains(e.relatedTarget as Node | null)) box.classList.remove("dropping"); });
-  form.addEventListener("drop", e => {
-    box.classList.remove("dropping");
-    if (!e.dataTransfer?.files.length) return;
-    e.preventDefault();
-    e.stopPropagation();
-    void attachToBar(e.dataTransfer.files).then(() => input.focus());
   });
   machine.addEventListener("click", e => {
     const p = barProject(), hosts = pc.hosts ?? [];
@@ -148,25 +112,10 @@ export const projectComp = (() => {
   return { ...composer, branch, clear };
 })();
 
-/// Attaches the pictures among `files` to the bar's first prompt; anything
-/// else is refused, as there is no session folder to upload it to yet.
-async function attachToBar(files: Iterable<File>) {
-  const err = projectComp.err;
-  err.textContent = "";
-  const { pics, rest } = await agentPics(files);
-  const said = (text: string) => { err.textContent = text; };
-  if (rest.length) said(`${rest[0].name || "That file"} is not an image`);
-  await attachImages(barImages, pics, said);
-  drawBarImages();
-}
-
-/// The chips of the bar's images, hidden with none.
-function drawBarImages() {
-  const att = projectComp.att;
-  att.innerHTML = attachedChips(barImages, "pjatt");
-  wireAttachedPreviews(att, barImages);
-  att.hidden = !barImages.length;
-}
+const barAttachments = startAttachments(projectComp, text => { projectComp.err.textContent = text; }, () => {
+  const p = barProject();
+  projectComp.send.disabled = pc.starting || barAttachments.reading || !p || !barPlace(p.places, pc.hosts ?? [], pc.machine) || !!pc.adding;
+});
 
 function closeBarPicker() {
   pc.open = false;
@@ -234,11 +183,11 @@ export function drawProjectComp(name: string) {
   requestAnimationFrame(c.grow);
   c.machine.replaceChildren(...(pc.adding ? [pc.adding.machine_name, " ", h("small", "", "adding")]
     : [place ? place.machine_name : pc.hosts ? "Add to a machine" : "Machine"]));
-  c.machine.disabled = !!pc.adding;
+  c.machine.disabled = !!pc.adding || pc.starting;
   const t = pc.target;
   const co = t ? targetCheckout(t) : barCheckout(pc.checkout, baseFor(null, pc.branches.get(name)));
   c.folder.replaceChildren(co.label, " ", h("small", "", co.sub));
-  c.folder.disabled = !place;
+  c.folder.disabled = !place || pc.starting;
   c.branch.hidden = t?.kind !== "issue" || !!t.review?.earlier;
   if (t?.kind === "issue" && document.activeElement !== c.branch) c.branch.value = t.branch;
   c.clear.hidden = !t;
@@ -249,11 +198,12 @@ export function drawProjectComp(name: string) {
   } else {
     c.harness.replaceChildren("Coding agent");
   }
-  c.harness.disabled = !agent;
+  c.harness.disabled = !agent || pc.starting;
   if (!agent) pc.open = false;
   c.harness.setAttribute("aria-expanded", String(pc.open));
   drawBarPicker(host, offered);
-  c.send.disabled = pc.starting || !place || !!pc.adding;
+  c.send.disabled = pc.starting || barAttachments.reading || !place || !!pc.adding;
+  barAttachments.setBusy(pc.starting);
   c.setBusy(pc.starting);
   draftPlace(place);
 }
@@ -405,7 +355,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
 async function startFromBar() {
   const c = projectComp, p = barProject(), text = c.input.value.trim();
   const place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
-  if (!p || !place || (!text && !barImages.length) || pc.starting || pc.adding) return;
+  if (!p || !place || (!text && !barAttachments.count) || barAttachments.reading || pc.starting || pc.adding) return;
   const t = pc.target;
   if (t?.kind === "issue" && !t.branch.trim()) { c.err.textContent = "Name the branch first."; return; }
   if (t?.review?.earlier) return continueReview(p.name, t.review.number, t.review.earlier, text);
@@ -421,11 +371,11 @@ async function startFromBar() {
   pc.open = false;
   redrawProjects();
   try {
-    const images = barImages.map(({ name, mime, data }) => ({ name, mime, data }));
-    const started = await invoke<Started>("agent_start", { machineId: place.machine_id, agent, cwd, prompt: text, chat: null, model, effort, checkout, images });
+    const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd, text => { c.err.textContent = text; });
+    const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
+    const started = await invoke<Started>("agent_start", { machineId: place.machine_id, agent, cwd, prompt, chat: null, model, effort, checkout, images });
     c.input.value = "";
-    barImages.length = 0;
-    drawBarImages();
+    barAttachments.clear();
     pc.target = null;
     keepMachine(p.name, place.machine_id);
     if (t?.review) keepReview(p.name, t.review.number, started.session);
@@ -461,13 +411,16 @@ async function continueReview(project: string, number: number, earlier: ReviewSe
   pc.starting = true;
   redrawProjects();
   try {
+    const root = listed?.cwd ?? barProject()?.places.find(p => p.machine === earlier.machine_id)?.cwd ?? "";
+    const prompt = await barAttachments.files.prompt(text, earlier.machine_id, root, text => { c.err.textContent = text; });
+    const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
     let session = listed;
     if (!session || session.status === "ended") {
-      session = (await invoke<Started>("agent_resume", { ...at, prompt: text })).session;
+      session = (await invoke<Started>("agent_resume", { ...at, prompt: "" })).session;
       keepReview(project, number, session);
-    } else {
-      await invoke("agent_steer", { ...at, steer: { prompt: { text } } });
     }
+    await invoke("agent_steer", { machineId: session.machine_id, agent: session.agent, session: session.id, steer: { prompt: { text: prompt, images } } });
+    barAttachments.clear();
     c.input.value = "";
     pc.target = null;
     go("pane", { agent: session });

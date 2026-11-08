@@ -1,3 +1,5 @@
+import { agentDrop } from "../chat/attach.ts";
+import { filePicker } from "./file-picker.ts";
 import { bindTitleEdit } from "./titleedit.ts";
 import { conversationHistory } from "./conversation-state.ts";
 // One coding agent session in the bar: opening it, following it while it
@@ -464,6 +466,8 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   void refreshMoves().then(drawMove);
   const msg = $<HTMLTextAreaElement>("#agmsg");
   if (msg) {
+    const picker = filePicker(agentDrop);
+    msg.before(picker.button, picker.input);
     composeField(msg, { images: agentAttach, grow: 156, draft: JSON.stringify([s.machine_id, s.agent, s.id]) });
     bindMentionMenu(msg);
   }

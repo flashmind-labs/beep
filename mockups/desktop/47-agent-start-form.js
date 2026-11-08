@@ -280,7 +280,7 @@
         : prompt || (noprompt ? "Say what the agent should do." : "Describe the task.")}</div>
         <div class="agc-row"><span class="sp"></span>
           ${none || looking ? `<button class="agc-pill" disabled>No agent</button>` : `<button class="agc-pill" aria-expanded="${open}" title="Harness, model and thinking (⌘M)" data-dact="dset:agc:${v === "picker" ? "nohost" : "picker"}">${pillText}${caret}</button>`}
-          <button class="agc-send"${np ? ' disabled title="Pick a project first"' : none || looking || !chosenHost ? ' disabled title="Pick a machine first"' : ` data-dgo="dAgentSession" data-dact="dset:ags:working" title="Enter starts, Shift+Enter adds a line"`} aria-label="Start">${up}</button></div>${picker}</div>
+          <button class="dbtn quiet" type="button" aria-label="Attach files" title="Attach files" data-toast="Choose files"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button><button class="agc-send"${np ? ' disabled title="Pick a project first"' : none || looking || !chosenHost ? ' disabled title="Pick a machine first"' : ` data-dgo="dAgentSession" data-dact="dset:ags:working" title="Enter starts, Shift+Enter adds a line"`} aria-label="Start">${up}</button></div>${picker}</div>
       <div class="agc-under">${pjPill}<button class="agc-pill" aria-expanded="${v === "host"}" data-dact="dset:agc:${v === "host" ? "nohost" : "host"}">${host}${chosenHost || "Pick a machine"}${caret}</button><span class="sep"></span>
         ${folderPill}${base}${projectMenu}${hostMenu}${folderMenu}${baseMenu}</div>
       ${why}${help}</div>`;

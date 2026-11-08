@@ -190,7 +190,7 @@ export async function agentPics(files: Iterable<File>) {
 /// Files pasted or dropped on a coding agent session: the pictures attach
 /// to the message; anything else uploads into the session's folder and is
 /// mentioned.
-async function agentDrop(files: Iterable<File>) {
+export async function agentDrop(files: Iterable<File>) {
   const { pics, rest } = await agentPics(files);
   if (rest.length) uploadDropped(rest);
   if (pics.length) await agentAttach(pics);
