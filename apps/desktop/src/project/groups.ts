@@ -9,7 +9,7 @@ import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { state } from "../center/state.ts";
 import { dot, rowButton } from "../ui/pieces.ts";
 import { useThisMac, machineMenu } from "../machines/table.ts";
-import { shown } from "../center/views.ts";
+import { currentLocation } from "../center/views.ts";
 import { registerSidebarGroup, reloadGroup, sideItem, projectRows, plusButton, emptyRow, openAddMachine, openProjects } from "../center/sidebar.ts";
 import { redrawProjects, redrawProjectsPage } from "./sections.ts";
 import { jump } from "../center/home.ts";
@@ -50,7 +50,7 @@ export function editGroup(g: ProjectGroup | null = null) {
 /// Edits `g`'s name in place on the Projects overview.
 export function startRename(g: ProjectGroup) {
   state.renaming = { id: g.id, draft: g.name };
-  if (shown !== "projects" || state.picked) openProjects();
+  if (currentLocation()?.view !== "projects" || state.picked) openProjects();
   else redrawProjects();
 }
 

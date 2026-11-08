@@ -7,7 +7,7 @@ import { allTerms } from "../terminals/view.ts";
 import { openTile } from "../project/split.ts";
 import { pa } from "../project/sections.ts";
 import { HOME_TAB_EVENT, homeTab, jump } from "./home.ts";
-import { go, goHistory, shown } from "./views.ts";
+import { currentLocation, go, goHistory } from "./views.ts";
 import { openProjects, paneOn } from "./sidebar.ts";
 import { activeTab, backTo, fullScreen, TABS, type MobileAt, type MobileTab } from "./mobile-state.ts";
 import { $, state } from "./state.ts";
@@ -41,8 +41,8 @@ const OPEN: Record<MobileTab, () => void> = {
 
 function at(): MobileAt {
   return {
-    page: shown,
-    paneView: shown === "pane" ? paneOn().view : null,
+    page: currentLocation()?.view ?? null,
+    paneView: currentLocation()?.view === "pane" ? paneOn().view : null,
     homeTab,
     picked: state.picked,
     tile: !!pa.tile,
@@ -58,7 +58,7 @@ function back() {
     case "terminals": return allTerms.unselect();
     case "history":
       if (goHistory(false)) return;
-      return void (shown === "pane" ? go("pane", "agents") : go("home"));
+      return void (currentLocation()?.view === "pane" ? go("pane", "agents") : go("home"));
   }
 }
 
@@ -186,7 +186,7 @@ export function initMobile() {
   // The Terminals page opens and closes a terminal without a page change.
   let queued = false;
   new MutationObserver(() => {
-    if (queued || shown !== "terminals") return;
+    if (queued || currentLocation()?.view !== "terminals") return;
     queued = true;
     requestAnimationFrame(() => { queued = false; syncMobile(); });
   }).observe($("#main"), { childList: true, subtree: true });

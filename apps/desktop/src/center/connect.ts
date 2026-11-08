@@ -2,6 +2,8 @@
 // gave, so a problem waiting will not fix shows as itself and not as
 // "Still connecting".
 
+import type { PanePage } from "../bar/pane.ts";
+
 /// A failure waiting will not fix, as the window says it.
 export interface ConnectProblem {
   kind: "unlinked" | "revoked" | "refused" | "noserver";
@@ -9,7 +11,7 @@ export interface ConnectProblem {
   text: string;
   /// The button that leads to the fix, and the pane page it opens.
   action: string | null;
-  view: string | null;
+  view: PanePage | null;
 }
 
 /// What to show for `error`, or null when trying again may help, such as a slow

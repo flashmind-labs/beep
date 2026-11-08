@@ -191,4 +191,5 @@ mod review;
 mod worker;
 
 #[cfg(test)]
+#[path = "../../tests/projects_tools.rs"]
 mod tests;

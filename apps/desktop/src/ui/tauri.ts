@@ -47,10 +47,10 @@ const TIMED_COMMANDS = new Set([
   "center_project_issues", "center_project_pull_requests", "center_project_runs",
 ]);
 let timings: Timing[] = [];
-let timingTimer: ReturnType<typeof setTimeout> | undefined;
+let timingTimer: ReturnType<typeof setTimeout> | null = null;
 function flushTimings() {
-  clearTimeout(timingTimer);
-  timingTimer = undefined;
+  if (timingTimer !== null) clearTimeout(timingTimer);
+  timingTimer = null;
   if (!timings.length) return;
   const samples = timings;
   timings = [];
@@ -89,7 +89,7 @@ const UNTIMED = new Set([
 /// hold the page.
 export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>, within?: number): Promise<T> {
   const snapshot = takeSnapshotView(cmd, args);
-  if (snapshot) return snapshot.error === undefined ? Promise.resolve(snapshot.value as T) : Promise.reject(snapshot.error);
+  if (snapshot) return snapshot.kind === "value" ? Promise.resolve(snapshot.value as T) : Promise.reject(snapshot.error);
   const writing = viewWrite(cmd);
   if (writing) clearViews();
   const lifecycle = cmd === "agent_start" || cmd === "agent_resume";
@@ -99,7 +99,7 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>,
   if (lifecycle) logInfo(`agent command: ${JSON.stringify({ command: cmd, stage: "requested", machine: args?.machineId })}`);
   const streams = Object.values(args ?? {}).some(v => v instanceof Channel);
   const limit = within ?? (UNTIMED.has(cmd) || streams ? null : COMMAND_WAIT_MS);
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: ReturnType<typeof setTimeout> | null = null;
   const call = core.invoke<T>(cmd, args);
   const limited = limit == null ? call : Promise.race([call, new Promise<never>((_, reject) => {
     timer = setTimeout(() => { timedOut = true; reject(`no answer in ${Math.round(limit / 1000)} s. Try again.`); }, limit);
@@ -112,7 +112,7 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>,
     }
     return value;
   }).finally(() => {
-    clearTimeout(timer);
+    if (timer !== null) clearTimeout(timer);
     if (writing) clearViews();
   }).catch((e: unknown) => {
     if (measure !== null) recordTiming("command", cmd, performance.now() - measure, timedOut ? "timeout" : "error");

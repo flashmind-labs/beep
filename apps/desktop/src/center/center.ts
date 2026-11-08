@@ -1,4 +1,4 @@
-import { commandKey, onPhone, WINDOWS } from "../ui/platform.ts";
+import { onPhone, WINDOWS } from "../ui/platform.ts";
 import { initConversationSwitcher } from "../agents/conversation-switcher.ts";
 import "../ui/contextmenu.ts";
 import "../chat/diagrams.ts";
@@ -25,12 +25,12 @@ import { mountUsage, type UsageView } from "./usage.ts";
 import { mountNotices } from "./notices.ts";
 import { firstRun } from "./firstrun.ts";
 import { pairing } from "./pairing.ts";
-import { viewHidden, keyHidden } from "../settings/subscription.ts";
-import { windowTakes } from "../ui/windowkeys.ts";
+import { viewHidden } from "../settings/subscription.ts";
+import { windowCommand } from "../ui/windowkeys.ts";
 import { RESEARCHES } from "../research/researches.ts";
-import { type ViewArg, $, state, pagesAccount, keepPagesFile } from "./state.ts";
+import { $, state, pagesAccount, keepPagesFile } from "./state.ts";
 import { dismissedUpdates, draw, homeTab, jump } from "./home.ts";
-import { shown, shownArg, windowProject, toMain, go, goHistory, setWindowProject, openResearch } from "./views.ts";
+import { currentLocation, windowProject, toMain, go, goHistory, setWindowProject, openResearch, goTo } from "./views.ts";
 import { reloadGroup, paneOn, reloadChats, openProjects, openProjectWindow, addProject } from "./sidebar.ts";
 import "../research/page.ts";
 import "../research/open.ts";
@@ -55,7 +55,7 @@ followSkin();
 guardClicks();
 followToolUpdates();
 initConversationSwitcher({
-  current: () => shown === "pane" && paneOn().view === "agent" && !AG.draft ? AG.page?.session ?? null : null,
+  current: () => currentLocation()?.view === "pane" && paneOn().view === "agent" && !AG.draft ? AG.page?.session ?? null : null,
   rows: () => (state.home?.running ?? []).filter(row => row.kind === "agent"),
   open: agent => { go("pane", { agent }); },
 });
@@ -70,12 +70,9 @@ mountNotices($("#bell"));
 
 initPalette({ go, jump, ask: askBeep, scope: () => windowProject, openChat: id => (RESEARCHES.has(id) ? openResearch(id) : go("pane", { chat: { session: id } })), research: id => RESEARCHES.has(id), settings: openSettings, providers: () => go("providers"), project: openProjects, addProject, branches: name => { if (openProjects(name)) openTile("branches"); } });
 
-/// ⌘ and a letter: the pane page it opens.
-const PANE_KEYS: Record<string, string> = { m: "memories", j: "routines", l: "skills" };
-
 // Capture before xterm handles the key, so Shift+Esc never reaches the shell.
 document.addEventListener("keydown", e => {
-  if (shown !== "terminals" || !isZoomKey(e) || e.isComposing || e.defaultPrevented || document.querySelector('[role="dialog"]')) return;
+  if (currentLocation()?.view !== "terminals" || !isZoomKey(e) || e.isComposing || e.defaultPrevented || document.querySelector('[role="dialog"]')) return;
   if (!allTerms.focusOpen()) return;
   e.preventDefault();
   e.stopPropagation();
@@ -86,8 +83,8 @@ document.addEventListener("keydown", e => {
   if (WINDOWS && e.ctrlKey && e.target instanceof Element && e.target.closest(".tm-xterm")) return;
   if (e.target instanceof Element && e.target.closest(".tm-xterm") && !isCloseKey(e) && !isNewKey(e)) return;
   // Esc goes up one page: a project's open tile closes, then the Projects page, then Home, then its Overview tab.
-  if (e.key === "Escape" && !(shown === "terminals" && isZoomKey(e)) && !e.defaultPrevented) {
-    const up = escUp({ page: shown, picked: state.picked, tile: !!pa.tile, alone: !!windowProject, homeTab: homeTab !== "overview" });
+  if (e.key === "Escape" && !(currentLocation()?.view === "terminals" && isZoomKey(e)) && !e.defaultPrevented) {
+    const up = escUp({ page: currentLocation()?.view ?? null, picked: state.picked, tile: !!pa.tile, alone: !!windowProject, homeTab: homeTab !== "overview" });
     if (up) {
       e.preventDefault();
       if (up.to === "overview") return jump();
@@ -95,44 +92,36 @@ document.addEventListener("keydown", e => {
       return up.to === "home" ? go("home") : void openProjects();
     }
   }
-  if (!commandKey(e)) return;
-  const key = e.key.toLowerCase();
-  if ((key === "[" || key === "]") && !e.shiftKey) {
-    e.preventDefault();
-    return goHistory(key === "]");
-  }
-  // ⌘W closes the focused pane's tab, else this window; Beep keeps running in the menu bar. The main
-  // window only hides, keeping what it shows.
-  if (isCloseKey(e)) { e.preventDefault(); if (closeFocusedTab()) return; invoke("center_close_window").catch(() => window.close()); return; }
-  // ⌘⇧N: the project on screen in a window of its own.
-  if (key === "n" && e.shiftKey && shown === "projects" && state.picked && !windowProject) {
-    e.preventDefault();
-    return openProjectWindow(state.picked);
-  }
-  // Without a subscription the assistant's pages are not there. ⌘K still searches.
-  if (key !== "k" && keyHidden(key, state.subscribed)) { e.preventDefault(); return; }
-  // ⌘M on the pane's start form and ⌘R in its chats list are the pane's.
-  if (windowTakes(key, shown === "pane" ? paneOn().view : undefined)) {
-    e.preventDefault();
-    if (key === "k") return openPalette();
-    if (key === ",") return openSettings();
-    if (key === "/") return toggleShortcuts();
-    // ⌘R opens the window's Research page, not the bar's list.
-    if (key === "r") return go("research");
-    const to = PANE_KEYS[key];
-    if (to) return go("pane", to);
-  }
-  // In the pane, the pane's own keys call newAgentHere. On the Terminals page with
-  // a terminal open, a new terminal like it.
-  if (key === "n" && shown !== "pane") {
-    e.preventDefault();
-    if (shown === "terminals" && isNewKey(e) && allTerms.newLikeOpen()) return;
-    return newAgentHere();
-  }
-  // ⌘T in a project: a terminal filling the empty view. In a session the pane has taken it.
-  if (key === "t" && !e.shiftKey && !e.altKey && (!e.ctrlKey || WINDOWS) && !e.defaultPrevented) {
+  const command = windowCommand(e, {
+    page: currentLocation()?.view ?? null,
+    pane: currentLocation()?.view === "pane" ? pane.current().view : null,
+    project: state.picked,
+    projectWindow: windowProject !== null,
+    subscribed: state.subscribed,
+  });
+  if (!command) return;
+  // A project terminal only takes the key when a project can provide its folder.
+  if (command.kind === "project-terminal") {
     const to = projectHere();
     if (to) { e.preventDefault(); go("pane", { draft: { project: to.project, machine: to.machine, terminal: true } }); }
+    return;
+  }
+  e.preventDefault();
+  switch (command.kind) {
+    case "history": return goHistory(command.forward);
+    case "close":
+      if (!closeFocusedTab()) invoke("center_close_window").catch(() => window.close());
+      return;
+    case "project-window": return openProjectWindow(command.project);
+    case "blocked": return;
+    case "palette": return openPalette();
+    case "settings": return openSettings();
+    case "shortcuts": return toggleShortcuts();
+    case "research": return go("research");
+    case "pane": return go("pane", command.view);
+    case "new-agent":
+      if (currentLocation()?.view === "terminals" && isNewKey(e) && allTerms.newLikeOpen()) return;
+      return newAgentHere();
   }
 });
 
@@ -147,9 +136,11 @@ function projectHere() {
   const on = paneOn();
   if (on.view === "agent" && AG.draft) return { project: AG.draft, machine: null };
   // The session on screen, which the pane may have moved to since the window opened it.
-  const open = AG.page?.session ?? (shownArg && typeof shownArg === "object" && "agent" in shownArg ? shownArg.agent : null);
+  const page = currentLocation();
+  const target = page?.view === "pane" ? page.arg : null;
+  const open = AG.page?.session ?? (target && typeof target === "object" && "agent" in target ? target.agent : null);
   const agent = on.view === "agent" && open ? { machine_id: open.machine_id, cwd: open.cwd, main: placeOf(open)?.main } : null;
-  return newChatTarget({ shown, picked: state.picked, view: on.view, session: on.session, agent, mac: state.mac?.id }, state.agents, state.home?.projects);
+  return newChatTarget({ shown: currentLocation()?.view ?? null, picked: state.picked, view: on.view, session: on.session, agent, mac: state.mac?.id }, state.agents, state.home?.projects);
 }
 
 /// ⌘N: in a project (its page, or one of its sessions or chats) the agent
@@ -184,7 +175,7 @@ pane.connect({
   },
   embedView,
   newAgent: newAgentHere,
-  goBack: (from: BackTo) => go(from.view, from.arg as ViewArg),
+  goBack: (from: BackTo) => goTo(from),
   chatTop(session) {
     const t = threadChats?.get(session);
     return t ? threadCard(t) : null;
@@ -281,7 +272,8 @@ listen<string>("link-state", e => {
     // Signed out on a page that is only there with a subscription: Home.
     const on = paneOn();
     const arg = on.group ? { group: { id: on.group } } : on.session ? { chat: { session: on.session } } : on.view;
-    if (shown && viewHidden(shown, arg, false, S.server)) go("home");
+    const page = currentLocation();
+    if (page && viewHidden(page.view, arg, false, S.server)) go("home");
   }
   draw();
 });

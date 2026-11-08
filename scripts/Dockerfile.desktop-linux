@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1
+FROM node:22-bookworm-slim AS node
+FROM rust:1-slim-bookworm AS build
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libdbus-1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+        librsvg2-dev libssl-dev patchelf file curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install -g @tauri-apps/cli@2.12.4
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY crates crates
+COPY apps/desktop apps/desktop
+COPY apps/diagrams/assets apps/diagrams/assets
+WORKDIR /src/apps/desktop
+RUN npm ci
+ARG BEEP_SERVER_URL
+ENV APPIMAGE_EXTRACT_AND_RUN=1
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/src/apps/desktop/src-tauri/target \
+    --mount=type=secret,id=updater_key,required=true \
+    --mount=type=secret,id=updater_password \
+    export TAURI_SIGNING_PRIVATE_KEY="$(cat /run/secrets/updater_key)" \
+    && export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat /run/secrets/updater_password 2>/dev/null || true)" \
+    && tauri build --ci --bundles deb,appimage \
+        --config '{"bundle":{"createUpdaterArtifacts":true}}' \
+        -- --locked \
+    && mkdir /dist \
+    && cp src-tauri/target/release/bundle/deb/*.deb /dist/ \
+    && cp src-tauri/target/release/bundle/appimage/*.AppImage* /dist/
+
+FROM scratch
+COPY --from=build /dist /

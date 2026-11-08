@@ -59,4 +59,5 @@ pub(crate) fn listed(row: GrantRow) -> Grant {
 }
 
 #[cfg(test)]
+#[path = "../../tests/apps_grants.rs"]
 mod tests;

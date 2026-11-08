@@ -870,4 +870,5 @@ fn folder_on(specs: &[SyncSpec], me: EndpointId, cwd: &Path, target: EndpointId)
 }
 
 #[cfg(test)]
+#[path = "../../tests/agents_mcp_children.rs"]
 mod tests;

@@ -26,15 +26,46 @@ Update the platform mock before changing an app's UI, then match the app to it:
 `mockups/desktop/index.html` (including the tray bar), and for the phone
 layout of the same app `mockups/ios/index.html` or `mockups/android/index.html`.
 
+## Rust layout
+
+Group code by responsibility in small modules, following `crates/node` and
+`crates/server`. Keep `mod.rs` focused on declarations, re-exports and a thin
+public API. Preserve public paths and wire formats when moving code.
+
+Keep unit tests together in the crate's `src/tests/`, grouped by module. Declare
+them at the end of the module with `#[cfg(test)]` and `#[path]` so they can
+exercise private code. Public API tests belong in the crate's `tests/`.
+
+## TypeScript and frontend development
+
+- Write application code in TypeScript, not plain JavaScript. Use its type
+  system to enforce domain rules and catch invalid states before runtime.
+- Use named domain types and discriminated unions for identifiers, navigation,
+  requests and state. Prefer exhaustive handling over generic strings,
+  loosely typed objects and collections of optional fields.
+- Avoid `undefined` in application models and APIs. Model absence explicitly
+  with `null` or a named union variant; make required values required. Handle
+  missing values from browser and library APIs at the boundary.
+- Avoid `any`, non-null assertions and casts that bypass checking. Narrow and
+  validate external data before using it.
+- Prefer established frameworks and typed libraries for UI, navigation,
+  keyboard shortcuts and other shared behavior over handwritten DOM wiring
+  and scattered event handlers. Choose tools that fit the application.
+- Organize modules around a clear responsibility. Put the main flow before
+  supporting details where practical, so code reads from top to bottom.
+  Keep state ownership explicit and related logic together.
+
 ## Rust types and conversions
 
 Use domain types for identifiers, names with domain meaning, and paths. Reserve
 `String` for actual text. Prefer `From`, `TryFrom`, `FromStr`, `AsRef` and
 `Display` over custom conversion methods such as `from_acp` or `as_str`. Use
-Strum derives when they express the conversion correctly, including `EnumString`,
-`AsRefStr`, `IntoStaticStr` and `Display`. Keep validation and error handling in
-the conversion traits. Prefer explicit `Into::<Target>::into(value)` when using `Into`,
-rather than inferring the target from `value.into()`.
+Strum derives for enum conversions when they preserve the exact accepted values,
+labels and errors. Prefer `EnumString`, `AsRefStr`, `IntoStaticStr` and `Display`
+over repeated manual matches; use `#[strum(serialize = "...")]` where names differ.
+Keep validation and error handling in the conversion traits, and preserve serde
+and wire representations independently. Prefer explicit
+`Into::<Target>::into(value)` over inferring the target from `value.into()`.
 
 ## Tests and development
 
