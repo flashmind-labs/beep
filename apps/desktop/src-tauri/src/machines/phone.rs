@@ -27,6 +27,8 @@ pub struct Machine;
 impl Machine {
     pub fn start(&self) {}
 
+    // The desktop's future is 'static, which `async fn` here would not be.
+    #[allow(clippy::manual_async_fn)]
     pub fn quit(&self) -> impl Future<Output = ()> + Send + 'static {
         async {}
     }
