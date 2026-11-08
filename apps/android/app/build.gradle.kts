@@ -51,6 +51,7 @@ android {
         }
     }
     sourceSets.getByName("main").java.srcDir("build/generated/uniffi")
+    sourceSets.getByName("main").assets.srcDir("../../diagrams/assets")
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

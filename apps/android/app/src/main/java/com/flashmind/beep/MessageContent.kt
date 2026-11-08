@@ -51,6 +51,7 @@ private val TextMuted: Color @Composable @ReadOnlyComposable get() = Beep.colors
 private sealed class MsgBlock {
     data class Text(val content: String) : MsgBlock()
     data class Code(val language: String, val code: String) : MsgBlock()
+    data class Mermaid(val source: String) : MsgBlock()
     data class Table(val headers: List<String>, val rows: List<List<String>>) : MsgBlock()
     data class Quote(val content: String) : MsgBlock()
     data object Rule : MsgBlock()
@@ -89,6 +90,7 @@ private fun parseBlocks(text: String): List<MsgBlock> {
             if (closed) i++
             val product = if (lang == "product" && closed) parseProduct(code.toString()) else null
             blocks.add(when {
+                lang.equals("mermaid", ignoreCase = true) && closed -> MsgBlock.Mermaid(code.toString())
                 product != null -> MsgBlock.Products(listOf(product), false)
                 lang == "product" && !closed -> MsgBlock.Products(emptyList(), true)
                 else -> MsgBlock.Code(lang, code.toString())
@@ -210,6 +212,7 @@ internal fun MessageContent(text: String, role: String, compact: Boolean, padded
                 is MsgBlock.Text -> MathText(remember(block.content, inline) { formattedMessage(block.content, inline) }, color = color,
                     fontSize = 14.sp, lineHeight = 21.sp)
                 is MsgBlock.Math -> MathBlockView(block.latex, block.closed, color, compact)
+                is MsgBlock.Mermaid -> DisableSelection { MermaidDiagram(block.source) }
                 is MsgBlock.Code -> CodeBlockView(block.language, block.code, compact)
                 is MsgBlock.Table -> TableView(block.headers, block.rows, compact)
                 is MsgBlock.Quote -> BlockQuoteView(block.content, compact)
