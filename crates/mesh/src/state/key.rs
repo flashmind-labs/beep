@@ -28,6 +28,9 @@ pub enum Key {
     Temporary(String),
     /// A phone that controls the mesh but cannot host code: `observer/<id>`.
     Observer(String),
+    /// The notifications one app marked read, as marks: `notice-read/<device id>`. Each app
+    /// writes only its own key, so no two apps overwrite each other.
+    NoticeRead(String),
     /// A kind this build does not know, as its text. A member holds it and passes it on and
     /// nothing reads it, so a newer desktop's new kind never stops an older member's sync.
     Other(String),
@@ -50,6 +53,7 @@ impl fmt::Display for Key {
             Key::Unmoved(n) => write!(f, "unmoved/{n}"),
             Key::Temporary(n) => write!(f, "temporary/{n}"),
             Key::Observer(n) => write!(f, "observer/{n}"),
+            Key::NoticeRead(n) => write!(f, "notice-read/{n}"),
             Key::Other(text) => f.write_str(text),
         }
     }
@@ -84,6 +88,7 @@ impl FromStr for Key {
             "unmoved" => Ok(Key::Unmoved(name)),
             "temporary" => Ok(Key::Temporary(name)),
             "observer" => Ok(Key::Observer(name)),
+            "notice-read" => Ok(Key::NoticeRead(name)),
             // Not a kind this build knows, but well formed: kept as it is.
             other if kind_is_well_formed(other) && other != "flsh" => Ok(Key::Other(s.to_owned())),
             _ => Err(bad()),
