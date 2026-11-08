@@ -53,8 +53,10 @@
     const template = document.createElement('template');
     template.innerHTML = D.dAgentSession();
     S.d.ags = saved;
-    const pending = (c.steers || []).map(text => `<div class="dcoderen user md" data-pending-steer><b>You</b><div class="said"><p>${esc(text)}</p></div><div class="dmuted">Waiting for the current step</div></div>`).join('');
-    template.content.querySelector('.dagmain').innerHTML = `<div class="dcoderlog">${dYou(c.prompt)}<div class="dcoderen agent md">${c.reply}</div>${pending}</div>`;
+    template.content.querySelector('.dagmain').innerHTML = `<div class="dcoderlog">${dYou(c.prompt)}<div class="dcoderen agent md">${c.reply}</div></div>`;
+    template.content.querySelectorAll('.ag-queue').forEach(el => el.remove());
+    const queue = (c.steers || []).map(text => `<div class="ag-queue steer"><span class="lbl">Steer</span><span class="t">${esc(text)}</span><span class="w">after the current step</span><button data-toast="Edit message">Edit</button><button data-toast="Not sent">&#215;</button></div>`).join('');
+    template.content.querySelector('#agfield').insertAdjacentHTML('beforebegin', queue);
     template.content.querySelectorAll('.ag-pane, .ag-div, .ag-pstrip, .agtasks').forEach(el => el.remove());
     template.content.querySelector('.agproj').textContent = c.project;
     template.content.querySelector('#agstate').textContent = c.status;

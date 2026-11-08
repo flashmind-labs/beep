@@ -618,7 +618,7 @@ expected 200, got 401</pre></details></span></div>`;
       subs ? group : thinkV && v !== "thinking" ? dRows(step("run", "Running cargo test -p widget-core")) : thinkV ? "" : dRows(step("run", asks ? "Run rm -rf target && cargo build --release" : "Running cargo test -p widget-core")),
       v === "thinking" ? dThink({ live: true, text: T2 }) : "",
       dLive(asks ? "Waiting for you" : v === "thinking" ? "Thinking" : "Working", "48s", { doing: asks || subs || thinkV ? "" : "Checking why the error text changed" }),
-      ["steer", "steered"].includes(v) ? `<div class="dcoderen user md"${v === "steer" ? ' data-pending-steer' : ""}><b>You</b><div class="said"><p>Use the fixture in tests/data, not a new one</p></div>${v === "steer" ? '<div class="dmuted">Waiting for the current step</div>' : ""}</div>` : "",
+      v === "steered" ? `<div class="dcoderen user md"><b>You</b><div class="said"><p>Use the fixture in tests/data, not a new one</p></div></div>` : "",
     ].join("");
     const kidView = `<div class="crumb"><button data-dact="dset:ags:agentkids">Fix the failing login test</button><span>›</span><b>Build the iOS target</b><span class="sp"></span><button class="dbtn" data-dact="dset:ags:agentkids">Open parent<kbd>esc</kbd></button></div>
       <div class="note">Started by Fix the failing login test on build-box. Codex on mac-box, in widget.</div>
@@ -713,7 +713,7 @@ expected 200, got 401</pre></details></span></div>`;
     // The card sits under the log, next to the field: the question, the plan.
     const card = q || plan ? `<div class="dcard dcoder">${q}${plan}<div style="height:12px"></div></div>` : "";
     const qatt = (p) => `<span class="ag-qatt" title="Goes with it as @${p}">${p}</span>`;
-    const steerRow = v === "steer" ? `<div class="ag-queue steer"><span class="lbl">Steer</span><span class="t">Use the fixture in tests/data, not a new one</span>${qatt(".beep/uploads/build.log")}<span class="w">after the current step</span><button data-toast="Not sent">&#215;</button></div>` : "";
+    const steerRow = v === "steer" ? `<div class="ag-queue steer"><span class="lbl">Steer</span><span class="t">Use the fixture in tests/data, not a new one</span>${qatt(".beep/uploads/build.log")}<span class="w">after the current step</span><button data-toast="Edit message">Edit</button><button data-toast="Not sent">&#215;</button></div>` : "";
     // The Files tab's icons, the tree and the terminal.
     const FI = {
       files: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
