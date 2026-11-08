@@ -33,12 +33,14 @@ pub(crate) fn dir() -> Option<PathBuf> {
 }
 
 /// The file being written now.
+#[cfg(desktop)]
 pub(crate) fn current() -> Option<PathBuf> {
     Some(path(&dir()?, 0))
 }
 
 /// The log files there may be, oldest first, the one being written last.
 /// One not written yet is skipped when read.
+#[cfg(desktop)]
 pub(crate) fn kept() -> Vec<PathBuf> {
     let Some(dir) = dir() else {
         return Vec::new();

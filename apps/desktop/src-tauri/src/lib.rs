@@ -321,6 +321,8 @@ pub fn run() {
             chat::sessions::share_session,
             chat::sessions::stock_chart,
             chat::sessions::unshare_session,
+            fleet::phone::mobile_paired,
+            fleet::phone::mobile_pair,
             machines::add::mesh_join,
             machines::add::mesh_invite,
             machines::add::machine_search,
@@ -570,7 +572,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
             .ok_or_else(|| anyhow::anyhow!("bar window config missing"))?;
         navigation::guard(tauri::WebviewWindowBuilder::from_config(app, bar)?).build()?;
     }
-    #[cfg(unix)]
+    #[cfg(all(unix, desktop))]
     beep_node::machine::raise_open_files();
     #[cfg(target_os = "macos")]
     app.set_activation_policy(ActivationPolicy::Accessory);
@@ -615,6 +617,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         beep::identity::secret_key(&identity),
         beep_mesh::transport_config(),
     ))?;
+    #[cfg(desktop)]
     match tauri::async_runtime::block_on(async {
         beep_node::link::diagnostics::start(&endpoint, &dir.join("node/metrics.log"))
     }) {
@@ -633,13 +636,23 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(beep.clone());
     bar::zoom::apply_saved(&handle, &beep);
     // This Mac's node, and the mesh it is in, which opens in the background.
+    #[cfg(desktop)]
     let machine = machines::this_mac::Machine::new(&dir.join("node"));
+    #[cfg(desktop)]
     let fleet = Arc::new(Fleet::new(
         endpoint,
         &dir.join("node"),
         machine.name(),
         machine.offers(),
     ));
+    // A phone embeds no node: it observes the mesh a desktop pairs it with, if any.
+    #[cfg(mobile)]
+    let machine = machines::this_mac::Machine::default();
+    #[cfg(mobile)]
+    let fleet = {
+        let mesh = dir.join("workspace").join(endpoint.id().to_string());
+        Arc::new(Fleet::observer(endpoint, &mesh))
+    };
     app.manage(fleet.clone());
     // What the projects pages read, kept for the run of the app.
     app.manage(beep_fleet::Session::new(
@@ -653,6 +666,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     let opening = fleet.clone();
     tauri::async_runtime::spawn(async move { opening.run().await });
     // An account with a server moves into the mesh in the background, after Home has drawn.
+    #[cfg(desktop)]
     fleet::migrate::start(handle.clone());
     app.manage(machine);
     app.manage(machines::list::Outside::default());

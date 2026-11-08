@@ -169,6 +169,7 @@ impl Beep {
         Ok(client.clone())
     }
 
+    #[cfg(desktop)]
     pub fn use_mac(&self) -> bool {
         self.saved().uses_mac()
     }
