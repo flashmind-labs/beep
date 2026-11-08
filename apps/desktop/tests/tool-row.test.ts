@@ -73,3 +73,27 @@ test("a historical failed call with an image keeps its failure status", () => {
   assert.ok(bar.querySelector('.tool')?.classList.contains('failed'));
   assert.ok(bar.querySelector('.mk')?.innerHTML.includes('Failed'));
 });
+
+test("native subagent rows keep spinning after the parent turn ends", () => {
+  setup();
+  AG.page!.session.status = "idle";
+  for (const harness of ["codex:thread-1", "claude:parent:child"]) {
+    for (const status of ["in_progress", "completed", "failed"]) {
+      const en = { kind: "tool", text: `Check the fixtures [${status}]\n[steps] 1\n[session] subagent:${harness}` };
+      AG.page!.entries = [en];
+      bar.innerHTML = toolRow(en, 0);
+      assert.equal(!!bar.querySelector('.dspin'), status === "in_progress", `${harness}: ${status}`);
+      assert.ok(bar.querySelector('small')?.textContent.includes(status === "in_progress" ? "working" : status === "failed" ? "failed" : "done"));
+    }
+  }
+});
+
+test("started agent rows spin using the child session state", () => {
+  setup();
+  AG.page!.session.status = "idle";
+  const en = { kind: "tool", text: "Check the fixtures [completed]\n[steps] 0\n[child] child@m2 working key-1" };
+  AG.page!.entries = [en];
+  bar.innerHTML = toolRow(en, 0);
+  assert.ok(bar.querySelector('.dspin'));
+  assert.ok(bar.querySelector('small')?.textContent.includes("working"));
+});
