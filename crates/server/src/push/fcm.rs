@@ -75,7 +75,9 @@ impl Firebase {
             account.client_email
         );
         Ok(Self {
-            client: Client::builder().timeout(Duration::from_secs(20)).build()?,
+            client: beep_proto::https::client()
+                .timeout(Duration::from_secs(20))
+                .build()?,
             account,
             key,
             access: AsyncMutex::default(),

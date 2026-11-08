@@ -157,7 +157,6 @@ pub async fn create(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use reqwest::Client;
     use secrecy::SecretString;
     use serde_json::{Value, json};
     use std::{
@@ -240,7 +239,7 @@ mod tests {
     }
 
     async fn make(forge: &Forge<'_>, owner: &str) -> Result<RepoName, CreateError> {
-        let client = Client::new();
+        let client = beep_proto::https::client().build().expect("a client");
         let calls = Arc::new(Semaphore::new(4));
         let token = SecretString::from("tok");
         let caller = Caller {
@@ -346,7 +345,7 @@ mod tests {
             ),
         ]))
         .await;
-        let client = Client::new();
+        let client = beep_proto::https::client().build().expect("a client");
         let calls = Arc::new(Semaphore::new(4));
         let token = SecretString::from("tok");
         let caller = Caller {

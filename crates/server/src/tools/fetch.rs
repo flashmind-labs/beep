@@ -3,7 +3,7 @@
 use anyhow::{Context, Result, bail, ensure};
 use futures::StreamExt;
 use reqwest::{
-    Client, Response, StatusCode, Url,
+    Response, StatusCode, Url,
     header::{CONTENT_TYPE, LOCATION},
     redirect::Policy,
 };
@@ -99,7 +99,7 @@ pub(crate) async fn fetch_public(url: &str) -> Result<Fetched> {
 /// One request to `url` without redirects, pinned to its checked public address.
 async fn fetch(url: &Url) -> Result<Response> {
     let Resolved { domain, addrs } = public_addresses(url).await?;
-    let mut client = Client::builder().redirect(Policy::none());
+    let mut client = beep_proto::https::client().redirect(Policy::none());
     if let Some(domain) = domain {
         client = client.resolve(domain, addrs[0]);
     }

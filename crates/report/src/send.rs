@@ -5,7 +5,6 @@ use beep_proto::report::{
     KEY_HEADER, PATH, Receipt, SIGNATURE_HEADER, TIME_HEADER, default_server, signed_message,
 };
 use iroh::SecretKey;
-use reqwest::Client;
 use reqwest::header::CONTENT_TYPE;
 use std::env::{self, VarError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -54,7 +53,7 @@ pub async fn send(base: &Url, body: Vec<u8>, key: &SecretKey) -> Result<Receipt,
         .unwrap_or(0);
     let signature = key.sign(&signed_message(&body, at_ms));
     let url = format!("{}{PATH}", base.as_str().trim_end_matches('/'));
-    let reply = Client::builder()
+    let reply = beep_proto::https::client()
         .timeout(SEND_LIMIT)
         .build()?
         .post(url)

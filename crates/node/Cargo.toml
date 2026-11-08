@@ -39,7 +39,6 @@ host = [
     "dep:rmp-serde",
     "dep:roxmltree",
     "dep:rusqlite",
-    "dep:rustls",
     "dep:secrecy",
     "dep:serde",
     "dep:serde_bytes",
@@ -51,12 +50,12 @@ host = [
     "dep:toml",
     "dep:toml_edit",
     "dep:uuid",
-    "dep:webpki-roots",
     "dep:which",
     "dep:libc",
     "dep:rustix",
     "dep:windows-sys",
     "beep-proto/logging",
+    "beep-proto/https",
 ]
 # The command line; a host that embeds the node, such as the Mac app, leaves it out.
 # `beep-node update` comes with it, with what it downloads and unpacks with.
@@ -109,13 +108,12 @@ notify = { version = "8", optional = true }
 portable-pty = { version = "0.9", optional = true }
 rand = { version = "0.9", optional = true }
 # `beep-node update` downloads releases, and the CI watch asks GitHub, with
-# ring and webpki roots, as iroh does.
-reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"], optional = true }
+# the client setup from `beep_proto::https`.
+reqwest = { version = "0.13.5", default-features = false, optional = true }
 rmp-serde = { version = "1", optional = true }
 roxmltree = { version = "0.20", optional = true }
 # flsh keeps its sessions in SQLite; the same version flashmind uses.
 rusqlite = { version = "0.40", features = ["bundled"], optional = true }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
 secrecy = { version = "0.10", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_bytes = { version = "0.11", optional = true }
@@ -134,7 +132,6 @@ toml = { version = "1", optional = true }
 # Writes Beep's keys into flsh's config.toml, keeping the rest as it was.
 toml_edit = { version = "0.25", optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
-webpki-roots = { version = "1", optional = true }
 which = { version = "8", optional = true }
 zip = { version = "4", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
 
@@ -155,6 +152,8 @@ windows-sys = { version = "0.61", optional = true, features = [
 ] }
 
 [dev-dependencies]
+# Checks that no process-wide crypto provider gets installed.
+rustls = { version = "0.23", default-features = false }
 async-trait = "0.1"
 tokio = { version = "1", features = ["test-util"] }
 tracing = "0.1"

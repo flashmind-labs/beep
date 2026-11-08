@@ -122,7 +122,7 @@ impl Apns {
             config.key_id
         );
         Ok(Self {
-            client: Client::builder()
+            client: beep_proto::https::client()
                 .timeout(Duration::from_secs(20))
                 .http2_adaptive_window(true)
                 .build()?,

@@ -1,6 +1,6 @@
 use super::*;
 use crate::repo_watch::test_host::{Reply, TestHost};
-use reqwest::{Client, redirect::Policy};
+use reqwest::redirect::Policy;
 use secrecy::SecretString;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -17,7 +17,7 @@ async fn call<T: DeserializeOwned>(
     who: &Who,
     url: &str,
 ) -> Result<T, HostError> {
-    let client = Client::new();
+    let client = beep_proto::https::client().build().expect("a client");
     let limit = Arc::new(Semaphore::new(2));
     let token = SecretString::from("tok");
     let caller = Caller {
@@ -105,7 +105,7 @@ async fn a_log_redirect_is_followed_without_the_token_and_only_its_end_kept() {
     .await;
     let calls = HostCalls::default();
     // As the server's own client: it follows no redirect itself.
-    let client = Client::builder()
+    let client = beep_proto::https::client()
         .redirect(Policy::none())
         .build()
         .expect("a client");

@@ -85,7 +85,7 @@ impl SearchTool {
             "invalid Firecrawl key"
         );
         Ok(Self {
-            client: Client::builder()
+            client: beep_proto::https::client()
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(45))
                 .redirect(Policy::none())

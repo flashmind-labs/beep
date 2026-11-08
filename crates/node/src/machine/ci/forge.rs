@@ -5,10 +5,7 @@
 use super::check::{self, Answer};
 use crate::{
     lock,
-    machine::{
-        provision::spawn_env::{self, Scope},
-        tls,
-    },
+    machine::provision::spawn_env::{self, Scope},
 };
 use anyhow::{Context, Result, bail};
 use beep_projects::repo_watch::actions::{HostRun, RunsReply, state_of};
@@ -105,14 +102,11 @@ struct GhToken {
 
 impl Cli {
     pub(super) fn new() -> Self {
-        let client = tls::config().map_err(anyhow::Error::from).and_then(|tls| {
-            Ok(Client::builder()
-                .use_preconfigured_tls(tls)
-                .user_agent(concat!("beep-node/", env!("CARGO_PKG_VERSION")))
-                .connect_timeout(CONNECT_LIMIT)
-                .timeout(CALL_LIMIT)
-                .build()?)
-        });
+        let client = beep_proto::https::client()
+            .user_agent(concat!("beep-node/", env!("CARGO_PKG_VERSION")))
+            .connect_timeout(CONNECT_LIMIT)
+            .timeout(CALL_LIMIT)
+            .build();
         let client = match client {
             Ok(client) => Some(client),
             Err(e) => {

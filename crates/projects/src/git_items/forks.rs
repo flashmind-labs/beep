@@ -211,7 +211,6 @@ fn branches_from(pulls: &[Pull], login: &str, fork: &RepoName) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use reqwest::Client;
     use secrecy::SecretString;
     use std::{collections::HashMap, sync::Arc};
     use tokio::{
@@ -277,7 +276,7 @@ mod tests {
         upstream: &str,
         login: Option<&str>,
     ) -> Result<Option<Fork>, HostError> {
-        let client = Client::new();
+        let client = beep_proto::https::client().build().expect("a client");
         let calls = Arc::new(Semaphore::new(4));
         let token = SecretString::from("tok");
         let caller = Caller {
