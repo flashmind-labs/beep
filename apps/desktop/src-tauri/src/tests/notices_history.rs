@@ -60,8 +60,8 @@ fn read_finish_and_dismiss_say_when_they_changed_something() {
     let notes = store(&dir);
     notes.put(note("a", 1), 1);
     notes.put(note("b", 2), 2);
-    assert!(notes.read(&["a".into()]));
-    assert!(!notes.read(&["a".into(), "gone".into()]));
+    assert_eq!(notes.read(&["a".into()]), ["a"]);
+    assert!(notes.read(&["a".into(), "gone".into()]).is_empty());
     assert!(notes.get("a").is_some_and(|n| n.read));
     assert!(notes.get("b").is_some_and(|n| !n.read));
     assert!(notes.finish(|n| n.id == "b"));
@@ -69,6 +69,44 @@ fn read_finish_and_dismiss_say_when_they_changed_something() {
     assert!(notes.dismiss(&["a".into()]));
     assert!(!notes.dismiss(&["a".into()]));
     assert_eq!(ids(&notes), ["b"]);
+}
+
+fn marks(list: &[(&str, u64)]) -> HashMap<String, u64> {
+    list.iter()
+        .map(|(id, at)| ((*id).to_owned(), *at))
+        .collect()
+}
+
+#[test]
+fn a_read_on_another_app_reads_the_note_here() {
+    let dir = TempDir::new().expect("a temp dir");
+    let notes = store(&dir);
+    notes.put(note("a", 10), 10);
+    notes.put(note("b", 10), 10);
+    assert!(notes.shared_reads(marks(&[("a", 20), ("other", 20)])));
+    assert!(notes.get("a").is_some_and(|n| n.read));
+    assert!(notes.get("b").is_some_and(|n| !n.read));
+    // Told again, it changes nothing.
+    assert!(!notes.shared_reads(marks(&[("a", 20)])));
+}
+
+#[test]
+fn a_read_that_came_first_reads_the_note_that_comes_later() {
+    let dir = TempDir::new().expect("a temp dir");
+    let notes = store(&dir);
+    notes.shared_reads(marks(&[("a", 20)]));
+    notes.put(note("a", 15), 20);
+    assert!(notes.get("a").is_some_and(|n| n.read));
+}
+
+#[test]
+fn a_note_made_after_the_read_is_unread() {
+    let dir = TempDir::new().expect("a temp dir");
+    let notes = store(&dir);
+    notes.shared_reads(marks(&[("a", 20)]));
+    // The same session finished another turn.
+    notes.put(note("a", 30), 30);
+    assert!(notes.get("a").is_some_and(|n| !n.read));
 }
 
 #[test]

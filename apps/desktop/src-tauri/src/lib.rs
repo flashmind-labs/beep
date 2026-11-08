@@ -744,6 +744,10 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     tauri::async_runtime::spawn(tray::waiting::follow(handle.clone(), beep.clone()));
     let desks = app.state::<Arc<beep_fleet::Session>>().inner().clone();
     tauri::async_runtime::spawn(notices::follow(handle.clone(), fleet.clone(), desks));
+    tauri::async_runtime::spawn(notices::history::follow_reads(
+        handle.clone(),
+        fleet.clone(),
+    ));
     #[cfg(desktop)]
     voice::hotkey::start(move |input| voice.on_input(input));
 

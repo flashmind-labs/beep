@@ -23,12 +23,14 @@ use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Reverse,
+    collections::{HashMap, HashSet},
     fs,
     path::{Component, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::SystemTime,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
+use tokio::sync::broadcast::error::RecvError;
 
 /// The most notes kept, newest first.
 const KEEP: usize = 200;
@@ -105,10 +107,17 @@ pub(crate) fn now_ms() -> u64 {
     epoch_ms(SystemTime::now())
 }
 
+/// Whether an app read `note` after it was made. A newer note with the same id is unread.
+fn read_since(marks: &HashMap<String, u64>, note: &Note) -> bool {
+    marks.get(&note.id).is_some_and(|at| *at >= note.at)
+}
+
 /// The notes and the file they are kept in.
 pub struct Notes {
     path: PathBuf,
     list: Mutex<Vec<Note>>,
+    /// When each note was last read on any app of the mesh, by id. Locked before `list`.
+    marks: Mutex<HashMap<String, u64>>,
     /// One write at a time, each of the newest list.
     saving: Mutex<()>,
 }
@@ -126,12 +135,17 @@ impl Notes {
         Self {
             path,
             list: Mutex::new(list),
+            marks: Mutex::new(HashMap::new()),
             saving: Mutex::new(()),
         }
     }
 
     fn lock(&self) -> MutexGuard<'_, Vec<Note>> {
         self.list.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn lock_marks(&self) -> MutexGuard<'_, HashMap<String, u64>> {
+        self.marks.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Every note, newest first.
@@ -145,7 +159,9 @@ impl Notes {
 
     /// Takes `note` in place of any with its id, and drops what is past
     /// `KEEP` or older than `MAX_AGE_MS` at `now`.
-    fn put(&self, note: Note, now: u64) {
+    fn put(&self, mut note: Note, now: u64) {
+        let marks = self.lock_marks();
+        note.read |= read_since(&marks, &note);
         let mut list = self.lock();
         list.retain(|old| old.id != note.id);
         list.push(note);
@@ -172,12 +188,34 @@ impl Notes {
         })
     }
 
-    fn read(&self, ids: &[String]) -> bool {
+    /// Marks read the notes in `ids` that are not yet; returns their ids.
+    fn read(&self, ids: &[String]) -> Vec<String> {
+        let mut read = Vec::new();
         self.change(|note| {
             let now = !note.read && ids.contains(&note.id);
             note.read |= now;
+            if now {
+                read.push(note.id.clone());
+            }
+            now
+        });
+        read
+    }
+
+    /// Takes the reads the apps of the mesh share; true when a note became read.
+    fn shared_reads(&self, marks: HashMap<String, u64>) -> bool {
+        let mut held = self.lock_marks();
+        *held = marks;
+        self.change(|note| {
+            let now = !note.read && read_since(&held, note);
+            note.read |= now;
             now
         })
+    }
+
+    /// The ids of the notes kept.
+    fn listed(&self) -> HashSet<String> {
+        self.lock().iter().map(|note| note.id.clone()).collect()
     }
 
     fn dismiss(&self, ids: &[String]) -> bool {
@@ -402,10 +440,47 @@ pub fn notes_list(notes: State<'_, Arc<Notes>>) -> Vec<Note> {
     notes.list()
 }
 
+/// Marks notes read here and, for every other app, in the mesh.
 #[tauri::command]
-pub fn notes_read(app: AppHandle, notes: State<'_, Arc<Notes>>, ids: Vec<String>) {
-    if notes.read(&ids) {
-        changed(&app, notes.inner().clone());
+pub async fn notes_read(
+    app: AppHandle,
+    notes: State<'_, Arc<Notes>>,
+    fleet: State<'_, Arc<Fleet>>,
+    ids: Vec<String>,
+) -> Result<()> {
+    let read = notes.read(&ids);
+    if read.is_empty() {
+        return Ok(());
+    }
+    changed(&app, notes.inner().clone());
+    let mesh = fleet.ready().await?;
+    beep_fleet::mark_read(&mesh, &read, &notes.listed(), now_ms()).await?;
+    Ok(())
+}
+
+/// Takes the reads other apps make, as the mesh tells of them, for as long as the app runs.
+pub(crate) async fn follow_reads(app: AppHandle, fleet: Arc<Fleet>) {
+    let mesh = match fleet.ready().await {
+        Ok(mesh) => mesh,
+        Err(e) => {
+            log::warn!("notifications read elsewhere are not followed: {e}");
+            return;
+        }
+    };
+    // Subscribed before the first scan, so no change falls between the two.
+    let mut changes = mesh.changes();
+    loop {
+        let notes = notes(&app);
+        if notes.shared_reads(beep_fleet::read_marks(&mesh)) {
+            changed(&app, notes);
+        }
+        loop {
+            match changes.recv().await {
+                Ok(beep_mesh::Key::NoticeRead(_)) | Err(RecvError::Lagged(_)) => break,
+                Ok(_) => {}
+                Err(RecvError::Closed) => return,
+            }
+        }
     }
 }
 
