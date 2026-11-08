@@ -8,6 +8,7 @@ pub(crate) mod custom;
 pub(crate) mod diff;
 pub(crate) mod files;
 pub(crate) mod flsh_settings;
+pub(crate) mod follow;
 pub(crate) mod harnesses;
 pub(crate) mod instructions;
 pub(crate) mod local_file;

@@ -162,8 +162,8 @@ pub(crate) struct Seen {
 }
 
 /// How long after a webview last read an agent session it still counts as
-/// shown there. The open session view reads it every 1.5 s while it works
-/// and every 10 s once quiet.
+/// shown there. Live subscriptions refresh this on each update or heartbeat;
+/// older nodes are read at most 10 seconds apart.
 const AGENT_SHOWN_FOR: Duration = Duration::from_secs(12);
 
 /// The coding-agent session each webview's session view last read, and
