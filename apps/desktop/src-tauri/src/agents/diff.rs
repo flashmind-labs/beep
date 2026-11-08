@@ -112,7 +112,7 @@ fn file_view(file: DiffFile) -> DiffFileView {
     }
 }
 
-fn view(diff: WorkDiff) -> DiffView {
+pub(crate) fn view(diff: WorkDiff) -> DiffView {
     DiffView {
         root: diff.root,
         base: diff.base,

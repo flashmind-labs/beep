@@ -20,13 +20,12 @@
 .mac .ix-card > .hd .sp { flex: 1 }
 .mac .ix-card .cc-row { border-top: 0 } .mac .ix-card .cc-row + .cc-row { border-top: 1px solid var(--d-border) }
 .mac .ix-quiet { font-size: 12.5px; color: var(--d-muted); padding: 2px 2px } .mac .ix-quiet button { all: unset; cursor: pointer; color: var(--d-fg) } .mac .ix-quiet button:hover { text-decoration: underline }
-.mac .ix-pj { display: grid; grid-template-rows: auto auto minmax(0, 1fr); height: 100%; min-height: 0 }
+.mac .ix-pj { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; height: 100%; min-height: 0 }
 .mac .ix-pj .cc-mstrip { margin: 10px 16px 0; flex: none }
 .mac .ix-pj .cc-mstrip > .m .bad { color: var(--d-err) }
 .mac .ix-pj .pj-split { margin-top: 10px; border-top: 1px solid var(--d-border) }
-.mac .ix-det { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; height: 100% }
+.mac .ix-det { display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; height: 100% }
 .mac .ix-det .sc { overflow: auto; padding: 14px 16px; display: grid; gap: 14px; align-content: start; scrollbar-width: thin }
-.mac .ix-det .cc-pjc { margin: 0; padding: 10px 16px 12px; border-top: 1px solid var(--d-border); background: var(--d-ink) }
 .mac .ix-flat .pj-li { grid-template-columns: minmax(0, 1fr) auto; padding: 7px 14px }
 .mac .ix-flat .pj-li .c { font-size: 11.5px; color: var(--d-muted) } .mac .ix-flat .pj-li .c.bad { color: var(--d-err) } .mac .ix-flat .pj-li .c.wait { color: #f2c94c }
 .mac .ix-flat hr { border: 0; border-top: 1px solid var(--d-border); margin: 6px 14px }
@@ -109,8 +108,12 @@
 
   const pjStrip = () => strip([["", "main", "branch"], ["", "Actions", "1 running · 1 failed", "bad"], ["", "2 agents", "running"], ["", "Machines", "3/4 · 1 terminal"], ["", "2 PRs", "1 needs a reply"], ["", "2 issues", "open"]]);
   // A flat list: what needs you, then each part with a count. No summary rows, no Agents next to Running.
-  const NAV = [["Overview", "", ""], ["Needs you", "1", "wait"], ["Running", "2", ""], null, ["Actions", "1 failed", "bad"], ["Machines", "3/4", ""], ["File sync", "in sync", ""], ["Issues", "2 open", ""], null, ["Tasks", "3", ""], ["Sessions", "43 past", ""], ["Branches", "5", ""]];
-  const nav = (on = "Overview") => `<div class="pj-list ix-flat">${NAV.map(n => !n ? "<hr>" : `<button class="pj-li"${n[0] === on ? ' aria-current="true"' : ""}><span>${n[0]}</span><span class="c${n[2] ? " " + n[2] : ""}">${n[1]}</span></button>`).join("")}</div>`;
+  const NAV = [["Overview", "", ""], ["Needs you", "1", "wait"], ["Running", "2", ""], null, ["Actions", "1 failed", "bad"], ["Machines", "3/4", ""], ["File sync", "in sync", ""], ["Issues", "2 open", ""], null, ["Tasks", "3", ""], ["Sessions", "43 past", ""], ["Git", "13 commits", ""]];
+  const projectNav = title => {
+    const view = { Overview: "strip", Sessions: "sessions", Git: "branches" }[title];
+    return view ? `data-dact="dset:ixp:${view}" data-dgo="dIdeaProject"` : "";
+  };
+  const nav = (on = "Overview") => `<div class="pj-list ix-flat">${NAV.map(n => !n ? "<hr>" : `<button class="pj-li" ${projectNav(n[0])}${n[0] === on ? ' aria-current="true"' : ""}><span>${n[0]}</span><span class="c${n[2] ? " " + n[2] : ""}">${n[1]}</span></button>`).join("")}</div>`;
   const pjComp = () => `<form class="cc-pjc" onsubmit="return false"><div class="box"><textarea rows="1" placeholder="Describe a task for a coding agent in acme/widget"></textarea><div class="row"><button class="pill" type="button">build-box</button><button class="pill" type="button">Current checkout <small>as it is</small></button><span class="sp"></span><button class="pill" type="button">${ag("claude")}Claude Code <small>Default · Medium</small></button><button class="dbtn pri" data-toast="Started">Start<kbd>${DI.ret}</kbd></button></div></div></form>`;
 
   const MACH = [["busy", "build-box", "/srv/project/widget", "main", tg("run", "in sync"), "↓1 ↑2"], ["", "studio", "/srv/widget", "main", tg("run", "Syncthing"), ""],
@@ -155,15 +158,19 @@
     const v = S.d.ixp || "strip";
     if (v === "sessions") {
       const main = `<div class="ix-pj"><div class="cc-top"><h2>acme/widget</h2><small>github.com · imported 3 d</small><span class="tools"><button class="dbtn small">Open ${CHEV}</button><button class="dbtn quiet small" aria-label="Project menu">⋯</button></span></div>${pjStrip()}
-        <div class="pj-split">${nav("Sessions")}<div class="ix-det"><div class="sc">${sessionsTabs()}</div>${pjComp()}</div></div></div>`;
+        <div class="pj-split">${nav("Sessions")}<div class="ix-det"><div class="sc">${sessionsTabs()}</div></div></div>${pjComp()}</div>`;
       return skinned(ccWin(ccSidePj("acme/widget"), main));
     }
+    const selected = v === "branches" || v === "review" ? "Git" : "Overview";
+    const content = v === "branches" ? window.gitHistoryDetail?.() || ""
+      : v === "review" ? `<button class="dbtn quiet small pj-back" data-dact="dset:ixp:branches" data-dgo="dIdeaProject">All branches</button>${window.__rvPane()}`
+      : v === "strip" ? overviewA() : overviewB();
     const tools = `<span class="tools"><button class="dbtn small" data-toast="GitHub, Forgejo, Open in Zed">Open ${CHEV}</button><button class="dbtn quiet small" aria-label="Project menu" data-toast="Pin, New window, Remove">⋯</button></span>`;
     const main = `<div class="ix-pj"><div class="cc-top"><h2>acme/widget</h2><small>github.com · imported 3 d</small>${tools}</div>${pjStrip()}
-      <div class="pj-split">${nav()}<div class="ix-det"><div class="sc">${v === "strip" ? overviewA() : overviewB()}</div>${pjComp()}</div></div></div>`;
+      <div class="pj-split${v === "branches" ? " gh-layout" : ""}">${v === "branches" ? window.gitHistoryNavigation?.() || "" : nav(selected)}<div class="ix-det${v === "branches" ? " gh-inspector" : ""}"><div class="sc">${content}</div></div></div>${pjComp()}</div>`;
     return skinned(ccWin(ccSidePj("acme/widget"), main));
   };
-  VARIANTS.dIdeaProject = [["A: Status strip, docked composer", "strip"], ["A: Sessions in tabs", "sessions"], ["B: Activity feed", "feed"]].map(([l, k]) => [l, () => { S.d.ixp = k; render(); }, () => (S.d.ixp || "strip") === k]);
+  VARIANTS.dIdeaProject = [["A: Status strip, centered composer", "strip"], ["A: Sessions in tabs", "sessions"], ["Git history", "branches"], ["Review", "review"], ["B: Activity feed", "feed"]].map(([l, k]) => [l, () => { S.d.ixp = k; render(); }, () => (S.d.ixp || "strip") === k]);
 
   DESK_SCREENS.unshift({ group: "Ideas (7 Nov)", items: [["dIdeaHome", "Home ideas", "Home: attention first or by project"], ["dIdeaProject", "Project page ideas", "Project: status strip or activity feed"]] });
   const want = location.hash.slice(1);
