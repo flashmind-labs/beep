@@ -5,6 +5,7 @@
 //! since only a desktop reads another machine's report.
 
 use super::machines::command_name;
+use super::reply::fail;
 use crate::{
     agents::{Answered, Asking},
     link::{Offers, peers::Peers},
@@ -37,13 +38,6 @@ const ONLY_HERE: &str = "This agent runs on a node, and only a desktop reads ano
 /// Whether `tool` is one this module answers.
 pub(crate) fn handles(tool: Tool) -> bool {
     matches!(tool, Tool::BeepStatus | Tool::BeepLogs | Tool::FileReport)
-}
-
-fn fail(text: impl Into<String>) -> Reply {
-    Reply::Done {
-        text: text.into(),
-        failed: true,
-    }
 }
 
 fn parse<T: DeserializeOwned>(args: &str) -> Result<T, Reply> {

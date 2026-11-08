@@ -192,13 +192,7 @@ pub(crate) async fn write<T: StateValue>(mesh: &Mesh, key: Key, value: Option<&T
 }
 
 pub(crate) fn now_ms() -> u64 {
-    u64::try_from(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis(),
-    )
-    .unwrap_or(u64::MAX)
+    time_ms(SystemTime::now())
 }
 
 pub(crate) fn at(ms: u64) -> DateTime<Utc> {

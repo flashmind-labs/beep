@@ -1,28 +1,12 @@
-//! A chat's background work; now always empty, kept for apps that still ask.
+//! Pending approval cards from the caller's project chats.
 
 use super::Reply;
 use crate::{
     account::user::User,
     api::router::Cx,
-    protocol::{
-        ApiError, CancelWork, ChatApproval, ListPendingApprovals, ListQuestions, ListWork,
-        PendingApproval, WorkItem,
-    },
+    protocol::{ChatApproval, ListPendingApprovals},
 };
 use std::collections::HashMap;
-
-pub(super) async fn list_work(_: Cx, _: ListWork) -> Reply<Vec<WorkItem>> {
-    Ok(Vec::new())
-}
-
-pub(super) async fn cancel_work(_: Cx, _: CancelWork) -> Reply<bool> {
-    Err(ApiError::NotFound {})
-}
-
-/// Questions came from machines' coding agents, which the server no longer reaches.
-pub(super) async fn list_questions(_: Cx, _: ListQuestions) -> Reply<Vec<PendingApproval>> {
-    Ok(Vec::new())
-}
 
 pub(super) async fn list_pending_approvals(
     cx: Cx,
