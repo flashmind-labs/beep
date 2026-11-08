@@ -88,7 +88,7 @@ fn description(kind: MediaKind, providers: &[MediaProvider]) -> String {
 #[async_trait]
 impl Tool for MediaTool {
     fn name(&self) -> &str {
-        self.kind.tool()
+        Into::<&'static str>::into(self.kind)
     }
     fn description(&self) -> &str {
         &self.description

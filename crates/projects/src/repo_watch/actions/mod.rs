@@ -451,4 +451,5 @@ fn clean_line(line: &str) -> String {
 }
 
 #[cfg(test)]
+#[path = "../../tests/repo_watch_actions.rs"]
 mod tests;

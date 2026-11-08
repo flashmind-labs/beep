@@ -26,15 +26,27 @@ Update the platform mock before changing an app's UI, then match the app to it:
 `mockups/android/index.html`, `mockups/ios/index.html` or
 `mockups/desktop/index.html` (including the tray bar).
 
+## Rust layout
+
+Group code by responsibility in small modules, following `crates/node` and
+`crates/server`. Keep `mod.rs` focused on declarations, re-exports and a thin
+public API. Preserve public paths and wire formats when moving code.
+
+Keep unit tests together in the crate's `src/tests/`, grouped by module. Declare
+them at the end of the module with `#[cfg(test)]` and `#[path]` so they can
+exercise private code. Public API tests belong in the crate's `tests/`.
+
 ## Rust types and conversions
 
 Use domain types for identifiers, names with domain meaning, and paths. Reserve
 `String` for actual text. Prefer `From`, `TryFrom`, `FromStr`, `AsRef` and
 `Display` over custom conversion methods such as `from_acp` or `as_str`. Use
-Strum derives when they express the conversion correctly, including `EnumString`,
-`AsRefStr`, `IntoStaticStr` and `Display`. Keep validation and error handling in
-the conversion traits. Prefer explicit `Into::<Target>::into(value)` when using `Into`,
-rather than inferring the target from `value.into()`.
+Strum derives for enum conversions when they preserve the exact accepted values,
+labels and errors. Prefer `EnumString`, `AsRefStr`, `IntoStaticStr` and `Display`
+over repeated manual matches; use `#[strum(serialize = "...")]` where names differ.
+Keep validation and error handling in the conversion traits, and preserve serde
+and wire representations independently. Prefer explicit
+`Into::<Target>::into(value)` over inferring the target from `value.into()`.
 
 ## Tests and development
 

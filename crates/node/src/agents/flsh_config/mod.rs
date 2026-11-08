@@ -282,4 +282,5 @@ fn private(_: &fs::File) -> io::Result<()> {
 }
 
 #[cfg(test)]
+#[path = "../../tests/agents_flsh_config.rs"]
 mod tests;

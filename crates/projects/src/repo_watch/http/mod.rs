@@ -274,4 +274,5 @@ fn limit_of(headers: &HeaderMap, now: SystemTime) -> Option<Limit> {
 }
 
 #[cfg(test)]
+#[path = "../../tests/repo_watch_http.rs"]
 mod tests;

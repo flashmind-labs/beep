@@ -177,4 +177,5 @@ fn submit(offers: &Offers, session: &str, review: SubmittedReview) -> Reply {
 }
 
 #[cfg(test)]
+#[path = "../../tests/agents_mcp_review.rs"]
 mod tests;

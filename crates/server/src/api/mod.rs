@@ -94,9 +94,5 @@ fn next_run(schedule: &JobSchedule, tz_name: &str) -> Option<DateTime<Utc>> {
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn every_op_is_routed_once() {
-        super::router().check().unwrap();
-    }
-}
+#[path = "../tests/api.rs"]
+mod tests;

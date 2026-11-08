@@ -289,4 +289,5 @@ pub(super) async fn reseal_for(
 }
 
 #[cfg(test)]
+#[path = "../../tests/store_credentials.rs"]
 mod tests;
