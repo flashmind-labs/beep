@@ -28,8 +28,9 @@ test("the window follows only the project it shows", async () => {
   ]);
 });
 
-test("an event reads again only what it changed, and the chip says live or polling", () => {
+test("an event reads again only what it changed, and the chip says live or polling", async () => {
   const { live, reads } = setup();
+  await live.follow("p1");
   assert.equal(live.chip("p1"), null, "unknown until the server says");
   live.heard({ project_id: "p1", live: true, polling_why: null, lists: false, runs: false });
   assert.deepEqual(reads, []);
@@ -43,6 +44,16 @@ test("an event reads again only what it changed, and the chip says live or polli
   // A server too old to say shows no chip.
   live.heard({ project_id: "p1", live: null, polling_why: null, lists: false, runs: false });
   assert.equal(live.chip("p1"), null);
+});
+
+test("hidden and unrelated project snapshots do not read views", async () => {
+  const { live, reads } = setup();
+  await live.follow("p1");
+  live.heard({ project_id: "p2", live: true, polling_why: null, lists: true, runs: true });
+  const hidden = live.follow(null);
+  live.heard({ project_id: "p1", live: true, polling_why: null, lists: true, runs: true });
+  await hidden;
+  assert.deepEqual(reads, []);
 });
 
 const settle = () => new Promise<void>(done => setImmediate(done));
