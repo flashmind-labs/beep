@@ -559,6 +559,7 @@ fn quit(app: &AppHandle) {
         }
     });
     // Background tasks the agent started here end with the app.
+    #[cfg(desktop)]
     beep_node::kill_tasks();
 }
 

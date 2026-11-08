@@ -7,6 +7,7 @@ use crate::{
     files::Folders,
     files::search::Searches,
     files::transfer::Transfers,
+    link::Protocol,
     link::restart::{self, Reopen},
     link::state::{Search, State},
     link::traffic::Traffic,
@@ -33,7 +34,6 @@ use iroh::{Endpoint, EndpointId, endpoint::presets, protocol::Router};
 use std::{
     future::Future,
     path::Path,
-    pin::Pin,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -54,18 +54,6 @@ const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 const STOP_SESSIONS: Duration = Duration::from_secs(3);
 /// How long a stopping node gives each other step.
 const STOP_STEP: Duration = Duration::from_secs(1);
-
-/// A session protocol a host serves beside the node's own, such as the Mac
-/// app's `desktop/1`.
-pub trait Protocol: Send + Sync {
-    /// The name a session opens with, which the hello offers.
-    fn name(&self) -> &str;
-    /// Serves one session stream until it ends.
-    fn serve(&self, tx: LinkTx, rx: LinkRx) -> Session;
-}
-
-/// One session served by a `Protocol`.
-pub type Session = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 
 /// Serves the mesh until `stop` finishes, then closes the agent sessions and
 /// returns. `workspace`, when given, is shared through `files/1` before the

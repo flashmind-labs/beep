@@ -247,6 +247,7 @@ impl DiffParser {
     /// Starts an added file at `path` that git does not track, as if git
     /// had diffed it: its lines follow as `+` lines through [`Self::line`],
     /// `lines` of them, or none for a binary file.
+    #[cfg(feature = "host")]
     pub(super) fn untracked(&mut self, path: &str, lines: u32, binary: bool) {
         self.finish_file();
         let mut file = Building {
