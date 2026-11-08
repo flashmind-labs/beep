@@ -3,20 +3,29 @@
 
 use crate::{
     desk::Desk,
-    error::Result,
-    projects::{DeskMachines, DeskProject},
+    error::{FleetError, Result},
+    nearest_first,
+    records::find_project,
     records::{now_ms, time},
 };
+use async_trait::async_trait;
+use beep_mesh::Mesh;
 use beep_projects::issues::{
-    MachineView, issue_view, list_open, list_open_prs, machine_view, pull_request_head,
-    pull_request_view,
+    ImportedPlace, MachineName, MachineView, Machines, ProjectStore, issue_view, list_open,
+    list_open_prs, machine_view, pull_request_head, pull_request_view,
 };
 use beep_projects::model::plain_path;
+use beep_projects::{
+    Shell,
+    imports::machine::Machine,
+    model::{IssueHost, RepoName},
+};
 use beep_proto::{
     GitItemKind, LabeledProjectLists, ProjectIssue, ProjectLists, ProjectPullRequest,
     PullRequestHead, ThreadDetail,
 };
-use std::future::Future;
+use iroh::EndpointId;
+use std::{collections::HashMap, future::Future, sync::Arc};
 use uuid::Uuid;
 
 /// A project's id on this desktop. The apps address a project by an id, and with no server to
@@ -209,4 +218,106 @@ pub fn places(mesh: &beep_mesh::Mesh, project: &str) -> Vec<(iroh::EndpointId, S
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// One project, for reading its issues host: its checkouts nearest first, the order they are
+/// asked in.
+pub(crate) struct DeskProject {
+    name: RepoName,
+    places: Vec<ImportedPlace>,
+}
+
+impl DeskProject {
+    pub(crate) fn of(mesh: &Mesh, name: &str) -> Result<Self> {
+        let name = RepoName::parse(name).map_err(|e| FleetError::refused(e.to_string()))?;
+        let stored = find_project(mesh, &name.to_string()).ok_or(FleetError::NotFound)?;
+        let mut machines: Vec<EndpointId> = stored.places.keys().copied().collect();
+        nearest_first(mesh, &mut machines, |machine| *machine);
+        let places = machines
+            .into_iter()
+            .map(|machine| ImportedPlace {
+                url: stored.record.url.clone(),
+                machine: Some(machine),
+            })
+            .collect();
+        Ok(Self { name, places })
+    }
+
+    /// The machines the project is checked out on.
+    pub(crate) fn machine_ids(&self) -> Vec<EndpointId> {
+        self.places
+            .iter()
+            .filter_map(|place| place.machine)
+            .collect()
+    }
+
+    /// Whether the project has a checkout on `machine`.
+    pub(crate) fn is_on(&self, machine: EndpointId) -> bool {
+        self.places
+            .iter()
+            .any(|place| place.machine == Some(machine))
+    }
+}
+
+#[async_trait]
+impl ProjectStore for DeskProject {
+    fn name(&self) -> &RepoName {
+        &self.name
+    }
+
+    /// The desktop has no project agent to set a home checkout up, so the host is read from the
+    /// page the project was imported from.
+    fn issues_role(&self) -> Option<&IssueHost> {
+        None
+    }
+
+    async fn home_machine(&self) -> anyhow::Result<Option<EndpointId>> {
+        Ok(None)
+    }
+
+    async fn imports(&self) -> anyhow::Result<Vec<ImportedPlace>> {
+        Ok(self.places.clone())
+    }
+
+    /// Tasks that track issues belong to the project agent, which is on the server.
+    async fn tracked_issues(&self, _: &IssueHost) -> anyhow::Result<Vec<u64>> {
+        Ok(Vec::new())
+    }
+}
+
+/// The online machines' shells, for reading a host through one of them.
+pub(crate) struct DeskMachines {
+    shells: HashMap<EndpointId, Arc<dyn Shell>>,
+    names: Vec<MachineName>,
+}
+
+impl DeskMachines {
+    pub(crate) fn of(machines: &[Machine]) -> Self {
+        let mut shells = HashMap::new();
+        let mut names = Vec::new();
+        for machine in machines {
+            let Ok(id) = machine.id.parse::<EndpointId>() else {
+                continue;
+            };
+            names.push(MachineName {
+                id,
+                name: machine.name.clone(),
+            });
+            if let Some(shell) = &machine.shell {
+                shells.insert(id, shell.clone());
+            }
+        }
+        Self { shells, names }
+    }
+}
+
+#[async_trait]
+impl Machines for DeskMachines {
+    fn shell(&self, machine: &EndpointId) -> Option<Arc<dyn Shell>> {
+        self.shells.get(machine).cloned()
+    }
+
+    async fn names(&self) -> Vec<MachineName> {
+        self.names.clone()
+    }
 }

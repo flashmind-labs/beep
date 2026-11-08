@@ -1,7 +1,7 @@
 //! Agent accounts: a sealed Claude Code token handed out as `CLAUDE_CODE_OAUTH_TOKEN`, or a
 //! Codex API key. Codex's device sign-in runs on a machine, which a desktop reaches now.
 
-use super::{Reply, credentials::trimmed, own_nodes::retired};
+use super::{Reply, credentials::trimmed};
 use crate::{
     api::router::Cx,
     protocol::*,
@@ -24,18 +24,6 @@ pub(super) async fn get_agent_accounts(cx: Cx, _: GetAgentAccounts) -> Reply<Age
         codex_key: token(AgentAccount::Codex),
         machines: Vec::new(),
     })
-}
-
-pub(super) async fn start_codex_login(_: Cx, _: StartCodexLogin) -> Reply<CodexLogin> {
-    retired()
-}
-
-pub(super) async fn get_codex_login(_: Cx, _: GetCodexLogin) -> Reply<CodexLoginState> {
-    Ok(CodexLoginState::Gone {})
-}
-
-pub(super) async fn cancel_codex_login(_: Cx, _: CancelCodexLogin) -> Reply<()> {
-    retired()
 }
 
 pub(super) async fn save_agent_token(
