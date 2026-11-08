@@ -1,0 +1,146 @@
+# Builds the release APK and app bundle for a tag android-vX.Y.Z (made by
+# `just android-release`) and keeps the APK as a run artifact. The phone app is
+# the desktop Tauri app built for Android; its version is "version" in
+# apps/desktop/src-tauri/tauri.android.conf.json. With the
+# PLAY_SERVICE_ACCOUNT_JSON secret the bundle goes to Play: the beta track
+# while X is 0, then production for a minor or major release (X.Y.0). A manual
+# run goes to the internal track. The repository variable PLAY_BETA_TRACK picks
+# another testing track, such as alpha for closed testing. Releases stay drafts
+# until the repository variable PLAY_RELEASE_STATUS says `completed`, which
+# Play only accepts once the app has been published.
+#
+# The server's https:// address is the repository variable BEEP_SERVER_URL.
+# Signing comes from four secrets, ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+# ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD. Without them the APK is signed
+# with the runner's debug key and will not install over a build signed with
+# another one.
+#
+# The version code is 1000000 plus the run number, always above the 100 plus
+# run number the native app used.
+name: android
+
+on:
+  push:
+    tags: ["android-v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NDK_VERSION: 28.2.13676358
+
+jobs:
+  apk:
+    runs-on: host
+    env:
+      BEEP_SERVER_URL: ${{ vars.BEEP_SERVER_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: https://github.com/dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: https://github.com/android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install NDK
+        run: |
+          set -euo pipefail
+          sdkmanager "ndk;${NDK_VERSION}" "platforms;android-37" "build-tools;35.0.0"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Write signing file
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            {
+              echo "storeFile=$RUNNER_TEMP/release.keystore"
+              echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+              echo "keyAlias=$ANDROID_KEY_ALIAS"
+              echo "keyPassword=$ANDROID_KEY_PASSWORD"
+            } > apps/desktop/src-tauri/gen/android/keystore.properties
+          else
+            echo "No signing secrets, using the debug key."
+          fi
+
+      - name: Build the web UI
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Build the APK and bundle
+        working-directory: apps/desktop
+        run: >-
+          npm run tauri -- android build --apk --aab
+          --config '{"bundle":{"android":{"versionCode":'$((1000000 + ${{ github.run_number }}))'}}}'
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          out=apps/desktop/src-tauri/gen/android/app/build/outputs
+          apk=$(find "$out/apk" -name '*.apk' -path '*elease*' | head -1)
+          [ -n "$apk" ] || { echo "No APK was built" >&2; exit 1; }
+          cp "$apk" beep-android.apk
+          sha256sum beep-android.apk > beep-android.apk.sha256
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: beep-android
+          path: |
+            beep-android.apk
+            beep-android.apk.sha256
+
+      - name: Upload to Play
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          REF: ${{ github.ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          track=internal
+          if [[ "$REF" =~ ^refs/tags/android-v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            name=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' apps/desktop/src-tauri/tauri.android.conf.json)
+            [ "$name" = "${REF#refs/tags/android-v}" ] || { echo "Tag does not match version $name"; exit 1; }
+            if [ "${BASH_REMATCH[1]}" != 0 ] && [ "${BASH_REMATCH[3]}" = 0 ]; then track=production; else track='${{ vars.PLAY_BETA_TRACK || 'beta' }}'; fi
+          fi
+          if [ -z "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
+            echo "No Play service account, skipping the upload."
+            exit 0
+          fi
+          aab=$(find apps/desktop/src-tauri/gen/android/app/build/outputs/bundle -name '*.aab' | head -1)
+          [ -n "$aab" ] || { echo "No app bundle was built" >&2; exit 1; }
+          umask 077
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/play.json"
+          python3 scripts/play-upload.py "$RUNNER_TEMP/play.json" "$aab" \
+            "$track" '${{ vars.PLAY_RELEASE_STATUS || 'draft' }}'
+
+      - name: Remove signing files
+        if: always()
+        run: rm -f apps/desktop/src-tauri/gen/android/keystore.properties "$RUNNER_TEMP/release.keystore" "$RUNNER_TEMP/play.json"
