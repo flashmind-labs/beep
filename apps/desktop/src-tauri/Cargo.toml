@@ -18,8 +18,6 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 anyhow = "1"
-arboard = "3.7"
-image = { version = "0.25", default-features = false, features = ["png"] }
 open = "5"
 which = "8"
 async-trait = "0.1"
@@ -34,7 +32,7 @@ beep-projects = { path = "../../../crates/projects" }
 beep-proto = { path = "../../../crates/proto", features = ["client"] }
 beep-report = { path = "../../../crates/report" }
 futures = "0.3"
-iroh = "1.3"
+iroh = { version = "1.3", default-features = false, features = ["tls-ring", "fast-apple-datapath"] }
 iroh-tickets = "1"
 log = "0.4"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
@@ -66,6 +64,9 @@ tokio = { version = "1", features = ["test-util"] }
 # Desktop only: no login item or self-updater on a phone, and no embedded node.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 beep-node = { path = "../../../crates/node", default-features = false, features = ["host"] }
+arboard = "3.7"
+image = { version = "0.25", default-features = false, features = ["png"] }
+beep-mesh = { path = "../../../crates/mesh", features = ["thumbs"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-updater = "2"
 
@@ -89,7 +90,7 @@ block2 = "0.6"
 # notification plugin shows them through the same crate but drops actions.
 mac-notification-sys = "0.6"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSBitmapImageRep", "NSImageRep", "NSRunningApplication", "NSWorkspace", "block2", "objc2-core-graphics"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSEvent", "NSBitmapImageRep", "NSImageRep", "NSRunningApplication", "NSWorkspace", "NSGraphics", "block2", "objc2-core-graphics"] }
 # Desktop control: the accessibility tree and Accessibility permission.
 objc2-application-services = { version = "0.3", default-features = false, features = ["std", "HIServices", "libc", "AXUIElement", "AXValue", "AXError"] }
 objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware", "objc2-core-audio-types"] }
@@ -105,3 +106,11 @@ objc2-screen-capture-kit = { version = "0.3", default-features = false, features
 
 [profile.release]
 strip = true
+
+# Line numbers for our crates and no debug info for dependencies: links
+# faster and keeps target/ small. Backtraces still name our lines.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

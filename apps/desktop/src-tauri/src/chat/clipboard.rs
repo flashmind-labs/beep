@@ -1,13 +1,34 @@
-//! The native image clipboard, kept alive while another app requests its contents.
+//! The native image clipboard, kept alive while another app requests its
+//! contents. A phone has none: copying a picture there fails.
 
-use anyhow::{Context, Result, ensure};
+use anyhow::Result;
+#[cfg(desktop)]
+use anyhow::{Context, ensure};
+#[cfg(desktop)]
 use arboard::{Clipboard, ImageData};
+#[cfg(desktop)]
 use base64::{Engine, engine::general_purpose::STANDARD};
+#[cfg(desktop)]
 use image::{ImageFormat, ImageReader, Limits};
+#[cfg(desktop)]
 use std::{borrow::Cow, io::Cursor, sync::Mutex};
 
+#[cfg(desktop)]
 #[derive(Default)]
 pub(crate) struct ImageClipboard(Mutex<Option<Clipboard>>);
+
+#[cfg(mobile)]
+#[derive(Default)]
+pub(crate) struct ImageClipboard;
+
+#[cfg(mobile)]
+impl ImageClipboard {
+    pub(crate) fn copy_png(&self, _png: &str) -> Result<()> {
+        anyhow::bail!("no image clipboard on a phone")
+    }
+}
+
+#[cfg(desktop)]
 
 impl ImageClipboard {
     pub(crate) fn copy_png(&self, png: &str) -> Result<()> {
@@ -27,6 +48,7 @@ impl ImageClipboard {
     }
 }
 
+#[cfg(desktop)]
 fn decode(png: &str) -> Result<ImageData<'static>> {
     ensure!(png.len() <= 24_000_000, "image too large");
     let bytes = STANDARD.decode(png).context("decode image")?;
@@ -44,7 +66,7 @@ fn decode(png: &str) -> Result<ImageData<'static>> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, desktop))]
 mod tests {
     use super::*;
     use image::{DynamicImage, Rgba, RgbaImage};

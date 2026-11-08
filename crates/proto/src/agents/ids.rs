@@ -106,10 +106,3 @@ text_id!(ModelId);
 pub struct SessionId(String);
 
 text_id!(SessionId);
-
-// Kotlin and Swift see a model id as its text.
-#[cfg(feature = "uniffi")]
-uniffi::custom_type!(ModelId, String, {
-    try_lift: |text| Ok(ModelId(text)),
-    lower: |id| id.0,
-});

@@ -2,7 +2,7 @@
 //! `flsh`) and of beep-node itself, looked up now and then and shared by
 //! whoever asks.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use beep_proto::node::tool_update::{Releases, Tool};
 use reqwest::{Client, header::USER_AGENT};
 use serde::Deserialize;
@@ -28,7 +28,8 @@ const LOOKUP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The newest release of each tool, as last looked up.
 pub struct ToolReleases {
-    http: Client,
+    /// `None` when the client could not be made; every lookup then fails.
+    http: Option<Client>,
     /// Held across a lookup, so callers waiting on it share its answer.
     found: AsyncMutex<HashMap<Of, Found>>,
 }
@@ -64,7 +65,8 @@ impl Default for ToolReleases {
         let http = beep_proto::https::client()
             .timeout(LOOKUP_TIMEOUT)
             .build()
-            .unwrap_or_default();
+            .inspect_err(|e| tracing::warn!("no HTTP client for releases: {e:#}"))
+            .ok();
         Self {
             http,
             found: AsyncMutex::default(),
@@ -122,6 +124,7 @@ impl ToolReleases {
     }
 
     async fn lookup(&self, of: Of) -> Result<String> {
+        let http = self.http.as_ref().context("no HTTP client")?;
         let releases = match of {
             Of::Tool(tool) => tool.releases(),
             Of::Node => Releases::Channel(NODE_RELEASES),
@@ -129,8 +132,7 @@ impl ToolReleases {
         let repo = match releases {
             Releases::GitHub(repo) => repo,
             Releases::Channel(base) => {
-                let text = self
-                    .http
+                let text = http
                     .get(format!("{base}/latest.txt"))
                     .header(USER_AGENT, AGENT)
                     .send()
@@ -142,8 +144,7 @@ impl ToolReleases {
             }
         };
         let url = format!("https://api.github.com/repos/{repo}/releases/latest");
-        let release: Release = self
-            .http
+        let release: Release = http
             .get(&url)
             .header(USER_AGENT, AGENT)
             .send()

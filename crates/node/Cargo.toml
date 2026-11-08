@@ -17,6 +17,7 @@ host = [
     "dep:bao-tree",
     "dep:base64",
     "dep:beep-mesh",
+    "beep-mesh/thumbs",
     "dep:beep-projects",
     "dep:beep-report",
     "dep:blake3",
@@ -96,6 +97,7 @@ flate2 = { version = "1", optional = true }
 futures = { version = "0.3", optional = true }
 hex = { version = "0.4", optional = true }
 ignore = { version = "0.4", optional = true }
+# Port mapping and metrics: a node is reached from outside.
 iroh = { version = "1.3", optional = true }
 iroh-blobs = { version = "0.104", default-features = false, features = ["fs-store"], optional = true }
 iroh-tickets = { version = "1", optional = true }

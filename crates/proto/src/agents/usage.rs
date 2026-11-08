@@ -178,7 +178,6 @@ ffi_structs! {
 }
 
 /// What a provider's balance applies to.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CreditScope {
@@ -190,7 +189,6 @@ pub enum CreditScope {
 }
 
 /// The unit of a provider's balance.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CreditUnit {
