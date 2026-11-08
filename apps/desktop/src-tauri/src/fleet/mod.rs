@@ -175,6 +175,7 @@ impl Fleet {
             releases: ToolReleases::default(),
             parents: parents::Parents::default(),
             presence: presence::Presence::default(),
+            snapshots: Arc::new(events::Snapshots::default()),
         }
     }
 
