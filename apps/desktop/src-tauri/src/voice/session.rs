@@ -35,7 +35,10 @@ const QUIET: &str = "Live mode ended after 2 minutes quiet.";
 
 /// How live mode starts.
 pub(super) enum Start {
+    /// From Option, which a phone does not have.
+    #[cfg(desktop)]
     Tap,
+    #[cfg(desktop)]
     Hold,
     Note {
         note: VoiceNote,
@@ -181,7 +184,9 @@ impl Voice {
         let mode = self.end_mode();
         let id = self.lives.fetch_add(1, Ordering::Relaxed) + 1;
         let ((live, effects), note) = match how {
+            #[cfg(desktop)]
             Start::Tap => (Live::listening(mode, now), None),
+            #[cfg(desktop)]
             Start::Hold => (Live::hold_to_talk(mode, now), None),
             Start::Note {
                 note,

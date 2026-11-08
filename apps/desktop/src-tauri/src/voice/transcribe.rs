@@ -22,6 +22,7 @@ const BUSY_TRIES: u32 = 6;
 /// The longest wait between those tries.
 const BUSY_WAIT: Duration = Duration::from_secs(8);
 /// How long letting go of Option waits for the last words.
+#[cfg(desktop)]
 const FINISH_WAIT: Duration = Duration::from_secs(2);
 const BUSY: &str = "Voice is busy in another window or on another device. Try again in a moment.";
 
@@ -237,6 +238,7 @@ impl Voice {
     /// Option came up after a hold. The words said last may still be on
     /// their way, so the audio ends and the hold waits for the server's last
     /// words, up to `FINISH_WAIT`, before it sends.
+    #[cfg(desktop)]
     pub(super) fn release(self: &Arc<Self>) {
         let finishing = {
             let mut state = self.state();
