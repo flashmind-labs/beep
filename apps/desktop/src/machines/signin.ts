@@ -24,7 +24,7 @@ export function openSignIn(machine: { id: string; name: string }, tool: string, 
   let sending = false;
   let active = true;
   let pending: Promise<void> = Promise.resolve();
-  const unfollow = subscribeChanges(topic("accounts"), async () => {
+  const unfollow = subscribeChanges(topic("sign-in", tool), async () => {
     await step({ step: "state" });
     if (error) throw new Error(error);
   }, machine.id, () => active);

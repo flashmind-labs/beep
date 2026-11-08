@@ -110,6 +110,23 @@ impl Snapshots {
         if selected("terminals") || selected("terminal-output") {
             wanted.push((Topic::new("terminals"), Source::Read(Read::TerminalList)));
         }
+        if selected("sign-in") {
+            for tool in [
+                beep_proto::node::sign_in::Tool::Claude,
+                beep_proto::node::sign_in::Tool::Codex,
+                beep_proto::node::sign_in::Tool::Opencode,
+            ] {
+                let topic = Topic::keyed("sign-in", tool.to_string());
+                if topics.iter().any(|wanted| wanted.covers(&topic)) {
+                    wanted.push((
+                        topic,
+                        Source::Read(Read::SignIn {
+                            tool: tool.to_string(),
+                        }),
+                    ));
+                }
+            }
+        }
         if selected("sync") {
             wanted.push((Topic::new("sync"), Source::Read(Read::SyncList)));
         }
@@ -177,6 +194,7 @@ impl Snapshots {
                         | "sync"
                         | "moves"
                         | "reviews"
+                        | "sign-in"
                 )
         }) {
             wanted.push((topic.clone(), Source::Plugin));
@@ -434,6 +452,21 @@ async fn read_value(offers: Offers, caller: iroh::EndpointId, read: Read) -> Res
                 CallReply::Sessions(reply) => Ok(Value::Sessions(reply)),
                 _ => bail!("unexpected snapshot reply"),
             }
+        }
+        Read::SignIn { tool } => {
+            let link = beep_proto::node::local_link();
+            let _task = AbortOnDropHandle::new(tokio::spawn(crate::machine::sign_in::serve(
+                link.node.0,
+                link.node.1,
+            )));
+            let (mut tx, mut rx) = link.caller;
+            tx.send(&beep_proto::node::sign_in::Request::State { tool })
+                .await?;
+            Ok(Value::SignIn(
+                rx.recv()
+                    .await?
+                    .context("sign-in state closed without a reply")?,
+            ))
         }
         Read::Process(request) => Ok(Value::Process(
             crate::run::tasks::answer(crate::run::tasks::Table::Shared, request).await,
