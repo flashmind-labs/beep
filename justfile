@@ -141,6 +141,7 @@ desktop-check:
 
 # Build the phone app (the desktop app built for iOS) for the simulator
 ios-build:
+    bash scripts/tauri-init.sh ios
     cd apps/desktop && npm ci --silent && npm run tauri -- ios build --debug --target aarch64-sim
 
 # Build, install and launch the phone app on the iPhone 17 simulator
@@ -154,10 +155,12 @@ ios-run device="":
 
 # Build the phone app's debug APK for arm64
 android-build:
+    bash scripts/tauri-init.sh android
     cd apps/desktop && npm ci --silent && npm run tauri -- android build --debug --apk --target aarch64
 
 # Build, install and launch the phone app on a connected Android device or emulator
 android-run:
+    bash scripts/tauri-init.sh android
     cd apps/desktop && npm ci --silent && npm run tauri -- android run
 
 # Restart the server (kill old, start new)
