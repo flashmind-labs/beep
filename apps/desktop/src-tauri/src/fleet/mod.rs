@@ -9,8 +9,10 @@
 pub(crate) mod agents;
 pub(crate) mod alerts;
 pub(crate) mod asked;
+#[cfg(desktop)]
 mod carry;
 pub(crate) mod files;
+#[cfg(desktop)]
 mod mesh;
 pub(crate) mod migrate;
 mod parents;
@@ -29,9 +31,9 @@ use beep_mesh::{
     machine::releases::ToolReleases, with_deadline,
 };
 #[cfg(desktop)]
-use beep_node::link::Offers;
-use beep_node::{files::Folders, link::peers::Peers};
+use beep_node::{files::Folders, link::Offers, link::peers::Peers};
 use iroh::{Endpoint, EndpointId, protocol::Router};
+#[cfg(desktop)]
 use mesh::Serving;
 pub(crate) use parents::SessionParent;
 pub use status::{ClockOff, Status};
@@ -97,6 +99,7 @@ async fn close_within(mut mesh: Mesh, wait: Duration) -> Result<(), InUse> {
 enum Opened {
     Opening,
     /// A phone with no mesh yet: it waits for a desktop's phone ticket.
+    #[cfg(mobile)]
     Unpaired,
     Open(Mesh),
     /// It could not be opened or made; the text says why.
@@ -108,15 +111,19 @@ pub struct Fleet {
     endpoint: Endpoint,
     /// The embedded node's folder, which holds the mesh.
     dir: PathBuf,
+    #[cfg(desktop)]
     name: String,
-    /// The embedded node's links. None on a phone, which is a mesh observer and runs no node.
-    peers: Option<Peers>,
+    /// The embedded node's links. A phone is a mesh observer and runs no node.
+    #[cfg(desktop)]
+    peers: Peers,
     /// What the user's home shares, for files and sync.
+    #[cfg(desktop)]
     folders: Folders,
     /// The embedded node, as a call to this Mac reaches it. None on a phone.
     session: Option<SessionFn>,
     mesh: watch::Sender<Opened>,
     status: Status,
+    #[cfg(desktop)]
     serving: Mutex<Option<Arc<Serving>>>,
     /// A phone's answer to the mesh and join protocols, held while the mesh is in use.
     observing: Mutex<Option<Router>>,
@@ -155,7 +162,7 @@ impl Fleet {
             endpoint,
             dir: dir.to_owned(),
             name: name.to_owned(),
-            peers: Some(peers),
+            peers,
             folders,
             mesh: watch::channel(Opened::Opening).0,
             serving: Mutex::default(),
@@ -179,11 +186,7 @@ impl Fleet {
             session: None,
             endpoint,
             dir: dir.to_owned(),
-            name: String::new(),
-            peers: None,
-            folders: Folders::new(&[]),
             mesh: watch::channel(Opened::Opening).0,
-            serving: Mutex::default(),
             observing: Mutex::default(),
             joining: AsyncMutex::new(()),
             move_task: Mutex::default(),
@@ -205,28 +208,31 @@ impl Fleet {
 
     /// `serve`, then `start_services`. Takes the time it takes and is meant
     /// to run in the background.
+    #[cfg(desktop)]
     pub async fn run(&self) {
-        if self.peers.is_none() {
-            self.open_observer().await;
-            return;
-        }
         self.serve().await;
         self.start_services().await;
     }
 
+    /// Opens the mesh the phone is paired with, if any.
+    #[cfg(mobile)]
+    pub async fn run(&self) {
+        self.open_observer().await;
+    }
+
     /// Answers peers on the endpoint and opens the mesh. Quick: it waits
     /// for no service.
+    #[cfg(desktop)]
     async fn serve(&self) {
-        let Some(peers) = &self.peers else { return };
-        let serving = Arc::new(Serving::spawn(&self.endpoint, peers));
+        let serving = Arc::new(Serving::spawn(&self.endpoint, &self.peers));
         *self.serving.lock().unwrap_or_else(PoisonError::into_inner) = Some(serving);
         self.open().await;
     }
 
     /// Starts the transfer and sync services, which take longer. Until they
     /// are up, sessions that open their protocols wait.
+    #[cfg(desktop)]
     async fn start_services(&self) {
-        let Some(peers) = &self.peers else { return };
         let serving = self
             .serving
             .lock()
@@ -235,16 +241,17 @@ impl Fleet {
         match serving {
             Some(serving) => {
                 serving
-                    .start_services(&self.endpoint, &self.dir, peers, self.folders.clone())
+                    .start_services(&self.endpoint, &self.dir, &self.peers, self.folders.clone())
                     .await;
             }
-            None => peers.settle(),
+            None => self.peers.settle(),
         }
     }
 
     /// Opens the mesh, or makes it.
+    #[cfg(desktop)]
     async fn open(&self) {
-        let Some(peers) = &self.peers else { return };
+        let peers = &self.peers;
         match mesh::open_or_create(&self.dir, &self.endpoint, &self.name).await {
             Ok(mesh) => {
                 // The node reads its own kind from the mesh's device list.
@@ -277,6 +284,7 @@ impl Fleet {
 
     /// Cancels the account move and waits until it lets go of the mesh. It starts again with
     /// the next launch, or the next sign-in or join.
+    #[cfg(desktop)]
     async fn stop_move(&self) {
         let task = self
             .move_task
@@ -296,12 +304,9 @@ impl Fleet {
     /// are written again in the new one. A Mac with other devices in its
     /// mesh does not leave it, and neither does one whose mesh stays in use
     /// elsewhere in the app past `CLOSE_WAIT`.
+    #[cfg(desktop)]
     pub async fn join(&self, ticket: &JoinTicket, name: &str) -> Result<()> {
-        let Some(peers) = &self.peers else {
-            return Err(DesktopError::BadRequest(
-                "a phone pairs with a phone ticket".into(),
-            ));
-        };
+        let peers = &self.peers;
         let _one = self.joining.lock().await;
         let old = self.ready().await?;
         // A mesh that removed this Mac has nothing to keep.
@@ -346,19 +351,31 @@ impl Fleet {
         carried
     }
 
+    /// A phone does not join with a desktop's ticket.
+    #[cfg(mobile)]
+    pub async fn join(&self, _ticket: &JoinTicket, _name: &str) -> Result<()> {
+        Err(DesktopError::BadRequest(
+            "a phone pairs with a phone ticket".into(),
+        ))
+    }
+
     /// Stops answering peers, then stops the sync and transfer services, which
     /// save their state.
     pub async fn stop(&self) {
+        #[cfg(desktop)]
         let serving = self
             .serving
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take();
+        #[cfg(desktop)]
         let serving = async {
             if let Some(serving) = serving {
                 serving.stop().await;
             }
         };
+        #[cfg(mobile)]
+        let serving = async {};
         let observing = self
             .observing
             .lock()
@@ -404,6 +421,7 @@ impl Fleet {
                 DesktopError::NoMesh("this phone was removed from the mesh".into()),
             ),
             Opened::Open(mesh) => Ok(mesh),
+            #[cfg(mobile)]
             Opened::Unpaired => Err(DesktopError::NoMesh("this phone is not paired".into())),
             Opened::Failed(why) => Err(DesktopError::NoMesh(why)),
             Opened::Opening => Err(DesktopError::NoMesh("still opening".into())),
@@ -449,6 +467,7 @@ impl Fleet {
     }
 
     /// Opens a phone's mesh, if it has one, and serves it.
+    #[cfg(mobile)]
     async fn open_observer(&self) {
         match Mesh::open(&self.dir, self.endpoint.clone()).await {
             Ok(Some(mesh)) => self.observe(mesh).await,
@@ -464,6 +483,7 @@ impl Fleet {
 
     /// Takes `mesh` as the phone's: marks the phone an observer, answers the mesh and join
     /// protocols, and follows the machines.
+    #[cfg(mobile)]
     async fn observe(&self, mesh: Mesh) {
         match beep_fleet::observe(&mesh, &self.endpoint).await {
             Ok(router) => {

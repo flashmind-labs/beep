@@ -11,6 +11,7 @@ use crate::{
     projects::unknown_op,
 };
 use beep_mesh::{Key, Mesh};
+#[cfg(desktop)]
 use beep_node::agents::{local_read, local_tree};
 use beep_proto::{
     AgentFileChunk, ImportedProject, ListImportedProjects, ListProjectSync, ListWorkTree,
@@ -25,6 +26,23 @@ use std::{
     time::{Duration, Instant, UNIX_EPOCH},
 };
 use tokio::task::spawn_blocking;
+
+/// A phone keeps no project folders, so it has no copy to read.
+#[cfg(mobile)]
+fn local_read(
+    _root: &Path,
+    _path: &str,
+    _offset: u64,
+    _len: u32,
+) -> anyhow::Result<Option<AgentFileChunk>> {
+    Ok(None)
+}
+
+/// A phone keeps no project folders, so it has no copy to list.
+#[cfg(mobile)]
+fn local_tree(_root: &Path, _path: &str, _ignored: bool, _depth: u32) -> anyhow::Result<WorkTree> {
+    anyhow::bail!("a phone keeps no project folders")
+}
 
 /// How long an answer about one folder stands. Reads come a part at a time,
 /// and a pause or a new sync shows within this.
