@@ -27,8 +27,8 @@ body.mobile .mb-tabs button[aria-current="true"] { color: var(--fg) }
 body.mobile .mb-tabs button[aria-current="true"] svg { color: var(--accent) }
 body.mobile .mb-tabs button.dot::after { content: ""; position: absolute; top: 7px; left: calc(50% + 8px); width: 7px; height: 7px; border-radius: 50%; background: var(--warn) }
 body.mobile.mb-full .mb-tabs, body.mobile.mb-kbd .mb-tabs { display: none }
-/* Without the tab bar, the composer keeps clear of the home indicator. */
-body.mobile.mb-full:not(.mb-kbd) .dinput { padding-bottom: calc(6px + env(safe-area-inset-bottom)) }
+/* Without the tab bar, the page keeps clear of the home indicator (the keyboard covers it). */
+body.mobile.mb-full:not(.mb-kbd) .cwin { padding-bottom: env(safe-area-inset-bottom) }
 
 /* Touch targets: 44 px, and a 16 px field so iOS does not zoom in. */
 body.mobile :is(.dbtn, .cc-top button, .cc-menu button, .cc-tabs button, .cc-mstrip > button.m, .cc-si, .pj-li, .tl-it, .tl-m h5 .dbtn, .rp-row) { min-height: 44px }
