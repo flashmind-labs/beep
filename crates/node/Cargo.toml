@@ -57,6 +57,7 @@ host = [
     "dep:windows-sys",
     "beep-proto/logging",
     "beep-proto/https",
+    "beep-proto/http2",
 ]
 # The command line; a host that embeds the node, such as the Mac app, leaves it out.
 # `beep-node update` comes with it, with what it downloads and unpacks with.

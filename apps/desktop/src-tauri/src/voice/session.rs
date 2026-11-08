@@ -7,7 +7,7 @@ use super::{
     audio::{Audio, MicChunk, MicDenied, Played},
     card,
     event::LiveEvent,
-    hotkey::{self, Taps},
+    hotkey,
     news::Heard,
     orb,
     reader::Reader,
@@ -163,7 +163,9 @@ impl Session {
 
 #[derive(Default)]
 pub(super) struct State {
-    pub(super) taps: Taps,
+    #[cfg(desktop)]
+    pub(super) taps: hotkey::Taps,
+    #[cfg(desktop)]
     pub(super) hold: hotkey::Hold,
     pub(super) live: Option<Session>,
     /// The microphone opened when Option went down in the open bar, for

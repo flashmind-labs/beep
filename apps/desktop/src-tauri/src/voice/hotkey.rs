@@ -12,14 +12,18 @@
 //! it is held for menus, Option-drag and Option-click. The same monitor
 //! drives both, through `Hold`, and `on_single` and `on_held` decide.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(desktop)]
+use std::time::Instant;
 
 /// Longest a tap may be held, and longest between two taps.
+#[cfg(desktop)]
 pub const WINDOW: Duration = Duration::from_millis(300);
 
 /// What the tap reports, stripped of Core Graphics types so the logic can
 /// be tested.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(desktop)]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub enum Input {
     /// Option went down with no other modifier held.
@@ -32,6 +36,7 @@ pub enum Input {
 }
 
 /// What a run of quick Option taps asks for.
+#[cfg(desktop)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TapStep {
     Nothing,
@@ -41,6 +46,7 @@ pub enum TapStep {
 
 /// Counts quick Option taps in a row. Anything else between them, or a
 /// long hold, starts over.
+#[cfg(desktop)]
 #[derive(Debug, Default)]
 pub struct Taps {
     down_at: Option<Instant>,
@@ -48,6 +54,7 @@ pub struct Taps {
     count: u32,
 }
 
+#[cfg(desktop)]
 impl Taps {
     pub fn on_event(&mut self, input: Input, now: Instant) -> TapStep {
         match input {
@@ -94,9 +101,11 @@ impl Taps {
 
 /// How long Option must be held alone before it counts as held. Longer
 /// than a tap, so a double tap never talks.
+#[cfg(desktop)]
 pub const HOLD: Duration = Duration::from_millis(400);
 
 /// What holding or tapping Option asks for.
+#[cfg(desktop)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HoldStep {
     Nothing,
@@ -116,6 +125,7 @@ pub enum HoldStep {
 }
 
 /// Tracks a hold of Option, and a tap that stands alone.
+#[cfg(desktop)]
 #[derive(Debug, Default)]
 pub struct Hold {
     /// The press Option is held for, counted so a late timer from an older
@@ -128,6 +138,7 @@ pub struct Hold {
     tapped_at: Option<Instant>,
 }
 
+#[cfg(desktop)]
 impl Hold {
     pub fn on_event(&mut self, input: Input, now: Instant) -> HoldStep {
         match input {
@@ -230,6 +241,7 @@ pub enum Voice {
 }
 
 /// What a lone tap or a hold of Option does.
+#[cfg(desktop)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Act {
     Nothing,
@@ -242,6 +254,7 @@ pub enum Act {
 }
 
 /// What two taps of Option do.
+#[cfg(desktop)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Two {
     /// Open the bar, or hide it.
@@ -253,6 +266,7 @@ pub enum Two {
 }
 
 /// Two taps. `bar_open` is whether the bar is on screen.
+#[cfg(desktop)]
 pub fn on_two(voice: Voice, bar_open: bool) -> Two {
     match voice {
         Voice::Off => Two::Toggle,
@@ -262,6 +276,7 @@ pub fn on_two(voice: Voice, bar_open: bool) -> Two {
 }
 
 /// A lone tap. `bar_open` is a bar the user opened with two taps.
+#[cfg(desktop)]
 pub fn on_single(voice: Voice, bar_open: bool) -> Act {
     match voice {
         Voice::Off if bar_open => Act::Start,
@@ -272,6 +287,7 @@ pub fn on_single(voice: Voice, bar_open: bool) -> Act {
 }
 
 /// Option held alone. `bar_open` is a bar the user opened with two taps.
+#[cfg(desktop)]
 pub fn on_held(voice: Voice, bar_open: bool) -> Act {
     match voice {
         Voice::Off if bar_open => Act::Start,
@@ -415,7 +431,7 @@ mod monitor {
 #[cfg(target_os = "macos")]
 pub use monitor::{since_press, start, unwatch_escape, watch_escape};
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(desktop, not(target_os = "macos")))]
 pub fn start(_: impl Fn(Input) + 'static) {}
 
 #[cfg(not(target_os = "macos"))]
@@ -429,7 +445,7 @@ pub fn watch_escape(_: impl Fn() -> bool + 'static) {}
 #[cfg(not(target_os = "macos"))]
 pub fn unwatch_escape() {}
 
-#[cfg(test)]
+#[cfg(all(test, desktop))]
 mod tests {
     use super::*;
 

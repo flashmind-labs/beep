@@ -534,7 +534,7 @@ impl Audio {
     pub fn stop_playing(&self) {}
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(desktop, not(target_os = "macos")))]
 pub fn mic_allowed() -> bool {
     false
 }
