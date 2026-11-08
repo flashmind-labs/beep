@@ -1,10 +1,7 @@
 //! Project folder sync records of released apps. The server reaches no machine, so each shows
 //! offline and edits stay in the records; desktops sync projects over their mesh.
 
-use super::{
-    Reply,
-    own_nodes::{linked_keys, retired},
-};
+use super::{Reply, own_nodes::linked_keys, retired::refused};
 use crate::{
     api::router::Cx,
     protocol::{
@@ -228,9 +225,6 @@ pub(super) async fn pause_project_sync(
     detail(&cx, name).await
 }
 
-pub(super) async fn resolve_sync_conflict(_: Cx, _: ResolveSyncConflict) -> Reply<()> {
-    retired()
-}
 /// One project as `projects` lists it.
 async fn project(cx: &Cx, name: &str) -> Reply<ProjectSync> {
     projects(cx, Some(name))
@@ -248,7 +242,7 @@ pub(super) async fn set_project_sync(cx: Cx, request: SetProjectSync) -> Reply<P
         return Err(ApiError::NotFound {});
     }
     if request.on {
-        return retired();
+        return refused();
     }
     cx.user
         .remove_project_sync(name, &request.machine_id)
@@ -306,10 +300,6 @@ fn syncthing_places(
         });
     }
     out
-}
-
-pub(super) async fn get_sync_skipped(_: Cx, _: GetSyncSkipped) -> Reply<SyncSkipped> {
-    retired()
 }
 
 pub(super) async fn pin_project(cx: Cx, request: PinProject) -> Reply<ProjectSync> {

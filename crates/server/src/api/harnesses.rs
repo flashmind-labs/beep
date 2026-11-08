@@ -1,6 +1,6 @@
-//! The Coding agents page: harnesses on each machine, their settings, and installing them.
+//! Saved coding-agent settings for the caller's machines.
 
-use super::{Reply, own_nodes::retired};
+use super::Reply;
 use crate::{
     account::credentials::CredentialKey,
     account::user::User,
@@ -9,10 +9,6 @@ use crate::{
     store::{HarnessRow, SaveHarness},
 };
 use anyhow::Context;
-
-pub(super) async fn list_agent_harnesses(_: Cx, _: ListAgentHarnesses) -> Reply<AgentHarnesses> {
-    retired()
-}
 
 pub(super) async fn save_harness_settings(
     cx: Cx,
@@ -197,10 +193,6 @@ pub(super) async fn save_flsh_settings(
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
     cx.user.save_flsh_settings(&settings).await?;
     Ok(())
-}
-
-pub(super) async fn update_agent_harness(_: Cx, _: UpdateAgentHarness) -> Reply<AgentHarnesses> {
-    retired()
 }
 
 /// A harness's saved settings as the apps see them, env var names without values.

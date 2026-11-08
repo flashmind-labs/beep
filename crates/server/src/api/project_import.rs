@@ -1,41 +1,14 @@
-//! Importing projects onto the caller's machines and browsing their folders. The server reaches
-//! no machine: a desktop imports over its mesh; the records stay listed here.
+//! Imported project records and machine placement. Removing records contacts no machine.
 
-use super::{Reply, own_nodes::retired};
+use super::Reply;
 use crate::{
     api::router::Cx,
     projects::imports,
     protocol::{
-        ApiError, CopyProject, CreateProject, CreatedProject, FindImportFork, HostRepos,
-        ImportFork, ImportPreview, ImportProject, ImportedProject, ListHostRepos,
-        ListImportedProjects, ListMachineFolder, ListProjectForges, ListProjectMachines,
-        MachineFolder, PreviewImport, ProjectCopy, ProjectForge, ProjectMachine, RemoveProject,
+        ApiError, ImportedProject, ListImportedProjects, ListProjectMachines, ProjectMachine,
+        RemoveProject,
     },
 };
-
-pub(super) async fn copy_project(_: Cx, _: CopyProject) -> Reply<ProjectCopy> {
-    retired()
-}
-
-pub(super) async fn import_project(_: Cx, _: ImportProject) -> Reply<ImportedProject> {
-    retired()
-}
-
-pub(super) async fn list_project_forges(_: Cx, _: ListProjectForges) -> Reply<Vec<ProjectForge>> {
-    Ok(Vec::new())
-}
-
-pub(super) async fn create_project(_: Cx, _: CreateProject) -> Reply<CreatedProject> {
-    retired()
-}
-
-pub(super) async fn preview_import(_: Cx, _: PreviewImport) -> Reply<ImportPreview> {
-    retired()
-}
-
-pub(super) async fn find_import_fork(_: Cx, _: FindImportFork) -> Reply<ImportFork> {
-    retired()
-}
 
 pub(super) async fn list_imported_projects(
     cx: Cx,
@@ -57,10 +30,6 @@ pub(super) async fn remove_project(cx: Cx, request: RemoveProject) -> Reply<()> 
     }
 }
 
-pub(super) async fn list_machine_folder(_: Cx, _: ListMachineFolder) -> Reply<MachineFolder> {
-    retired()
-}
-
 pub(super) async fn list_project_machines(
     cx: Cx,
     request: ListProjectMachines,
@@ -68,9 +37,4 @@ pub(super) async fn list_project_machines(
     imports::project_machines(&cx.user, &request.project)
         .await?
         .ok_or(ApiError::NotFound {})
-}
-
-/// The repositories were read with a machine's `gh` and `teacli`; none is reached now.
-pub(super) async fn list_host_repos(_: Cx, _: ListHostRepos) -> Reply<Vec<HostRepos>> {
-    Ok(Vec::new())
 }

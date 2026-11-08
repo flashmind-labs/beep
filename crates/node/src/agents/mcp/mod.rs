@@ -31,6 +31,7 @@ pub(crate) mod children;
 mod debug;
 pub(crate) mod harness;
 mod machines;
+mod reply;
 mod review;
 mod server;
 mod socket;

@@ -1,6 +1,7 @@
 //! Model discovery for coding agents, on this node or a peer.
 
 use super::machines::{command_name, machines, over_the_mesh};
+use super::reply::fail as failed;
 use crate::{
     agents::{Agents, known},
     link::Offers,
@@ -54,13 +55,6 @@ impl HarnessInfo {
             models: models.models,
             effort_levels,
         }
-    }
-}
-
-fn failed(text: impl Into<String>) -> Reply {
-    Reply::Done {
-        text: text.into(),
-        failed: true,
     }
 }
 
