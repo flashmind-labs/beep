@@ -13,6 +13,7 @@ import { PageHistory } from "./pagehistory.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
 import { viewHidden } from "../settings/subscription.ts";
 import { S } from "../bar/core.ts";
+import { syncMobile } from "./mobile.ts";
 
 let currentPage: Location | null = null;
 
@@ -77,18 +78,19 @@ export function currentLocation(): Location | null {
   return currentPage;
 }
 
-/// Goes one page back (⌘[) or forward (⌘]), if there is one.
-export function goHistory(forward: boolean) {
+/// Goes one page back (⌘[) or forward (⌘]), if there is one; false when there is none.
+export function goHistory(forward: boolean): boolean {
   const current = currentLocation();
-  if (!current) return;
+  if (!current) return false;
   const page = forward ? pages.forward(current) : pages.back(current);
-  if (!page) return;
+  if (!page) return false;
   moving = true;
   try {
     goTo(page);
   } finally {
     moving = false;
   }
+  return true;
 }
 
 /// Shows view `name`, passing `arg` to its mount.
@@ -168,4 +170,5 @@ export function drawTop() {
   $("#scope").replaceChildren(...(head.scope ? [head.scope] : []));
   $("#date").textContent = head.sub || "";
   $("#tools").replaceChildren(...(head.tools || []));
+  syncMobile();
 }

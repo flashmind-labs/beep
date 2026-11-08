@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use flashmind::types::{CompletionStream, StreamEvent};
 use futures::stream;
-use reqwest::{Client, Url};
+use reqwest::Url;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -103,7 +103,7 @@ pub(super) fn generate(base: &Url, key: SecretString, body: ImageBody) -> Comple
 }
 
 async fn request(url: &str, key: &SecretString, body: &ImageBody) -> Result<Produced> {
-    let client = Client::builder().timeout(REQUEST_TIME).build()?;
+    let client = beep_proto::https::client().timeout(REQUEST_TIME).build()?;
     let response = client
         .post(url)
         .bearer_auth(key.expose_secret())

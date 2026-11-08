@@ -13,7 +13,7 @@ use beep_report::{Manifest, Period, SendError, Sender, draft, send, zip};
 use beep_server::config::ReportsConfig;
 use beep_server::reports::{Reports, routes};
 use iroh::{EndpointId, SecretKey};
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
 use url::Url;
@@ -43,7 +43,11 @@ async fn serve(config: ReportsConfig) -> Server {
 }
 
 async fn serve_with(config: &ReportsConfig) -> Url {
-    let reports = Reports::new(config, Client::new()).expect("the reports config is valid");
+    let reports = Reports::new(
+        config,
+        beep_proto::https::client().build().expect("a client"),
+    )
+    .expect("the reports config is valid");
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("a free local port binds");
@@ -94,7 +98,9 @@ impl<'a> Post<'a> {
 
     async fn send(self, server: &Url, body: Vec<u8>) -> (StatusCode, String) {
         let signature = self.signer.sign(&signed_message(&body, self.at_ms));
-        let mut request = Client::new()
+        let mut request = beep_proto::https::client()
+            .build()
+            .expect("a client")
             .post(format!("{}{PATH}", server.as_str().trim_end_matches('/')))
             .header(KEY_HEADER, self.key.public().to_string())
             .header(TIME_HEADER, self.at_ms.to_string())
@@ -316,7 +322,13 @@ async fn a_report_the_store_fails_to_keep_does_not_use_up_the_day() {
 
 #[test]
 fn reports_outside_a_runtime_is_an_error() {
-    assert!(Reports::new(&ReportsConfig::default(), Client::new()).is_err());
+    assert!(
+        Reports::new(
+            &ReportsConfig::default(),
+            beep_proto::https::client().build().expect("a client")
+        )
+        .is_err()
+    );
 }
 
 #[tokio::test]

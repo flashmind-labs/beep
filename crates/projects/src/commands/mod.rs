@@ -179,4 +179,5 @@ fn role(configured: &str, remote_host: &str) -> Result<Option<IssueHost>, SetupE
 // ---- what the hosts print ----
 
 #[cfg(test)]
+#[path = "../tests/commands.rs"]
 mod tests;

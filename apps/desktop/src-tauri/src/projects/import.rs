@@ -18,8 +18,12 @@ use beep_proto::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, State};
+#[cfg(desktop)]
+use tauri::AppHandle;
+use tauri::State;
+#[cfg(desktop)]
 use tauri_plugin_dialog::{DialogExt, FilePath};
+#[cfg(desktop)]
 use tokio::sync::oneshot;
 
 /// A branch the import sheet gives a worktree, on `machine_id` or, without
@@ -284,8 +288,18 @@ pub async fn folder_branch(
     }
 }
 
+/// Projects are created from a desktop; a phone has no folder picker.
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn pick_folder(_start: Option<String>) -> Result<Option<String>> {
+    Err(DesktopError::BadRequest(
+        "A phone cannot pick a folder.".into(),
+    ))
+}
+
 /// The macOS folder picker, opened at `start`; `None` when the user
 /// cancels.
+#[cfg(desktop)]
 #[tauri::command]
 pub async fn pick_folder(app: AppHandle, start: Option<String>) -> Result<Option<String>> {
     let (picked, chosen) = oneshot::channel();
@@ -308,6 +322,7 @@ pub async fn pick_folder(app: AppHandle, start: Option<String>) -> Result<Option
 }
 
 /// A picked folder as the path the server takes.
+#[cfg(desktop)]
 fn folder_text(folder: FilePath) -> Result<String> {
     let path = folder
         .into_path()
@@ -327,22 +342,5 @@ pub(super) fn outdated(e: DesktopError) -> DesktopError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_a_folder_that_is_there_opens() {
-        let dir = std::env::temp_dir();
-        assert!(openable(&dir));
-        assert!(!openable(Path::new("relative/folder")));
-        assert!(!openable(&dir.join("no-such-folder-for-beep")));
-    }
-
-    #[test]
-    fn refusals_read_as_the_servers_sentence() {
-        let old = DesktopError::Api(ApiError::bad_request("unknown op 166"));
-        assert!(outdated(old).to_string().contains("needs an update"));
-        let said = DesktopError::Api(ApiError::bad_request("build-box is offline."));
-        assert_eq!(outdated(said).to_string(), "build-box is offline.");
-    }
-}
+#[path = "../tests/projects_import.rs"]
+mod tests;

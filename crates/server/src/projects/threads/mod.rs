@@ -319,4 +319,5 @@ pub(crate) async fn view(
 }
 
 #[cfg(test)]
+#[path = "../../tests/projects_threads.rs"]
 pub(crate) mod tests;

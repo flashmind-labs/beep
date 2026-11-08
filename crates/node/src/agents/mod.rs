@@ -2,244 +2,251 @@
 //! over ACP (`Agents`) and the streams the server follows them on; sessions
 //! started outside Beep (`claude`, `found`) and the Beep MCP server (`mcp`).
 
-use crate::{AsyncMutex, agents::claude::External, agents::found::Stores, agents::mcp::Launch};
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::{Arc, Mutex, OnceLock, atomic::AtomicBool},
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
-use tokio::{sync::watch, time::Instant};
-
-pub mod claude;
-pub(crate) mod found;
-pub mod mcp;
-pub mod skills;
-
-mod acp;
-mod adapters;
-mod alerts;
-mod checkout;
-mod compaction;
-mod custom_agents;
-mod delete;
-mod family;
-mod flsh_config;
-pub(crate) mod follow;
-mod found_sessions;
-mod harnesses;
-mod holders;
-mod image_files;
-mod image_index;
-mod images;
-mod kinds;
-mod live;
-pub(crate) mod locate;
-mod made_files;
-mod media_file;
-mod models;
-mod moving;
-mod place;
-mod plans;
-pub mod presence;
-mod prices;
-mod processes;
-pub(crate) mod reach;
-mod repository_recovery;
-mod requests;
-mod restart;
-mod reviews;
-mod running;
-mod session;
-mod session_stream;
-mod spend;
-mod subagent;
 pub mod tags;
-mod tool_details;
-mod tool_diff;
-pub(crate) mod uploads;
-mod usage;
-mod window;
 mod work_diff;
-mod work_folder;
-mod worktrees;
 
 pub use work_diff::parse_git_patch;
-pub use work_folder::{local_read, local_tree};
 
-pub(crate) use acp::{Line, LineReader};
+host! {
+    mod brief;
+    mod text;
+    pub(crate) use text::cut;
+    use crate::{AsyncMutex, agents::claude::External, agents::found::Stores, agents::mcp::Launch};
+    use std::{
+        collections::HashMap,
+        path::PathBuf,
+        sync::{Arc, Mutex, OnceLock, atomic::AtomicBool},
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
+    use tokio::{sync::watch, time::Instant};
+
+    pub mod claude;
+    pub(crate) mod found;
+    pub mod mcp;
+    pub mod skills;
+
+pub(crate) mod follow;
+    mod acp;
+    mod adapters;
+    mod alerts;
+    mod checkout;
+    mod compaction;
+    mod custom_agents;
+    mod delete;
+    mod family;
+    mod flsh_config;
+    mod found_sessions;
+    mod harnesses;
+    mod holders;
+    mod image_files;
+    mod image_index;
+    mod images;
+    mod kinds;
+    mod live;
+    pub(crate) mod locate;
+    mod made_files;
+    mod media_file;
+    mod models;
+    mod moving;
+    mod place;
+    mod plans;
+    pub mod presence;
+    mod prices;
+    mod processes;
+    pub(crate) mod reach;
+    mod repository_recovery;
+mod tool_details;
+    mod requests;
+    mod restart;
+    mod reviews;
+    mod running;
+    mod session;
+    mod session_stream;
+    mod spend;
+    mod subagent;
+    mod tool_diff;
+    pub(crate) mod uploads;
+    mod usage;
+    mod window;
 pub use follow::serve_follow;
-pub(crate) use images::{Picture, block_picture};
-pub use kinds::{AgentKind, detect};
-pub(crate) use live::cut;
-pub use moving::SESSIONS_ALPN;
-pub use moving::SessionsAlpn;
-pub(crate) use moving::follow as follow_moves;
-pub(crate) use moving::project_folder;
-pub use requests::serve_sessions;
-pub(crate) use requests::{TRANSCRIPT_PROTOCOL, serve_transcripts};
-pub(crate) use restart::OpenSession;
-pub(crate) use session::{Answered, Asking};
-pub use session_stream::serve_session;
-pub(crate) use subagent::{Run as SubagentRun, RunStep};
+    mod work_folder;
+    mod worktrees;
 
-use acp::Prompt;
-pub(crate) use alerts::AlertHub;
-use compaction::Route;
-use images::Images;
-use kinds::{Adapter, KNOWN, known, route};
-use models::ModelCache;
-use running::{Begin, folder};
-use session::{Command, NodeMode, Session, Start};
-use spend::Spend;
-use usage::UsageHub;
+    pub use work_folder::{local_read, local_tree};
 
-/// The most sessions kept, ended ones included; the oldest ended go first.
-const MAX_KEPT: usize = 64;
-/// The most transcript entries one request reads.
-const MAX_TRANSCRIPT: u32 = 200;
-/// The most folders `Folders` answers, and how many when the server names
-/// no number.
-const MAX_FOLDERS: usize = 800;
-const DEFAULT_FOLDERS: usize = 100;
-/// The most sessions `InFolders` answers, and how many by default.
-const MAX_IN_FOLDERS: usize = 100;
-const DEFAULT_IN_FOLDERS: usize = 50;
-/// The most folders one `InFolders` names.
-const MAX_ASKED_FOLDERS: usize = 32;
-/// The largest picture `Image` answers, under the link's frame limit.
-const MAX_IMAGE: usize = 7 * 1024 * 1024;
-/// How often the plans' usage is read while the server follows it, and
-/// the least time between two reads it asks for.
-const PLAN_EVERY: Duration = Duration::from_secs(5 * 60);
-const PLAN_REFRESH_GAP: Duration = Duration::from_secs(30);
-/// How often the agents' logs are read for what sessions spent, while the
-/// server follows it.
-const SPEND_EVERY: Duration = Duration::from_secs(60);
-/// How long the folders found in the agents' logs are kept.
-const SIGHTED_FOR: Duration = Duration::from_secs(60);
-/// How long a file request may wait for a look in the agents' logs.
-const SIGHTING_WAIT: Duration = Duration::from_secs(5);
+    pub(crate) use acp::{Line, LineReader};
+    pub(crate) use images::{Picture, block_picture};
+    pub use kinds::{AgentKind, detect};
+    pub use moving::SESSIONS_ALPN;
+    pub use moving::SessionsAlpn;
+    pub(crate) use moving::follow as follow_moves;
+    pub(crate) use moving::project_folder;
+    pub use requests::serve_sessions;
+    pub(crate) use requests::{TRANSCRIPT_PROTOCOL, serve_transcripts};
+    pub(crate) use restart::OpenSession;
+    pub(crate) use session::{Answered, Asking};
+    pub use session_stream::serve_session;
+    pub(crate) use subagent::{Run as SubagentRun, RunStep};
 
-/// Now, in Unix seconds.
-fn unix_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs())
-}
+    use acp::Prompt;
+    pub(crate) use alerts::AlertHub;
+    use compaction::Route;
+    use images::Images;
+    use kinds::{Adapter, KNOWN, known, route};
+    use models::ModelCache;
+    use running::{Begin, folder};
+    use session::{Command, NodeMode, Session, Start};
+    use spend::Spend;
+    use usage::UsageHub;
 
-/// The agents this node offers and the sessions it runs. Sessions belong
-/// to the daemon, so they outlive the streams and the connection.
-#[derive(Default)]
-pub struct Agents {
-    /// Checkouts temporarily held for local Git recovery.
-    recovering: Mutex<std::collections::HashSet<PathBuf>>,
-    pub events: crate::events::Hub,
+    /// The most sessions kept, ended ones included; the oldest ended go first.
+    const MAX_KEPT: usize = 64;
+    /// The most transcript entries one request reads.
+    const MAX_TRANSCRIPT: u32 = 200;
+    /// The most folders `Folders` answers, and how many when the server names
+    /// no number.
+    const MAX_FOLDERS: usize = 800;
+    const DEFAULT_FOLDERS: usize = 100;
+    /// The most sessions `InFolders` answers, and how many by default.
+    const MAX_IN_FOLDERS: usize = 100;
+    const DEFAULT_IN_FOLDERS: usize = 50;
+    /// The most folders one `InFolders` names.
+    const MAX_ASKED_FOLDERS: usize = 32;
+    /// The largest picture `Image` answers, under the link's frame limit.
+    const MAX_IMAGE: usize = 7 * 1024 * 1024;
+    /// How often the plans' usage is read while the server follows it, and
+    /// the least time between two reads it asks for.
+    const PLAN_EVERY: Duration = Duration::from_secs(5 * 60);
+    const PLAN_REFRESH_GAP: Duration = Duration::from_secs(30);
+    /// How often the agents' logs are read for what sessions spent, while the
+    /// server follows it.
+    const SPEND_EVERY: Duration = Duration::from_secs(60);
+    /// How long the folders found in the agents' logs are kept.
+    const SIGHTED_FOR: Duration = Duration::from_secs(60);
+    /// How long a file request may wait for a look in the agents' logs.
+    const SIGHTING_WAIT: Duration = Duration::from_secs(5);
+
+    /// Now, in Unix seconds.
+    fn unix_now() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs())
+    }
+
+    /// The agents this node offers and the sessions it runs. Sessions belong
+    /// to the daemon, so they outlive the streams and the connection.
+    #[derive(Default)]
+    pub struct Agents {
+        /// Checkouts temporarily held for local Git recovery.
+        recovering: Mutex<std::collections::HashSet<PathBuf>>,
+        pub events: crate::events::Hub,
     pub(crate) event_sources: crate::link::EventSources,
-    event_watcher: Mutex<std::sync::Weak<follow::Sources>>,
-    event_forward: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,
-    /// The agents it can start, replaced when detection finds others.
-    kinds: watch::Sender<Arc<Vec<AgentKind>>>,
-    /// The adapters the node installs itself.
-    adapters: adapters::Installs,
-    sessions: Mutex<HashMap<String, Arc<Session>>>,
-    /// Claude Code sessions started outside Beep.
-    external: External,
-    /// Sessions held open by a local CLI, including idle prompts.
-    presence: presence::Registry,
-    /// Where Codex, pi, flsh and OpenCode keep their sessions.
-    stores: Stores,
-    /// The pictures sessions' transcripts show, by session.
-    images: Arc<Images>,
-    /// What sessions spend and how much of the agents' plans is left.
-    usage: Arc<UsageHub>,
-    /// What sessions did that the user would want to hear about.
-    alerts: Arc<AlertHub>,
-    /// The CI runs this node tells, and how it reaches the hosts.
-    pub(crate) ci: Arc<crate::machine::ci::Ci>,
-    /// What sessions spent, from the agents' own logs.
-    spend: Arc<Spend>,
-    /// Set while the agents' plans are read.
-    reading_plans: AtomicBool,
-    /// How the moves of sessions to this machine stand.
-    moves: moving::Moves,
-    /// The models each agent offers, found lately.
-    models: ModelCache,
-    /// The user's settings for each agent, applied when one starts.
-    settings: harnesses::Settings,
-    /// The newest versions of the agents, found lately.
-    latest: harnesses::Latest,
-    /// The workspace and the folders shared in `node.toml`, which file
-    /// requests may reach beside the sessions' folders.
-    folders: OnceLock<Vec<PathBuf>>,
-    /// The sessions that started sessions, and the children on other machines.
-    family: family::Family,
-    /// The reviews reviewers handed in, and the reviewers running.
-    reviews: reviews::Reviews,
-    /// How sessions start the Beep MCP server, once the node serves it.
-    mcp: OnceLock<Arc<Launch>>,
-    /// Set once the node is stopping.
-    stopping: Arc<AtomicBool>,
-    /// Set once the server sent the user's agent settings, which resumed
-    /// sessions start with.
-    settled: watch::Sender<bool>,
-    /// Set once the sessions open before the last stop have been resumed, or
-    /// there were none.
-    reopened: watch::Sender<bool>,
-    /// The folders sessions started outside Beep worked in, from the
-    /// agents' logs, with when they were read; one read at a time.
-    sighted: AsyncMutex<Option<Sighted>>,
-    /// The checkouts found on disk under home, once `warm` read them;
-    /// held while it does.
-    on_disk: AsyncMutex<Option<Arc<Vec<found::Checkout>>>>,
-    /// A quick walk for checkouts runs; one at a time.
-    rescanning: AtomicBool,
-}
+        event_watcher: Mutex<std::sync::Weak<follow::Sources>>,
+        event_forward: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,
+        /// The agents it can start, replaced when detection finds others.
+        kinds: watch::Sender<Arc<Vec<AgentKind>>>,
+        /// The adapters the node installs itself.
+        adapters: adapters::Installs,
+        sessions: Mutex<HashMap<String, Arc<Session>>>,
+        /// Claude Code sessions started outside Beep.
+        external: External,
+        /// Sessions held open by a local CLI, including idle prompts.
+        presence: presence::Registry,
+        /// Where Codex, pi, flsh and OpenCode keep their sessions.
+        stores: Stores,
+        /// The pictures sessions' transcripts show, by session.
+        images: Arc<Images>,
+        /// What sessions spend and how much of the agents' plans is left.
+        usage: Arc<UsageHub>,
+        /// What sessions did that the user would want to hear about.
+        alerts: Arc<AlertHub>,
+        /// The CI runs this node tells, and how it reaches the hosts.
+        pub(crate) ci: Arc<crate::machine::ci::Ci>,
+        /// What sessions spent, from the agents' own logs.
+        spend: Arc<Spend>,
+        /// Set while the agents' plans are read.
+        reading_plans: AtomicBool,
+        /// How the moves of sessions to this machine stand.
+        moves: moving::Moves,
+        /// The models each agent offers, found lately.
+        models: ModelCache,
+        /// The user's settings for each agent, applied when one starts.
+        settings: harnesses::Settings,
+        /// The newest versions of the agents, found lately.
+        latest: harnesses::Latest,
+        /// The workspace and the folders shared in `node.toml`, which file
+        /// requests may reach beside the sessions' folders.
+        folders: OnceLock<Vec<PathBuf>>,
+        /// The sessions that started sessions, and the children on other machines.
+        family: family::Family,
+        /// The reviews reviewers handed in, and the reviewers running.
+        reviews: reviews::Reviews,
+        /// How sessions start the Beep MCP server, once the node serves it.
+        mcp: OnceLock<Arc<Launch>>,
+        /// Set once the node is stopping.
+        stopping: Arc<AtomicBool>,
+        /// Set once the server sent the user's agent settings, which resumed
+        /// sessions start with.
+        settled: watch::Sender<bool>,
+        /// Set once the sessions open before the last stop have been resumed, or
+        /// there were none.
+        reopened: watch::Sender<bool>,
+        /// The folders sessions started outside Beep worked in, from the
+        /// agents' logs, with when they were read; one read at a time.
+        sighted: AsyncMutex<Option<Sighted>>,
+        /// The checkouts found on disk under home, once `warm` read them;
+        /// held while it does.
+        on_disk: AsyncMutex<Option<Arc<Vec<found::Checkout>>>>,
+        /// A quick walk for checkouts runs; one at a time.
+        rescanning: AtomicBool,
+    }
 
-/// The folders found in the agents' logs, and when.
-struct Sighted {
-    at: Instant,
-    folders: Arc<Vec<PathBuf>>,
-}
+    /// The folders found in the agents' logs, and when.
+    struct Sighted {
+        at: Instant,
+        folders: Arc<Vec<PathBuf>>,
+    }
 
-impl Agents {
-    pub fn new(kinds: Vec<AgentKind>) -> Self {
+    impl Agents {
+        pub fn new(kinds: Vec<AgentKind>) -> Self {
         let events = crate::events::Hub::default();
-        Self {
+            Self {
             recovering: Mutex::default(),
             events: events.clone(),
             event_sources: Default::default(),
             event_watcher: Mutex::default(),
             event_forward: OnceLock::new(),
-            kinds: watch::Sender::new(Arc::new(kinds)),
-            adapters: adapters::Installs::default(),
-            sessions: Mutex::default(),
-            external: External::locate(),
-            presence: presence::Registry::default(),
-            stores: Stores::locate(),
-            images: Arc::default(),
-            usage: Arc::default(),
-            alerts: Arc::default(),
-            ci: Arc::default(),
-            spend: Arc::new(Spend::locate()),
-            reading_plans: AtomicBool::new(false),
-            moves: moving::Moves::default(),
-            models: ModelCache::default(),
-            settings: harnesses::Settings::default(),
-            latest: harnesses::Latest::default(),
-            folders: OnceLock::new(),
-            family: family::Family::default(),
+                kinds: watch::Sender::new(Arc::new(kinds)),
+                adapters: adapters::Installs::default(),
+                sessions: Mutex::default(),
+                external: External::locate(),
+                presence: presence::Registry::default(),
+                stores: Stores::locate(),
+                images: Arc::default(),
+                usage: Arc::default(),
+                alerts: Arc::default(),
+                ci: Arc::default(),
+                spend: Arc::new(Spend::locate()),
+                reading_plans: AtomicBool::new(false),
+                moves: moving::Moves::default(),
+                models: ModelCache::default(),
+                settings: harnesses::Settings::default(),
+                latest: harnesses::Latest::default(),
+                folders: OnceLock::new(),
+                family: family::Family::default(),
             reviews: reviews::Reviews::new(events.clone()),
-            mcp: OnceLock::new(),
-            stopping: Arc::default(),
-            settled: watch::Sender::new(false),
-            reopened: watch::Sender::new(false),
-            sighted: AsyncMutex::default(),
-            on_disk: AsyncMutex::default(),
-            rescanning: AtomicBool::new(false),
+                mcp: OnceLock::new(),
+                stopping: Arc::default(),
+                settled: watch::Sender::new(false),
+                reopened: watch::Sender::new(false),
+                sighted: AsyncMutex::default(),
+                on_disk: AsyncMutex::default(),
+                rescanning: AtomicBool::new(false),
+            }
         }
     }
-}
 
-#[cfg(test)]
-mod tests;
+    #[cfg(test)]
+    #[path = "../tests/agents.rs"]
+    mod tests;
+}

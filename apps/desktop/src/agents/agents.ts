@@ -22,7 +22,7 @@ import { $, type AgentReturn, bar, S, windowHooks } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { openSession } from "../chat/history.ts";
 import { cap } from "../chat/tools.ts";
-import { openAgent, openEditorKey, closeOpenSession, turnRuns } from "./session.ts";
+import { openAgent, openEditorKey, closeOpenSession, submitAgentMessage } from "./session.ts";
 import { sessionMenu } from "./sessionmenu.ts";
 import { TAKEOVER } from "./sessionmenu-state.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
@@ -31,7 +31,7 @@ import { pageDirection } from "./page-key.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import type { OlderStop } from "./older-state.ts";
 import { closeModelPicker } from "./modelpill.ts";
-import { steerMessage, interruptAgent, answerFirst, sendAgentMessage } from "./messages.ts";
+import { interruptAgent, answerFirst } from "./messages.ts";
 import { cycleMode } from "./modepill.ts";
 import { esc, money } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
@@ -521,12 +521,10 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     const jump = logJumpKey(e, cmd);
     if (jump) { e.preventDefault(); void (jump === "start" ? jumpToStart() : jumpToEnd()); return true; }
     if (e.key === "Tab" && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && (e.target as HTMLElement).id === "agmsg" && cycleMode()) { e.preventDefault(); return true; }
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (e.target as HTMLElement).id === "agmsg") {
+    // On a phone Return starts a new line; the Send button sends.
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (e.target as HTMLElement).id === "agmsg" && !document.body?.classList.contains("mobile")) {
       e.preventDefault();
-      if ((e.target as HTMLTextAreaElement).readOnly) return true;
-      // While the turn runs, Enter steers it after its current tool call.
-      if (turnRuns()) steerMessage(e.target as HTMLTextAreaElement);
-      else sendAgentMessage();
+      submitAgentMessage(e.target as HTMLTextAreaElement);
       return true;
     }
     return false;

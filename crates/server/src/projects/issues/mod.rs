@@ -39,4 +39,5 @@ impl From<anyhow::Error> for IssueError {
 }
 
 #[cfg(test)]
+#[path = "../../tests/projects_issues.rs"]
 mod tests;

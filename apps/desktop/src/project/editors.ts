@@ -3,6 +3,7 @@
 import { dbtn as button, svgEl } from "../ui/parts.ts";
 import { openMenu } from "../ui/menu.ts";
 import { invoke } from "../ui/tauri.ts";
+import { onPhone } from "../ui/platform.ts";
 
 /// An installed editor (EditorRow).
 export interface EditorRow {
@@ -20,6 +21,7 @@ const waiting = new Set<() => void>();
 /// a menu beside it; none without a folder or an editor. The first call
 /// reads the editors and redraws every waiting header once they are in.
 export function editorTools(folder: string | null | undefined, redraw: () => void): Node[] {
+  if (onPhone()) return [];
   if (installed === null) waiting.add(redraw);
   if (installed === null && !reading) {
     reading = true;

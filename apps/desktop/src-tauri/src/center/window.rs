@@ -10,9 +10,12 @@ use tauri::{
 
 pub const LABEL: &str = "center";
 /// The window never shrinks below this.
+#[cfg_attr(mobile, allow(dead_code))]
 const MIN_WIDTH: f64 = 1000.0;
+#[cfg_attr(mobile, allow(dead_code))]
 const MIN_HEIGHT: f64 = 640.0;
 /// Share of the screen the window opens at.
+#[cfg_attr(mobile, allow(dead_code))]
 const SHARE: f64 = 0.95;
 /// Labels of the windows that each show one project.
 const PROJECT_PREFIX: &str = "project-";
@@ -26,6 +29,7 @@ const SHOWN_EVENT: &str = "center-shown";
 /// Where a window opens: `share` of the screen under the mouse, at least
 /// `min` where the screen allows, centered, then moved down and right by
 /// `step` as far as the screen allows.
+#[cfg_attr(mobile, allow(dead_code))]
 pub(crate) fn frame<R: Runtime>(
     app: &AppHandle<R>,
     share: f64,
@@ -55,6 +59,7 @@ pub(crate) fn frame<R: Runtime>(
 }
 
 fn bring_up<R: Runtime>(window: &WebviewWindow<R>) -> Result<()> {
+    #[cfg(desktop)]
     if window.is_minimized()? {
         window.unminimize()?;
     }
@@ -76,6 +81,7 @@ pub(crate) fn join_dock<R: Runtime>(_: &AppHandle<R>) {}
 /// Builds command center window `label` titled `title`, moved down and
 /// right by `offset` from where the main window opens. While it is open
 /// Beep sits in the Dock.
+#[cfg_attr(mobile, allow(dead_code, unused_variables, unused_mut))]
 fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) -> Result<()> {
     join_dock(app);
     let mut builder = crate::navigation::guard(WebviewWindowBuilder::new(
@@ -84,25 +90,41 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
         WebviewUrl::App("center.html".into()),
     ))
     .title(title)
-    .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
     .resizable(true)
-    .maximizable(true)
     // Files dragged in from Finder reach the page as HTML drops, as in
     // the bar: a coding agent session uploads them to its machine.
     .disable_drag_drop_handler();
+    // A phone window fills the screen: a desktop minimum leaves its webview at zero size.
+    #[cfg(desktop)]
+    {
+        builder = builder
+            .maximizable(true)
+            .min_inner_size(MIN_WIDTH, MIN_HEIGHT);
+    }
+    // The UI reads this to know it runs on a phone, before its scripts load.
+    #[cfg(mobile)]
+    {
+        builder = builder.initialization_script("window.__BEEP_PHONE__ = true;");
+    }
     #[cfg(target_os = "macos")]
     {
         builder = builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
             .hidden_title(true);
     }
-    builder = match frame(app, SHARE, LogicalSize::new(MIN_WIDTH, MIN_HEIGHT), 0.0) {
-        Some((position, size)) => builder
-            .position(position.x + offset, position.y + offset)
-            .inner_size(size.width, size.height),
-        None => builder.inner_size(MIN_WIDTH, MIN_HEIGHT).center(),
-    };
-    builder.build()?.set_focus()?;
+    #[cfg(desktop)]
+    {
+        builder = match frame(app, SHARE, LogicalSize::new(MIN_WIDTH, MIN_HEIGHT), 0.0) {
+            Some((position, size)) => builder
+                .position(position.x + offset, position.y + offset)
+                .inner_size(size.width, size.height),
+            None => builder.inner_size(MIN_WIDTH, MIN_HEIGHT).center(),
+        };
+    }
+    let window = builder.build()?;
+    #[cfg(target_os = "ios")]
+    window.with_webview(|webview| crate::platform::ios_keyboard::hide_bar(webview.inner()))?;
+    window.set_focus()?;
     Ok(())
 }
 
@@ -267,62 +289,5 @@ pub fn center_window_project(window: WebviewWindow) -> Option<String> {
 pub(crate) fn closed<R: Runtime>(_: &AppHandle<R>, _: &str) {}
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_project_label_reads_back_as_its_name() {
-        for name in ["site", "org/repo", "my project", "café.rs", "a-b_c:d"] {
-            let label = project_label(name);
-            let hex = label
-                .strip_prefix(PROJECT_PREFIX)
-                .expect("it has the prefix");
-            assert!(hex.bytes().all(|b| b.is_ascii_hexdigit()), "{label}");
-            assert_eq!(label_project(&label).as_deref(), Some(name));
-        }
-        assert_eq!(label_project(LABEL), None);
-        assert_eq!(label_project("research-1"), None);
-        assert_eq!(label_project("project-"), None);
-        assert_eq!(label_project("project-abc"), None);
-        assert_eq!(label_project("project-zz"), None);
-    }
-
-    #[test]
-    fn a_project_open_in_a_window_is_focused() {
-        let site = project_label("site");
-        let open = [LABEL, "bar", site.as_str(), "research-1"];
-        assert_eq!(pick("site", open), Pick::Focus(site));
-    }
-
-    #[test]
-    fn a_project_without_a_window_gets_a_new_one() {
-        assert_eq!(
-            pick("site", [LABEL, "bar"]),
-            Pick::Open {
-                label: project_label("site"),
-                cascade: 0,
-            }
-        );
-    }
-
-    #[test]
-    fn a_new_window_steps_past_the_other_project_windows() {
-        let docs = project_label("docs");
-        let api = project_label("api");
-        let open = [LABEL, docs.as_str(), "research-1", api.as_str()];
-        assert_eq!(
-            pick("site", open),
-            Pick::Open {
-                label: project_label("site"),
-                cascade: 2,
-            }
-        );
-    }
-
-    #[test]
-    fn similar_names_get_their_own_windows() {
-        let site = project_label("site");
-        assert!(matches!(pick("site2", [site.as_str()]), Pick::Open { .. }));
-        assert!(matches!(pick("sit", [site.as_str()]), Pick::Open { .. }));
-    }
-}
+#[path = "../tests/center_window.rs"]
+mod tests;

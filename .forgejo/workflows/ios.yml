@@ -1,5 +1,11 @@
 # Uploads a tag ios-vX.Y.Z (made by `just ios-release`) to TestFlight for
-# invited beta testers.
+# invited beta testers. The phone app is the desktop Tauri app built for iOS;
+# its version is "version" in apps/desktop/src-tauri/tauri.ios.conf.json and
+# the workflow run number is the build number.
+#
+# Runs on a Mac registered with the `macos` label, with Rust, Node, Xcode and
+# xcodegen installed for the runner's user. The server's https:// address is
+# the repository variable BEEP_SERVER_URL.
 name: ios
 
 on:
@@ -26,8 +32,8 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$REF" == refs/tags/ios-v* ]]; then
-            name=$(sed -n 's/^ *MARKETING_VERSION: "\(.*\)"$/\1/p' apps/ios/project.yml | sort -u)
-            [ "$name" = "${REF#refs/tags/ios-v}" ] || { echo "Tag does not match MARKETING_VERSION $name"; exit 1; }
+            name=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' apps/desktop/src-tauri/tauri.ios.conf.json)
+            [ "$name" = "${REF#refs/tags/ios-v}" ] || { echo "Tag does not match version $name"; exit 1; }
           fi
 
       - name: Check configuration
@@ -37,11 +43,10 @@ jobs:
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
           IOS_DISTRIBUTION_P12: ${{ secrets.IOS_DISTRIBUTION_P12 }}
           IOS_DISTRIBUTION_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_PASSWORD }}
-          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
         run: |
           set -euo pipefail
           for name in IOS_TEAM_ID APPLE_API_PRIVATE_KEY APPLE_API_KEY_ID APPLE_API_ISSUER_ID \
-            IOS_DISTRIBUTION_P12 IOS_DISTRIBUTION_PASSWORD IOS_PROVISIONING_PROFILE; do
+            IOS_DISTRIBUTION_P12 IOS_DISTRIBUTION_PASSWORD; do
             if [[ -z "${!name}" ]]; then
               echo "Missing $name" >&2
               exit 1
@@ -63,6 +68,7 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           command -v xcodegen >/dev/null || brew install xcodegen
           rustup target add aarch64-apple-ios
+          rustup component add llvm-tools
 
       - name: Prepare App Store Connect key
         env:
@@ -71,13 +77,12 @@ jobs:
           set -euo pipefail
           umask 077
           printf '%s' "$APPLE_API_PRIVATE_KEY" > "$RUNNER_TEMP/ios-api-key.p8"
-          echo "IOS_API_KEY_PATH=$RUNNER_TEMP/ios-api-key.p8" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/ios-api-key.p8" >> "$GITHUB_ENV"
 
-      - name: Import distribution signing assets
+      - name: Import distribution certificate
         env:
           IOS_DISTRIBUTION_P12: ${{ secrets.IOS_DISTRIBUTION_P12 }}
           IOS_DISTRIBUTION_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_PASSWORD }}
-          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
         run: |
           set -euo pipefail
           umask 077
@@ -96,82 +101,40 @@ jobs:
           while IFS= read -r previous; do keychains+=("$previous"); done < "$RUNNER_TEMP/ios-keychains.txt"
           security list-keychains -d user -s "${keychains[@]}"
 
-          printf '%s' "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$RUNNER_TEMP/ios-profile.mobileprovision"
-          uuid=$(security cms -D -i "$RUNNER_TEMP/ios-profile.mobileprovision" | plutil -extract UUID raw -o - -)
-          profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
-          mkdir -p "$profile_dir"
-          profile_path="$profile_dir/$uuid.mobileprovision"
-          printf '%s' "$profile_path" > "$RUNNER_TEMP/ios-profile-path"
-          install -m 600 "$RUNNER_TEMP/ios-profile.mobileprovision" "$profile_path"
-          echo "IOS_PROFILE_UUID=$uuid" >> "$GITHUB_ENV"
+      - name: Build the web UI
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
 
-      - name: Build and archive
+      - name: Generate the Xcode project
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ vars.IOS_TEAM_ID }}
+        run: bash scripts/tauri-init.sh ios
+
+      - name: Build the IPA
+        working-directory: apps/desktop
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ vars.IOS_TEAM_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          npm run tauri -- ios build --export-method app-store-connect \
+            --build-number "$GITHUB_RUN_NUMBER"
+
+      - name: Upload to TestFlight
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
         run: |
           set -euo pipefail
-          bash apps/ios/scripts/build-rust.sh device
-          cd apps/ios
-          xcodegen generate --quiet
-          xcodebuild -project Beep.xcodeproj -scheme Beep -configuration Release \
-            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Beep.xcarchive" \
-            -allowProvisioningUpdates -authenticationKeyPath "$IOS_API_KEY_PATH" \
-            -authenticationKeyID "$APPLE_API_KEY_ID" -authenticationKeyIssuerID "$APPLE_API_ISSUER_ID" \
-            DEVELOPMENT_TEAM="$IOS_TEAM_ID" CODE_SIGN_STYLE=Automatic \
-            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" archive
-
-      - name: Export and upload
-        env:
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
-        run: |
-          set -euo pipefail
-          # Each target's profile comes from the API, signed by the same
-          # certificate as the profile in the secret. The app's carries push
-          # and communication notifications, which the secret's lacks.
-          profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
-          store_profile() {
-            local name=$1; shift
-            local out="$RUNNER_TEMP/ios-$name-profile.mobileprovision" uuid
-            # Called inside $(...), where set -e does not reach, so each step returns its failure.
-            uuid=$(python3 apps/ios/scripts/store-profile.py "$1" "$(cat "$RUNNER_TEMP/ios-profile-path")" "$out" "${@:2}") || return
-            install -m 600 "$out" "$profile_dir/$uuid.mobileprovision" || return
-            printf '%s' "$profile_dir/$uuid.mobileprovision" > "$RUNNER_TEMP/ios-$name-profile-path"
-            printf '%s' "$uuid"
-          }
-          # Assigned before exporting, so a failed call stops the job.
-          IOS_APP_PROFILE_UUID=$(store_profile app com.flashmind.beep \
-            PUSH_NOTIFICATIONS USERNOTIFICATIONS_COMMUNICATION)
-          IOS_WIDGET_PROFILE_UUID=$(store_profile widget com.flashmind.beep.widget)
-          IOS_NOTIFICATIONS_PROFILE_UUID=$(store_profile notifications com.flashmind.beep.notifications)
-          export IOS_APP_PROFILE_UUID IOS_WIDGET_PROFILE_UUID IOS_NOTIFICATIONS_PROFILE_UUID
-          IOS_EXPORT_OPTIONS="$RUNNER_TEMP/ios-export-options.plist" python3 - <<'PY'
-          import os
-          import plistlib
-
-          options = {
-              "method": "app-store-connect",
-              "destination": "export",
-              "signingStyle": "manual",
-              "signingCertificate": "Apple Distribution",
-              "provisioningProfiles": {
-                  "com.flashmind.beep": os.environ["IOS_APP_PROFILE_UUID"],
-                  "com.flashmind.beep.widget": os.environ["IOS_WIDGET_PROFILE_UUID"],
-                  "com.flashmind.beep.notifications": os.environ["IOS_NOTIFICATIONS_PROFILE_UUID"],
-              },
-              "teamID": os.environ["IOS_TEAM_ID"],
-              "manageAppVersionAndBuildNumber": False,
-          }
-          with open(os.environ["IOS_EXPORT_OPTIONS"], "wb") as output:
-              plistlib.dump(options, output)
-          PY
-          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Beep.xcarchive" \
-            -exportOptionsPlist "$RUNNER_TEMP/ios-export-options.plist" \
-            -exportPath "$RUNNER_TEMP/ios-export"
-          xcrun altool --upload-app -f "$RUNNER_TEMP/ios-export/Beep.ipa" -t ios \
+          ipa=$(find apps/desktop/src-tauri/gen/apple/build -name '*.ipa' | head -1)
+          [ -n "$ipa" ] || { echo "No IPA was built" >&2; exit 1; }
+          xcrun altool --upload-app -f "$ipa" -t ios \
             --api-key "$APPLE_API_KEY_ID" --api-issuer "$APPLE_API_ISSUER_ID" \
-            --p8-file-path "$IOS_API_KEY_PATH"
+            --p8-file-path "$APPLE_API_KEY_PATH"
 
       - name: Remove signing assets
         if: always()
@@ -183,13 +146,6 @@ jobs:
             [[ "$current" == */ios-signing.keychain-db ]] || keychains+=("$current")
           done < <(security list-keychains -d user | sed 's/^ *"//; s/"$//')
           security list-keychains -d user -s "${keychains[@]}"
-          for saved in ios-profile-path ios-app-profile-path ios-widget-profile-path ios-notifications-profile-path; do
-            if [[ -f "$RUNNER_TEMP/$saved" ]]; then
-              rm -f "$(cat "$RUNNER_TEMP/$saved")"
-            fi
-          done
           security delete-keychain "$RUNNER_TEMP/ios-signing.keychain-db" || true
-          rm -f "$RUNNER_TEMP/ios-api-key.p8" "$RUNNER_TEMP/ios-export-options.plist" \
-            "$RUNNER_TEMP/ios-signing.p12" "$RUNNER_TEMP/ios-profile.mobileprovision" \
-            "$RUNNER_TEMP/ios-profile-path" "$RUNNER_TEMP/ios-keychains.txt" \
-            "$RUNNER_TEMP"/ios-*-profile.mobileprovision "$RUNNER_TEMP"/ios-*-profile-path
+          rm -rf "$RUNNER_TEMP/ios-api-key.p8" "$RUNNER_TEMP/ios-signing.p12" \
+            "$RUNNER_TEMP/ios-keychains.txt"

@@ -431,4 +431,5 @@ pub(crate) const WAIT_LIMIT: Duration = Duration::from_secs(45);
 pub(crate) const WAIT_POLL: Duration = Duration::from_secs(1);
 
 #[cfg(test)]
+#[path = "../tests/agents_family.rs"]
 mod tests;

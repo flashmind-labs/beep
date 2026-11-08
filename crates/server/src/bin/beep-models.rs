@@ -47,7 +47,10 @@ async fn main() -> Result<()> {
     };
     let filter = args.get(1).map(|f| f.to_lowercase());
 
-    let listing: Listing = reqwest::get(MODELS_URL)
+    let listing: Listing = beep_proto::https::client()
+        .build()?
+        .get(MODELS_URL)
+        .send()
         .await?
         .error_for_status()?
         .json()

@@ -12,9 +12,10 @@ use beep_node::{
 };
 use beep_proto::node::{sync, transfer};
 use iroh::{Endpoint, protocol::Router};
+use std::{env, path::PathBuf};
 use std::{
-    env, mem,
-    path::{Path, PathBuf},
+    mem,
+    path::Path,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 

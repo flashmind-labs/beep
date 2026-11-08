@@ -10,6 +10,7 @@ use crate::{
     projects::unknown_op,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
+#[cfg(desktop)]
 use beep_mesh::machine::thumb::{Picture, thumb_of};
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, AgentImageData, ApiError, GetAgentFile, GetAgentImage,
@@ -92,6 +93,7 @@ pub async fn agent_thumb(
 }
 
 /// `image` made small, for the log to draw.
+#[cfg(desktop)]
 async fn small(image: AgentImageData) -> AgentImageData {
     let made = thumb_of(Picture {
         mime: image.mime,
@@ -103,6 +105,12 @@ async fn small(image: AgentImageData) -> AgentImageData {
         mime: made.mime,
         data: made.data,
     }
+}
+
+/// A phone draws a picture from an older machine as it comes.
+#[cfg(mobile)]
+async fn small(image: AgentImageData) -> AgentImageData {
+    image
 }
 
 /// A data URL the bar can draw, with a picture the server no longer has as

@@ -72,7 +72,6 @@ macro_rules! wire_enum {
 macro_rules! ffi_enum {
     ($(#[$meta:meta])* pub enum $enum:ident $body:tt) => {
         wire_enum! {
-            #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
             $(#[$meta])*
             pub enum $enum $body
         }
@@ -103,7 +102,6 @@ macro_rules! ffi_structs {
     ($($(#[$meta:meta])* pub struct $name:ident $body:tt)*) => {
         wire_structs! {
             $(
-                #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
                 $(#[$meta])*
                 pub struct $name $body
             )*

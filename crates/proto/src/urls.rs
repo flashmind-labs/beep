@@ -23,7 +23,6 @@ pub fn mcp_callback_url() -> String {
 }
 
 /// What a sign-in redirect brought back.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpCallback {
     pub code: String,
