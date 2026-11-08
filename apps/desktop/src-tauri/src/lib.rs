@@ -678,7 +678,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     ));
     // A phone embeds no node: it observes the mesh a desktop pairs it with, if any.
     #[cfg(mobile)]
-    let machine = machines::this_mac::Machine::default();
+    let machine = machines::this_mac::Machine;
     #[cfg(mobile)]
     let fleet = {
         let mesh = dir.join("workspace").join(endpoint.id().to_string());
