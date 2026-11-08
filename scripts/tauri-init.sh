@@ -35,7 +35,7 @@ fi
 # The phone icon is full-bleed: the system rounds its corners. Init leaves
 # Tauri's own icon in the project, so ours replaces it on every run.
 icons=$(mktemp -d)
-npm run --silent tauri -- icon src-tauri/icons/phone.png -o "$icons" --ios-color '#0B0E1D' >/dev/null
+npm run --silent tauri -- icon src-tauri/icons/phone.png -o "$icons" --ios-color '#0B0E1D' >/dev/null 2>&1
 if [[ $platform == ios ]]; then
     cp "$icons"/ios/*.png "$dir/Assets.xcassets/AppIcon.appiconset/"
 else
