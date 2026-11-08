@@ -764,6 +764,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agupask { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted) }
 .agupask .dbtn { padding: 2px 10px; min-height: 0; font-size: 12px }
 #agfield.dropping { box-shadow: 0 0 0 1px var(--accent) }
+#agfield button[aria-label="Attach files"] { width: 26px; padding: 0; justify-content: center; margin-right: -8px }
 .agmain > .agpstrip span { writing-mode: initial }
 /* A step's media files, as buttons that open them in the pane. */
 .dcoderen.tool .dmedia { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px }
