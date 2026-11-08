@@ -434,7 +434,7 @@ pub use monitor::{since_press, start, unwatch_escape, watch_escape};
 #[cfg(all(desktop, not(target_os = "macos")))]
 pub fn start(_: impl Fn(Input) + 'static) {}
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(desktop, not(target_os = "macos")))]
 pub fn since_press() -> Duration {
     Duration::MAX
 }

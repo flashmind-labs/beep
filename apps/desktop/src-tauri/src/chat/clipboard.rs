@@ -19,7 +19,7 @@ pub(crate) struct ImageClipboard(Mutex<Option<Clipboard>>);
 
 #[cfg(mobile)]
 #[derive(Default)]
-pub(crate) struct ImageClipboard;
+pub(crate) struct ImageClipboard {}
 
 #[cfg(mobile)]
 impl ImageClipboard {
