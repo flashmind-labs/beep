@@ -67,7 +67,9 @@ export function openChatFind(chat: ChatSearch) {
     input.focus({ preventScroll: true });
   };
   bar.append(input, regex, status, prev, next, exit);
-  body.before(bar);
+  const layer = el("div", "chat-find-layer");
+  layer.append(bar);
+  body.before(layer);
   let matches: Match[] = [], current = -1, timer = 0, updateTimer = 0, loading = !!chat.prepare, closed = false;
   let pattern: RegExp | null = null, error = "";
   let marks: HTMLElement[] = [];
@@ -166,7 +168,7 @@ export function openChatFind(chat: ChatSearch) {
     clearTimeout(timer); clearTimeout(updateTimer);
     observer.disconnect(); navigation.disconnect();
     unwatch?.();
-    clearMarks(); bar.remove();
+    clearMarks(); layer.remove();
     if (active?.close === close) active = null;
     if (focus && previous?.isConnected) previous.focus({ preventScroll: true });
   }
