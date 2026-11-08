@@ -717,9 +717,7 @@ expected 200, got 401</pre></details></span></div>`;
     const remoteQueue = v === "queued" ? `<div class="row note"><b>Waiting to send</b><div>Check the failing test output</div></div>` : "";
     const card = q || plan || remoteQueue ? `<div class="dcard dcoder">${q}${plan}${remoteQueue}<div style="height:12px"></div></div>` : "";
     const qatt = (p) => `<span class="ag-qatt" title="Goes with it as @${p}">${p}</span>`;
-    const steerRow = v === "steered"
-      ? `<div class="ag-queue done"><span class="lbl">Steered</span><span class="t">Use the fixture in tests/data, not a new one</span>${qatt(".beep/uploads/build.log")}<span class="w">delivered after cargo test</span></div>`
-      : steer ? `<div class="ag-queue steer"><span class="lbl">Steer</span><span class="t">Use the fixture in tests/data, not a new one</span>${qatt(".beep/uploads/build.log")}<span class="w">after the current step</span><button data-toast="Not sent">&#215;</button></div>` : "";
+    const steerRow = v === "steer" ? `<div class="ag-queue steer"><span class="lbl">Steer</span><span class="t">Use the fixture in tests/data, not a new one</span>${qatt(".beep/uploads/build.log")}<span class="w">after the current step</span><button data-toast="Not sent">&#215;</button></div>` : "";
     const queue = queued ? `${steerRow}<div class="ag-queue"><span class="lbl">Queued</span><span class="t">Also update the error text in the iOS app</span>${steer ? qatt("shots/login-after.png") : ""}<span class="w">after the turn</span><button data-toast="Back in the field to edit">Edit</button><button data-toast="Removed from the queue">&#215;</button></div><div class="ag-queue"><span class="lbl">Queued</span><span class="t">Then run the login tests again</span><span class="w">after the turn</span><button data-toast="Back in the field to edit">Edit</button><button data-toast="Removed from the queue">&#215;</button></div>` : "";
     // The Files tab's icons, the tree and the terminal.
     const FI = {
