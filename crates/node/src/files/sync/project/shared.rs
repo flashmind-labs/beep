@@ -6,7 +6,8 @@ use super::{
 };
 use crate::files::sync::{
     disk::{self},
-    gitdir::{self, Checkout, Oid, Repo},
+    gitdir::{self, Checkout, Oid, Repo, WriteGuard},
+    ignored::IgnoredRoot,
     map::{Changes, Entry, Replica, is_conflict, original_of, valid_path},
     rules::Rules,
     scan::{MAX_FILES, Stat},
@@ -40,6 +41,7 @@ pub(in crate::files::sync) struct Shared {
     pub(super) name: String,
     pub(super) key: Key,
     pub(super) root: Arc<Folder>,
+    pub(super) ignored: Option<IgnoredRoot>,
     pub(super) file: PathBuf,
     pub(super) replica: Replica,
     pub(super) state: Mutex<State>,
@@ -99,15 +101,20 @@ impl Shared {
             // Existing indexes, including staged work, stay owned by Git.
             saved.index_stale = false;
         }
-        let git_only = saved.git_only
-            || start.root.path().join(gitdir::GIT).exists()
-            || saved.checkout.is_some_and(|checkout| checkout.present)
-            || matches!(&saved.git_copy, Some(GitCopy::Finished));
+        let ignored = IgnoredRoot::parse(&start.name, start.root.path())?;
+        let git_only = ignored.is_none()
+            && (saved.git_only
+                || start.root.path().join(gitdir::GIT).exists()
+                || saved.checkout.is_some_and(|checkout| checkout.present)
+                || matches!(&saved.git_copy, Some(GitCopy::Finished)));
         let mode_changed = saved.git_only != git_only;
         saved.git_only = git_only;
         let mut state = State::new(saved);
         state.unsaved |= migrated || mode_changed;
-        let rules = Rules::load(start.root.path())?;
+        let rules = match &ignored {
+            Some(scope) => scope.rules(start.root.path())?,
+            None => Rules::load(start.root.path())?,
+        };
         let replica = state.saved.map.replica();
         let seq = state.saved.map.seq();
         let unheard = start.peers.iter().map(|addr| addr.id).collect();
@@ -129,6 +136,7 @@ impl Shared {
             name: start.name,
             key: start.key,
             root: start.root,
+            ignored,
             file: start.file,
             replica,
             state: Mutex::new(state),
@@ -148,6 +156,21 @@ impl Shared {
             applied: Mutex::new(Instant::now()),
             pull_again: watch::Sender::new(0),
         }))
+    }
+
+    /// Blocks only inside the blocking pool, keeping Git's index stable for the write.
+    pub(super) fn write_guard(&self, checkout: Option<Checkout>) -> Result<WriteGuard> {
+        match &self.ignored {
+            Some(scope) => scope.guard(),
+            None => WriteGuard::acquire(self.root(), checkout),
+        }
+    }
+
+    pub(super) async fn check_ignored(&self) -> Result<()> {
+        if let Some(scope) = self.ignored.clone() {
+            spawn_blocking(move || scope.check()).await??;
+        }
+        Ok(())
     }
 
     pub(super) fn lock(&self) -> MutexGuard<'_, State> {
@@ -396,6 +419,7 @@ impl Shared {
 
     /// Whether an established checkout must wait for Git before writing files.
     pub(in crate::files::sync) async fn check_git(&self) -> Result<()> {
+        self.check_ignored().await?;
         if self.copies_git() {
             return Ok(());
         }
@@ -530,6 +554,7 @@ impl Shared {
 
     /// A list can only travel under the checkout its completed scan read.
     pub(in crate::files::sync) async fn list_checkout(&self) -> Result<Checkout> {
+        self.check_ignored().await?;
         let now = self.head().await?;
         if self.lock().saved.checkout != Some(now) {
             bail!("waiting for a scan of the current Git checkout");
@@ -559,6 +584,7 @@ impl Shared {
     /// A list from before the user's last edits would count those as older.
     pub(in crate::files::sync) async fn scan_before_matching(&self) -> Result<()> {
         self.rescan(MATCH_SCAN).await?;
+        self.check_ignored().await?;
         Ok(())
     }
 
@@ -689,7 +715,12 @@ impl Shared {
         let copy = copy.with_context(|| format!("{path} is not on this machine yet"))?;
         let (root, path) = (self.root.clone(), path.to_owned());
         let settle_it = Settle { copy, beside, keep };
-        spawn_blocking(move || settle(&root, &path, &original, settle_it)).await??;
+        let ignored = self.ignored.clone();
+        spawn_blocking(move || {
+            let _guard = ignored.as_ref().map(IgnoredRoot::guard).transpose()?;
+            settle(&root, &path, &original, settle_it)
+        })
+        .await??;
         self.touched.notify_one();
         Ok(())
     }

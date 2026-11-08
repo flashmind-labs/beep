@@ -627,17 +627,46 @@ mod mesh_state {
     use std::collections::BTreeMap;
 
     #[test]
+    fn ignored_sync_defaults_off_for_released_specs_and_older_readers_skip_the_selection() {
+        #[derive(Debug, PartialEq, Serialize, serde::Deserialize)]
+        struct ReleasedSpec {
+            folders: BTreeMap<EndpointId, String>,
+            paused: bool,
+        }
+        let released = ReleasedSpec {
+            folders: BTreeMap::from([(SecretKey::generate().public(), "/srv/project".into())]),
+            paused: true,
+        };
+        for bytes in [
+            rmp_serde::to_vec(&released).unwrap(),
+            rmp_serde::to_vec_named(&released).unwrap(),
+        ] {
+            let mut current = SyncSpec::from_bytes(&bytes).unwrap();
+            assert_eq!(current.ignored, Default::default());
+            current.ignored = beep_proto::node::sync::IgnoredSync {
+                enabled: true,
+                folders: vec!["models".into()],
+            };
+            let older: ReleasedSpec =
+                beep_proto::lenient::from_slice(&current.to_bytes().unwrap()).unwrap();
+            assert_eq!(older, released);
+        }
+    }
+
+    #[test]
     fn a_value_with_a_field_from_a_newer_build_is_read() {
         #[derive(Serialize)]
         struct NewerSpec {
             folders: BTreeMap<EndpointId, String>,
             paused: bool,
+            ignored: beep_proto::node::sync::IgnoredSync,
             added_later: u8,
         }
         let id = SecretKey::generate().public();
         let sent = NewerSpec {
             folders: BTreeMap::from([(id, "/srv/project".to_owned())]),
             paused: true,
+            ignored: Default::default(),
             added_later: 1,
         };
         let bytes = rmp_serde::to_vec(&sent).unwrap();
@@ -777,6 +806,7 @@ mod mesh_state {
     fn values_round_trip_and_hide_secrets_in_debug() {
         let id = SecretKey::generate().public();
         let spec = SyncSpec {
+            ignored: Default::default(),
             folders: BTreeMap::from([(id, "/srv/project".to_owned())]),
             paused: false,
         };

@@ -897,7 +897,7 @@ Error: Process completed with exit code 101.</pre></span>
   const openDiff = (cls = "") => `<button class="dbtn${cls ? " " + cls : ""}" data-dact="dset:ags:diffzoom" data-dgo="dAgentSession">View diff</button>`;
   const openReview = (l, cls = "") => `<button class="dbtn${cls ? " " + cls : ""}" data-dact="dset:psel:review" data-dgo="dWinProject">${l}</button>`;
   const CHEV = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
-  const pjMenu = () => `<div class="dmenu" style="left:auto;top:44px;right:12px;z-index:9;width:320px"><button class="mi" data-toast="Pin"><b>Pin</b></button>${S.screen === "dWinProjectWindow" ? "" : '<button class="mi" data-dgo="dWinProjectWindow"><b>Open in New Window</b></button><button class="mi" data-dgo="dWinProjects"><b>All projects</b></button>'}<button class="mi" data-dact="dset:gitrecovery:${S.d.gitrecovery ? "" : "1"}" data-dgo="dWinProject"><b>Preserve edits before Git sync: ${S.d.gitrecovery ? "On" : "Off"}</b></button><div class="am-sub" style="padding:8px 12px">Idle checkouts only. Keeps a local recovery stash, updates Git, then restores edits. Conflicts stop sync for review.</div><button class="mi" data-toast="Remove project"><b style="color:var(--d-err)">Remove project…</b></button></div>`;
+  const pjMenu = () => `<div class="dmenu" style="left:auto;top:44px;right:12px;z-index:9;width:320px"><button class="mi" data-toast="Pin"><b>Pin</b></button>${S.screen === "dWinProjectWindow" ? "" : '<button class="mi" data-dgo="dWinProjectWindow"><b>Open in New Window</b></button><button class="mi" data-dgo="dWinProjects"><b>All projects</b></button>'}<button class="mi" data-dact="dset:gitrecovery:${S.d.gitrecovery ? "" : "1"}" data-dgo="dWinProject"><b>Preserve edits before Git sync: ${S.d.gitrecovery ? "On" : "Off"}</b></button><div class="am-sub" style="padding:8px 12px">Idle checkouts only. Keeps a local recovery stash, updates Git, then restores edits. Conflicts stop sync for review.</div><button class="mi" data-dact="dset:igsform:1" data-dgo="dWinProject"><b>Sync gitignored: ${S.d.igs ? "On" : "Off"}</b></button><button class="mi" data-dact="dset:igsform:1" data-dgo="dWinProject"><b>Choose ignored folders…</b></button><button class="mi" data-toast="Remove project"><b style="color:var(--d-err)">Remove project…</b></button></div>`;
   // The composer always names a real machine: the last picked while it has a checkout and an
   // agent, else the first such machine. With none, it reads "Add to a machine" and picking one
   // adds the project there (the machine row's Add), the progress on the line under it.
@@ -933,6 +933,12 @@ Error: Process completed with exit code 101.</pre></span>
       <div class="cc-view split"><div class="pj-split"><div class="pj-list">${list}</div><div class="pj-det">${details[sel]()}</div></div></div>
       ${pjComp()}${S.d.pmenu ? pjMenu() : ""}</div>`;
     const page = skinned(ccWin(ccSidePj("acme/widget"), main));
+    if (S.d.igsform === "1") return ccSheetOver(page, `<div class="am-head"><b>Sync gitignored</b><kbd>esc</kbd></div>
+      <label class="am-line"><input type="checkbox" checked>Sync selected ignored folders on all machines</label>
+      <label class="am-label" for="ignored-folders">Folders relative to the project, one per line</label><textarea id="ignored-folders" class="ip-path" rows="4">assets/models
+data/captures</textarea>
+      <div class="am-sub">Each folder must be wholly ignored by Git and contain no tracked or staged files. These folders use file sync, including conflict copies. Other uncommitted edits stay local. Build output, linked repositories and paths excluded in .beepignore stay local.</div>
+      <div class="am-line ip-acts"><button class="dbtn quiet" data-dact="dset:igsform:" data-dgo="dWinProject">Cancel</button><button class="dbtn pri" data-dact="dset:igs:1" data-dgo="dWinProject" data-toast="Ignored-folder sync saved for all machines" onclick="S.d.igsform=''">Save</button></div>`);
     if (sel === "sync" && S.d.fss === "change") {
       // Change folder…, from a machine's row menu: another folder there, nothing moved.
       return ccSheetOver(page, `<div class="am-head"><b>Change the folder of widget on win-box</b><kbd>esc</kbd></div>

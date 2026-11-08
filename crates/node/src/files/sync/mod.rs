@@ -48,6 +48,7 @@ mod disk;
 mod gitconfig;
 mod gitdir;
 mod handoff;
+mod ignored;
 mod lists;
 mod map;
 #[cfg(test)]
@@ -526,15 +527,19 @@ impl Syncs {
 
     async fn run(&self, project: &Project, from: Source) -> Result<Running> {
         let (folders, folder) = (self.inner.folders.clone(), project.folder.clone());
+        let ignored = ignored::IgnoredRoot::parse(&project.name, Path::new(&project.folder))?;
         let (root, made) = spawn_blocking(move || {
             let folders = match from {
                 Source::Mesh => folders.everywhere(),
                 Source::Saved | Source::Server => folders,
             };
-            let made = make_missing(&folders, &folder)?;
+            let made = match &ignored {
+                Some(scope) => scope.prepare(&folders)?,
+                None => make_missing(&folders, &folder)?,
+            };
             let root = open_target(&folders, &folder)
                 .with_context(|| format!("the folder {folder} cannot be synced"))?;
-            if !root.path().join(".git").exists() && root.path().ancestors().skip(1).any(|parent| parent.join(".git").exists()) {
+            if ignored.is_none() && !root.path().join(".git").exists() && root.path().ancestors().skip(1).any(|parent| parent.join(".git").exists()) {
                 bail!("This folder is inside a Git checkout. Import the repository root for Git sync.");
             }
             if root.path().join(".git").is_file() {
@@ -766,6 +771,26 @@ impl Syncs {
         out
     }
 
+    /// A project's Git and selected ignored-folder datasets as one status.
+    pub(crate) fn status_for(&self, project: &str) -> Option<ProjectStatus> {
+        let all = self.status();
+        let main = all.iter().find(|status| status.name == project)?;
+        let folders = all
+            .iter()
+            .filter_map(|status| {
+                let (owner, path) = beep_proto::node::sync::ignored_folder(&status.name)?;
+                (owner == project).then(|| path.to_owned())
+            })
+            .collect::<Vec<_>>();
+        Some(
+            beep_proto::node::sync::IgnoredSync {
+                enabled: !folders.is_empty(),
+                folders,
+            }
+            .status(main, &all),
+        )
+    }
+
     /// The projects waiting for Syncthing to let go of their folder.
     pub(crate) fn held(&self) -> BTreeSet<String> {
         lock(&self.inner.held).keys().cloned().collect()
@@ -848,7 +873,16 @@ impl Syncs {
         let Some(shared) = self.project(project) else {
             bail!("{project} is not synced on this machine");
         };
-        shared.rescan(RESCAN_LIMIT).await
+        let mut datasets = vec![shared];
+        datasets.extend(lock(&self.inner.projects).values().filter_map(|running| {
+            let (owner, _) = beep_proto::node::sync::ignored_folder(&running.project.name)?;
+            (owner == project).then(|| running.shared.clone())
+        }));
+        for result in join_all(datasets.iter().map(|shared| shared.rescan(RESCAN_LIMIT))).await {
+            result?;
+        }
+        self.status_for(project)
+            .with_context(|| format!("{project} stopped syncing"))
     }
 
     /// What tells the server this node scans a project when asked.

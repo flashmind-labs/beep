@@ -9,7 +9,7 @@ use super::{
 use crate::files::sync::{
     disk::{self},
     gitconfig,
-    gitdir::{self, Checkout, Kind, Oid, RefMove, Repo, Stay, WriteGuard, ref_stat},
+    gitdir::{self, Checkout, Kind, Oid, RefMove, Repo, Stay, ref_stat},
     map::{FileMeta, is_conflict, original_of},
     progress::{self, Meter},
     root::{Checked, exclude_from_git},
@@ -370,9 +370,10 @@ impl Task {
         round.batch_bytes = 0;
         let (root, dir) = (self.shared.root.clone(), partial.dir().try_clone());
         let checkout = (!self.shared.copies_git()).then_some(round.checkout);
+        let shared = self.shared.clone();
         let placed = spawn_blocking(move || {
             let placed = dir.map_err(anyhow::Error::from).and_then(|dir| {
-                let _git = WriteGuard::acquire(root.path(), checkout)?;
+                let _git = shared.write_guard(checkout)?;
                 place_all(&root, &dir, &batch)
             });
             (batch, placed)
@@ -798,8 +799,9 @@ impl Task {
     ) -> Result<()> {
         let moved = {
             let (root, from, to_path) = (self.shared.root.clone(), path.to_owned(), to.to_owned());
+            let shared = self.shared.clone();
             spawn_blocking(move || {
-                let _git = WriteGuard::acquire(root.path(), checkout)?;
+                let _git = shared.write_guard(checkout)?;
                 disk::rename(&root, &from, &to_path, &expected)
             })
             .await??
@@ -847,8 +849,9 @@ impl Task {
         }
         let removed = {
             let (root, path) = (self.shared.root.clone(), work.path.clone());
+            let shared = self.shared.clone();
             spawn_blocking(move || {
-                let _git = WriteGuard::acquire(root.path(), checkout)?;
+                let _git = shared.write_guard(checkout)?;
                 disk::remove(&root, &path, &expected)
             })
             .await??

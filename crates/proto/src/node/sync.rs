@@ -7,6 +7,9 @@
 //!
 //! Each session is one request and its reply.
 
+mod ignored;
+pub use ignored::{IGNORED_PREFIX, IgnoredSync, ignored_folder, ignored_project};
+
 use iroh::EndpointAddr;
 use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;

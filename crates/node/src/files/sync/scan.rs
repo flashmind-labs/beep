@@ -154,7 +154,10 @@ fn walk_inner(root: &Path, rules: &Rules, skipped: usize, git_only: bool) -> Res
             if is_dir {
                 // A linked worktree or a submodule: its `.git` file names
                 // this machine's paths, so it stays here whole.
-                if path != gitdir::GIT && item.path().join(gitdir::GIT).is_file() {
+                if path != gitdir::GIT
+                    && (item.path().join(gitdir::GIT).is_file()
+                        || rules.ignored_only() && item.path().join(gitdir::GIT).exists())
+                {
                     walked.skip(skipped, path, true, Rule::Git, None);
                     continue;
                 }

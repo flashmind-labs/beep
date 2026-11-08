@@ -1,3 +1,5 @@
+import { chooseIgnoredFolders } from "./ignored-sync.ts";
+import type { IgnoredSync } from "./ignored-sync-state.ts";
 // A project-wide Syncthing preference, applied by each machine.
 import { invoke } from "../ui/tauri.ts";
 import { el } from "../ui/dom.ts";
@@ -70,6 +72,22 @@ export function openProjectMenu(event: MouseEvent, project: Project, items: Menu
     };
     insert("recovery", { label: `Preserve edits before Git sync: ${enabled ? "On" : "Off"} (all machines)`, on: change });
   }, e => insert("recovery", { label: `Git recovery: ${reason(e)} (retry)`, on: () => openProjectMenu(event, project, items, onChanged) }));
+  invoke<IgnoredSync>("project_ignored_sync", { project: project.name }).then(settings => {
+    const change = async () => {
+      if (!settings.enabled && !settings.folders.length) {
+        chooseIgnoredFolders(project.name, { ...settings, enabled: true }, onChanged);
+        return;
+      }
+      try {
+        await invoke("project_ignored_sync", { project: project.name, settings: { ...settings, enabled: !settings.enabled } });
+        onChanged();
+      } catch (e) {
+        openMenu(event, project.name, [{ label: `${reason(e)} (retry)`, on: change }]);
+      }
+    };
+    insert("ignored", { label: `Sync gitignored: ${settings.enabled ? "On" : "Off"} (all machines)`, on: change });
+    insert("ignored-folders", { label: "Choose ignored folders…", on: () => chooseIgnoredFolders(project.name, settings, onChanged) });
+  }, e => insert("ignored", { label: `Sync gitignored: ${reason(e)} (retry)`, on: () => openProjectMenu(event, project, items, onChanged) }));
   invoke<boolean | null>("project_syncthing_mode", { project: project.name }).then(enabled => {
     const next = enabled !== false ? false : true;
     const change = async () => {
