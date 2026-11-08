@@ -12,6 +12,7 @@ import { PageHistory } from "./pagehistory.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
 import { viewHidden } from "../settings/subscription.ts";
 import { S } from "../bar/core.ts";
+import { syncMobile } from "./mobile.ts";
 
 export let shown: ViewName | null = null;
 /// The argument `shown` was opened with, so Esc from an agent view can return to it.
@@ -72,17 +73,18 @@ function here() {
   return { view: shown!, arg: views.get(shown!)?.currentArg?.() ?? shownArg };
 }
 
-/// Goes one page back (⌘[) or forward (⌘]), if there is one.
-export function goHistory(forward: boolean) {
-  if (!shown) return;
+/// Goes one page back (⌘[) or forward (⌘]), if there is one; false when there is none.
+export function goHistory(forward: boolean): boolean {
+  if (!shown) return false;
   const page = forward ? pages.forward(here()) : pages.back(here());
-  if (!page) return;
+  if (!page) return false;
   moving = true;
   try {
     go(page.view, page.arg);
   } finally {
     moving = false;
   }
+  return true;
 }
 
 /// Shows view `name`, passing `arg` to its mount.
@@ -136,4 +138,5 @@ export function drawTop() {
   $("#scope").replaceChildren(...(head.scope ? [head.scope] : []));
   $("#date").textContent = head.sub || "";
   $("#tools").replaceChildren(...(head.tools || []));
+  syncMobile();
 }

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mobileLayout } from "../src/ui/platform.ts";
-import { activeTab, backTo, type MobileAt } from "../src/center/mobile-state.ts";
+import { activeTab, backTo, fullScreen, type MobileAt } from "../src/center/mobile-state.ts";
 
 const at = (over: Partial<MobileAt>): MobileAt => ({ page: "home", paneView: null, homeTab: "overview", picked: null, tile: false, terminal: false, ...over });
 
@@ -32,4 +32,11 @@ test("Back goes up one step and is absent on a tab's first page", () => {
   assert.equal(backTo(at({ page: "pane", paneView: "agents" })), null);
   assert.equal(backTo(at({ page: "pane", paneView: "agent" })), "history");
   assert.equal(backTo(at({ page: "sync" })), "history");
+});
+
+test("a session and an open terminal hide the tab bar", () => {
+  assert.equal(fullScreen(at({ page: "pane", paneView: "agent" })), true);
+  assert.equal(fullScreen(at({ page: "pane", paneView: "agents" })), false);
+  assert.equal(fullScreen(at({ page: "terminals", terminal: true })), true);
+  assert.equal(fullScreen(at({})), false);
 });

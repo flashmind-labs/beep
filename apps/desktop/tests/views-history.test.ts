@@ -22,6 +22,7 @@ const stubs = new Map(Object.entries({
   "center/threadcard.ts": "export const threadChats = null;",
   "settings/subscription.ts": "export const viewHidden = () => false;",
   "bar/core.ts": "export const S = { server: false };",
+  "center/mobile.ts": "export const syncMobile = () => {};",
 }).map(([path, source]) => [new URL(`../src/${path}`, import.meta.url).href, source]));
 const hooks = registerHooks({
   load(url, context, next) {
