@@ -47,3 +47,18 @@ async function notification(page: Page, id: string, title: string): Promise<void
   await page.evaluate(target => window.__navigation.open(target), target);
   await expect(page.locator("#agtitle")).toHaveText(title);
 }
+
+test("Git panels stay visible across unchanged project redraws", async ({ page }) => {
+  await openProject(page);
+  const branch = page.locator(".pj-strip button").filter({ hasText: "branch" });
+  await expect(branch).toBeVisible();
+  await branch.click();
+  await expect(page.locator(".gh-nav")).toBeVisible();
+  await expect(page.locator(".gh-tree")).toContainText("No commits yet.");
+  for (let i = 0; i < 5; ++i) {
+    await branch.click();
+    await expect(page.locator(".gh-nav")).toBeVisible();
+    await expect(page.locator(".gh-detail")).toBeVisible();
+    await expect(page.locator(".gh-tree")).toContainText("No commits yet.");
+  }
+});
