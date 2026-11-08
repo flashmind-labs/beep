@@ -214,6 +214,7 @@ impl PeerClient {
             })
             .await
             .map_err(|e| {
+                tracing::warn!(?self.peer, protocol, phase = "open", "timed out opening node stream");
                 MeshError::Link(anyhow::Error::new(e).context("the node did not open the stream"))
             })?,
             Via::Local(session) => {
@@ -236,6 +237,7 @@ impl PeerClient {
         timeout(OPEN_TIMEOUT, answer(rx, protocol))
             .await
             .map_err(|e| {
+                tracing::warn!(?self.peer, protocol, phase = "acknowledgement", "timed out opening node stream");
                 MeshError::Link(anyhow::Error::new(e).context("the node did not open the stream"))
             })?
     }
