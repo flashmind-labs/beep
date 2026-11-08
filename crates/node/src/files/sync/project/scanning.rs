@@ -50,7 +50,7 @@ impl Task {
             let root = root.clone();
             spawn_blocking(move || -> Result<_> {
                 if gitdir::is_busy(&root) {
-                    bail!("waiting for the Git operation running on this machine");
+                    bail!("{}", gitdir::busy_reason(&root));
                 }
                 Ok(Checkout::read(&root))
             })

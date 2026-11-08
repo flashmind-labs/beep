@@ -1097,7 +1097,7 @@ async fn divergent_commits_wait_until_git_merges_them() {
             node.status()
                 .error
                 .as_deref()
-                .is_some_and(|error| error.contains("Git commits differ"))
+                .is_some_and(|error| error.contains("histories diverged"))
         })
     })
     .await;
@@ -1117,6 +1117,61 @@ async fn divergent_commits_wait_until_git_merges_them() {
         &["pull", "--ff-only", &a.folder().to_string_lossy(), "main"],
     );
     in_step(&a, &b).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unresolved_merge_warns_and_a_resolved_merge_resumes_sync() {
+    let (a, b) = synced_repo().await;
+    a.pause(&b, true).await;
+    b.pause(&a, true).await;
+    let ours = commit(&a, "README.md", "local intent\n");
+    let theirs = commit(&b, "README.md", "peer intent\n");
+    a.pause(&b, false).await;
+    b.pause(&a, false).await;
+    eventually("divergent histories to warn", || {
+        a.status()
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("histories diverged"))
+    })
+    .await;
+    git(
+        &a.folder(),
+        &["fetch", &b.folder().to_string_lossy(), "main"],
+    );
+    let merge = Command::new("git")
+        .current_dir(a.folder())
+        .args(["merge", "--no-edit", "FETCH_HEAD"])
+        .output()
+        .unwrap();
+    assert!(!merge.status.success(), "the fixture must conflict");
+    eventually("unresolved merge to warn rather than wait silently", || {
+        a.status()
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("unmerged conflicts"))
+    })
+    .await;
+    assert_eq!(head(&a).as_deref(), Some(ours.as_str()));
+    assert_eq!(head(&b).as_deref(), Some(theirs.as_str()));
+    assert!(
+        fs::read_to_string(a.path("README.md"))
+            .unwrap()
+            .contains("<<<<<<<")
+    );
+    fs::write(a.path("README.md"), "local intent and peer intent\n").unwrap();
+    git(&a.folder(), &["add", "README.md"]);
+    git(&a.folder(), &["commit", "-q", "-m", "resolve both intents"]);
+    in_step(&a, &b).await;
+    assert_eq!(head(&a), head(&b));
+    assert_eq!(
+        fs::read_to_string(b.path("README.md")).unwrap(),
+        "local intent and peer intent\n"
+    );
+    eventually("resolved merge warnings to clear", || {
+        a.status().error.is_none() && b.status().error.is_none()
+    })
+    .await;
 }
 
 async fn configure_three(nodes: &[Node; 3], paused: bool) {

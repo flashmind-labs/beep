@@ -10,6 +10,7 @@ mod chat;
 mod error;
 mod fleet;
 mod machines;
+mod navigation;
 mod notices;
 mod palette;
 mod platform;
@@ -198,6 +199,7 @@ fn main() {
             agents::sessions::agent_preview,
             agents::sessions::agent_resume,
             agents::sessions::agent_sessions,
+            agents::sessions::agent_title_save,
             agents::sessions::agent_start,
             agents::sessions::agent_usage,
             agents::sessions::session_folder_here,
@@ -549,6 +551,14 @@ fn quit(app: &AppHandle) {
 }
 
 fn setup(app: &mut App) -> anyhow::Result<()> {
+    let bar = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == bar::LABEL)
+        .ok_or_else(|| anyhow::anyhow!("bar window config missing"))?;
+    navigation::guard(tauri::WebviewWindowBuilder::from_config(app, bar)?).build()?;
     #[cfg(unix)]
     beep_node::machine::raise_open_files();
     #[cfg(target_os = "macos")]

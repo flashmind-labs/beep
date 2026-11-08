@@ -168,7 +168,7 @@
   const decorate = () => {
     const win = document.querySelector("#desk .cc-win"), top = win && win.querySelector(".cc-top");
     if (!top) return;
-    top.insertAdjacentHTML("beforeend", '<button class="nf-bell" data-nf-bell title="Notifications"></button>');
+    top.insertAdjacentHTML("beforeend", '<button class="nf-bell" data-nf-bell title="Notifications (⌘B)"></button>');
     paint();
     if (S.screen === "dWinProject" && S.d.nfjump) {
       S.d.nfjump = false;
@@ -212,6 +212,7 @@
     if ((e.key === "Enter" || e.key === " ") && e.target.matches?.("[data-nf-go]")) { e.preventDefault(); e.target.click(); }
   });
   document.addEventListener("keydown", e => {
+    if (e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === "b" && document.querySelector("#desk .nf-bell") && !e.target.closest?.("[contenteditable=true], .tm-xterm")) { e.preventDefault(); S.d.nfnote = ""; S.d.nfopen = !S.d.nfopen; paint(); return; }
     if (e.key === "Escape" && S.d.nfopen) { e.stopImmediatePropagation(); S.d.nfnote = ""; S.d.nfopen = false; paint(); }
   }, true);
 

@@ -1401,6 +1401,55 @@ mod agent {
         }
 
         #[test]
+        fn session_credits_follow_the_existing_reviewer_field() {
+            #[derive(Serialize, Deserialize)]
+            struct Released {
+                id: String,
+                agent: String,
+                cwd: String,
+                title: Option<String>,
+                started_at: u64,
+                state: State,
+                question: Option<Question>,
+                last_message: String,
+                turns: u32,
+                context: Option<AgentContext>,
+                tokens: u64,
+                cost_usd: Option<f64>,
+                modes: Vec<ModeOption>,
+                mode: Option<String>,
+                plan_ready: Option<String>,
+                place: Option<WorkPlace>,
+                parent: Option<ParentLink>,
+                last_activity: u64,
+                reviewer: bool,
+            }
+            let session = SessionInfo {
+                reviewer: true,
+                credits: vec![beep_proto::ProviderCredits {
+                    provider: "openrouter".into(),
+                    scope: beep_proto::CreditScope::Account,
+                    unit: beep_proto::CreditUnit::Usd,
+                    remaining: Some("7.25".into()),
+                    total: None,
+                    used: None,
+                    resets: None,
+                }],
+                ..SessionInfo::default()
+            };
+            let compact = rmp_serde::to_vec(&session).unwrap();
+            let released: Released = beep_proto::lenient::from_slice(&compact).unwrap();
+            assert!(released.reviewer);
+            let read: SessionInfo = beep_proto::lenient::from_slice(&compact).unwrap();
+            assert_eq!(read, session);
+            // A node before credits sends the same fields through reviewer.
+            let older = rmp_serde::to_vec(&released).unwrap();
+            let read: SessionInfo = beep_proto::lenient::from_slice(&older).unwrap();
+            assert!(read.reviewer);
+            assert!(read.credits.is_empty());
+        }
+
+        #[test]
         fn a_session_with_a_parent_reads_on_an_older_reader_and_back() {
             #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
             #[serde(default)]

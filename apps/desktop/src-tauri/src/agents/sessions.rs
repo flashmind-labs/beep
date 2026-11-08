@@ -92,6 +92,8 @@ pub struct SessionRow {
     question: Option<AgentQuestion>,
     /// The session whose agent started this one.
     parent: Option<SessionParent>,
+    /// A temporary reviewer of its parent's changes.
+    reviewer: bool,
 }
 
 impl From<MachineSession> for SessionRow {
@@ -110,6 +112,7 @@ impl From<MachineSession> for SessionRow {
             external: session.external,
             question: session.question,
             parent: None,
+            reviewer: false,
         }
     }
 }
@@ -258,16 +261,39 @@ pub async fn agent_sessions(
     held: State<'_, Outside>,
 ) -> Result<Vec<SessionRow>> {
     let sessions = machine_sessions(&app, &beep, &fleet, &held).await;
+    let reviewers = fleet.reviewers().into_iter().map(|session| (session, true));
     Ok(sessions
         .into_iter()
-        .map(|session| {
+        .map(|session| (session, false))
+        .chain(reviewers)
+        .map(|(session, reviewer)| {
             let parent = fleet.parent_of(&session.machine_id, &session.id);
             SessionRow {
                 parent,
+                reviewer,
                 ..SessionRow::from(session)
             }
         })
         .collect())
+}
+
+/// Saves the user's title independently of the agent's generated title.
+#[tauri::command]
+pub async fn agent_title_save(
+    app: AppHandle,
+    fleet: Machines<'_>,
+    machine_id: String,
+    agent: String,
+    session: String,
+    title: String,
+) -> Result<()> {
+    let mesh = fleet.ready().await?;
+    beep_fleet::session_titles::save(&mesh, &machine_id, &agent, &session, &title).await?;
+    app.state::<Arc<AgentSessions>>().stale();
+    if let Err(e) = app.emit("agent-title-changed", ()) {
+        log::warn!("could not tell the windows a session title changed: {e}");
+    }
+    Ok(())
 }
 
 /// Shows a session its machine said ended as ended in the lists held here, so
@@ -339,6 +365,11 @@ pub(crate) async fn machine_sessions(
         SCAN_FRESH,
     ));
     fleet.apply_presence(&mut sessions);
+    if let Some(mesh) = fleet.mesh() {
+        for session in &mut sessions {
+            beep_fleet::session_titles::apply(&mesh, session);
+        }
+    }
     sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
     sessions
 }
@@ -652,7 +683,7 @@ pub async fn agent_view(
         last,
         before,
     };
-    let view = match fleet.member(&request.machine_id) {
+    let mut view = match fleet.member(&request.machine_id) {
         Some(machine) => {
             let read = direct::session(&fleet, machine, &request);
             fleet
@@ -667,6 +698,9 @@ pub async fn agent_view(
         }
         None => beep.call(request).await?,
     };
+    if let Some(mesh) = fleet.mesh() {
+        beep_fleet::session_titles::apply(&mesh, &mut view.session);
+    }
     app.state::<crate::palette::PaletteCache>()
         .found_session(&app, view.session.clone());
     Ok(view.into())
