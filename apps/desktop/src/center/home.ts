@@ -19,7 +19,7 @@ import { gitSection, openUrl, refreshGit } from "./openitems.ts";
 import { registerView, go, openResearch, shown } from "./views.ts";
 import { projectRows } from "./sidebar.ts";
 import { loading, refresh, fresh } from "./refresh.ts";
-import { IC } from "../ui/icons.ts";
+import { BEEP_MARK, IC } from "../ui/icons.ts";
 import { resetRows } from "../ui/lazyrows.ts";
 import { type MachineCard, machineDisk, thisMacRow } from "../machines/machine-state.ts";
 import { byRecent, type RunningAgent, runningKey, runningLine, type RunningRow, runningWhen } from "../agents/running-state.ts";
@@ -86,7 +86,7 @@ function needsRow(n: NeedsYou) {
   const { title, sub, button: label } = needsLine(n);
   let lead, open, act;
   if (n.kind === "chat") {
-    lead = avatar("beep", icon(IC.chat));
+    lead = avatar("beep", icon(BEEP_MARK));
     open = () => go("pane", { chat: { session: n.session_id } });
     act = () => answerChat(n, "allow", "Allowed");
   } else {
@@ -178,7 +178,7 @@ function updateRow(u: UpdateRow) {
   close.setAttribute("aria-label", "Dismiss");
   close.style.padding = "2px 6px";
   const sub = u.app_name ? `${u.app_name} · ${updateTime(u.at)}` : updateTime(u.at);
-  const row = line(avatar("beep", letter || icon(IC.chat)), u.summary, sub, [close], () => openUpdate(u));
+  const row = line(avatar("beep", letter || icon(BEEP_MARK)), u.summary, sub, [close], () => openUpdate(u));
   row.querySelector<HTMLElement>(".t")!.title = "Ask Beep about this";
   return row;
 }

@@ -84,8 +84,7 @@
                 <data android:path="/oauth/callback" />
             </intent-filter>
         </activity>
-        <!-- Launcher icons. Avatars enables exactly one of these. The pager and the last four show
-             flashmind's mark; the four belong to dropped avatars and stay so Avatars can turn them off on phones that used them. -->
+        <!-- Keep legacy launcher aliases so installed shortcuts survive the icon migration. -->
         <activity-alias android:name=".LauncherPager" android:targetActivity=".MainActivity"
             android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
             android:enabled="true" android:exported="true">
@@ -96,7 +95,7 @@
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity-alias>
         <activity-alias android:name=".LauncherClay" android:targetActivity=".MainActivity"
-            android:icon="@mipmap/ic_launcher_clay" android:roundIcon="@mipmap/ic_launcher_clay"
+            android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
             android:enabled="false" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -105,7 +104,7 @@
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity-alias>
         <activity-alias android:name=".LauncherJelly" android:targetActivity=".MainActivity"
-            android:icon="@mipmap/ic_launcher_jelly" android:roundIcon="@mipmap/ic_launcher_jelly"
+            android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
             android:enabled="false" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

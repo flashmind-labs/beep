@@ -121,7 +121,7 @@ final class ChatNotifier: NSObject, NoticeListener, UNUserNotificationCenterDele
             fill.setFill()
             UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
             if light {
-                UIImage(systemName: "bubble.left")?.withTintColor(.white).draw(in: CGRect(x: 34, y: 34, width: 52, height: 52))
+                UIImage(named: "flashmind_mark")?.withTintColor(.white).draw(in: CGRect(x: 34, y: 34, width: 52, height: 52))
                 return
             }
             let font = UIFont.systemFont(ofSize: text.count > 1 ? 42 : 52, weight: .bold)

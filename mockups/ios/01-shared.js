@@ -1,5 +1,5 @@
 
-// flashmind's mark.
+// The arrow is Beep's only icon, on the home screen, widgets and notification avatars.
 const BI = (n = 20) => `<svg width="${n}" height="${n}" viewBox="0 0 28 28" fill="currentColor" aria-hidden="true"><path d="M14 1 27 27h-3.1L15.4 10v17h-2.8V10L4.1 27H1Z"/></svg>`;
 const I = {
   menu: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>',

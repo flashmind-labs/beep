@@ -9,9 +9,15 @@ struct BeepApp: App {
         WindowGroup {
             RootView()
                 .environment(delegate.model)
-                .task { delegate.model.connect() }
+                .task {
+                    restoreAppIcon()
+                    delegate.model.connect()
+                }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { delegate.model.ensureConnected() }
+                    if phase == .active {
+                        restoreAppIcon()
+                        delegate.model.ensureConnected()
+                    }
                 }
                 .onOpenURL { url in
                     if url.scheme == "beep", url.host == "new" { delegate.model.destination = .newChat }
@@ -22,6 +28,14 @@ struct BeepApp: App {
                     }
                     if let token = shareToken(url: url.absoluteString) { delegate.model.destination = .shared(token) }
                 }
+        }
+    }
+
+    @MainActor private func restoreAppIcon() {
+        let app = UIApplication.shared
+        guard app.supportsAlternateIcons, app.alternateIconName != nil else { return }
+        app.setAlternateIconName(nil) { error in
+            if let error { NSLog("Restoring the app icon: %@", error.localizedDescription) }
         }
     }
 }

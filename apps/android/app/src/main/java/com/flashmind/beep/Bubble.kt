@@ -86,10 +86,10 @@ import java.lang.ref.WeakReference
 import kotlin.math.abs
 import kotlin.math.hypot
 
-/** The two floating chats: Beep's own overlay with a live face, or Android's built-in bubble. */
+/** The two floating chats: Beep's own overlay with its arrow, or Android's built-in bubble. */
 enum class BubbleKind(val label: String, val hint: String) {
     System("Android bubble", "The system's chat bubble, no extra permission"),
-    Overlay("Beep bubble", "Animated face, floats over every app"),
+    Overlay("Beep bubble", "Arrow icon, floats over every app"),
 }
 
 /**
@@ -164,7 +164,6 @@ object Bubble {
         if (bubbleView != null) return true
         // The face follows the repository, which only starts its watch once it exists.
         (app as? BeepApplication)?.repository
-        Avatars.load(app)
         val windows = app.getSystemService(WindowManager::class.java)
         val owner = OverlayOwner().also { this.owner = it }
         val size = px(app, SIZE_DP)
@@ -178,7 +177,7 @@ object Bubble {
         val head = ComposeView(app).apply {
             setContent {
                 val current by face.collectAsState()
-                // Thrown away: Beep closes its eyes and spins down into the X.
+                // The icon spins down into the X when dismissed.
                 val gone by animateFloatAsState(if (leaving.value) 0f else 1f, tween(LEAVE_MS.toInt(), easing = FastOutLinearInEasing), label = "gone")
                 // A light disc with a shadow, so the bubble reads as floating over any background.
                 Box(Modifier.fillMaxSize().graphicsLayer { scaleX = gone; scaleY = gone; alpha = gone; rotationZ = (1 - gone) * 120f }
@@ -539,10 +538,7 @@ object Bubble {
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 }
 
-/**
- * The bubble's window root. It takes every touch before the face does: an AndroidView in the face
- * (the clip avatars) reports touches as handled, which kept them from the drag and tap listener.
- */
+/** The overlay routes every touch to the drag and tap listener. */
 private class TouchFrame(context: Context) : FrameLayout(context) {
     override fun onInterceptTouchEvent(event: MotionEvent) = true
 }

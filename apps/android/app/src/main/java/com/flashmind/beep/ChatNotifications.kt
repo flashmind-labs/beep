@@ -76,9 +76,8 @@ object ChatNotifications {
     }
 
     fun beepPerson(context: Context): Person {
-        Avatars.load(context)
         return Person.Builder().setName(BEEP).setKey(BEEP).setBot(true).setImportant(true)
-            .setIcon(Icon.createWithResource(context, Avatars.current.bubbleIcon)).build()
+            .setIcon(Icon.createWithResource(context, R.mipmap.ic_launcher)).build()
     }
 
     private fun you() = Person.Builder().setName("You").setKey("self").build()
@@ -182,7 +181,7 @@ object ChatNotifications {
             beepChat = key.id
             if (!options.quiet) announced = key.id
         }
-        val icon = if (key.group) Icon.createWithAdaptiveBitmap(initials(title)) else Icon.createWithResource(context, Avatars.current.bubbleIcon)
+        val icon = if (key.group) Icon.createWithAdaptiveBitmap(initials(title)) else Icon.createWithResource(context, R.mipmap.ic_launcher)
         pushShortcut(context, key, if (key.group) title else BEEP, icon, listOf(beep) + members.values)
         val builder = Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
