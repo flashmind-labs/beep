@@ -518,4 +518,5 @@ impl User {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/account_user_memories.rs"]
 mod tests;

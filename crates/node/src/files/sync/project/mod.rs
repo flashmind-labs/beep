@@ -15,4 +15,5 @@ pub(super) use state::Cursor;
 pub(super) use task::{run, tag_name};
 
 #[cfg(test)]
+#[path = "../../../tests/files_sync_project.rs"]
 mod tests;

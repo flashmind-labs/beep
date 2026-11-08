@@ -394,4 +394,5 @@ pub(crate) fn prompt(base: &str, focus: &str, house: Option<&HouseRules>) -> Str
 mod house;
 
 #[cfg(test)]
+#[path = "../tests/agents_reviews.rs"]
 mod tests;

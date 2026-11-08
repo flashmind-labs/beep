@@ -50,16 +50,5 @@ pub(crate) fn needs_update(e: DesktopError, what: &str) -> DesktopError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_old_server_finds_nothing() {
-        assert!(unknown_op(&DesktopError::Api(ApiError::bad_request(
-            "unknown op 169"
-        ))));
-        assert!(!unknown_op(&DesktopError::Api(ApiError::bad_request(
-            "offline"
-        ))));
-    }
-}
+#[path = "../tests/projects.rs"]
+mod tests;

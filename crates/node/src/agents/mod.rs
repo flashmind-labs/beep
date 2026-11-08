@@ -242,4 +242,5 @@ impl Agents {
 }
 
 #[cfg(test)]
+#[path = "../tests/agents.rs"]
 mod tests;
