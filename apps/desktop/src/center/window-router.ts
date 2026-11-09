@@ -46,7 +46,8 @@ export class WindowHistory {
     forward: () => { this.index = Math.min(this.entries.length - 1, this.index + 1); },
     createHref: path => path,
   });
-  readonly router = createRouter({ routeTree, history: this.history });
+  // Each retained view owns its scroll position; the router must not reset it.
+  readonly router = createRouter({ routeTree, history: this.history, scrollRestoration: () => false });
 
   start(page: Location) { this.history.replace(paths[page.view], { page }); }
   visit(page: Location, next: Location, replace = false) {

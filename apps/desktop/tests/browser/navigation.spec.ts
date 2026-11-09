@@ -136,3 +136,25 @@ test("project header actions retain focus during refresh", async ({ page }) => {
   await page.getByRole("menuitem", { name: "Pin", exact: true }).click();
   await expect.poll(() => page.evaluate(project => window.__navigation.calls().some(call => call.command === "pin_project_to_top" && call.args.project === project), projectName)).toBe(true);
 });
+
+test("route changes and history preserve retained scroll", async ({ page }, info) => {
+  await page.evaluate(() => {
+    const original = window.scrollTo.bind(window);
+    (window as any).__routeScrolls = 0;
+    Object.defineProperty(window, "scrollTo", { configurable: true, value: (...args: unknown[]) => { (window as any).__routeScrolls++; return Reflect.apply(original, window, args); } });
+  });
+  const home = page.locator("#view");
+  const top = await home.evaluate(element => { const panel = element.querySelector<HTMLElement>(".cc-panel"); if (panel) panel.style.minHeight = "2000px"; element.scrollTop = 300; return element.scrollTop; });
+  expect(top).toBeGreaterThan(0);
+  await openProject(page);
+  await expect.poll(() => page.evaluate(() => (window as any).__TSR_ROUTER__?.state.resolvedLocation?.pathname)).toBe("/projects");
+  const modifier = info.project.name === "Windows" ? "Control" : "Meta";
+  await page.keyboard.press(`${modifier}+[`);
+  await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
+  await expect(home).toHaveJSProperty("scrollTop", top);
+  await page.keyboard.press(`${modifier}+]`);
+  await expect(page.locator('.pj-li[title="Running"]')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as any).__TSR_ROUTER__?.state.resolvedLocation?.pathname)).toBe("/projects");
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  expect(await page.evaluate(() => (window as any).__routeScrolls)).toBe(0);
+});
