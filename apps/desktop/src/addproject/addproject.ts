@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { AddProjectView } from "./addproject-view.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
 // addproject/: the Add a project, Add a folder, Import a project and New
 // project sheets. Entry: openAddProject here, openAddFolder in addfolder.ts,
@@ -6,9 +10,9 @@ import { syncthingImportChoice } from "../project/syncthing.ts";
 // hosts. Each online machine refreshes its cached discovery list on opening.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
-import { IMPORTS_AT_ONCE, eachLimited, emptyText, foundMatches, lookingOn, tickable, toImport, toggleAllShown, unreadText } from "./addproject-state.ts";
+import { IMPORTS_AT_ONCE, eachLimited, foundMatches, tickable, toImport, toggleAllShown, unreadText } from "./addproject-state.ts";
 import type { ImportState } from "./addproject-state.ts";
-import { agentLabel, foundSessions, importPlan, lookingText } from "../project/projects-state.ts";
+import { agentLabel, foundSessions, importPlan } from "../project/projects-state.ts";
 import { button, el } from "../ui/dom.ts";
 import type { FoundRow, ProjectRow } from "../project/projects-state.ts";
 import { reason } from "../ui/format.ts";
@@ -28,7 +32,7 @@ export interface AddProjectOptions {
 }
 
 /// One git host's repositories to clone.
-interface HostRepos {
+export interface HostRepos {
   host: string;
   github: boolean;
   repos: { name: string; url: string; updated_at: number }[];
@@ -80,9 +84,6 @@ export async function rescanAll(start: (machines: FoundMachine[]) => void, each:
   await Promise.all(machines.map(machine => rescan(machine).then(after => each(machine, after))));
 }
 
-/// The most repositories one host shows.
-const REPOS_SHOWN = 30;
-
 /// How a found row shows: `busy` names the row being imported (any non-null
 /// value disables Import), `error` is why this one failed, `quiet` drops the
 /// primary look from Import.
@@ -106,7 +107,7 @@ const looking = new Map<string, string>();
 const unread = new Map<string, string>();
 /// Counts the opens, so an answer for a sheet since closed is dropped.
 let opened = 0;
-let hint: HTMLDivElement | null = null;
+let view: Root | null = null;
 /// The row being imported by its own button, by name, and why one failed.
 let importing: string | null = null;
 const failed = new Map<string, string>();
@@ -116,7 +117,7 @@ let picked = new Set<string>();
 const status = new Map<string, ImportState>();
 /// True while a batch imports.
 let batch = false;
-let search: HTMLInputElement | null = null, bar: HTMLDivElement | null = null, listBox: HTMLDivElement | null = null, remoteBox: HTMLDivElement | null = null;
+
 
 /// Imports a found row in place on each machine that has it.
 export async function importFound(row: FoundRow, syncthingFiles: boolean | null = null) {
@@ -151,7 +152,7 @@ export function openAddProject(options: AddProjectOptions = {}) {
   status.clear();
   batch = false;
   ({ root, sheet, close } = openSheet("Add a project", "am-sheet ap-sheet", { canClose: () => !busy(), onKey, onClose: closed }));
-  build();
+  view = createRoot(sheet);
   draw();
   looking.clear();
   unread.clear();
@@ -174,8 +175,8 @@ export function openAddProject(options: AddProjectOptions = {}) {
     draw();
   });
   invoke<HostRepos[]>("host_repos")
-    .then(got => { hosts = got; }, e => { console.warn("host repos:", e); hosts = []; })
-    .finally(() => { if (root) draw(); });
+    .then(got => { if (live()) hosts = got; }, e => { if (live()) { console.warn("host repos:", e); hosts = []; } })
+    .finally(() => { if (live()) draw(); });
 }
 
 export function closeAddProject() {
@@ -184,7 +185,8 @@ export function closeAddProject() {
 
 function closed() {
   syncthing.dispose();
-  root = sheet = search = bar = listBox = remoteBox = hint = close = null;
+  view?.unmount(); view = null;
+  root = sheet = close = null;
 }
 
 const busy = () => !!importing || batch;
@@ -196,11 +198,12 @@ function shownRows() {
 
 /// The rows' elements, in list order.
 function rowEls() {
-  return [...(listBox?.querySelectorAll<HTMLElement>(".ap-row") || [])];
+  return [...(sheet?.querySelectorAll<HTMLElement>(".ap-box .ap-row") || [])];
 }
 
 function onKey(e: KeyboardEvent) {
   const stop = () => { e.preventDefault(); e.stopPropagation(); };
+  const search = sheet?.querySelector<HTMLInputElement>(".ap-q");
   if (e.key === "Escape" || e.isComposing || !search) return;
   if (e.metaKey && e.key === "Enter") { stop(); importPicked(); return; }
   const at = document.activeElement;
@@ -235,6 +238,8 @@ async function importPicked() {
   const names = toImport(shownRows().map(row => row.name), picked, status);
   if (!names.length) return;
   batch = true;
+  const mine = opened, then = opts.onImported;
+  const live = () => mine === opened && !!root;
   const syncthingFiles = syncthing.value();
 
   for (const name of names) {
@@ -250,22 +255,24 @@ async function importPicked() {
 
     try {
       landed.push(await importFound(row, syncthingFiles));
-      status.set(name, { state: "done" });
-      picked.delete(name);
+      if (live()) { status.set(name, { state: "done" }); picked.delete(name); }
     } catch (e) {
-      status.set(name, { state: "failed", why: reason(e) });
+      if (live()) status.set(name, { state: "failed", why: reason(e) });
     }
 
-    if (root) draw();
+    if (live()) draw();
   });
-  batch = false;
-  if (names.every(name => status.get(name)?.state === "done")) closeAddProject();
-  else if (root) draw();
-  if (landed[0]) opts.onImported?.(landed[0]);
+  if (live()) {
+    batch = false;
+    if (names.every(name => status.get(name)?.state === "done")) closeAddProject();
+    else draw();
+  }
+  if (landed[0]) then?.(landed[0]);
 }
 
 async function doImport(row: FoundRow) {
   if (busy()) return;
+  const mine = opened, then = opts.onImported;
   importing = row.name;
   failed.delete(row.name);
   status.delete(row.name);
@@ -273,120 +280,29 @@ async function doImport(row: FoundRow) {
 
   try {
     const project = await importFound(row, syncthing.value());
-    importing = null;
-    closeAddProject();
-    opts.onImported?.(project);
+    if (mine === opened && root) { importing = null; closeAddProject(); }
+    then?.(project);
   } catch (e) {
-    importing = null;
-    failed.set(row.name, reason(e));
-    if (root) draw();
+    if (mine === opened && root) { importing = null; failed.set(row.name, reason(e)); draw(); }
   }
-}
-
-/// The sheet's fixed parts: the search, the bar over the list and the list,
-/// which `draw` fills, so the search keeps its text and caret.
-function build() {
-  search = el("input", "ap-q");
-  search.type = "search";
-  search.placeholder = "Filter by repo, folder, machine or agent";
-  search.autocomplete = "off";
-  search.spellcheck = false;
-  search.setAttribute("aria-label", "Filter found folders");
-  search.addEventListener("input", () => { query = search!.value; draw(); });
-  bar = el("div", "ap-bar");
-  listBox = el("div", "ap-box");
-  remoteBox = el("div", "ap-remote");
-  hint = el("div", "am-wait ap-look");
-  const ways = el("div", "ap-ways",
-    way("Choose folder", () => { closeAddProject(); opts.onChoose?.(); }),
-    way("Clone repository", () => { closeAddProject(); opts.onClone?.(); }),
-    way("New project", () => { closeAddProject(); opts.onNew?.(); }));
-  const sync = el("details", "ap-sync", el("summary", "", "Sync options"), syncthing.mount("dcheck"));
-  sheet!.replaceChildren(el("div", "am-head", el("b", "", "Add a project"), el("kbd", "", "esc")),
-    ways, el("div", "am-label", "On your machines"), search, bar, hint, el("div", "ap-results", listBox, remoteBox), sync);
 }
 
 function draw() {
-  if (!search || !bar || !listBox || !hint) return;
-  const still = lookingOn([...looking.values()]);
-  hint.hidden = !still || !found?.length;
-  hint.replaceChildren(el("span", "dspin"), still || "");
-  const notRead = [...unread.values()];
-  const any = !!found?.length;
-  const remote = drawRemote();
-  bar.hidden = !any;
-  search.hidden = !any && !remote;
-  const focused = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>(".ap-row") : null;
-  const keep = focused && listBox.contains(focused) ? focused.dataset.name : null;
-  const shown = shownRows();
-  // The list is drawn anew, so it takes the old one's scroll with it.
-  const scrolled = listBox.querySelector<HTMLElement>(".ap-list")?.scrollTop ?? 0;
-
-  if (found === null) {
-    listBox.replaceChildren(el("div", "am-wait", el("span", "dspin"), lookingText(opts.machines)));
-  } else if (!found.length) {
-    const empty = emptyText([...looking.values()], notRead, error);
-    listBox.replaceChildren(empty ? el("div", "am-sub", empty) : el("div", "am-wait", el("span", "dspin"), still || ""));
-  } else if (!shown.length) {
-    listBox.replaceChildren(el("div", "am-sub", `Nothing found matches “${query.trim()}”.`));
-  } else {
-    listBox.replaceChildren(el("div", "ap-list", ...shown.map(row => foundRow(row, {
-      busy: importing || (batch ? "" : null),
-      error: failed.get(row.name),
-      pick: { on: picked.has(row.name), toggle: () => toggle(row.name) },
-      status: status.get(row.name),
-    }))));
-    listBox.querySelector<HTMLElement>(".ap-list")!.scrollTop = scrolled;
+  if (!view) return;
+  const current = view;
+  const active = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>(".ap-row") : null;
+  flushSync(() => current.render(createElement(AddProjectView, {
+    found, shown: shownRows(), hosts, machines: opts.machines, query, looking: [...looking.values()], unread: [...unread.values()], error, importing, batch, picked, status, failed, sync: syncthing,
+    search: (value: string) => { query = value; draw(); }, toggle, toggleAll: () => { picked = toggleAllShown(shownRows().map(row => row.name), picked, status); draw(); },
+    importPicked: () => void importPicked(), importOne: (row: FoundRow) => void doImport(row),
+    choose: () => { const action = opts.onChoose; closeAddProject(); action?.(); },
+    clone: (repo?: string) => { const action = opts.onClone; closeAddProject(); action?.(repo); },
+    create: () => { const action = opts.onNew; closeAddProject(); action?.(); },
+  })));
+  if (active && !active.isConnected) {
+    const search = sheet?.querySelector<HTMLInputElement>(".ap-q");
+    if (search && !search.hidden) search.focus();
   }
-
-  if (found?.length && notRead.length) listBox.append(el("div", "am-sub", notRead.join(" ")));
-  if (keep) rowEls().find(r => r.dataset.name === keep)?.focus({ preventScroll: true });
-  else if (!search.hidden && !sheet?.contains(document.activeElement)) search.focus();
-  if (!any) return;
-  const names = shown.map(row => row.name);
-  const open = names.filter(name => tickable(status.get(name)));
-  const ready = toImport(names, picked, status).length;
-  const all = el("input");
-  all.type = "checkbox";
-  all.className = "dcheck";
-  all.checked = open.length > 0 && open.every(name => picked.has(name));
-  all.indeterminate = !all.checked && open.some(name => picked.has(name));
-  all.disabled = batch || !open.length;
-  all.addEventListener("change", () => { picked = toggleAllShown(names, picked, status); draw(); });
-  const go = button(batch ? "Importing…" : `Import ${ready}`, "dbtn pri small", () => importPicked());
-  go.append(el("kbd", "", "⌘↵"));
-  go.disabled = busy() || !ready;
-  const count = query.trim() ? `${shown.length} of ${found!.length} shown` : `${found!.length} found`;
-  bar.replaceChildren(el("label", "", all, "Select all shown"), el("span", "", count), go);
-}
-
-/// Fills the repositories to clone, per host, as the search shows them,
-/// leaving out those found on a machine; true when any host has one.
-function drawRemote() {
-  if (!remoteBox) return false;
-  const have = new Set((found || []).map(row => row.name.toLowerCase()));
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const sections = (hosts || []).flatMap(h => {
-    const repos = h.repos.filter(r => !have.has(r.name.toLowerCase()));
-    const shown = repos.filter(r => words.every(w => r.name.toLowerCase().includes(w))).slice(0, REPOS_SHOWN);
-    if (!h.error && !shown.length) return [];
-    return [
-      el("div", "am-label", `On ${h.github ? "GitHub" : h.host}`),
-      h.error ? el("div", "am-sub", h.error) : el("div", "ap-list", ...shown.map(r => el("div", "ap-rm",
-        el("span", "n", r.name),
-        el("span", "m", ago(r.updated_at)),
-        button("Clone", "dbtn small", () => { closeAddProject(); opts.onClone?.(r.url); })))),
-    ];
-  });
-  const wasOpen = remoteBox.querySelector("details")?.open ?? false;
-  const browse = el("details", "", el("summary", "", "Browse repositories on connected hosts"), ...sections);
-  browse.open = wasOpen || !!query.trim();
-  remoteBox.replaceChildren(...(sections.length ? [browse] : []));
-  return (hosts || []).some(h => h.repos.length > 0);
-}
-
-function way(title: string, onClick: () => void) {
-  return button(title, "dbtn small", onClick);
 }
 
 /// One found checkout: its name, where it is on each machine, its sessions per
@@ -430,7 +346,7 @@ export function foundRow(row: FoundRow, state: FoundRowState = {}, onImport: (ro
 }
 
 /// "12 min ago", "yesterday", "3 days ago".
-function ago(ms: number, now = Date.now()) {
+export function ago(ms: number, now = Date.now()) {
   const s = Math.max(0, Math.round((now - ms) / 1000));
   if (s < 60) return "just now";
   if (s < 3600) return `${Math.round(s / 60)} min ago`;
