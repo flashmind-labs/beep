@@ -77,12 +77,35 @@ export async function openSession(id: string) {
 
 /// Redraws the open chat from the server's copy without rebuilding the bar,
 /// so a draft stays and a user reading back is not sent to the bottom.
-export async function refreshSession(id: string) {
-  const b = body(), stuck = b?.stuck !== false, top = b?.scrollTop ?? 0;
-  const turns = await invoke<HistoryTurn[]>("open_session", { id }).catch(() => null);
-  if (!turns || S.session !== id || S.view !== "chat" || live.has(id) || body() !== b) return;
-  drawHistory(id, turns);
-  if (b && !stuck) { b.scrollTop = top; b.stuck = false; drawLatest(); }
+interface Refresh { id: string; dirty: boolean; pending: Promise<void> }
+const refreshing = new WeakMap<ChatBody, Refresh>();
+
+export function refreshSession(id: string): Promise<void> {
+  const b = body();
+  if (!b) return Promise.resolve();
+  const previous = refreshing.get(b);
+  if (previous?.id === id) { previous.dirty = true; return previous.pending; }
+
+  const current: Refresh = { id, dirty: false, pending: Promise.resolve() };
+  refreshing.set(b, current);
+  const active = () => refreshing.get(b) === current && S.session === id && S.view === "chat" && !live.has(id) && body() === b;
+  current.pending = (async () => {
+    do {
+      current.dirty = false;
+      const revision = conversation(b).revision;
+      const turns = await invoke<HistoryTurn[]>("open_session", { id }).catch(() => null);
+      if (!active()) return;
+      if (conversation(b).revision !== revision) current.dirty = true;
+      // A later notification needs a fresh snapshot before this read can apply.
+      if (current.dirty) continue;
+      if (turns) {
+        const stuck = b.stuck !== false, top = b.scrollTop;
+        drawHistory(id, turns);
+        if (!stuck) { b.scrollTop = top; b.stuck = false; drawLatest(); }
+      }
+    } while (current.dirty && active());
+  })().finally(() => { if (refreshing.get(b) === current) refreshing.delete(b); });
+  return current.pending;
 }
 
 /// The older messages of each chat body that are not drawn yet: a long chat
