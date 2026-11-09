@@ -148,3 +148,21 @@ test("an updated Research answer preserves selected unchanged text", async ({ pa
   await expect(page.locator(".rs .dcoderen.agent")).toContainText("A new paragraph.");
   expect(await answer.evaluate(el => el === Reflect.get(window, "researchAnswer") && window.getSelection()?.toString() === "Keep")).toBe(true);
 });
+
+test("agent threads retain selected entries and scroll as new work arrives", async ({ page }) => {
+  const agent = { id: "scout-1", name: "Scout", role: "Find sources", model: "Example", round: 1 };
+  const entries = Array.from({ length: 30 }, (_, i) => ({ seq: i + 1, agent: "scout-1", at: 1, kind: "note", content: `Finding ${i + 1}`, sources: [] }));
+  const initial = { ...research("Thread example"), agents: [agent], entries };
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, cached_research: initial, get_research: initial, research_history: [], research_pending: null, list_researches: [] });
+  await page.evaluate(() => window.__navigation.open({ open_research: { session: "first" } }));
+  await page.locator('.rs [data-act="agent:scout-1"]').click();
+  const pane = page.locator(".rs .rpane.thread:visible"), message = pane.locator(".rmsg").first();
+  await expect(message).toContainText("Finding 1");
+  await message.evaluate(el => { const node = el.querySelector("p")?.firstChild; if (!node) return; const range = document.createRange(); range.setStart(node, 0); range.setEnd(node, 7); window.getSelection()?.removeAllRanges(); window.getSelection()?.addRange(range); Reflect.set(window, "researchThreadMessage", el); });
+  const scroll = await pane.evaluate(el => { el.scrollTop = el.scrollHeight / 2; return el.scrollTop; });
+  await page.evaluate(data => window.__navigation.respond("get_research", data), { ...initial, entries: [...entries, { seq: 31, agent: "scout-1", at: 1, kind: "note", content: "New finding", sources: [] }] });
+  await page.locator(".rs .dhead:visible").getByRole("button", { name: "Stop" }).click();
+  await expect(pane).toContainText("New finding");
+  await expect(pane).toHaveJSProperty("scrollTop", scroll);
+  expect(await message.evaluate(el => el === Reflect.get(window, "researchThreadMessage") && window.getSelection()?.toString() === "Finding")).toBe(true);
+});

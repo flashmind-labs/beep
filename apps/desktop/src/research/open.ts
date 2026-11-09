@@ -6,6 +6,7 @@ import { ResearchHead } from "./head-view.tsx";
 import { ResearchTabs } from "./tabs-view.tsx";
 import { ResearchLivePane } from "./live-pane-view.tsx";
 import { ResearchChat, ResearchPaper } from "./chat-paper-view.tsx";
+import { ResearchAgents, ResearchThread } from "./agents-pane-view.tsx";
 // An opened research, as a page of the command center laid out like a coding
 // agent session: the lead's chat on the left, the paper, notes, sources and the
 // team as the tabs of a side pane on the right. The page is drawn once and
@@ -21,10 +22,9 @@ import { currentLocation, registerView } from "../center/views.ts";
 import { h } from "../ui/dom.ts";
 import { esc } from "../ui/format.ts";
 import { writeClipboard } from "../ui/parts.ts";
-import { patchHtml } from "../ui/patch.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
-import { followsEnd, paneHtml, placeholder } from "./panes.ts";
-import { type Open, type ResearchView, type Turn, RUNNING, closeTab, openTab, round, shownTab } from "./research-state.ts";
+import { followsEnd, placeholder } from "./panes.ts";
+import { type Open, type ResearchView, type Turn, RUNNING, agentOf, closeTab, openTab, round, shownTab } from "./research-state.ts";
 import { dragHandle } from "../ui/drag.ts";
 
 /// What streams in while the lead replies (Rust's `BarEvent`), as far as this reads it.
@@ -205,15 +205,11 @@ function drawPane() {
   tabsNode = createElement(ResearchTabs, { research: R });
   const before = page.view.querySelector<HTMLElement>(".rpane");
   const stuck = !!before && atBottom(before);
-  if (tab === "sources" || tab === "notes" || tab === "room" || tab === "draft") {
-    if (!paneNode) page.view.replaceChildren();
-    paneNode = tab === "draft" ? createElement(ResearchPaper, { research: R }) : createElement(ResearchLivePane, { research: R, tab });
-    drawShell();
-  } else {
-    paneNode = null;
-    drawShell();
-    patchHtml(page.view, paneHtml(R));
-  }
+  paneNode = tab === "draft" ? createElement(ResearchPaper, { research: R })
+    : tab === "agents" ? createElement(ResearchAgents, { research: R })
+    : tab === "sources" || tab === "notes" || tab === "room" ? createElement(ResearchLivePane, { research: R, tab })
+    : createElement(ResearchThread, { research: R, agent: agentOf(R, tab) });
+  drawShell();
   const body = page.view.querySelector<HTMLElement>(".rpane");
   if (!body) return;
   // A thread or the room follows its newest line; a tab just opened starts at its top.
