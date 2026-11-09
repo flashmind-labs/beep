@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { RouterContextProvider, RouterProvider } from "@tanstack/react-router";
 import { windowHistory } from "./window-router.ts";
 
-type Part = "home" | "sidebar" | "header-scope" | "header-tools" | "project-shell" | "project-where" | "project-running" | "project-custom-agents" | "project-runs" | "project-thread" | "sync-page" | "research-list" | "research-open" | "review-status" | "review-heading" | "review-findings" | "review-actions" | `settings-page:${"instructions" | "providers"}` | `project-overview:${string}` | `project-sessions:${"all" | "recent"}` | `git-history:${string}` | `diff:${string}`;
+type Part = "home" | "sidebar" | "header-scope" | "header-tools" | "notices" | "project-shell" | "project-where" | "project-running" | "project-custom-agents" | "project-runs" | "project-thread" | "sync-page" | "research-list" | "research-open" | "review-status" | "review-heading" | "review-findings" | "review-actions" | `settings-page:${"instructions" | "providers"}` | `project-overview:${string}` | `project-sessions:${"all" | "recent"}` | `git-history:${string}` | `thread-card:${string}` | `diff:${string}`;
 const parts = new Map<Part, { host: HTMLElement | null; content: ReactNode; identity: string }>();
 let root: Root | null = null;
 
