@@ -71,3 +71,24 @@ test("document view replaces initial native contents once and retains its render
   assert.equal(host.firstChild, placeholder);
   host.remove();
 });
+
+
+test("unchanged or empty slot updates skip reconciliation and retain unrelated slot renders", () => {
+  const first = document.createElement("div"), second = document.createElement("div");
+  document.body.append(first, second);
+  let scopeRenders = 0, siblingRenders = 0;
+  const scope = createDocumentScope<"first" | "second">(children => { scopeRenders++; return children; });
+  function Sibling() { siblingRenders++; return createElement("input", { defaultValue: "draft" }); }
+  const text = createElement("span", null, "one"), sibling = createElement(Sibling);
+  scope.set([{ slot: "first", host: first, content: text }, { slot: "second", host: second, content: sibling }]);
+  const renders = scopeRenders, siblings = siblingRenders, input = second.querySelector("input");
+  scope.set([{ slot: "first", host: first, content: text }]);
+  scope.set([]);
+  assert.equal(scopeRenders, renders);
+  scope.set([{ slot: "first", host: first, content: createElement("span", null, "two") }]);
+  assert.equal(first.textContent, "two");
+  assert.equal(siblingRenders, siblings);
+  assert.equal(second.querySelector("input"), input);
+  scope.dispose();
+  first.remove(); second.remove();
+});

@@ -40,8 +40,14 @@ export function createDocumentScope<Slot extends string>(wrap: (children: ReactN
   const changed = () => { revision++; for (const listener of listeners) listener(); };
   const setDeferred = (updates: readonly Entry<Slot>[]) => {
     if (disposed) return;
-    for (const entry of updates) entries.set(entry.slot, entry);
-    changed();
+    let dirty = false;
+    for (const entry of updates) {
+      const before = entries.get(entry.slot);
+      if (before && before.host === entry.host && before.content === entry.content && before.identity === entry.identity) continue;
+      entries.set(entry.slot, entry);
+      dirty = true;
+    }
+    if (dirty) changed();
   };
   const set = (updates: readonly Entry<Slot>[]) => { if (disposed) return; mount(); flushSync(() => setDeferred(updates)); };
   const remove = (slots: readonly Slot[]) => {
@@ -62,7 +68,7 @@ export function createDocumentScope<Slot extends string>(wrap: (children: ReactN
   return { mount, set, setDeferred, remove, dispose };
 }
 
-/// Existing callers can keep their flushSync boundary while moving off createRoot.
+/// One portal view with its caller's existing flush boundary.
 export function createDocumentView(host: HTMLElement) {
   const scope = createDocumentScope<"view">();
   scope.mount();
