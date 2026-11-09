@@ -231,3 +231,15 @@ test("source chips keep expansion and focus as source lists update", async ({ pa
   await first.click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "open_url" && call.args.url === "https://site0.example.test/article"))).toBe(true);
 });
+
+test("rerun menu sends the selected model and thinking level", async ({ page }) => {
+  const user = { role: "user", text: "Explain", at: 1, images: [], model: "", thinking: "" };
+  const answer = { role: "assistant", html: "<p>Answer</p>", tools: [], replies: [], model: "one" };
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, get_models: { choices: [{ id: "one", name: "One", input_price: null, output_price: null, sees_images: false, default: true }], selected: "one", thinking: "", auto: false, auto_available: false }, open_session: [user, answer], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  await page.locator('[data-act="rerunMenu"]').click();
+  await page.locator('[data-rthink="high"]').click();
+  await expect(page.locator('[data-rthink="high"]')).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("menuitem", { name: /One/ }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "rerun_prompt").map(call => call.args.pick))).toEqual([{ model: "one", thinking: "high" }]);
+});
