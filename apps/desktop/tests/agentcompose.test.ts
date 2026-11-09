@@ -9,6 +9,7 @@ import { loadSessions } from "../src/agents/sessions.ts";
 import { agentHints, closeOpenSession, pollAgent, sessionPicks, stopAgentFollow } from "../src/agents/session.ts";
 import { interruptAgent, sendAgentMessage } from "../src/agents/messages.ts";
 import { drawModelPill, switchSessionModel } from "../src/agents/modelpill.ts";
+import { disposeComposerUi } from "../src/agents/composer-ui.tsx";
 import type { Waiting } from "../src/agents/agentqueue.ts";
 import { MN } from "../src/agents/workdrop.ts";
 import type { TranscriptUpdate } from "../src/agents/transcript-cache-state.ts";
@@ -228,6 +229,20 @@ test("the model pill uses the model reported by the session", t => {
   assert.match(pill.innerHTML, /current-model/);
   assert.doesNotMatch(pill.innerHTML, /previous-model/);
   sessionPicks.delete(page.session.id);
+});
+
+test("the model pill returns when its composer owner is recreated", t => {
+  openSession("idle");
+  const pill = modelPill(t);
+  show({ "#agmodel": pill, "#agfield": pill.parentElement });
+  drawModelPill();
+  const first = pill.querySelector("#agmodelb"); assert.ok(first);
+  drawModelPill();
+  assert.equal(pill.querySelector("#agmodelb"), first);
+  disposeComposerUi();
+  assert.equal(pill.querySelector("#agmodelb"), null);
+  drawModelPill();
+  assert.ok(pill.querySelector("#agmodelb"));
 });
 
 test("a session refresh updates the model pill", async t => {
