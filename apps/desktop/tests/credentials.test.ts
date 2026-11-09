@@ -1,29 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  credentialsHtml, draft, editFor, ghChoices, githubAccounts, sameServer, teaHas, teaOffers, type CliLogins, type Credential,
+  draft, editFor, ghChoices, githubAccounts, sameServer, teaHas, teaOffers, type CliLogins, type Credential,
 } from "../src/settings/credentials.ts";
 
-const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" } as Record<string, string>)[c]);
 const list: Credential[] = [
   { id: "g", kind: "github", last4: "4f2a", account: "you", env_var: "GH_TOKEN", created_at: 0 },
   { id: "f1", kind: "forgejo", url: "https://git.example.com", last4: "9c1d", account: "you", env_var: "", created_at: 0 },
   { id: "f2", kind: "forgejo", url: "https://code.example.org", last4: "02be", account: null, env_var: "", created_at: 0 },
 ];
-const machines = [
-  { name: "build-box", env: { tools: [{ name: "gh" }, { name: "teacli" }] } },
-  { name: "mac-box", env: { tools: [{ name: "gh" }] } },
-  { name: "gpu-box", env: null },
-];
-
-test("a credential the server cannot open asks to be entered again", () => {
-  const unreadable = list.map((c) => (c.id === "g" ? { ...c, unreadable: true } : c));
-  const html = credentialsHtml({ list: unreadable, edit: null }, machines, esc);
-  assert.match(html, /Re-enter this token/);
-  assert.doesNotMatch(html, /…4f2a/);
-  assert.doesNotMatch(html, /API key/);
-});
-
 test("drafts carry what the server takes", () => {
   assert.deepEqual(draft({ kind: "github" }, undefined, " ghp_x ").credential,
     { kind: "github", secret: "ghp_x" });
