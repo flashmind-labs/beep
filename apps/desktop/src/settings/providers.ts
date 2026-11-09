@@ -1,13 +1,12 @@
 import { createElement } from "react";
 import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
-import { ProviderHeader, ProvidersView } from "./providers-view.tsx";
+import { ProviderHeader, ProvidersView, type SharedProviderSettings } from "./providers-view.tsx";
 // The Coding agents page: per machine, each harness (Claude Code, Codex, pi,
 // ...) with its version, sign-in and an on/off switch, and the picked one's
 // runtime settings.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import type { MakeButton, MakeEl } from "../ui/dom.ts";
-import { checkedLabel, compactKind, compactOf, compactProblem, differsLabel, draftOf, harnessName, hasCompact, listRows, savedToLabel, settingsInput, toggledInput, updatable } from "./providers-state.ts";
-import type { Compact, HarnessDraft, HarnessesView, HarnessView, MachineSettings } from "./providers-state.ts";
+import { checkedLabel, compactOf, compactProblem, draftOf, hasCompact, listRows, savedToLabel, settingsInput, toggledInput, updatable } from "./providers-state.ts";
+import type { AutoCompactDraft, Compact, HarnessDraft, HarnessesView, HarnessView, MachineSettings } from "./providers-state.ts";
 import type { CenterView } from "../center/state.ts";
 import { modelContextPanel } from "./model-context.ts";
 import { flshPanel } from "./flsh.ts";
@@ -20,8 +19,6 @@ interface MachineRow { id: string; name: string; online: boolean; can_host?: boo
 interface ProvidersDeps {
   registerView: (name: "providers", view: CenterView<"providers">) => void;
   invoke: typeof Invoke;
-  h: MakeEl;
-  button: MakeButton;
   /// Opens Settings at a section, such as "agents".
   openSettings: (section?: string) => void;
   /// Redraws the window's header, where the machine chips are.
@@ -51,7 +48,7 @@ interface ProvidersState {
 }
 
 export function registerProviders(deps: ProvidersDeps) {
-  const { registerView, invoke, h, button } = deps;
+  const { registerView, invoke } = deps;
   const st: ProvidersState = { machines: undefined, machine: null, views: new Map(), errors: new Map(), picked: null, drafts: new Map(), updating: new Set(), saving: false, note: "", others: new Map(), compacts: new Map(), includeProgram: false, savedAll: new Map() };
   /// The agents whose machines' settings are being read.
   const reading = new Set<string>();
@@ -59,11 +56,10 @@ export function registerProviders(deps: ProvidersDeps) {
   const loading = new Map<string, number>();
   const readVersion = new Map<string, number>();
   const isLoading = () => !!st.machine && (loading.get(st.machine) ?? 0) > 0;
-  const compactDrafts = new Map<string, Pick<HarnessDraft, "compactOn" | "compactPercent">>();
+  const compactDrafts = new Map<string, AutoCompactDraft>();
   const compactErrors = new Map<string, string>();
   const savingCompacts = new Set<string>();
   let root: HTMLElement | null = null;
-  let cachedShared: { key: string; node: { before: HTMLElement; after: HTMLElement; agent: string } } | null = null;
   /// Drawn in Settings, which lists the agents in its own left pane: the
   /// page shows the one agent it was opened at, under a toolbar of its own.
   let inSettings = false;
@@ -263,94 +259,49 @@ export function registerProviders(deps: ProvidersDeps) {
     draw();
   }
 
-  /// A setting: its label and help on the left, `control` on the right.
-  function field(label: string, help: string, control: HTMLElement, names: readonly string[] = []) {
-    const note = names.length ? h("span", "hv-diff", differsLabel(names)) : null;
-    note?.setAttribute("title", `Not the same on ${names.join(", ")}`);
-    return h("div", "hv-f", h("span", "", h("b", "", label), note, h("small", "", help)), control);
-  }
-
-  function input(value: string, placeholder: string, onInput: (v: string) => void, label: string) {
-    const i = h("input", "hv-in");
-    i.value = value;
-    i.placeholder = placeholder;
-    i.spellcheck = false;
-    i.autocomplete = "off";
-    i.setAttribute("aria-label", label);
-    i.addEventListener("input", () => onInput(i.value));
-    return i;
-  }
-
-  function compactSwitch(on: boolean, label: string, flip: () => void) {
-    const b = h("button", "dswitch");
-    b.type = "button";
-    b.setAttribute("role", "switch");
-    b.setAttribute("aria-checked", String(on));
-    b.setAttribute("aria-label", label);
-    b.addEventListener("click", flip);
-    return b;
-  }
-
-  function sharedSettings(agent: string) {
-    const box = h("div", "", h("div", "hv-note", "These settings apply on every machine."));
-    box.style.display = "contents";
-
-    if (hasCompact(agent)) {
-      const loaded = st.compacts.has(agent);
-      if (!loaded) void loadCompact(agent);
-      const saved = st.compacts.get(agent) ?? null;
-      const initial = { compactOn: saved?.enabled ?? true, compactPercent: saved?.tokens != null ? String(saved.tokens) : saved?.percent != null ? String(saved.percent) : "" };
-      const draft = compactDrafts.get(agent) ?? initial;
-      const busy = savingCompacts.has(agent);
-      const problem = h("span", "derr", compactErrors.get(agent) ?? "");
-      const saveBtn = button(busy ? "Saving…" : "Save auto-compact", "pri", async () => {
-        if (!loaded || busy || compactProblem(draft)) return;
-        savingCompacts.add(agent);
-        compactErrors.delete(agent);
-        draw();
-
-        try {
-          await saveCompact(agent, compactOf(draft));
-          compactDrafts.delete(agent);
-          await loadCompact(agent);
-        } catch (e) {
-          compactErrors.set(agent, fail(e));
-        } finally {
-          savingCompacts.delete(agent);
-          draw();
-        }
-      });
-      const refresh = () => {
-        problem.textContent = compactProblem(draft) || (compactErrors.get(agent) ?? "");
-        saveBtn.disabled = !loaded || busy || !!compactProblem(draft) || JSON.stringify(compactOf(draft)) === JSON.stringify(saved);
-      };
-      const change = (value: Partial<typeof draft>) => {
-        Object.assign(draft, value);
-        compactDrafts.set(agent, draft);
-        discard.hidden = false;
-        refresh();
-      };
-      const toggle = compactSwitch(draft.compactOn, `Auto-compact for ${harnessName(agent)}`, () => { change({ compactOn: !draft.compactOn }); draw(); });
-      toggle.disabled = !loaded || busy;
-      const threshold = input(draft.compactPercent, "80% or 350000", value => change({ compactPercent: value }), "Auto-compact threshold");
-      threshold.disabled = !loaded || busy;
-      const discard = button("Discard", "quiet", () => { compactDrafts.delete(agent); compactErrors.delete(agent); draw(); });
-      discard.disabled = busy;
-      discard.hidden = !compactDrafts.has(agent);
-      box.append(field("Auto-compact", "Applies to sessions on every machine.", h("span", "fl-row", toggle, compactKind(agent) === "percent" ? threshold : null)),
-        h("div", "hv-acts", saveBtn, discard, problem));
-      refresh();
+  async function saveSharedCompact(agent: string) {
+    const current = sharedSettings(agent).compact;
+    if (!current || !current.loaded || current.busy || compactProblem(current.draft)) return;
+    const submitted = current.draft;
+    savingCompacts.add(agent);
+    compactErrors.delete(agent);
+    draw();
+    try {
+      await saveCompact(agent, compactOf(submitted));
+      if (compactDrafts.get(agent) === submitted) compactDrafts.delete(agent);
+      await loadCompact(agent);
+    } catch (error) {
+      compactErrors.set(agent, fail(error));
+    } finally {
+      savingCompacts.delete(agent);
+      draw();
     }
-
-    const after = h("div");
-    after.style.display = "contents";
-    if (st.machine) {
-      after.append(h("div", "hv-note", `Model choices and reported limits come from ${machineName()}.`));
-    }
-    return { before: box, after, agent };
   }
 
-  function draw(preserveShared = false) {
+  function changeCompact(agent: string, change: Partial<AutoCompactDraft>) {
+    const current = sharedSettings(agent).compact;
+    if (!current || current.busy) return;
+    compactDrafts.set(agent, { ...current.draft, ...change });
+    draw();
+  }
+
+  function discardCompact(agent: string) {
+    compactDrafts.delete(agent);
+    compactErrors.delete(agent);
+    draw();
+  }
+
+  function sharedSettings(agent: string): SharedProviderSettings {
+    const saved = st.compacts.get(agent) ?? null;
+    const draft = compactDrafts.get(agent) ?? { compactOn: saved?.enabled ?? true, compactPercent: saved?.tokens != null ? String(saved.tokens) : saved?.percent != null ? String(saved.percent) : "" };
+    return { agent, machineName: st.machine ? machineName() : null, compact: hasCompact(agent) ? {
+      loaded: st.compacts.has(agent), draft, busy: savingCompacts.has(agent), edited: compactDrafts.has(agent),
+      error: compactProblem(draft) || (compactErrors.get(agent) ?? ""),
+      canSave: st.compacts.has(agent) && !savingCompacts.has(agent) && !compactProblem(draft) && JSON.stringify(compactOf(draft)) !== JSON.stringify(saved),
+    } : null };
+  }
+
+  function draw() {
     if (!root) return;
     const current = view();
     if (!inSettings && current && st.machine) {
@@ -358,11 +309,7 @@ export function registerProviders(deps: ProvidersDeps) {
       if (!st.picked || !rows.some(r => r.agent === st.picked)) st.picked = rows.find(r => r.on)?.agent ?? rows[0]?.agent ?? null;
     }
     const hv = current ? current.harnesses.find(item => item.agent === st.picked) : undefined;
-    if (hv?.installed && st.others.get(hv.agent) === undefined) void loadOthers(hv.agent);
     const sharedAgent = inSettings ? st.picked : hv?.agent ?? null;
-    const sharedKey = sharedAgent ? `${st.machine ?? ""}\0${sharedAgent}\0${inSettings}` : "";
-    if (!sharedAgent) cachedShared = null;
-    else if (!preserveShared || cachedShared?.key !== sharedKey) cachedShared = { key: sharedKey, node: sharedSettings(sharedAgent) };
     const machine = st.machine;
     const draftKey = hv ? key(hv.agent) : "";
     const draft = hv?.installed ? st.drafts.get(draftKey) ?? draftOf(hv) : null;
@@ -373,18 +320,19 @@ export function registerProviders(deps: ProvidersDeps) {
       draft, others: hv ? st.others.get(hv.agent) : undefined, saving: st.saving,
       updating: hv ? st.updating.has(key(hv.agent)) : false, adapter: hv ? adapter(hv.agent) : null,
       error: st.machines === null ? st.note : machine ? st.errors.get(machine) ?? "" : st.note, inSettings, savedAll: st.savedAll.get(draftKey) ?? "",
-      includeProgram: st.includeProgram, shared: cachedShared?.node ?? null, flsh, contexts,
+      includeProgram: st.includeProgram, shared: sharedAgent ? sharedSettings(sharedAgent) : null, flsh, contexts,
+      loadOthers, loadCompact, changeCompact, saveCompact: saveSharedCompact, discardCompact,
       loading: isLoading(), checked: checkedLabel(current ? current.checked_at : null, Date.now()), updateCount, canUpdate: !!behind.length,
       pick: (agent: string) => { st.picked = agent; draw(); },
       toggle: (item: HarnessView, on: boolean) => { void save(item, toggledInput(item, on)); },
       update: (item: HarnessView) => { void update([item.agent]); }, retryAdapter: (agent: string) => { void retryAdapters(agent); },
       openAccounts: () => deps.openSettings("agents"),
-      setDraft: (value: Partial<HarnessDraft>) => { if (!hv || !draft) return; st.drafts.set(draftKey, { ...draft, ...value }); draw(true); },
+      setDraft: (value: Partial<HarnessDraft>) => { if (!hv || !draft) return; st.drafts.set(draftKey, { ...draft, ...value }); draw(); },
       save: (item: HarnessView) => { if (draft) void save(item, settingsInput(item.settings.enabled, draft)); },
       saveAll: (item: HarnessView) => { if (draft) void saveAll(item, settingsInput(item.settings.enabled, draft)); },
-      discard: () => { st.drafts.delete(draftKey); draw(true); },
-      setIncludeProgram: (value: boolean) => { st.includeProgram = value; draw(true); },
-      dismissError: () => { if (machine) st.errors.delete(machine); draw(true); },
+      discard: () => { st.drafts.delete(draftKey); draw(); },
+      setIncludeProgram: (value: boolean) => { st.includeProgram = value; draw(); },
+      dismissError: () => { if (machine) st.errors.delete(machine); draw(); },
       pickMachine, refresh: () => { void load(true); }, updateAll: () => { void update(behind); },
     }) }]);
   }
@@ -410,13 +358,12 @@ export function registerProviders(deps: ProvidersDeps) {
       removeWindowPart("settings-page:providers");
       host.replaceChildren();
       root = host;
-      cachedShared = null;
       const want = arg;
       if (want?.agent) st.picked = want.agent;
       inSettings = want?.settings === true;
       draw();
       loadMachines();
     },
-    unmount() { removeWindowPart("settings-page:providers"); root = null; cachedShared = null; },
+    unmount() { removeWindowPart("settings-page:providers"); root = null; },
   });
 }

@@ -26,10 +26,9 @@ test("flsh input survives provider machine updates without remounting", async ()
   }, Channel: class {} }, event: { listen: async () => () => {} } } });
   const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
   const { invoke } = await import("../src/ui/tauri.ts");
-  const { el, button } = await import("../src/ui/dom.ts");
   const { registerProviders } = await import("../src/settings/providers.ts");
   const views: CenterView<"providers">[] = [];
-  registerProviders({ registerView: (_name, view) => { views.push(view); }, invoke, h: el, button, openSettings() {}, redrawTop() {} });
+  registerProviders({ registerView: (_name, view) => { views.push(view); }, invoke, openSettings() {}, redrawTop() {} });
   const host = dom.window.document.getElementById("host"), view = views[0];
   assert.ok(host); assert.ok(view);
   try {

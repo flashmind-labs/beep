@@ -3,7 +3,7 @@ import { answers, calls } from "./dom-env.ts";
 import { JSDOM } from "jsdom";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { el, button } from "../src/ui/dom.ts";
+import { el } from "../src/ui/dom.ts";
 import { invoke } from "../src/ui/tauri.ts";
 import type { HarnessView } from "../src/settings/providers-state.ts";
 
@@ -33,7 +33,7 @@ test("machine selection preserves shared drafts and each save writes only its sc
   document.body.append(root);
   const { registerProviders } = await import("../src/settings/providers.ts");
   const { fireEvent } = await import("@testing-library/react");
-  registerProviders({ h: el, button, invoke, redrawTop: () => {}, openSettings: () => {},
+  registerProviders({ invoke, redrawTop: () => {}, openSettings: () => {},
     registerView: (_name, view) => { void view.mount(root, { settings: true, agent: "claude" }); },
   });
   await settle();
@@ -46,14 +46,14 @@ test("machine selection preserves shared drafts and each save writes only its sc
   const threshold = root.querySelector<HTMLInputElement>('[aria-label="Auto-compact threshold"]');
   assert.ok(threshold);
   threshold.focus();
-  threshold.value = "70%";
+  fireEvent.change(threshold, { target: { value: "70%" } });
   threshold.setSelectionRange(1, 2);
-  threshold.dispatchEvent(new dom.window.Event("input"));
   const picker = root.querySelector<HTMLSelectElement>('select[aria-label="Machine runtime settings"]');
   assert.ok(picker);
   fireEvent.change(picker, { target: { value: "gpu" } });
   await settle();
   const restored = root.querySelector<HTMLInputElement>('[aria-label="Auto-compact threshold"]');
+  assert.equal(restored, threshold);
   assert.equal(restored?.value, "70%");
   assert.equal(document.activeElement, restored);
   assert.equal(restored?.selectionStart, 1);
@@ -83,7 +83,7 @@ test("shared compaction stays editable when no machine is online", async () => {
   const root = el("div");
   document.body.replaceChildren(root);
   const { registerProviders } = await import("../src/settings/providers.ts");
-  registerProviders({ h: el, button, invoke, redrawTop: () => {}, openSettings: () => {},
+  registerProviders({ invoke, redrawTop: () => {}, openSettings: () => {},
     registerView: (_name, view) => { void view.mount(root, { settings: true, agent: "claude" }); },
   });
   await settle();
