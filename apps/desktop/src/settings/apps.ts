@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { McpView } from "./mcp-view.tsx";
 import { bar, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { switchHtml, esc, plural } from "../ui/format.ts";
@@ -40,7 +44,7 @@ export interface McpServer {
 }
 
 /// Every tool a server lists, and how many Beep works well with.
-interface McpTools {
+export interface McpTools {
   tools: { name: string; description: string; enabled: boolean; usable: boolean }[];
   limit: number;
 }
@@ -145,6 +149,7 @@ export function appsIn(root: HTMLElement, opened: AppsHost["opened"]) {
   host = { root, view: null, opened };
 }
 export function appsOut() {
+  if (host && mcpRoot && host.root.contains(mcpRoot.host)) disposeMcp();
   host = null;
 }
 const hosted = () => (host?.root.isConnected ? host : null);
@@ -165,6 +170,7 @@ function showView(view: AppsView, id: string | null) {
 const backHint = () => (hosted() ? "" : hints([["esc", "back"]]));
 
 export function renderApps() {
+  disposeMcp();
   showView("apps", null);
   A.open = null;
   // In Settings the breadcrumb names the page.
@@ -382,88 +388,75 @@ function stopConnecting() {
 
 /// Opened from a connected server in Apps: its tools, each switched on or
 /// off, and Remove.
+let mcpRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+let mcpBusy = false;
+function disposeMcp() {
+  const current = mcpRoot;
+  mcpRoot = null;
+  if (!current) return;
+  current.observer.disconnect();
+  current.root.unmount();
+}
 export async function renderMcpServer(server: McpServer | undefined) {
   if (!server) return;
+  disposeMcp();
   showView("mcp", server.id);
   Object.assign(A, { server, tools: null, asking: null, unadd: false, error: "" });
-  root().innerHTML = `<div class="dhead">${letterLogo(server.name)}<span class="tt"><b>${esc(server.name)}</b><small class="dmono">${esc(server.url)}</small></span></div>
-    <div class="dlist dapps" id="tlist"></div>${backHint()}`;
-  q("#tlist")!.addEventListener("click", mcpClick);
+  mcpBusy = false;
+  root().innerHTML = `<div id="mcp-react" style="display:contents"></div>${backHint()}`;
+  const element = q<HTMLElement>("#mcp-react");
+  if (!element) return;
+  const reactRoot = createRoot(element);
+  const observer = new MutationObserver(() => { if (mcpRoot?.host === element && !element.isConnected) disposeMcp(); });
+  observer.observe(document.body, { childList: true, subtree: true });
+  mcpRoot = { host: element, root: reactRoot, observer };
+  const owner = mcpRoot;
   drawMcpTools();
-
   try {
-    A.tools = await invoke<McpTools>("list_mcp_tools", { id: server.id });
-  } catch (e) {
-    A.error = String(e);
+    const tools = await invoke<McpTools>("list_mcp_tools", { id: server.id });
+    if (mcpRoot === owner && viewIs("mcp") && A.server === server) A.tools = tools;
+  } catch (error) {
+    if (mcpRoot === owner && viewIs("mcp") && A.server === server) A.error = String(error);
   }
-
-  if (viewIs("mcp") && A.server === server) drawMcpTools();
+  if (mcpRoot === owner && viewIs("mcp") && A.server === server) drawMcpTools();
 }
-
-/// "search_pages" reads as "Search pages", as on the phone.
-const mcpToolLabel = (name: string) => name.replace(/[_-]/g, " ").trim().replace(/^./, c => c.toUpperCase());
-
 export function drawMcpTools() {
-  const list = q("#tlist"), t = A.tools;
-  if (!list) return;
-  let html = listTop(t);
-
-  if (t) {
-    const on = t.tools.filter(x => x.enabled).length;
-    html += `<div class="dsec dsplit"><span>Tools</span><span${on > t.limit ? ' class="over"' : ""}>${on} of ${t.limit} on</span></div>` + t.tools.map(tool => {
-      const name = esc(mcpToolLabel(tool.name)), title = tool.description ? ` title="${esc(tool.description)}"` : "";
-      if (A.asking === tool.name) return `<div class="daction"><span>${name}<small>More than ${t.limit} tools makes replies slower and tool picks worse</small></span>`
-        + `<button class="dbtn quiet" data-tno>Cancel</button><button class="dbtn pri" data-tyes>Turn on</button></div>`;
-      if (!tool.usable) return `<div class="daction off"${title}><span>${name}<small>Too large for Beep to use</small></span>${switchHtml(false, `Use ${name}`, "disabled")}</div>`;
-      return `<div class="daction"${title}><span>${name}</span>${switchHtml(tool.enabled, `Use ${name}`, `data-ttool="${esc(tool.name)}"`)}</div>`;
-    }).join("");
-    html += `<div class="dmuted dpad dblock">Beep uses up to ${t.limit} tools from a server, so turn on the ones you need. It asks before every tool on a server you add.</div>`;
-  }
-
-  html += `<div class="dpad dline">${A.unadd
-    ? '<span class="dmuted">Beep stops using this server</span><button class="dbtn quiet" data-unremove>Cancel</button><button class="dbtn warn" data-mremove>Remove</button>'
-    : '<button class="dbtn warn" data-mremoving>Remove server</button>'}</div>`;
-  list.innerHTML = html;
+  const server = A.server, current = mcpRoot;
+  if (!server || !current?.host.isConnected || !viewIs("mcp")) return;
+  const toggle = (name: string) => {
+    const tools = A.tools, tool = tools?.tools.find(item => item.name === name);
+    if (!tools || !tool || mcpBusy) return;
+    if (!tool.enabled && tools.tools.filter(item => item.enabled).length >= tools.limit) { A.asking = name; drawMcpTools(); }
+    else void setTool(name, !tool.enabled);
+  };
+  flushSync(() => current.root.render(createElement(McpView, { server, tools: A.tools, error: A.error, asking: A.asking, confirming: A.unadd, busy: mcpBusy, toggle,
+    confirmTool: () => { if (A.asking) void setTool(A.asking, true); },
+    cancelTool: () => { A.asking = null; drawMcpTools(); },
+    confirmRemove: () => { A.unadd = true; drawMcpTools(); },
+    cancelRemove: () => { A.unadd = false; drawMcpTools(); },
+    remove: () => void removeServer(server),
+  })));
 }
-
 async function setTool(name: string, enabled: boolean) {
-  const server = A.server!;
-  A.asking = null;
-
+  const server = A.server;
+  if (!server || mcpBusy) return;
+  const owner = mcpRoot;
+  mcpBusy = true; A.asking = null; drawMcpTools();
   try {
-    A.tools = await invoke<McpTools>("set_mcp_tool", { id: server.id, tool: name, enabled });
-    A.error = "";
-  } catch (e) {
-    A.error = String(e);
-  }
-
-  if (viewIs("mcp") && A.server === server) drawMcpTools();
+    const tools = await invoke<McpTools>("set_mcp_tool", { id: server.id, tool: name, enabled });
+    if (mcpRoot === owner && viewIs("mcp") && A.server === server) { A.tools = tools; A.error = ""; }
+  } catch (error) { if (mcpRoot === owner && viewIs("mcp") && A.server === server) A.error = String(error); }
+  if (mcpRoot === owner && viewIs("mcp") && A.server === server) { mcpBusy = false; drawMcpTools(); }
 }
-
-async function mcpClick(e: MouseEvent) {
-  const d = (e.target as HTMLElement).closest<HTMLElement>("[data-ttool],[data-tyes],[data-tno],[data-mremoving],[data-unremove],[data-mremove]")?.dataset;
-  if (!d || !A.tools && d.ttool) return;
-
-  if (d.ttool) {
-    const tools = A.tools!, tool = tools.tools.find(x => x.name === d.ttool)!;
-    // Past the limit, the switch asks first, as the phone's does.
-    if (!tool.enabled && tools.tools.filter(x => x.enabled).length >= tools.limit) { A.asking = tool.name; return drawMcpTools(); }
-    return setTool(tool.name, !tool.enabled);
-  }
-
-  if (d.tyes != null) return setTool(A.asking!, true);
-  if (d.tno != null) { A.asking = null; return drawMcpTools(); }
-  if (d.mremoving != null || d.unremove != null) { A.unadd = d.mremoving != null; return drawMcpTools(); }
-
-  if (d.mremove != null) {
-    try {
-      await invoke("remove_mcp_server", { id: A.server!.id });
-    } catch (e) {
-      A.error = String(e);
-      return drawMcpTools();
-    }
-
-    return renderApps();
+async function removeServer(server: McpServer) {
+  if (mcpBusy) return;
+  const owner = mcpRoot;
+  mcpBusy = true; drawMcpTools();
+  try {
+    await invoke("remove_mcp_server", { id: server.id });
+    if (mcpRoot === owner && viewIs("mcp") && A.server === server) renderApps();
+  } catch (error) {
+    if (mcpRoot === owner && viewIs("mcp") && A.server === server) { A.error = String(error); mcpBusy = false; drawMcpTools(); }
   }
 }
 
@@ -473,6 +466,7 @@ async function mcpClick(e: MouseEvent) {
 const permsOn = (app: App) => viewIs("appperms") && A.open === app;
 
 export async function renderAppPermissions(app: App | undefined) {
+  disposeMcp();
   if (!app) return;
   showView("appperms", app.slug);
   A.open = app;
