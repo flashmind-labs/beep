@@ -4,7 +4,7 @@ import { svgEl as icon } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { groupMatches, type ProjectGroup } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
-import { openGroupSheet } from "./groupsheet.ts";
+import { openGroupSheet } from "./groupsheet.tsx";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { state } from "../center/state.ts";
 import { dot, rowButton } from "../ui/pieces.ts";

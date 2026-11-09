@@ -31,3 +31,36 @@ test("group rename keeps its draft during refresh and saves on Enter", async ({ 
   await expect(page.locator('.pj-org').filter({ hasText: 'Updated group' })).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === 'project_group_save' && call.args.name === 'Updated group'))).toBe(true);
 });
+
+test("folder group editor keeps its draft and retries a failed save", async ({ page }) => {
+  await openDesktop(page, false, { project_groups: [{ id: "group", name: "Example group", paths: ["work"] }] });
+  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
+  await page.locator(".pj-org").filter({ hasText: "Example group" }).getByRole("button", { name: "Folders…" }).click();
+  const sheet = page.getByRole("dialog", { name: "Folders of Example group" });
+  const field = sheet.locator(".gp-field");
+  await expect(field).toBeFocused();
+  await field.fill("~/Projects/personal");
+  await field.press("Enter");
+  await expect(field).toHaveValue("");
+  await expect(field).toBeFocused();
+  await expect(sheet.locator(".gp-path")).toHaveCount(2);
+  await sheet.locator(".gp-path").filter({ hasText: "personal" }).getByRole("button", { name: "Remove" }).click();
+  await expect(field).toBeFocused();
+  await field.fill("~/Projects/personal");
+  await field.press("Enter");
+  await page.evaluate(() => window.__navigation.rejectOnce("project_group_save"));
+  await sheet.getByRole("button", { name: "Save group" }).click();
+  await expect(sheet.locator(".am-msg.bad")).toContainText("Requested test failure");
+  await expect(sheet.locator(".gp-path")).toHaveCount(2);
+  await page.evaluate(() => window.__navigation.hold("project_group_save"));
+  await sheet.getByRole("button", { name: "Save group" }).click();
+  await expect(sheet.getByRole("button", { name: "Saving…" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_group_save").map(call => call.args))).toEqual([
+    { id: "group", name: "Example group", paths: ["work", "personal"] },
+    { id: "group", name: "Example group", paths: ["work", "personal"] },
+  ]);
+  await page.evaluate(() => { window.__navigation.respond("project_group_save", { id: "group", name: "Example group", paths: ["work", "personal"] }); window.__navigation.release("project_group_save"); });
+  await expect(sheet).toHaveCount(0);
+});
