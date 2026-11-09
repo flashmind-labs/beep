@@ -1,6 +1,5 @@
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { RunsView } from "./runs-view.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 import { snapshotView } from "../ui/snapshot-state.ts";
@@ -476,8 +475,8 @@ export function makeRuns(deps: RunDeps) {
     return s.openRun ? details.get(detailKey(id, s.openRun))?.data ?? null : null;
   }
 
-  let view: { id: string; host: HTMLElement; root: Root } | null = null;
-  function disposeView() { view?.root.unmount(); view = null; }
+  let view: { id: string; host: HTMLElement } | null = null;
+  function disposeView() { if (view) removeWindowPart("project-runs"); view = null; }
 
   /// The Actions section keeps its rows while live updates arrive.
   function section(agent: Agent) {
@@ -488,10 +487,10 @@ export function makeRuns(deps: RunDeps) {
       disposeView();
       const host = h("div", "pj-actions");
       host.id = "sec-actions";
-      view = { id, host, root: createRoot(host) };
+      view = { id, host };
     }
     const current = view;
-    flushSync(() => current.root.render(createElement(RunsView, {
+    showWindowParts([{ part: "project-runs", host: current.host, content: createElement(RunsView, {
       data: s.data, error: s.error, only: s.only ?? null, open: s.open, mode: deps.mode?.(id) ?? null,
       refresh: () => { void load(id, true); },
       filter: (state: string | null) => { s.only = state; redraw(); },
@@ -508,7 +507,7 @@ export function makeRuns(deps: RunDeps) {
       },
       detail: (run: RunRow) => ({ data: details.get(detailKey(id, run))?.data ?? null, error: detailErrors.get(detailKey(id, run)) ?? "" }),
       fix: (detail: RunDetail) => fix(openDetail(id) ?? detail), openUrl,
-    })));
+    }) }]);
     return deps.slot?.(current.host) ?? current.host;
   }
 

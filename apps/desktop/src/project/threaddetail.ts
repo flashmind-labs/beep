@@ -3,8 +3,7 @@
 // project, or the server. The app renders the text as Markdown and drops raw
 // HTML before it gets here, so the HTML it gives is safe to insert. Commenting stays on the host.
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { el as h, type Kid } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { ThreadDetailView } from "./threaddetail-view.tsx";
@@ -69,7 +68,7 @@ type Draft = { text: string; posting: boolean; error?: string };
 export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: string) => unknown; comment: () => boolean }) {
   const reads = new Map<string, Read>();
   const drafts = new Map<string, Draft>();
-  let current: { key: string; host: HTMLElement; root: Root } | null = null;
+  let current: { key: string; host: HTMLElement } | null = null;
 
   function read(projectId: string, number: number) {
     const key = `${projectId}#${number}`;
@@ -89,9 +88,9 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
     const draft = drafts.get(key) ?? { text: "", posting: false };
     drafts.set(key, draft);
     if (current?.key !== key) {
-      current?.root.unmount();
+      if (current) removeWindowPart("project-thread");
       const host = h("div"); host.style.display = "contents";
-      current = { key, host, root: createRoot(host) };
+      current = { key, host };
     }
     const panel = current, actions = h("div", "", ...acts);
     const post = () => {
@@ -103,14 +102,14 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
         .catch(e => { draft.error = String(e).replace(/^(bad request|error):\s*/i, ""); })
         .finally(() => { draft.posting = false; deps.redraw(); });
     };
-    const draw = () => flushSync(() => panel.root.render(createElement(ThreadDetailView, {
+    const draw = () => showWindowParts([{ part: "project-thread", host: panel.host, content: createElement(ThreadDetailView, {
       stub, data, error: readState.error, acts: actions, comment: deps.comment(), text: draft.text, posting: draft.posting, draftError: draft.error,
       edit: (value: string) => { draft.text = value; draw(); }, post, open: (url: string) => { void deps.openUrl(url); },
-    })));
+    }) }]);
     draw();
     const slot = h("div"); slots.set(slot, panel.host);
     return [slot];
   }
 
-  return { pane };
+  return { pane, dispose: () => { if (current) removeWindowPart("project-thread"); current = null; } };
 }

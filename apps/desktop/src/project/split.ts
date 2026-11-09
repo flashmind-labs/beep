@@ -99,6 +99,7 @@ export function openTile(key: string | null, draw = true) {
     disposeCustomAgents();
     disposeOverview();
     disposeRunningAgents();
+    details.dispose();
     disposeProjectShell();
   }
   pa.tile = key === "sync" || key === "terminals" ? "machines" : key;
