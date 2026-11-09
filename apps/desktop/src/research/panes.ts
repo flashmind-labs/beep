@@ -3,8 +3,7 @@
 import { answerHtml, userRowHtml } from "../agents/turnrows.ts";
 import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
-import { chipHtml, phaseStep, PHASES, STATUS_LABEL } from "./research-list.ts";
-import { type Agent, type Entry, type Note, type Open, type Said, RUNNING, agentOf, count, doing, facts, host, kind, look, progress, round, shownTab } from "./research-state.ts";
+import { type Agent, type Entry, type Note, type Open, type Said, RUNNING, agentOf, count, doing, host, kind, look, progress, round, shownTab } from "./research-state.ts";
 import type { Doing } from "./research-state.ts";
 
 const rav = (id: string) => { const l = look(id); return `<span class="rav" style="--c:${l.c}">${l.ini}</span>`; };
@@ -19,19 +18,6 @@ function exportButton(o: Open) {
   return o.exporting
     ? '<button class="dbtn" disabled><span class="dspin"></span>Exporting</button>'
     : '<button class="dbtn" data-act="export">Export PDF</button>';
-}
-
-// ---------- Head ----------
-
-/// The question, where the research is, the facts, and Stop while the team works.
-export function headHtml(o: Open) {
-  const r = o.research, st = r?.status;
-  const step = st ? phaseStep(st) : 0;
-  const steps = step ? `<span class="cc-rsteps">${PHASES.map((_, i) => `<i class="${i + 1 < step ? "done" : i + 1 === step ? "now" : ""}"></i>`).join("")}</span>` : "";
-  const chip = st ? chipHtml(st, STATUS_LABEL[st]) : o.sending !== null ? chipHtml("researching", "Planning") : "";
-  const line = facts(o);
-  return `<span class="rdocic">${ICON.doc}</span><span class="tt"><b>${esc(r?.topic || "Research")}</b>${line ? `<small>${esc(line)}</small>` : ""}</span>${chip}${steps}`
-    + (RUNNING.has(st) ? '<button class="dbtn small warn" data-act="stop">Stop</button>' : "");
 }
 
 // ---------- The lead's chat ----------
