@@ -1,6 +1,7 @@
 import { createElement, type ReactNode } from "react";
 import { showWindowParts } from "../center/window-root.ts";
 import { HistoryFacts } from "./history-facts.tsx";
+import { HistoryDetail } from "./history-detail.tsx";
 import { HistoryHeader } from "./history-header.tsx";
 import { HistoryNavigation } from "./history-navigation.tsx";
 import { HistoryPath, HistorySessions } from "./history-sessions.tsx";
@@ -52,11 +53,7 @@ interface ProjectHistory {
   chrome: HTMLElement;
   tree: HTMLElement;
   detail: HTMLElement;
-  header: { element: HTMLElement };
-  sessionsView: { element: HTMLElement } | null;
-  pathView: { element: HTMLElement } | null;
   foot: HTMLElement;
-  facts: { element: HTMLElement } | null;
   view: DiffViewHandle | null;
   viewKey: string;
   timer?: ReturnType<typeof setTimeout>;
@@ -124,10 +121,8 @@ export function makeGitHistory(deps: HistoryDeps) {
     const nav = el("aside", "pj-list gh-nav", chrome, tree, foot);
     nav.setAttribute("aria-label", "Git navigation");
     const detail = el("div", "pj-det gh-detail");
-    const headerElement = el("div");
-    headerElement.style.display = "contents";
     p = { name, lists: new Map(), files: new Map(), commits: new Map(), open: new Set(["history"]), selected: null,
-      path: null, tab: "changes", query: "", nav, chrome, tree, detail, header: { element: headerElement }, sessionsView: null, pathView: null, foot, facts: null, view: null, viewKey: "" };
+      path: null, tab: "changes", query: "", nav, chrome, tree, detail, foot, view: null, viewKey: "" };
     projects.set(name, p);
     drawNavigation(p);
     return p;
@@ -317,65 +312,34 @@ export function makeGitHistory(deps: HistoryDeps) {
 
     if (!selected || !p.data) {
       const found = list(p, null, p.query);
-      p.detail.replaceChildren(el("p", "gh-empty", found.loading ? "Reading Git history…" : "Select a commit or worktree to see its changes."));
+      renderHistory(p, "detail", p.detail, createElement("p", { className: "gh-empty" }, found.loading ? "Reading Git history…" : "Select a commit or worktree to see its changes."));
       return;
     }
 
     const c = selected.kind === "commit" ? selected.commit : null;
     const w = selected.kind === "working" ? selected.worktree : null;
     const ref = c && p.data.refs.find(r => r.kind === "local" && r.head === c.id);
-    renderHistory(p, "header", p.header.element, createElement(HistoryHeader, {
+    const header = createElement(HistoryHeader, {
       key: selectionKey(selected), breadcrumb: c ? `${selected.kind === "commit" ? selected.origin : ""} / ${c.id.slice(0, 7)}` : `Worktrees / ${w!.branch || "Detached HEAD"}`,
       title: c ? c.subject || "Untitled commit" : `Uncommitted changes in ${w!.branch || "checkout"}`,
       metadata: c ? `${c.author} · ${new Date(c.committed_at).toLocaleString()}` : `${w!.path} · ${p.data.machine_name}`,
       copyValue: c?.id || w!.path, copyLabel: c ? "Copy SHA" : "Copy path",
       review: ref && deps.canReview(p.name, ref.name) ? () => deps.reviewBranch(p.name, ref.name) : null,
       tab: p.tab, onTab: (tab: ProjectHistory["tab"]) => { p.tab = tab; renderDetail(p); },
-    }));
-
-    const drawFacts = () => {
-      if (!p.facts) {
-        const element = el("div", "gh-facts-root");
-        p.facts = { element };
-      }
-      renderHistory(p, "facts", p.facts.element, createElement(HistoryFacts, {
+    });
+    let body: ReactNode = null, diff: HTMLElement | null = null;
+    if (p.tab === "details") {
+      body = createElement("div", { className: "gh-facts-root" }, createElement(HistoryFacts, {
         id: c?.id || w!.path, author: c?.author ?? null, parents: c?.parents ?? [], onParent: id => void parent(p, id),
       }));
-      return p.facts.element;
-    };
-    const existingBody = p.detail.querySelector<HTMLElement>(".gh-detail-body");
-    if (p.tab === "details" && p.facts && existingBody?.contains(p.facts.element)) {
-      drawFacts();
-      return;
-    }
-    const currentKey = selected ? `${selectionKey(selected)}\0${p.path || ""}` : "";
-    if (p.tab === "changes" && p.view && p.viewKey === currentKey && existingBody?.contains(p.view.el)) {
-      return;
-    }
-
-    if (p.tab === "sessions") {
-      if (!p.sessionsView) {
-        const element = el("div", "gh-detail-body");
-        p.sessionsView = { element };
-      }
+    } else if (p.tab === "sessions") {
       const currentTree = w || (ref && p.data.worktrees.find(tree => tree.branch === ref.name));
       const all = deps.sessions(p.name);
       const sessions = currentTree ? branchSessions(all || [], p.data.machine_id, currentTree.path, p.data.worktrees.map(tree => tree.path)) : [];
-      renderHistory(p, "sessions", p.sessionsView.element, createElement(HistorySessions, { linked: !!currentTree, loading: all === undefined, sessions, open: deps.openSession }));
-      if (existingBody === p.sessionsView.element) return;
-      if (p.header.element.parentElement === p.detail && existingBody) existingBody.replaceWith(p.sessionsView.element);
-      else p.detail.replaceChildren(p.header.element, p.sessionsView.element);
-      return;
-    }
-
-    const body = el("div", "gh-detail-body");
-
-    if (p.tab === "details") {
-      body.append(drawFacts());
+      body = createElement(HistorySessions, { linked: !!currentTree, loading: all === undefined, sessions, open: deps.openSession });
     } else {
       const path = p.path;
       const key = `${selectionKey(selected)}\0${path || ""}`;
-
       if (p.viewKey !== key || !p.view) {
         p.view?.dispose();
         p.viewKey = key;
@@ -393,20 +357,10 @@ export function makeGitHistory(deps: HistoryDeps) {
           review: { key: `history:${p.name}:${key}`, heading: () => c?.subject || "Worktree changes", send: async () => "Open a session to send a review." },
         });
       }
-
-      if (path) {
-        if (!p.pathView) {
-          const element = el("div"); element.style.display = "contents";
-          p.pathView = { element };
-        }
-        renderHistory(p, "path", p.pathView.element, createElement(HistoryPath, { path, showAll: () => { p.path = null; renderDetail(p); } }));
-        body.append(p.pathView.element);
-      }
-      body.append(p.view.el);
+      if (path) body = createElement(HistoryPath, { path, showAll: () => { p.path = null; renderDetail(p); } });
+      diff = p.view.el;
     }
-
-    if (p.header.element.parentElement === p.detail && existingBody) existingBody.replaceWith(body);
-    else p.detail.replaceChildren(p.header.element, body);
+    renderHistory(p, "detail", p.detail, createElement(HistoryDetail, { header, body, diff }));
   }
 
   function panels(name: string) {
