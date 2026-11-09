@@ -1,4 +1,4 @@
-import { createElement, Fragment, type ReactNode } from "react";
+import { createElement, Fragment, type ReactNode, type ReactElement } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { AgentsOverview, AppsOverview, CodingAgentOverview, InstructionsOverview, MachinesOverview } from "./overview-view.tsx";
@@ -11,7 +11,7 @@ import { onPhone } from "../ui/platform.ts";
 import type { PanePage } from "../bar/pane.ts";
 // settings/: the Settings pages (apps, accounts, credentials, coding agents,
 // instructions, model) and the window's sheet (sheet.ts). Entry: this file.
-import { bindAgents, disposeAgents, preserveAgents, bindCreds, disposeCreds, preserveCreds, renderCreds, CRED, loadAgentAccounts, loadCreds } from "./accounts.ts";
+import { bindAgents, disposeAgents, preserveAgents, bindCreds, disposeCreds, preserveCreds, renderCreds, CRED, loadAgentAccounts, loadCreds, type AccountSection, type AccountViewOwner } from "./accounts.ts";
 import { A, type App, appsIn, appsOut, type AppsView, loadApps, type McpServer, renderAppPermissions, renderApps, renderMcpServer } from "./apps.ts";
 import { toWindow } from "../chat/chat.ts";
 import { bar, type LinkState, S, windowHooks } from "../bar/core.ts";
@@ -229,10 +229,20 @@ async function setMacEnabled(enabled: boolean) {
 }
 
 /// Binds the controls inside `el`, a section or the whole page.
+const accountViews = new Map<AccountSection, { host: HTMLElement; content: ReactElement }>();
+function drawSettingsOwner() { if (SET.root) drawChrome(); else drawBarSettings(); }
+const accountViewOwner: AccountViewOwner = {
+  show(section, host, content) { accountViews.set(section, { host, content }); drawSettingsOwner(); },
+  remove(section) { if (accountViews.delete(section)) drawSettingsOwner(); },
+};
+function accountPortals() {
+  return [...accountViews].map(([section, view]) => createPortal(view.content, view.host, `account:${section}`));
+}
+
 function bindSettings(el: Element) {
   mountLocalViews(el);
-  bindCreds(el);
-  bindAgents(el);
+  bindCreds(el, accountViewOwner);
+  bindAgents(el, accountViewOwner);
 
 }
 
@@ -359,7 +369,7 @@ function renderShell(sheet: HTMLElement, pages: SettingsPage[], path: SettingsPa
   flushSync(() => current.root.render(createElement(Fragment, null, createElement(SettingsShell, {
     navigation: createElement(SettingsNavigation, { pages, path, version, subs: subEntries, pageName: settingsPageLabel, subName: subLabel, count: navCount, openPage, openSub: (sub: SettingsSub) => goTo(openSub(sub)) }),
     breadcrumb: createElement(SettingsBreadcrumb, { path, page: settingsPageLabel(path.page), sub: path.sub ? subLabel(path.sub) : null, openPage }),
-  }), ...[...localViews].filter(([, view]) => !view.root).map(([kind, view]) => createPortal(view.node, view.host, kind)))));
+  }), ...[...localViews].filter(([, view]) => !view.root).map(([kind, view]) => createPortal(view.node, view.host, kind)), ...accountPortals())));
   current.navigation = sheet.querySelector<HTMLElement>(".dset-nav");
 }
 /// Draws the sheet's current page while keeping its navigation mounted.
@@ -499,7 +509,7 @@ function drawBarSettings() {
   if (!current || !current.host.isConnected) return;
   flushSync(() => current.root.render(createElement(Fragment, null,
     createElement(SettingsBarShell, { version: current.version, sections: current.sections, hints: hints([["esc", "close"]]) }),
-    ...[...localViews].filter(([, view]) => !view.root).map(([kind, view]) => createPortal(view.node, view.host, kind)))));
+    ...[...localViews].filter(([, view]) => !view.root).map(([kind, view]) => createPortal(view.node, view.host, kind)), ...accountPortals())));
 }
 
 /// Draws Settings into `root` (the window's sheet), or the bar when none.

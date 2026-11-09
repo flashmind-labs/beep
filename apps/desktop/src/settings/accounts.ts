@@ -1,7 +1,5 @@
 import { CredentialsView, type CredentialActions } from "./credentials-view.tsx";
-import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createElement, type ReactElement } from "react";
 import { AgentAccountsView, type AgentAccountActions } from "./agentaccounts-view.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 import type * as AgentAccountsModule from "./agentaccounts.ts";
@@ -13,6 +11,13 @@ import { copy } from "../ui/parts.ts";
 import type { Machine } from "../machines/machines.ts";
 import { SET, setShown } from "./settings.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
+
+export type AccountSection = "credentials" | "agent-accounts";
+export interface AccountViewOwner {
+  show(section: AccountSection, host: HTMLElement, content: ReactElement): void;
+  remove(section: AccountSection): void;
+}
+interface AccountMount { host: HTMLElement; owner: AccountViewOwner; observer: MutationObserver }
 
 /// Settings, Credentials (`credentials.ts` draws it, loaded on first use into
 /// `mod`).
@@ -100,7 +105,7 @@ async function signInGh(redraw: () => void) {
   await loadCreds();
 }
 
-let credsRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+let credsRoot: AccountMount | null = null;
 let credEditVersion = 0;
 export function preserveCreds() {
   const host = credsRoot?.host;
@@ -125,22 +130,21 @@ export function disposeCreds() {
   if (!current) return;
   credEditVersion++;
   current.observer.disconnect();
-  current.root.unmount();
+  current.owner.remove("credentials");
 }
 export function renderCreds() {
   if (!credsRoot?.host.isConnected) return;
-  const root = credsRoot.root, machines = Array.isArray(SET.machines) ? SET.machines : null;
-  flushSync(() => root.render(createElement(CredentialsView, { state: CRED, machines, actions: credActions })));
+  const current = credsRoot, machines = Array.isArray(SET.machines) ? SET.machines : null;
+  current.owner.show("credentials", current.host, createElement(CredentialsView, { state: CRED, machines, actions: credActions }));
 }
-export function bindCreds(el: Element) {
+export function bindCreds(el: Element, owner: AccountViewOwner) {
   const host = el.matches("#set-creds") ? el : el.querySelector("#set-creds");
   if (!(host instanceof HTMLElement)) return;
   if (credsRoot?.host === host) { renderCreds(); return; }
   disposeCreds();
-  const root = createRoot(host);
   const observer = new MutationObserver(() => { if (credsRoot?.host === host && !host.isConnected) disposeCreds(); });
   observer.observe(document.body, { childList: true, subtree: true });
-  credsRoot = { host, root, observer };
+  credsRoot = { host, owner, observer };
   renderCreds();
 }
 async function useLogin(busy: string, errorKey: string, act: () => Promise<unknown>) {
@@ -258,7 +262,7 @@ function pollCodex() {
   void check();
 }
 
-let agentsRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+let agentsRoot: AccountMount | null = null;
 let agentEditVersion = 0;
 export function preserveAgents() {
   const host = agentsRoot?.host;
@@ -283,22 +287,21 @@ export function disposeAgents() {
   if (!current) return;
   agentEditVersion++;
   current.observer.disconnect();
-  current.root.unmount();
+  current.owner.remove("agent-accounts");
 }
 function renderAgents() {
   if (!agentsRoot?.host.isConnected) return;
-  const root = agentsRoot.root;
-  flushSync(() => root.render(createElement(AgentAccountsView, { state: ACC, ago: when, now: Date.now(), actions: agentActions })));
+  const current = agentsRoot;
+  current.owner.show("agent-accounts", current.host, createElement(AgentAccountsView, { state: ACC, ago: when, now: Date.now(), actions: agentActions }));
 }
-export function bindAgents(el: Element) {
+export function bindAgents(el: Element, owner: AccountViewOwner) {
   const host = el.matches("#set-agents") ? el : el.querySelector("#set-agents");
   if (!(host instanceof HTMLElement)) return;
   if (agentsRoot?.host === host) { renderAgents(); return; }
   disposeAgents();
-  const root = createRoot(host);
   const observer = new MutationObserver(() => { if (agentsRoot?.host === host && !host.isConnected) disposeAgents(); });
   observer.observe(document.body, { childList: true, subtree: true });
-  agentsRoot = { host, root, observer };
+  agentsRoot = { host, owner, observer };
   renderAgents();
 }
 const agentActions: AgentAccountActions = {
