@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { ProjectRunning } from "./running-view.tsx";
 import { OverviewGroupView } from "./overview-view.tsx";
 import { MV } from "../agents/move-store.ts";
 // The Projects page's overview: the list, groups and cards of every
@@ -19,11 +20,10 @@ import { el as h } from "../ui/dom.ts";
 import { makeCustomAgents } from "./customagents.ts";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
 import { pages, state, warm, pageFresh } from "../center/state.ts";
-import { section, plusLabel } from "../ui/pieces.ts";
+import { plusLabel } from "../ui/pieces.ts";
 import { machineMenuWith } from "../machines/table.ts";
 import { removeButton, removeMenuItems } from "./removemachine.ts";
 import { changeFolder, changeFolderItems } from "./changefolder.ts";
-import { runningRow } from "../center/home.ts";
 import { single } from "../center/openitems.ts";
 import { newWindowOn, openProjects, addProject } from "../center/sidebar.ts";
 import { splitOn, projectSplit, panelSlot, projectPanel } from "./split.ts";
@@ -33,7 +33,7 @@ import { whereRow, gitCells, checkoutItems, readingWhere, whereDue, loadWhere, g
 import { terminalLine } from "../terminals/view.ts";
 import { go } from "../center/views.ts";
 import { lazyRows } from "../ui/lazyrows.ts";
-import { byRecent, type RunningAgent } from "../agents/running-state.ts";
+import { type RunningAgent } from "../agents/running-state.ts";
 
 export const importButton = (cls: string) => plusLabel("Add a project", cls, addProject);
 
@@ -249,9 +249,17 @@ export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
 }
 
 /// The coding agents running in the project's folders now.
+let runningView: { host: HTMLElement; root: Root } | null = null;
+
+export function disposeRunningAgents() { runningView?.root.unmount(); runningView = null; }
+
 export function agentsSection(running: RunningAgent[]) {
-  const list = running.length
-    ? h("div", "cc-panel", ...byRecent(running).map(runningRow))
-    : emptyPanel(h("span", "", "No agent is working in this project right now."));
-  return section("sec-project-agents", "Agents", running.length || "", null, list);
+  if (!runningView) {
+    const host = h("div");
+    host.id = "sec-project-agents";
+    runningView = { host, root: createRoot(host) };
+  }
+  const current = runningView;
+  flushSync(() => current.root.render(createElement(ProjectRunning, { running })));
+  return panelSlot(current.host);
 }
