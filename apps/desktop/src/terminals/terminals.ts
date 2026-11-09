@@ -1,6 +1,6 @@
 import { createElement, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { TerminalPage, TerminalScreen } from "./page-view.tsx";
 import { NewTerminalFields } from "./new-terminal-view.tsx";
 import { TerminalFooter, TerminalHeader } from "./terminal-controls.tsx";
@@ -289,7 +289,7 @@ export function makeTerminals(deps: TerminalDeps) {
   const lives = new Map<string, Live>();
   let unfollow: (() => void) | undefined;
   let polling: string | null = null;
-  let machineShell: { root: Root; panel: HTMLElement } | null = null;
+  let machineShell: { root: DocumentView; panel: HTMLElement } | null = null;
   let formVersion = 0;
   /// The project whose terminals view shows.
   let shown: string | null = null;
@@ -735,7 +735,7 @@ export function makeTerminals(deps: TerminalDeps) {
     const places = machines.filter(m => m.online).map(m => ({ id: m.id, name: m.name, folder: "" }));
     if (!machineShell) {
       const panel = h("div", "tl");
-      machineShell = { panel, root: createRoot(panel) };
+      machineShell = { panel, root: createDocumentView(panel) };
     }
     const shell = machineShell;
     const open = t.open && (t.list || []).find(x => x.id === t.open);
