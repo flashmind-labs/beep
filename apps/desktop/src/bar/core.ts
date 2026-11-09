@@ -172,7 +172,7 @@ export interface WindowHooks {
   settingsAway(view: PanePage | null): void;
   /// Draws window view `name` (such as "providers") inside `root`, a page of
   /// the Settings sheet, opened with `arg`.
-  embedView?(name: ViewName, root: HTMLElement, arg: ViewArg, tools?: (nodes: Node[]) => void): () => void;
+  embedView?(name: ViewName, root: HTMLElement, arg: ViewArg): () => void;
   /// ⌘N in the pane: the window picks where the agent starts.
   newAgent(): void;
   /// Esc from an agent view goes back to the view that opened it.

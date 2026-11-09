@@ -56,20 +56,19 @@ export function openSettings(section?: string) {
   pane.settings(sheet, section).then(() => { refreshTopicSubscriptions(); afterMount(); }).catch(e => console.warn("settings:", e));
 }
 
-/// A window view the Settings sheet draws in its right pane, such as
-/// Coding agents under Agent accounts, and where its header buttons go.
-let embedded: { name: ViewName; tools?: (nodes: Node[]) => void } | null = null;
+/// A window view temporarily mounted in the Settings sheet. Unmounting the
+/// sheet restores it only when the underlying page still shows that view.
+let embedded: { name: ViewName } | null = null;
 
 /// Mounts view `name` into `root` in the sheet. What it returns mounts the
 /// view back into its own element when the window shows it.
-export function embedView(name: ViewName, root: HTMLElement, arg: ViewArg, tools?: (nodes: Node[]) => void) {
+export function embedView(name: ViewName, root: HTMLElement, arg: ViewArg) {
   const view = views.get(name);
   if (!view) return () => {};
-  const mine = { name, tools };
+  const mine = { name };
   unembed();
   embedded = mine;
   view.mount(root, arg);
-  drawEmbedTools();
   return () => {
     if (embedded !== mine) return;
     unembed();
@@ -91,13 +90,6 @@ function unembed() {
   } else {
     view.unmount?.();
   }
-}
-
-function drawEmbedTools() {
-  const view = embedded?.tools && views.get(embedded.name);
-  if (!view) return;
-  const head = typeof view.title === "function" ? view.title() : null;
-  embedded!.tools!(head?.tools ?? []);
 }
 
 export function closeSettings() {
@@ -126,5 +118,4 @@ function trapTab(e: KeyboardEvent, sheet: HTMLElement) {
 registerInstructions({ registerView, invoke, h, button, ago, openSettings });
 registerProviders({ registerView, invoke, h, button, openSettings, redrawTop: () => {
   if (currentLocation()?.view === "providers") drawTop();
-  if (embedded?.name === "providers") drawEmbedTools();
 } });
