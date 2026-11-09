@@ -47,6 +47,11 @@ fn known_protocol_names_round_trip_and_compare_as_variants() {
 
     for (name, protocol) in [
         (metrics::PROTOCOL, SessionProtocol::Metrics),
+        (metrics::QUERY_PROTOCOL, SessionProtocol::MetricsQuery),
+        (
+            beep_proto::node::logs::QUERY_PROTOCOL,
+            SessionProtocol::LogQuery,
+        ),
         (report::PROTOCOL, SessionProtocol::Report),
         (status::PROTOCOL, SessionProtocol::Status),
         (version::PROTOCOL, SessionProtocol::Version),

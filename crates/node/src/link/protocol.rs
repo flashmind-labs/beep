@@ -24,6 +24,10 @@ host! {
     pub(crate) enum SessionProtocol {
         #[strum(serialize = "metrics/1")]
         Metrics,
+        #[strum(serialize = "metrics/2")]
+        MetricsQuery,
+        #[strum(serialize = "log-query/1")]
+        LogQuery,
         #[strum(serialize = "report/1")]
         Report,
         #[strum(serialize = "status/1")]

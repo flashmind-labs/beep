@@ -543,6 +543,7 @@ dependencies = [
  "notify",
  "portable-pty",
  "rand 0.9.5",
+ "regex",
  "reqwest",
  "rmp-serde",
  "roxmltree 0.20.0",
