@@ -108,6 +108,10 @@ impl Machine {
         let home = self.home.clone();
         async_runtime::spawn(async move {
             let _provision = home.provision.start();
+            let _adapters = home
+                .offers
+                .agents
+                .install_adapters(home.dir.clone(), Vec::new());
             let _harness_checks = home.offers.agents.start_harness_checks();
             let _mcp = mcp::start(&home.dir, &home.offers);
             // Terminal Claude Code sessions report their state here; the

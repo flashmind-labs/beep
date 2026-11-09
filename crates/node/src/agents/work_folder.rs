@@ -18,7 +18,7 @@ use std::{
     fs::{self, OpenOptions},
     io::{ErrorKind, Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
 };
 
 /// What a file being written is called until its last part is in, beside
@@ -337,7 +337,7 @@ fn git_status(dir: &Path) -> Option<GitStatus> {
 /// What `git <args>` printed in `dir`, when it succeeded. Takes no locks,
 /// so a running agent's own git commands are never in its way.
 pub(in crate::agents) fn git(dir: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git")
+    let out = crate::run::process::background_command("git")
         .args(args)
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")

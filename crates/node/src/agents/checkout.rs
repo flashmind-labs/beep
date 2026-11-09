@@ -12,7 +12,7 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
 };
 use tokio::task::spawn_blocking;
 
@@ -419,7 +419,7 @@ fn exclude_worktrees(root: &Path) -> Result<()> {
 
 /// What `git <args>` printed in `dir`; its error output when it failed.
 fn git(dir: &Path, args: &[&str]) -> Result<String> {
-    let out = Command::new("git")
+    let out = crate::run::process::background_command("git")
         .args(args)
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -442,6 +442,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
 pub(super) mod tests {
     use super::*;
     use crate::files::paths;
+    use std::process::Command;
 
     /// A temporary repository with one commit on `main`.
     pub(in crate::agents) fn repo(name: &str) -> (tempfile::TempDir, PathBuf) {

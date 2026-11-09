@@ -30,22 +30,29 @@ pub(crate) fn command(program: impl AsRef<OsStr>) -> Command {
     let program = program.as_ref();
     #[cfg(windows)]
     if let Ok(found) = which::which(program) {
-        return Command::new(found);
+        return Command::from(background_command(found));
     }
 
-    Command::new(program)
+    Command::from(background_command(program))
 }
 
-/// Starts a background probe without opening a console on Windows.
-pub(crate) fn probe(program: impl AsRef<OsStr>) -> Command {
-    let command = command(program);
+/// A background command, with no console window allocated on Windows.
+/// Interactive terminals use their PTY's command builder instead.
+pub(crate) fn background_command(program: impl AsRef<OsStr>) -> std::process::Command {
+    let command = std::process::Command::new(program);
     #[cfg(windows)]
     let command = {
+        use std::os::windows::process::CommandExt;
         let mut command = command;
         command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
         command
     };
     command
+}
+
+/// Starts a background probe without opening a console on Windows.
+pub(crate) fn probe(program: impl AsRef<OsStr>) -> Command {
+    command(program)
 }
 
 /// Makes `command` start in a group of its own, for `GroupLeader`.
