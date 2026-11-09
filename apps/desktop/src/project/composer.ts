@@ -351,9 +351,10 @@ export function fixConflict(name: string, c: Conflict) {
 /// The picker above the bar, when open.
 function drawBarPicker(host: AgentHost | null, offered: string[]) {
   const el = projectComp.pick, p = pc.picked;
-  if (!pc.open || !host || !p.agent) { closedPicker(el); el.innerHTML = ""; return; }
+  if (!pc.open || !host || !p.agent) { closedPicker(el); return; }
   const focused = el.contains(document.activeElement);
   drawPicker(el, {
+    render: view => { if (projectComp.form.isConnected) projectComp.setPicker(view); },
     picked: p,
     offered,
     everywhere: [...new Set((pc.hosts ?? []).flatMap(m => m.agents))],
