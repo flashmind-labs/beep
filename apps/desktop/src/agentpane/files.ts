@@ -74,7 +74,7 @@ export function filesView() {
   F.unfollow?.();
   Object.assign(F, {
     key, listings: new Map(), roots: new Set(), reading: new Set(), again: new Set(), flat: false, walking: false, capped: false, open: new Set(), filter: "", picked: null, anchor: null, selected: new Set(), busy: false, fresh: false, generation: F.generation + 1, reveal: null,
-    unfollow: s ? subscribeTopics(topic("files", paneRoot()), () => refresh(), s.machine_id, filesShown) : null,
+    unfollow: s?.machine_id && paneRoot() ? subscribeTopics(topic("files", paneRoot()), () => refresh(), s.machine_id, filesShown) : null,
   });
   const el = h(`<div class="agpview files"><div class="agfbar"><input class="agffind" placeholder="Filter files" aria-label="Filter files" spellcheck="false">`
     + `<label class="agfign"><input type="checkbox"${F.ignored ? " checked" : ""}> Show ignored</label>`
@@ -106,7 +106,7 @@ export function pointFilesAt() {
   if (!F.el || !s || key === F.key) return;
   closeFilesMenu();
   F.unfollow?.();
-  F.unfollow = subscribeTopics(topic("files", paneRoot()), () => refresh(), s.machine_id, filesShown);
+  F.unfollow = s.machine_id && paneRoot() ? subscribeTopics(topic("files", paneRoot()), () => refresh(), s.machine_id, filesShown) : null;
   Object.assign(F, {
     key, listings: new Map(), roots: new Set(), reading: new Set(), again: new Set(), flat: false, walking: false, capped: false, open: new Set(), picked: null, anchor: null, selected: new Set(), busy: false, fresh: false, generation: F.generation + 1, reveal: null,
   });
