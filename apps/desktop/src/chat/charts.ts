@@ -1,4 +1,6 @@
 import { sentBox } from "./media.ts";
+import { owningChatBody } from "./chat.ts";
+import { renderChatChart } from "./work-view.tsx";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -37,13 +39,13 @@ export interface Chart {
 }
 
 /// A chart card: the chart and the series switched off in its legend.
-interface ChartCard extends HTMLDivElement {
+export interface ChartCard extends HTMLDivElement {
   chart: Chart;
   off: Set<number>;
 }
 
 /// A card's plot, which knows its chart and the width it was drawn at.
-interface Plot extends HTMLDivElement {
+export interface Plot extends HTMLDivElement {
   chart: Chart;
   card: ChartCard;
   drawnWidth?: number;
@@ -61,12 +63,16 @@ export const chartSizer = new ResizeObserver(entries => {
   }
 });
 
+export const chartSources = new WeakMap<Element, Chart>();
 export function chartRow(turn: Turn, chart: Chart) {
   const card = h<ChartCard>('<div class="dchart"></div>');
+  chartSources.set(card, chart);
   card.chart = chart;
   card.off = new Set();
   sentBox(turn).append(card);
-  drawChart(card);
+  const owner = owningChatBody(turn);
+  if (owner) renderChatChart(owner, turn, card, chart);
+  else drawChart(card);
 }
 
 /// A value in the chart's unit: a currency code as money, % with its sign,
