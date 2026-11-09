@@ -7,7 +7,7 @@ import { commandKey, WINDOWS } from "../ui/platform.ts";
 import { closeAgentNewMenus, renderAgentNew } from "../agents/agentnew.ts";
 import { keyHidden } from "../settings/subscription.ts";
 import { agentBack, agentKeys } from "../agents/agents.ts";
-import { A, addServer, drawApps, drawMcpTools, renderApps } from "../settings/apps.ts";
+import { A, addServer, cancelServerAdd, drawMcpTools, renderApps } from "../settings/apps.ts";
 import { attachedCount, unattach } from "../chat/attach.ts";
 import { answer, openInWindow, popQueued, renderChat, send, sendQueued, stop, toWindow } from "../chat/chat.ts";
 import { chatAction, chatMode, drawChats, openRow, renderChats } from "../chat/chats.ts";
@@ -60,7 +60,7 @@ export function back() {
   if (S.view === "appperms") return renderApps();
   if (S.view === "mcp" && A.asking) { A.asking = null; return drawMcpTools(); }
   if (S.view === "mcp") return renderApps();
-  if (S.view === "apps" && A.adding) { A.adding = false; A.addError = ""; return drawApps(); }
+  if (S.view === "apps" && A.adding) return cancelServerAdd();
   if (S.view === "apps" || S.view === "machines") return renderSettings();
   if (S.view === "model") return backToChat();
   if ((S.view === "memories" || S.view === "routines" || S.view === "skills" || S.view === "research" || S.view === "settings") && S.link === "linked") return backToChat();
