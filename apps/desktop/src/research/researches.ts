@@ -1,10 +1,11 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
+import { openBarPage } from "../bar/page-root.ts";
 import { ResearchesView } from "./researches-view.tsx";
 import { failed, grow, newTurn } from "../chat/chat.ts";
 import { when } from "../chat/chats.ts";
-import { $, bar, S } from "../bar/core.ts";
+import { $, S } from "../bar/core.ts";
 import { hints, refreshHints } from "../bar/hints.ts";
 import { notice } from "../chat/media.ts";
 import { progressLine, type ResearchRow } from "./research-list.ts";
@@ -41,24 +42,15 @@ export async function research(topic: string) {
 /// the server, so ones started on another computer show too.
 export const RL: { list: ResearchRow[]; loaded: boolean; sel: number; mode: "list" | "actions"; error: string } = { list: [], loaded: false, sel: 0, mode: "list", error: "" };
 
-let view: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+let view: { host: HTMLElement; root: Root } | null = null;
 let generation = 0, readVersion = 0, initial = "";
-function disposeResearches() {
-  const current = view;
-  view = null;
-  if (current) { current.observer.disconnect(); current.root.unmount(); }
-}
+function disposeResearches() { view = null; }
 export function renderResearches(topic = "") {
-  disposeResearches();
   generation++; initial = topic;
   S.view = "research";
   invoke("close_group").catch(() => {});
   Object.assign(RL, { mode: "list", error: "", sel: 0 });
-  const host = document.createElement("div"); host.style.display = "contents"; bar.replaceChildren(host);
-  const root = createRoot(host);
-  const observer = new MutationObserver(() => { if (view?.host === host && !host.isConnected) disposeResearches(); });
-  observer.observe(document.body, { childList: true, subtree: true });
-  view = { host, root, observer };
+  view = openBarPage(disposeResearches);
   drawResearches();
   loadResearchList();
 }

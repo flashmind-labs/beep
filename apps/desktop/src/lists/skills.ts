@@ -7,7 +7,8 @@ import { invoke } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
+import { openBarPage } from "../bar/page-root.ts";
 import { SkillEditor } from "./skill-editor.tsx";
 import { SkillDetail, SkillsList } from "./skills-view.tsx";
 
@@ -48,12 +49,7 @@ const MODES = new Set<string>(["list", "actions", "delete", "view", "edit", "vde
 const ONE = new Set<string>(["view", "edit", "vdelete"]);
 
 export const K: ListState<Skill> & { mode: SkillMode } = { list: [], sel: 0, mode: "list", error: "", loaded: false };
-let editor: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
-function disposeEditor() {
-  const current = editor;
-  editor = null;
-  if (current) { current.observer.disconnect(); current.root.unmount(); }
-}
+let editor: { host: HTMLElement; root: Root } | null = null;
 export const SKILL_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19l9-9"/><path d="M14 4l1.2 2.8L18 8l-2.8 1.2L14 12l-1.2-2.8L10 8l2.8-1.2z"/><path d="M19 13l.6 1.4L21 15l-1.4.6L19 17l-.6-1.4L17 15l1.4-.6z"/></svg>';
 
 /// "Used today", "Used yesterday" or "Used 8 Oct".
@@ -83,16 +79,7 @@ export async function loadSkills() {
 }
 
 function skillsRoot(): Root {
-  if (!editor || editor.host.parentElement !== bar) {
-    disposeEditor();
-    const host = document.createElement("div");
-    host.style.display = "contents";
-    bar.replaceChildren(host);
-    const root = createRoot(host);
-    const observer = new MutationObserver(() => { if (editor?.host === host && !host.isConnected) disposeEditor(); });
-    observer.observe(document.body, { childList: true, subtree: true });
-    editor = { host, root, observer };
-  }
+  if (!editor || editor.host.parentElement !== bar) editor = openBarPage(() => { editor = null; });
   return editor.root;
 }
 
