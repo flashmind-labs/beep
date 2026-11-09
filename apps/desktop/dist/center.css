@@ -84,7 +84,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
   .cc-cols { grid-template-columns: minmax(0, 1fr) }
 }
 .cc-view > * { flex: none }
-.cc-view > .home-sections > * { flex: none }
 .cc-comp .cc-err { flex: none; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .cc-row.bare { grid-template-columns: minmax(0, 1fr) auto }
 .cc-row:has(.cc-when) { grid-template-columns: 58px minmax(0, 1fr) auto }
