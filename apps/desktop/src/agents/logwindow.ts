@@ -2,7 +2,7 @@ import { createElement, Fragment } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { AgentTurnHeading, type TurnHeading } from "./turn-heading-view.tsx";
-import { AgentPrompt, AgentReply, promptHtml, replyHtml, replyRow, type PromptRow, type ReplyRow } from "./reply-view.tsx";
+import { AgentContext, AgentPrompt, AgentReply, contextHtml, promptHtml, replyHtml, replyRow, type ContextRow, type PromptRow, type ReplyRow } from "./reply-view.tsx";
 import { frameResize } from "../ui/dom.ts";
 
 // A session's log in the page: only the turns near the view are drawn, in
@@ -17,8 +17,8 @@ import type { ChatBody } from "../ui/turn.ts";
 
 /// One turn of the log: a key that stays while the turn does, and its
 /// rows as html, worked out only when it is drawn.
-export type TranscriptRow = string | TurnHeading | ReplyRow | PromptRow;
-const rowHtml = (row: TranscriptRow) => typeof row === "string" ? row : row.kind === "reply" ? replyHtml(row) : row.kind === "prompt" ? promptHtml(row) : row.html;
+export type TranscriptRow = string | TurnHeading | ReplyRow | PromptRow | ContextRow;
+const rowHtml = (row: TranscriptRow) => typeof row === "string" ? row : row.kind === "reply" ? replyHtml(row) : row.kind === "prompt" ? promptHtml(row) : row.kind === "context" ? contextHtml(row) : row.html;
 const asReply = (row: TranscriptRow) => typeof row === "string" ? replyRow(row) : row.kind === "reply" ? row : null;
 
 export interface Unit {
@@ -46,7 +46,7 @@ interface LogWindow {
   top: HTMLElement;
   bottom: HTMLElement;
   watch: ResizeObserver;
-  replies: Map<HTMLElement, { key: number; reply: ReplyRow | PromptRow }>;
+  replies: Map<HTMLElement, { key: number; reply: ReplyRow | PromptRow | ContextRow }>;
   headings: Map<HTMLElement, { key: number; value: TurnHeading }>;
   nextReplyKey: number;
   replyRoot: Root | null;
@@ -78,6 +78,7 @@ export function setUnits(log: HTMLElement, units: readonly Unit[], held: readonl
     const rows = u.rows(), html = rows.map(rowHtml), reuse = reuseReplyRows(d.rows, rows);
     reuseHeadings(d.rows, rows, reuse);
     reusePrompts(d.rows, rows, reuse);
+    reuseContexts(d.rows, rows, reuse);
     const keep = new Set(reuse.filter(i => i >= 0));
     const changed = new Set(reuse.filter((old, next) => old >= 0 && d.html[old] !== html[next]));
     d.nodes.forEach((nodes, i) => { if (!keep.has(i) || changed.has(i)) going.push(...nodes); });
@@ -278,7 +279,7 @@ function patch(w: LogWindow, d: Drawn, rows: readonly TranscriptRow[], reuse: re
     if (reuse[i] >= 0 && d.html[reuse[i]] === row) return d.nodes[reuse[i]];
     const typed = rows[i];
     const heading = typeof typed !== "string" && typed.kind === "heading" ? typed : null;
-    const reply = typeof typed !== "string" && typed.kind === "prompt" ? typed : asReply(typed);
+    const reply = typeof typed !== "string" && (typed.kind === "prompt" || typed.kind === "context") ? typed : asReply(typed);
     if (reuse[i] >= 0) {
       const nodes = d.nodes[reuse[i]];
       const existing = nodes[0] instanceof HTMLElement ? w.replies.get(nodes[0]) : null;
@@ -318,7 +319,7 @@ function patch(w: LogWindow, d: Drawn, rows: readonly TranscriptRow[], reuse: re
 
 /// Preserve a reply's host while its streamed content changes.
 function reuseReplyRows(before: readonly TranscriptRow[], next: readonly TranscriptRow[]) {
-  const signature = (row: TranscriptRow) => typeof row === "string" ? `s${row}` : row.kind === "heading" ? `h${JSON.stringify([row.id, row.html])}` : row.kind === "prompt" ? `p${JSON.stringify([row.row, row.html, row.pictures])}` : `r${JSON.stringify([row.row, row.markdown, row.html])}`;
+  const signature = (row: TranscriptRow) => typeof row === "string" ? `s${row}` : row.kind === "heading" ? `h${JSON.stringify([row.id, row.html])}` : row.kind === "prompt" ? `p${JSON.stringify([row.row, row.html, row.pictures])}` : row.kind === "context" ? `c${JSON.stringify([row.id, contextHtml(row)])}` : `r${JSON.stringify([row.row, row.markdown, row.html])}`;
   const reuse = reuseRows(before.map(signature), next.map(signature));
   if (!reuse.includes(-1)) return reuse;
   const used = new Set(reuse.filter(index => index >= 0));
@@ -358,6 +359,22 @@ function reusePrompts(before: readonly TranscriptRow[], next: readonly Transcrip
   });
 }
 
+function reuseContexts(before: readonly TranscriptRow[], next: readonly TranscriptRow[], reuse: number[]) {
+  const used = new Set(reuse.filter(index => index >= 0));
+  const available = new Map<string, { indices: number[]; next: number }>();
+  before.forEach((row, index) => {
+    if (typeof row === "string" || row.kind !== "context" || used.has(index)) return;
+    let matches = available.get(row.id);
+    if (!matches) { matches = { indices: [], next: 0 }; available.set(row.id, matches); }
+    matches.indices.push(index);
+  });
+  next.forEach((row, index) => {
+    if (reuse[index] >= 0 || typeof row === "string" || row.kind !== "context") return;
+    const matches = available.get(row.id);
+    if (matches && matches.next < matches.indices.length) reuse[index] = matches.indices[matches.next++];
+  });
+}
+
 function reuseHeadings(before: readonly TranscriptRow[], next: readonly TranscriptRow[], reuse: number[]) {
   const used = new Set(reuse.filter(index => index >= 0));
   const available = new Map<string, { indices: number[]; next: number }>();
@@ -380,7 +397,7 @@ function renderReplies(w: LogWindow) {
   if (!w.replyRoot && !w.replies.size && !w.headings.size) return;
   w.replyRoot ??= createRoot(document.createElement("div"));
   flushSync(() => w.replyRoot?.render(createElement(Fragment, null,
-    ...[...w.replies].map(([host, mounted]) => createPortal(mounted.reply.kind === "prompt" ? createElement(AgentPrompt, { prompt: mounted.reply }) : createElement(AgentReply, { reply: mounted.reply }), host, mounted.key)),
+    ...[...w.replies].map(([host, mounted]) => createPortal(mounted.reply.kind === "prompt" ? createElement(AgentPrompt, { prompt: mounted.reply }) : mounted.reply.kind === "context" ? createElement(AgentContext, { row: mounted.reply }) : createElement(AgentReply, { reply: mounted.reply }), host, mounted.key)),
     ...[...w.headings].map(([host, mounted]) => createPortal(createElement(AgentTurnHeading, { value: mounted.value }), host, mounted.key)))));
 }
 

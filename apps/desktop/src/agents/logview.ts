@@ -36,7 +36,7 @@ import type { ChatBody } from "../ui/turn.ts";
 import { ICON } from "../ui/icons.ts";
 import { showAgentControl } from "./composer-ui.tsx";
 import { AgentStatus, AgentStopFace } from "./mode-view.tsx";
-import { promptHtml, replyHtml, type PromptRow, type ReplyRow } from "./reply-view.tsx";
+import { contextHtml, promptHtml, replyHtml, type ContextRow, type PromptRow, type ReplyRow } from "./reply-view.tsx";
 
 // Elapsed clocks use when this window first saw the call running.
 const toolStarts = new Map<string, number>();
@@ -245,7 +245,7 @@ export function entryRow(en: AgentEntry, at: number) {
   const answered = en.kind === "user" && AG.log ? AG.log.answeredQuestions(en.text) : null;
   if (answered) return `<div class="dcoderen qa" data-row="${at}">${answered.map(x => `${x.question ? `<span class="q">${esc(x.question)}</span>` : ""}<span class="a">${esc(x.answer)}</span>`).join("")}</div>`;
 
-  if (en.kind === "user") return userRows(en, at).map(row => typeof row === "string" ? row : promptHtml(row)).join("");
+  if (en.kind === "user") return userRows(en, at).map(row => typeof row === "string" ? row : row.kind === "context" ? contextHtml(row) : promptHtml(row)).join("");
 
   if (en.kind === "agent") return replyHtml(agentReply(en, at));
 
@@ -260,25 +260,25 @@ export function entryRow(en: AgentEntry, at: number) {
   return `<div class="dcoderen other" data-row="${at}">${esc(en.text)}</div>`;
 }
 
-function userRows(en: AgentEntry, at: number): (string | PromptRow)[] {
+function userRows(en: AgentEntry, at: number): (string | PromptRow | ContextRow)[] {
   // Beep's context, what another session sent and what a child came to
   // get rows of their own, never the user's box.
   const parts = promptParts(en.text);
   let child = 0;
-  const others = parts.map(p => p.kind === "context"
-    ? `<details class="dcoderen beepctx"><summary>Beep context</summary><pre>${esc(p.text)}</pre></details>`
+  const others = parts.flatMap((p, index): (string | ContextRow)[] => p.kind === "context"
+    ? [{ kind: "context", id: `${at}:${index}`, type: "context", text: p.text }]
     : p.kind === "session"
-      ? `<div class="dcoderen fromsession"><b>Other session wrote${p.name ? `<span class="who">${esc(p.name)}</span>` : ""}</b><span>${linkified(p.text)}</span></div>`
+      ? [{ kind: "context", id: `${at}:${index}`, type: "session", name: p.name, html: linkified(p.text) }]
       : p.kind === "child"
-        ? (() => {
+        ? [(() => {
           const row = childRow(sessions, p.id);
           const meta = [row?.machine_name ?? p.id.split("@").slice(1).join("@"), row ? agentKind(row.agent).name : ""].filter(Boolean).join(" · ");
           const body = en.child_html?.[child++];
           return childReplyHtml(p, body != null ? answerHtml(body) : `<p>${linkified(p.text).replace(/\n/g, "<br>")}</p>`, row ? agentAvatar(row.agent) : SUB_ICON, meta);
-        })()
-        : "").join("");
+        })()]
+        : []);
   const own = parts.filter(p => p.kind === "user").map(p => p.text).join("\n");
-  if (!own && others) return [others];
+  if (!own && others.length) return others;
   const { names, text: words } = userImages(own);
   // The user's words come as Markdown HTML, its pasted blocks folded;
   // the ones the reader opened stay open.
@@ -286,7 +286,7 @@ function userRows(en: AgentEntry, at: number): (string | PromptRow)[] {
   const html = en.html ?? (words ? `<p>${esc(words).replace(/\n/g, "<br>")}</p>` : "");
   const said = html.replace(/data-paste="(\d+)"/g, (m, i) => AG.opened.has(`${at}:${i}`) ? `${m} open` : m);
   const prompt: PromptRow = { kind: "prompt", row: String(at), html: said, pictures: names.map(entryPic).join("") };
-  return others ? [others, prompt] : [prompt];
+  return [...others, prompt];
 }
 
 /// The files a turn's commands made: one file as "Made x.md", several as a

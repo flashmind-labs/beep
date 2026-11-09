@@ -40,10 +40,12 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 test("agent prompt keeps context before the user and retains its element", t => {
   const { page } = setup();
   t.after(() => { disposeQueue(); stopAgentFollow(); });
-  page.entries = [{ kind: "user", text: "<beep-context>\nContext\n</beep-context>\nHello", html: "<p>Hello</p>" }, { kind: "agent", text: "Reply" }];
+  page.entries = [{ kind: "user", text: '<beep-context>\nContext\n</beep-context>\n<from-session id="one" name="Example">\nRead this\n</from-session>\nHello', html: "<p>Hello</p>" }, { kind: "agent", text: "Reply" }];
   drawAgentBody();
   const prompt = bar.querySelector<HTMLElement>(".dcoderen.user.md"), context = bar.querySelector(".beepctx");
   assert.ok(prompt && context); assert.equal(context.compareDocumentPosition(prompt) & Node.DOCUMENT_POSITION_FOLLOWING, Node.DOCUMENT_POSITION_FOLLOWING);
+  const message = bar.querySelector(".fromsession"); assert.ok(message); assert.match(message.textContent ?? "", /Example.*Read this/);
+  assert.equal(context.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING, Node.DOCUMENT_POSITION_FOLLOWING);
   drawAgentBody(undefined, true); assert.equal(bar.querySelector(".dcoderen.user.md"), prompt);
 });
 

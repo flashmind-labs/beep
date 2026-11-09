@@ -62,6 +62,22 @@ try {
     return { blocked, held, updated, same: log.querySelector('.dcoderen.user[data-at="4"]') === original, text: original.querySelector("p").textContent, image: !!original.querySelector(".pics img") };
   });
   assert.deepEqual(prompt, { blocked: false, held: "First", updated: true, same: true, text: "Updated", image: true });
+  const context = await page.evaluate(() => {
+    const body = document.querySelector(".dbody"), log = document.querySelector(".dcoderlog");
+    const row = text => ({ kind: "context", id: "4:0", type: "context", text });
+    const units = text => [{ key: "turn", rows: () => [row(text)] }];
+    logWindow.setUnits(log, units("First"), []); logWindow.fillLog(body, false);
+    const original = log.querySelector("details.beepctx"); original.open = true;
+    const text = original.querySelector("pre").firstChild;
+    const blocked = logWindow.setUnits(log, units("Updated"), [text]);
+    const held = original.querySelector("pre").textContent;
+    logWindow.setUnits(log, units("Updated"), []);
+    const result = { blocked, held, same: log.querySelector("details.beepctx") === original, open: original.open, text: original.querySelector("pre").textContent };
+    logWindow.setUnits(log, [], []);
+    return result;
+  });
+  assert.deepEqual(context, { blocked: false, held: "First", same: true, open: true, text: "Updated" });
+  await page.setContent('<style>.dbody{height:300px;overflow:auto}.dcoderlog,.agturn{display:flex;flex-direction:column;gap:12px}.agspace{flex:none}</style><div class="dbody"><div class="dcoderlog"></div></div>');
   const longLog = await page.evaluate(() => {
     const body = document.querySelector(".dbody"), log = document.querySelector(".dcoderlog");
     const units = Array.from({ length: 1000 }, (_, index) => ({ key: `turn-${index}`, rows: () => [{ kind: "reply", row: String(index), markdown: true, html: `<p>Reply ${index}</p>` }] }));
