@@ -19,6 +19,11 @@ body.mobile .mb-back { display: grid; place-items: center; flex: none; width: 44
 body.mobile .mb-back[hidden] { display: none }
 body.mobile .mb-back:active { background: var(--elev) }
 body.mobile .mb-back:not([hidden]) + h2 { margin-left: -6px }
+/* The bell is a full touch target with an icon the size of Back's. */
+body.mobile .nt-bell { width: 44px; height: 44px; border: 0 }
+body.mobile .nt-bell svg { width: 22px; height: 22px; stroke-width: 1.7 }
+body.mobile .nt-bell:active { background: var(--elev) }
+body.mobile .nt-n { top: 4px; right: 4px }
 
 /* Bottom tabs. */
 body.mobile .mb-tabs { flex: none; display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--border); background: var(--surface); padding-bottom: env(safe-area-inset-bottom) }
