@@ -14,7 +14,6 @@ import { PageTiming, pageName } from "./page-timing.ts";
 import { viewHidden } from "../settings/subscription.ts";
 import { G, S } from "../bar/core.ts";
 import { syncMobile } from "./mobile.ts";
-import { patchChildren } from "../ui/patch.ts";
 import { createElement, Fragment } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -176,13 +175,7 @@ function withReturnTarget(page: Location, current: Location | null): Location {
   return page;
 }
 
-let headerPage = "";
 let headerRoot: Root | null = null;
-let reactScope = false, reactTools = false;
-function patchHeader(host: HTMLElement, nodes: Node[], changedPage: boolean) {
-  if (nodes.every((node): node is Element => node instanceof Element)) patchChildren(host, nodes, () => changedPage);
-  else host.replaceChildren(...nodes);
-}
 export function drawTop() {
   const view = currentPage ? views.get(currentPage.view) : null;
   const head: ViewHead = typeof view?.title === "function" ? view.title() : { title: view?.title ?? "Beep" };
@@ -191,22 +184,13 @@ export function drawTop() {
   if (back) back.hidden = currentPage?.view === "projects";
   $("#title").textContent = head.title || "Beep";
   const page = JSON.stringify([currentPage, currentPage?.view === "pane" ? [S.view, S.session, G.id] : null]);
-  const changedPage = page !== headerPage;
-  headerPage = page;
   const scope = $("#scope"), tools = $("#tools");
-  const nextScope = head.reactScope !== undefined, nextTools = head.reactTools !== undefined;
-  if (nextScope && !reactScope) scope.replaceChildren();
-  if (nextTools && !reactTools) tools.replaceChildren();
   // The portals share one owner while each header slot changes independently.
   headerRoot ??= createRoot(document.createElement("div"));
   const root = headerRoot;
   flushSync(() => root.render(createElement(Fragment, null,
-    nextScope ? createPortal(head.reactScope, scope, `${page}:scope`) : null,
-    nextTools ? createPortal(head.reactTools, tools, `${page}:tools`) : null)));
-  reactScope = nextScope; reactTools = nextTools;
-  // Legacy actions close over their page. Preserve them only within that page.
-  if (!reactScope) patchHeader(scope, head.scope ? [head.scope] : [], changedPage);
+    createPortal(head.reactScope ?? null, scope, `${page}:scope`),
+    createPortal(head.reactTools ?? null, tools, `${page}:tools`))));
   $("#date").textContent = head.sub || "";
-  if (!reactTools) patchHeader(tools, head.tools || [], changedPage);
   syncMobile();
 }

@@ -1,27 +1,30 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
+import { JSDOM } from "jsdom";
 import type { CenterView, ViewArg } from "../src/center/state.ts";
 
 // Load the real navigation with the window's DOM and services replaced.
-const element = () => ({ hidden: false, textContent: "", replaceChildren() {} }) as unknown as HTMLElement;
+const dom = new JSDOM("<!doctype html><body><div id='title'></div><div id='scope'></div><div id='date'></div><div id='tools'></div></body>");
+const element = () => dom.window.document.createElement("div");
 const state = { picked: null as string | null, subscribed: false, agents: [] };
 const views = new Map<string, CenterView & { el: HTMLElement }>();
 Object.assign(globalThis, {
   navigationTest: { state, views, element },
-  document: { hidden: false, getElementById: () => null },
+  window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Element: dom.window.Element, Node: dom.window.Node,
   requestAnimationFrame: () => 0,
 });
 const stubs = new Map(Object.entries({
-  "center/state.ts": "export const { state, views } = globalThis.navigationTest; export const $ = () => globalThis.navigationTest.element();",
+  "center/state.ts": "export const { state, views } = globalThis.navigationTest; export const $ = selector => document.querySelector(selector);",
   "ui/tauri.ts": "export const invoke = async () => {}; export const recordTiming = () => {};",
+  "ui/mesh-events.ts": "export const refreshTopicSubscriptions = () => {};",
   "ui/dom.ts": "export const el = () => globalThis.navigationTest.element();",
   "center/sidebar.ts": "export const drawSide = () => {}; export const projectRows = () => [];",
   "project/agent.ts": "export const chatProject = () => null;",
   "settings/sheet.ts": "export const openSettings = () => {};",
   "center/threadcard.ts": "export const threadChats = null;",
   "settings/subscription.ts": "export const viewHidden = () => false;",
-  "bar/core.ts": "export const S = { server: false };",
+  "bar/core.ts": "export const S = { server: false, view: null, session: null }; export const G = { id: null };",
   "center/mobile.ts": "export const syncMobile = () => {};",
 }).map(([path, source]) => [new URL(`../src/${path}`, import.meta.url).href, source]));
 const hooks = registerHooks({
