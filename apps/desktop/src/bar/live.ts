@@ -9,7 +9,6 @@ import { openSession } from "../chat/history.ts";
 import { notice } from "../chat/media.ts";
 import { forgetHeight } from "./size.ts";
 import { type HeldQuestion, waitingQuestion } from "./work.ts";
-import { userRowHtml } from "../agents/turnrows.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
@@ -248,16 +247,9 @@ export function takeDraft(ask: HTMLTextAreaElement | null) {
 /// Shows what the user said in place of the waiting prompt.
 export function heard(turn: Turn, text: string) {
   turnState(turn).question = text;
-  let ask = turn.querySelector<HTMLElement>(ASK);
-  if (!ask) {
-    ask = ensureChatPrompt(turn);
-    if (!ask) turn.prepend(ask = h(userRowHtml("")));
-  }
-  if (!updateChatPrompt(turn, esc(text))) {
-    const owner = owningChatBody(turn);
-    if (owner) { ask.replaceChildren(); renderChatPrompt(owner, turn, ask, esc(text)); }
-    else { ask.querySelector("span")?.remove(); ask.append(h(`<span>${esc(text)}</span>`)); }
-  }
+  const owner = owningChatBody(turn), ask = turn.querySelector<HTMLElement>(ASK) ?? ensureChatPrompt(turn);
+  if (!owner || !ask) return;
+  if (!updateChatPrompt(turn, esc(text))) renderChatPrompt(owner, turn, ask, esc(text));
   touch(S.session!, text);
 }
 // Live mode stays in the bar and the orb.

@@ -13,7 +13,6 @@ import { replyActs } from "./rerun.ts";
 import { QUIET_TOOLS, toolLabel } from "./tools.ts";
 import { HISTORY_CHUNK, windowStart } from "./history-state.ts";
 import { keepWaitingQuestions, loadQuestions } from "../bar/work.ts";
-import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { ChatBody, Step, Turn } from "../ui/turn.ts";
@@ -216,7 +215,7 @@ function buildTurns(id: string, turns: HistoryTurn[]) {
         box.className = "dsystem";
         renderChatNotice(owner, turn, box, { kind: "label", message: t.label || "Routine" });
         turn.prepend(box);
-      } else turn.prepend(h(`<div class="dsystem">${esc(t.label || "Routine")}</div>`));
+      }
       turnState(turn).user = false;
     } else if (t.role === "assistant") {
       turn ??= drawTurn("");
