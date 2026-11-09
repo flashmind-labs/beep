@@ -63,3 +63,30 @@ test("touch scrolling releases the log before the next animation frame", async (
   await body.evaluate(el => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event("scroll")); });
   await expect.poll(() => body.evaluate((el: HTMLElement & { stuck?: boolean }) => el.stuck)).toBe(true);
 });
+
+for (const custom of [
+  { id: "gpt-6.1-sol", label: "6.1 Sol", models: [{ id: "gpt-6.1-sol", name: "6.1 Sol", description: null }] },
+  { id: "custom-model", label: "custom-model", models: [] },
+]) {
+  test(`a session without a reported model shows the custom default ${custom.id}`, async ({ page }) => {
+    const active = { ...session, status: "working", external: false };
+    await openDesktop(page, false, {
+      agent_view: view(active),
+      agent_models: { pick: "listed", current: custom.id, models: custom.models },
+    });
+    await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
+    await expect(page.locator("#agmodelb")).toContainText(custom.label);
+    await expect(page.locator("#agmodelb")).not.toContainText("Model unknown");
+    expect(await page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_steer"))).toEqual([]);
+  });
+}
+
+test("a reported session model takes precedence over the configured default", async ({ page }) => {
+  const active = { ...session, status: "working", external: false };
+  await openDesktop(page, false, {
+    agent_view: { ...view(active), model: "session-model" },
+    agent_models: { pick: "listed", current: "custom-model", models: [{ id: "session-model", name: "Session model", description: null }] },
+  });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
+  await expect(page.locator("#agmodelb")).toContainText("Session model");
+});
