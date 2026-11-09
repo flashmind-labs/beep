@@ -1,9 +1,8 @@
-import { createElement } from "react";
-import { removeWindowPart, removeWindowParts, showWindowParts } from "../center/window-root.ts";
+import { createElement, Fragment, type ReactNode } from "react";
+import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ReviewFindings } from "./review-findings.tsx";
 import { ReviewActions, ReviewHeading } from "./review-controls.tsx";
 import { ReviewStatus } from "./review-status.tsx";
-import { patchChildren } from "../ui/patch.ts";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // review/: a project's branches and reviews. Entry:
 // makeReviews here.
@@ -11,13 +10,10 @@ import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import { agentLabel } from "../project/projects-state.ts";
 import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
-import { worktreeMachines, worktreeName } from "./branchwork.ts";
 import type { Place } from "./branchwork.ts";
 import type { TileData, TileRow } from "../project/board.ts";
 import { plural, reason } from "../ui/format.ts";
-import { emptyPanel, errorNote, freshNote, note, secHead, writeClipboard } from "../ui/parts.ts";
-import { openMenu, type MenuItem } from "../ui/menu.ts";
-import { PageCache, REFRESH_MS, freshness, type SectionStore } from "../ui/pagecache.ts";
+import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
 
 /// One branch of a project, as `project_branches` lists it (BranchRow).
 export interface BranchRow {
@@ -145,10 +141,6 @@ type Mergeable = Pick<ReviewView, "merge" | "conflicts" | "pr" | "shards" | "fin
 /// The branches a project lists; one that failed to read before any arrived
 /// has only its default branch and rows.
 type Branches = Pick<BranchesView, "default_branch" | "branches"> & Partial<Pick<BranchesView, "machine_id" | "machine_name">>;
-
-/// The machine a worktree goes on: one of `worktreeMachines`, or the one
-/// the branches were read on.
-type Target = Partial<Place>;
 
 /// How often a running review is read again.
 
@@ -317,21 +309,15 @@ interface ProjectReviews {
   note: string;
   busy: string;
   now?: ReviewHead & { id: string };
-  /// The branch whose Other machine… list shows.
-  picking?: string | null;
 }
 
 export function makeReviews(deps: ReviewDeps) {
-  const { invoke, h, button, ago, redraw, openUrl, openTile } = deps;
-  const machines = deps.machines || (() => []);
+  const { invoke, h, ago, redraw, openUrl, openTile } = deps;
   const kept = deps.kept ?? new PageCache(null).section<KeptBranches>("branches");
   const all = new Map<string, ProjectReviews>();
   let unfollow: (() => void) | undefined;
   let polling: string | null = null;
-  let findingsView: { project: string; host: HTMLElement } | null = null;
-  let statusView: { project: string; host: HTMLElement } | null = null;
-  let controls: { project: string; head: HTMLElement; actions: HTMLElement } | null = null;
-  let detailView: { project: string; host: HTMLElement; error: HTMLElement; before: HTMLElement; after: HTMLElement } | null = null;
+  let detailView: { project: string; host: HTMLElement } | null = null;
 
   /// A project's branches and reviews, from the cache until they are read.
   const of = (name: string) => {
@@ -506,175 +492,32 @@ export function makeReviews(deps: ReviewDeps) {
   const merge = (name: string, r: ReviewView) => act(name, "merge", () => invoke<string>("review_merge", { review: r.id }),
     () => { of(name).note = "Asked the project agent to merge. Approve its card to merge."; });
 
-  // ---------- Branches ----------
-
-  /// Gives `branch` a worktree on `machine`, then reads the branches again.
-  const addWorktree = (name: string, branch: string, machine: Target) => act(name, `wt:${branch}`,
-    () => invoke<BranchRow>("add_branch_worktree", { project: name, branch, machineId: machine.id }),
-    b => { const t = of(name); t.picking = null; t.note = `Added ${b.worktree || worktreeName(branch)} on ${machine.name}.`; load(name); });
-
-  /// A branch without a worktree: one on the machine the list was read
-  /// on, or Other machine… to pick among the online ones.
-  function worktreeActs(name: string, t: ProjectReviews, data: Branches, b: BranchRow) {
-    const where = worktreeMachines(machines(), data.machine_id);
-    const here: Target = where.find(m => m.id === data.machine_id) || { id: data.machine_id, name: data.machine_name };
-    const busy = t.busy === `wt:${b.name}`;
-
-    if (t.picking === b.name) {
-      return [
-        ...where.map(m => { const x = button(m.name, "small", () => addWorktree(name, b.name, m)); x.disabled = busy; return x; }),
-        button("Cancel", "quiet small", () => { t.picking = null; redraw(); }),
-      ];
-    }
-
-    const go = button(busy ? "Adding…" : "Add worktree", "small", () => addWorktree(name, b.name, here));
-    go.disabled = busy;
-    go.title = `git worktree add ${worktreeName(b.name)}`;
-    const other = where.length > 1 ? button("Other machine…", "quiet small", () => { t.picking = b.name; redraw(); }) : null;
-    return other ? [go, other] : [go];
-  }
-
-  function branchesPanel(name: string) {
-    const t = of(name);
-    ensure(name);
-    const out: HTMLElement[] = [];
-    if (t.error) out.push(h("div", "cc-err", t.error));
-    if (t.note && t.note.startsWith("Added ")) out.push(note("", t.note));
-    const data = t.branches;
-
-    if (data === null) {
-      out.push(emptyPanel(h("b", "", "The server needs an update before it lists branches.")));
-      return out;
-    }
-
-    if (!data) {
-      out.push(emptyPanel(h("span", "dspin"), h("span", "", "Reading the branches…")));
-      return out;
-    }
-
-    const byBranch = new Map((t.reviews || []).map(r => [r.branch, r]));
-    const rows = data.branches.map(b => {
-      const r = byBranch.get(b.name);
-      const isDefault = b.name === data.default_branch;
-      const worktree = b.worktree ? h("span", "br-tag", "worktree") : null;
-      if (worktree) worktree.title = b.worktree!;
-      const marks = [
-        isDefault ? h("span", "br-tag", "default") : null,
-        !isDefault && b.ahead ? h("span", "br-add", `+${b.ahead}`) : null,
-        !isDefault && b.behind ? h("span", "br-tag", `${b.behind} behind`) : null,
-        worktree,
-        b.pushed ? null : h("span", "br-tag", "not pushed"),
-      ];
-      const acts = h("span", "acts rv-acts");
-      const diff = isDefault ? null : deps.diff?.(name, b.name);
-      if (diff) acts.append(button("View diff", "quiet small", diff));
-      if (r) acts.append(button(`Open review · ${STATE_LABEL[reviewState(r)].toLowerCase()}`, "small", () => openBranch(name, b.name)));
-      if (!isDefault && b.ahead > 0) acts.append(button(r ? "Review again" : "Review", r ? "quiet small" : "pri small", () => openBranch(name, b.name, !!r)));
-      if (!isDefault && !b.worktree) acts.append(...worktreeActs(name, t, data, b));
-      const title = h("span", "t", h("code", "", b.name), ...marks);
-      const row = h("div", "pj-task pj-br", title, h("span", "m", h("span", "", `${b.subject} · ${ago(b.committed_at)}`)), acts.childNodes.length ? acts : null);
-      row.querySelector<HTMLElement>(".m span")!.title = b.subject;
-      row.addEventListener("contextmenu", e => {
-        const items: MenuItem[] = [];
-        if (diff) items.push({ label: "View diff", on: diff });
-        if (r) items.push({ label: "Open review", on: () => openBranch(name, b.name) });
-        if (!isDefault && b.ahead > 0) items.push({ label: r ? "Review again" : "Review", on: () => openBranch(name, b.name, !!r) });
-
-        if (!isDefault && !b.worktree) {
-          const here = worktreeMachines(machines(), data.machine_id).find(m => m.id === data.machine_id) || { id: data.machine_id, name: data.machine_name };
-          items.push({ label: `Worktree on ${here.name}`, on: () => addWorktree(name, b.name, here) });
-        }
-
-        items.push({ label: "Copy name", on: () => void writeClipboard(b.name) });
-        openMenu(e, b.name, items);
-      });
-      return row;
-    });
-    out.push(h("div", "", secHead("Branches", data.machine_name ? h("small", "", `read on ${data.machine_name}`) : null,
-      freshNote(freshness(kept.at(name), reading.has(name), Date.now())), button("Refresh", "quiet small", () => load(name))),
-      rows.length ? h("div", "cc-panel", ...rows) : emptyPanel(h("span", "", "No branches"))));
-    return out;
-  }
-
   // ---------- Review ----------
-
-  function reviewPanel(name: string) {
-    const t = of(name);
-    const out: HTMLElement[] = [];
-
-    if (!statusView || statusView.project !== name) {
-      if (statusView) removeWindowPart("review-status");
-      const host = h("div"); host.style.display = "contents";
-      statusView = { project: name, host };
-    }
-    const currentStatus = statusView;
-    const r = t.review;
-    const now = r && t.now?.id === r.id ? t.now : null;
-    const stale = r ? staleText(r, now) : "";
-    const status = createElement(ReviewStatus, {
-      starting: t.starting, review: r, error: t.error, note: t.note, stale,
-      branches: () => openTile("branches"), again: () => { if (r) void openBranch(name, r.branch, true); },
-    });
-    if (t.starting || !r) { showWindowParts([{ part: "review-status", host: currentStatus.host, identity: name, content: status }]); watch(null); return [currentStatus.host]; }
-
-    checkHead(name, r);
-    if (!controls || controls.project !== name) {
-      if (controls) removeWindowParts(["review-heading", "review-actions"]);
-      const head = h("div"), actions = h("div");
-      head.style.display = actions.style.display = "contents";
-      controls = { project: name, head, actions };
-    }
-    const currentControls = controls;
-    const heading = createElement(ReviewHeading, {
-      review: r, now, ago, diff: deps.diff?.(name, r.branch) ?? null, openPr: (url: string) => void openUrl(url), again: () => void openBranch(name, r.branch, true),
-    });
-    out.push(currentControls.head);
-    out.push(currentStatus.host);
-
-    if (!findingsView || findingsView.project !== name) {
-      if (findingsView) removeWindowPart("review-findings");
-      const host = h("div", "pj-cols");
-      findingsView = { project: name, host };
-    }
-    const current = findingsView;
-    const findings = createElement(ReviewFindings, { review: r, busy: t.busy, dismiss: (finding: FindingView) => void dismiss(name, r, finding) });
-    out.push(current.host);
-
-    const actions = createElement(ReviewActions, {
-      review: r, now, busy: t.busy, fix: () => void fix(name, r), post: () => void post(name, r), merge: () => void merge(name, r),
-    });
-    showWindowParts([
-      { part: "review-status", host: currentStatus.host, identity: name, content: status },
-      { part: "review-heading", host: currentControls.head, identity: name, content: heading },
-      { part: "review-findings", host: current.host, identity: name, content: findings },
-      { part: "review-actions", host: currentControls.actions, identity: name, content: actions },
-    ]);
-    out.push(currentControls.actions);
-    watch(name);
-    return out;
-  }
 
   function reviewDetail(name: string, error: string | null) {
     if (!detailView || detailView.project !== name) {
-      const error = h("div"), before = h("div"), after = h("div");
-      error.style.display = before.style.display = after.style.display = "contents";
-      detailView = { project: name, host: h("div", "pj-det"), error, before, after };
+      if (detailView) removeWindowPart("review-detail");
+      detailView = { project: name, host: h("div", "pj-det") };
     }
-    const { host, error: errorSlot, before, after } = detailView;
-    const top = host.scrollTop;
-    const nodes = reviewPanel(name);
-    const stable = findingsView?.host;
-    const at = stable ? nodes.indexOf(stable) : -1;
-    patchChildren(errorSlot, error ? [errorNote(`Could not refresh the project: ${error}`)] : []);
-    patchChildren(before, at < 0 ? nodes : nodes.slice(0, at));
-    patchChildren(after, at < 0 ? [] : nodes.slice(at + 1));
-    if (at < 0) {
-      if (host.childNodes.length !== 2 || host.children[0] !== errorSlot || host.children[1] !== before) host.replaceChildren(errorSlot, before);
-    } else if (host.childNodes.length !== 4 || host.children[0] !== errorSlot || host.children[1] !== before || host.children[2] !== stable || host.children[3] !== after) {
-      host.replaceChildren(errorSlot, before, stable!, after);
+    const t = of(name), r = t.review;
+    const now = r && t.now?.id === r.id ? t.now : null;
+    const status = createElement(ReviewStatus, {
+      key: "status",
+      starting: t.starting, review: r, error: t.error, note: t.note, stale: r ? staleText(r, now) : "",
+      branches: () => openTile("branches"), again: () => { if (r) void openBranch(name, r.branch, true); },
+    });
+    let heading: ReactNode = null, findings: ReactNode = null, actions: ReactNode = null;
+    if (t.starting || !r) watch(null);
+    else {
+      checkHead(name, r);
+      heading = createElement(ReviewHeading, { key: "heading", review: r, now, ago, diff: deps.diff?.(name, r.branch) ?? null, openPr: (url: string) => void openUrl(url), again: () => void openBranch(name, r.branch, true) });
+      findings = createElement("div", { key: "findings", className: "pj-cols" }, createElement(ReviewFindings, { review: r, busy: t.busy, dismiss: (finding: FindingView) => void dismiss(name, r, finding) }));
+      actions = createElement(ReviewActions, { key: "actions", review: r, now, busy: t.busy, fix: () => void fix(name, r), post: () => void post(name, r), merge: () => void merge(name, r) });
+      watch(name);
     }
-    if (host.scrollTop !== top) host.scrollTop = top;
-    return host;
+    showWindowParts([{ part: "review-detail", host: detailView.host, identity: name, content: createElement(Fragment, null,
+      error && createElement("div", { className: "cc-note" }, createElement("span", { className: "ddot bad" }), createElement("span", { className: "cc-err" }, `Could not refresh the project: ${error}`)), heading, status, findings, actions) }]);
+    return detailView.host;
   }
 
   return {
@@ -683,9 +526,7 @@ export function makeReviews(deps: ReviewDeps) {
     branches: (name: string) => of(name).branches,
     reviews: (name: string) => of(name).reviews,
     openBranch,
-    branchesPanel,
-    reviewPanel,
     reviewDetail,
-    stop: () => { watch(null); removeWindowParts(["review-status", "review-heading", "review-findings", "review-actions"]); findingsView = null; statusView = null; controls = null; detailView = null; },
+    stop: () => { watch(null); removeWindowPart("review-detail"); detailView = null; },
   };
 }
