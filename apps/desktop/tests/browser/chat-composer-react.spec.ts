@@ -108,3 +108,18 @@ test("running chat retains its React-owned body across bar navigation", async ({
   await expect(page.locator("#body")).toContainText("Running request");
   expect(await page.locator("#body").evaluate(el => el === Reflect.get(window, "runningChatBody"))).toBe(true);
 });
+
+test("bar sizing observes turn boxes inside React hosts", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.addInitScript(() => {
+    const Native = window.ResizeObserver, observed = new WeakSet<Element>();
+    Reflect.set(window, "observedChatBoxes", observed);
+    window.ResizeObserver = class extends Native { override observe(target: Element, options?: ResizeObserverOptions) { observed.add(target); super.observe(target, options); } };
+  });
+  await page.goto("https://app.test/index.html");
+  await page.evaluate(() => { const invoke = window.__TAURI__.core.invoke; window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => command === "send_prompt" ? new Promise<T>(() => {}) : invoke<T>(command, args); });
+  await page.locator("#ask").fill("Observe this turn");
+  await page.locator("#ask").press("Enter");
+  await expect(page.locator("#body .turn")).toBeVisible();
+  await expect.poll(() => page.locator("#body .turn").evaluate(el => Reflect.get(window, "observedChatBoxes").has(el))).toBe(true);
+});

@@ -6,7 +6,7 @@ import { flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
 import { conversation } from "./conversation.ts";
 import { ChatShell } from "./chat-shell.tsx";
-import { createChatBody, discardChatApproval, discardChatNotice, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatNotice, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
+import { createChatBody, createChatTurn, discardChatApproval, discardChatNotice, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatNotice, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
 import { drawAgentButton } from "../agents/agents.ts";
 import { askFiles, attach, attached, attachError, drawAttached, unattach } from "./attach.ts";
 import type { AskFile } from "./attach.ts";
@@ -267,9 +267,11 @@ export function newTurn(question: string, images?: PicRef[], files?: AskFile[]) 
   return turn;
 }
 /// A turn for `question`, not yet in any chat.
-export function makeTurn(question: string, images?: PicRef[], files?: AskFile[]) {
+export function makeTurn(question: string, images?: PicRef[], files?: AskFile[], prepared: Turn | null = null) {
   const owner = body();
-  const turn = h<Turn>(`<div class="turn dcoderlog">${question ? owner ? '<div class="dcoderen user"></div>' : userRowHtml(linkified(question)) : ""}${owner && images?.length ? '<div class="dpics"></div>' : picRow(images)}</div>`);
+  const contents = `${question ? owner ? '<div class="dcoderen user"></div>' : userRowHtml(linkified(question)) : ""}${owner && images?.length ? '<div class="dpics"></div>' : picRow(images)}`;
+  const turn = owner ? prepared ?? createChatTurn(owner) : h<Turn>(`<div class="turn dcoderlog">${contents}</div>`);
+  if (owner) turn.innerHTML = contents;
   turnState(turn).question = question;
   const prompt = turn.querySelector<HTMLElement>(".dcoderen.user");
   if (owner && prompt) renderChatPrompt(owner, turn, prompt, linkified(question));
@@ -447,7 +449,7 @@ export function approvalCard(id: string | null, turn: Turn, { query_id, app, act
   turn.append(card);
   const e = entry(id);
   e.approval = { queryId: query_id, turn, card, grant };
-  e.body ??= turn.parentElement;
+  e.body ??= owningChatBody(turn);
   if (id === S.session) refreshHints();
 }
 

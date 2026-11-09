@@ -20,10 +20,11 @@ type Source = WebSource & { site: string };
 interface ReplyActions { copy: boolean; rerun: boolean; agent: string | null }
 interface ApprovalView { app: string; action: string; fields: ApprovalField[]; grant: boolean; answer: (decision: Decision) => void }
 type StatusNotice = { kind: "label"; message: string } | { kind: "error"; message: string } | { kind: "stopped"; message: string; retry: boolean };
-interface Owner { host: HTMLElement | null; body: ChatBody | null; setBody(element: HTMLDivElement | null): void; charts: Map<ChartCard, { key: number; chart: Chart }>; notices: Map<HTMLElement, { key: number; value: StatusNotice }>; products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
+interface Owner { frames: Map<HTMLElement, { key: number; setTurn(element: HTMLDivElement | null): void }>; host: HTMLElement | null; body: ChatBody | null; setBody(element: HTMLDivElement | null): void; charts: Map<ChartCard, { key: number; chart: Chart }>; notices: Map<HTMLElement, { key: number; value: StatusNotice }>; products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
 // A retained chat body owns all its portals, including detached turns while
 // history is merged. Transfer moved hosts before discarding the fresh turn.
 const owners = new WeakMap<ChatBody, Owner>();
+const turnHosts = new WeakMap<Turn, { host: HTMLElement; owner: Owner }>();
 const chartTurns = new WeakMap<Turn, { owner: Owner; boxes: ChartCard[] }>();
 const noticeTurns = new WeakMap<Turn, { owner: Owner; boxes: HTMLElement[] }>();
 const productTurns = new WeakMap<Turn, { owner: Owner; boxes: HTMLElement[] }>();
@@ -135,6 +136,7 @@ const Work = memo(function Work({ value }: { value: WorkView }) {
 function draw(owner: Owner) {
   flushSync(() => owner.root.render(createElement(Fragment, null,
     owner.host ? createElement("div", { key: "body", className: "dbody", id: "body", ref: owner.setBody }) : null,
+    ...[...owner.frames].map(([host, row]) => createPortal(createElement("div", { className: "turn dcoderlog", ref: row.setTurn }), host, row.key)),
     ...[...owner.charts].map(([host, row]) => createPortal(createElement(ChartView, { card: host, initial: row.chart }), host, row.key)),
     ...[...owner.notices].map(([host, row]) => createPortal(createElement(Notice, { value: row.value }), host, row.key)),
     ...[...owner.products].map(([host, row]) => createPortal(createElement(Html, { html: row.html }), host, row.key)),
@@ -152,7 +154,7 @@ function draw(owner: Owner) {
 }
 function makeOwner(host: HTMLElement | null): Owner {
   const container = host ?? document.createElement("div");
-  const owner: Owner = { host, body: null, setBody: element => { owner.body = element; }, charts: new Map(), notices: new Map(), products: new Map(), replyPictures: new Map(), sentFiles: new Map(), pictures: new Map(), files: new Map(), root: createRoot(container), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 };
+  const owner: Owner = { frames: new Map(), host, body: null, setBody: element => { owner.body = element; }, charts: new Map(), notices: new Map(), products: new Map(), replyPictures: new Map(), sentFiles: new Map(), pictures: new Map(), files: new Map(), root: createRoot(container), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 };
   return owner;
 }
 function ownerOf(body: ChatBody) {
@@ -173,6 +175,34 @@ export function chatBodyHost(body: ChatBody): HTMLElement {
   return owners.get(body)?.host ?? body;
 }
 
+// History creates frames in one render; their content portals can then update
+// independently while the conversation moves the display-contents hosts.
+export function createChatTurns(body: ChatBody, count: number): Turn[] {
+  if (!count) return [];
+  const owner = ownerOf(body);
+  const frames = Array.from({ length: count }, () => {
+    const host = document.createElement("div");
+    host.style.display = "contents";
+    const frame: { host: HTMLElement; turn: Turn | null } = { host, turn: null };
+    owner.frames.set(host, { key: ++owner.next, setTurn: element => { frame.turn = element; } });
+    return frame;
+  });
+  draw(owner);
+  return frames.map(frame => {
+    if (!frame.turn) throw new Error("Chat turn did not mount");
+    turnHosts.set(frame.turn, { host: frame.host, owner });
+    return frame.turn;
+  });
+}
+export function createChatTurn(body: ChatBody): Turn {
+  const turn = createChatTurns(body, 1)[0];
+  if (!turn) throw new Error("Chat turn did not mount");
+  return turn;
+}
+
+export function chatTurnHost(turn: Turn): HTMLElement {
+  return turnHosts.get(turn)?.host ?? turn;
+}
 export function renderChatChart(body: ChatBody, turn: Turn, box: ChartCard, chart: Chart) {
   const owner = ownerOf(body), entry = chartTurns.get(turn);
   if (entry) entry.boxes.push(box); else chartTurns.set(turn, { owner, boxes: [box] });
@@ -419,6 +449,9 @@ export function transferChatReply(from: Turn, to: Turn) {
   replyTurns.delete(from); replyTurns.set(to, entry);
 }
 export function discardChatWork(turn: Turn) {
+  const frame = turnHosts.get(turn);
+  turnHosts.delete(turn);
+  if (frame) frame.owner.frames.delete(frame.host);
   const charts = chartTurns.get(turn), notices = noticeTurns.get(turn), products = productTurns.get(turn), replyPictures = replyPictureTurns.get(turn), sentFiles = sentFileTurns.get(turn), pictures = pictureTurns.get(turn), files = fileTurns.get(turn), sources = sourceTurns.get(turn), actions = actionTurns.get(turn), approval = approvalTurns.get(turn), suggestion = suggestionTurns.get(turn), prompt = promptTurns.get(turn), work = turns.get(turn), reply = replyTurns.get(turn);
   chartTurns.delete(turn); noticeTurns.delete(turn); productTurns.delete(turn); replyPictureTurns.delete(turn); sentFileTurns.delete(turn); pictureTurns.delete(turn); fileTurns.delete(turn); sourceTurns.delete(turn); actionTurns.delete(turn); approvalTurns.delete(turn); suggestionTurns.delete(turn); promptTurns.delete(turn); turns.delete(turn); replyTurns.delete(turn);
   if (charts) for (const box of charts.boxes) charts.owner.charts.delete(box);
@@ -447,6 +480,6 @@ export function discardChatWork(turn: Turn) {
     if (waiting) { document.removeEventListener("selectionchange", waiting.resume); replyPending.delete(reply.box); }
     reply.owner.replies.delete(reply.box);
   }
-  const owners = new Set([charts?.owner, notices?.owner, products?.owner, replyPictures?.owner, sentFiles?.owner, pictures?.owner, files?.owner, sources?.owner, actions?.owner, approval?.owner, suggestion?.owner, prompt?.owner, work?.owner, reply?.owner]);
+  const owners = new Set([frame?.owner, charts?.owner, notices?.owner, products?.owner, replyPictures?.owner, sentFiles?.owner, pictures?.owner, files?.owner, sources?.owner, actions?.owner, approval?.owner, suggestion?.owner, prompt?.owner, work?.owner, reply?.owner]);
   for (const owner of owners) if (owner) draw(owner);
 }
