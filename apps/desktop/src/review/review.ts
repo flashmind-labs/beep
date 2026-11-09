@@ -1,8 +1,12 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { ReviewFindings } from "./review-findings.tsx";
+import { patchChildren } from "../ui/patch.ts";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // review/: a project's branches and reviews. Entry:
 // makeReviews here.
 // A project's branches and the review of one before a merge.
-import { harnessEl } from "../ui/harnessicon.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import { agentLabel } from "../project/projects-state.ts";
 import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
@@ -10,7 +14,7 @@ import { worktreeMachines, worktreeName } from "./branchwork.ts";
 import type { Place } from "./branchwork.ts";
 import type { TileData, TileRow } from "../project/board.ts";
 import { plural, reason } from "../ui/format.ts";
-import { emptyPanel, errorNote, freshNote, note, stateChip, svgEl, secHead, writeClipboard } from "../ui/parts.ts";
+import { emptyPanel, errorNote, freshNote, note, secHead, writeClipboard } from "../ui/parts.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { PageCache, REFRESH_MS, freshness, type SectionStore } from "../ui/pagecache.ts";
 
@@ -276,8 +280,6 @@ export function branchTile(
   return { count: work ? `${work} with work` : data.branches.length ? String(data.branches.length) : "", rows, empty: "No branches" };
 }
 
-const TICK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
-
 /// What the window hands `makeReviews`. `machines()` gives Home's machines,
 /// for where a worktree goes.
 export interface ReviewDeps {
@@ -325,6 +327,8 @@ export function makeReviews(deps: ReviewDeps) {
   const all = new Map<string, ProjectReviews>();
   let unfollow: (() => void) | undefined;
   let polling: string | null = null;
+  let findingsView: { project: string; host: HTMLElement; root: Root } | null = null;
+  let detailView: { project: string; host: HTMLElement; error: HTMLElement; before: HTMLElement; after: HTMLElement } | null = null;
 
   /// A project's branches and reviews, from the cache until they are read.
   const of = (name: string) => {
@@ -602,26 +606,6 @@ export function makeReviews(deps: ReviewDeps) {
     return box;
   }
 
-  function findingRow(name: string, r: ReviewView, f: FindingView) {
-    const dropped = f.verdict === "dropped";
-    const ver = dropped ? h("span", "")
-      : f.verdict === "waiting" ? h("span", "rv-ver wait", h("span", "dspin"), "verifying")
-      : f.verdict === "verified" ? h("span", "rv-ver", svgEl(TICK), "Verified")
-      : h("span", "rv-ver wait", "Not verified");
-    const text = h("span", "t", h("b", "", f.title), dropped ? null : h("code", "", f.line ? `${f.file}:${f.line}` : f.file),
-      h("span", "", dropped ? `Not real: ${f.dropped_why || "the verifier found no problem"}` : f.why));
-    const right = h("span", "rv-side", ver);
-
-    if (!dropped && !isRunning(r)) {
-      const b = button(f.dismissed ? "Bring back" : "Dismiss", "quiet small", () => dismiss(name, r, f));
-      b.disabled = of(name).busy === `f${f.id}`;
-      right.append(b);
-    }
-
-    return h("div", `rv-find${dropped || f.dismissed ? " gone" : ""}`,
-      h("span", `chip ${dropped ? "" : f.severity}`, dropped ? "dropped" : f.dismissed ? "dismissed" : f.severity), text, right);
-  }
-
   function reviewPanel(name: string) {
     const t = of(name);
     const out: HTMLElement[] = [];
@@ -680,30 +664,14 @@ export function makeReviews(deps: ReviewDeps) {
     if (pr?.checks === "failing") blocked.push(h("b", "", "CI failing"), h("span", "", `Checks fail on PR #${pr.number}. The review still ran.`));
     if (blocked.length) out.push(h("div", "cc-note rv-cfl", h("span", "ddot bad"), h("span", "rv-cfl-t", ...blocked)));
 
-    const findings = r.findings || [];
-    let body;
-
-    if (findings.length) {
-      body = h("div", "cc-panel", ...findings.map(f => findingRow(name, r, f)));
-      if (running) body.append(h("div", "cc-empty rv-more", "More findings show as the reviewers finish."));
-    } else if (running) {
-      body = emptyPanel(h("span", "dspin"), h("span", "", "Findings show as the reviewers finish."));
-    } else {
-      body = emptyPanel(h("b", "", "No findings"), h("span", "rv-sum", readySummary(r)));
+    if (!findingsView || findingsView.project !== name) {
+      findingsView?.root.unmount();
+      const host = h("div", "pj-cols");
+      findingsView = { project: name, host, root: createRoot(host) };
     }
-
-    if (!running && findings.length && !openFindings(r).length) body.append(h("div", "rv-sum-row", readySummary(r)));
-    const findSec = h("div", "", secHead("Findings", h("small", "", findingsSub(r))), body);
-    const shards = h("div", "",
-      secHead("Shards"),
-      h("div", "cc-panel", ...r.shards.map(s => {
-        const c = shardChip(s);
-        const chipEl = stateChip(c.cls, c.text, c.spin);
-        chipEl.title = s.note || c.text;
-        return h("div", "rv-shard", harnessEl(s.agent),
-          h("span", "t", h("b", "", s.area), h("span", "", shardLine(s, r.machine_name))), chipEl);
-      })));
-    out.push(h("div", "pj-cols", findSec, shards));
+    const current = findingsView;
+    flushSync(() => current.root.render(createElement(ReviewFindings, { review: r, busy: t.busy, dismiss: (finding: FindingView) => void dismiss(name, r, finding) })));
+    out.push(current.host);
 
     const open = openFindings(r).length;
     const why = mergeBlock(r, now);
@@ -721,6 +689,29 @@ export function makeReviews(deps: ReviewDeps) {
     return out;
   }
 
+  function reviewDetail(name: string, error: string | null) {
+    if (!detailView || detailView.project !== name) {
+      const error = h("div"), before = h("div"), after = h("div");
+      error.style.display = before.style.display = after.style.display = "contents";
+      detailView = { project: name, host: h("div", "pj-det"), error, before, after };
+    }
+    const { host, error: errorSlot, before, after } = detailView;
+    const top = host.scrollTop;
+    const nodes = reviewPanel(name);
+    const stable = findingsView?.host;
+    const at = stable ? nodes.indexOf(stable) : -1;
+    patchChildren(errorSlot, error ? [errorNote(`Could not refresh the project: ${error}`)] : []);
+    patchChildren(before, at < 0 ? nodes : nodes.slice(0, at));
+    patchChildren(after, at < 0 ? [] : nodes.slice(at + 1));
+    if (at < 0) {
+      if (host.childNodes.length !== 2 || host.children[0] !== errorSlot || host.children[1] !== before) host.replaceChildren(errorSlot, before);
+    } else if (host.childNodes.length !== 4 || host.children[0] !== errorSlot || host.children[1] !== before || host.children[2] !== stable || host.children[3] !== after) {
+      host.replaceChildren(errorSlot, before, stable!, after);
+    }
+    if (host.scrollTop !== top) host.scrollTop = top;
+    return host;
+  }
+
   return {
     load,
     ensure,
@@ -729,6 +720,7 @@ export function makeReviews(deps: ReviewDeps) {
     openBranch,
     branchesPanel,
     reviewPanel,
-    stop: () => watch(null),
+    reviewDetail,
+    stop: () => { watch(null); findingsView?.root.unmount(); findingsView = null; detailView = null; },
   };
 }

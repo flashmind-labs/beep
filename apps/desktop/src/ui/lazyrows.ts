@@ -55,7 +55,7 @@ function unwatch(end: Element) {
 /// Rows `0..total` of list `key` as nodes: the first screenful, then a spacer
 /// that draws more when it nears the viewport. `make(from, to)` builds those
 /// rows. `need` is a row that must be drawn now, such as the selected one.
-export function lazyRows(key: string, token: string, total: number, make: (from: number, to: number) => Node[], need = 0, chunk = CHUNK): Node[] {
+export function lazyRows(key: string, token: string, total: number, make: (from: number, to: number) => Node[], need = 0, chunk = CHUNK, measure: (row: Element) => Element = row => row): Node[] {
   if (typeof IntersectionObserver === "undefined") return make(0, total);
   let list = lists.get(key);
   if (!list || list.token !== token) lists.set(key, list = { token, count: chunk, height: 0 });
@@ -72,7 +72,7 @@ export function lazyRows(key: string, token: string, total: number, make: (from:
     if (!end.isConnected || lists.get(key) !== drawn) return;
     if (!drawn.height && first) {
       // Zero while the page is hidden; measured again on the next step.
-      drawn.height = Math.max(0, (end.getBoundingClientRect().top - first.getBoundingClientRect().top) / drawn.count);
+      drawn.height = Math.max(0, (end.getBoundingClientRect().top - measure(first).getBoundingClientRect().top) / drawn.count);
       end.style.height = `${(total - drawn.count) * drawn.height}px`;
     }
     if (!near) return;

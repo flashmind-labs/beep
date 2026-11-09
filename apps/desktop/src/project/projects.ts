@@ -1,35 +1,37 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { OverviewGroupView } from "./overview-view.tsx";
 import { MV } from "../agents/move-store.ts";
 // The Projects page's overview: the list, groups and cards of every
 // project, and a picked project's detail sections.
 import { sessionVisible } from "../agents/closing.ts";
-import { ago, plural, since } from "../ui/format.ts";
-import { dbtn as button, emptyPanel, errorNote, freshNote, svgEl as icon } from "../ui/parts.ts";
+import { ago, plural } from "../ui/format.ts";
+import { dbtn as button, emptyPanel, errorNote, freshNote } from "../ui/parts.ts";
 import { CI_TITLES, ciState, filterByName, listGroups, machineChips, projectBranch, splitName } from "./projectlist-state.ts";
 import type { GitRow } from "./gitsync-state.ts";
 import type { RunsRow } from "./runs.ts";
 import type { MachineDetail, SyncDetail } from "./filesync.ts";
 import { pageAgent } from "./agent.ts";
 import { invoke } from "../ui/tauri.ts";
-import { awaitsView, projectRunning, whereRows, whereCount, overviewGroups, barSegments, countsLine, latestLine, syncedBy, workersLabel, type OverviewCard, type OverviewCardRow, type OverviewGroup, type Project, type ProjectGroup, plainPath, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
+import { awaitsView, projectRunning, whereRows, whereCount, overviewGroups, syncedBy, type OverviewCard, type Project, plainPath, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { makeCustomAgents } from "./customagents.ts";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
 import { pages, state, warm, pageFresh } from "../center/state.ts";
-import { projectDot, section, plusLabel } from "../ui/pieces.ts";
+import { section, plusLabel } from "../ui/pieces.ts";
 import { machineMenuWith } from "../machines/table.ts";
 import { removeButton, removeMenuItems } from "./removemachine.ts";
 import { changeFolder, changeFolderItems } from "./changefolder.ts";
 import { runningRow } from "../center/home.ts";
 import { single } from "../center/openitems.ts";
-import { setProjectOnTop, newWindowOn, openProjects, addProject } from "../center/sidebar.ts";
-import { groupMenu, editGroup, startRename, renameGroup, removeGroup } from "./groups.ts";
-import { splitOn, projectSplit, panelSlot } from "./split.ts";
+import { newWindowOn, openProjects, addProject } from "../center/sidebar.ts";
+import { splitOn, projectSplit, panelSlot, projectPanel } from "./split.ts";
 import { redrawProjects, redrawProjectsPage, pc, terms, fsync } from "./sections.ts";
 import { drawProjectComp, fillBar } from "./composer.ts";
 import { whereRow, gitCells, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsSection } from "./loads.ts";
 import { terminalLine } from "../terminals/view.ts";
 import { go } from "../center/views.ts";
-import { IC } from "../ui/icons.ts";
 import { lazyRows } from "../ui/lazyrows.ts";
 import { byRecent, type RunningAgent } from "../agents/running-state.ts";
 
@@ -91,105 +93,34 @@ function projectListRow(p: Project, online: ReadonlyMap<string, boolean>) {
 
 /// Every project as a card, grouped by org: its tasks per state, its
 /// workers, what changed last and where it lives.
+const overviewRoots = new Map<string, { host: HTMLElement; root: Root }>();
+
+export function disposeOverview() {
+  for (const entry of overviewRoots.values()) entry.root.unmount();
+  overviewRoots.clear();
+}
+
 export function overviewSection(rows: Project[]) {
   const groups = overviewGroups(rows, state.overview, state.top, state.groups);
-  // One org at a time; the rest draw as the page scrolls toward them.
-  const out = lazyRows("projects-overview", "", groups.length, (from, to) => groups.slice(from, to).map(g => g.group ? groupSection(g.group, g)
-    : h("section", "pj-org",
-      h("h3", "", g.org ? `${g.org}/` : "Other folders", h("small", "", plural(g.cards.length, "repo", "repos"))),
-      h("div", "pj-grid", ...g.cards.map(projectCard)))), 0, 1);
-  const add = h("div", "cc-panel cc-row pj-add",
-    h("span", "t", h("b", "", "Add a project"), h("span", "", "A folder or a repository to clone.")),
-    button("Add", "", addProject));
-  return [...out, add];
-}
-
-/// A group's section of the overview: its name (or the field renaming it),
-/// how many repos, its folders and its buttons, then its cards.
-function groupSection(g: ProjectGroup, section: OverviewGroup<Project, OverviewCard>) {
-  const n = section.cards.length;
-  const head = h("h3", "gp", icon(IC.folder));
-  const editing = state.renaming?.id === g.id ? state.renaming : null;
-
-  if (editing) {
-    // What is typed lives in `state.renaming`, so a refresh that draws the
-    // page again keeps it.
-    const input = h("input");
-    input.value = editing.draft;
-    input.setAttribute("aria-label", "Group name");
-    input.addEventListener("input", () => { editing.draft = input.value; });
-    const finish = (save: boolean) => {
-      if (state.renaming !== editing) return;
-
-      if (save) renameGroup(g, input.value);
-      else { state.renaming = null; redrawProjects(); }
-    };
-    input.addEventListener("keydown", e => {
-      if (e.key === "Enter") { e.preventDefault(); finish(true); }
-      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(false); }
-    });
-    head.append(input, h("span", "gp-acts", button("Save", "pri", () => finish(true)), button("Cancel", "quiet", () => finish(false))));
-    // Focused once it is on the page.
-    requestAnimationFrame(() => {
-      if (!input.isConnected || document.activeElement === input) return;
-      input.focus();
-      input.setSelectionRange(input.value.length, input.value.length);
-    });
-  } else {
-    const paths = h("span", "gp-paths", g.paths.map(p => (p.startsWith("/") ? p : `~/${p}`)).join(", "));
-    paths.title = "Matched on every machine";
-    head.append(g.name, h("small", "", plural(n, "repo", "repos")), paths,
-      h("span", "gp-acts",
-        button("Rename", "quiet", () => startRename(g)),
-        button("Folders…", "quiet", () => editGroup(g)),
-        button("Remove", "quiet warn", () => removeGroup(g))));
-    head.addEventListener("contextmenu", e => groupMenu(e, g));
-  }
-
-  const body = n ? h("div", "pj-grid", ...section.cards.map(projectCard)) : h("span", "gp-none", "No projects in these folders yet.");
-  return h("section", "pj-org", head, body);
-}
-
-function projectCard(c: OverviewCardRow<Project, OverviewCard>) {
-  const pin = h("button", `pa${c.pinned ? " on" : ""}`, icon(IC.pin));
-  pin.type = "button";
-  pin.setAttribute("aria-label", c.pinned ? "Unpin" : "Pin to top");
-  pin.addEventListener("click", e => { e.stopPropagation(); setProjectOnTop(c.name, !c.pinned); });
-  const repo = h("b", "", c.repo);
-  repo.title = c.name;
-  const card = h("div", "pj-card", h("div", "h", projectDot(c.i), repo, pin, h("small", "", c.sum ? workersLabel(c.sum.workers) : (c.agents ? plural(c.agents, "agent", "agents") : "idle"))));
-  card.tabIndex = 0;
-  card.setAttribute("role", "button");
-  card.title = c.name;
-
-  if (c.sum) {
-    const bar = h("div", "pj-bar");
-
-    for (const s of barSegments(c.sum.tasks)) {
-      const seg = h("i", s.state);
-      seg.style.width = `${s.share}%`;
-      seg.title = `${s.n} ${s.state}`;
-      bar.append(seg);
+  const key = (g: typeof groups[number]) => g.group ? `group:${g.group.id}` : `org:${g.org ?? ""}`;
+  const valid = new Set(groups.map(key));
+  for (const [id, entry] of overviewRoots) if (!valid.has(id)) { entry.root.unmount(); overviewRoots.delete(id); }
+  let drawing = true;
+  const out = lazyRows("projects-overview", "", groups.length, (from, to) => groups.slice(from, to).map(group => {
+    const id = key(group);
+    let entry = overviewRoots.get(id);
+    if (!entry) {
+      const host = h("section", "pj-org");
+      entry = { host, root: createRoot(host) };
+      overviewRoots.set(id, entry);
     }
-
-    const [open, ...rest] = countsLine(c.sum.tasks);
-    card.append(bar, h("span", "line", h("b", "", open), rest.map(x => ` · ${x}`).join("")));
-    const latest = c.sum.latest;
-    card.append(h("span", "line", latestLine(latest), latest ? h("small", "", ` · ${ago(latest.updated_at)}`) : null));
-  } else {
-    card.append(h("span", "line", c.last ? `Last activity ${since(c.last)}` : "No recent activity"));
-  }
-
-  if (c.machines.length) card.append(h("span", "line sync", `on ${c.machines.map(m => m.name).join(", ")}`));
-  // Only a project's page reads what Syncthing keeps, so that is what shows
-  // here: no read per card.
-  const sync = syncedBy(c.name, state.sync, state.where.get(c.name) ?? pages.get<ProjectMachineRow[]>("where", c.name));
-  if (sync) card.append(h("span", "line sync", sync));
-  const open = () => openProjects(c.name);
-  newWindowOn(card, card, c.name);
-  card.addEventListener("click", open);
-  card.addEventListener("keydown", e => { if (e.target === card && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); open(); } });
-  return card;
+    const current = entry;
+    flushSync(() => current.root.render(createElement(OverviewGroupView, { group, sync: (name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name)) })));
+    return drawing ? panelSlot(current.host) : current.host;
+  }), 0, 1, row => projectPanel(row) ?? row);
+  drawing = false;
+  const add = h("div", "cc-panel cc-row pj-add", h("span", "t", h("b", "", "Add a project"), h("span", "", "A folder or a repository to clone.")), button("Add", "", addProject));
+  return [...out, add];
 }
 
 /// Optional task summaries for the cards. Local projects draw before this

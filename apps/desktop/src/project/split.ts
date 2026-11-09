@@ -28,7 +28,7 @@ import { homeBox, runningStatus } from "../center/home.ts";
 import { terminalLine } from "../terminals/view.ts";
 import { go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
-import { agentsSection, customAgentsCount, customAgentsSection, disposeCustomAgents, whereSection } from "./projects.ts";
+import { agentsSection, customAgentsCount, customAgentsSection, disposeCustomAgents, disposeOverview, whereSection } from "./projects.ts";
 import { pa, terms, fsync, revs, gitHistory, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsSection, sessionsList, sessionsDue, loadSessions } from "./loads.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
@@ -89,6 +89,7 @@ export function splitOn(p: Project) {
 export function openTile(key: string | null, draw = true) {
   if (!draw && key === null) {
     disposeCustomAgents();
+    disposeOverview();
     if (shell) { shell.navRoot.unmount(); shell.stripRoot.unmount(); shell.issuesRoot.unmount(); shell.tasksRoot.unmount(); shell = null; }
   }
   pa.tile = key === "sync" || key === "terminals" ? "machines" : key;
@@ -258,6 +259,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const error = state.pview.get(p.name)?.error;
   const history = pa.tile === "branches" ? gitHistory.panels(p.name) : null;
   const showIssues = pa.tile === "issues";
+  const showReview = pa.tile === "review";
   if (showIssues) flushSync(() => currentShell.issuesRoot.render(createElement(ProjectIssues, {
     error: error ?? null, items: issueShown, filter: issueFilter.labels,
     controls: listControls(issueKey, redrawProjects, true),
@@ -266,7 +268,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     pick: (id: string, checked: boolean) => setIssueSelection(issueKey, id, checked, redrawProjects),
     openTile,
   })));
-  const det = history?.detail || (showIssues ? currentShell.issues : h("div", "pj-det", error ? errorNote(`Could not refresh the project: ${error}`) : null, ...picked.detail!()));
+  const det = history?.detail || (showIssues ? currentShell.issues : showReview ? revs.reviewDetail(p.name, error ?? null) : h("div", "pj-det", error ? errorNote(`Could not refresh the project: ${error}`) : null, ...picked.detail!()));
   const waiting = threads?.filter(t => t.needs_reply).length ?? 0;
   const cells = [
     { label: projectBranch(state.gitsync.get(p.name) ?? pages.get<GitRow[]>("gitsync", p.name), state.mac?.id || null) || "", text: "branch", key: "branches" },
@@ -277,7 +279,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     { label: plural(issueItems.length, "issue", "issues"), text: "open", key: "issues" },
   ];
   flushSync(() => currentShell.stripRoot.render(createElement(ProjectStatus, { cells, openTile })));
-  return [panelSlot(currentShell.strip), h("div", `${history ? "pj-split gh-layout" : "pj-split"}${pa.tile ? " picked" : ""}`, panelSlot(history ? history.navigation : currentShell.navigation), history || showIssues ? panelSlot(det) : det)];
+  return [panelSlot(currentShell.strip), h("div", `${history ? "pj-split gh-layout" : "pj-split"}${pa.tile ? " picked" : ""}`, panelSlot(history ? history.navigation : currentShell.navigation), history || showIssues || showReview ? panelSlot(det) : det)];
 }
 
 /// The Sessions row's tab on screen.

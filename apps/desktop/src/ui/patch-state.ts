@@ -5,9 +5,10 @@
 /// request in flight, so it stays until that answers.
 export type Step = "keep" | "replace" | "add";
 
-export function patchSteps(drawn: readonly string[], next: readonly string[], busy: (i: number) => boolean): Step[] {
+export function patchSteps(drawn: readonly string[], next: readonly string[], busy: (i: number) => boolean, replace = (_index: number) => false): Step[] {
   return next.map((sig, i) => {
     if (i >= drawn.length) return "add";
+    if (replace(i)) return "replace";
     if (drawn[i] === sig) return "keep";
     return busy(i) ? "keep" : "replace";
   });

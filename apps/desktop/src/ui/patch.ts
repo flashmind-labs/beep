@@ -30,7 +30,7 @@ function follow(root: Element, path: number[]) {
 /// Makes `container` hold `next`. A child whose markup did not change stays as it is, one with a
 /// request in flight (a disabled button) stays until that answers, and a changed one is replaced
 /// with its focus moved to the same place in the new one.
-export function patchChildren(container: Element, next: Element[]) {
+export function patchChildren(container: Element, next: Element[], replace = (_index: number) => false) {
   const was = drawn.get(container);
   const sigs = next.map(n => n.outerHTML);
   const intact = was && was.nodes.length === container.children.length && was.nodes.every((n, i) => container.children[i] === n);
@@ -43,8 +43,8 @@ export function patchChildren(container: Element, next: Element[]) {
 
   // A button drawn disabled (New terminal on an offline machine) is not a request in flight:
   // only one disabled since, which changed the node's markup, keeps it on screen.
-  const busy = (i: number) => !!was.nodes[i].querySelector("button:disabled") && was.nodes[i].outerHTML !== was.sigs[i];
-  const steps = patchSteps(was.sigs, sigs, busy);
+  const busy = (i: number) => !replace(i) && !!was.nodes[i].querySelector("button:disabled") && was.nodes[i].outerHTML !== was.sigs[i];
+  const steps = patchSteps(was.sigs, sigs, busy, replace);
   const focus = document.activeElement;
   const nodes: Element[] = [];
   steps.forEach((step, i) => {
