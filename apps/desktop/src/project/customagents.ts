@@ -1,16 +1,14 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { CustomAgentsView } from "./customagents-view.tsx";
+import { CustomAgentPrompt, CustomAgentsView } from "./customagents-view.tsx";
 // The Custom agents list of a project page: the named agents the coding agent
 // harnesses define in the project's folder on one machine, and the user's own
 // there.
 import { invoke } from "../ui/tauri.ts";
-import { harnessEl } from "../ui/harnessicon.ts";
-import { dbtn, openSheet } from "../ui/parts.ts";
-import { agentLabel } from "./projects-state.ts";
-import { el, present } from "../ui/dom.ts";
-import { type AgentsPlace, type CustomAgentRow, agentMeta } from "./customagents-state.ts";
+import { openSheet } from "../ui/parts.ts";
+import { el } from "../ui/dom.ts";
+import { type AgentsPlace, type CustomAgentRow } from "./customagents-state.ts";
 import { reason } from "../ui/format.ts";
 
 interface Listed {
@@ -85,7 +83,9 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
 
   /// The agent's prompt, read-only, over the window.
   function openPrompt(a: CustomAgentRow, place: AgentsPlace) {
+    let promptRoot: Root | null = null;
     const { sheet, close } = openSheet(`Custom agent ${a.name}`, "am-sheet ca-sheet", {
+      onClose: () => { promptRoot?.unmount(); promptRoot = null; },
       onKey: e => {
         if (e.key !== "Escape") return;
         e.preventDefault();
@@ -94,21 +94,9 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
         return true;
       },
     });
-    const head = el("b", "", harnessEl(a.harness, "cc-ag ca-ic"), a.name);
-    const sub = [agentLabel(a.harness), ...agentMeta(a), a.path].join(" · ");
-    const prompt = el("pre", "ca-prompt", a.prompt || "No prompt.");
-    sheet.append(...present([
-      el("div", "am-head", head, el("kbd", "", "esc")),
-      el("div", "am-sub", sub),
-      a.description ? el("div", "ca-about", a.description) : null,
-      a.tools.length ? el("div", "am-sub", `Tools: ${a.tools.join(", ")}`) : null,
-      a.error ? el("div", "am-msg bad", a.error) : null,
-      prompt,
-      a.prompt_cut ? el("div", "am-sub", "The prompt goes on; open the file to read the rest.") : null,
-      el("div", "gp-foot", dbtn("Close", "quiet", close), dbtn("Start", "pri", () => { close(); deps.start(a, place); })),
-    ]));
-    prompt.tabIndex = 0;
-    prompt.focus();
+    promptRoot = createRoot(sheet);
+    flushSync(() => promptRoot?.render(createElement(CustomAgentPrompt, { agent: a, close, start: () => { close(); deps.start(a, place); } })));
+
   }
 
   return { count, section, dispose };
