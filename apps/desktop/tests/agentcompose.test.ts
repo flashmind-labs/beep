@@ -336,7 +336,7 @@ test("Stopping leaves pending steers with the node (#378)", async () => {
   AG.queue = [{ ...words("steer me"), how: "steer", state: "sent", after: 0 }];
   assert.equal(interruptAgent(), true);
   assert.deepEqual(AG.stopping, { id: "s1", turns: 0 });
-  assert.doesNotMatch(agentHints(), /interrupt/, "already stopping");
+  assert.doesNotMatch(agentHints().value.items.flat().join(" "), /interrupt/, "already stopping");
   await settle();
   assert.deepEqual(steers(), ["cancel"]);
   assert.deepEqual(AG.queue.map(q => q.how), ["steer"]);
