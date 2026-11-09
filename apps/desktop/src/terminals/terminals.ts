@@ -1,6 +1,4 @@
-import { createElement, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
-import { flushSync } from "react-dom";
-import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
+import { createElement, Fragment, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { TerminalPage, TerminalScreen } from "./page-view.tsx";
 import { NewTerminalFields } from "./new-terminal-view.tsx";
 import { TerminalFooter, TerminalHeader } from "./terminal-controls.tsx";
@@ -11,7 +9,6 @@ import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts
 // from any chat, like tmux sessions: the node owns them, so they keep running
 // with the window closed and can be attached to again.
 import type { invoke as Invoke, Channel as ChannelCtor } from "../ui/tauri.ts";
-import { emptyPanel } from "../ui/parts.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
 import type { TileData } from "../project/board.ts";
@@ -289,7 +286,6 @@ export function makeTerminals(deps: TerminalDeps) {
   const lives = new Map<string, Live>();
   let unfollow: (() => void) | undefined;
   let polling: string | null = null;
-  let machineShell: { root: DocumentView; panel: HTMLElement } | null = null;
   let formVersion = 0;
   /// The project whose terminals view shows.
   let shown: string | null = null;
@@ -728,16 +724,11 @@ export function makeTerminals(deps: TerminalDeps) {
 
     if (t.list === null) {
       watch(null);
-      return [emptyPanel(h("b", "", "The server needs an update before it lists terminals on every machine."))];
+      return createElement("div", { className: "cc-panel cc-empty" }, createElement("b", null, "The server needs an update before it lists terminals on every machine."));
     }
 
     const groups = byMachine(machines, t.list || []);
     const places = machines.filter(m => m.online).map(m => ({ id: m.id, name: m.name, folder: "" }));
-    if (!machineShell) {
-      const panel = h("div", "tl");
-      machineShell = { panel, root: createDocumentView(panel) };
-    }
-    const shell = machineShell;
     const open = t.open && (t.list || []).find(x => x.id === t.open);
     let right: ReactNode;
 
@@ -752,12 +743,10 @@ export function makeTerminals(deps: TerminalDeps) {
       right = createElement("div", { className: "cc-conn" }, createElement("b", null, any ? "Pick a terminal" : t.list ? "No terminals yet" : "Loading…"),
         createElement("button", { type: "button", className: "dbtn pri", onClick: () => newOn(places[0]?.id || null) }, "New terminal"));
     }
-    flushSync(() => shell.root.render(createElement(TerminalPage, { groups, selected: t.open, ago,
-      open: (id: string) => select(ALL, id), create: (id: string) => newOn(id), children: right })));
-    const out: HTMLElement[] = [];
-    if (t.error) out.push(h("div", "cc-err", t.error));
-    out.push(shell.panel);
-    return out;
+    return createElement(Fragment, null,
+      t.error && createElement("div", { className: "cc-err" }, t.error),
+      createElement("div", { className: "tl" }, createElement(TerminalPage, { groups, selected: t.open, ago,
+        open: (id: string) => select(ALL, id), create: (id: string) => newOn(id), children: right })));
   }
 
   return {
@@ -773,6 +762,6 @@ export function makeTerminals(deps: TerminalDeps) {
     show: (id: string) => select(ALL, id),
     /// Closes the open terminal or form on the Terminals page, back to its list.
     unselect: () => { const t = of(ALL); t.open = null; t.form = null; redraw(); },
-    stop: () => { watch(null); dropAll(); machineShell?.root.unmount(); machineShell = null; shown = null; },
+    stop: () => { watch(null); dropAll(); shown = null; },
   };
 }

@@ -12,6 +12,7 @@ import { draw } from "../center/home.ts";
 import { currentLocation, registerView, go, drawTop } from "../center/views.ts";
 import { drawSide } from "../center/sidebar.ts";
 import { refresh } from "../center/refresh.ts";
+import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 
 /// Every terminal on every machine: the Terminals page, and Home's section.
 export const allTerms = makeTerminals({
@@ -53,24 +54,10 @@ export function terminalLine(t: TerminalRow, open: () => void) {
 }
 
 /// The Terminals page into its view, keeping the list's scroll.
-let terminalPage: HTMLElement | null = null;
 function drawTerminals() {
   const el = views.get("terminals")?.el;
   if (!el) return;
-  const nodes = allTerms.machinesPanel(termMachines());
-  if (!terminalPage || terminalPage.parentElement !== el) {
-    terminalPage = h("div", "cc-view tl-view");
-    const old = el.querySelector(":scope > .cc-view");
-    if (old) old.replaceWith(terminalPage); else el.append(terminalPage);
-  }
-  const stable = nodes.find(node => node.classList.contains("tl") && node.parentElement === terminalPage);
-  if (!stable) terminalPage.replaceChildren(...nodes);
-  else {
-    for (const child of [...terminalPage.children]) if (child !== stable) child.remove();
-    const at = nodes.indexOf(stable);
-    for (const node of nodes.slice(0, at)) terminalPage.insertBefore(node, stable);
-    terminalPage.append(...nodes.slice(at + 1));
-  }
+  showWindowParts([{ part: "terminal-page", host: el, content: createElement("div", { className: "cc-view tl-view" }, allTerms.machinesPanel(termMachines())) }]);
 }
 
 registerView("terminals", {
@@ -88,6 +75,6 @@ registerView("terminals", {
   unmount() {
     // Detached, not stopped: they keep running on their machines.
     allTerms.stop();
-    terminalPage = null;
+    removeWindowPart("terminal-page");
   },
 });
