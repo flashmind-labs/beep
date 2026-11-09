@@ -1,6 +1,7 @@
-// Small pieces of the command center window that several views draw the
-// same way. They build on `el` and `button` from dom.ts.
+// Shared command-center controls, dialog lifetimes, focus and clipboard behavior.
 import { button, el, type Kid } from "./dom.ts";
+import { createElement, createRef, type MouseEvent as ReactMouseEvent } from "react";
+import { createDocumentScope } from "./document-root.tsx";
 import type { Freshness } from "./pagecache.ts";
 
 /// Fixed SVG markup as a node, never server text.
@@ -125,22 +126,14 @@ export function copyButton(text: string, label = "Copy", cls = "dbtn") {
   return b;
 }
 
-/// A dialog over the window: the dimmed scrim holding the sheet, not yet
-/// on the page.
-export function sheetShell(label: string, cls: string) {
-  const box = el("div", cls);
-  box.setAttribute("role", "dialog");
-  box.setAttribute("aria-modal", "true");
-  box.setAttribute("aria-label", label);
-  return { root: el("div", "am-scrim", box), sheet: box };
-}
-
 /// Gives focus back to what had it before a sheet opened.
 export function focusBack(was: Element | null) {
   (was as HTMLElement | null)?.focus?.();
 }
 
 type SheetOptions = {
+  /// Mount directly into the caller's host so React owns removal there.
+  host?: HTMLElement;
   /// False while the sheet must stay: a click on the scrim and the default Esc do nothing.
   canClose?: () => boolean;
   /// Sees every key first, ahead of the page; true when it took the key (Esc included).
@@ -160,7 +153,16 @@ export function sheetAbove(element: HTMLElement) {
 /// back to what had it. `close` always closes, so a caller guards its own buttons.
 export function openSheet(label: string, cls: string, options: SheetOptions = {}) {
   const back = document.activeElement;
-  const { root, sheet } = sheetShell(label, cls);
+  const rootRef = createRef<HTMLDivElement>(), sheetRef = createRef<HTMLDivElement>();
+  const owner = createDocumentScope<"sheet">();
+  const allowed = () => !options.canClose || options.canClose();
+  owner.set([{ slot: "sheet", host: options.host ?? document.body, content: createElement("div", {
+    className: "am-scrim", ref: rootRef,
+    onMouseDown: (event: ReactMouseEvent) => { if (event.target === event.currentTarget && allowed()) close(); },
+  }, createElement("div", { className: cls, role: "dialog", "aria-modal": true, "aria-label": label, ref: sheetRef })) }]);
+  const root = rootRef.current, sheet = sheetRef.current;
+  // The scope commits synchronously, so its DOM refs must be available here.
+  if (!root || !sheet) { owner.dispose(); throw new Error("Dialog did not mount"); }
   let open = true;
   const close = () => {
     if (!open) return;
@@ -168,11 +170,10 @@ export function openSheet(label: string, cls: string, options: SheetOptions = {}
     const index = openSheets.indexOf(root);
     if (index !== -1) openSheets.splice(index, 1);
     document.removeEventListener("keydown", keys, true);
-    root.remove();
+    owner.dispose();
     focusBack(back);
     options.onClose?.();
   };
-  const allowed = () => !options.canClose || options.canClose();
   const keys = (e: KeyboardEvent) => {
     if (openSheets.at(-1) !== root) return;
     if (options.onKey?.(e) || e.key !== "Escape") return;
@@ -180,9 +181,7 @@ export function openSheet(label: string, cls: string, options: SheetOptions = {}
     e.stopImmediatePropagation();
     if (allowed()) close();
   };
-  root.addEventListener("mousedown", e => { if (e.target === root && allowed()) close(); });
   document.addEventListener("keydown", keys, true);
-  document.body.append(root);
   openSheets.push(root);
   return { root, sheet, close };
 }

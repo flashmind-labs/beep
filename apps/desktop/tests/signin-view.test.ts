@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
-import { SignInBody } from "../src/machines/signin-view.tsx";
 import type { SignInView } from "../src/machines/signin-state.ts";
 
 test("sign-in updates keep the typed code and focused input until it is sent", async () => {
@@ -12,6 +11,7 @@ test("sign-in updates keep the typed code and focused input until it is sent", a
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   }
+  const { SignInBody } = await import("../src/machines/signin-view.tsx");
   const { render, fireEvent, act, waitFor, cleanup } = await import("@testing-library/react");
   let release: () => void = () => {}, submitted = "";
   const send = (text: string) => { submitted = text; return new Promise<void>(resolve => { release = resolve; }); };
