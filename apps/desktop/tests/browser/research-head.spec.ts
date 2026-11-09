@@ -166,3 +166,16 @@ test("agent threads retain selected entries and scroll as new work arrives", asy
   await expect(pane).toHaveJSProperty("scrollTop", scroll);
   expect(await message.evaluate(el => el === Reflect.get(window, "researchThreadMessage") && window.getSelection()?.toString() === "Finding")).toBe(true);
 });
+
+test("Research updates retain the composer node, draft and selection", async ({ page }) => {
+  const initial = research("Draft example");
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, cached_research: initial, get_research: initial, research_history: [], research_pending: null, list_researches: [] });
+  await page.evaluate(() => window.__navigation.open({ open_research: { session: "first" } }));
+  const input = page.getByRole("textbox", { name: "Message the lead" });
+  await input.fill("A draft message");
+  await input.evaluate(el => { if (el instanceof HTMLTextAreaElement) { el.setSelectionRange(2, 7); Reflect.set(window, "researchDraft", el); } });
+  await page.evaluate(data => window.__navigation.respond("get_research", data), { ...initial, topic: "Updated example" });
+  await page.locator(".rs .dhead:visible").getByRole("button", { name: "Stop" }).evaluate(el => { if (el instanceof HTMLElement) el.click(); });
+  await expect(page.locator(".rs .dhead:visible")).toContainText("Updated example");
+  expect(await input.evaluate(el => el === Reflect.get(window, "researchDraft") && document.activeElement === el && el instanceof HTMLTextAreaElement && el.value === "A draft message" && el.selectionStart === 2 && el.selectionEnd === 7)).toBe(true);
+});
