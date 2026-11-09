@@ -13,7 +13,7 @@ import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive } from "./thoughtlive.ts";
 import { groupThoughts, mergedThought } from "./thoughts-state.ts";
 import { patchable, patchRows, startPatching } from "./logpatch.ts";
-import { fillLog, pinEnd, type Unit } from "./logwindow.ts";
+import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.ts";
 import { answerHtml, collapseActivityHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
 import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentAvatar, agentKind, stateTag } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
@@ -408,7 +408,7 @@ function turnUnits(p: AgentPage): Unit[] {
   liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
   return turns.map(t => ({ key: `t${t.key}`, rows: turnRows(t) }));
 
-  function turnRows(t: Turn): () => string[] {
+  function turnRows(t: Turn): () => TranscriptRow[] {
     // Notes before the first message are not a turn of work.
     if (onlyNotes(p.entries, t, p.earlier)) return () => t.steps.map(row);
     const last = t === lastTurn, running = active && last;
@@ -435,7 +435,7 @@ function turnUnits(p: AgentPage): Unit[] {
     const doing = (thought != null ? thoughtLine(entry(thought).text) : "") || status;
     if (running) thinking = liveAt != null || status === "Thinking";
     return () => {
-      const work = turnSections(p.entries, t, p.earlier).flatMap(section => {
+      const work = turnSections(p.entries, t, p.earlier).flatMap<TranscriptRow>(section => {
         if (!section.progress) return rowsOf(p, section.ats);
         const key = section.ats[0], opened = m.opened.has(key);
         const group: Turn = { key, user: null, steps: section.ats, answer: [] };
@@ -447,14 +447,14 @@ function turnUnits(p: AgentPage): Unit[] {
         if (preview != null) kept.add(preview);
         const folding = section.ats.filter(at => !kept.has(at));
         const stats = progressSummary(p.entries, group, p.earlier);
-        const head = turnHeadHtml({ state: "working", ms: null, stats, key, opened });
+        const head = headingRow({ state: "working", ms: null, stats, key, opened });
         const seen = opened ? [] : folding.flatMap(at => AG.log?.imageLines(entry(at).text).names ?? []);
         const pics = seen.length ? `<div class="dcoderen dfoldpics" data-row="${folding[0]}"><span class="pics">${seen.map(entryPic).join("")}</span></div>` : "";
         const rows = rowsOf(p, opened ? section.ats : section.ats.filter(at => kept.has(at)));
         const collapse = opened ? collapseActivityHtml(key) : "";
         return [head, pics, ...rows, collapse];
       });
-      const head = turnHeadHtml({ state, start, ms, stats: "", key: null, opened: false });
+      const head = headingRow({ state, start, ms, stats: "", key: null, opened: false });
       const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
       const live = running ? liveLineHtml({
         state, thinking: thinking, start,
@@ -463,6 +463,12 @@ function turnUnits(p: AgentPage): Unit[] {
       return [user(), head, ...work, live].filter(Boolean);
     };
   }
+}
+
+function headingRow(value: Parameters<typeof turnHeadHtml>[0]): TranscriptRow {
+  const html = turnHeadHtml(value);
+  if (!html) return "";
+  return { kind: "heading", id: value.key === null ? "turn" : `steps:${value.key}`, html, state: value.state, start: value.start ?? null, ms: value.ms, stats: value.stats, turn: value.key, opened: value.opened };
 }
 
 /// The question's answers; the first that allows and the first that does
@@ -627,7 +633,7 @@ function showLog(b: HTMLElement, html: string, units: Unit[] | null, polled: boo
     if (sel.focusNode) held.push(sel.focusNode);
   }
 
-  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(prepareInlineImages) })) ?? null;
+  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row) })) ?? null;
   return patchRows(main, next.content, prepared, held);
 }
 
