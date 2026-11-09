@@ -5,7 +5,7 @@ import { readView, writeView } from "../agentpane/view-memory.ts";
 // own.
 import {
   type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitCell, type SplitRow, STATUS_LETTER, allFolded, baseTitle, changedLabel, compactFolders, currentFile, contextFile, diffRows, isFolded, leftOutNote,
-  inView, lineKey, lineLabel, matchesFilter, numberWidth, placeComments, reviewText, splitHeight, splitPath, splitRows, stepFile, withLoaded,
+  filesInTreeOrder, inView, lineKey, lineLabel, matchesFilter, numberWidth, placeComments, reviewText, splitHeight, splitPath, splitRows, stepFile, withLoaded,
 } from "./diff-state.ts";
 import { initTreeResize } from "./treewidth.ts";
 import { loadDraft, saveDraft } from "./draftstore.ts";
@@ -914,7 +914,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     try {
       const view = await src.load([], false, st.uncommitted);
       if (seq !== st.seq) return;
-      st.view = view;
+      st.view = { ...view, files: filesInTreeOrder(view.files) };
       if (memory && typeof memory === "object" && "context" in memory && Array.isArray(memory.context)) {
         for (const item of memory.context) {
           if (!Array.isArray(item) || typeof item[0] !== "string" || typeof item[1] !== "number" || typeof item[2] !== "number") continue;
