@@ -1,3 +1,8 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { TerminalMachines } from "./machines-view.tsx";
+import { patchChildren } from "../ui/patch.ts";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // terminals/: terminals kept running on the machines, and the window's
 // Terminals page (view.ts). Entry: makeTerminals here.
@@ -284,6 +289,8 @@ export function makeTerminals(deps: TerminalDeps) {
   const lives = new Map<string, Live>();
   let unfollow: (() => void) | undefined;
   let polling: string | null = null;
+  let machineShell: { list: HTMLElement; root: Root; panel: HTMLElement; right: HTMLElement | null } | null = null;
+  let openShell: { id: string; name: string; link: boolean; panel: HTMLElement; head: HTMLElement; foot: HTMLElement; menu: MenuItem[] } | null = null;
   /// The project whose terminals view shows.
   let shown: string | null = null;
 
@@ -683,7 +690,6 @@ export function makeTerminals(deps: TerminalDeps) {
     const head = h("div", "tm-head",
       h("span", "", h("b", "", open.name), ` ${open.machine_name} · ${open.cwd}`),
       h("span", "tm-st", stateLabel(open)), ...acts);
-    head.addEventListener("contextmenu", e => openMenu(e, open.name, items));
     let body: HTMLElement;
 
     if (live.link === "view_only") {
@@ -706,9 +712,21 @@ export function makeTerminals(deps: TerminalDeps) {
     }
 
     const on = live.link === "attached" && open.state === "running";
-    return h("div", "cc-panel tm-panel", head, body,
-      h("div", "tm-foot", h("span", "", h("span", `ddot${on ? "" : " off"}`), " ", linkLabel(live.link, live.watching, open.machine_name, live.tries)),
-        h("span", "", `started ${ago(open.started_at)}`)));
+    const foot = h("div", "tm-foot", h("span", "", h("span", `ddot${on ? "" : " off"}`), " ", linkLabel(live.link, live.watching, open.machine_name, live.tries)), h("span", "", `started ${ago(open.started_at)}`));
+    const linked = live.link !== "view_only";
+    if (openShell?.id === open.id && openShell.link === linked && linked) {
+      openShell.name = open.name;
+      openShell.menu = items;
+      patchChildren(openShell.head, [...head.children]);
+      patchChildren(openShell.foot, [...foot.children]);
+      return openShell.panel;
+    }
+    const panel = h("div", "cc-panel tm-panel", head, body, foot);
+    const shell = openShell = { id: open.id, name: open.name, link: linked, panel, head, foot, menu: items };
+    head.addEventListener("contextmenu", e => { if (openShell === shell) openMenu(e, shell.name, shell.menu); });
+    patchChildren(head, [...head.children]);
+    patchChildren(foot, [...foot.children]);
+    return panel;
   }
 
   /// Opens the New terminal form of the Terminals page on `machine`.
@@ -762,24 +780,12 @@ export function makeTerminals(deps: TerminalDeps) {
 
     const groups = byMachine(machines, t.list || []);
     const places = machines.filter(m => m.online).map(m => ({ id: m.id, name: m.name, folder: "" }));
-    const list = h("div", "tl-list", ...groups.map(m => {
-      const add = button("New", "", () => newOn(m.id));
-      add.disabled = !m.online;
-      const head = h("h5", "", h("span", `ddot${m.online ? "" : " off"}`), m.online ? m.name : `${m.name} · offline`, add);
-      const items = m.terms.map(x => {
-        const b = h("button", "tl-it");
-        b.type = "button";
-        b.addEventListener("click", () => select(ALL, x.id));
-        b.title = `${x.machine_name}: ${x.command} in ${x.cwd}`;
-        b.append(h("span", `ddot${x.state === "running" ? "" : " off"}`), h("b", "", x.name),
-          h("small", "", `${terminalWhere(x)} · ${terminalNote(x, ago)}`));
-        if (t.open === x.id) b.setAttribute("aria-current", "true");
-        return b;
-      });
-      const kids: Node[] = [head, ...(items.length ? items : [h("div", "tl-empty", "No terminals.")])];
-      if (!m.online && items.length) kids.push(h("div", "tl-empty", "They keep running there and show again when it is back."));
-      return h("div", "tl-m", ...kids);
-    }));
+    if (!machineShell) {
+      const list = h("div", "tl-list");
+      machineShell = { list, root: createRoot(list), panel: h("div", "tl", list), right: null };
+    }
+    const shell = machineShell;
+    flushSync(() => shell.root.render(createElement(TerminalMachines, { groups, selected: t.open, ago, open: (id: string) => select(ALL, id), create: (id: string) => newOn(id) })));
     let right: HTMLElement;
     const open = t.open && (t.list || []).find(x => x.id === t.open);
 
@@ -797,7 +803,8 @@ export function makeTerminals(deps: TerminalDeps) {
 
     const out: HTMLElement[] = [];
     if (t.error) out.push(h("div", "cc-err", t.error));
-    out.push(h("div", "tl", list, right));
+    if (shell.right !== right) { if (shell.right) shell.right.replaceWith(right); else shell.panel.append(right); shell.right = right; }
+    out.push(shell.panel);
     return out;
   }
 
@@ -814,6 +821,6 @@ export function makeTerminals(deps: TerminalDeps) {
     show: (id: string) => select(ALL, id),
     /// Closes the open terminal or form on the Terminals page, back to its list.
     unselect: () => { const t = of(ALL); t.open = null; t.form = null; redraw(); },
-    stop: () => { watch(null); dropAll(); shown = null; },
+    stop: () => { watch(null); dropAll(); machineShell?.root.unmount(); machineShell = null; openShell = null; shown = null; },
   };
 }
