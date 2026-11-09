@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { DiffToolbar } from "./diff-toolbar.tsx";
 import { DiffTree } from "./diff-tree.tsx";
 import { DiffFileHeader } from "./diff-file-header.tsx";
+import { DiffContext, DiffOmitted } from "./diff-body-controls.tsx";
 import { DiffChunk } from "./diff-chunk.tsx";
 import { DiffComment } from "./diff-comment.tsx";
 import { DiffKeys, DiffMessage, DiffMore } from "./diff-status.tsx";
@@ -19,11 +20,11 @@ import { initTreeResize } from "./treewidth.ts";
 import { loadDraft, saveDraft } from "./draftstore.ts";
 import { feedbackButton } from "./feedback.ts";
 import { mergeComments } from "./feedback-state.ts";
-import { el, type Kid } from "../ui/dom.ts";
+import { el } from "../ui/dom.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 
 /// Where a diff comes from and what its files can open in.
-export type DiffSlot = "toolbar" | "status" | "tree" | "chunks" | "headers" | "comments" | "feedback";
+export type DiffSlot = "toolbar" | "status" | "tree" | "chunks" | "headers" | "body-controls" | "comments" | "feedback";
 export interface DiffOwner { set(slot: DiffSlot, content: ReactNode): void; dispose(): void }
 
 export interface DiffSource {
@@ -86,26 +87,6 @@ function saveSplit(on: boolean) {
   try { localStorage.setItem(SPLIT_KEY, on ? "1" : "0"); } catch { /* kept for this launch only */ }
 }
 
-const SVG = {
-  to: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
-};
-
-/// An icon from the fixed markup above, never from a diff.
-function icon(svg: string) {
-  const s = el("span");
-  s.style.display = "grid";
-  s.innerHTML = svg;
-  return s;
-}
-
-function btn(label: Kid, cls: string, title: string, run: () => void) {
-  const b = el("button", `dv-btn${cls ? ` ${cls}` : ""}`, label);
-  b.type = "button";
-  if (title) b.title = title;
-  b.addEventListener("click", e => { e.stopPropagation(); run(); });
-  return b;
-}
-
 function feedbackLoad(load: DiffSource["load"]) {
   return async (uncommitted: boolean) => (await load([], false, uncommitted)).files;
 }
@@ -166,6 +147,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
   };
   const unmountLineComment = (host: HTMLElement) => { comments.delete(host); };
   const headers = new Map<string, { host: HTMLElement; file: DiffFile; comments: HTMLElement }>();
+  const bodyControls = new Map<HTMLElement, { id: number; view: ReactNode }>();
+  let nextBodyControl = 0;
+  let bodyControlsDirty = false;
   const deferredFiles = new Set<string>();
   const selectionDeferred = new Set<string>();
   let watchingSelection = false;
@@ -366,6 +350,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
     visibleFiles.clear();
     markedPath = null;
     headers.clear();
+    bodyControls.clear();
+    bodyControlsDirty = false;
+    render("body-controls", null);
     drawHeaders();
     drawTree();
     files.replaceChildren();
@@ -585,16 +572,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const note = leftOutNote(f);
 
     if (note) {
-      const box = el("div", "dv-note", note.text);
-
-      if (note.load) {
-        const busy = st.pending.has(f.path);
-        const b = btn(busy ? "Loading…" : note.load, "", "", () => loadFull(f));
-        b.disabled = busy;
-        box.append(b);
-      }
-
-      return box;
+      return bodyControl(createElement(DiffOmitted, { text: note.text, label: note.load, busy: st.pending.has(f.path), load: () => void loadFull(f) }));
     }
 
     const split = st.split && !st.narrow;
@@ -619,10 +597,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     }
 
     const more = (direction: "above" | "below") => {
-      const label = `Show 10 lines ${direction}`;
-      const control = btn(el("span", "dv-context-g", icon(SVG.to)), `dv-context ${direction}`, label, () => expandContext(f, direction));
-      control.setAttribute("aria-label", label);
-      return control;
+      return bodyControl(createElement(DiffContext, { direction, expand: () => void expandContext(f, direction) }));
     };
     lines.prepend(more("above"));
     lines.append(more("below"));
@@ -673,6 +648,22 @@ export function diffView(src: DiffSource): DiffViewHandle {
       onCopy: () => void copy(path), onOpen: () => src.open?.run(path),
     }), item.host, path));
     render("headers", createElement(Fragment, null, ...portals));
+    drawBodyControls();
+  }
+
+  function bodyControl(view: ReactNode) {
+    const host = el("div");
+    host.style.display = "contents";
+    bodyControls.set(host, { id: ++nextBodyControl, view });
+    bodyControlsDirty = true;
+    return host;
+  }
+
+  function drawBodyControls() {
+    for (const host of bodyControls.keys()) if (!root.contains(host)) { bodyControls.delete(host); bodyControlsDirty = true; }
+    if (!bodyControlsDirty) return;
+    bodyControlsDirty = false;
+    render("body-controls", createElement(Fragment, null, ...[...bodyControls].map(([host, item]) => createPortal(item.view, host, String(item.id)))));
   }
 
   /// The header's count and Send button, each folded file's count and the
@@ -845,6 +836,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const next = top + (anchor?.offsetTop ?? 0) - before;
     if (files.scrollTop !== next) files.scrollTop = next;
     pruneChunks();
+    drawBodyControls();
   }
 
   /// Only the files near the viewport change modes now. Others update
@@ -1057,6 +1049,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
       if (scrollFrame) cancelAnimationFrame(scrollFrame);
       fileObserver.disconnect(); chunkObserver.disconnect(); rootResize.disconnect(); filesResize.disconnect(); stopTreeResize();
       if (watchingSelection) document.removeEventListener("selectionchange", selectionChanged);
+      bodyControls.clear();
       feedback.dispose(); src.owner.dispose();
     },
   };
