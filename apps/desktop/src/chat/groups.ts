@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { createElement, type MouseEvent } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { GroupInfoView } from "./group-info-view.tsx";
@@ -180,11 +180,11 @@ function setGroup(id: string) {
 }
 
 /// Opens a group in the bar. `then` opens its info, or info with Leave asked.
-let messageRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+let messageRoot: { host: HTMLElement; root: Root; mentionRoot: Root; observer: MutationObserver } | null = null;
 const pendingKeys = new WeakMap<object, number>();
 let nextPending = 0, groupRevision = 0;
 const shareVersions = new Map<string, number>(), reminderVersions = new Map<string, number>();
-function disposeMessages() { const current = messageRoot; messageRoot = null; if (current) { current.observer.disconnect(); current.root.unmount(); } }
+function disposeMessages() { const current = messageRoot; messageRoot = null; if (current) { current.observer.disconnect(); current.root.unmount(); current.mentionRoot.unmount(); } }
 
 export async function renderGroup(id: string, then?: "info" | "leave") {
   disposeInfo();
@@ -201,7 +201,7 @@ export async function renderGroup(id: string, then?: "info" | "leave") {
   const messageHost = $$("#gbody"), root = createRoot(messageHost);
   const observer = new MutationObserver(() => { if (messageRoot?.host === messageHost && !messageHost.isConnected) disposeMessages(); });
   observer.observe(document.body, { childList: true, subtree: true });
-  messageRoot = { host: messageHost, root, observer };
+  messageRoot = { host: messageHost, root, mentionRoot: createRoot($$("#mention")), observer };
   const ask = $$<HTMLTextAreaElement>("#gask");
   ask.value = G.drafts.get(id) ?? "";
   grow(ask);
@@ -229,7 +229,7 @@ export async function loadGroup() {
     if (id && (shareVersions.get(id) ?? 0) !== shareVersion && G.chat) chat.group.apps_shared = G.chat.group.apps_shared;
     G.chat = chat;
 
-    if (S.view === "group") { redrawHead(); drawGroup(); $$<HTMLTextAreaElement>("#gask").placeholder = `Message ${chat.group.name}, @beep to ask Beep`; }
+    if (S.view === "group") { redrawHead(); drawGroup(); $$<HTMLTextAreaElement>("#gask").placeholder = `Message ${chat.group.name}, @beep to ask Beep`; if (G.mention) findMention(); }
     else if (S.view === "ginfo") drawGroupInfo();
 
     // The local copy does not know whether Beep is typing, so ask the server.
@@ -319,12 +319,15 @@ export function findMention() {
   drawMention();
 }
 export function drawMention() {
-  const box = $("#mention");
-  if (!box) return;
+  const current = messageRoot;
+  if (!current || !current.host.isConnected) return;
   const mn = G.mention;
-  box.innerHTML = mn ? `<div class="dmlist" role="listbox" aria-label="Mention">${mn.items.map((x, i) =>
-    `<button role="option" aria-selected="${i === mn.sel}" data-m="${i}">${av(x.name)}${esc(x.name)}<small>${esc(x.note)}</small></button>`).join("")}</div>` : "";
-  box.querySelectorAll<HTMLElement>("[data-m]").forEach(b => b.addEventListener("mousedown", e => { e.preventDefault(); insertMention(+b.dataset.m!); }));
+  flushSync(() => current.mentionRoot.render(mn ? createElement("div", { className: "dmlist", role: "listbox", "aria-label": "Mention" },
+    mn.items.map((item, i) => createElement("button", {
+      key: `${item.name}-${i}`, role: "option", "aria-selected": i === mn.sel, "data-m": i,
+      onMouseDown: (event: MouseEvent) => { event.preventDefault(); insertMention(i); },
+    }, createElement("span", { className: "dav", style: { background: avColor(item.name) }, dangerouslySetInnerHTML: { __html: item.name === "Beep" ? BEEP_MARK : esc([...item.name][0]?.toUpperCase() ?? "?") } }), item.name, createElement("small", null, item.note)))
+  ) : null));
   const old = $(".dhints");
   if (old) old.replaceWith(h(groupHints()));
 }
