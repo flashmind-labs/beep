@@ -6,7 +6,9 @@
 import { type Tree, mergeTree, unreadFolders, type Listing } from "../agentpane/files-state.ts";
 import { paneRoot } from "../agentpane/worktree.ts";
 import { mentioned } from "../agentpane/worktree-state.ts";
-import { el } from "../ui/dom.ts";
+import { showAgentMenu } from "./composer-ui.tsx";
+import { S } from "../bar/core.ts";
+import { paneShown } from "../ui/active.ts";
 import { invoke } from "../ui/tauri.ts";
 import { AG } from "./agents.ts";
 import {
@@ -80,51 +82,30 @@ async function readFiles(key: string, machine: string, root: string, again: () =
 export function bindMentionMenu(field: HTMLTextAreaElement) {
   const parent = field.parentElement;
   if (!parent) return;
-  const box = el("div", "cm-menu");
-  box.setAttribute("role", "listbox");
-  box.hidden = true;
-  parent.append(box);
+  let box: HTMLElement | null = null;
   let rows: Row[] = [];
   let trigger: Trigger | null = null;
   let index = 0;
   let composing = false;
 
+  const refresh = () => { box = showAgentMenu(parent, rows, index, pick); };
   const close = () => {
-    if (box.hidden) return;
-    box.hidden = true;
-    box.replaceChildren();
-    rows = [];
-    trigger = null;
+    if (!box || box.hidden) return;
+    rows = []; trigger = null; refresh();
   };
-
-  const light = (to: number) => {
-    index = to;
-    [...box.children].forEach((row, i) => {
-      row.classList.toggle("on", i === to);
-      row.setAttribute("aria-selected", String(i === to));
-      if (i === to) (row as HTMLElement).scrollIntoView({ block: "nearest" });
-    });
-  };
-
+  const light = (to: number) => { index = to; refresh(); };
   const draw = (found: Row[], t: Trigger) => {
     const same = trigger?.kind === t.kind && trigger.start === t.start;
-    rows = found;
-    trigger = t;
-    box.replaceChildren(...found.map((row, i) => {
-      const line = el("div", "cm-row", el("span", "n", row.label), el("span", "d", row.detail), row.hint ? el("small", "", row.hint) : null);
-      line.setAttribute("role", "option");
-      line.dataset.i = String(i);
-      return line;
-    }));
-    box.hidden = false;
+    rows = found; trigger = t;
     light(same ? Math.min(index, found.length - 1) : 0);
   };
 
   const update = () => {
+    if (!field.isConnected || S.view !== "agent" || !paneShown()) return;
     const s = AG.page?.session;
     const t = composing || !s || s.external ? null : triggerAt(field.value, field.selectionStart);
     if (!t || !s) return close();
-    const opening = box.hidden || trigger?.kind !== t.kind;
+    const opening = !box || box.hidden || trigger?.kind !== t.kind;
 
     if (t.kind === "command") {
       const key = `${s.machine_id}\n${s.id}`;
@@ -156,7 +137,7 @@ export function bindMentionMenu(field: HTMLTextAreaElement) {
   field.addEventListener("compositionend", () => { composing = false; update(); });
   field.addEventListener("blur", close);
   field.addEventListener("keydown", e => {
-    if (box.hidden) return;
+    if (!box || box.hidden) return;
     const act = menuKey(rows.length, index, e.key, { shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey, meta: e.metaKey, composing: composing || e.isComposing || e.keyCode === 229 });
     if (act.type === "none") return;
     // The window's keys (Enter sends, Esc goes back) are not for the menu's.
@@ -165,11 +146,5 @@ export function bindMentionMenu(field: HTMLTextAreaElement) {
     if (act.type === "move") light(act.index);
     else if (act.type === "close") close();
     else pick(index);
-  });
-  // A press on a row keeps the focus in the field, so the field's blur does not close the menu first.
-  box.addEventListener("mousedown", e => {
-    e.preventDefault();
-    const row = (e.target as HTMLElement).closest<HTMLElement>(".cm-row");
-    if (row) pick(Number(row.dataset.i));
   });
 }

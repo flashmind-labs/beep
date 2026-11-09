@@ -186,3 +186,21 @@ test("drawing with no agent field leaves the queued messages unchanged", t => {
   assert.equal(AG.queue.length, 1);
   assert.equal(AG.queue[0], delivered);
 });
+
+test("suggestion updates preserve queued controls and focus", async t => {
+  const { input } = setup();
+  window.HTMLElement.prototype.scrollIntoView = () => {};
+  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+  const { bindMentionMenu } = await import("../src/agents/mentionmenu.ts");
+  answers.agent_commands = [{ name: "review", description: "Review work", hint: "" }, { name: "run", description: "Run checks", hint: "" }];
+  t.after(() => { disposeQueue(); delete answers.agent_commands; });
+  AG.queue.push({ how: "steer", typed: "Queued", text: "Queued", paths: [], images: [], state: null, after: 0 });
+  drawQueue();
+  const button = bar.querySelector<HTMLButtonElement>('[data-agq="0"][data-act="edit"]'); assert.ok(button); button.focus();
+  bindMentionMenu(input);
+  input.value = "/"; input.setSelectionRange(1, 1); input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  await settle();
+  assert.equal(bar.querySelectorAll('.cm-row').length, 2);
+  assert.equal(bar.querySelector('[data-agq="0"][data-act="edit"]'), button);
+  assert.equal(document.activeElement, button);
+});
