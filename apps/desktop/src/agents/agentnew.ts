@@ -242,7 +242,7 @@ function drawPill(none: boolean) {
 /// The picker by the pill: harnesses, their models, their thinking.
 function drawPicker() {
   const f = AG.form, el = $$("#agpick");
-  if (f.open !== "pick" || !f.agent) { el.innerHTML = ""; closedPicker(el); return; }
+  if (f.open !== "pick" || !f.agent) { closedPicker(el); el.innerHTML = ""; return; }
   const host = formHost(), machine = f.modelFor ? f.machine || null : null;
   const name = machine ? AG.hosts?.find(m => m.machine_id === machine)?.machine_name ?? machine : null;
   const picked: Picked = { agent: f.agent, model: f.model ?? "", effort: f.effort ?? null, query: f.query ?? "" };
