@@ -4,7 +4,7 @@ import { focusBack, openSheet } from "./parts.ts";
 import { el } from "./dom.ts";
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createDocumentView, type DocumentView } from "./document-root.tsx";
 import { ConfirmView, RenameView } from "./menu-views.tsx";
 
 /// One line of a menu; `warn` reads it in red.
@@ -34,7 +34,7 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
   closeMenu();
   const back = document.activeElement;
   const box = el("div", "cc-menu");
-  const root = createRoot(box);
+  const root = createDocumentView(box);
   let current = items;
   let MenuView: typeof import("./context-menu-view.tsx").ContextMenu | null = null;
   const close = () => {
@@ -114,7 +114,7 @@ export interface ConfirmOptions {
 /// button runs it and closes the sheet once it worked.
 export function confirmSheet(options: ConfirmOptions) {
   closeMenu();
-  let busy = false, view: Root | null = null;
+  let busy = false, view: DocumentView | null = null;
   const allowed = () => !busy || options.dismissWhileBusy === true;
   const { sheet, close: shut } = openSheet(options.title, "am-sheet", {
     canClose: allowed,
@@ -126,7 +126,7 @@ export function confirmSheet(options: ConfirmOptions) {
     },
   });
   const close = () => { if (allowed()) shut(); };
-  view = createRoot(sheet);
+  view = createDocumentView(sheet);
   flushSync(() => view?.render(createElement(ConfirmView, { options, close, pending: value => { busy = value; } })));
 }
 
@@ -135,12 +135,12 @@ export interface RenameOptions { title: string; value: string; run(text: string)
 /// Saves a renamed value while keeping the draft available after a failure.
 export function renameSheet(options: RenameOptions) {
   closeMenu();
-  let busy = false, view: Root | null = null;
+  let busy = false, view: DocumentView | null = null;
   const { sheet, close: shut } = openSheet(options.title, "am-sheet", {
     canClose: () => !busy,
     onClose: () => { view?.unmount(); view = null; },
   });
   const close = () => { if (!busy) shut(); };
-  view = createRoot(sheet);
+  view = createDocumentView(sheet);
   flushSync(() => view?.render(createElement(RenameView, { options, close, pending: value => { busy = value; } })));
 }

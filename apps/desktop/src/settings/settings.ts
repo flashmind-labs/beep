@@ -1,6 +1,6 @@
 import { createElement, Fragment, type ReactNode, type ReactElement } from "react";
 import { createPortal, flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { AgentsOverview, AppsOverview, CodingAgentOverview, InstructionsOverview, MachinesOverview } from "./overview-view.tsx";
 import { ModelSettingsView } from "./model-settings-view.tsx";
 import { ServerView } from "./server-view.tsx";
@@ -352,7 +352,7 @@ function store() {
 const sheetPages = () => SET.local ? settingsSections(SET.local.set, SET.local.mac, SET.local.linked, true).map(([id]) => id) : [];
 
 let renderedPath: SettingsPath | null = null;
-let shell: { sheet: HTMLElement; navigation: HTMLElement | null; root: Root; observer: MutationObserver } | null = null;
+let shell: { sheet: HTMLElement; navigation: HTMLElement | null; root: DocumentView; observer: MutationObserver } | null = null;
 function disposeShell() {
   const current = shell;
   shell = null;
@@ -366,7 +366,7 @@ function renderShell(sheet: HTMLElement, pages: SettingsPage[], path: SettingsPa
   if (!shell) {
     const observer = new MutationObserver(() => { if (shell?.sheet === sheet && !sheet.isConnected) disposeShell(); });
     observer.observe(document.body, { childList: true, subtree: true });
-    shell = { sheet, navigation: null, root: createRoot(sheet), observer };
+    shell = { sheet, navigation: null, root: createDocumentView(sheet), observer };
   }
   const current = shell, openPage = (page: SettingsPage) => goTo(selectPage(page));
   flushSync(() => current.root.render(createElement(Fragment, null, createElement(SettingsShell, {
@@ -506,7 +506,7 @@ async function openApps(box: HTMLElement, sub: SettingsSub | null) {
   return renderMcpServer(it as McpServer);
 }
 
-let barSettings: { host: HTMLElement; root: Root; version: string; sections: string } | null = null;
+let barSettings: { host: HTMLElement; root: DocumentView; version: string; sections: string } | null = null;
 function drawBarSettings() {
   const current = barSettings;
   if (!current || !current.host.isConnected) return;
