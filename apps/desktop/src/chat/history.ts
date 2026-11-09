@@ -1,6 +1,6 @@
-import { discardChatApproval, discardChatSuggestions, discardChatWork, transferChatApproval, transferChatPrompt, transferChatSuggestions } from "./work-view.tsx";
+import { discardChatApproval, discardChatSources, discardChatSuggestions, discardChatWork, renderChatSources, transferChatApproval, transferChatPrompt, transferChatSuggestions } from "./work-view.tsx";
 import { askFiles } from "./attach.ts";
-import { ANSWER, answeredTurns, approvalCard, appendChatReply, ASK, askText, body, chatReplyHtml, drawLatest, drawWork, failed, makeTurn, moveChatReply, newTurn, ranOn, renderChat, setChatReply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
+import { ANSWER, answeredTurns, approvalCard, appendChatReply, ASK, askText, body, chatReplyHtml, drawLatest, drawWork, failed, makeTurn, moveChatReply, newTurn, owningChatBody, ranOn, renderChat, setChatReply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
 import type { Asking, ToolOutput } from "./chat.ts";
 import { answerHtml } from "../agents/turnrows.ts";
 import { $$, changed, live, queued, S, windowHooks } from "../bar/core.ts";
@@ -380,20 +380,26 @@ export function sourceSite(url: string) {
 
 /// The web pages a reply used, as chips under it: the site's initial and name.
 export function sourceRow(turn: Turn, sources: WebSource[] | null | undefined) {
-  turn.querySelector(".dsources")?.remove();
-  const list = (sources ?? []).map(s => ({ ...s, site: sourceSite(s.url) })).filter(s => s.site);
-  if (!list.length) return;
-  const row = h('<div class="dsources" aria-label="Sources"></div>');
-  const draw = (open: boolean) => {
-    const shown = open ? list : list.slice(0, 3), more = list.length - shown.length;
-    row.innerHTML = shown.map((s, i) => `<button class="dsrc" data-i="${i}" title="${esc(s.title || s.url)}"><i>${esc(s.site[0].toUpperCase())}</i><span>${esc(s.site)}</span></button>`).join("")
-      + (more ? `<button class="dsrc more" aria-label="Show ${more} more sources">+${more}</button>` : "");
-    row.querySelectorAll<HTMLElement>(".dsrc[data-i]").forEach(b => b.addEventListener("click", () => invoke("open_url", { url: shown[+b.dataset.i!].url }).catch(() => {})));
-    row.querySelector(".dsrc.more")?.addEventListener("click", () => draw(true));
-  };
-  draw(false);
-  const anchor = turn.querySelector(".files") ?? turn.querySelector(ANSWER);
-  anchor ? anchor.after(row) : turn.append(row);
+  const list = (sources ?? []).map(source => ({ ...source, site: sourceSite(source.url) })).filter(source => source.site);
+  let row = turn.querySelector<HTMLElement>(".dsources");
+  if (!list.length) { discardChatSources(turn); row?.remove(); return; }
+  if (!row) {
+    row = h('<div class="dsources" aria-label="Sources"></div>');
+    const anchor = turn.querySelector(".files") ?? turn.querySelector(ANSWER);
+    anchor ? anchor.after(row) : turn.append(row);
+  }
+  const owner = owningChatBody(turn);
+  if (owner) renderChatSources(owner, turn, row, list);
+  else {
+    const target = row;
+    const draw = (open: boolean) => {
+      const shown = open ? list : list.slice(0, 3), more = list.length - shown.length;
+      target.innerHTML = shown.map((source, i) => `<button class="dsrc" data-i="${i}" title="${esc(source.title || source.url)}"><i>${esc(source.site[0].toUpperCase())}</i><span>${esc(source.site)}</span></button>`).join("") + (more ? `<button class="dsrc more" aria-label="Show ${more} more sources">+${more}</button>` : "");
+      target.querySelectorAll<HTMLElement>(".dsrc[data-i]").forEach(button => button.addEventListener("click", () => { const index = Number(button.dataset.i); void invoke("open_url", { url: shown[index].url }).catch(() => {}); }));
+      target.querySelector(".dsrc.more")?.addEventListener("click", () => draw(true));
+    };
+    draw(false);
+  }
 }
 
 /// The agent that answered one turn (`session_agents`).

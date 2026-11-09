@@ -200,12 +200,34 @@ test("reply actions retain focus during history refresh", async ({ page }) => {
 test("rerunning a turn releases its detached React content", async ({ page }) => {
   const user = { role: "user", text: "Explain", at: 1, images: [], model: "", thinking: "" };
   const answer = { role: "assistant", html: "<p>Answer</p>", tools: [], replies: ["Follow up"], model: "one" };
-  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, get_models: { choices: [{ id: "one", name: "One", input_price: null, output_price: null, sees_images: false, default: true }], selected: "one", thinking: "", auto: false, auto_available: false }, open_session: [user, answer], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, get_models: { choices: [{ id: "one", name: "One", input_price: null, output_price: null, sees_images: false, default: true }], selected: "one", thinking: "", auto: false, auto_available: false }, open_session: [user, answer], session_agents: [], session_files: [], session_sources: [{ message: 1, sources: [{ url: "https://example.test/source", title: "Source" }] }], list_questions: [] });
   await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const source = page.locator(".dsources");
+  await expect(source).toBeVisible();
+  await source.evaluate(el => Reflect.set(window, "oldSources", el));
   const actions = page.locator(".dreplyacts");
   await expect(actions.locator('[data-act="rerunMenu"]')).toBeVisible();
   await actions.evaluate(el => Reflect.set(window, "oldReplyActions", el));
   await actions.locator('[data-act="rerunMenu"]').click();
   await page.getByRole("menuitem", { name: /One/ }).click();
   await expect.poll(() => page.evaluate(() => { const node = Reflect.get(window, "oldReplyActions"); return node instanceof HTMLElement && !node.isConnected && node.childElementCount === 0; })).toBe(true);
+  await expect.poll(() => page.evaluate(() => { const node = Reflect.get(window, "oldSources"); return node instanceof HTMLElement && !node.isConnected && node.childElementCount === 0; })).toBe(true);
+});
+
+test("source chips keep expansion and focus as source lists update", async ({ page }) => {
+  const user = { role: "user", text: "Explain", at: 1, images: [], model: "", thinking: "" };
+  const answer = { role: "assistant", html: "<p>Answer</p>", tools: [], replies: [], model: "" };
+  const sources = Array.from({ length: 4 }, (_, i) => ({ url: `https://site${i}.example.test/article`, title: `Source ${i}` }));
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [user, answer], session_agents: [], session_files: [], session_sources: [{ message: 1, sources }], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const row = page.locator(".dsources");
+  await row.getByRole("button", { name: "Show 1 more sources" }).click();
+  const first = row.getByRole("button", { name: "S site0.example.test" });
+  await first.focus();
+  await first.evaluate(el => Reflect.set(window, "sourceChip", el));
+  await page.evaluate(value => { window.__navigation.respond("session_sources", [{ message: 1, sources: value }]); window.__navigation.emit("sessions-changed", "chat-example"); }, [...sources, { url: "https://site4.example.test/article", title: "Source 4" }]);
+  await expect(row.getByRole("button", { name: "S site4.example.test" })).toBeVisible();
+  expect(await first.evaluate(el => el === Reflect.get(window, "sourceChip") && document.activeElement === el)).toBe(true);
+  await first.click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "open_url" && call.args.url === "https://site0.example.test/article"))).toBe(true);
 });
