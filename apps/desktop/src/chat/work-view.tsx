@@ -20,7 +20,7 @@ type Source = WebSource & { site: string };
 interface ReplyActions { copy: boolean; rerun: boolean; agent: string | null }
 interface ApprovalView { app: string; action: string; fields: ApprovalField[]; grant: boolean; answer: (decision: Decision) => void }
 type StatusNotice = { kind: "label"; message: string } | { kind: "error"; message: string } | { kind: "stopped"; message: string; retry: boolean };
-interface Owner { charts: Map<ChartCard, { key: number; chart: Chart }>; notices: Map<HTMLElement, { key: number; value: StatusNotice }>; products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
+interface Owner { host: HTMLElement | null; body: ChatBody | null; setBody(element: HTMLDivElement | null): void; charts: Map<ChartCard, { key: number; chart: Chart }>; notices: Map<HTMLElement, { key: number; value: StatusNotice }>; products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
 // A retained chat body owns all its portals, including detached turns while
 // history is merged. Transfer moved hosts before discarding the fresh turn.
 const owners = new WeakMap<ChatBody, Owner>();
@@ -134,6 +134,7 @@ const Work = memo(function Work({ value }: { value: WorkView }) {
 });
 function draw(owner: Owner) {
   flushSync(() => owner.root.render(createElement(Fragment, null,
+    owner.host ? createElement("div", { key: "body", className: "dbody", id: "body", ref: owner.setBody }) : null,
     ...[...owner.charts].map(([host, row]) => createPortal(createElement(ChartView, { card: host, initial: row.chart }), host, row.key)),
     ...[...owner.notices].map(([host, row]) => createPortal(createElement(Notice, { value: row.value }), host, row.key)),
     ...[...owner.products].map(([host, row]) => createPortal(createElement(Html, { html: row.html }), host, row.key)),
@@ -149,11 +150,29 @@ function draw(owner: Owner) {
     ...[...owner.rows].map(([host, row]) => createPortal(createElement(Work, { value: row.value }), host, row.key)),
     ...[...owner.replies].map(([host, row]) => createPortal(createElement(Html, { html: row.html }), host, row.key)))));
 }
-function ownerOf(body: ChatBody) {
-  let owner = owners.get(body);
-  if (!owner) { owner = { charts: new Map(), notices: new Map(), products: new Map(), replyPictures: new Map(), sentFiles: new Map(), pictures: new Map(), files: new Map(), root: createRoot(document.createElement("div")), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 }; owners.set(body, owner); }
+function makeOwner(host: HTMLElement | null): Owner {
+  const container = host ?? document.createElement("div");
+  const owner: Owner = { host, body: null, setBody: element => { owner.body = element; }, charts: new Map(), notices: new Map(), products: new Map(), replyPictures: new Map(), sentFiles: new Map(), pictures: new Map(), files: new Map(), root: createRoot(container), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 };
   return owner;
 }
+function ownerOf(body: ChatBody) {
+  let owner = owners.get(body);
+  if (!owner) { owner = makeOwner(null); owners.set(body, owner); }
+  return owner;
+}
+export function createChatBody(): ChatBody {
+  const host = document.createElement("div");
+  host.style.display = "contents";
+  const owner = makeOwner(host);
+  draw(owner);
+  if (!owner.body) throw new Error("Chat body did not mount");
+  owners.set(owner.body, owner);
+  return owner.body;
+}
+export function chatBodyHost(body: ChatBody): HTMLElement {
+  return owners.get(body)?.host ?? body;
+}
+
 export function renderChatChart(body: ChatBody, turn: Turn, box: ChartCard, chart: Chart) {
   const owner = ownerOf(body), entry = chartTurns.get(turn);
   if (entry) entry.boxes.push(box); else chartTurns.set(turn, { owner, boxes: [box] });
