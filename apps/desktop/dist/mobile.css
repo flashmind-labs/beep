@@ -110,6 +110,7 @@ body.mobile .cc-set-scrim, body.mobile .cc-scrim { padding-left: env(safe-area-i
 
 /* Wide tables scroll sideways; keyboard hints have no keyboard to point at. */
 body.mobile .cc-mt { overflow-x: auto }
+body.mobile .dcoderen.agent.md :is(th, td) { min-width: 9em }
 body.mobile .pj-add { grid-template-columns: minmax(0, 1fr) }
 body.mobile kbd, body.mobile .dhints, body.mobile .agkeys, body.mobile .dv-keys, body.mobile .cc-pal .foot { display: none }
 
