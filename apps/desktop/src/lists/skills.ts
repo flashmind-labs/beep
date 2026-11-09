@@ -1,7 +1,7 @@
 import { $$, bar, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
-import { arrowKey, clampSel, confirmCard, confirmKey, confirmRow, dayDiff, emptyPage, errLine, type ListState, loadList, readDay } from "./memories.ts";
-import { switchHtml, esc, plural } from "../ui/format.ts";
+import { arrowKey, clampSel, confirmKey, dayDiff, type ListState, loadList, readDay } from "./memories.ts";
+import { plural } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
@@ -9,6 +9,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { SkillEditor } from "./skill-editor.tsx";
+import { SkillDetail, SkillsList } from "./skills-view.tsx";
 
 // ---------- Skills ----------
 
@@ -47,7 +48,7 @@ const MODES = new Set<string>(["list", "actions", "delete", "view", "edit", "vde
 const ONE = new Set<string>(["view", "edit", "vdelete"]);
 
 export const K: ListState<Skill> & { mode: SkillMode } = { list: [], sel: 0, mode: "list", error: "", loaded: false };
-let editor: { host: HTMLElement; root: Root; observer: MutationObserver; id: string } | null = null;
+let editor: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
 function disposeEditor() {
   const current = editor;
   editor = null;
@@ -81,43 +82,30 @@ export async function loadSkills() {
   if (S.view === "skills" && (K.mode === "list" || K.mode === "actions")) drawSkills();
 }
 
-function skillRow(k: Skill, i: number) {
-  const cur = i === K.sel, name = esc(k.name);
-  if (cur && K.mode === "delete") return confirmRow(i, `Delete <b>${name}</b>?`, "data-k", "Delete");
-  const tail = cur && K.mode === "actions"
-    ? `<span class="acts"><button class="dbtn" data-k="view">Open<kbd>${ICON.ret}</kbd></button>${k.can_undo ? `<button class="dbtn" data-k="undo">Undo<kbd>⌘Z</kbd></button>` : ""}<button class="dbtn warn" data-k="delete">Delete<kbd>⌘⌫</kbd></button></span>`
-    : switchHtml(k.enabled, `Use ${name}`, `data-k="toggle" data-i="${i}"`);
-  return `<div class="drt${k.enabled ? "" : " off"}" role="option" aria-selected="${cur}" data-i="${i}"><span class="ic">${SKILL_ICON}</span>
-        <span class="tt"><b>${name}</b><span>${esc(k.description)}</span><small>${esc(skillMeta(k))}</small></span>${tail}</div>`;
+function skillsRoot(): Root {
+  if (!editor || editor.host.parentElement !== bar) {
+    disposeEditor();
+    const host = document.createElement("div");
+    host.style.display = "contents";
+    bar.replaceChildren(host);
+    const root = createRoot(host);
+    const observer = new MutationObserver(() => { if (editor?.host === host && !host.isConnected) disposeEditor(); });
+    observer.observe(document.body, { childList: true, subtree: true });
+    editor = { host, root, observer };
+  }
+  return editor.root;
 }
 
 export function drawSkills(): void {
   clampSel(K);
   if (ONE.has(K.mode)) return drawSkill();
-  disposeEditor();
   const paused = K.list.filter(k => !k.enabled).length;
   const sum = !K.loaded ? "" : !K.list.length ? "None yet" : [plural(K.list.length, "skill", "skills"), paused && `${paused} paused`].filter(Boolean).join(", ");
-  const head = `<div class="dhead"><span class="tt"><b>Skills</b><small>${sum}</small></span></div>`;
-
-  if (K.loaded && !K.list.length) {
-    bar.innerHTML = head + errLine(K.error) + emptyPage(SKILL_ICON, "No skills yet.", "Beep saves how you like things done here.")
-      + hints([["esc", "back"]]);
-  } else {
-    // Under a heading for each owner: the user, then each group.
-    let owner: string | null | undefined, html = "";
-    K.list.forEach((k, i) => {
-      if (k.group_id !== owner || i === 0) {
-        owner = k.group_id;
-        html += `${i ? "</div>" : ""}<div class="dsec flat dpad">${esc(k.group_name || (k.group_id ? "Group" : "Yours"))}</div><div class="dlist dflush">`;
-      }
-      html += skillRow(k, i);
-    });
-    bar.innerHTML = head + errLine(K.error) + `<div class="dlist top" id="klist" role="listbox" aria-label="Skills">${html}</div></div>`
-      + hints(K.mode === "actions" ? [[ICON.ret, "open"], ["⌘Z", "undo"], ["⌘⌫", "delete"], ["tab", "hide actions"], ["esc", "back"]]
-        : [["↑↓", "move"], [ICON.ret, "open"], ["space", "on or off"], ["tab", "actions"], ["esc", "back"]]);
-    bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
-  }
-
+  const keys = K.loaded && !K.list.length ? [["esc", "back"]] : K.mode === "actions"
+    ? [[ICON.ret, "open"], ["⌘Z", "undo"], ["⌘⌫", "delete"], ["tab", "hide actions"], ["esc", "back"]]
+    : [["↑↓", "move"], [ICON.ret, "open"], ["space", "on or off"], ["tab", "actions"], ["esc", "back"]];
+  const root = skillsRoot();
+  flushSync(() => root.render(createElement(SkillsList, { list: K.list, selected: K.sel, mode: K.mode as "list" | "actions" | "delete", loaded: K.loaded, error: K.error, summary: sum, hints: hints(keys) })));
   bar.onclick = skillClick;
   bar.oncontextmenu = skillMenu;
 }
@@ -126,34 +114,14 @@ export function drawSkills(): void {
 export function drawSkill(): void {
   const k = K.list[K.sel];
   if (!k) { K.mode = "list"; return drawSkills(); }
-  const err = errLine(K.error);
+  const root = skillsRoot();
   bar.onclick = skillClick;
-
   if (K.mode === "edit") {
-    if (!editor || editor.id !== k.id || editor.host.parentElement !== bar) {
-      disposeEditor();
-      const host = document.createElement("div");
-      host.style.display = "contents";
-      bar.replaceChildren(host);
-      const root = createRoot(host);
-      const observer = new MutationObserver(() => { if (editor?.host === host && !host.isConnected) disposeEditor(); });
-      observer.observe(document.body, { childList: true, subtree: true });
-      editor = { host, root, observer, id: k.id };
-    }
-    const root = editor.root;
-    flushSync(() => root.render(createElement(SkillEditor, { skill: k, error: K.error, hints: hints([["tab", "next field"], [`⌘${ICON.ret}`, "save"], ["esc", "cancel"]]), save: () => { void skillAction("save"); }, cancel: () => { void skillAction("view"); } })));
+    flushSync(() => root.render(createElement(SkillEditor, { key: k.id, skill: k, error: K.error, hints: hints([["tab", "next field"], [`⌘${ICON.ret}`, "save"], ["esc", "cancel"]]), save: () => { void skillAction("save"); }, cancel: () => { void skillAction("view"); } })));
     return;
   }
-
-  disposeEditor();
-
-  const confirm = K.mode === "vdelete" ? confirmCard("Delete this skill?", `Beep forgets how you like "${esc(k.name)}" done. It may learn it again if you keep asking for it.`, `<button class="dbtn warn" data-k="delete-yes">Delete<kbd>${ICON.ret}</kbd></button><button class="dbtn quiet" data-k="view">Cancel</button>`, "dcardm") : "";
-  const undo = k.can_undo ? `<div class="dmuted dtop dpt"><span class="dfill">${k.edited ? "You changed this last." : "Beep changed this last."}</span><button class="dbtn" data-k="undo">Undo<kbd>⌘Z</kbd></button></div>` : "";
-  bar.innerHTML = `<div class="dhead"><span class="tt"><b>${esc(k.name)}</b><small>${esc(k.group_name ? `${k.group_name} · ${k.description}` : k.description)}</small></span>
-      ${switchHtml(k.enabled, "Use this skill", `data-k="toggle"`)}
-      <button class="dbtn" data-k="edit">Edit<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn warn" data-k="vdelete">Delete<kbd>⌘⌫</kbd></button></div>${err}${confirm}
-    <div class="dbody pt"><div class="dmuted">${esc(skillMeta(k))}</div><div class="reply">${k.html}</div>${undo}</div>`
-    + hints(K.mode === "vdelete" ? [[ICON.ret, "delete"], ["esc", "cancel"]] : [["space", "on or off"], [`⌘${ICON.ret}`, "edit"], ...(k.can_undo ? [["⌘Z", "undo"]] : []), ["esc", "back"]]);
+  const keys = K.mode === "vdelete" ? [[ICON.ret, "delete"], ["esc", "cancel"]] : [["space", "on or off"], [`⌘${ICON.ret}`, "edit"], ...(k.can_undo ? [["⌘Z", "undo"]] : []), ["esc", "back"]];
+  flushSync(() => root.render(createElement(SkillDetail, { skill: k, mode: K.mode as "view" | "vdelete", error: K.error, hints: hints(keys) })));
 }
 
 /// A skill row's right-click menu: what its buttons do. Delete asks first.
