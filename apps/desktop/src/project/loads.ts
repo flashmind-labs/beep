@@ -520,18 +520,21 @@ export function sessionsList(p: Project, running: RunningAgent[], all: boolean) 
   if ((!p.imported || sessions === undefined || !past.length)) disposeSessionPanel();
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
   let body;
+  let empty: string | null = null;
 
-  if (!p.imported) body = emptyPanel(h("span", "", "Import this project to see its sessions."));
-  else if (sessions === undefined) body = emptyPanel(h("span", "", "Reading sessions…"));
+  if (!p.imported) { empty = "Import this project to see its sessions."; body = emptyPanel(h("span", "", empty)); }
+  else if (sessions === undefined) { empty = "Reading sessions…"; body = emptyPanel(h("span", "", empty)); }
   else {
+    if (!past.length) empty = "No past sessions yet.";
     body = past.length
       ? sessionListSlot(p.name, past, all)
-      : emptyPanel(h("span", "", "No past sessions yet."));
+      : emptyPanel(h("span", "", empty));
   }
 
-  const note = sessions !== undefined ? freshNote(pageFresh("sessions", p.name, readingSessions.has(p.name))) : null;
+  const freshness = sessions !== undefined ? pageFresh("sessions", p.name, readingSessions.has(p.name)) : null;
+  const note = freshness ? freshNote(freshness) : null;
   note?.classList.add("ss-updating");
-  return { body, note, count: past.length };
+  return { body, note, count: past.length, empty, freshness };
 }
 
 /// The agent view for a session row.

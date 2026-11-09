@@ -1,6 +1,12 @@
-import { Fragment, useLayoutEffect, useRef } from "react";
-import type { Kid } from "../ui/dom.ts";
-import { patchChildren } from "../ui/patch.ts";
+import { Fragment, useLayoutEffect, useRef, type ReactNode } from "react";
+import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
+import { moveLabel } from "../agents/move-store.ts";
+import { closingNote } from "../agents/closing.ts";
+import { runningWhen, type RunningAgent } from "../agents/running-state.ts";
+import { ago } from "../ui/format.ts";
+import { terminalNote, terminalWhere, type TerminalRow } from "../terminals/terminals.ts";
+import type { Freshness } from "../ui/pagecache.ts";
+import type { TileData } from "./board.ts";
 import type { LabelFilter, SplitGroup, SplitItem } from "./split.ts";
 
 export function ProjectNavigation({ groups, picked, openTile }: { groups: readonly SplitGroup[]; picked: string; openTile: (key: string) => void }) {
@@ -22,8 +28,8 @@ export function Row({ item, picked, filter, nav, openTile }: { item: SplitItem; 
   return <button type="button" className={`pj-li${nav ? " nav" : ""}`} title={item.title} aria-current={item.key === picked ? "true" : undefined}
     onClick={() => item.open ? item.open() : openTile(item.key)} onContextMenu={item.menu ? e => item.menu?.(e.nativeEvent) : undefined}>
     {nav ? <><span className="t"><b>{item.title}</b></span><span className="c">{item.sub}</span></> : <>
-      <span className="lead"><Legacy node={item.lead}/></span><span className="t"><b>{item.title}</b><span>{item.sub}{item.tags?.map(label => filter ? <Label key={label} label={label} filter={filter}/> : <i className="pj-tag" key={label}>{label}</i>)}</span></span>
-      <span className="r"><Legacy node={item.right}/></span>
+      <span className="lead">{item.lead}</span><span className="t"><b>{item.title}</b><span>{item.sub}{item.tags?.map(label => filter ? <Label key={label} label={label} filter={filter}/> : <i className="pj-tag" key={label}>{label}</i>)}</span></span>
+      <span className="r">{item.right}</span>
     </>}
   </button>;
 }
@@ -34,23 +40,59 @@ function Label({ label, filter, button = false }: { label: string; filter: Label
   return button ? <button type="button" className={cls} onClick={pick}>{label}</button> : <i className={cls} onClick={pick}>{label}</i>;
 }
 
-/// Keep existing controls until their feature is migrated, without detaching unchanged nodes.
-export function Legacy({ node, flexItem = false }: { node: Kid; flexItem?: boolean }) {
-  const slot = useRef<HTMLSpanElement>(null);
+export function Harness({ agent }: { agent: string }) {
+  const safe = /^[a-z0-9-]+$/.test(agent) ? ` ${agent}` : "";
+  return <span className={`cc-ag${safe}${harnessMark(agent) ? " mark" : ""}`} dangerouslySetInnerHTML={{ __html: harnessInner(agent) }}/>;
+}
+
+export function RunningStatus({ row }: { row: RunningAgent }) {
+  const moving = moveLabel(row), closing = closingNote(row);
+  if (moving) return <span className={`chip ${moving.chip === "Moving" ? "run" : "bad"}`}>{moving.chip}</span>;
+  if (closing) return closing;
+  if (row.status === "asking") return <span className="chip wait">needs you</span>;
+  if (["working", "running", "starting"].includes(row.status)) return <span className="cc-running"><span className="dspin" role="img" aria-label={row.status === "starting" ? "Starting" : "Working"}/>{runningWhen(row)}</span>;
+  return runningWhen(row);
+}
+
+export function Chip({ cls, text, spin }: { cls: string; text: string; spin: boolean }) {
+  return <span className={cls ? `chip ${cls}` : "chip"}>{spin && <span className="dspin"/>}{text}</span>;
+}
+
+function RetainedSessions({ host }: { host: HTMLElement }) {
+  const slot = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const target = slot.current;
     if (!target) return;
-    if (node instanceof Element) {
-      if (flexItem && node instanceof HTMLElement) node.style.flex = "none";
-      patchChildren(target, [node]);
-    } else if (node instanceof Node) {
-      if (!target.firstChild?.isEqualNode(node) || target.childNodes.length !== 1) target.replaceChildren(node);
-    } else {
-      const text = typeof node === "string" ? node : "";
-      if (target.textContent !== text) target.textContent = text;
-    }
-  }, [node, flexItem]);
-  return <span ref={slot} style={{ display: "contents" }}/>;
+    if (host.parentElement !== target) target.append(host);
+    return () => { if (host.parentElement === target) host.remove(); };
+  }, [host]);
+  return <div ref={slot} style={{ display: "contents" }}/>;
+}
+
+function OverviewRow({ item, openTile }: { item: SplitItem; openTile: (key: string) => void }) {
+  return <div className={`cc-row cc-line${item.lead ? "" : " bare"}`} onClick={() => item.open ? item.open() : openTile(item.key)} onContextMenu={item.menu ? event => item.menu?.(event.nativeEvent) : undefined}>{item.lead}<button type="button" className="t" title={item.title}><b>{item.title}</b><span>{item.sub}</span></button><span className="r">{item.right}{item.tags?.slice(0, 3).map(label => <i className="pj-tag" key={label}>{label}</i>)}</span></div>;
+}
+
+function OverviewBox({ title, count, open, children }: { title: string; count: number | string; open: () => void; children: ReactNode }) {
+  return <div id=""><div className="cc-sec"><h4><button type="button" className="dbtn lk" onClick={open}>{title}</button>{!!count && <span className="n">{count}</span>}</h4></div><div className="cc-panel">{children}</div></div>;
+}
+
+export function ProjectOverview({ run, prs, issues, prNote, issueNote, machines, terminals, session, openTile, openTerminal }: {
+  run: SplitItem[]; prs: SplitItem[]; issues: SplitItem[]; prNote: string | undefined; issueNote: string | undefined;
+  machines: TileData; terminals: TerminalRow[]; session: { host: HTMLElement | null; empty: string | null; count: number; freshness: Freshness | null };
+  openTile: (key: string) => void; openTerminal: (terminal: TerminalRow) => void;
+}) {
+  const rows = (items: SplitItem[]) => items.map(item => <OverviewRow key={item.key} item={item} openTile={openTile}/>);
+  const empty = (title: string, note: string | undefined) => <div id=""><div className="cc-sec"><h4>{title}</h4></div><div className="cc-panel cc-empty"><span>{note}</span></div></div>;
+  return <><div>
+    {!!run.length && <OverviewBox title="Running" count={run.length} open={() => openTile("running")}>{rows(run.slice(0, 5))}</OverviewBox>}
+    <div id="sec-sessions"><div className="cc-sec"><h4>Past sessions{!!session.count && <span className="n">{session.count}</span>}{session.freshness?.spin ? <span className="dspin sw-spin ss-updating" title="Updating"/> : session.freshness?.text ? <small className="sw-age ss-updating">{session.freshness.text}</small> : null}</h4></div>{session.host ? <RetainedSessions host={session.host}/> : <div className="cc-panel cc-empty"><span>{session.empty}</span></div>}</div>
+    {!!machines.rows.length && <OverviewBox title="Machines" count={machines.count} open={() => openTile("machines")}>{machines.rows.slice(0, 5).map((row, index) => <div key={row.id ?? index} className="cc-row cc-line" title={row.title || row.text || ""} onClick={() => openTile("machines")}><span className={`ddot${row.dot ? " off" : ""}`}/><button type="button" className="t" title={row.text || ""}><b>{row.text}</b><span>{row.note}</span></button><span className="r"/></div>)}</OverviewBox>}
+    {!!terminals.length && <OverviewBox title="Terminals" count={terminals.length} open={() => openTile("machines")}>{terminals.slice(0, 5).map(terminal => <div key={`${terminal.machine_id}:${terminal.id}`} className="cc-row cc-line" title={`${terminal.machine_name}: ${terminal.command} in ${terminal.cwd}`} onClick={() => openTerminal(terminal)}><span className={`ddot${terminal.state === "running" ? "" : " off"}`}/><button type="button" className="t" title={terminal.name}><b>{terminal.name}</b><span>{terminal.machine_name} · {terminalWhere(terminal)}</span></button><span className="r">{terminalNote(terminal, ago)}</span></div>)}</OverviewBox>}
+  </div><div>
+    {prs.length ? <OverviewBox title="Pull requests" count={prs.length} open={() => openTile(prs[0].key)}>{rows(prs.slice(0, 5))}</OverviewBox> : empty("Pull requests", prNote)}
+    {issues.length ? <div id=""><div className="cc-sec"><h4><button type="button" className="dbtn lk" onClick={() => openTile("issues")}>Issues</button><span className="n">{issues.length}</span></h4></div><div className="cc-panel pj-scroll pj-ov-issues">{rows(issues)}</div></div> : empty("Issues", issueNote)}
+  </div></>;
 }
 
 export function ProjectStatus({ cells, openTile }: { cells: readonly { label: string; text: string; key: string; bad?: boolean }[]; openTile: (key: string) => void }) {

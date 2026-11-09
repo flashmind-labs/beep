@@ -26,6 +26,16 @@ test("project running rows show status, metadata and recent order", async ({ pag
   const agent = (id: string, status: string, last: number) => ({ kind: 'agent', machine_id: 'build-box', machine_name: 'build-box', id, agent: 'codex', title: id, cwd: '/srv/project', status, doing: null, started_at: 1, last_activity: last, external: false, question: null });
   await openDesktop(page, false, { project_sessions: [], agent_sessions: [], center_home: { machines: [], projects: [project], running: [agent('Idle', 'idle', 1), agent('Waiting', 'asking', 2), agent('Starting', 'starting', 3)], needs_you: [], coming_up: null, updates: null } });
   await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projectName);
+  const overview = page.locator('.pj-ov');
+  const starting = overview.locator('.cc-line').filter({ hasText: 'Starting' });
+  await expect(starting.getByRole('img', { name: 'Starting' })).toBeVisible();
+  await expect(overview.locator('.cc-line').filter({ hasText: 'Waiting' })).toContainText('needs you');
+  const title = starting.locator('button.t');
+  await title.focus();
+  await title.evaluate(el => { (el as HTMLElement).dataset.identity = 'kept'; });
+  await page.locator('.pj-list .pj-li[title="Overview"]').evaluate(el => { (el as HTMLElement).click(); });
+  await expect(title).toHaveAttribute('data-identity', 'kept');
+  await expect(title).toBeFocused();
   await page.locator('.pj-list .pj-li[title="Running"]').click();
   const rows = page.locator('#sec-project-agents .cc-line');
   await expect(rows).toHaveCount(3);

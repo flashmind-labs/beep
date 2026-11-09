@@ -43,9 +43,18 @@ test("compact past sessions keep their height and scroll during refresh", async 
   await expect(list.locator('.pv-row')).toHaveCount(20);
   await expect.poll(() => list.evaluate(el => (el as HTMLElement).style.maxHeight)).not.toBe('');
   await list.evaluate(el => { el.scrollTop = el.scrollHeight; });
+  const row = list.locator('.pv-row').last();
+  await row.focus();
+  await row.evaluate(el => { (el as HTMLElement).dataset.identity = 'kept'; });
   const before = await list.evaluate(el => el.scrollTop);
   expect(before).toBeGreaterThan(0);
   await page.locator('.pj-list .pj-li[title="Overview"]').evaluate(el => { if (el instanceof HTMLElement) el.click(); });
   await expect(list).toHaveJSProperty('scrollTop', before);
+  await expect(row).toHaveAttribute('data-identity', 'kept');
+  await expect(row).toBeFocused();
   await expect.poll(() => list.evaluate(el => (el as HTMLElement).style.maxHeight)).not.toBe('');
+  await page.locator('.pj-list .pj-li[title="Running"]').click();
+  await page.locator('.pj-list .pj-li[title="Overview"]').click();
+  await expect(row).toHaveAttribute('data-identity', 'kept');
+  await expect(list).toHaveJSProperty('scrollTop', before);
 });
