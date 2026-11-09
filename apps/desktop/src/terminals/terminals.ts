@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { TerminalMachines } from "./machines-view.tsx";
+import { NewTerminalFields } from "./new-terminal-view.tsx";
 import { patchChildren } from "../ui/patch.ts";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // terminals/: terminals kept running on the machines, and the window's
@@ -11,7 +12,6 @@ import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts
 // with the window closed and can be attached to again.
 import type { invoke as Invoke, Channel as ChannelCtor } from "../ui/tauri.ts";
 import { emptyPanel } from "../ui/parts.ts";
-import { press } from "../ui/dom.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
 import type { TileData } from "../project/board.ts";
@@ -289,6 +289,7 @@ export function makeTerminals(deps: TerminalDeps) {
   const lives = new Map<string, Live>();
   let unfollow: (() => void) | undefined;
   let polling: string | null = null;
+  let formShell: { value: TerminalForm; host: HTMLFormElement; root: Root; canStart: boolean } | null = null;
   let machineShell: { list: HTMLElement; root: Root; panel: HTMLElement; right: HTMLElement | null } | null = null;
   let openShell: { id: string; name: string; link: boolean; panel: HTMLElement; head: HTMLElement; foot: HTMLElement; menu: MenuItem[] } | null = null;
   /// The project whose terminals view shows.
@@ -611,38 +612,22 @@ export function makeTerminals(deps: TerminalDeps) {
   function formView(places: TerminalPlace[]) {
     const t = of(ALL);
     const f = t.form!;
-    // A redraw while typing keeps the field and the caret.
-    const was = document.activeElement?.closest?.(".tm-form") ? document.activeElement : null;
-    const label = was?.getAttribute("aria-label"), caret = was instanceof HTMLInputElement ? was.selectionStart : undefined;
-    if (label) queueMicrotask(() => {
-      const again = document.querySelector<HTMLInputElement>(`.tm-form input[aria-label="${label}"]`);
-      again?.focus();
-      if (again && caret != null) again.setSelectionRange(caret, caret);
-    });
-    const input = (key: "command" | "name" | "cwd", label: string, ph: string) => {
-      const field = h("input", "");
-      field.value = f[key];
-      field.placeholder = ph;
-      field.spellcheck = false;
-      field.setAttribute("aria-label", label);
-      field.addEventListener("input", () => { f[key] = field.value; });
-      return h("label", "tm-f", h("span", "", label), field);
-    };
-    const chips = h("div", "tm-chips", ...places.map(m => {
-      return press(button(m.name, "dchip", () => { f.machine = m.id; redraw(); }), f.machine === m.id);
-    }));
-    const go = button(t.busy ? "Starting…" : "Open", "pri", () => {
-      if (f.machine) start(ALL, f);
-    });
-    go.disabled = t.busy || !places.length;
-    const machine = h("div", "tm-f", h("span", "", "Machine"), places.length ? chips : h("span", "dmuted", "No machine is online"));
-    const acts = h("div", "in-acts", go, button("Cancel", "quiet", () => { t.form = null; redraw(); }));
-    const form = h("form", "cc-panel tm-form", h("b", "tm-title", "New terminal"), machine,
-      input("cwd", "Folder", "Empty for the workspace or home folder"),
-      input("command", "Command", "Empty for your shell"),
-      input("name", "Name", "The command, or shell, when empty"), acts);
-    form.addEventListener("submit", e => { e.preventDefault(); go.click(); });
-    return form;
+    if (!formShell || formShell.value !== f) {
+      formShell?.root.unmount();
+      const host = h("form", "cc-panel tm-form");
+      host.addEventListener("submit", event => { event.preventDefault(); if (!t.busy && f.machine && formShell?.value === f && formShell.canStart) void start(ALL, f); });
+      formShell = { value: f, host, root: createRoot(host), canStart: places.length > 0 };
+    }
+    const current = formShell;
+    current.canStart = places.length > 0;
+    flushSync(() => current.root.render(createElement(NewTerminalFields, {
+      places, machine: f.machine, cwd: f.cwd, command: f.command, name: f.name, busy: t.busy,
+      choose: (machine: string) => { f.machine = machine; redraw(); },
+      change: (field: "cwd" | "command" | "name", value: string) => { f[field] = value; },
+      start: () => { if (!t.busy && f.machine) void start(ALL, f); },
+      cancel: () => { t.form = null; redraw(); },
+    })));
+    return current.host;
   }
 
   /// The open terminal: its live screen, or the last lines of a view-only one.
@@ -788,6 +773,7 @@ export function makeTerminals(deps: TerminalDeps) {
     flushSync(() => shell.root.render(createElement(TerminalMachines, { groups, selected: t.open, ago, open: (id: string) => select(ALL, id), create: (id: string) => newOn(id) })));
     let right: HTMLElement;
     const open = t.open && (t.list || []).find(x => x.id === t.open);
+    if (!t.form && formShell) { formShell.root.unmount(); formShell = null; }
 
     if (t.form) {
       watch(null);
@@ -821,6 +807,6 @@ export function makeTerminals(deps: TerminalDeps) {
     show: (id: string) => select(ALL, id),
     /// Closes the open terminal or form on the Terminals page, back to its list.
     unselect: () => { const t = of(ALL); t.open = null; t.form = null; redraw(); },
-    stop: () => { watch(null); dropAll(); machineShell?.root.unmount(); machineShell = null; openShell = null; shown = null; },
+    stop: () => { watch(null); dropAll(); machineShell?.root.unmount(); machineShell = null; formShell?.root.unmount(); formShell = null; openShell = null; shown = null; },
   };
 }

@@ -66,3 +66,57 @@ test("terminal switching reuses screens and stopping requires confirmation", asy
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminal_detach").length)).toBe(2);
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminal_close").length)).toBe(0);
 });
+
+test("new terminal form retains draft and caret through refresh and starts once", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+  const machine = { id: "build-box", name: "Build box", online: true, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null };
+  const terminal = { id: "new-terminal", project: "", machine_id: "build-box", machine_name: "Build box", name: "my shell", command: "printf test", cwd: "/srv/project", state: "running", code: null, started_at: 1 };
+  await openDesktop(page, false, { center_home: { machines: [machine], projects: [], running: [], needs_you: [], coming_up: null, updates: null }, terminals_all: [], terminal_open: terminal });
+  await page.evaluate(() => window.__navigation.open("terminals"));
+  await page.getByRole("button", { name: "New terminal", exact: true }).first().click();
+  const form = page.locator(".tm-form"), command = form.getByRole("textbox", { name: "Command" });
+  await command.fill("printf test");
+  await command.evaluate(element => { if (element instanceof HTMLInputElement) { element.dataset.identity = "kept"; element.setSelectionRange(3, 3); } });
+  await form.getByRole("textbox", { name: "Name" }).fill("my shell");
+  await command.focus();
+  await command.evaluate(element => { if (element instanceof HTMLInputElement) element.setSelectionRange(3, 3); });
+  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminals_all").length);
+  await page.evaluate(() => window.__navigation.notify("terminals"));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminals_all").length)).toBeGreaterThan(reads);
+  await expect(command).toHaveAttribute("data-identity", "kept");
+  await expect(command).toBeFocused();
+  await expect(command).toHaveJSProperty("selectionStart", 3);
+  await expect(command).toHaveValue("printf test");
+  await page.evaluate(() => window.__navigation.hold("terminal_open"));
+  await form.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(form.getByRole("button", { name: "Starting…" })).toBeDisabled();
+  await form.dispatchEvent("submit", { bubbles: true, cancelable: true });
+  await form.dispatchEvent("submit", { bubbles: true, cancelable: true });
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminal_open").length)).toBe(1);
+  await page.evaluate(() => window.__navigation.release("terminal_open"));
+  await expect(page.locator(".tm-panel .xterm-screen")).toBeVisible();
+  expect(await page.evaluate(() => window.__navigation.calls().find(call => call.command === "terminal_open")?.args.terminal)).toMatchObject({ machineId: "build-box", name: "my shell", command: "printf test" });
+  await page.getByRole("button", { name: "New terminal", exact: true }).first().click();
+  await page.locator(".tm-form").getByRole("button", { name: "Cancel" }).click();
+  await expect(page.locator(".tm-form")).toHaveCount(0);
+  expect(errors.filter(message => message.includes("unmount") || message.includes("flushSync"))).toEqual([]);
+});
+
+test("new terminal cannot submit after its machine goes offline", async ({ page }) => {
+  const machine = { id: "build-box", name: "Build box", online: true, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null };
+  const home = { machines: [machine], projects: [], running: [], needs_you: [], coming_up: null, updates: null };
+  await openDesktop(page, false, { center_home: home, terminals_all: [] });
+  await page.evaluate(() => window.__navigation.open("terminals"));
+  await page.getByRole("button", { name: "New terminal", exact: true }).first().click();
+  const form = page.locator(".tm-form");
+  await expect(form.getByRole("button", { name: "Build box" })).toHaveAttribute("aria-pressed", "true");
+  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_home").length);
+  await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, { ...home, machines: [{ ...machine, online: false }] });
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_home").length)).toBeGreaterThan(reads);
+  await page.evaluate(() => window.__navigation.notify("terminals"));
+  await expect(form.getByText("No machine is online")).toBeVisible();
+  await expect(form.getByRole("button", { name: "Open", exact: true })).toBeDisabled();
+  await form.dispatchEvent("submit", { bubbles: true, cancelable: true });
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminal_open").length)).toBe(0);
+});
