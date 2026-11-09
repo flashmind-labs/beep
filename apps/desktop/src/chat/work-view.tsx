@@ -30,7 +30,7 @@ interface ReplyActions { copy: boolean; rerun: boolean; agent: string | null }
 interface ApprovalView { app: string; action: string; fields: ApprovalField[]; grant: boolean; answer: (decision: Decision) => void }
 type StatusNotice = { kind: "label"; message: string } | { kind: "error"; message: string } | { kind: "stopped"; message: string; retry: boolean };
 interface TurnFrame { prompt: boolean; pictures: boolean }
-interface Owner { menus: Map<HTMLElement, { key: number; value: RerunView }>; coders: Map<HTMLElement, { key: number; view: ReactElement }>; routes: Map<HTMLElement, { key: number; callId: string }>; frames: Map<HTMLElement, { key: number; value: TurnFrame; setTurn(element: HTMLDivElement | null): void }>; host: HTMLElement | null; body: ChatBody | null; setBody(element: HTMLDivElement | null): void; charts: Map<ChartCard, { key: number; chart: Chart }>; notices: Map<HTMLElement, { key: number; value: StatusNotice }>; products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
+interface Owner { disposed: boolean; menus: Map<HTMLElement, { key: number; value: RerunView }>; coders: Map<HTMLElement, { key: number; view: ReactElement }>; routes: Map<HTMLElement, { key: number; callId: string }>; frames: Map<HTMLElement, { key: number; value: TurnFrame; setTurn(element: HTMLDivElement | null): void }>; host: HTMLElement | null; body: ChatBody | null; setBody(element: HTMLDivElement | null): void; charts: Map<ChartCard, { key: number; chart: Chart }>; notices: Map<HTMLElement, { key: number; value: StatusNotice }>; products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
 // A retained chat body owns all its portals, including detached turns while
 // history is merged. Transfer moved hosts before discarding the fresh turn.
 const owners = new WeakMap<ChatBody, Owner>();
@@ -161,6 +161,7 @@ const Work = memo(function Work({ value }: { value: WorkView }) {
   return <>{value.heading && <AgentTurnHeading value={value.heading} />}{value.thought && <Thought value={value.thought} />}{value.steps.map(step => <WorkStepRow key={step.key} step={step} />)}{value.live && <LiveLine value={value.live} />}</>;
 });
 function draw(owner: Owner) {
+  if (owner.disposed) return;
   flushSync(() => owner.root.render(createElement(Fragment, null,
     owner.host ? createElement("div", { key: "body", className: "dbody", id: "body", ref: owner.setBody }) : null,
     ...[...owner.frames].map(([host, row]) => createPortal(createElement("div", { className: "turn dcoderlog", ref: row.setTurn }, row.value.prompt ? createElement("div", { className: "dcoderen user", key: "prompt" }) : null, row.value.pictures ? createElement("div", { className: "dpics", key: "pictures" }) : null, createElement("template", { key: "anchor", "data-chat-anchor": "" })), host, row.key)),
@@ -184,13 +185,35 @@ function draw(owner: Owner) {
 }
 function makeOwner(host: HTMLElement | null): Owner {
   const container = host ?? document.createElement("div");
-  const owner: Owner = { menus: new Map(), coders: new Map(), routes: new Map(), frames: new Map(), host, body: null, setBody: element => { owner.body = element; }, charts: new Map(), notices: new Map(), products: new Map(), replyPictures: new Map(), sentFiles: new Map(), pictures: new Map(), files: new Map(), root: createRoot(container), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 };
+  const owner: Owner = { disposed: false, menus: new Map(), coders: new Map(), routes: new Map(), frames: new Map(), host, body: null, setBody: element => { owner.body = element; }, charts: new Map(), notices: new Map(), products: new Map(), replyPictures: new Map(), sentFiles: new Map(), pictures: new Map(), files: new Map(), root: createRoot(container), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 };
   return owner;
 }
 function ownerOf(body: ChatBody) {
   let owner = owners.get(body);
   if (!owner) { owner = makeOwner(null); owners.set(body, owner); }
   return owner;
+}
+/// A detached live body stays owned; only cache eviction releases its root.
+export function disposeChatBody(body: ChatBody) {
+  const owner = owners.get(body);
+  if (!owner || owner.disposed) return;
+  owner.disposed = true;
+  for (const box of owner.prompts.keys()) {
+    const waiting = promptPending.get(box);
+    if (waiting) { document.removeEventListener("selectionchange", waiting.resume); promptPending.delete(box); }
+  }
+  for (const box of owner.replies.keys()) {
+    const waiting = replyPending.get(box);
+    if (waiting) { document.removeEventListener("selectionchange", waiting.resume); replyPending.delete(box); }
+  }
+  for (const box of owner.rows.keys()) {
+    const waiting = pending.get(box);
+    if (waiting) { document.removeEventListener("selectionchange", waiting.resume); pending.delete(box); }
+  }
+  owner.root.unmount();
+  owner.frames.clear(); owner.menus.clear(); owner.coders.clear(); owner.routes.clear(); owner.charts.clear(); owner.notices.clear();
+  owner.products.clear(); owner.replyPictures.clear(); owner.sentFiles.clear(); owner.pictures.clear(); owner.files.clear();
+  owner.sources.clear(); owner.actions.clear(); owner.approvals.clear(); owner.prompts.clear(); owner.suggestions.clear(); owner.rows.clear(); owner.replies.clear();
 }
 export function createChatBody(): ChatBody {
   const host = document.createElement("div");

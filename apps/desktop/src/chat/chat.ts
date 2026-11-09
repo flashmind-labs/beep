@@ -6,13 +6,13 @@ import { flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
 import { conversation } from "./conversation.ts";
 import { ChatShell } from "./chat-shell.tsx";
-import { createChatBody, createChatTurn, discardChatApproval, discardChatNotice, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatNotice, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkStep, type WorkThought, type WorkView } from "./work-view.tsx";
+import { createChatBody, createChatTurn, disposeChatBody, discardChatApproval, discardChatNotice, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatNotice, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkStep, type WorkThought, type WorkView } from "./work-view.tsx";
 import { drawAgentButton } from "../agents/agents.ts";
 import { askFiles, attach, attached, attachError, drawAttached, unattach } from "./attach.ts";
 import type { AskFile } from "./attach.ts";
 import { type Chart, chartRow } from "./charts.ts";
 import { drawChats, loadChats, touch } from "./chats.ts";
-import { coderCard, resumeCoderCards } from "./codercard.ts";
+import { coderCard, disposeCoderCards, resumeCoderCards } from "./codercard.ts";
 import { composeField } from "./compose.ts";
 import { $, $$, bar, changed, entry, here, live, newId, PANE, queued, S, stopping } from "../bar/core.ts";
 import { renderAgentNew } from "../agents/agentnew.ts";
@@ -31,7 +31,7 @@ import { routeRow } from "./routes.ts";
 import { DESCRIBED, doneLabel, QUIET_TOOLS, toolLabel } from "./tools.ts";
 import { attachLive, endLive, trackLive } from "../agents/thoughtlive.ts";
 import { followsAfterScroll, returnScroll } from "../agents/logscroll.ts";
-import { followEnd } from "../ui/followend.ts";
+import { followEnd, unfollowEnd } from "../ui/followend.ts";
 import { answerHtml, errorCardHtml, tickTurns, toggleThought, turnHeadHtml, userRowHtml } from "../agents/turnrows.ts";
 import { esc, linkified, plural } from "../ui/format.ts";
 import type { ToolKind } from "../agents/agentturns.ts";
@@ -106,6 +106,25 @@ interface PromptMap extends HTMLElement {
   early?: number;
 }
 
+const retiringBodies = new WeakSet<ChatBody>();
+
+function evictBody(body: ChatBody) {
+  retiringBodies.delete(body);
+  disposeCoderCards(body);
+  unfollowEnd(body);
+  disposeChatBody(body);
+}
+
+/// A cached live body may be detached; release it only when the entry goes.
+export function forgetChat(id: string | null) {
+  const entry = live.get(id), cached = entry?.body;
+  live.delete(id);
+  if (!cached) return;
+  // A removed entry can still have an in-flight stream using its turn.
+  if (entry?.run) retiringBodies.add(cached);
+  else if (!cached.isConnected && ![...live.values()].some(entry => entry.body === cached)) evictBody(cached);
+}
+
 let chatShell: { host: HTMLElement; root: import("react-dom/client").Root; body: ChatBody; hints: string } | null = null;
 
 export function renderChat() {
@@ -120,6 +139,7 @@ export function renderChat() {
   let host: HTMLElement | null = null;
   const page = openBarPage(() => {
     chatShell = null;
+    if (!retiringBodies.has(chatBody) && ![...live.values()].some(entry => entry.body === chatBody)) evictBody(chatBody);
     if (host?.parentElement !== bar) return;
     host.querySelector("#ldock")?.remove();
     host.querySelector(".lsheet")?.remove();
@@ -500,9 +520,14 @@ export function finish(id: string | null, turn: Turn) {
   if (turnState(turn).user) loadTurnAgent(id, turn);
   const e = live.get(id);
 
-  if (e) {
+  if (e?.run?.turn === turn) {
     e.run = null;
-    if (!e.approval) live.delete(id);
+    if (!e.approval) forgetChat(id);
+  }
+  const completedBody = owningChatBody(turn);
+  if (completedBody && retiringBodies.has(completedBody)) {
+    retiringBodies.delete(completedBody);
+    if (!completedBody.isConnected && ![...live.values()].some(entry => entry.body === completedBody)) evictBody(completedBody);
   }
 
   // The window's sidebar stops its spinner.
