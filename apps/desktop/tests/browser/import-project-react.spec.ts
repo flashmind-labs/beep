@@ -147,3 +147,19 @@ test("add folder restores focus and ignores an older branch read", async ({ page
   await page.evaluate(() => { window.__navigation.respond("folder_branch", "old"); window.__navigation.release("folder_branch"); });
   await expect(sheet.getByText(/Branch new/)).toBeVisible();
 });
+
+test("add folder only opens the local picker when requested", async ({ page }) => {
+  const local = { ...machine, id: "local", name: "Local machine" };
+  await openDesktop(page, false, { center_home: { ...home, machines: [local, machine] }, mac_control: { id: "local" }, list_machine_folder: folder, pick_folder: null });
+  await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
+  await page.getByRole("dialog", { name: "Add a project" }).getByRole("button", { name: "Choose folder" }).click();
+  const sheet = page.getByRole("dialog", { name: "Add a folder" });
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "pick_folder").length)).toBe(0);
+  await sheet.getByRole("button", { name: "Choose…" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "pick_folder").length)).toBe(1);
+  await sheet.getByRole("button", { name: "Build box", exact: true }).click();
+  await sheet.getByRole("button", { name: "Choose…" }).click();
+  await expect(sheet.locator(".ip-browse")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "list_machine_folder").map(call => call.args))).toEqual([{ machineId: "one", path: null }]);
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "pick_folder").length)).toBe(1);
+});
