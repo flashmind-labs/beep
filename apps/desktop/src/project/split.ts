@@ -28,7 +28,7 @@ import { homeBox, runningStatus } from "../center/home.ts";
 import { terminalLine } from "../terminals/view.ts";
 import { go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
-import { agentsSection, customAgentsCount, customAgentsSection, disposeCustomAgents, disposeOverview, whereSection } from "./projects.ts";
+import { agentsSection, customAgentsCount, customAgentsSection, disposeCustomAgents, disposeOverview, disposeRunningAgents, whereSection } from "./projects.ts";
 import { pa, terms, fsync, revs, gitHistory, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsSection, sessionsList, sessionsDue, loadSessions } from "./loads.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
@@ -90,6 +90,7 @@ export function openTile(key: string | null, draw = true) {
   if (!draw && key === null) {
     disposeCustomAgents();
     disposeOverview();
+    disposeRunningAgents();
     if (shell) { shell.navRoot.unmount(); shell.stripRoot.unmount(); shell.issuesRoot.unmount(); shell.tasksRoot.unmount(); shell = null; }
   }
   pa.tile = key === "sync" || key === "terminals" ? "machines" : key;
