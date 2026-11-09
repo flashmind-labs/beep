@@ -2,18 +2,20 @@ import { onPhone } from "../ui/platform.ts";
 // project/: the Projects page and one project's page (tasks, threads, runs,
 // file sync, custom agents, the agent bar). Entry: this file's view.
 // The Projects page: drawing it, and the project rows Home lists.
-import { dbtn as button, emptyPanel, svgEl as icon } from "../ui/parts.ts";
+import { emptyPanel } from "../ui/parts.ts";
 import { filterProjects, whereRows, forgeLinks, projectLine, overviewGroups, overviewSub, REMOVE_PROJECT, type Project } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { openProjectMenu } from "./syncthing.ts";
-import { editorTools } from "./editors.ts";
+import { editorsFor } from "./editors.ts";
+import { ProjectEditors } from "./header-view.tsx";
+import { createElement, type ReactNode } from "react";
 import { NEW_WINDOW } from "./projectwindow.ts";
 import { agentFor, pageAgent } from "./agent.ts";
 import { state, pages, warm } from "../center/state.ts";
 import { openUrl } from "../center/openitems.ts";
 import { registerView, windowProject } from "../center/views.ts";
-import { setProjectOnTop, openProjectWindow, removeProject, projectRows, openProjects, loadFound } from "../center/sidebar.ts";
+import { setProjectOnTop, openProjectWindow, removeProject, projectRows, openProjects, loadFound, addProject } from "../center/sidebar.ts";
 import { editGroup } from "./groups.ts";
 import { importButton, overviewSection, loadOverview, projectDetail } from "./projects.ts";
 import { splitOn, openTile, projectPanel } from "./split.ts";
@@ -124,41 +126,37 @@ registerView("projects", {
       const rows = projectRows();
       const sub = rows?.length ? overviewSub(overviewGroups(rows, state.overview, state.top, state.groups)) : "Repositories on your machines";
       // Group controls follow mesh support, independently of task summaries.
-      const tools = state.groups ? [button("", "small", () => editGroup())] : [];
-      if (tools.length) tools[0].append(icon(IC.folder)!, " New group");
-      return { title: "Projects", sub, tools: [...tools, importButton("small")] };
+      const tools = [state.groups ? createElement("button", { key: "group", type: "button", className: "dbtn small", onClick: () => editGroup() }, createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.folder } }), " New group") : null,
+        createElement("button", { key: "add", type: "button", className: "dbtn small", onClick: addProject }, createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.plus } }), " Add a project")];
+      return { title: "Projects", sub, reactTools: tools };
     }
 
     const p = filterProjects(projectRows() || [], state.picked)[0];
-    const tools = [];
+    const tools: ReactNode[] = [];
 
     if (p) {
       const agent = pageAgent(state.agents, p.name, state.subscribed);
 
       for (const f of forgeLinks(p.url, agent ? runs.hosts(agent.project_id) : null)) {
-        const b = button(f.label, "small", () => openUrl(f.url));
-        b.title = f.url;
-        tools.push(b);
+        tools.push(createElement("button", { key: `forge:${f.url}`, type: "button", className: "dbtn small", title: f.url, onClick: () => openUrl(f.url) }, f.label));
       }
 
       const here = whereRows(p, state.where.get(p.name) || null, state.mac?.id || null).find(r => r.mac && r.folder);
-      tools.push(...editorTools(here?.folder, redrawProjectsPage));
+      const editors = editorsFor(here?.folder, redrawProjectsPage);
+      if (here?.folder && editors.length) tools.push(createElement(ProjectEditors, { key: "editors", editors, folder: here.folder }));
       // The rest goes in one menu, so the header keeps to a line.
-      const more = button("⋯", "quiet small", e => {
+      tools.push(createElement("button", { key: "more", type: "button", className: "dbtn quiet small", title: "More", "aria-label": "More", onClick: (event: React.MouseEvent) => {
         const project = (projectRows() || []).find(row => row.name === p.name) ?? p;
         const on = state.top.includes(project.name);
         const items: MenuItem[] = [{ label: on ? "Unpin" : "Pin", on: () => setProjectOnTop(project.name, !on) }];
         if (!windowProject) items.push(...(onPhone() ? [] : [{ label: NEW_WINDOW, on: () => openProjectWindow(project.name) }]), { label: "All projects", on: () => openProjects() });
         if (project.imported) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(project.name) });
-        if (project.imported) openProjectMenu(e, project, items, () => { whereDue.add(project.name); revalidate(project.name); });
-        else openMenu(e, project.name, items);
-      });
-      more.title = "More";
-      more.setAttribute("aria-label", "More");
-      tools.push(more);
+        if (project.imported) openProjectMenu(event.nativeEvent, project, items, () => { whereDue.add(project.name); revalidate(project.name); });
+        else openMenu(event.nativeEvent, project.name, items);
+      } }, "⋯"));
     }
 
-    return { title: state.picked, sub: projectLine(p), tools };
+    return { title: state.picked, sub: projectLine(p), reactTools: tools };
   },
   mount(el, arg) {
     state.picked = arg?.project || null;

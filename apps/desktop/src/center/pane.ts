@@ -1,15 +1,14 @@
 // The bar's page as a pane in the window: its header, and handoffs from
 // other windows.
-import { dbtn as button } from "../ui/parts.ts";
+import { createElement } from "react";
 import { invoke, listen } from "../ui/tauri.ts";
 import { pane } from "../bar/pane.ts";
 import type { View } from "../bar/core.ts";
-import { el as h } from "../ui/dom.ts";
 import type { CenterTarget } from "../project/projectwindow.ts";
 import { chatProject, shortName, type ProjectAgent } from "../project/agent.ts";
 import { askBeep } from "./center.ts";
 import { type ViewHead, state } from "./state.ts";
-import { projectDot } from "../ui/pieces.ts";
+import { PROJECT_COLORS } from "../ui/icons.ts";
 import { startedWhen } from "./home.ts";
 import { currentLocation, go, drawTop, openResearch } from "./views.ts";
 import { paneOn, chatList, projectRows, openProjects } from "./sidebar.ts";
@@ -52,16 +51,16 @@ export function paneTitle(): ViewHead {
     const at = pane.startedAt();
     const thread = on.session ? threadChats?.get(on.session) : undefined;
     if (thread) return threadHead(thread, c);
-    return { title: c?.title ?? "New chat", sub: at ? `Started ${startedWhen(at)}` : "", tools: c ? [pinButton(c)] : [], scope: scopeTag(on.session) };
+    return { title: c?.title ?? "New chat", sub: at ? `Started ${startedWhen(at)}` : "", reactTools: c ? pinButton(c) : null, reactScope: scopeTag(on.session) };
   }
 
   if (on.group) {
     const g = chatList.find(x => x.id === on.group);
-    return { title: g?.title ?? "Group", tools: g ? [pinButton(g)] : [] };
+    return { title: g?.title ?? "Group", reactTools: g ? pinButton(g) : null };
   }
 
   const [title, sub] = (on.view ? PANE_TITLES[on.view] : null) ?? ["Beep", ""];
-  if (on.view === "agentnew") return { title, sub, tools: [button("All sessions", "small", () => go("pane", "agents"))] };
+  if (on.view === "agentnew") return { title, sub, reactTools: createElement("button", { type: "button", className: "dbtn small", onClick: () => go("pane", "agents") }, "All sessions") };
   return { title, sub };
 }
 
@@ -71,13 +70,10 @@ export function scopeTag(session: string | null) {
   // A chat about one thread runs as its project's agent too.
   const thread = session ? threadChats?.get(session) : undefined;
   const agent = chatProject(state.agents, session) ?? (thread ? { name: thread.project } : null);
-  if (!agent) return h("span", "chip", "General");
+  if (!agent) return createElement("span", { className: "chip" }, "General");
   const i = (projectRows() || []).findIndex(p => p.name === agent.name);
-  const b = h("button", "chip pj-scope", projectDot(i >= 0 ? i : undefined), shortName(agent.name));
-  b.type = "button";
-  b.title = `${agent.name}: open the project`;
-  b.addEventListener("click", () => openProjects(agent.name));
-  return b;
+  return createElement("button", { type: "button", className: "chip pj-scope", title: `${agent.name}: open the project`, onClick: () => openProjects(agent.name) },
+    createElement("span", { className: "cc-pdot", style: i >= 0 ? { background: PROJECT_COLORS[i % PROJECT_COLORS.length] } : undefined }), shortName(agent.name));
 }
 
 /// The project agents alone, so a chat's header knows its project before

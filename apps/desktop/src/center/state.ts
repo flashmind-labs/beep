@@ -51,7 +51,7 @@ export interface RunAt { id: number; host: string }
 export interface ResearchArg { session: string }
 
 /// A view's header: its title and line, buttons, and an element beside the title.
-export interface ViewHead { title: string; sub?: string; tools?: Node[]; scope?: Node }
+export interface ViewHead { title: string; sub?: string; tools?: Node[]; scope?: Node; reactTools?: ReactNode; reactScope?: ReactNode }
 
 export interface CenterView<K extends ViewName = ViewName> {
   el?: HTMLElement;
