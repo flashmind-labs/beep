@@ -156,7 +156,6 @@ export function reloadFolder(dir: string) {
 
 /// Reads every folder the tree was read from again, in place.
 async function refresh() {
-  closeFilesMenu();
   const key = F.key, generation = F.generation;
   F.fresh = true;
   const roots = [...new Set([...F.roots, ...F.reading])];
