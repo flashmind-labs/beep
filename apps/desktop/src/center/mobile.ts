@@ -139,25 +139,53 @@ function longPress() {
   }, true);
 }
 
-const HIDE_KEYBOARD = "M4 7h16v8H4z M7 10h.1M10 10h.1M13 10h.1M16 10h.1M8 13h8 M9 18l3 3 3-3";
+/// Tabler's keyboard-hide icon (MIT).
+const HIDE_KEYBOARD = "M2 5a2 2 0 0 1 2 -2h16a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-16a2 2 0 0 1 -2 -2l0 -8 M6 7l0 .01 M10 7l0 .01 M14 7l0 .01 M18 7l0 .01 M6 11l0 .01 M18 11l0 .01 M10 11l4 0 M10 21l2 -2l2 2";
 
-/// The soft keyboard takes the tab bar's place instead of squeezing the page. While it is up,
-/// the composer being typed in shows a button that puts it away.
+const TEXT_FIELD = "textarea, input:not([type]), input[type=text], input[type=search], input[type=url], input[type=email], [contenteditable=true]";
+
+/// The soft keyboard takes the tab bar's place instead of squeezing the page, and the window
+/// shrinks to what the keyboard leaves visible, so the composer sits right on top of it.
+/// While it is up, the composer being typed in shows a button that puts it away, and dragging
+/// the page down puts it away too.
 function keyboard() {
   const vv = window.visualViewport;
   if (!vv) return;
-  const check = () => document.body.classList.toggle("mb-kbd", window.innerHeight - vv.height > 150);
+  const touch = window.matchMedia("(pointer: coarse)");
+  const typing = () => document.activeElement instanceof Element && document.activeElement.matches(TEXT_FIELD);
+  const check = () => {
+    const up = window.innerHeight - vv.height > 150 || (touch.matches && typing());
+    document.body.classList.toggle("mb-kbd", up);
+    const root = document.documentElement.style;
+    root.setProperty("--mb-vv-top", `${vv.offsetTop}px`);
+    root.setProperty("--mb-vv-height", `${vv.height}px`);
+  };
   vv.addEventListener("resize", check);
+  vv.addEventListener("scroll", check);
+  document.addEventListener("focusin", check);
+  document.addEventListener("focusout", () => requestAnimationFrame(check));
+  const dismiss = () => (document.activeElement as HTMLElement | null)?.blur();
+
   const hide = h("button", "mb-kbdhide", svg(HIDE_KEYBOARD, 20));
   hide.type = "button";
   hide.setAttribute("aria-label", "Hide the keyboard");
   // Pressing it must not take the focus first, or the field loses it before the tap lands.
   hide.addEventListener("pointerdown", e => e.preventDefault());
-  hide.addEventListener("click", () => (document.activeElement as HTMLElement | null)?.blur());
+  hide.addEventListener("click", dismiss);
   document.addEventListener("focusin", e => {
     const field = e.target instanceof Element ? e.target.closest(".dinput") : null;
     if (field && hide.parentElement !== field) field.append(hide);
   });
+
+  // A downward drag outside the field, as when scrolling back through the log.
+  let startY: number | null = null;
+  document.addEventListener("touchstart", e => {
+    const inField = e.target instanceof Element && e.target.closest(".dinput");
+    startY = inField || !typing() ? null : e.touches[0].clientY;
+  }, { passive: true });
+  document.addEventListener("touchmove", e => {
+    if (startY !== null && e.touches[0].clientY - startY > 40) { startY = null; dismiss(); }
+  }, { passive: true });
 }
 
 /// Tooltips that name a shortcut lose it; the key handlers stay for a connected keyboard.
