@@ -92,3 +92,19 @@ test("attachment updates keep the chat draft and focus", async ({ page }) => {
   await expect(ask).toHaveValue("A draft");
   await expect(ask).toBeFocused();
 });
+
+test("running chat retains its React-owned body across bar navigation", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: "chat-example" }, open_session: [], session_agents: [], session_files: [], session_sources: [], list_questions: [], list_researches: [] });
+  await page.goto("https://app.test/index.html");
+  await page.evaluate(() => { const invoke = window.__TAURI__.core.invoke; window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => command === "send_prompt" ? new Promise<T>(() => {}) : invoke<T>(command, args); });
+  await page.evaluate(() => window.__navigation.emit("bar-shown", "open"));
+  await page.locator("#ask").fill("Running request");
+  await page.locator("#ask").press("Enter");
+  await expect(page.locator("#stopRun")).toBeVisible();
+  await page.locator("#body").evaluate(el => Reflect.set(window, "runningChatBody", el));
+  await page.evaluate(() => window.__navigation.emit("bar-shown", "research"));
+  await expect(page.getByPlaceholder("What should the team research?")).toBeVisible();
+  await page.evaluate(() => window.__navigation.emit("bar-shown", "open"));
+  await expect(page.locator("#body")).toContainText("Running request");
+  expect(await page.locator("#body").evaluate(el => el === Reflect.get(window, "runningChatBody"))).toBe(true);
+});
