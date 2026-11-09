@@ -11,7 +11,7 @@ pub(super) struct Store(Connection);
 
 pub(super) struct Found {
     pub session: MachineSession,
-    pub text: String,
+    pub texts: Vec<String>,
 }
 
 enum Owner {
@@ -316,30 +316,50 @@ impl Store {
             return Ok(Vec::new());
         }
 
-        let (condition, needle) = if query.chars().count() < 3 {
-            ("instr(prompt_texts.words, ?1)>0", query)
-        } else {
-            (
-                "prompt_texts.id IN (SELECT rowid FROM prompt_search WHERE words MATCH ?1)",
-                format!("\"{}\"", query.replace('"', "\"\"")),
-            )
-        };
-        let sql = format!(
-            "SELECT sessions.data,prompt_texts.text FROM prompt_texts
-             JOIN sessions ON sessions.id=prompt_texts.session
-             WHERE {condition} AND (?2 IS NULL OR json_extract(sessions.data,'$.machine_id') IN (SELECT value FROM json_each(?2)))
-             GROUP BY sessions.id ORDER BY sessions.activity DESC,sessions.id LIMIT 64"
-        );
-        let mut read = self.0.prepare(&sql)?;
+        let terms: BTreeSet<_> = query.split_whitespace().collect();
+        let mut needles = Vec::new();
+        let mut conditions = Vec::new();
+
+        for term in &terms {
+            let parameter = needles.len() + 1;
+            let condition = if term.chars().count() < 3 {
+                needles.push(term.to_string());
+                format!("instr(words, ?{parameter})>0")
+            } else {
+                needles.push(format!("\"{}\"", term.replace('"', "\"\"")));
+                format!("id IN (SELECT rowid FROM prompt_search WHERE words MATCH ?{parameter})")
+            };
+            conditions.push(format!(
+                "sessions.id IN (SELECT session FROM prompt_texts WHERE {condition})"
+            ));
+        }
+
+        let machine_parameter = needles.len() + 1;
         let machines = machines.map(serde_json::to_string).transpose()?;
-        let rows = read.query_map(params![needle, machines], |row| {
+        let sql = format!(
+            "SELECT sessions.id,sessions.data FROM sessions
+             WHERE {} AND (?{machine_parameter} IS NULL OR json_extract(sessions.data,'$.machine_id') IN (SELECT value FROM json_each(?{machine_parameter})))
+             ORDER BY sessions.activity DESC,sessions.id LIMIT 64",
+            conditions.join(" AND ")
+        );
+        let mut parameters: Vec<Option<String>> = needles.into_iter().map(Some).collect();
+        parameters.push(machines);
+        let mut read = self.0.prepare(&sql)?;
+        let rows = read.query_map(rusqlite::params_from_iter(parameters), |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
+        let mut excerpts = self.0.prepare(
+            "SELECT text FROM prompt_texts WHERE session=?1 AND instr(words,?2)>0 ORDER BY id LIMIT 1"
+        )?;
         rows.map(|row| {
-            let (data, text) = row?;
+            let (id, data) = row?;
+            let texts = terms
+                .iter()
+                .map(|term| excerpts.query_row(params![id, term], |row| row.get(0)))
+                .collect::<rusqlite::Result<Vec<String>>>()?;
             Ok(Found {
                 session: serde_json::from_str(&data)?,
-                text,
+                texts,
             })
         })
         .collect()

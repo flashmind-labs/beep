@@ -4,6 +4,13 @@ import { gfm } from "turndown-plugin-gfm";
 const markdown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
 markdown.use(gfm);
 
+export function quotedMarkdown(quote: Element): string {
+  const container = document.createElement("div");
+  container.innerHTML = quote.innerHTML;
+  container.querySelectorAll("button").forEach(button => button.remove());
+  return markdown.turndown(container);
+}
+
 function output(node: Node | null): Element | null {
   const el = node instanceof Element ? node : node?.parentElement;
   return el?.closest(".dcoderen.agent.md") ?? null;

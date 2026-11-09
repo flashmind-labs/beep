@@ -31,3 +31,6 @@
 .ctl.plus{width:34px;justify-content:center;padding:0}
 .grow{flex:1}
 .caret{display:inline-block;width:2px;height:18px;background:var(--accent);vertical-align:-4px}
+
+.log blockquote { margin: 0; padding-left: 10px; border-left: 2px solid var(--border); color: var(--muted) }
+.log blockquote + button { align-self: flex-start; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); padding: 8px; cursor: pointer }

@@ -36,6 +36,18 @@ pub(crate) fn command(program: impl AsRef<OsStr>) -> Command {
     Command::new(program)
 }
 
+/// Starts a background probe without opening a console on Windows.
+pub(crate) fn probe(program: impl AsRef<OsStr>) -> Command {
+    let command = command(program);
+    #[cfg(windows)]
+    let command = {
+        let mut command = command;
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+        command
+    };
+    command
+}
+
 /// Makes `command` start in a group of its own, for `GroupLeader`.
 pub(crate) fn own_group(command: &mut Command) -> &mut Command {
     imp::own_group(command)

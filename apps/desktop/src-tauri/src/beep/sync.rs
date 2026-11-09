@@ -298,17 +298,29 @@ impl Chats {
             .filter(|chat| matches!(chat.kind, ChatKind::Session {}))
             .filter(|chat| !synced.alerts.contains(&chat.id))
             .filter_map(|chat| {
-                let (snippet, from_user) = synced.messages.get(&chat.id)?.values().rev().find_map(
-                    |message| match &message.body {
-                        MessageBody::User { content, .. } => {
-                            Some((match_snippet(content, query)?, true))
-                        }
-                        MessageBody::Assistant { content } => {
-                            Some((match_snippet(content, query)?, false))
-                        }
-                        _ => None,
-                    },
-                )?;
+                let messages = synced.messages.get(&chat.id)?;
+                let mut snippets = Vec::new();
+                let mut from_user = true;
+                for term in query.split_whitespace() {
+                    let (snippet, user) =
+                        messages
+                            .values()
+                            .rev()
+                            .find_map(|message| match &message.body {
+                                MessageBody::User { content, .. } => {
+                                    Some((match_snippet(content, term)?, true))
+                                }
+                                MessageBody::Assistant { content } => {
+                                    Some((match_snippet(content, term)?, false))
+                                }
+                                _ => None,
+                            })?;
+                    from_user &= user;
+                    if !snippets.contains(&snippet) {
+                        snippets.push(snippet);
+                    }
+                }
+                let snippet = snippets.join(" · ");
                 Some(SessionMatch {
                     session: Session {
                         id: chat.id.to_string(),

@@ -31,6 +31,26 @@ async fn search_finds_words_inside_messages() {
         [s1.to_string()]
     );
     assert!(alice.search_sessions("10_%", 10).await.unwrap().is_empty());
+    test_turn(
+        &store,
+        &UserKey::for_test("alice"),
+        s1,
+        "Add a search bar",
+        2000,
+    )
+    .await
+    .unwrap();
+    let found = alice.search_sessions("kimpton bar", 10).await.unwrap();
+    assert_eq!(found.len(), 1);
+    assert!(found[0].text.contains("Kimpton"));
+    assert!(found[0].text.contains("bar"));
+    assert!(
+        alice
+            .search_sessions("kimpton absent", 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     let bob = User::for_test(store.clone(), "bob");
     assert!(bob.search_sessions("kimpton", 10).await.unwrap().is_empty());
 }
