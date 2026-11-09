@@ -1,3 +1,4 @@
+import { turnState } from "./turn-state.ts";
 // chat/: chats and groups in the bar: the open chat, the list, the composer,
 // attachments and the cards under a reply. Entry: this file.
 import { createElement } from "react";
@@ -278,8 +279,6 @@ export function makeTurn(question: string, images?: PicRef[], files?: AskFile[])
   else fillPics(turn);
   if (files?.length) turn.append(askFiles(files, owner, turn));
   if (owner) turnBodies.set(turn, owner);
-  turn.steps = [];
-  turn.folded = true;
   return turn;
 }
 
@@ -335,6 +334,7 @@ export const owningChatBody = (turn: Turn) => turnBodies.get(turn) ?? null;
 /// running turn shows its newest step; a finished one folds them into the
 /// heading until it is opened.
 export function drawWork(turn: Turn) {
+  const data = turnState(turn);
   let box = turn.querySelector<HTMLElement>(":scope > .tools");
 
   if (!box) {
@@ -342,16 +342,16 @@ export function drawWork(turn: Turn) {
     box.dataset.key = String(++turnCount);
     box.addEventListener("click", e => {
       const btn = (e.target as Element).closest("[data-thought]");
-      if (btn && turn.thought) { turn.thought.touched = true; turn.thought.open = toggleThought(btn); return; }
+      if (btn && data.thought) { data.thought.touched = true; data.thought.open = toggleThought(btn); return; }
       if (!(e.target as Element).closest("[data-turn]")) return;
-      turn.folded = !turn.folded;
+      data.folded = !data.folded;
       drawWork(turn);
     });
     const after = turn.querySelector(`${ANSWER}, :scope > .dcard, :scope > .derrcard`);
     after ? turn.insertBefore(box, after) : turn.append(box);
   }
 
-  const running = !turn.done, steps = turn.steps, th = turn.thought, opened = !turn.folded;
+  const running = !data.done, steps = data.steps, th = data.thought, opened = !data.folded;
   const shown = opened ? steps : running ? steps.slice(-1) : [];
   let thought = "";
 
@@ -364,29 +364,30 @@ export function drawWork(turn: Turn) {
   // Once the answer streams it says the turn is alive.
   const live = running && !turn.querySelector(ANSWER);
   const thinking = (th != null && th.ms == null) || !steps.some(t => t.state === "run");
-  const ms = turn.begun == null ? null : (turn.ended ?? Date.now()) - turn.begun;
+  const ms = data.begun == null ? null : (data.ended ?? Date.now()) - data.begun;
   const turnKey = steps.length ? box.dataset.key ?? null : null;
   const state = running ? "working" : "done";
   const stats = steps.length ? plural(steps.length, "tool call", "tool calls") : "";
-  const head = { state, start: turn.begun, ms, stats, key: turnKey, opened } as const;
+  const head = { state, start: data.begun, ms, stats, key: turnKey, opened } as const;
   const html = turnHeadHtml(head);
   const value: WorkView = {
-    heading: html ? { kind: "heading", id: turnKey ?? "turn", html, state, start: turn.begun ?? null, ms, stats, turn: turnKey, opened } : null,
+    heading: html ? { kind: "heading", id: turnKey ?? "turn", html, state, start: data.begun ?? null, ms, stats, turn: turnKey, opened } : null,
     thought, steps: shown.map((step, i) => ({ key: step.id || `step:${i}`, html: stepRow(step) })),
-    live: live ? liveLineHtml({ state: "working", thinking, start: turn.begun }) : "",
+    live: live ? liveLineHtml({ state: "working", thinking, start: data.begun }) : "",
   };
   const owner = turnBodies.get(turn) ?? body();
   if (!owner) return;
   turnBodies.set(turn, owner);
   renderChatWork(owner, turn, box, value, () => {
-    attachLive(box, () => { if (turn.thought) turn.thought.touched = true; });
+    attachLive(box, () => { if (data.thought) data.thought.touched = true; });
     tickTurns();
   });
 }
 
 /// The thought streaming into `turn` ended: something else came.
 function endThought(turn: Turn) {
-  if (turn.thought && turn.thought.ms == null) turn.thought.ms = Date.now() - turn.thought.start;
+  const data = turnState(turn);
+  if (data.thought && data.thought.ms == null) data.thought.ms = Date.now() - data.thought.start;
 }
 
 export function reply(turn: Turn) {
@@ -476,7 +477,7 @@ export function removeChatSuggestions(owner: ChatBody) {
 }
 
 export function failed(turn: Turn, message: string) {
-  turn.failed = true;
+  turnState(turn).failed = true;
   const owner = owningChatBody(turn);
   if (owner) {
     const box = document.createElement("div");
@@ -490,14 +491,14 @@ export function failed(turn: Turn, message: string) {
 export function finish(id: string | null, turn: Turn) {
   // A chat with no id yet is in no list.
   if (id) touch(id);
-  turn.done = true;
-  turn.ended = Date.now();
+  turnState(turn).done = true;
+  turnState(turn).ended = Date.now();
   endThought(turn);
-  for (const s of turn.steps) if (s.state === "run") s.state = "stop";
-  turn.folded = true;
+  for (const s of turnState(turn).steps) if (s.state === "run") s.state = "stop";
+  turnState(turn).folded = true;
   drawWork(turn);
   replyActs(turn);
-  if (turn.user) loadTurnAgent(id, turn);
+  if (turnState(turn).user) loadTurnAgent(id, turn);
   const e = live.get(id);
 
   if (e) {
@@ -512,7 +513,8 @@ export function finish(id: string | null, turn: Turn) {
   const q = queued.get(id);
 
   if (q) {
-    q.held ||= !!(turn.stopped || turn.failed || (turn.status && !["completed", "waiting"].includes(turn.status)));
+    const data = turnState(turn);
+    q.held ||= !!(data.stopped || data.failed || (data.status && !["completed", "waiting"].includes(data.status)));
 
     // An approval still waiting keeps the queue until it is answered.
     if (!q.held && !live.get(id)?.approval && id === S.session && S.view === "chat") setTimeout(() => sendQueued(id));
@@ -603,7 +605,7 @@ export function follow(id: string | null, turn: Turn) {
   const later = () => { frame ||= requestAnimationFrame(flush); };
   channel.onmessage = ev => {
     // A stopped turn only needs its run's id, to stop it.
-    if (turn.stopped) return ev.kind === "started" && turn.started?.(ev.run_id);
+    if (turnState(turn).stopped) return ev.kind === "started" && turnState(turn).started?.(ev.run_id);
     if (ev.kind !== "text" && ev.kind !== "reasoning" && frame) flush();
 
     switch (ev.kind) {
@@ -618,20 +620,22 @@ export function follow(id: string | null, turn: Turn) {
         later();
         return;
       }
-      case "reasoning":
-        if (!turn.thought || turn.thought.ms != null) turn.thought = { text: turn.thought?.text ?? "", start: Date.now() };
-        turn.thought.text += ev.delta;
+      case "reasoning": {
+        const data = turnState(turn);
+        if (!data.thought || data.thought.ms != null) data.thought = { text: data.thought?.text ?? "", start: Date.now() };
+        data.thought.text += ev.delta;
         work = true;
         later();
         return;
+      }
       case "tool_started":
         if (QUIET_TOOLS.has(ev.name)) break;
         endThought(turn);
-        turn.steps.push({ id: ev.call_id, name: ev.name, label: (DESCRIBED.has(ev.name) && ev.description) || toolLabel(ev.name) || ev.description || "Using a tool", state: "run" });
+        turnState(turn).steps.push({ id: ev.call_id, name: ev.name, label: (DESCRIBED.has(ev.name) && ev.description) || toolLabel(ev.name) || ev.description || "Using a tool", state: "run" });
         drawWork(turn);
         break;
       case "tool_result": {
-        const step = turn.steps.find(s => s.id === ev.call_id);
+        const step = turnState(turn).steps.find(s => s.id === ev.call_id);
         if (step) step.state = ev.success ? "ok" : "bad";
         drawWork(turn);
         toolOutput(turn, ev, ev.name === "get_route" && ev.success && ev.call_id ? ev.call_id : null);
@@ -641,7 +645,7 @@ export function follow(id: string | null, turn: Turn) {
       case "replies": suggestions(turn, ev.replies); break;
       case "transcript": heard(turn, ev.text); break;
       case "auto_picked":
-        turn.model = ev.model;
+        turnState(turn).model = ev.model;
         ranOn(turn, ev.model, ev.thinking);
         break;
       case "approval":
@@ -649,7 +653,7 @@ export function follow(id: string | null, turn: Turn) {
         break;
       case "error": failed(turn, ev.message); break;
       case "finished":
-        turn.status = ev.status;
+        turnState(turn).status = ev.status;
         if (ev.status === "cancelled") stoppedRow(turn);
         if (ev.status === "interrupted") stoppedRow(turn, "Cut off by a server restart");
         finish(id, turn);
@@ -663,8 +667,8 @@ export function follow(id: string | null, turn: Turn) {
 
 /// Makes `turn` chat `id`'s running reply, thinking until something comes.
 export function startRun(id: string | null, turn: Turn, runId: string | null) {
-  turn.begun = Date.now();
-  turn.done = false;
+  turnState(turn).begun = Date.now();
+  turnState(turn).done = false;
   drawWork(turn);
   const e = entry(id);
   e.body = body();
@@ -679,11 +683,11 @@ export async function runTurn(id: string | null, turn: Turn, run: Promise<unknow
   try {
     await run;
   } catch (err) {
-    if (!turn.stopped) failed(turn, String(err));
+    if (!turnState(turn).stopped) failed(turn, String(err));
   }
 
-  turn.started?.(null);
-  if (!turn.done) finish(id, turn);
+  turnState(turn).started?.(null);
+  if (!turnState(turn).done) finish(id, turn);
 }
 
 export async function send(message: string) {
@@ -704,7 +708,7 @@ export async function send(message: string) {
   ask.placeholder = "Ask a follow-up…";
   grow(ask);
   const turn = newTurn(message, images.map(url => ({ url })), files);
-  turn.user = true;
+  turnState(turn).user = true;
   // Without Auto every prompt runs on the chosen model; with it, Jev's pick
   // arrives as an event.
   const m = MODELS.info as ModelPick | null;
@@ -732,8 +736,7 @@ export async function watchRun(id: string | null) {
     if (!runId || live.has(id) || S.session !== id || S.view !== "chat") return;
     // The prompt or a turn's line is already drawn from the server's copy, waiting for its reply.
     const last = conversation(body()!).turns.at(-1);
-    const turn = last && !last.done && (last.user || last.querySelector(":scope > .dsystem")) ? last : newTurn("");
-    turn.steps ??= [];
+    const turn = last && !turnState(last).done && (turnState(last).user || last.querySelector(":scope > .dsystem")) ? last : newTurn("");
     startRun(id, turn, runId);
     refreshHints();
     scrollDown();
@@ -759,8 +762,8 @@ export function settle(id: string | null, e: LiveEntry, pending: PendingApproval
     renderChatNotice(owner, turn, box, { kind: "label", message: String(said) });
     pending.card.replaceWith(box);
   } else pending.card.replaceWith(h(`<div class="dmuted">${said}</div>`));
-  turn.done = false;
-  turn.ended = undefined;
+  turnState(turn).done = false;
+  turnState(turn).ended = null;
   e.run = { id: null, turn };
   if (id === S.session) refreshHints();
   return turn;
@@ -790,9 +793,9 @@ export function stop() {
   const id = S.session, run = here()?.run;
   if (!run) return;
   const turn = run.turn;
-  turn.stopped = true;
+  turnState(turn).stopped = true;
   // A run not started yet is stopped once it says its id.
-  const runId = run.id ? Promise.resolve(run.id) : new Promise<string | null>(resolve => { turn.started = resolve; });
+  const runId = run.id ? Promise.resolve(run.id) : new Promise<string | null>(resolve => { turnState(turn).started = resolve; });
   const stopped: Promise<unknown> = runId
     .then(runId => runId && invoke("cancel_run", { runId }))
     .catch(() => {})

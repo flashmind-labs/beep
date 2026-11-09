@@ -22,25 +22,8 @@ export interface TurnThought {
   ended?: boolean;
 }
 
-/// A turn of a chat: a prompt and its reply. The element keeps what the
-/// chat needs to redraw and answer it.
-export interface Turn extends HTMLDivElement {
-  steps: Step[];
-  folded: boolean;
-  done?: boolean;
-  user?: boolean;
-  failed?: boolean;
-  stopped?: boolean;
-  /// Resolves the run id of a turn stopped before it started.
-  started?: (runId: string | null) => void;
-  agent?: string;
-  model?: string;
-  status?: string;
-  /// When this window saw it start and end.
-  begun?: number;
-  ended?: number;
-  thought?: TurnThought;
-}
+/// A mounted chat turn, used as a handle to its view.
+export interface Turn extends HTMLDivElement {}
 
 /// A chat's scrolling body, which knows whether it follows the newest turn.
 export interface ChatBody extends HTMLElement {

@@ -1,3 +1,4 @@
+import { turnState } from "../chat/turn-state.ts";
 import { discardChatApproval } from "../chat/work-view.tsx";
 import "./keys.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
@@ -136,7 +137,7 @@ listen<{ session: string; query_id: string } | null>("approval-answered", e => {
   en.approval = null;
   discardChatApproval(pending.turn);
   pending.card.replaceWith(h('<div class="dmuted">Answered</div>'));
-  pending.turn.done = false;
+  turnState(pending.turn).done = false;
   if (!en.run) live.delete(session!);
   if (session !== S.session || S.view !== "chat") return;
   refreshHints();
