@@ -63,4 +63,8 @@ test("artifact list updates retain focus and the selected preview frame", async 
   await page.evaluate(() => window.dispatchEvent(new Event("test-release-copy")));
   await expect(status).toContainText("second.html");
   await expect(status).not.toContainText("Copied /srv/project/first.html");
+  await page.evaluate(() => window.__navigation.open("home"));
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("tab", { name: /Artifacts/ }).click();
+  await expect(page.getByRole("listbox", { name: "Artifacts" }).getByRole("option", { name: /first.html/ })).toBeVisible();
 });

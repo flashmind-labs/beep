@@ -1,6 +1,5 @@
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
 import { ArtifactActions, ArtifactsList } from "./artifacts-list.tsx";
 // The Artifacts tab of a coding agent session's pane: the pages and documents
 // the agent published or wrote, newest first, and the picked one rendered.
@@ -46,8 +45,8 @@ const A = {
 /// The sessions whose preview the user folded, by `A.key`, kept while the
 /// window is open so going back to a session finds it as it was left.
 const folded = new Set<string>();
-let listRoot: Root | null = null;
-let actionsRoot: Root | null = null;
+let listHost: HTMLElement | null = null;
+let actionsHost: HTMLElement | null = null;
 
 /// Starts again when the pane shows another session than the one the
 /// tab is of.
@@ -55,8 +54,9 @@ function syncSession() {
   const s = paneSession();
   const key = s ? `${s.machine_id}\n${s.cwd}` : "";
   if (A.key === key) return;
-  listRoot?.unmount(); listRoot = null;
-  actionsRoot?.unmount(); actionsRoot = null;
+  if (listHost) removeSessionPortal(listHost);
+  if (actionsHost) removeSessionPortal(actionsHost);
+  listHost = null; actionsHost = null;
   A.el?.remove();
   Object.assign(A, { el: null, key, list: [], picked: null, version: "", seen: new Map(), primed: false, gone: new Set(), asked: "", askedAt: 0, note: "" });
 }
@@ -64,14 +64,12 @@ function syncSession() {
 /// The Artifacts view of the pane's session, made once per session.
 export function artifactsView() {
   syncSession();
-  if (A.el) return A.el;
+  if (A.el) { drawList(); return A.el; }
   const el = h(`<div class="agpview arts"><div class="agartlist" role="listbox" aria-label="Artifacts"></div><div class="agartshow"></div>`
     + `<div class="agpacts"></div></div>`);
   A.el = el;
-  const list = el.querySelector<HTMLElement>(".agartlist");
-  if (list) listRoot = createRoot(list);
-  const actions = el.querySelector<HTMLElement>(".agpacts");
-  if (actions) actionsRoot = createRoot(actions);
+  listHost = el.querySelector<HTMLElement>(".agartlist");
+  actionsHost = el.querySelector<HTMLElement>(".agpacts");
   el.querySelector(".agartlist")!.addEventListener("click", e => {
     const row = (e.target as HTMLElement).closest<HTMLElement>("[data-apath]");
     if (row) pick(row.dataset.apath!);
@@ -204,9 +202,8 @@ function when(a: Artifact) {
 
 function drawList() {
   const s = paneSession();
-  if (!listRoot || !s || !A.el) return;
-  const root = listRoot;
-  flushSync(() => root.render(createElement(ArtifactsList, { artifacts: A.list, cwd: s.cwd, picked: A.picked, gone: A.gone, when })));
+  if (!listHost || !s || !A.el || A.key !== `${s.machine_id}\n${s.cwd}`) return;
+  setSessionPortal(listHost, createElement(ArtifactsList, { artifacts: A.list, cwd: s.cwd, picked: A.picked, gone: A.gone, when }));
   drawActions();
 }
 
@@ -216,11 +213,11 @@ function note(text: string) {
 }
 
 function drawActions() {
-  const acts = A.el?.querySelector<HTMLElement>(".agpacts"), s = paneSession(), root = actionsRoot, a = picked();
-  if (!acts || !root) return;
+  const acts = actionsHost, s = paneSession(), a = picked();
+  if (!acts || !s || A.key !== `${s.machine_id}\n${s.cwd}`) return;
   acts.hidden = !a;
   const inside = !!a && !!s && relativeTo(s.cwd, a.path) !== null && !A.gone.has(a.path);
-  flushSync(() => root.render(createElement(ArtifactActions, { folded: folded.has(A.key), note: A.note, url: a?.url ?? null, inside })));
+  setSessionPortal(acts, createElement(ArtifactActions, { folded: folded.has(A.key), note: A.note, url: a?.url ?? null, inside }));
 }
 
 function about(a: Artifact, size: number | null) {
