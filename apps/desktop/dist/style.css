@@ -1453,3 +1453,12 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 .agwt-search { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--fg); font: inherit }
 .agwt-search:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
 .agwt-empty { padding: 8px }
+
+/* Compact checkbox, retaining native input semantics and keyboard support. */
+.dcheck { appearance: none; -webkit-appearance: none; box-sizing: border-box; width: 14px; height: 14px; flex: none; display: inline-grid; place-content: center; padding: 0; margin: 0; border: 1px solid var(--dim); border-radius: 2px; background: var(--deep); color: #fff; cursor: pointer; vertical-align: middle }
+.dcheck:hover:not(:disabled) { border-color: var(--fg) }
+.dcheck:checked, .dcheck:indeterminate { background: var(--accent); border-color: var(--accent) }
+.dcheck:checked::after { content: ""; width: 3px; height: 6px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: translateY(-1px) rotate(45deg) }
+.dcheck:indeterminate::after { content: ""; width: 6px; height: 2px; background: currentColor; transform: none; border: 0 }
+.dcheck:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.dcheck:disabled { opacity: .45; cursor: default }

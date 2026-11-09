@@ -28,12 +28,12 @@
 .ip-field:focus, .ip-dir:focus, .gp-field:focus { border-color: var(--accent) }
 .gp-field::placeholder { color: var(--dim) }
 .gp-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px }
-/* Add a project: found checkouts to import, then the other ways. */
-.ap-sheet { width: min(640px, 88vw); max-height: calc(100vh - 80px); overflow: auto }
+/* Add a project: setup actions, then discovered checkouts. */
+.ap-sheet { width: min(640px, 88vw); padding: 16px; max-height: calc(100vh - 80px); overflow: auto }
 .ap-sheet .am-sub, .ip-sheet .am-sub { margin-top: 0 }
-.ap-sheet .am-label { margin: 18px 0 8px }
+.ap-sheet .am-label { margin: 12px 0 8px }
 .ap-sheet .am-head + .am-label { margin-top: 4px }
-.ap-list { border: 1px solid var(--border); border-radius: var(--radius); background: var(--elev); padding: 4px 14px; max-height: 300px; overflow: auto }
+.ap-list { border: 1px solid var(--border); border-radius: var(--radius); background: var(--elev); padding: 4px 14px; max-height: 240px; overflow: auto }
 .ap-remote .ap-list { max-height: 220px }
 .ap-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 14px; align-items: center; padding: 12px 0; border-top: 1px solid var(--border) }
 .ap-row:first-child, .ap-rm:first-child { border-top: 0 }
@@ -63,10 +63,7 @@
 .ap-rm { display: flex; align-items: center; gap: 14px; padding: 9px 0; border-top: 1px solid var(--border); font-size: 13px }
 .ap-rm .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .ap-rm .m { font-size: 12px; color: var(--muted) }
-.ap-ways { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 18px }
-.ap-ways button { display: grid; gap: 2px; text-align: left; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 3%, transparent); color: var(--fg); cursor: pointer }
-.ap-ways button > span { display: grid; gap: 2px }
-.ap-ways button span span { font-size: 12px; color: var(--muted) }
+.ap-ways { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 }
 /* Import a project: the folder field and its browser, the branches. */
 .ip-sheet { max-height: calc(100vh - 48px); overflow: auto }
 .ip-path { padding: 7px 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
@@ -175,3 +172,21 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .conversation-dot.working, .conversation-dot.running { background: var(--accent); }
 .conversation-dot.asking { background: var(--hot); }
 .conversation-switcher footer { display: grid; gap: 4px; padding: 12px 8px 4px; }
+
+.ap-sheet, .np-sheet { --radius: 4px; --radius-sm: 4px }
+
+
+.ap-sheet .am-head { margin-bottom: 12px }
+.ap-sheet .ap-bar { margin: 8px 0; min-height: 28px }
+.ap-results { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 4px; background: var(--elev) }
+.ap-sheet .ap-list { border: 0; padding: 0 12px; max-height: none; overflow: visible; border-radius: 0 }
+.ap-sheet .ap-remote .am-label { margin: 0; padding: 8px 12px; background: var(--surface) }
+.ap-sheet .ap-row { padding: 8px 0; gap: 2px 12px }
+.ap-sheet .ap-row .m { gap: 4px 12px }
+.ap-sheet .ap-ag { padding: 0; border: 0; border-radius: 0; color: var(--muted) }
+.ap-sheet .ap-row:focus-visible { outline-offset: -1px; border-radius: 0 }
+.ap-sheet .ap-remote summary { padding: 8px 12px; cursor: pointer; font-size: 12px; color: var(--muted) }
+.ap-sync { margin-top: 12px; font-size: 12px; color: var(--muted) }
+.ap-sync summary { cursor: pointer; padding: 4px 0 }
+.ap-sync .am-line { margin: 8px 0; color: var(--fg) }
+.ap-sync .am-sub { font-size: 12px; line-height: 16px }
