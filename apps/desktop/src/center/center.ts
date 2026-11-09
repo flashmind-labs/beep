@@ -18,9 +18,8 @@ import { pane } from "../bar/pane.ts";
 import { type BackTo, S } from "../bar/core.ts";
 import { seed, type CachedViews } from "./cached.ts";
 import type { HomeView } from "./home-state.ts";
-import { el as h } from "../ui/dom.ts";
 import { startView, windowTitle } from "../project/projectwindow.ts";
-import { shortName, newChatTarget } from "../project/agent.ts";
+import { newChatTarget } from "../project/agent.ts";
 import { mountUsage, type UsageView } from "./usage.ts";
 import { mountNotices } from "./notices.ts";
 import { firstRun } from "./firstrun.ts";
@@ -235,12 +234,6 @@ export async function start() {
   const name = first.arg.project;
   setWindowProject(name);
   document.body.classList.add("pw");
-  const back = h("button", "dbtn small pw-back", shortName(name));
-  back.type = "button";
-  back.id = "pw-back";
-  back.title = `Back to ${name} (esc)`;
-  back.addEventListener("click", () => openProjects(name));
-  $("#title").before(back);
   go(first.view, first.arg);
 }
 

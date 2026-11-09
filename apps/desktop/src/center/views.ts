@@ -1,12 +1,13 @@
+import { createElement } from "react";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 // The window's views: registering one, going to one, and the header it draws.
 import { invoke, recordTiming } from "../ui/tauri.ts";
 import type { PaneTarget } from "../bar/pane.ts";
 import { el as h } from "../ui/dom.ts";
 import { mainTarget, route, type CenterTarget, type ProjectScope } from "../project/projectwindow.ts";
-import { chatProject } from "../project/agent.ts";
+import { chatProject, shortName } from "../project/agent.ts";
 import { type Location, type NavigationArgs, type ViewHead, type CenterView, type ViewName, $, state, views } from "./state.ts";
-import { drawSide, projectRows } from "./sidebar.ts";
+import { drawSide, openProjects, projectRows } from "./sidebar.ts";
 import { openSettings } from "../settings/sheet.ts";
 import { threadChats } from "./threadcard.ts";
 import { windowHistory } from "./window-router.ts";
@@ -173,19 +174,23 @@ function withReturnTarget(page: Location, current: Location | null): Location {
   return page;
 }
 
+let titleHost: HTMLElement | null = null;
+
 export function drawTop() {
   const view = currentPage ? views.get(currentPage.view) : null;
   const head: ViewHead = typeof view?.title === "function" ? view.title() : { title: view?.title ?? "Beep" };
-  // A project window's other views go back to the project.
-  const back = document.getElementById("pw-back");
-  if (back) back.hidden = currentPage?.view === "projects";
-  $("#title").textContent = head.title || "Beep";
+  const title = $("#title"), date = $("#date"), project = windowProject;
+  if (titleHost !== title) { title.replaceChildren(); titleHost = title; }
   const page = JSON.stringify([currentPage, currentPage?.view === "pane" ? [S.view, S.session, G.id] : null]);
   const scope = $("#scope"), tools = $("#tools");
   showWindowParts([
+    { part: "header-project-back", host: $(".cc-top"), content: project ? createElement("button", { type: "button", className: "dbtn small pw-back", id: "pw-back", title: `Back to ${project} (esc)`, hidden: currentPage?.view === "projects", onClick: () => void openProjects(project) }, shortName(project)) : null },
+    { part: "header-title", host: title, content: head.title || "Beep" },
+    { part: "header-date", host: date, content: head.sub || "" },
     { part: "header-scope", host: scope, content: head.reactScope ?? null, identity: page },
     { part: "header-tools", host: tools, content: head.reactTools ?? null, identity: page },
   ]);
-  $("#date").textContent = head.sub || "";
+  const back = document.getElementById("pw-back");
+  if (back && back.nextElementSibling !== title) title.before(back);
   syncMobile();
 }
