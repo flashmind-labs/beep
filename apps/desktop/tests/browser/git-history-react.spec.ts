@@ -323,6 +323,27 @@ test("diff toolbar keeps filtering, keyboard focus, split and folding controls w
   await expect(diff.locator('.dv-file[data-path="beta.ts"]')).toBeVisible();
 });
 
+test("diff context and omitted-file controls request additional lines", async ({ page }) => {
+  const files = [
+    { path: "source.ts", old_path: null, status: "modified", additions: 1, deletions: 0, left_out: null, hunks: [{ old_start: 1, new_start: 1, old_lines: 1, new_lines: 1, section: "", lines: [{ k: "+", t: "added" }] }] },
+    { path: "lock.json", old_path: null, status: "modified", additions: 1, deletions: 0, left_out: "lockfile", hunks: [] },
+  ];
+  await openDesktop(page, false, {
+    project_git_history: { machine_id: "build-box", machine_name: "build-box", root: "/srv/project", refs: [], worktrees: [], commits: [{ id: "abc123", parents: [], author: "Example", committed_at: 1, subject: "Commit" }], next: null },
+    project_git_files: files.map(({ path }) => ({ path, old_path: null, status: "modified" })),
+    project_git_diff: { root: "/srv/project", base: "main", merge_base: "", working_tree: false, additions: 2, deletions: 0, more: 0, files },
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
+  const diff = page.locator(".gh-detail .dv");
+  await diff.getByRole("button", { name: "Show 10 lines above" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "project_git_diff" && call.args.context === 13))).toBe(true);
+  const lock = diff.locator('.dv-file[data-path="lock.json"]');
+  await lock.locator(".dv-fh").click();
+  await lock.getByRole("button", { name: "Show", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "project_git_diff" && call.args.lockfiles === true && Array.isArray(call.args.only) && call.args.only.includes("lock.json")))).toBe(true);
+});
+
 test("diff tree compacts single-child folders and matches file order", async ({ page }) => {
   await page.setViewportSize({ width: 1800, height: 900 });
   const paths = ["src/deep/first.ts", "README.md", "src/deep/second.ts"];
