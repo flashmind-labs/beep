@@ -1,14 +1,16 @@
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 import { DiffToolbar } from "./diff-toolbar.tsx";
+import { DiffTree } from "./diff-tree.tsx";
 import { readView, writeView } from "../agentpane/view-memory.ts";
 // The diff viewer: a one-line header with the counts, a filter, icon toggles
 // and the review buttons; a list of the files at wide widths; each file folding under
 // its sticky header, its lines in a unified view that scrolls sideways on its
 // own.
 import {
-  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitCell, type SplitRow, STATUS_LETTER, allFolded, currentFile, contextFile, diffRows, isFolded, leftOutNote,
-  inView, lineKey, lineLabel, matchesFilter, numberWidth, placeComments, reviewText, splitHeight, splitPath, splitRows, stepFile, withLoaded,
+  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitCell, type SplitRow, allFolded, currentFile, contextFile, diffRows, isFolded, leftOutNote,
+  inView, lineKey, lineLabel, matchesFilter, numberWidth, placeComments, reviewText, splitHeight, splitRows, stepFile, withLoaded,
 } from "./diff-state.ts";
 import { initTreeResize } from "./treewidth.ts";
 import { loadDraft, saveDraft } from "./draftstore.ts";
@@ -188,8 +190,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
   });
   const tree = el("nav", "dv-tree");
   tree.setAttribute("aria-label", "Changed files");
-  const treeFiles = new Map<string, HTMLButtonElement>();
-  const treeFolders = new Map<string, { group: HTMLDetailsElement; children: HTMLElement }>();
+  const treeRoot = createRoot(tree);
+  let revealTree = false;
+  const filteredClosedFolders = new Set<string>();
   const files = el("div", "dv-files");
   const memoryKey = `${src.review.key}:diff`;
   let memory = readView(memoryKey);
@@ -298,9 +301,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     bodyModes.clear();
     visibleFiles.clear();
     markedPath = null;
-    tree.replaceChildren();
-    treeFiles.clear();
-    treeFolders.clear();
+    drawTree();
     files.replaceChildren();
     sections = new Map();
     placedCache = null;
@@ -322,16 +323,6 @@ export function diffView(src: DiffSource): DiffViewHandle {
     files.append(matchNote);
 
     for (const f of v.files) {
-      const { dir, name } = splitPath(f.path);
-      const row = el("button", "dv-tr", el("span", `dv-st ${STATUS_LETTER[f.status]}`, STATUS_LETTER[f.status]),
-        el("span", "nm", el("b", "", name)), el("span", "ct", ...counts(f.additions, f.deletions)));
-      row.type = "button";
-      row.title = f.old_path ? `${f.old_path} -> ${f.path}` : f.path;
-      row.dataset.path = f.path;
-      row.addEventListener("click", () => jump(f.path));
-      row.addEventListener("contextmenu", e => fileMenu(e, f));
-      treeFiles.set(f.path, row);
-      folderChildren(dir).append(row);
       const section = fileSection(f);
       sections.set(f.path, section);
       files.append(section);
@@ -343,49 +334,39 @@ export function diffView(src: DiffSource): DiffViewHandle {
     drawReview();
   }
 
-  function folderChildren(path: string): HTMLElement {
-    if (!path) return tree;
-    const held = treeFolders.get(path);
-    if (held) return held.children;
-    const { dir, name } = splitPath(path.slice(0, -1));
-    const group = el("details", "dv-dir");
-    group.dataset.folder = path;
-    group.open = !st.closedFolders.has(path);
-    const chevron = icon(SVG.chev);
-    chevron.className = "dv-dir-chevron";
-    const summary = el("summary", "dv-tr", chevron, el("span", "nm", el("b", "", name)));
-    summary.title = path;
-    const children = el("div", "dv-dir-children");
-    group.append(summary, children);
-    summary.addEventListener("click", () => {
-      if (!st.filter.trim()) {
-        if (group.open) st.closedFolders.add(path); else st.closedFolders.delete(path);
-      }
+  function drawTree(synchronous = false) {
+    const view = createElement(DiffTree, {
+      files: st.view?.files ?? [], filter: st.filter, current: st.cur, closedFolders: st.closedFolders, filteredClosedFolders,
+      onFolder: (path, open) => {
+        const closed = st.filter.trim() ? filteredClosedFolders : st.closedFolders;
+        if (open) closed.add(path); else closed.delete(path);
+        drawTree(true);
+      },
+      onFile: jump, onMenu: (event, file) => fileMenu(event.nativeEvent, file),
+      onCommit: () => {
+        if (!revealTree) return;
+        revealTree = false;
+        const row = [...tree.querySelectorAll<HTMLElement>(".dv-tr[data-path]")].find(item => item.dataset.path === st.cur);
+        if (!row || !tree.clientHeight) return;
+        const bounds = tree.getBoundingClientRect(), item = row.getBoundingClientRect();
+        if (item.top < bounds.top) tree.scrollTop += item.top - bounds.top;
+        else if (item.bottom > bounds.bottom) tree.scrollTop += item.bottom - bounds.bottom;
+      },
     });
-    folderChildren(dir).append(group);
-    treeFolders.set(path, { group, children });
-    return children;
+    if (synchronous) flushSync(() => treeRoot.render(view)); else treeRoot.render(view);
   }
 
   /// Hides the files that do not match, without drawing any again.
   function applyFilter() {
     const v = st.view;
     if (!v) return;
-    v.files.forEach(f => {
-      const hide = !matchesFilter(f, st.filter);
-      sections.get(f.path)!.hidden = hide;
-      treeFiles.get(f.path)!.hidden = hide;
-    });
-
-    // Check child folders before deciding whether to hide their parents.
-    for (const [path, { group, children }] of [...treeFolders].reverse()) {
-      group.hidden = [...children.children].every(child => (child as HTMLElement).hidden);
-      group.open = !!st.filter.trim() || !st.closedFolders.has(path);
-    }
+    filteredClosedFolders.clear();
+    v.files.forEach(f => { sections.get(f.path)!.hidden = !matchesFilter(f, st.filter); });
 
     matchNote.hidden = !st.filter.trim();
     matchNote.textContent = `${shown().length} of ${v.files.length} files match`;
     markCurrent(false);
+    drawTree(true);
     drawToolbar();
   }
 
@@ -753,6 +734,13 @@ export function diffView(src: DiffSource): DiffViewHandle {
   }
 
   let markedPath: string | null = null;
+  function revealFolders(path: string | null) {
+    if (!path) return;
+    for (const closed of [st.closedFolders, filteredClosedFolders]) {
+      for (const folder of closed) if (path.startsWith(folder)) closed.delete(folder);
+    }
+  }
+
   function markCurrent(reveal = true) {
     const list = shown();
     const held = st.cur ? sections.get(st.cur) : null;
@@ -762,27 +750,21 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (markedPath === st.cur) return;
     markedPath = st.cur;
     for (const [p, s] of sections) s.classList.toggle("cur", p === st.cur);
-    for (const row of treeFiles.values()) row.classList.toggle("on", row.dataset.path === st.cur);
-    const row = st.cur ? treeFiles.get(st.cur) : null;
-    if (!reveal || !row || !tree.clientHeight) return;
-    for (const [folder, { group }] of treeFolders) {
-      if (st.cur?.startsWith(folder)) { st.closedFolders.delete(folder); group.open = true; }
-    }
-    const bounds = tree.getBoundingClientRect(), item = row.getBoundingClientRect();
-    if (item.top < bounds.top) tree.scrollTop += item.top - bounds.top;
-    else if (item.bottom > bounds.bottom) tree.scrollTop += item.bottom - bounds.bottom;
+    if (!reveal) return;
+    revealFolders(st.cur);
+    revealTree = true;
+    drawTree();
   }
 
   function jump(path: string) {
     const section = sections.get(path);
     if (!section) return;
 
-    for (const [folder, { group }] of treeFolders) {
-      if (path.startsWith(folder)) { st.closedFolders.delete(folder); group.open = true; }
-    }
-
+    revealFolders(path);
     st.cur = path;
     markCurrent();
+    revealTree = true;
+    drawTree();
     files.scrollTo({ top: section.offsetTop - 10, behavior: typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   }
 
