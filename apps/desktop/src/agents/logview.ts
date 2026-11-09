@@ -15,10 +15,10 @@ import { collectArtifacts, type MadeFile, type MadeFiles, madeFiles, toolArtifac
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive } from "./thoughtlive.ts";
 import { groupThoughts, mergedThought } from "./thoughts-state.ts";
-import { patchable, patchRows, startPatching } from "./logpatch.ts";
-import { disposeLog, fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.ts";
-import { answerHtml, collapseActivityHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml } from "./turnrows.ts";
-import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentAvatar, agentKind } from "./agents.ts";
+import { showLogShell } from "./log-shell.tsx";
+import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.ts";
+import { answerHtml, collapseActivityHtml, KIND_ICONS, liveLineHtml, stepMark, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml } from "./turnrows.ts";
+import { type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentAvatar, agentKind } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { promptParts } from "./promptparts-state.ts";
 import { childRow } from "./nesting-state.ts";
@@ -26,7 +26,6 @@ import { parentSession, sessions } from "./sessions.ts";
 import { fillAgentPics } from "./images.ts";
 import { prepareInlineImages } from "./inline-images.ts";
 import { picTile } from "./pic-state.ts";
-import { planHtml, questionHtml } from "./coderhtml.ts";
 import { drawModelPill } from "./modelpill.ts";
 import { drawModes } from "./modepill.ts";
 import { backgroundedEntry, drawTasks } from "./tasks.ts";
@@ -543,12 +542,6 @@ function headingRow(value: Parameters<typeof turnHeadHtml>[0]): TranscriptRow {
   return { kind: "heading", id: value.key === null ? "turn" : `steps:${value.key}`, html, state: value.state, start: value.start ?? null, ms: value.ms, stats: value.stats, turn: value.key, opened: value.opened };
 }
 
-/// The question's answers; the first that allows and the first that does
-/// not take ⌘Return and ⌘D.
-function questionCard(q: AgentQuestion) {
-  return questionHtml(q, "data-agopt", q.id === AG.answering, true);
-}
-
 /// A row of the log a redraw puts back where it was: found by `sel`, `off`
 /// pixels from the log's top.
 interface ScrollAnchor {
@@ -612,11 +605,8 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   const scroll = logScroll(b.stuck !== false, redraw);
   const anchor = scroll === "keep" ? scrollAnchor(b, keep) : null;
   // A plan waiting for approval shows above the field instead.
-  const question = q && AG.modes?.plan == null ? questionCard(q) : "";
-  const plan = planHtml(p.plan, s.status === "asking");
-  const card = question || plan
-    ? `<div class="dcard dcoder">${question}${plan}</div>` : "";
-  const why = AG.why ? `<div class="dmuted">Auto picked ${esc(s.machine_name)}. ${esc(AG.why)}</div>` : "";
+  const question = q && AG.modes?.plan == null ? q : null;
+  const why = AG.why ? `Auto picked ${s.machine_name}. ${AG.why}` : null;
   const olderText = olderNote(p, AG.older.stop, AG.older.loading);
   const earlier = olderText ? `<div class="dmuted">${esc(olderText)}</div>` : "";
   const parent = parentSession(p.session);
@@ -625,19 +615,17 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   // The log goes in by turns, and only those near the view are drawn.
   const units = p.entries.length && AG.log
     ? [fixed("up", crumb), fixed("older", olderRow), ...turnUnits(p)] : null;
-  const entries = units ? '<div class="dcoderlog"></div>'
-    : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
-  // What stopped an outside session's log from reading is not a failed turn.
-  const err = p.error ? (s.external ? `<div class="derr">${esc(p.error)}</div>` : errorCardHtml(p.error)) : "";
-  const note = AG.held ? `<div class="dmuted">${esc(holdNote(s.machine_name))}</div>`
-    : AG.note === "gone" ? '<div class="dmuted">This session is no longer on the machine, or the machine went offline.</div>'
-    : AG.note && AG.note === AG.readError && AG.link.lost ? `<div class="dmuted">${esc(AG.note)}</div>`
-    : AG.note ? `<div class="derr">${esc(AG.note)}</div>` : "";
-  // A read that failed outright is not tried again by itself: Retry reads it.
-  const retry = AG.readError && AG.note === AG.readError && !AG.link.lost && AG.note !== "gone";
-  const refresh = retry ? '<button class="dbtn quiet" id="agresume">Retry</button>' : "";
+  const note = AG.held ? { text: holdNote(s.machine_name), error: false }
+    : AG.note === "gone" ? { text: "This session is no longer on the machine, or the machine went offline.", error: false }
+    : AG.note && AG.note === AG.readError && AG.link.lost ? { text: AG.note, error: false }
+    : AG.note ? { text: AG.note, error: true } : null;
+  const retry = !!(AG.readError && AG.note === AG.readError && !AG.link.lost && AG.note !== "gone");
   const subs = paneSubs(p);
-  if (!showLog(b, `${why}${entries}${card}${err}${note}${refresh}`, units, polled)) { AG.rest = ""; return; }
+  const shell = { why, starting: s.status === "starting", log: !!units,
+    question: question ? { ...question, options: question.options.map(option => ({ ...option })) } : null,
+    answering: !!question && question.id === AG.answering, plan: p.plan.map(item => ({ ...item })), asking: s.status === "asking",
+    error: p.error, external: s.external, note, retry };
+  if (!showLog(b, shell, units, polled)) { AG.rest = ""; return; }
   // The pane follows the open conversation into its worktree.
   followAgent(p.entries, p.earlier, null);
   const arts = { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) };
@@ -689,33 +677,17 @@ export function scrolledLog(b: ChatBody) {
 /// Puts the log's html in the page, replacing only the rows that changed.
 /// A poll leaves a row the reader is selecting in place until it is
 /// unselected: false then, with that row as it was.
-function showLog(b: HTMLElement, html: string, units: Unit[] | null, polled: boolean) {
-  let main = b.querySelector<HTMLElement>(":scope > .dagmain");
-
-  if (!main || !patchable(main)) {
-    const old = b.querySelector<HTMLElement>(".dcoderlog");
-    if (old) disposeLog(old);
-    b.innerHTML = `<div class="dagmain"></div><button class="dagjump" id="agjump" hidden>Jump to latest${DOWN_ICON}</button>`;
-    main = b.firstElementChild as HTMLElement;
-    startPatching(main);
-  }
-
-  const next = document.createElement("template");
-  next.innerHTML = prepareInlineImages(html);
+function showLog(b: HTMLElement, shell: Parameters<typeof showLogShell>[1], units: Unit[] | null, polled: boolean) {
   const sel = getSelection(), held: Node[] = [];
   const focused = document.activeElement;
   if (polled && focused && b.contains(focused)) held.push(focused);
-
   if (polled && sel && (!sel.isCollapsed || b.matches(":active"))) {
     if (sel.anchorNode) held.push(sel.anchorNode);
     if (sel.focusNode) held.push(sel.focusNode);
   }
-
   const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row.kind === "prompt" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row.kind === "context" && row.type === "child" ? { ...row, body: prepareInlineImages(row.body) } : row.kind === "thought" ? { ...row, html: prepareInlineImages(row.html), content: row.content === null ? null : prepareInlineImages(row.content) } : row.kind === "tool" ? { ...row, html: prepareInlineImages(row.html), after: prepareInlineImages(row.after) } : row.kind === "run" ? { ...row, html: prepareInlineImages(row.html), tools: row.tools.map(tool => ({ ...tool, after: prepareInlineImages(tool.after) })) } : row.kind === "folded-pictures" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row) })) ?? null;
-  return patchRows(main, next.content, prepared, held);
+  return showLogShell(b, shell, prepared, held);
 }
-
-const DOWN_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>';
 
 /// Shows "Jump to latest" while the log is scrolled up from the bottom.
 export function syncJump(b: ChatBody) {

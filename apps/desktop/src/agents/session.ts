@@ -1,7 +1,7 @@
 import { SessionPicks } from "./agentmodels.ts";
 import { createElement } from "react";
 import { SessionField, SessionHead, showSessionFrame, updateSessionHints, updateSessionTitle } from "./session-frame.tsx";
-import { disposeLog } from "./logwindow.ts";
+import { disposeLogShell } from "./log-shell.tsx";
 import { bindSessionStash } from "./stash.ts";
 import { AgentFeed } from "./agentfeed-state.ts";
 import { TranscriptCache, transcriptKey, type TranscriptUpdate } from "./transcript-cache-state.ts";
@@ -561,8 +561,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   };
   showSessionFrame({ head: createElement(SessionHead, { agent: s.agent, title: s.title || k.name, folder: project?.label || shortCwd(s.cwd) || k.name, project: !!project, cwd: s.cwd, machine: s.machine_name, usage: usage.of === usageKey(s) ? usage.text : "", saveTitle }), field: createElement(SessionField, { mode, name: k.name, banner }), body: b, hints: agentHints() }, inPlace, disposeQueue);
   if (left && left.body !== b) {
-    const old = left.body.querySelector<HTMLElement>(".dcoderlog");
-    if (old) disposeLog(old);
+    disposeLogShell(left.body);
   }
   if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
   if (project) $("#agproj")?.addEventListener("click", project.open);
