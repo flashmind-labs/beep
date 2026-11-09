@@ -1,6 +1,7 @@
 import { createElement, Fragment } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { AgentTurnHeading, type TurnHeading } from "./turn-heading-view.tsx";
 import { AgentReply, replyRow, type ReplyRow } from "./reply-view.tsx";
 import { frameResize } from "../ui/dom.ts";
 
@@ -16,9 +17,12 @@ import type { ChatBody } from "../ui/turn.ts";
 
 /// One turn of the log: a key that stays while the turn does, and its
 /// rows as html, worked out only when it is drawn.
+export type TranscriptRow = string | TurnHeading;
+const rowHtml = (row: TranscriptRow) => typeof row === "string" ? row : row.html;
+
 export interface Unit {
   key: string;
-  rows: () => readonly string[];
+  rows: () => readonly TranscriptRow[];
 }
 
 /// A turn in the page: its element, the html of its rows and their elements.
@@ -26,6 +30,7 @@ interface Drawn {
   el: HTMLElement;
   html: readonly string[];
   nodes: Element[][];
+  rows: readonly TranscriptRow[];
 }
 
 interface LogWindow {
@@ -41,6 +46,7 @@ interface LogWindow {
   bottom: HTMLElement;
   watch: ResizeObserver;
   replies: Map<HTMLElement, { key: number; reply: ReplyRow }>;
+  headings: Map<HTMLElement, { key: number; value: TurnHeading }>;
   nextReplyKey: number;
   replyRoot: Root | null;
 }
@@ -62,23 +68,24 @@ const FALLBACK = 120;
 export function setUnits(log: HTMLElement, units: readonly Unit[], held: readonly Node[]) {
   const w = windows.get(log) ?? start(log);
   const keys = new Set(units.map(u => u.key));
-  const plans: { d: Drawn; html: readonly string[]; reuse: number[] }[] = [];
+  const plans: { d: Drawn; rows: readonly TranscriptRow[]; reuse: number[] }[] = [];
   const going: Element[] = [];
 
   for (const u of units) {
     const d = w.drawn.get(u.key);
     if (!d) continue;
-    const html = u.rows(), reuse = reuseReplyRows(d.html, html);
+    const rows = u.rows(), html = rows.map(rowHtml), reuse = reuseReplyRows(d.rows, rows);
+    reuseHeadings(d.rows, rows, reuse);
     const keep = new Set(reuse.filter(i => i >= 0));
     const changed = new Set(reuse.filter((old, next) => old >= 0 && d.html[old] !== html[next]));
     d.nodes.forEach((nodes, i) => { if (!keep.has(i) || changed.has(i)) going.push(...nodes); });
-    plans.push({ d, html, reuse });
+    plans.push({ d, rows, reuse });
   }
 
   for (const [key, d] of w.drawn) if (!keys.has(key)) going.push(d.el);
   if (going.some(el => held.some(n => el.contains(n)))) return false;
   for (const [key, d] of w.drawn) if (!keys.has(key)) undraw(w, key, d);
-  for (const { d, html, reuse } of plans) patch(w, d, html, reuse);
+  for (const { d, rows, reuse } of plans) patch(w, d, rows, reuse);
   w.units = units;
   w.search = undefined;
   searchWatches.get(log)?.();
@@ -177,7 +184,7 @@ function start(log: HTMLElement): LogWindow {
   const w: LogWindow = {
     units: [], drawn: new Map(), sizes: new Map(), width: 0,
     gap: parseFloat(getComputedStyle(log).rowGap) || 0, top, bottom,
-    watch: frameResize(() => resized(log, w)), replies: new Map(), nextReplyKey: 0, replyRoot: null,
+    watch: frameResize(() => resized(log, w)), replies: new Map(), headings: new Map(), nextReplyKey: 0, replyRoot: null,
   };
   const body = log.closest<ChatBody>(".dbody");
   if (body) w.watch.observe(body);
@@ -245,7 +252,7 @@ function draw(w: LogWindow, u: Unit): Drawn {
   const el = document.createElement("div");
   el.className = "agturn";
   el.dataset.findKey = u.key;
-  const d: Drawn = { el, html: [], nodes: [] };
+  const d: Drawn = { el, html: [], rows: [], nodes: [] };
   patch(w, d, u.rows(), []);
   w.drawn.set(u.key, d);
   w.watch.observe(el);
@@ -254,23 +261,34 @@ function draw(w: LogWindow, u: Unit): Drawn {
 
 function undraw(w: LogWindow, key: string, d: Drawn) {
   w.watch.unobserve(d.el);
-  for (const nodes of d.nodes) for (const node of nodes) if (node instanceof HTMLElement) w.replies.delete(node);
+  for (const nodes of d.nodes) for (const node of nodes) if (node instanceof HTMLElement) { w.replies.delete(node); w.headings.delete(node); }
   d.el.remove();
   w.drawn.delete(key);
 }
 
 /// Makes a drawn turn's rows `html`, reusing the rows `reuse` names.
-function patch(w: LogWindow, d: Drawn, html: readonly string[], reuse: readonly number[]) {
+function patch(w: LogWindow, d: Drawn, rows: readonly TranscriptRow[], reuse: readonly number[]) {
+  const html = rows.map(rowHtml);
   const keep = new Set(reuse.filter(i => i >= 0));
-  d.nodes.forEach((n, i) => { if (!keep.has(i)) for (const el of n) { if (el instanceof HTMLElement) w.replies.delete(el); el.remove(); } });
+  d.nodes.forEach((n, i) => { if (!keep.has(i)) for (const el of n) { if (el instanceof HTMLElement) { w.replies.delete(el); w.headings.delete(el); } el.remove(); } });
   const nodes = html.map((row, i) => {
     if (reuse[i] >= 0 && d.html[reuse[i]] === row) return d.nodes[reuse[i]];
-    const reply = replyRow(row);
+    const typed = rows[i];
+    const heading = typeof typed === "string" ? null : typed;
+    const reply = heading ? null : replyRow(row);
     if (reuse[i] >= 0) {
       const nodes = d.nodes[reuse[i]];
       const existing = nodes[0] instanceof HTMLElement ? w.replies.get(nodes[0]) : null;
       if (reply && existing && nodes[0] instanceof HTMLElement) w.replies.set(nodes[0], { ...existing, reply });
+      const current = nodes[0] instanceof HTMLElement ? w.headings.get(nodes[0]) : null;
+      if (heading && current && nodes[0] instanceof HTMLElement) w.headings.set(nodes[0], { ...current, value: heading });
       return nodes;
+    }
+    if (heading) {
+      const host = document.createElement("div");
+      host.style.display = "contents";
+      w.headings.set(host, { key: ++w.nextReplyKey, value: heading });
+      return [host];
     }
     if (reply) {
       const host = document.createElement("div");
@@ -291,18 +309,20 @@ function patch(w: LogWindow, d: Drawn, html: readonly string[], reuse: readonly 
 
   d.el.hidden = !d.el.firstElementChild;
   d.html = html;
+  d.rows = rows;
   d.nodes = nodes;
 }
 
 /// Preserve a reply's host while its streamed content changes.
-function reuseReplyRows(before: readonly string[], next: readonly string[]) {
-  const reuse = reuseRows(before, next);
+function reuseReplyRows(before: readonly TranscriptRow[], next: readonly TranscriptRow[]) {
+  const signature = (row: TranscriptRow) => typeof row === "string" ? `s${row}` : `h${JSON.stringify([row.id, row.html])}`;
+  const reuse = reuseRows(before.map(signature), next.map(signature));
   if (!reuse.includes(-1)) return reuse;
   const used = new Set(reuse.filter(index => index >= 0));
   const available = new Map<string, { indices: number[]; next: number }>();
   for (const [index, row] of before.entries()) {
     if (used.has(index)) continue;
-    const reply = replyRow(row);
+    const reply = typeof row === "string" ? replyRow(row) : null;
     if (!reply) continue;
     let matches = available.get(reply.row);
     if (!matches) { matches = { indices: [], next: 0 }; available.set(reply.row, matches); }
@@ -310,7 +330,8 @@ function reuseReplyRows(before: readonly string[], next: readonly string[]) {
   }
   for (let i = 0; i < next.length; i++) {
     if (reuse[i] >= 0) continue;
-    const reply = replyRow(next[i]);
+    const candidate = next[i];
+    const reply = typeof candidate === "string" ? replyRow(candidate) : null;
     if (!reply) continue;
     const matches = available.get(reply.row);
     if (matches && matches.next < matches.indices.length) reuse[i] = matches.indices[matches.next++];
@@ -318,11 +339,28 @@ function reuseReplyRows(before: readonly string[], next: readonly string[]) {
   return reuse;
 }
 
+function reuseHeadings(before: readonly TranscriptRow[], next: readonly TranscriptRow[], reuse: number[]) {
+  const used = new Set(reuse.filter(index => index >= 0));
+  const available = new Map<string, { indices: number[]; next: number }>();
+  before.forEach((row, i) => {
+    if (typeof row === "string" || used.has(i)) return;
+    let matches = available.get(row.id);
+    if (!matches) { matches = { indices: [], next: 0 }; available.set(row.id, matches); }
+    matches.indices.push(i);
+  });
+  next.forEach((row, i) => {
+    if (reuse[i] >= 0 || typeof row === "string") return;
+    const matches = available.get(row.id);
+    if (matches && matches.next < matches.indices.length) reuse[i] = matches.indices[matches.next++];
+  });
+}
+
 function renderReplies(w: LogWindow) {
-  if (!w.replyRoot && !w.replies.size) return;
+  if (!w.replyRoot && !w.replies.size && !w.headings.size) return;
   w.replyRoot ??= createRoot(document.createElement("div"));
   flushSync(() => w.replyRoot?.render(createElement(Fragment, null,
-    ...[...w.replies].map(([host, mounted]) => createPortal(createElement(AgentReply, { reply: mounted.reply }), host, mounted.key)))));
+    ...[...w.replies].map(([host, mounted]) => createPortal(createElement(AgentReply, { reply: mounted.reply }), host, mounted.key)),
+    ...[...w.headings].map(([host, mounted]) => createPortal(createElement(AgentTurnHeading, { value: mounted.value }), host, mounted.key)))));
 }
 
 /// Search all held turns without mounting the entire conversation.
@@ -330,7 +368,7 @@ export function logSearchSources(log: HTMLElement) {
   const w = windows.get(log);
   return w ? w.search ??= w.units.map(u => {
     const root = document.createElement("div");
-    root.innerHTML = u.rows().join("");
+    root.innerHTML = u.rows().map(rowHtml).join("");
     return { key: u.key, root };
   }) : [];
 }
