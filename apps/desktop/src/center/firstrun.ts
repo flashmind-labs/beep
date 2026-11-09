@@ -1,7 +1,7 @@
 // The first launch of an app with no subscription: start here, or link another desktop.
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot } from "react-dom/client";
+import { createDocumentView } from "../ui/document-root.tsx";
 import { joinTicket } from "../machines/jointicket.ts";
 import { invoke } from "../ui/tauri.ts";
 import { firstRunDue } from "../settings/subscription.ts";
@@ -37,7 +37,7 @@ export async function firstRun(subscribed: boolean, after: () => void, signedOut
   if (await linked()) { keep(); return after(); }
   const host = document.createElement("div");
   document.body.append(host);
-  const root = createRoot(host);
+  const root = createDocumentView(host);
   let closed = false;
   const leave = () => {
     if (closed) return;

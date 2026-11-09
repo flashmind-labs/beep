@@ -2,7 +2,7 @@
 // phone mock (mockups/ios/index.html).
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot } from "react-dom/client";
+import { createDocumentView } from "../ui/document-root.tsx";
 import { TermKeyState, type TermKey, type TermMod } from "./touchkeys-state.ts";
 import { TouchKeys } from "./touchbar-view.tsx";
 
@@ -26,7 +26,7 @@ export function makeTouchBar(send: (data: string) => void): TouchBar {
   const el = document.createElement("div");
   el.className = "tm-keys";
   el.hidden = true;
-  const root = createRoot(el);
+  const root = createDocumentView(el);
   const toggle = (mod: TermMod) => { state.toggle(mod); paint(); };
   const press = (key: TermKey) => { const armed = state.mods.size > 0; send(state.press(key)); if (armed) paint(); };
   const paint = () => flushSync(() => root.render(createElement(TouchKeys, { mods: new Set(state.mods), toggle, press })));
