@@ -1,5 +1,6 @@
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
+import { createElement } from "react";
 import { toolDetailsHtml } from "./tool-details.ts";
 import { isCommandCall } from "./tool-details-state.ts";
 import { esc, linkified, money, tokenCount } from "../ui/format.ts";
@@ -14,8 +15,8 @@ import { attachLive } from "./thoughtlive.ts";
 import { groupThoughts, mergedThought } from "./thoughts-state.ts";
 import { patchable, patchRows, startPatching } from "./logpatch.ts";
 import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.ts";
-import { answerHtml, collapseActivityHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, stopFace, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
-import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentAvatar, agentKind, stateTag } from "./agents.ts";
+import { answerHtml, collapseActivityHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
+import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentAvatar, agentKind } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { promptParts } from "./promptparts-state.ts";
 import { childRow } from "./nesting-state.ts";
@@ -33,6 +34,8 @@ import { olderNote } from "./older-state.ts";
 import { holdNote } from "./reconnect-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { ICON } from "../ui/icons.ts";
+import { showAgentControl } from "./composer-ui.tsx";
+import { AgentStatus, AgentStopFace } from "./mode-view.tsx";
 import { replyHtml, type ReplyRow } from "./reply-view.tsx";
 
 // Elapsed clocks use when this window first saw the call running.
@@ -540,7 +543,6 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   if (!b || !p) return;
   const s = p.session, q = s.question;
   const st = $("#agstate"), stopping = stoppingNow();
-  if (st) st.innerHTML = stopping ? '<span class="dstate run">Stopping</span>' : stateTag(s.status);
   if (!AG.log) agentLog().then(() => { if (S.view === "agent") drawAgentBody(); }).catch(console.warn);
   // Read where the reader is before the log is drawn again: only a reader
   // at the bottom follows new entries; anyone else stays where they are,
@@ -580,6 +582,8 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   drawModes();
   drawTasks();
   drawQueue();
+  const owner = $("#agfield") ?? b;
+  if (st) showAgentControl(owner, st, createElement(AgentStatus, { status: s.status, stopping }));
   tickTurns();
   redrawAgentHints();
   // Only a turn that runs can be stopped.
@@ -590,8 +594,8 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
     // Stopped: it says so at once, while the agent winds the turn down.
     if (stop.disabled !== stopping) {
       stop.disabled = stopping;
-      stop.innerHTML = stopFace(stopping);
     }
+    showAgentControl(owner, stop, createElement(AgentStopFace, { stopping }));
   }
 
   if (scroll === "bottom") pinEnd(b);

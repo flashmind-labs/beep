@@ -2,7 +2,7 @@
 // answers to its questions, and interrupting it.
 import { type Attached, dropDelivered, type Waiting } from "./agentqueue.ts";
 import { composeMessage } from "../chat/compose.ts";
-import { $ } from "../bar/core.ts";
+import { $, S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { MN, takeMentions } from "./workdrop.ts";
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
@@ -18,7 +18,7 @@ export function disposeQueue() { disposeComposerUi(); }
 /// The pending steers above the field, each with what goes with it.
 export function drawQueue() {
   const field = $("#agfield");
-  if (!field) { disposeQueue(); return; }
+  if (!field) { if (S.view !== "agent" || !$("#agbody")) disposeQueue(); return; }
   dropDelivered(AG.queue);
   showAgentQueue(field, AG.queue);
 }
