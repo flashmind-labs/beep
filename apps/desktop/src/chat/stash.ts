@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { StashPanel } from "./stash-view.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
@@ -18,6 +22,7 @@ const entries = new Map<string, StashEntry[]>();
 const reads = new Map<string, number>();
 let busy = false;
 let panel: HTMLElement | null = null;
+let panelRoot: Root | null = null;
 let panelProject: string | null = null;
 
 function active(project?: string) {
@@ -85,6 +90,7 @@ function note(field: HTMLTextAreaElement, text: string) {
 }
 
 function close() {
+  panelRoot?.unmount(); panelRoot = null;
   panel?.remove(); panel = null; panelProject = null;
   document.querySelectorAll("[data-stash-open]").forEach(el => el.setAttribute("aria-expanded", "false"));
 }
@@ -96,7 +102,10 @@ function drawPanel() {
   if (!anchor || !list.length) { close(); return; }
   const field = active(project), binding = field && bindings.get(field);
   const swap = !!field?.value.trim() || !!binding?.hasAttachments();
-  panel.innerHTML = `<header><div><b>Stash</b><small>${esc(project)}</small></div><button type="button" data-stash-close aria-label="Close stash">×</button></header><div class="prompt-stash-items">${list.map(item => `<article><p>${esc(item.text || "Attachments only")}</p><div class="prompt-stash-files">${[...item.images, ...item.files].map(name => `<span>${esc(name)}</span>`).join("")}</div><footer><button type="button" data-stash-remove="${esc(item.id)}" ${busy ? "disabled" : ""}>Remove</button><button type="button" data-stash-pop="${esc(item.id)}" ${busy || !field ? "disabled" : ""}>${swap ? "Stash draft &amp; pop" : "Pop"}</button></footer></article>`).join("")}</div>`;
+  const current = panelRoot;
+  if (!current) return;
+  flushSync(() => current.render(createElement(StashPanel, { project, entries: list, busy, canPop: !!field, swap })));
+
   anchor.setAttribute("aria-expanded", "true");
   positionPanel();
 }
@@ -118,6 +127,7 @@ function show(project: string) {
   panelProject = project;
   panel = h('<div class="prompt-stash-panel" role="dialog" aria-label="Project stash"></div>');
   document.body.append(panel);
+  panelRoot = createRoot(panel);
   drawPanel();
   panel?.querySelector<HTMLButtonElement>("[data-stash-close]")?.focus();
 }
@@ -127,6 +137,7 @@ async function act(action: "save" | "pop", field: HTMLTextAreaElement, id?: stri
   if (!binding || busy) return;
   if (!project) { note(field, "Choose a project before using the stash"); return; }
   const live = () => field.isConnected && binding.project() === project && bindings.get(field) === binding;
+  const openedPanel = panel;
   busy = true;
   const readOnly = field.readOnly;
   const root = field.closest<HTMLElement>(".agconv, form");
@@ -155,7 +166,7 @@ async function act(action: "save" | "pop", field: HTMLTextAreaElement, id?: stri
       else await invoke("prompt_stash_put", { project, message });
     }
 
-    close();
+    if (panel === openedPanel) close();
     await reload(project);
   } catch (error) {
     note(field, String(error));
