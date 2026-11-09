@@ -112,3 +112,17 @@ test("made-file notes keep their controls and focus during updates", () => {
   assert.equal(log.querySelectorAll("[data-made]").length, 2);
   disposeLog(log);
 });
+
+test("folded activity pictures retain the image when other turns update", () => {
+  bar.innerHTML = '<div id="agbody"><div class="dcoderlog"></div></div>';
+  const body = bar.querySelector<ChatBody>("#agbody"); assert.ok(body);
+  Object.defineProperty(body, "clientHeight", { configurable: true, value: 800 });
+  const log = body.querySelector<HTMLElement>(".dcoderlog"); assert.ok(log);
+  const picture: ActivityRow = { kind: "folded-pictures", id: "1", at: 1, html: "picture", pictures: '<img class="pic" alt="example">' };
+  const units = (text: string) => [{ key: "turn", rows: () => [picture, { kind: "note" as const, id: "note", at: 2, html: text, value: { kind: "other" as const, text } }] }];
+  setUnits(log, units("before"), []); fillLog(body, false);
+  const image = log.querySelector(".dfoldpics img"); assert.ok(image);
+  setUnits(log, units("after"), []);
+  assert.equal(log.querySelector(".dfoldpics img"), image);
+  disposeLog(log);
+});
