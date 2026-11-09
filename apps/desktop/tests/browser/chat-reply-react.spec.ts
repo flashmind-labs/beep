@@ -242,4 +242,5 @@ test("rerun menu sends the selected model and thinking level", async ({ page }) 
   await expect(page.locator('[data-rthink="high"]')).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("menuitem", { name: /One/ }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "rerun_prompt").map(call => call.args.pick))).toEqual([{ model: "one", thinking: "high" }]);
+  await expect(page.locator(".turn .drerunof")).toHaveText("Rerun on One · high");
 });
