@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { ModelSettingsView } from "./model-settings-view.tsx";
 import { ServerView } from "./server-view.tsx";
 import { GeneralView } from "./general-view.tsx";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
@@ -19,11 +20,10 @@ import { type Machine, machinesIn, machinesOut, MC, renderMachines } from "../ma
 import { harnessTile } from "../ui/harnessicon.ts";
 import { harnessName } from "./providers-state.ts";
 import { back, CODING_AGENTS, fitPath, isPage, openSub, pageLabel, parseSub, recallPath, rememberPath, samePath, selectPage, type SettingsPage, type SettingsPath, type SettingsSub, subKey } from "./settings-nav.ts";
-import { canPickModel, type ModelChoice, type Models, modelPrice, MODELS, THINKING } from "./model.ts";
-import { cap } from "../chat/tools.ts";
+import { canPickModel, type Models, type Thinking, MODELS } from "./model.ts";
 import { show } from "../bar/views.ts";
 import { type Reach } from "./server-state.ts";
-import { switchHtml, esc } from "../ui/format.ts";
+import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { toggleShortcuts } from "../ui/shortcutsheet.ts";
@@ -90,19 +90,18 @@ export const SET: {
   unembed: (() => void) | null;
 } = { root: null, token: 0, devices: null, machines: undefined, confirm: false, reach: null, path: null, local: null, unembed: null };
 
-/// Changes a model setting from Settings and redraws the section with
-/// what the server answers.
+let modelSettingsBusy = false, modelSettingsError = "", modelSettingsVersion = 0;
 async function setModelChange(command: string, args: Record<string, unknown>) {
+  if (modelSettingsBusy) return;
+  const owner = localViews.get("models");
+  modelSettingsBusy = true; modelSettingsError = ""; modelSettingsVersion++;
+  if (setShown()) mountLocalViews(setRoot());
   try {
     MODELS.info = await invoke<Models>(command, args);
-  } catch (e) {
-    const err = setRoot().querySelector("#setModelErr");
-    if (err) err.textContent = String(e);
-    return;
-  }
-
-  refreshHints();
-  if (setShown()) fillSection("models", setModelsHtml());
+    SET.modelsError = false;
+    refreshHints();
+  } catch (error) { if (owner && localViews.get("models") === owner) modelSettingsError = String(error); }
+  finally { modelSettingsVersion++; modelSettingsBusy = false; if (setShown()) mountLocalViews(setRoot()); }
 }
 
 export const setRoot = () => SET.root ?? bar;
@@ -119,25 +118,6 @@ window.addEventListener("focus", () => {
 
 /// Rows that stand in for a section until the server answers.
 export const setSkeleton = (n: number) => `<div class="dskel-rows">${[78, 56, 68, 48].slice(0, n).map(w => `<div class="dskel" style="width:${w}%"></div>`).join("")}</div>`;
-
-/// Settings, Models: the model every turn of yours uses, how long it thinks,
-/// and Auto.
-function setModelsHtml() {
-  const m = MODELS.info;
-  if (!m) return SET.modelsError ? `<div class="dmuted">Could not load your models.</div>` : setSkeleton(2);
-  const chosen = m.choices.find((c: ModelChoice) => c.id === m.selected);
-  const options = m.choices.map((c: ModelChoice) => `<option value="${esc(c.id)}"${c.id === m.selected ? " selected" : ""}>${esc(c.name)}</option>`).join("");
-  const auto = m.auto_available
-    ? `<div class="dtoggle"><span><b>Auto thinking</b><small>${m.auto ? "Beep picks the thinking for each prompt" : "Every prompt thinks as set below"}</small></span>
-        ${switchHtml(m.auto, "Auto thinking", `id="setAuto"`)}</div>`
-    : "";
-  const levels = THINKING.map(l => `<button class="dchip" data-setlevel="${l}" aria-pressed="${!m.auto && l === m.thinking}"${m.auto ? " disabled" : ""}>${cap(l)}</button>`).join("");
-  return `<div class="dtoggle"><span><b>Model</b><small>${chosen ? esc(modelPrice(chosen)) : "Your turns use the server's default"}</small></span>
-      <select id="setModel" aria-label="Model">${options}</select></div>
-    ${auto}
-    <div class="dfield"><span>Thinking${m.auto ? " (Auto picks it per prompt)" : ""}</span><div class="dchips">${levels}</div></div>
-    <div class="derr" id="setModelErr"></div>`;
-}
 
 function setAppsHtml() {
   if (!A.apps) return setSkeleton(1);
@@ -160,13 +140,14 @@ function setAway(view: PanePage, inBar: () => unknown) {
   inBar();
 }
 
-type LocalView = "general" | "appearance" | "mac" | "devices";
+type LocalView = "general" | "appearance" | "mac" | "devices" | "models";
 const generalPending = new Set<string>();
 let macControlBusy = false;
 const localViews = new Map<LocalView, { host: HTMLElement; root: Root; observer: MutationObserver }>();
 function disposeLocalView(kind: LocalView) {
   const current = localViews.get(kind);
   localViews.delete(kind);
+  if (kind === "models") modelSettingsError = "";
   if (!current) return;
   current.observer.disconnect();
   current.root.unmount();
@@ -187,7 +168,7 @@ function preserveLocalViews(container: HTMLElement) {
   };
 }
 function mountLocalViews(el: Element) {
-  for (const kind of ["general", "appearance", "mac", "devices"] as const) {
+  for (const kind of ["general", "appearance", "mac", "devices", "models"] as const) {
     const host = el.querySelector<HTMLElement>(`#set-${kind}`);
     if (!host) continue;
     let view = localViews.get(kind);
@@ -207,6 +188,11 @@ function mountLocalViews(el: Element) {
       notices: (enabled: boolean) => void changeGeneral("notices", "set_agent_notices", { enabled }),
       shortcuts: () => windowHooks ? windowHooks.openShortcuts() : toggleShortcuts(),
       report: () => windowHooks ? windowHooks.openReport() : toWindow("report"),
+    }) : kind === "models" ? createElement(ModelSettingsView, {
+      model: MODELS.info, failed: !!SET.modelsError, busy: modelSettingsBusy, error: modelSettingsError,
+      pick: (id: string) => void setModelChange("set_model", { id }),
+      auto: (enabled: boolean) => void setModelChange("set_auto_model", { enabled }),
+      thinking: (level: Thinking) => void setModelChange("set_thinking", { level }),
     }) : kind === "appearance" ? createElement(AppearanceView) : kind === "devices" && local ? createElement(ServerView, {
       settings: local.set, devices: SET.devices, link: S.link, signedOut: S.signedOut, reach: SET.reach,
       refresh: () => void renderSettings(), invite: () => setAway("invite", renderInvitePhone),
@@ -249,16 +235,12 @@ async function setMacEnabled(enabled: boolean) {
 function bindSettings(el: Element) {
   mountLocalViews(el);
   const $in = <T extends Element = HTMLElement>(sel: string) => el.querySelector<T>(sel);
-  const each = (attr: string, fn: (b: HTMLButtonElement) => void) => el.querySelectorAll<HTMLButtonElement>(`[${attr}]`).forEach(fn);
   $in("#apps")?.addEventListener("click", () => setAway("apps", renderApps));
   $in("#machines")?.addEventListener("click", () => setAway("machines", renderMachines));
   // Instructions is a view of the window: the sheet closes onto it, and
   // the bar hands it over.
   $in("#openInstr")?.addEventListener("click", () => (windowHooks ? windowHooks.openInstructions() : toWindow("instructions")));
   $in("#openProviders")?.addEventListener("click", () => (windowHooks ? windowHooks.openProviders() : toWindow("providers")));
-  $in("#setModel")?.addEventListener("change", e => setModelChange("set_model", { id: (e.target as HTMLSelectElement).value }));
-  $in("#setAuto")?.addEventListener("click", () => setModelChange("set_auto_model", { enabled: !MODELS.info!.auto }));
-  each("data-setlevel", b => b.addEventListener("click", () => setModelChange("set_thinking", { level: b.dataset.setlevel })));
   bindCreds(el);
   bindAgents(el);
 
@@ -316,7 +298,7 @@ function settingsSections(_set: MacSettings, mac: MacControl | null, linked: boo
   // These settings work over the mesh without the server.
   const thisMacSec: [SettingsPage, string][] = mac && !onPhone() ? [["mac", `<section id="set-mac-sec" data-sec="mac"><div class="dsec flat top">This computer</div><div id="set-mac" style="display:contents"></div></section>`]] : [];
   if (!linked) return [...out, ...thisMacSec, machines, agents, creds, instr, ...(S.server ? [["devices", sec("devices", "Beep server", "")] as [SettingsPage, string]] : [])];
-  if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models", setModelsHtml())]);
+  if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models", "")]);
   out.push(["apps", sheet ? host("apps") : sec("apps", "Apps", setAppsHtml())]);
   out.push(...thisMacSec);
   out.push(machines);
@@ -622,13 +604,14 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
 function loadServerParts(alive: () => boolean) {
   invoke<DeviceList>("list_devices").then(d => { SET.devices = d.devices; SET.reach = d.server; }, e => { console.warn(e); SET.devices ??= []; SET.reach = "unreachable"; })
     .then(() => { if (alive()) mountLocalViews(setRoot()); });
-  invoke<Models>("get_models").then(m => { MODELS.info = m; SET.modelsError = false; }, e => { console.warn(e); SET.modelsError = !MODELS.info; })
+  const modelVersion = modelSettingsVersion;
+  invoke<Models>("get_models").then(m => { if (modelVersion === modelSettingsVersion) { MODELS.info = m; SET.modelsError = false; } }, e => { if (modelVersion === modelSettingsVersion) { console.warn(e); SET.modelsError = !MODELS.info; } })
     .then(() => {
-      if (!alive()) return;
+      if (!alive() || modelVersion !== modelSettingsVersion) return;
       // A server with no choices to offer leaves the section out.
       if (canPickModel() || SET.modelsError) {
         if (SET.root) drawChrome();
-        return fillSection("models", setModelsHtml());
+        return mountLocalViews(setRoot());
       }
       if (SET.root) {
         if (SET.path?.page === "models") drawSheet();
