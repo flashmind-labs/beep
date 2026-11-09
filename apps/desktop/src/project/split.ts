@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { ProjectNavigation, ProjectStatus } from "./split-view.tsx";
+import { ProjectTasks } from "./tasks-view.tsx";
 import { ProjectIssues } from "./issues-view.tsx";
 // A project page's split: the list of tasks, PRs, issues and machines on
 // the left, the picked row's view on the right.
@@ -12,7 +13,7 @@ import { ago, plural } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, errorNote, stateChip } from "../ui/parts.ts";
 import { projectPastSessions, type Project, type WhereRow } from "./projects-state.ts";
 import { el as h, type Kid } from "../ui/dom.ts";
-import { agentFor, pageAgent, tasksSection, workersSection, cardsSection } from "./agent.ts";
+import { agentFor, pageAgent, cardsSection } from "./agent.ts";
 import { terminalTile, type TerminalRow } from "../terminals/terminals.ts";
 import { fileSyncTile } from "./filesync.ts";
 import { taskTile, machineTile, askingSessions } from "./board.ts";
@@ -30,7 +31,6 @@ import { sessionMenu } from "../agents/sessionmenu.ts";
 import { agentsSection, customAgentsCount, customAgentsSection, disposeCustomAgents, whereSection } from "./projects.ts";
 import { pa, terms, fsync, revs, gitHistory, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsSection, sessionsList, sessionsDue, loadSessions } from "./loads.ts";
-import { BEEP_MARK} from "../ui/icons.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
 import { runningLineAt } from "../agents/place.ts";
 
@@ -54,17 +54,26 @@ interface ProjectShell {
   stripRoot: Root;
   issues: HTMLElement;
   issuesRoot: Root;
+  tasks: HTMLElement;
+  tasksRoot: Root;
 }
 let shell: ProjectShell | null = null;
 
 function projectShell(project: string) {
   if (shell?.project === project) return shell;
-  if (shell) { shell.navRoot.unmount(); shell.stripRoot.unmount(); shell.issuesRoot.unmount(); }
+  if (shell) { shell.navRoot.unmount(); shell.stripRoot.unmount(); shell.issuesRoot.unmount(); shell.tasksRoot.unmount(); }
   const navigation = h("div", "pj-list");
   const strip = h("div", "cc-mstrip pj-strip");
   const issues = h("div", "pj-det");
-  shell = { project, navigation, strip, issues, navRoot: createRoot(navigation), stripRoot: createRoot(strip), issuesRoot: createRoot(issues) };
+  const tasks = h("div", "pj-cols");
+  shell = { project, navigation, strip, issues, tasks, navRoot: createRoot(navigation), stripRoot: createRoot(strip), issuesRoot: createRoot(issues), tasksRoot: createRoot(tasks) };
   return shell;
+}
+
+function taskPanel(project: string, view: Parameters<typeof ProjectTasks>[0]["view"]) {
+  const shell = projectShell(project);
+  flushSync(() => shell.tasksRoot.render(createElement(ProjectTasks, { view, act: agentActs })));
+  return panelSlot(shell.tasks);
 }
 
 /// The split shows for an imported project whose agent's view has loaded, and with no
@@ -78,7 +87,10 @@ export function splitOn(p: Project) {
 /// stops the polling of every other item. With `draw` false the caller
 /// draws.
 export function openTile(key: string | null, draw = true) {
-  if (!draw && key === null) disposeCustomAgents();
+  if (!draw && key === null) {
+    disposeCustomAgents();
+    if (shell) { shell.navRoot.unmount(); shell.stripRoot.unmount(); shell.issuesRoot.unmount(); shell.tasksRoot.unmount(); shell = null; }
+  }
   pa.tile = key === "sync" || key === "terminals" ? "machines" : key;
   if (key !== "actions") runs.stop();
   if (pa.tile !== "machines") { fsync.stop(); terms.stop(); }
@@ -196,7 +208,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   groups.push({ title: "", items: project });
   const past = sessions ? projectPastSessions(sessions, running, [...MV.records.values()]).filter(sessionVisible) : [];
   groups.push({ title: "", items: [
-    ...(view ? [{ key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [h("div", "pj-cols", tasksSection(view, agentActs), workersSection(view, agentActs, BEEP_MARK))] }] : []),
+    ...(view ? [{ key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [taskPanel(p.name, view)] }] : []),
     // Running agents have their own rows above; this keeps past sessions and the custom agents.
     { key: "agents", title: "Sessions", sub: past.length ? `${past.length} past` : "None yet", detail: () => sessionTabs(p, running, rows) },
     { key: "branches", title: "Git", sub: "History and worktrees", detail: () => [] },
