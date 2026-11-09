@@ -93,3 +93,25 @@ test("sidebar toggle preserves width and stays available across navigation", asy
   await expect(toggle).toBeFocused();
   expect(await page.locator("#side").evaluate(side => side.getBoundingClientRect().width)).toBe(width);
 });
+
+test("collapsed sidebar retains project colors and folder navigation", async ({ page }) => {
+  const project = page.locator("#side .projects").getByRole("button", { name: projectName, exact: true });
+  const folder = page.locator("#side .projects .cc-org").first();
+  await expect(folder).toBeVisible();
+  if (await folder.getAttribute("aria-expanded") === "false") await folder.click();
+  await expect(project).toBeVisible();
+  const dot = project.locator(".cc-pdot");
+  const color = await dot.evaluate(el => getComputedStyle(el).backgroundColor);
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  await expect(folder).toBeVisible();
+  await expect(dot).toBeVisible();
+  await expect(project.locator(".tt")).toBeHidden();
+  expect(await dot.evaluate(el => getComputedStyle(el).backgroundColor)).toBe(color);
+  await folder.click();
+  await expect(project).toBeHidden();
+  await folder.click();
+  await expect(project).toBeVisible();
+  await project.click();
+  await expect(page.locator("#title")).toContainText("widget");
+  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
+});
