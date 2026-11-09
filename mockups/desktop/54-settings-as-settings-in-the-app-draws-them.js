@@ -591,20 +591,25 @@ const SETV = (() => {
   const hvEnv = () => `<div class="hv-envs"><div class="hv-env">${hvIn("HTTPS_PROXY", "NAME", "Variable name")}<input class="hv-in" type="password" placeholder="saved; type to replace" aria-label="Value"><button class="dbtn quiet small" aria-label="Remove HTTPS_PROXY" data-toast="Removed">&#215;</button></div><div class="hv-env">${hvIn("", "NAME", "Variable name")}<input class="hv-in" type="password" placeholder="value" aria-label="Value"><span></span></div></div>`;
   const hvRuntime = (a, h, saved) => `<h4>Runtime</h4>${hvField("Binary path", `The command Beep starts for ${h.name} on build-box.`, hvIn("", h.prog, "Binary path"), h.diffs?.program)}${hvField(h.home, "Its home and config folder.", hvIn("", h.hdef, h.home))}${hvField("Launch arguments", "Added to every session it starts.", hvIn("", "none", "Launch arguments"), h.diffs?.args)}${a === "flsh" || a === "gemini" || a === "hermes" ? "" : hvField("Auto-compact", a === "opencode" ? "Compact when the conversation nears the window." : "Compact at this share of the window, or this many tokens.", `<span class="fl-row">${swi(true, `Auto-compact for ${h.name}`)}${a === "opencode" ? "" : hvIn("", "80% or 350000", "Auto-compact threshold")}</span>`)}${hvField("Environment", "Encrypted, never shown again. Put keys in Credentials.", hvEnv())}
     <div class="hv-acts hv-save"><button class="dbtn pri" title="Save for build-box only"${saved === "dirty" ? ' data-toast="Saved for build-box"' : " disabled"}>Save</button><button class="dbtn" title="Save these settings on every machine; offline ones get them when they next connect" data-toast="Saved to 3 machines">Save to all hosts</button><label class="hv-incl" title="Binary paths usually differ between machines"><input type="checkbox"> Include binary path</label>${saved === "dirty" ? '<button class="dbtn quiet">Discard</button>' : ""}<span class="hv-ok">${saved === "all" ? "Saved to 3 machines" : ""}</span></div>${hvModels(a)}`;
+  const hvModelChoices = a => a === "claude"
+    ? [{ id: "opus", name: "Opus 5.5" }, { id: "sonnet", name: "Sonnet 5.5" }]
+    : [{ id: a === "flsh" ? "openrouter:vendor/model-large" : "model-large", name: "Large model" }, { id: a === "flsh" ? "openrouter:vendor/model-fast" : "model-fast", name: "Fast model" }];
+  const hvModelId = (agent, value) => hvModelChoices(agent).find(m => m.name === value.trim())?.id ?? value.trim();
   const hvDefaultModel = a => {
     const saved = S.d.harnessDefaults?.[a] || "";
     const draft = S.d.harnessModelDrafts?.[a] ?? saved;
-    const models = a === "flsh" ? ["openrouter:vendor/model-large", "openrouter:vendor/model-fast"] : ["model-large", "model-fast"];
+    const models = hvModelChoices(a);
+    const display = models.find(m => m.id === draft)?.name ?? draft;
     return hvField("Default model", "Used for new sessions on every machine. Blank uses the harness default.",
-      `<div class="hv-default-model" data-harness="${a}"><input class="hv-in" value="${esc(draft)}" list="harness-default-models-${a}" aria-label="Default model" placeholder="Harness default" autocomplete="off" spellcheck="false"><datalist id="harness-default-models-${a}">${models.map(m => `<option value="${m}"></option>`).join("")}</datalist><div class="hv-acts"><button class="dbtn pri" data-save-harness-model${draft.trim() === saved ? " disabled" : ""}>Save default model</button><span class="hv-ok" role="status">${S.d.harnessModelSaved === a ? "Default model saved" : ""}</span></div></div>`);
+      `<div class="hv-default-model" data-harness="${a}"><input class="hv-in" value="${esc(display)}" list="harness-default-models-${a}" aria-label="Default model" placeholder="Harness default" autocomplete="off" spellcheck="false"><datalist id="harness-default-models-${a}">${models.map(m => `<option value="${esc(m.name)}"></option>`).join("")}</datalist><div class="hv-acts"><button class="dbtn pri" data-save-harness-model${draft.trim() === saved ? " disabled" : ""}>Save default model</button><span class="hv-ok" role="status">${S.d.harnessModelSaved === a ? "Default model saved" : ""}</span></div></div>`);
   };
   document.addEventListener("input", event => {
     const row = event.target.closest(".hv-default-model");
     if (!row) return;
     const agent = row.dataset.harness;
     S.d.harnessModelDrafts ??= {};
-    S.d.harnessModelDrafts[agent] = event.target.value;
-    row.querySelector("[data-save-harness-model]").disabled = event.target.value.trim() === (S.d.harnessDefaults?.[agent] || "");
+    S.d.harnessModelDrafts[agent] = hvModelId(agent, event.target.value);
+    row.querySelector("[data-save-harness-model]").disabled = hvModelId(agent, event.target.value) === (S.d.harnessDefaults?.[agent] || "");
     row.querySelector('[role="status"]').textContent = "";
     S.d.harnessModelSaved = null;
   });
@@ -613,7 +618,7 @@ const SETV = (() => {
     if (!button || button.disabled) return;
     const row = button.closest(".hv-default-model"), agent = row.dataset.harness;
     S.d.harnessDefaults ??= {};
-    S.d.harnessDefaults[agent] = row.querySelector("input").value.trim();
+    S.d.harnessDefaults[agent] = hvModelId(agent, row.querySelector("input").value);
     delete S.d.harnessModelDrafts[agent];
     S.d.harnessModelSaved = agent;
     render();
