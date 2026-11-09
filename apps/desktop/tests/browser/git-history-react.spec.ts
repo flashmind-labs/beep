@@ -459,3 +459,83 @@ test("diff comment drafts survive a session reload", async ({ page }) => {
   await expect(section.locator(".dv-cmt")).toContainText("Keep this review draft.");
   expect(consoleErrors.filter(message => message.includes("flushSync") || message.includes("Cannot update"))).toEqual([]);
 });
+
+test("review picker remains usable through diff refresh and closes with Escape", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await openDesktop(page, true, {
+    agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: "/srv/project", home: "/path/to/work", capabilities: [] }],
+  });
+  await page.evaluate(() => window.__navigation.open({ agent: {
+    kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session",
+    cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false,
+  } }));
+  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  const review = page.getByRole("button", { name: "Review with agent" });
+  await expect(review).toBeEnabled();
+  await review.click();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  await expect(picker).toBeVisible();
+  const search = picker.locator(".agc-search");
+  await expect(search).toBeFocused();
+  await search.fill("example");
+  await page.locator('.dv-head .dv-btn[aria-label="Refresh"]').evaluate(button => { if (button instanceof HTMLElement) button.click(); });
+  await expect(picker).toBeVisible();
+  await expect(picker.locator(".agc-search")).toHaveValue("example");
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
+  await expect(review).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
+test("closing a diff removes the review picker's keyboard handler", async ({ page }) => {
+  await openDesktop(page, true, {
+    agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: "/srv/project", home: "/path/to/work", capabilities: [] }],
+  });
+  const open = async (id: string) => page.evaluate(id => window.__navigation.open({ agent: {
+    kind: "agent", machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title: id,
+    cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false,
+  } }), id);
+  await open("notice-one");
+  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  await page.getByRole("button", { name: "Review with agent" }).click();
+  await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toBeVisible();
+  await page.evaluate(() => document.addEventListener("keydown", event => { if (event.key === "Escape") document.body.dataset.escapeReached = "yes"; }));
+  await open("notice-two");
+  await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("body")).toHaveAttribute("data-escape-reached", "yes");
+});
+
+test("a pending review picker does not open after its diff closes", async ({ page }) => {
+  await openDesktop(page, true, {
+    agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: "/srv/project", home: "/path/to/work", capabilities: [] }],
+  });
+  let release = () => {};
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  let pickerUrl = "";
+  await page.route(/\/agentpicker-[A-Z0-9]+\.js$/, async route => {
+    pickerUrl = route.request().url();
+    await blocked;
+    await route.fallback();
+  });
+  const open = async (id: string) => page.evaluate(id => window.__navigation.open({ agent: {
+    kind: "agent", machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title: id,
+    cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false,
+  } }), id);
+  try {
+    await open("notice-one");
+    await page.getByRole("tab", { name: "Changes", exact: true }).click();
+    const review = page.getByRole("button", { name: "Review with agent" });
+    await expect(review).toBeEnabled();
+    await expect.poll(() => pickerUrl).not.toBe("");
+    await review.click();
+    await page.evaluate(() => document.addEventListener("keydown", event => { if (event.key === "Escape") document.body.dataset.escapeReached = "yes"; }));
+    await open("notice-two");
+    release();
+    await page.evaluate(async url => { await import(url); }, pickerUrl);
+    await page.keyboard.press("Escape");
+    await expect(page.locator("body")).toHaveAttribute("data-escape-reached", "yes");
+    await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toHaveCount(0);
+  } finally { release(); }
+});

@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { createPortal, flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
+import { FeedbackControl, FeedbackNote, type FeedbackState } from "./feedback-view.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // Review with agent: the diff header's button, the start form's picker
 // under it, and what follows a pick. A pick asks the node of the diff's
@@ -21,7 +25,6 @@ import { reason } from "../ui/format.ts";
 /// Calls a Rust command; the Tauri binding loads on first use, so a diff view can be made where there is none.
 const invoke = async <T = unknown>(cmd: string, args?: Record<string, unknown>) => (await import("../ui/tauri.ts")).invoke<T>(cmd, args);
 
-const CARET = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 
 // The sessions and picker modules pull in the whole session view, so they load
 // the first time a review is asked for, not with every diff.
@@ -203,14 +206,16 @@ export interface Feedback {
 
 export function feedbackButton(o: FeedbackOpts): Feedback {
   const box = el("span", "dv-fbw");
-  const slot = el("div");
   const note = el("div", "dv-fbnote");
   note.hidden = true;
-  const button = el("button", "dv-btn dv-fb");
-  button.type = "button";
-  box.append(button, slot);
+  const viewRoot = createRoot(document.createElement("div"));
+  let button: HTMLButtonElement | null = null;
+  let slot: HTMLDivElement | null = null;
+  const setButton = (value: HTMLButtonElement | null) => { button = value; };
+  const setSlot = (value: HTMLDivElement | null) => { slot = value; };
   let open = false;
   let starting = false;
+  let attachmentWatch: MutationObserver | null = null;
   /// When the session's own reviews were last read.
   let tookAt = 0;
   const picked: Picked = { agent: "", model: "", effort: null, query: "" };
@@ -238,52 +243,26 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
 
   function drawButton() {
     const run = runs.get(o.key);
-    button.replaceChildren();
-    button.removeAttribute("aria-expanded");
-    button.disabled = false;
-
-    if (run) {
-      button.append(el("span", "dspin"), "Reviewing ", el("small", "", agentLabel(run.agent)));
-      button.title = "Open the review. The reviewer only reads; its findings become comments here";
-      return;
-    }
-
-    if (starting) {
-      button.append(el("span", "dspin"), "Starting");
-      button.disabled = true;
-      button.title = "";
-      return;
-    }
-
-    const reasonNot = why();
-    button.append("Review with agent");
-    const caret = el("span");
-    caret.style.display = "grid";
-    caret.innerHTML = CARET;
-    button.append(caret);
-    button.disabled = !!reasonNot;
-    button.title = reasonNot || "Ask an agent to review these changes. It only reads. Pick a model to start";
-    if (!reasonNot) button.setAttribute("aria-expanded", String(open));
-  }
-
-  function drawNote() {
-    const text = notes.get(o.key);
+    const state: FeedbackState = run ? { kind: "running", agent: agentLabel(run.agent) }
+      : starting ? { kind: "starting" } : { kind: "ready", reason: why(), open };
+    const text = notes.get(o.key) ?? "";
     note.hidden = !text;
-    note.replaceChildren();
-    if (!text) return;
-    const actions = el("div", "a");
-    const dismiss = el("button", "dv-btn", "Dismiss");
-    dismiss.type = "button";
-    dismiss.addEventListener("click", () => { notes.delete(o.key); drawNote(); });
-    actions.append(dismiss);
-    note.append(el("b", "", "The review did not finish"), el("pre", "", text), actions);
-    note.setAttribute("role", "status");
+    if (text) note.setAttribute("role", "status");
+    flushSync(() => viewRoot.render([
+      createPortal(createElement(FeedbackControl, { state, setButton, setSlot, onClick: () => void onButton() }), box, "control"),
+      createPortal(text ? createElement(FeedbackNote, { text, onDismiss: () => { notes.delete(o.key); drawButton(); } }) : null, note, "note"),
+    ]));
   }
 
   function closePicker() {
     open = false;
-    slot.replaceChildren();
-    void picker().then(p => p.closedPicker(slot));
+    attachmentWatch?.disconnect();
+    attachmentWatch = null;
+    if (slot) {
+      const closing = slot;
+      closing.replaceChildren();
+      void picker().then(p => p.closedPicker(closing));
+    }
     document.removeEventListener("pointerdown", outside, true);
     document.removeEventListener("keydown", onEsc, true);
   }
@@ -297,31 +276,32 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     e.stopPropagation();
     closePicker();
     drawButton();
-    button.focus();
+    button?.focus();
   };
 
   async function drawPickerNow() {
     const h = host();
-    if (!open || !h || !o.machine) return;
+    if (!open || !h || !o.machine || !slot || !button || !box.isConnected) return;
     const { drawPicker, focusSearch } = await picker();
-    if (!open) return;
-    const focused = slot.contains(document.activeElement);
-    drawPicker(slot, {
+    if (!open || !slot || !button || !box.isConnected) return;
+    const currentSlot = slot, currentButton = button;
+    const focused = currentSlot.contains(document.activeElement);
+    drawPicker(currentSlot, {
       picked,
       offered: h.agents,
       everywhere: [...new Set((hosts ?? []).flatMap(m => m.agents))],
       machine: o.machine,
       noMachine: "",
-      anchor: () => button,
+      anchor: () => currentButton,
       bounds: o.bounds,
       changed: what => {
         if (what === "model") { closePicker(); drawButton(); void start(); return; }
         if (what === "agent") picked.effort = keepEffort(picked.agent, picked.effort);
         if (what !== "models") void drawPickerNow();
-        if (what === "agent") focusSearch(slot);
+        if (what === "agent") focusSearch(currentSlot);
       },
     });
-    if (focused) focusSearch(slot);
+    if (focused) focusSearch(currentSlot);
   }
 
   async function start() {
@@ -370,28 +350,33 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     }
   }
 
-  button.addEventListener("click", async e => {
-    e.stopPropagation();
-    if (button.disabled) return;
+  async function onButton() {
+    if (!button || button.disabled) return;
     const run = runs.get(o.key);
     if (run) return openReviewer(run, o.machine?.name ?? "");
     if (open) { closePicker(); return drawButton(); }
     readHosts(redraw);
     const [a, p] = await Promise.all([agents(), picker()]);
-    if (runs.has(o.key) || open) return;
+    if (runs.has(o.key) || open || !box.isConnected) return;
     pickDefaults(a.byPreference);
     open = true;
     document.addEventListener("pointerdown", outside, true);
     document.addEventListener("keydown", onEsc, true);
+    attachmentWatch = new MutationObserver(() => {
+      if (box.isConnected) return;
+      closePicker();
+      drawButton();
+    });
+    attachmentWatch.observe(document.documentElement, { childList: true, subtree: true });
     drawButton();
     await drawPickerNow();
-    p.focusSearch(slot);
-  });
+    if (slot) p.focusSearch(slot);
+  }
 
   function redraw() {
     if (Date.now() - tookAt >= HOSTS_MS) { tookAt = Date.now(); void takeSessionReviews(); }
+    if (open && !box.isConnected) closePicker();
     drawButton();
-    drawNote();
     if (open && !runs.has(o.key)) void drawPickerNow();
     else if (open) closePicker();
   }
