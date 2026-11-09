@@ -35,7 +35,7 @@ import { machineSync } from "../machines/machine-state.ts";
 import type { RunningAgent } from "../agents/running-state.ts";
 import { gitSyncWarning, syncRepairPrompt, agentCanFix, gitLine, movingLabel, moveKey, moveTitle, withRow, type GitMove, type GitRow } from "./gitsync-state.ts";
 import { IC } from "../ui/icons.ts";
-import { openHandoff } from "./handoff.ts";
+import { openHandoff } from "./handoff.tsx";
 
 /// Each project's tasks, workers and chat, read one at a time per project
 /// and kept under the project they were asked for, so an answer for the

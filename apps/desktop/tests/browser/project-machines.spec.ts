@@ -96,3 +96,27 @@ test("machine actions and terminals remain available without detailed sync suppo
   await expect(page.getByRole("button", { name: "Remove from studio", exact: true })).toBeEnabled();
   await expect(page.locator(".pm-section")).toContainText("The server needs an update before it shows file sync in detail.");
 });
+
+test("handoff retries errors and keeps its native request after closing", async ({ page }) => {
+  const projects = machines.slice(0, 2).map(machine => ({ name: projectName, url: "https://example.test/example/widget", machine_id: machine.id, machine_name: machine.name, folder: machine.folder, cloned: true, imported_at: 1 }));
+  const git = machines.slice(0, 2).map(machine => ({ machine_id: machine.id, machine_name: machine.name, branch: "main", upstream: null, ahead: 0, behind: 0, error: null }));
+  await openDesktop(page, false, { ...responses, center_home: { machines: [], projects, running: [], needs_you: [], coming_up: null, updates: null }, project_git_state: git });
+  await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projectName);
+  await page.locator('.pj-li[title="Machines"]').click();
+  await page.getByRole("article", { name: "build-box", exact: true }).getByRole("button", { name: "Bring work here" }).click();
+  const sheet = page.getByRole("dialog", { name: "Bring uncommitted work" });
+  const bring = sheet.getByRole("button", { name: "Bring work from studio" });
+  await page.evaluate(() => window.__navigation.rejectOnce("project_handoff_work"));
+  await bring.click();
+  await expect(sheet).toContainText("Requested test failure");
+  await page.evaluate(() => window.__navigation.hold("project_handoff_work"));
+  await bring.click();
+  await expect(bring).toBeDisabled();
+  await expect(sheet).toContainText("Bringing uncommitted work");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_handoff_work").map(call => call.args))).toEqual([
+    { project: projectName, from: "studio", to: "build-box" }, { project: projectName, from: "studio", to: "build-box" },
+  ]);
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  await page.evaluate(() => window.__navigation.release("project_handoff_work"));
+});
