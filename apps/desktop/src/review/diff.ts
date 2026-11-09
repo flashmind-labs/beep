@@ -4,8 +4,8 @@ import { readView, writeView } from "../agentpane/view-memory.ts";
 // its sticky header, its lines in a unified view that scrolls sideways on its
 // own.
 import {
-  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitCell, type SplitRow, STATUS_LETTER, allFolded, baseTitle, changedLabel, currentFile, contextFile, diffRows, isFolded, leftOutNote,
-  inView, lineKey, lineLabel, matchesFilter, numberWidth, placeComments, reviewText, splitHeight, splitPath, splitRows, stepFile, withLoaded,
+  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitCell, type SplitRow, STATUS_LETTER, allFolded, baseTitle, changedLabel, compactFolders, currentFile, contextFile, diffRows, isFolded, leftOutNote,
+  filesInTreeOrder, inView, lineKey, lineLabel, matchesFilter, numberWidth, placeComments, reviewText, splitHeight, splitPath, splitRows, stepFile, withLoaded,
 } from "./diff-state.ts";
 import { initTreeResize } from "./treewidth.ts";
 import { loadDraft, saveDraft } from "./draftstore.ts";
@@ -228,6 +228,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
   tree.setAttribute("aria-label", "Changed files");
   const treeFiles = new Map<string, HTMLButtonElement>();
   const treeFolders = new Map<string, { group: HTMLDetailsElement; children: HTMLElement }>();
+  let folderLabels = new Map<string, { dir: string; name: string }>();
   const files = el("div", "dv-files");
   const memoryKey = `${src.review.key}:diff`;
   let memory = readView(memoryKey);
@@ -364,6 +365,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
 
     files.append(matchNote);
 
+    folderLabels = compactFolders(v.files.map(f => f.path));
+
     for (const f of v.files) {
       const { dir, name } = splitPath(f.path);
       const row = el("button", "dv-tr", el("span", `dv-st ${STATUS_LETTER[f.status]}`, STATUS_LETTER[f.status]),
@@ -390,7 +393,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (!path) return tree;
     const held = treeFolders.get(path);
     if (held) return held.children;
-    const { dir, name } = splitPath(path.slice(0, -1));
+    const { dir, name } = folderLabels.get(path) ?? splitPath(path.slice(0, -1));
     const group = el("details", "dv-dir");
     group.dataset.folder = path;
     group.open = !st.closedFolders.has(path);
@@ -911,7 +914,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     try {
       const view = await src.load([], false, st.uncommitted);
       if (seq !== st.seq) return;
-      st.view = view;
+      st.view = { ...view, files: filesInTreeOrder(view.files) };
       if (memory && typeof memory === "object" && "context" in memory && Array.isArray(memory.context)) {
         for (const item of memory.context) {
           if (!Array.isArray(item) || typeof item[0] !== "string" || typeof item[1] !== "number" || typeof item[2] !== "number") continue;

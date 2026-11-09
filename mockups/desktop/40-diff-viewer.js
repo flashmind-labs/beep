@@ -185,8 +185,18 @@
     const rows = nodes => nodes.map(node => node.f
       ? `<button class="dv-tr${node.current ? " on" : ""}" title="${node.f.path}" data-toast="Jumps to ${node.f.path}"><span class="dv-st ${LETTER[node.f.st]}">${LETTER[node.f.st]}</span><span class="nm"><b>${node.name}</b></span><span class="ct">${node.f.a ? `<i class="dv-plus">+${node.f.a}</i>` : ""}${node.f.d ? `<i class="dv-minus">-${node.f.d}</i>` : ""}</span></button>`
       : `<details class="dv-dir" data-folder="${node.path}"${q || !closed.has(node.path) ? ' open' : ''}><summary class="dv-tr" title="${node.path}"><span class="dv-dir-chevron">${CHEV}</span><span class="nm"><b>${node.name}</b></span></summary><div class="dv-dir-children">${rows(node.children)}</div></details>`).join('');
-    const tree = rows(roots);
-    const files = shown.map((f, i) => fileBox(f, fold(f), i === 0, v === "pane")).join("");
+    const compact = nodes => nodes.map(node => {
+      if (node.f) return node;
+      let name = node.name;
+      while (node.children.length === 1 && !node.children[0].f) {
+        node = node.children[0];
+        name += '/' + node.name;
+      }
+      return { ...node, name, children: compact(node.children) };
+    });
+    const tree = rows(compact(roots));
+    const ordered = nodes => nodes.flatMap(node => node.f ? [node.f] : ordered(node.children));
+    const files = ordered(roots).map((f, i) => fileBox(f, fold(f), i === 0, v === "pane")).join("");
     const more = q ? `<div class="dv-note" style="padding:2px">${shown.length} of ${FILES.length} files match</div>` : "";
     return `<div class="dv${wide ? " wide" : ""}${v === "light" ? " light" : ""}"><div class="dv-head"><span class="dv-sum"><b>${FILES.length} files</b><i class="dv-plus">+${add.toLocaleString("en-US")}</i><i class="dv-minus">-${del.toLocaleString("en-US")}</i><span class="base" title="Against origin/main at 3f2c1a0, uncommitted included">vs <code>origin/main</code></span></span>
       <input class="dv-find" placeholder="Filter" aria-label="Filter files" value="${q}"><span class="dv-tools">${v === "pane" ? `<button class="dv-btn icon" aria-pressed="false" title="Uncommitted only: hide the branch's commits">${DV_IC.dirty}</button>` : ""}<button class="dv-btn icon dv-splitbtn" aria-pressed="${dvSplit}" title="${dvSplit ? "Unified" : "Side by side"}" data-dact="dset:dv:${dvSplit ? "mixed" : "split"}">${DV_IC.split}</button><button class="dv-btn icon" title="${v === "collapsed" ? "Expand all" : "Collapse all"}" data-dact="dset:dv:${v === "collapsed" ? "expanded" : "collapsed"}">${v === "collapsed" ? DV_IC.unfold : DV_IC.fold}</button><button class="dv-btn icon" title="Read again" data-toast="Read the changes again">${REFRESH}</button></span><span class="dv-sp"></span><i class="dv-acts"></i></div>

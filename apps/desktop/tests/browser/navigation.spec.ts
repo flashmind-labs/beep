@@ -63,3 +63,55 @@ test("Git panels stay visible across unchanged project redraws", async ({ page }
     await expect(page.locator(".gh-tree")).toContainText("No commits yet.");
   }
 });
+
+test("sidebar toggle preserves width and stays available across navigation", async ({ page }) => {
+  const grip = page.getByRole("separator", { name: "Resize the sidebar" });
+  await grip.focus();
+  await page.keyboard.press("ArrowRight");
+  const width = await page.locator("#side").evaluate(side => side.getBoundingClientRect().width);
+  const toggle = page.getByRole("button", { name: "Collapse sidebar", exact: true });
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  const expand = page.getByRole("button", { name: "Expand sidebar", exact: true });
+  await expect(expand).toBeFocused();
+  await expect(expand).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(".cc-side-list")).toBeVisible();
+  const home = page.locator("#side").getByRole("button", { name: "Home", exact: true });
+  await expect(home).toBeVisible();
+  await expect(home.locator(".tt")).toBeHidden();
+  await expect(home).toHaveAttribute("title", "Home");
+  await home.click();
+  await expect(home).toHaveAttribute("aria-current", "true");
+  await expect(page.locator("#side").getByRole("button", { name: "Settings", exact: true })).toBeVisible();
+  await expect(grip).toBeHidden();
+  await openProject(page);
+  await expect(expand).toBeVisible();
+  await expand.focus();
+  await page.keyboard.press("Space");
+  await expect(page.locator(".cc-side-list")).toBeVisible();
+  await expect(grip).toBeVisible();
+  await expect(toggle).toBeFocused();
+  expect(await page.locator("#side").evaluate(side => side.getBoundingClientRect().width)).toBe(width);
+});
+
+test("collapsed sidebar retains project colors and folder navigation", async ({ page }) => {
+  const project = page.locator("#side .projects").getByRole("button", { name: projectName, exact: true });
+  const folder = page.locator("#side .projects .cc-org").first();
+  await expect(folder).toBeVisible();
+  if (await folder.getAttribute("aria-expanded") === "false") await folder.click();
+  await expect(project).toBeVisible();
+  const dot = project.locator(".cc-pdot");
+  const color = await dot.evaluate(el => getComputedStyle(el).backgroundColor);
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  await expect(folder).toBeVisible();
+  await expect(dot).toBeVisible();
+  await expect(project.locator(".tt")).toBeHidden();
+  expect(await dot.evaluate(el => getComputedStyle(el).backgroundColor)).toBe(color);
+  await folder.click();
+  await expect(project).toBeHidden();
+  await folder.click();
+  await expect(project).toBeVisible();
+  await project.click();
+  await expect(page.locator("#title")).toContainText("widget");
+  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
+});

@@ -1063,3 +1063,22 @@ button.cc-note.in-go:hover { border-color: var(--border-hi) }
 .hv-scope > .hv-sum { margin: 12px 0 }
 .hv-scope .hv-bar { flex-wrap: wrap }
 .hv-scope .hv-sel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+
+/* The collapsed rail keeps the toggle below the native window controls. */
+.cc-side > .cc-brand { justify-content: space-between; margin-bottom: 12px }
+.cc-side-toggle { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; padding: 8px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer }
+.cc-side-toggle svg { width: 16px; height: 16px }
+.cc-side-toggle:hover { background: var(--elev); color: var(--fg) }
+.cc-side-toggle:active { transform: scale(.98) }
+.cc-side-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.cwin.side-collapsed { grid-template-columns: 80px minmax(0, 1fr) }
+.side-collapsed .cc-brand b, .side-collapsed > .cc-grip,
+.side-collapsed .cc-foot, .side-collapsed .cc-grp h3,
+.side-collapsed .cc-si.none, .side-collapsed .cc-thread,
+.side-collapsed .cc-si > :not(svg):not(.cc-pdot):not(.ddot):not(.open),
+.side-collapsed .cc-si .open > :not(svg):not(.cc-pdot):not(.ddot),
+.side-collapsed .cc-org > :not(svg):not(.twist) { display: none }
+.side-collapsed .cc-si, .side-collapsed .cc-org { justify-content: center; padding: 8px; min-height: 32px; box-sizing: border-box }
+.side-collapsed .cc-si .open { justify-content: center; padding: 0 }
+.side-collapsed .cc-si:focus-visible, .side-collapsed .cc-org:focus-visible, .side-collapsed .cc-si .open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
+.side-collapsed .cc-side > .cc-brand { justify-content: center; padding: 0 }
