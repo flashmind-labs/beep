@@ -293,7 +293,7 @@ function patch(w: LogWindow, d: Drawn, rows: readonly TranscriptRow[], reuse: re
     if (reuse[i] >= 0 && d.html[reuse[i]] === row) return d.nodes[reuse[i]];
     const typed = rows[i];
     const heading = typeof typed !== "string" && typed.kind === "heading" ? typed : null;
-    const activity = typeof typed !== "string" && (typed.kind === "thought" || typed.kind === "live" || typed.kind === "tool" || typed.kind === "run" || typed.kind === "subagents") ? typed : null;
+    const activity = typeof typed !== "string" && (typed.kind === "thought" || typed.kind === "live" || typed.kind === "tool" || typed.kind === "run" || typed.kind === "subagents" || typed.kind === "note") ? typed : null;
     const reply = typeof typed !== "string" && (typed.kind === "prompt" || typed.kind === "context") ? typed : asReply(typed);
     if (reuse[i] >= 0) {
       const nodes = d.nodes[reuse[i]];
@@ -342,7 +342,7 @@ function patch(w: LogWindow, d: Drawn, rows: readonly TranscriptRow[], reuse: re
 
 /// Preserve a reply's host while its streamed content changes.
 function reuseReplyRows(before: readonly TranscriptRow[], next: readonly TranscriptRow[]) {
-  const signature = (row: TranscriptRow) => typeof row === "string" ? `s${row}` : row.kind === "heading" || row.kind === "thought" || row.kind === "live" || row.kind === "tool" || row.kind === "run" || row.kind === "subagents" ? `${row.kind}:${JSON.stringify([row.id, row.html])}` : row.kind === "prompt" ? `p${JSON.stringify([row.row, row.html, row.pictures])}` : row.kind === "context" ? `c${JSON.stringify([row.id, contextHtml(row)])}` : `r${JSON.stringify([row.row, row.markdown, row.html])}`;
+  const signature = (row: TranscriptRow) => typeof row === "string" ? `s${row}` : row.kind === "heading" || row.kind === "thought" || row.kind === "live" || row.kind === "tool" || row.kind === "run" || row.kind === "subagents" || row.kind === "note" ? `${row.kind}:${JSON.stringify([row.id, row.html])}` : row.kind === "prompt" ? `p${JSON.stringify([row.row, row.html, row.pictures])}` : row.kind === "context" ? `c${JSON.stringify([row.id, contextHtml(row)])}` : `r${JSON.stringify([row.row, row.markdown, row.html])}`;
   const reuse = reuseRows(before.map(signature), next.map(signature));
   if (!reuse.includes(-1)) return reuse;
   const used = new Set(reuse.filter(index => index >= 0));
@@ -418,12 +418,12 @@ function reuseActivities(before: readonly TranscriptRow[], next: readonly Transc
   const used = new Set(reuse.filter(index => index >= 0));
   const available = new Map<string, { indices: number[]; next: number }>();
   before.forEach((row, index) => {
-    if (typeof row === "string" || (row.kind !== "thought" && row.kind !== "live" && row.kind !== "tool" && row.kind !== "run" && row.kind !== "subagents") || used.has(index)) return;
+    if (typeof row === "string" || (row.kind !== "thought" && row.kind !== "live" && row.kind !== "tool" && row.kind !== "run" && row.kind !== "subagents" && row.kind !== "note") || used.has(index)) return;
     const key = `${row.kind}:${row.id}`, matches = available.get(key) ?? { indices: [], next: 0 };
     matches.indices.push(index); available.set(key, matches);
   });
   next.forEach((row, index) => {
-    if (reuse[index] >= 0 || typeof row === "string" || (row.kind !== "thought" && row.kind !== "live" && row.kind !== "tool" && row.kind !== "run" && row.kind !== "subagents")) return;
+    if (reuse[index] >= 0 || typeof row === "string" || (row.kind !== "thought" && row.kind !== "live" && row.kind !== "tool" && row.kind !== "run" && row.kind !== "subagents" && row.kind !== "note")) return;
     const matches = available.get(`${row.kind}:${row.id}`);
     if (matches && matches.next < matches.indices.length) reuse[index] = matches.indices[matches.next++];
   });

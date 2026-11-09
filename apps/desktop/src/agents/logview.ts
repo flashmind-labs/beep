@@ -301,6 +301,16 @@ export function entryRow(en: AgentEntry, at: number) {
   return `<div class="dcoderen other" data-row="${at}">${esc(en.text)}</div>`;
 }
 
+function typedEntry(en: AgentEntry, at: number): TranscriptRow {
+  const answers = en.kind === "user" && AG.log ? AG.log.answeredQuestions(en.text) : null;
+  if (answers) return { kind: "note", id: `answers:${at}`, at, html: entryRow(en, at), value: { kind: "answers", items: answers } };
+  if (en.kind === "thought" || en.kind === "user" || en.kind === "agent" || en.kind === "tool") return entryRow(en, at);
+  if (en.kind === "other" && en.text.trim() === "[conversation compacted]") return { kind: "note", id: `compacted:${at}`, at, html: entryRow(en, at), value: { kind: "compacted" } };
+  const files = AG.page ? madeFiles(en.text, AG.page.session.cwd) : null;
+  if (files) return { kind: "note", id: `made:${at}`, at, html: madeRow(files, at), value: { kind: "made", files, open: !!AG.open && turnsOf(AG.open.session).made.has(at) } };
+  return { kind: "note", id: `other:${at}`, at, html: entryRow(en, at), value: { kind: "other", text: en.text } };
+}
+
 function userRows(en: AgentEntry, at: number): (string | PromptRow | ContextRow)[] {
   // Beep's context, what another session sent and what a child came to
   // get rows of their own, never the user's box.
@@ -421,7 +431,7 @@ function rowsOf(p: AgentPage, ats: number[]) {
     const en = p.entries[at - p.earlier];
     if (en.kind === "agent") out.push(agentReply(en, at));
     else if (en.kind === "tool" && AG.log) out.push(typedTool(en, at) ?? entryRow(en, at));
-    else out.push(entryRow(en, at));
+    else out.push(typedEntry(en, at));
   }
 
   flush();
@@ -462,7 +472,7 @@ function turnUnits(p: AgentPage): Unit[] {
   const turns = splitTurns(p.entries, p.earlier), lastTurn = turns.at(-1);
   const m = turnsOf(AG.open?.session ?? s.id);
   noteTurns(m, turns, active && lastTurn ? lastTurn.key : null);
-  const row = (at: number) => entryRow(p.entries[at - p.earlier], at);
+  const row = (at: number) => typedEntry(p.entries[at - p.earlier], at);
   const entry = (at: number) => p.entries[at - p.earlier];
   liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
   return turns.map(t => ({ key: `t${t.key}`, rows: turnRows(t) }));
@@ -514,8 +524,8 @@ function turnUnits(p: AgentPage): Unit[] {
         const seen = opened ? [] : folding.flatMap(at => AG.log?.imageLines(entry(at).text).names ?? []);
         const pics = seen.length ? `<div class="dcoderen dfoldpics" data-row="${folding[0]}"><span class="pics">${seen.map(entryPic).join("")}</span></div>` : "";
         const rows = rowsOf(p, opened ? section.ats : section.ats.filter(at => kept.has(at)));
-        const collapse = opened ? collapseActivityHtml(key) : "";
-        return [head, pics, ...rows, collapse];
+        const collapse: ActivityRow | null = opened ? { kind: "note", id: `collapse:${key}`, at: key, html: collapseActivityHtml(key), value: { kind: "collapse" } } : null;
+        return [head, pics, ...rows, ...(collapse ? [collapse] : [])];
       });
       const head = headingRow({ state, start, ms, stats: "", key: null, opened: false });
       const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
