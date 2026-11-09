@@ -2,11 +2,12 @@ import { createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { HistoryFacts } from "./history-facts.tsx";
 import { HistoryHeader } from "./history-header.tsx";
+import { HistoryNavigation } from "./history-navigation.tsx";
 import { HistoryPath, HistorySessions } from "./history-sessions.tsx";
 import { TreeNode } from "./history-tree.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // The project's Git navigator and its selected commit or worktree diff.
-import { button, el } from "../ui/dom.ts";
+import { el } from "../ui/dom.ts";
 import { ago, reason } from "../ui/format.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { SessionRow } from "../project/projects-state.ts";
@@ -47,6 +48,7 @@ interface ProjectHistory {
   tab: "changes" | "details" | "sessions";
   query: string;
   nav: HTMLElement;
+  navigationRoot: Root;
   tree: HTMLElement;
   treeRoot: Root;
   detail: HTMLElement;
@@ -54,7 +56,6 @@ interface ProjectHistory {
   sessionsView: { element: HTMLElement; root: Root } | null;
   pathView: { element: HTMLElement; root: Root } | null;
   foot: HTMLElement;
-  search: HTMLInputElement;
   facts: { element: HTMLElement; root: Root } | null;
   view: DiffViewHandle | null;
   viewKey: string;
@@ -118,36 +119,35 @@ export function makeGitHistory(deps: HistoryDeps) {
     if (p) return p;
     const tree = el("div", "gh-tree");
     const foot = el("div", "gh-nav-foot");
-    const search = el("input");
-    search.type = "search";
-    search.maxLength = 256;
-    search.placeholder = "Search commit messages";
-    search.setAttribute("aria-label", "Search commit messages");
-    const nav = el("aside", "pj-list gh-nav",
-      el("div", "gh-nav-head", button("Project", "gh-back", deps.back), el("b", "", "Git"),
-        button("Refresh", "gh-collapse", () => refresh(name)), button("Collapse all", "gh-collapse", () => {
-          p!.open.clear();
-          renderTree(p!);
-        })), el("label", "gh-search", search), tree, foot);
+    const chrome = el("div");
+    chrome.style.display = "contents";
+    const nav = el("aside", "pj-list gh-nav", chrome, tree, foot);
     nav.setAttribute("aria-label", "Git navigation");
     const detail = el("div", "pj-det gh-detail");
     const headerElement = el("div");
     headerElement.style.display = "contents";
     p = { name, lists: new Map(), files: new Map(), commits: new Map(), open: new Set(["history"]), selected: null,
-      path: null, tab: "changes", query: "", nav, tree, treeRoot: createRoot(tree), detail, header: { element: headerElement, root: createRoot(headerElement) }, sessionsView: null, pathView: null, foot, search, facts: null, view: null, viewKey: "" };
+      path: null, tab: "changes", query: "", nav, navigationRoot: createRoot(chrome), tree, treeRoot: createRoot(tree), detail, header: { element: headerElement, root: createRoot(headerElement) }, sessionsView: null, pathView: null, foot, facts: null, view: null, viewKey: "" };
     projects.set(name, p);
-    const current = p;
-    search.addEventListener("input", () => {
-      current.query = search.value;
-      clearTimeout(current.timer);
-      current.timer = setTimeout(() => {
-        const found = list(current, null, current.query);
-        current.open.add("history");
-        renderTree(current);
-        if (!found.loaded && !found.loading) void load(current, found);
-      }, 250);
-    });
+    drawNavigation(p);
     return p;
+  }
+
+  function drawNavigation(p: ProjectHistory) {
+    p.navigationRoot.render(createElement(HistoryNavigation, {
+      footer: p.foot, machine: p.data?.machine_name ?? null, query: p.query, back: deps.back,
+      refresh: () => void refresh(p.name), collapse: () => { p.open.clear(); renderTree(p); },
+      search: (query: string) => {
+        p.query = query;
+        clearTimeout(p.timer);
+        p.timer = setTimeout(() => {
+          const found = list(p, null, p.query);
+          p.open.add("history");
+          renderTree(p);
+          if (!found.loaded && !found.loading) void load(p, found);
+        }, 250);
+      },
+    }));
   }
 
   async function load(p: ProjectHistory, target: CommitList, more = false) {
@@ -291,7 +291,7 @@ export function makeGitHistory(deps: HistoryDeps) {
         node(p, `sessions:${w.path}`, [createElement("span", { key: "label" }, "Sessions")], () => treeSessions(p, w)),
       ]);
     }));
-    p.foot.textContent = p.data ? `All branches · ${p.data.machine_name}` : "";
+    drawNavigation(p);
     p.treeRoot.render([history, branches, worktrees]);
   }
 
