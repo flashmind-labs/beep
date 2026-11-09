@@ -35,7 +35,7 @@ import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
 import { readTasks, stopTask } from "./tasks.ts";
 import { editorTools, openInEditor } from "../project/editors.ts";
-import { editQueued, interruptAgent, answerAgentQuestion, sendAgentMessage, steerMessage } from "./messages.ts";
+import { disposeQueue, editQueued, interruptAgent, answerAgentQuestion, sendAgentMessage, steerMessage } from "./messages.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
@@ -201,7 +201,9 @@ export function stopAgentFollow() {
   feed.stop();
 }
 
-changeListeners.push(() => { if (S.view !== "agent") stopAgentFollow(); });
+changeListeners.push(() => {
+  if (S.view !== "agent") { stopAgentFollow(); disposeQueue(); }
+});
 
 function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, replace = false) {
   if (AG.page) page.session = nativeUpdate(AG.page.session, page.session);
@@ -556,6 +558,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     : followsOnly(s)
     ? `<div class="dmuted dblock dbanner">${canTakeOver(s.agent) ? "Running outside Beep. Beep follows it here. Close it there to continue here." : "Started outside Beep. Beep follows it here."}</div>`
     : `<div id="agmovebox"></div><div id="agplan"></div><div id="agtasks"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button><button class="dbtn" id="agsend" aria-label="Send">${ICON.send}</button></div><div id="agpickm"></div>`;
+  disposeQueue();
   // The conversation fills the window; the media pane sits beside it or under it.
   const project = windowHooks?.sessionProject?.(s);
   const head = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b id="agtitle" title="${esc(s.title || k.name)}">${esc(s.title || k.name)}</b><small class="aglocation" title="${esc(s.cwd)}"><span class="agfolder">${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button>` : `<span id="agproj">${esc(shortCwd(s.cwd) || k.name)}</span>`}<span id="agbranch"></span></span><span>@</span><span id="aghere">${esc(s.machine_name)}</span></small></span><small id="aguse" class="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span></div>`;
