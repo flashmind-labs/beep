@@ -1,5 +1,32 @@
 import { expect, test } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { openDesktop, projectName } from "./harness.ts";
+
+test("starting a project draft keeps its terminal and dock mounted", async ({ page }, info) => {
+  const session = { machine_id: "build-box", machine_name: "build-box", id: "started", agent: "codex", title: "Started session", cwd: "/srv/project", status: "working", external: false, question: null };
+  await openDesktop(page, true, {
+    agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: "/srv/project", home: "/srv", capabilities: [] }],
+    agent_start: { session },
+    agent_view: { session, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
+    terminal_open: { id: "shell-one", project: projectName, machine_id: "build-box", machine_name: "build-box", name: "shell", command: "", cwd: "/srv/project", state: "running", code: null, started_at: 1 },
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await expect(page.locator('.pj-li[title="Running"]')).toBeVisible();
+  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  const draft = page.locator("#agdraft textarea"); await expect(draft).toBeFocused();
+  await page.getByRole("button", { name: "+ Terminal", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminal_attach").length)).toBeGreaterThan(0);
+  const tab = page.locator('[role="tab"][data-mtab^="term:"]');
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".agpview.term")).toBeAttached();
+  await page.evaluate(() => { Reflect.set(window, "draftDock", document.querySelector("#agpane-right")); Reflect.set(window, "draftTerminal", document.querySelector('.agpview.term')); });
+  await draft.fill("Inspect the project"); await draft.press("Enter");
+  await expect(page.locator("#agmsg")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_start").length)).toBe(1);
+  expect(await page.evaluate(() => document.querySelector("#agpane-right") === Reflect.get(window, "draftDock") && document.querySelector('.agpview.term') === Reflect.get(window, "draftTerminal"))).toBe(true);
+  const calls = await page.evaluate(() => window.__navigation.calls());
+  expect(calls.filter(call => call.command === "terminal_open")).toHaveLength(1);
+  expect(calls.filter(call => call.command === "terminal_close")).toHaveLength(0);
+});
 
 test("a reopened session restores its file tab", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("beep.projectView.build-box\nnotice-one", JSON.stringify({

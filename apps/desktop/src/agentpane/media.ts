@@ -173,21 +173,6 @@ export const shell = () => document.getElementById("agshell");
 export const main = () => document.getElementById("agmain");
 export const paneOf = (d: Dock) => document.getElementById(`agpane-${d}`);
 
-/// One dock's frame: its divider, its pane and the strip it folds to.
-function dockFrame(d: Dock) {
-  return `<div class="agdiv" id="agdiv-${d}" data-dock="${d}" role="separator" tabindex="0" title="Drag to resize, double-click to reset" hidden></div>`
-    + `<aside class="agpane" id="agpane-${d}" data-dock="${d}" tabindex="-1" hidden><div class="agpane-content"><div class="agphead"><div class="agtabs" role="tablist"></div>`
-    + `<span class="agwtw" hidden></span><button class="agpbtn agaddterm" data-pact="term" title="New terminal in this folder (⌃\`)">+ Terminal</button><button class="agpbtn" data-pact="dock"></button><button class="agpbtn" data-pact="fold" title="Hide the pane"></button></div><div class="agpviews"></div></div></aside>`
-    + `<button class="agpstrip" id="agpstrip-${d}" data-dock="${d}" hidden title="Show the pane"></button>`;
-}
-
-/// The session's frame around `conv`, the conversation: the bottom dock
-/// under it, the right dock beside both, and where a dragged tab drops.
-export function paneFrame(conv: string) {
-  return `<div class="agmain" id="agmain">${conv}${dockFrame("bottom")}</div>${dockFrame("right")}`
-    + `<div class="agdropzone" id="agdropzone" hidden></div>`;
-}
-
 /// Starts the pane for session `s`, closing what the last one had open.
 export function startPane(s: PaneSession) {
   closePaneTabs();

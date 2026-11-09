@@ -10,7 +10,7 @@ export const bar = view.document.getElementById("bar")!;
 Object.assign(globalThis, {
   window: view, document: view.document, HTMLElement: view.HTMLElement, HTMLTextAreaElement: view.HTMLTextAreaElement,
   HTMLButtonElement: view.HTMLButtonElement, HTMLDetailsElement: view.HTMLDetailsElement,
-  Node: view.Node, Element: view.Element, SVGElement: view.SVGElement, MutationObserver: view.MutationObserver,
+  Node: view.Node, Element: view.Element, Event: view.Event, SVGElement: view.SVGElement, MutationObserver: view.MutationObserver,
   requestAnimationFrame: () => 1, cancelAnimationFrame() {}, addEventListener: view.addEventListener.bind(view),
   removeEventListener: view.removeEventListener.bind(view),
   ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },

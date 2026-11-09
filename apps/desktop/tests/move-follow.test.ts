@@ -5,7 +5,9 @@ import { AG, type AgentPage, type AgentRow } from "../src/agents/agents.ts";
 import { S } from "../src/bar/core.ts";
 import { drawMove } from "../src/agents/move.ts";
 import { MV } from "../src/agents/move-store.ts";
-import { userImages } from "../src/agents/session.ts";
+import { drawAgentFrame, stopAgentFollow, userImages } from "../src/agents/session.ts";
+import { disposeQueue } from "../src/agents/messages.ts";
+import type { ChatBody } from "../src/ui/turn.ts";
 
 Object.assign(globalThis, { getSelection: () => null, getComputedStyle: () => ({ rowGap: "0" }) });
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -55,4 +57,22 @@ test("replayed user images are shown even when more prompt text follows them", (
   assert.deepEqual(userImages(`Look at this\n[image: ${a}]\nAnd this\n[image: ${b}]\nMore detail`), {
     text: "Look at this\nAnd this\nMore detail", names: [a, b],
   });
+});
+
+test("taking over an external session retains the transcript and dock", t => {
+  const session: AgentRow = { machine_id: "machine", machine_name: "Machine", id: "external", agent: "codex", cwd: "/srv/project", status: "working", external: true };
+  const page: AgentPage = { session, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 };
+  Object.assign(AG, { open: { machine_id: session.machine_id, agent: session.agent, session: session.id }, page, modes: null, tasks: [], queue: [] });
+  Object.assign(answers, { agent_tasks: [], editors: [], agent_hosts: [], session_moves: [] });
+  S.view = "agent";
+  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  drawAgentFrame();
+  const body = bar.querySelector<ChatBody>("#agbody"), dock = bar.querySelector("#agpane-right");
+  assert.ok(body && dock); assert.ok(bar.querySelector(".dbanner"));
+  body.stuck = false; body.top = 42; body.scrollTop = 42;
+  page.session = { ...session, status: "ended" };
+  drawAgentFrame(true, body);
+  assert.equal(bar.querySelector("#agbody"), body); assert.equal(bar.querySelector("#agpane-right"), dock);
+  assert.equal(body.scrollTop, 42);
+  assert.ok(bar.querySelector("#agmsg")); assert.equal(bar.querySelector(".dbanner"), null);
 });
