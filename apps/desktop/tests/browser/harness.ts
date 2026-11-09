@@ -23,6 +23,7 @@ interface NavigationHarness {
   notify(topic: string): void;
   emit(name: string, payload: unknown): void;
   hold(command: string): void;
+  holdNext(command: string): void;
   release(command: string): void;
   rejectOnce(command: string): void;
 }
@@ -69,6 +70,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
   const channel = (value: unknown): value is EventChannel => value !== null && typeof value === "object" && "onmessage" in value && typeof value.onmessage === "function";
   const rejected = new Set<string>();
   const held = new Set<string>();
+  const heldOnce = new Set<string>();
   const releases = new Map<string, () => void>();
   const readers = new Map<string, { channel: EventChannel; topics: { machine: string | null; topic: string }[] }>();
   let processes: RunningProcess[] = [];
@@ -96,7 +98,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
     core: {
       async invoke(command, args = {}) {
         calls.push({ command, args });
-        if (held.has(command)) await new Promise<void>(resolve => { releases.set(command, resolve); });
+        if (held.has(command) || heldOnce.delete(command)) await new Promise<void>(resolve => { releases.set(command, resolve); });
         if (rejected.delete(command)) throw new Error("Requested test failure");
         if (command === "center_pending") { pendingReads++; const target = pending; pending = null; return target; }
 
@@ -159,6 +161,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
     emit(name, payload) { for (const handler of handlers.get(name) ?? []) handler({ payload }); },
     rejectOnce(command) { rejected.add(command); },
     hold(command) { held.add(command); },
+    holdNext(command) { heldOnce.add(command); },
     release(command) { held.delete(command); releases.get(command)?.(); releases.delete(command); },
     calls: () => calls,
     respond(command, value) { answers[command] = value; },
