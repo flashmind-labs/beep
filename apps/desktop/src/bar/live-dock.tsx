@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { ICON } from "../ui/icons.ts";
+import { HintView } from "./hints-view.tsx";
+import { hintModel, LIVE_SAY, LIVE_TALK } from "./hints.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { LiveView } from "./live.ts";
 import { liveParts, LV } from "./live.ts";
@@ -20,4 +22,9 @@ export function LiveDock({ view }: { view: LiveView }) {
       <button className="dleave" id="lleave" aria-label={parts.replying ? "Cancel the reply and leave live mode" : "Leave live mode"} onClick={() => { void invoke("cancel_live").catch(() => {}); }} dangerouslySetInnerHTML={{ __html: ICON.x }} /></div>
     <div className="dfoot">{LV.soon && parts.mode === "listen" && <div className="dsoon" role="progressbar" aria-label="Sending after the pause"><i ref={progress} /></div>}<div className="hint">{parts.hint}</div>{parts.replying && <button className="dbtn quiet lcancel" id="lcancel" onClick={() => { void invoke("cancel_live").catch(() => {}); }}>Cancel<kbd>esc</kbd></button>}</div>
   </div>;
+}
+
+export function LiveSheet() {
+  const sections = [["Say", LIVE_SAY], ["Keys", LIVE_TALK]] as const;
+  return <div className="dover lsheet" role="dialog" aria-label="What to say"><div className="vt"><span className="tt"><b>What to say</b></span></div><div className="dkeys">{sections.map(([title, rows]) => <div className="kg" key={title}><div className="dsec">{title}</div>{rows.map(([key, text]) => <div className="kr" key={`${key}:${text}`}><span>{text}</span><kbd>{key}</kbd></div>)}</div>)}</div><HintView value={hintModel([["esc", "close"], ["⌘/", "close"]])} /></div>;
 }

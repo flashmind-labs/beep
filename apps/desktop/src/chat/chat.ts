@@ -138,7 +138,6 @@ export function renderChat() {
     chatShell = null;
     if (!retiringBodies.has(chatBody) && ![...live.values()].some(entry => entry.body === chatBody)) evictBody(chatBody);
     if (host?.parentElement !== bar) return;
-    host.querySelector(".lsheet")?.remove();
     for (const child of [...bar.children]) if (child !== host) child.remove();
   });
   host = page.host;
