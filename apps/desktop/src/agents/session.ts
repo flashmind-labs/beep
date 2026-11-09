@@ -785,7 +785,7 @@ function agentClick(e: MouseEvent) {
   // A file the reply names opens its picture, as its thumbnail does, or
   // else the file itself from the machine, in the media pane.
   const link = target.closest<HTMLElement>("#agbody a.imgl");
-  const linked = link?.dataset.img != null ? link.closest(".dcoderen")?.querySelectorAll<HTMLImageElement>(":scope > .pics img.pic")[Number(link.dataset.img)] : null;
+  const linked = link?.dataset.img != null ? link.closest(".dcoderen")?.querySelectorAll<HTMLImageElement>(":scope > .pics img.pic, :scope > [data-tool-content] > .pics img.pic")[Number(link.dataset.img)] : null;
   if (link && !linked?.getAttribute("src")) { if (link.dataset.path) openPath(link.dataset.path); return; }
   // The agent's pictures open in the media pane, the user's own full size.
   // One still loading opens once it is here. The tile may be a thumbnail, so
