@@ -122,7 +122,7 @@ const apAct = (f, compact, pick) => !pick || !pick.st ? `<button class="dbtn${co
   : pick.st === "importing" ? `<span class="ap-st"><span class="dspin"></span>Importing…</span>`
   : pick.st === "done" ? `<span class="ap-st ok">Imported</span>`
   : `<button class="dbtn pri small" data-toast="Importing ${f.name} again">Retry</button>`;
-const apRow = (f, compact, pick) => `<div class="ap-row${pick ? " ap-pick" : ""}${pick?.focus ? " ap-focus" : ""}">${pick ? `<input type="checkbox" aria-label="Select ${f.name}"${pick.on ? " checked" : ""}${pick.st ? " disabled" : ""}>` : ""}<span class="n">${f.name}${f.git === false ? "<small>no git, syncs in full</small>" : f.note ? `<small>${f.note}</small>` : ""}</span>
+const apRow = (f, compact, pick) => `<div class="ap-row${pick ? " ap-pick" : ""}${pick?.focus ? " ap-focus" : ""}">${pick ? `<input class="dcheck" type="checkbox" aria-label="Select ${f.name}"${pick.on ? " checked" : ""}${pick.st ? " disabled" : ""}>` : ""}<span class="n">${f.name}${f.git === false ? "<small>no git, syncs in full</small>" : f.note ? `<small>${f.note}</small>` : ""}</span>
     ${f.on.map(([m, p]) => `<span class="m"><span title="${m}: ${p}" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><b style="font-weight:500;color:var(--d-fg)">${m}</b> <code>${p}</code></span></span>`).join("")}
     <span class="m">${compact ? "" : f.ag.map(([a, n]) => `<span class="ap-ag">${a} ${n}</span>`).join("")}<span>${f.last}</span></span>
     ${pick?.st === "failed" ? `<span class="m bad">Failed: ${pick.why}</span>` : ""}<span class="acts">${apAct(f, compact, pick)}</span></div>`;
@@ -160,21 +160,22 @@ D.dAddProject = () => {
   const all = shown.length > 0 && ticked === shown.length;
   const search = pk || v === "none" ? `<input class="ap-q" type="search" placeholder="Filter by repo, folder, machine or agent" aria-label="Filter found folders" value="${pk?.q || ""}">` : "";
   const q = (pk?.q || "").trim();
-  const bar = pk ? `<div class="ap-bar"><label><input type="checkbox"${all ? " checked" : ""}${busy ? " disabled" : ""}> Select all shown</label><span>${q ? `${shown.length} of ${AP_FOUND.length} shown` : `${AP_FOUND.length} found`}</span>
+  const bar = pk ? `<div class="ap-bar"><label><input class="dcheck" type="checkbox"${all ? " checked" : ""}${busy ? " disabled" : ""}> Select all shown</label><span>${q ? `${shown.length} of ${AP_FOUND.length} shown` : `${AP_FOUND.length} found`}</span>
       <button class="dbtn pri small"${ticked && !busy ? "" : " disabled"} data-toast="Importing ${ticked} projects, three at a time">${busy ? "Importing…" : `Import ${ticked}`}<kbd>⌘↵</kbd></button></div>` : "";
   const found = pk ? `${search}${bar}<div class="ap-box">${shown.length ? `<div class="ap-list">${shown.map(([f, p]) => apRow(f, false, p)).join("")}</div>` : `<div class="am-sub">Nothing found matches “${q}”.</div>`}</div>`
     : v === "looking" ? `<div class="ap-box"><div class="am-wait"><span class="dspin"></span>Looking through Claude Code, Codex, pi, flsh and OpenCode sessions on 3 machines…</div></div>`
     : v === "failed" ? `<div class="ap-box"><div class="am-sub">${AP_UNREAD}</div></div>`
     : `${search}<div class="ap-box"><div class="am-sub">No other folders yet.</div></div>`;
-  const ways = `<div class="ap-ways"><button data-dact="dset:af:mac" data-dgo="dAddFolder"><span><b>Choose a folder…</b><span>Anywhere on this Mac, or browse another machine</span></span></button>
-      <button data-dgo="dImportProject"><span><b>Clone a repository…</b><span>org/repo or a URL from GitHub or your Forgejo server</span></span></button>
-      <button data-dact="dset:np:form" data-dgo="dNewProject"><span><b>New project…</b><span>Create a repository and put it on your machines</span></span></button></div>`;
+  const ways = `<div class="ap-ways">
+      <button class="dbtn small" data-dact="dset:af:mac" data-dgo="dAddFolder">Choose folder</button>
+      <button class="dbtn small" data-dgo="dImportProject">Clone repository</button>
+      <button class="dbtn small" data-dact="dset:np:form" data-dgo="dNewProject">New project</button></div>`;
   const sheet = `<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;padding-top:70px;justify-content:center;z-index:5">
     <div class="am-sheet ap-sheet" role="dialog" aria-label="Add a project" style="max-height:calc(100% - 90px)">
       <div class="am-head"><b>Add a project</b><kbd>esc</kbd></div>
-      <div class="am-label">Found on your machines</div>${found}
-      <div class="ap-remote">${apRemote(pk?.q || "", v)}</div>
-      ${ways}</div></div>`;
+      ${ways}<div class="am-label">On your machines</div>${found.replace('<div class="ap-box">', '<div class="ap-results"><div class="ap-box">')}
+      <div class="ap-remote"><details${q ? " open" : ""}><summary>Browse repositories on connected hosts</summary>${apRemote(pk?.q || "", v)}</details></div></div><div class="ap-footer"></div>
+      </div></div>`;
   S.d.pp = S.d.pp || "list";
   return D.dProjectsPage().replace(/<\/div><\/div>\s*$/, sheet + "</div></div>");
 };
@@ -224,13 +225,13 @@ DESK_SCREENS.find(g => g.group === "Command center").items.push(["dAddFolder", "
 D.dNewProject = () => {
   const v = S.d.np || "form", local = v === "local", typed = v !== "form";
   const hosts = [["GitHub", "acme"], ["forge.example.com", "acme"], ["Local only", ""]];
-  const host = hosts.map(([n], i) => `<button class="dchip" aria-pressed="${local ? i === 2 : i === 1}" data-dact="dset:np:${i === 2 ? "local" : "typed"}">${n}</button>`).join("");
-  const chips = [["build-box", true], ["studio", !local], ["MacBook Air", false]].map(([n, on]) => `<button class="dchip" aria-pressed="${on}" data-toast="${n}">${n}</button>`).join("");
+  const host = hosts.map(([n], i) => `<button class="dbtn dchip" aria-pressed="${local ? i === 2 : i === 1}" data-dact="dset:np:${i === 2 ? "local" : "typed"}">${n}</button>`).join("");
+  const chips = [["build-box", true], ["studio", !local], ["MacBook Air", false]].map(([n, on]) => `<button class="dbtn dchip" aria-pressed="${on}" data-toast="${n}">${n}</button>`).join("");
   const label = t => `<div style="font-size:13px;color:var(--d-muted);margin-bottom:8px">${t}</div>`;
   const row = x => `<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">${x}</div>`;
   const form = `${label("Name")}${row(`<div class="ip-field focus">${typed ? "<span>widget</span>" : '<span class="ph">my-project</span>'}</div>`)}
-    ${label("Repository on")}${row(`<div class="dchips">${host}</div>`)}
-    ${local ? "" : `${label("Owner and visibility")}${row(`<button class="dbtn" data-toast="Your account or an organization">acme</button><div class="dchips"><button class="dchip" aria-pressed="true" data-toast="Private">Private</button><button class="dchip" aria-pressed="false" data-toast="Public">Public</button></div>`)}`}
+    <div class="am-sub">Create with a connected GitHub, Forgejo or Gitea account, or keep it local.</div>${label("Repository on")}${row(`<div class="dchips">${host}</div>`)}
+    ${local ? "" : `${label("Owner and visibility")}${row(`<button class="dbtn" data-toast="Your account or an organization">acme</button><div class="dchips"><button class="dbtn dchip" aria-pressed="true" data-toast="Private">Private</button><button class="dbtn dchip" aria-pressed="false" data-toast="Public">Public</button></div>`)}`}
     ${label("Machines")}${row(`<div class="dchips">${chips}</div>`)}
     ${typed ? `<div class="ip-to">${local ? "A git repository in ~/code/widget on build-box." : "Each machine clones it into ~/code/widget and keeps it in sync."}</div>` : ""}
     ${v === "error" ? `<div style="font-size:13px;color:var(--d-err);margin-bottom:12px">acme/widget already exists on forge.example.com.</div>` : ""}
@@ -239,7 +240,7 @@ D.dNewProject = () => {
   const done = `<div style="display:flex;gap:10px;align-items:center;font-size:14px"><span class="ddot"></span><b>acme/widget created</b></div>
     <div style="font-size:12.5px;color:var(--d-muted);margin:8px 0 14px">On build-box and studio in ~/code/widget</div><button class="dbtn pri" data-dact="dset:pp:one" data-dgo="dProjectsPage">Open project</button>`;
   const sheet = `<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;padding-top:90px;justify-content:center;z-index:5">
-    <div class="am-sheet ip-sheet" role="dialog" aria-label="New project">
+    <div class="am-sheet ip-sheet np-sheet" role="dialog" aria-label="New project">
       <div style="display:flex;justify-content:space-between;margin-bottom:12px"><b style="font-size:15px">New project</b><kbd style="font-size:11px;opacity:.7">esc</kbd></div>${v === "creating" ? creating : v === "done" ? done : form}</div></div>`;
   S.d.pp = S.d.pp || "list";
   return D.dProjectsPage().replace(/<\/div><\/div>\s*$/, sheet + "</div></div>");
@@ -383,3 +384,30 @@ D.dWinTerminal = () => {
 };
 VARIANTS.dWinTerminal = [["Running terminals", "list"], ["No terminals", "none"]].map(([l, k]) => [l, () => { S.d.ptm = k; S.d.ptmm = ""; render(); }, () => (S.d.ptm || "list") === k]);
 DESK_SCREENS.find(g => g.group === "Command center").items.push(["dWinTerminal", "Project terminals", "CommandCenterWindow, TerminalList"]);
+
+// Project setup uses the shared controls with compact spacing.
+(() => { const style = document.createElement("style"); style.textContent = `
+.mac .ap-sheet { width: min(640px, 88vw); overflow: auto; padding: 16px }
+.mac .ap-sheet, .mac .np-sheet, .mac .ap-sheet .ap-list, .mac .ap-sheet .ap-q,
+.mac .ap-sheet .dbtn, .mac .np-sheet .dbtn { border-radius: 4px }
+.mac .ap-sheet .am-head { margin-bottom: 12px }
+.mac .ap-sheet .am-label { margin: 12px 0 8px }
+.mac .ap-ways { display: flex; flex-wrap: wrap; margin: 0; gap: 8px }
+.mac .ap-ways .dbtn { display: inline-flex; align-items: center; padding: 0 12px; min-height: 28px; font-size: 12px; font-weight: 500 }
+.mac .ap-sheet .ap-bar { margin: 8px 0; min-height: 28px }
+.mac .ap-sheet .ap-bar .dbtn { padding: 0 8px; min-height: 24px }
+.mac .ap-results { max-height: 320px; overflow: auto; border: 1px solid var(--d-border); border-radius: 4px; background: var(--d-elev) }
+.mac .ap-sheet .ap-list { border: 0; padding: 0 12px; max-height: none; overflow: visible; border-radius: 0 }
+.mac .ap-sheet .ap-remote .am-label { margin: 0; padding: 8px 12px; background: var(--d-surface) }
+.mac .ap-sheet .ap-row { padding: 8px 0; gap: 2px 12px }
+.mac .ap-sheet .ap-row .m { gap: 4px 12px }
+.mac .ap-sheet .ap-ag { padding: 0; border: 0; border-radius: 0; color: var(--d-muted) }
+.mac .ap-sheet .ap-row.ap-focus { outline: none }
+.mac .ap-sheet .ap-row:focus-visible { outline: 1px solid var(--d-accent); outline-offset: -1px; border-radius: 0 }
+.mac .ap-sheet .ap-row .acts .dbtn { background: var(--d-surface); border-color: var(--d-border); color: var(--d-fg) }
+.mac .ap-sheet .ap-remote summary { padding: 8px 12px; cursor: pointer; font-size: 12px; color: var(--d-muted) }
+.mac .ap-sync { margin-top: 12px; font-size: 12px; color: var(--d-muted) }
+.mac .ap-sync summary { cursor: pointer; padding: 4px 0 }
+.mac .ap-sync .am-line { margin: 8px 0; color: var(--d-fg) }
+.mac .ap-sync .am-sub { font-size: 12px; line-height: 16px }
+`; document.head.append(style); })();

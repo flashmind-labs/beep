@@ -46,7 +46,7 @@ export function openNewProject(options: NewProjectOptions = {}) {
   creating = false;
   error = null;
   created = null;
-  ({ root, sheet, close } = openSheet("New project", "am-sheet ip-sheet", { onClose: closed }));
+  ({ root, sheet, close } = openSheet("New project", "am-sheet ip-sheet np-sheet", { onClose: closed }));
   draw();
   invoke<Forge[] | null>("project_forges")
     .then(got => {
@@ -142,7 +142,7 @@ function fields() {
   input.value = form.name;
   input.addEventListener("input", () => { form = { ...form, name: input.value }; syncTyped(); });
   input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
-  const chip = (label: string, on: boolean, click: () => void) => press(button(label, "dchip", click), on);
+  const chip = (label: string, on: boolean, click: () => void) => press(button(label, "dbtn dchip", click), on);
   const hosts = el("div", "dchips",
     ...list.map(f => chip(f.github ? "GitHub" : f.host, form.host === f.host, () => setForm(pickHost(form, list, f.host)))),
     chip("Local only", form.host === null, () => setForm(pickHost(form, list, null))));
@@ -155,6 +155,9 @@ function fields() {
   return [
     el("div", "am-label", "Name"),
     el("div", "am-line", input),
+    el("div", "am-sub", list.length
+      ? "Create with a connected GitHub, Forgejo or Gitea account, or keep it local."
+      : "Connect GitHub or add a Forgejo/Gitea token in Settings > Credentials to create a remote repository."),
     el("div", "am-label", "Repository on"),
     el("div", "am-line", hosts),
     loadError ? el("div", "am-msg bad", loadError) : null,

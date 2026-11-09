@@ -2,13 +2,8 @@ import { syncthingImportChoice } from "../project/syncthing.ts";
 // addproject/: the Add a project, Add a folder, Import a project and New
 // project sheets. Entry: openAddProject here, openAddFolder in addfolder.ts,
 // openImportProject in importproject.ts, openNewProject in newproject.ts.
-// The "Add a project" sheet: the git checkouts your coding agents worked in
-// (Claude Code, Codex, pi, flsh and OpenCode sessions each machine finds),
-// each with Import, then the user's repositories on GitHub and Forgejo that no
-// machine has, each with Clone, then "Choose a folder…", which opens the Add
-// a folder sheet, "Clone a repository…", which opens the Import a project
-// sheet, and "New project…", which opens the New project sheet. It opens on
-// the list each machine named last while every online machine looks again.
+// Setup actions and discovered checkouts, followed by repositories on connected
+// hosts. Each online machine refreshes its cached discovery list on opening.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
 import { IMPORTS_AT_ONCE, eachLimited, emptyText, foundMatches, lookingOn, tickable, toImport, toggleAllShown, unreadText } from "./addproject-state.ts";
@@ -302,11 +297,13 @@ function build() {
   remoteBox = el("div", "ap-remote");
   hint = el("div", "am-wait ap-look");
   const ways = el("div", "ap-ways",
-    way("Choose a folder…", "A checkout on this computer or another machine, added in place", () => { closeAddProject(); opts.onChoose?.(); }),
-    way("Clone a repository…", "org/repo or a URL from GitHub or your Forgejo server", () => { closeAddProject(); opts.onClone?.(); }),
-    way("New project…", "Create a repository and put it on your machines", () => { closeAddProject(); opts.onNew?.(); }));
+    way("Choose folder", () => { closeAddProject(); opts.onChoose?.(); }),
+    way("Clone repository", () => { closeAddProject(); opts.onClone?.(); }),
+    way("New project", () => { closeAddProject(); opts.onNew?.(); }));
+  const sync = el("details", "ap-sync", el("summary", "", "Sync options"), syncthing.node);
+  syncthing.node.querySelector("input")?.classList.add("dcheck");
   sheet!.replaceChildren(el("div", "am-head", el("b", "", "Add a project"), el("kbd", "", "esc")),
-    el("div", "am-label", "Found on your machines"), search, bar, hint, listBox, syncthing.node, remoteBox, ways);
+    ways, el("div", "am-label", "On your machines"), search, bar, hint, el("div", "ap-results", listBox, remoteBox), sync);
 }
 
 function draw() {
@@ -351,7 +348,9 @@ function draw() {
   const ready = toImport(names, picked, status).length;
   const all = el("input");
   all.type = "checkbox";
+  all.className = "dcheck";
   all.checked = open.length > 0 && open.every(name => picked.has(name));
+  all.indeterminate = !all.checked && open.some(name => picked.has(name));
   all.disabled = batch || !open.length;
   all.addEventListener("change", () => { picked = toggleAllShown(names, picked, status); draw(); });
   const go = button(batch ? "Importing…" : `Import ${ready}`, "dbtn pri small", () => importPicked());
@@ -379,19 +378,22 @@ function drawRemote() {
         button("Clone", "dbtn small", () => { closeAddProject(); opts.onClone?.(r.url); })))),
     ];
   });
-  remoteBox.replaceChildren(...sections);
+  const wasOpen = remoteBox.querySelector("details")?.open ?? false;
+  const browse = el("details", "", el("summary", "", "Browse repositories on connected hosts"), ...sections);
+  browse.open = wasOpen || !!query.trim();
+  remoteBox.replaceChildren(...(sections.length ? [browse] : []));
   return (hosts || []).some(h => h.repos.length > 0);
 }
 
-function way(title: string, sub: string, onClick: () => void) {
-  return button(el("span", "", el("b", "", title), el("span", "", sub)), "", onClick);
+function way(title: string, onClick: () => void) {
+  return button(title, "dbtn small", onClick);
 }
 
 /// One found checkout: its name, where it is on each machine, its sessions per
 /// agent and when one last ran, and Import.
 export function foundRow(row: FoundRow, state: FoundRowState = {}, onImport: (row: FoundRow) => void = doImport) {
   const st = state.status;
-  const go = button(state.busy === row.name ? "Importing…" : st?.state === "failed" ? "Retry" : "Import", `dbtn${state.quiet ? "" : " pri"} small`, () => onImport(row));
+  const go = button(state.busy === row.name ? "Importing…" : st?.state === "failed" ? "Retry" : "Import", "dbtn small", () => onImport(row));
   go.disabled = state.busy != null;
   go.title = `Import ${row.name} with ${foundSessions(row)} sessions`;
   const act = st?.state === "importing" ? el("span", "ap-st", el("span", "dspin"), "Importing…")
@@ -412,6 +414,7 @@ export function foundRow(row: FoundRow, state: FoundRowState = {}, onImport: (ro
     const pick = state.pick;
     const box = el("input");
     box.type = "checkbox";
+    box.className = "dcheck";
     box.checked = pick.on;
     box.disabled = !tickable(st ?? undefined);
     box.tabIndex = -1;
