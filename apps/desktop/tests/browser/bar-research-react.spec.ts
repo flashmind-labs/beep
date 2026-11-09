@@ -53,3 +53,17 @@ test("shared bar pages size the window from their visible contents", async ({ pa
   await expect.poll(measured).toBeGreaterThan(100);
   await expect.poll(async () => (await lastHeight()) === (await measured())).toBe(true);
 });
+
+test("a research failure after navigation is shown without replacing the new page", async ({ page }) => {
+  await openResearch(page);
+  await page.evaluate(() => { window.__navigation.hold("research_begin"); window.__navigation.rejectOnce("research_begin"); });
+  await page.locator("#rtopic").fill("A topic");
+  await page.locator("#rtopic").press("Enter");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "research_begin"))).toBe(true);
+  await page.evaluate(() => window.__navigation.emit("bar-shown", "chats"));
+  const chats = page.getByRole("listbox", { name: "Chats" });
+  await expect(chats).toBeVisible();
+  await page.evaluate(() => window.__navigation.release("research_begin"));
+  await expect(page.locator("#saved")).toContainText("Could not start research");
+  await expect(chats).toBeVisible();
+});

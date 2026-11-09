@@ -435,6 +435,8 @@ export function sourceSite(url: string) {
 
 /// The web pages a reply used, as chips under it: the site's initial and name.
 export function sourceRow(turn: Turn, sources: WebSource[] | null | undefined) {
+  const owner = owningChatBody(turn);
+  if (!owner) return;
   const list = (sources ?? []).map(source => ({ ...source, site: sourceSite(source.url) })).filter(source => source.site);
   let row = turn.querySelector<HTMLElement>(".dsources");
   if (!list.length) { discardChatSources(turn); row?.remove(); return; }
@@ -443,18 +445,7 @@ export function sourceRow(turn: Turn, sources: WebSource[] | null | undefined) {
     const anchor = turn.querySelector(".files") ?? turn.querySelector(ANSWER);
     anchor ? anchor.after(row) : turn.append(row);
   }
-  const owner = owningChatBody(turn);
-  if (owner) renderChatSources(owner, turn, row, list);
-  else {
-    const target = row;
-    const draw = (open: boolean) => {
-      const shown = open ? list : list.slice(0, 3), more = list.length - shown.length;
-      target.innerHTML = shown.map((source, i) => `<button class="dsrc" data-i="${i}" title="${esc(source.title || source.url)}"><i>${esc(source.site[0].toUpperCase())}</i><span>${esc(source.site)}</span></button>`).join("") + (more ? `<button class="dsrc more" aria-label="Show ${more} more sources">+${more}</button>` : "");
-      target.querySelectorAll<HTMLElement>(".dsrc[data-i]").forEach(button => button.addEventListener("click", () => { const index = Number(button.dataset.i); void invoke("open_url", { url: shown[index].url }).catch(() => {}); }));
-      target.querySelector(".dsrc.more")?.addEventListener("click", () => draw(true));
-    };
-    draw(false);
-  }
+  renderChatSources(owner, turn, row, list);
 }
 
 /// The agent that answered one turn (`session_agents`).
