@@ -1,4 +1,4 @@
-import { calls } from "./dom-env.ts";
+import { calls } from "./git-history-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { makeGitHistory } from "../src/review/history.ts";
