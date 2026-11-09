@@ -297,3 +297,43 @@ test("diff keyboard navigation reveals a filtered closed folder", async ({ page 
   await expect(folder).toHaveAttribute("open", "");
   await expect(folder.locator(".dv-tr.on")).toBeVisible();
 });
+
+test("diff file header actions do not toggle the file", async ({ page }) => {
+  await openDesktop(page, false, {
+    project_git_history: { machine_id: "build-box", machine_name: "build-box", root: "/srv/project", refs: [], worktrees: [], commits: [{ id: "abc123", parents: [], author: "Example", committed_at: 1, subject: "Commit" }], next: null },
+    project_git_files: [{ path: "sample.ts", old_path: null, status: "modified" }],
+    project_git_diff: { root: "/srv/project", base: "main", merge_base: "", working_tree: false, additions: 1, deletions: 0, more: 0, files: [{ path: "sample.ts", old_path: null, status: "modified", additions: 1, deletions: 0, left_out: null, hunks: [] }] },
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
+  const section = page.locator('.gh-detail .dv-file[data-path="sample.ts"]');
+  const header = section.locator(".dv-fh");
+  const copy = header.getByTitle("Copy path");
+  await expect(header).toHaveAttribute("aria-expanded", "true");
+  await copy.click();
+  await expect(header).toHaveAttribute("aria-expanded", "true");
+  await copy.focus();
+  await page.keyboard.press("Enter");
+  await expect(header).toHaveAttribute("aria-expanded", "true");
+  await header.focus();
+  await page.keyboard.press("Enter");
+  await expect(header).toHaveAttribute("aria-expanded", "false");
+});
+
+test("diff file header opens a comment without folding", async ({ page }) => {
+  await openDesktop(page, true);
+  await page.evaluate(() => window.__navigation.open({ agent: {
+    kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session",
+    cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false,
+  } }));
+  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  const section = page.locator('.dv-file[data-path="sample.ts"]');
+  const header = section.locator(".dv-fh");
+  await header.getByRole("button", { name: "Comment" }).click();
+  await expect(header).toHaveAttribute("aria-expanded", "true");
+  const comment = section.getByRole("textbox", { name: "Comment on this file" });
+  await comment.fill("Please review this file.");
+  await section.locator(".dv-cmt.open").getByRole("button", { name: "Add" }).click();
+  await expect(section.locator(".dv-fcs")).toContainText("Please review this file.");
+  await expect(page.getByRole("button", { name: /Send review/ })).toContainText("1");
+});

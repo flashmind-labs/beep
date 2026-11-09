@@ -1,8 +1,9 @@
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { DiffToolbar } from "./diff-toolbar.tsx";
 import { DiffTree } from "./diff-tree.tsx";
+import { DiffFileHeader } from "./diff-file-header.tsx";
 import { readView, writeView } from "../agentpane/view-memory.ts";
 // The diff viewer: a one-line header with the counts, a filter, icon toggles
 // and the review buttons; a list of the files at wide widths; each file folding under
@@ -78,10 +79,7 @@ function saveSplit(on: boolean) {
 }
 
 const SVG = {
-  chev: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>',
   to: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
-  copy: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>',
-  open: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg>',
 };
 
 /// An icon from the fixed markup above, never from a diff.
@@ -128,7 +126,6 @@ function cell(c: SplitCell | null) {
   return el("div", `dv-l${cls}`, el("span", "dv-g", el("span", "", String(c.num))), textCell(c.text, c.eol));
 }
 
-const counts = (a: number, d: number) => [a ? el("i", "dv-plus", `+${a.toLocaleString("en-US")}`) : null, d ? el("i", "dv-minus", `-${d.toLocaleString("en-US")}`) : null];
 
 export function diffView(src: DiffSource): DiffViewHandle {
   const root = el("div", "dv");
@@ -162,6 +159,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
   let sections = new Map<string, HTMLElement>();
   /// The chunks of rows of every open file.
   const chunks = new Map<Element, Chunk>();
+  const headers = new Map<string, { host: HTMLElement; file: DiffFile; comments: HTMLElement }>();
+  const headerRoot = createRoot(document.createElement("div"));
   const bodyModes = new Map<string, boolean>();
   const visibleFiles = new Set<string>();
   const matchNote = el("div", "dv-more");
@@ -301,6 +300,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
     bodyModes.clear();
     visibleFiles.clear();
     markedPath = null;
+    headers.clear();
+    drawHeaders();
     drawTree();
     files.replaceChildren();
     sections = new Map();
@@ -388,43 +389,23 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const folded = isFolded(f, st.folded);
     const section = el("section", `dv-file${folded ? " closed" : ""}`);
     section.dataset.path = f.path;
-    const path = el("span", "dv-path");
-
-    if (f.old_path) {
-      const old = el("span", "old", f.old_path);
-      old.title = f.old_path;
-      const to = icon(SVG.to);
-      to.className = "to";
-      to.title = "renamed to";
-      path.append(old, to);
-    }
-
-    const now = el("span", "", f.path);
-    now.title = f.path;
-    path.append(now);
     // Comments on the file itself sit outside the fold, so a folded, deleted or binary file shows them.
     const fcs = el("div", "dv-fcs");
     const mine = placed().files.get(f.path);
     if (mine) fcs.append(...[...mine.file, ...mine.top].map(c => commentEl(c, lineLabel(c))));
-    const acts = el("span", "dv-facts", ...(!src.readOnly ? [btn("Comment", "", "Comment on this file", () => {
-      addBox({ path: f.path, side: "new", line: null, text: "" }, "", "Comment on this file", box => fcs.append(box));
-    })] : []), btn(icon(SVG.copy), "icon", "Copy path", () => copy(f.path)));
-
-    if (src.open && f.status !== "deleted") {
-      const open = src.open;
-      acts.append(btn(icon(SVG.open), "icon", open.label, () => open.run(f.path)));
-    }
-
-    const fh = el("div", "dv-fh", el("span", "dv-chev", icon(SVG.chev)), path, el("span", `dv-chip ${f.status}`, f.status),
-      el("span", "dv-fct", ...counts(f.additions, f.deletions)), el("span", "dv-fcm", countLabel(f.path)), acts);
+    const fh = el("div", "dv-fh");
+    headers.set(f.path, { host: fh, file: f, comments: fcs });
     fh.addEventListener("contextmenu", e => fileMenu(e, f));
     fh.tabIndex = 0;
     fh.setAttribute("role", "button");
     fh.setAttribute("aria-expanded", String(!folded));
     fh.title = "Click or press x to fold";
-    fh.addEventListener("click", () => { st.cur = f.path; toggle(f.path); markCurrent(); });
+    fh.addEventListener("click", e => {
+      if ((e.target as Element).closest(".dv-facts")) return;
+      st.cur = f.path; toggle(f.path); markCurrent();
+    });
     fh.addEventListener("keydown", e => {
-      if (e.key !== "Enter" && e.key !== " ") return;
+      if (e.target !== fh || (e.key !== "Enter" && e.key !== " ")) return;
       e.preventDefault();
       toggle(f.path);
     });
@@ -540,15 +521,21 @@ export function diffView(src: DiffSource): DiffViewHandle {
     return n ? `${n} ${n === 1 ? "comment" : "comments"}` : "";
   }
 
+  function drawHeaders() {
+    const portals = [...headers.entries()].map(([path, item]) => createPortal(createElement(DiffFileHeader, {
+      file: item.file, count: countLabel(path), readOnly: !!src.readOnly, openLabel: src.open?.label ?? null,
+      onComment: () => addBox({ path, side: "new", line: null, text: "" }, "", "Comment on this file", box => item.comments.append(box)),
+      onCopy: () => void copy(path), onOpen: () => src.open?.run(path),
+    }), item.host, path));
+    flushSync(() => headerRoot.render(portals));
+  }
+
   /// The header's count and Send button, each folded file's count and the
   /// comments on files the diff no longer has.
   function drawReview() {
     drawToolbar();
 
-    for (const [path, s] of sections) {
-      const t = s.querySelector(".dv-fcm");
-      if (t) t.textContent = countLabel(path);
-    }
+    drawHeaders();
 
     const lost = st.view ? placed().lost : [];
     lostBox.replaceChildren(...(lost.length ? [el("div", "dv-lh", "On files no longer in the changes"), ...lost.map(c => commentEl(c, `${c.path} ${lineLabel(c)}`.trim()))] : []));
@@ -830,6 +817,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const next = fileSection(f);
     old.replaceWith(next);
     sections.set(path, next);
+    drawHeaders();
     pruneChunks();
     markedPath = null;
     markCurrent();
