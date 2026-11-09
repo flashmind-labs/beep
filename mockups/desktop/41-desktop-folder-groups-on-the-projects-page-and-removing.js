@@ -13,9 +13,9 @@
 .mac .cc-org.gp { display: flex; align-items: center; gap: 6px }
 .mac .cc-org.gp svg { color: var(--d-dim) }
 .mac .cc-menu { position: absolute; z-index: 6; min-width: 150px; padding: 4px; border-radius: 9px; border: 1px solid var(--d-border); background: #1c1d1f; box-shadow: 0 12px 32px rgba(0,0,0,.5); display: grid }
-.mac .cc-menu button { all: unset; padding: 5px 10px; border-radius: 6px; font-size: 12.5px; cursor: pointer }
-.mac .cc-menu button:hover, .mac .cc-menu button.on { background: rgba(255,255,255,.07) }
-.mac .cc-menu button.warn { color: var(--d-err) }
+.mac .cc-menu :is(button, [role="menuitem"]) { all: unset; padding: 5px 10px; border-radius: 6px; font-size: 12.5px; cursor: pointer }
+.mac .cc-menu :is(button, [role="menuitem"]):hover, .mac .cc-menu :is(button, [role="menuitem"]).on { background: rgba(255,255,255,.07) }
+.mac .cc-menu :is(button, [role="menuitem"]).warn { color: var(--d-err) }
 .mac .cc-menu .lbl { padding: 4px 10px 3px; font-size: 11px; color: var(--d-dim) }
 .mac .gp-path { display: flex; gap: 8px; align-items: center; padding: 6px 0; font-size: 12.5px; font-family: ui-monospace, Menlo, monospace; border-top: 1px solid rgba(255,255,255,.05) }
 .mac .gp-path span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis }

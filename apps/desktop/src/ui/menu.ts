@@ -1,11 +1,11 @@
 // Right-click menus in the window, and the sheet that asks before a step
 // that cannot be undone, such as removing a machine.
 import { focusBack, openSheet } from "./parts.ts";
-import { button, el } from "./dom.ts";
+import { el } from "./dom.ts";
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { ConfirmView, RenameView } from "./menu-views.tsx";
+import { ConfirmView, ContextMenu, RenameView } from "./menu-views.tsx";
 
 /// One line of a menu; `warn` reads it in red.
 export interface MenuItem {
@@ -33,10 +33,11 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
   e.stopPropagation();
   closeMenu();
   const back = document.activeElement;
-  const box = el("div", "cc-menu", el("span", "lbl", title));
-  box.setAttribute("role", "menu");
-  box.setAttribute("aria-label", title);
+  const box = el("div", "cc-menu");
+  const root = createRoot(box);
+  let current = items;
   const close = () => {
+    root.unmount();
     box.remove();
     window.removeEventListener("mousedown", away, true);
     window.removeEventListener("keydown", keys, true);
@@ -45,20 +46,14 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
     if (open?.box === box) open = null;
   };
   const fill = (list: readonly MenuItem[]) => {
-    box.querySelectorAll("button").forEach(b => b.remove());
-
-    for (const item of list) {
-      const b = button(item.label, item.warn ? "warn" : "", () => { close(); item.on(); });
-      b.setAttribute("role", "menuitem");
-      box.append(b);
-    }
+    current = list;
+    flushSync(() => root.render(createElement(ContextMenu, { title, items: list, choose: (index: number) => { const item = current[index]; if (item) { close(); item.on(); } } })));
   };
   fill(items);
   const away = (ev: MouseEvent) => { if (!box.contains(ev.target as Node)) close(); };
   const keys = (ev: KeyboardEvent) => {
-    if (ev.key === "Escape") { close(); focusBack(back); }
-    else if (!arrowFocus(box, ev.key)) return;
-
+    if (ev.key !== "Escape") return;
+    close(); focusBack(back);
     ev.preventDefault();
     ev.stopImmediatePropagation();
   };
@@ -72,12 +67,12 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
   window.addEventListener("blur", close);
   window.addEventListener("scroll", close, true);
   open = { box, close };
-  box.querySelector<HTMLElement>("button")?.focus();
+  box.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
   return (list: readonly MenuItem[]) => {
     if (open?.box !== box) return;
-    const at = [...box.querySelectorAll("button")].indexOf(document.activeElement as HTMLButtonElement);
+    const at = [...box.querySelectorAll('[role="menuitem"]')].indexOf(document.activeElement as HTMLElement);
     fill(list);
-    box.querySelectorAll<HTMLElement>("button")[Math.max(at, 0)]?.focus();
+    box.querySelectorAll<HTMLElement>('[role="menuitem"]')[Math.max(at, 0)]?.focus();
     const r = box.getBoundingClientRect();
     box.style.top = `${Math.max(4, Math.min(e.clientY, innerHeight - r.height - 4))}px`;
   };
