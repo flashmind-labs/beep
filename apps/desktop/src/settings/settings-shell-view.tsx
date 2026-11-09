@@ -1,3 +1,4 @@
+import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import type { ReactNode } from "react";
 import { navEntries, subKey, type SettingsPage, type SettingsPath, type SettingsSub } from "./settings-nav.ts";
 
@@ -21,8 +22,8 @@ export function SettingsShell({ navigation, breadcrumb, children }: { navigation
   return <><nav className="dset-nav" aria-label="Settings pages">{navigation}</nav><div className="dset-body"><div className="dset-top"><span className="dset-crumbs">{breadcrumb}</span><kbd>esc</kbd></div><div className="dset-page dform">{children}</div></div></>;
 }
 
-export function SettingsBarShell({ version, sections, hints }: { version: string; sections: ReactNode; hints: string }) {
-  return <><div className="dhead"><span className="tt"><b>Settings</b><small>Beep desktop {version}</small></span></div><div className="dform dformcol">{sections}</div><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: hints }} /></>;
+export function SettingsBarShell({ version, sections, hints }: { version: string; sections: ReactNode; hints: HintViewModel }) {
+  return <><div className="dhead"><span className="tt"><b>Settings</b><small>Beep desktop {version}</small></span></div><div className="dform dformcol">{sections}</div><HintView value={hints} /></>;
 }
 
 export function SettingsSection({ page, title }: { page: SettingsPage; title: string }) {

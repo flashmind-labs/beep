@@ -16,7 +16,7 @@ import { A, type App, appsIn, appsOut, type AppsView, loadApps, type McpServer, 
 import { toWindow } from "../chat/chat.ts";
 import { bar, type LinkState, S, windowHooks } from "../bar/core.ts";
 import { openBarPage } from "../bar/page-root.ts";
-import { hints, refreshHints } from "../bar/hints.ts";
+import { hintModel, refreshHints } from "../bar/hints.ts";
 import { renderInvitePhone } from "../bar/link.ts";
 import { type Machine, machinesIn, machinesOut, MC, renderMachines } from "../machines/machines.ts";
 import { harnessName } from "./providers-state.ts";
@@ -475,7 +475,7 @@ function drawBarSettings() {
   const current = barSettings;
   if (!current || !current.host.isConnected) return;
   flushSync(() => current.root.render(createElement(Fragment, null,
-    createElement(SettingsBarShell, { version: current.version, sections: current.sections, hints: hints([["esc", "close"]]) }),
+    createElement(SettingsBarShell, { version: current.version, sections: current.sections, hints: hintModel([["esc", "close"]]) }),
     ...[...localViews].map(([kind, view]) => createPortal(view.node, view.host, kind)), ...sectionPortals())));
 }
 

@@ -13,15 +13,6 @@ import type { HintViewModel } from "./hints-view.tsx";
 /// A key and what it does, as the hint row and the shortcuts sheet show it.
 export type Hint = readonly string[];
 
-export function hints(items: readonly Hint[], extra = "") {
-  items = forPane(items);
-  const st = linkChip(S.server, S.link, S.signedOut);
-  const link = st ? `<button class="st"><span class="ddot ${st[0]}"></span>${st[1]}</button>` : "";
-  // The first two say the most; the rest give way when the row is narrow.
-  // The bar's chat opens in the window from here, before the model.
-  const win = !PANE && S.view === "chat" ? '<button class="win" data-act="openWindow"><kbd>⌘O</kbd>open in window</button>' : "";
-  return `<div class="dhints">${items.map(([k, t], i) => `<span${i >= 2 ? ' class="lo"' : ""}><kbd>${k}</kbd>${t}</span>`).join("")}${win}${extra}${link}</div>`;
-}
 export function hintModel(items: readonly Hint[]): HintViewModel {
   return { items: forPane(items), window: !PANE && S.view === "chat", model: null, link: linkChip(S.server, S.link, S.signedOut) };
 }
