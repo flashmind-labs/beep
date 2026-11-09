@@ -185,7 +185,16 @@
     const rows = nodes => nodes.map(node => node.f
       ? `<button class="dv-tr${node.current ? " on" : ""}" title="${node.f.path}" data-toast="Jumps to ${node.f.path}"><span class="dv-st ${LETTER[node.f.st]}">${LETTER[node.f.st]}</span><span class="nm"><b>${node.name}</b></span><span class="ct">${node.f.a ? `<i class="dv-plus">+${node.f.a}</i>` : ""}${node.f.d ? `<i class="dv-minus">-${node.f.d}</i>` : ""}</span></button>`
       : `<details class="dv-dir" data-folder="${node.path}"${q || !closed.has(node.path) ? ' open' : ''}><summary class="dv-tr" title="${node.path}"><span class="dv-dir-chevron">${CHEV}</span><span class="nm"><b>${node.name}</b></span></summary><div class="dv-dir-children">${rows(node.children)}</div></details>`).join('');
-    const tree = rows(roots);
+    const compact = nodes => nodes.map(node => {
+      if (node.f) return node;
+      let name = node.name;
+      while (node.children.length === 1 && !node.children[0].f) {
+        node = node.children[0];
+        name += '/' + node.name;
+      }
+      return { ...node, name, children: compact(node.children) };
+    });
+    const tree = rows(compact(roots));
     const files = shown.map((f, i) => fileBox(f, fold(f), i === 0, v === "pane")).join("");
     const more = q ? `<div class="dv-note" style="padding:2px">${shown.length} of ${FILES.length} files match</div>` : "";
     return `<div class="dv${wide ? " wide" : ""}${v === "light" ? " light" : ""}"><div class="dv-head"><span class="dv-sum"><b>${FILES.length} files</b><i class="dv-plus">+${add.toLocaleString("en-US")}</i><i class="dv-minus">-${del.toLocaleString("en-US")}</i><span class="base" title="Against origin/main at 3f2c1a0, uncommitted included">vs <code>origin/main</code></span></span>
