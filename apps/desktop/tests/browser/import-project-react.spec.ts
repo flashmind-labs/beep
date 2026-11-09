@@ -111,3 +111,39 @@ test("shared Syncthing controls mount and clean up in the other project sheets",
   await add.getByText("Sync options").click();
   await expect(add.getByRole("checkbox", { name: "Keep Syncthing file sync" })).toBeChecked();
 });
+
+test("add folder keeps the selected checkout and submits its sync preference", async ({ page }) => {
+  await openDesktop(page, false, { center_home: home, list_machine_folder: { ...folder, origin: "https://example.test/example/project.git" }, folder_branch: "main", project_syncthing_files: { available: true, enabled: true, label: "Projects" } });
+  await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
+  await page.getByRole("dialog", { name: "Add a project" }).getByRole("button", { name: "Choose folder" }).click();
+  const sheet = page.getByRole("dialog", { name: "Add a folder" });
+  await sheet.getByRole("button", { name: "Choose…" }).click();
+  await sheet.getByRole("button", { name: "Use this folder" }).click();
+  await expect(sheet.getByText(/Branch main/)).toBeVisible();
+  await sheet.getByRole("checkbox", { name: "Keep Syncthing file sync" }).uncheck();
+  await page.evaluate(() => window.__navigation.hold("import_project"));
+  await sheet.getByRole("button", { name: "Add project" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "import_project").map(call => call.args))).toEqual([{ repo: "https://example.test/example/project.git", machineId: "one", folder: "/srv", worktrees: [], parent: null, syncthingFiles: false }]);
+});
+
+
+test("add folder restores focus and ignores an older branch read", async ({ page }) => {
+  await openDesktop(page, false, { center_home: home, list_machine_folder: { ...folder, origin: "https://example.test/example/project.git" }, folder_branch: "old" });
+  await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
+  await page.getByRole("dialog", { name: "Add a project" }).getByRole("button", { name: "Choose folder" }).click();
+  const sheet = page.getByRole("dialog", { name: "Add a folder" });
+  const choose = sheet.getByRole("button", { name: "Choose…" });
+  await choose.click();
+  await sheet.locator(".ip-browse").getByRole("button", { name: "Cancel" }).click();
+  await expect(choose).toBeFocused();
+  await page.evaluate(() => window.__navigation.holdNext("folder_branch"));
+  await choose.click();
+  await sheet.getByRole("button", { name: "Use this folder" }).click();
+  await expect(choose).toBeFocused();
+  await page.evaluate(() => window.__navigation.respond("folder_branch", "new"));
+  await choose.click();
+  await sheet.getByRole("button", { name: "Use this folder" }).click();
+  await expect(sheet.getByText(/Branch new/)).toBeVisible();
+  await page.evaluate(() => { window.__navigation.respond("folder_branch", "old"); window.__navigation.release("folder_branch"); });
+  await expect(sheet.getByText(/Branch new/)).toBeVisible();
+});
