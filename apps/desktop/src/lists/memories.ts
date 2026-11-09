@@ -1,7 +1,11 @@
 // lists/: Memories, Routines and Skills, each a list with one row picked.
 // Entry: this file, which holds the shared list parts.
-import { mark } from "../chat/chats.ts";
-import { $, $$, bar, S } from "../bar/core.ts";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import type { Root } from "react-dom/client";
+import { openBarPage } from "../bar/page-root.ts";
+import { MemoriesShell } from "./memories-shell.tsx";
+import { $, $$, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { clock, dateValue } from "./routines.ts";
 import { cap } from "../chat/tools.ts";
@@ -9,7 +13,6 @@ import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import { confirmSheet, openMenu } from "../ui/menu.ts";
-import { lazyRows, resetRows } from "../ui/lazyrows.ts";
 
 export const MEM_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 4a3 3 0 00-3 3 3 3 0 00-2 5 3 3 0 002 5 3 3 0 006 0V4a3 3 0 00-3 0zM15 4a3 3 0 013 3 3 3 0 012 5 3 3 0 01-2 5 3 3 0 01-6 0"/></svg>';
 export const CLOCK_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
@@ -193,23 +196,12 @@ export function shortDate(day: string | null | undefined) {
   return m && d ? `${d} ${MONTHS[m - 1]}` : "";
 }
 
+let memoriesPage: { host: HTMLElement; root: Root } | null = null;
 export function renderMemories() {
   S.view = "memories";
   invoke("close_group").catch(() => {});
   Object.assign(M, { sel: 0, query: "", mode: "list", error: "", filter: "all" });
-  resetRows("memories");
-  bar.innerHTML = `<div class="dinput"><input id="mfind" placeholder="Search memories" autocomplete="off" spellcheck="false"><span class="dmuted" id="mcount"></span><kbd>⌘M</kbd></div>
-    <div id="mchips" class="dtop"></div>
-    <div class="dlist top" id="mlist" role="listbox" aria-label="Memories"></div><div id="mhints"></div>`;
-  const find = $$<HTMLInputElement>("#mfind");
-  find.focus();
-  find.addEventListener("input", () => { M.query = find.value.trim(); M.sel = 0; M.mode = "list"; drawMemories(); });
-  $$("#mlist").addEventListener("click", memClick);
-  $$("#mlist").addEventListener("contextmenu", memMenu);
-  $$("#mchips").addEventListener("click", e => {
-    const chip = (e.target as HTMLElement).closest<HTMLElement>("[data-mf]");
-    if (chip) { M.filter = chip.dataset.mf!; M.sel = 0; M.mode = "list"; drawMemories(); $("#mfind")?.focus(); }
-  });
+  memoriesPage = openBarPage(() => { memoriesPage = null; });
   drawMemories();
   loadMemories();
 }
@@ -234,74 +226,14 @@ export async function loadMemories() {
   if (S.view === "memories") drawMemories();
 }
 
-/// One memory's row; the selected one shows its actions, or the editor.
-function memRow(m: Memory, i: number, today: string) {
-  const on = i === M.sel, ended = m.valid_until && m.valid_until < today;
-  const meta = [MEM_SOURCE[m.source] ?? "", shortDate(m.updated)].filter(Boolean).join(" · ")
-    + (m.valid_from || m.valid_until ? ` · ${m.valid_from ? shortDate(m.valid_from) : ""} to ${m.valid_until ? shortDate(m.valid_until) : ""}` : "");
-  const sc = M.scopes.get(m.id), about = sc ? scopeTag(sc) + " · " : "";
-
-  if (on && M.mode === "edit") {
-    return `<div class="dmem" aria-selected="true" data-i="${i}"><div class="top"><textarea id="medit" rows="2" aria-label="Memory">${esc(m.content)}</textarea>
-            <span class="dfine dsave">${ICON.ret} save</span></div><div class="m">${about}${esc(meta)}</div></div>`;
-  }
-
-  const acts = on ? `<span class="acts"><button class="dbtn" data-m="edit">Edit</button><button class="dbtn warn" data-m="forget">Forget<kbd>⌘⌫</kbd></button></span>` : "";
-  return `<div class="dmem${ended ? " ended" : ""}" role="option" aria-selected="${on}" data-i="${i}"><div class="top"><span class="c">${mark(m.content, M.query)}</span>${acts}</div>
-            <div class="m">${about}${esc(meta)}</div>${m.quote ? `<q>${mark(m.quote, M.query)}</q>` : ""}</div>`;
-}
-
-/// Rows `from` up to `to` of the list, each category under its heading.
-function memRows(from: number, to: number, today: string) {
-  let html = "";
-  let last = from ? M.list[from - 1].category || "Other" : undefined;
-
-  for (let i = from; i < to; i++) {
-    const m = M.list[i], cat = m.category || "Other";
-    if (cat !== last) html += `<div class="dsec bare">${esc(cat)}</div>`;
-    last = cat;
-    html += memRow(m, i, today);
-  }
-
-  return html;
-}
-
-function htmlNodes(html: string) {
-  const t = document.createElement("template");
-  t.innerHTML = html;
-  return [...t.content.childNodes];
-}
-
-/// The selection moved from row `was` to the one now picked: only those two
-/// rows are drawn again.
-function moveSelection(was: number) {
-  const row = (i: number) => $("#mlist")?.querySelector<HTMLElement>(`.dmem[data-i="${i}"]`);
-  const before = row(was), now = row(M.sel);
-  if (was === M.sel && before) return;
-  if (!before || !now) return drawMemories();
-  const today = dateValue(new Date());
-  before.replaceWith(...htmlNodes(memRow(M.list[was], was, today)));
-  now.replaceWith(...htmlNodes(memRow(M.list[M.sel], M.sel, today)));
-  row(M.sel)?.scrollIntoView({ block: "nearest" });
-}
-
 export function drawMemories() {
-  const list = $("#mlist");
-  if (!list) return;
+  const page = memoriesPage;
+  if (!page?.host.isConnected || S.view !== "memories") return;
   const q = M.query.toLowerCase();
   // A search looks through everything, so the chips go while it is on.
   const filters = q ? [] : memFilters(), picked = filters.find(f => f.key === M.filter) ?? filters[0];
   if (!picked || picked.key === "all") M.filter = "all";
   M.list = M.all.filter(m => (!q || [m.content, m.category, m.quote].some(t => t?.toLowerCase().includes(q))) && (!picked?.ids || picked.ids.has(m.id)));
-  const chips = $("#mchips");
-
-  if (chips) {
-    const chip = (f: MemFilter) => `<button class="dchip" aria-pressed="${f === picked}" data-mf="${esc(f.key)}">${esc(f.label)}${f.ids ? ` <span class="dmut">${f.ids.size}</span>` : ""}</button>`;
-    const firstRead = filters.findIndex(f => f.read);
-    chips.innerHTML = filters.length ? `<div class="dchips dchipbar">${filters.map((f, i) => (i === firstRead ? '<span class="dsep"></span>' : "") + chip(f)).join("")}</div>`
-      + (picked?.about ? `<div class="dmuted dpadx">${esc(picked.about)}</div>` : "") : "";
-  }
-
   // Grouped by category; the server lists newest first, so each group keeps that order.
   const byCategory = new Map<string, Memory[]>();
 
@@ -313,27 +245,18 @@ export function drawMemories() {
 
   M.list = [...byCategory.values()].flat();
   clampSel(M);
-  $$("#mcount").textContent = M.loaded ? (q || M.filter !== "all" ? `${M.list.length} of ${M.all.length}` : String(M.all.length)) : "";
-  const today = dateValue(new Date());
-  const nodes: Node[] = htmlNodes(M.error ? `<div class="derr dpad">${esc(M.error)}</div>` : "");
-
-  if (M.mode === "clear") {
-    nodes.push(...htmlNodes(confirmCard("Forget everything?", `Beep will forget all ${M.all.length} memories. This cannot be undone.`, '<button class="dbtn warn" data-m="clear-yes">Forget all</button><button class="dbtn quiet" data-m="list">Cancel</button>', "dm8")));
-  } else if (M.loaded && !M.all.length) {
-    nodes.push(...htmlNodes(emptyPage(MEM_ICON, "Nothing remembered yet.", 'Beep learns as you chat, or tell it "remember that…"')));
-  } else {
-    // Thousands of memories draw a screenful at a time.
-    nodes.push(...lazyRows("memories", `${M.query}|${M.filter}`, M.list.length, (from, to) => htmlNodes(memRows(from, to, today)), M.sel, 20));
-    if (M.all.length && !M.query && M.filter === "all") nodes.push(...htmlNodes(`<div class="dpad"><button class="dbtn warn" data-m="clear">Forget all…</button></div>`));
-  }
-
-  list.replaceChildren(...nodes);
-  list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
-  const edit = $<HTMLTextAreaElement>("#medit");
-  if (edit) { edit.focus(); edit.setSelectionRange(edit.value.length, edit.value.length); }
-  $$("#mhints").innerHTML = M.mode === "edit"
+  const count = M.loaded ? (q || M.filter !== "all" ? `${M.list.length} of ${M.all.length}` : String(M.all.length)) : "";
+  const keys = M.mode === "edit"
     ? hints([[ICON.ret, "save"], [`⇧${ICON.ret}`, "new line"], ["esc", "cancel"]])
     : hints([["↑↓", "move"], [ICON.ret, "edit"], ["⌘⌫", "forget"], ...(filters.length ? [["tab", "filter"]] : []), ["esc", "back"]]);
+  flushSync(() => page.root.render(createElement(MemoriesShell, {
+    filters, picked: M.filter, count, hints: keys, memories: M.list, selected: M.sel, mode: M.mode, scopes: M.scopes,
+    query: M.query, today: dateValue(new Date()), loaded: M.loaded, total: M.all.length, error: M.error,
+    search: (value: string) => { M.query = value.trim(); M.sel = 0; M.mode = "list"; drawMemories(); },
+    filter: (key: string) => { M.filter = key; M.sel = 0; M.mode = "list"; drawMemories(); },
+    click: memClick, menu: memMenu,
+  })));
+
 }
 
 /// A memory row's right-click menu: Edit, and Forget, which asks first.
@@ -435,8 +358,7 @@ export function memKeys(e: KeyboardEvent, cmd: boolean) {
     return drawMemories();
   }
 
-  const was = M.sel;
-  if (arrowKey(e, M)) return moveSelection(was);
+  if (arrowKey(e, M)) return drawMemories();
   if (e.key === "Enter" && !e.isComposing && M.list.length) { e.preventDefault(); return memAction("edit"); }
   if (cmd && e.key === "Backspace" && M.list.length) { e.preventDefault(); return memAction("forget"); }
 }
