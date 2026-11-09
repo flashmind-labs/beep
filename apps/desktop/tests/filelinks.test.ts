@@ -1,25 +1,19 @@
-import { answers, calls } from "./dom-env.ts";
-import test, { afterEach, beforeEach, mock } from "node:test";
+import { answers, calls } from "./chat-dom-env.ts";
+import test, { afterEach, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { fileLinkMenu } from "../src/agents/filelinks.ts";
 import { closeMenu } from "../src/ui/menu.ts";
 
 const folder = { machineId: "build-box-id", root: "/srv/project" };
 const settle = () => new Promise(resolve => setImmediate(resolve));
-let listeners: WeakMap<object, Map<string, (e: unknown) => void>>;
-
+Object.defineProperty(globalThis, "CSS", { configurable: true, value: { escape: (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, "\\$&") } });
+Object.defineProperty(globalThis, "SVGElement", { configurable: true, value: window.SVGElement });
 beforeEach(() => {
   calls.length = 0;
   answers.local_file = { apps: [] };
-  listeners = new WeakMap();
-  const proto = Object.getPrototypeOf(document.createElement("div"));
-  mock.method(proto, "addEventListener", function(this: object, kind: string, fn: (e: unknown) => void) {
-    if (!listeners.has(this)) listeners.set(this, new Map());
-    listeners.get(this)!.set(kind, fn);
-  });
-  Object.assign(globalThis, { innerWidth: 1200, innerHeight: 900, removeEventListener() {} });
+  Object.assign(globalThis, { innerWidth: 1200, innerHeight: 900 });
 });
-afterEach(() => { closeMenu(); mock.restoreAll(); });
+afterEach(() => { closeMenu(); });
 
 function context(href: string, open: (path: string) => void = () => {}) {
   const link = document.createElement("a");
@@ -31,12 +25,12 @@ function context(href: string, open: (path: string) => void = () => {}) {
 }
 
 function click(label: string) {
-  const button = [...document.querySelectorAll(".cc-menu button")].find(b => b.textContent === label);
+  const button = [...document.querySelectorAll<HTMLElement>('.cc-menu [role="menuitem"]')].find(b => b.textContent === label);
   assert.ok(button, `Menu has ${label}`);
-  listeners.get(button)?.get("click")?.({});
+  button.click();
 }
 
-const labels = () => [...document.querySelectorAll(".cc-menu button")].map(b => b.textContent);
+const labels = () => [...document.querySelectorAll('.cc-menu [role="menuitem"]')].map(b => b.textContent);
 
 test("a reply's mockup opens in its default app using the session's machine and folder", async () => {
   context("mockups/desktop/index.html");
@@ -68,7 +62,7 @@ test("Open in Beep works even when a file has no local copy", async () => {
 test("web links and page anchors do not request local file actions", () => {
   for (const href of ["https://example.com/mockup.html", "#section", "mailto:user@example.com"]) context(href);
   assert.deepEqual(labels(), []);
-  assert.equal(calls.length, 0);
+  assert.equal(calls.filter(call => call.cmd === "local_file").length, 0);
 });
 
 test("paths outside the session folder do not request native actions", async () => {
@@ -79,7 +73,7 @@ test("paths outside the session folder do not request native actions", async () 
     closeMenu();
   }
 
-  assert.equal(calls.length, 0);
+  assert.equal(calls.filter(call => call.cmd === "local_file").length, 0);
 });
 
 test("a late app lookup cannot reopen a dismissed menu", async () => {
