@@ -208,7 +208,17 @@ function pill(view: UsageView) {
   }
 
   parts.push(h("span", "", h("b", "", todayLine(view.today)), " today"));
+  parts.push(short(view));
   return parts;
+}
+
+/// The phone's pill: the tightest plan's share with its bar, else today's spend.
+function short(view: UsageView) {
+  const used = view.limits.map(planUsed).filter(u => u != null);
+  if (!used.length) return h("span", "us-short", h("b", "", todayLine(view.today)));
+
+  const most = Math.max(...used);
+  return h("span", "us-short", bar(most, "bar"), h("b", "", `${most}%`));
 }
 
 function limitBlock(plan: PlanLimits, now: number) {

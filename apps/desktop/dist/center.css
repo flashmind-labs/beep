@@ -805,6 +805,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .us-pill { display: inline-flex; align-items: center; gap: 10px; height: 28px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer }
 .us-pill:hover, .us-pill[aria-expanded="true"] { background: var(--elev) }
 .us-pill b { color: var(--fg); font-weight: 500 }
+.us-short { display: none; align-items: center; gap: 6px }
 .us-pill .bar { width: 28px; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; display: inline-block }
 .us-pill .bar i, .us-lim .bar i { display: block; height: 100%; background: var(--ok) }
 .us-pill .bar i.warn, .us-lim .bar i.warn { background: var(--warn) }

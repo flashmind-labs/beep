@@ -120,6 +120,10 @@ body.mobile .pj-add { grid-template-columns: minmax(0, 1fr) }
 body.mobile kbd, body.mobile .dhints, body.mobile .agkeys, body.mobile .dv-keys, body.mobile .cc-pal .foot { display: none }
 
 body.mobile:not(.mb-home) #usage { display: none }
+/* Home's usage is one share and its bar; the popover has the rest. */
+body.mobile .us-pill > :not(.us-short) { display: none }
+body.mobile .us-pill > .us-short { display: inline-flex }
+body.mobile .us-pill { min-height: 0; height: 32px; border-radius: 999px }
 
 /* A session: the composer takes a full line for its text. */
 body.mobile .dinput.small { flex-wrap: wrap; gap: 6px; padding: 6px 10px }
