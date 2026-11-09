@@ -107,7 +107,7 @@ export function drawSide() {
   const home = state.home;
   const head = h("div", "cc-head", "");
   head.setAttribute("data-tauri-drag-region", "");
-  const top = h("div", "cc-grp cc-nav",
+  const top = h("div", "cc-grp",
     sideItem(IC.find, "Search", 0, { cls: "cc-search", on: openPalette, kbd: WINDOWS ? "Ctrl+K" : "⌘K" }),
     sideItem(IC.home, "Home", home?.needs_you.length, { current: currentLocation()?.view === "home", hot: true, on: () => go("home") }));
   // Running opens the coding agents' list, the full view of Home's section.
@@ -124,7 +124,7 @@ export function drawSide() {
     // Rows that fill in once the server answers, never an empty sidebar.
     if (name === "chats" && g.items == null && !home && groupShown("chats", state.subscribed)) side.push(h("div", "cc-grp", h("h3", "", "Chats"), ...skeleton([70, 55, 62])));
     if (g.items == null) continue;
-    const grp = h("div", `cc-grp ${name}${name === "views" ? " cc-nav" : ""}`);
+    const grp = h("div", `cc-grp ${name}`);
 
     if (g.title) {
       const h3 = h("h3", "", g.onTitle ? button(g.title, "cc-gt", g.onTitle) : g.title);
@@ -310,6 +310,7 @@ function chatRow(c: SideChat) {
   const openBtn = h("button", "open", mark, h("span", "tt", c.title));
   openBtn.type = "button";
   openBtn.title = c.title;
+  openBtn.setAttribute("aria-label", c.title);
   if (open) openBtn.setAttribute("aria-current", "true");
   const row = h("div", "cc-si cc-chat", openBtn, end);
   row.addEventListener("contextmenu", e => (c.kind === "group" ? groupChatMenu(e, c) : c.research ? researchMenu(e, c) : chatMenu(e, c)));
@@ -405,7 +406,8 @@ function threadRow(t: ThreadChatEntry) {
 function projectRow(p: Placed<Project>, label: string, pinned: boolean) {
   const openBtn = h("button", "open", projectDot(p.i), h("span", "tt", label));
   openBtn.type = "button";
-  openBtn.title = p.machines.map(m => `${m.name}: ${m.folder}`).join("\n") || p.name;
+  openBtn.setAttribute("aria-label", p.name);
+  openBtn.title = [p.name, ...p.machines.map(m => `${m.name}: ${m.folder}`)].join("\n");
   if (currentLocation()?.view === "projects" && state.picked === p.name) openBtn.setAttribute("aria-current", "true");
   if (p.agents) openBtn.append(h("span", "n", String(p.agents)));
   const toggle = pinToggle(p.name, pinned, () => setProjectOnTop(p.name, !pinned));
@@ -546,6 +548,14 @@ try { folded = parseFolded(localStorage.getItem(FOLDED_KEY)); } catch {}
 /// holds the open project.
 function foldable(head: HTMLButtonElement, p: OrgHeading | GroupHeading) {
   head.type = "button";
+  const label = p.group?.name ?? `${p.org}/`;
+  head.setAttribute("aria-label", label);
+  head.title = head.title ? `${label}\n${head.title}` : label;
+
+  for (const node of [...head.childNodes]) {
+    if (node.nodeType === Node.TEXT_NODE) node.replaceWith(h("span", "tt", node.textContent ?? ""));
+  }
+
   head.prepend(h("span", `twist${p.folded ? "" : " open"}`, icon(IC.twist)));
   head.setAttribute("aria-expanded", String(!p.folded));
   if (currentLocation()?.view === "projects" && state.picked && p.folded?.includes(state.picked)) head.setAttribute("aria-current", "true");
