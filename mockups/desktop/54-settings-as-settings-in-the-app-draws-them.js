@@ -159,7 +159,6 @@ const SETV = (() => {
 .mac .hv-sum b { font-size: 15px; font-weight: 600 }
 .mac .hv-sum .on { font-size: 12px; color: var(--d-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px }
 .mac .hv-view.in-set {  }
-.mac .hv-view.in-set > .hv-d { padding: 0; overflow: visible }
 .mac .hv-view.in-set > .hv-d > .hv-acts:first-child, .mac .hv-view.in-set > .hv-d > .hv-note:first-child { margin-top: 0 }
 .mac .fl-seg, .mac .fl-chips { display: flex; flex-wrap: wrap; gap: 4px }
 .mac .fl-chips .dchip { font-family: var(--mono); font-size: 11.5px }
@@ -253,6 +252,11 @@ const SETV = (() => {
 .mac .in-hist + .in-hist { border-top: 0 }
 .mac .hv-view { padding: 16px 18px; overflow: auto; min-height: 0 }
 .mac .cc-set .hv-view, .mac .cc-set .in-view { padding: 0; overflow: visible }`;
+  st.textContent += `.mac .hv-scope { padding: 16px; border: 1px solid var(--d-border); border-radius: 8px; min-width: 0 }
+.mac .hv-scope > h3 { margin: 0 0 12px; font-size: 16px; font-weight: 600 }
+.mac .hv-scope > .hv-d { padding: 0; overflow: visible }
+.mac .hv-machine-menu { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--d-muted) }
+.mac .hv-machine-menu select { max-width: 240px; padding: 8px 12px; border: 1px solid var(--d-border); border-radius: 8px; background: #181818; color: var(--d-fg) }`;
   document.head.append(st);
 
   const chev = DI.chevR;
@@ -585,12 +589,12 @@ const SETV = (() => {
   const hvSwitch = (a, on) => swi(on, `${HV[a].name} on build-box`, `data-toast="${on ? "Turned off on build-box" : "Turned on on build-box"}"`);
   const nameLine = (name, ver, latest) => `<span class="hv-nm"><b>${name}</b>${ver ? `<span class="ver">v${ver}</span>` : ""}${latest ? `<span class="hv-up" title="v${latest} is out">update</span>` : ""}</span>`;
   const statusSmall = (t, bad) => `<small${bad ? ' class="bad"' : ""} title="${t}">${t}</small>`;
-  const hvPicker = () => `<span class="hv-pick"><span class="hv-seg" role="group" aria-label="Machine">${[["build-box", 1], ["mac-box", 1], ["win-box", 0]].map(([n, on]) => `<button type="button" title="${on ? n : `${n} (offline)`}" aria-pressed="${n === "build-box"}"${on ? "" : " disabled"} data-toast="Showing ${n}">${n}</button>`).join("")}</span></span>`;
+  const hvPicker = () => `<label class="hv-machine-menu"><select aria-label="Machine runtime settings"><option>build-box</option><option>mac-box</option><option disabled>win-box (offline)</option></select></label>`;
   const hvIn = (val, ph, label) => `<input class="hv-in" value="${val}" placeholder="${ph}" spellcheck="false" autocomplete="off" aria-label="${label}">`;
   const hvField = (label, help, ctl, names = []) => `<div class="hv-f"><span><b>${label}</b>${names.length ? `<span class="hv-diff" title="Not the same on ${names.join(", ")}">differs on ${names.length} machine${names.length === 1 ? "" : "s"}</span>` : ""}<small>${help}</small></span>${ctl}</div>`;
   const hvEnv = () => `<div class="hv-envs"><div class="hv-env">${hvIn("HTTPS_PROXY", "NAME", "Variable name")}<input class="hv-in" type="password" placeholder="saved; type to replace" aria-label="Value"><button class="dbtn quiet small" aria-label="Remove HTTPS_PROXY" data-toast="Removed">&#215;</button></div><div class="hv-env">${hvIn("", "NAME", "Variable name")}<input class="hv-in" type="password" placeholder="value" aria-label="Value"><span></span></div></div>`;
-  const hvRuntime = (a, h, saved) => `<h4>Runtime</h4>${hvField("Binary path", `The command Beep starts for ${h.name} on build-box.`, hvIn("", h.prog, "Binary path"), h.diffs?.program)}${hvField(h.home, "Its home and config folder.", hvIn("", h.hdef, h.home))}${hvField("Launch arguments", "Added to every session it starts.", hvIn("", "none", "Launch arguments"), h.diffs?.args)}${a === "flsh" || a === "gemini" || a === "hermes" ? "" : hvField("Auto-compact", a === "opencode" ? "Compact when the conversation nears the window." : "Compact at this share of the window, or this many tokens.", `<span class="fl-row">${swi(true, `Auto-compact for ${h.name}`)}${a === "opencode" ? "" : hvIn("", "80% or 350000", "Auto-compact threshold")}</span>`)}${hvField("Environment", "Encrypted, never shown again. Put keys in Credentials.", hvEnv())}
-    <div class="hv-acts hv-save"><button class="dbtn pri" title="Save for build-box only"${saved === "dirty" ? ' data-toast="Saved for build-box"' : " disabled"}>Save</button><button class="dbtn" title="Save these settings on every machine; offline ones get them when they next connect" data-toast="Saved to 3 machines">Save to all hosts</button><label class="hv-incl" title="Binary paths usually differ between machines"><input type="checkbox"> Include binary path</label>${saved === "dirty" ? '<button class="dbtn quiet">Discard</button>' : ""}<span class="hv-ok">${saved === "all" ? "Saved to 3 machines" : ""}</span></div>${hvModels(a)}`;
+  const hvRuntime = (a, h, saved) => `<h4>Runtime</h4>${hvField("Binary path", `The command Beep starts for ${h.name} on build-box.`, hvIn("", h.prog, "Binary path"), h.diffs?.program)}${hvField(h.home, "Its home and config folder.", hvIn("", h.hdef, h.home))}${hvField("Launch arguments", "Added to every session it starts.", hvIn("", "none", "Launch arguments"), h.diffs?.args)}${hvField("Environment", "Encrypted, never shown again. Put keys in Credentials.", hvEnv())}
+    <div class="hv-acts hv-save"><button class="dbtn pri" title="Save for build-box only"${saved === "dirty" ? ' data-toast="Saved for build-box"' : " disabled"}>Save</button><button class="dbtn" title="Save these settings on every machine; offline ones get them when they next connect" data-toast="Saved to 3 machines">Save to all hosts</button><label class="hv-incl" title="Binary paths usually differ between machines"><input type="checkbox"> Include binary path</label>${saved === "dirty" ? '<button class="dbtn quiet">Discard</button>' : ""}<span class="hv-ok">${saved === "all" ? "Saved to 3 machines" : ""}</span></div>`;
   const hvModelChoices = a => a === "claude"
     ? [{ id: "opus", name: "Opus 5.5" }, { id: "sonnet", name: "Sonnet 5.5" }]
     : [{ id: a === "flsh" ? "openrouter:vendor/model-large" : "model-large", name: "Large model" }, { id: a === "flsh" ? "openrouter:vendor/model-fast" : "model-fast", name: "Fast model" }];
@@ -667,9 +671,9 @@ const SETV = (() => {
   // A coding agent's page in Settings. `k` is the agent, then its state: acct-claude, acct-claude-off.
   const harnessPage = v => {
     const [, a, st = ""] = v.split("-");
-    const bar = `<div class="hv-bar"><span class="lbl">Machine</span>${hvPicker()}<span class="sp"></span><button class="dbtn quiet" title="Check the versions again" data-toast="Checked build-box again">Checked just now</button><button class="dbtn"${a === "claude" ? ' data-toast="Updating 1"' : ' disabled title="Everything is up to date"'}>Update all</button></div>`;
-    const wrap = inner => `<div class="cc-view hv-view in-set">${bar}${inner}</div>`;
-    if (st === "none") return `<div class="cc-view hv-view in-set"><div class="hv-bar"><span class="lbl">Machine</span>${hvPicker().replace(/aria-pressed="true"/, 'aria-pressed="false"')}<span class="sp"></span></div><div class="cc-panel cc-empty"><b>No machine online</b><span>Coding agents show here for machines that are online.</span></div></div>`;
+    const bar = `<div class="hv-bar">${hvPicker()}<span class="sp"></span><button class="dbtn quiet" title="Check the versions again" data-toast="Checked build-box again">Checked just now</button><button class="dbtn"${a === "claude" ? ' data-toast="Updating 1"' : ' disabled title="Everything is up to date"'}>Update all</button></div>`;
+    const wrap = inner => `<div class="cc-view hv-view in-set">${inner}</div>`;
+    if (st === "none") return `<div class="cc-view hv-view in-set"><div class="hv-bar">${hvPicker().replace(/aria-pressed="true"/, 'aria-pressed="false"')}<span class="sp"></span></div><div class="cc-panel cc-empty"><b>No machine online</b><span>Coding agents show here for machines that are online.</span></div></div>`;
     if (st === "asking") return wrap(`<div class="cc-panel cc-empty"><b>Asking build-box…</b></div>`);
     if (st === "old") return wrap(`<div class="cc-err">The server needs an update before it shows coding agents here.</div>`);
     if (st === "gone") return wrap(`<div class="cc-panel cc-empty"><b>build-box does not report ${HV[a].name}</b></div>`);
@@ -685,8 +689,9 @@ const SETV = (() => {
     const end = h.missing ? "<span></span><span></span>" : `<span class="on">${on ? "On" : "Off"} for build-box</span>${hvSwitch(a, on)}`;
     const summary = `<div class="hv-sum${!h.missing && !on ? " off" : ""}">${tile(a)}<span class="hv-name">${nameLine(h.name, h.ver, h.latest)}${statusSmall(status, bad)}</span>${end}</div>`;
     const banner = st === "fail" ? failLine("Could not update Claude Code on build-box: npm exited with code 1", "$ npm i -g @anthropic-ai/claude-code\nnpm ERR! code EACCES") : "";
-    const detail = `<div class="hv-d">${hvStatusBlock(a, h, true, st)}${h.missing ? "" : hvRuntime(a, h, st === "dirty" ? "dirty" : st === "saved" ? "all" : "")}${a === "flsh" ? flshOwn() : ""}</div>`;
-    return wrap(banner + summary + detail);
+    const detail = `<div class="hv-d">${hvStatusBlock(a, h, true, st)}${h.missing ? "" : hvRuntime(a, h, st === "dirty" ? "dirty" : st === "saved" ? "all" : "")}</div>`;
+    const shared = `<section class="hv-scope hv-d"><h3>All machines</h3><div class="hv-note">These settings apply on every machine.</div>${a === "flsh" || a === "gemini" || a === "hermes" ? "" : hvField("Auto-compact", a === "opencode" ? "Compact when the conversation nears the window." : "Compact at this share of the window, or this many tokens.", `<span class="fl-row">${swi(true, `Auto-compact for ${h.name}`)}${a === "opencode" ? "" : hvIn("", "80% or 350000", "Auto-compact threshold")}</span>`)}<div class="hv-acts"><button class="dbtn pri" disabled>Save auto-compact</button></div>${a === "flsh" ? flshOwn() : ""}<div class="hv-note">Model choices and reported limits come from build-box.</div>${hvModels(a)}</section>`;
+    return wrap(shared + `<section class="hv-scope">${bar}${banner}${summary}${detail}</section>`);
   };
   // The window's own Coding agents view: the list on the left, the picked agent's page on the right.
   const providers = (v, failBanner) => {

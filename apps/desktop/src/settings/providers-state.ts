@@ -237,13 +237,13 @@ function parseCompact(text: string): { percent: number | null; tokens: number | 
 }
 
 /// Why the field cannot be saved, or "" when it can.
-export function compactProblem(draft: HarnessDraft) {
+export function compactProblem(draft: Pick<HarnessDraft, "compactOn" | "compactPercent">) {
   const t = draft.compactPercent.trim();
   return !draft.compactOn || t === "" || parseCompact(t) !== null ? "" : "Auto-compact is 1 to 100%, or a token count.";
 }
 
 /// What the form's auto-compact fields save: null for the default.
-export function compactOf(draft: HarnessDraft): Compact {
+export function compactOf(draft: Pick<HarnessDraft, "compactOn" | "compactPercent">): Compact {
   const parsed = parseCompact(draft.compactPercent);
   return draft.compactOn && parsed === null ? null : { enabled: draft.compactOn, percent: parsed?.percent ?? null, tokens: parsed?.tokens ?? null };
 }
