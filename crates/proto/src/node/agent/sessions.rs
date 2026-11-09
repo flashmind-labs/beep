@@ -393,6 +393,8 @@ pub struct DiffAsk {
     pub only: Vec<String>,
     /// Lockfiles come with their lines.
     pub lockfiles: bool,
+    #[serde(default)]
+    pub context: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

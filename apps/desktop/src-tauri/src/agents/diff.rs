@@ -130,6 +130,7 @@ pub(crate) fn view(diff: WorkDiff) -> DiffView {
 /// against HEAD (`@` to git, which no `origin/` copy shadows). `only` asks
 /// for those files in full, past the caps.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri exposes each argument to the web view.
 pub async fn work_diff(
     beep: Service<'_>,
     fleet: Machines<'_>,
@@ -138,6 +139,7 @@ pub async fn work_diff(
     only: Vec<String>,
     lockfiles: bool,
     uncommitted: bool,
+    context: Option<u32>,
 ) -> Result<DiffView> {
     let base = if uncommitted { "@" } else { "" }.to_owned();
     let diff = match fleet.member(&machine_id) {
@@ -148,6 +150,7 @@ pub async fn work_diff(
                 head: String::new(),
                 only,
                 lockfiles,
+                context: context.unwrap_or(3),
             };
             direct::work_diff(&fleet, machine, ask).await?
         }

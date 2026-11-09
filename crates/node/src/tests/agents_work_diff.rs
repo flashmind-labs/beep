@@ -11,6 +11,7 @@ fn ask(base: &str, head: &str) -> DiffAsk {
         head: head.to_owned(),
         only: Vec::new(),
         lockfiles: false,
+        context: 3,
     }
 }
 
@@ -191,4 +192,27 @@ fn historical_patch_uses_its_recorded_text_without_working_tree_changes() {
             .flat_map(|h| &h.lines)
             .any(|line| line.text == "uncommitted")
     );
+}
+
+#[test]
+fn requested_context_reveals_surrounding_lines() {
+    if !has_git() {
+        return;
+    }
+    let (_dir, root) = checkout();
+    let original = (1..=40).map(|n| format!("line {n}\n")).collect::<String>();
+    fs::write(root.join("context.txt"), &original).unwrap();
+    run_git(&root, &["add", "."]);
+    run_git(&root, &["commit", "-q", "-m", "context fixture"]);
+    fs::write(
+        root.join("context.txt"),
+        original.replace("line 20\n", "changed\n"),
+    )
+    .unwrap();
+    let narrow = read(&root, &ask("main", "")).unwrap();
+    let mut expanded = ask("main", "");
+    expanded.context = 13;
+    let wide = read(&root, &expanded).unwrap();
+    assert_eq!(file(&narrow, "context.txt").hunks[0].new_start, 17);
+    assert_eq!(file(&wide, "context.txt").hunks[0].new_start, 7);
 }
