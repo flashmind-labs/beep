@@ -289,6 +289,7 @@ impl Session {
             .as_ref()
             .filter(|_| known.is_some_and(|known| known.model_flag))
             .map(|model| format!("--model={model}"));
+        let initial_model = model.clone().filter(|_| flag.is_some());
         let model = model.filter(|_| flag.is_none());
         let policy = Policy::from(kind.compact);
         // An agent with its own auto-compaction is set to the same
@@ -343,6 +344,7 @@ impl Session {
                 .unwrap_or_else(unix_now),
             last_activity: timestamps.map_or(0, |(_, activity)| activity),
             parent,
+            model: initial_model,
             ..SessionInfo::default()
         };
         let mut first = Live::new(info, images, usage);

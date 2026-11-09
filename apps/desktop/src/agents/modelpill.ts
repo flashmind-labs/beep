@@ -1,6 +1,6 @@
 // The model and thinking pill by a session's field, and switching them.
 import { modelId } from "./agentpick.ts";
-import { closedPicker, knownModels, drawPicker, type Picked, pillInner } from "./agentpicker.ts";
+import { closedPicker, knownModels, modelsOn, drawPicker, type Picked, pillInner } from "./agentpicker.ts";
 import { $, bar } from "../bar/core.ts";
 import { type AgentRow, AG, agentKind } from "./agents.ts";
 import { SWITCHES, sessionPicks } from "./session.ts";
@@ -15,8 +15,10 @@ export function drawModelPill() {
   if (!el || !s) return;
   const can = SWITCHES.has(s.agent) && !s.external && s.status !== "ended";
   const p = sessionPicks.get(s.id) ?? { model: "", effort: null };
+  const model = AG.page?.model || p.model;
+  if (model) modelsOn(s.machine_id, s.agent, () => { if (AG.page?.session.id === s.id) drawModelPill(); });
   const why = can ? "Switch the model or thinking; applies from the next turn" : `${agentKind(s.agent).name} cannot switch models in a running session`;
-  el.innerHTML = `<button class="agc-pill agm" id="agmodelb" aria-expanded="${AG.modelOpen}" title="${esc(why)}"${can ? "" : " disabled"}>${pillInner(s.agent, p.model || "Model unknown", p.effort, s.machine_id)}</button>`;
+  el.innerHTML = `<button class="agc-pill agm" id="agmodelb" aria-expanded="${AG.modelOpen}" title="${esc(why)}"${can ? "" : " disabled"}>${pillInner(s.agent, model || "Model unknown", p.effort, s.machine_id)}</button>`;
 }
 
 export function toggleModelPicker() {
@@ -42,7 +44,7 @@ function drawModelPicker() {
   if (!el) return;
   if (!AG.modelOpen || !s) { el.innerHTML = ""; closedPicker(el); return; }
   const now = sessionPicks.get(s.id) ?? { model: "", effort: null };
-  const picked: Picked = { agent: s.agent, model: now.model, effort: now.effort, query: "" };
+  const picked: Picked = { agent: s.agent, model: AG.page?.model || now.model, effort: now.effort, query: "" };
   drawPicker(el, {
     picked,
     offered: [s.agent],
