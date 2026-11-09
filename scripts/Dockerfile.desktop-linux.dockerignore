@@ -11,3 +11,7 @@ apps/diagrams/*
 !apps/diagrams/assets/
 apps/desktop/node_modules/
 apps/desktop/src-tauri/target/
+
+!scripts/
+scripts/*
+!scripts/build-desktop-linux.sh

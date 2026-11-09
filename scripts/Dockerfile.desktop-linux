@@ -16,6 +16,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates crates
 COPY apps/desktop apps/desktop
 COPY apps/diagrams/assets apps/diagrams/assets
+COPY scripts/build-desktop-linux.sh /usr/local/bin/build-desktop-linux
 WORKDIR /src/apps/desktop
 RUN npm ci
 ARG BEEP_SERVER_URL
@@ -24,14 +25,13 @@ ENV APPIMAGE_EXTRACT_AND_RUN=1
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/apps/desktop/src-tauri/target \
+    --mount=type=cache,target=/root/.cache/tauri,sharing=locked \
     --mount=type=secret,id=updater_key,required=true \
     --mount=type=secret,id=updater_password \
     export TAURI_SIGNING_PRIVATE_KEY="$(cat /run/secrets/updater_key)" \
     && export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat /run/secrets/updater_password 2>/dev/null || true)" \
     && rm -rf src-tauri/target/release/bundle \
-    && tauri build --ci --bundles deb,appimage \
-        --config '{"bundle":{"createUpdaterArtifacts":true}}' \
-        -- --locked \
+    && bash /usr/local/bin/build-desktop-linux \
     && mkdir /dist \
     && cp src-tauri/target/release/bundle/deb/*.deb /dist/ \
     && cp src-tauri/target/release/bundle/appimage/*.AppImage* /dist/
