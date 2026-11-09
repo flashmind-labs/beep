@@ -1,8 +1,11 @@
 // Right-click menus in the window, and the sheet that asks before a step
 // that cannot be undone, such as removing a machine.
 import { focusBack, openSheet } from "./parts.ts";
-import { button, el, present } from "./dom.ts";
-import { reason } from "./format.ts";
+import { button, el } from "./dom.ts";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { ConfirmView, RenameView } from "./menu-views.tsx";
 
 /// One line of a menu; `warn` reads it in red.
 export interface MenuItem {
@@ -107,102 +110,33 @@ export interface ConfirmOptions {
 /// button runs it and closes the sheet once it worked.
 export function confirmSheet(options: ConfirmOptions) {
   closeMenu();
-  let busy = false;
+  let busy = false, view: Root | null = null;
+  const allowed = () => !busy || options.dismissWhileBusy === true;
   const { sheet, close: shut } = openSheet(options.title, "am-sheet", {
-    canClose: () => !busy || options.dismissWhileBusy === true,
-    // A modal: no key reaches the page behind it.
-    onKey: e => {
-      if (e.key === "Escape") { e.preventDefault(); close(); }
-      e.stopImmediatePropagation();
+    canClose: allowed,
+    onClose: () => { view?.unmount(); view = null; },
+    onKey: event => {
+      if (event.key === "Escape") { event.preventDefault(); close(); }
+      event.stopImmediatePropagation();
       return true;
     },
   });
-  const error = el("div", "am-msg bad");
-  error.hidden = true;
-  const close = () => { if (!busy || options.dismissWhileBusy) shut(); };
-  const go = async () => {
-    if (busy) return;
-    busy = true;
-    act.disabled = true;
-    error.hidden = true;
-
-    try {
-      const said = await options.run(box.checked);
-      busy = false;
-
-      if (box.checked && typeof said === "string" && said) {
-        sheet.replaceChildren(el("div", "am-head", el("b", "", options.title), el("kbd", "", "esc")),
-          el("div", "am-msg", said), el("div", "gp-foot", button("Close", "dbtn", close)));
-        return;
-      }
-
-      close();
-    } catch (e) {
-      busy = false;
-      act.disabled = false;
-      error.textContent = reason(e);
-      error.hidden = false;
-    }
-  };
-  const act = button(options.action, "dbtn warn", go);
-  const box = el("input");
-  box.type = "checkbox";
-  const note = el("div", "am-sub", options.note || "");
-  note.hidden = !options.note;
-  box.addEventListener("change", () => {
-    const text = box.checked ? options.tick?.note : options.note;
-    note.textContent = text || "";
-    note.hidden = !text;
-  });
-  sheet.append(...present([
-    el("div", "am-head", el("b", "", options.title), el("kbd", "", "esc")),
-    el("div", "am-msg", options.text),
-    options.tick ? el("label", "am-sub am-tick", box, options.tick.label) : null,
-    note,
-    error,
-    el("div", "gp-foot", button("Cancel", "dbtn quiet", close), act),
-  ]));
-  act.focus();
+  const close = () => { if (allowed()) shut(); };
+  view = createRoot(sheet);
+  flushSync(() => view?.render(createElement(ConfirmView, { options, close, pending: value => { busy = value; } })));
 }
 
-/// A sheet with one text field, filled with `value`; Save runs `run` with what was typed,
-/// and a failure shows in the sheet.
-export function renameSheet(options: { title: string; value: string; run: (text: string) => Promise<unknown> }) {
-  closeMenu();
-  let busy = false;
-  const { sheet, close: shut } = openSheet(options.title, "am-sheet", { canClose: () => !busy });
-  const close = () => { if (!busy) shut(); };
-  const field = el("input", "gp-field");
-  field.value = options.value;
-  field.spellcheck = false;
-  const error = el("div", "am-msg bad");
-  error.hidden = true;
-  const save = async () => {
-    const text = field.value.trim();
-    if (busy || !text || text === options.value) return close();
-    busy = true;
-    saveBtn.disabled = true;
-    error.hidden = true;
+export interface RenameOptions { title: string; value: string; run(text: string): Promise<unknown> }
 
-    try {
-      await options.run(text);
-      busy = false;
-      close();
-    } catch (e) {
-      busy = false;
-      saveBtn.disabled = false;
-      error.textContent = reason(e);
-      error.hidden = false;
-    }
-  };
-  field.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); void save(); } });
-  const saveBtn = button("Save", "dbtn pri", save);
-  sheet.append(
-    el("div", "am-head", el("b", "", options.title), el("kbd", "", "esc")),
-    el("div", "am-line", field),
-    error,
-    el("div", "gp-foot", button("Cancel", "dbtn quiet", close), saveBtn),
-  );
-  field.focus();
-  field.select();
+/// Saves a renamed value while keeping the draft available after a failure.
+export function renameSheet(options: RenameOptions) {
+  closeMenu();
+  let busy = false, view: Root | null = null;
+  const { sheet, close: shut } = openSheet(options.title, "am-sheet", {
+    canClose: () => !busy,
+    onClose: () => { view?.unmount(); view = null; },
+  });
+  const close = () => { if (!busy) shut(); };
+  view = createRoot(sheet);
+  flushSync(() => view?.render(createElement(RenameView, { options, close, pending: value => { busy = value; } })));
 }
