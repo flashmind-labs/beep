@@ -1,7 +1,8 @@
 import { commandKey } from "../ui/platform.ts";
 import { hostOf } from "../settings/apps.ts";
 import { IMAGE_TYPES } from "./compose-text.ts";
-import { focusAsk } from "./chat.ts";
+import { focusAsk, owningChatBody } from "./chat.ts";
+import { renderChatSentFile } from "./work-view.tsx";
 import { $, bar } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { COPY_ICON, ICON } from "../ui/icons.ts";
@@ -90,7 +91,14 @@ export function picMime(file: SentFile) {
 
 /// A file Beep sent. Opening it downloads it once, then hands it to its app.
 export function fileCard(turn: Turn, file: SentFile) {
-  const box = sentBox(turn);
+  const box = sentBox(turn), owner = owningChatBody(turn);
+  if (owner) {
+    const host = document.createElement("span");
+    host.style.display = "contents";
+    box.append(host);
+    renderChatSentFile(owner, turn, host, file);
+    return;
+  }
   const about = [fileKind(file), fileSize(file.size)].filter(Boolean).join(", ");
   const card = h(`<button class="dfile"><span class="ic">${ICON.doc}</span><span class="dcol"><span class="nm">${esc(file.name)}</span><span class="sz">${esc(about)}</span></span><span class="go">${ICON.chev}</span></button>`);
   const sz = card.querySelector(".sz")!, go = card.querySelector(".go")!;

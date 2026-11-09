@@ -48,3 +48,18 @@ test("prompt pictures load and stay mounted through history updates", async ({ p
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_session").length)).toBeGreaterThan(1);
   expect(await image.evaluate(el => el === Reflect.get(window, "promptPicture"))).toBe(true);
 });
+
+test("reply files stay mounted during refresh and open on request", async ({ page }) => {
+  const history = [{ role: "user", text: "Make a file", at: 1, images: [], model: "", thinking: "" }, { role: "assistant", html: "<p>Done.</p>", tools: [{ name: "send_file", label: "Send file", success: true, route: null, file: { id: "result-1", name: "result.txt", mime: "text/plain", size: 6 }, images: [], products: null, cards: null, chart: null }], replies: [], model: "" }];
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const card = page.locator(".dfile");
+  await expect(card).toContainText("result.txt");
+  await card.focus();
+  await card.evaluate(el => Reflect.set(window, "replyFile", el));
+  await page.evaluate(() => window.__navigation.emit("sessions-changed", "chat-example"));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_session").length)).toBeGreaterThan(1);
+  expect(await card.evaluate(el => el === Reflect.get(window, "replyFile") && document.activeElement === el)).toBe(true);
+  await card.click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "open_file" && call.args.id === "result-1"))).toBe(true);
+});
