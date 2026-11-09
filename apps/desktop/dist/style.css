@@ -919,7 +919,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agturn[hidden], .agspace[hidden] { display: none }
 .agspace { flex: none }
 .dcoderen { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0 }
-.dcoderen.user { display: grid; gap: 2px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--elev); font-size: 13.5px; line-height: 20px }
+.dcoderen.user { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--elev); font-size: 13.5px; line-height: 20px }
 .dcoderen.user b { font-size: 11.5px; font-weight: 600; color: var(--muted) }
 .dcoderen.user a { color: var(--accent); overflow-wrap: anywhere }
 .dcoderen.fromsession { display: grid; gap: 2px; padding: 6px 10px; border-left: 2px solid var(--border); font-size: 13px; line-height: 19px; white-space: pre-wrap }
@@ -1438,3 +1438,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .chat-find.invalid output{color:var(--err, #eb5757)}
 mark.chat-match{background:#665218;color:inherit;border-radius:2px}
 mark.chat-match.current{background:#f0c14b;color:#181818}
+
+/* Nested Markdown lists must size to the message column. */
+.dcoderen.md :is(ul, ol) { display: block; min-width: 0; padding-left: 20px }
+.dcoderen.md li { min-width: 0; white-space: normal; overflow-wrap: anywhere }
