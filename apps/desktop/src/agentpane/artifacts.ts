@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { ArtifactsList } from "./artifacts-list.tsx";
+import { ArtifactActions, ArtifactsList } from "./artifacts-list.tsx";
 // The Artifacts tab of a coding agent session's pane: the pages and documents
 // the agent published or wrote, newest first, and the picked one rendered.
 
@@ -40,12 +40,14 @@ const A = {
   /// When each turn started, by its message's place, as the log knows.
   turnStart: (_turn: number): number | undefined => undefined,
   el: null as HTMLElement | null,
+  note: "",
 };
 
 /// The sessions whose preview the user folded, by `A.key`, kept while the
 /// window is open so going back to a session finds it as it was left.
 const folded = new Set<string>();
 let listRoot: Root | null = null;
+let actionsRoot: Root | null = null;
 
 /// Starts again when the pane shows another session than the one the
 /// tab is of.
@@ -54,8 +56,9 @@ function syncSession() {
   const key = s ? `${s.machine_id}\n${s.cwd}` : "";
   if (A.key === key) return;
   listRoot?.unmount(); listRoot = null;
+  actionsRoot?.unmount(); actionsRoot = null;
   A.el?.remove();
-  Object.assign(A, { el: null, key, list: [], picked: null, version: "", seen: new Map(), primed: false, gone: new Set(), asked: "", askedAt: 0 });
+  Object.assign(A, { el: null, key, list: [], picked: null, version: "", seen: new Map(), primed: false, gone: new Set(), asked: "", askedAt: 0, note: "" });
 }
 
 /// The Artifacts view of the pane's session, made once per session.
@@ -63,11 +66,12 @@ export function artifactsView() {
   syncSession();
   if (A.el) return A.el;
   const el = h(`<div class="agpview arts"><div class="agartlist" role="listbox" aria-label="Artifacts"></div><div class="agartshow"></div>`
-    + `<div class="agpacts"><button class="dbtn" data-aact="fold" title="Fold or show the preview"></button><span class="meta mono"></span><span class="sp"></span>`
-    + `<button class="dbtn" data-aact="claude" hidden>Open on claude.ai</button><button class="dbtn" data-aact="file">Open file</button><button class="dbtn" data-aact="copy">Copy path</button></div></div>`);
+    + `<div class="agpacts"></div></div>`);
   A.el = el;
   const list = el.querySelector<HTMLElement>(".agartlist");
   if (list) listRoot = createRoot(list);
+  const actions = el.querySelector<HTMLElement>(".agpacts");
+  if (actions) actionsRoot = createRoot(actions);
   el.querySelector(".agartlist")!.addEventListener("click", e => {
     const row = (e.target as HTMLElement).closest<HTMLElement>("[data-apath]");
     if (row) pick(row.dataset.apath!);
@@ -91,9 +95,7 @@ function drawFold() {
   const fold = folded.has(A.key);
   el.classList.toggle("folded", fold);
   el.querySelector<HTMLElement>(".agartshow")!.hidden = fold;
-  const btn = el.querySelector<HTMLButtonElement>('[data-aact="fold"]')!;
-  btn.textContent = fold ? "Show" : "Fold";
-  btn.setAttribute("aria-expanded", String(!fold));
+  drawActions();
   liveFrames();
 }
 
@@ -205,22 +207,20 @@ function drawList() {
   if (!listRoot || !s || !A.el) return;
   const root = listRoot;
   flushSync(() => root.render(createElement(ArtifactsList, { artifacts: A.list, cwd: s.cwd, picked: A.picked, gone: A.gone, when })));
-  const a = picked();
-  const acts = A.el!.querySelector<HTMLElement>(".agpacts")!;
-  acts.hidden = !a;
-  if (!a) return;
-  const inside = relativeTo(s.cwd, a.path) != null && !A.gone.has(a.path);
-  const claude = acts.querySelector<HTMLButtonElement>('[data-aact="claude"]')!;
-  claude.hidden = !a.url;
-  claude.title = a.url ?? "";
-  const file = acts.querySelector<HTMLButtonElement>('[data-aact="file"]')!;
-  file.disabled = !inside;
-  file.title = inside ? "Show it in the Files tab" : "It is outside the session's folder";
+  drawActions();
 }
 
 function note(text: string) {
-  const meta = A.el?.querySelector(".agpacts .meta");
-  if (meta) meta.textContent = text;
+  A.note = text;
+  drawActions();
+}
+
+function drawActions() {
+  const acts = A.el?.querySelector<HTMLElement>(".agpacts"), s = paneSession(), root = actionsRoot, a = picked();
+  if (!acts || !root) return;
+  acts.hidden = !a;
+  const inside = !!a && !!s && relativeTo(s.cwd, a.path) !== null && !A.gone.has(a.path);
+  flushSync(() => root.render(createElement(ArtifactActions, { folded: folded.has(A.key), note: A.note, url: a?.url ?? null, inside })));
 }
 
 function about(a: Artifact, size: number | null) {
@@ -295,13 +295,15 @@ function action(act: string) {
 
   const a = picked(), s = paneSession();
   if (!a || !s) return;
+  const key = A.key, version = A.version;
+  const stillPicked = () => A.key === key && A.picked === a.path && A.version === version;
 
   if (act === "pdf") openPath(a.path);
-  else if (act === "claude" && a.url) invoke("open_url", { url: a.url }).catch(e => note(readError(e)));
+  else if (act === "claude" && a.url) invoke("open_url", { url: a.url }).catch(e => { if (stillPicked()) note(readError(e)); });
   else if (act === "file") {
     const rel = relativeTo(s.cwd, a.path);
     if (rel != null) revealPath(rel);
   } else if (act === "copy") {
-    navigator.clipboard.writeText(a.path).then(() => note(`Copied ${a.path}`), err => note(`Could not copy: ${err}`));
+    navigator.clipboard.writeText(a.path).then(() => { if (stillPicked()) note(`Copied ${a.path}`); }, err => { if (stillPicked()) note(`Could not copy: ${err}`); });
   }
 }
