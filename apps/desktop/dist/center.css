@@ -157,6 +157,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 
 /* Before Home first loads: pulsing dots, then Retry, as in the mock. */
 .cc-view > .cc-conn { flex: 1 }
+.cc-conn .dbtn[aria-disabled="true"] { opacity: .5 }
 .cc-conn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 360px; color: var(--muted); font-size: 13px; text-align: center }
 .cc-conn b { color: var(--fg); font-weight: 600; font-size: 14px }
 .cc-conn .why { max-width: 46ch }
