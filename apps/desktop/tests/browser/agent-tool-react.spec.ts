@@ -30,3 +30,27 @@ test("agent command row keeps focus while opening its details", async ({ page })
   await row.locator("a.imgl").click();
   await expect(page.getByRole("tab", { name: /example.png/ })).toBeVisible();
 });
+
+test("grouped agent tools open without replacing the group control", async ({ page }) => {
+  await openDesktop(page);
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      const value = await invoke<T>(command, args);
+      if (command !== "agent_view" || !value || typeof value !== "object") return value;
+      const session = Reflect.get(value, "session");
+      return { ...value, session: { ...session, status: "idle" }, entries: [{ kind: "user", text: "Check" }, { kind: "tool", text: "Read: first.ts [completed]" }, { kind: "tool", text: "Read: second.ts [completed]" }] } as T;
+    };
+  });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "idle", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("button", { name: "Read 2 files", exact: true }).click();
+  const group = page.locator(".dtrun");
+  const button = group.locator("[data-run]");
+  await expect(button).toContainText("Read 2 files");
+  await button.focus();
+  await button.evaluate(element => { (element as HTMLElement).dataset.identity = "kept"; });
+  await button.click();
+  await expect(button).toHaveAttribute("aria-expanded", "true");
+  await expect(button).toHaveAttribute("data-identity", "kept");
+  await expect(group.locator(".dcoderen.tool")).toHaveCount(2);
+});

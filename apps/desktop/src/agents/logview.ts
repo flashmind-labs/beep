@@ -99,6 +99,13 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
 
 }
 
+function typedTool(en: AgentEntry, at: number) {
+  if (!AG.log) return null;
+  const { text, names } = AG.log.imageLines(en.text);
+  const pics = names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "";
+  return toolData({ ...en, text }, at, pics);
+}
+
 function commandClock(since: number) {
   return `<span data-since="${since}" title="Time since this window saw the tool running">${duration(Date.now() - since)}</span>`;
 }
@@ -403,11 +410,8 @@ function rowsOf(p: AgentPage, ats: number[]) {
     flush();
     const en = p.entries[at - p.earlier];
     if (en.kind === "agent") out.push(agentReply(en, at));
-    else if (en.kind === "tool" && AG.log) {
-      const { text, names } = AG.log.imageLines(en.text);
-      const pics = names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "";
-      out.push(toolData({ ...en, text }, at, pics) ?? entryRow(en, at));
-    } else out.push(entryRow(en, at));
+    else if (en.kind === "tool" && AG.log) out.push(typedTool(en, at) ?? entryRow(en, at));
+    else out.push(entryRow(en, at));
   }
 
   flush();
@@ -429,9 +433,12 @@ function runRow(p: AgentPage, ats: number[]) {
   const names = ats.map(at => rowParts(en(at).text).target.split("/").pop() || "").filter(Boolean);
   const shown = names.slice(0, 3).join(", ") + (names.length > 3 ? ` and ${names.length - 3} more` : "");
   const open = !!AG.open && turnsOf(AG.open.session).runs.has(ats[0]);
-  return `<div class="dtrun${open ? " open" : ""}" data-row="${ats[0]}"><button data-run="${ats[0]}" aria-expanded="${open}">`
+  const tools = ats.map(at => typedTool(en(at), at));
+  const html = `<div class="dtrun${open ? " open" : ""}" data-row="${ats[0]}"><button data-run="${ats[0]}" aria-expanded="${open}">`
     + `<span class="ki">${KIND_ICONS[kind]}</span><span class="vb">${esc(runLabel(kind, ats.length))}</span><span class="sm">${esc(shown)}</span><span class="cv">${ICON.chev}</span></button>`
-    + `<div class="bd"><div><div class="in">${ats.map(at => entryRow(en(at), at)).join("")}</div></div></div></div>`;
+    + `<div class="bd"><div><div class="in">${tools.map((tool, index) => tool?.html ?? entryRow(en(ats[index]), ats[index])).join("")}</div></div></div></div>`;
+  if (tools.some(tool => tool === null)) return html;
+  return { kind: "run", id: String(ats[0]), at: ats[0], html, toolKind: kind, label: runLabel(kind, ats.length), summary: shown, open, tools: tools.filter(tool => tool !== null) } satisfies ActivityRow;
 }
 
 /// The log in turns: each message, then a heading with how long the agent
@@ -680,7 +687,7 @@ function showLog(b: HTMLElement, html: string, units: Unit[] | null, polled: boo
     if (sel.focusNode) held.push(sel.focusNode);
   }
 
-  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row.kind === "prompt" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row.kind === "context" && row.type === "child" ? { ...row, body: prepareInlineImages(row.body) } : row.kind === "thought" ? { ...row, html: prepareInlineImages(row.html), content: row.content === null ? null : prepareInlineImages(row.content) } : row.kind === "tool" ? { ...row, html: prepareInlineImages(row.html), after: prepareInlineImages(row.after) } : row) })) ?? null;
+  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row.kind === "prompt" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row.kind === "context" && row.type === "child" ? { ...row, body: prepareInlineImages(row.body) } : row.kind === "thought" ? { ...row, html: prepareInlineImages(row.html), content: row.content === null ? null : prepareInlineImages(row.content) } : row.kind === "tool" ? { ...row, html: prepareInlineImages(row.html), after: prepareInlineImages(row.after) } : row.kind === "run" ? { ...row, html: prepareInlineImages(row.html), tools: row.tools.map(tool => ({ ...tool, after: prepareInlineImages(tool.after) })) } : row) })) ?? null;
   return patchRows(main, next.content, prepared, held);
 }
 
