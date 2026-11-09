@@ -6,7 +6,7 @@ import { withoutCopies } from "./move-store.ts";
 import { S } from "../bar/core.ts";
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot } from "react-dom/client";
+import { createDocumentView } from "../ui/document-root.tsx";
 import { ConversationSwitcher } from "./conversation-switcher-view.tsx";
 import { openSheet } from "../ui/parts.ts";
 
@@ -43,10 +43,10 @@ export function initConversationSwitcher(options: SwitcherOptions) {
     const rows = available();
     refresh();
     if (!rows.length) return false;
-    let view: ReturnType<typeof createRoot> | null = null;
+    let view: ReturnType<typeof createDocumentView> | null = null;
     const { root, sheet, close } = openSheet("Switch active conversation", "am-sheet conversation-switcher", { onClose: () => { view?.unmount(); view = null; picker = null; } });
     root.classList.add("conversation-scrim");
-    view = createRoot(sheet);
+    view = createDocumentView(sheet);
     const on = current(), currentKey = on ? conversationKey(on) : null;
     const p = {
       close, rows, index: currentKey ? rows.findIndex(s => conversationKey(s) === currentKey) : -1,

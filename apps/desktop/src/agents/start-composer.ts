@@ -1,6 +1,6 @@
 import { createElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { createRoot } from "react-dom/client";
+import { createDocumentView } from "../ui/document-root.tsx";
 import { StartComposerView, type StartComposerNodes, type ChoiceContents } from "./start-composer-view.tsx";
 import { nextSessionIntro } from "./session-intro.ts";
 
@@ -12,7 +12,7 @@ export function makeStartComposer({ projectPicker = false, externalChoices = fal
   form.className = "cc-pjc";
   choices.className = "choices";
   const nodes: StartComposerNodes = { input: null, project: null, machine: null, folder: null, extra: null, harness: null, send: null, pick: null, att: null, err: null, box: null };
-  const root = createRoot(form);
+  const root = createDocumentView(form);
   let choiceView: ReactNode = null, attachmentView: ReactNode = null, notes: ReactNode = null, under: ReactNode = null, extras: ReactNode = null, picker: ReactNode = null, harnessView: ReactNode = null;
   let choiceContents: ChoiceContents | null = null;
   let current: Presentation = presentation, busy = false, welcome = presentation === "centered" ? nextSessionIntro() : "";

@@ -1,11 +1,11 @@
 import { createElement, Fragment, useLayoutEffect, useRef, type ReactElement } from "react";
 import { createPortal, flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { AgentQueue } from "./queue-view.tsx";
 import type { Waiting } from "./agentqueue.ts";
 import type { Row } from "./mention-state.ts";
 
-interface Owner { field: HTMLElement; root: Root; queue: HTMLElement | null; attachments: HTMLElement | null; menu: HTMLElement | null; queueView: ReactElement | null; attachmentView: ReactElement | null; menuView: ReactElement | null; controls: Map<HTMLElement, { key: number; node: ReactElement | null }>; next: number; observer: MutationObserver }
+interface Owner { field: HTMLElement; root: DocumentView; queue: HTMLElement | null; attachments: HTMLElement | null; menu: HTMLElement | null; queueView: ReactElement | null; attachmentView: ReactElement | null; menuView: ReactElement | null; controls: Map<HTMLElement, { key: number; node: ReactElement | null }>; next: number; observer: MutationObserver }
 // One owner keeps all session composer portals alive until the field leaves.
 // Queue, attachment and menu hosts can come and go without replacing controls.
 let current: Owner | null = null;
@@ -15,7 +15,7 @@ function draw(owner: Owner) {
 function ownerOf(field: HTMLElement): Owner {
   if (current?.field === field) return current;
   disposeComposerUi();
-  const root = createRoot(document.createElement("div"));
+  const root = createDocumentView(document.createElement("div"));
   const observer = new MutationObserver(() => { if (current?.field === field && !field.isConnected) disposeComposerUi(); });
   observer.observe(document.body, { childList: true, subtree: true });
   current = { field, root, queue: null, attachments: null, menu: null, queueView: null, attachmentView: null, menuView: null, controls: new Map(), next: 0, observer };
