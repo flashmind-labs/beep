@@ -146,7 +146,7 @@
     const path = f.old ? `<span class="old" title="${f.old}">${f.old}</span><span class="to" title="renamed to">${TO}</span><span title="${f.path}">${f.path}</span>` : `<span title="${f.path}">${f.path}</span>`;
     const body = f.lines ? lineRows(f) : `<div class="dv-note">${f.note}${f.load ? `<button class="dv-btn" data-toast="${f.load === "Show" ? "Shows the lockfile's 42 lines" : "Loads all 3,043 lines of this file"}">${f.load}</button>` : ""}</div>`;
     const open = f.st === "deleted" ? "" : `<button class="dv-btn icon" title="${pane ? "Open in a tab" : "Show in Files"}" data-toast="${pane ? "Opens " + f.path + " in a tab" : "Shows it in Files"}">${OPEN}</button>`;
-    return `<section class="dv-file${closed ? " closed" : ""}${cur ? " cur" : ""}"><div class="dv-fh" data-toast="Folds or unfolds the file (x)" title="Click or press x to fold"><span class="dv-chev">${CHEV}</span><span class="dv-path">${path}</span><span class="dv-chip ${f.st}">${f.st}</span>
+    return `<section data-path="${f.path}" class="dv-file${closed ? " closed" : ""}${cur ? " cur" : ""}"><div class="dv-fh" data-toast="Folds or unfolds the file (x)" title="Click or press x to fold"><span class="dv-chev">${CHEV}</span><span class="dv-path">${path}</span><span class="dv-chip ${f.st}">${f.st}</span>
       <span class="dv-fct">${f.a ? `<i class="dv-plus">+${f.a}</i>` : ""}${f.d ? `<i class="dv-minus">-${f.d}</i>` : ""}</span><span class="dv-facts"><button class="dv-btn icon" title="Copy path" data-toast="Copied ${f.path}">${COPY}</button>${open}</span></div>
       <div class="dv-fold"><div>${body}</div></div></section>`;
   };
@@ -218,6 +218,24 @@ const DV_IC = {
     const closed = new Set(S.d.diffClosed || []);
     if (folder.open) closed.add(folder.dataset.folder); else closed.delete(folder.dataset.folder);
     S.d.diffClosed = [...closed];
+  }, true);
+  document.addEventListener("scroll", e => {
+    const files = e.target;
+    if (!files.matches?.(".dv-files")) return;
+    const sections = [...files.querySelectorAll(".dv-file")];
+    const current = sections.findLast(section => section.offsetTop <= files.scrollTop + 10) || sections[0];
+    if (!current) return;
+    const tree = files.parentElement.querySelector(".dv-tree");
+    const row = [...tree.querySelectorAll("button.dv-tr")].find(item => item.title === current.dataset.path);
+    if (!row || row.classList.contains("on")) return;
+    tree.querySelector(".dv-tr.on")?.classList.remove("on");
+    row.classList.add("on");
+    for (let parent = row.parentElement; parent && parent !== tree; parent = parent.parentElement) {
+      if (parent.matches("details")) parent.open = true;
+    }
+    const bounds = tree.getBoundingClientRect(), item = row.getBoundingClientRect();
+    if (item.top < bounds.top) tree.scrollTop += item.top - bounds.top;
+    else if (item.bottom > bounds.bottom) tree.scrollTop += item.bottom - bounds.bottom;
   }, true);
   const resize = (grip, width) => {
     const body = grip.parentElement;
