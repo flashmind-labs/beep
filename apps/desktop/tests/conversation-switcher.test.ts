@@ -1,5 +1,6 @@
 import { answers, calls } from "./dom-env.ts";
 import test from "node:test";
+import { JSDOM } from "jsdom";
 import assert from "node:assert/strict";
 import { ConversationHistory, conversationKey, isConversationKey, nextConversation } from "../src/agents/conversation-state.ts";
 import { initConversationSwitcher } from "../src/agents/conversation-switcher.ts";
@@ -41,6 +42,12 @@ test("Option+Tab accepts reverse cycling but excludes other modifiers and compos
 });
 
 test("holding cycles without actions, release opens once, Escape and blur cancel, and closed rows do not reopen", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", { url: "https://app.test" });
+  Object.defineProperty(globalThis, "window", { value: dom.window, configurable: true, writable: true });
+  Object.defineProperty(globalThis, "document", { value: dom.window.document, configurable: true, writable: true });
+  Object.defineProperty(globalThis, "HTMLElement", { value: dom.window.HTMLElement, configurable: true, writable: true });
+  Object.defineProperty(globalThis, "Element", { value: dom.window.Element, configurable: true, writable: true });
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
   const listeners = new Map<string, EventListener[]>();
   const add = (name: string, listener: EventListener) => { listeners.set(name, [...(listeners.get(name) ?? []), listener]); };
   document.addEventListener = add as typeof document.addEventListener;
@@ -84,4 +91,5 @@ test("holding cycles without actions, release opens once, Escape and blur cancel
   send("keyup", { key: "Alt", altKey: false });
   assert.deepEqual(opened, [c]);
   assert.ok(!calls.some(call => call.cmd === "session_move"));
+  dom.window.close();
 });

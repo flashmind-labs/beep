@@ -1,11 +1,13 @@
-import { AG, agentKind, folderName, type AgentRow } from "./agents.ts";
+import { AG, type AgentRow } from "./agents.ts";
 import { sessionVisible } from "./closing.ts";
 import { conversationHistory, conversationKey, isConversationKey, nextConversation } from "./conversation-state.ts";
 import { loadSessions, sessions } from "./sessions.ts";
 import { withoutCopies } from "./move-store.ts";
-import { S, windowHooks } from "../bar/core.ts";
-import { el } from "../ui/dom.ts";
-import { harnessInner } from "../ui/harnessicon.ts";
+import { S } from "../bar/core.ts";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
+import { ConversationSwitcher } from "./conversation-switcher-view.tsx";
 import { openSheet } from "../ui/parts.ts";
 
 interface SwitcherOptions {
@@ -41,48 +43,22 @@ export function initConversationSwitcher(options: SwitcherOptions) {
     const rows = available();
     refresh();
     if (!rows.length) return false;
-    const { root, sheet, close } = openSheet("Switch active conversation", "am-sheet conversation-switcher", { onClose: () => { picker = null; } });
+    let view: ReturnType<typeof createRoot> | null = null;
+    const { root, sheet, close } = openSheet("Switch active conversation", "am-sheet conversation-switcher", { onClose: () => { view?.unmount(); view = null; picker = null; } });
     root.classList.add("conversation-scrim");
-    const list = el("div", "conversation-list");
-    list.tabIndex = 0;
-    list.setAttribute("role", "listbox");
-    list.setAttribute("aria-label", "Active conversations");
+    view = createRoot(sheet);
     const on = current(), currentKey = on ? conversationKey(on) : null;
     const p = {
       close, rows, index: currentKey ? rows.findIndex(s => conversationKey(s) === currentKey) : -1,
       draw() {
-        list.replaceChildren(...rows.map((s, i) => {
-          const kind = agentKind(s.agent);
-          const project = windowHooks?.sessionProject?.(s)?.label || folderName(s.cwd);
-          const state = s.status === "asking" ? "Needs you" : s.status === "idle" ? "Ready" : s.status === "waiting" ? "Waiting" : s.status === "starting" ? "Starting" : "Working";
-          const icon = el("span", "conversation-icon");
-          icon.innerHTML = harnessInner(s.agent);
-          const mark = el("span", "conversation-mark", icon, el("i", `conversation-dot ${s.status}`));
-          mark.setAttribute("aria-hidden", "true");
-          const title = s.title || project || kind.name;
-          const row = el("button", "conversation-choice", mark,
-            el("span", "conversation-label", el("b", "", title), el("small", "", [project, kind.name].filter(Boolean).join(" · "))),
-            el("span", "conversation-state", state, conversationKey(s) === currentKey ? el("small", "", "Current") : null));
-          row.type = "button";
-          row.tabIndex = -1;
-          row.setAttribute("id", `conversation-choice-${i}`);
-          row.title = [title, project, kind.name, s.machine_name].filter(Boolean).join(" · ");
-          row.setAttribute("role", "option");
-          row.setAttribute("aria-selected", String(i === p.index));
-          row.onclick = () => { p.index = i; finish(true); };
-          return row;
-        }));
-
-        if (p.index >= 0) {
-          list.setAttribute("aria-activedescendant", `conversation-choice-${p.index}`);
-          list.children[p.index]?.scrollIntoView({ block: "nearest" });
-        }
+        if (!view) return;
+        flushSync(() => view?.render(createElement(ConversationSwitcher, {
+          rows, index: p.index, current: currentKey, choose: (index: number) => { p.index = index; finish(true); },
+        })));
       },
     };
     picker = p;
-    sheet.append(el("header", "", el("b", "", "Active conversations"), el("small", "", "Most recently used")), list,
-      el("footer", "", el("span", "", "Hold Option, press Tab to cycle"), el("span", "", "Release to open · Shift to reverse · Esc to cancel")));
-    list.focus();
+    p.draw();
     return true;
   }
 
