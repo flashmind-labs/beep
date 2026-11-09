@@ -1,4 +1,4 @@
-import { discardChatApproval, discardChatSources, discardChatSuggestions, discardChatWork, renderChatSources, transferChatApproval, transferChatFiles, transferChatPictures, transferChatPrompt, transferChatSentFiles, transferChatSuggestions } from "./work-view.tsx";
+import { discardChatApproval, discardChatNotice, discardChatSources, discardChatSuggestions, discardChatWork, renderChatNotice, renderChatSources, transferChatApproval, transferChatFiles, transferChatNotice, transferChatPictures, transferChatPrompt, transferChatSentFiles, transferChatSuggestions } from "./work-view.tsx";
 import { askFiles } from "./attach.ts";
 import { ANSWER, answeredTurns, approvalCard, appendChatReply, ASK, askText, body, chatReplyHtml, drawLatest, drawWork, failed, makeTurn, moveChatReply, newTurn, owningChatBody, ranOn, renderChat, setChatReply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
 import type { Asking, ToolOutput } from "./chat.ts";
@@ -169,7 +169,13 @@ function buildTurns(id: string, turns: HistoryTurn[]) {
     } else if (t.role === "scheduled") {
       // The server started this turn: a small line, not a message the user sent.
       turn = drawTurn("");
-      turn.prepend(h(`<div class="dsystem">${esc(t.label || "Routine")}</div>`));
+      const owner = owningChatBody(turn);
+      if (owner) {
+        const box = document.createElement("div");
+        box.className = "dsystem";
+        renderChatNotice(owner, turn, box, { kind: "label", message: t.label || "Routine" });
+        turn.prepend(box);
+      } else turn.prepend(h(`<div class="dsystem">${esc(t.label || "Routine")}</div>`));
       turn.user = false;
     } else if (t.role === "assistant") {
       turn ??= drawTurn("");
@@ -311,6 +317,7 @@ function mergeTurn(old: Turn, fresh: Turn) {
       if (el.className === "dachips") transferChatFiles(fresh, old);
       if (el.className === "dpics") transferChatPictures(fresh, old);
       if (el.classList.contains("files")) transferChatSentFiles(fresh, old);
+      if (el.className === "dsystem" || el.classList.contains("dranon")) transferChatNotice(fresh, old, el as HTMLElement);
       if (el.className === "dreplies") transferChatSuggestions(fresh, old);
       if (el.className === "dcard") transferChatApproval(fresh, old);
     } else if (STABLE.has(el.className)) {
@@ -325,7 +332,9 @@ function mergeTurn(old: Turn, fresh: Turn) {
     } else if (!LISTED.has(el.className) && was.outerHTML === el.outerHTML) {
       now = was;
     } else {
+      if (was instanceof HTMLElement && (was.className === "dsystem" || was.classList.contains("dranon"))) discardChatNotice(old, was);
       was.replaceWith(el);
+      if (el instanceof HTMLElement && (el.className === "dsystem" || el.classList.contains("dranon"))) transferChatNotice(fresh, old, el);
       if (el.classList.contains("files")) transferChatSentFiles(fresh, old);
       if (el.className === "dreplies") transferChatSuggestions(fresh, old);
       if (el.className === "dcard") transferChatApproval(fresh, old);

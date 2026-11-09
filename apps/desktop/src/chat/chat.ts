@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
 import { ChatShell } from "./chat-shell.tsx";
-import { discardChatApproval, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatNotice, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
+import { discardChatApproval, discardChatNotice, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatNotice, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
 import { drawAgentButton } from "../agents/agents.ts";
 import { askFiles, attach, attached, attachError, drawAttached } from "./attach.ts";
 import type { AskFile } from "./attach.ts";
@@ -289,8 +289,16 @@ export function ranOn(turn: Turn, model: string, thinking: string) {
     ? (thinking ? `${modelName(model)} · ${thinking}` : modelName(model))
     : thinking;
   if (!line) return;
-  turn.querySelector(".dranon")?.remove();
-  turn.querySelector(ASK)?.after(h(`<div class="drerunof dranon">${esc(line)}</div>`));
+  const old = turn.querySelector<HTMLElement>(".dranon");
+  if (old) { discardChatNotice(turn, old); old.remove(); }
+  const prompt = turn.querySelector(ASK), owner = owningChatBody(turn);
+  if (!prompt) return;
+  if (owner) {
+    const box = document.createElement("div");
+    box.className = "drerunof dranon";
+    renderChatNotice(owner, turn, box, { kind: "label", message: line });
+    prompt.after(box);
+  } else prompt.after(h(`<div class="drerunof dranon">${esc(line)}</div>`));
 }
 
 /// The user's prompt in a turn, and the answer.

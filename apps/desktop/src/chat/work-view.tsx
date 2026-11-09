@@ -17,7 +17,7 @@ export interface WorkView { heading: TurnHeading | null; thought: string; steps:
 type Source = WebSource & { site: string };
 interface ReplyActions { copy: boolean; rerun: boolean; agent: string | null }
 interface ApprovalView { app: string; action: string; fields: ApprovalField[]; grant: boolean; answer: (decision: Decision) => void }
-type StatusNotice = { kind: "error"; message: string } | { kind: "stopped"; message: string; retry: boolean };
+type StatusNotice = { kind: "label"; message: string } | { kind: "error"; message: string } | { kind: "stopped"; message: string; retry: boolean };
 interface Owner { notices: Map<HTMLElement, { key: number; value: StatusNotice }>; products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
 const owners = new WeakMap<ChatBody, Owner>();
 const noticeTurns = new WeakMap<Turn, { owner: Owner; boxes: HTMLElement[] }>();
@@ -44,6 +44,7 @@ const Prompt = memo(function Prompt({ html }: { html: string }) {
   return <><b>You</b><span dangerouslySetInnerHTML={{ __html: html }} /></>;
 });
 function Notice({ value }: { value: StatusNotice }) {
+  if (value.kind === "label") return <>{value.message}</>;
   if (value.kind === "error") return <><b>The turn did not finish</b><span>{value.message}</span></>;
   return <>{value.message}{value.retry && <button className="dbtn" data-act="retry">Retry</button>}</>;
 }
@@ -160,6 +161,14 @@ export function discardChatNotice(turn: Turn, box: HTMLElement) {
   if (!entry.boxes.length) noticeTurns.delete(turn);
   entry.owner.notices.delete(box);
   draw(entry.owner);
+}
+export function transferChatNotice(from: Turn, to: Turn, box: HTMLElement) {
+  const entry = noticeTurns.get(from);
+  if (!entry || !entry.boxes.includes(box)) return;
+  entry.boxes = entry.boxes.filter(item => item !== box);
+  if (!entry.boxes.length) noticeTurns.delete(from);
+  const target = noticeTurns.get(to);
+  if (target) target.boxes.push(box); else noticeTurns.set(to, { owner: entry.owner, boxes: [box] });
 }
 export function renderChatProduct(body: ChatBody, turn: Turn, box: HTMLElement, html: string) {
   const owner = ownerOf(body), entry = productTurns.get(turn);
