@@ -2,6 +2,7 @@ import { memo } from "react";
 
 /// Replies already contain the sanitized Markdown produced by the node.
 export interface ReplyRow { kind: "reply"; row: string; markdown: boolean; html: string }
+export interface PromptRow { kind: "prompt"; row: string; html: string; pictures: string }
 export function replyHtml(reply: ReplyRow) {
   return `<div class="dcoderen agent${reply.markdown ? " md" : ""}" data-row="${reply.row}">${reply.html}</div>`;
 }
@@ -20,4 +21,12 @@ export function replyRow(html: string): ReplyRow | null {
 
 export const AgentReply = memo(function AgentReply({ reply }: { reply: ReplyRow }) {
   return <div className={`dcoderen agent${reply.markdown ? " md" : ""}`} data-row={reply.row} dangerouslySetInnerHTML={{ __html: reply.html }}/>;
+});
+
+export function promptHtml(prompt: PromptRow) {
+  return `<div class="dcoderen user md" data-at="${prompt.row}"><b>You</b>${prompt.html ? `<div class="said">${prompt.html}</div>` : ""}${prompt.pictures ? `<span class="pics">${prompt.pictures}</span>` : ""}</div>`;
+}
+
+export const AgentPrompt = memo(function AgentPrompt({ prompt }: { prompt: PromptRow }) {
+  return <div className="dcoderen user md" data-at={prompt.row}><b>You</b>{prompt.html && <div className="said" dangerouslySetInnerHTML={{ __html: prompt.html }} />}{prompt.pictures && <span className="pics" dangerouslySetInnerHTML={{ __html: prompt.pictures }} />}</div>;
 });
