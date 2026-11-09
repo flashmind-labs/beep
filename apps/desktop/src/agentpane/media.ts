@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { PaneTabs, type PaneTabItem } from "./tabs-view.tsx";
 import { readView, writeView, viewKey, rememberScroll } from "./view-memory.ts";
 import { isHtmlFile, queuePreview } from "./html-preview-state.ts";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
@@ -553,6 +557,23 @@ function phoneTabs() {
 
 /// Draws dock `d` with tabs `ids`, moving into it the views of tabs that
 /// came from the other.
+const tabRoots = new WeakMap<HTMLElement, Root>();
+
+function tabRoot(tabs: HTMLElement) {
+  const existing = tabRoots.get(tabs);
+  if (existing) return existing;
+  const root = createRoot(tabs);
+  tabRoots.set(tabs, root);
+  const observer = new MutationObserver(() => {
+    if (tabs.isConnected) return;
+    observer.disconnect();
+    root.unmount();
+    tabRoots.delete(tabs);
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  return root;
+}
+
 function drawDock(d: Dock, ids: string[]) {
   const pane = paneOf(d);
   const tabs = pane?.querySelector<HTMLElement>(".agtabs"), views = pane?.querySelector<HTMLElement>(".agpviews");
@@ -560,17 +581,16 @@ function drawDock(d: Dock, ids: string[]) {
   // The tab on screen went: the newest one here.
   if (!ids.includes(P.on[d])) P.on[d] = ids.at(-1) ?? FILES;
   const on = P.on[d];
-  const tab = (id: string, kind: TabKind | Fixed, name: string, extra: string) =>
-    `<button class="agtab${on === id ? " on" : ""}" role="tab" aria-selected="${on === id}" data-mtab="${esc(id)}" title="${esc(name)}">${ICONS[kind]}<span>${esc(name)}</span>${extra}</button>`;
-  tabs.innerHTML = ids.map(id => {
-    if (id === FILES) return tab(FILES, FILES, "Files", "");
-    if (id === CHANGES) return tab(CHANGES, CHANGES, "Changes", "");
-    if (id === SUBS) return tab(SUBS, SUBS, "Subagents", `<small>${P.subCount}</small>`);
-    if (id === RUNNING) return tab(RUNNING, RUNNING, "Running", `<small>${runningCount()}</small>`);
-    if (id === ARTS) return tab(ARTS, ARTS, "Artifacts", `<small>${artifactCount()}</small>`);
-    const t = P.tabs.find(x => x.id === id)!;
-    return tab(t.id, t.kind, t.name, `<em data-mclose="${esc(t.id)}" aria-label="Close ${esc(t.name)}" title="Close (⌘W)">${ICON.x}</em>`);
-  }).join("");
+  const items: PaneTabItem[] = ids.map(id => {
+    if (id === FILES) return { id, name: "Files", icon: ICONS.files, count: null, closeIcon: null };
+    if (id === CHANGES) return { id, name: "Changes", icon: ICONS.changes, count: null, closeIcon: null };
+    if (id === SUBS) return { id, name: "Subagents", icon: ICONS.subagents, count: P.subCount, closeIcon: null };
+    if (id === RUNNING) return { id, name: "Running", icon: ICONS.running, count: runningCount(), closeIcon: null };
+    if (id === ARTS) return { id, name: "Artifacts", icon: ICONS.artifacts, count: artifactCount(), closeIcon: null };
+    const item = P.tabs.find(tab => tab.id === id)!;
+    return { id, name: item.name, icon: ICONS[item.kind], count: null, closeIcon: ICON.x };
+  });
+  flushSync(() => tabRoot(tabs).render(createElement(PaneTabs, { tabs: items, selected: on })));
   const bottom = d === "bottom";
   const dock = pane.querySelector<HTMLElement>('[data-pact="dock"]')!;
   dock.innerHTML = bottom ? DOCK_RIGHT : DOCK_BOTTOM;
@@ -645,7 +665,7 @@ function drawDock(d: Dock, ids: string[]) {
       t.term?.screen.fit();
       // A refresh must not take the keys back from the conversation.
       // Check now, since focus may have changed while this frame waited.
-      if (t.id === P.on[d] && !P.layout.hidden[d] && pane.isConnected && pane.contains(document.activeElement)) t.term?.screen.focus();
+      if (t.id === P.on[d] && !P.layout.hidden[d] && pane.isConnected && (document.activeElement === pane || t.term?.screen.focused())) t.term?.screen.focus();
     });
   }
 }
