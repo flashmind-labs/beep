@@ -24,14 +24,16 @@ pub(super) const MAIN_CHECKOUT_RULE: &str = "Beep: this folder is a git reposito
     merging back, use git merge --ff-only by default, preserving all commits without \
     creating a merge commit. Once the branch is merged, remove the worktree, delete its \
     folder with everything left in it (build output and other artifacts) and delete the \
-    branch. You may then create a new worktree for further changes in this session.";
+    branch. Close any issues opened for the work if the merge fully resolves them. You may \
+    then create a new worktree for further changes in this session.";
 /// The rule for an agent in a linked git worktree.
 pub(super) const WORKTREE_RULE: &str = "Beep: this folder is a git worktree. Use this single worktree for all changes and \
     commits in this session. Do not create a new worktree for each change. When merging \
     back, use git merge --ff-only by default, preserving all commits without creating a \
     merge commit. Once its branch is merged, remove the worktree, delete its folder with \
-    everything left in it (build output and other artifacts) and delete the branch. You may \
-    then create a new worktree for further changes in this session.";
+    everything left in it (build output and other artifacts) and delete the branch. Close any \
+    issues opened for the work if the merge fully resolves them. You may then create a new \
+    worktree for further changes in this session.";
 
 /// Beep's standing rule for an agent in `dir`, by the git checkout it is
 /// in: the nearest `.git` above it is a folder in a main checkout and a
