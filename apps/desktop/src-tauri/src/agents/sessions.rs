@@ -189,6 +189,7 @@ fn without_image_lines(text: &str) -> String {
 /// One session in full.
 #[derive(Debug, Serialize)]
 pub struct SessionPage {
+    model: Option<String>,
     session: SessionRow,
     plan: Vec<StepRow>,
     files: Vec<String>,
@@ -204,6 +205,7 @@ pub struct SessionPage {
 impl From<AgentSessionView> for SessionPage {
     fn from(view: AgentSessionView) -> Self {
         Self {
+            model: view.model,
             session: view.session.into(),
             plan: view
                 .plan

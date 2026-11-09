@@ -217,6 +217,7 @@ pub(crate) async fn session(
                 .ok_or_else(not_found)?;
             let last_message = found.last_message.clone();
             AgentSessionView {
+                model: None,
                 session: machine::external_session(&host, found),
                 plan: Vec::new(),
                 files: Vec::new(),

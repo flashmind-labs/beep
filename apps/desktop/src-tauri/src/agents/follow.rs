@@ -235,6 +235,7 @@ pub async fn agent_follow(
                     let last_message = info.last_message.clone();
                     (
                         AgentSessionView {
+                            model: None,
                             session: machine::external_session(&fleet.host_of(machine), *info),
                             plan: Vec::new(),
                             files: Vec::new(),
