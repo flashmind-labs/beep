@@ -3,7 +3,6 @@ import { owningChatBody } from "./chat.ts";
 import { renderChatChart } from "./work-view.tsx";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
-import { invoke } from "../ui/tauri.ts";
 import type { Turn } from "../ui/turn.ts";
 
 // ---------- Charts ----------
@@ -65,14 +64,14 @@ export const chartSizer = new ResizeObserver(entries => {
 
 export const chartSources = new WeakMap<Element, Chart>();
 export function chartRow(turn: Turn, chart: Chart) {
+  const owner = owningChatBody(turn);
+  if (!owner) return;
   const card = h<ChartCard>('<div class="dchart"></div>');
   chartSources.set(card, chart);
   card.chart = chart;
   card.off = new Set();
   sentBox(turn).append(card);
-  const owner = owningChatBody(turn);
-  if (owner) renderChatChart(owner, turn, card, chart);
-  else drawChart(card);
+  renderChatChart(owner, turn, card, chart);
 }
 
 /// A value in the chart's unit: a currency code as money, % with its sign,
@@ -106,34 +105,6 @@ export function chartTime(ms: number, span: number, full = false) {
   if (span < 2 * 86400e3) return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) + (full ? ", " + d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "");
   if (span < 400 * 86400e3) return d.toLocaleDateString(undefined, { day: "numeric", month: "short", ...(full ? { year: "numeric" } : {}) });
   return d.toLocaleDateString(undefined, { month: "short", year: "numeric", ...(full ? { day: "numeric" } : {}) });
-}
-
-export function drawChart(card: ChartCard) {
-  const c = card.chart, st = c.stock, many = c.series.length > 1;
-  let head;
-
-  if (st) {
-    const change = st.last - st.previous, pct = st.previous ? change / st.previous * 100 : 0;
-    const range = CHART_RANGES.find(([r]) => r === st.range)?.[1] ?? "";
-    const meta = [st.name, st.exchange, st.currency].filter(Boolean).map(esc).join(" · ");
-    const money = { unit: st.currency };
-    head = `<div class="ch"><span class="tt"><b>${esc(many ? c.title : st.symbol)}</b><small>${many ? esc("Change over the range, in %") : meta}</small></span>
-      ${many ? "" : `<span class="px"><b>${esc(chartValue(money, st.last))}</b><small class="${change >= 0 ? "up" : "down"}">${esc(chartValue(money, change, true))} (${pct > 0 ? "+" : ""}${pct.toFixed(2)}%) ${range}</small></span>`}</div>`;
-  } else {
-    head = `<div class="ch"><span class="tt"><b>${esc(c.title)}</b>${c.unit ? `<small>${esc(c.unit)}</small>` : ""}</span></div>`;
-  }
-
-  const legend = !many ? ""
-    : `<span class="legend">${c.series.map((s, i) => `<button data-series="${i}" aria-pressed="${!card.off.has(i)}"><i style="background:${CHART_COLORS[i]}"></i>${esc(s.name)}</button>`).join("")}</span>`;
-  // A comparison has no range buttons: StockChart answers one symbol.
-  const ranges = st && c.series.length === 1 ? `<span class="ranges">${CHART_RANGES.map(([r, l]) => `<button data-range="${r}" aria-pressed="${r === st.range}">${l}</button>`).join("")}</span>` : "";
-  const source = c.source ? `<span class="src">${esc(c.source)}</span>` : "";
-  card.innerHTML = `${head}<div class="plot" role="img" aria-label="${esc(c.title)}"></div><div class="derr"></div>${ranges || legend || source ? `<div class="foot">${ranges}${legend}${source}</div>` : ""}`;
-  const plot = card.querySelector<Plot>(".plot")!;
-  plot.chart = c;
-  plot.card = card;
-  chartSizer.observe(plot);
-  drawPlot(plot);
 }
 
 /// The series the legend leaves on, with their index for the colour.
@@ -227,36 +198,4 @@ export function hoverPlot(plot: Plot, e: MouseEvent) {
   tip.hidden = false;
   const half = tip.offsetWidth / 2;
   tip.style.left = Math.max(half, Math.min(g.plotW - half, hx)) + "px";
-}
-
-export async function chartClick(e: MouseEvent) {
-  const t = e.target as HTMLElement;
-  const card = t.closest<ChartCard>(".dchart");
-  if (!card) return false;
-  const series = t.closest<HTMLElement>("[data-series]");
-
-  if (series) {
-    const i = +series.dataset.series!;
-    if (card.off.has(i)) card.off.delete(i);
-    else if (card.off.size < card.chart.series.length - 1) card.off.add(i);
-    drawChart(card);
-    return true;
-  }
-
-  const range = t.closest<HTMLElement>("[data-range]");
-  if (!range || !card.chart.stock || range.getAttribute("aria-pressed") === "true") return !!range;
-  const plot = card.querySelector(".plot")!;
-  plot.classList.add("wait");
-  card.querySelectorAll("[data-range]").forEach(b => b.setAttribute("aria-pressed", String(b === range)));
-
-  try {
-    card.chart = await invoke<Chart>("stock_chart", { symbol: card.chart.stock.symbol, range: range.dataset.range });
-    card.off.clear();
-    drawChart(card);
-  } catch (err) {
-    plot.classList.remove("wait");
-    card.querySelector(".derr")!.textContent = String(err);
-  }
-
-  return true;
 }

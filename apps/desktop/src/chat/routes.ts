@@ -3,7 +3,6 @@ import { renderChatRoute } from "./work-view.tsx";
 import { sentBox } from "./media.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
-import { invoke } from "../ui/tauri.ts";
 import type { Turn } from "../ui/turn.ts";
 
 // ---------- Transit routes ----------
@@ -63,12 +62,6 @@ export interface RouteCard {
 
 /// A route card in a chat: the route picked and the rides whose stops are
 /// open, as "route:leg".
-interface RouteCardEl extends HTMLDivElement {
-  route: RouteCard;
-  pick: number;
-  open: Set<string>;
-}
-
 /// A get_route result. The routes live on the server, fetched by the call's
 /// id, so their shapes never sit in the model's context.
 export const ROUTE_WALK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="M15 21l-2-5-3-2 1-5 3 3h3M9 9l-3 3v4"/></svg>';
@@ -76,58 +69,17 @@ export const ROUTE_WALK = '<svg width="14" height="14" viewBox="0 0 24 24" fill=
 export const ROUTE_CHEV = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
 
 export const routeSources = new WeakMap<Element, string>();
-export async function routeRow(turn: Turn, callId: string) {
-  const card = h<RouteCardEl>('<div class="dchart droute"><div class="dmuted"><span class="dspin"></span>Loading the route</div></div>');
-  routeSources.set(card, callId);
-  card.pick = 0;
-  card.open = new Set();
-  sentBox(turn).append(card);
+export function routeRow(turn: Turn, callId: string) {
   const owner = owningChatBody(turn);
-  if (owner) { card.replaceChildren(); renderChatRoute(owner, turn, card, callId); return; }
-
-  try {
-    card.route = await invoke<RouteCard>("route_card", { callId });
-    drawRoute(card);
-  } catch {
-    card.innerHTML = '<div class="dmuted">Route no longer available</div>';
-  }
+  if (!owner) return;
+  const card = h<HTMLDivElement>('<div class="dchart droute"></div>');
+  routeSources.set(card, callId);
+  sentBox(turn).append(card);
+  renderChatRoute(owner, turn, card, callId);
 }
 
 export function routeChanges(r: RouteOption, sep: string) {
   return r.transfers ? `${sep}${r.transfers} change${r.transfers > 1 ? "s" : ""}` : "";
-}
-
-/// A station code as Tokyo's signs draw it, ringed in the line's colour.
-export const stationCode = (code: string | undefined, color: string) => code ? `<span class="rc" style="border-color:${color}">${esc(code)}</span>` : "";
-
-export function drawRoute(card: RouteCardEl) {
-  const routes = card.route.routes, r = routes[card.pick] ?? routes[0];
-  if (!r) return void (card.innerHTML = '<div class="dmuted">No route found</div>');
-  const leg = (l: RouteLeg, i: number) => {
-    if (l.mode === "walk") {
-      const km = l.meters >= 1000 ? `, ${(l.meters / 1000).toFixed(1)} km` : "";
-      return `<div class="dmuted"><span class="rw">${ROUTE_WALK}</span>Walk ${l.minutes} min${km} to ${esc(l.to || "destination")}</div>`;
-    }
-
-    const color = l.color || "var(--accent)", badge = l.line || l.name || l.mode;
-    const key = `${card.pick}:${i}`, open = card.open.has(key), between = l.between ?? [];
-    const label = `${l.stops} stop${l.stops > 1 ? "s" : ""}`;
-    const stops = !l.stops ? "" : between.length
-      ? ` <button class="rst m" data-stops="${key}" aria-expanded="${open}">· ${ROUTE_CHEV}${label} ·</button>`
-      : ` <span class="m">· ${label} ·</span>`;
-    const list = open ? `<span class="rsl">${between.map(s => `<span><span class="n">${esc(s.time)}</span>${stationCode(s.code, color)}${esc(s.name)}</span>`).join("")}</span>` : "";
-    return `<div class="rl"><span class="rb" style="background:${color};color:${l.text_color || "var(--ink)"}">${esc(badge)}</span>
-      <span class="rt" style="border-color:${color}"><b>${esc(l.name || badge)}${l.headsign ? ` <span class="m">toward ${esc(l.headsign)}</span>` : ""}</b>
-      <span><b class="n">${esc(l.departs)}</b> ${stationCode(l.from_code, color)}${esc(l.from)}${l.from_track ? `, platform ${esc(l.from_track)}` : ""}${stops} <b class="n">${esc(l.arrives)}</b> ${stationCode(l.to_code, color)}${esc(l.to || "destination")}</span>${list}</span></div>`;
-  };
-  const picks = routes.length > 1
-    ? `<span class="ranges">${routes.map((o, i) => `<button data-route="${i}" aria-pressed="${i === card.pick}">${o.minutes} min${routeChanges(o, ", ")}</button>`).join("")}</span>` : "";
-  card.innerHTML = `<div class="ch"><span class="tt"><b>${esc(`${r.departs} to ${r.arrives} · ${r.minutes} min${routeChanges(r, " · ")}`)}</b>
-      <small>${r.live ? "Live times" : "Timetable times, delays not included"}</small></span></div>
-    ${picks ? `<div class="foot">${picks}</div>` : ""}
-    <div class="rs">${routeSketch(r)}</div>
-    <div class="rlegs">${r.legs.map(leg).join("")}</div>
-    <div class="foot"><button class="dbtn" data-maps>Open in Maps</button><span class="src">Transitous</span></div>`;
 }
 
 export const MAP_TILES = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile";
@@ -222,29 +174,3 @@ export function routeLabels(rides: RouteLeg[], at: (p: RoutePoint) => number[], 
     return `<g><rect x="${box.x.toFixed(1)}" y="${box.y.toFixed(1)}" width="${w.toFixed(1)}" height="${h}" rx="4.5" fill="var(--surface)" fill-opacity=".92" stroke="var(--border)"/>${codes}<text x="${x.toFixed(1)}" y="${(box.y + 11.3).toFixed(1)}" font-size="9" font-weight="600" fill="var(--fg)">${esc(b.name)}</text></g>`;
   }).join("");
 }
-
-export function routeClick(e: MouseEvent) {
-  const t = e.target as HTMLElement;
-  const card = t.closest<RouteCardEl>(".droute")!;
-  const stops = t.closest<HTMLElement>("[data-stops]");
-
-  if (stops) {
-    const key = stops.dataset.stops!;
-    if (!card.open.delete(key)) card.open.add(key);
-    return drawRoute(card);
-  }
-
-  const pick = t.closest<HTMLElement>("[data-route]");
-
-  if (pick) {
-    card.pick = +pick.dataset.route!;
-    return drawRoute(card);
-  }
-
-  const r = card.route.routes[card.pick], pts = r.legs.flatMap(l => l.points);
-  if (!pts.length) return;
-  const at = (p: RoutePoint) => `${p.latitude},${p.longitude}`;
-  // Maps plans the trip again between the ends, with its own live times.
-  invoke("open_url", { url: `https://maps.apple.com/?saddr=${at(pts[0])}&daddr=${at(pts.at(-1)!)}&dirflg=r` }).catch(() => {});
-}
-
