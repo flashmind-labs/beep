@@ -1,12 +1,16 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { CustomAgentsView } from "./customagents-view.tsx";
 // The Custom agents list of a project page: the named agents the coding agent
 // harnesses define in the project's folder on one machine, and the user's own
 // there.
 import { invoke } from "../ui/tauri.ts";
 import { harnessEl } from "../ui/harnessicon.ts";
-import { dbtn, emptyPanel, openSheet } from "../ui/parts.ts";
+import { dbtn, openSheet } from "../ui/parts.ts";
 import { agentLabel } from "./projects-state.ts";
 import { el, present } from "../ui/dom.ts";
-import { type AgentsPlace, type CustomAgentRow, agentColor, agentMeta } from "./customagents-state.ts";
+import { type AgentsPlace, type CustomAgentRow, agentMeta } from "./customagents-state.ts";
 import { reason } from "../ui/format.ts";
 
 interface Listed {
@@ -19,6 +23,7 @@ export interface CustomAgentsDeps {
   redraw: () => void;
   /// Start: a coding session with agent `a`, read on `place`.
   start: (a: CustomAgentRow, place: AgentsPlace) => void;
+  slot: (host: HTMLElement) => HTMLElement;
 }
 
 export function makeCustomAgents(deps: CustomAgentsDeps) {
@@ -51,49 +56,32 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
     return s;
   }
 
-  function row(a: CustomAgentRow, place: AgentsPlace) {
-    if (a.error && !a.description && !a.prompt) {
-      return el("div", "pj-task ca-row bad",
-        el("span", "t", el("span", "ddot bad"), " ", el("code", "", a.path)),
-        el("span", "m", el("span", "cc-err", a.error)));
-    }
+  let mounted: { host: HTMLElement; root: Root } | null = null;
 
-    const dot = el("span", "ddot ca-dot");
-    const color = agentColor(a.color);
-    if (color) dot.style.background = color;
-    else dot.hidden = true;
-    const desc = el("span", "ca-desc", a.description);
-    const start = dbtn("Start", "small", e => { e.stopPropagation(); deps.start(a, place); });
-    start.title = `A coding session that uses ${a.name}`;
-    const r = el("div", "pj-task ca-row",
-      el("span", "t", harnessEl(a.harness, "cc-ag ca-ic"), dot, el("b", "", a.name), " ", desc),
-      el("span", "m", ...agentMeta(a).map(m => el("span", "", m)), el("code", "", a.path), a.error ? el("span", "cc-err", a.error) : null),
-      el("span", "acts", start));
-    r.tabIndex = 0;
-    r.setAttribute("role", "button");
-    r.title = a.description || a.name;
-    const open = () => openPrompt(a, place);
-    r.addEventListener("click", open);
-    r.addEventListener("keydown", e => { if (e.target === r && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); open(); } });
-    return r;
+  function count(place: AgentsPlace | null) { return place ? listed(place)?.rows?.length ?? 0 : 0; }
+
+  function section(place: AgentsPlace | null) {
+    const s = place ? listed(place) : null;
+    const rows = s?.rows ?? null;
+    const message = !place ? "No machine has this project's folder to read its custom agents from."
+      : !rows ? s?.error ? `Could not read the custom agents on ${place.name}: ${s.error}` : `Reading the custom agents on ${place.name}…`
+      : "No custom agents in .claude/agents, .opencode/agent, .codex/agents, .pi/agents or .agents yet.";
+    if (!mounted) {
+      const host = el("div");
+      host.id = "sec-custom-agents";
+      mounted = { host, root: createRoot(host) };
+    }
+    const current = mounted;
+    flushSync(() => current.root.render(createElement(CustomAgentsView, {
+      rows, message, error: !!s?.error && !rows,
+      reload: place ? () => void load(place) : null,
+      open: (a: CustomAgentRow) => { if (place) openPrompt(a, place); },
+      start: (a: CustomAgentRow) => { if (place) deps.start(a, place); },
+    })));
+    return deps.slot(current.host);
   }
 
-  /// The list's body and its count, for the section around it.
-  function view(place: AgentsPlace | null): { body: Node; count: number } {
-    if (!place) return { body: emptyPanel(el("span", "", "No machine has this project's folder to read its custom agents from.")), count: 0 };
-    const s = listed(place);
-
-    if (!s?.rows) {
-      const text = s?.error ? `Could not read the custom agents on ${place.name}: ${s.error}` : `Reading the custom agents on ${place.name}…`;
-      return { body: emptyPanel(el("span", s?.error ? "cc-err" : "", text)), count: 0 };
-    }
-
-    if (!s.rows.length) {
-      return { body: emptyPanel(el("span", "", "No custom agents in .claude/agents, .opencode/agent, .codex/agents, .pi/agents or .agents yet.")), count: 0 };
-    }
-
-    return { body: el("div", "cc-panel pv-scroll", ...s.rows.map(a => row(a, place))), count: s.rows.length };
-  }
+  function dispose() { mounted?.root.unmount(); mounted = null; }
 
   /// The agent's prompt, read-only, over the window.
   function openPrompt(a: CustomAgentRow, place: AgentsPlace) {
@@ -123,5 +111,5 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
     prompt.focus();
   }
 
-  return { view, reload: load };
+  return { count, section, dispose };
 }

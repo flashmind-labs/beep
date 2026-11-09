@@ -27,7 +27,7 @@ import { homeBox, runningStatus } from "../center/home.ts";
 import { terminalLine } from "../terminals/view.ts";
 import { go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
-import { agentsSection, customAgentsCount, customAgentsSection, whereSection } from "./projects.ts";
+import { agentsSection, customAgentsCount, customAgentsSection, disposeCustomAgents, whereSection } from "./projects.ts";
 import { pa, terms, fsync, revs, gitHistory, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsSection, sessionsList, sessionsDue, loadSessions } from "./loads.ts";
 import { BEEP_MARK} from "../ui/icons.ts";
@@ -40,7 +40,7 @@ export function projectPanel(slot: Element): HTMLElement | null {
   return panelSlots.get(slot) ?? null;
 }
 
-function panelSlot(panel: HTMLElement): HTMLElement {
+export function panelSlot(panel: HTMLElement): HTMLElement {
   const slot = h("div");
   panelSlots.set(slot, panel);
   return slot;
@@ -78,6 +78,7 @@ export function splitOn(p: Project) {
 /// stops the polling of every other item. With `draw` false the caller
 /// draws.
 export function openTile(key: string | null, draw = true) {
+  if (!draw && key === null) disposeCustomAgents();
   pa.tile = key === "sync" || key === "terminals" ? "machines" : key;
   if (key !== "actions") runs.stop();
   if (pa.tile !== "machines") { fsync.stop(); terms.stop(); }
