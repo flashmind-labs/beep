@@ -177,7 +177,7 @@ pub(crate) async fn output(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) 
 /// What `program` printed, stdout then stderr, and whether it succeeded;
 /// `None` when it could not run or took too long.
 async fn ran(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Option<(bool, String)> {
-    let mut command = crate::run::process::command(program.as_ref());
+    let mut command = crate::run::process::probe(program.as_ref());
     spawn_env::apply(&mut command, Scope::Probe);
     beside(&mut command, Path::new(program.as_ref()));
     let run = command
@@ -236,7 +236,7 @@ async fn login(
     logged_in: fn(&str) -> Option<bool>,
     account: fn(&str) -> Option<String>,
 ) -> Login {
-    let mut command = crate::run::process::command(program);
+    let mut command = crate::run::process::probe(program);
     // With the GitHub token, so `gh auth status` sees the one Beep gave.
     spawn_env::apply(&mut command, Scope::Agent(None));
     beside(&mut command, program);
