@@ -261,10 +261,19 @@ async fn search(cx: &Cx, query: &str, listing: Listing) -> Reply<Vec<SessionMatc
         .collect())
 }
 
-/// The latest message the user or Beep wrote in `found` that holds `query`.
+/// Excerpts covering every search term in the matching chat.
 fn session_match(found: FoundSession, query: &str) -> Option<SessionMatch> {
     Some(SessionMatch {
-        snippet: match_snippet(&found.text, query)?,
+        snippet: {
+            let mut snippets = Vec::new();
+            for term in query.split_whitespace() {
+                let snippet = match_snippet(&found.text, term)?;
+                if !snippets.contains(&snippet) {
+                    snippets.push(snippet);
+                }
+            }
+            snippets.join(" · ")
+        },
         session: found.session,
         from_user: found.from_user,
     })
