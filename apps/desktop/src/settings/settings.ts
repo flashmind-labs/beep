@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { GeneralView } from "./general-view.tsx";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
 import { SettingsBreadcrumb, SettingsNavigation } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
@@ -26,13 +27,12 @@ import { switchHtml, esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { toggleShortcuts } from "../ui/shortcutsheet.ts";
-import { mountSkillSync } from "./skill-sync.ts";
 
 /// What a new notice does while you are at this Mac (NoticeVoice).
-type NoticeVoice = "ask" | "aloud" | "off";
+export type NoticeVoice = "ask" | "aloud" | "off";
 
 /// This Mac's own settings (`settings`).
-interface MacSettings {
+export interface MacSettings {
   /// The name this Mac links with.
   name: string;
   version: string;
@@ -70,33 +70,6 @@ interface Device {
 interface DeviceList {
   devices: Device[];
   server: Reach;
-}
-
-/// Settings: what a new notice does while you are at this Mac.
-const VOICE_NOTES: [NoticeVoice, string][] = [["ask", "Ask first"], ["aloud", "Read aloud right away"], ["off", "Off"]];
-const VOICE_NOTES_SAY: Record<NoticeVoice, string> = {
-  ask: "Shown by the orb with Play when you are here and not on a call",
-  aloud: "Read aloud when you are here and not on a call",
-  off: "Notification only",
-};
-function voiceNotesRow(cur: NoticeVoice) {
-  return `<div class="dtoggle"><span><b>Voice notes</b><small>${VOICE_NOTES_SAY[cur] ?? ""}</small></span></div>
-    <div class="dchips dgap" role="radiogroup" aria-label="Voice notes">${VOICE_NOTES.map(([k, label]) =>
-      `<button class="dchip" role="radio" aria-checked="${cur === k}" aria-pressed="${cur === k}" data-vn="${k}">${label}</button>`).join("")}</div>`;
-}
-
-/// Settings, General: whether coding agents notify when they ask or finish.
-function agentNoticesRow(on: boolean) {
-  const why = on ? "When a coding agent asks something or finishes a turn" : "Coding agents only show under Waiting";
-  return `<div class="dtoggle"><span><b>Coding agent notifications</b><small>${why}</small></span>
-    ${switchHtml(on, "Coding agent notifications", `id="agentNotices"`)}</div>`;
-}
-
-/// Settings, under Voice notes: what ends a spoken message in live mode.
-function sendRow(onPause: boolean) {
-  const why = onPause ? "Sends after a short pause. Saying “send” sends at once." : "Pauses never send. Say “send” or “stop” when you are done.";
-  return `<div class="dtoggle"><span><b>When I stop talking</b><small>${why}</small></span></div>
-    <div class="dchips dgap" role="radiogroup" aria-label="When I stop talking"><button class="dchip" role="radio" aria-checked="${onPause}" aria-pressed="${onPause}" data-pause="1">Send when I stop talking</button><button class="dchip" role="radio" aria-checked="${!onPause}" aria-pressed="${!onPause}" data-pause="0">Wait until I say “send”</button></div>`;
 }
 
 /// Settings: drawn at once from what this Mac knows (its own settings and the
@@ -239,7 +212,8 @@ async function thenRedraw(change: Promise<unknown>) {
   if (setShown()) renderSettings();
 }
 
-type LocalView = "appearance" | "mac";
+type LocalView = "general" | "appearance" | "mac";
+const generalPending = new Set<string>();
 let macControlBusy = false;
 const localViews = new Map<LocalView, { host: HTMLElement; root: Root; observer: MutationObserver }>();
 function disposeLocalView(kind: LocalView) {
@@ -265,7 +239,7 @@ function preserveLocalViews(container: HTMLElement) {
   };
 }
 function mountLocalViews(el: Element) {
-  for (const kind of ["appearance", "mac"] as const) {
+  for (const kind of ["general", "appearance", "mac"] as const) {
     const host = el.querySelector<HTMLElement>(`#set-${kind}`);
     if (!host) continue;
     let view = localViews.get(kind);
@@ -276,12 +250,33 @@ function mountLocalViews(el: Element) {
       view = { host, root: createRoot(host), observer };
       localViews.set(kind, view);
     }
-    const mac = SET.local?.mac, current = view;
-    flushSync(() => current.root.render(kind === "appearance" ? createElement(AppearanceView) : mac ? createElement(ComputerView, {
-      mac, busy: macControlBusy,
+    const local = SET.local, current = view;
+    flushSync(() => current.root.render(kind === "general" && local ? createElement(GeneralView, {
+      settings: local.set, phone: onPhone(), server: S.server, busy: generalPending,
+      autostart: (enabled: boolean) => void changeGeneral("autostart", "set_autostart", { enabled }),
+      voice: (choice: NoticeVoice) => void changeGeneral("voice", "set_notice_voice", { choice }),
+      pause: (enabled: boolean) => void changeGeneral("pause", "set_send_on_pause", { enabled }),
+      notices: (enabled: boolean) => void changeGeneral("notices", "set_agent_notices", { enabled }),
+      shortcuts: () => windowHooks ? windowHooks.openShortcuts() : toggleShortcuts(),
+      report: () => windowHooks ? windowHooks.openReport() : toWindow("report"),
+    }) : kind === "appearance" ? createElement(AppearanceView) : local?.mac ? createElement(ComputerView, {
+      mac: local.mac, busy: macControlBusy,
       setEnabled: (enabled: boolean) => void setMacEnabled(enabled),
       allow: (permission: "ScreenRecording" | "Accessibility") => { invoke("allow_mac_permission", { permission }).catch(console.warn); },
     }) : null));
+  }
+}
+
+async function changeGeneral(key: string, command: string, args: Record<string, unknown>) {
+  if (generalPending.size) return;
+  generalPending.add(key);
+  if (setShown()) mountLocalViews(setRoot());
+  try {
+    try { await invoke(command, args); } catch (error) { console.warn(error); }
+    if (setShown()) await renderSettings();
+  } finally {
+    generalPending.delete(key);
+    if (setShown()) mountLocalViews(setRoot());
   }
 }
 
@@ -301,16 +296,8 @@ async function setMacEnabled(enabled: boolean) {
 /// Binds the controls inside `el`, a section or the whole page.
 function bindSettings(el: Element) {
   mountLocalViews(el);
-  const skillSync = el.querySelector<HTMLElement>("#skillSyncSetting");
-  if (skillSync) mountSkillSync(skillSync);
   const $in = <T extends Element = HTMLElement>(sel: string) => el.querySelector<T>(sel);
   const each = (attr: string, fn: (b: HTMLButtonElement) => void) => el.querySelectorAll<HTMLButtonElement>(`[${attr}]`).forEach(fn);
-  /// A switch that waits, disabled, for `command` to flip it, then redraws.
-  const flip = (sel: string, command: string) => $in(sel)?.addEventListener("click", e => {
-    const sw = e.currentTarget as HTMLButtonElement;
-    sw.disabled = true;
-    thenRedraw(invoke(command, { enabled: sw.getAttribute("aria-checked") !== "true" }));
-  });
   $in("#subscribe")?.addEventListener("click", e => signIn(el, e.currentTarget as HTMLButtonElement));
   $in("#invite")?.addEventListener("click", () => setAway("invite", renderInvitePhone));
   $in("#apps")?.addEventListener("click", () => setAway("apps", renderApps));
@@ -318,8 +305,6 @@ function bindSettings(el: Element) {
   // Instructions is a view of the window: the sheet closes onto it, and
   // the bar hands it over.
   $in("#openInstr")?.addEventListener("click", () => (windowHooks ? windowHooks.openInstructions() : toWindow("instructions")));
-  $in("#openShortcuts")?.addEventListener("click", () => (windowHooks ? windowHooks.openShortcuts() : toggleShortcuts()));
-  $in("#openReport")?.addEventListener("click", () => (windowHooks ? windowHooks.openReport() : toWindow("report")));
   $in("#openProviders")?.addEventListener("click", () => (windowHooks ? windowHooks.openProviders() : toWindow("providers")));
   each("data-remove", b => b.addEventListener("click", () => {
     b.disabled = true;
@@ -369,21 +354,9 @@ function bindSettings(el: Element) {
       if (err) err.textContent = String(e);
     }
   });
-  each("data-vn", b => b.addEventListener("click", () => thenRedraw(invoke("set_notice_voice", { choice: b.dataset.vn }))));
-  each("data-pause", b => b.addEventListener("click", () => thenRedraw(invoke("set_send_on_pause", { enabled: b.dataset.pause === "1" }))));
-  flip("#agentNotices", "set_agent_notices");
   bindCreds(el);
   bindAgents(el);
-  $in("#autostart")?.addEventListener("click", async e => {
-    const sw = e.currentTarget as HTMLElement, on = sw.getAttribute("aria-checked") !== "true";
 
-    try {
-      await invoke("set_autostart", { enabled: on });
-      sw.setAttribute("aria-checked", String(on));
-    } catch (err) {
-      console.warn(err);
-    }
-  });
 }
 
 /// Signs in to a subscription: in the browser on a hosted server, with a token to paste if the
@@ -434,6 +407,7 @@ function focusKey(box: HTMLElement) {
   if (!a || a === document.body) return box.closest(".cc-set") ? "*" : null;
   if (a === box || !box.contains(a)) return null;
   if (a.id) return `#${CSS.escape(a.id)}`;
+  if (a.matches('#skillSyncSetting [role="switch"]')) return '#skillSyncSetting [role="switch"]';
   if (a.dataset.skinPick) return `[data-skin-pick="${CSS.escape(a.dataset.skinPick)}"]`;
   const k = FOCUS_KEYS.find(k => k in a.dataset);
   return k ? `[data-${k}="${CSS.escape(a.dataset[k]!)}"]` : "*";
@@ -452,13 +426,7 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
   const sec = (id: string, title: string, body: string) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dsec flat top">${title}</div><div id="set-${id}">${body}</div></section>`;
   // A page drawn by its own code, into this box.
   const host = (id: SettingsPage) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dset-host" id="set-${id}-host"></div></section>`;
-  const out: [SettingsPage, string][] = [["general", `<section id="set-general-sec" data-sec="general"><div class="dsec flat top">General</div>
-      ${onPhone() ? "" : `<div class="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the tray after a restart</small></span>
-        ${switchHtml(set.autostart, "Launch at login", `id="autostart"`)}</div>`}
-      ${S.server ? voiceNotesRow(set.notice_voice) + sendRow(set.send_on_pause) : ""}${agentNoticesRow(set.agent_notices)}
-      <div id="skillSyncSetting"></div>
-      <div class="dtoggle"><span><b>Keyboard shortcuts</b><small>Every shortcut, by where it works</small></span><button class="dbtn" id="openShortcuts">Show…</button></div>
-      <div class="dtoggle"><span><b>Report a problem</b><small>Collect logs from your machines and send them to us</small></span><button class="dbtn" id="openReport">Report…</button></div></section>`]];
+  const out: [SettingsPage, string][] = [["general", `<section id="set-general-sec" data-sec="general"><div class="dsec flat top">General</div><div id="set-general" style="display:contents"></div></section>`]];
   out.push(["appearance", sec("appearance", "Appearance", "")]);
   const machines: [SettingsPage, string] = ["machines", sheet ? host("machines") : sec("machines", "Machines", setMachinesHtml())];
   const creds: [SettingsPage, string] = ["creds", sec("creds", "Credentials", setCredsHtml())];

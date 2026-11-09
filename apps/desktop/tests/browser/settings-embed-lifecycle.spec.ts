@@ -34,3 +34,16 @@ test("closing embedded Instructions remounts the underlying Instructions page", 
   await expect(settings).toHaveCount(0);
   await expect(page.getByRole("textbox", { name: "Your instructions" })).toHaveValue("Draft instructions");
 });
+
+test("refresh keeps the embedded instructions editor and its selection", async ({ page }) => {
+  await openDesktop(page, false, responses);
+  const settings = await openSettingsWithInstructions(page);
+  const editor = settings.getByRole("textbox", { name: "Your instructions" });
+  await editor.fill("Draft instructions");
+  await editor.evaluate(el => { if (el instanceof HTMLTextAreaElement) { el.setSelectionRange(2, 6); Reflect.set(window, "settingsEditor", el); } });
+  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length);
+  await page.evaluate(() => window.__navigation.emit("link-state", "unlinked"));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length)).toBeGreaterThan(reads);
+  await expect(editor).toHaveValue("Draft instructions");
+  expect(await editor.evaluate(el => el === Reflect.get(window, "settingsEditor") && document.activeElement === el && el instanceof HTMLTextAreaElement && el.selectionStart === 2 && el.selectionEnd === 6)).toBe(true);
+});
