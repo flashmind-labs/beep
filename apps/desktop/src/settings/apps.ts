@@ -1,13 +1,11 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { AppsListView } from "./apps-list-view.tsx";
 import { AppPermissionsView } from "./app-permissions-view.tsx";
 import { McpView } from "./mcp-view.tsx";
 import { bar, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
-import { esc, plural } from "../ui/format.ts";
-import { h } from "../ui/dom.ts";
-import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 
 // ---------- Apps ----------
@@ -71,6 +69,8 @@ interface AppsState {
   /// whose sign-in is open in the browser.
   servers: McpServer[] | null;
   adding: boolean;
+  serverName: string;
+  serverUrl: string;
   addError: string;
   waiting: string | null;
   /// A server id, "new" or `account:<id>` while that is busy.
@@ -93,31 +93,9 @@ interface AppsState {
 /// The Apps view: every app, the one being connected and the one whose
 /// permissions are open.
 export const A: AppsState = { apps: null, error: "", connecting: null, poll: undefined, open: null, perms: null,
-  servers: null, adding: false, addError: "", waiting: null, busy: null,
+  servers: null, adding: false, serverName: "", serverUrl: "", addError: "", waiting: null, busy: null,
   server: null, tools: null, asking: null, unadd: false,
   accounts: {}, removing: null, accountsError: "" };
-
-/// A logo of the first letter of `name`.
-const letterLogo = (name: string) => `<span class="dalogo">${esc(name.slice(0, 1).toUpperCase())}</span>`;
-const SPIN = '<span class="dmuted"><span class="dspin"></span></span>';
-
-/// Logos shipped with the app, for apps Composio has no logo for.
-const BUNDLED_LOGOS: Record<string, string> = { fastmail: "fastmail.svg" };
-
-function appLogo(app: App) {
-  const bundled = BUNDLED_LOGOS[app.slug];
-  if (bundled) return `<img class="dalogo" src="${bundled}" alt="">`;
-  if (!app.logo_url) return letterLogo(app.name);
-  return `<img class="dalogo" src="${esc(app.logo_url)}" alt="" data-letter="${esc(app.name.slice(0, 1).toUpperCase())}">`;
-}
-/// A logo that does not load becomes the app's first letter.
-function logoFallbacks(root: ParentNode) {
-  root.querySelectorAll<HTMLImageElement>("img.dalogo[data-letter]").forEach(img => img.addEventListener("error", () => img.replaceWith(h(`<span class="dalogo">${esc(img.dataset.letter)}</span>`)), { once: true }));
-}
-
-/// The top of a list in Apps: the error, or a spinner until `loaded`.
-const listTop = (loaded: unknown) => A.error ? `<div class="derr dpad">${esc(A.error)}</div>`
-  : loaded ? "" : '<div class="dmuted dpad"><span class="dspin"></span></div>';
 
 /// Stops waiting for a browser sign-in.
 const cancelSignIn = () => invoke("cancel_app_sign_in").catch(() => {});
@@ -144,6 +122,7 @@ export function appsIn(root: HTMLElement, opened: AppsHost["opened"]) {
   host = { root, view: null, opened };
 }
 export function appsOut() {
+  if (host && appsRoot && host.root.contains(appsRoot.host)) disposeApps();
   if (host && mcpRoot && host.root.contains(mcpRoot.host)) disposeMcp();
   if (host && permsRoot && host.root.contains(permsRoot.host)) disposePerms();
   host = null;
@@ -165,37 +144,53 @@ function showView(view: AppsView, id: string | null) {
 /// Settings has its own back link and Esc.
 const backHint = () => (hosted() ? "" : hints([["esc", "back"]]));
 
+let appsRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+function disposeApps() {
+  const current = appsRoot;
+  appsRoot = null;
+  if (!current) return;
+  current.observer.disconnect();
+  current.root.unmount();
+}
 export function renderApps() {
-  disposeMcp();
-  disposePerms();
+  disposeMcp(); disposePerms(); disposeApps();
   showView("apps", null);
   A.open = null;
-  // In Settings the breadcrumb names the page.
   const head = hosted() ? "" : `<div class="dhead"><span class="tt"><b>Apps</b><small>Connect once, then just ask from any chat</small></span></div>`;
-  root().innerHTML = `${head}
-    <div class="dlist dapps" id="alist"></div>${backHint()}`;
-  q("#alist")!.addEventListener("click", appsClick);
+  root().innerHTML = `${head}<div id="apps-react" style="display:contents"></div>${backHint()}`;
+  const element = q<HTMLElement>("#apps-react");
+  if (!element) return;
+  const reactRoot = createRoot(element);
+  const observer = new MutationObserver(() => { if (appsRoot?.host === element && !element.isConnected) disposeApps(); });
+  observer.observe(document.body, { childList: true, subtree: true });
+  appsRoot = { host: element, root: reactRoot, observer };
   drawApps();
-  loadApps();
+  void loadApps();
 }
 
+let appsReadVersion = 0;
 export async function loadApps() {
+  const version = ++appsReadVersion;
   try {
-    A.apps = await invoke<App[]>("list_apps");
+    const apps = await invoke<App[]>("list_apps");
+    if (version !== appsReadVersion) return;
+    A.apps = apps;
     A.error = "";
-  } catch (e) {
-    A.error = String(e);
+  } catch (error) {
+    if (version !== appsReadVersion) return;
+    A.error = String(error);
   }
 
-  // A server too old to know them leaves the section out.
-  const [servers] = await Promise.all([
-    invoke<McpServer[]>("list_mcp_servers").catch(() => A.servers),
-    ...(A.apps ?? []).filter(a => a.kind === "fastmail").map(loadAccounts),
+  const fastmail = (A.apps ?? []).filter(app => app.kind === "fastmail");
+  const [servers, ...accounts] = await Promise.all([
+    invoke<McpServer[] | null>("list_mcp_servers").catch(() => A.servers),
+    ...fastmail.map(app => app.connected ? invoke<AppAccount[] | null>("list_app_accounts", { slug: app.slug }).catch(() => null) : Promise.resolve([])),
   ]);
+  if (version !== appsReadVersion) return;
   A.servers = servers;
-  if (A.waiting && A.servers?.find(m => m.id === A.waiting)?.connected) A.waiting = null;
-  // A Composio sign-in ends on the web page; the app shows up connected here.
-  if (A.connecting && A.apps?.find(a => a.slug === A.connecting)?.connected) stopConnecting();
+  fastmail.forEach((app, index) => { const rows = accounts[index]; if (rows) A.accounts[app.slug] = rows; else delete A.accounts[app.slug]; });
+  if (A.waiting && A.servers?.find(server => server.id === A.waiting)?.connected) A.waiting = null;
+  if (A.connecting && A.apps?.find(app => app.slug === A.connecting)?.connected) stopConnecting();
   if (viewIs("apps")) drawApps();
 }
 
@@ -205,76 +200,32 @@ async function loadAccounts(app: App) {
   else delete A.accounts[app.slug];
 }
 
-/// The addresses of a connected app's accounts, for its row in Apps.
-function accountList(app: App) {
-  const accounts = A.accounts[app.slug];
-  return accounts?.length ? accounts.map(a => a.address ?? `${app.name} account`).join(", ") : null;
-}
-
-function appRow(app: App) {
-  const end = A.connecting === app.slug ? waitingFor("data-cancel")
-    : app.connected ? `<span class="dtag">Connected</span><span class="dmuted">${ICON.chev}</span>`
-    : !app.configured ? '<span class="dmuted">Unavailable</span>'
-    : `<button class="dbtn pri" data-connect="${esc(app.slug)}"${A.connecting ? " disabled" : ""}>Connect</button>`;
-  return `<div class="dappr${app.connected ? " on" : ""}" ${app.connected ? `data-open="${esc(app.slug)}" role="button" tabindex="0"` : ""}>
-      ${appLogo(app)}<span class="tt"><b>${esc(app.name)}</b><small>${esc((app.connected && accountList(app)) || app.description)}</small></span>${end}</div>`;
-}
-
 export function drawApps() {
-  const list = q("#alist");
-  if (!list) return;
-  const apps = A.apps ?? [];
-  const connected = apps.filter(a => a.connected), more = apps.filter(a => !a.connected);
-  let html = listTop(A.apps);
-  if (connected.length) html += '<div class="dsec">Connected</div>' + connected.map(appRow).join("");
-  if (more.length) html += `<div class="dsec">${connected.length ? "More apps" : "Available"}</div>` + more.map(appRow).join("");
-  if (A.servers) html += drawServers(A.servers);
-  // Redrawing keeps what is typed in the add form.
-  const fields = ["#mname", "#murl"], typed = fields.map(id => q<HTMLInputElement>(id)?.value), focus = document.activeElement?.id;
-  list.innerHTML = html;
-  logoFallbacks(list);
-  fields.forEach((id, i) => {
-    const input = q<HTMLInputElement>(id), value = typed[i];
-    if (value != null && input) input.value = value;
-  });
-  if (focus) q("#" + focus)?.focus();
+  const current = appsRoot;
+  if (!current?.host.isConnected || !viewIs("apps")) return;
+  flushSync(() => current.root.render(createElement(AppsListView, {
+    apps: A.apps, accounts: A.accounts, error: A.error, connecting: A.connecting, servers: A.servers,
+    waiting: A.waiting, busy: A.busy, adding: A.adding, addError: A.addError, serverName: A.serverName, serverUrl: A.serverUrl,
+    changeName: (value: string) => { A.serverName = value; }, changeUrl: (value: string) => { A.serverUrl = value; },
+    add: () => void addServer(), startAdd: () => { addFormVersion++; A.adding = true; A.serverName = ""; A.serverUrl = ""; A.addError = ""; drawApps(); },
+    cancelAdd: cancelServerAdd,
+    cancelServer: () => { A.waiting = null; drawApps(); },
+    connectServer: (id: string) => void serverAction("connect", id), removeServer: (id: string) => void serverAction("remove", id),
+    openServer: (id: string) => void renderMcpServer(A.servers?.find(server => server.id === id)),
+    connectApp: (slug: string) => void connectApp(A.apps?.find(app => app.slug === slug)),
+    openApp: (slug: string) => void renderAppPermissions(A.apps?.find(app => app.slug === slug)),
+    cancelApp: () => { cancelSignIn(); stopConnecting(); },
+  })));
 }
-
 export function hostOf(url: string) {
   try { return new URL(url).host; } catch { return url; }
 }
 
-/// A sign-in open in the browser, with the Cancel that `attr` marks.
-const waitingFor = (attr: string) => `<span class="dmuted"><span class="dspin"></span> Waiting for browser…</span><button class="dbtn quiet" ${attr}>Cancel</button>`;
-
-/// The servers the user added, then the add form or its button.
-function drawServers(servers: McpServer[]) {
-  const row = (m: McpServer) => {
-    const end = A.waiting === m.id ? waitingFor("data-mcancel")
-      : A.busy === m.id ? SPIN
-      : m.connected ? `<span class="dtag ok">${plural(m.tools.length, "tool", "tools")}</span><span class="dmuted">${ICON.chev}</span>`
-      : `<span class="dtag ask">${m.sign_in ? "Sign-in expired" : "Not connected"}</span><button class="dbtn pri" data-mconnect="${esc(m.id)}">${m.sign_in ? "Sign in" : "Retry"}</button>`
-        + `<button class="dbtn quiet warn" data-mremove="${esc(m.id)}">Remove</button>`;
-    const open = m.connected && A.waiting !== m.id && A.busy !== m.id ? ` data-mopen="${esc(m.id)}" role="button" tabindex="0"` : "";
-    return `<div class="dappr${open ? " on" : ""}"${open}>${letterLogo(m.name)}<span class="tt"><b>${esc(m.name)}</b><small>${esc(hostOf(m.url))}</small></span>${end}</div>`;
-  };
-  let html = '<div class="dsec">Your MCP servers</div>' + servers.map(row).join("");
-
-  if (A.adding) {
-    const busy = A.busy === "new", off = busy ? " disabled" : "";
-    html += `<div class="dform dmcp">
-      <label class="dfield"><span>Name</span><input id="mname" maxlength="60" placeholder="Team notes" autocomplete="off" spellcheck="false"${off}></label>
-      <label class="dfield${A.addError ? " err" : ""}"><span>${A.addError ? esc(A.addError) : "Server URL"}</span><input id="murl" class="url" maxlength="2000" placeholder="https://example.com/mcp" autocomplete="off" spellcheck="false"${off}></label>
-      <div class="dline">${busy ? '<span class="dmuted"><span class="dspin"></span> Connecting…</span>'
-        : `<button class="dbtn pri" data-madd>Add server<kbd>${ICON.ret}</kbd></button><button class="dbtn quiet" data-mclose>Cancel</button>`}</div></div>`;
-  } else {
-    html += `<div class="dpad"><button class="dbtn" data-mnew>Add MCP server</button></div>`;
-  }
-
-  return html + '<div class="dmuted dpad dblock">Beep asks before every tool on a server you add.</div>';
-}
-
+let addFormVersion = 0;
+export function cancelServerAdd() { addFormVersion++; A.adding = false; A.addError = ""; drawApps(); }
 export async function addServer() {
+  if (A.busy) return;
+  const version = addFormVersion;
   const name = q<HTMLInputElement>("#mname")?.value.trim(), url = q<HTMLInputElement>("#murl")?.value.trim();
   if (!name || !url) return (name ? q("#murl") : q("#mname"))?.focus();
   A.busy = "new";
@@ -283,18 +234,19 @@ export async function addServer() {
 
   try {
     const server = await invoke<McpServer>("add_mcp_server", { name, url });
-    A.adding = false;
+    if (addFormVersion === version) { A.adding = false; A.serverName = ""; A.serverUrl = ""; }
     if (!server.connected) A.waiting = server.id;
   } catch (e) {
-    A.addError = String(e);
+    if (addFormVersion === version) A.addError = String(e);
   }
 
   A.busy = null;
   await loadApps();
-  if (A.adding) q("#murl")?.focus();
+  if (A.adding && addFormVersion === version) q("#murl")?.focus();
 }
 
 async function serverAction(kind: "connect" | "remove", id: string) {
+  if (A.busy) return;
   A.busy = id;
   A.error = "";
   drawApps();
@@ -321,49 +273,28 @@ listen<string | null>("mcp-signed-in", e => {
   if (viewIs("apps")) loadApps();
 });
 
-async function appsClick(e: MouseEvent) {
-  const target = e.target as HTMLElement;
-  const d = target.closest<HTMLElement>("[data-mnew],[data-mclose],[data-madd],[data-mcancel],[data-mconnect],[data-mremove],[data-mopen]")?.dataset;
-
-  if (d) {
-    if (d.mnew != null) { A.adding = true; A.addError = ""; drawApps(); return q("#mname")?.focus(); }
-    if (d.mclose != null) { A.adding = false; A.addError = ""; return drawApps(); }
-    if (d.madd != null) return addServer();
-    if (d.mcancel != null) { A.waiting = null; return drawApps(); }
-    if (d.mconnect) return serverAction("connect", d.mconnect);
-    if (d.mremove) return serverAction("remove", d.mremove);
-    if (d.mopen) return renderMcpServer(A.servers!.find(s => s.id === d.mopen));
-  }
-
-  if (target.closest("[data-cancel]")) {
-    cancelSignIn();
-    return stopConnecting();
-  }
-
-  const connect = target.closest<HTMLElement>("[data-connect]");
-  if (connect) return connectApp(A.apps!.find(a => a.slug === connect.dataset.connect));
-  const open = target.closest<HTMLElement>("[data-open]");
-  if (open) return renderAppPermissions(A.apps!.find(a => a.slug === open.dataset.open));
-}
-
 /// Signs in to `app` through the browser, with `add` to add an account to
 /// it. The error, unless the user cancelled, is kept on the view.
-async function signIn(app: App, add: boolean) {
+let appConnectionVersion = 0;
+async function signIn(app: App, add: boolean, version: number) {
   try {
     await invoke("connect_app", { slug: app.slug, kind: app.kind, add });
     return true;
   } catch (e) {
-    if (A.connecting === app.slug && String(e) !== "cancelled") A.error = String(e);
+    if (version === appConnectionVersion && A.connecting === app.slug && String(e) !== "cancelled") A.error = String(e);
     return false;
   }
 }
 
 async function connectApp(app: App | undefined) {
   if (!app || A.connecting) return;
+  const version = ++appConnectionVersion;
   A.connecting = app.slug;
   A.error = "";
   drawApps();
-  if (!await signIn(app, false)) return stopConnecting();
+  const signedIn = await signIn(app, false, version);
+  if (version !== appConnectionVersion) return;
+  if (!signedIn) return stopConnecting();
   // Fastmail is connected once the call returns. A Composio app finishes on
   // its web page, so look again until it shows up, for ten minutes at most.
   if (app.kind === "fastmail") return stopConnecting();
@@ -375,6 +306,7 @@ async function connectApp(app: App | undefined) {
 }
 
 function stopConnecting() {
+  appConnectionVersion++;
   clearInterval(A.poll);
   A.poll = undefined;
   A.connecting = null;
@@ -398,6 +330,7 @@ export async function renderMcpServer(server: McpServer | undefined) {
   if (!server) return;
   disposeMcp();
   disposePerms();
+  disposeApps();
   showView("mcp", server.id);
   Object.assign(A, { server, tools: null, asking: null, unadd: false, error: "" });
   mcpBusy = false;
@@ -475,7 +408,7 @@ function disposePerms() {
 const permsOn = (app: App, owner: typeof permsRoot) => !!owner && permsRoot === owner && viewIs("appperms") && A.open === app;
 export async function renderAppPermissions(app: App | undefined) {
   if (!app) return;
-  disposeMcp(); disposePerms();
+  disposeMcp(); disposePerms(); disposeApps();
   showView("appperms", app.slug);
   Object.assign(A, { open: app, perms: null, removing: null, error: "", accountsError: "" });
   permsBusy = false;
