@@ -79,11 +79,15 @@ function unembed() {
   embedded = null;
   const page = currentLocation();
 
-  if (was && page && page.view === was.name) {
-    const view = views.get(was.name);
-    if (!view) return;
+  if (!was) return;
+  const view = views.get(was.name);
+  if (!view) return;
+
+  if (page && page.view === was.name) {
     view.mount(view.el, page.arg);
     drawTop();
+  } else {
+    view.unmount?.();
   }
 }
 
