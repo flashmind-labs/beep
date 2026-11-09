@@ -29,10 +29,11 @@ fn allowed(url: &Url) -> bool {
     } else {
         url.scheme() == "tauri" && url.host_str() == Some("localhost")
     };
+    // WebKit asks about the sandboxed diagram iframe as well as app windows.
     app_origin
         && matches!(
             url.path(),
-            "" | "/" | "/index.html" | "/center.html" | "/orb.html"
+            "" | "/" | "/index.html" | "/center.html" | "/orb.html" | "/diagrams/index.html"
         )
 }
 
