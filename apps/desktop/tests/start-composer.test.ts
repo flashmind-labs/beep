@@ -2,7 +2,7 @@ import "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
-import { NewAgentNotes } from "../src/agents/start-composer-view.tsx";
+import { FolderChoice, NewAgentNotes, ProjectChoice } from "../src/agents/start-composer-view.tsx";
 import { startDom } from "./start-react-env.ts";
 
 test("machine availability notes update without replacing the composer", async () => {
@@ -19,6 +19,22 @@ test("machine availability notes update without replacing the composer", async (
     assert.equal(c.form.querySelector("#agwhy")?.textContent, "Pick a machine to start.");
     assert.equal(c.input.value, "Keep this draft");
     assert.equal(document.activeElement, c.input);
+    c.dispose(); c.form.remove();
+  } finally { env.close(); }
+});
+
+test("new agent choices retain controls across updates", async () => {
+  const env = startDom();
+  try {
+    const { makeStartComposer } = await import("../src/agents/start-composer.ts");
+    const c = makeStartComposer({ projectPicker: true }); env.dom.window.document.body.append(c.form);
+    const choices = (machine: string) => ({ project: createElement(ProjectChoice, { name: "Project" }), machine, folder: createElement(FolderChoice, { checkout: false, label: "Home", detail: "~/work" }) });
+    c.setChoiceContents(choices("First")); c.machine.focus();
+    const folder = c.folder, project = c.project, machine = c.machine;
+    c.setChoiceContents(choices("Second")); c.setBusy(true); c.setBusy(false);
+    assert.equal(c.folder, folder); assert.equal(c.project, project); assert.equal(c.machine, machine);
+    assert.equal(document.activeElement, machine); assert.equal(machine.textContent, "Second");
+    assert.equal(folder.textContent, "Home ~/work"); assert.equal(project.textContent, "Project");
     c.dispose(); c.form.remove();
   } finally { env.close(); }
 });

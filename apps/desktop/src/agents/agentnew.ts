@@ -5,7 +5,7 @@ import { AgentNewShell } from "./agentnew-shell.tsx";
 import { stashBar } from "../chat/stash.ts";
 import { startAttachments } from "./start-attachments.ts";
 import { makeStartComposer } from "./start-composer.ts";
-import { NewAgentNotes } from "./start-composer-view.tsx";
+import { FolderChoice, NewAgentNotes, ProjectChoice } from "./start-composer-view.tsx";
 import { AG, AGENT_ORDER, agentKind, byPreference, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
 import { loadSessions, sessions } from "./sessions.ts";
 import { openAgent, sessionPicks } from "./session.ts";
@@ -140,8 +140,6 @@ export function formAgents() {
 }
 
 const CARET = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
-const FOLDER = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>';
-const PROJECT = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>';
 const BRANCH = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9c0 5-6 4-11 8"/></svg>';
 
 /// Redraws the form, keeping the prompt as typed when it shows already.
@@ -271,21 +269,18 @@ function drawUnder() {
   const f = AG.form, el = $$("#agunder"), host = formHost();
   const checkout = checkoutHere();
   const shown = folderPill(f.cwd, host?.workspace, host?.home);
-  const folderText = shown.label ? `${esc(shown.label)} <small class="mono">${esc(shown.path)}</small>` : `<span class="mono">${esc(shown.path)}</span>`;
   const co = barCheckout(f.checkout ?? DEFAULT_CHECKOUT, baseFor(f.base, formBranches()));
   const c = composer;
   c.folder.hidden = !!f.typing;
   c.folder.title = f.cwd.trim() || host?.workspace || "The machine's workspace";
   c.folder.setAttribute("aria-expanded", String(f.open === "folder"));
-  c.folder.innerHTML = checkout ? `${esc(co.label)} <small>${esc(co.sub)}</small>` : `${FOLDER}${folderText}`;
   const typed = f.typing ? `<span class="agc-type"><input id="agcwd" spellcheck="false" autocomplete="off" role="combobox" aria-label="Folder" placeholder="/path/to/folder or ~/folder" value="${esc(f.cwd)}"><span id="agcwdmenu"></span></span>` : "";
   const base = checkout && makesBranch(f.checkout ?? DEFAULT_CHECKOUT) ? baseButton() : "";
   c.extra.innerHTML = `${typed}${base}`;
   c.project.title = f.project ? "The project this agent works on" : "Pick a project to start";
   c.project.setAttribute("aria-expanded", String(f.open === "project"));
-  c.project.innerHTML = `${PROJECT}${esc(f.project || "No project")}${CARET}`;
   c.machine.setAttribute("aria-expanded", String(f.open === "host"));
-  c.machine.textContent = host ? host.machine_name : "Pick a machine";
+  c.setChoiceContents({ project: createElement(ProjectChoice, { name: f.project || "No project" }), machine: host ? host.machine_name : "Pick a machine", folder: createElement(FolderChoice, { checkout, label: checkout ? co.label : shown.label, detail: checkout ? co.sub : shown.path }) });
   el.innerHTML = `${projectMenu()}${hostMenu()}${folderMenu(checkout)}${baseMenu()}`;
   el.querySelectorAll<HTMLButtonElement>("button").forEach(button => { button.type = "button"; });
   placeMenu();
