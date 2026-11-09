@@ -43,10 +43,11 @@ export function closeModelPicker() {
 function drawModelPicker() {
   const el = $("#agpickm"), s = AG.page?.session;
   if (!el) return;
-  if (!AG.modelOpen || !s) { closedPicker(el); el.innerHTML = ""; return; }
+  if (!AG.modelOpen || !s) { closedPicker(el); return; }
   const now = sessionPicks.get(s.id) ?? { model: "", effort: null };
   const picked: Picked = { agent: s.agent, model: AG.page?.model || now.model, effort: now.effort, query: "" };
   drawPicker(el, {
+    render: view => { const field = $("#agfield"); if (field?.isConnected && el.isConnected) showAgentControl(field, el, view); },
     picked,
     offered: [s.agent],
     everywhere: [s.agent],

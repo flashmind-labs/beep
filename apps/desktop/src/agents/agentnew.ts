@@ -235,11 +235,12 @@ function drawPill(none: boolean) {
 /// The picker by the pill: harnesses, their models, their thinking.
 function drawPicker() {
   const f = AG.form, el = $$("#agpick");
-  if (f.open !== "pick" || !f.agent) { closedPicker(el); el.innerHTML = ""; return; }
+  if (f.open !== "pick" || !f.agent) { closedPicker(el); return; }
   const host = formHost(), machine = f.modelFor ? f.machine || null : null;
   const name = machine ? AG.hosts?.find(m => m.machine_id === machine)?.machine_name ?? machine : null;
   const picked: Picked = { agent: f.agent, model: f.model ?? "", effort: f.effort ?? null, query: f.query ?? "" };
   drawPickerIn(el, {
+    render: view => { if (composer.form.isConnected) composer.setPicker(view); },
     picked,
     offered: formAgents(),
     everywhere: [...new Set((AG.hosts ?? []).flatMap(m => m.agents))],
