@@ -1,16 +1,16 @@
 // Home: its tabs, the Needs you, Updates, Running and Coming up sections, and the Connecting page before Home first loads.
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { harnessEl } from "../ui/harnessicon.ts";
-import { dbtn as button, errorNote, note } from "../ui/parts.ts";
+import { dbtn as button } from "../ui/parts.ts";
 import { invoke, Channel } from "../ui/tauri.ts";
 import { connectProblem } from "./connect.ts";
 import { pane } from "../bar/pane.ts";
 import { S } from "../bar/core.ts";
 import { homeForDisplay, type HomeView, type NeedsYou, type UpdateRow } from "./home-state.ts";
 import { el as h } from "../ui/dom.ts";
-import { type Outcome, $, CONNECT_STUCK_MS, state } from "./state.ts";
+import { type Outcome, $, CONNECT_STUCK_MS, OFFLINE_NOTE_MS, state } from "./state.ts";
 import { failure, conflict, section, tag, line } from "../ui/pieces.ts";
-import { useThisMac, showMachineMenu, readSyncDetails, offlineNote } from "../machines/table.ts";
+import { useThisMac, showMachineMenu, readSyncDetails } from "../machines/table.ts";
 import { refreshGit } from "./openitems.ts";
 import { currentLocation, registerView, go, openResearch } from "./views.ts";
 import { openAddMachine, projectRows } from "./sidebar.ts";
@@ -181,27 +181,19 @@ function openHomeTab(tab: HomeTab) {
 function page(home: HomeView) {
   const { machines, running } = home;
   const projects = projectRows() || [], git = state.git;
-  const tabs: { key: HomeTab; label: string; count: number | null; on: boolean; make: () => HTMLElement[] }[] = [
-    { key: "overview", label: "Overview", count: null, on: true, make: () => [] },
-    { key: "git", label: "PRs and issues", count: git?.items.length ?? 0, on: !!git?.hosts?.length || projects.length > 0 || !!state.gitError, make: () => [] },
-    { key: "machines", label: "Machines", count: null, on: !!machines, make: () => [] },
+  const tabs: { key: HomeTab; label: string; count: number | null; on: boolean }[] = [
+    { key: "overview", label: "Overview", count: null, on: true },
+    { key: "git", label: "PRs and issues", count: git?.items.length ?? 0, on: !!git?.hosts?.length || projects.length > 0 || !!state.gitError },
+    { key: "machines", label: "Machines", count: null, on: !!machines },
   ];
   const shownTabs = tabs.filter(t => t.on);
   if (homeTab === "machines" && machines) readSyncDetails();
   const tab = shownTabs.find(t => t.key === homeTab) || shownTabs[0];
-  const notices: HTMLElement[] = [];
-  if (state.error) notices.push(errorNote(`Could not refresh: ${state.error}`));
-
-  if (!machines && !running) {
-    notices.push(note("off", "Machines and running sessions aren't available for this account or server."));
-  } else if (machines) {
-    const off = offlineNote(machines);
-    if (off) notices.push(off);
-  }
+  const offline = machines?.filter(m => m.can_host !== false && !m.online && Date.now() - m.seen_at < OFFLINE_NOTE_MS).map(m => m.name) ?? [];
 
   return { machines, mac: machines ? thisMacRow(state.mac, machines) : null, jump,
     menu: (machine: NonNullable<typeof machines>[number], event: MouseEvent) => showMachineMenu(machine, () => [], event),
-    addMachine: openAddMachine, useMac: () => { void useThisMac(); }, notices, content: tab.make(), overview: tab.key === "overview" ? createElement(HomeOverview, { home }) : tab.key === "git" ? createElement(HomeGit, { view: git || { items: [], hosts: [] } }) : machines ? createElement(HomeMachines, { machines }) : null,
+    addMachine: openAddMachine, useMac: () => { void useThisMac(); }, error: state.error, unavailable: !machines && !running, offline, content: tab.key === "overview" ? createElement(HomeOverview, { home }) : tab.key === "git" ? createElement(HomeGit, { view: git || { items: [], hosts: [] } }) : machines ? createElement(HomeMachines, { machines }) : null,
     tabs: shownTabs, selected: tab.key, open: openHomeTab };
 }
 

@@ -1,5 +1,4 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
-import { patchChildren } from "../ui/patch.ts";
+import type { ReactNode } from "react";
 import { plural } from "../ui/format.ts";
 import { IC } from "../ui/icons.ts";
 import { machineDisk, type MachineCard, type MacRow } from "../machines/machine-state.ts";
@@ -13,24 +12,16 @@ export interface HomeShellProps {
   menu(machine: MachineCard, event: MouseEvent): void;
   addMachine(): void;
   useMac(): void;
-  notices: HTMLElement[];
-  content: HTMLElement[];
-  overview: ReactNode;
+  error: string | null;
+  unavailable: boolean;
+  offline: string[];
+  content: ReactNode;
   tabs: { key: HomeTab; label: string; count: number | null }[];
   selected: HomeTab;
   open(tab: HomeTab): void;
 }
 
-// The remaining sections migrate independently while the shell owns navigation.
-function ExistingSection({ nodes }: { nodes: HTMLElement[] }) {
-  const host = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    if (host.current) patchChildren(host.current, nodes);
-  });
-  return <div ref={host} className="home-sections" style={{ display: "contents" }} />;
-}
-
-export function HomeShell({ machines, mac, jump, menu, addMachine, useMac, notices, content, overview, tabs, selected, open }: HomeShellProps) {
+export function HomeShell({ machines, mac, jump, menu, addMachine, useMac, error, unavailable, offline, content, tabs, selected, open }: HomeShellProps) {
   return <>
     {machines && <div className="cc-mstrip">{machines.map(machine => {
       const disk = machineDisk(machine).text;
@@ -43,7 +34,8 @@ export function HomeShell({ machines, mac, jump, menu, addMachine, useMac, notic
       <button key={tab.key} type="button" role="tab" aria-selected={tab.key === selected} onClick={() => open(tab.key)}>
         {tab.label}{!!tab.count && <span className="n">{tab.count}</span>}
       </button>)}</div>
-    <ExistingSection nodes={notices} />
-    {overview ?? <ExistingSection nodes={content} />}
+    {error && <div className="cc-note"><span className="ddot bad" /><span className="cc-err">Could not refresh: {error}</span></div>}
+    {unavailable ? <div className="cc-note"><span className="ddot off" /><span>Machines and running sessions aren't available for this account or server.</span></div> : !!offline.length && <div className="cc-note"><span className="ddot bad" /><span><b>{offline.join(", ")} {offline.length === 1 ? "is" : "are"} offline.</b> Their sessions left Running now. They come back when beep-node runs there again.</span></div>}
+    {content}
   </>;
 }

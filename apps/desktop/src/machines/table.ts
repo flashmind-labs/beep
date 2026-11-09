@@ -1,17 +1,15 @@
 // The command center's machines table: one row per machine, its terminals
 // under it, and the menu that removes one.
-import { note } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
-import { el as h } from "../ui/dom.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
-import { OFFLINE_NOTE_MS, state } from "../center/state.ts";
+import { state } from "../center/state.ts";
 import { currentLocation } from "../center/views.ts";
 import { draw } from "../center/home.ts";
 import { openTerminals } from "../terminals/view.ts";
 import { reloadGroup } from "../center/sidebar.ts";
 import { fsync } from "../project/sections.ts";
 import { refresh } from "../center/refresh.ts";
-import { type MacControl, type MachineCard } from "./machine-state.ts";
+import { type MacControl } from "./machine-state.ts";
 
 /// How old the table lets a moving project's detail get.
 const MOVING_MAX_AGE_MS = 5000;
@@ -85,9 +83,3 @@ function removeMachine(m: Removable) {
   });
 }
 
-export function offlineNote(machines: MachineCard[]) {
-  const gone = machines.filter(m => m.can_host !== false && !m.online && Date.now() - m.seen_at < OFFLINE_NOTE_MS);
-  if (!gone.length) return null;
-  const names = gone.map(m => m.name).join(", ");
-  return note("bad", h("b", "", `${names} ${gone.length === 1 ? "is" : "are"} offline.`), " Their sessions left Running now. They come back when beep-node runs there again.");
-}
