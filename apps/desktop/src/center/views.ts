@@ -12,8 +12,9 @@ import { threadChats } from "./threadcard.ts";
 import { PageHistory } from "./pagehistory.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
 import { viewHidden } from "../settings/subscription.ts";
-import { S } from "../bar/core.ts";
+import { G, S } from "../bar/core.ts";
 import { syncMobile } from "./mobile.ts";
+import { patchChildren } from "../ui/patch.ts";
 
 let currentPage: Location | null = null;
 
@@ -172,6 +173,11 @@ function withReturnTarget(page: Location, current: Location | null): Location {
   return page;
 }
 
+let headerPage = "";
+function patchHeader(host: HTMLElement, nodes: Node[], changedPage: boolean) {
+  if (nodes.every((node): node is Element => node instanceof Element)) patchChildren(host, nodes, () => changedPage);
+  else host.replaceChildren(...nodes);
+}
 export function drawTop() {
   const view = currentPage ? views.get(currentPage.view) : null;
   const head: ViewHead = typeof view?.title === "function" ? view.title() : { title: view?.title ?? "Beep" };
@@ -179,8 +185,12 @@ export function drawTop() {
   const back = document.getElementById("pw-back");
   if (back) back.hidden = currentPage?.view === "projects";
   $("#title").textContent = head.title || "Beep";
-  $("#scope").replaceChildren(...(head.scope ? [head.scope] : []));
+  const page = JSON.stringify([currentPage, currentPage?.view === "pane" ? [S.view, S.session, G.id] : null]);
+  const changedPage = page !== headerPage;
+  headerPage = page;
+  // Header actions close over their page. Preserve them only within that page.
+  patchHeader($("#scope"), head.scope ? [head.scope] : [], changedPage);
   $("#date").textContent = head.sub || "";
-  $("#tools").replaceChildren(...(head.tools || []));
+  patchHeader($("#tools"), head.tools || [], changedPage);
   syncMobile();
 }

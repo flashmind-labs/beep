@@ -145,12 +145,13 @@ registerView("projects", {
       tools.push(...editorTools(here?.folder, redrawProjectsPage));
       // The rest goes in one menu, so the header keeps to a line.
       const more = button("⋯", "quiet small", e => {
-        const on = state.top.includes(p.name);
-        const items: MenuItem[] = [{ label: on ? "Unpin" : "Pin", on: () => setProjectOnTop(p.name, !on) }];
-        if (!windowProject) items.push(...(onPhone() ? [] : [{ label: NEW_WINDOW, on: () => openProjectWindow(p.name) }]), { label: "All projects", on: () => openProjects() });
-        if (p.imported) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(p.name) });
-        if (p.imported) openProjectMenu(e, p, items, () => { whereDue.add(p.name); revalidate(p.name); });
-        else openMenu(e, p.name, items);
+        const project = (projectRows() || []).find(row => row.name === p.name) ?? p;
+        const on = state.top.includes(project.name);
+        const items: MenuItem[] = [{ label: on ? "Unpin" : "Pin", on: () => setProjectOnTop(project.name, !on) }];
+        if (!windowProject) items.push(...(onPhone() ? [] : [{ label: NEW_WINDOW, on: () => openProjectWindow(project.name) }]), { label: "All projects", on: () => openProjects() });
+        if (project.imported) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(project.name) });
+        if (project.imported) openProjectMenu(e, project, items, () => { whereDue.add(project.name); revalidate(project.name); });
+        else openMenu(e, project.name, items);
       });
       more.title = "More";
       more.setAttribute("aria-label", "More");
