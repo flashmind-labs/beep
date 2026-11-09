@@ -22,8 +22,8 @@ test("chat work keeps its heading and fold state on history refresh", async ({ p
 
 
 test("prompt files keep their controls through history updates", async ({ page }) => {
-  const history = [{ role: "user", text: "Review this", at: 1, images: [], model: "", thinking: "" }];
-  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, session_agents: [], session_files: [{ message: 1, files: [{ id: "file-1", name: "example.txt", mime: "text/plain", size: 6 }] }], session_sources: [], list_questions: [] });
+  const history = [{ role: "user", text: "Review this", at: 0, images: [], model: "", thinking: "" }];
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, session_agents: [], session_files: [{ message: 0, files: [{ id: "file-1", name: "example.txt", mime: "text/plain", size: 6 }] }], session_sources: [], list_questions: [] });
   await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
   const chip = page.locator(".dachips button");
   await expect(chip).toContainText("example.txt");
