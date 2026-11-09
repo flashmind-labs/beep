@@ -1,4 +1,4 @@
-import { answers, bar, removed, runFrames } from "./dom-env.ts";
+import { answers, bar, removed, runFrames } from "./chat-dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { body, follow, newTurn, startRun } from "../src/chat/chat.ts";
