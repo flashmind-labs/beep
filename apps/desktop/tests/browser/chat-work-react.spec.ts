@@ -81,3 +81,18 @@ test("reply pictures keep their viewer actions after a history refresh", async (
   await expect(page.locator("#viewer")).toBeVisible();
   await expect(page.locator("#viewer .cap")).toHaveText("Example");
 });
+
+test("reply product links keep delegated actions after refresh", async ({ page }) => {
+  const history = [{ role: "user", text: "Find a product", at: 1, images: [], model: "", thinking: "" }, { role: "assistant", html: "<p>Found one.</p>", tools: [{ name: "show_products", label: "Show products", success: true, route: null, file: null, images: [], products: '<div class="dprods"><div class="dprod"><a class="dprod-card" href="https://example.com/item">Example</a></div></div>', cards: null, chart: null }], replies: [], model: "" }];
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const link = page.locator(".dprod-card");
+  await expect(link).toHaveText("Example");
+  await link.focus();
+  await link.evaluate(el => Reflect.set(window, "productLink", el));
+  await page.evaluate(() => window.__navigation.emit("sessions-changed", "chat-example"));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_session").length)).toBeGreaterThan(1);
+  expect(await link.evaluate(el => el === Reflect.get(window, "productLink") && document.activeElement === el)).toBe(true);
+  await link.click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "open_url" && call.args.url === "https://example.com/item"))).toBe(true);
+});

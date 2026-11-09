@@ -2,7 +2,7 @@ import { commandKey } from "../ui/platform.ts";
 import { hostOf } from "../settings/apps.ts";
 import { IMAGE_TYPES } from "./compose-text.ts";
 import { focusAsk, owningChatBody } from "./chat.ts";
-import { renderChatReplyPictures, renderChatSentFile } from "./work-view.tsx";
+import { renderChatProduct, renderChatReplyPictures, renderChatSentFile } from "./work-view.tsx";
 import { $, bar } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { COPY_ICON, ICON } from "../ui/icons.ts";
@@ -73,7 +73,13 @@ export function sentBox(turn: Turn) {
 /// A `show_products` row, built from escaped fields on the Rust side. The
 /// bar's click handler opens and copies its links.
 export function productRow(turn: Turn, html: string) {
-  sentBox(turn).append(h(html));
+  const row = h(html), owner = owningChatBody(turn);
+  if (owner) {
+    const contents = row.innerHTML;
+    row.replaceChildren();
+    renderChatProduct(owner, turn, row, contents);
+  }
+  sentBox(turn).append(row);
 }
 
 /// A file Beep sent: a picture when it is an image, a card otherwise.

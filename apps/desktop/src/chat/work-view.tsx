@@ -17,8 +17,9 @@ export interface WorkView { heading: TurnHeading | null; thought: string; steps:
 type Source = WebSource & { site: string };
 interface ReplyActions { copy: boolean; rerun: boolean; agent: string | null }
 interface ApprovalView { app: string; action: string; fields: ApprovalField[]; grant: boolean; answer: (decision: Decision) => void }
-interface Owner { replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
+interface Owner { products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
 const owners = new WeakMap<ChatBody, Owner>();
+const productTurns = new WeakMap<Turn, { owner: Owner; boxes: HTMLElement[] }>();
 const replyPictureTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
 const sentFileTurns = new WeakMap<Turn, { owner: Owner; boxes: HTMLElement[] }>();
 const pictureTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
@@ -121,6 +122,7 @@ const Work = memo(function Work({ value }: { value: WorkView }) {
 });
 function draw(owner: Owner) {
   flushSync(() => owner.root.render(createElement(Fragment, null,
+    ...[...owner.products].map(([host, row]) => createPortal(createElement(Html, { html: row.html }), host, row.key)),
     ...[...owner.replyPictures].map(([host, row]) => createPortal(createElement(ReplyPictures, { images: row.images }), host, row.key)),
     ...[...owner.sentFiles].map(([host, row]) => createPortal(createElement(SentFileCard, { file: row.file }), host, row.key)),
     ...[...owner.pictures].map(([host, row]) => createPortal(createElement(PromptPictures, { images: row.images }), host, row.key)),
@@ -135,8 +137,14 @@ function draw(owner: Owner) {
 }
 function ownerOf(body: ChatBody) {
   let owner = owners.get(body);
-  if (!owner) { owner = { replyPictures: new Map(), sentFiles: new Map(), pictures: new Map(), files: new Map(), root: createRoot(document.createElement("div")), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 }; owners.set(body, owner); }
+  if (!owner) { owner = { products: new Map(), replyPictures: new Map(), sentFiles: new Map(), pictures: new Map(), files: new Map(), root: createRoot(document.createElement("div")), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 }; owners.set(body, owner); }
   return owner;
+}
+export function renderChatProduct(body: ChatBody, turn: Turn, box: HTMLElement, html: string) {
+  const owner = ownerOf(body), entry = productTurns.get(turn);
+  if (entry) entry.boxes.push(box); else productTurns.set(turn, { owner, boxes: [box] });
+  owner.products.set(box, { key: ++owner.next, html });
+  draw(owner);
 }
 export function renderChatReplyPictures(body: ChatBody, turn: Turn, box: HTMLElement, images: SentImage[]) {
   const owner = ownerOf(body), prior = owner.replyPictures.get(box);
@@ -151,6 +159,11 @@ export function renderChatSentFile(body: ChatBody, turn: Turn, box: HTMLElement,
   draw(owner);
 }
 export function transferChatSentFiles(from: Turn, to: Turn) {
+  const nextProducts = productTurns.get(from), priorProducts = productTurns.get(to);
+  productTurns.delete(from);
+  if (priorProducts) for (const box of priorProducts.boxes) priorProducts.owner.products.delete(box);
+  if (nextProducts) productTurns.set(to, nextProducts); else productTurns.delete(to);
+  if (priorProducts && priorProducts.owner !== nextProducts?.owner) draw(priorProducts.owner);
   const nextPictures = replyPictureTurns.get(from), priorPictures = replyPictureTurns.get(to);
   replyPictureTurns.delete(from);
   if (priorPictures) priorPictures.owner.replyPictures.delete(priorPictures.box);
@@ -161,7 +174,7 @@ export function transferChatSentFiles(from: Turn, to: Turn) {
   if (prior) for (const box of prior.boxes) prior.owner.sentFiles.delete(box);
   if (next) sentFileTurns.set(to, next); else sentFileTurns.delete(to);
   if (prior && prior.owner !== next?.owner) draw(prior.owner);
-  const owner = next?.owner ?? prior?.owner ?? nextPictures?.owner ?? priorPictures?.owner;
+  const owner = next?.owner ?? prior?.owner ?? nextPictures?.owner ?? priorPictures?.owner ?? nextProducts?.owner ?? priorProducts?.owner;
   if (owner) draw(owner);
 }
 export function renderChatPictures(body: ChatBody, turn: Turn, box: HTMLElement, images: PicRef[]) {
@@ -340,8 +353,9 @@ export function transferChatReply(from: Turn, to: Turn) {
   replyTurns.delete(from); replyTurns.set(to, entry);
 }
 export function discardChatWork(turn: Turn) {
-  const replyPictures = replyPictureTurns.get(turn), sentFiles = sentFileTurns.get(turn), pictures = pictureTurns.get(turn), files = fileTurns.get(turn), sources = sourceTurns.get(turn), actions = actionTurns.get(turn), approval = approvalTurns.get(turn), suggestion = suggestionTurns.get(turn), prompt = promptTurns.get(turn), work = turns.get(turn), reply = replyTurns.get(turn);
-  replyPictureTurns.delete(turn); sentFileTurns.delete(turn); pictureTurns.delete(turn); fileTurns.delete(turn); sourceTurns.delete(turn); actionTurns.delete(turn); approvalTurns.delete(turn); suggestionTurns.delete(turn); promptTurns.delete(turn); turns.delete(turn); replyTurns.delete(turn);
+  const products = productTurns.get(turn), replyPictures = replyPictureTurns.get(turn), sentFiles = sentFileTurns.get(turn), pictures = pictureTurns.get(turn), files = fileTurns.get(turn), sources = sourceTurns.get(turn), actions = actionTurns.get(turn), approval = approvalTurns.get(turn), suggestion = suggestionTurns.get(turn), prompt = promptTurns.get(turn), work = turns.get(turn), reply = replyTurns.get(turn);
+  productTurns.delete(turn); replyPictureTurns.delete(turn); sentFileTurns.delete(turn); pictureTurns.delete(turn); fileTurns.delete(turn); sourceTurns.delete(turn); actionTurns.delete(turn); approvalTurns.delete(turn); suggestionTurns.delete(turn); promptTurns.delete(turn); turns.delete(turn); replyTurns.delete(turn);
+  if (products) for (const box of products.boxes) products.owner.products.delete(box);
   if (replyPictures) replyPictures.owner.replyPictures.delete(replyPictures.box);
   if (sentFiles) for (const box of sentFiles.boxes) sentFiles.owner.sentFiles.delete(box);
   if (pictures) pictures.owner.pictures.delete(pictures.box);
@@ -365,6 +379,6 @@ export function discardChatWork(turn: Turn) {
     if (waiting) { document.removeEventListener("selectionchange", waiting.resume); replyPending.delete(reply.box); }
     reply.owner.replies.delete(reply.box);
   }
-  const owners = new Set([replyPictures?.owner, sentFiles?.owner, pictures?.owner, files?.owner, sources?.owner, actions?.owner, approval?.owner, suggestion?.owner, prompt?.owner, work?.owner, reply?.owner]);
+  const owners = new Set([products?.owner, replyPictures?.owner, sentFiles?.owner, pictures?.owner, files?.owner, sources?.owner, actions?.owner, approval?.owner, suggestion?.owner, prompt?.owner, work?.owner, reply?.owner]);
   for (const owner of owners) if (owner) draw(owner);
 }
