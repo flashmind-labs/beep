@@ -1,4 +1,4 @@
-import { createElement, Fragment, memo, useState } from "react";
+import { createElement, Fragment, memo, useEffect, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { COPY_ICON, ICON } from "../ui/icons.ts";
@@ -7,7 +7,7 @@ import type { ApprovalField, Decision } from "./chat.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { WebSource } from "./history.ts";
 import { AgentTurnHeading, type TurnHeading } from "../agents/turn-heading-view.tsx";
-import { fileKind, fileSize, GONE } from "./media.ts";
+import { fileKind, fileSize, GONE, GONE_PIC, loadPic, pictures, type PicRef } from "./media.ts";
 import { VOICE_ICON } from "../bar/live.ts";
 import type { AskFile } from "./attach.ts";
 import type { ChatBody, Turn } from "../ui/turn.ts";
@@ -17,8 +17,9 @@ export interface WorkView { heading: TurnHeading | null; thought: string; steps:
 type Source = WebSource & { site: string };
 interface ReplyActions { copy: boolean; rerun: boolean; agent: string | null }
 interface ApprovalView { app: string; action: string; fields: ApprovalField[]; grant: boolean; answer: (decision: Decision) => void }
-interface Owner { files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
+interface Owner { pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
 const owners = new WeakMap<ChatBody, Owner>();
+const pictureTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
 const fileTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
 const sourceTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
 const actionTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
@@ -36,6 +37,24 @@ const Html = memo(function Html({ html }: { html: string }) {
 });
 const Prompt = memo(function Prompt({ html }: { html: string }) {
   return <><b>You</b><span dangerouslySetInnerHTML={{ __html: html }} /></>;
+});
+function Picture({ image }: { image: PicRef }) {
+  const id = "id" in image ? image.id : null;
+  const mime = "id" in image ? image.mime : null;
+  const cached = "url" in image ? image.url : pictures.get(image.id);
+  const [loaded, setLoaded] = useState<string | null | Promise<string | null> | undefined>(cached);
+  useEffect(() => {
+    if (id === null || mime === null || typeof cached === "string" || cached === null) return;
+    let active = true;
+    void loadPic(id, mime).then(url => { if (active) setLoaded(url); });
+    return () => { active = false; };
+  }, [id, mime]);
+  if (typeof loaded === "string") return <img className="dpic" src={loaded} alt="" />;
+  if (loaded === null) return <span className="dpic gone">{GONE_PIC}</span>;
+  return <span className="dpic wait" data-id={id} data-mime={mime} />;
+}
+const PromptPictures = memo(function PromptPictures({ images }: { images: PicRef[] }) {
+  return <>{images.map((image, i) => <Picture key={i} image={image} />)}</>;
 });
 const FileChip = memo(function FileChip({ file }: { file: AskFile }) {
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +88,7 @@ const Work = memo(function Work({ value }: { value: WorkView }) {
 });
 function draw(owner: Owner) {
   flushSync(() => owner.root.render(createElement(Fragment, null,
+    ...[...owner.pictures].map(([host, row]) => createPortal(createElement(PromptPictures, { images: row.images }), host, row.key)),
     ...[...owner.files].map(([host, row]) => createPortal(createElement(Files, { files: row.files }), host, row.key)),
     ...[...owner.sources].map(([host, row]) => createPortal(createElement(Sources, { items: row.items }), host, row.key)),
     ...[...owner.actions].map(([host, row]) => createPortal(createElement(ReplyActionsView, { value: row.value }), host, row.key)),
@@ -80,8 +100,19 @@ function draw(owner: Owner) {
 }
 function ownerOf(body: ChatBody) {
   let owner = owners.get(body);
-  if (!owner) { owner = { files: new Map(), root: createRoot(document.createElement("div")), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 }; owners.set(body, owner); }
+  if (!owner) { owner = { pictures: new Map(), files: new Map(), root: createRoot(document.createElement("div")), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 }; owners.set(body, owner); }
   return owner;
+}
+export function renderChatPictures(body: ChatBody, turn: Turn, box: HTMLElement, images: PicRef[]) {
+  const owner = ownerOf(body);
+  pictureTurns.set(turn, { owner, box });
+  owner.pictures.set(box, { key: ++owner.next, images });
+  draw(owner);
+}
+export function transferChatPictures(from: Turn, to: Turn) {
+  const entry = pictureTurns.get(from);
+  if (!entry) return;
+  pictureTurns.delete(from); pictureTurns.set(to, entry);
 }
 export function renderChatFiles(body: ChatBody, turn: Turn, box: HTMLElement, files: AskFile[]) {
   const owner = ownerOf(body);
@@ -248,8 +279,9 @@ export function transferChatReply(from: Turn, to: Turn) {
   replyTurns.delete(from); replyTurns.set(to, entry);
 }
 export function discardChatWork(turn: Turn) {
-  const files = fileTurns.get(turn), sources = sourceTurns.get(turn), actions = actionTurns.get(turn), approval = approvalTurns.get(turn), suggestion = suggestionTurns.get(turn), prompt = promptTurns.get(turn), work = turns.get(turn), reply = replyTurns.get(turn);
-  fileTurns.delete(turn); sourceTurns.delete(turn); actionTurns.delete(turn); approvalTurns.delete(turn); suggestionTurns.delete(turn); promptTurns.delete(turn); turns.delete(turn); replyTurns.delete(turn);
+  const pictures = pictureTurns.get(turn), files = fileTurns.get(turn), sources = sourceTurns.get(turn), actions = actionTurns.get(turn), approval = approvalTurns.get(turn), suggestion = suggestionTurns.get(turn), prompt = promptTurns.get(turn), work = turns.get(turn), reply = replyTurns.get(turn);
+  pictureTurns.delete(turn); fileTurns.delete(turn); sourceTurns.delete(turn); actionTurns.delete(turn); approvalTurns.delete(turn); suggestionTurns.delete(turn); promptTurns.delete(turn); turns.delete(turn); replyTurns.delete(turn);
+  if (pictures) pictures.owner.pictures.delete(pictures.box);
   if (files) files.owner.files.delete(files.box);
   if (sources) sources.owner.sources.delete(sources.box);
   if (actions) actions.owner.actions.delete(actions.box);
@@ -270,6 +302,6 @@ export function discardChatWork(turn: Turn) {
     if (waiting) { document.removeEventListener("selectionchange", waiting.resume); replyPending.delete(reply.box); }
     reply.owner.replies.delete(reply.box);
   }
-  const owners = new Set([files?.owner, sources?.owner, actions?.owner, approval?.owner, suggestion?.owner, prompt?.owner, work?.owner, reply?.owner]);
+  const owners = new Set([pictures?.owner, files?.owner, sources?.owner, actions?.owner, approval?.owner, suggestion?.owner, prompt?.owner, work?.owner, reply?.owner]);
   for (const owner of owners) if (owner) draw(owner);
 }
