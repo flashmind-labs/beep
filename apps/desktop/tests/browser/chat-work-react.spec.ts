@@ -114,10 +114,23 @@ test("live chat notices show errors and retain the retry action", async ({ page 
   await page.locator("#ask").fill("Try this");
   await page.locator("#ask").press("Enter");
   await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, "noticeEvent"))).toBe("function");
-  await page.evaluate(() => { const send = Reflect.get(window, "noticeEvent"); send({ kind: "error", message: "Example failure" }); send({ kind: "finished", status: "cancelled" }); });
+  await page.evaluate(() => { const send = Reflect.get(window, "noticeEvent"); send({ kind: "auto_picked", model: "example-model", thinking: "high" }); send({ kind: "error", message: "Example failure" }); send({ kind: "finished", status: "cancelled" }); });
+  await expect(page.locator(".dranon")).toContainText("high");
   await expect(page.locator(".derrcard")).toContainText("Example failure");
   const retry = page.locator(".dstopped").getByRole("button", { name: "Retry" });
   await expect(retry).toBeVisible();
   await retry.click();
   await expect(page.locator(".dstopped")).toHaveCount(0);
+});
+
+test("scheduled turn labels stay mounted during history refresh", async ({ page }) => {
+  const history = [{ role: "scheduled", label: "Daily check", at: 1 }, { role: "assistant", html: "<p>Done.</p>", tools: [], replies: [], model: "" }];
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const label = page.locator(".turn .dsystem");
+  await expect(label).toHaveText("Daily check");
+  await label.evaluate(el => Reflect.set(window, "scheduledLabel", el));
+  await page.evaluate(() => window.__navigation.emit("sessions-changed", "chat-example"));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_session").length)).toBeGreaterThan(1);
+  expect(await label.evaluate(el => el === Reflect.get(window, "scheduledLabel"))).toBe(true);
 });
