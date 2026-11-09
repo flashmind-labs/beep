@@ -1,34 +1,32 @@
 // Home: its tabs, the Needs you, Updates, Running and Coming up sections, and the Connecting page before Home first loads.
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { harnessEl } from "../ui/harnessicon.ts";
-import { dbtn as button, emptyPanel, errorNote, note, svgEl as icon } from "../ui/parts.ts";
+import { dbtn as button, errorNote, note } from "../ui/parts.ts";
 import { invoke, Channel } from "../ui/tauri.ts";
 import { connectProblem } from "./connect.ts";
 import { pane } from "../bar/pane.ts";
 import { S } from "../bar/core.ts";
-import { homeForDisplay, needsLine, type HomeView, type NeedsYou, type UpdateRow, type CronRow } from "./home-state.ts";
+import { homeForDisplay, type HomeView, type NeedsYou, type UpdateRow } from "./home-state.ts";
 import { el as h } from "../ui/dom.ts";
-import { itemChips, newestFirst, waitsOnYou, type GitItemRow } from "./openitems-state.ts";
 import { type Outcome, $, CONNECT_STUCK_MS, state } from "./state.ts";
-import { failure, conflict, section, avatar, tag, rowButton, line } from "../ui/pieces.ts";
+import { failure, conflict, section, tag, line } from "../ui/pieces.ts";
 import { useThisMac, showMachineMenu, machinesSection, offlineNote } from "../machines/table.ts";
-import { conflictLines } from "../project/syncpage.ts";
-import { gitSection, openUrl, refreshGit } from "./openitems.ts";
+import { gitSection, refreshGit } from "./openitems.ts";
 import { currentLocation, registerView, go, openResearch } from "./views.ts";
 import { openAddMachine, projectRows } from "./sidebar.ts";
 import { loading, refresh, fresh } from "./refresh.ts";
-import { BEEP_MARK, IC } from "../ui/icons.ts";
 import { resetRows } from "../ui/lazyrows.ts";
 import { thisMacRow } from "../machines/machine-state.ts";
-import { byRecent, type RunningAgent, runningKey, runningLine, type RunningRow, runningWhen } from "../agents/running-state.ts";
+import { type RunningAgent, runningKey, runningLine, type RunningRow, runningWhen } from "../agents/running-state.ts";
 import { onPlaces, runningLineAt } from "../agents/place.ts";
 import { moveLabel, onMoves } from "../agents/move-store.ts";
-import { closingNote, onClosing, visibleRunning } from "../agents/closing.ts";
+import { closingNote, onClosing } from "../agents/closing.ts";
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { ConnectingView } from "./connecting-view.tsx";
 import { HomeShell, type HomeTab } from "./home-shell.tsx";
+import { HomeOverview } from "./home-overview.tsx";
 
 export function runningStatus(r: RunningRow) {
   const moving = r.kind === "agent" ? moveLabel(r) : null;
@@ -69,7 +67,7 @@ export function cardKey(n: NeedsYou) { return n.kind === "chat" ? `chat:${n.pend
 
 function setOutcome(key: string, outcome: Outcome) { state.outcomes.set(key, outcome); draw(); }
 
-function answerChat(n: ChatNeed, decision: string, said: string) {
+export function answerChat(n: ChatNeed, decision: string, said: string) {
   const key = cardKey(n);
   setOutcome(key, { said });
   // The call returns when the run it resumes ends, so the outcome shows now.
@@ -79,30 +77,9 @@ function answerChat(n: ChatNeed, decision: string, said: string) {
 }
 
 /// Opens the session an agent's question came from, where it is answered.
-function openAsking(n: AgentNeed) {
+export function openAsking(n: AgentNeed) {
   const r = state.home?.running?.find((r): r is RunningAgent => r.kind === "agent" && r.machine_id === n.machine_id && r.id === n.session);
   go("pane", { agent: r || { kind: "agent", machine_id: n.machine_id, machine_name: n.machine_name, id: n.session, agent: n.agent, title: n.title, cwd: "", status: "asking", external: false } });
-}
-
-/// Allow answers a chat's approval from the row; the chat itself has the
-/// details, Always allow and Deny. Answer opens the agent's session.
-function needsRow(n: NeedsYou) {
-  const out = state.outcomes.get(cardKey(n));
-  const { title, sub, button: label } = needsLine(n);
-  let lead, open, act;
-  if (n.kind === "chat") {
-    lead = avatar("beep", icon(BEEP_MARK));
-    open = () => go("pane", { chat: { session: n.session_id } });
-    act = () => answerChat(n, "allow", "Allowed");
-  } else {
-    lead = harnessEl(n.agent);
-    open = act = () => openAsking(n);
-  }
-  const right = out?.said ? [h("span", "ok", out.said)] : out?.final ? [h("span", "err", out.error)] : [rowButton(label, "pri small", act)];
-  const row = line(lead, title, sub, right, open);
-  if (out?.error && !out.final) row.querySelector(".t > span")!.replaceChildren(h("span", "err", out.error));
-  if (out?.said) row.style.opacity = ".55";
-  return row;
 }
 
 // ---------- Coming up ----------
@@ -122,15 +99,10 @@ export function scheduleText(s: string) {
   return pane.when(s) ?? s;
 }
 
-function comingRow(c: CronRow) {
-  const w = whenOf(c.next_run_at);
-  return line(h("span", "cc-when", h("b", "", w.time), w.day), c.label.trim() || c.prompt.trim() || "Routine", scheduleText(c.schedule), [], () => go("pane", "routines"));
-}
-
 // ---------- Updates ----------
 
 /// When an update came: "09:41" today, then "Yesterday", "Thu" this week, "3 Oct".
-function updateTime(ms: number) {
+export function updateTime(ms: number) {
   const at = new Date(ms);
   const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86400000);
   if (days <= 0) return at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -151,7 +123,7 @@ export const dismissedUpdates = new Set<number>();
 
 /// Takes updates off Home at once and tells the server; a failed dismiss
 /// brings them back on the next refresh.
-function dismissUpdates(ids: number[]) {
+export function dismissUpdates(ids: number[]) {
   if (!ids.length) return;
   for (const id of ids) dismissedUpdates.add(id);
   if (state.home?.updates) state.home.updates = state.home.updates.filter(u => !ids.includes(u.id));
@@ -165,7 +137,7 @@ function dismissUpdates(ids: number[]) {
 
 /// Opens the update's chat, where Beep's first message tells it and the user
 /// replies; the same chat each time.
-async function openUpdate(u: UpdateRow) {
+export async function openUpdate(u: UpdateRow) {
   dismissUpdates([u.id]);
 
   try {
@@ -176,24 +148,6 @@ async function openUpdate(u: UpdateRow) {
   } catch (e) {
     console.warn("opening an update:", e);
   }
-}
-
-function updateRow(u: UpdateRow) {
-  const letter = (u.app_name || "").slice(0, 1).toUpperCase();
-  const close = rowButton(icon(IC.x)!, "quiet", () => dismissUpdates([u.id]));
-  close.setAttribute("aria-label", "Dismiss");
-  close.style.padding = "2px 6px";
-  const sub = u.app_name ? `${u.app_name} · ${updateTime(u.at)}` : updateTime(u.at);
-  const row = line(avatar("beep", letter || icon(BEEP_MARK)), u.summary, sub, [close], () => openUpdate(u));
-  row.querySelector<HTMLElement>(".t")!.title = "Ask Beep about this";
-  return row;
-}
-
-/// What the event triage agent found in the user's apps, apart from any
-/// chat. Hidden while there is nothing.
-function updatesSection(updates: UpdateRow[]) {
-  const clear = button("Clear", "quiet small", () => dismissUpdates(updates.map(u => u.id)));
-  return section("sec-updates", "Updates", updates.length, clear, h("div", "cc-panel", ...updates.map(updateRow)));
 }
 
 // ---------- Home ----------
@@ -226,7 +180,7 @@ function page(home: HomeView) {
   const { machines, running } = home;
   const projects = projectRows() || [], git = state.git;
   const tabs: { key: HomeTab; label: string; count: number | null; on: boolean; make: () => HTMLElement[] }[] = [
-    { key: "overview", label: "Overview", count: null, on: true, make: () => overview(home) },
+    { key: "overview", label: "Overview", count: null, on: true, make: () => [] },
     { key: "git", label: "PRs and issues", count: git?.items.length ?? 0, on: !!git?.hosts?.length || projects.length > 0 || !!state.gitError, make: () => [gitSection(git || { items: [], hosts: [] })] },
     { key: "machines", label: "Machines", count: null, on: !!machines, make: () => machinesSection(machines!) },
   ];
@@ -244,45 +198,13 @@ function page(home: HomeView) {
 
   return { machines, mac: machines ? thisMacRow(state.mac, machines) : null, jump,
     menu: (machine: NonNullable<typeof machines>[number], event: MouseEvent) => showMachineMenu(machine, () => [], event),
-    addMachine: openAddMachine, useMac: () => { void useThisMac(); }, notices, content: tab.make(),
+    addMachine: openAddMachine, useMac: () => { void useThisMac(); }, notices, content: tab.make(), overview: tab.key === "overview" ? createElement(HomeOverview, { home }) : null,
     tabs: shownTabs, selected: tab.key, open: openHomeTab };
 }
 
 /// An Overview box: its title opens the full list, then its first rows.
 export function homeBox(id: string, title: string, count: number | string, open: () => void, rows: Node[], max = BOX_ROWS) {
   return section(id, button(title, "lk", open), count, null, h("div", "cc-panel", ...rows.slice(0, max)));
-}
-
-/// A PR waiting on the user as a Needs you row: why it waits, and Review or
-/// Open on its host.
-function prNeedRow(item: GitItemRow) {
-  const why = itemChips(item).map(c => c.text).join(", ");
-  const open = () => openUrl(item.url);
-  const row = line(icon(item.kind === "pull_request" ? IC.pr : IC.issue), `#${item.number} ${item.title}`, [item.repo, why].filter(Boolean).join(" · "),
-    [rowButton(item.review_requested ? "Review" : "Open", "small", open)], open);
-  row.title = item.url;
-  return row;
-}
-
-/// Everything waiting on the user in one list (agents' questions and chat
-/// approvals, their PRs, sync conflicts), then Updates, Running and Coming up.
-export function overview(home: HomeView) {
-  const { coming_up: coming, needs_you: needs, updates } = home;
-  const running = visibleRunning(home.running);
-  const prs = (state.git?.items || []).filter(waitsOnYou).sort(newestFirst);
-  const waiting = [...needs.map(needsRow), ...prs.map(prNeedRow), ...conflictLines()];
-  const out: HTMLElement[] = [];
-  if (waiting.length) out.push(section("sec-needs", "Needs you", waiting.length, null, h("div", "cc-panel", ...waiting)));
-  if (updates?.length) out.push(updatesSection(updates));
-  if (running?.length) out.push(homeBox("sec-running", "Running", running.length, () => go("pane", "agents"), byRecent(running).map(runningRow), Infinity));
-  if (coming?.length) out.push(homeBox("sec-coming", "Coming up", coming.length, () => go("pane", "routines"), coming.map(comingRow)));
-
-  if (!out.length && !state.subscribed) {
-    const starting = !state.home && !S.server;
-    out.push(emptyPanel(h("b", "", starting ? "Start an agent" : "Nothing running"), h("span", "", starting ? "Your machines connect in the background." : "Start an agent on this computer, or add a machine to run it there."), button("Start an agent", "small", () => go("pane", { agentnew: { prompt: "" } }))));
-  } else if (!out.length) out.push(emptyPanel(h("span", "", "Nothing needs you, and nothing is running.")));
-
-  return out;
 }
 
 // ---------- Connecting ----------
