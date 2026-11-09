@@ -1,10 +1,11 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
+import { openBarPage } from "../bar/page-root.ts";
 import { ChatsShell } from "./chats-view.tsx";
 import { openInWindow } from "./chat.ts";
 import { copy } from "../ui/parts.ts";
-import { $, $$, bar, type ChatRow, type ChatsMode, G, live, PANE, S } from "../bar/core.ts";
+import { $, $$, type ChatRow, type ChatsMode, G, live, PANE, S } from "../bar/core.ts";
 import { authorName, type GroupSummary, renderGroup, renderInvite } from "./groups.ts";
 import { hints } from "../bar/hints.ts";
 import { openSession } from "./history.ts";
@@ -71,30 +72,21 @@ export function touch(id: string, message?: string) {
   S.cache = [c, ...S.cache.filter(x => x.id !== id)].sort(byRecent);
 }
 
-let listRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+let listRoot: { host: HTMLElement; root: Root } | null = null;
 let listError = "", lastSelected = "", loadVersion = 0;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 function disposeChats() {
-  const current = listRoot; listRoot = null;
+  listRoot = null;
   if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
-  if (!current) return;
-  current.observer.disconnect(); current.root.unmount();
 }
 
 export function renderChats() {
-  disposeChats();
   listError = ""; lastSelected = ""; loadVersion++;
   const back = S.view === "group" ? G.id : null;
   S.view = "chats";
   invoke("close_group").catch(() => {});
   S.chats = { list: S.cache, sel: 0, query: "", mode: "list", back, share: null };
-  const host = document.createElement("div");
-  host.style.display = "contents";
-  bar.replaceChildren(host);
-  const root = createRoot(host);
-  const observer = new MutationObserver(() => { if (listRoot?.host === host && !host.isConnected) disposeChats(); });
-  observer.observe(document.body, { childList: true, subtree: true });
-  listRoot = { host, root, observer };
+  listRoot = openBarPage(disposeChats);
   drawChats();
   loadChats("");
 }
