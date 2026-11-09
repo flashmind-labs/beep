@@ -1,4 +1,4 @@
-import { answers, bar, calls } from "./dom-env.ts";
+import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { AG, type AgentPage, type AgentRow } from "../src/agents/agents.ts";
@@ -18,7 +18,7 @@ test("the open conversation follows a completed move even when its target lists 
   const record = { session: "s1", agent: "codex", from: "laptop", to: "studio", project: "acme/app", at: Date.now() };
   const progress = { answer: "known" as const, phase: "done" as const, copied: 0, total: 0, files_left: 0, source_away: false, reason: null };
   S.view = "agent";
-  Object.assign(document, { visibilityState: "visible", removeEventListener() {} });
+  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
   // This check draws the header; the composer needs native textarea accessors.
   const query = bar.querySelector.bind(bar);
   t.mock.method(bar, "querySelector", (selector: string) => selector === "#agmsg" || selector === "#agmovebox" || selector === "#agmodel" ? null : query(selector));
