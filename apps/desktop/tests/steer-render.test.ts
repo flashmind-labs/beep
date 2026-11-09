@@ -8,6 +8,7 @@ import { drawAgentBody } from "../src/agents/logview.ts";
 import { disposeQueue, drawQueue, editQueued, steerMessage } from "../src/agents/messages.ts";
 import { pollAgent, stopAgentFollow } from "../src/agents/session.ts";
 import { MN } from "../src/agents/workdrop.ts";
+import { drawTasks } from "../src/agents/tasks.ts";
 
 function setup() {
   globalThis.getSelection = () => null;
@@ -34,6 +35,21 @@ function setup() {
 }
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
+
+test("background task updates preserve existing controls and focus", t => {
+  setup();
+  t.after(() => { disposeQueue(); AG.tasks = []; });
+  bar.querySelector("#agfield")?.insertAdjacentHTML("beforebegin", '<div id="agtasks"></div>');
+  const task = { id: "first", name: "Build", description: "Build the app", state: "running", can_stop: true, output_file: null, summary: null, entry: null };
+  AG.tasks = [task]; drawTasks();
+  const button = bar.querySelector<HTMLButtonElement>('[data-agtask="first"]'); assert.ok(button); button.focus();
+  AG.tasks = [{ ...task }, { ...task, id: "second", name: "Test" }]; drawTasks();
+  assert.equal(bar.querySelector('[data-agtask="first"]'), button);
+  assert.equal(document.activeElement, button);
+  AG.tasks = [{ ...task, state: "completed" }, { ...task, id: "second", name: "Test" }]; drawTasks();
+  assert.equal(bar.querySelector('[data-agtask="first"]'), null);
+  assert.ok(bar.querySelector('[data-agtask="second"]'));
+});
 
 test("steers appear only in the composer until recorded in the transcript", async t => {
   const { page, input } = setup();
