@@ -1,11 +1,11 @@
+import { createElement } from "react";
 import { agentPics, fileBase64 } from "../chat/attach.ts";
 import { draftText } from "../chat/compose.ts";
 import { bindPromptStash } from "../chat/stash.ts";
 import { stashFile } from "../chat/stash-state.ts";
-import { esc } from "../ui/format.ts";
-import { ICON } from "../ui/icons.ts";
 import type { Attached } from "./agentqueue.ts";
-import { attachedChips, attachImages, wireAttachedPreviews } from "./images.ts";
+import { attachImages } from "./images.ts";
+import { StartAttachmentChips } from "./start-attachments-view.tsx";
 import { filePicker } from "./file-picker.ts";
 import type { makeStartComposer } from "./start-composer.ts";
 import { StartFiles } from "./start-files.ts";
@@ -16,10 +16,9 @@ export function startAttachments(c: ReturnType<typeof makeStartComposer>, error:
   let reading = 0, locked = false;
   let serial = Promise.resolve();
   const draw = () => {
-    c.att.innerHTML = attachedChips(images, "startimage") + files.pending.map(({ file }, i) =>
-      `<span class="att"><span class="nm" title="Copied to the selected machine when you start">${esc(file.name || "file")}</span><button type="button" aria-label="Remove ${esc(file.name || "file")}" data-startfile="${i}">${ICON.x}</button></span>`).join("");
-    wireAttachedPreviews(c.att, images);
-    c.att.hidden = !images.length && !files.pending.length;
+    c.setAttachments(images.length || files.pending.length
+      ? createElement(StartAttachmentChips, { images: [...images], files: [...files.pending], host: c.att })
+      : null);
   };
   const add = (input: Iterable<File>) => {
     if (locked) return Promise.resolve();
