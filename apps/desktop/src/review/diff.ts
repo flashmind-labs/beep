@@ -1,13 +1,13 @@
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { DiffSummary } from "./diff-summary.tsx";
+import { DiffToolbar } from "./diff-toolbar.tsx";
 import { readView, writeView } from "../agentpane/view-memory.ts";
 // The diff viewer: a one-line header with the counts, a filter, icon toggles
 // and the review buttons; a list of the files at wide widths; each file folding under
 // its sticky header, its lines in a unified view that scrolls sideways on its
 // own.
 import {
-  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitCell, type SplitRow, STATUS_LETTER, allFolded, baseTitle, currentFile, contextFile, diffRows, isFolded, leftOutNote,
+  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitCell, type SplitRow, STATUS_LETTER, allFolded, currentFile, contextFile, diffRows, isFolded, leftOutNote,
   inView, lineKey, lineLabel, matchesFilter, numberWidth, placeComments, reviewText, splitHeight, splitPath, splitRows, stepFile, withLoaded,
 } from "./diff-state.ts";
 import { initTreeResize } from "./treewidth.ts";
@@ -80,9 +80,6 @@ const SVG = {
   to: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
   copy: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>',
   open: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg>',
-  refresh: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>',
-  split: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>',
-  dirty: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v6M12 15v6"/></svg>',
 };
 
 /// An icon from the fixed markup above, never from a diff.
@@ -165,54 +162,17 @@ export function diffView(src: DiffSource): DiffViewHandle {
   const chunks = new Map<Element, Chunk>();
   const bodyModes = new Map<string, boolean>();
   const visibleFiles = new Set<string>();
-  const find = el("input", "dv-find");
-  find.placeholder = "Filter";
-  find.setAttribute("aria-label", "Filter files");
-  find.spellcheck = false;
   const matchNote = el("div", "dv-more");
-  find.addEventListener("input", () => { st.filter = find.value; applyFilter(); files.scrollTop = 0; });
-  const sum = el("span", "dv-sum");
-  const summaryRoot = createRoot(sum);
-  const splitBtn = btn(icon(SVG.split), "icon dv-splitbtn", "", () => {
-    st.split = !st.split;
-    saveSplit(st.split);
-    drawSplit();
-    redrawBodies();
-  });
-  const drawSplit = () => {
-    splitBtn.setAttribute("aria-pressed", String(st.split));
-    splitBtn.title = st.split ? "Unified" : "Side by side";
-    splitBtn.setAttribute("aria-label", "Side by side");
-  };
-  drawSplit();
-  const uncommittedBtn = btn(icon(SVG.dirty), "icon", "Uncommitted only: hide the branch's commits", () => {
-    st.uncommitted = !st.uncommitted;
-    uncommittedBtn.setAttribute("aria-pressed", String(st.uncommitted));
-    load();
-  });
-  uncommittedBtn.setAttribute("aria-pressed", "false");
-  uncommittedBtn.setAttribute("aria-label", "Uncommitted only");
-  const foldBtn = btn(el("span", "dv-pm"), "icon", "", () => foldAll(!allFolded(shown(), st.folded)));
-  const drawFold = () => {
-    const expand = allFolded(shown(), st.folded);
-    foldBtn.firstElementChild!.textContent = expand ? "+" : "−";
-    foldBtn.title = expand ? "Expand all" : "Collapse all";
-    foldBtn.setAttribute("aria-label", foldBtn.title);
-  };
-  drawFold();
-  const refresh = btn(icon(SVG.refresh), "icon", "Read the changes again", () => load());
-  refresh.setAttribute("aria-label", "Refresh");
-  const flash = el("span", "dv-flash");
-  flash.setAttribute("role", "status");
+  const head = el("div", "dv-head");
+  const toolbarRoot = createRoot(head);
+  let flashText = "";
   let flashTimer = 0;
   const say = (text: string) => {
-    flash.textContent = text;
+    flashText = text;
+    drawToolbar();
     clearTimeout(flashTimer);
-    flashTimer = window.setTimeout(() => { flash.textContent = ""; }, 2000);
+    flashTimer = window.setTimeout(() => { flashText = ""; drawToolbar(); }, 2000);
   };
-  const cmts = el("span", "dv-n");
-  const send = button("Send review", "dbtn pri small", () => sendReview());
-  send.append(cmts);
   const lostBox = el("div", "dv-lost");
   const feedback = src.readOnly ? { el: el("span"), note: el("span"), redraw() {} } : feedbackButton({
     key: src.review.key,
@@ -226,8 +186,6 @@ export function diffView(src: DiffSource): DiffViewHandle {
     bounds: () => root,
     say,
   });
-  const tools = el("span", "dv-tools", ...(src.uncommitted ? [uncommittedBtn] : []), splitBtn, foldBtn, refresh);
-  const head = el("div", "dv-head", sum, find, tools, el("span", "dv-sp"), flash, feedback.el, send);
   const tree = el("nav", "dv-tree");
   tree.setAttribute("aria-label", "Changed files");
   const treeFiles = new Map<string, HTMLButtonElement>();
@@ -238,14 +196,13 @@ export function diffView(src: DiffSource): DiffViewHandle {
   let restoredScroll = 0;
   if (memory && typeof memory === "object") {
     if ("scroll" in memory && typeof memory.scroll === "number") restoredScroll = memory.scroll;
-    if ("filter" in memory && typeof memory.filter === "string") { st.filter = memory.filter; find.value = st.filter; }
+    if ("filter" in memory && typeof memory.filter === "string") st.filter = memory.filter;
     if ("folded" in memory && Array.isArray(memory.folded)) for (const pair of memory.folded) {
       if (Array.isArray(pair) && typeof pair[0] === "string" && typeof pair[1] === "boolean") st.folded.set(pair[0], pair[1]);
     }
   }
   const remember = () => writeView(memoryKey, { scroll: files.scrollTop, filter: st.filter, folded: [...st.folded], context: [...context].map(([path, value]) => [path, value.above, value.below]) });
   files.addEventListener("scroll", remember);
-  find.addEventListener("input", remember);
 
   files.style.position = "relative";
   const fileObserver = new IntersectionObserver(entries => {
@@ -316,16 +273,20 @@ export function diffView(src: DiffSource): DiffViewHandle {
     return st.view ? st.view.files.filter(f => matchesFilter(f, st.filter)) : [];
   }
 
-  function drawHead() {
-    const v = st.view;
-    sum.title = v ? baseTitle(v, st.uncommitted) : "";
-    summaryRoot.render(createElement(DiffSummary, { view: v, loading: st.loading, uncommitted: st.uncommitted }));
+  function drawToolbar() {
+    toolbarRoot.render(createElement(DiffToolbar, {
+      view: st.view, loading: st.loading, filter: st.filter, split: st.split, uncommitted: st.uncommitted,
+      showUncommitted: !!src.uncommitted, allFolded: allFolded(shown(), st.folded), flash: flashText,
+      comments: st.draft.length, sending: st.sending, readOnly: !!src.readOnly, feedback: feedback.el,
+      onFilter: value => { st.filter = value; applyFilter(); files.scrollTop = 0; remember(); },
+      onSplit: () => { st.split = !st.split; saveSplit(st.split); drawToolbar(); redrawBodies(); },
+      onUncommitted: () => { st.uncommitted = !st.uncommitted; void load(); },
+      onFold: () => foldAll(!allFolded(shown(), st.folded)), onRefresh: () => void load(), onSend: () => void sendReview(),
+    }));
+  }
 
-    const none = !v?.files.length;
-    foldBtn.disabled = none;
-    find.disabled = none;
-    refresh.disabled = st.loading;
-    refresh.title = st.loading ? "Reading…" : "Read the changes again";
+  function drawHead() {
+    drawToolbar();
     feedback.redraw();
   }
 
@@ -424,8 +385,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
 
     matchNote.hidden = !st.filter.trim();
     matchNote.textContent = `${shown().length} of ${v.files.length} files match`;
-    markCurrent();
-    drawFold();
+    markCurrent(false);
+    drawToolbar();
   }
 
   /// The right-click menu of a file, on its header or its row in the list.
@@ -601,11 +562,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
   /// The header's count and Send button, each folded file's count and the
   /// comments on files the diff no longer has.
   function drawReview() {
-    const n = st.draft.length;
-    cmts.textContent = String(n);
-    send.title = `Send ${n} ${n === 1 ? "comment" : "comments"} to the agent as one message`;
-    send.hidden = !!src.readOnly || !n;
-    send.disabled = st.sending;
+    drawToolbar();
 
     for (const [path, s] of sections) {
       const t = s.querySelector(".dv-fcm");
@@ -773,7 +730,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (!folded) updateBodyMode(path);
     section.classList.toggle("closed", folded);
     section.querySelector(".dv-fh")?.setAttribute("aria-expanded", String(!folded));
-    drawFold();
+    drawToolbar();
   }
 
   function toggle(path: string) {
@@ -796,7 +753,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
   }
 
   let markedPath: string | null = null;
-  function markCurrent() {
+  function markCurrent(reveal = true) {
     const list = shown();
     const held = st.cur ? sections.get(st.cur) : null;
     if (!held || !inView(held.offsetTop, held.offsetTop + held.offsetHeight, files.scrollTop, files.clientHeight)) {
@@ -807,7 +764,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     for (const [p, s] of sections) s.classList.toggle("cur", p === st.cur);
     for (const row of treeFiles.values()) row.classList.toggle("on", row.dataset.path === st.cur);
     const row = st.cur ? treeFiles.get(st.cur) : null;
-    if (!row || !tree.clientHeight) return;
+    if (!reveal || !row || !tree.clientHeight) return;
     for (const [folder, { group }] of treeFolders) {
       if (st.cur?.startsWith(folder)) { st.closedFolders.delete(folder); group.open = true; }
     }
@@ -833,8 +790,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const t = e.target as HTMLElement;
 
+    const find = head.querySelector<HTMLInputElement>(".dv-find");
     if (t === find) {
-      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); find.blur(); root.focus(); }
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); find?.blur(); root.focus(); }
       return;
     }
 
@@ -853,7 +811,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
       if (f) toggle(f.path);
     } else if (e.key === "/") {
       e.preventDefault();
-      find.focus();
+      find?.focus();
     }
   }
 

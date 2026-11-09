@@ -214,3 +214,36 @@ test("diff summary updates without replacing the filter or scrolling the diff", 
   await expect(filter).toBeFocused();
   await expect(files).toHaveJSProperty("scrollTop", before);
 });
+
+test("diff toolbar keeps filtering, keyboard focus, split and folding controls working", async ({ page }) => {
+  const lines = [{ k: " ", t: "one line" }];
+  const file = (path: string) => ({ path, old_path: null, status: "modified", additions: 1, deletions: 0, left_out: null, hunks: [{ old_start: 1, new_start: 1, old_lines: 1, new_lines: 1, section: "", lines }] });
+  await openDesktop(page, false, {
+    project_git_history: { machine_id: "build-box", machine_name: "build-box", root: "/srv/project", refs: [], worktrees: [], commits: [{ id: "abc123", parents: [], author: "Example", committed_at: 1, subject: "Commit" }], next: null },
+    project_git_files: ["alpha.ts", "beta.ts"].map(path => ({ path, old_path: null, status: "modified" })),
+    project_git_diff: { root: "/srv/project", base: "main", merge_base: "", working_tree: false, additions: 2, deletions: 0, more: 0, files: [file("alpha.ts"), file("beta.ts")] },
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
+  const diff = page.locator(".gh-detail .dv");
+  await expect(diff.locator(".dv-file")).toHaveCount(2);
+  await diff.focus();
+  await page.keyboard.press("/");
+  const filter = diff.getByRole("textbox", { name: "Filter files" });
+  await expect(filter).toBeFocused();
+  await filter.fill("alpha");
+  await expect(filter).toHaveValue("alpha");
+  await expect(diff.locator('.dv-file[data-path="alpha.ts"]')).toBeVisible();
+  await expect(diff.locator('.dv-file[data-path="beta.ts"]')).toBeHidden();
+  await page.keyboard.press("Escape");
+  await expect(diff).toBeFocused();
+  const split = diff.getByRole("button", { name: "Side by side" });
+  await split.click();
+  await expect(split).toHaveAttribute("aria-pressed", "true");
+  await diff.getByRole("button", { name: "Collapse all" }).click();
+  await expect(diff.locator('.dv-file[data-path="alpha.ts"]')).toHaveClass(/closed/);
+  await diff.getByRole("button", { name: "Expand all" }).click();
+  await expect(diff.locator('.dv-file[data-path="alpha.ts"]')).not.toHaveClass(/closed/);
+  await filter.fill("");
+  await expect(diff.locator('.dv-file[data-path="beta.ts"]')).toBeVisible();
+});
