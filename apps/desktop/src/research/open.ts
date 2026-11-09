@@ -1,12 +1,13 @@
 import { commandKey } from "../ui/platform.ts";
-import { createElement, Fragment, type ReactElement } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { createElement, type ReactElement } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { ResearchHead } from "./head-view.tsx";
 import { ResearchTabs } from "./tabs-view.tsx";
 import { ResearchLivePane } from "./live-pane-view.tsx";
 import { ResearchChat, ResearchPaper } from "./chat-paper-view.tsx";
 import { ResearchAgents, ResearchThread } from "./agents-pane-view.tsx";
+import { ResearchShell } from "./shell-view.tsx";
 // An opened research, as a page of the command center laid out like a coding
 // agent session: the lead's chat on the left, the paper, notes, sources and the
 // team as the tabs of a side pane on the right. The page is drawn once and
@@ -99,18 +100,11 @@ function build(el: HTMLElement, session: string) {
   headNode = tabsNode = paneNode = chatNode = null;
   R = fresh(session);
   polls = 0;
-  const root = h(`<div class="rs"><div class="dhead"></div>
-    <div class="agshell"><div class="agconv"><div class="dbody rs-log"><div class="dagmain"><div class="dcoderlog"></div></div></div>
-      <div class="dinput small"><textarea rows="1" autocomplete="off" spellcheck="false" aria-label="Message the lead"></textarea></div></div>
-      <div class="agdiv" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to resize, double-click to reset"></div>
-      <aside class="agpane rs-pane"><div class="agpane-content"><div class="agphead"><div class="agtabs" role="tablist"></div></div><div class="agpviews"></div></div></aside></div></div>`);
-  el.replaceChildren(root);
+  shellRoot = createRoot(el);
+  flushSync(() => shellRoot?.render(createElement(ResearchShell, { head: null, chat: null, tabs: null, pane: null })));
+  const root = el.querySelector<HTMLElement>(".rs")!;
   const q = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
   page = { root, head: q(".dhead"), shell: q(".agshell"), log: q(".rs-log"), chat: q(".dcoderlog"), ask: q("textarea"), pane: q(".rs-pane"), tabs: q(".agtabs"), view: q(".agpviews") };
-  const host = document.createElement("div");
-  host.hidden = true;
-  el.append(host);
-  shellRoot = createRoot(host);
   composeField(page.ask, { grow: 156 });
   root.addEventListener("click", onClick);
   page.ask.addEventListener("keydown", onAskKey);
@@ -176,12 +170,7 @@ function wireDivider(p: Page) {
 function drawShell() {
   const root = shellRoot, current = page;
   if (!root || !current) return;
-  flushSync(() => root.render(createElement(Fragment, null,
-    headNode && createPortal(headNode, current.head),
-    chatNode && createPortal(chatNode, current.chat),
-    tabsNode && createPortal(tabsNode, current.tabs),
-    paneNode && createPortal(paneNode, current.view),
-  )));
+  flushSync(() => root.render(createElement(ResearchShell, { head: headNode, chat: chatNode, tabs: tabsNode, pane: paneNode })));
 }
 
 function drawHead() {
