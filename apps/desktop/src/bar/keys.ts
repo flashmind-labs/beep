@@ -158,12 +158,13 @@ document.addEventListener("keydown", e => {
 
     if (body) {
       e.preventDefault();
+      const agent = S.view === "agent";
       openChatFind({
         body,
-        sources: () => { const log = body.querySelector<HTMLElement>(".dcoderlog"); return log ? logSearchSources(log) : [{ key: "chat", root: body }]; },
-        reveal: key => body.querySelector(".dcoderlog") ? revealLogUnit(body, key) : body,
-        watch: changed => { const log = body.querySelector<HTMLElement>(".dcoderlog"); return log ? watchLogSearch(log, changed) : () => {}; },
-        prepare: S.view === "agent" ? () => loadOlder("all") : S.view === "chat" ? async () => { drawThrough(body, -1); } : undefined,
+        sources: () => { const log = agent ? body.querySelector<HTMLElement>(".dcoderlog") : null; return log ? logSearchSources(log) : [{ key: "chat", root: body }]; },
+        reveal: key => agent ? revealLogUnit(body, key) : body,
+        watch: changed => { const log = agent ? body.querySelector<HTMLElement>(".dcoderlog") : null; return log ? watchLogSearch(log, changed) : () => {}; },
+        prepare: agent ? () => loadOlder("all") : S.view === "chat" ? async () => { drawThrough(body, -1); } : undefined,
       });
       return;
     }
