@@ -1,7 +1,7 @@
-import { createElement } from "react";
+import { createElement, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { TerminalMachines } from "./machines-view.tsx";
+import { TerminalPage, TerminalScreen } from "./page-view.tsx";
 import { NewTerminalFields } from "./new-terminal-view.tsx";
 import { TerminalFooter, TerminalHeader } from "./terminal-controls.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
@@ -283,15 +283,14 @@ export function linkLabel(link: Link, watching: boolean, machine: string, tries 
 }
 
 export function makeTerminals(deps: TerminalDeps) {
-  const { invoke, Channel, makeScreen, h, button, ago, redraw } = deps;
+  const { invoke, Channel, makeScreen, h, ago, redraw } = deps;
   const all = new Map<string, ProjectTerminals>();
   /// Live views by terminal id, for the project on show.
   const lives = new Map<string, Live>();
   let unfollow: (() => void) | undefined;
   let polling: string | null = null;
-  let formShell: { value: TerminalForm; host: HTMLFormElement; root: Root; canStart: boolean } | null = null;
-  let machineShell: { list: HTMLElement; root: Root; panel: HTMLElement; right: HTMLElement | null } | null = null;
-  let openShell: { id: string; name: string; link: boolean; panel: HTMLElement; head: HTMLElement; headRoot: Root; foot: HTMLElement; footRoot: Root; menu: MenuItem[] } | null = null;
+  let machineShell: { root: Root; panel: HTMLElement } | null = null;
+  let formVersion = 0;
   /// The project whose terminals view shows.
   let shown: string | null = null;
 
@@ -612,22 +611,14 @@ export function makeTerminals(deps: TerminalDeps) {
   function formView(places: TerminalPlace[]) {
     const t = of(ALL);
     const f = t.form!;
-    if (!formShell || formShell.value !== f) {
-      formShell?.root.unmount();
-      const host = h("form", "cc-panel tm-form");
-      host.addEventListener("submit", event => { event.preventDefault(); if (!t.busy && f.machine && formShell?.value === f && formShell.canStart) void start(ALL, f); });
-      formShell = { value: f, host, root: createRoot(host), canStart: places.length > 0 };
-    }
-    const current = formShell;
-    current.canStart = places.length > 0;
-    flushSync(() => current.root.render(createElement(NewTerminalFields, {
-      places, machine: f.machine, cwd: f.cwd, command: f.command, name: f.name, busy: t.busy,
-      choose: (machine: string) => { f.machine = machine; redraw(); },
-      change: (field: "cwd" | "command" | "name", value: string) => { f[field] = value; },
-      start: () => { if (!t.busy && f.machine) void start(ALL, f); },
-      cancel: () => { t.form = null; redraw(); },
-    })));
-    return current.host;
+    const submit = () => { if (!t.busy && f.machine && places.length) void start(ALL, f); };
+    return createElement("form", { key: formVersion, className: "cc-panel tm-form", onSubmit: (event: FormEvent) => { event.preventDefault(); submit(); } },
+      createElement(NewTerminalFields, {
+        places, machine: f.machine, cwd: f.cwd, command: f.command, name: f.name, busy: t.busy,
+        choose: (machine: string) => { f.machine = machine; redraw(); },
+        change: (field: "cwd" | "command" | "name", value: string) => { f[field] = value; },
+        start: submit, cancel: () => { t.form = null; redraw(); },
+      }));
   }
 
   /// The open terminal: its live screen, or the last lines of a view-only one.
@@ -682,29 +673,19 @@ export function makeTerminals(deps: TerminalDeps) {
       if (keep) queueMicrotask(() => live.screen.focus());
     }
 
-    const linked = live.link !== "view_only";
-    if (!openShell || openShell.id !== open.id || openShell.link !== linked || !linked) {
-      openShell?.headRoot.unmount(); openShell?.footRoot.unmount();
-      const head = h("div", "tm-head"), foot = h("div", "tm-foot");
-      const panel = h("div", "cc-panel tm-panel", head, body, foot);
-      const shell = openShell = { id: open.id, name: open.name, link: linked, panel, head, headRoot: createRoot(head), foot, footRoot: createRoot(foot), menu: items };
-      head.addEventListener("contextmenu", e => { if (openShell === shell) openMenu(e, shell.name, shell.menu); });
-    }
-    const shell = openShell;
-    shell.name = open.name;
-    shell.menu = items;
-    flushSync(() => {
-      shell.headRoot.render(createElement(TerminalHeader, { terminal: open, state: stateLabel(open), link: live.link, watching: live.watching,
-        focus: () => { focusOpen(); }, toggle: toggleTyping, detach: detachHere, attach: attachHere, stop }));
-      shell.footRoot.render(createElement(TerminalFooter, { active: live.link === "attached" && open.state === "running", label: linkLabel(live.link, live.watching, open.machine_name, live.tries), started: ago(open.started_at) }));
-    });
-    return shell.panel;
+    return createElement("div", { className: "cc-panel tm-panel", key: open.id },
+      createElement("div", { className: "tm-head", onContextMenu: (event: ReactMouseEvent) => { event.preventDefault(); openMenu(event.nativeEvent, open.name, items); } },
+        createElement(TerminalHeader, { terminal: open, state: stateLabel(open), link: live.link, watching: live.watching,
+          focus: () => { focusOpen(); }, toggle: toggleTyping, detach: detachHere, attach: attachHere, stop })),
+      createElement(TerminalScreen, { element: body }),
+      createElement("div", { className: "tm-foot" }, createElement(TerminalFooter, { active: live.link === "attached" && open.state === "running", label: linkLabel(live.link, live.watching, open.machine_name, live.tries), started: ago(open.started_at) })));
   }
 
   /// Opens the New terminal form of the Terminals page on `machine`.
   function newOn(machine: string | null) {
     const t = of(ALL);
     t.open = null;
+    formVersion++;
     t.form = { command: "", name: "", machine, cwd: "" };
     redraw();
   }
@@ -753,14 +734,12 @@ export function makeTerminals(deps: TerminalDeps) {
     const groups = byMachine(machines, t.list || []);
     const places = machines.filter(m => m.online).map(m => ({ id: m.id, name: m.name, folder: "" }));
     if (!machineShell) {
-      const list = h("div", "tl-list");
-      machineShell = { list, root: createRoot(list), panel: h("div", "tl", list), right: null };
+      const panel = h("div", "tl");
+      machineShell = { panel, root: createRoot(panel) };
     }
     const shell = machineShell;
-    flushSync(() => shell.root.render(createElement(TerminalMachines, { groups, selected: t.open, ago, open: (id: string) => select(ALL, id), create: (id: string) => newOn(id) })));
-    let right: HTMLElement;
     const open = t.open && (t.list || []).find(x => x.id === t.open);
-    if (!t.form && formShell) { formShell.root.unmount(); formShell = null; }
+    let right: ReactNode;
 
     if (t.form) {
       watch(null);
@@ -770,13 +749,13 @@ export function makeTerminals(deps: TerminalDeps) {
     } else {
       watch(null);
       const any = (t.list || []).length > 0;
-      right = h("div", "cc-conn", h("b", "", any ? "Pick a terminal" : t.list ? "No terminals yet" : "Loading…"),
-        button("New terminal", "pri", () => newOn(places[0]?.id || null)));
+      right = createElement("div", { className: "cc-conn" }, createElement("b", null, any ? "Pick a terminal" : t.list ? "No terminals yet" : "Loading…"),
+        createElement("button", { type: "button", className: "dbtn pri", onClick: () => newOn(places[0]?.id || null) }, "New terminal"));
     }
-
+    flushSync(() => shell.root.render(createElement(TerminalPage, { groups, selected: t.open, ago,
+      open: (id: string) => select(ALL, id), create: (id: string) => newOn(id), children: right })));
     const out: HTMLElement[] = [];
     if (t.error) out.push(h("div", "cc-err", t.error));
-    if (shell.right !== right) { if (shell.right) shell.right.replaceWith(right); else shell.panel.append(right); shell.right = right; }
     out.push(shell.panel);
     return out;
   }
@@ -794,6 +773,6 @@ export function makeTerminals(deps: TerminalDeps) {
     show: (id: string) => select(ALL, id),
     /// Closes the open terminal or form on the Terminals page, back to its list.
     unselect: () => { const t = of(ALL); t.open = null; t.form = null; redraw(); },
-    stop: () => { watch(null); dropAll(); machineShell?.root.unmount(); machineShell = null; formShell?.root.unmount(); formShell = null; openShell?.headRoot.unmount(); openShell?.footRoot.unmount(); openShell = null; shown = null; },
+    stop: () => { watch(null); dropAll(); machineShell?.root.unmount(); machineShell = null; shown = null; },
   };
 }
