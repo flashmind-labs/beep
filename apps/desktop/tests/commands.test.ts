@@ -5,7 +5,8 @@ import { join } from "node:path";
 
 /// Commands Rust registers that nothing in src calls yet. Wire one up or
 /// delete it from Rust, then remove it here.
-const UNCALLED = ["agent_preview", "center_open_project", "center_project_send", "mesh_remove", "open_center"];
+// add_branch_worktree belonged to the retired branches panel, which had no callers after Git history replaced it.
+const UNCALLED = ["add_branch_worktree", "agent_preview", "center_open_project", "center_project_send", "mesh_remove", "open_center"];
 
 /// The one name built at run time: orb.ts calls `${act}_notice`, and `act` is
 /// "play", "open" or "dismiss".
