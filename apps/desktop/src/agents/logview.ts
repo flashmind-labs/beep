@@ -8,6 +8,7 @@ import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, kep
 import { cachedCommandHtml } from "./command-state.ts";
 import { $, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
+import type { SubagentRow } from "../agentpane/subagents-view.tsx";
 import { followAgent } from "../agentpane/worktree.ts";
 import { collectArtifacts, type MadeFile, type MadeFiles, madeFiles, toolArtifacts } from "../agentpane/artifacts-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
@@ -175,7 +176,17 @@ try { for (const key of JSON.parse(localStorage.getItem(CLOSED_SUBS_KEY) ?? "[]"
 function paneSubs(p: AgentPage) {
   const open = subagentsShown(p).filter(at => !closedSubs.has(`${AG.open?.session}
 ${at}`));
-  return { html: open.map(at => subRow(at, true)).join(""), count: open.length };
+  const rows: SubagentRow[] = open.map(at => {
+    const x = subOf(at), kid = x.sub.child;
+    const st = kid ? kidState(kid.state) : x.working ? "working" : x.failed ? "failed" : "done";
+    const spent = kid?.tokens ? [`${tokenCount(kid.tokens)} tokens`, kid.cost != null ? money(kid.cost) : ""] : [];
+    const meta = [st, x.ms != null ? duration(x.ms) : "", kid ? "" : x.sub.count === 1 ? "1 step" : `${x.sub.count} steps`, ...spent].filter(Boolean).join(" · ");
+    return { at, title: x.title, agent: x.agent, meta, mark: stepMark(x.working ? "in_progress" : x.status, x.working),
+      target: kid ? { kind: "child", id: kid.id, key: kid.key } : x.sub.session ? { kind: "native" } : { kind: "summary" },
+      dismiss: st !== "working" && st !== "needs you", stoppable: !!kid && (st === "working" || st === "needs you"),
+      result: !kid && !x.sub.session && AG.steps.get(at) ? x.sub.result || "The agent has not provided a readable conversation yet." : null };
+  });
+  return { rows, count: rows.length };
 }
 
 /// Takes a finished subagent's row out of the pane.

@@ -1,5 +1,6 @@
 import { createElement } from "react";
-import { setSessionPortal } from "../agents/session-frame.tsx";
+import { removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
+import { SubagentsView, type SubagentRow } from "./subagents-view.tsx";
 import { PaneTabs, PhonePaneTabs, type PaneTabItem } from "./tabs-view.tsx";
 import { readView, writeView, viewKey, rememberScroll } from "./view-memory.ts";
 import { isHtmlFile, queuePreview } from "./html-preview-state.ts";
@@ -122,7 +123,7 @@ export const P = {
   /// The tab on screen in each dock: a tab's id, `FILES`, `ARTS` or `SUBS`.
   on: { right: FILES, bottom: FILES } as Record<Dock, string>,
   /// The subagents' rows and how many, as the log last drew them.
-  subs: "",
+  subs: [] as SubagentRow[],
   subCount: 0,
   layout: loadLayout(),
   /// Tabs moved to a dock whose move is not kept (a picture by its data URL).
@@ -181,7 +182,7 @@ export function startPane(s: PaneSession) {
   const saved = readView(viewKey(s.machine_id, s.id));
   P.layout = loadLayout();
   if (saved && typeof saved === "object" && "layout" in saved) P.layout = readLayout(JSON.stringify(saved.layout));
-  P.subs = "";
+  P.subs = [];
   P.subCount = 0;
   P.moved.clear();
   P.zoom = null;
@@ -488,8 +489,8 @@ export interface PaneArtifacts {
 }
 
 /// Draws the pane again: its tabs and the one on screen.
-export function drawPane(subs?: { html: string; count: number }, arts?: PaneArtifacts) {
-  if (subs) { P.subs = subs.html; P.subCount = subs.count; }
+export function drawPane(subs?: { rows: SubagentRow[]; count: number }, arts?: PaneArtifacts) {
+  if (subs) { P.subs = subs.rows; P.subCount = subs.count; }
   if (arts) setArtifacts(arts.list, arts.turnStart);
   draw();
 }
@@ -604,11 +605,11 @@ function drawDock(d: Dock, ids: string[]) {
   // Subagents redraw each time; a file's view is drawn once and kept.
   let subView = document.querySelector<HTMLElement>(".agpviews > .agpview.subs");
 
-  if (!P.subCount) subView?.remove();
+  if (!P.subCount && subView) { removeSessionPortal(subView); subView.remove(); }
   else if (ids.includes(SUBS)) {
     if (!subView) subView = h('<div class="agpview subs"></div>');
     if (subView.parentElement !== views) views.append(subView);
-    if (subView.innerHTML !== P.subs) subView.innerHTML = P.subs;
+    setSessionPortal(subView, createElement(SubagentsView, { rows: P.subs }));
     subView.hidden = on !== SUBS;
   }
 
