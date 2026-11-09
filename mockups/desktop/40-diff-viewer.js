@@ -54,7 +54,7 @@
 @media (prefers-reduced-motion: reduce) { .mac .dv-fold, .mac .dv-chev { transition: none } }
 .mac .dv-scroll { overflow-x: auto; overflow-y: hidden; border-radius: 0 0 9px 9px } .mac .dv-lines { width: max-content; min-width: 100%; font: 12px/19px var(--mono) }
 .mac .dv-l { display: flex; min-width: 100% } .mac .dv-g { position: sticky; left: 0; z-index: 1; flex: none; display: flex; background: var(--dv-gut-bg); color: var(--dim); -webkit-user-select: none; user-select: none; border-right: 1px solid var(--border) }
-.mac .dv-g span { width: calc(var(--nw, 3) * 1ch + 14px); padding: 0 7px; text-align: right } .mac .dv-c { flex: 1; padding: 0 12px 0 6px; white-space: pre }
+.mac .dv-g span { width: calc(var(--nw, 3) * 1ch + 14px); padding: 0 7px; text-align: right } .mac .dv-c { flex: 1; padding: 0 12px 0 6px; white-space: pre; user-select: text }
 .mac .dv-c::before { display: inline-block; width: 1.2ch; color: var(--dim); content: " " }
 .mac .dv-lines.split { width: 100% } .mac .dv-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) } .mac .dv-pair .dv-l { min-width: 0 } .mac .dv-pair .dv-l + .dv-l { border-left: 1px solid var(--border) }
 .mac .dv-pair .dv-c { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere } .mac .dv-l.none { background: var(--dv-gut-bg) } .mac .dv-l.none .dv-c::before { content: none }

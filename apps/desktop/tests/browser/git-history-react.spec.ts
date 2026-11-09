@@ -1,6 +1,25 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
+test("diff status shows loading, empty, errors and omitted files", async ({ page }) => {
+  const empty = { root: "/srv/project", base: "main", merge_base: "", working_tree: false, additions: 0, deletions: 0, more: 0, files: [] };
+  await openDesktop(page, false, { project_git_history: { machine_id: "build-box", machine_name: "build-box", root: "/srv/project", refs: [], worktrees: [], commits: [{ id: "abc123", parents: [], author: "Example", committed_at: 1, subject: "Commit" }], next: null }, project_git_files: [], project_git_diff: empty });
+  await page.evaluate(() => window.__navigation.hold("project_git_diff"));
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
+  await expect(page.locator(".dv-empty").getByText("Reading the changes…")).toBeVisible();
+  await page.evaluate(() => window.__navigation.release("project_git_diff"));
+  await expect(page.getByText("Nothing changed")).toBeVisible();
+  await expect(page.locator(".dv-keys")).toContainText("next, previous file");
+  await page.evaluate(value => window.__navigation.respond("project_git_diff", value), { ...empty, more: 3, files: [{ path: "sample.ts", old_path: null, status: "modified", additions: 0, deletions: 0, left_out: null, hunks: [] }] });
+  await page.locator(".dv-head").getByRole("button", { name: "Refresh" }).click();
+  await expect(page.getByText("And 3 more files not shown.")).toBeVisible();
+  await page.evaluate(() => window.__navigation.rejectOnce("project_git_diff"));
+  await page.locator(".dv-head").getByRole("button", { name: "Refresh" }).click();
+  await expect(page.locator(".dv-err")).toBeVisible();
+  await expect(page.getByText("And 3 more files not shown.")).toBeVisible();
+});
+
 test("Git navigation keeps search focus and tree across refreshes", async ({ page }) => {
   await openDesktop(page, false, {
     project_git_history: { machine_id: "build-box", machine_name: "build-box", root: "/srv/project", refs: [], worktrees: [], commits: [{ id: "abc123", parents: [], author: "Example", committed_at: 1, subject: "Example commit" }], next: null },
@@ -392,6 +411,156 @@ test("diff file header opens a comment without folding", async ({ page }) => {
   await section.locator(".dv-cmt.open").getByRole("button", { name: "Add" }).click();
   await expect(section.locator(".dv-fcs")).toContainText("Please review this file.");
   await expect(page.getByRole("button", { name: /Send review/ })).toContainText("1");
+});
+
+test("session changes allow selecting diff text", async ({ page }) => {
+  await openDesktop(page, true);
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  const text = page.locator(".dv-l .dv-c").filter({ hasText: "const value20 = 20;" });
+  await expect(text).toBeVisible();
+  await expect(text).toHaveCSS("user-select", "text");
+  await text.evaluate(element => { const range = document.createRange(); range.selectNodeContents(element); const selection = document.getSelection(); selection?.removeAllRanges(); selection?.addRange(range); });
+  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString())).toBe("const value20 = 20;");
+});
+
+test("unchanged diff reload keeps a focused comment editor and file mounted", async ({ page }) => {
+  await openDesktop(page, true);
+  await page.evaluate(() => window.__navigation.open({ agent: {
+    kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session",
+    cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false,
+  } }));
+  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  const section = page.locator('.dv-file[data-path="sample.ts"]');
+  await section.locator(".dv-l").filter({ hasText: "const value20 = 20;" }).locator(".dv-g").click();
+  const editor = section.getByRole("textbox", { name: "Comment on this line" });
+  await editor.fill("Keep this draft");
+  await editor.evaluate(element => { if (element instanceof HTMLTextAreaElement) { element.dataset.identity = "kept"; element.setSelectionRange(3, 3); } });
+  await section.evaluate(element => { element.dataset.identity = "kept"; });
+  const files = page.locator(".dv-files");
+  const top = await files.evaluate(element => element.scrollTop);
+  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "work_diff").length);
+  await page.evaluate(() => window.__navigation.hold("work_diff"));
+  await page.locator('.dv-head .dv-btn[aria-label="Refresh"]').evaluate(element => { if (element instanceof HTMLElement) element.click(); });
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "work_diff").length)).toBeGreaterThan(reads);
+  await page.evaluate(() => window.__navigation.release("work_diff"));
+  await expect(page.locator('.dv-head .dv-btn[aria-label="Refresh"]')).toBeEnabled();
+  await expect(section).toHaveAttribute("data-identity", "kept");
+  await expect(editor).toHaveAttribute("data-identity", "kept");
+  await expect(editor).toHaveValue("Keep this draft");
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveJSProperty("selectionStart", 3);
+  await expect(files).toHaveJSProperty("scrollTop", top);
+});
+
+test("selected diff text survives reload until selection clears", async ({ page }) => {
+  const file = (text: string) => ({ path: "sample.ts", old_path: null, status: "modified", additions: 1, deletions: 0, left_out: null, hunks: [{ old_start: 1, new_start: 1, old_lines: 1, new_lines: 1, section: "", lines: [{ k: "+", t: text }] }] });
+  const diff = { root: "/srv/project", base: "main", merge_base: "", working_tree: false, additions: 1, deletions: 0, more: 0, files: [file("selected original text")] };
+  await openDesktop(page, false, { project_git_history: { machine_id: "build-box", machine_name: "build-box", root: "/srv/project", refs: [], worktrees: [], commits: [{ id: "abc123", parents: [], author: "Example", committed_at: 1, subject: "Commit" }], next: null }, project_git_files: [], project_git_diff: diff });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
+  const section = page.locator('.dv-file[data-path="sample.ts"]');
+  const text = section.locator(".dv-c").filter({ hasText: "selected original text" });
+  await expect(text).toBeVisible();
+  await text.evaluate(element => { const range = document.createRange(); range.selectNodeContents(element); const selection = document.getSelection(); selection?.removeAllRanges(); selection?.addRange(range); });
+  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString())).toBe("selected original text");
+  await section.evaluate(element => { element.dataset.identity = "kept"; });
+  for (let i = 1; i <= 2; i++) {
+    await page.evaluate(value => window.__navigation.respond("project_git_diff", value), { ...diff, files: [file(`updated line ${i}`)] });
+    await page.locator('.dv-head .dv-btn[aria-label="Refresh"]').evaluate(element => { if (element instanceof HTMLElement) element.click(); });
+    await expect(page.locator('.dv-head .dv-btn[aria-label="Refresh"]')).toBeEnabled();
+    await expect(section).toHaveAttribute("data-identity", "kept");
+    await expect.poll(() => page.evaluate(() => document.getSelection()?.toString())).toBe("selected original text");
+  }
+  await page.evaluate(() => document.getSelection()?.removeAllRanges());
+  await expect(section).toContainText("updated line 2");
+  await expect(section).not.toHaveAttribute("data-identity", "kept");
+});
+
+test("changing another file keeps the focused diff section and editor mounted", async ({ page }) => {
+  await openDesktop(page, true);
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    let updated = false, changedAgain = false, removed = false, missing = false, returned = false;
+    window.addEventListener("test-update-diff", () => { updated = true; });
+    window.addEventListener("test-update-again", () => { changedAgain = true; });
+    window.addEventListener("test-remove-line", () => { removed = true; });
+    window.addEventListener("test-remove-file", () => { missing = true; });
+    window.addEventListener("test-return-file", () => { returned = true; });
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command !== "work_diff") return invoke<T>(command, args);
+      const file = (path: string, text: string) => ({ path, old_path: null, status: "modified", additions: 1, deletions: 0, left_out: null, hunks: [{ old_start: 1, new_start: 1, old_lines: 1, new_lines: 1, section: "", lines: [{ k: "+", t: text }] }] });
+      const first = file("first.ts", changedAgain ? "latest first line" : updated ? "updated first line" : "first line"), second = file("second.ts", updated ? "updated line" : "old line");
+      if (removed) { first.hunks[0].old_start = 2; first.hunks[0].new_start = 2; }
+      return { root: "/srv/project", base: "main", merge_base: "", working_tree: true, additions: 2, deletions: 0, more: 0, files: missing ? returned ? [second] : [] : updated ? [second, first] : [first, second] } as T;
+    };
+  });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  const first = page.locator('.dv-file[data-path="first.ts"]'), second = page.locator('.dv-file[data-path="second.ts"]');
+  await expect(second).toContainText("old line");
+  await first.locator(".dv-l").filter({ hasText: "first line" }).locator(".dv-g").click();
+  const editor = first.getByRole("textbox", { name: "Comment on this line" });
+  await editor.fill("Unfinished comment");
+  await editor.evaluate(element => { if (element instanceof HTMLTextAreaElement) { element.dataset.identity = "kept"; element.setSelectionRange(4, 4); } });
+  await first.evaluate(element => { element.dataset.identity = "kept"; });
+  await second.evaluate(element => { element.dataset.identity = "old"; });
+  const files = page.locator(".dv-files"), top = await files.evaluate(element => element.scrollTop);
+  await page.evaluate(() => window.dispatchEvent(new Event("test-update-diff")));
+  await page.locator('.dv-head .dv-btn[aria-label="Refresh"]').evaluate(element => { if (element instanceof HTMLElement) element.click(); });
+  await expect(second).toContainText("updated line");
+  await expect(page.locator(".dv-file").first()).toHaveAttribute("data-path", "second.ts");
+  await expect(second).not.toHaveAttribute("data-identity", "old");
+  await expect(first).toHaveAttribute("data-identity", "kept");
+  await expect(editor).toHaveAttribute("data-identity", "kept");
+  await expect(editor).toHaveValue("Unfinished comment");
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveJSProperty("selectionStart", 4);
+  await expect(files).toHaveJSProperty("scrollTop", top);
+  await expect(first).toContainText("first line");
+  await expect(first).not.toContainText("updated first line");
+  await editor.press("Control+Enter");
+  await expect(first).toContainText("updated first line");
+  await expect(first).toContainText("Unfinished comment");
+  await first.getByRole("button", { name: "Edit" }).click();
+  await page.evaluate(() => window.dispatchEvent(new Event("test-update-again")));
+  await page.locator('.dv-head .dv-btn[aria-label="Refresh"]').evaluate(element => { if (element instanceof HTMLElement) element.click(); });
+  await first.locator(".dv-cmt.open").getByRole("button", { name: "Cancel" }).click();
+  await expect(first).toContainText("latest first line");
+  await first.getByRole("button", { name: "Edit" }).click();
+  const editing = first.getByRole("textbox", { name: "Comment on this line" });
+  await editing.fill("Unsaved edit");
+  await editing.evaluate(element => { if (element instanceof HTMLTextAreaElement) element.setSelectionRange(3, 3); });
+  await page.evaluate(() => window.dispatchEvent(new Event("test-remove-line")));
+  await page.locator('.dv-head .dv-btn[aria-label="Refresh"]').evaluate(element => { if (element instanceof HTMLElement) element.click(); });
+  const lost = page.locator(".dv-lost");
+  await expect(lost).toContainText("On files or lines no longer in the changes");
+  const restored = lost.getByRole("textbox", { name: "Comment on this line" });
+  await expect(restored).toHaveValue("Unsaved edit");
+  await expect(restored).toBeFocused();
+  await expect(restored).toHaveJSProperty("selectionStart", 3);
+  await restored.press("Control+Enter");
+  await expect(lost).toContainText("Unsaved edit");
+  await first.locator(".dv-l").filter({ hasText: "latest first line" }).locator(".dv-g").click();
+  const fresh = first.getByRole("textbox", { name: "Comment on this line" });
+  await fresh.fill("New draft on removed file");
+  await fresh.evaluate(element => { if (element instanceof HTMLTextAreaElement) element.setSelectionRange(5, 5); });
+  await page.evaluate(() => window.dispatchEvent(new Event("test-remove-file")));
+  await page.locator('.dv-head .dv-btn[aria-label="Refresh"]').evaluate(element => { if (element instanceof HTMLElement) element.click(); });
+  await expect(first).toHaveCount(0);
+  const orphan = lost.getByRole("textbox", { name: "Comment on this line" });
+  await expect(orphan).toHaveValue("New draft on removed file");
+  await expect(orphan).toBeFocused();
+  await expect(orphan).toHaveJSProperty("selectionStart", 5);
+  await orphan.fill("Edited after the file disappeared");
+  await orphan.evaluate(element => { if (element instanceof HTMLTextAreaElement) element.setSelectionRange(7, 7); });
+  await page.evaluate(() => window.dispatchEvent(new Event("test-return-file")));
+  await page.locator('.dv-head .dv-btn[aria-label="Refresh"]').evaluate(element => { if (element instanceof HTMLElement) element.click(); });
+  await expect(second).toBeVisible();
+  const returnedEditor = lost.getByRole("textbox", { name: "Comment on this line" });
+  await expect(returnedEditor).toHaveValue("Edited after the file disappeared");
+  await expect(returnedEditor).toBeFocused();
+  await expect(returnedEditor).toHaveJSProperty("selectionStart", 7);
 });
 
 test("virtualized diff keeps inline comments editable after refresh", async ({ page }) => {

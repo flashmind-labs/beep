@@ -6,13 +6,14 @@ import { DiffTree } from "./diff-tree.tsx";
 import { DiffFileHeader } from "./diff-file-header.tsx";
 import { DiffChunk } from "./diff-chunk.tsx";
 import { DiffComment } from "./diff-comment.tsx";
+import { DiffKeys, DiffMessage, DiffMore } from "./diff-status.tsx";
 import { readView, writeView } from "../agentpane/view-memory.ts";
 // The diff viewer: a one-line header with the counts, a filter, icon toggles
 // and the review buttons; a list of the files at wide widths; each file folding under
 // its sticky header, its lines in a unified view that scrolls sideways on its
 // own.
 import {
-  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitRow, allFolded, currentFile, contextFile, diffRows, isFolded, leftOutNote,
+  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitRow, allFolded, currentFile, contextFile, diffRows, isFolded, leftOutNote, sameDiffFile,
   inView, lineLabel, matchesFilter, numberWidth, placeComments, reviewText, splitHeight, splitRows, stepFile, withLoaded,
 } from "./diff-state.ts";
 import { initTreeResize } from "./treewidth.ts";
@@ -127,10 +128,20 @@ export function diffView(src: DiffSource): DiffViewHandle {
     draft: src.readOnly ? [] : loadDraft(src.review.key),
     sending: false,
   };
+  type EditorRestore = { text: string; focused: boolean; start: number; end: number; isNew: boolean };
+  const orphaned = new Map<ReviewComment, EditorRestore | null>();
+  let revealOrphan = false;
   let placedCache: ReturnType<typeof placeComments> | null = null;
-  const placed = () => placedCache ??= placeComments(st.view?.files ?? [], st.draft);
+  const placed = () => {
+    if (placedCache) return placedCache;
+    const out = placeComments(st.view?.files ?? [], st.draft.filter(comment => !orphaned.has(comment)));
+    out.lost.push(...orphaned.keys());
+    return placedCache = out;
+  };
   /// Each file's section, by path, as last drawn.
   let sections = new Map<string, HTMLElement>();
+  let renderedFiles = new Map<string, DiffFile>();
+  let hasRenderedView = false;
   /// The chunks of rows of every open file.
   const chunks = new Map<Element, Chunk>();
   const liveChunks = new Set<Chunk>();
@@ -138,16 +149,48 @@ export function diffView(src: DiffSource): DiffViewHandle {
   const noComments = new Map<string, readonly ReviewComment[]>();
   let nextChunk = 0;
   const commentRoot = createRoot(document.createElement("div"));
-  const comments = new Map<HTMLElement, { id: number; comment: ReviewComment; label: string; isNew: boolean; chunkOwned: boolean }>();
+  const comments = new Map<HTMLElement, { id: number; comment: ReviewComment; label: string; isNew: boolean; chunkOwned: boolean; restored: EditorRestore | null }>();
   const lostComments = new Map<ReviewComment, HTMLElement>();
-  const lostHeading = el("div", "dv-lh", "On files no longer in the changes");
+  const lostHeading = el("div", "dv-lh", "On files or lines no longer in the changes");
   let nextComment = 0;
   const mountLineComment = (host: HTMLElement, comment: ReviewComment) => {
-    comments.set(host, { id: ++nextComment, comment, label: "", isNew: false, chunkOwned: true });
+    comments.set(host, { id: ++nextComment, comment, label: "", isNew: false, chunkOwned: true, restored: null });
   };
   const unmountLineComment = (host: HTMLElement) => { comments.delete(host); };
   const headers = new Map<string, { host: HTMLElement; file: DiffFile; comments: HTMLElement }>();
+  const deferredFiles = new Set<string>();
+  const selectionDeferred = new Set<string>();
+  let watchingSelection = false;
+
+  function selectionChanged() {
+    if (!root.isConnected) {
+      selectionDeferred.clear();
+      document.removeEventListener("selectionchange", selectionChanged);
+      watchingSelection = false;
+      return;
+    }
+    let ready = false;
+    for (const path of selectionDeferred) {
+      const section = sections.get(path);
+      if (section && selected(section)) continue;
+      selectionDeferred.delete(path);
+      deferredFiles.delete(path);
+      renderedFiles.delete(path);
+      ready = true;
+    }
+    if (!selectionDeferred.size) {
+      document.removeEventListener("selectionchange", selectionChanged);
+      watchingSelection = false;
+    }
+    if (ready) {
+      const top = files.scrollTop;
+      if (reconcileFiles() && files.scrollTop !== top) files.scrollTop = top;
+    }
+  }
   const headerRoot = createRoot(document.createElement("div"));
+  const statusRoot = createRoot(document.createElement("div"));
+  const errorHost = el("div"), messageHost = el("div"), moreHost = el("div");
+  errorHost.style.display = messageHost.style.display = moreHost.style.display = "contents";
   const bodyModes = new Map<string, boolean>();
   const visibleFiles = new Set<string>();
   const matchNote = el("div", "dv-more");
@@ -243,7 +286,6 @@ export function diffView(src: DiffSource): DiffViewHandle {
   const body = el("div", "dv-body", tree, grip, files);
   initTreeResize(body, grip);
   const keys = el("div", "dv-keys");
-  keys.innerHTML = "<span><kbd>j</kbd><kbd>k</kbd>next, previous file</span><span><kbd>x</kbd>fold the file</span><span><kbd>/</kbd>filter</span>";
   root.append(head, feedback.note, body, keys);
 
   new ResizeObserver(() => {
@@ -283,8 +325,27 @@ export function diffView(src: DiffSource): DiffViewHandle {
     feedback.redraw();
   }
 
+  function drawStatus() {
+    statusRoot.render([
+      createPortal(st.error ? createElement("div", { className: "dv-err" }, st.error) : null, errorHost, "error"),
+      createPortal(createElement(DiffMessage, { loading: st.loading, view: st.view }), messageHost, "message"),
+      createPortal(createElement(DiffMore, { count: st.view?.more ?? 0 }), moreHost, "more"),
+      createPortal(createElement(DiffKeys), keys, "keys"),
+    ]);
+  }
+
   function drawFiles() {
     const v = st.view;
+    for (const [comment, host] of lostComments) {
+      if (!orphaned.has(comment)) continue;
+      const input = host.querySelector<HTMLTextAreaElement>(".dv-cmt.open textarea"), entry = comments.get(host);
+      if (!input || !entry) continue;
+      const focused = document.activeElement === input;
+      if (focused) revealOrphan = true;
+      orphaned.set(comment, { text: input.value, focused, start: input.selectionStart, end: input.selectionEnd, isNew: entry.isNew });
+    }
+    hasRenderedView = !!v;
+    renderedFiles = new Map((v?.files ?? []).map(file => [file.path, file]));
     chunkObserver.disconnect();
     fileObserver.disconnect();
     comments.clear();
@@ -303,17 +364,14 @@ export function diffView(src: DiffSource): DiffViewHandle {
     files.replaceChildren();
     sections = new Map();
     placedCache = null;
-    if (st.error) files.append(el("div", "dv-err", st.error));
-    files.append(lostBox);
+    files.append(errorHost, lostBox, messageHost);
+    drawStatus();
 
     if (!v) {
-      if (st.loading) files.append(el("div", "dv-empty", el("span", "dspin"), "Reading the changes…"));
       return;
     }
 
     if (!v.files.length) {
-      files.append(el("div", "dv-empty", el("b", "", "Nothing changed"),
-        el("span", "", v.working_tree ? `The folder matches ${v.base}, with nothing uncommitted.` : `The branch has no commits past ${v.base}.`)));
       drawReview();
       return;
     }
@@ -327,9 +385,103 @@ export function diffView(src: DiffSource): DiffViewHandle {
       fileObserver.observe(section);
     }
 
-    if (v.more) files.append(el("div", "dv-more", `And ${v.more.toLocaleString("en-US")} more files not shown.`));
+    files.append(moreHost);
     applyFilter();
     drawReview();
+  }
+
+  function reconcileFiles(force = new Set<string>()): boolean {
+    const view = st.view;
+    if (!view || !sections.size) {
+      if (view && !view.files.length && !sections.size && hasRenderedView) { drawStatus(); return false; }
+      drawFiles();
+      return true;
+    }
+    const incoming = new Map(view.files.map(file => [file.path, file]));
+    const changed = view.files.some(file => {
+      const old = renderedFiles.get(file.path);
+      return force.has(file.path) || !old || !sameDiffFile(old, file);
+    }) || [...sections.keys()].some(path => !incoming.has(path)) || [...sections.keys()].some((path, index) => view.files[index]?.path !== path);
+    if (!changed) { drawStatus(); return false; }
+
+    placedCache = null;
+    for (const [path, section] of sections) {
+      const next = incoming.get(path), previous = renderedFiles.get(path);
+      if (next && previous && !force.has(path) && sameDiffFile(previous, next)) continue;
+      if (selected(section)) {
+        deferredFiles.add(path);
+        selectionDeferred.add(path);
+        if (!watchingSelection) { document.addEventListener("selectionchange", selectionChanged); watchingSelection = true; }
+        continue;
+      }
+      const editing = [...comments].flatMap(([host, entry]) => {
+        const input = host.querySelector<HTMLTextAreaElement>(".dv-cmt.open textarea");
+        return section.contains(host) && input ? [{ entry, input }] : [];
+      });
+      const stillAnchored = editing.filter(({ entry }) => {
+        if (!next) return false;
+        if (entry.comment.line === null) return true;
+        return !!placeComments([next], [entry.comment]).files.get(path)?.lines.size;
+      });
+      if (stillAnchored.length) { deferredFiles.add(path); continue; }
+      deferredFiles.delete(path);
+      for (const { entry, input } of editing) {
+        if (document.activeElement === input) revealOrphan = true;
+        orphaned.set(entry.comment, { text: input.value, focused: document.activeElement === input, start: input.selectionStart, end: input.selectionEnd, isNew: entry.isNew });
+      }
+      fileObserver.unobserve(section);
+      visibleFiles.delete(path);
+      forgetCommentsIn(section);
+      headers.delete(path);
+      if (next) {
+        const replacement = fileSection(next);
+        section.replaceWith(replacement);
+        sections.set(path, replacement);
+        fileObserver.observe(replacement);
+      } else {
+        section.remove();
+        sections.delete(path);
+        bodyModes.delete(path);
+      }
+    }
+    for (const file of view.files) {
+      let section = sections.get(file.path);
+      if (!section) {
+        section = fileSection(file);
+        sections.set(file.path, section);
+        fileObserver.observe(section);
+      }
+    }
+    if (!view.files.length && !sections.size) { matchNote.remove(); moreHost.remove(); }
+    const selection = document.getSelection();
+    const anchor = view.files.findIndex(file => {
+      const section = sections.get(file.path);
+      return !!section && (section.contains(document.activeElement) || !!selection && !selection.isCollapsed && selection.containsNode(section, true));
+    });
+    if (anchor >= 0) {
+      let before: Node = sections.get(view.files[anchor].path)!;
+      for (let i = anchor - 1; i >= 0; i--) {
+        const section = sections.get(view.files[i].path)!;
+        if (section.nextSibling !== before) files.insertBefore(section, before);
+        before = section;
+      }
+    }
+    let cursor = anchor >= 0 ? sections.get(view.files[anchor].path)!.nextSibling : matchNote.nextSibling;
+    for (const file of view.files.slice(anchor + 1)) {
+      const section = sections.get(file.path)!;
+      if (section === cursor) cursor = cursor.nextSibling;
+      else files.insertBefore(section, cursor);
+    }
+    const pendingRemoved = [...sections].filter(([path]) => !incoming.has(path) && deferredFiles.has(path));
+    sections = new Map([...view.files.map(file => [file.path, sections.get(file.path)!] as const), ...pendingRemoved]);
+    renderedFiles = new Map([...view.files.map(file => [file.path, deferredFiles.has(file.path) ? renderedFiles.get(file.path) ?? file : file] as const), ...pendingRemoved.flatMap(([path]) => { const file = renderedFiles.get(path); return file ? [[path, file] as const] : []; })]);
+    pruneChunks();
+    markedPath = null;
+    drawTree();
+    applyFilter();
+    drawReview();
+    drawStatus();
+    return true;
   }
 
   function drawTree(synchronous = false) {
@@ -547,13 +699,19 @@ export function diffView(src: DiffSource): DiffViewHandle {
     for (const comment of lost) {
       let host = lostComments.get(comment);
       if (!host) {
-        host = commentHost(comment, `${comment.path} ${lineLabel(comment)}`.trim(), false);
+        const restored = orphaned.get(comment) ?? null;
+        host = commentHost(comment, `${comment.path} ${lineLabel(comment)}`.trim(), restored?.isNew ?? false, restored);
         lostComments.set(comment, host);
       }
       if (host === cursor) cursor = cursor.nextSibling;
       else lostBox.insertBefore(host, cursor);
     }
     drawComments();
+    for (const [comment, restored] of orphaned) {
+      if (!restored?.focused) continue;
+      const input = lostComments.get(comment)?.querySelector<HTMLTextAreaElement>("textarea");
+      if (input && document.activeElement === input) { input.scrollIntoView({ block: "nearest" }); restored.focused = false; }
+    }
   }
 
   /// The draft changed: keep it and show it.
@@ -570,15 +728,14 @@ export function diffView(src: DiffSource): DiffViewHandle {
     st.draft = merged.draft;
     changed();
     const keep = files.scrollTop;
-    drawFiles();
-    files.scrollTop = keep;
+    if (reconcileFiles(new Set(add.map(comment => comment.path))) && files.scrollTop !== keep) files.scrollTop = keep;
     return merged.added;
   }
 
-  function commentHost(comment: ReviewComment, label: string, isNew: boolean) {
+  function commentHost(comment: ReviewComment, label: string, isNew: boolean, restored: EditorRestore | null = null) {
     const host = el("span", "dv-comment-slot");
     host.style.display = "contents";
-    comments.set(host, { id: ++nextComment, comment, label, isNew, chunkOwned: false });
+    comments.set(host, { id: ++nextComment, comment, label, isNew, chunkOwned: false, restored });
     return host;
   }
 
@@ -588,21 +745,37 @@ export function diffView(src: DiffSource): DiffViewHandle {
 
   function drawComments() {
     const portals = [...comments].map(([host, entry]) => createPortal(createElement(DiffComment, {
-      comment: entry.comment, label: entry.label, initiallyEditing: entry.isNew, isNew: entry.isNew,
+      comment: entry.comment, label: entry.label, initiallyEditing: entry.isNew || !!entry.restored, isNew: entry.isNew, restored: entry.restored,
       onSave: value => {
         entry.comment.text = value;
         if (entry.isNew) { st.draft.push(entry.comment); entry.isNew = false; }
+        entry.restored = null;
+        if (orphaned.has(entry.comment)) orphaned.set(entry.comment, null);
         changed();
       },
       onRemove: () => {
         const index = st.draft.indexOf(entry.comment);
         if (index >= 0) st.draft.splice(index, 1);
         comments.delete(host);
+        orphaned.delete(entry.comment);
+        lostComments.delete(entry.comment);
         if (!entry.chunkOwned) host.remove();
         changed();
       },
-      onCancelNew: () => { comments.delete(host); host.remove(); drawComments(); },
+      onCancelNew: () => { comments.delete(host); orphaned.delete(entry.comment); lostComments.delete(entry.comment); host.remove(); changed(); },
       onEscape: () => root.focus({ preventScroll: true }),
+      onEditEnd: () => {
+        entry.restored = null;
+        if (orphaned.has(entry.comment)) orphaned.set(entry.comment, null);
+        if (!deferredFiles.has(entry.comment.path)) return;
+        queueMicrotask(() => {
+          if ([...comments].some(([node, item]) => item.comment.path === entry.comment.path && node.querySelector(".dv-cmt.open"))) return;
+          deferredFiles.delete(entry.comment.path);
+          renderedFiles.delete(entry.comment.path);
+          const top = files.scrollTop;
+          if (reconcileFiles() && files.scrollTop !== top) files.scrollTop = top;
+        });
+      },
     }), host, String(entry.id)));
     flushSync(() => commentRoot.render(portals));
   }
@@ -790,7 +963,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
   async function loadFull(f: DiffFile) {
     if (!st.view || st.pending.has(f.path)) return;
     st.pending.add(f.path);
-    redrawFile(f.path);
+    if ([...comments].some(([node, item]) => item.comment.path === f.path && node.querySelector(".dv-cmt.open"))) deferredFiles.add(f.path);
+    else redrawFile(f.path);
 
     try {
       const got = await src.load([f.path], true, st.uncommitted);
@@ -801,7 +975,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
 
     st.pending.delete(f.path);
     st.folded.set(f.path, false);
-    drawFiles();
+    reconcileFiles(new Set([f.path]));
   }
 
   /// Draws one file's section again, in place.
@@ -812,6 +986,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     forgetCommentsIn(old);
     old.replaceWith(next);
     sections.set(path, next);
+    renderedFiles.set(path, f);
     drawHeaders();
     drawComments();
     pruneChunks();
@@ -856,8 +1031,12 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const keep = restoredScroll || files.scrollTop;
     restoredScroll = 0;
     drawHead();
-    drawFiles();
-    files.scrollTop = keep;
+    if (reconcileFiles() && files.scrollTop !== keep) files.scrollTop = keep;
+    if (revealOrphan) {
+      revealOrphan = false;
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && lostBox.contains(active)) active.scrollIntoView({ block: "nearest" });
+    }
   }
 
   drawReview();
