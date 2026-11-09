@@ -11,7 +11,7 @@ import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import type { TileData, TileRow } from "./board.ts";
 import { PageCache, type SectionStore } from "../ui/pagecache.ts";
 import { bytes, reason } from "../ui/format.ts";
-import { diffView } from "../review/diff.ts";
+import { diffView, type DiffViewHandle } from "../review/diff.ts";
 import { compareFiles } from "./compare.ts";
 import { clockWarning, loadClocks } from "../machines/clock.ts";
 import { plainPath } from "./projects-state.ts";
@@ -329,6 +329,8 @@ export function makeFileSync(deps: FileSyncDeps) {
   /// The conflicts opened to compare, by project and path: the diff, or the
   /// line saying why there is none, and null while it is read.
   const compared = new Map<string, HTMLElement | string | null>();
+  const compareViews = new Map<string, DiffViewHandle>();
+  const compareReads = new Map<string, object>();
 
   const kept = deps.kept ?? new PageCache(null).section<SyncDetail | null>("filesync");
 
@@ -473,18 +475,29 @@ export function makeFileSync(deps: FileSyncDeps) {
 
     if (compared.has(key)) {
       compared.delete(key);
+      compareReads.delete(key);
+      compareViews.get(key)?.dispose();
+      compareViews.delete(key);
       return redraw();
     }
 
+    const reading = {};
+    compareReads.set(key, reading);
     compared.set(key, null);
     redraw();
     const machine = machines.find(m => m.machine_id === c.holder);
     const done = machine ? await compareFiles(invoke, machine, c) : "No machine that has it is online";
-    if (!compared.has(key)) return;
-    compared.set(key, typeof done === "string" ? done : diffView({
-      load: async () => done,
-      review: { key: "compare", heading: () => "Review", send: async () => "Comments are not sent from here" },
-    }).el);
+    if (compareReads.get(key) !== reading) return;
+    if (typeof done === "string") compared.set(key, done);
+    else {
+      const { windowDiffOwner } = await import("../review/diff-owner.ts");
+      if (compareReads.get(key) !== reading) return;
+      const view = diffView({ owner: windowDiffOwner(), load: async () => done,
+        review: { key: "compare", heading: () => "Review", send: async () => "Comments are not sent from here" } });
+      compareViews.set(key, view);
+      compared.set(key, view.el);
+    }
+    compareReads.delete(key);
     redraw();
   }
 

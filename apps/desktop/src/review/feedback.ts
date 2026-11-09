@@ -1,6 +1,5 @@
-import { createElement, type ReactElement } from "react";
-import { createPortal, flushSync } from "react-dom";
-import { createRoot } from "react-dom/client";
+import { createElement, Fragment, type ReactElement, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { FeedbackControl, FeedbackNote, type FeedbackState } from "./feedback-view.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // Review with agent: the diff header's button, the start form's picker
@@ -13,8 +12,9 @@ import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts
 // `review` tool) become comments too, once.
 import {
   type CanStart, type ReviewRun, type ReviewTarget,
-  doneNote, findingsOf, reviewBase, reviewTarget, runState, toComments, whyNot,
+  doneNote, findingsOf, mergeComments, reviewBase, reviewTarget, runState, toComments, whyNot,
 } from "./feedback-state.ts";
+import { loadDraft, saveDraft } from "./draftstore.ts";
 import type { DiffFile, ReviewComment } from "./diff-state.ts";
 import type { AgentHost } from "../agents/agents.ts";
 import type { Picked } from "../agents/agentpicker.ts";
@@ -56,6 +56,7 @@ interface Attached {
   files: () => DiffFile[] | null;
   add: (comments: ReviewComment[]) => number;
   redraw: () => void;
+  say: (text: string) => void;
 }
 
 const attached = new Map<string, Attached>();
@@ -150,18 +151,24 @@ async function tick(run: Run) {
 async function deliver(key: string, read: ReviewRun, root: string, load: () => Promise<DiffFile[]>) {
   const review = read.review!;
   markTaken(key, read.id);
-  // The last diff that showed this review takes the comments, open or not: it keeps the draft.
   const view = attached.get(key);
   let files = view?.files() ?? null;
   if (!files?.length) files = await load().catch(e => { console.warn("diff not read again:", e); return null; });
   const comments = toComments(findingsOf(review, root), files ?? [], read.agent);
-  const added = view ? view.add(comments) : 0;
+  // A newer viewer may have replaced this one while the diff was loading.
+  const current = attached.get(key);
+  let added: number;
+  if (current) added = current.add(comments);
+  else {
+    const merged = mergeComments(loadDraft(key), comments);
+    saveDraft(key, merged.draft);
+    added = merged.added;
+  }
   return doneNote(agentLabel(read.agent), review.verdict, added, comments.length);
 }
 
-const saying = new Map<string, (text: string) => void>();
 function say(key: string, text: string) {
-  saying.get(key)?.(text);
+  attached.get(key)?.say(text);
 }
 
 /// Opens the reviewer's conversation, listed under the session it reviews.
@@ -202,13 +209,14 @@ export interface Feedback {
   note: HTMLElement;
   /// Draws both again, as the diff changes.
   redraw: () => void;
+  dispose: () => void;
 }
 
-export function feedbackButton(o: FeedbackOpts): Feedback {
+export function feedbackButton(o: FeedbackOpts, render: (view: ReactNode) => void): Feedback {
   const box = el("span", "dv-fbw");
   const note = el("div", "dv-fbnote");
   note.hidden = true;
-  const viewRoot = createRoot(document.createElement("div"));
+  let disposed = false;
   let button: HTMLButtonElement | null = null;
   let slot: HTMLDivElement | null = null;
   let pickerView: ReactElement | null = null;
@@ -244,17 +252,18 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   }
 
   function drawButton() {
+    if (disposed) return;
     const run = runs.get(o.key);
     const state: FeedbackState = run ? { kind: "running", agent: agentLabel(run.agent) }
       : starting ? { kind: "starting" } : { kind: "ready", reason: why(), open };
     const text = notes.get(o.key) ?? "";
     note.hidden = !text;
     if (text) note.setAttribute("role", "status");
-    flushSync(() => viewRoot.render([
+    render(createElement(Fragment, null,
       createPortal(createElement(FeedbackControl, { state, setButton, setSlot, onClick: () => void onButton() }), box, "control"),
       createPortal(text ? createElement(FeedbackNote, { text, onDismiss: () => { notes.delete(o.key); drawButton(); } }) : null, note, "note"),
       slot && createPortal(pickerView, slot, "picker"),
-    ]));
+    ));
   }
 
   function closePicker() {
@@ -323,9 +332,10 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
         machineId: machine.id, agent: picked.agent, cwd: v.root, base: reviewBase(target),
         parent: o.session ?? null, model: picked.model.trim() || null, effort: picked.effort,
       });
+      const load = o.load;
       const run: Run = {
         key: o.key, id: started.id, machineId: machine.id, agent: picked.agent, root: v.root,
-        load: () => o.load(uncommitted), failed: 0,
+        load: () => load(uncommitted), failed: 0,
       };
       notes.delete(o.key);
       runs.set(o.key, run);
@@ -361,7 +371,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     if (open) { closePicker(); return drawButton(); }
     readHosts(redraw);
     const [a, p] = await Promise.all([agents(), picker()]);
-    if (runs.has(o.key) || open || !box.isConnected) return;
+    if (disposed || runs.has(o.key) || open || !box.isConnected) return;
     pickDefaults(a.byPreference);
     open = true;
     document.addEventListener("pointerdown", outside, true);
@@ -378,6 +388,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   }
 
   function redraw() {
+    if (disposed) return;
     if (Date.now() - tookAt >= HOSTS_MS) { tookAt = Date.now(); void takeSessionReviews(); }
     if (open && !box.isConnected) closePicker();
     drawButton();
@@ -385,13 +396,19 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     else if (open) closePicker();
   }
 
-  attached.set(o.key, {
+  const attachment: Attached = {
     files: () => o.view()?.files ?? null,
     add: o.add,
     redraw,
-  });
-  saying.set(o.key, o.say);
+    say: o.say,
+  };
+  attached.set(o.key, attachment);
   readHosts(redraw);
   redraw();
-  return { el: box, note, redraw };
+  return { el: box, note, redraw, dispose: () => {
+    if (disposed) return;
+    disposed = true;
+    closePicker();
+    if (attached.get(o.key) === attachment) attached.delete(o.key);
+  } };
 }

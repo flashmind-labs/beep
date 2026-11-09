@@ -42,7 +42,8 @@ export function initTreeResize(body: HTMLElement, grip: HTMLElement) {
   grip.setAttribute("aria-orientation", "vertical");
   grip.setAttribute("aria-valuemin", String(MIN));
   apply();
-  new ResizeObserver(apply).observe(body);
+  const observer = new ResizeObserver(apply);
+  observer.observe(body);
 
   dragHandle(grip, e => {
     const from = e.clientX, start = apply();
@@ -61,4 +62,5 @@ export function initTreeResize(body: HTMLElement, grip: HTMLElement) {
     set(apply() + step);
     save();
   });
+  return () => observer.disconnect();
 }

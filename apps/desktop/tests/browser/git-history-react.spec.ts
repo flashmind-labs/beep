@@ -764,3 +764,30 @@ test("a pending review picker does not open after its diff closes", async ({ pag
     await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toHaveCount(0);
   } finally { release(); }
 });
+
+test("a review arriving after its diff closes is saved for reopening", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await openDesktop(page, true);
+  await page.evaluate(() => window.__navigation.hold("agent_reviews"));
+  const open = async (id: string) => page.evaluate(id => window.__navigation.open({ agent: {
+    kind: "agent", machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title: id,
+    cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false,
+  } }), id);
+  await open("notice-one");
+  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_reviews").length)).toBeGreaterThan(0);
+  await open("notice-two");
+  await page.evaluate(() => {
+    window.__navigation.respond("agent_reviews", [{ id: "review-one", parent: "notice-one", cwd: "/srv/project", base: "main", agent: "codex", started_at: 1, error: null,
+      review: { verdict: "changes", summary: "Review", findings: [{ file: "src/example.ts", line: 1, severity: "high", summary: "Background finding", scenario: "" }] } }]);
+    window.__navigation.release("agent_reviews");
+  });
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("beep.diffReview.build-box\nnotice-one"))).toContain("Background finding");
+  await expect(page.locator(".dv-cmt")).toHaveCount(0);
+  await open("notice-one");
+  const tab = page.getByRole("tab", { name: "Changes", exact: true });
+  if (await tab.getAttribute("aria-selected") !== "true") await tab.click();
+  await expect(page.locator(".dv")).toContainText("Background finding");
+  expect(errors).toEqual([]);
+});

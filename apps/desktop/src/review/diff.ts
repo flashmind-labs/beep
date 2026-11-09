@@ -1,6 +1,5 @@
-import { createElement } from "react";
-import { createRoot } from "react-dom/client";
-import { createPortal, flushSync } from "react-dom";
+import { createElement, Fragment, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { DiffToolbar } from "./diff-toolbar.tsx";
 import { DiffTree } from "./diff-tree.tsx";
 import { DiffFileHeader } from "./diff-file-header.tsx";
@@ -24,7 +23,11 @@ import { el, type Kid } from "../ui/dom.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 
 /// Where a diff comes from and what its files can open in.
+export type DiffSlot = "toolbar" | "status" | "tree" | "chunks" | "headers" | "comments" | "feedback";
+export interface DiffOwner { set(slot: DiffSlot, content: ReactNode): void; dispose(): void }
+
 export interface DiffSource {
+  owner: DiffOwner;
   /// History views show immutable patches without session review controls.
   readOnly?: boolean;
   /// Reads the diff; with `only`, just those files in full.
@@ -49,6 +52,7 @@ export interface DiffViewHandle {
   el: HTMLElement;
   reload: () => void;
   focus: () => void;
+  dispose: () => void;
 }
 
 /// Wider than this, the file list shows on the left.
@@ -102,8 +106,14 @@ function btn(label: Kid, cls: string, title: string, run: () => void) {
   return b;
 }
 
+function feedbackLoad(load: DiffSource["load"]) {
+  return async (uncommitted: boolean) => (await load([], false, uncommitted)).files;
+}
+
 export function diffView(src: DiffSource): DiffViewHandle {
   const root = el("div", "dv");
+  let disposed = false;
+  const render = (slot: DiffSlot, content: ReactNode) => { if (!disposed) src.owner.set(slot, content); };
   root.tabIndex = -1;
   const st = {
     view: null as DiffView | null,
@@ -145,10 +155,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
   /// The chunks of rows of every open file.
   const chunks = new Map<Element, Chunk>();
   const liveChunks = new Set<Chunk>();
-  const chunkRoot = createRoot(document.createElement("div"));
   const noComments = new Map<string, readonly ReviewComment[]>();
   let nextChunk = 0;
-  const commentRoot = createRoot(document.createElement("div"));
   const comments = new Map<HTMLElement, { id: number; comment: ReviewComment; label: string; isNew: boolean; chunkOwned: boolean; restored: EditorRestore | null }>();
   const lostComments = new Map<ReviewComment, HTMLElement>();
   const lostHeading = el("div", "dv-lh", "On files or lines no longer in the changes");
@@ -187,39 +195,36 @@ export function diffView(src: DiffSource): DiffViewHandle {
       if (reconcileFiles() && files.scrollTop !== top) files.scrollTop = top;
     }
   }
-  const headerRoot = createRoot(document.createElement("div"));
-  const statusRoot = createRoot(document.createElement("div"));
   const errorHost = el("div"), messageHost = el("div"), moreHost = el("div");
   errorHost.style.display = messageHost.style.display = moreHost.style.display = "contents";
   const bodyModes = new Map<string, boolean>();
   const visibleFiles = new Set<string>();
   const matchNote = el("div", "dv-more");
   const head = el("div", "dv-head");
-  const toolbarRoot = createRoot(head);
   let flashText = "";
   let flashTimer = 0;
   const say = (text: string) => {
+    if (disposed) return;
     flashText = text;
     drawToolbar();
     clearTimeout(flashTimer);
     flashTimer = window.setTimeout(() => { flashText = ""; drawToolbar(); }, 2000);
   };
   const lostBox = el("div", "dv-lost");
-  const feedback = src.readOnly ? { el: el("span"), note: el("span"), redraw() {} } : feedbackButton({
+  const feedback = src.readOnly ? { el: el("span"), note: el("span"), redraw() {}, dispose() {} } : feedbackButton({
     key: src.review.key,
     machine: src.agent?.machine ?? null,
     prefer: src.agent?.prefer,
     session: src.agent?.session,
     view: () => st.view,
     uncommitted: () => st.uncommitted,
-    load: async uncommitted => (await src.load([], false, uncommitted)).files,
+    load: feedbackLoad(src.load),
     add: addAgentComments,
     bounds: () => root,
     say,
-  });
+  }, view => render("feedback", view));
   const tree = el("nav", "dv-tree");
   tree.setAttribute("aria-label", "Changed files");
-  const treeRoot = createRoot(tree);
   let revealTree = false;
   const filteredClosedFolders = new Set<string>();
   const files = el("div", "dv-files");
@@ -284,18 +289,20 @@ export function diffView(src: DiffSource): DiffViewHandle {
   }, { root: files, rootMargin: `${MARGIN}px 0px` });
   const grip = el("div", "dv-resize");
   const body = el("div", "dv-body", tree, grip, files);
-  initTreeResize(body, grip);
+  const stopTreeResize = initTreeResize(body, grip);
   const keys = el("div", "dv-keys");
   root.append(head, feedback.note, body, keys);
 
-  new ResizeObserver(() => {
+  const rootResize = new ResizeObserver(() => {
     root.classList.toggle("wide", root.clientWidth >= WIDE);
     const narrow = root.clientWidth <= NARROW;
     if (narrow === st.narrow) return;
     st.narrow = narrow;
     if (st.split) redrawBodies();
-  }).observe(root);
-  new ResizeObserver(() => markCurrent()).observe(files);
+  });
+  rootResize.observe(root);
+  const filesResize = new ResizeObserver(() => markCurrent());
+  filesResize.observe(files);
   let scrollFrame = 0;
   files.addEventListener("scroll", () => {
     if (scrollFrame) return;
@@ -309,7 +316,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
   }
 
   function drawToolbar() {
-    toolbarRoot.render(createElement(DiffToolbar, {
+    render("toolbar", createPortal(createElement(DiffToolbar, {
       view: st.view, loading: st.loading, filter: st.filter, split: st.split, uncommitted: st.uncommitted,
       showUncommitted: !!src.uncommitted, allFolded: allFolded(shown(), st.folded), flash: flashText,
       comments: st.draft.length, sending: st.sending, readOnly: !!src.readOnly, feedback: feedback.el,
@@ -317,7 +324,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
       onSplit: () => { st.split = !st.split; saveSplit(st.split); drawToolbar(); redrawBodies(); },
       onUncommitted: () => { st.uncommitted = !st.uncommitted; void load(); },
       onFold: () => foldAll(!allFolded(shown(), st.folded)), onRefresh: () => void load(), onSend: () => void sendReview(),
-    }));
+    }), head, "toolbar"));
   }
 
   function drawHead() {
@@ -326,12 +333,12 @@ export function diffView(src: DiffSource): DiffViewHandle {
   }
 
   function drawStatus() {
-    statusRoot.render([
+    render("status", createElement(Fragment, null,
       createPortal(st.error ? createElement("div", { className: "dv-err" }, st.error) : null, errorHost, "error"),
       createPortal(createElement(DiffMessage, { loading: st.loading, view: st.view }), messageHost, "message"),
       createPortal(createElement(DiffMore, { count: st.view?.more ?? 0 }), moreHost, "more"),
       createPortal(createElement(DiffKeys), keys, "keys"),
-    ]);
+    ));
   }
 
   function drawFiles() {
@@ -484,7 +491,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     return true;
   }
 
-  function drawTree(synchronous = false) {
+  function drawTree(_synchronous = false) {
     const view = createElement(DiffTree, {
       files: st.view?.files ?? [], filter: st.filter, current: st.cur, closedFolders: st.closedFolders, filteredClosedFolders,
       onFolder: (path, open) => {
@@ -503,7 +510,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
         else if (item.bottom > bounds.bottom) tree.scrollTop += item.bottom - bounds.bottom;
       },
     });
-    if (synchronous) flushSync(() => treeRoot.render(view)); else treeRoot.render(view);
+    render("tree", createPortal(view, tree, "tree"));
   }
 
   /// Hides the files that do not match, without drawing any again.
@@ -640,7 +647,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const portals = [...liveChunks].map(chunk => createPortal(createElement(DiffChunk, {
       rows: chunk.rows, comments: chunk.comments, mountComment: mountLineComment, unmountComment: unmountLineComment,
     }), chunk.box, String(chunk.id)));
-    flushSync(() => chunkRoot.render(portals));
+    render("chunks", createElement(Fragment, null, ...portals));
     drawComments();
   }
 
@@ -675,7 +682,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
       onComment: () => addBox({ path, side: "new", line: null, text: "" }, box => item.comments.append(box)),
       onCopy: () => void copy(path), onOpen: () => src.open?.run(path),
     }), item.host, path));
-    flushSync(() => headerRoot.render(portals));
+    render("headers", createElement(Fragment, null, ...portals));
   }
 
   /// The header's count and Send button, each folded file's count and the
@@ -726,6 +733,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const merged = mergeComments(st.draft, add);
     if (!merged.added) return 0;
     st.draft = merged.draft;
+    // A review may finish after its viewer closes; keep the draft without reviving its UI.
+    if (disposed) { saveDraft(src.review.key, st.draft); return merged.added; }
     changed();
     const keep = files.scrollTop;
     if (reconcileFiles(new Set(add.map(comment => comment.path))) && files.scrollTop !== keep) files.scrollTop = keep;
@@ -777,7 +786,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
         });
       },
     }), host, String(entry.id)));
-    flushSync(() => commentRoot.render(portals));
+    render("comments", createElement(Fragment, null, ...portals));
   }
 
   /// A new comment goes where `put` says and enters the draft on Add.
@@ -962,18 +971,22 @@ export function diffView(src: DiffSource): DiffViewHandle {
 
   async function loadFull(f: DiffFile) {
     if (!st.view || st.pending.has(f.path)) return;
+    const seq = st.seq;
     st.pending.add(f.path);
     if ([...comments].some(([node, item]) => item.comment.path === f.path && node.querySelector(".dv-cmt.open"))) deferredFiles.add(f.path);
     else redrawFile(f.path);
 
     try {
       const got = await src.load([f.path], true, st.uncommitted);
+      if (seq !== st.seq) return;
       if (st.view) st.view = withLoaded(st.view, got.files);
     } catch (e) {
+      if (seq !== st.seq) return;
       st.error = `Could not read ${f.path}: ${reasonOf(e)}`;
+    } finally {
+      st.pending.delete(f.path);
     }
 
-    st.pending.delete(f.path);
     st.folded.set(f.path, false);
     reconcileFiles(new Set([f.path]));
   }
@@ -1045,6 +1058,15 @@ export function diffView(src: DiffSource): DiffViewHandle {
     el: root,
     reload: load,
     focus: () => root.focus({ preventScroll: true }),
+    dispose: () => {
+      if (disposed) return;
+      disposed = true; st.seq++;
+      clearTimeout(flashTimer);
+      if (scrollFrame) cancelAnimationFrame(scrollFrame);
+      fileObserver.disconnect(); chunkObserver.disconnect(); rootResize.disconnect(); filesResize.disconnect(); stopTreeResize();
+      if (watchingSelection) document.removeEventListener("selectionchange", selectionChanged);
+      feedback.dispose(); src.owner.dispose();
+    },
   };
 }
 
