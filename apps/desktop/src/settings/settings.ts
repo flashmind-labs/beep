@@ -1,5 +1,5 @@
-import { createElement } from "react";
-import { flushSync } from "react-dom";
+import { createElement, Fragment, type ReactNode } from "react";
+import { createPortal, flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { AgentsOverview, AppsOverview, CodingAgentOverview, InstructionsOverview, MachinesOverview } from "./overview-view.tsx";
 import { ModelSettingsView } from "./model-settings-view.tsx";
@@ -128,14 +128,16 @@ function setAway(view: PanePage, inBar: () => unknown) {
 type LocalView = "general" | "appearance" | "mac" | "devices" | "models" | "apps" | "machines" | "instr" | "agent-overview" | "agent-bar";
 const generalPending = new Set<string>();
 let macControlBusy = false;
-const localViews = new Map<LocalView, { host: HTMLElement; root: Root; observer: MutationObserver }>();
+// Sheet controls share the shell root; only the legacy bar layout needs a standalone root.
+const localViews = new Map<LocalView, { host: HTMLElement; root: Root | null; node: ReactNode; observer: MutationObserver }>();
 function disposeLocalView(kind: LocalView) {
   const current = localViews.get(kind);
   localViews.delete(kind);
   if (kind === "models") modelSettingsError = "";
   if (!current) return;
   current.observer.disconnect();
-  current.root.unmount();
+  current.root?.unmount();
+  if (!current.root) drawChrome();
 }
 function preserveLocalViews(container: HTMLElement) {
   const saved = [...localViews.entries()].filter(([, view]) => container.contains(view.host)).map(([kind, view]) => {
@@ -161,11 +163,11 @@ function mountLocalViews(el: Element) {
       disposeLocalView(kind);
       const observer = new MutationObserver(() => { if (localViews.get(kind)?.host === host && !host.isConnected) disposeLocalView(kind); });
       observer.observe(document.body, { childList: true, subtree: true });
-      view = { host, root: createRoot(host), observer };
+      view = { host, root: shell?.sheet.contains(host) ? null : createRoot(host), node: null, observer };
       localViews.set(kind, view);
     }
     const local = SET.local, current = view;
-    flushSync(() => current.root.render(kind === "general" && local ? createElement(GeneralView, {
+    current.node = kind === "general" && local ? createElement(GeneralView, {
       settings: local.set, phone: onPhone(), server: S.server, busy: generalPending,
       autostart: (enabled: boolean) => void changeGeneral("autostart", "set_autostart", { enabled }),
       voice: (choice: NoticeVoice) => void changeGeneral("voice", "set_notice_voice", { choice }),
@@ -191,7 +193,9 @@ function mountLocalViews(el: Element) {
       mac: local.mac, busy: macControlBusy,
       setEnabled: (enabled: boolean) => void setMacEnabled(enabled),
       allow: (permission: "ScreenRecording" | "Accessibility") => { invoke("allow_mac_permission", { permission }).catch(console.warn); },
-    }) : null));
+    }) : null;
+    if (current.root) flushSync(() => current.root?.render(current.node));
+    else drawChrome();
   }
 }
 
@@ -359,10 +363,10 @@ function renderShell(sheet: HTMLElement, pages: SettingsPage[], path: SettingsPa
     shell = { sheet, navigation: null, root: createRoot(sheet), observer };
   }
   const current = shell, openPage = (page: SettingsPage) => goTo(selectPage(page));
-  flushSync(() => current.root.render(createElement(SettingsShell, {
+  flushSync(() => current.root.render(createElement(Fragment, null, createElement(SettingsShell, {
     navigation: createElement(SettingsNavigation, { pages, path, version, subs: subEntries, pageName: settingsPageLabel, subName: subLabel, count: navCount, openPage, openSub: (sub: SettingsSub) => goTo(openSub(sub)) }),
     breadcrumb: createElement(SettingsBreadcrumb, { path, page: settingsPageLabel(path.page), sub: path.sub ? subLabel(path.sub) : null, openPage }),
-  })));
+  }), ...[...localViews].filter(([, view]) => !view.root).map(([kind, view]) => createPortal(view.node, view.host, kind)))));
   current.navigation = sheet.querySelector<HTMLElement>(".dset-nav");
 }
 /// Draws the sheet's current page while keeping its navigation mounted.
