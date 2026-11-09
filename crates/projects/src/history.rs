@@ -124,6 +124,16 @@ pub fn history_script(ask: &HistoryAsk<'_>) -> String {
 
 /// Git's own patch format, including initial commits and a merge's first-parent diff.
 pub fn patch_script(folder: &str, commit: &CommitId, paths: &[String]) -> String {
+    patch_context_script(folder, commit, paths, 3)
+}
+
+pub fn patch_context_script(
+    folder: &str,
+    commit: &CommitId,
+    paths: &[String],
+    context: u32,
+) -> String {
+    let context = context.clamp(3, 50_000);
     let paths = paths.iter().map(|p| quote(p)).collect::<Vec<_>>().join(" ");
     framed(
         folder,
@@ -136,7 +146,7 @@ pub fn patch_script(folder: &str, commit: &CommitId, paths: &[String]) -> String
             (
                 "patch",
                 format!(
-                    "git --literal-pathspecs -c core.quotepath=off show --format= --root --diff-merges=first-parent --no-ext-diff --no-textconv --no-color --find-renames {} -- {paths}",
+                    "git --literal-pathspecs -c core.quotepath=off show --unified={context} --format= --root --diff-merges=first-parent --no-ext-diff --no-textconv --no-color --find-renames {} -- {paths}",
                     commit.as_ref()
                 ),
             ),

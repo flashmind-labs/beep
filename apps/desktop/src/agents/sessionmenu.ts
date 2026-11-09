@@ -1,3 +1,4 @@
+import { forgetView } from "../agentpane/view-memory.ts";
 import { onPhone } from "../ui/platform.ts";
 // The right-click menu of a coding agent session, shared by every row that shows one.
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
@@ -45,6 +46,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
           action: "Delete",
           run: async () => {
             await invoke("agent_delete", at);
+            forgetView(s.machine_id, s.id);
             await loadSessions().catch(err => console.warn("agent sessions:", err));
           },
         }),

@@ -361,11 +361,11 @@ export function makeGitHistory(deps: HistoryDeps) {
         const location = p.data;
         p.view = diffView({
           readOnly: true,
-          load: async (only, lockfiles) => {
+          load: async (only, lockfiles, _uncommitted, context) => {
             const requested = only.length ? only : path ? [path] : [];
             const paths = diffPaths(fileRead(p, selected).rows, requested);
-            const view = c ? await read<DiffView>("project_git_diff", { project: p.name, machineId: location.machine_id, commit: c.id, only: paths, lockfiles: lockfiles || !!path })
-              : await read<DiffView>("work_diff", { machineId: location.machine_id, root: w!.path, only: paths, lockfiles: lockfiles || !!path, uncommitted: true });
+            const view = c ? await read<DiffView>("project_git_diff", { project: p.name, machineId: location.machine_id, commit: c.id, only: paths, lockfiles: lockfiles || !!path, context })
+              : await read<DiffView>("work_diff", { machineId: location.machine_id, root: w!.path, only: paths, lockfiles: lockfiles || !!path, uncommitted: true, context });
             return path ? { ...view, files: view.files.filter(f => f.path === path), more: 0 } : view;
           },
           review: { key: `history:${p.name}:${key}`, heading: () => c?.subject || "Worktree changes", send: async () => "Open a session to send a review." },

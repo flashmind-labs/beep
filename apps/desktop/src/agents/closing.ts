@@ -1,3 +1,4 @@
+import { forgetView } from "../agentpane/view-memory.ts";
 // Sessions disappear from lists as soon as closing starts. A refusal restores them.
 import { invoke, listen } from "../ui/tauri.ts";
 import type { RunningRow } from "./running-state.ts";
@@ -32,6 +33,7 @@ export async function closeSession(s: Ref & { agent: string }) {
   changed();
   try {
     await invoke("agent_steer", { machineId: s.machine_id, agent: s.agent, session: s.id, steer: "close" });
+    forgetView(s.machine_id, s.id);
   } catch (e) {
     closings.refused(s);
     changed();
