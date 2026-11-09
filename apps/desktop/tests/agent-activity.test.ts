@@ -53,3 +53,24 @@ test("tool row updates preserve its focused action and defer selected text", () 
   assert.equal(tool.querySelector("code")?.textContent, "second");
   disposeLog(log);
 });
+
+test("grouped tools retain their controls while the group changes", () => {
+  bar.innerHTML = '<div id="agbody"><div class="dcoderlog"></div></div>';
+  const body = bar.querySelector<ChatBody>("#agbody"); assert.ok(body);
+  Object.defineProperty(body, "clientHeight", { configurable: true, value: 800 });
+  const log = body.querySelector<HTMLElement>(".dcoderlog"); assert.ok(log);
+  const tool = (at: number) => ({ kind: "tool" as const, id: String(at), html: `tool ${at}`, at, failed: false, open: false, artifact: null, toggle: true, keyboard: true, mark: "", after: "", layout: { kind: "standard" as const, parts: { kind: "read" as const, verb: "Read", target: `file${at}`, detail: "", bad: false }, tip: `file${at}`, since: null } });
+  const run = (open: boolean): ActivityRow => ({ kind: "run", id: "1", html: String(open), at: 1, toolKind: "read", label: "Read 2 files", summary: "file1, file2", open, tools: [tool(1), { ...tool(2), after: '<span class="pics"><img class="pic" alt="example"></span>' }] });
+  const units = (open: boolean) => [{ key: "turn", rows: () => [run(open)] }];
+  setUnits(log, units(false), []); fillLog(body, false);
+  const group = log.querySelector<HTMLElement>(".dtrun"); assert.ok(group);
+  const button = group.querySelector<HTMLButtonElement>("[data-run]"); assert.ok(button);
+  button.focus();
+  setUnits(log, units(true), []);
+  assert.equal(log.querySelector(".dtrun"), group);
+  assert.equal(document.activeElement, button);
+  assert.equal(button.getAttribute("aria-expanded"), "true");
+  assert.equal(group.querySelectorAll(".dcoderen.tool").length, 2);
+  assert.ok(group.querySelector('.pics img[alt="example"]'));
+  disposeLog(log);
+});

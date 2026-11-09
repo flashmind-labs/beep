@@ -1,15 +1,18 @@
-import { thoughtLabel, duration, type RowParts, type TurnState } from "./agentturns.ts";
+import { thoughtLabel, duration, type RowParts, type ToolKind, type TurnState } from "./agentturns.ts";
 import { liveText } from "./karaoke.ts";
 import { ICON } from "../ui/icons.ts";
 import { esc } from "../ui/format.ts";
 import { KIND_ICONS } from "./turnrows.ts";
 
+export type ToolActivity = { kind: "tool"; id: string; html: string; at: number; failed: boolean; open: boolean; artifact: string | null; toggle: boolean; keyboard: boolean; mark: string; after: string; layout: { kind: "beep"; head: string } | { kind: "standard"; parts: RowParts; tip: string; since: number | null } };
 export type ActivityRow =
   | { kind: "thought"; id: string; html: string; key: string; at: number; text: string; content: string | null; ms: number | null; live: boolean; open: boolean }
   | { kind: "live"; id: string; html: string; state: TurnState; thinking: boolean; start: number | null; doing: string }
-  | { kind: "tool"; id: string; html: string; at: number; failed: boolean; open: boolean; artifact: string | null; toggle: boolean; keyboard: boolean; mark: string; after: string; layout: { kind: "beep"; head: string } | { kind: "standard"; parts: RowParts; tip: string; since: number | null } };
+  | ToolActivity
+  | { kind: "run"; id: string; html: string; at: number; toolKind: ToolKind; label: string; summary: string; open: boolean; tools: ToolActivity[] };
 
 export function ActivityView({ row }: { row: ActivityRow }) {
+  if (row.kind === "run") return <div className={`dtrun${row.open ? " open" : ""}`} data-row={row.at}><button data-run={row.at} aria-expanded={row.open}><span className="ki" dangerouslySetInnerHTML={{ __html: KIND_ICONS[row.toolKind] }} /><span className="vb">{row.label}</span><span className="sm">{row.summary}</span><span className="cv" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></button><div className="bd"><div><div className="in">{row.tools.map(tool => <ActivityView key={tool.id} row={tool} />)}</div></div></div></div>;
   if (row.kind === "tool") {
     const cls = `dcoderen tool ${row.layout.kind === "beep" ? "beep" : "row"}${row.failed ? " failed" : ""}${row.open ? " open" : ""}${row.artifact ? " artifact" : ""}`;
     const mark = <span className="mk" dangerouslySetInnerHTML={{ __html: row.mark }} />;
