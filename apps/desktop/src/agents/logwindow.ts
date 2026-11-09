@@ -1,3 +1,7 @@
+import { createElement, Fragment } from "react";
+import { createPortal, flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { AgentReply, replyRow, type ReplyRow } from "./reply-view.tsx";
 import { frameResize } from "../ui/dom.ts";
 
 // A session's log in the page: only the turns near the view are drawn, in
@@ -36,6 +40,9 @@ interface LogWindow {
   top: HTMLElement;
   bottom: HTMLElement;
   watch: ResizeObserver;
+  replies: Map<HTMLElement, { key: number; reply: ReplyRow }>;
+  nextReplyKey: number;
+  replyRoot: Root | null;
 }
 
 const windows = new WeakMap<Element, LogWindow>();
@@ -61,16 +68,17 @@ export function setUnits(log: HTMLElement, units: readonly Unit[], held: readonl
   for (const u of units) {
     const d = w.drawn.get(u.key);
     if (!d) continue;
-    const html = u.rows(), reuse = reuseRows(d.html, html);
+    const html = u.rows(), reuse = reuseReplyRows(d.html, html);
     const keep = new Set(reuse.filter(i => i >= 0));
-    d.nodes.forEach((n, i) => { if (!keep.has(i)) going.push(...n); });
+    const changed = new Set(reuse.filter((old, next) => old >= 0 && d.html[old] !== html[next]));
+    d.nodes.forEach((nodes, i) => { if (!keep.has(i) || changed.has(i)) going.push(...nodes); });
     plans.push({ d, html, reuse });
   }
 
   for (const [key, d] of w.drawn) if (!keys.has(key)) going.push(d.el);
   if (going.some(el => held.some(n => el.contains(n)))) return false;
   for (const [key, d] of w.drawn) if (!keys.has(key)) undraw(w, key, d);
-  for (const { d, html, reuse } of plans) patch(d, html, reuse);
+  for (const { d, html, reuse } of plans) patch(w, d, html, reuse);
   w.units = units;
   w.search = undefined;
   searchWatches.get(log)?.();
@@ -80,6 +88,7 @@ export function setUnits(log: HTMLElement, units: readonly Unit[], held: readonl
   let first = at.length - 1;
   while (first > 0 && at[first - 1] === at[first] - 1) first--;
   for (const i of at.slice(0, Math.max(0, first))) undraw(w, units[i].key, w.drawn.get(units[i].key)!);
+  renderReplies(w);
   // The spacers stand for the turns as they are now, so a scroll kept by a row
   // in view is kept against the new heights.
   space(w, at[first] ?? units.length, (at.at(-1) ?? units.length - 1) + 1);
@@ -121,6 +130,7 @@ export function fillLog(b: ChatBody, follow: boolean) {
       }
     }
 
+    renderReplies(w);
     measure(w);
     space(w, from, to);
 
@@ -167,7 +177,7 @@ function start(log: HTMLElement): LogWindow {
   const w: LogWindow = {
     units: [], drawn: new Map(), sizes: new Map(), width: 0,
     gap: parseFloat(getComputedStyle(log).rowGap) || 0, top, bottom,
-    watch: frameResize(() => resized(log, w)),
+    watch: frameResize(() => resized(log, w)), replies: new Map(), nextReplyKey: 0, replyRoot: null,
   };
   const body = log.closest<ChatBody>(".dbody");
   if (body) w.watch.observe(body);
@@ -236,7 +246,7 @@ function draw(w: LogWindow, u: Unit): Drawn {
   el.className = "agturn";
   el.dataset.findKey = u.key;
   const d: Drawn = { el, html: [], nodes: [] };
-  patch(d, u.rows(), []);
+  patch(w, d, u.rows(), []);
   w.drawn.set(u.key, d);
   w.watch.observe(el);
   return d;
@@ -244,16 +254,30 @@ function draw(w: LogWindow, u: Unit): Drawn {
 
 function undraw(w: LogWindow, key: string, d: Drawn) {
   w.watch.unobserve(d.el);
+  for (const nodes of d.nodes) for (const node of nodes) if (node instanceof HTMLElement) w.replies.delete(node);
   d.el.remove();
   w.drawn.delete(key);
 }
 
 /// Makes a drawn turn's rows `html`, reusing the rows `reuse` names.
-function patch(d: Drawn, html: readonly string[], reuse: readonly number[]) {
+function patch(w: LogWindow, d: Drawn, html: readonly string[], reuse: readonly number[]) {
   const keep = new Set(reuse.filter(i => i >= 0));
-  d.nodes.forEach((n, i) => { if (!keep.has(i)) for (const el of n) el.remove(); });
+  d.nodes.forEach((n, i) => { if (!keep.has(i)) for (const el of n) { if (el instanceof HTMLElement) w.replies.delete(el); el.remove(); } });
   const nodes = html.map((row, i) => {
-    if (reuse[i] >= 0) return d.nodes[reuse[i]];
+    if (reuse[i] >= 0 && d.html[reuse[i]] === row) return d.nodes[reuse[i]];
+    const reply = replyRow(row);
+    if (reuse[i] >= 0) {
+      const nodes = d.nodes[reuse[i]];
+      const existing = nodes[0] instanceof HTMLElement ? w.replies.get(nodes[0]) : null;
+      if (reply && existing && nodes[0] instanceof HTMLElement) w.replies.set(nodes[0], { ...existing, reply });
+      return nodes;
+    }
+    if (reply) {
+      const host = document.createElement("div");
+      host.style.display = "contents";
+      w.replies.set(host, { key: ++w.nextReplyKey, reply });
+      return [host];
+    }
     const t = document.createElement("template");
     t.innerHTML = row;
     return [...t.content.children];
@@ -268,6 +292,37 @@ function patch(d: Drawn, html: readonly string[], reuse: readonly number[]) {
   d.el.hidden = !d.el.firstElementChild;
   d.html = html;
   d.nodes = nodes;
+}
+
+/// Preserve a reply's host while its streamed content changes.
+function reuseReplyRows(before: readonly string[], next: readonly string[]) {
+  const reuse = reuseRows(before, next);
+  if (!reuse.includes(-1)) return reuse;
+  const used = new Set(reuse.filter(index => index >= 0));
+  const available = new Map<string, { indices: number[]; next: number }>();
+  for (const [index, row] of before.entries()) {
+    if (used.has(index)) continue;
+    const reply = replyRow(row);
+    if (!reply) continue;
+    let matches = available.get(reply.row);
+    if (!matches) { matches = { indices: [], next: 0 }; available.set(reply.row, matches); }
+    matches.indices.push(index);
+  }
+  for (let i = 0; i < next.length; i++) {
+    if (reuse[i] >= 0) continue;
+    const reply = replyRow(next[i]);
+    if (!reply) continue;
+    const matches = available.get(reply.row);
+    if (matches && matches.next < matches.indices.length) reuse[i] = matches.indices[matches.next++];
+  }
+  return reuse;
+}
+
+function renderReplies(w: LogWindow) {
+  if (!w.replyRoot && !w.replies.size) return;
+  w.replyRoot ??= createRoot(document.createElement("div"));
+  flushSync(() => w.replyRoot?.render(createElement(Fragment, null,
+    ...[...w.replies].map(([host, mounted]) => createPortal(createElement(AgentReply, { reply: mounted.reply }), host, mounted.key)))));
 }
 
 /// Search all held turns without mounting the entire conversation.
@@ -291,6 +346,7 @@ export function revealLogUnit(b: ChatBody, key: string) {
   // Measure the target before filling its surrounding turns.
   for (const [k, other] of w.drawn) if (k !== key) undraw(w, k, other);
   log.insertBefore(d.el, w.bottom);
+  renderReplies(w);
   measure(w);
   space(w, at, at + 1);
   b.scrollTop += d.el.getBoundingClientRect().top - b.getBoundingClientRect().top;

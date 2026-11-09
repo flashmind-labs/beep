@@ -619,6 +619,8 @@ function showLog(b: HTMLElement, html: string, units: Unit[] | null, polled: boo
   const next = document.createElement("template");
   next.innerHTML = prepareInlineImages(html);
   const sel = getSelection(), held: Node[] = [];
+  const focused = document.activeElement;
+  if (polled && focused && b.contains(focused)) held.push(focused);
 
   if (polled && sel && (!sel.isCollapsed || b.matches(":active"))) {
     if (sel.anchorNode) held.push(sel.anchorNode);
