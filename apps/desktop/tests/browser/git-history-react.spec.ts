@@ -337,3 +337,64 @@ test("diff file header opens a comment without folding", async ({ page }) => {
   await expect(section.locator(".dv-fcs")).toContainText("Please review this file.");
   await expect(page.getByRole("button", { name: /Send review/ })).toContainText("1");
 });
+
+test("virtualized diff keeps inline comments editable after refresh", async ({ page }) => {
+  await openDesktop(page, true);
+  await page.evaluate(() => window.__navigation.open({ agent: {
+    kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session",
+    cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false,
+  } }));
+  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  const section = page.locator('.dv-file[data-path="sample.ts"]');
+  const row = section.locator(".dv-l").filter({ hasText: "const value20 = 20;" });
+  await row.locator(".dv-g").click();
+  const editor = section.locator(".dv-cmt.open");
+  await editor.getByRole("textbox", { name: "Comment on this line" }).fill("Review this line.");
+  await editor.getByRole("button", { name: "Add" }).click();
+  await expect(section.locator(".dv-cmt")).toContainText("Review this line.");
+  await page.locator('.dv-head .dv-btn[aria-label="Refresh"]').click();
+  const saved = section.locator(".dv-cmt").filter({ hasText: "Review this line." });
+  await expect(saved).toBeVisible();
+  await saved.getByRole("button", { name: "Edit" }).click();
+  const editing = section.locator(".dv-cmt.open");
+  await editing.getByRole("textbox", { name: "Comment on this line" }).fill("Updated line review.");
+  await editing.getByRole("button", { name: "Add" }).click();
+  await expect(section.locator(".dv-cmt")).toContainText("Updated line review.");
+  await section.getByRole("button", { name: "Remove the comment" }).click();
+  await expect(section.locator(".dv-cmt")).toHaveCount(0);
+});
+
+test("virtualized diff evicts and restores saved inline comments", async ({ page }) => {
+  await openDesktop(page, true);
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      const result = await invoke<T>(command, args);
+      if (command === "work_diff" && result && typeof result === "object") {
+        const lines = Array.from({ length: 1500 }, (_, i) => ({ k: " ", t: `const value${i} = ${i};` }));
+        Object.assign(result, { files: [{ path: "sample.ts", old_path: null, status: "modified", additions: 1, deletions: 0, left_out: null,
+          hunks: [{ old_start: 1, new_start: 1, old_lines: lines.length, new_lines: lines.length, section: "", lines }] }] });
+      }
+      return result;
+    };
+  });
+  await page.evaluate(() => window.__navigation.open({ agent: {
+    kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session",
+    cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false,
+  } }));
+  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  const section = page.locator('.dv-file[data-path="sample.ts"]');
+  const firstChunk = section.locator(".dv-chunk").first();
+  await firstChunk.locator(".dv-l").filter({ hasText: "const value1 = 1;" }).locator(".dv-g").click();
+  const editor = firstChunk.locator(".dv-cmt.open");
+  await editor.getByRole("textbox", { name: "Comment on this line" }).fill("Saved comment.");
+  await editor.getByRole("button", { name: "Add" }).click();
+  await expect(firstChunk.locator(".dv-cmt")).toHaveCount(1);
+  const scroll = page.locator(".dv-files");
+  await scroll.evaluate(element => { element.scrollTop = element.scrollHeight; });
+  await expect(firstChunk.locator(".dv-l")).toHaveCount(0);
+  await expect(firstChunk.locator(".dv-cmt")).toHaveCount(0);
+  await scroll.evaluate(element => { element.scrollTop = 0; });
+  await expect(firstChunk.locator(".dv-cmt")).toHaveCount(1);
+  await expect(firstChunk.locator(".dv-cmt")).toContainText("Saved comment.");
+});
