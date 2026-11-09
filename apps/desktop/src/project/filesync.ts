@@ -615,6 +615,12 @@ export function makeFileSync(deps: FileSyncDeps) {
     forTile,
     panel,
     conflictRow,
+    page: (name: string) => { const s = of(name); if (s.detail === undefined) void load(name); return { detail: s.detail, error: s.error, busy: s.busy }; },
+    compared: (name: string, path: string) => compared.get(`${name}\n${path}`),
+    pause, resolve, compare,
+    fix: deps.fix ? (name: string, conflict: Conflict) => deps.fix?.(name, conflict) : null,
+    fixGit: deps.fixGit ? (name: string, machine: MachineDetail) => { if (machine.error) deps.fixGit?.(name, machine.machine_id, machine.error); } : null,
+    changeFolder: deps.changeFolder ? (name: string, machine: MachineDetail) => deps.changeFolder?.(name, machine) : null,
     stop: () => watch(null),
   };
 }
