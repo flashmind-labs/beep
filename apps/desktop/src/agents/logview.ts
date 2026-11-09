@@ -619,9 +619,12 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   const why = AG.why ? `<div class="dmuted">Auto picked ${esc(s.machine_name)}. ${esc(AG.why)}</div>` : "";
   const olderText = olderNote(p, AG.older.stop, AG.older.loading);
   const earlier = olderText ? `<div class="dmuted">${esc(olderText)}</div>` : "";
+  const parent = parentSession(p.session);
+  const crumb: ActivityRow | null = parent ? { kind: "crumb", id: "up", html: upCrumb(p), parent: parent.title || "Session", title: s.title || "Session" } : null;
+  const olderRow: ActivityRow | null = olderText ? { kind: "older", id: "older", html: earlier, text: olderText } : null;
   // The log goes in by turns, and only those near the view are drawn.
   const units = p.entries.length && AG.log
-    ? [fixed("up", upCrumb(p)), fixed("older", earlier), ...turnUnits(p)] : null;
+    ? [fixed("up", crumb), fixed("older", olderRow), ...turnUnits(p)] : null;
   const entries = units ? '<div class="dcoderlog"></div>'
     : s.status === "starting" ? '<div class="dmuted"><span class="dspin"></span> Starting the agent…</div>' : "";
   // What stopped an outside session's log from reading is not a failed turn.
@@ -670,7 +673,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
 }
 
 /// A part of the log that is not a turn, as one; an empty one is hidden.
-const fixed = (key: string, html: string): Unit => ({ key, rows: () => html ? [html] : [] });
+const fixed = (key: string, row: TranscriptRow | null): Unit => ({ key, rows: () => row ? [row] : [] });
 
 /// What rows just drawn need: their pictures and their live thoughts.
 function drawnRows(b: HTMLElement) {

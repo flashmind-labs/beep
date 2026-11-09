@@ -16,10 +16,14 @@ export type ActivityRow =
   | { kind: "run"; id: string; html: string; at: number; toolKind: ToolKind; label: string; summary: string; open: boolean; tools: ToolActivity[] }
   | { kind: "subagents"; id: string; html: string; at: number; heading: string | null; counts: string; rows: SubagentRow[] }
   | { kind: "folded-pictures"; id: string; html: string; at: number; pictures: string }
+  | { kind: "crumb"; id: string; html: string; parent: string; title: string }
+  | { kind: "older"; id: string; html: string; text: string }
   | { kind: "note"; id: string; html: string; at: number; value: { kind: "other"; text: string } | { kind: "compacted" } | { kind: "answers"; items: Answered[] } | { kind: "made"; files: MadeFiles; open: boolean } | { kind: "collapse" } };
 
 export function ActivityView({ row }: { row: ActivityRow }) {
   if (row.kind === "note") return <Note row={row} />;
+  if (row.kind === "crumb") return <div className="dcrumb"><button id="agup">{row.parent}</button><span>/</span><b>{row.title}</b><span className="sp" /><button className="dbtn" id="agup2">Open parent<kbd>esc</kbd></button></div>;
+  if (row.kind === "older") return <div className="dmuted">{row.text}</div>;
   if (row.kind === "folded-pictures") return <div className="dcoderen dfoldpics" data-row={row.at}><span className="pics" dangerouslySetInnerHTML={{ __html: row.pictures }} /></div>;
   if (row.kind === "subagents") return <div className="dsubgrp" data-row={row.at}>{row.heading !== null && <div className="h"><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: SUB_ICON }} /><b>{row.heading}</b><span>{row.counts}</span></div>}<SubagentsView rows={row.rows} /></div>;
   if (row.kind === "run") return <div className={`dtrun${row.open ? " open" : ""}`} data-row={row.at}><button data-run={row.at} aria-expanded={row.open}><span className="ki" dangerouslySetInnerHTML={{ __html: KIND_ICONS[row.toolKind] }} /><span className="vb">{row.label}</span><span className="sm">{row.summary}</span><span className="cv" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></button><div className="bd"><div><div className="in">{row.tools.map(tool => <ActivityView key={tool.id} row={tool} />)}</div></div></div></div>;
