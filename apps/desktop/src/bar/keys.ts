@@ -14,7 +14,7 @@ import { chatAction, chatMode, drawChats, openRow, renderChats } from "../chat/c
 import { $, $$, bar, G, here, PANE, queued, S, windowHooks } from "./core.ts";
 import { composeMessage } from "../chat/compose.ts";
 import { closeMention, drawMention, findMention, groupFormGo, insertMention, J, renderGroup, renderGroupInfo, renderGroupNew, sendGroup } from "../chat/groups.ts";
-import { toggleShortcuts } from "../ui/shortcutsheet.ts";
+import { toggleShortcuts } from "../ui/shortcutsheet.tsx";
 import { openSession } from "../chat/history.ts";
 import { LV, VN } from "./live.ts";
 import { closeFilesMenu } from "../agentpane/files.ts";

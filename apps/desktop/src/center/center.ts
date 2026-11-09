@@ -43,7 +43,7 @@ import { threadCard, threadChats } from "./threadcard.ts";
 import { openSettings, embedView, closeSettings } from "../settings/sheet.ts";
 import { followSkin } from "../ui/skin.ts";
 import { openReport } from "../report/report.ts";
-import { toggleShortcuts } from "../ui/shortcutsheet.ts";
+import { toggleShortcuts } from "../ui/shortcutsheet.tsx";
 import { guardClicks } from "../ui/clickguard.ts";
 import { reason } from "../ui/format.ts";
 import type { MacControl } from "../machines/machine-state.ts";
