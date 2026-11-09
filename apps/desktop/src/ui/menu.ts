@@ -5,7 +5,7 @@ import { el } from "./dom.ts";
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { ConfirmView, ContextMenu, RenameView } from "./menu-views.tsx";
+import { ConfirmView, RenameView } from "./menu-views.tsx";
 
 /// One line of a menu; `warn` reads it in red.
 export interface MenuItem {
@@ -36,6 +36,7 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
   const box = el("div", "cc-menu");
   const root = createRoot(box);
   let current = items;
+  let MenuView: typeof import("./context-menu-view.tsx").ContextMenu | null = null;
   const close = () => {
     root.unmount();
     box.remove();
@@ -47,9 +48,9 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
   };
   const fill = (list: readonly MenuItem[]) => {
     current = list;
-    flushSync(() => root.render(createElement(ContextMenu, { title, items: list, choose: (index: number) => { const item = current[index]; if (item) { close(); item.on(); } } })));
+    const View = MenuView;
+    if (View) flushSync(() => root.render(createElement(View, { title, items: list, choose: (index: number) => { const item = current[index]; if (item) { close(); item.on(); } } })));
   };
-  fill(items);
   const away = (ev: MouseEvent) => { if (!box.contains(ev.target as Node)) close(); };
   const keys = (ev: KeyboardEvent) => {
     if (ev.key !== "Escape") return;
@@ -67,7 +68,15 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
   window.addEventListener("blur", close);
   window.addEventListener("scroll", close, true);
   open = { box, close };
-  box.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  void import("./context-menu-view.tsx").then(({ ContextMenu }) => {
+    if (open?.box !== box) return;
+    MenuView = ContextMenu;
+    fill(current);
+    const bounds = box.getBoundingClientRect();
+    box.style.left = `${Math.max(4, Math.min(e.clientX, innerWidth - bounds.width - 4))}px`;
+    box.style.top = `${Math.max(4, Math.min(e.clientY, innerHeight - bounds.height - 4))}px`;
+    box.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  });
   return (list: readonly MenuItem[]) => {
     if (open?.box !== box) return;
     const at = [...box.querySelectorAll('[role="menuitem"]')].indexOf(document.activeElement as HTMLElement);
