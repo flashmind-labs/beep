@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { commandKey } from "../ui/platform.ts";
 import { hostOf } from "../settings/apps.ts";
 import { hints } from "../bar/hints.ts";
+import { invoke } from "../ui/tauri.ts";
 import { COPY_ICON, ICON } from "../ui/icons.ts";
 import { fileKind, fileSize, GONE_PIC, loadPic, viewerAct, viewerKeys, type ViewerPic } from "./media.ts";
 
@@ -37,4 +38,8 @@ export function Viewer({ pictures, at }: { pictures: ViewerPic[]; at: number }) 
     <div className="vi">{many && <button className="nav prev" data-v="prev" aria-label="Previous" disabled={at === 0} onClick={() => viewerAct("prev")} dangerouslySetInnerHTML={{ __html: ICON.chev }} />}<ViewerImage key={at} picture={picture} />{many && <button className="nav" data-v="next" aria-label="Next" disabled={at === pictures.length - 1} onClick={() => viewerAct("next")} dangerouslySetInnerHTML={{ __html: ICON.chev }} />}</div>
     <div className="cap">{picture.caption}</div><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: hints(keys) }} />
   </div>;
+}
+
+export function ViewerNotice({ text, path, bad }: { text: string; path: string | null; bad: boolean }) {
+  return <div className={`dsaved${bad ? " bad" : ""}`} id="saved" role="status"><span>{text}</span>{path && <button className="dbtn" onClick={() => void invoke("reveal_file", { path }).catch(() => {})}>Show in Finder</button>}</div>;
 }

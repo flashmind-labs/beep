@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { Viewer } from "./viewer-view.tsx";
+import { Viewer, ViewerNotice } from "./viewer-view.tsx";
 import { IMAGE_TYPES } from "./compose-text.ts";
 import { focusAsk, owningChatBody } from "./chat.ts";
 import { renderChatProduct, renderChatReplyPictures, renderChatSentFile } from "./work-view.tsx";
@@ -348,14 +348,23 @@ export async function copyUrl(url: string) {
   }
 }
 
-let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+let noticeView: { host: HTMLElement; root: Root; observer: MutationObserver; timer: ReturnType<typeof setTimeout> } | null = null;
+function disposeNotice() {
+  const current = noticeView; noticeView = null;
+  if (!current) return;
+  clearTimeout(current.timer); current.observer.disconnect(); current.root.unmount(); current.host.remove();
+}
 /// A short note at the bottom of the bar; one that names a saved file can
 /// show it in Finder.
 export function notice(text: string, { path, bad }: { path?: string; bad?: boolean } = {}) {
-  document.getElementById("saved")?.remove();
-  const el = h(`<div class="dsaved${bad ? " bad" : ""}" id="saved" role="status"><span>${esc(text)}</span>${path ? '<button class="dbtn">Show in Finder</button>' : ""}</div>`);
-  el.querySelector("button")?.addEventListener("click", () => invoke("reveal_file", { path }).catch(() => {}));
-  (viewer?.host.parentElement ?? bar).append(el);
-  clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(() => el.remove(), 5000);
+  disposeNotice();
+  const host = document.createElement("div");
+  host.style.display = "contents";
+  (viewer?.host.parentElement ?? bar).append(host);
+  const root = createRoot(host);
+  const observer = new MutationObserver(() => { if (noticeView?.host === host && !host.isConnected) disposeNotice(); });
+  observer.observe(document.body, { childList: true, subtree: true });
+  const timer = setTimeout(disposeNotice, 5000);
+  noticeView = { host, root, observer, timer };
+  flushSync(() => root.render(createElement(ViewerNotice, { text, path: path ?? null, bad: !!bad })));
 }

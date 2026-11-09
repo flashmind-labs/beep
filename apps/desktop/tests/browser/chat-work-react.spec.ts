@@ -193,3 +193,17 @@ test("stock chart changes range without replacing controls", async ({ page }) =>
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "stock_chart").map(call => call.args.range))).toEqual(["5d"]);
   await expect(button).toBeFocused();
 });
+
+test("picture save notice remains after closing the viewer", async ({ page }) => {
+  const picture = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==";
+  const history = [{ role: "user", text: "Show a picture", at: 1, images: [], model: "", thinking: "" }, { role: "assistant", html: "<p>Here.</p>", tools: [{ name: "send_image", label: "Show image", success: true, route: null, file: null, images: [{ file: { id: "image-1", name: "example.png", mime: "image/png", size: 10 }, caption: "Example" }], products: null, cards: null, chart: null }], replies: [], model: "" }];
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, picture, save_file: "/path/to/example.png", session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  await page.locator(".drpics button.pic").click();
+  await page.locator("#viewer [data-v=save]").click();
+  await expect(page.locator("#saved")).toContainText("Saved example.png");
+  await page.locator("#viewer [data-v=close]").click();
+  await expect(page.locator("#saved")).toBeVisible();
+  await page.locator("#saved").getByRole("button", { name: "Show in Finder" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "reveal_file" && call.args.path === "/path/to/example.png"))).toBe(true);
+});
