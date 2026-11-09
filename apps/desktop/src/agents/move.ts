@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { MoveStatus, type MoveView } from "./move-view.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // Moving the open session to another machine: the machine name in the head is
 // a menu, a turn that runs waits (or is stopped), steps tick above the
@@ -16,7 +20,6 @@ import { paneShown } from "../ui/active.ts";
 import type { ProjectMachineRow } from "../project/projects-state.ts";
 
 const CHEV = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
-const OK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-9"/></svg>';
 
 const UI = { targets: [] as MoveTarget[], open: false, loading: false, error: "", errorSession: "" };
 let warningTimer: ReturnType<typeof setTimeout> | null = null;
@@ -157,36 +160,35 @@ async function cancel(s: AgentRow) {
   drawMove();
 }
 
+let moveRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+function disposeMove() {
+  const current = moveRoot;
+  moveRoot = null;
+  if (current) { current.observer.disconnect(); current.root.unmount(); }
+}
 function drawBox(s: AgentRow) {
   const box = $("#agmovebox");
   if (!box) return;
+  if (moveRoot?.host !== box) {
+    disposeMove();
+    const root = createRoot(box);
+    const observer = new MutationObserver(() => { if (moveRoot?.host === box && !box.isConnected) disposeMove(); });
+    observer.observe(document.body, { childList: true, subtree: true });
+    moveRoot = { host: box, root, observer };
+  }
   const r = here(s), p = stateOf(s.id);
-  box.onclick = e => {
-    const act = (e.target as HTMLElement).closest<HTMLElement>("[data-mvact]")?.dataset.mvact;
-    if (act === "cancel") void cancel(s);
-    if (act === "stop" && r) void start(s, UI.targets.find(t => t.id === r.to) ?? { id: r.to, name: nameOf(r.to), online: true, harnesses: [], checkout: true }, true);
-  };
-  if (UI.error && UI.errorSession === s.id) {
-    box.innerHTML = `<div class="mvwarning" role="status">${esc(UI.error)}</div>`;
-    return;
-  }
-
-  if (!r || r.from !== s.machine_id || !p || !going(p)) {
-    // The session stayed where it was; the record stays to say why until it is dismissed.
-    box.innerHTML = p?.answer === "known" && p.phase === "failed" && r?.from === s.machine_id
-      ? `<div class="mvs" role="status"><div class="h"><span class="t">${esc(`Move failed: ${p.reason ?? "the move did not finish"}. Still on ${s.machine_name}.`)}</span><span class="sp"></span><button class="dbtn quiet small" data-mvact="cancel">Dismiss</button></div></div>`
-      : "";
-    return;
-  }
-
-  const to = nameOf(r.to);
-  const turn = p.phase === "waiting" && !p.source_away && (s.status === "working" || s.status === "asking");
-
-  if (turn) {
-    box.innerHTML = `<div class="mvs bar" role="status"><span>Moving to ${esc(to)} after this turn</span><span class="sp"></span><button class="dbtn small" data-mvact="stop">Stop and move</button><button class="dbtn quiet small" data-mvact="cancel">Cancel</button></div>`;
+  let view: MoveView = { kind: "none" };
+  if (UI.error && UI.errorSession === s.id) view = { kind: "warning", text: UI.error };
+  else if (!r || r.from !== s.machine_id || !p || !going(p)) {
+    if (p?.answer === "known" && p.phase === "failed" && r?.from === s.machine_id) view = { kind: "failed", text: `Move failed: ${p.reason ?? "the move did not finish"}. Still on ${s.machine_name}.` };
   } else {
-    const rows = moveRows(p, s.machine_name, to, UI.targets.find(t => t.id === r.to)?.online ?? true).map(row => `<div class="r ${row.state}"><span class="mk">${row.state === "done" ? OK : row.state === "run" ? '<span class="dspin"></span>' : ""}</span><span>${esc(row.text)}</span></div>`).join("");
-    const cancelable = p.phase !== "resuming";
-    box.innerHTML = `<div class="mvs" role="status"><div class="h"><b>Moving to ${esc(to)}</b><span class="sp"></span>${cancelable ? '<button class="dbtn quiet small" data-mvact="cancel">Cancel move</button>' : ""}</div>${rows}</div>`;
+    const to = nameOf(r.to);
+    if (p.phase === "waiting" && !p.source_away && (s.status === "working" || s.status === "asking")) view = { kind: "waiting", to };
+    else view = { kind: "progress", to, cancelable: p.phase !== "resuming", rows: moveRows(p, s.machine_name, to, UI.targets.find(t => t.id === r.to)?.online ?? true) };
   }
+  const root = moveRoot.root;
+  flushSync(() => root.render(createElement(MoveStatus, {
+    view, cancel: () => { void cancel(s); },
+    stop: () => { if (r) void start(s, UI.targets.find(t => t.id === r.to) ?? { id: r.to, name: nameOf(r.to), online: true, harnesses: [], checkout: true }, true); },
+  })));
 }
