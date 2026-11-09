@@ -3,7 +3,7 @@ import { WINDOWS, onPhone } from "../ui/platform.ts";
 // the sheets that add a machine or a project.
 import { onClosing, visibleRunning } from "../agents/closing.ts";
 import { plural, reason } from "../ui/format.ts";
-import { svgEl as icon, writeClipboard } from "../ui/parts.ts";
+import { writeClipboard } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { splitPinned } from "./pinned.ts";
 import { openPalette } from "./palette.ts";
@@ -15,7 +15,6 @@ import { openAddProject, importFound, rescanAll } from "../addproject/addproject
 import { openAddFolder } from "../addproject/addfolder.ts";
 import { openNewProject } from "../addproject/newproject.ts";
 import { foldKey, mergeProjects, parseFolded, sideProjects, splitOnTop, removeProjectSheet, REMOVE_PROJECT, type FoundRow, type GroupHeading, type OrgHeading, type Placed, type Project } from "../project/projects-state.ts";
-import { button, el as h } from "../ui/dom.ts";
 import { confirmSheet, openMenu, renameSheet, type MenuItem } from "../ui/menu.ts";
 import { openInWindow } from "../chat/chat.ts";
 import { openInEditor } from "../project/editors.ts";
@@ -24,16 +23,15 @@ import { openUrl } from "./openitems.ts";
 import { renderGroup, renderInvite } from "../chat/groups.ts";
 import { NEW_WINDOW, opensNewWindow } from "../project/projectwindow.ts";
 import { ALL } from "../terminals/terminals.ts";
-import { runningChats, sideThreads, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
+import { runningChats, sideThreads } from "./sidechats.ts";
 import { withoutResearch } from "../research/research-list.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { type ChatItem, type ProjectPin, type SideChat, $, state, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
-import { projectDot } from "../ui/pieces.ts";
 import { stuck, problem, draw, jump } from "./home.ts";
 import { allTerms } from "../terminals/view.ts";
 import { single } from "./openitems.ts";
 import { currentLocation, go, drawTop, openResearch } from "./views.ts";
-import { groupHeading } from "../project/groups.ts";
+import { groupMenu } from "../project/groups.ts";
 import { loadOverview } from "../project/projects.ts";
 import { projectsEl, redrawProjects, redrawProjectsPage } from "../project/sections.ts";
 import { prefetchOnHover, sessionsDue } from "../project/loads.ts";
@@ -51,6 +49,7 @@ import { createElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { SidebarShell, SidebarItem, SidebarGroup as SidebarGroupView, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
+import { SidebarChatRow, SidebarProjectRow } from "./sidebar-rows.tsx";
 
 export function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
   const slot: GroupSlot<T> = { title: "", ...group, items: null, loading: false, again: false };
@@ -78,26 +77,6 @@ export async function reloadGroup(name: string, redraw = true) {
 
   if (redraw) drawSide();
   if (g.again) { g.again = false; reloadGroup(name, redraw); }
-}
-
-interface SideOpts {
-  cls?: string;
-  current?: boolean;
-  hot?: boolean;
-  kbd?: string;
-  on?: () => void;
-}
-
-export function sideItem(svg: string | null, label: string, count: number | undefined, opts: SideOpts = {}) {
-  const b = h("button", `cc-si${opts.cls ? " " + opts.cls : ""}`, svg ? icon(svg) : null, h("span", "tt", label));
-  b.type = "button";
-  b.title = label;
-  b.setAttribute("aria-label", label);
-  if (opts.current) b.setAttribute("aria-current", "true");
-  if (count) b.append(h("span", `n${opts.hot ? " hot" : ""}`, String(count)));
-  if (opts.kbd) b.append(h("kbd", "", opts.kbd));
-  if (opts.on) b.addEventListener("click", opts.on);
-  return b;
 }
 
 /// What the pane shows, for the sidebar's highlight.
@@ -209,13 +188,6 @@ function redrawProjectPins() {
 }
 
 /// The pin button of a sidebar row: pins it to the top, or unpins it.
-function pinToggle(id: string, pinned: boolean, on: () => void) {
-  const toggle = button(icon(IC.pin)!, "pa", e => { e.stopPropagation(); on(); });
-  toggle.dataset.id = id;
-  toggle.setAttribute("aria-label", pinned ? "Unpin" : "Pin to top");
-  return toggle;
-}
-
 /// Gives the pin button of chat `id` the focus again, unless focus has gone
 /// elsewhere meanwhile (a redraw leaves it on the page body).
 function restorePinFocus(id: string) {
@@ -237,23 +209,6 @@ export async function setPinned(c: SideChat, pinned: boolean) {
 
   await reloadChats();
   if (hadFocus) restorePinFocus(c.id);
-}
-
-function chatRow(c: SideChat) {
-  if (c.kind === "project") return withThreads(projectRow(c.project, c.title, true), c.project.name);
-  const on = paneOn();
-  const open = c.kind === "group" ? on.group === c.id : on.view === "chat" && on.session === c.id;
-  const mark = c.kind === "group" ? icon(IC.group) : icon(c.research ? IC.doc : IC.chat);
-  // A chat still answering shows a spinner where its pin button was.
-  const end = c.kind === "chat" && running().has(c.id) ? runSpin() : pinToggle(c.id, c.pinned, () => setPinned(c, !c.pinned));
-  // Two real buttons in one row, never one inside the other.
-  const openBtn = h("button", "open", mark, h("span", "tt", c.title));
-  openBtn.type = "button";
-  openBtn.title = c.title;
-  if (open) openBtn.setAttribute("aria-current", "true");
-  const row = h("div", "cc-si cc-chat", openBtn, end);
-  row.addEventListener("contextmenu", e => (c.kind === "group" ? groupChatMenu(e, c) : c.research ? researchMenu(e, c) : chatMenu(e, c)));
-  return row;
 }
 
 function chatMenu(e: MouseEvent, c: ChatItem) {
@@ -303,13 +258,6 @@ function deleteChat(c: SideChat) {
   });
 }
 
-function runSpin() {
-  const spin = h("span", "dspin cc-run");
-  spin.title = "Answering";
-  spin.setAttribute("aria-label", "Answering");
-  return spin;
-}
-
 /// The chats about one pull request or issue each project lists under
 /// it: the open one, the running ones, then the newest.
 const SIDE_THREADS = 3;
@@ -317,41 +265,6 @@ function nestedThreads() {
   const on = paneOn();
   const open = on.view === "chat" ? on.session : null;
   return sideThreads(threadChats?.values() ?? [], chatList.map(c => c.id), open, running(), SIDE_THREADS);
-}
-
-/// Project `name`'s sidebar row `row`, with its thread chats under it.
-function withThreads(row: HTMLElement, name: string) {
-  const threads = nestedThreads().get(name);
-  if (!threads?.length) return row;
-  return h("div", "cc-pjthreads", row, ...threads.map(threadRow));
-}
-
-/// A chat about one pull request or issue, under its project.
-function threadRow(t: ThreadChatEntry) {
-  const on = paneOn();
-  const label = t.title || threadLabel(t.kind, t.number);
-  const openBtn = h("button", "open", h("span", "tt", label));
-  openBtn.type = "button";
-  openBtn.title = `${label} (${t.project})`;
-  if (on.view === "chat" && on.session === t.chat_id) openBtn.setAttribute("aria-current", "true");
-  // The project row's own click opens the project; this one opens the chat.
-  openBtn.addEventListener("click", e => { e.stopPropagation(); go("pane", { chat: { session: t.chat_id } }); });
-  const row = h("div", "cc-si cc-chat cc-thread", openBtn);
-  if (running().has(t.chat_id)) row.append(runSpin());
-  return row;
-}
-
-/// A project's sidebar row, `label` beside its colour, with its pin button.
-function projectRow(p: Placed<Project>, label: string, pinned: boolean) {
-  const openBtn = h("button", "open", projectDot(p.i), h("span", "tt", label));
-  openBtn.type = "button";
-  openBtn.title = p.machines.map(m => `${m.name}: ${m.folder}`).join("\n") || p.name;
-  if (currentLocation()?.view === "projects" && state.picked === p.name) openBtn.setAttribute("aria-current", "true");
-  if (p.agents) openBtn.append(h("span", "n", String(p.agents)));
-  const toggle = pinToggle(p.name, pinned, () => setProjectOnTop(p.name, !pinned));
-  const row = h("div", `cc-si cc-chat${pinned ? "" : " pj-repo"}`, openBtn, toggle);
-  newWindowOn(openBtn, row, p.name);
-  return row;
 }
 
 /// Opens project `name` in a window of its own, or brings up the one it
@@ -412,6 +325,22 @@ export function removeProject(name: string) {
   });
 }
 
+function projectReact(project: Placed<Project>, label: string, pinned: boolean, indented: boolean) {
+  const on = paneOn();
+  return createElement(SidebarProjectRow, { project, label, pinned, indented,
+    current: currentLocation()?.view === "projects" && state.picked === project.name,
+    threads: nestedThreads().get(project.name) ?? [], activeChat: on.view === "chat" ? on.session : null,
+    running: running(), open: () => openProjects(project.name), pin: () => { void setProjectOnTop(project.name, !pinned); },
+    wire: (button, row) => newWindowOn(button, row, project.name), openThread: id => { go("pane", { chat: { session: id } }); } });
+}
+function chatReact(c: SideChat) {
+  if (c.kind === "project") return projectReact(c.project, c.title, true, false);
+  const on = paneOn(), current = c.kind === "group" ? on.group === c.id : on.view === "chat" && on.session === c.id;
+  return createElement(SidebarChatRow, { chat: c, current, answering: c.kind === "chat" && running().has(c.id),
+    open: () => pickChat(c), pin: () => { void setPinned(c, !c.pinned); },
+    menu: event => c.kind === "group" ? groupChatMenu(event, c) : c.research ? researchMenu(event, c) : chatMenu(event, c) });
+}
+
 function pickChat(c: SideChat) {
   if (c.kind === "project") return openProjects(c.id);
   if (c.kind === "group") return go("pane", { group: { id: c.id } });
@@ -426,9 +355,8 @@ registerSidebarGroup<SideChat>("pinned", {
     const chats = state.subscribed ? splitPinned(await fetchChats(), SIDE_CHATS).pinned : [];
     return [...chats, ...pinnedProjects()];
   },
-  row: chatRow,
+  render: chatReact,
   key: c => `${c.kind}:${c.id}`,
-  onPick: pickChat,
 });
 
 registerSidebarGroup<SideChat>("chats", {
@@ -436,11 +364,7 @@ registerSidebarGroup<SideChat>("chats", {
   title: "Chats",
   onTitle: () => go("pane", "chats"),
   empty: () => (chatList.length ? "" : "No chats yet"),
-  action() {
-    const b = button(icon(IC.plus)!, "", () => go("pane", { chat: { session: null } }));
-    b.setAttribute("aria-label", "New chat");
-    return b;
-  },
+  action: { label: "New chat", title: false, run: () => { go("pane", { chat: { session: null } }); } },
   async load() {
     if (!groupShown("chats", state.subscribed)) return null;
     // Chats about one thread are listed under their project, researches
@@ -448,9 +372,8 @@ registerSidebarGroup<SideChat>("chats", {
     const rows = withoutResearch(await fetchChats(), RESEARCHES).filter(c => c.pinned || !threadChats?.has(c.id));
     return splitPinned(rows, SIDE_CHATS).recent;
   },
-  row: chatRow,
+  render: chatReact,
   key: c => `${c.kind}:${c.id}`,
-  onPick: pickChat,
 });
 
 registerSidebarGroup("views", {
@@ -461,10 +384,8 @@ registerSidebarGroup("views", {
     { view: "routines" as const, label: "Routines", svg: IC.loop },
     { view: "settings" as const, label: "Settings", svg: IC.gear },
   ], state.subscribed),
-  row: v => sideItem(v.svg, v.label, 0, { current: v.view !== "settings" && paneOn().view === v.view, kbd: v.view === "settings" ? (WINDOWS ? "Ctrl+," : "⌘,") : "" }),
   key: v => v.view,
   render: v => createElement(SidebarItem, { svg: v.svg, label: v.label, current: v.view !== "settings" && paneOn().view === v.view, shortcut: v.view === "settings" ? (WINDOWS ? "Ctrl+," : "⌘,") : "", open: () => go("pane", v.view) }),
-  onPick: v => go("pane", v.view),
 });
 
 /// Imported projects merged with the folders agents run in.
@@ -488,17 +409,6 @@ try { folded = parseFolded(localStorage.getItem(FOLDED_KEY)); } catch {}
 
 /// Makes `head` fold the projects under it. Folded, it lights up while it
 /// holds the open project.
-function foldable(head: HTMLButtonElement, p: OrgHeading | GroupHeading) {
-  head.type = "button";
-  head.prepend(h("span", `twist${p.folded ? "" : " open"}`, icon(IC.twist)));
-  head.setAttribute("aria-expanded", String(!p.folded));
-  if (currentLocation()?.view === "projects" && state.picked && p.folded?.includes(state.picked)) head.setAttribute("aria-current", "true");
-  head.addEventListener("click", () => toggleFold(p));
-  // A group's heading has a menu of its own, which takes the item.
-  if (p.group === undefined) head.addEventListener("contextmenu", e => openMenu(e, p.org ?? "", [foldItem(p)]));
-  return head;
-}
-
 function toggleFold(p: OrgHeading | GroupHeading) {
   const key = foldKey(p);
   if (!folded.delete(key)) folded.add(key);
@@ -508,19 +418,6 @@ function toggleFold(p: OrgHeading | GroupHeading) {
 
 function foldItem(p: OrgHeading | GroupHeading): MenuItem {
   return { label: p.folded ? "Unfold" : "Fold", on: () => toggleFold(p) };
-}
-
-/// A small + button for a group's heading or the footer.
-export function plusButton(label: string, on: () => void) {
-  const b = button(icon(IC.plus)!, "", e => { e.stopPropagation(); on(); });
-  b.title = label;
-  b.setAttribute("aria-label", label);
-  return b;
-}
-
-/// An empty group's row: what is missing. The group's + adds one.
-export function emptyRow(text: string) {
-  return h("div", "cc-si none", text);
 }
 
 /// Opens the Add a machine sheet; Home refreshes once it closes.
@@ -617,24 +514,25 @@ registerSidebarGroup("projects", {
   order: 5,
   title: "Projects",
   onTitle: () => openProjects(),
-  action: () => plusButton("Add a project", addProject),
-  empty: () => emptyRow("No projects yet"),
+  action: { label: "Add a project", run: addProject },
+  empty: "No projects yet",
   load: async () => {
     const rows = projectRows();
     // Those pinned to the top show under Pinned instead.
     return rows ? sideProjects(splitOnTop(rows, state.top).rest, state.groups, folded) : null;
   },
   key: p => p.group ? `group:${p.group.id}` : p.org !== undefined ? `org:${p.org}` : `project:${p.name}`,
-  row(p) {
-    // A group's heading, under it the projects' whole names; an org's,
-    // under it only the repo names.
-    if (p.group) return foldable(groupHeading(p.group, [foldItem(p)]), p);
-    if (p.org !== undefined) return foldable(h("button", "cc-org", `${p.org}/`), p);
-    const row = projectRow(p, p.repo ?? p.name, false);
-    if (!p.repo) row.classList.remove("pj-repo");
-    return withThreads(row, p.name);
+  render: p => {
+    if (!p.group && p.org === undefined) return projectReact(p, p.repo ?? p.name, false, !!p.repo);
+    const title = p.group ? p.group.name : `${p.org}/`;
+    const label = p.group ? createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.folder } }) : null;
+    return createElement("button", { type: "button", className: `cc-org${p.group ? " gp" : ""}`,
+      title: p.group ? `${p.group.paths.join(", ")} on every machine` : undefined,
+      "aria-expanded": !p.folded, "aria-current": currentLocation()?.view === "projects" && state.picked && p.folded?.includes(state.picked) ? "true" : undefined,
+      onClick: () => toggleFold(p), onContextMenu: (event: React.MouseEvent) => p.group ? groupMenu(event.nativeEvent, p.group, [foldItem(p)]) : openMenu(event.nativeEvent, p.org ?? "", [foldItem(p)]) },
+      createElement("span", { className: `twist${p.folded ? "" : " open"}`, dangerouslySetInnerHTML: { __html: IC.twist } }), label, title);
   },
-  onPick: p => { if (!p.org && !p.group) openProjects(p.name); },
+
 });
 
 onClosing(() => drawSide());

@@ -1,7 +1,6 @@
 import { createElement } from "react";
 import { SidebarMachine } from "../machines/sidebar-machine-view.tsx";
 // Project groups in the sidebar: heading, menu, rename and remove.
-import { plural } from "../ui/format.ts";
 import { svgEl as icon } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { groupMatches, type ProjectGroup } from "./projects-state.ts";
@@ -9,10 +8,8 @@ import { el as h } from "../ui/dom.ts";
 import { openGroupSheet } from "./groupsheet.tsx";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { state } from "../center/state.ts";
-import { dot, rowButton } from "../ui/pieces.ts";
-import { useThisMac, machineMenu } from "../machines/table.ts";
 import { currentLocation } from "../center/views.ts";
-import { registerSidebarGroup, reloadGroup, sideItem, projectRows, plusButton, emptyRow, openAddMachine, openProjects } from "../center/sidebar.ts";
+import { registerSidebarGroup, reloadGroup, projectRows, openAddMachine, openProjects } from "../center/sidebar.ts";
 import { redrawProjects, redrawProjectsPage } from "./sections.ts";
 import { jump } from "../center/home.ts";
 import { IC } from "../ui/icons.ts";
@@ -98,8 +95,8 @@ registerSidebarGroup<MachineCard | { thisMac: MacRow }>("machines", {
   order: 5.5,
   title: "Machines",
   onTitle: () => jump("sec-machines"),
-  action: () => plusButton("Add a machine", openAddMachine),
-  empty: () => emptyRow("No machines yet"),
+  action: { label: "Add a machine", run: openAddMachine },
+  empty: "No machines yet",
   load: async () => {
     const machines = state.home?.machines;
     if (!machines) return null;
@@ -108,32 +105,6 @@ registerSidebarGroup<MachineCard | { thisMac: MacRow }>("machines", {
   },
   key: m => "thisMac" in m ? "this-mac" : m.id,
   render: m => createElement(SidebarMachine, { machine: m }),
-  row(m) {
-    if ("thisMac" in m) return thisMacItem(m.thisMac);
-    const b = sideItem(null, m.name, m.agents || 0);
-    b.prepend(dot(m));
-    b.title = `${m.name}: ${m.online ? (m.agents ? plural(m.agents, "agent", "agents") + " running" : "online") : "offline"}`;
-    machineMenu(m, b);
-    return b;
-  },
-  onPick: m => jump("thisMac" in m ? "m-this-mac" : `m-${m.id}`),
+
 });
 
-/// The sidebar's This Mac: its state, or Add while it is off.
-function thisMacItem(mac: MacRow) {
-  const title = `This computer: ${mac.title}`;
-
-  if (mac.action) {
-    // A row with a button in it, never a button inside a button.
-    const row = h("div", "cc-si", h("span", "ddot off"), h("span", "tt", mac.name),
-      rowButton(mac.action, "quiet small mac-add", useThisMac));
-    row.title = title;
-    return row;
-  }
-
-  const b = sideItem(null, mac.name, 0);
-  b.prepend(h("span", "ddot off"));
-  b.append(h("span", `n mac-state${mac.bad ? " bad" : ""}`, mac.state));
-  b.title = title;
-  return b;
-}

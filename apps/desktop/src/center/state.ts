@@ -188,14 +188,11 @@ export interface SidebarGroup<T> {
   order: number;
   title?: string;
   load(): Promise<T[] | null>;
-  row(item: T): HTMLElement;
-  key?(item: T): string;
-  render?(item: T): ReactNode;
-  onPick?(item: T): void;
+  key(item: T): string;
+  render(item: T): ReactNode;
   onTitle?(): void;
-  action?(): HTMLElement;
-  empty?: string | (() => string | HTMLElement);
-  foot?(): HTMLElement[];
+  action?: { label: string; run(): void; title?: boolean };
+  empty?: string | (() => string);
 }
 
 export interface GroupSlot<T> extends SidebarGroup<T> {

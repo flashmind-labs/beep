@@ -52,3 +52,42 @@ test("machine sidebar rows remain focused when another machine changes", async (
   await expect(row).toBeFocused();
   expect(await row.evaluate(element => element === (window as any).__sidebarMachine)).toBe(true);
 });
+
+test("sidebar project rows retain focus and update another project", async ({ page }) => {
+  const project = (name: string) => ({ name, url: `https://example.test/${name}`, machine_id: "box", machine_name: "Build box", folder: `/srv/${name}`, cloned: true, imported_at: 1 });
+  const home = { machines: [], projects: [project("team/alpha"), project("team/beta")], running: [], needs_you: [], coming_up: null, updates: null };
+  await openDesktop(page, false, { center_home: home });
+  const beta = page.locator("#side .cc-grp.projects").getByRole("button", { name: "beta", exact: true });
+  await expect(beta).toBeVisible();
+  await beta.focus();
+  await beta.evaluate(element => { (window as any).__sidebarProject = element; });
+  await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, { ...home, projects: [{ ...home.projects[0], machine_name: "Changed box" }, home.projects[1]] });
+  await expect(page.locator("#side .cc-grp.projects").getByRole("button", { name: "alpha", exact: true })).toHaveAttribute("title", /Changed box/);
+  await expect(beta).toBeFocused();
+  expect(await beta.evaluate(element => element === (window as any).__sidebarProject)).toBe(true);
+});
+
+test("sidebar project headings fold and middle-click opens a project window", async ({ page }) => {
+  const project = { name: "team/widget", url: "https://example.test/team/widget", machine_id: "box", machine_name: "Build box", folder: "/srv/widget", cloned: true, imported_at: 1 };
+  await openDesktop(page, false, { center_home: { machines: [], projects: [project], running: [], needs_you: [], coming_up: null, updates: null } });
+  const group = page.locator("#side .cc-grp.projects"), heading = group.getByRole("button", { name: "team/" });
+  const row = group.getByRole("button", { name: "widget", exact: true });
+  await expect(row).toBeVisible();
+  await heading.click();
+  await expect(row).toHaveCount(0);
+  await heading.click();
+  await expect(row).toBeVisible();
+  await row.click({ button: "middle" });
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "center_open_project_window" && call.args.project === "team/widget"))).toBe(true);
+});
+
+test("sidebar chat pin and context actions do not open the chat", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, list_sessions: [{ id: "chat-one", title: "Example chat", pinned: false, updated_at: 1 }] });
+  const chat = page.locator("#side .cc-grp.chats .cc-chat").filter({ hasText: "Example chat" });
+  await expect(chat).toBeVisible();
+  await chat.getByRole("button", { name: "Pin to top" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "pin_session" && call.args.id === "chat-one" && call.args.pinned === true))).toBe(true);
+  await expect(page.locator("#title")).toHaveText("Home");
+  await chat.getByRole("button", { name: "Example chat" }).click({ button: "right" });
+  await expect(page.getByText("Rename…", { exact: true })).toBeVisible();
+});
