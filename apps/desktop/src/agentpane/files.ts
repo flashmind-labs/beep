@@ -1,6 +1,6 @@
 import { createElement, Fragment, type ReactElement } from "react";
-import { createPortal, flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createPortal } from "react-dom";
+import { setSessionChild } from "../agents/session-frame.tsx";
 import { FilesTree } from "./files-tree.tsx";
 import { FilesMenu, type FilesMenuProps } from "./files-menu.tsx";
 import { isHtmlFile } from "./html-preview-state.ts";
@@ -58,7 +58,7 @@ const F = {
   reveal: null as string | null,
 };
 
-let treeRoot: Root | null = null;
+let treeHost: HTMLElement | null = null;
 let showingRows = false;
 let treeView: ReactElement | null = null;
 let menuView: FilesMenuProps | null = null;
@@ -66,8 +66,8 @@ let menuView: FilesMenuProps | null = null;
 // The tree and its menu share one owner so folder refreshes keep an open menu.
 function renderViews() {
   const host = F.el;
-  if (!treeRoot || !host) return;
-  flushSync(() => treeRoot?.render(createElement(Fragment, null, treeView, menuView && createPortal(createElement(FilesMenu, menuView), host, "menu"))));
+  if (!treeHost || !host) return;
+  setSessionChild("files", createElement(Fragment, null, createPortal(treeView, treeHost, "tree"), menuView && createPortal(createElement(FilesMenu, menuView), host, "menu")));
 }
 
 /// Folder reads run at once, and the entries a filter stops at.
@@ -78,8 +78,8 @@ const WALK_ENTRIES = 50_000;
 export function filesView() {
   const s = paneSession();
   const key = s ? `${s.machine_id}\n${paneRoot()}` : "";
-  if (F.el && F.key === key) return F.el;
-  treeRoot?.unmount(); treeRoot = null; treeView = null; menuView = null; showingRows = false;
+  if (F.el && F.key === key) { renderViews(); return F.el; }
+  setSessionChild("files", null); treeHost = null; treeView = null; menuView = null; showingRows = false;
   F.el?.remove();
   F.unfollow?.();
   Object.assign(F, {
@@ -94,7 +94,7 @@ export function filesView() {
   F.el = el;
   wire(el);
   const tree = el.querySelector<HTMLElement>(".agtree");
-  if (tree) treeRoot = createRoot(tree);
+  treeHost = tree;
   load("");
   return el;
 }
@@ -258,7 +258,7 @@ async function readFolder(dir: string, deep: boolean) {
 
 function draw() {
   const tree = F.el?.querySelector<HTMLElement>(".agtree");
-  if (!tree || !treeRoot) return;
+  if (!tree || !treeHost) return;
   if (!paneSession()?.cwd) { treeView = null; renderViews(); showingRows = false; return; }
   const top = F.listings.get("");
   const rows = treeRows(F.listings, F.open, F.filter);
