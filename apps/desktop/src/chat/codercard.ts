@@ -1,6 +1,5 @@
-import { createElement, Fragment } from "react";
-import { createPortal, flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createElement } from "react";
+import { renderChatCoderCards } from "./work-view.tsx";
 import { CoderCardView, type CoderCardState } from "./codercard-view.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 import { paneShown } from "../ui/active.ts";
@@ -30,11 +29,11 @@ interface CoderCard extends HTMLElement {
   owner?: CardOwner;
 }
 
-interface CardOwner { body: ChatBody; root: Root; cards: Map<CoderCard, { key: number; value: CoderCardState }>; next: number; pending: Map<CoderCard, CoderCardState>; watching: boolean }
+interface CardOwner { body: ChatBody; cards: Map<CoderCard, CoderCardState>; pending: Map<CoderCard, CoderCardState>; watching: boolean }
 const owners = new WeakMap<ChatBody, CardOwner>();
 const followed = new Set<CoderCard>();
 function sync(owner: CardOwner) {
-  flushSync(() => owner.root.render(createElement(Fragment, null, ...[...owner.cards].map(([card, entry]) => createPortal(createElement(CoderCardView, { value: entry.value, answer: index => void answer(card, index), open: () => { if (card.found) openAgent(card.found.page?.session ?? card.found.row); } }), card, entry.key)))));
+  renderChatCoderCards(owner.body, [...owner.cards].map(([card, value]) => ({ host: card, view: createElement(CoderCardView, { value, answer: index => void answer(card, index), open: () => { if (card.found) openAgent(card.found.page?.session ?? card.found.row); } }) })));
 }
 function selected(card: CoderCard) { const selection = document.getSelection(); return !!selection && !selection.isCollapsed && selection.containsNode(card, true); }
 function remove(card: CoderCard) {
@@ -53,7 +52,7 @@ function ownerChanged(owner: CardOwner) {
         if (selected(card)) continue;
         owner.pending.delete(card);
         const entry = owner.cards.get(card);
-        if (entry) { owner.cards.set(card, { ...entry, value }); changed = true; }
+        if (entry) { owner.cards.set(card, value); changed = true; }
       }
       if (!owner.pending.size) { document.removeEventListener("selectionchange", ownerChanged(owner)); owner.watching = false; }
       if (changed) sync(owner);
@@ -118,7 +117,7 @@ export function coderCard(turn: Turn, text: string | null | undefined) {
     if (!body) return;
     let owner = owners.get(body);
     if (!owner) {
-      owner = { body, root: createRoot(document.createElement("div")), cards: new Map(), next: 0, pending: new Map(), watching: false };
+      owner = { body, cards: new Map(), pending: new Map(), watching: false };
       owners.set(body, owner);
       const current = owner;
       const watch = new MutationObserver(records => { if (records.some(record => record.removedNodes.length)) queueMicrotask(() => prune(current)); });
@@ -175,7 +174,7 @@ function draw(card: CoderCard) {
   } else {
     owner.pending.delete(card);
     if (owner.watching && !owner.pending.size) { document.removeEventListener("selectionchange", ownerChanged(owner)); owner.watching = false; }
-    owner.cards.set(card, { key: old?.key ?? ++owner.next, value });
+    owner.cards.set(card, value);
     sync(owner);
   }
   queueMicrotask(() => prune(owner));
