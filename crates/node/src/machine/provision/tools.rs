@@ -12,7 +12,7 @@ use std::{
     process::Stdio,
     time::Duration,
 };
-use tokio::{process::Command, time::timeout};
+use tokio::time::timeout;
 
 /// The longest one download may take.
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
@@ -402,7 +402,7 @@ pub(crate) fn verify(path: &Path, expected: &str) -> Result<()> {
 /// Downloads `url` with curl, which every supported system has: to `to`,
 /// or else into what it returns.
 pub(crate) async fn curl(url: &str, to: Option<&Path>) -> Result<Vec<u8>> {
-    let mut command = Command::new("curl");
+    let mut command = crate::run::process::command("curl");
     command.args(["-fsSL", "--proto", "=https", "--retry", "2"]);
 
     if let Some(to) = to {
@@ -434,7 +434,7 @@ pub(crate) async fn curl(url: &str, to: Option<&Path>) -> Result<Vec<u8>> {
 async fn extract(archive: &Path, member: &str, into: &Path) -> Result<()> {
     let is_zip = archive.extension().is_some_and(|ext| ext == "zip");
     let mut command = if is_zip {
-        let mut command = Command::new("unzip");
+        let mut command = crate::run::process::command("unzip");
         command
             .arg("-q")
             .arg("-o")
@@ -444,7 +444,7 @@ async fn extract(archive: &Path, member: &str, into: &Path) -> Result<()> {
             .arg(into);
         command
     } else {
-        let mut command = Command::new("tar");
+        let mut command = crate::run::process::command("tar");
         command
             .arg("-xzf")
             .arg(archive)

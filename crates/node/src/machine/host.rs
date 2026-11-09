@@ -1,14 +1,13 @@
 //! What the machine calls itself.
 
 use beep_proto::link::MAX_NAME;
-use tokio::process::Command;
 
 /// The name when the host has none to give.
 const NO_HOSTNAME: &str = "Machine";
 
 /// What the machine calls itself, cut to fit a name.
 pub async fn host_name() -> String {
-    let output = Command::new("hostname").output().await;
+    let output = crate::run::process::command("hostname").output().await;
     let name = output
         .ok()
         .filter(|output| output.status.success())
