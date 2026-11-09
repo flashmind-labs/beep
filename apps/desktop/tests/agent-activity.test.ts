@@ -93,3 +93,22 @@ test("subagent activity retains its action while status changes", () => {
   assert.equal(log.querySelector(".dsubprompt pre")?.textContent, "Read the file");
   disposeLog(log);
 });
+
+test("made-file notes keep their controls and focus during updates", () => {
+  bar.innerHTML = '<div id="agbody"><div class="dcoderlog"></div></div>';
+  const body = bar.querySelector<ChatBody>("#agbody"); assert.ok(body);
+  Object.defineProperty(body, "clientHeight", { configurable: true, value: 800 });
+  const log = body.querySelector<HTMLElement>(".dcoderlog"); assert.ok(log);
+  const files = [{ path: "/srv/project/a.txt", name: "a.txt" }, { path: "/srv/project/b.txt", name: "b.txt" }];
+  const row = (open: boolean): ActivityRow => ({ kind: "note", id: "made:1", html: String(open), at: 1, value: { kind: "made", open, files: { files, counts: "2 documents", groups: [{ group: "documents", label: "Documents", files }] } } });
+  const units = (open: boolean) => [{ key: "turn", rows: () => [row(open)] }];
+  setUnits(log, units(false), []); fillLog(body, false);
+  const button = log.querySelector<HTMLButtonElement>("[data-madeat]"); assert.ok(button);
+  button.focus();
+  setUnits(log, units(true), []);
+  assert.equal(log.querySelector("[data-madeat]"), button);
+  assert.equal(document.activeElement, button);
+  assert.equal(button.getAttribute("aria-expanded"), "true");
+  assert.equal(log.querySelectorAll("[data-made]").length, 2);
+  disposeLog(log);
+});

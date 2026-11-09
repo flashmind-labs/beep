@@ -54,3 +54,24 @@ test("grouped agent tools open without replacing the group control", async ({ pa
   await expect(button).toHaveAttribute("data-identity", "kept");
   await expect(group.locator(".dcoderen.tool")).toHaveCount(2);
 });
+
+test("made-file activity keeps its control when expanded", async ({ page }) => {
+  await openDesktop(page);
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      const value = await invoke<T>(command, args);
+      if (command !== "agent_view" || !value || typeof value !== "object") return value;
+      return { ...value, entries: [{ kind: "user", text: "Check" }, { kind: "other", text: "(made first.md)\n(made second.md)" }] } as T;
+    };
+  });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  const button = page.locator("[data-madeat]");
+  await expect(button).toContainText("Made 2 files");
+  await button.focus();
+  await button.evaluate(element => { (element as HTMLElement).dataset.identity = "kept"; });
+  await button.click();
+  await expect(button).toHaveAttribute("aria-expanded", "true");
+  await expect(button).toHaveAttribute("data-identity", "kept");
+  await expect(page.locator("[data-made]")).toHaveCount(2);
+});
