@@ -8,7 +8,7 @@ export const answers: Record<string, unknown> = {};
 
 const g = globalThis as Record<string, unknown>;
 export const bar = { dataset: {}, innerHTML: "", querySelector: () => null, querySelectorAll: () => [], addEventListener() {} };
-g.document = { getElementById: () => bar, querySelector: () => null, addEventListener() {}, createElement: () => ({ style: {} }) };
+g.document = { getElementById: () => bar, querySelector: () => null, addEventListener() {}, createElement: () => ({ style: {}, setAttribute() {} }) };
 g.window = globalThis;
 const windowListeners = new Map<string, Set<(event: Event) => void>>();
 g.addEventListener = (name: string, receive: (event: Event) => void) => {
