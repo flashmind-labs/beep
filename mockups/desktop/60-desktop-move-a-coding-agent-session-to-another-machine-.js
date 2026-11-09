@@ -37,6 +37,7 @@
   const CONV = [["done", "Conversation 6.1 MB"]];
   const moving = rows => strip(rows, "Moving to studio");
   const CFG = {
+    mvwarning: { base: "idle", cur: "laptop", extra: '<div style="position:relative"><div class="mvwarning" role="status">The session works outside the project checkout</div></div>' },
     mvmenu: { base: "idle", cur: "laptop", menu: "idle" },
     mvmenuturn: { base: "working", cur: "laptop", menu: "working", turn: true },
     mvbar: { base: "working", cur: "laptop", open: "mvmenuturn", tag: "",
