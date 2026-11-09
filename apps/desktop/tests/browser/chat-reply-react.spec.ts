@@ -75,3 +75,46 @@ test("history combines assistant fragments and keeps code copy controls", async 
   await expect(reply.locator('pre code')).toHaveText('example');
   await expect(reply.locator('pre button[data-copy]')).toBeVisible();
 });
+
+test("transcript updates keep the React-owned user prompt through later events", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command === "send_prompt" && args?.onEvent && typeof args.onEvent === "object" && "onmessage" in args.onEvent) {
+        const channel = args.onEvent;
+        Reflect.set(window, "promptEvents", (event: unknown) => { if (typeof channel.onmessage === "function") channel.onmessage(event); });
+        return new Promise<T>(() => {});
+      }
+      return invoke<T>(command, args);
+    };
+  });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "live-chat" } }));
+  await page.locator("#ask").fill("Original question");
+  await page.locator("#ask").press("Enter");
+  await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, "promptEvents"))).toBe("function");
+  const prompt = page.locator(".dcoderen.user");
+  await expect(prompt).toContainText("Original question");
+  await prompt.evaluate(el => { const range = document.createRange(); range.selectNodeContents(el.querySelector("span")!); window.getSelection()?.removeAllRanges(); window.getSelection()?.addRange(range); });
+  await page.evaluate(() => Reflect.get(window, "promptEvents")({ kind: "transcript", text: "Transcribed question" }));
+  await expect(prompt).toContainText("Original question");
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("Original question");
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+  await expect(prompt).toContainText("Transcribed question");
+  await page.evaluate(() => Reflect.get(window, "promptEvents")({ kind: "text", html: "<p>Reply</p>" }));
+  await expect(page.locator(".dcoderen.agent")).toContainText("Reply");
+  await expect(prompt).toContainText("Transcribed question");
+});
+
+test("history refresh keeps a selected user prompt while answers update", async ({ page }) => {
+  const user = { role: "user", text: "A selected prompt", at: 1, images: [], model: "", thinking: "" };
+  const answer = { role: "assistant", html: "<p>First answer</p>", tools: [], replies: [], model: "" };
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [user, answer], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const prompt = page.locator(".dcoderen.user");
+  await expect(prompt).toContainText("A selected prompt");
+  await prompt.evaluate(el => { Reflect.set(window, "keptPrompt", el); const range = document.createRange(); range.selectNodeContents(el.querySelector("span")!); window.getSelection()?.removeAllRanges(); window.getSelection()?.addRange(range); });
+  await page.evaluate(data => { window.__navigation.respond("open_session", data); window.__navigation.emit("sessions-changed", "chat-example"); }, [user, { ...answer, html: "<p>Updated answer</p>" }]);
+  await expect(page.locator(".dcoderen.agent")).toContainText("Updated answer");
+  expect(await prompt.evaluate(el => el === Reflect.get(window, "keptPrompt") && window.getSelection()?.toString() === "A selected prompt")).toBe(true);
+});

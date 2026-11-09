@@ -1,4 +1,5 @@
-import { ASK, askText, body, type Decision, focusAsk, followAnswered, forRoutine, newTurn, renderChat, scrollDown, settle, startRun } from "../chat/chat.ts";
+import { renderChatPrompt, updateChatPrompt } from "../chat/work-view.tsx";
+import { ASK, askText, body, owningChatBody, type Decision, focusAsk, followAnswered, forRoutine, newTurn, renderChat, scrollDown, settle, startRun } from "../chat/chat.ts";
 import { touch } from "../chat/chats.ts";
 import { $, $$, bar, entry, here, live, PANE, S } from "./core.ts";
 import { hints, keyGroups, LIVE_SAY, LIVE_TALK, refreshHints } from "./hints.ts";
@@ -271,8 +272,11 @@ export function takeDraft(ask: HTMLTextAreaElement | null) {
 export function heard(turn: Turn, text: string) {
   let ask = turn.querySelector<HTMLElement>(ASK);
   if (!ask) turn.prepend(ask = h(userRowHtml("")));
-  ask.querySelector("span")?.remove();
-  ask.append(h(`<span>${esc(text)}</span>`));
+  if (!updateChatPrompt(turn, esc(text))) {
+    const owner = owningChatBody(turn);
+    if (owner) { ask.replaceChildren(); renderChatPrompt(owner, turn, ask, esc(text)); }
+    else { ask.querySelector("span")?.remove(); ask.append(h(`<span>${esc(text)}</span>`)); }
+  }
   touch(S.session!, text);
 }
 // Live mode stays in the bar and the orb.
