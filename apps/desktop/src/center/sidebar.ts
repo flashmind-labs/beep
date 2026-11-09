@@ -2,7 +2,6 @@ import { WINDOWS, onPhone } from "../ui/platform.ts";
 // The sidebar: its groups (pinned, chats, views, projects, machines) and
 // the sheets that add a machine or a project.
 import { onClosing, visibleRunning } from "../agents/closing.ts";
-import { patchChildren } from "../ui/patch.ts";
 import { plural, reason } from "../ui/format.ts";
 import { svgEl as icon, writeClipboard } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -16,7 +15,7 @@ import { openAddProject, importFound, rescanAll } from "../addproject/addproject
 import { openAddFolder } from "../addproject/addfolder.ts";
 import { openNewProject } from "../addproject/newproject.ts";
 import { foldKey, mergeProjects, parseFolded, sideProjects, splitOnTop, removeProjectSheet, REMOVE_PROJECT, type FoundRow, type GroupHeading, type OrgHeading, type Placed, type Project } from "../project/projects-state.ts";
-import { button, el as h, type Kid } from "../ui/dom.ts";
+import { button, el as h } from "../ui/dom.ts";
 import { confirmSheet, openMenu, renameSheet, type MenuItem } from "../ui/menu.ts";
 import { openInWindow } from "../chat/chat.ts";
 import { openInEditor } from "../project/editors.ts";
@@ -49,6 +48,10 @@ import { syncProjects, syncConflicts } from "../project/syncpage.ts";
 import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";
 import { lazyRows } from "../ui/lazyrows.ts";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { SidebarShell, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
 
 export function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
   const slot: GroupSlot<T> = { title: "", ...group, items: null, loading: false, again: false };
@@ -103,22 +106,19 @@ export function paneOn(): { view: View | null; session: string | null; group: st
   return currentLocation()?.view === "pane" ? pane.current() : { view: null, session: null, group: null };
 }
 
+let sidebarRoot: { host: HTMLElement; root: Root } | null = null;
 export function drawSide() {
-  const home = state.home;
-  const head = h("div", "cc-head", "");
-  head.setAttribute("data-tauri-drag-region", "");
-  const top = h("div", "cc-grp cc-nav",
-    sideItem(IC.find, "Search", 0, { cls: "cc-search", on: openPalette, kbd: WINDOWS ? "Ctrl+K" : "⌘K" }),
-    sideItem(IC.home, "Home", home?.needs_you.length, { current: currentLocation()?.view === "home", hot: true, on: () => go("home") }));
-  // Running opens the coding agents' list, the full view of Home's section.
-  if (home?.running) top.append(sideItem(IC.run, "Running", visibleRunning(home.running).length, { current: paneOn().view === "agents", on: () => go("pane", "agents") }));
-  // Terminals on every machine, once the server lists them.
-  const termList = allTerms.list(ALL);
-  if (home?.machines && termList) top.append(sideItem(IC.term, "Terminals", termList.length, { current: currentLocation()?.view === "terminals", on: () => go("terminals") }));
-  // Sync, once a project syncs: the conflicts waiting across them.
-  if (syncProjects().length) top.append(sideItem(IC.sync, "Sync", syncConflicts(), { current: currentLocation()?.view === "sync", hot: true, on: () => go("sync") }));
-  if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
-  const side = [top];
+  const home = state.home, location = currentLocation()?.view;
+  const links: SideLink[] = [
+    { svg: IC.find, label: "Search", count: 0, className: "cc-search", open: openPalette, shortcut: WINDOWS ? "Ctrl+K" : "⌘K" },
+    { svg: IC.home, label: "Home", count: home?.needs_you.length ?? 0, current: location === "home", hot: true, open: () => go("home") },
+  ];
+  if (home?.running) links.push({ svg: IC.run, label: "Running", count: visibleRunning(home.running).length, current: paneOn().view === "agents", open: () => go("pane", "agents") });
+  const terms = allTerms.list(ALL);
+  if (home?.machines && terms) links.push({ svg: IC.term, label: "Terminals", count: terms.length, current: location === "terminals", open: () => go("terminals") });
+  if (syncProjects().length) links.push({ svg: IC.sync, label: "Sync", count: syncConflicts(), current: location === "sync", hot: true, open: () => go("sync") });
+  if (home?.coming_up) links.push({ svg: IC.cal, label: "Coming up", count: home.coming_up.length, open: () => jump("sec-coming") });
+  const side: HTMLElement[] = [];
 
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
     // Rows that fill in once the server answers, never an empty sidebar.
@@ -145,65 +145,23 @@ export function drawSide() {
     if (grp.childElementCount > (g.title ? 1 : 0)) side.push(grp);
   }
 
-  const foot = h("div", "cc-foot", ...footer(home?.machines).map(f => h("span", "", f)));
-  const out = signedOutFooter(S.server, S.signedOut);
-
-  if (out) {
-    // Signed out: the state, and the way to Sign in, in place of the machine count.
-    const signIn = button(out.action, "quiet", () => openSettings("devices"));
-    signIn.classList.add("small");
-    foot.append(signIn);
-  } else if (home?.machines) {
-    const add = plusButton("Add a machine", openAddMachine);
-    add.classList.add("dbtn", "quiet");
-    foot.append(add);
-  }
-
-  side.push(foot);
-  // The head stays put under the window buttons; only the list below it
-  // scrolls, and a redraw keeps where it was.
-  const el = $("#side");
-  let list = el.querySelector<HTMLElement>(":scope > .cc-side-list");
-
-  if (!list) {
-    list = h("div", "cc-side-list");
-    const brand = h("div", "cc-brand", h("b", "", "Beep"));
-
-    if (!onPhone()) {
-      const toggle = button(h("span", "", icon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>')), "cc-side-toggle", () => {
-        const win = el.closest(".cwin");
-        if (!win) return;
-        const collapsed = win.classList.toggle("side-collapsed");
-        toggle.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
-        toggle.setAttribute("aria-label", toggle.title);
-        toggle.setAttribute("aria-expanded", String(!collapsed));
-      });
-      toggle.title = "Collapse sidebar";
-      toggle.setAttribute("aria-label", toggle.title);
-      toggle.setAttribute("aria-expanded", "true");
-      toggle.setAttribute("aria-controls", "side-content");
-      brand.append(toggle);
-    }
-
-    list.id = "side-content";
-    el.replaceChildren(head, brand, list);
-  }
-
-  patchChildren(list, side);
-  // A chat's title comes from the list, which may just have loaded.
+  const host = $("#side");
+  if (!sidebarRoot || sidebarRoot.host !== host) { sidebarRoot?.root.unmount(); sidebarRoot = { host, root: createRoot(host) }; }
+  const root = sidebarRoot.root;
+  flushSync(() => root.render(createElement(SidebarShell, { host, phone: onPhone(), links, groups: side, footer: footer(home?.machines), signIn: () => openSettings("devices"), addMachine: openAddMachine })));
   if (currentLocation()?.view === "pane") drawTop();
 }
 
-function footer(machines: MachineCard[] | null | undefined): Kid[] {
+function footer(machines: MachineCard[] | null | undefined): SideFooter {
   const out = signedOutFooter(S.server, S.signedOut);
-  if (out) return [h("span", "", h("span", "ddot off"), ` ${out.text}`)];
+  if (out) return { dot: "off", text: out.text, action: "signin" };
+  const action = machines ? "add" : null;
   const p = problem();
-  if (p) return [h("span", "", h("span", `ddot ${p.kind === "unlinked" || p.kind === "noserver" ? "off" : "bad"}`), ` ${p.kind === "unlinked" ? "Not linked" : p.kind === "noserver" ? "No server" : p.kind === "revoked" ? "Removed" : "Refused"}`)];
-  if (!state.home) return [h("span", "", h("span", `ddot ${stuck() ? "bad" : "off"}`), stuck() ? " Not connected" : " Connecting…")];
-  if (!machines) return ["Machines unavailable"];
-  if (!machines.length) return ["No machines linked"];
-  const on = machines.filter(m => m.online).length;
-  return [h("span", "", h("span", "ddot"), " ", h("b", "", String(on)), ` of ${plural(machines.length, "machine", "machines")} online`)];
+  if (p) return { dot: p.kind === "unlinked" || p.kind === "noserver" ? "off" : "bad", text: p.kind === "unlinked" ? "Not linked" : p.kind === "noserver" ? "No server" : p.kind === "revoked" ? "Removed" : "Refused", action };
+  if (!state.home) return { dot: stuck() ? "bad" : "off", text: stuck() ? "Not connected" : "Connecting…", action };
+  if (!machines) return { dot: null, text: "Machines unavailable", action };
+  if (!machines.length) return { dot: null, text: "No machines linked", action };
+  return { dot: "on", count: machines.filter(m => m.online).length, text: ` of ${plural(machines.length, "machine", "machines")} online`, action };
 }
 
 /// Pinned chats and groups, then the newest of the rest, the open one
