@@ -272,3 +272,20 @@ const AGENTS = [
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const pad = n => String(n).padStart(2, "0");
+
+// Shared desktop action buttons use the dbtn styles and their standard variants.
+function desktopButton(label, cls = "", attributes = {}, content = null) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = cls ? `dbtn ${cls}` : "dbtn";
+  button.textContent = label;
+
+  if (content !== null) button.innerHTML = content;
+
+  for (const [name, value] of Object.entries(attributes)) {
+    if (value === false || value === null) continue;
+    button.setAttribute(name, value === true ? "" : String(value));
+  }
+
+  return button.outerHTML;
+}

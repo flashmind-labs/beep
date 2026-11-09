@@ -9,8 +9,8 @@ import { projectPastSessions, type Project, type WhereRow } from "./projects-sta
 import { el as h, type Kid } from "../ui/dom.ts";
 import { agentFor, pageAgent, tasksSection, workersSection, cardsSection } from "./agent.ts";
 import { terminalTile, type TerminalRow } from "../terminals/terminals.ts";
-import { taskTile, machineTile, askingSessions } from "./board.ts";
 import { fileSyncTile } from "./filesync.ts";
+import { taskTile, machineTile, askingSessions } from "./board.ts";
 import { issueMeta, prChip, prMeta } from "./threads.ts";
 import { arranged, listControls, pickBox, startBar } from "./openlist.ts";
 import type { StartEntry } from "./openlist-state.ts";
@@ -40,9 +40,9 @@ export function splitOn(p: Project) {
 /// stops the polling of every other item. With `draw` false the caller
 /// draws.
 export function openTile(key: string | null, draw = true) {
-  pa.tile = key;
+  pa.tile = key === "sync" || key === "terminals" ? "machines" : key;
   if (key !== "actions") runs.stop();
-  if (key !== "sync") fsync.stop();
+  if (pa.tile !== "machines") { fsync.stop(); terms.stop(); }
   if (key !== "review") revs.stop();
   if (key !== "branches") gitHistory.stop();
   if (!draw) return;
@@ -124,6 +124,7 @@ function splitRow(i: SplitItem, lit: string | null, f?: LabelFilter, pick?: HTML
 /// picked row's detail and actions at the right.
 export function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: RunningAgent[]): Node[] {
   // No view and no agent chat without a subscription: no card, tasks or plan.
+  if (pa.tile === "sync" || pa.tile === "terminals") pa.tile = "machines";
   const view = state.pview.get(p.name)?.view ?? null;
   const agent = pageAgent(state.agents, p.name, state.subscribed)!;
   const pid = agent.project_id;
@@ -141,6 +142,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   thr.ensure(pid);
   const acts = repoActs(p);
   const sync = state.sync.filter(s => s.project === p.name);
+  const syncCount = fileSyncTile(fsync.forTile(p.name), sync, new Map(rows.map(m => [m.id, m.name]))).count;
   const cards = view && cardsSection(view, { ...agentActs, answer: (c, decision, said) => answerCard(agent, c, decision, said) });
   const groups: SplitGroup[] = [];
   // Overview, Needs you and Running head the list, each one line.
@@ -149,8 +151,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const project: SplitItem[] = [
     { key: "actions", title: "Actions", sub: runs.tile(pid).count || "", detail: () => [runs.section(agent)] },
     // A machine's terminals sit below it, as on Home.
-    { key: "machines", title: "Machines", sub: [machineTile(rows, sync).count, terminalTile(terms.list(p.name), ago).count].filter(Boolean).join(" · "), detail: () => [whereSection(p, rows, known), terminalsSection(p.name)] },
-    { key: "sync", title: "File sync", sub: fileSyncTile(fsync.forTile(p.name), sync, new Map(rows.map(w => [w.id, w.name]))).count || "", detail: () => fsync.panel(p.name) },
+    { key: "machines", title: "Machines", sub: [syncCount || machineTile(rows, sync).count, terminalTile(terms.list(p.name), ago).count].filter(Boolean).join(" · "), detail: () => [whereSection(p, rows, known)] },
   ];
   const threads = thr.threads(pid);
 
@@ -282,13 +283,6 @@ function sessionTabs(p: Project, running: RunningAgent[], rows: WhereRow[]): Nod
 /// The agent view with terminal `t`, one of project `name`, in a pane tab with the keys.
 function openTerminal(name: string, t: TerminalRow) {
   go("pane", { draft: { project: name, machine: t.machine_id, terminal: t } });
-}
-
-/// The project's terminals, which keep running on their machines; a row opens one.
-function terminalsSection(name: string) {
-  const list = terms.list(name) ?? [];
-  const body = list.length ? h("div", "cc-panel", ...list.map(t => terminalLine(t, () => openTerminal(name, t)))) : emptyPanel(h("span", "", "None yet. ⌘T opens one."));
-  return section("", "Terminals", list.length || "", null, body);
 }
 
 /// The project's Overview: what runs and ran on the left, the open work on

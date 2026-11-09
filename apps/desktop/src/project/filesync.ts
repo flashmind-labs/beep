@@ -87,6 +87,9 @@ export interface FileSyncDeps {
   kept?: SectionStore<SyncDetail | null>;
 }
 
+/// A project can place sync rows inside its machine sections.
+type MachineList = (rows: MachineDetail[], syncRow: (m: MachineDetail) => HTMLElement) => HTMLElement;
+
 /// How old the board's tile lets the sync get before it reads it again.
 const TILE_MAX_AGE_MS = 30_000;
 
@@ -425,16 +428,16 @@ export function makeFileSync(deps: FileSyncDeps) {
     return act(name, c.path, () => invoke("project_sync_resolve", { project: name, machineId: c.resolver, path: c.path, keepCopy }));
   }
 
-  function machineRow(name: string, m: MachineDetail) {
+  function machineRow(name: string, m: MachineDetail, compact = false) {
     const chip = stateChip(m);
     const pct = m.paused ? null : syncPct(m);
-    const head = h("div", "fs-h", h("span", `ddot${m.status === "offline" ? " off" : ""}`), h("b", "", m.machine_name),
+    const head = h("div", "fs-h", ...(compact ? [] : [h("span", `ddot${m.status === "offline" ? " off" : ""}`)]), h("b", "", compact ? (m.git_only ? "Git sync" : "File sync") : m.machine_name),
       Object.assign(h("span", `chip${chip.wait ? " wait" : ""}`, chip.text), { title: m.error || "" }));
     const bar = pct == null ? null : h("div", "fs-bar", h("i", ""));
     if (bar) (bar.firstChild as HTMLElement).style.width = `${pct}%`;
     const folder = plainPath(m.folder);
     const meta = h("div", "fs-m", ...(m.git_only ? ["Git sync"] : machineMeta(m)).map(x => h("span", "", x)), folder ? h("code", "", folder) : null);
-    const row = h("div", "fs-row", head, bar, meta);
+    const row = h("div", compact ? "fs-row pm-sync" : "fs-row", head, bar, compact ? (m.git_only ? null : h("div", "fs-m", ...machineMeta(m).map(x => h("span", "", x)))) : meta);
     const clock = clockWarning(m.machine_id, null);
     if (clock) row.append(h("div", "fs-m", Object.assign(h("span", "clockoff", clock.text), { title: clock.title })));
     const note = stateNote(m);
@@ -443,12 +446,13 @@ export function makeFileSync(deps: FileSyncDeps) {
     if (deps.fixGit && !m.paused && gitSyncWarning(m)) {
       const fix = button("Fix with an agent", "small", () => deps.fixGit!(name, m.machine_id, m.error!));
       fix.title = "Opens a draft with both checkouts and recent session references";
-      row.append(h("div", "fs-m", fix));
+      if (compact) head.append(fix);
+      else row.append(h("div", "fs-m", fix));
     }
 
     if (m.hint) row.append(h("div", "fs-m", `Rescanned instead of watched. To watch it, run ${m.hint}`));
 
-    if (deps.changeFolder && m.status !== "offline" && m.folder) {
+    if (!compact && deps.changeFolder && m.status !== "offline" && m.folder) {
       row.addEventListener("contextmenu", e => openMenu(e, m.machine_name, [{ label: "Change folder…", on: () => deps.changeFolder!(name, m) }]));
     }
 
@@ -558,22 +562,22 @@ export function makeFileSync(deps: FileSyncDeps) {
   /// still waits.
   /// `heading` names the machines' section (the project, on the Sync page);
   /// a panel with one reads on its page's refresh, not on a timer of its own.
-  function panel(name: string, heading?: string): HTMLElement[] {
+  function panel(name: string, heading?: string, machines: MachineList | null = null): HTMLElement[] {
     const s = of(name);
     if (s.detail === undefined) load(name);
     if (!heading) watch(name);
     const d = s.detail;
     const out: HTMLElement[] = [];
     if (s.error) out.push(h("div", "cc-err", s.error));
-    if (d === null) return [...out, emptyPanel(h("b", "", "The server needs an update before it shows file sync in detail."))];
-    if (d === undefined) return [...out, emptyPanel(h("span", "", "Loading…"))];
+    if (d === null) return [...out, ...(machines ? [machines([], m => machineRow(name, m, true))] : []), emptyPanel(h("b", "", "The server needs an update before it shows file sync in detail."))];
+    if (d === undefined) return [...out, ...(machines ? [machines([], m => machineRow(name, m, true))] : []), emptyPanel(h("span", "", "Loading…"))];
     const toggle = button(s.busy === "pause" ? (d.paused ? "Resuming…" : "Pausing…") : d.paused ? "Resume" : "Pause", d.paused ? "pri" : "", () => pause(name, !d.paused));
     toggle.disabled = !!s.busy || d.pinned || !d.machines.length;
     // Nothing of Beep's to pause when Syncthing keeps every folder.
     toggle.hidden = !d.paused && d.machines.every(syncedBySyncthing);
     toggle.title = d.paused ? "Sync again on every machine" : "Hold sync on every machine; files stay as they are";
     out.push(secHead(heading ?? "Machines", h("span", "fs-tools", h("small", "", syncSummary(d)), toggle)));
-    out.push(h("div", "cc-panel fs-list", ...(d.machines.length
+    out.push(machines ? machines(d.machines, m => machineRow(name, m, true)) : h("div", "cc-panel fs-list", ...(d.machines.length
       ? d.machines.map(m => machineRow(name, m))
 
       : [h("div", "cc-empty", h("span", "", d.pinned ? "Pinned: never syncs." : "No machine syncs this project."))])));
@@ -599,7 +603,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     out.push(h("div", "dmuted fs-note", d.machines.some(machine => machine.git_only)
       ? d.ignored_folders?.length
         ? "Git syncs commits. Selected ignored folders use file sync. Other uncommitted edits stay local."
-        : "Git checkouts sync commits. Uncommitted edits stay on their machine; use Bring work here under Where it lives for an explicit handoff."
+        : "Git checkouts sync commits. Uncommitted edits stay on their machine; use Bring work here under Machines for an explicit handoff."
       : "Builds, ignored files and links stay on each machine."));
     return out;
   }

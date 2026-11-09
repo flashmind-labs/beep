@@ -766,7 +766,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .hv-sum .on { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px }
 @container hvset (max-width: 560px) { .hv-sum .on { display: none } }
 .hv-view.in-set { container: hvset / inline-size }
-.hv-view.in-set > .hv-d { padding: 0; overflow: visible }
 .hv-view.in-set > .hv-d > .hv-acts:first-child, .hv-view.in-set > .hv-d > .hv-note:first-child { margin-top: 0 }
 /* flsh's own settings under its runtime ones. */
 .fl-seg, .fl-chips { display: flex; flex-wrap: wrap; gap: 4px }
@@ -1027,3 +1026,39 @@ button.cc-note.in-go:hover { border-color: var(--border-hi) }
 .gh-detail-body > .dv { flex: 1; min-height: 0; height: auto }
 .gh-detail-body .dv-head .dv-sum .base { display: none }
 .gh-location { white-space: pre-line }
+
+/* Each project's machines own their sync details and terminals. */
+.pm-list { display: flex; flex-direction: column; gap: 16px; margin-bottom: 16px }
+.pm-machine { border: 1px solid var(--border); border-radius: 0; min-width: 0 }
+.pm-head { display: flex; align-items: center; gap: 12px; padding: 8px 12px; min-height: 40px; font-size: 14px }
+.pm-head > b { font-weight: 600 }
+.pm-folder { color: var(--muted); font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.pm-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-left: auto }
+.pm-head > .pm-actions { flex-shrink: 0 }
+.pm-body { padding: 0 12px 12px 32px; font-size: 12px }
+.pm-body .pm-sync { padding: 0; gap: 8px }
+.pm-sync .fs-h .chip { border: 0; background: none; padding: 0; border-radius: 0; margin-left: 16px }
+.pm-sync .fs-h > b { color: var(--muted); font-weight: 400 }
+.pm-git { display: flex; align-items: center; gap: 12px; flex-wrap: wrap }
+.pm-git .gs { color: var(--muted) }
+.pm-git .gs.err { color: var(--err) }
+.pm-body hr { border: 0; height: 1px; background: var(--border); margin: 12px 0 }
+.pm-terminal-head { display: flex; align-items: center; gap: 12px; color: var(--muted) }
+.pm-terminal-head small { margin-left: auto; font: inherit }
+.pm-body > .cc-row { padding-left: 0; padding-right: 0 }
+@media (max-width: 640px) {
+  .pm-head { flex-wrap: wrap }
+  .pm-folder { flex: 1 1 50% }
+  .pm-body { padding-left: 12px }
+}
+.pm-sync .fs-h { flex-wrap: wrap }
+.pm-sync .fs-h > .dbtn { margin-left: auto }
+.pm-sync .pm-git { flex: 1 }
+
+/* Scope the runtime picker and controls to their machine section. */
+.hv-scope { padding: 16px; border: 1px solid var(--border); border-radius: 8px; min-width: 0 }
+.hv-scope > h3 { margin: 0 0 12px; font-size: 16px; line-height: 24px; font-weight: 600 }
+.hv-scope > .hv-d { padding: 0; overflow: visible }
+.hv-scope > .hv-sum { margin: 12px 0 }
+.hv-scope .hv-bar { flex-wrap: wrap }
+.hv-scope .hv-sel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }

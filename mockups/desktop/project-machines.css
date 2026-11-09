@@ -1,0 +1,28 @@
+.mac .pm-list { display: flex; flex-direction: column; gap: 16px }
+.mac .pm-machine, .mac .pm-add { border: 1px solid var(--d-border); border-radius: 0; background: transparent }
+.mac .pm-machine-head { display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 8px 12px; font-size: 14px; line-height: 20px }
+.mac .pm-machine-head > b { font-weight: 600 }
+.mac .pm-machine-head > code { color: var(--d-muted); font-size: 12px; line-height: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0 }
+.mac .pm-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0 }
+.mac .pm-body { padding: 0 12px 12px 32px; font-size: 12px; line-height: 16px }
+.mac .pm-sync { display: flex; align-items: center; gap: 16px; min-height: 32px }
+.mac .pm-child-label { color: var(--d-muted); min-width: 64px }
+.mac .pm-sync > code { color: var(--d-muted) }
+.mac .pm-sync-actions { display: flex; align-items: center; gap: 8px; margin-left: auto }
+.mac .pm-warning { color: var(--d-amber, #e3ba61) }
+.mac .pm-sync-note { color: var(--d-muted); margin: 4px 0 8px 80px }
+.mac .pm-body hr { border: 0; height: 1px; background: var(--d-border); margin: 12px 0 }
+.mac .pm-terminal-heading { display: flex; align-items: center; gap: 12px; color: var(--d-muted) }
+.mac .pm-terminal-heading small { margin-left: auto; font: inherit }
+.mac .pm-terminal { display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 8px; border: 0; background: transparent; color: var(--d-fg); text-align: left; padding: 8px 0; font: inherit; cursor: pointer }
+.mac .pm-terminal > b { font-weight: 500 }
+.mac .pm-terminal > code, .mac .pm-terminal > span:last-child { color: var(--d-muted) }
+.mac .pm-terminal > span:last-child { margin-left: auto }
+.mac .pm-terminal:hover { background: color-mix(in srgb, var(--d-fg) 4%, transparent) }
+.mac .pm-terminal:focus-visible { outline: 2px solid var(--d-emerald); outline-offset: 2px }
+.mac .pm-add { display: flex; align-items: center; gap: 12px; padding: 12px; font-size: 12px; line-height: 16px }
+.mac .pm-identity { display: contents }
+.mac .pm-identity b { font-size: 14px; font-weight: 600 }
+.mac .pm-identity small { color: var(--d-muted) }
+.mac .pm-add > button { margin-left: auto }
+.mac .pm-footnote { color: var(--d-muted); font-size: 12px; line-height: 16px; margin: 16px 0 }

@@ -41,25 +41,53 @@ async fn fetch(pages: &Pages, url: &str) -> Response<Vec<u8>> {
 }
 
 #[tokio::test]
-async fn file_previews_restrict_the_page_and_its_siblings() {
+async fn file_previews_load_scripts_fonts_and_parent_assets_inside_the_project() {
     let pages = Pages::default();
-    let src = pages.keep_with_policy(b"<img src=chart.png>".to_vec(), place(), true);
+    let mut at = place();
+    at.folder.clear();
+    let src = pages.keep_at(
+        b"<script src='../mermaid.js'></script>".to_vec(),
+        at,
+        "mockups/desktop/index.html".into(),
+    );
     let page = done(&pages, &src);
-    assert_eq!(page.headers()[header::CONTENT_SECURITY_POLICY], PREVIEW_CSP);
-    assert!(!PREVIEW_CSP.contains("https:"));
-    assert!(!PREVIEW_CSP.contains("allow-scripts"));
-    assert!(!PREVIEW_CSP.contains("script-src"));
-    let image = fetch(&pages, &format!("{src}chart.png")).await;
-    assert_eq!(image.status(), StatusCode::OK);
-    assert_eq!(image.body(), b"\x89PNG");
+    assert_eq!(page.headers()[header::CONTENT_SECURITY_POLICY], PAGE_CSP);
+    assert!(PAGE_CSP.contains("script-src"));
+    assert!(PAGE_CSP.contains("font-src data: https: beepview:"));
+    assert!(PAGE_CSP.ends_with("sandbox allow-scripts"));
+    let url = url::Url::parse(&src).expect("preview URL");
+    let asset = url.join("../mermaid.js").expect("relative URL");
+    let Route::Read(file) = route(&pages, &request(asset.as_str())) else {
+        panic!("parent asset must load");
+    };
+    let response = file
+        .serve(|file| async move {
+            assert_eq!(file.root, "/srv/project");
+            assert_eq!(file.path, "mockups/mermaid.js");
+            Ok(b"window.mermaid = {};".to_vec())
+        })
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
-        image.headers()[header::CONTENT_SECURITY_POLICY],
-        PREVIEW_CSP
+        response.headers()[header::CONTENT_TYPE],
+        "text/javascript; charset=utf-8"
     );
     assert_eq!(
-        done(&pages, &format!("{src}%2e%2e/secret")).status(),
+        done(
+            &pages,
+            url.join("../../../secret").expect("relative URL").as_str()
+        )
+        .status(),
         StatusCode::NOT_FOUND
     );
+}
+
+#[test]
+fn preview_entry_paths_encode_spaces_and_percent_signs() {
+    let pages = Pages::default();
+    let src = pages.keep_at(b"page".to_vec(), place(), "reports/100% done.html".into());
+    assert!(src.ends_with("reports/100%25%20done.html"));
+    assert_eq!(done(&pages, &src).body(), b"page");
 }
 
 #[test]
@@ -148,6 +176,7 @@ async fn a_page_loads_a_bounded_number_of_files() {
     let pages = Pages::default();
     let src = pages.keep(b"<p>hi</p>".to_vec(), place());
 
+    const { assert!(MAX_PAGE_FILES > 100, "large mocks need more than 64 assets") };
     for _ in 0..MAX_PAGE_FILES {
         assert_eq!(
             fetch(&pages, &format!("{src}chart.png")).await.status(),

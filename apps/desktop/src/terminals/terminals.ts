@@ -806,6 +806,7 @@ export function makeTerminals(deps: TerminalDeps) {
     ensure,
     list: (name: string) => of(name).list,
     machinesPanel,
+    follow: watch,
     newOn,
     newLikeOpen,
     focusOpen,

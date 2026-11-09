@@ -32,7 +32,7 @@
   const lights = '<span class="pw-lights"><i></i><i></i><i></i></span>';
   const win = main => ccWin("", main).replace('class="cc-win" role="main" aria-label="Beep"', 'class="cc-win pw" role="main" aria-label="acme/widget"');
   // The board's tiles as tabs; Overview is the board itself.
-  const TABS = [["", "Overview"], ["tasks", "Tasks"], ["workers", "Agents"], ["branches", "Branches"], ["prs", "Pull requests"], ["issues", "Issues"], ["machines", "Machines"], ["terms", "Terminals"], ["sync", "File sync"]];
+  const TABS = [["", "Overview"], ["tasks", "Tasks"], ["workers", "Agents"], ["branches", "Branches"], ["prs", "Pull requests"], ["issues", "Issues"], ["machines", "Machines"], ["terms", "Terminals"]];
   const tabs = on => `<nav class="pw-tabs" aria-label="acme/widget">${TABS.map(([k, l]) =>
     `<button${k === on ? ' aria-current="true"' : ""} data-dact="dset:pbo:${k}" data-dgo="dWinProjectWindow">${l}</button>`).join("")}</nav>`;
   D.dWinProjectWindow = () => {

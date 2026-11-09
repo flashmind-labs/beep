@@ -46,7 +46,7 @@ test("remote HTML offers preview and returns to source", async () => {
   await tick();
   assert.deepEqual(calls.at(-1), { cmd: "agent_artifact", args: { machineId: "remote", root: "/srv/project/work", path: "report.HTML", preview: true } });
   const frame = t.el.querySelector("iframe");
-  assert.equal(frame.getAttribute("sandbox"), "");
+  assert.equal(frame.getAttribute("sandbox"), "allow-scripts");
   assert.equal(frame.getAttribute("referrerpolicy"), "no-referrer");
   assert.equal(frame.src, "beepview://localhost/test/");
   t.el.querySelector("[data-preview]").click();
