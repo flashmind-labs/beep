@@ -6,6 +6,9 @@ test("Settings navigation survives refresh, supports subpages and cleans up", as
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
   const nav = settings.getByRole("navigation", { name: "Settings pages" });
+  await expect(nav).toBeVisible();
+  await expect(settings.locator(".dset-nav")).toHaveCount(1);
+  await expect(settings.locator(".dset-body")).toHaveCount(1);
   const agents = nav.getByRole("button", { name: "Agent accounts", exact: true });
   await agents.click();
   await agents.evaluate(el => { const nav = el.closest("nav"); if (nav) { nav.style.maxHeight = "100px"; nav.scrollTop = 35; } Reflect.set(window, "settingsNavButton", el); Reflect.set(window, "settingsNav", nav); });

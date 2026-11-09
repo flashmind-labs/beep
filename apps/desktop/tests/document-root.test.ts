@@ -48,3 +48,26 @@ test("document view renders synchronously inside its caller's flush and cannot r
   assert.equal(host.childElementCount, 0);
   host.remove();
 });
+
+
+test("document view replaces initial native contents once and retains its rendered controls", () => {
+  const host = document.createElement("div"), placeholder = document.createElement("span");
+  placeholder.textContent = "Loading";
+  host.append(placeholder);
+  document.body.append(host);
+  const view = createDocumentView(host);
+  assert.equal(host.firstChild, placeholder);
+  flushSync(() => view.render(createElement("input", { defaultValue: "draft" })));
+  const input = host.querySelector("input");
+  assert.ok(input);
+  assert.equal(placeholder.parentElement, null);
+  input.value = "edited";
+  flushSync(() => view.render(createElement("input", { defaultValue: "new" })));
+  assert.equal(host.querySelector("input"), input);
+  assert.equal(input.value, "edited");
+  view.unmount();
+  host.append(placeholder);
+  flushSync(() => view.render(null));
+  assert.equal(host.firstChild, placeholder);
+  host.remove();
+});

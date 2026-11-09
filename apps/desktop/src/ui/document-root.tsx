@@ -66,9 +66,15 @@ export function createDocumentScope<Slot extends string>(wrap: (children: ReactN
 export function createDocumentView(host: HTMLElement) {
   const scope = createDocumentScope<"view">();
   scope.mount();
+  let started = false, disposed = false;
   return {
-    render: (content: ReactNode) => scope.setDeferred([{ slot: "view", host, content }]),
-    unmount: () => scope.dispose(),
+    render: (content: ReactNode) => {
+      if (disposed) return;
+      // Match root ownership when taking over a native loading placeholder.
+      if (!started) { host.replaceChildren(); started = true; }
+      scope.setDeferred([{ slot: "view", host, content }]);
+    },
+    unmount: () => { disposed = true; scope.dispose(); },
   };
 }
 
