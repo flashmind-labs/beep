@@ -119,6 +119,13 @@ test("pane refresh preserves composer focus and terminal selection focuses its s
   await expect(composer).toBeFocused();
   await expect(screen).toHaveAttribute("data-identity", "kept");
   expect((await screen.boundingBox())?.width).toBeGreaterThan(0);
+  await terminalTab.focus();
+  await terminalTab.evaluate(element => { element.dataset.identity = "kept"; });
+  await page.evaluate(rows => window.__navigation.processes(rows), [...processes, { ...processes[0], pid: 42, command: "another process" }]);
+  await expect(page.getByRole("tab", { name: /Running/ })).toContainText("2");
+  await expect(terminalTab).toHaveAttribute("data-identity", "kept");
+  await expect(terminalTab).toBeFocused();
+  await expect(screen).toHaveAttribute("data-identity", "kept");
   await page.getByRole("tab", { name: "Files", exact: true }).click();
   await terminalTab.click();
   await expect(page.locator(".xterm-helper-textarea:focus")).toHaveCount(1);
@@ -126,4 +133,32 @@ test("pane refresh preserves composer focus and terminal selection focuses its s
   await page.evaluate(() => window.__navigation.processes([]));
   await expect(page.getByRole("tab", { name: /Running/ })).toHaveCount(0);
   await expect(composer).toBeFocused();
+});
+
+test("terminal tab menu and dragging preserve the running screen", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await openDesktop(page, true, { terminal_open: { id: "shell-one", project: "", machine_id: "build-box", machine_name: "build-box", name: "shell", command: "", cwd: "/srv/project", state: "running", code: null, started_at: 1 } });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("button", { name: "+ Terminal", exact: true }).click();
+  const tab = page.locator('[role="tab"][data-mtab^="term:"]');
+  await expect(tab).toBeVisible();
+  const screen = page.locator(".xterm-screen").first();
+  await expect(screen).toBeVisible();
+  await screen.evaluate(element => { element.dataset.identity = "kept"; });
+  await tab.click({ button: "right" });
+  await expect(page.getByRole("menuitem", { name: "Close", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  const start = await tab.boundingBox(), shell = await page.locator("#agshell").boundingBox();
+  const from = await tab.evaluate(element => element.closest<HTMLElement>(".agpane")?.dataset.dock);
+  expect(start).not.toBeNull(); expect(shell).not.toBeNull();
+  if (!start || !shell) return;
+  const target = from === "right" ? { x: shell.x + shell.width * 0.35, y: shell.y + shell.height - 8 } : { x: shell.x + shell.width - 8, y: shell.y + shell.height * 0.4 };
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(target.x, target.y, { steps: 12 });
+  await page.mouse.up();
+  await expect.poll(() => tab.evaluate(element => element.closest<HTMLElement>(".agpane")?.dataset.dock)).not.toBe(from);
+  await expect(screen).toHaveAttribute("data-identity", "kept");
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminal_open").length)).toBe(1);
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminal_close").length)).toBe(0);
 });
