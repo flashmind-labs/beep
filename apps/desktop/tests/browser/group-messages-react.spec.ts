@@ -61,3 +61,19 @@ test("opening mentions does not disturb selected messages or scroll", async ({ p
   expect(await page.evaluate(() => String(window.getSelection()))).toBe('Message 1');
   await expect(body).toHaveJSProperty('scrollTop', top);
 });
+
+test("group refresh keeps the composer caret and header controls", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: 'linked', signed_out: false, server: true, live: false, session: null }, open_group: { group, messages: [message(1)] }, group_typing: false });
+  await page.evaluate(() => window.__navigation.open({ group: { id: 'group' } }));
+  const prompt = page.locator('#gask'), invite = page.locator('#ginvite');
+  await expect(prompt).toHaveAttribute('placeholder', /Example group/);
+  await prompt.fill('Unsent message');
+  await prompt.evaluate(el => { if (el instanceof HTMLTextAreaElement) { el.setSelectionRange(2, 5); Reflect.set(window, 'groupComposer', el); } });
+  await invite.evaluate(el => Reflect.set(window, 'groupInviteButton', el));
+  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'open_group').length);
+  await page.evaluate(value => { window.__navigation.respond('open_group', value); window.__navigation.emit('group-changed', 'group'); }, { group: { ...group, name: 'Updated group' }, messages: [message(1)] });
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'open_group').length)).toBeGreaterThan(reads);
+  await expect(prompt).toHaveAttribute('placeholder', /Updated group/);
+  expect(await prompt.evaluate(el => el === Reflect.get(window, 'groupComposer') && document.activeElement === el && el instanceof HTMLTextAreaElement && el.value === 'Unsent message' && el.selectionStart === 2 && el.selectionEnd === 5)).toBe(true);
+  expect(await invite.evaluate(el => el === Reflect.get(window, 'groupInviteButton'))).toBe(true);
+});
