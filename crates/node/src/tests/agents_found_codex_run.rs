@@ -83,3 +83,61 @@ fn its_own_steps_and_answer_read_after_the_parents_history() {
     assert!(running.working);
     assert_eq!(running.result, None);
 }
+
+#[test]
+fn task_path_children_are_linked_only_to_their_parent_and_refresh_independently() {
+    let root = tempfile::tempdir().expect("a temp folder");
+    write(root.path(), false);
+    let parent = root
+        .path()
+        .join("sessions/2026/11/03/rollout-parent-p1.jsonl");
+    fs::write(&parent, format!("{}\n", json!({"type": "session_meta", "payload": {
+        "id": "p1", "source": "cli", "cwd": "/srv/project", "timestamp": "2026-11-03T07:00:00Z"
+    }}))).expect("a parent rollout");
+    let stores = crate::agents::found::Stores {
+        codex: Some(root.path().to_owned()),
+        ..Default::default()
+    };
+    assert!(stores.codex_children("unrelated").is_empty());
+    assert!(
+        stores.codex_children(THREAD).is_empty(),
+        "no grandchildren here"
+    );
+    let children = stores.codex_children("p1");
+    assert_eq!(children.len(), 1);
+    assert!(children[0].working);
+    assert_eq!(children[0].task.as_deref(), Some("sleep_test"));
+    let before = stores
+        .transcript("p1", 10, None)
+        .expect("read")
+        .expect("parent");
+    assert_eq!(before.entries.len(), 1);
+    assert!(
+        before.entries[0]
+            .text
+            .contains("sleep_test [in_progress]\n[steps] 2")
+    );
+    assert!(
+        before.entries[0]
+            .text
+            .contains(&format!("[session] subagent:codex:{THREAD}"))
+    );
+
+    write(root.path(), true);
+    let after = stores
+        .transcript("p1", 10, None)
+        .expect("read")
+        .expect("parent");
+    assert_eq!(after.entries.len(), 1, "the child is not duplicated");
+    assert!(after.entries[0].text.contains("sleep_test [completed]"));
+    assert!(after.entries[0].text.contains("Slept for a minute."));
+}
+
+#[test]
+fn child_headers_reject_self_links_and_invalid_thread_ids() {
+    for thread in ["p1", "../child"] {
+        let line = json!({"type": "session_meta", "payload": {"id": thread,
+            "source": {"subagent": {"thread_spawn": {"parent_thread_id": "p1"}}}}});
+        assert!(parent(&line.to_string()).is_none());
+    }
+}

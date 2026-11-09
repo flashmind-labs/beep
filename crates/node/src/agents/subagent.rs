@@ -3,6 +3,7 @@
 //! `super::live`).
 
 use anyhow::{Context, Result, bail};
+use beep_proto::node::agent::{Entry, EntryKind};
 use serde_json::Value;
 
 /// A native conversation, addressed separately from the process that owns it.
@@ -190,6 +191,42 @@ pub(crate) struct Run {
     pub(crate) name: Option<String>,
     /// Its task's name.
     pub(crate) task: Option<String>,
+}
+
+impl Run {
+    /// A recovered child uses the same card format as an ACP spawn.
+    pub(crate) fn entry(&self) -> Entry {
+        let title = self
+            .task
+            .as_deref()
+            .or(self.name.as_deref())
+            .unwrap_or("Subagent");
+        let status = if self.working {
+            "in_progress"
+        } else {
+            "completed"
+        };
+        let mut text = format!("{title} [{status}]\n[steps] {}", self.count);
+        for step in &self.steps {
+            let status = if step.done || !self.working {
+                "completed"
+            } else {
+                "in_progress"
+            };
+            text.push_str(&format!("\n[step {status}] {}", step.title));
+        }
+        if let Some(name) = &self.name {
+            text.push_str(&format!("\n[agent] {name}"));
+        }
+        if let Some(session) = &self.session {
+            text.push_str(&format!("\n[session] {session}"));
+        }
+        if let Some(result) = &self.result {
+            text.push('\n');
+            text.push_str(result);
+        }
+        Entry::new(EntryKind::Tool, crate::agents::cut(&text, 16 * 1024))
+    }
 }
 
 /// One call a subagent made.

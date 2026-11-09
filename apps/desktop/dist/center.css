@@ -1073,8 +1073,13 @@ button.cc-note.in-go:hover { border-color: var(--border-hi) }
 .cc-side-toggle:active { transform: scale(.98) }
 .cc-side-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 .cwin.side-collapsed { grid-template-columns: 80px minmax(0, 1fr) }
-.side-collapsed .cc-side-list > :not(.cc-nav), .side-collapsed .cc-brand b, .side-collapsed > .cc-grip { display: none }
-.side-collapsed .cc-nav h3, .side-collapsed .cc-nav .cc-si > :not(svg):not(.sidebar-icon) { display: none }
-.side-collapsed .cc-nav .cc-si { justify-content: center; padding: 8px }
-.side-collapsed .cc-nav .cc-si:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
+.side-collapsed .cc-brand b, .side-collapsed > .cc-grip,
+.side-collapsed .cc-foot, .side-collapsed .cc-grp h3,
+.side-collapsed .cc-si.none, .side-collapsed .cc-thread,
+.side-collapsed .cc-si > :not(svg):not(.sidebar-icon):not(.cc-pdot):not(.ddot):not(.open),
+.side-collapsed .cc-si .open > :not(svg):not(.sidebar-icon):not(.cc-pdot):not(.ddot),
+.side-collapsed .cc-org > :not(svg):not(.sidebar-icon):not(.twist) { display: none }
+.side-collapsed .cc-si, .side-collapsed .cc-org { justify-content: center; padding: 8px; min-height: 32px; box-sizing: border-box }
+.side-collapsed .cc-si .open { justify-content: center; padding: 0 }
+.side-collapsed .cc-si:focus-visible, .side-collapsed .cc-org:focus-visible, .side-collapsed .cc-si .open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
 .side-collapsed .cc-side > .cc-brand { justify-content: center; padding: 0 }

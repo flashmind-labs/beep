@@ -6,7 +6,7 @@ use crate::files::sync::{
     map::is_conflict,
     peer,
     progress::Meter,
-    watch::{Key, Mode, RESCAN, Watcher, rescan_every},
+    watch::{Key, Mode, RESCAN, Watcher},
 };
 use anyhow::Result;
 use beep_proto::node::sync::State as SyncState;
@@ -25,7 +25,8 @@ use tokio::{
 };
 
 /// How long the folder must be quiet after a change before it is scanned.
-const SETTLE: Duration = Duration::from_millis(300);
+pub(super) const SETTLE: Duration = Duration::from_secs(10);
+pub(super) const MAX_SETTLE: Duration = Duration::from_secs(30);
 /// How long the folder must be quiet before files a scan found missing are
 /// sent as deletes. Deleting the whole folder (`rm -rf`, Finder) removes
 /// its files first, and the folder itself last; the watcher reports each
@@ -76,6 +77,23 @@ pub(super) struct DeleteTimer {
     pub(super) due: Option<Instant>,
 }
 
+#[derive(Debug, Default)]
+pub(super) struct ChangeTimer {
+    first: Option<Instant>,
+    pub(super) due: Option<Instant>,
+}
+
+impl ChangeTimer {
+    pub(super) fn changed(&mut self, now: Instant) {
+        let first = *self.first.get_or_insert(now);
+        self.due = Some((now + SETTLE).min(first + MAX_SETTLE));
+    }
+
+    fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
 impl DeleteTimer {
     /// The folder changed at `now`: held deletes wait again.
     pub(super) fn changed(&mut self, now: Instant) {
@@ -119,7 +137,8 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
         start_pulls(&mut pulls, &shared, &task.parts, &peers.borrow_and_update());
     }
 
-    let mut settle: Option<Instant> = None;
+    let mut settle = ChangeTimer::default();
+    let mut full = false;
     let mut deletes = DeleteTimer::default();
     deletes.scanned(!task.held.is_empty(), Instant::now());
     let mut last_scan = Instant::now();
@@ -130,7 +149,8 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
             // Nothing moves: the pulls stop, and changes on disk wait for
             // the scan on resume.
             pulls = JoinSet::new();
-            settle = None;
+            settle.clear();
+            full = false;
             deletes = DeleteTimer::default();
             task.publish_status(None);
             let unsaved = shared.lock().unsaved;
@@ -146,6 +166,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
             if !*paused.borrow() {
                 while woken.try_recv().is_ok() {}
                 shared.listen_again();
+                watcher.take_changes(shared.key);
                 task.scan().await;
                 last_scan = Instant::now();
                 task.apply().await;
@@ -163,43 +184,56 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
             () = shared.stop.cancelled() => break,
             Some(()) = woken.recv() => {
                 let now = Instant::now();
-                settle.get_or_insert(now + SETTLE);
+                settle.changed(now);
                 deletes.changed(now);
             }
             () = shared.touched.notified() => {
                 let now = Instant::now();
-                settle.get_or_insert(now + SETTLE);
+                full = true;
+                settle.changed(now);
                 deletes.changed(now);
             }
             changed = paused.changed() => if changed.is_err() {
                 break;
             },
-            () = sleep_until(settle.unwrap_or_else(Instant::now)), if settle.is_some() => {
-                settle = None;
-                task.scan().await;
+            () = sleep_until(settle.due.unwrap_or_else(Instant::now)), if settle.due.is_some() => {
+                settle.clear();
+                let changes = watcher.take_changes(shared.key);
+                if std::mem::take(&mut full) || changes.full {
+                    task.scan().await;
+                } else {
+                    task.scan_changes(changes.paths).await;
+                }
                 last_scan = Instant::now();
                 apply = true;
             }
-            () = sleep_until(deletes.due.unwrap_or_else(Instant::now)), if deletes.due.is_some() => {
+            () = sleep_until(deletes.due.unwrap_or_else(Instant::now)), if deletes.due.is_some() && settle.due.is_none() => {
                 deletes.due = None;
                 // Quiet long enough: scanned again, and what is still
                 // missing is sent unless the folder changed meanwhile.
-                task.scan().await;
+                let changes = watcher.take_changes(shared.key);
+                if changes.full {
+                    task.scan().await;
+                } else {
+                    task.scan_changes(changes.paths).await;
+                }
                 last_scan = Instant::now();
                 if woken.try_recv().is_ok() {
-                    settle.get_or_insert(last_scan + SETTLE);
+                    settle.changed(last_scan);
                 } else {
                     task.send_deletes().await;
                 }
                 apply = true;
             }
-            () = sleep_until(last_scan + rescan_every(&task.mode, shared.key)) => {
+            () = sleep_until(last_scan + RESCAN), if !matches!(task.mode, Mode::Watching) => {
                 task.scan().await;
                 last_scan = Instant::now();
                 apply = true;
             }
             () = shared.forced.notified() => {
-                settle = None;
+                settle.clear();
+                full = false;
+                watcher.take_changes(shared.key);
                 task.scan().await;
                 last_scan = Instant::now();
                 apply = true;
@@ -211,6 +245,12 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
             }
             () = sleep(retry), if task.pending > 0 => {
                 retry = (retry * 2).min(MAX_RETRY);
+                apply = true;
+            }
+            () = sleep_until(last_scan + retry), if task.scan_failed => {
+                task.scan().await;
+                last_scan = Instant::now();
+                retry = if task.scan_failed { (retry * 2).min(MAX_RETRY) } else { RETRY };
                 apply = true;
             }
             () = sleep_until(task.saved_at + SAVE_EVERY), if unsaved => {}
@@ -230,7 +270,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
         }
         deletes.scanned(!task.held.is_empty(), Instant::now());
 
-        if apply && settle.is_none() {
+        if apply && settle.due.is_none() {
             task.apply().await;
 
             if task.pending == 0 {

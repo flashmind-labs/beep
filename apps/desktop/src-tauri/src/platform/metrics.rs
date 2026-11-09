@@ -49,6 +49,12 @@ const PAGES: &[&str] = &[
     "revoked",
 ];
 const COMMANDS: &[&str] = &[
+    "machine_clocks",
+    "project_sync_detail",
+    "agent_worktrees",
+    "session_copies",
+    "session_moves",
+    "session_move_progress",
     "agent_view",
     "agent_modes",
     "agent_tasks",
@@ -64,6 +70,11 @@ const COMMANDS: &[&str] = &[
     "center_project_pull_requests",
     "center_project_runs",
 ];
+
+#[tauri::command]
+pub(crate) fn desktop_trace_enabled() -> bool {
+    std::env::var_os("BEEP_DESKTOP_TRACE_COMMANDS").is_some_and(|value| value == "1")
+}
 
 fn labels(t: &Timing) -> Option<(&'static str, &'static str, &'static str)> {
     if !t.ms.is_finite() || !(0.0..=600_000.0).contains(&t.ms) {

@@ -9,7 +9,7 @@ use super::{EnvSecret, ForgejoLogin, harness::HarnessConfig};
 use crate::AgentSlug;
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// `sync/<name>`: the devices that keep a project in step, and the folder
 /// the project has on each. A device not listed does not sync it, and a
@@ -34,6 +34,24 @@ pub struct SkillSync {
 impl Default for SkillSync {
     fn default() -> Self {
         Self { enabled: true }
+    }
+}
+
+/// `settings/project-sync`: a master pause without discarding project preferences.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectSyncSettings {
+    pub enabled: bool,
+    /// Projects individually paused before the master switch was turned off.
+    #[serde(default)]
+    pub paused_projects: BTreeSet<String>,
+}
+
+impl Default for ProjectSyncSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            paused_projects: BTreeSet::new(),
+        }
     }
 }
 
@@ -143,6 +161,7 @@ pub trait StateValue: Serialize + DeserializeOwned {
 
 impl StateValue for SyncSpec {}
 impl StateValue for SkillSync {}
+impl StateValue for ProjectSyncSettings {}
 impl StateValue for Place {}
 impl StateValue for ProjectRecord {}
 impl StateValue for Credential {}

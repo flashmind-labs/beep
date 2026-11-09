@@ -50,9 +50,9 @@ pub fn show(options: &LogOptions) -> Result<()> {
     }
 }
 
-/// The last `lines` lines of the service's log, or of the log file `file`,
+/// The last `lines` lines of the service's log, or of `files` oldest first,
 /// cut to `MAX_LINES` and `MAX_BYTES`.
-pub(crate) fn recent(file: Option<&Path>, lines: u32) -> Result<String> {
+pub(crate) fn recent(files: &[PathBuf], lines: u32) -> Result<String> {
     let options = LogOptions {
         since: RECENT,
         follow: false,
@@ -61,12 +61,19 @@ pub(crate) fn recent(file: Option<&Path>, lines: u32) -> Result<String> {
     };
     let mut printer = Printer::new(&options, cutoff(RECENT), Vec::new());
 
-    match file {
-        Some(file) => {
-            read_file(file, &mut printer)?;
-            printer.caught_up()?;
+    if files.is_empty() {
+        read(&options, &mut printer)?;
+    } else {
+        for file in files {
+            match read_file(file, &mut printer) {
+                Err(e)
+                    if e.downcast_ref::<io::Error>()
+                        .is_some_and(|e| e.kind() == ErrorKind::NotFound) => {}
+                result => result?,
+            }
         }
-        None => read(&options, &mut printer)?,
+
+        printer.caught_up()?;
     }
 
     let out = &printer.out;

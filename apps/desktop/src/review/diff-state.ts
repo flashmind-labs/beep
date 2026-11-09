@@ -247,6 +247,80 @@ export function splitPath(path: string) {
   return { dir: path.slice(0, cut + 1), name: path.slice(cut + 1) };
 }
 
+/// Keep each folder's files together in the tree's first-seen order.
+export function filesInTreeOrder(files: readonly DiffFile[]): DiffFile[] {
+  type Entry = { kind: "file"; file: DiffFile } | { kind: "folder"; children: Map<string, Entry> };
+  const root = new Map<string, Entry>();
+
+  for (const file of files) {
+    const parts = file.path.split("/");
+    let children = root;
+
+    for (const part of parts.slice(0, -1)) {
+      const key = `${part}/`;
+      let folder = children.get(key);
+
+      if (!folder) {
+        folder = { kind: "folder", children: new Map() };
+        children.set(key, folder);
+      }
+
+      if (folder.kind === "folder") children = folder.children;
+    }
+
+    children.set(file.path, { kind: "file", file });
+  }
+
+  const ordered: DiffFile[] = [];
+  const visit = (children: ReadonlyMap<string, Entry>) => {
+    for (const entry of children.values()) {
+      if (entry.kind === "file") ordered.push(entry.file);
+      else visit(entry.children);
+    }
+  };
+  visit(root);
+  return ordered;
+}
+
+/// Visible folders in the changed-file tree, keyed by their full path.
+export function compactFolders(paths: readonly string[]) {
+  const children = new Map<string, Set<string>>();
+  const fileParents = new Set<string>();
+
+  for (const path of paths) {
+    const { dir } = splitPath(path);
+    fileParents.add(dir);
+    let parent = "";
+
+    for (const part of dir.split("/").filter(Boolean)) {
+      const folder = parent + part + "/";
+      let siblings = children.get(parent);
+
+      if (!siblings) {
+        siblings = new Set();
+        children.set(parent, siblings);
+      }
+
+      siblings.add(folder);
+      parent = folder;
+    }
+  }
+
+  const visible = new Set([...children.values()].flatMap(folders => [...folders])
+    .filter(path => fileParents.has(path) || (children.get(path)?.size ?? 0) !== 1));
+  const folders = new Map<string, { dir: string; name: string }>();
+
+  for (const path of visible) {
+    let parent = splitPath(path.slice(0, -1)).dir;
+
+    while (parent && !visible.has(parent)) parent = splitPath(parent.slice(0, -1)).dir;
+
+    folders.set(path, { dir: parent, name: path.slice(parent.length, -1) });
+  }
+
+  return folders;
+}
+
 /// A comment on the diff, on a line of a file (`line` set, numbered on the
 /// old or the new side) or on the whole file (`line` null).
 export interface ReviewComment {

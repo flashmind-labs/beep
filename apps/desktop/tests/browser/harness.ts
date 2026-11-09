@@ -135,7 +135,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
         }
 
         if (command === "agent_view") {
-          return agentPage(args.session);
+          return structuredClone(answers.agent_view ?? agentPage(args.session));
         }
 
         return structuredClone(answers[command] ?? null);

@@ -32,7 +32,7 @@ impl Stores {
         let Some(seen) = self.seen(None, id) else {
             return Ok(None);
         };
-        let entries = match (seen.agent, &seen.file) {
+        let mut entries = match (seen.agent, &seen.file) {
             (Agent::Codex, Some(file)) => self
                 .memos
                 .transcripts
@@ -50,6 +50,15 @@ impl Stores {
                 agent.as_ref()
             ),
         };
+        if seen.agent == Agent::Codex {
+            let parent = id.strip_prefix("subagent:codex:").unwrap_or(id);
+            let children = self.codex_children(parent);
+            if !children.is_empty() {
+                Arc::make_mut(&mut entries)
+                    .extend(children.iter().map(crate::agents::SubagentRun::entry));
+            }
+        }
+
         let range = window(0, entries.len(), last, before);
         Ok(Some(Excerpt {
             earlier: range.start as u64,

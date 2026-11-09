@@ -8,7 +8,7 @@ use std::{
     env, fs,
     io::ErrorKind,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
 };
 
 /// The task's name in Task Scheduler.
@@ -322,7 +322,7 @@ pub(super) fn from_utf16(bytes: &[u8]) -> String {
 }
 
 pub(super) fn installed() -> bool {
-    Command::new("schtasks")
+    crate::run::process::background_command("schtasks")
         .args(["/Query", "/TN", TASK])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -334,7 +334,7 @@ pub(super) fn installed() -> bool {
 /// Stops the running task. Its failure is ignored on purpose: it fails when
 /// the task is not running, which is the state wanted.
 fn end() {
-    let _ = Command::new("schtasks")
+    let _ = crate::run::process::background_command("schtasks")
         .args(["/End", "/TN", TASK])
         .stdin(Stdio::null())
         .stdout(Stdio::null())

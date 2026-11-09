@@ -521,12 +521,12 @@ registerSidebarGroup("projects", {
   render: p => {
     if (!p.group && p.org === undefined) return projectReact(p, p.repo ?? p.name, false, !!p.repo);
     const title = p.group ? p.group.name : `${p.org}/`;
-    const label = p.group ? createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.folder } }) : null;
+    const label = p.group ? createElement("span", { className: "sidebar-icon", style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.folder } }) : null;
     return createElement("button", { type: "button", className: `cc-org${p.group ? " gp" : ""}`,
-      title: p.group ? `${p.group.paths.join(", ")} on every machine` : undefined,
+      title: p.group ? `${title}\n${p.group.paths.join(", ")} on every machine` : title, "aria-label": title,
       "aria-expanded": !p.folded, "aria-current": currentLocation()?.view === "projects" && state.picked && p.folded?.includes(state.picked) ? "true" : undefined,
       onClick: () => toggleFold(p), onContextMenu: (event: React.MouseEvent) => p.group ? groupMenu(event.nativeEvent, p.group, [foldItem(p)]) : openMenu(event.nativeEvent, p.org ?? "", [foldItem(p)]) },
-      createElement("span", { className: `twist${p.folded ? "" : " open"}`, dangerouslySetInnerHTML: { __html: IC.twist } }), label, title);
+      createElement("span", { className: `twist${p.folded ? "" : " open"}`, dangerouslySetInnerHTML: { __html: IC.twist } }), label, createElement("span", { className: "tt" }, title));
   },
 
 });

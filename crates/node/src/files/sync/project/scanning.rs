@@ -20,6 +20,8 @@ use iroh_blobs::Hash;
 use std::{
     collections::{BTreeSet, HashSet},
     mem,
+    path::{Path, PathBuf},
+    time::Instant,
 };
 use tokio::task::spawn_blocking;
 
@@ -29,9 +31,32 @@ const MAX_IMPORTS: usize = 16;
 impl Task {
     /// Looks for edits on disk and records them in the list.
     pub(super) async fn scan(&mut self) {
+        self.scan_inner(None).await;
+    }
+
+    pub(super) async fn scan_changes(&mut self, mut paths: BTreeSet<PathBuf>) {
+        if self.first || self.scan_failed {
+            self.scan().await;
+            return;
+        }
+
+        paths.extend(self.held.iter().map(PathBuf::from));
+        if !paths.is_empty() {
+            self.scan_inner(Some(paths)).await;
+        }
+    }
+
+    async fn scan_inner(&mut self, paths: Option<BTreeSet<PathBuf>>) {
+        let started = Instant::now();
+        let scope = if paths.is_some() { "changed" } else { "full" };
         self.shared.publish(|s| s.state = SyncState::Scanning);
-        let result = self.try_scan().await;
+        let result = self.try_scan(paths).await;
         self.scan_failed = result.is_err();
+        let outcome = if self.scan_failed { "error" } else { "ok" };
+        metrics::counter!("beep_sync_scans_total", "scope" => scope, "outcome" => outcome)
+            .increment(1);
+        metrics::histogram!("beep_sync_scan_seconds", "scope" => scope, "outcome" => outcome)
+            .record(started.elapsed().as_secs_f64());
 
         if self.scan_failed {
             // Not trusted until a scan succeeds again.
@@ -46,7 +71,7 @@ impl Task {
         self.publish_status(None);
     }
 
-    async fn try_scan(&mut self) -> Result<()> {
+    async fn try_scan(&mut self, paths: Option<BTreeSet<PathBuf>>) -> Result<()> {
         self.shared.check_ignored().await?;
         let checked = self.check_root().await?;
         let root = self.shared.root().to_owned();
@@ -61,15 +86,16 @@ impl Task {
             })
             .await??
         };
-        let rules = {
+        if paths.is_none() {
             let root = root.clone();
             let ignored = self.shared.ignored.clone();
-            spawn_blocking(move || match ignored {
+            let rules = spawn_blocking(move || match ignored {
                 Some(scope) => scope.rules(&root),
                 None => Rules::load(&root),
             })
-            .await??
-        };
+            .await??;
+            *write_lock(&self.shared.rules) = rules;
+        }
         // A repository created locally before any donor was selected is
         // already owned by Git and must never receive a raw Git copy.
         if root.join(gitdir::GIT).exists() {
@@ -86,8 +112,7 @@ impl Task {
             state.unsaved = true;
         }
 
-        let syncs_git = rules.syncs_git();
-        *write_lock(&self.shared.rules) = rules;
+        let syncs_git = read_lock(&self.shared.rules).syncs_git();
         // Before the walk: git writes objects before the refs that name
         // them, so the walk finds every object these refs need.
         let repo = {
@@ -117,17 +142,28 @@ impl Task {
         let repo_gone = repo.is_none();
         let refs = repo.unwrap_or_default();
         let git_only = self.shared.lock().saved.git_only;
+        let seen = paths
+            .as_ref()
+            .map(|_| self.shared.lock().saved.seen.clone());
+        let previous_dirs = self.dirs.clone();
         let (mut walked, protected) = {
             let (root, rules) = (root.clone(), self.shared.rules.clone());
             let cache = self.shared.file.with_extension("seed");
             let protect_recovery = self.shared.recovery_enabled();
+            let selected = paths.clone();
             spawn_blocking(move || -> Result<_> {
                 let rules = read_lock(&rules);
                 if git_only {
-                    let repo = Repo::open(&root)
-                        .filter(|repo| protect_recovery || repo.has_recovery_backups());
+                    let repo = Repo::open(&root).filter(|repo| {
+                        selected.is_some() || protect_recovery || repo.has_recovery_backups()
+                    });
                     let protected = repo.is_some();
-                    let mut walked = scan::walk_git(&root, &rules, protected)?;
+                    let mut walked = match &selected {
+                        Some(selected) => {
+                            scan::walk_changed(&root, &rules, selected, true, protected)?
+                        }
+                        _ => scan::walk_git(&root, &rules, protected)?,
+                    };
 
                     if let Some(repo) = repo {
                         walked
@@ -138,11 +174,48 @@ impl Task {
                     walked.check_limits()?;
                     Ok((walked, protected))
                 } else {
-                    Ok((scan::walk(&root, &rules, 0)?, false))
+                    Ok((
+                        match &selected {
+                            Some(selected) => {
+                                scan::walk_changed(&root, &rules, selected, false, false)?
+                            }
+                            None => scan::walk(&root, &rules, 0)?,
+                        },
+                        false,
+                    ))
                 }
             })
             .await??
         };
+        metrics::counter!("beep_sync_inspected_files_total").increment(walked.files.len() as u64);
+        if let (Some(paths), Some(seen)) = (&paths, seen) {
+            // Cached metadata supplies unchanged entries. Only event paths touched the disk.
+            let refreshed: HashSet<_> = walked.files.iter().map(|file| file.path.clone()).collect();
+            for (path, prior) in seen {
+                if refreshed.contains(&path)
+                    || gitdir::is_ref(&path)
+                    || paths
+                        .iter()
+                        .any(|changed| Path::new(&path).starts_with(changed))
+                    || protected && path.starts_with(".git/objects/")
+                {
+                    continue;
+                }
+                walked.files.push(scan::Found {
+                    abs: root.join(&path),
+                    path,
+                    stat: prior.stat,
+                });
+            }
+            walked.dirs.extend(
+                previous_dirs
+                    .into_iter()
+                    .filter(|dir| !paths.iter().any(|path| dir.starts_with(root.join(path)))),
+            );
+            walked.dirs.sort();
+            walked.dirs.dedup();
+            walked.check_limits()?;
+        }
         *write_lock(&self.shared.bootstrap_paths) = protected.then(|| {
             walked
                 .files
@@ -158,17 +231,31 @@ impl Task {
             walked.dirs.dedup();
         }
 
-        self.mode = self
-            .watcher
-            .set_dirs(self.shared.key, walked.dirs.clone())
-            .await;
+        let dirs: HashSet<_> = walked.dirs.iter().cloned().collect();
+        if self.dirs != dirs || !matches!(self.mode, crate::files::sync::watch::Mode::Watching) {
+            self.mode = self
+                .watcher
+                .set_dirs(self.shared.key, walked.dirs.clone())
+                .await;
+        }
         // A file made in a new folder after the walk read it and before its
         // watch was set shows in nothing but another walk.
-        if walked.dirs.iter().any(|dir| !self.dirs.contains(dir)) {
-            self.shared.touched.notify_one();
+        if walked
+            .dirs
+            .iter()
+            .any(|dir| dir != &root && !self.dirs.contains(dir))
+        {
+            self.watcher.recheck(
+                self.shared.key,
+                walked
+                    .dirs
+                    .iter()
+                    .filter(|dir| *dir != &root && !self.dirs.contains(*dir))
+                    .filter_map(|dir| dir.strip_prefix(&root).ok().map(Path::to_owned)),
+            );
         }
 
-        self.dirs = walked.dirs.iter().cloned().collect();
+        self.dirs = dirs;
         let prior: Vec<Option<Seen>> = {
             let state = self.shared.lock();
             walked

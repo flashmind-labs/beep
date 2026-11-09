@@ -269,7 +269,7 @@ fn untracked_text(dir: &Path, rel: &str, cap: usize) -> Result<Option<Untracked>
 }
 
 fn git_command(dir: &Path, args: &[&str]) -> Command {
-    let mut command = Command::new("git");
+    let mut command = crate::run::process::background_command("git");
     command
         .args(args)
         .current_dir(dir)

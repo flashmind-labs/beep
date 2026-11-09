@@ -42,6 +42,7 @@ export function logInfo(message: string) {
 
 type Timing = { kind: "page" | "data" | "command"; name: string; ms: number; outcome: "ok" | "error" | "timeout" };
 const TIMED_COMMANDS = new Set([
+  "machine_clocks", "project_sync_detail", "agent_worktrees", "session_copies", "session_moves", "session_move_progress",
   "agent_view", "agent_modes", "agent_tasks", "agent_sessions", "agent_hosts", "center_home",
   "project_sync", "project_overview", "center_project", "project_git_state", "center_project_lists",
   "center_project_issues", "center_project_pull_requests", "center_project_runs",
@@ -88,11 +89,15 @@ const UNTIMED = new Set([
 /// channel) fails with a plain error, so a call that never returns cannot
 /// hold the page.
 let nextInvocation = 0;
+let traceCommands = false;
+void core.invoke<boolean>("desktop_trace_enabled").then(enabled => { traceCommands = enabled === true; }).catch(() => {});
 
 export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>, within?: number): Promise<T> {
   const request = ++nextInvocation;
   const started = performance.now();
-  const trace = (stage: string, outcome: string) => logInfo(`command trace: ${JSON.stringify({ request, command: cmd, stage, outcome, ms: Math.round(performance.now() - started) })}`);
+  const trace = (stage: string, outcome: string) => {
+    if (traceCommands) logInfo(`command trace: ${JSON.stringify({ request, command: cmd, stage, outcome, ms: Math.round(performance.now() - started) })}`);
+  };
   trace("requested", "pending");
   const snapshot = takeSnapshotView(cmd, args);
   if (snapshot) {

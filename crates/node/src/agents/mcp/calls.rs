@@ -26,6 +26,7 @@ pub(crate) const PREFIX: &str = "Beep: ";
 #[strum(serialize_all = "snake_case")]
 pub(crate) enum Tool {
     ListMachines,
+    ListProjects,
     HarnessInfo,
     #[strum(serialize = "read_session_transcript")]
     ReadTranscript,
@@ -109,6 +110,7 @@ impl Tool {
         };
 
         match self {
+            Self::ListProjects => with("List projects".to_owned(), text("project")),
             Self::ListMachines => format!("{PREFIX}List machines"),
             Self::HarnessInfo => {
                 let harness = text("harness").unwrap_or("a harness");

@@ -351,7 +351,7 @@ fn ended(state: RunState) -> bool {
 /// `program` with `args`, the tools' folders on `PATH` and the GitHub token,
 /// killed when dropped.
 pub(super) fn command(program: &str, args: &[String]) -> Command {
-    let mut command = Command::new(program);
+    let mut command = crate::run::process::command(program);
     command.args(args).stdin(Stdio::null()).kill_on_drop(true);
     spawn_env::apply(&mut command, Scope::Agent(None));
     command

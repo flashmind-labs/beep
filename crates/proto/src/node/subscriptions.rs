@@ -1,0 +1,48 @@
+//! One topic subscription per stream on a dedicated peer connection.
+
+use super::events::{Query, Snapshot, Topic};
+use serde::{Deserialize, Serialize};
+
+pub const PROTOCOL: &str = "peer-subscriptions/1";
+
+pub const ALPN: &[u8] = b"beep-peer/subs/1";
+
+/// Sent first so the peer can accept the QUIC stream before its first watch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Open {}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Request {
+    Watch {
+        id: u64,
+        topic: Topic,
+        queries: Vec<Query>,
+    },
+    Refresh {
+        id: u64,
+    },
+    Ping {
+        id: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Reply {
+    Ready,
+    Watching {
+        id: u64,
+    },
+    Snapshot(Box<Snapshot>),
+    SnapshotError {
+        query: Option<u64>,
+        topic: Topic,
+        reason: String,
+    },
+    Error {
+        id: u64,
+        reason: String,
+    },
+    Pong {
+        id: u64,
+    },
+}

@@ -34,7 +34,7 @@ pub(super) async fn watch_paths(root: &Path) -> Result<Vec<PathBuf>> {
 
     let output = tokio::time::timeout(
         Duration::from_secs(5),
-        tokio::process::Command::new("git")
+        crate::run::process::command("git")
             .arg("-C")
             .arg(root)
             .args([

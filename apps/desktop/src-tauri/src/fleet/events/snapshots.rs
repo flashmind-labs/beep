@@ -15,15 +15,14 @@ type Current = Option<std::result::Result<Value, String>>;
 
 struct Entry {
     query: Query,
-    owners: Vec<Topic>,
+    stream: Topic,
     used: u64,
     current: watch::Sender<Current>,
 }
 
 struct Machine {
     topics: Vec<Topic>,
-    generation: Option<Uuid>,
-    ready: bool,
+    streams: BTreeMap<Topic, Uuid>,
     entries: BTreeMap<u64, Entry>,
 }
 
@@ -56,8 +55,7 @@ impl Snapshots {
         for (id, topics) in wanted {
             let machine = held.machines.entry(*id).or_insert_with(|| Machine {
                 topics: Vec::new(),
-                generation: None,
-                ready: false,
+                streams: BTreeMap::new(),
                 entries: BTreeMap::new(),
             });
 
@@ -66,20 +64,12 @@ impl Snapshots {
                 machine.topics.clone_from(topics);
             }
 
-            let before = machine.entries.len();
-            machine.entries.retain(|_, entry| {
-                // Keep concrete owners while a broader subscription covers them.
-                entry
-                    .owners
-                    .retain(|owner| topics.iter().any(|wanted| wanted.covers(owner)));
-                for topic in topics {
-                    if topic.matches(&entry.query.topic) && !entry.owners.contains(topic) {
-                        entry.owners.push(topic.clone());
-                    }
-                }
+            machine.streams.retain(|topic, _| topics.contains(topic));
 
-                !entry.owners.is_empty()
-            });
+            let before = machine.entries.len();
+            machine
+                .entries
+                .retain(|_, entry| topics.contains(&entry.stream));
             changed |= before != machine.entries.len();
         }
 
@@ -90,26 +80,19 @@ impl Snapshots {
         }
     }
 
-    pub(super) fn begin(&self, id: EndpointId, generation: Uuid) {
-        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
-
-        if let Some(machine) = held.machines.get_mut(&id) {
-            machine.generation = Some(generation);
-            machine.ready = false;
-
-            for entry in machine.entries.values() {
-                entry.current.send_replace(None);
-            }
-        }
-    }
-
-    pub(super) fn ready(&self, id: EndpointId, generation: Uuid) -> bool {
+    pub(super) fn connected(&self, id: EndpointId, topic: Topic, generation: Uuid) -> bool {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
 
         if let Some(machine) = held.machines.get_mut(&id)
-            && machine.generation == Some(generation)
+            && machine.topics.contains(&topic)
         {
-            machine.ready = true;
+            machine.streams.insert(topic.clone(), generation);
+
+            for entry in machine.entries.values() {
+                if topic == entry.stream {
+                    entry.current.send_replace(None);
+                }
+            }
             return true;
         }
 
@@ -120,14 +103,31 @@ impl Snapshots {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
 
         if let Some(machine) = held.machines.get_mut(&id)
-            && machine.generation == Some(generation)
+            && let Some(topic) = machine
+                .streams
+                .iter()
+                .find(|(_, id)| **id == generation)
+                .map(|(topic, _)| topic.clone())
         {
-            machine.generation = None;
-            machine.ready = false;
-            // These queries belong to the ended stream. Dropping their senders
-            // wakes waiting reads so they can fall back to finite requests.
-            machine.entries.clear();
+            machine.streams.remove(&topic);
+            // Only readers of this stream fall back to finite requests.
+            machine.entries.retain(|_, entry| topic != entry.stream);
         }
+    }
+
+    pub(super) fn queries_for(&self, id: EndpointId, topic: &Topic) -> Vec<Query> {
+        let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        held.machines
+            .get(&id)
+            .map(|machine| {
+                machine
+                    .entries
+                    .values()
+                    .filter(|entry| *topic == entry.stream)
+                    .map(|entry| entry.query.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub(super) fn queries(&self, id: EndpointId) -> Vec<Query> {
@@ -160,12 +160,13 @@ impl Snapshots {
         let machine = held
             .machines
             .get(&id)
-            .filter(|machine| machine.generation == Some(generation) && machine.ready)?;
+            .filter(|machine| machine.streams.values().any(|id| *id == generation))?;
         let Some(query) = snapshot.query else {
             return Some(false);
         };
 
         if let Some(entry) = machine.entries.get(&query)
+            && machine.streams.get(&entry.stream) == Some(&generation)
             && entry.query.topic == snapshot.topic
         {
             let initial = entry.current.borrow().is_none();
@@ -186,9 +187,8 @@ impl Snapshots {
         let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
 
         if let Some(machine) = held.machines.get(&id)
-            && machine.generation == Some(generation)
-            && machine.ready
             && let Some(entry) = machine.entries.get(&query)
+            && machine.streams.get(&entry.stream) == Some(&generation)
         {
             entry.current.send_replace(Some(Err(reason)));
             return true;
@@ -213,17 +213,12 @@ impl Snapshots {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         let machine = held.machines.get(&id)?;
 
-        if !machine.ready {
-            return None;
-        }
-
-        let owners: Vec<_> = machine
+        let stream = machine
             .topics
             .iter()
-            .filter(|wanted| demanded(&topic, std::slice::from_ref(wanted)))
-            .cloned()
-            .collect();
-        if owners.is_empty() {
+            .find(|wanted| demanded(&topic, std::slice::from_ref(wanted)))?
+            .clone();
+        if !machine.streams.contains_key(&stream) {
             return None;
         }
 
@@ -244,12 +239,6 @@ impl Snapshots {
                 machine.entries.remove(&existing);
             } else if let Some(entry) = machine.entries.get_mut(&existing) {
                 entry.used = next;
-
-                for owner in owners {
-                    if !entry.owners.contains(&owner) {
-                        entry.owners.push(owner);
-                    }
-                }
 
                 return Some(Ok(entry.current.subscribe()));
             }
@@ -280,7 +269,7 @@ impl Snapshots {
                     read,
                 },
                 used: next,
-                owners,
+                stream,
                 current,
             },
         );

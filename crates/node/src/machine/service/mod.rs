@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use std::{
     env, fmt, fs,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
 };
 
 mod existing;
@@ -522,7 +522,7 @@ pub fn uninstall() -> Result<()> {
 
 /// Runs `program` with `args`, failing with what it printed to stderr.
 fn run(program: &str, args: &[&str]) -> Result<()> {
-    let out = Command::new(program)
+    let out = crate::run::process::background_command(program)
         .args(args)
         .stdin(Stdio::null())
         .output()

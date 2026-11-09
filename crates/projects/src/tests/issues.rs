@@ -27,6 +27,37 @@ impl Shell for FixedShell {
     }
 }
 
+#[tokio::test]
+async fn host_timeout_does_not_include_partial_json() {
+    let shell = FixedShell {
+        answer: ShellOutput {
+            exit_code: None,
+            timed_out: true,
+            output: r#"{"body":"example description","comments":1}"#.to_owned(),
+        },
+        ran: Mutex::new(0),
+    };
+    let error = run_rendered(&shell, "read-issue").await.unwrap_err();
+
+    assert_eq!(
+        host_failed(&error).to_string(),
+        "Could not read the issues host: the host command timed out after 30 seconds"
+    );
+}
+
+#[tokio::test]
+async fn host_failure_preserves_diagnostic_output() {
+    let shell = FixedShell::exits(4, "permission denied");
+    let error = run_rendered(shell.as_ref(), "read-issue")
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        host_failed(&error).to_string(),
+        "Could not read the issues host: the host command exited with 4: permission denied"
+    );
+}
+
 struct Store {
     name: RepoName,
     home: Option<EndpointId>,

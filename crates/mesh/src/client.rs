@@ -127,6 +127,7 @@ pub struct PeerClient {
     via: Via,
     peer: Option<EndpointId>,
     snapshots: Option<Arc<dyn SnapshotReader>>,
+    channels: Option<Mesh>,
 }
 
 impl Debug for PeerClient {
@@ -156,12 +157,14 @@ impl PeerClient {
             })),
             peer: Some(peer),
             snapshots: None,
+            channels: None,
         }
     }
 
     /// A client for `peer` that looks up the mesh's current connection for
     /// each stream, so a replaced link is picked up.
     pub fn over(mesh: Mesh, peer: EndpointId) -> Self {
+        let channels = Some(mesh.clone());
         Self {
             via: Via::Peer(Arc::new(move || {
                 let mesh = mesh.clone();
@@ -176,6 +179,7 @@ impl PeerClient {
             })),
             peer: Some(peer),
             snapshots: None,
+            channels,
         }
     }
 
@@ -186,7 +190,102 @@ impl PeerClient {
             via: Via::Local(session),
             peer: None,
             snapshots: None,
+            channels: None,
         }
+    }
+
+    /// Preconnects independent protocol connections concurrently.
+    pub async fn prepare_events(&self) {
+        if let (Some(mesh), Some(peer)) = (&self.channels, self.peer) {
+            let (commands, subscriptions) = tokio::join!(
+                mesh.command_connection(peer),
+                mesh.subscription_connection(peer),
+            );
+            if let Err(error) = commands {
+                tracing::debug!(?peer, %error, "command preconnect failed");
+            }
+            if let Err(error) = subscriptions {
+                tracing::debug!(?peer, %error, "subscription preconnect failed");
+            }
+        }
+    }
+
+    /// Returns only after the node accepts this stream with Ready.
+    pub async fn open_commands(&self) -> Result<(LinkTx, LinkRx), MeshError> {
+        timeout(OPEN_TIMEOUT, async {
+            let (tx, mut rx) = if let (Some(mesh), Some(peer)) = (&self.channels, self.peer) {
+                let connection = mesh
+                    .command_connection(peer)
+                    .await
+                    .map_err(|error| MeshError::Link(error.into()))?;
+                let (mut tx, rx) = open_connection(&connection).await?;
+                timeout(
+                    OPEN_TIMEOUT,
+                    tx.send(&beep_proto::node::commands::Open::Calls),
+                )
+                .await
+                .map_err(|error| MeshError::Link(error.into()))?
+                .map_err(MeshError::Link)?;
+                (tx, rx)
+            } else {
+                self.open_sending(
+                    beep_proto::node::commands::PROTOCOL,
+                    &beep_proto::node::commands::Open::Calls,
+                )
+                .await?
+            };
+            match rx
+                .recv::<beep_proto::node::commands::Reply>()
+                .await
+                .map_err(MeshError::Link)?
+            {
+                Some(beep_proto::node::commands::Reply::Ready) => Ok((tx, rx)),
+                _ => Err(MeshError::Link(anyhow::anyhow!(
+                    "the commands stream did not start with Ready"
+                ))),
+            }
+        })
+        .await
+        .map_err(|error| MeshError::Link(error.into()))?
+    }
+
+    /// Returns only after the node accepts this stream with Ready.
+    pub async fn open_subscriptions(&self) -> Result<(LinkTx, LinkRx), MeshError> {
+        timeout(OPEN_TIMEOUT, async {
+            let (tx, mut rx) = if let (Some(mesh), Some(peer)) = (&self.channels, self.peer) {
+                let connection = mesh
+                    .subscription_connection(peer)
+                    .await
+                    .map_err(|error| MeshError::Link(error.into()))?;
+                let (mut tx, rx) = open_connection(&connection).await?;
+                timeout(
+                    OPEN_TIMEOUT,
+                    tx.send(&beep_proto::node::subscriptions::Open {}),
+                )
+                .await
+                .map_err(|error| MeshError::Link(error.into()))?
+                .map_err(MeshError::Link)?;
+                (tx, rx)
+            } else {
+                self.open_sending(
+                    beep_proto::node::subscriptions::PROTOCOL,
+                    &beep_proto::node::subscriptions::Open {},
+                )
+                .await?
+            };
+            match rx
+                .recv::<beep_proto::node::subscriptions::Reply>()
+                .await
+                .map_err(MeshError::Link)?
+            {
+                Some(beep_proto::node::subscriptions::Reply::Ready) => Ok((tx, rx)),
+                _ => Err(MeshError::Link(anyhow::anyhow!(
+                    "the subscriptions stream did not start with Ready"
+                ))),
+            }
+        })
+        .await
+        .map_err(|error| MeshError::Link(error.into()))?
     }
 
     /// Uses the owner's current snapshots for subscribed reads.
@@ -213,9 +312,13 @@ impl PeerClient {
     /// Over the network the whole exchange, from opening the stream to the
     /// node's answer, gets `OPEN_TIMEOUT`.
     pub async fn open(&self, protocol: &str) -> Result<(LinkTx, LinkRx), MeshError> {
-        let (tx, mut rx) = self.begin(protocol).await?;
-        self.confirmed(&mut rx, protocol).await?;
-        Ok((tx, rx))
+        timeout(OPEN_TIMEOUT, async {
+            let (tx, mut rx) = self.begin(protocol).await?;
+            self.confirmed(&mut rx, protocol).await?;
+            Ok((tx, rx))
+        })
+        .await
+        .map_err(|error| MeshError::Link(error.into()))?
     }
 
     /// Like `open`, with `first` sent right behind `Open`, before the node's
@@ -227,17 +330,45 @@ impl PeerClient {
         protocol: &str,
         first: &Q,
     ) -> Result<(LinkTx, LinkRx), MeshError> {
-        let (mut tx, mut rx) = self.begin(protocol).await?;
-        let sent = tx.send(first).await;
-        self.confirmed(&mut rx, protocol).await?;
-        sent.map_err(MeshError::Link)?;
-        Ok((tx, rx))
+        timeout(OPEN_TIMEOUT, async {
+            let (mut tx, mut rx) = self.begin(protocol).await?;
+            let sent = tx.send(first).await;
+            self.confirmed(&mut rx, protocol).await?;
+            sent.map_err(MeshError::Link)?;
+            Ok((tx, rx))
+        })
+        .await
+        .map_err(|error| MeshError::Link(error.into()))?
     }
 
     /// Opens the stream and sends `Open`, without waiting for the node's
     /// answer. What the caller sends next follows `Open` at once, so a call
     /// costs one round trip instead of two. `confirmed` reads the answer.
     async fn begin(&self, protocol: &str) -> Result<(LinkTx, LinkRx), MeshError> {
+        if protocol != beep_proto::node::events::PROTOCOL
+            && let (Some(mesh), Some(peer)) = (&self.channels, self.peer)
+        {
+            let connection = mesh
+                .command_connection(peer)
+                .await
+                .map_err(|error| MeshError::Link(error.into()))?;
+            return timeout(OPEN_TIMEOUT, async {
+                let (send, recv) = connection
+                    .open_bi()
+                    .await
+                    .map_err(|error| MeshError::Link(error.into()))?;
+                let (mut tx, rx) = link_on(&connection, send, recv);
+                tx.send(&beep_proto::node::commands::Open::Session {
+                    protocol: protocol.to_owned(),
+                })
+                .await
+                .map_err(MeshError::Link)?;
+                Ok((tx, rx))
+            })
+            .await
+            .map_err(|error| MeshError::Link(error.into()))?;
+        }
+
         match &self.via {
             Via::Peer(open_bi) => timeout(OPEN_TIMEOUT, async {
                 let (mut tx, rx) = open_bi().await?;
@@ -455,3 +586,11 @@ fn dropped(cause: &(dyn StdError + 'static)) -> bool {
 #[cfg(test)]
 #[path = "tests/client.rs"]
 mod tests;
+
+async fn open_connection(connection: &Connection) -> Result<(LinkTx, LinkRx), MeshError> {
+    let (send, recv) = timeout(OPEN_TIMEOUT, connection.open_bi())
+        .await
+        .map_err(|error| MeshError::Link(error.into()))?
+        .map_err(|error| MeshError::Link(error.into()))?;
+    Ok(link_on(connection, send, recv))
+}

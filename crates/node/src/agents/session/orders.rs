@@ -33,6 +33,12 @@ impl Actor {
         command: Command,
     ) -> Result<Result<(), String>> {
         match command {
+            Command::RecoverCodexChildren(runs) => {
+                self.live
+                    .send_if_modified(|live| live.recover_codex_children(&runs));
+                Ok(Ok(()))
+            }
+
             Command::Prompt(prompt) => {
                 if self.moving {
                     return Ok(Err(MOVING_REFUSAL.to_owned()));

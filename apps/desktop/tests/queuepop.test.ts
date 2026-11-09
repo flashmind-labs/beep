@@ -1,15 +1,18 @@
-import { bar } from "./dom-env.ts";
+import { bar } from "./chat-dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { enqueue, popQueued } from "../src/chat/chat.ts";
+import { enqueue, popQueued, renderChat } from "../src/chat/chat.ts";
 import { queued, S } from "../src/bar/core.ts";
+
+globalThis.getComputedStyle = window.getComputedStyle.bind(window);
 
 const SESSION = "00000000-0000-4000-8000-000000000002";
 
 test("Up takes the last queued prompt back to edit, one at a time", () => {
+  S.link = "linked";
   S.view = "chat";
   S.session = SESSION;
-  bar.innerHTML = '<div class="dbody" id="body"></div><textarea id="ask"></textarea><div class="dhints"></div>';
+  renderChat();
   const ask = bar.querySelector("#ask") as unknown as HTMLTextAreaElement;
   enqueue("first");
   enqueue("second");

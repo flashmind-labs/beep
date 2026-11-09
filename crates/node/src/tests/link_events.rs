@@ -243,3 +243,42 @@ async fn file_snapshots_include_new_entries_and_enforce_reach() {
         matches!(snapshot.value, Value::Sessions(reply) if matches!(*reply, SessionsReply::Tree { ref tree } if tree.folders.iter().any(|folder| folder.entries.iter().any(|entry| entry.name == "example.txt"))))
     );
 }
+
+#[tokio::test]
+async fn a_blocked_topic_stream_does_not_block_another_subscription() {
+    let offers = Offers::default();
+    let large = Topic::keyed("plugin", "large");
+    let small = Topic::keyed("plugin", "small");
+    // Exceeds the in-process stream buffer so the first writer must wait.
+    offers
+        .agents
+        .events
+        .publish(large.clone(), vec![7; 256 * 1024])
+        .unwrap();
+    offers
+        .agents
+        .events
+        .publish(small.clone(), vec![1])
+        .unwrap();
+    let (mut large_tx, mut large_rx, _large_task) = start(offers.clone()).await;
+    watch(&mut large_tx, &mut large_rx, 1, vec![large], vec![]).await;
+
+    let (mut small_tx, mut small_rx, _small_task) = start(offers.clone()).await;
+    watch(&mut small_tx, &mut small_rx, 1, vec![small.clone()], vec![]).await;
+    assert_eq!(
+        state(&mut small_rx, &small).await.value,
+        Value::Plugin(vec![1])
+    );
+
+    drop(large_rx);
+    drop(large_tx);
+    offers
+        .agents
+        .events
+        .publish(small.clone(), vec![2])
+        .unwrap();
+    assert_eq!(
+        state(&mut small_rx, &small).await.value,
+        Value::Plugin(vec![2])
+    );
+}

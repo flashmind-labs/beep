@@ -76,10 +76,11 @@ impl Machine {
             offers.skills = Skills::under(home.into());
         }
         // The embedded node logs to the app's own file.
-        if let Some(log) = logfile::current() {
-            offers.extra.push(Arc::new(Logs::from(log)));
+        if let Some(dir) = logfile::dir() {
+            let logs = Logs::in_directory(dir);
+            offers.extra.push(Arc::new(logs.clone()));
+            offers.log = logs;
         }
-        offers.log = Logs::from(logfile::kept());
         // Searches read the agents' logs ahead on tasks of their own.
         async_runtime::block_on(async { offers.offer_searches(dir, &Search::default()) });
         Self {
@@ -107,6 +108,10 @@ impl Machine {
         let home = self.home.clone();
         async_runtime::spawn(async move {
             let _provision = home.provision.start();
+            let _adapters = home
+                .offers
+                .agents
+                .install_adapters(home.dir.clone(), Vec::new());
             let _harness_checks = home.offers.agents.start_harness_checks();
             let _mcp = mcp::start(&home.dir, &home.offers);
             // Terminal Claude Code sessions report their state here; the
