@@ -87,9 +87,18 @@ const UNTIMED = new Set([
 /// `COMMAND_WAIT_MS`, none for `UNTIMED` ones or one that streams into a
 /// channel) fails with a plain error, so a call that never returns cannot
 /// hold the page.
+let nextInvocation = 0;
+
 export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>, within?: number): Promise<T> {
+  const request = ++nextInvocation;
+  const started = performance.now();
+  const trace = (stage: string, outcome: string) => logInfo(`command trace: ${JSON.stringify({ request, command: cmd, stage, outcome, ms: Math.round(performance.now() - started) })}`);
+  trace("requested", "pending");
   const snapshot = takeSnapshotView(cmd, args);
-  if (snapshot) return snapshot.kind === "value" ? Promise.resolve(snapshot.value as T) : Promise.reject(snapshot.error);
+  if (snapshot) {
+    trace("snapshot", snapshot.kind === "value" ? "ok" : "error");
+    return snapshot.kind === "value" ? Promise.resolve(snapshot.value as T) : Promise.reject(snapshot.error);
+  }
   const writing = viewWrite(cmd);
   if (writing) clearViews();
   const lifecycle = cmd === "agent_start" || cmd === "agent_resume";
@@ -105,6 +114,7 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>,
     timer = setTimeout(() => { timedOut = true; reject(`no answer in ${Math.round(limit / 1000)} s. Try again.`); }, limit);
   })]);
   return limited.then(value => {
+    trace("returned", "ok");
     if (measure !== null) recordTiming("command", cmd, performance.now() - measure);
 
     if (lifecycle) {
@@ -117,6 +127,7 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>,
     if (timer !== null) clearTimeout(timer);
     if (writing) clearViews();
   }).catch((e: unknown) => {
+    trace("returned", timedOut ? "timeout" : "error");
     if (measure !== null) recordTiming("command", cmd, performance.now() - measure, timedOut ? "timeout" : "error");
     const about = [["machine", args?.machineId], ["session", args?.session]].filter(([, v]) => typeof v === "string").map(([k, v]) => `${k} ${v}`).join(", ");
     logError(`${cmd} failed${about ? ` (${about})` : ""}: ${typeof e === "object" && e && !(e instanceof Error) ? JSON.stringify(e) : e}`);

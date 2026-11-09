@@ -518,9 +518,14 @@ impl Actor {
         Req: JsonRpcRequest,
         Req::Response: Send + 'static,
     {
+        let mut trace = beep_proto::logging::RequestTrace::new(std::any::type_name::<Req>());
+        trace.phase("waiting for agent");
         let answer = cx.send_request(request).block_task();
-        self.replies
-            .push(async move { reply(answer.await) }.boxed());
+        self.replies.push(async move {
+            let answer = answer.await;
+            trace.finish(answer.is_ok());
+            reply(answer)
+        }.boxed());
     }
 
     fn event(&mut self, cx: &ConnectionTo<Agent>, event: Event) -> Result<()> {

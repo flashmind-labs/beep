@@ -182,6 +182,19 @@ impl Called {
 }
 
 async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -> Called {
+    let operation = match name {
+        ASK_USER => ASK_USER,
+        READ_TRANSCRIPT => READ_TRANSCRIPT,
+        REMOTE_RUN => REMOTE_RUN,
+        _ => name.parse::<Tool>().map(<&'static str>::from).unwrap_or("unknown tool"),
+    };
+    let mut trace = beep_proto::logging::RequestTrace::new(operation);
+    let result = call_tool(backend, session, name, args).await;
+    trace.finish(!result.failed);
+    result
+}
+
+async fn call_tool<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -> Called {
     if name == ASK_USER {
         return ask_user(backend, session, args).await;
     }

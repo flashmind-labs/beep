@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 /// What the server sends on an `agents/1` stream: one request, one reply.
 /// A node older than a request closes the stream or answers `Error`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, strum::IntoStaticStr)]
 #[non_exhaustive]
 pub enum SessionsRequest {
     List {},
