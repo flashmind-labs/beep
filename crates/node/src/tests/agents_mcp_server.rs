@@ -142,6 +142,7 @@ async fn it_lists_the_tools_and_answers_a_call() {
         names,
         [
             "list_machines",
+            "list_projects",
             "harness_info",
             "read_session_transcript",
             "remote_run",

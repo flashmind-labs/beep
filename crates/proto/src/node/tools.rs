@@ -86,6 +86,8 @@ pub enum Tool {
     HarnessInfo,
     /// Retained metrics for a bounded period, on the caller's own node.
     BeepMetrics,
+    /// Projects and their checkouts from this node's replicated mesh state.
+    ListProjects,
     /// A tool a newer node calls that this server does not know.
     #[serde(other)]
     Unknown,

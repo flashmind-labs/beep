@@ -246,6 +246,110 @@ fn view(text: &str) -> ChildView {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn a_project_child_uses_its_checkout_and_accepts_followups() {
+    use beep_proto::node::mesh_state::Place;
+    use iroh::{Endpoint, endpoint::presets};
+
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint.clone(), "build-box")
+        .await
+        .unwrap();
+    let checkout = dir.path().join("app");
+    std::fs::create_dir(&checkout).unwrap();
+    mesh.set(
+        Key::Project(format!("example/app/{}", mesh.me())),
+        Some(
+            Place {
+                folder: checkout.display().to_string(),
+                imported_ms: 0,
+                fork: None,
+            }
+            .to_bytes()
+            .unwrap(),
+        ),
+    )
+    .await
+    .unwrap();
+    let mut offers = Offers::local(&[], Provision::new(dir.path()));
+    offers.agents = Arc::new(Agents::new(vec![kind("top"), kind("kid")]));
+    offers.mesh.set(mesh);
+    offers.agents.serve_mesh(offers.mesh.clone());
+    let parent = offers
+        .agents
+        .start(
+            &offers.agents.kinds()[0],
+            Some(dir.path().to_str().unwrap()),
+            Begin {
+                prompt: Some("hello".into()),
+                ..Begin::default()
+            },
+        )
+        .unwrap();
+    let mut live = parent.live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        live.wait_for(|live| live.agent_session.is_some() && live.info.turns == 1),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let parent_id = Agents::name_of(&parent);
+
+    for args in [
+        json!({"harness":"kid", "prompt":"work", "project":"missing"}),
+        json!({"harness":"kid", "prompt":"work", "project":"example/app", "cwd":"/srv/other"}),
+    ] {
+        let (failed, text) = tool(&offers, &parent_id, Tool::StartAgent, args).await;
+        assert!(failed, "{text}");
+    }
+
+    let (failed, text) = tool(
+        &offers,
+        &parent_id,
+        Tool::StartAgent,
+        json!({"harness":"kid", "prompt":"work", "project":"example/app", "wait":true}),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    let done = view(&text);
+    let who = offers.agents.caller(&parent_id).unwrap().1;
+    let child = offers
+        .agents
+        .child_of(&who, ChildId::from(done.id.as_str()).session)
+        .unwrap();
+    assert_eq!(child.info().cwd, checkout.display().to_string());
+    let mut child_live = child.live.clone();
+    let (failed, text) = tool(
+        &offers,
+        &parent_id,
+        Tool::SendToAgent,
+        json!({"id":done.id, "text":"continue"}),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        child_live.wait_for(|live| live.info.turns == 2 && live.info.state.status == Status::Idle),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let (failed, text) = tool(
+        &offers,
+        &parent_id,
+        Tool::AgentStatus,
+        json!({"id":done.id}),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    assert_eq!(view(&text).turns, 2);
+    offers.agents.shutdown().await;
+    endpoint.close().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let mut offers = Offers::local(&[], Provision::new(dir.path()));

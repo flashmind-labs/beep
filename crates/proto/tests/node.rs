@@ -914,6 +914,7 @@ mod tools {
             (Tool::BeepMetrics, "beep_metrics"),
             (Tool::FileReport, "file_report"),
             (Tool::HarnessInfo, "harness_info"),
+            (Tool::ListProjects, "list_projects"),
         ] {
             assert_eq!(tool.to_string(), name);
             assert_eq!(name.parse::<Tool>(), Ok(tool));
