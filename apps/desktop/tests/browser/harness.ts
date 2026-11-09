@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Tree } from "../../src/agentpane/worktree-state.ts";
 import type { Page } from "@playwright/test";
 import type { HomeView } from "../../src/center/home-state.ts";
 import type { RunningAgent } from "../../src/agents/running-state.ts";
@@ -11,7 +12,7 @@ import type { CenterTarget } from "../../src/project/projectwindow.ts";
 
 interface BrowserSession extends RunningAgent { question: null }
 interface Fixture { project: ProjectRow; sessions: [BrowserSession, BrowserSession]; home: HomeView; streaming: boolean }
-interface NavigationHarness { open(target: CenterTarget): void; ready(): boolean; processes(rows: RunningProcess[]): void }
+interface NavigationHarness { open(target: CenterTarget): void; ready(): boolean; processes(rows: RunningProcess[]): void; worktrees(rows: Tree[]): void }
 type NativeHandler = (event: { payload: unknown }) => void;
 interface NativeBoundary {
   core: { invoke(command: string, args?: Record<string, unknown>): Promise<unknown>; Channel: new <T>() => { onmessage(message: T): void } };
@@ -111,6 +112,7 @@ function installNativeBoundary(data: Fixture): void {
       const event: MeshEvent = { machine_id: data.project.machine_id, topic: "processes.notice-one", revision: ++revision, initial: false };
       for (const reader of readers.values()) if (reader.topics.some(interest => interest.topic === event.topic || interest.topic === "processes.*")) reader.channel.onmessage(event);
     },
+    worktrees(rows) { answers.agent_worktrees = rows; },
     ready: () => pendingReads > 0 && handlers.has("center-open"),
   };
   Object.defineProperty(window, "__navigation", { value: harness });

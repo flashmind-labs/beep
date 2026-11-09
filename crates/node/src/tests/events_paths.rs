@@ -1,3 +1,4 @@
+use std::time::Duration;
 use super::*;
 
 #[tokio::test]
@@ -37,7 +38,7 @@ async fn aliases_share_one_watch_and_removing_one_keeps_the_directory_watched() 
     assert_eq!(crate::lock(&watcher.inner).installed.len(), 1);
     while changes.try_recv().is_ok() {}
     std::fs::write(root.path().join("example.txt"), "changed").unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(5), changes.recv())
+    tokio::time::timeout(Duration::from_secs(5), changes.recv())
         .await
         .unwrap()
         .unwrap();
@@ -66,7 +67,7 @@ async fn renaming_and_recreating_a_root_rearms_the_replacement_directory() {
         std::fs::create_dir(&original).unwrap();
         ready.send(()).unwrap();
         wait_release
-            .recv_timeout(std::time::Duration::from_secs(5))
+            .recv_timeout(Duration::from_secs(5))
             .unwrap();
     });
     wait_ready.await.unwrap();
@@ -75,7 +76,7 @@ async fn renaming_and_recreating_a_root_rearms_the_replacement_directory() {
     reconciled.borrow_and_update();
     release.send(()).unwrap();
     hold.await.unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(5), reconciled.changed())
+    tokio::time::timeout(Duration::from_secs(5), reconciled.changed())
         .await
         .unwrap()
         .unwrap();
@@ -85,7 +86,7 @@ async fn renaming_and_recreating_a_root_rearms_the_replacement_directory() {
 }
 
 async fn timeout_change(changes: &mut mpsc::Receiver<Vec<PathBuf>>) {
-    tokio::time::timeout(std::time::Duration::from_secs(5), changes.recv())
+    tokio::time::timeout(Duration::from_secs(5), changes.recv())
         .await
         .unwrap()
         .unwrap();
@@ -103,7 +104,7 @@ async fn a_directory_created_after_subscribing_becomes_recursive() {
     watcher.replace(vec![path.clone()]).await.unwrap();
     std::fs::create_dir_all(&path).unwrap();
     let mut reconciled = watcher.reconciled.clone();
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             reconciled.borrow_and_update();
             if crate::lock(&watcher.inner)
@@ -119,7 +120,7 @@ async fn a_directory_created_after_subscribing_becomes_recursive() {
     .await
     .unwrap();
     std::fs::write(path.join("example.txt"), "changed").unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(5), changes.recv())
+    tokio::time::timeout(Duration::from_secs(5), changes.recv())
         .await
         .unwrap()
         .unwrap();

@@ -7,6 +7,7 @@
 //! `follow` runs while the node is in the mesh. Each change to the state or
 //! the device list applies what differs from what was applied before.
 
+use std::time::Duration;
 use crate::{
     link::Offers,
     link::watchdog::{self, Step},
@@ -77,7 +78,7 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
             apply_syncthing(&preferences_mesh, me, &preferences_offers).await;
             tokio::select! {
                 change = changes.recv() => if matches!(change, Err(RecvError::Closed)) { return; },
-                () = tokio::time::sleep(std::time::Duration::from_secs(30)) => {},
+                () = tokio::time::sleep(Duration::from_secs(30)) => {},
             }
         }
     }));
@@ -92,7 +93,7 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
             moved = updates.changed() => if moved.is_err() {
                 return;
             },
-            () = tokio::time::sleep(std::time::Duration::from_secs(30)) => {},
+            () = tokio::time::sleep(Duration::from_secs(30)) => {},
         }
     }
 }

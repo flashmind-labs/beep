@@ -1,4 +1,5 @@
 use super::*;
+use std::time::Duration;
 
 #[test]
 fn a_mac_reopens_what_was_open_and_notes_it_on_quit() {
@@ -10,9 +11,9 @@ fn a_mac_reopens_what_was_open_and_notes_it_on_quit() {
     // Nothing was open: moves stop waiting at once, settings or not.
     let agents = machine.offers().agents;
     async_runtime::block_on(async {
-        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        tokio::time::timeout(Duration::from_secs(20), async {
             while !agents.reopened() {
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await

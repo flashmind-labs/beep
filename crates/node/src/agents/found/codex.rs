@@ -152,8 +152,8 @@ pub(super) fn title(path: &Path) -> Option<String> {
 }
 
 /// The folder the rollout at `path` last worked in: the `cwd` of its last
-/// `turn_context`, or the `workdir` a later tool call gave (taken from the
-/// folder before it when relative), read from the end of the file. `None`
+/// `turn_context`, or the `workdir` a later tool call gave (relative to the
+/// turn folder). Repeated launch contexts preserve the detected folder. `None`
 /// when that stretch names none; the header's `cwd` then holds.
 pub(super) fn latest_folder(path: &Path) -> Option<PathBuf> {
     let mut file = File::open(path).ok()?;
@@ -177,8 +177,11 @@ pub(super) fn latest_folder(path: &Path) -> Option<PathBuf> {
         let payload = &value["payload"];
         if is_turn && value["type"] == "turn_context" {
             if let Some(cwd) = payload["cwd"].as_str().filter(|cwd| !cwd.is_empty()) {
-                turn = Some(PathBuf::from(cwd));
-                folder.clone_from(&turn);
+                let next = PathBuf::from(cwd);
+                if turn.as_ref() != Some(&next) || folder.is_none() {
+                    folder = Some(next.clone());
+                }
+                turn = Some(next);
             }
         } else if payload["type"] == "function_call"
             && let Some(args) = payload["arguments"]

@@ -14,7 +14,7 @@ import { openMenu, type MenuItem } from "../ui/menu.ts";
 import type { TileData } from "./board.ts";
 import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
 import {
-  Bounded, DetailCache, HOVER_MS, KeptRows, ahead, detailDue, detailKey, going, limited, listDue, runKey,
+  Bounded, DetailCache, HOVER_MS, ahead, detailDue, detailKey, going, limited, listDue, runKey,
 } from "./runs-state.ts";
 
 export { going, runKey };
@@ -314,8 +314,6 @@ export function makeRuns(deps: RunDeps) {
   const reading = new Set<string>();
   /// Details read ahead, a few at a time.
   const aheadQueue = new Bounded();
-  /// The rows and opened runs drawn last, kept while nothing in them changes.
-  const drawn = new KeptRows<HTMLElement>();
   /// The next poll of a running run opened, or of the list while one goes.
   let watching: string | null = null;
   let unfollow: (() => void) | undefined;
@@ -576,16 +574,13 @@ export function makeRuns(deps: RunDeps) {
     });
     const el = h("div", `pj-runrow ${chip.cls || "idle"}${opened ? " open" : ""}`, head);
     if (opened) el.append(detailEl(id, r));
-    // A row drawn as before stays the element on screen: no flash, and a
-    // spinner keeps turning.
-    return drawn.take(detailKey(id, r), el.outerHTML, el);
+    return el;
   }
 
   /// The Actions section of the project page.
   function section(agent: Agent) {
     const id = agent.project_id;
     const box = sectionEl(id);
-    drawn.sweep(`${id}\n`);
     schedule(id);
     return box;
   }

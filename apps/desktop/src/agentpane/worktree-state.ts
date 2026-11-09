@@ -2,6 +2,7 @@
 // gives, and the worktree the agent's tool calls work in, read from the text
 // of the log's entries. The same for every harness.
 
+import type { AgentToolCall } from "../agents/agents.ts";
 import { parseTool } from "../agents/agentlog.ts";
 import { resolvePath } from "./media-state.ts";
 
@@ -18,6 +19,7 @@ export interface Tree {
 export interface Entry {
   kind: string;
   text: string;
+  tool?: AgentToolCall | null;
 }
 
 /// What a worktree is called: its branch, else its commit.
@@ -59,6 +61,35 @@ export function reportedRoot(trees: readonly Tree[], cwd: string, folder: string
   const t = trees.find(t => bare(t.path) === bare(folder));
   if (t) return rootOf(t, cwd);
   return trees.length ? null : bare(folder);
+}
+
+/// Tool completion is a reason to compare Git's worktree list again, even
+/// when a harness hides the command behind a wrapper.
+export function finishedTools(entries: readonly Entry[], earlier: number) {
+  return entries.flatMap((entry, i) => {
+    const { status } = parseTool(entry.text);
+    return entry.kind === "tool" && (status === "completed" || status === "failed") ? [earlier + i] : [];
+  });
+}
+
+export function matchesTree(tree: Tree, query: string) {
+  return `${treeName(tree)} ${tree.path}`.toLowerCase().includes(query.trim().toLowerCase());
+}
+
+/// Decode structured arguments, never JavaScript source.
+function workingDirectory(entry: Entry): string | null {
+  if (!entry.tool?.input || entry.tool.input_truncated) return null;
+  try {
+    const args: unknown = JSON.parse(entry.tool.input);
+    if (!args || typeof args !== "object") return null;
+    for (const key of ["workdir", "cwd", "working_directory"]) {
+      if (key in args) {
+        const value: unknown = Reflect.get(args, key);
+        if (typeof value === "string" && value) return value;
+      }
+    }
+  } catch { /* Older harnesses may give plain text. */ }
+  return null;
 }
 
 /// Words of a command or title, with quotes, `&&`, `;` and the like cut away.
@@ -124,14 +155,22 @@ export function follow(entries: readonly Entry[], trees: readonly Tree[], cwd: s
     const running = status === "pending" || status === "in_progress";
     if (en.kind === "tool" && status !== "failed") {
       if (WORKTREE_WORD.test(title)) out.unknown.push(title.split("\n")[0].slice(0, 200));
-      if (trees.length > 1) {
+      if (trees.length > 1 && (!WORKTREE_WORD.test(title) || MOVES.test(title))) {
+        // Creation lists a candidate; a later edit or directory confirms usage.
         const { found, exit } = places(en.text, out.last, cwd);
+        const directory = workingDirectory(en);
+        if (directory) found.push(resolvePath(cwd, directory));
+        const editing = /^(?:Edit|Write|Create|Delete|Move|apply_patch)\b/i.test(title)
+          || parseTool(en.text).output.split("\n").some(line => DIFF.test(line));
         if (exit) { out.last = bare(cwd); out.hit = true; }
         for (const path of found) {
           const nested = NESTED.exec(path)?.[1];
           if (nested && !trees.some(t => bare(t.path) === nested)) out.unknown.push(nested);
           const t = treeAt(trees, cwd, path);
-          if (t) { out.last = rootOf(t, cwd); out.hit = true; }
+          // Reading in the launch checkout must not hide the active worktree.
+          if (t && (!t.own || editing || out.last === bare(cwd))) {
+            out.last = rootOf(t, cwd); out.hit = true;
+          }
         }
       }
     }
