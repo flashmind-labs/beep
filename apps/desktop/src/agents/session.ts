@@ -1,9 +1,9 @@
 import { SessionPicks } from "./agentmodels.ts";
 import { createElement } from "react";
-import { SessionField, SessionHead, showSessionFrame } from "./session-frame.tsx";
+import { SessionField, SessionHead, showSessionFrame, updateSessionHints } from "./session-frame.tsx";
 import { disposeLog } from "./logwindow.ts";
 import { bindSessionStash } from "./stash.ts";
-import { stashIndicator, stashActions } from "../chat/stash.ts";
+import { stashIndicator } from "../chat/stash.ts";
 import { AgentFeed } from "./agentfeed-state.ts";
 import { TranscriptCache, transcriptKey, type TranscriptUpdate } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.ts";
@@ -17,8 +17,7 @@ import { syncSteers, stopPending, type Waiting } from "./agentqueue.ts";
 import { composeField } from "../chat/compose.ts";
 import { $, $$, type AgentReturn, bar, S, windowHooks, changeListeners } from "../bar/core.ts";
 import { failBanner } from "../ui/failbanner.ts";
-import { hints } from "../bar/hints.ts";
-import { SHORTCUTS } from "../ui/shortcuts.ts";
+import { hintModel, type Hint } from "../bar/hints.ts";
 import { openViewer } from "../chat/media.ts";
 import { readRunning } from "../agentpane/running.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
@@ -40,8 +39,6 @@ import { readTasks, stopTask } from "./tasks.ts";
 import { editorTools, openInEditor } from "../project/editors.ts";
 import { disposeQueue, editQueued, interruptAgent, answerAgentQuestion, sendAgentMessage, steerMessage } from "./messages.ts";
 import type { ChatBody } from "../ui/turn.ts";
-import { esc } from "../ui/format.ts";
-import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { Channel, invoke, listen, logError, logInfo, recordTiming } from "../ui/tauri.ts";
 import { onShownChange, paneShown, visibilitySnapshot } from "../ui/active.ts";
@@ -403,15 +400,12 @@ export const stoppingNow = () => {
 /// The session's keys on one small line.
 export function agentHints() {
   const s = AG.page?.session, q = s?.question;
-  const slim = (items: Parameters<typeof hints>[0]) => {
-    const open = $("#agshortcuts")?.hasAttribute("open") ? " open" : "";
-    const sections = SHORTCUTS.filter(section => ["Agent session", "Side pane", "Terminals"].includes(section.title));
-    const rows = sections.map(section => `<section><b>${esc(section.title)}</b>${section.rows.map(row => `<span><kbd>${esc(row.keys)}</kbd>${esc(row.does)}</span>`).join("")}</section>`).join("");
+  const slim = (items: readonly Hint[]) => {
     const project = AG.draft ?? (s && windowHooks?.sessionProject?.(s)?.name) ?? null;
-    return `<div class="agkeys">${hints(items).replace('class="dhints"', 'class="dhints slim"')}${stashIndicator(project)}<details id="agshortcuts"${open}><summary>Show more</summary><div class="agkeys-list">${rows}${stashActions()}</div></details></div>`;
+    return { value: hintModel(items), stash: stashIndicator(project) };
   };
   if (AG.draft) return slim([["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]]);
-  const mode: Parameters<typeof hints>[0] = hasModes() ? [["⇧Tab", "mode"]] : [];
+  const mode: readonly Hint[] = hasModes() ? [["⇧Tab", "mode"]] : [];
   if (q && AG.modes?.plan != null) return slim([[`⌘${ICON.ret}`, "approve"], ["⌘D", "keep planning"], ...mode, ["esc", "back"]]);
   if (q) return slim([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
   if (s && isNativeSession(s.id)) return slim([["esc", "parent session"]]);
@@ -419,7 +413,7 @@ export function agentHints() {
   if (s?.status === "ended") return slim([[ICON.ret, "continue"], ["esc", "back"]]);
 
   if (turnRuns()) {
-    const keys: Parameters<typeof hints>[0] = [];
+    const keys: readonly Hint[] = [];
     if (stoppingNow()) return slim(keys);
     return slim([...keys, ...mode, ["⌘.", "stop"], ["esc", "back"]]);
   }
@@ -431,8 +425,7 @@ export function agentHints() {
 export function redrawAgentHints() {
   const input = $<HTMLTextAreaElement>("#agmsg"), s = AG.page?.session;
   if (input && s) input.placeholder = AG.att.length ? "Add a message (optional)" : s.status === "ended" ? `Message ${agentKind(s.agent).name} to continue` : `Message ${agentKind(s.agent).name}`;
-  const hint = $("#agconv .agkeys");
-  if (hint) hint.replaceWith(h(agentHints()));
+  updateSessionHints(agentHints());
 }
 
 /// A session's folder as the header shows it: the repository and its

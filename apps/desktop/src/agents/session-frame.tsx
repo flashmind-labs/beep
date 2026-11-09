@@ -1,3 +1,5 @@
+import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
+import { SHORTCUTS } from "../ui/shortcuts.ts";
 import { Fragment, useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal, flushSync } from "react-dom";
 import type { Root } from "react-dom/client";
@@ -6,7 +8,8 @@ import { ICON } from "../ui/icons.ts";
 import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
 
 type Dock = "bottom" | "right";
-interface Frame { head: ReactNode; field: ReactNode; body: HTMLElement; hints: string }
+export interface AgentHintsModel { value: HintViewModel; stash: string }
+interface Frame { head: ReactNode; field: ReactNode; body: HTMLElement; hints: AgentHintsModel }
 interface Owner { host: HTMLElement; root: Root; revision: number; frame: Frame; portals: Map<HTMLElement, { key: number; view: ReactNode }>; children: Map<string, ReactNode>; next: number; release(): void }
 let current: Owner | null = null;
 
@@ -71,15 +74,15 @@ function BodySlot({ body }: { body: HTMLElement }) {
   return <div ref={host} style={{ display: "contents" }} />;
 }
 
-// Hints still have delegated controls; their host keeps that boundary stable
-// until the hints themselves move into React.
-function HintSlot({ html }: { html: string }) {
-  const host = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const template = document.createElement("template"); template.innerHTML = html;
-    host.current?.replaceChildren(template.content);
-  }, [html]);
-  return <div ref={host} style={{ display: "contents" }} />;
+export function updateSessionHints(hints: AgentHintsModel) {
+  if (!current) return;
+  current.frame = { ...current.frame, hints };
+  draw(current);
+}
+
+function AgentHints({ value }: { value: AgentHintsModel }) {
+  const sections = SHORTCUTS.filter(section => ["Agent session", "Side pane", "Terminals"].includes(section.title));
+  return <div className="agkeys"><HintView value={value.value} slim /><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: value.stash }} /><details id="agshortcuts"><summary>Show more</summary><div className="agkeys-list">{sections.map(section => <section key={section.title}><b>{section.title}</b>{section.rows.map(row => <span key={`${row.keys}:${row.does}`}><kbd>{row.keys}</kbd>{row.does}</span>)}</section>)}<section><b>Stash</b><button type="button" data-stash-action="save"><kbd>Ctrl S</kbd>Stash draft</button><button type="button" data-stash-action="pop"><kbd>Ctrl P</kbd>Pop latest</button></section></div></details></div>;
 }
 
 function DockFrame({ dock }: { dock: Dock }) {
@@ -89,5 +92,5 @@ function DockFrame({ dock }: { dock: Dock }) {
 }
 
 function FrameView({ frame, revision }: { frame: Frame; revision: number }) {
-  return <><div className="dhead" key={`head:${revision}`}>{frame.head}</div><div className="agshell" id="agshell"><div className="agmain" id="agmain"><div className="agconv" id="agconv" key={`conversation:${revision}`}><BodySlot body={frame.body} />{frame.field}<HintSlot html={frame.hints} /></div><DockFrame dock="bottom" /></div><DockFrame dock="right" /><div className="agdropzone" id="agdropzone" hidden /></div></>;
+  return <><div className="dhead" key={`head:${revision}`}>{frame.head}</div><div className="agshell" id="agshell"><div className="agmain" id="agmain"><div className="agconv" id="agconv" key={`conversation:${revision}`}><BodySlot body={frame.body} />{frame.field}<AgentHints value={frame.hints} /></div><DockFrame dock="bottom" /></div><DockFrame dock="right" /><div className="agdropzone" id="agdropzone" hidden /></div></>;
 }
