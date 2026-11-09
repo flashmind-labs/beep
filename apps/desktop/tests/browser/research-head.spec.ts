@@ -118,3 +118,33 @@ test("research notes and room preserve scroll and update incrementally", async (
   await expect(pane).toContainText("Another message");
   await expect(pane).toHaveJSProperty("scrollTop", 0);
 });
+
+test("research chat and paper keep their content and actions across updates", async ({ page }) => {
+  const completed = { ...research("Paper example"), status: "done", draft: "Paper", draft_html: "<p>A finding [1].</p>", sources: [{ number: 1, url: "https://example.test/source", title: "Source title", quote: "Quote", agent: "scout-1" }] };
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, cached_research: completed, get_research: completed, research_history: [{ role: "user", text: "Question" }, { role: "assistant", html: "<p>Research complete.</p>" }], research_pending: null, list_researches: [] });
+  await page.evaluate(() => window.__navigation.open({ open_research: { session: "first" } }));
+  const chat = page.locator(".rs .dcoderlog:visible"), question = chat.locator(".dcoderen.user");
+  await expect(question).toContainText("Question");
+  await question.evaluate(el => Reflect.set(window, "researchQuestion", el));
+  await expect(chat).toContainText("Research complete.");
+  await chat.getByRole("button", { name: "Open the paper" }).click();
+  const paper = page.locator(".rs .rdoc:visible");
+  await expect(paper).toContainText("A finding");
+  await paper.getByRole("link", { name: "1" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_url").map(call => call.args.url))).toContain("https://example.test/source");
+  expect(await question.evaluate(el => el === Reflect.get(window, "researchQuestion"))).toBe(true);
+  await expect(page.getByRole("button", { name: "Copy", exact: true }).last()).toBeVisible();
+});
+
+test("an updated Research answer preserves selected unchanged text", async ({ page }) => {
+  const first = research("Selection example");
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, cached_research: first, get_research: first, research_history: [{ role: "assistant", html: "<p>Keep this passage.</p>" }], research_pending: null, list_researches: [] });
+  await page.evaluate(() => window.__navigation.open({ open_research: { session: "first" } }));
+  const answer = page.locator(".rs .dcoderen.agent p").first();
+  await expect(answer).toHaveText("Keep this passage.");
+  await answer.evaluate(el => { const node = el.firstChild; if (!node) return; const range = document.createRange(); range.setStart(node, 0); range.setEnd(node, 4); const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range); Reflect.set(window, "researchAnswer", el); });
+  await page.evaluate(data => { window.__navigation.respond("research_history", [{ role: "assistant", html: "<p>Keep this passage.</p><p>A new paragraph.</p>" }]); window.__navigation.respond("get_research", data); }, { ...first, status: "done" });
+  await page.locator(".rs .dhead:visible").getByRole("button", { name: "Stop" }).click();
+  await expect(page.locator(".rs .dcoderen.agent")).toContainText("A new paragraph.");
+  expect(await answer.evaluate(el => el === Reflect.get(window, "researchAnswer") && window.getSelection()?.toString() === "Keep")).toBe(true);
+});

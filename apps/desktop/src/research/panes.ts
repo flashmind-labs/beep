@@ -1,9 +1,8 @@
 // An opened research as HTML: its head, the lead's chat, and the side pane's
 // tabs, each as one string the page patches into place (open.ts).
-import { answerHtml, userRowHtml } from "../agents/turnrows.ts";
 import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
-import { type Agent, type Entry, type Note, type Open, type Said, RUNNING, agentOf, count, doing, kind, look, progress, round, shownTab } from "./research-state.ts";
+import { type Agent, type Entry, type Note, type Open, type Said, agentOf, count, doing, kind, look, round, shownTab } from "./research-state.ts";
 import type { Doing } from "./research-state.ts";
 
 const rav = (id: string) => { const l = look(id); return `<span class="rav" style="--c:${l.c}">${l.ini}</span>`; };
@@ -12,36 +11,6 @@ const stateIcon = (st: Doing[1]) => st === "run" ? '<span class="dspin"></span>'
   : st === "ok" ? ok()
   : st === "wait" ? '<span class="ddot hot"></span>' : "<span></span>";
 const DOWN = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
-
-/// The Export PDF button, which shows the export while it runs.
-function exportButton(o: Open) {
-  return o.exporting
-    ? '<button class="dbtn" disabled><span class="dspin"></span>Exporting</button>'
-    : '<button class="dbtn" data-act="export">Export PDF</button>';
-}
-
-// ---------- The lead's chat ----------
-
-/// The chat as the session's log: your messages, the lead's replies, and
-/// while the team works a line of where it is.
-export function chatHtml(o: Open) {
-  const st = o.research?.status;
-  const last = o.turns.findLastIndex(t => t.role === "assistant");
-  let html = "";
-  o.turns.forEach((t, i) => {
-    if (t.role === "user") html += userRowHtml(esc(t.text));
-    else if (t.role === "scheduled") html += `<div class="dmuted">${esc(t.label || "Research finished")}</div>`;
-    else if (t.role === "assistant" && t.html) {
-      html += `<div class="dcoderen agent md">${answerHtml(t.html)}</div>`;
-      if (i === last && st === "planning" && o.sending === null) html += `<div class="racts"><button class="dbtn pri" data-act="go">Start<kbd>⌘${ICON.ret}</kbd></button></div>`;
-      if (i === last && st === "done" && o.sending === null) html += `<div class="racts"><button class="dbtn" data-act="tab:draft">Open the paper</button>${exportButton(o)}</div>`;
-    }
-  });
-  if (o.sending !== null) html += `<div class="dcoderen agent md">${o.sending}<span class="caret"></span></div>`;
-  if (RUNNING.has(st)) html += `<div class="rstatus"><span class="dspin"></span>${esc(progress(o, Date.now()))}</div>`;
-  if (o.error) html += `<div class="derr">${esc(o.error)}</div>`;
-  return html;
-}
 
 /// The message field's placeholder.
 export function placeholder(o: Open) {
@@ -54,12 +23,9 @@ export function placeholder(o: Open) {
 /// The tab on screen, with what sits under the strip.
 export function paneHtml(o: Open) {
   const tab = shownTab(o);
-  if (tab === "draft") return draftHtml(o);
   if (tab === "agents") return agentsHtml(o);
   return threadHtml(o, agentOf(o, tab));
 }
-
-const empty = (text: string) => `<div class="rbox rempty">${text}</div>`;
 
 /// Citation numbers as links to their sources, which open in the browser.
 function sup(o: Open, numbers: number[]) {
@@ -71,7 +37,7 @@ function sup(o: Open, numbers: number[]) {
 }
 
 /// Turns "[3]" and "[1, 4]" in rendered text into citation marks.
-function cite(o: Open, html: string) {
+export function cite(o: Open, html: string) {
   const t = document.createElement("template");
   t.innerHTML = html;
   const walk = document.createTreeWalker(t.content, NodeFilter.SHOW_TEXT);
@@ -86,16 +52,6 @@ function cite(o: Open, html: string) {
   }
 
   return t.innerHTML;
-}
-
-/// The paper, with its Copy and Export PDF below.
-function draftHtml(o: Open) {
-  const r = o.research, st = r?.status ?? "planning";
-  if (!r || (st === "planning" && !o.entries.some(e => e.kind === "note"))) return `<div class="rpane">${empty("The workspace fills in once the team starts.")}</div>`;
-  if (!r.draft) return `<div class="rpane">${empty(RUNNING.has(st) ? "The writer starts after the critic's review." : "No paper was written.")}</div>`;
-  const by = `Written by ${esc(agentOf(o, "writer").name)}, reviewed by ${esc(agentOf(o, "critic").name)}. ${r.sources.length} sources.`;
-  return `<div class="rpane"><div class="rdoc"><span class="by">${by}</span>${cite(o, r.draft_html)}</div></div>`
-    + `<div class="agpacts"><span class="meta">Markdown, ${count(r.sources.length, "source")}</span><span class="sp"></span><button class="dbtn" data-act="copy">Copy</button>${exportButton(o)}</div>`;
 }
 
 /// A note, headed `title`, with its citations.

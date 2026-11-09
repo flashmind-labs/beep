@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { ResearchHead } from "./head-view.tsx";
 import { ResearchTabs } from "./tabs-view.tsx";
 import { ResearchLivePane } from "./live-pane-view.tsx";
+import { ResearchChat, ResearchPaper } from "./chat-paper-view.tsx";
 // An opened research, as a page of the command center laid out like a coding
 // agent session: the lead's chat on the left, the paper, notes, sources and the
 // team as the tabs of a side pane on the right. The page is drawn once and
@@ -22,7 +23,7 @@ import { esc } from "../ui/format.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import { patchHtml } from "../ui/patch.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
-import { chatHtml, followsEnd, paneHtml, placeholder } from "./panes.ts";
+import { followsEnd, paneHtml, placeholder } from "./panes.ts";
 import { type Open, type ResearchView, type Turn, RUNNING, closeTab, openTab, round, shownTab } from "./research-state.ts";
 import { dragHandle } from "../ui/drag.ts";
 
@@ -61,7 +62,7 @@ const fresh = (session: string): Open => ({
 let R = fresh("");
 let page: Page | null = null;
 let shellRoot: Root | null = null;
-let headNode: ReactElement | null = null, tabsNode: ReactElement | null = null, paneNode: ReactElement | null = null;
+let headNode: ReactElement | null = null, tabsNode: ReactElement | null = null, paneNode: ReactElement | null = null, chatNode: ReactElement | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let inflight = false;
 let polls = 0;
@@ -95,7 +96,7 @@ function build(el: HTMLElement, session: string) {
   zoomed = false;
   shellRoot?.unmount();
   shellRoot = null;
-  headNode = tabsNode = paneNode = null;
+  headNode = tabsNode = paneNode = chatNode = null;
   R = fresh(session);
   polls = 0;
   const root = h(`<div class="rs"><div class="dhead"></div>
@@ -177,6 +178,7 @@ function drawShell() {
   if (!root || !current) return;
   flushSync(() => root.render(createElement(Fragment, null,
     headNode && createPortal(headNode, current.head),
+    chatNode && createPortal(chatNode, current.chat),
     tabsNode && createPortal(tabsNode, current.tabs),
     paneNode && createPortal(paneNode, current.view),
   )));
@@ -190,7 +192,8 @@ function drawHead() {
 function drawChat() {
   if (!page) return;
   const log = page.log;
-  patchHtml(page.chat, chatHtml(R));
+  chatNode = createElement(ResearchChat, { research: R });
+  drawShell();
   if (log.stuck !== false) log.scrollTop = log.scrollHeight;
   page.ask.placeholder = placeholder(R);
 }
@@ -202,9 +205,9 @@ function drawPane() {
   tabsNode = createElement(ResearchTabs, { research: R });
   const before = page.view.querySelector<HTMLElement>(".rpane");
   const stuck = !!before && atBottom(before);
-  if (tab === "sources" || tab === "notes" || tab === "room") {
+  if (tab === "sources" || tab === "notes" || tab === "room" || tab === "draft") {
     if (!paneNode) page.view.replaceChildren();
-    paneNode = createElement(ResearchLivePane, { research: R, tab });
+    paneNode = tab === "draft" ? createElement(ResearchPaper, { research: R }) : createElement(ResearchLivePane, { research: R, tab });
     drawShell();
   } else {
     paneNode = null;
