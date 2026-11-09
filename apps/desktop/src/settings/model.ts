@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
+import { openBarPage } from "../bar/page-root.ts";
 import { ModelView } from "./model-view.tsx";
 import { bar, S } from "../bar/core.ts";
 import { hints, refreshHints } from "../bar/hints.ts";
@@ -91,30 +92,13 @@ export function renderModel() {
   modelError = "";
   drawModel();
 }
-let modelRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+let modelRoot: { host: HTMLElement; root: Root } | null = null;
 let modelError = "";
-
-function disposeModel() {
-  if (!modelRoot) return;
-  modelRoot.observer.disconnect();
-  modelRoot.root.unmount();
-  modelRoot = null;
-}
 
 function drawModel() {
   const m = MODELS.info;
   if (!m) return;
-  if (modelRoot && modelRoot.host.parentElement !== bar) disposeModel();
-  if (!modelRoot) {
-    const host = document.createElement("div");
-    host.style.display = "contents";
-    bar.replaceChildren(host);
-    const observer = new MutationObserver(() => {
-      if (modelRoot?.host === host && host.parentElement !== bar) disposeModel();
-    });
-    modelRoot = { host, root: createRoot(host), observer };
-    observer.observe(bar, { childList: true });
-  }
+  if (!modelRoot || modelRoot.host.parentElement !== bar) modelRoot = openBarPage(() => { modelRoot = null; });
   flushSync(() => modelRoot?.root.render(createElement(ModelView, {
     model: m, selected: MODELS.sel, agents: MODELS.agents, agentNames: MODELS.list,
     error: modelError, hints: hints([["↑↓", "move"], [ICON.ret, "use"], ["esc", "back"]]), thinkingLevels: THINKING, price: modelPrice, capitalize: cap,
