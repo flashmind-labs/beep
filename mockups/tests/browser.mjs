@@ -23,7 +23,20 @@ try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1100 } });
   watch(page);
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  const startupRequests = [];
+  const recordStartup = request => { if (/^https?:/.test(request.url())) startupRequests.push(request.url()); };
+  page.on('request', recordStartup);
+  await page.addInitScript(() => {
+    window.oldMenuSeen = false;
+    new MutationObserver(() => {
+      if (document.querySelector('#index > .group, #index > .pick')) window.oldMenuSeen = true;
+    }).observe(document, { childList: true, subtree: true });
+  });
   await page.goto(new URL('desktop/index.html', root).href);
+  await page.getByRole('searchbox', { name: 'Find a screen' }).waitFor();
+  assert.deepEqual(startupRequests, [], 'Desktop startup must work without external requests');
+  assert.equal(await page.evaluate(() => window.oldMenuSeen), false, 'Only the hierarchical menu should render');
+  page.off('request', recordStartup);
   await page.addStyleTag({ content: '*, *::before, *::after { animation: none !important; transition: none !important; }' });
   const ids = await page.evaluate(() => DESK_SCREENS.flatMap(group => group.items.map(item => item[0])));
   assert.equal(await page.locator('#index [data-screen]').count(), ids.length, 'Hierarchy must retain every screen');

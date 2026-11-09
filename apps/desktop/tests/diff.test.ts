@@ -1,11 +1,42 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  type DiffFile, type DiffView, allFolded, baseTitle, changedLabel, diffRows, splitHeight, splitRows, withLoaded,
+  type DiffFile, type DiffView, allFolded, baseTitle, changedLabel, compactFolders, diffRows, filesInTreeOrder, splitHeight, splitRows, withLoaded,
 } from "../src/review/diff-state.ts";
 
 const file = (path: string, o: Partial<DiffFile> = {}): DiffFile => ({
   path, old_path: null, status: "modified", additions: 1, deletions: 1, hunks: [], left_out: null, ...o,
+});
+
+test("diff order follows tree folders when added files arrive after modified files", () => {
+  const paths = [
+    "src/link/events.rs",
+    "src/link/events/snapshots.rs",
+    "src/link/mod.rs",
+    "tests/link.rs",
+    "src/link/channels.rs",
+    "src/link/commands.rs",
+    "src/link/events/subscriptions.rs",
+    "src/link/subscriptions.rs",
+    "README.md",
+  ];
+  const files = paths.map(path => file(path));
+  const ordered = filesInTreeOrder(files);
+  assert.deepEqual(ordered.map(f => f.path), [
+    "src/link/events.rs",
+    "src/link/events/snapshots.rs",
+    "src/link/events/subscriptions.rs",
+    "src/link/mod.rs",
+    "src/link/channels.rs",
+    "src/link/commands.rs",
+    "src/link/subscriptions.rs",
+    "tests/link.rs",
+    "README.md",
+  ]);
+  assert.deepEqual(files.map(f => f.path), paths);
+  assert.equal(ordered[0], files[0]);
+  assert.deepEqual(filesInTreeOrder(ordered), ordered);
+  assert.deepEqual(filesInTreeOrder([]), []);
 });
 
 test("rows number both sides and count the lines between hunks", () => {
@@ -97,4 +128,24 @@ test("expanded context keeps line numbers and review placement", async () => {
   const comment = { path: "sample.ts", side: "new" as const, line: 4, text: "Check this" };
   assert.equal(placeComments([expanded], [comment]).files.get("sample.ts")?.lines.size, 1);
   assert.equal(contextFile(original, full, 0, 10).hunks[0].new_start, 14);
+});
+
+test("folder chains compact up to branches and direct files", () => {
+  assert.deepEqual([...compactFolders([
+    "apps/client/src/fleet/events.rs",
+    "apps/client/src/tests/events.rs",
+    "crates/core/src/lib.rs",
+    "crates/core/src/events/transport.rs",
+    "README.md",
+  ])], [
+    ["apps/client/src/", { dir: "", name: "apps/client/src" }],
+    ["apps/client/src/fleet/", { dir: "apps/client/src/", name: "fleet" }],
+    ["apps/client/src/tests/", { dir: "apps/client/src/", name: "tests" }],
+    ["crates/core/src/", { dir: "", name: "crates/core/src" }],
+    ["crates/core/src/events/", { dir: "crates/core/src/", name: "events" }],
+  ]);
+  assert.deepEqual([...compactFolders(["src/auth/login.ts"])],
+    [["src/auth/", { dir: "", name: "src/auth" }]]);
+  assert.equal(compactFolders(["README.md"]).size, 0);
+  assert.equal(compactFolders([]).size, 0);
 });

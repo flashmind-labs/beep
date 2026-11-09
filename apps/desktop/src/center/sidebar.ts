@@ -89,6 +89,8 @@ interface SideOpts {
 export function sideItem(svg: string | null, label: string, count: number | undefined, opts: SideOpts = {}) {
   const b = h("button", `cc-si${opts.cls ? " " + opts.cls : ""}`, svg ? icon(svg) : null, h("span", "tt", label));
   b.type = "button";
+  b.title = label;
+  b.setAttribute("aria-label", label);
   if (opts.current) b.setAttribute("aria-current", "true");
   if (count) b.append(h("span", `n${opts.hot ? " hot" : ""}`, String(count)));
   if (opts.kbd) b.append(h("kbd", "", opts.kbd));
@@ -116,7 +118,7 @@ export function drawSide() {
   // Sync, once a project syncs: the conflicts waiting across them.
   if (syncProjects().length) top.append(sideItem(IC.sync, "Sync", syncConflicts(), { current: currentLocation()?.view === "sync", hot: true, on: () => go("sync") }));
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
-  const side = [h("div", "cc-brand", h("b", "", "Beep")), top];
+  const side = [top];
 
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
     // Rows that fill in once the server answers, never an empty sidebar.
@@ -165,7 +167,26 @@ export function drawSide() {
 
   if (!list) {
     list = h("div", "cc-side-list");
-    el.replaceChildren(head, list);
+    const brand = h("div", "cc-brand", h("b", "", "Beep"));
+
+    if (!onPhone()) {
+      const toggle = button(h("span", "", icon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>')), "cc-side-toggle", () => {
+        const win = el.closest(".cwin");
+        if (!win) return;
+        const collapsed = win.classList.toggle("side-collapsed");
+        toggle.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
+        toggle.setAttribute("aria-label", toggle.title);
+        toggle.setAttribute("aria-expanded", String(!collapsed));
+      });
+      toggle.title = "Collapse sidebar";
+      toggle.setAttribute("aria-label", toggle.title);
+      toggle.setAttribute("aria-expanded", "true");
+      toggle.setAttribute("aria-controls", "side-content");
+      brand.append(toggle);
+    }
+
+    list.id = "side-content";
+    el.replaceChildren(head, brand, list);
   }
 
   patchChildren(list, side);
@@ -289,6 +310,7 @@ function chatRow(c: SideChat) {
   const openBtn = h("button", "open", mark, h("span", "tt", c.title));
   openBtn.type = "button";
   openBtn.title = c.title;
+  openBtn.setAttribute("aria-label", c.title);
   if (open) openBtn.setAttribute("aria-current", "true");
   const row = h("div", "cc-si cc-chat", openBtn, end);
   row.addEventListener("contextmenu", e => (c.kind === "group" ? groupChatMenu(e, c) : c.research ? researchMenu(e, c) : chatMenu(e, c)));
@@ -384,7 +406,8 @@ function threadRow(t: ThreadChatEntry) {
 function projectRow(p: Placed<Project>, label: string, pinned: boolean) {
   const openBtn = h("button", "open", projectDot(p.i), h("span", "tt", label));
   openBtn.type = "button";
-  openBtn.title = p.machines.map(m => `${m.name}: ${m.folder}`).join("\n") || p.name;
+  openBtn.setAttribute("aria-label", p.name);
+  openBtn.title = [p.name, ...p.machines.map(m => `${m.name}: ${m.folder}`)].join("\n");
   if (currentLocation()?.view === "projects" && state.picked === p.name) openBtn.setAttribute("aria-current", "true");
   if (p.agents) openBtn.append(h("span", "n", String(p.agents)));
   const toggle = pinToggle(p.name, pinned, () => setProjectOnTop(p.name, !pinned));
@@ -525,6 +548,14 @@ try { folded = parseFolded(localStorage.getItem(FOLDED_KEY)); } catch {}
 /// holds the open project.
 function foldable(head: HTMLButtonElement, p: OrgHeading | GroupHeading) {
   head.type = "button";
+  const label = p.group?.name ?? `${p.org}/`;
+  head.setAttribute("aria-label", label);
+  head.title = head.title ? `${label}\n${head.title}` : label;
+
+  for (const node of [...head.childNodes]) {
+    if (node.nodeType === Node.TEXT_NODE) node.replaceWith(h("span", "tt", node.textContent ?? ""));
+  }
+
   head.prepend(h("span", `twist${p.folded ? "" : " open"}`, icon(IC.twist)));
   head.setAttribute("aria-expanded", String(!p.folded));
   if (currentLocation()?.view === "projects" && state.picked && p.folded?.includes(state.picked)) head.setAttribute("aria-current", "true");
