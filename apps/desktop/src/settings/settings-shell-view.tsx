@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { navEntries, subKey, type SettingsPage, type SettingsPath, type SettingsSub } from "./settings-nav.ts";
 
 interface NavigationProps {
@@ -13,4 +14,9 @@ export function SettingsNavigation(p: NavigationProps) {
 export function SettingsBreadcrumb({ path, page, sub, openPage }: { path: SettingsPath; page: string; sub: string | null; openPage(page: SettingsPage): void }) {
   if (sub === null) return <b>{page}</b>;
   return <><button className="dset-back" data-goto={path.page} aria-label={`Back to ${page}`} onClick={() => openPage(path.page)}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6l-6 6 6 6" /></svg></button><button className="dset-crumb" data-goto={path.page} onClick={() => openPage(path.page)}>{page}</button><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg><b>{sub}</b></>;
+}
+
+// Page contents retain their existing feature owner while the shell stays mounted.
+export function SettingsShell({ navigation, breadcrumb }: { navigation: ReactNode; breadcrumb: ReactNode }) {
+  return <><nav className="dset-nav" aria-label="Settings pages">{navigation}</nav><div className="dset-body"><div className="dset-top"><span className="dset-crumbs">{breadcrumb}</span><kbd>esc</kbd></div><div className="dset-page dform" /></div></>;
 }
