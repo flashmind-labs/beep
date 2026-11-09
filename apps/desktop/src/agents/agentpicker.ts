@@ -1,16 +1,18 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { AgentPicker } from "./agentpicker-view.tsx";
 // The harness, model and thinking picker, as the start form and a project's
 // agent bar both show it: the pill that opens it, the popover with its rail,
 // model column and thinking column, and where it goes on screen.
 
 import { type AgentModels, MODELS_KEPT_MS } from "./agentmodels.ts";
-import { effortNote, effortsOf, modelLabel, modelRows, pillDetail, placePopover, railOf } from "./agentpick.ts";
-import { agentKind } from "./agents.ts";
+import { modelLabel, modelRows, pillDetail, placePopover } from "./agentpick.ts";
 import { harnessTile } from "../ui/harnessicon.ts";
 import { esc } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 
 const CARET = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
-const CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
 
 // ----- Models -----
 
@@ -129,57 +131,41 @@ export function pillInner(agent: string, model: string, effort: string | null, m
 
 /// The picker open now, for placing it again on resize and scroll.
 let shown: { el: HTMLElement; o: PickerOpts } | null = null;
+let attachmentWatch: MutationObserver | null = null;
+let watchedElement: HTMLElement | null = null;
+
+const roots = new WeakMap<HTMLElement, Root>();
 
 /// Draws the picker into `el` and places it by its pill.
 export function drawPicker(el: HTMLElement, o: PickerOpts) {
+  if (shown?.el !== el) {
+    attachmentWatch?.disconnect();
+    watchedElement = el;
+    attachmentWatch = new MutationObserver(() => { if (!el.isConnected) closedPicker(el); });
+    attachmentWatch.observe(document.documentElement, { childList: true, subtree: true });
+  }
   shown = { el, o };
-  const p = o.picked, name = agentKind(p.agent).name, levels = effortsOf(p.agent);
-  const rail = railOf(o.offered, o.everywhere).map(r => {
-    const k = agentKind(r.agent);
-    const why = r.enabled ? k.name : `${k.name} (not on ${o.machine ? o.machine.name : "any machine"})`;
-    return `<button type="button" data-agh="${esc(r.agent)}" aria-pressed="${r.agent === p.agent}" title="${esc(why)}"${r.enabled ? "" : " disabled"}>${harnessTile(r.agent)}</button>`;
-  }).join("");
-  const think = levels.length
-    ? [`<button type="button" data-age="" class="${p.effort ? "" : "on"}">Default${p.effort ? "" : CHECK}</button>`,
-      ...levels.map(l => `<button type="button" data-age="${l.value}" class="${p.effort === l.value ? "on" : ""}">${esc(l.label)}${p.effort === l.value ? CHECK : ""}</button>`)].join("")
-    : `<p class="none">${esc(effortNote(name))}</p>`;
-  el.innerHTML = `<div class="agc-pick" role="dialog" aria-label="Harness, model and thinking">
-      <div class="agc-rail">${rail}</div>
-      <div class="agc-list"><div class="agc-find"><input class="agc-search" spellcheck="false" autocomplete="off" placeholder="Search ${esc(name)} models…" value="${esc(p.query)}"></div><div class="agc-models"></div></div>
-      <div class="agc-think"><h5><span>Thinking</span><span>${esc(name)}</span></h5>${think}</div>
-    </div>`;
-  el.onclick = e => {
-    const at = (sel: string) => (e.target as HTMLElement).closest<HTMLElement>(sel);
-    const harness = at("[data-agh]"), model = at("[data-agmo]"), effort = at("[data-age]");
-
-    if (harness) { p.agent = harness.dataset.agh!; p.query = ""; p.model = ""; o.changed("agent"); }
-    else if (model) { p.model = model.dataset.agmo!; p.query = ""; o.changed("model"); }
-    else if (effort) { p.effort = effort.dataset.age || null; o.changed("effort"); }
-  };
-  const q = el.querySelector<HTMLInputElement>(".agc-search")!;
-  q.addEventListener("input", () => { p.query = q.value; drawModels(el, o); });
-  // ↑ ↓ move a highlight through the models, the field keeping focus; ↩ picks
-  // the highlighted one, else the first.
-  q.addEventListener("keydown", e => {
-    const rows = [...el.querySelectorAll<HTMLElement>("[data-agmo]")];
-    const at = rows.findIndex(r => r.classList.contains("hi"));
-
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      if (!rows.length) return;
-      const to = e.key === "ArrowDown" ? Math.min(at + 1, rows.length - 1) : Math.max(at - 1, 0);
-      rows[at]?.classList.remove("hi");
-      rows[to].classList.add("hi");
-      rows[to].scrollIntoView({ block: "nearest" });
-      return;
-    }
-
-    if (e.key !== "Enter" || e.metaKey) return;
-    e.preventDefault();
-    const pick = rows[at] ?? rows[0];
-    if (pick) { p.model = pick.dataset.agmo!; p.query = ""; o.changed("model"); }
+  const p = o.picked;
+  let root = roots.get(el);
+  if (!root) { root = createRoot(el); roots.set(el, root); }
+  const agent = p.agent;
+  const list = o.machine ? modelsOn(o.machine.id, agent, () => {
+    if (shown?.el !== el || !el.isConnected || shown.o.picked.agent !== agent) return;
+    const current = shown.o;
+    drawPicker(el, current);
+    current.changed("models");
+  }) : null;
+  const data = o.machine ? modelRows(list, p.query) : { rows: [{ value: "", label: "Default", note: "its own" }], note: o.noMachine };
+  const view = createElement(AgentPicker, {
+    picked: p, offered: o.offered, everywhere: o.everywhere, machineName: o.machine?.name ?? null, machineId: o.machine?.id ?? null,
+    rows: data.rows, note: data.note, loading: !!o.machine && list === undefined,
+    onQuery: (query: string) => { p.query = query; drawPicker(el, o); },
+    onAgent: (next: string) => { p.agent = next; p.query = ""; p.model = ""; o.changed("agent"); },
+    onModel: (next: string) => { p.model = next; p.query = ""; o.changed("model"); },
+    onEffort: (next: string | null) => { p.effort = next; o.changed("effort"); },
   });
-  drawModels(el, o);
+  flushSync(() => root.render(view));
+  placeOpen();
 }
 
 /// Focuses the picker's search, when it shows in `el`.
@@ -187,27 +173,18 @@ export function focusSearch(el: HTMLElement) {
   el.querySelector<HTMLInputElement>(".agc-search")?.focus();
 }
 
-/// Forgets the picker in `el`, once its caller empties it.
+/// Unmounts the picker and releases its React root.
 export function closedPicker(el: HTMLElement) {
   if (shown?.el === el) shown = null;
-}
-
-/// The model column, for what the search holds.
-function drawModels(el: HTMLElement, o: PickerOpts) {
-  const box = el.querySelector<HTMLElement>(".agc-models"), p = o.picked;
-  if (!box) return;
-
-  if (!o.machine) {
-    box.innerHTML = `<button type="button" data-agmo="" class="on">Default<small>its own</small></button><p class="none">${esc(o.noMachine)}</p>`;
-    return placeOpen();
+  if (watchedElement === el) {
+    attachmentWatch?.disconnect();
+    attachmentWatch = null;
+    watchedElement = null;
   }
-
-  const machine = o.machine.id, agent = p.agent;
-  const list = modelsOn(machine, agent, () => { if (shown?.el === el && el.isConnected && p.agent === agent) { drawModels(el, o); o.changed("models"); } });
-  const { rows, note } = modelRows(list, p.query);
-  box.innerHTML = rows.map(r => `<button type="button" data-agmo="${esc(r.value)}" class="${r.value === p.model ? "on" : ""}${r.value && agent === "flsh" ? " mono" : ""}">${esc(r.label)}${r.note ? `<small>${esc(r.note)}</small>` : ""}</button>`).join("")
-    + (note ? `<p class="none">${list === undefined ? '<span class="dspin"></span> ' : ""}${esc(note)}</p>` : "");
-  placeOpen();
+  const root = roots.get(el);
+  if (!root) return;
+  root.unmount();
+  roots.delete(el);
 }
 
 /// Puts the open picker above its pill, right edges lined up, whole and

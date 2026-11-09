@@ -216,6 +216,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   let open = false;
   let starting = false;
   let attachmentWatch: MutationObserver | null = null;
+  let closePickerView: ((el: HTMLElement) => void) | null = null;
   /// When the session's own reviews were last read.
   let tookAt = 0;
   const picked: Picked = { agent: "", model: "", effort: null, query: "" };
@@ -260,8 +261,8 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     attachmentWatch = null;
     if (slot) {
       const closing = slot;
+      closePickerView?.(closing);
       closing.replaceChildren();
-      void picker().then(p => p.closedPicker(closing));
     }
     document.removeEventListener("pointerdown", outside, true);
     document.removeEventListener("keydown", onEsc, true);
@@ -282,7 +283,8 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   async function drawPickerNow() {
     const h = host();
     if (!open || !h || !o.machine || !slot || !button || !box.isConnected) return;
-    const { drawPicker, focusSearch } = await picker();
+    const { drawPicker, focusSearch, closedPicker } = await picker();
+    closePickerView = closedPicker;
     if (!open || !slot || !button || !box.isConnected) return;
     const currentSlot = slot, currentButton = button;
     const focused = currentSlot.contains(document.activeElement);

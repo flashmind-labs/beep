@@ -42,7 +42,7 @@ export function closeModelPicker() {
 function drawModelPicker() {
   const el = $("#agpickm"), s = AG.page?.session;
   if (!el) return;
-  if (!AG.modelOpen || !s) { el.innerHTML = ""; closedPicker(el); return; }
+  if (!AG.modelOpen || !s) { closedPicker(el); el.innerHTML = ""; return; }
   const now = sessionPicks.get(s.id) ?? { model: "", effort: null };
   const picked: Picked = { agent: s.agent, model: AG.page?.model || now.model, effort: now.effort, query: "" };
   drawPicker(el, {
