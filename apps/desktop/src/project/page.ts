@@ -19,7 +19,7 @@ import { importButton, overviewSection, loadOverview, projectDetail } from "./pr
 import { splitOn, openTile, projectPanel } from "./split.ts";
 import { liveMode, pa, redrawProjectsPage, runs, terms } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
-import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, elsewhereSection } from "./loads.ts";
+import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, elsewhereSection, sessionPanel, disposeSessionPanel } from "./loads.ts";
 import { refresh } from "../center/refresh.ts";
 import { IC } from "../ui/icons.ts";
 import { resetRows } from "../ui/lazyrows.ts";
@@ -27,12 +27,12 @@ import { patchChildren } from "../ui/patch.ts";
 
 // These wrappers have no event handlers. Keep them attached while their
 // independent sections change, so a sync update cannot interrupt a click.
-const layouts = ".pj-split, .pj-list, .pj-det, .pj-ov, .pj-ov > div, .pj-cols, .ca-col";
+const layouts = ".pj-split, .pj-list, .pj-det, .pj-ov, .pj-ov > div, .pj-cols, .ca-col, #sec-sessions";
 
 function patchProjectView(current: Element, next: Element) {
   const children = [...next.children].map((child, i) => {
     const old = current.children[i];
-    const panel = projectPanel(child);
+    const panel = projectPanel(child) ?? sessionPanel(child);
     if (panel) return panel;
     const split = old?.classList.contains("pj-split") && child.classList.contains("pj-split");
     if (!old || old.tagName !== child.tagName || (!split && old.className !== child.className) || !old.matches(layouts)) {
@@ -48,6 +48,7 @@ function patchProjectView(current: Element, next: Element) {
 
 export function drawProjects(el: HTMLElement) {
   const rows = projectRows();
+  if (!state.picked) disposeSessionPanel();
   let view: HTMLElement = h("div", "cc-view");
   view.dataset.project = state.picked ?? "";
   let one: Project | null = null;
@@ -182,5 +183,5 @@ registerView("projects", {
     refresh();
     prefetchRecentSoon();
   },
-  unmount: () => { openTile(null, false); liveMode.follow(null); terms.stop(); },
+  unmount: () => { disposeSessionPanel(); openTile(null, false); liveMode.follow(null); terms.stop(); },
 });

@@ -1,17 +1,20 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { ProjectSessions } from "./sessions-view.tsx";
 import { refreshMoves, MV } from "../agents/move-store.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // Reading a project page: its view, agent, machines and sessions, kept
 // fresh while the user moves between projects, and prefetched ahead.
 import { sessionVisible } from "../agents/closing.ts";
-import { ago, base, reason, since } from "../ui/format.ts";
-import { copy, dbtn as button, emptyPanel, fitRows, freshNote, svgEl } from "../ui/parts.ts";
+import { ago, reason, since } from "../ui/format.ts";
+import { copy, dbtn as button, emptyPanel, freshNote, svgEl } from "../ui/parts.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { MACHINE_REFRESH_MS, SWITCH_MS } from "../ui/pagecache.ts";
 import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke, listen } from "../ui/tauri.ts";
-import { harnessEl } from "../ui/harnessicon.ts";
 import { foundRow } from "../addproject/addproject.ts";
-import { foundFor, plainPath, withSyncthing, agentLabel, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
+import { foundFor, plainPath, withSyncthing, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { ITEMS_SHOWN, repoUrl } from "../center/openitems-state.ts";
@@ -30,8 +33,6 @@ import { openAddToMachine } from "./addmachine.ts";
 import { stateNote } from "./filesync.ts";
 import { machineSync } from "../machines/machine-state.ts";
 import type { RunningAgent } from "../agents/running-state.ts";
-import { placeOf } from "../agents/place.ts";
-import { placeSub } from "../agents/place-state.ts";
 import { gitSyncWarning, syncRepairPrompt, agentCanFix, gitLine, movingLabel, moveKey, moveTitle, withRow, type GitMove, type GitRow } from "./gitsync-state.ts";
 import { IC } from "../ui/icons.ts";
 import { openHandoff } from "./handoff.ts";
@@ -457,7 +458,29 @@ async function readWhere(name: string) {
 }
 
 /// Ended sessions in the project's folders, newest first; each opens.
-const SESSIONS_SHOWN = 5;
+const sessionSlots = new WeakMap<Element, HTMLElement>();
+const sessionLists = new Map<boolean, { project: string; host: HTMLElement; root: Root }>();
+
+export function sessionPanel(slot: Element) { return sessionSlots.get(slot) ?? null; }
+export function disposeSessionPanel() { for (const list of sessionLists.values()) list.root.unmount(); sessionLists.clear(); }
+
+function sessionListSlot(project: string, rows: SessionRow[], all: boolean) {
+  let current = sessionLists.get(all);
+  if (current && current.project !== project) { current.root.unmount(); sessionLists.delete(all); current = undefined; }
+  if (!current) {
+    const host = h("div", "cc-panel");
+    current = { project, host, root: createRoot(host) };
+    sessionLists.set(all, current);
+  }
+  const list = current;
+  flushSync(() => list.root.render(createElement(ProjectSessions, {
+    rows, all, open: openAgentRow,
+    menu: (event: MouseEvent, row: SessionRow) => void sessionMenu(event, row, selected => go("pane", { agent: selected })),
+  })));
+  const slot = h("div");
+  sessionSlots.set(slot, list.host);
+  return slot;
+}
 
 export function sessionsSection(p: Project, running: RunningAgent[]) {
   const { body, note, count } = sessionsList(p, running, false);
@@ -469,6 +492,7 @@ export function sessionsSection(p: Project, running: RunningAgent[]) {
 export function sessionsList(p: Project, running: RunningAgent[], all: boolean) {
   const sessions = state.sessions.get(p.name);
   const past = projectPastSessions(sessions, running, [...MV.records.values()]).filter(sessionVisible);
+  if ((!p.imported || sessions === undefined || !past.length)) disposeSessionPanel();
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
   let body;
 
@@ -476,7 +500,7 @@ export function sessionsList(p: Project, running: RunningAgent[], all: boolean) 
   else if (sessions === undefined) body = emptyPanel(h("span", "", "Reading sessions…"));
   else {
     body = past.length
-      ? h("div", "cc-panel", ...(all ? past.map(sessionRow) : [fitRows(past.map(sessionRow), SESSIONS_SHOWN)]))
+      ? sessionListSlot(p.name, past, all)
       : emptyPanel(h("span", "", "No past sessions yet."));
   }
 
@@ -487,19 +511,6 @@ export function sessionsList(p: Project, running: RunningAgent[], all: boolean) 
 
 /// The agent view for a session row.
 function openAgentRow(r: SessionRow) { go("pane", { agent: { kind: "agent", ...r } }); }
-
-function sessionRow(s: SessionRow) {
-  const tile = harnessEl(s.agent);
-  tile.title = agentLabel(s.agent);
-  const worktree = placeSub(placeOf(s), s.machine_name);
-  const meta = [tile, s.status, ...(worktree ? [worktree] : [s.machine_name, base(s.cwd)]), s.last_activity ? ago(s.last_activity) : ""]
-    .filter(Boolean).map(x => typeof x === "string" ? h("span", "", x) : x);
-  const row = h("button", "pv-row", h("span", "t", s.title || "Untitled session"), h("span", "m", ...meta));
-  row.dataset.key = `${s.machine_id}:${s.id}`;
-  row.addEventListener("click", () => openAgentRow(s));
-  row.addEventListener("contextmenu", e => void sessionMenu(e, s, row => go("pane", { agent: row })));
-  return row;
-}
 
 /// The projects whose sessions are being read, and those to read again on the
 /// next draw.
