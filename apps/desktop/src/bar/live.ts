@@ -1,7 +1,7 @@
 import { turnState } from "../chat/turn-state.ts";
 import { discardChatApproval } from "../chat/work-view.tsx";
 import { ensureChatPrompt, renderChatPrompt, updateChatPrompt } from "../chat/work-view.tsx";
-import { ASK, askText, body, owningChatBody, type Decision, focusAsk, followAnswered, forRoutine, newTurn, removeChatSuggestions, renderChat, scrollDown, settle, startRun } from "../chat/chat.ts";
+import { ASK, askText, body, owningChatBody, type Decision, focusAsk, forgetChat, followAnswered, forRoutine, newTurn, removeChatSuggestions, renderChat, scrollDown, settle, startRun } from "../chat/chat.ts";
 import { touch } from "../chat/chats.ts";
 import { $, $$, bar, entry, here, live, PANE, S } from "./core.ts";
 import { hints, keyGroups, LIVE_SAY, LIVE_TALK, refreshHints } from "./hints.ts";
@@ -190,7 +190,7 @@ export function drawDock(v: LiveView | null) {
 /// Draws a message live mode sent into the chat under the dock and follows its
 /// reply there, like one typed in the field.
 export function liveTurn(id: string, text: string, runId: string) {
-  if (S.view !== "chat" || !$("#ldock")) return live.delete(id);
+  if (S.view !== "chat" || !$("#ldock")) return forgetChat(id);
 
   if (LV.chat !== id) {
     // A new chat. An empty bar becomes it; "new chat" said in another one

@@ -2,7 +2,7 @@ import { turnState } from "./turn-state.ts";
 import { conversation } from "./conversation.ts";
 import { createChatTurns, discardChatApproval, discardChatNotice, discardChatSources, discardChatSuggestions, discardChatWork, renderChatNotice, renderChatSources, transferChatApproval, transferChatFiles, transferChatNotice, transferChatPictures, transferChatPrompt, transferChatSentFiles, transferChatSuggestions } from "./work-view.tsx";
 import { askFiles } from "./attach.ts";
-import { ANSWER, answeredTurns, approvalCard, appendChatReply, ASK, askText, body, chatReplyHtml, drawLatest, drawWork, failed, makeTurn, moveChatReply, newTurn, owningChatBody, ranOn, renderChat, setChatReply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
+import { ANSWER, answeredTurns, approvalCard, appendChatReply, ASK, askText, body, chatReplyHtml, drawLatest, drawWork, failed, forgetChat, makeTurn, moveChatReply, newTurn, owningChatBody, ranOn, renderChat, setChatReply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
 import type { Asking, ToolOutput } from "./chat.ts";
 import { answerHtml } from "../agents/turnrows.ts";
 import { $$, changed, live, queued, S, windowHooks } from "../bar/core.ts";
@@ -47,7 +47,7 @@ export async function openSession(id: string) {
   loadQuestions(id);
   // A chat still answering keeps its body; anything else comes from the server.
   const running = live.get(id)?.run;
-  if (!running) live.delete(id);
+  if (!running) forgetChat(id);
   renderChat();
   $$<HTMLTextAreaElement>("#ask").placeholder = "Ask a follow-up…";
 

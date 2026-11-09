@@ -1,27 +1,43 @@
 import { frameResize } from "./dom.ts";
-
-// A log that follows its end stays there while what it shows grows by
-// itself: history drawn after the first paint, pictures loading, markdown
-// laid out. A reader who scrolled up (`stuck` false) is left where they are.
-
 import type { ChatBody } from "./turn.ts";
 
-const followed = new WeakSet<ChatBody>();
+interface Follow { resize: ResizeObserver; changes: MutationObserver | null }
+const followed = new WeakMap<ChatBody, Follow>();
 
-/// Pins `box` to its end whenever `content`, or each child of `box` when
-/// none is given, changes size while the box follows its end.
+// Display-contents hosts have no size of their own, so observe their boxes.
+function boxes(parent: Element): HTMLElement[] {
+  return [...parent.children].flatMap(child => child instanceof HTMLElement
+    ? window.getComputedStyle(child).display === "contents" ? boxes(child) : [child]
+    : []);
+}
+
+/// Pins a following log when its content grows; a reader above the end stays put.
 export function followEnd(box: ChatBody, content?: HTMLElement) {
   if (followed.has(box)) return;
-  followed.add(box);
-  const watch = frameResize(() => {
+  const resize = frameResize(() => {
     if (box.isConnected && box.stuck !== false) box.scrollTop = box.scrollHeight;
   });
-  if (content) return watch.observe(content);
-  for (const child of box.children) watch.observe(child);
-  new MutationObserver(changes => {
-    for (const c of changes) {
-      for (const n of c.addedNodes) if (n instanceof Element) watch.observe(n);
-      for (const n of c.removedNodes) if (n instanceof Element) watch.unobserve(n);
-    }
-  }).observe(box, { childList: true });
+  if (content) {
+    resize.observe(content);
+    followed.set(box, { resize, changes: null });
+    return;
+  }
+  let observed = new Set<HTMLElement>();
+  const update = () => {
+    const next = new Set(boxes(box));
+    for (const element of observed) if (!next.has(element)) resize.unobserve(element);
+    for (const element of next) if (!observed.has(element)) resize.observe(element);
+    observed = next;
+  };
+  const changes = new MutationObserver(update);
+  changes.observe(box, { childList: true, subtree: true });
+  followed.set(box, { resize, changes });
+  update();
+}
+
+export function unfollowEnd(box: ChatBody) {
+  const current = followed.get(box);
+  if (!current) return;
+  current.changes?.disconnect(); current.resize.disconnect();
+  followed.delete(box);
 }

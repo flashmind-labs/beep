@@ -29,7 +29,7 @@ interface CoderCard extends HTMLElement {
   owner?: CardOwner;
 }
 
-interface CardOwner { body: ChatBody; cards: Map<CoderCard, CoderCardState>; pending: Map<CoderCard, CoderCardState>; watching: boolean }
+interface CardOwner { body: ChatBody; observer: MutationObserver | null; cards: Map<CoderCard, CoderCardState>; pending: Map<CoderCard, CoderCardState>; watching: boolean }
 const owners = new WeakMap<ChatBody, CardOwner>();
 const followed = new Set<CoderCard>();
 function sync(owner: CardOwner) {
@@ -90,6 +90,23 @@ function follow(card: CoderCard, row: AgentSession) {
   observer.observe(document, { subtree: true, childList: true });
 }
 
+/// Releases subscriptions and selection listeners when a chat is evicted.
+export function disposeCoderCards(body: ChatBody) {
+  const owner = owners.get(body);
+  if (!owner) return;
+  owners.delete(body);
+  owner.observer?.disconnect();
+  for (const card of owner.cards.keys()) {
+    card.unfollow?.(); card.unfollow = undefined;
+    card.readVersion = (card.readVersion ?? 0) + 1;
+    followed.delete(card);
+    remove(card);
+  }
+  owner.cards.clear(); owner.pending.clear();
+  if (owner.watching) { document.removeEventListener("selectionchange", ownerChanged(owner)); owner.watching = false; }
+  if (!followed.size) { observer?.disconnect(); observer = undefined; }
+}
+
 /// A live chat keeps its body while another page shows. Follow its cards again
 /// after that body returns, and read what changed while it was away.
 export function resumeCoderCards(body: ChatBody) {
@@ -117,11 +134,12 @@ export function coderCard(turn: Turn, text: string | null | undefined) {
     if (!body) return;
     let owner = owners.get(body);
     if (!owner) {
-      owner = { body, cards: new Map(), pending: new Map(), watching: false };
+      owner = { body, observer: null, cards: new Map(), pending: new Map(), watching: false };
       owners.set(body, owner);
       const current = owner;
       const watch = new MutationObserver(records => { if (records.some(record => record.removedNodes.length)) queueMicrotask(() => prune(current)); });
       watch.observe(body, { childList: true, subtree: true });
+      owner.observer = watch;
     }
     card.owner = owner;
     const reply = turn.querySelector(ANSWER);
