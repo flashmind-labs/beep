@@ -492,51 +492,27 @@ const SETV = (() => {
   // Instructions: instructions.ts.
   const insTab = (k, label, cur) => `<button class="dbtn tm-tab"${cur === k ? ' aria-current="true"' : ""} data-dact="dset:ins:${k}">${label}</button>`;
   const insSec = (title, small, body) => `<div><div class="cc-sec"><h4>${title}</h4>${small ? `<small>${small}</small>` : ""}</div>${body}</div>`;
-  const inFile = (ag, path, r, miss) => `<div class="in-file${miss ? " miss" : ""}"><span class="ag">${ag}</span><code>${path}</code><span class="r">${r}</span></div>`;
-  const inMach = (name, right, rows, bad) => `<div class="in-mach"><b><span class="ddot${bad ? " bad" : ""}"></span>${name}</b>${right || "<span></span>"}<div class="in-files">${rows.join("")}</div></div>`;
   const insBody = () => {
     const v = S.d.ins || "editor";
-    const cur = v.startsWith("import") || v === "reading" || v === "nomachine" ? "import" : v.startsWith("sync") ? "sync" : v.startsWith("history") ? "history" : "editor";
-    const tabs = `<div class="in-tabs">${insTab("editor", "Editor", cur)}${insTab("import", "Import", cur)}${insTab("sync", "Sync", cur)}${insTab("history", "History", cur)}</div>`;
+    const cur = v.startsWith("history") ? "history" : "editor";
+    const tabs = `<div class="in-tabs">${insTab("editor", "Editor", cur)}${insTab("history", "History", cur)}</div>`;
     const empty = (b, s) => `<div class="cc-panel cc-empty"><b>${b}</b>${s ? `<span>${s}</span>` : ""}</div>`;
     let body;
     if (v === "loading") body = empty("Loading your instructions…");
     else if (cur === "editor") {
       const dirty = v === "editor-dirty", first = v === "editor-first";
-      const layers = insSec("How agents see it", "first to last", `<div class="cc-panel"><ol class="in-layers">
+      const layers = insSec("How agents see it", "instruction sources", `<div class="cc-panel"><ol class="in-layers">
         <li><b>The agent's own rules</b><small>Built into Claude Code, Codex, Gemini CLI or pi</small></li>
-        <li><b>Your text in its file</b><small>The rest of ~/.claude/CLAUDE.md and the like</small></li>
-        <li class="me"><b>Your instructions</b><small>${first ? "Nothing saved yet, so agents get only the other layers" : "Version 7, between Beep's markers in each agent's file. Sync shows which machines have it"}</small></li>
+        <li><b>Your text in its file</b><small>Your local CLAUDE.md or AGENTS.md, kept as is</small></li>
+        <li class="me"><b>Your instructions</b><small>${first ? "Nothing saved yet, so agents get only the other layers" : "Version 7, supplied when Beep starts or resumes a session"}</small></li>
+        <li><b>Beep's rules</b><small>Session setup and tool instructions supplied by Beep</small></li>
         <li><b>Project</b><small>The repository's CLAUDE.md or AGENTS.md</small></li>
         <li><b>Task</b><small>The prompt Beep starts the agent with</small></li></ol></div>`);
-      const files = insSec("Agent files", "", `<div class="cc-panel cc-row in-side"><span class="t"><b>Agent files</b><span>Write your rules into each agent's own file</span></span><button class="dbtn" data-dact="dset:ins:sync">Sync</button></div>`);
       body = `<div class="in-cols">${insSec("For all agents", first ? "Markdown · 0.0 of 16 KB" : "Markdown · 0.6 of 16 KB", `<div class="cc-panel in-ed">
         <div class="in-ver"><span><b>${first ? "Not saved yet" : "Version 7"}</b>${first ? "" : " · 2 days ago"}</span><span class="sp">${dirty ? "Not saved" : first ? "" : "Saved"}</span></div>
         <textarea aria-label="Your instructions" spellcheck="false" placeholder="# How I work&#10;&#10;- Write plainly.&#10;- Ask before deploying anything.">${first ? "" : IN_RULES}${dirty ? "\n- One more rule." : ""}</textarea>
-        <div class="in-acts"><button class="dbtn pri"${dirty ? ' data-toast="Saved as version 8"' : " disabled"}>Save</button>${dirty ? '<button class="dbtn" data-dact="dset:ins:editor">Discard</button>' : ""}<button class="dbtn" data-dact="dset:ins:history">History</button><button class="dbtn" data-dact="dset:ins:import">Import from machines</button></div></div>`)}
-        <div class="in-sidecol">${layers}${files}</div></div>`;
-    } else if (v === "reading") body = empty("Reading the agent files on your machines…");
-    else if (v === "nomachine") body = insSec("Found on your machines", "read just now", `<div class="cc-panel"><div class="cc-empty">No machine online</div></div>`) + `<div class="in-acts"><button class="dbtn" data-toast="Read again">Read again</button></div>`;
-    else if (cur === "import") {
-      const small = t => `<button class="dbtn small" data-toast="${t}">${t}</button>`;
-      const has = (lines, show) => `${lines}<button class="dbtn small" data-dact="dset:ins:${show ? "import" : "import-show"}">Show</button><button class="dbtn small" data-dact="dset:ins:editor-dirty">Add to mine</button><button class="dbtn small quiet" data-dact="dset:ins:editor-dirty">Use instead</button>`;
-      const open = v === "import-show";
-      const machines = inMach("build-box", "", [inFile("Claude Code", "~/.claude/CLAUDE.md", has("241 lines", open)), inFile("Codex", "~/.codex/AGENTS.md", "only Beep's text"), inFile("Gemini CLI", "~/.gemini/GEMINI.md", "none", true), ...(open ? [`<pre class="in-pre"># How I work\n\n- Write plainly.\n- Never push to main.</pre>`] : [])])
-        + inMach("mac-box", "", [inFile("Claude Code", "~/.claude/CLAUDE.md", has("198 lines")), inFile("pi", "~/.pi/agent/AGENTS.md", has("30 lines"))])
-        + inMach("win-box", "", [`<div class="in-file miss"><span>No coding agent here</span></div>`])
-        + inMach("gpu-box", "", [`<div class="in-file miss"><span>gpu-box is offline</span></div>`], true);
-      body = insSec("Found on your machines", "read just now", `<div class="cc-panel">${machines}</div>`) + `<div class="in-acts"><button class="dbtn" data-toast="Read again">Read again</button></div>`;
-    } else if (cur === "sync") {
-      const none = v === "sync-none";
-      const st = (t, cls) => cls ? `<span class="in-${cls}">${t}</span>` : `<span>${t}</span>`;
-      const write = (off, t = "Write to agent files") => none ? "" : `<button class="dbtn small"${off ? " disabled" : ` data-toast="Wrote version 7"`}>${t}</button>`;
-      const f = (ag, p, s, c) => inFile(ag, p, st(s, c));
-      const machines = inMach("build-box", write(false), [f("Claude Code", "~/.claude/CLAUDE.md", none ? "Has its own text" : "Synced", none ? "" : "ok"), f("Codex", "~/.codex/AGENTS.md", none ? "Has its own text" : "Not synced", none ? "" : "warn"), f("Gemini CLI", "~/.gemini/GEMINI.md", "Not written yet")])
-        + inMach("mac-box", write(true), [f("Claude Code", "~/.claude/CLAUDE.md", none ? "Has its own text" : "Synced", none ? "" : "ok")])
-        + inMach("win-box", write(true), [`<div class="in-file miss"><span>No coding agent here</span></div>`]);
-      const lead = none ? `<button class="cc-note in-go" data-dact="dset:ins:editor-first"><span class="ddot off"></span><span><b>Nothing saved yet.</b> Save your rules in Editor, then write them here.</span><span class="go">Open Editor</span></button>`
-        : `<div class="cc-note"><span class="ddot"></span><span>Written between <code>&lt;!-- beep:start --&gt;</code> and <code>&lt;!-- beep:end --&gt;</code> in each agent's file. Text outside them is never touched.</span></div>`;
-      body = lead + insSec("Machines", none ? "nothing saved yet" : "version 7", `<div class="cc-panel">${machines}</div>`) + `<div class="in-acts">${none ? "" : '<button class="dbtn" data-toast="Wrote version 7 to the machines behind">Write to all machines</button>'}<button class="dbtn" data-toast="Read again">Read again</button></div>`;
+        <div class="in-acts"><button class="dbtn pri"${dirty ? ' data-toast="Saved as version 8"' : " disabled"}>Save</button>${dirty ? '<button class="dbtn" data-dact="dset:ins:editor">Discard</button>' : ""}<button class="dbtn" data-dact="dset:ins:history">History</button></div></div>`)}
+        <div class="in-sidecol">${layers}</div></div>`;
     } else if (v === "history-none") body = empty("No versions yet", "Each save makes one.");
     else if (v === "history-load") body = empty("Loading the versions…");
     else {
@@ -809,12 +785,12 @@ VARIANTS.dMcp.push(["Remove, asking", () => { S.d.mcpRm = "1"; render(); }, () =
     ["Agent accounts > Claude Code", "acct-claude"], ["Agent accounts > Claude Code, Beep's token", "acct-claude-token"], ["Agent accounts > Claude Code, not signed in", "acct-claude-out"], ["Agent accounts > Claude Code, turned off", "acct-claude-off"], ["Agent accounts > Claude Code, updating", "acct-claude-updating"], ["Agent accounts > Claude Code, update failed", "acct-claude-fail"], ["Agent accounts > Claude Code, edited", "acct-claude-dirty"], ["Agent accounts > Claude Code, saved to all", "acct-claude-saved"], ["Agent accounts > Claude Code, restart node", "acct-claude-stale"], ["Agent accounts > Codex, installing its adapter", "acct-codex-adapting"], ["Agent accounts > Codex, adapter failed", "acct-codex-adapter"], ["Agent accounts > Claude Code, no machine", "acct-claude-none"], ["Agent accounts > Claude Code, asking", "acct-claude-asking"], ["Agent accounts > Claude Code, server too old", "acct-claude-old"],
     ["Agent accounts > Codex", "acct-codex"], ["Agent accounts > Gemini CLI, not installed", "acct-gemini"], ["Agent accounts > pi", "acct-pi"], ["Agent accounts > OpenCode, not signed in", "acct-opencode"], ["Agent accounts > OpenCode, not reported", "acct-opencode-gone"], ["Agent accounts > flsh", "acct-flsh"],
     ["Credentials", "keys"], ["Credentials, adding Forgejo", "keys-gh"], ["Credentials, Forgejo checks", "keys-fjstates"], ["Credentials, replacing Forgejo token", "keys-fjreplace"], ["Credentials, replacing GitHub token", "keys-replace"], ["Credentials, token unreadable", "keys-unread"], ["Credentials, gh signed in", "keys-cli-in"], ["Credentials, gh signed out", "keys-cli-out"], ["Credentials, GitHub code", "keys-cli-code"], ["Credentials, no gh", "keys-cli-none"], ["Credentials, gh has two accounts", "keys-cli-many"], ["Credentials, pasting a GitHub token", "keys-cli-paste"], ["Credentials, two GitHub accounts", "keys-gh2"], ["Credentials, adding a GitHub account", "keys-gh-add"], ["Credentials, adding one: code", "keys-gh-code"], ["Credentials, loading", "keys-load"], ["Credentials, could not load", "keys-fail"],
-    ["Instructions", "instr"], ["Instructions, Import", "instr", { ins: "import" }], ["Instructions, Sync", "instr", { ins: "sync" }], ["Instructions, History", "instr", { ins: "history" }],
+    ["Instructions", "instr"], ["Instructions, History", "instr", { ins: "history" }],
     ["Beep server", "account"], ["Beep server, signing out", "account-signout"], ["Beep server, signed out", "account-out"], ["Beep server, not reachable", "account-down"], ["Beep server, linked", "account-member"], ["Beep server, unlinking", "account-unlink"], ["Beep server, loading", "account-load"], ["Beep server, no account", "account-none"]];
   VARIANTS.dWinSettings = rows.map(([l, k, x]) => [l, () => { Object.assign(S.d, set0, { set: k }, x); render(); }, () => (S.d.set || "general") === k && Object.entries(x || {}).every(([a, b]) => S.d[a] === b)]);
   // These two jump to a Settings page.
   VARIANTS.dAgentAccounts = [["Signed in", "acct"], ["Claude not signed in", "acct-none"], ["Codex device code", "acct-code"]].map(([l, k]) => [l, () => { S.d.acc = k; render(); }, () => (S.d.acc || "acct") === k]);
-  VARIANTS.dWinInstructions = [["Editor", "editor"], ["Editor, not saved", "editor-dirty"], ["Editor, nothing saved", "editor-first"], ["Loading", "loading"], ["Import", "import"], ["Import, a file shown", "import-show"], ["Import, reading", "reading"], ["Import, no machine", "nomachine"], ["Sync", "sync"], ["Sync, nothing saved", "sync-none"], ["History", "history"], ["History, a version shown", "history-open"], ["History, loading", "history-load"], ["History, none", "history-none"]]
+  VARIANTS.dWinInstructions = [["Editor", "editor"], ["Editor, not saved", "editor-dirty"], ["Editor, nothing saved", "editor-first"], ["Loading", "loading"], ["History", "history"], ["History, a version shown", "history-open"], ["History, loading", "history-load"], ["History, none", "history-none"]]
     .map(([l, k]) => [l, () => { S.d.ins = k; render(); }, () => (S.d.ins || "editor") === k]);
   VARIANTS.dProviders = [["Codex", "codex"], ["Hermes", "hermes"], ["Claude Code", "claude"], ["Claude not signed in", "signin"], ["Beep's token", "token"], ["Gemini not installed", "missing"], ["pi turned off", "off"], ["OpenCode", "opencode"], ["flsh", "flsh"], ["Updating", "update"], ["Update failed", "fail"], ["No machine online", "none"]]
     .map(([l, k]) => [l, () => { S.d.pv = k; render(); }, () => (S.d.pv || "codex") === k]);

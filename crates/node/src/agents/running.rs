@@ -146,6 +146,11 @@ impl Agents {
         (entries, earlier)
     }
 
+    /// Applies the saved Beep instructions to sessions started or resumed from now on.
+    pub(crate) fn set_instructions(&self, text: Option<String>) {
+        *crate::lock(&self.instructions) = text;
+    }
+
     /// Takes the user's settings for the agents in place of the ones
     /// before; sessions start with them from now on.
     pub fn set_settings(&self, settings: AgentSettings) {
@@ -427,7 +432,10 @@ impl Agents {
             "Git sync is preserving local edits in this checkout; try starting the session again shortly."
         );
         // A reviewer changes nothing, so it needs no git rule.
-        let rule = checkout::rule(&cwd).filter(|_| !begin.review);
+        let rule = super::session::standing(
+            crate::lock(&self.instructions).clone().filter(|text| !text.trim().is_empty()),
+            checkout::rule(&cwd).filter(|_| !begin.review),
+        );
         let mut sessions = self.lock();
         // Checked under the lock: two takeovers of one session must not
         // both start it.

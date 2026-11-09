@@ -71,7 +71,7 @@ const COMMAND_WAIT_MS = 120_000;
 /// Commands that wait on the user (sign-ins, dialogs) or do long work
 /// (installs, moves, imports, reports, runs): no limit unless their call sets one.
 const UNTIMED = new Set([
-  "agent_adapters_install", "agent_file_save", "agent_files_sync", "agent_review", "agent_review_start", "agent_tree_upload",
+  "agent_adapters_install", "agent_file_save", "agent_review", "agent_review_start", "agent_tree_upload",
   "allow_mac_permission", "claude_sign_in", "complete_login", "connect_app", "connect_mcp_server", "create_project",
   "export_research", "follow_project", "follow_run", "found_machines", "found_projects", "gh_sign_in", "harness_compact",
   "import_project", "join_account", "link_offer", "login_hosted", "machine_sign_in", "mesh_join", "pick_folder",
