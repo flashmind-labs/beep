@@ -15,6 +15,9 @@ function dispose() {
 }
 
 /// Reuses the mounted bar root when moving between React pages.
+// Release the old page before rendering its replacement. Callers invalidate
+// pending requests and dispose native resources here; the callback must also
+// work after an imperative page has detached the host.
 export function openBarPage(release: () => void): { host: HTMLElement; root: Root } {
   if (current && current.host.parentElement !== bar) dispose();
   if (current) {
