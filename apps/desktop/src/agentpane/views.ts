@@ -1,9 +1,11 @@
 // What each kind of tab shows: text, a terminal, a picture, a video, a PDF
 // or a 3D model.
 import { isHtmlFile } from "./html-preview-state.ts";
-import { actualView, baseName, clipTime, fitView, resolvePath, zoomAt } from "./media-state.ts";
+import { actualView, baseName, fitView, resolvePath, zoomAt } from "./media-state.ts";
 import { highlight, languageOf, MAX_LINES, shortSize } from "./files-state.ts";
-import type { Animation } from "./model3d.ts";
+import { createElement } from "react";
+import { setSessionPortal } from "../agents/session-frame.tsx";
+import { ModelControls } from "./model-controls.tsx";
 import { fileSize, openViewer } from "../chat/media.ts";
 import { attach, detachTerm, killTerm, type PaneTerm } from "./terminal.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
@@ -12,7 +14,6 @@ import { type TreeText, type MediaTab, P, closeTab, saveWorkFile } from "./media
 import { mentioned } from "./worktree-state.ts";
 import { readFile, readError, drawTermStatus } from "./read.ts";
 import { esc } from "../ui/format.ts";
-import { ICON } from "../ui/icons.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -270,7 +271,7 @@ function pdfView(t: MediaTab) {
 
 function modelView(t: MediaTab) {
   const el = h(`<div class="agpview"><div class="agpstage model"><div class="agpmsg"><span class="dspin"></span>Drawing ${esc(t.name)}…</div></div>
-    <div class="agpacts anim" hidden><button class="dbtn ibtn" data-play="1"></button><select aria-label="Clip"></select><input type="range" min="0" step="any" aria-label="Time"><span class="time"></span><button class="dbtn ibtn" data-loop="1" aria-label="Loop" title="Loop" aria-pressed="false">${ICON.loop}</button></div>
+    <div class="agpacts anim" hidden></div>
     <div class="agpacts"><button class="dbtn" data-reset="1" disabled>Reset view</button><button class="dbtn" data-wire="1" disabled>Wireframe</button><span class="meta"></span><span class="sp"></span><span class="hint">Drag to orbit, right-drag to pan, wheel to zoom</span>${fileButtons(t, "Open")}</div></div>`);
   const stage = el.querySelector<HTMLElement>(".agpstage")!;
   const dir = t.path ? t.path.slice(0, t.path.lastIndexOf("/") + 1) : "";
@@ -294,7 +295,10 @@ function modelView(t: MediaTab) {
       const clips = i.clips ? ` · ${i.clips} clip${i.clips > 1 ? "s" : ""}` : "";
       el.querySelector(".meta")!.textContent = `${i.format} · ${i.triangles.toLocaleString()} triangles${i.meshes > 1 ? ` · ${i.meshes} meshes` : ""}${clips} · ${fileSize(t.size)}`;
       el.querySelectorAll<HTMLButtonElement>("[data-reset], [data-wire]").forEach(b => { b.disabled = false; });
-      if (view.anim) animControls(el.querySelector(".anim")!, view.anim);
+      if (view.anim) {
+        const controls = el.querySelector<HTMLElement>(".anim");
+        if (controls) { setSessionPortal(controls, createElement(ModelControls, { animation: view.anim })); controls.hidden = false; }
+      }
       view.resize();
     })
     .catch(e => {
@@ -308,42 +312,4 @@ function modelView(t: MediaTab) {
   });
   wireFileButtons(t, el);
   return el;
-}
-
-/// A model's animation row: play or pause, the clip, a scrub bar with
-/// the time, and loop. It plays on opening unless motion is reduced.
-function animControls(bar: HTMLElement, a: Animation) {
-  const play = bar.querySelector<HTMLButtonElement>("[data-play]")!, loop = bar.querySelector<HTMLButtonElement>("[data-loop]")!;
-  const pick = bar.querySelector("select")!, scrub = bar.querySelector("input")!, time = bar.querySelector(".time")!;
-  pick.innerHTML = a.clips.map((c, i) => `<option value="${i}">${esc(c.name)}</option>`).join("");
-  pick.hidden = a.clips.length < 2;
-  a.onchange = () => {
-    const end = a.clips[a.clip].duration, now = a.time();
-    // Only on a change: each frame calls this, and a button whose text node is
-    // replaced between press and release gets no click in WebKit.
-    const label = a.playing ? "Pause" : "Play";
-
-    if (play.title !== label) {
-      play.title = label;
-      play.setAttribute("aria-label", label);
-      play.innerHTML = a.playing ? ICON.pause : ICON.play;
-    }
-
-    loop.classList.toggle("on", a.loop);
-    loop.setAttribute("aria-pressed", String(a.loop));
-    scrub.max = String(end);
-    scrub.value = String(now);
-    time.textContent = `${clipTime(now)} / ${clipTime(end)}`;
-  };
-  play.addEventListener("click", () => a.play(!a.playing));
-  loop.addEventListener("click", () => a.setLoop(!a.loop));
-  pick.addEventListener("change", () => a.select(Number(pick.value)));
-  // Scrubbing pauses it, so the bar does not pull away from the pointer.
-  scrub.addEventListener("input", () => {
-    a.play(false);
-    a.seek(Number(scrub.value));
-  });
-  bar.hidden = false;
-  a.onchange();
-  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) a.play(true);
 }

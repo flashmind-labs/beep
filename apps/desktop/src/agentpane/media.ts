@@ -319,6 +319,8 @@ export function closePaneTabs() {
 
 function dropTab(t: MediaTab) {
   if (t.term) dropTerm(t.term);
+  const controls = t.el?.querySelector<HTMLElement>(".anim");
+  if (controls) removeSessionPortal(controls);
   t.model?.dispose();
   t.el?.querySelector("video")?.pause();
   if (t.url?.startsWith("blob:")) URL.revokeObjectURL(t.url);
