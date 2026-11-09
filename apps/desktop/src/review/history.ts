@@ -1,11 +1,11 @@
 import { createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { HistoryFacts } from "./history-facts.tsx";
+import { HistoryHeader } from "./history-header.tsx";
 import { TreeNode } from "./history-tree.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // The project's Git navigator and its selected commit or worktree diff.
 import { button, el } from "../ui/dom.ts";
-import { dbtn, writeClipboard } from "../ui/parts.ts";
 import { ago, reason } from "../ui/format.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { SessionRow } from "../project/projects-state.ts";
@@ -49,6 +49,7 @@ interface ProjectHistory {
   tree: HTMLElement;
   treeRoot: Root;
   detail: HTMLElement;
+  header: { element: HTMLElement; root: Root };
   foot: HTMLElement;
   search: HTMLInputElement;
   facts: { element: HTMLElement; root: Root } | null;
@@ -127,8 +128,10 @@ export function makeGitHistory(deps: HistoryDeps) {
         })), el("label", "gh-search", search), tree, foot);
     nav.setAttribute("aria-label", "Git navigation");
     const detail = el("div", "pj-det gh-detail");
+    const headerElement = el("div");
+    headerElement.style.display = "contents";
     p = { name, lists: new Map(), files: new Map(), commits: new Map(), open: new Set(["history"]), selected: null,
-      path: null, tab: "changes", query: "", nav, tree, treeRoot: createRoot(tree), detail, foot, search, facts: null, view: null, viewKey: "" };
+      path: null, tab: "changes", query: "", nav, tree, treeRoot: createRoot(tree), detail, header: { element: headerElement, root: createRoot(headerElement) }, foot, search, facts: null, view: null, viewKey: "" };
     projects.set(name, p);
     const current = p;
     search.addEventListener("input", () => {
@@ -323,19 +326,15 @@ export function makeGitHistory(deps: HistoryDeps) {
 
     const c = selected.kind === "commit" ? selected.commit : null;
     const w = selected.kind === "working" ? selected.worktree : null;
-    const head = el("header", "gh-detail-head", el("div", "gh-breadcrumb", c ? `${selected.kind === "commit" ? selected.origin : ""} / ${c.id.slice(0, 7)}` : `Worktrees / ${w!.branch || "Detached HEAD"}`));
-    const titleRow = el("div", "gh-title-row", el("h3", "", c ? c.subject || "Untitled commit" : `Uncommitted changes in ${w!.branch || "checkout"}`));
     const ref = c && p.data.refs.find(r => r.kind === "local" && r.head === c.id);
-    if (ref && deps.canReview(p.name, ref.name)) titleRow.append(dbtn("Review branch", "quiet small", () => deps.reviewBranch(p.name, ref.name)));
-    const copy = dbtn(c ? "Copy SHA" : "Copy path", "quiet small", async () => { await writeClipboard(c?.id || w!.path); copy.textContent = "Copied"; });
-    titleRow.append(copy);
-    head.append(titleRow, el("p", "", c ? `${c.author} · ${new Date(c.committed_at).toLocaleString()}` : `${w!.path} · ${p.data.machine_name}`));
-    const tabs = el("nav", "gh-tabs"); tabs.setAttribute("aria-label", "Git views");
-
-    for (const [key, label] of [["changes", "Changes"], ["details", "Details"], ["sessions", "Sessions"]] as const) {
-      const b = button(label, "", () => { p.tab = key; renderDetail(p); });
-      b.setAttribute("aria-current", String(p.tab === key)); tabs.append(b);
-    }
+    p.header.root.render(createElement(HistoryHeader, {
+      key: selectionKey(selected), breadcrumb: c ? `${selected.kind === "commit" ? selected.origin : ""} / ${c.id.slice(0, 7)}` : `Worktrees / ${w!.branch || "Detached HEAD"}`,
+      title: c ? c.subject || "Untitled commit" : `Uncommitted changes in ${w!.branch || "checkout"}`,
+      metadata: c ? `${c.author} · ${new Date(c.committed_at).toLocaleString()}` : `${w!.path} · ${p.data.machine_name}`,
+      copyValue: c?.id || w!.path, copyLabel: c ? "Copy SHA" : "Copy path",
+      review: ref && deps.canReview(p.name, ref.name) ? () => deps.reviewBranch(p.name, ref.name) : null,
+      tab: p.tab, onTab: (tab: ProjectHistory["tab"]) => { p.tab = tab; renderDetail(p); },
+    }));
 
     const drawFacts = () => {
       if (!p.facts) {
@@ -350,14 +349,10 @@ export function makeGitHistory(deps: HistoryDeps) {
     const existingBody = p.detail.querySelector<HTMLElement>(".gh-detail-body");
     if (p.tab === "details" && p.facts && existingBody?.contains(p.facts.element)) {
       drawFacts();
-      p.detail.querySelector(".gh-detail-head")?.replaceWith(head);
-      p.detail.querySelector(".gh-tabs")?.replaceWith(tabs);
       return;
     }
     const currentKey = selected ? `${selectionKey(selected)}\0${p.path || ""}` : "";
     if (p.tab === "changes" && p.view && p.viewKey === currentKey && existingBody?.contains(p.view.el)) {
-      p.detail.querySelector(".gh-detail-head")?.replaceWith(head);
-      p.detail.querySelector(".gh-tabs")?.replaceWith(tabs);
       return;
     }
 
@@ -392,7 +387,8 @@ export function makeGitHistory(deps: HistoryDeps) {
       body.append(p.view.el);
     }
 
-    p.detail.replaceChildren(head, tabs, body);
+    if (p.header.element.parentElement === p.detail && existingBody) existingBody.replaceWith(body);
+    else p.detail.replaceChildren(p.header.element, body);
   }
 
   function panels(name: string) {

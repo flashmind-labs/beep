@@ -27,8 +27,14 @@ test("Git details retain behavior and refresh preserves the mounted diff", async
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_git_history").length)).toBeGreaterThan(reads);
   await expect(files).toHaveAttribute("data-test-identity", "mounted");
   await expect(files).toHaveJSProperty("scrollTop", before);
-  await page.getByRole("navigation", { name: "Git views" }).getByRole("button", { name: "Details" }).click();
+  const details = page.getByRole("navigation", { name: "Git views" }).getByRole("button", { name: "Details" });
+  await details.click();
   await expect(page.locator(".gh-facts")).toContainText("abcdef123");
+  await expect(details).toBeFocused();
+  await details.evaluate(element => { element.dataset.identity = "kept"; });
+  await page.locator(".gh-nav-head button").filter({ hasText: "Refresh" }).evaluate(element => { if (element instanceof HTMLElement) element.click(); });
+  await expect(details).toHaveAttribute("data-identity", "kept");
+  await expect(details).toBeFocused();
   await page.getByRole("button", { name: "parent1" }).click();
   await expect(page.locator(".gh-title-row h3")).toHaveText("Parent");
   expect(errors).toEqual([]);
@@ -148,11 +154,17 @@ test("Git details update when changing commits", async ({ page }) => {
   });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: () => new Promise<void>(resolve => window.addEventListener("test-copy-ready", () => resolve(), { once: true })) } });
+  });
+  await page.getByRole("button", { name: "Copy SHA" }).click();
   const tabs = page.getByRole("navigation", { name: "Git views" });
   await tabs.getByRole("button", { name: "Details" }).click();
   await expect(page.locator(".gh-facts")).toContainText("First author");
   await page.locator('details[data-key="commit:def456"] > summary').click();
   await expect(page.locator(".gh-title-row h3")).toHaveText("Second commit");
+  await page.evaluate(() => window.dispatchEvent(new Event("test-copy-ready")));
+  await expect(page.getByRole("button", { name: "Copy SHA" })).toBeVisible();
   await tabs.getByRole("button", { name: "Details" }).click();
   await expect(page.locator(".gh-facts")).toContainText("Second author");
   await expect(page.locator(".gh-facts")).toContainText("def456");
