@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
 import { ChatShell } from "./chat-shell.tsx";
-import { discardChatApproval, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
+import { discardChatApproval, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
 import { drawAgentButton } from "../agents/agents.ts";
 import { askFiles, attach, attached, attachError, drawAttached } from "./attach.ts";
 import type { AskFile } from "./attach.ts";
@@ -269,10 +269,12 @@ export function newTurn(question: string, images?: PicRef[], files?: AskFile[]) 
 /// A turn for `question`, not yet in any chat.
 export function makeTurn(question: string, images?: PicRef[], files?: AskFile[]) {
   const owner = body();
-  const turn = h<Turn>(`<div class="turn dcoderlog">${question ? owner ? '<div class="dcoderen user"></div>' : userRowHtml(linkified(question)) : ""}${picRow(images)}</div>`);
+  const turn = h<Turn>(`<div class="turn dcoderlog">${question ? owner ? '<div class="dcoderen user"></div>' : userRowHtml(linkified(question)) : ""}${owner && images?.length ? '<div class="dpics"></div>' : picRow(images)}</div>`);
   const prompt = turn.querySelector<HTMLElement>(".dcoderen.user");
   if (owner && prompt) renderChatPrompt(owner, turn, prompt, linkified(question));
-  fillPics(turn);
+  const pictures = turn.querySelector<HTMLElement>(".dpics");
+  if (owner && pictures && images) renderChatPictures(owner, turn, pictures, images);
+  else fillPics(turn);
   if (files?.length) turn.append(askFiles(files, owner, turn));
   if (owner) turnBodies.set(turn, owner);
   turn.steps = [];

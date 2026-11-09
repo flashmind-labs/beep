@@ -1,4 +1,4 @@
-import { discardChatApproval, discardChatSources, discardChatSuggestions, discardChatWork, renderChatSources, transferChatApproval, transferChatFiles, transferChatPrompt, transferChatSuggestions } from "./work-view.tsx";
+import { discardChatApproval, discardChatSources, discardChatSuggestions, discardChatWork, renderChatSources, transferChatApproval, transferChatFiles, transferChatPictures, transferChatPrompt, transferChatSuggestions } from "./work-view.tsx";
 import { askFiles } from "./attach.ts";
 import { ANSWER, answeredTurns, approvalCard, appendChatReply, ASK, askText, body, chatReplyHtml, drawLatest, drawWork, failed, makeTurn, moveChatReply, newTurn, owningChatBody, ranOn, renderChat, setChatReply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
 import type { Asking, ToolOutput } from "./chat.ts";
@@ -292,6 +292,7 @@ function mergeTurn(old: Turn, fresh: Turn) {
       if (el.className === "dcoderen agent md") moveChatReply(fresh, old);
       if (el.className === "dcoderen user") transferChatPrompt(fresh, old);
       if (el.className === "dachips") transferChatFiles(fresh, old);
+      if (el.className === "dpics") transferChatPictures(fresh, old);
       if (el.className === "dreplies") transferChatSuggestions(fresh, old);
       if (el.className === "dcard") transferChatApproval(fresh, old);
     } else if (STABLE.has(el.className)) {
