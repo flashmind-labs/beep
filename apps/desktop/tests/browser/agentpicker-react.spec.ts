@@ -51,6 +51,8 @@ test("new-agent picker changes harness, effort and model", async ({ page }, info
   await openDesktop(page, false, { agent_hosts: hosts, agent_models: models });
   await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
   const pill = page.locator("#agpillb");
+  const choices = page.locator(".cc-pjc.centered > .choices");
+  await expect(choices).toHaveCSS("display", "flex");
   await expect(pill).toBeEnabled();
   await pill.click();
   const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
@@ -140,4 +142,17 @@ test("new-agent picker can be reopened after its view is removed", async ({ page
   await page.locator("#agpillb").click();
   await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test("new agent draft and caret survive machine discovery", async ({ page }, info) => {
+  await openDesktop(page, false, { agent_hosts: hosts, agent_models: models });
+  await page.evaluate(() => window.__navigation.holdNext("agent_hosts"));
+  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  const input = page.locator("#agprompt");
+  await expect(input).toBeVisible();
+  await input.fill("Keep this draft");
+  await input.evaluate(el => { if (el instanceof HTMLTextAreaElement) { el.setSelectionRange(2, 5); Reflect.set(window, "startComposerInput", el); } });
+  await page.evaluate(() => window.__navigation.release("agent_hosts"));
+  await expect(page.locator("#agpillb")).toBeEnabled();
+  expect(await input.evaluate(el => el === Reflect.get(window, "startComposerInput") && document.activeElement === el && el instanceof HTMLTextAreaElement && el.value === "Keep this draft" && el.selectionStart === 2 && el.selectionEnd === 5)).toBe(true);
 });
