@@ -1,5 +1,5 @@
-import { Fragment, useLayoutEffect, useRef } from "react";
-import { fillAppTiles } from "./applogo.ts";
+import { Fragment } from "react";
+import { AppLogo } from "./applogo-view.tsx";
 import { forRoutine, type Decision } from "./chat.ts";
 import { answerWorkById, type HeldQuestion } from "../bar/work.ts";
 import { ICON } from "../ui/icons.ts";
@@ -15,7 +15,5 @@ export function BackgroundView({ value }: { value: BackgroundQuestions }) {
 }
 
 function BackgroundCard({ question, session, shortcut }: { question: HeldQuestion; session: string | null; shortcut: boolean }) {
-  const host = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => { if (host.current) void fillAppTiles(host.current); }, [question.app]);
-  return <div className="dcard" data-q={question.query_id} ref={host}><div className="head"><span className="dapp" data-app={question.app} /><div className="dcol"><b>{question.action}?</b><small>Background work asks first</small></div></div>{!!question.fields.length && <div className="kv">{question.fields.map((field, index) => <Fragment key={index}><span>{field.label}</span><span>{field.value}</span></Fragment>)}</div>}<div className="acts">{BUTTONS.filter(([decision]) => (decision !== "always" && decision !== "session") || !forRoutine(question.action)).map(([decision, label, cls, key]) => <button className={`dbtn ${cls}`} data-d={decision} key={decision} onClick={() => void answerWorkById(session, question.query_id, decision)}>{label}{shortcut && <kbd dangerouslySetInnerHTML={{ __html: key }} />}</button>)}</div></div>;
+  return <div className="dcard" data-q={question.query_id}><div className="head"><AppLogo app={question.app} /><div className="dcol"><b>{question.action}?</b><small>Background work asks first</small></div></div>{!!question.fields.length && <div className="kv">{question.fields.map((field, index) => <Fragment key={index}><span>{field.label}</span><span>{field.value}</span></Fragment>)}</div>}<div className="acts">{BUTTONS.filter(([decision]) => (decision !== "always" && decision !== "session") || !forRoutine(question.action)).map(([decision, label, cls, key]) => <button className={`dbtn ${cls}`} data-d={decision} key={decision} onClick={() => void answerWorkById(session, question.query_id, decision)}>{label}{shortcut && <kbd dangerouslySetInnerHTML={{ __html: key }} />}</button>)}</div></div>;
 }

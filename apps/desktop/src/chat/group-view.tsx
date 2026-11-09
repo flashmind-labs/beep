@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { fillAppTiles } from "./applogo.ts";
+import { AppLogo } from "./applogo-view.tsx";
 import { GONE_PIC, loadPic, pictures } from "./media.ts";
 import type { GroupApproval, GroupChat, GroupMessage } from "./groups.ts";
 
@@ -9,12 +9,10 @@ interface Props {
   answer(approval: GroupApproval, allow: boolean): void;
 }
 function Approval({ approval, answer }: { approval: GroupApproval; answer: Props["answer"] }) {
-  const tile = useRef<HTMLSpanElement>(null);
   const [result, setResult] = useState<"allowed" | "denied" | null>(null);
-  useLayoutEffect(() => { if (tile.current) void fillAppTiles(tile.current); }, [approval.app]);
   if (result) return <div className="dmuted">{result === "allowed" ? "Allowed" : "Denied"}</div>;
   const decide = (allow: boolean) => { setResult(allow ? "allowed" : "denied"); answer(approval, allow); };
-  return <div className="dcard"><div className="head"><span style={{ display: "contents" }} ref={tile}><span className="dapp" data-app={approval.app} /></span><div className="dcol"><b>{approval.action}?</b><small>{approval.app} asks you first</small></div></div>{approval.fields.length > 0 && <div className="kv">{approval.fields.map((field, index) => <Fragment key={index}><span>{field.label}</span><span>{field.value}</span></Fragment>)}</div>}<div className="acts"><button type="button" className="dbtn pri" data-allow="1" onClick={() => decide(true)}>Allow</button><button type="button" className="dbtn warn" data-allow="" onClick={() => decide(false)}>Deny</button></div></div>;
+  return <div className="dcard"><div className="head"><AppLogo app={approval.app} /><div className="dcol"><b>{approval.action}?</b><small>{approval.app} asks you first</small></div></div>{approval.fields.length > 0 && <div className="kv">{approval.fields.map((field, index) => <Fragment key={index}><span>{field.label}</span><span>{field.value}</span></Fragment>)}</div>}<div className="acts"><button type="button" className="dbtn pri" data-allow="1" onClick={() => decide(true)}>Allow</button><button type="button" className="dbtn warn" data-allow="" onClick={() => decide(false)}>Deny</button></div></div>;
 }
 function Picture({ id, mime, revision }: { id: string; mime: string; revision: number }) {
   const initial = pictures.get(id);
