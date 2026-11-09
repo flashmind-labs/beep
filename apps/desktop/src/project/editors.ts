@@ -3,6 +3,7 @@
 import { dbtn as button, svgEl } from "../ui/parts.ts";
 import { openMenu } from "../ui/menu.ts";
 import { invoke } from "../ui/tauri.ts";
+import { notice } from "../chat/media.ts";
 import { onPhone } from "../ui/platform.ts";
 
 /// An installed editor (EditorRow).
@@ -40,12 +41,11 @@ export function editorTools(folder: string | null | undefined, redraw: () => voi
 
   if (!folder || !installed?.length) return [];
   const [first, ...rest] = installed;
-  const open = (ed: EditorRow, b: HTMLElement) =>
-    invoke("open_in_editor", { editor: ed.id, path: folder }).catch(e => { b.title = `Could not open ${ed.name}: ${e}`; });
-  const main = button(`Open in ${first.name}`, "quiet small", () => open(first, main));
+  const open = (ed: EditorRow) => launch(ed, folder);
+  const main = button(`Open in ${first.name}`, "quiet small", () => open(first));
   main.title = folder;
   if (!rest.length) return [main];
-  const more = button(svgEl(CHEV)!, "quiet small", e => openMenu(e, "Open in", rest.map(ed => ({ label: ed.name, on: () => open(ed, main) }))));
+  const more = button(svgEl(CHEV)!, "quiet small", e => openMenu(e, "Open in", rest.map(ed => ({ label: ed.name, on: () => open(ed) }))));
   more.title = "Other editors";
   more.setAttribute("aria-label", "Other editors");
   return [main, more];
@@ -55,8 +55,17 @@ export function editorTools(folder: string | null | undefined, redraw: () => voi
 export async function openInEditor(folder: string) {
   try {
     const [first] = await invoke<EditorRow[]>("editors");
-    if (first) await invoke("open_in_editor", { editor: first.id, path: folder });
+    if (first) await launch(first, folder);
+    else notice("No supported editor is installed. Install Zed, VS Code or Cursor, then restart Beep.", { bad: true });
   } catch (err) {
-    console.warn("open in editor:", err);
+    notice(`Could not find an editor: ${err}`, { bad: true });
+  }
+}
+
+async function launch(editor: EditorRow, folder: string) {
+  try {
+    await invoke("open_in_editor", { editor: editor.id, path: folder });
+  } catch (err) {
+    notice(`Could not open ${editor.name}: ${err}. Try opening ${editor.name} directly.`, { bad: true });
   }
 }

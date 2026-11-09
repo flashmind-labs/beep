@@ -2,11 +2,12 @@
 
 use std::{
     path::{Path, PathBuf},
-    process::Command,
     sync::OnceLock,
 };
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use tokio::process::Command;
 
 use crate::error::{DesktopError, Result};
 
@@ -125,7 +126,7 @@ pub fn editors() -> Vec<EditorRow> {
 
 /// Opens folder `path` in `editor`.
 #[tauri::command]
-pub fn open_in_editor(editor: Editor, path: String) -> Result<()> {
+pub async fn open_in_editor(editor: Editor, path: String) -> Result<()> {
     let folder = Path::new(&path);
 
     if !folder.is_absolute() || !folder.is_dir() {
@@ -136,14 +137,41 @@ pub fn open_in_editor(editor: Editor, path: String) -> Result<()> {
         .iter()
         .find(|f| f.editor == editor)
         .ok_or_else(|| DesktopError::BadRequest("that editor is not installed".into()))?;
-    let mut cmd = match &found.launch {
+    match &found.launch {
         Launch::App(bundle) => {
-            let mut c = Command::new("open");
-            c.arg("-a").arg(bundle);
-            c
+            let mut cmd = Command::new("open");
+            cmd.arg("-a").arg(bundle).arg(folder);
+            launch(&mut cmd).await
         }
-        Launch::Cli(cli) => Command::new(cli),
-    };
-    cmd.arg(folder).spawn().map_err(anyhow::Error::from)?;
+        Launch::Cli(cli) => {
+            // A CLI may run for the editor's lifetime rather than just launch it.
+            Command::new(cli)
+                .arg(folder)
+                .spawn()
+                .context("Could not start the editor")?;
+            Ok(())
+        }
+    }
+}
+
+async fn launch(cmd: &mut Command) -> Result<()> {
+    let output = cmd.output().await.context("Could not start the editor")?;
+
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        let detail = detail.trim();
+        let message = if detail.is_empty() {
+            format!("The editor launcher exited with {}", output.status)
+        } else {
+            detail.to_owned()
+        };
+
+        return Err(DesktopError::BadRequest(message));
+    }
+
     Ok(())
 }
+
+#[cfg(all(test, unix))]
+#[path = "../tests/platform_editors.rs"]
+mod tests;
