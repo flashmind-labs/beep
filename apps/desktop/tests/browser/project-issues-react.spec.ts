@@ -1,0 +1,44 @@
+import { expect, test } from "@playwright/test";
+import { openDesktop, projectName } from "./harness.ts";
+
+test("issue selection, controls and scroll survive project redraws", async ({ page }) => {
+  const now = Date.now();
+  const issues = Array.from({ length: 25 }, (_, index) => ({ number: index + 1, title: `Issue ${index + 1}`, url: `https://example.test/issues/${index + 1}`, author: "Example", opened_at: now - index * 1000, comments: 0, labels: [index % 2 ? "feature" : "bug"] }));
+  await openDesktop(page, false, { center_project_lists: { issues, prs: [], issues_error: null, prs_error: null, synced_at: now }, center_project_threads: [], center_thread_chats: [] });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator('.pj-list .pj-li[title="Issues"]').click();
+  const detail = page.locator(".pj-split > .pj-det");
+  await expect(detail.locator('.pj-li[title="Issue 1"]')).toBeVisible();
+  const layout = await detail.evaluate(el => {
+    const slots = [...el.children].filter(child => child instanceof HTMLElement && getComputedStyle(child).display === "contents");
+    const controls = el.querySelector<HTMLElement>(".pj-ctl");
+    const empty = slots.at(-1);
+    return { slots: slots.length, controlsFlex: controls && getComputedStyle(controls).flex, emptyChildren: empty?.childElementCount, emptyHeight: empty?.getBoundingClientRect().height };
+  });
+  expect(layout).toEqual({ slots: 2, controlsFlex: "0 0 auto", emptyChildren: 0, emptyHeight: 0 });
+  await detail.getByRole("button", { name: "Select", exact: true }).click();
+  const row = detail.locator(".pj-prow").filter({ has: page.locator('.pj-li[title="Issue 1"]') });
+  const box = row.getByRole("checkbox", { name: "Pick this issue" });
+  await box.focus();
+  await page.keyboard.press("Space");
+  await expect(box).toBeChecked();
+  await expect(box).toBeFocused();
+  await expect(detail).toContainText("1 picked");
+  await expect(detail.getByRole("button", { name: "Start 1 agent" })).toBeEnabled();
+  await expect(detail.locator('.pj-li[title="Issue 1"]')).toBeVisible();
+  await detail.evaluate(el => { el.style.maxHeight = "200px"; el.scrollTop = 100; el.dataset.identity = "kept"; });
+  const before = await detail.evaluate(el => el.scrollTop);
+  expect(before).toBeGreaterThan(0);
+  await detail.getByRole("button", { name: "Any time" }).evaluate(el => { if (el instanceof HTMLElement) el.click(); });
+  await expect(detail).toHaveAttribute("data-identity", "kept");
+  await expect(detail).toHaveJSProperty("scrollTop", before);
+  await expect(box).toBeChecked();
+  await detail.getByRole("button", { name: "Newest first" }).click();
+  await expect(detail.getByRole("button", { name: "Oldest first" })).toBeFocused();
+  await expect(box).toBeChecked();
+  await detail.getByRole("button", { name: "bug", exact: true }).click();
+  await expect(detail.locator('.pj-li[title="Issue 2"]')).toHaveCount(0);
+  await expect(box).toBeChecked();
+  await detail.getByRole("button", { name: "bug", exact: true }).click();
+  await expect(detail.locator('.pj-li[title="Issue 2"]')).toBeVisible();
+});

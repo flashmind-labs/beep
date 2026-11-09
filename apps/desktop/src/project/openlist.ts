@@ -77,6 +77,19 @@ export function pickBox(key: string, id: string, redraw: () => void) {
   return h("label", "pick", box);
 }
 
+/// Selection is owned by the list choice and shared with the bulk action bar.
+export function issueSelection(key: string, id: string): boolean | null {
+  const choice = choiceOf(key);
+  return choice.selecting ? choice.picked.has(id) : null;
+}
+
+export function setIssueSelection(key: string, id: string, checked: boolean, redraw: () => void) {
+  const choice = choiceOf(key);
+  if (checked) choice.picked.add(id); else choice.picked.delete(id);
+  choice.confirming = false;
+  redraw();
+}
+
 /// The line under a list that selects: how many are picked and Start N
 /// agents, then the one confirm step with each issue's agent and machine, and
 /// how the last start ended. `shown` is the list as drawn.
