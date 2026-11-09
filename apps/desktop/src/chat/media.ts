@@ -2,7 +2,7 @@ import { commandKey } from "../ui/platform.ts";
 import { hostOf } from "../settings/apps.ts";
 import { IMAGE_TYPES } from "./compose-text.ts";
 import { focusAsk, owningChatBody } from "./chat.ts";
-import { renderChatSentFile } from "./work-view.tsx";
+import { renderChatReplyPictures, renderChatSentFile } from "./work-view.tsx";
 import { $, bar } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { COPY_ICON, ICON } from "../ui/icons.ts";
@@ -202,6 +202,8 @@ export function picsRow(turn: Turn) {
 /// `{ file }` kept with the chat. Hover shows Save, a click opens the viewer.
 export function replyPic(turn: Turn, pic: SentImage) {
   const row = picsRow(turn), i = row.pics.push(pic) - 1;
+  const owner = owningChatBody(turn);
+  if (owner) { renderChatReplyPictures(owner, turn, row, row.pics); return; }
   const name = pic.file?.name ?? "";
   const tile = h(`<span class="drpic wait"><button class="pic" aria-label="${esc(pic.caption || name || "Picture")}"></button>${pic.file ? `<button class="save" aria-label="Save ${esc(name)}" title="Save to Downloads">${ICON.save}</button>` : ""}</span>`);
   const button = tile.querySelector(".pic")!;

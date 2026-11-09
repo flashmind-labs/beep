@@ -4,7 +4,7 @@ import { ANSWER, answeredTurns, approvalCard, appendChatReply, ASK, askText, bod
 import type { Asking, ToolOutput } from "./chat.ts";
 import { answerHtml } from "../agents/turnrows.ts";
 import { $$, changed, live, queued, S, windowHooks } from "../bar/core.ts";
-import type { ImageRef, SentFile } from "./media.ts";
+import type { ImageRef, SentFile, SentImage } from "./media.ts";
 import { replyActs } from "./rerun.ts";
 import { QUIET_TOOLS, toolLabel } from "./tools.ts";
 import { HISTORY_CHUNK, windowStart } from "./history-state.ts";
@@ -253,6 +253,23 @@ function sameTurn(old: Turn, fresh: Turn) {
 
 /// Parts of a turn that stay the element they are: the prompt with its
 /// pictures and files. The reply stays too, its text updated when it differs.
+// Image tiles change as their data loads. Compare the picture list itself so
+// that a refresh keeps the loaded tiles, their focus and any open actions.
+function sameSentContent(a: Element, b: Element) {
+  const normalized = (element: Element) => {
+    const copy = element.cloneNode(true) as Element;
+    const rows = element.querySelectorAll<HTMLElement & { pics?: SentImage[] }>(".drpics");
+    const copies = copy.querySelectorAll(".drpics");
+    for (let i = 0; i < rows.length; i++) {
+      if (!rows[i].pics) return null;
+      copies[i].textContent = JSON.stringify(rows[i].pics);
+    }
+    return copy.outerHTML;
+  };
+  const old = normalized(a), next = normalized(b);
+  return old !== null && old === next;
+}
+
 const STABLE = new Set(["dcoderen user", "dpics", "dachips"]);
 /// Parts drawn again into the kept turn, so their buttons act on it.
 const REDRAWN = new Set(["tools dcoderlog", "dreplyacts"]);
@@ -297,6 +314,8 @@ function mergeTurn(old: Turn, fresh: Turn) {
       if (el.className === "dreplies") transferChatSuggestions(fresh, old);
       if (el.className === "dcard") transferChatApproval(fresh, old);
     } else if (STABLE.has(el.className)) {
+      now = was;
+    } else if (el.classList.contains("files") && sameSentContent(was, el)) {
       now = was;
     } else if (el.className === "dcoderen agent md") {
       setChatReply(old, chatReplyHtml(fresh));
