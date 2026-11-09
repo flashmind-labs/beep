@@ -1,3 +1,4 @@
+import { turnState } from "./turn-state.ts";
 import { conversation } from "./conversation.ts";
 import { discardChatApproval, discardChatNotice, discardChatSources, discardChatSuggestions, discardChatWork, renderChatNotice, renderChatSources, transferChatApproval, transferChatFiles, transferChatNotice, transferChatPictures, transferChatPrompt, transferChatSentFiles, transferChatSuggestions } from "./work-view.tsx";
 import { askFiles } from "./attach.ts";
@@ -163,7 +164,7 @@ function buildTurns(id: string, turns: HistoryTurn[]) {
   for (const t of turns) {
     if (t.role === "user") {
       turn = drawTurn(t.text, t.images);
-      turn.user = true;
+      turnState(turn).user = true;
       turn.dataset.at = String(t.at);
       ranOn(turn, t.model, t.thinking);
     } else if (t.role === "scheduled") {
@@ -176,17 +177,17 @@ function buildTurns(id: string, turns: HistoryTurn[]) {
         renderChatNotice(owner, turn, box, { kind: "label", message: t.label || "Routine" });
         turn.prepend(box);
       } else turn.prepend(h(`<div class="dsystem">${esc(t.label || "Routine")}</div>`));
-      turn.user = false;
+      turnState(turn).user = false;
     } else if (t.role === "assistant") {
       turn ??= drawTurn("");
-      turn.steps.push(...t.tools.filter(x => !QUIET_TOOLS.has(x.name)).map((x): Step => ({ id: "", name: x.name, label: x.label || toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
+      turnState(turn).steps.push(...t.tools.filter(x => !QUIET_TOOLS.has(x.name)).map((x): Step => ({ id: "", name: x.name, label: x.label || toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
       if (t.html) appendChatReply(turn, answerHtml(t.html));
       for (const x of t.tools) toolOutput(turn, x, x.route);
       last = t.replies.length ? { turn, replies: t.replies } : null;
-      turn.done = true;
+      turnState(turn).done = true;
 
       if (t.model) {
-        turn.model = t.model;
+        turnState(turn).model = t.model;
         // A turn Auto did not pick still names the model that answered.
         if (!turn.querySelector(".dranon")) ranOn(turn, t.model, "");
       }
@@ -282,7 +283,7 @@ const LISTED = new Set(["dreplies", "dcard"]);
 function mergeTurn(old: Turn, fresh: Turn) {
   if (fresh.dataset.at) old.dataset.at = fresh.dataset.at;
   // The server's copy may not have the reply yet: what shows stays.
-  if (!fresh.done && !fresh.querySelector(":scope > .dcard")) return;
+  if (!turnState(fresh).done && !fresh.querySelector(":scope > .dcard")) return;
   const seen = new Map<string, number>();
   const keyOf = (el: Element) => {
     const n = seen.get(el.className) ?? 0;
@@ -344,11 +345,11 @@ function mergeTurn(old: Turn, fresh: Turn) {
     if (el.className === "dcard") discardChatApproval(old);
     el.remove();
   }
-  if (fresh.user !== undefined) old.user = fresh.user;
-  if (fresh.model) old.model = fresh.model;
-  if (!fresh.done) return;
-  old.done = true;
-  old.steps = fresh.steps;
+  if (turnState(fresh).user !== null) turnState(old).user = turnState(fresh).user;
+  if (turnState(fresh).model) turnState(old).model = turnState(fresh).model;
+  if (!turnState(fresh).done) return;
+  turnState(old).done = true;
+  turnState(old).steps = turnState(fresh).steps;
   drawWork(old);
   replyActs(old);
 }
@@ -390,7 +391,7 @@ export function loadAskFiles(id: string, b: ChatBody) {
 function loadAgents(id: string, b: ChatBody) {
   return eachTurn(id, b, invoke<TurnAgent[]>("session_agents", { id }), (turn, { agent }) => {
     if (!agent) return;
-    turn.agent = agent;
+    turnState(turn).agent = agent;
     replyActs(turn);
   });
 }
@@ -438,7 +439,7 @@ type TurnAgent = { message: number; agent: string | null };
 export async function loadTurnAgent(id: string | null, turn: Turn) {
   const agents = await invoke<TurnAgent[]>("session_agents", { id }).catch(() => []);
   const agent = agents.at(-1)?.agent;
-  if (!agent || !turn.isConnected || turn !== conversation(body()!).turns.findLast(t => t.user)) return;
-  turn.agent = agent;
+  if (!agent || !turn.isConnected || turn !== conversation(body()!).turns.findLast(t => turnState(t).user)) return;
+  turnState(turn).agent = agent;
   replyActs(turn);
 }

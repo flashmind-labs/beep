@@ -1,3 +1,4 @@
+import { turnState } from "./turn-state.ts";
 import { conversation } from "./conversation.ts";
 import { ANSWER, askText, body, owningChatBody, follow, keepDown, newTurn, runTurn, scrollDown, startRun } from "./chat.ts";
 import { discardChatActions, discardChatNotice, renderChatActions, renderChatNotice } from "./work-view.tsx";
@@ -29,11 +30,11 @@ export function stoppedRow(turn: Turn, said = "Stopped") {
   if (owner) {
     const box = document.createElement("div");
     box.className = "dmuted dstopped";
-    renderChatNotice(owner, turn, box, { kind: "stopped", message: said, retry: !!turn.user });
+    renderChatNotice(owner, turn, box, { kind: "stopped", message: said, retry: !!turnState(turn).user });
     turn.append(box);
     return;
   }
-  const retry = turn.user ? '<button class="dbtn" data-act="retry">Retry</button>' : "";
+  const retry = turnState(turn).user ? '<button class="dbtn" data-act="retry">Retry</button>' : "";
   turn.append(h(`<div class="dmuted dstopped">${esc(said)}${retry}</div>`));
 }
 
@@ -41,7 +42,7 @@ export function stoppedRow(turn: Turn, said = "Stopped") {
 /// answered it when there was one.
 export function replyActs(turn: Turn) {
   const text = !!turn.querySelector<HTMLElement>(ANSWER)?.innerText.trim();
-  const rerun = !!(canPickModel() && turn.user), agent = turn.agent ?? null;
+  const rerun = !!(canPickModel() && turnState(turn).user), agent = turnState(turn).agent ?? null;
   let row = turn.querySelector<HTMLElement>(".dreplyacts");
   if (!text && !rerun && !agent) { discardChatActions(turn); row?.remove(); return; }
   if (!row) {
@@ -64,7 +65,7 @@ export function rerunMenu(button: HTMLElement) {
   if (closeRerunMenu()) return;
   const turn = button.closest<Turn>(".turn")!, m = MODELS.info as ModelChoices | null;
   const rows = m!.choices.map(c => {
-    const used = c.id === turn.model;
+    const used = c.id === turnState(turn).model;
     return `<button class="mi" role="menuitem" data-rerun="${esc(c.id)}"${used ? ' aria-current="true"' : ""}><b>${esc(c.name)}</b>${used ? `<span class="ok">${ICON.check}</span>` : ""}<small>${used ? "Used for this reply" : esc(modelPrice(c))}</small></button>`;
   }).join("");
   const levels = ["default", ...THINKING].map(l => `<button class="dchip" data-rthink="${l}" aria-pressed="${l === "default"}">${cap(l)}</button>`).join("");
@@ -97,15 +98,15 @@ export async function rerun(turn: Turn, model: string | null, thinking: string |
   const id = S.session, busy = here();
   if (!id || busy?.run || busy?.approval) return;
   const current = conversation(body()!), turns = current.turns;
-  const index = turns.filter(t => t.user).indexOf(turn);
+  const index = turns.filter(t => turnState(t).user).indexOf(turn);
   if (index < 0) return;
   const question = askText(turn);
   current.dropFrom(turn);
   const fresh = newTurn(question);
-  fresh.user = true;
+  turnState(fresh).user = true;
 
   if (model) {
-    fresh.model = model;
+    turnState(fresh).model = model;
     fresh.append(h(`<div class="drerunof">Rerun on ${esc(modelName(model))}${thinking ? " · " + thinking : ""}</div>`));
   }
 

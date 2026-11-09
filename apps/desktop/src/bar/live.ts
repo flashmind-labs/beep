@@ -1,3 +1,4 @@
+import { turnState } from "../chat/turn-state.ts";
 import { discardChatApproval } from "../chat/work-view.tsx";
 import { renderChatPrompt, updateChatPrompt } from "../chat/work-view.tsx";
 import { ASK, askText, body, owningChatBody, type Decision, focusAsk, followAnswered, forRoutine, newTurn, removeChatSuggestions, renderChat, scrollDown, settle, startRun } from "../chat/chat.ts";
@@ -220,9 +221,8 @@ export function liveTurn(id: string, text: string, runId: string) {
   removeChatSuggestions(b);
   // The server's copy may have drawn the message already.
   const last = [...b.querySelectorAll<Turn>(".turn")].at(-1);
-  const turn = last?.user && !last.done && askText(last) === text ? last : newTurn(text);
-  turn.user = true;
-  turn.steps ??= [];
+  const turn = last && turnState(last).user && !turnState(last).done && askText(last) === text ? last : newTurn(text);
+  turnState(turn).user = true;
   startRun(id, turn, runId);
   refreshHints();
   scrollDown();

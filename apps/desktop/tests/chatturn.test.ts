@@ -1,6 +1,7 @@
 import { answers, bar, removed, runFrames } from "./chat-dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { turnState } from "../src/chat/turn-state.ts";
 import { body, follow, newTurn, startRun } from "../src/chat/chat.ts";
 import type { BarEvent } from "../src/chat/chat.ts";
 import { S } from "../src/bar/core.ts";
@@ -26,7 +27,7 @@ test("a reply stays the same element from its stream through the chat's redraws"
   bar.innerHTML = '<div class="dbody" id="body"></div><div class="dhints"></div>';
 
   const turn = newTurn(PROMPT);
-  turn.user = true;
+  turnState(turn).user = true;
   startRun(SESSION, turn, null);
   const events = follow(SESSION, turn);
   const send = (ev: BarEvent) => events.onmessage(ev);
