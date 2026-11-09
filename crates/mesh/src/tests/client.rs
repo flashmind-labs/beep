@@ -120,3 +120,98 @@ fn what_the_node_said_is_not_transport() {
     assert!(!declined.is_transport());
     assert!(!MeshError::Unexpected("Pong".into()).is_transport());
 }
+
+#[tokio::test]
+async fn opening_commands_waits_for_ready_and_consumes_it_once() {
+    use beep_proto::node::{Open, Opened, commands};
+    use tokio::sync::Notify;
+
+    let started = Arc::new(Notify::new());
+    let accepted = Arc::new(Notify::new());
+    let session: SessionFn = {
+        let started = started.clone();
+        let accepted = accepted.clone();
+        Arc::new(move |mut tx, mut rx| {
+            let started = started.clone();
+            let accepted = accepted.clone();
+            Box::pin(async move {
+                assert_eq!(
+                    rx.recv::<Open>().await.unwrap().unwrap().protocol,
+                    commands::PROTOCOL
+                );
+                tx.send(&Opened::Ready {}).await.unwrap();
+                assert_eq!(
+                    rx.recv::<commands::Open>().await.unwrap(),
+                    Some(commands::Open::Calls)
+                );
+                started.notify_one();
+                accepted.notified().await;
+                tx.send(&commands::Reply::Ready).await.unwrap();
+                tx.send(&commands::Reply::Pong { id: 9 }).await.unwrap();
+                let _ = rx.recv::<u8>().await;
+            })
+        })
+    };
+    let client = PeerClient::local(session);
+    let opening = client.open_commands();
+    tokio::pin!(opening);
+    timeout(Duration::from_secs(1), async {
+        tokio::select! {
+            _ = &mut opening => panic!("the stream opened before Ready"),
+            _ = started.notified() => {},
+        }
+    })
+    .await
+    .unwrap();
+    assert!(futures::poll!(&mut opening).is_pending());
+    accepted.notify_one();
+    let (_tx, mut rx) = timeout(Duration::from_secs(1), opening)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        rx.recv::<commands::Reply>().await.unwrap(),
+        Some(commands::Reply::Pong { id: 9 })
+    );
+}
+
+#[tokio::test]
+async fn opening_protocols_rejects_a_reply_before_ready() {
+    use beep_proto::node::{Open, Opened, commands, subscriptions};
+
+    let session: SessionFn = Arc::new(|mut tx, mut rx| {
+        Box::pin(async move {
+            let protocol = rx.recv::<Open>().await.unwrap().unwrap().protocol;
+            tx.send(&Opened::Ready {}).await.unwrap();
+            if protocol == commands::PROTOCOL {
+                rx.recv::<commands::Open>().await.unwrap().unwrap();
+                tx.send(&commands::Reply::Pong { id: 0 }).await.unwrap();
+            } else {
+                assert_eq!(protocol, subscriptions::PROTOCOL);
+                rx.recv::<subscriptions::Open>().await.unwrap().unwrap();
+                tx.send(&subscriptions::Reply::Pong { id: 0 })
+                    .await
+                    .unwrap();
+            }
+        })
+    });
+    let client = PeerClient::local(session);
+    assert!(
+        client
+            .open_commands()
+            .await
+            .err()
+            .expect("a reply before Ready must be rejected")
+            .to_string()
+            .contains("Ready")
+    );
+    assert!(
+        client
+            .open_subscriptions()
+            .await
+            .err()
+            .expect("a reply before Ready must be rejected")
+            .to_string()
+            .contains("Ready")
+    );
+}

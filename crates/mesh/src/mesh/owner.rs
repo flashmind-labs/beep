@@ -54,6 +54,7 @@ pub(super) async fn own(inner: Arc<Inner>) {
 
     loop {
         rev.borrow_and_update();
+        inner.prune_channels();
         let view = inner.view();
         let member = view.devices.is_member(inner.me);
         let wanted: Vec<EndpointId> = if member {
@@ -92,9 +93,9 @@ pub(super) async fn own(inner: Arc<Inner>) {
                 inner
                     .retired()
                     .values()
-                    .filter(|c| !member || !view.devices.is_member(c.remote_id()))
-                    .map(|c| Doomed {
-                        conn: c.clone(),
+                    .filter(|retired| !member || !view.devices.is_member(retired.conn.remote_id()))
+                    .map(|retired| Doomed {
+                        conn: retired.conn.clone(),
                         told: false,
                     }),
             )

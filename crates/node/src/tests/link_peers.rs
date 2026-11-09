@@ -387,3 +387,206 @@ async fn join_says_what_to_do_when_no_node_comes_up() {
         .expect_err("no node");
     assert!(format!("{err}").contains("beep-node run"), "{err}");
 }
+
+struct ChannelPair {
+    desktop: Mesh,
+    peers: Peers,
+    endpoint: Endpoint,
+    _routers: (iroh::protocol::Router, iroh::protocol::Router),
+    _dirs: (tempfile::TempDir, tempfile::TempDir),
+}
+
+async fn channel_pair(dedicated: bool) -> ChannelPair {
+    use beep_mesh::{JOIN_ALPN, PEER_ALPN};
+    use beep_proto::node::{commands, subscriptions};
+    use iroh::{SecretKey, protocol::Router};
+    let bind = || async {
+        Endpoint::builder(iroh::endpoint::presets::Minimal)
+            .secret_key(SecretKey::generate())
+            .transport_config(beep_mesh::transport_config())
+            .bind()
+            .await
+            .unwrap()
+    };
+    let (desktop_endpoint, endpoint) = (bind().await, bind().await);
+    let dirs = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let desktop = Mesh::create(dirs.0.path(), desktop_endpoint.clone(), "desktop")
+        .await
+        .unwrap();
+    let (peer, join) = desktop.protocols();
+    let desktop_router = Router::builder(desktop_endpoint)
+        .accept(PEER_ALPN, peer)
+        .accept(JOIN_ALPN, join)
+        .spawn();
+    let ticket = desktop
+        .invite(DeviceKind::Node, Duration::from_secs(60))
+        .await
+        .unwrap();
+    let peers = Peers::new(
+        endpoint.clone(),
+        dirs.1.path().to_owned(),
+        "node".into(),
+        Offers::default(),
+    );
+    let mut router = Router::builder(endpoint.clone())
+        .accept(PEER_ALPN, peers.peer_handler())
+        .accept(JOIN_ALPN, peers.join_handler());
+    if dedicated {
+        router = router
+            .accept(commands::ALPN, peers.commands_handler())
+            .accept(subscriptions::ALPN, peers.subscriptions_handler());
+    }
+    let node_router = router.spawn();
+    peers.join(&ticket.encode_string()).await.unwrap();
+    let mut changes = desktop.updates();
+    timeout(Duration::from_secs(30), async {
+        while desktop.peer(endpoint.id()).is_none() {
+            changes.changed().await.unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    ChannelPair {
+        desktop,
+        peers,
+        endpoint,
+        _routers: (desktop_router, node_router),
+        _dirs: dirs,
+    }
+}
+
+#[tokio::test]
+async fn dedicated_peer_protocols_reuse_connections_and_close_when_membership_ends() {
+    use beep_proto::node::{
+        commands,
+        events::{self, CallReply, Operation, Topic, Value},
+        process, subscriptions,
+    };
+    let pair = channel_pair(true).await;
+    let peer = pair.endpoint.id();
+    let client = PeerClient::over(pair.desktop.clone(), peer);
+    let (mut command_tx, mut command_rx) = client.open_commands().await.unwrap();
+    let command = pair.desktop.command_connection(peer).await.unwrap();
+    assert_eq!(command.alpn(), commands::ALPN);
+
+    let topic = Topic::keyed("plugin", "example");
+    pair.peers
+        .channel_offers()
+        .agents
+        .events
+        .publish(topic.clone(), vec![1])
+        .unwrap();
+    let (mut tx, mut rx) = client.open_subscriptions().await.unwrap();
+    tx.send(&subscriptions::Request::Watch {
+        id: 1,
+        topic: topic.clone(),
+        queries: vec![],
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        rx.recv::<subscriptions::Reply>().await.unwrap(),
+        Some(subscriptions::Reply::Watching { id: 1 })
+    );
+    assert!(
+        matches!(rx.recv::<subscriptions::Reply>().await.unwrap(), Some(subscriptions::Reply::Snapshot(value)) if value.topic == topic && value.value == Value::Plugin(vec![1]))
+    );
+    let connection = pair.desktop.subscription_connection(peer).await.unwrap();
+    assert_ne!(connection.stable_id(), command.stable_id());
+    assert_eq!(connection.alpn(), subscriptions::ALPN);
+    let (mut extra_tx, mut extra_rx) = client.open_subscriptions().await.unwrap();
+    extra_tx
+        .send(&subscriptions::Request::Ping { id: 7 })
+        .await
+        .unwrap();
+    assert_eq!(
+        extra_rx.recv::<subscriptions::Reply>().await.unwrap(),
+        Some(subscriptions::Reply::Pong { id: 7 })
+    );
+    assert_eq!(
+        connection.stable_id(),
+        pair.desktop
+            .subscription_connection(peer)
+            .await
+            .unwrap()
+            .stable_id()
+    );
+
+    command_tx
+        .send(&commands::Request::Call {
+            id: 2,
+            operation: Box::new(Operation::Process(process::Request::List {})),
+        })
+        .await
+        .unwrap();
+    assert!(
+        matches!(command_rx.recv::<commands::Reply>().await.unwrap(), Some(commands::Reply::Result { id: 2, reply }) if matches!(*reply, CallReply::Process(_)))
+    );
+
+    let sessions: beep_proto::node::agent::SessionsReply = client
+        .call(
+            beep_proto::node::agent::SESSIONS_PROTOCOL,
+            &beep_proto::node::agent::SessionsRequest::ListAll {},
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        sessions,
+        beep_proto::node::agent::SessionsReply::Sessions { .. }
+    ));
+    assert_eq!(
+        command.stable_id(),
+        pair.desktop
+            .command_connection(peer)
+            .await
+            .unwrap()
+            .stable_id()
+    );
+
+    // Released phones keep their existing inbound events/1 protocol.
+    let released = PeerClient::new(pair.desktop.peer(peer).unwrap());
+    let (_tx, mut rx) = released
+        .open_sending(
+            events::PROTOCOL,
+            &events::Request::Watch {
+                id: 1,
+                topics: vec![Topic::new("agents")],
+                queries: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        rx.recv::<events::Reply>().await.unwrap(),
+        Some(events::Reply::Ready)
+    );
+
+    let stranger = Endpoint::builder(iroh::endpoint::presets::Minimal)
+        .bind()
+        .await
+        .unwrap();
+    for alpn in [commands::ALPN, subscriptions::ALPN] {
+        let connection = stranger.connect(pair.endpoint.addr(), alpn).await.unwrap();
+        timeout(Duration::from_secs(5), connection.closed())
+            .await
+            .unwrap();
+    }
+
+    timeout(Duration::from_secs(10), pair.peers.leave())
+        .await
+        .unwrap();
+    timeout(Duration::from_secs(5), command.closed())
+        .await
+        .unwrap();
+    timeout(Duration::from_secs(5), connection.closed())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn peers_without_the_new_protocols_are_rejected_without_fallback() {
+    let pair = channel_pair(false).await;
+    let client = PeerClient::over(pair.desktop.clone(), pair.endpoint.id());
+    assert!(client.open_commands().await.is_err());
+    assert!(client.open_subscriptions().await.is_err());
+}
