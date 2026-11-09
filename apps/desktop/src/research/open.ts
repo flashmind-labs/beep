@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { ResearchHead } from "./head-view.tsx";
 import { ResearchTabs } from "./tabs-view.tsx";
-import { ResearchSources } from "./sources-view.tsx";
+import { ResearchLivePane } from "./live-pane-view.tsx";
 // An opened research, as a page of the command center laid out like a coding
 // agent session: the lead's chat on the left, the paper, notes, sources and the
 // team as the tabs of a side pane on the right. The page is drawn once and
@@ -62,7 +62,7 @@ let R = fresh("");
 let page: Page | null = null;
 let headRoot: Root | null = null;
 let tabsRoot: Root | null = null;
-let sourcesRoot: Root | null = null;
+let paneRoot: Root | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let inflight = false;
 let polls = 0;
@@ -96,8 +96,8 @@ function build(el: HTMLElement, session: string) {
   zoomed = false;
   headRoot?.unmount();
   tabsRoot?.unmount();
-  sourcesRoot?.unmount();
-  headRoot = tabsRoot = sourcesRoot = null;
+  paneRoot?.unmount();
+  headRoot = tabsRoot = paneRoot = null;
   R = fresh(session);
   polls = 0;
   const root = h(`<div class="rs"><div class="dhead"></div>
@@ -191,11 +191,11 @@ function drawPane() {
   if (tabsRoot) flushSync(() => tabsRoot?.render(createElement(ResearchTabs, { research: R })));
   const before = page.view.querySelector<HTMLElement>(".rpane");
   const stuck = !!before && atBottom(before);
-  if (tab === "sources") {
-    sourcesRoot ??= createRoot(page.view);
-    flushSync(() => sourcesRoot?.render(createElement(ResearchSources, { research: R.research, entries: R.entries })));
+  if (tab === "sources" || tab === "notes" || tab === "room") {
+    paneRoot ??= createRoot(page.view);
+    flushSync(() => paneRoot?.render(createElement(ResearchLivePane, { research: R, tab })));
   } else {
-    if (sourcesRoot) { sourcesRoot.unmount(); sourcesRoot = null; }
+    if (paneRoot) { paneRoot.unmount(); paneRoot = null; }
     patchHtml(page.view, paneHtml(R));
   }
   const body = page.view.querySelector<HTMLElement>(".rpane");

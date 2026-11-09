@@ -55,8 +55,6 @@ export function placeholder(o: Open) {
 export function paneHtml(o: Open) {
   const tab = shownTab(o);
   if (tab === "draft") return draftHtml(o);
-  if (tab === "notes") return notesHtml(o);
-  if (tab === "room") return roomHtml(o);
   if (tab === "agents") return agentsHtml(o);
   return threadHtml(o, agentOf(o, tab));
 }
@@ -104,11 +102,6 @@ function draftHtml(o: Open) {
 function noteHtml(o: Open, n: Entry & Note, title: string) {
   const src = n.sources.length ? ` ${sup(o, n.sources)}` : "";
   return `<div class="rmsg">${rav(n.agent)}<b>${title}</b><p>${esc(n.content)}${src}</p></div>`;
-}
-
-function notesHtml(o: Open) {
-  const notes = o.entries.filter((e): e is Entry & Note => e.kind === "note");
-  return `<div class="rpane">${notes.length ? `<div class="rbox">${notes.map(n => noteHtml(o, n, esc(agentOf(o, n.agent).name))).join("")}</div>` : empty("No notes yet.")}</div>`;
 }
 
 function msgHtml(o: Open, e: Entry & Said) {
@@ -160,12 +153,6 @@ function threadHtml(o: Open, a: Agent) {
   if (st === "run") html += `<div class="dsteps"><div class="dstep run"><span class="s"><span class="dspin"></span></span><span>${esc(now)}</span></div></div>`;
   return `<div class="rhd">${rav(a.id)}<span class="who"><b>${esc(a.name)}</b><small>${esc(a.role)} · ${esc(a.model)}</small></span></div>`
     + `<div class="rpane thread">${html || '<div class="dmuted">Nothing yet.</div>'}</div>`;
-}
-
-function roomHtml(o: Open) {
-  const said = o.entries.filter((e): e is Entry & Said => e.kind === "said");
-  return `<div class="rhd"><b>Room</b><small>${count(said.length, "message")}</small></div>`
-    + `<div class="rpane thread">${said.map(e => msgHtml(o, e)).join("") || '<div class="dmuted">Nobody has said anything yet.</div>'}</div>`;
 }
 
 /// Whether a tab's view follows the newest line, as a thread or the room does.
