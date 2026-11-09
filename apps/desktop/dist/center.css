@@ -551,9 +551,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .tm-screen { margin: 0; min-height: 280px; max-height: 52vh; overflow: auto; padding: 12px 14px; background: color-mix(in srgb, var(--shade) 35%, transparent); font: 12px/1.6 var(--mono, ui-monospace, monospace); color: color-mix(in srgb, var(--fg) 90%, transparent); white-space: pre-wrap; user-select: text }
 .tm-screen .tm-cmd { color: var(--muted) }
 .tm-head .small { flex: none }
-.tm-xterm { height: 52vh; min-height: 280px; padding: 8px 10px; background: var(--deep) }
-.tm-xterm .xterm { height: 100% }
-.tm-xterm .xterm-viewport { background: var(--deep) !important }
+.tm-term { height: 52vh; min-height: 280px; padding: 8px 10px; background: var(--deep) }
 .tm-keys { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; padding: 5px 5px 6px; background: #17181b; border-top: 1px solid #26272b }
 .tm-keys[hidden] { display: none }
 .tm-keys button { height: 28px; min-width: 0; padding: 0; border: 0; border-radius: 5px; background: #26272b; color: #d0d3d8; font: 11px var(--mono, ui-monospace, monospace); text-align: center; touch-action: manipulation }
@@ -747,8 +745,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .tl-empty { font-size: 12px; color: var(--muted); padding: 4px 9px }
 .tl > .cc-conn { min-height: 0 }
 .tl > .tm-panel { grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; border: 0; border-radius: 0 }
-.tl .tm-xterm, .tl .tm-screen { height: auto; min-height: 0; max-height: none }
-.tl .tm-xterm { overflow: hidden }
+.tl .tm-term, .tl .tm-screen { height: auto; min-height: 0; max-height: none }
 .tl .tm-head > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .tl > .tm-form { align-self: start; margin: 14px 16px; max-height: 100%; overflow-y: auto }
 .tl-view > .cc-err { margin: 12px 16px 0 }

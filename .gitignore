@@ -14,7 +14,7 @@ test-results*/
 .artifacts/
 /apps/desktop/playwright-report/
 /apps/desktop/dist/*.js
-/apps/desktop/dist/xterm.css
+/apps/desktop/dist/ghostty-vt.wasm
 /apps/desktop/src-tauri/gen/
 admin.sock
 /tests/e2e/.fleet

@@ -1,5 +1,5 @@
 // The touch key bar's key logic, ported from the phone apps'
-// TerminalKeys.swift / TerminalKeys.kt. Output is the string xterm.js
+// TerminalKeys.swift / TerminalKeys.kt. Output is the string the terminal
 // hands to onData.
 
 export type TermMod = "ctrl" | "alt" | "shift";

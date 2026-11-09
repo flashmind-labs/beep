@@ -4,7 +4,7 @@ import { swallowsClick } from "./clickguard-state.ts";
 export function guardClicks() {
   document.addEventListener("click", e => {
     const on = e.target instanceof Element ? e.target : null;
-    const native = !!on?.closest("input, textarea, [contenteditable], .tm-xterm, a[href]");
+    const native = !!on?.closest("input, textarea, [contenteditable], .tm-term, a[href]");
 
     if (swallowsClick({ button: e.button, ctrlKey: e.ctrlKey, native })) {
       e.stopPropagation();

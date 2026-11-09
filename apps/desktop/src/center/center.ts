@@ -72,7 +72,7 @@ mountNotices();
 
 initPalette({ go, jump, ask: askBeep, scope: () => windowProject, openChat: id => (RESEARCHES.has(id) ? openResearch(id) : go("pane", { chat: { session: id } })), research: id => RESEARCHES.has(id), settings: openSettings, providers: () => go("providers"), project: openProjects, addProject, branches: name => { if (openProjects(name)) openTile("branches"); } });
 
-// Capture before xterm handles the key, so Shift+Esc never reaches the shell.
+// Capture before the terminal handles the key, so Shift+Esc never reaches the shell.
 document.addEventListener("keydown", e => {
   if (currentLocation()?.view !== "terminals" || !isZoomKey(e) || e.isComposing || e.defaultPrevented || dialogOpen()) return;
   if (!allTerms.focusOpen()) return;
@@ -82,8 +82,8 @@ document.addEventListener("keydown", e => {
 
 document.addEventListener("keydown", e => {
   // Keys typed into a terminal are the terminal's, Esc and Tab too, but not ⌘W or ⌘N.
-  if (WINDOWS && e.ctrlKey && e.target instanceof Element && e.target.closest(".tm-xterm")) return;
-  if (e.target instanceof Element && e.target.closest(".tm-xterm") && !isCloseKey(e) && !isNewKey(e)) return;
+  if (WINDOWS && e.ctrlKey && e.target instanceof Element && e.target.closest(".tm-term")) return;
+  if (e.target instanceof Element && e.target.closest(".tm-term") && !isCloseKey(e) && !isNewKey(e)) return;
 
   // Esc goes up one page: a project's open tile closes, then the Projects page, then Home, then its Overview tab.
   if (e.key === "Escape" && !(currentLocation()?.view === "terminals" && isZoomKey(e)) && !e.defaultPrevented) {

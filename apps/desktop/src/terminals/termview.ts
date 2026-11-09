@@ -1,60 +1,109 @@
-// A terminal screen drawn by xterm.js, for terminals.ts. Kept apart so the
-// tests of terminals.ts load without a page.
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { WebglAddon } from "@xterm/addon-webgl";
-import { outputBatch } from "./output-batch.ts";
-import { leavesTerminal } from "../agentpane/media-state.ts";
-import { wordKeyBytes } from "./keys-state.ts";
+// A terminal screen: Ghostty's engine (ghostty.ts) takes the program's
+// output, the GPU renderer (ghostty-render.ts) draws it, and keys, mouse and
+// paste are encoded by Ghostty (ghostty-input.ts). Kept apart from
+// terminals.ts so its tests load without a page.
+//
+// Output is parsed in frames, at most a few milliseconds each, so a flood of
+// output never stalls the window; the rest waits for the next frame.
+import { Ghostty, loadGhostty, RenderState, Terminal, type CellSize } from "./ghostty.ts";
+import { GridRenderer, type FontSpec } from "./ghostty-render.ts";
+import { TerminalInput, type KeyInput, type MouseButton } from "./ghostty-input.ts";
+import { cellAt, fitGrid, routeKey, wheelAction, type Grid } from "./screen-state.ts";
 import { isTouchDevice, makeTouchBar } from "./touchbar.ts";
 import { ZOOMED } from "../ui/zoom-state.ts";
+import { APPLE } from "../ui/platform.ts";
 import type { Screen } from "./terminals.ts";
 
 /// The terminal's colours, as the mock's terminal pane.
 const THEME = {
-  background: "#0B0F0D",
-  foreground: "#CFE3D8",
-  cursor: "#6FCF97",
-  selectionBackground: "rgba(111,207,151,.3)",
-  green: "#6FCF97",
-  brightBlack: "#6B7D73",
-  yellow: "#E9B949",
+  background: 0x0b0f0d,
+  foreground: 0xcfe3d8,
+  cursor: 0x6fcf97,
+  selection: 0x6fcf97,
+  selectionAlpha: 0.3,
+  /// Palette entries the pane changes: green, yellow and bright black.
+  palette: new Map([[2, 0x6fcf97], [3, 0xe9b949], [8, 0x6b7d73]]),
 };
+const FONT_SIZE = 12;
+const LINE_HEIGHT = 1.2;
+/// Time given to parsing output per frame.
+const PARSE_BUDGET_MS = 6;
+/// Output parsed between checks of the budget.
+const PARSE_CHUNK = 64 * 1024;
+const BLINK_MS = 530;
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+let engine: Promise<Ghostty> | null = null;
+
+/// Ghostty's engine, compiled once for every screen of the window.
+function ghostty(): Promise<Ghostty> {
+  engine ??= (async () => {
+    const url = new URL("ghostty-vt.wasm", document.baseURI);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`loading the terminal engine: ${response.status}`);
+    return loadGhostty(await WebAssembly.compile(await response.arrayBuffer()));
+  })();
+  return engine;
+}
+
+/// The engine's parts for one screen, made once the engine has loaded.
+interface Engine {
+  term: Terminal;
+  state: RenderState;
+  input: TerminalInput;
+}
 
 /// A screen drawn in `el`, a new element unless one is given.
 export function makeScreen(el: HTMLElement = document.createElement("div")): Screen {
-  el.className = "tm-xterm";
+  el.className = "tm-term";
+  const canvas = document.createElement("canvas");
+  canvas.className = "tm-canvas";
+  // Keys, IME and the soft keyboard type into this; it is never seen.
+  const keys = document.createElement("textarea");
+  keys.className = "tm-keys-input";
+  keys.setAttribute("autocapitalize", "off");
+  keys.setAttribute("autocomplete", "off");
+  keys.setAttribute("autocorrect", "off");
+  keys.spellcheck = false;
+  keys.setAttribute("aria-label", "Terminal input");
+  el.append(canvas, keys);
+
   const mono = getComputedStyle(document.documentElement).getPropertyValue("--mono").trim();
-  const term = new Terminal({
-    fontFamily: mono || "'IBM Plex Mono', ui-monospace, monospace",
-    fontSize: 12,
-    lineHeight: 1.2,
-    cursorBlink: true,
-    scrollback: 5000,
-    macOptionIsMeta: true,
-    disableStdin: true,
-    theme: THEME,
-  });
-  // Set by a pane's terminal: Esc leaves it instead of reaching the shell.
-  let escape: (() => void) | null = null;
-  term.attachCustomKeyEventHandler(e => {
-    if (e.type === "keydown" && !e.isComposing) {
-      const bytes = wordKeyBytes(e);
+  const font: FontSpec = { family: mono || "'IBM Plex Mono', ui-monospace, monospace", size: FONT_SIZE, lineHeight: LINE_HEIGHT };
 
-      if (bytes) {
-        term.input(bytes, true);
-        return false;
-      }
-    }
-
-    if (e.type !== "keydown" || !escape || !leavesTerminal(e, term.buffer.active.type)) return true;
-    escape();
-    return false;
-  });
-  // On a touch device: a key bar above the soft keyboard, and a terminal that
-  // shrinks to the visual viewport so the keyboard does not cover it.
-  const bar = isTouchDevice() ? makeTouchBar(data => term.input(data, true)) : null;
+  let parts: Engine | null = null;
+  let renderer: GridRenderer | null = null;
+  let gpuAttempted = false;
+  let grid: Grid = { cols: 80, rows: 24 };
+  let cell: CellSize = { width: 8, height: 16 };
+  let dpr = 1;
+  const pending: Uint8Array[] = [];
+  let frame = 0;
+  let animation: ReturnType<typeof setTimeout> | undefined;
+  let fullRedraw = true;
   let inputOn = false;
+  let blinkOn = true;
+  let selecting = false;
+  let disposed = false;
+
+  let onData: (data: string) => void = () => {};
+  let onReply: (data: string) => void = () => {};
+  let onResize: (size: Grid) => void = () => {};
+  let escape: (() => void) | null = null;
+
+  /// Sends what the user did to the program, when typing is on.
+  const send = (bytes: Uint8Array | string | null) => {
+    if (bytes === null || !inputOn) return;
+    const data = typeof bytes === "string" ? bytes : decoder.decode(bytes);
+    if (data === "") return;
+    parts?.term.scrollToBottom();
+    onData(data);
+  };
+
+  // On a touch device: a key bar above the soft keyboard, and a screen that
+  // shrinks to the visual viewport so the keyboard does not cover it.
+  const bar = isTouchDevice() ? makeTouchBar(data => send(data)) : null;
   const layout = () => {
     if (!bar) return;
     const vv = window.visualViewport;
@@ -65,57 +114,281 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
     const room = bottom - el.getBoundingClientRect().top - bar.height();
     el.style.maxHeight = `${Math.max(120, Math.floor(room))}px`;
   };
-  const output = outputBatch(data => term.write(data));
-  const fit = new FitAddon();
-  term.loadAddon(fit);
-  let opened = false;
-  let webgl: WebglAddon | undefined;
-  let gpuAttempted = false;
-  const dropGpu = () => {
-    const addon = webgl;
-    webgl = undefined;
-    addon?.dispose();
+
+  void ghostty().then(g => {
+    if (disposed) return;
+    const term = new Terminal(g, grid.cols, grid.rows, {
+      reply: bytes => { if (inputOn) onReply(decoder.decode(bytes)); },
+      bell: () => {},
+      titleChanged: () => {},
+    });
+    term.setColors(THEME);
+    parts = { term, state: new RenderState(g), input: new TerminalInput(g, term) };
+    fitNow();
+    schedule();
+  }).catch(e => console.error("Terminal engine unavailable:", e));
+
+  /// Draws on the next animation frame, once.
+  const schedule = () => {
+    if (frame === 0 && !disposed) frame = requestAnimationFrame(draw);
   };
-  // Asked for focus before it was opened: given once it is.
-  let wantFocus = false;
-  // Opened and fitted once the element is on the page with a size; output
-  // written before then waits in the terminal's buffer.
+
+  const draw = () => {
+    frame = 0;
+    if (!parts) return;
+
+    // Output first, within the frame's budget.
+    const start = performance.now();
+    while (pending.length > 0 && performance.now() - start < PARSE_BUDGET_MS) {
+      const next = pending[0];
+      if (next.length <= PARSE_CHUNK) {
+        parts.term.write(next);
+        pending.shift();
+      } else {
+        parts.term.write(next.subarray(0, PARSE_CHUNK));
+        pending[0] = next.subarray(PARSE_CHUNK);
+      }
+    }
+    if (pending.length > 0) schedule();
+
+    clearTimeout(animation);
+    const next = parts.term.tickAnimations(performance.now());
+    if (next !== null) animation = setTimeout(schedule, Math.max(0, next - performance.now()));
+
+    if (!renderer) return;
+    if (renderer.lost()) { dropGpu(); return; }
+
+    parts.state.update(parts.term);
+    renderer.draw(parts.state, parts.term, fullRedraw, { visible: !inputOn || blinkOn, focused: inputOn && focused() });
+    fullRedraw = false;
+  };
+
+  const dropGpu = () => {
+    renderer?.dispose();
+    renderer = null;
+  };
+
+  const focused = () => el.contains(document.activeElement);
+
+  /// Fits the grid to the element, and makes the renderer once the screen
+  /// is shown. Hidden screens keep their terminal but no GPU context.
   const fitNow = () => {
     layout();
 
     if (document.hidden || !el.isConnected || !el.clientWidth || !el.clientHeight) {
-      // Hidden terminals keep their buffers, but need no GPU context.
       dropGpu();
       gpuAttempted = false;
       return;
     }
 
-    if (!opened) {
-      term.open(el);
-      opened = true;
-      if (wantFocus) { wantFocus = false; term.focus(); }
-    }
-
-    // Try once per visible period. A lost context falls back to the DOM
-    // renderer until the terminal is hidden and shown again.
-    if (!gpuAttempted) {
+    // Try once per shown period; a lost context is tried again when shown.
+    if (!renderer && !gpuAttempted) {
       gpuAttempted = true;
-
       try {
-        webgl = new WebglAddon();
-        webgl.onContextLoss(dropGpu);
-        term.loadAddon(webgl);
-        // Repaint kept output even when the terminal's size has not changed.
-        webgl.clearTextureAtlas();
-        term.refresh(0, term.rows - 1);
+        renderer = new GridRenderer(canvas, font, THEME);
+        fullRedraw = true;
       } catch (e) {
-        dropGpu();
         console.warn("Terminal GPU rendering unavailable:", e);
       }
     }
 
-    fit.fit();
+    if (!renderer || !parts) return;
+
+    dpr = window.devicePixelRatio || 1;
+    cell = renderer.measure(dpr);
+    const style = getComputedStyle(el);
+    const width = el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const height = el.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    const next = fitGrid(width, height, dpr, cell);
+    const changed = next.cols !== grid.cols || next.rows !== grid.rows;
+    grid = next;
+    parts.term.resize(grid.cols, grid.rows, cell);
+    parts.input.resize(grid.cols, grid.rows, cell);
+    renderer.resize(grid.cols, grid.rows);
+    fullRedraw = true;
+    schedule();
+    if (changed) onResize(grid);
   };
+
+  /// A key as Ghostty's input takes it.
+  const keyInput = (e: KeyboardEvent, action: KeyInput["action"]): KeyInput => ({
+    code: e.code, key: e.key, action, shift: e.shiftKey, ctrl: e.ctrlKey, alt: e.altKey, meta: e.metaKey,
+  });
+
+  keys.addEventListener("keydown", e => {
+    if (!parts || e.isComposing || e.keyCode === 229) return;
+
+    const route = routeKey(e, APPLE, parts.input.alternateScreen(), escape !== null);
+    switch (route.kind) {
+      case "leave":
+        e.preventDefault();
+        escape?.();
+        return;
+      case "copy": {
+        const text = parts.input.selectedText();
+        if (text === null) return;
+        e.preventDefault();
+        void navigator.clipboard.writeText(text);
+        return;
+      }
+      case "paste":
+        // The browser's paste event follows, with the text.
+        return;
+      case "word":
+        e.preventDefault();
+        send(route.bytes);
+        return;
+      case "app":
+        return;
+      case "terminal": {
+        const bytes = parts.input.key(keyInput(e, e.repeat ? "repeat" : "press"));
+        if (bytes === null) return;
+        e.preventDefault();
+        parts.input.clearSelection();
+        send(bar ? bar.apply(decoder.decode(bytes)) : bytes);
+      }
+    }
+  });
+
+  // Releases matter only to programs that asked for them (Kitty keyboard).
+  keys.addEventListener("keyup", e => {
+    if (!parts || e.isComposing || e.metaKey) return;
+    send(parts.input.key(keyInput(e, "release")));
+  });
+
+  // Text the keydown did not send: IME, dead keys and soft keyboards.
+  keys.addEventListener("compositionend", e => {
+    send(e.data);
+    keys.value = "";
+  });
+  keys.addEventListener("input", e => {
+    if (!(e instanceof InputEvent) || e.isComposing) return;
+    if (e.inputType === "insertText" && e.data) send(bar ? bar.apply(e.data) : e.data);
+    else if (e.inputType === "deleteContentBackward") send("\x7f");
+    else if (e.inputType === "insertLineBreak") send("\r");
+    keys.value = "";
+  });
+
+  keys.addEventListener("paste", e => {
+    e.preventDefault();
+    const text = e.clipboardData?.getData("text/plain") ?? "";
+    if (parts && text !== "") send(parts.input.paste(text));
+  });
+  keys.addEventListener("copy", e => {
+    const text = parts?.input.selectedText() ?? null;
+    if (text === null) return;
+    e.preventDefault();
+    e.clipboardData?.setData("text/plain", text);
+  });
+
+  keys.addEventListener("focus", () => { if (parts) send(parts.input.focus(true)); schedule(); });
+  keys.addEventListener("blur", () => { if (parts) send(parts.input.focus(false)); schedule(); });
+
+  /// The pointer over the grid, from a pointer or wheel event.
+  const at = (e: MouseEvent) => {
+    const r = canvas.getBoundingClientRect();
+    return cellAt(e.clientX - r.left, e.clientY - r.top, dpr, cell, grid);
+  };
+  const button = (e: MouseEvent): MouseButton => (e.button === 0 ? "left" : e.button === 1 ? "middle" : e.button === 2 ? "right" : "none");
+  const mods = (e: MouseEvent) => ({ shift: e.shiftKey, ctrl: e.ctrlKey, alt: e.altKey, meta: e.metaKey });
+  /// The program takes the mouse, unless Shift is held to select instead.
+  const tracking = (e: MouseEvent) => !!parts && inputOn && !e.shiftKey && parts.input.mouseTracking();
+  // A finger scrolls rather than selects.
+  let touchY: number | null = null;
+
+  canvas.addEventListener("pointerdown", e => {
+    if (!parts) return;
+    keys.focus({ preventScroll: true });
+
+    if (e.pointerType === "touch") { touchY = e.clientY; return; }
+
+    const p = at(e);
+    canvas.setPointerCapture(e.pointerId);
+    if (tracking(e)) {
+      send(parts.input.mouse({ action: "press", button: button(e), x: p.x, y: p.y, ...mods(e) }));
+      return;
+    }
+
+    if (e.button !== 0) return;
+    selecting = true;
+    parts.input.selectPress(p, e.timeStamp);
+    fullRedraw = true;
+    schedule();
+    e.preventDefault();
+  });
+
+  canvas.addEventListener("pointermove", e => {
+    if (!parts) return;
+
+    if (touchY !== null) {
+      const rows = Math.trunc(((touchY - e.clientY) * dpr) / cell.height);
+      if (rows !== 0) {
+        touchY -= (rows * cell.height) / dpr;
+        parts.term.scrollBy(rows);
+        fullRedraw = true;
+        schedule();
+      }
+      return;
+    }
+
+    const p = at(e);
+    if (selecting) {
+      parts.input.selectDrag(p);
+      fullRedraw = true;
+      schedule();
+    } else if (tracking(e)) {
+      send(parts.input.mouse({ action: "motion", button: e.buttons & 1 ? "left" : e.buttons & 4 ? "middle" : e.buttons & 2 ? "right" : "none", x: p.x, y: p.y, ...mods(e) }));
+    }
+  });
+
+  const pointerUp = (e: PointerEvent) => {
+    if (!parts) return;
+    if (touchY !== null) { touchY = null; return; }
+
+    const p = at(e);
+    if (selecting) {
+      selecting = false;
+      parts.input.selectRelease(p);
+      fullRedraw = true;
+      schedule();
+    } else if (tracking(e)) {
+      send(parts.input.mouse({ action: "release", button: button(e), x: p.x, y: p.y, ...mods(e) }));
+    }
+  };
+  canvas.addEventListener("pointerup", pointerUp);
+  canvas.addEventListener("pointercancel", pointerUp);
+
+  canvas.addEventListener("wheel", e => {
+    if (!parts) return;
+    const action = wheelAction(e.deltaY, e.deltaMode === WheelEvent.DOM_DELTA_LINE, tracking(e), parts.input.alternateScreen());
+    if (action === null) return;
+    e.preventDefault();
+
+    switch (action.kind) {
+      case "mouse": {
+        const p = at(e);
+        for (let i = 0; i < action.times; i++) send(parts.input.mouse({ action: "press", button: action.button, x: p.x, y: p.y, ...mods(e) }));
+        return;
+      }
+      case "keys":
+        if (!inputOn) return;
+        for (let i = 0; i < action.times; i++) {
+          send(parts.input.key({ code: action.code, key: action.code, action: "press", shift: false, ctrl: false, alt: false, meta: false }));
+        }
+        return;
+      case "scroll":
+        parts.term.scrollBy(action.rows);
+        fullRedraw = true;
+        schedule();
+    }
+  }, { passive: false });
+
+  const blink = setInterval(() => {
+    if (!inputOn || !focused()) { if (!blinkOn) { blinkOn = true; schedule(); } return; }
+    blinkOn = !blinkOn;
+    schedule();
+  }, BLINK_MS);
+
   const resized = new ResizeObserver(fitNow);
   resized.observe(el);
   // A zoom changes the size of a cell, not always of the element.
@@ -129,23 +402,34 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
 
   return {
     el,
-    write: data => output.write(data),
-    note: text => output.write(`\r\n\x1b[2m${text}\x1b[0m\r\n`),
-    size: () => ({ cols: term.cols, rows: term.rows }),
+    write: data => {
+      pending.push(data);
+      schedule();
+    },
+    note: text => {
+      pending.push(encoder.encode(`\r\n\x1b[2m${text}\x1b[0m\r\n`));
+      schedule();
+    },
+    size: () => grid,
     fit: fitNow,
-    focus: () => { if (opened) term.focus(); else wantFocus = true; },
-    focused: () => el.contains(document.activeElement),
-    onData: cb => { term.onData(data => cb(bar ? bar.apply(data) : data)); },
-    onResize: cb => { term.onResize(cb); },
+    focus: () => keys.focus({ preventScroll: true }),
+    focused,
+    onData: cb => { onData = cb; },
+    onReply: cb => { onReply = cb; },
+    onResize: cb => { onResize = cb; },
     onEscape: cb => { escape = cb; },
     setInput: on => {
-      term.options.disableStdin = !on;
       inputOn = on;
+      keys.readOnly = !on;
+      blinkOn = true;
       layout();
-      term.options.cursorBlink = on;
+      schedule();
     },
     dispose: () => {
-      output.dispose();
+      disposed = true;
+      cancelAnimationFrame(frame);
+      clearTimeout(animation);
+      clearInterval(blink);
       resized.disconnect();
       window.removeEventListener(ZOOMED, fitNow);
       document.removeEventListener("visibilitychange", fitNow);
@@ -153,7 +437,12 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
       window.visualViewport?.removeEventListener("scroll", fitNow);
       bar?.dispose();
       dropGpu();
-      term.dispose();
+      if (parts) {
+        parts.input.free();
+        parts.state.free();
+        parts.term.free();
+        parts = null;
+      }
     },
   };
 }

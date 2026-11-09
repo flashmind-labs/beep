@@ -223,7 +223,7 @@ export function mountNotices() {
   document.addEventListener("click", e => { if (open && !e.composedPath().includes(host)) toggle(false); });
   document.addEventListener("keydown", e => {
     if (!e.defaultPrevented && commandKey(e) && !(WINDOWS ? e.metaKey : e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b" &&
-        !(e.target instanceof Element && e.target.closest("[contenteditable]:not([contenteditable=false]), .tm-xterm"))) {
+        !(e.target instanceof Element && e.target.closest("[contenteditable]:not([contenteditable=false]), .tm-term"))) {
       e.preventDefault();
       toggle(!open, true);
       return;

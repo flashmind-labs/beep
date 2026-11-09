@@ -142,10 +142,13 @@ export function makeTerminals(deps: TerminalDeps) {
       live = { id, screen, link: "attaching", next: 0, watching: false, tries: 0, view: newView(), attaches: 0, sent: null };
       lives.set(id, live);
       const l = live;
-      screen.onData(data => {
+      const input = (data: string) => {
         if (l.link !== "attached" || l.watching) return;
         invoke("terminal_input", { id, view: l.view, data }).catch(e => { of(name).error = reason(e); redraw(); });
-      });
+      };
+      screen.onData(input);
+      // The node does not answer queries yet: the screen's answers go as input.
+      screen.onReply(input);
       screen.onResize(() => { if (l.link === "attached") sendSize(l); });
       attach(name, live);
     }
@@ -170,9 +173,10 @@ export function makeTerminals(deps: TerminalDeps) {
     const attempt = ++live.attaches;
     // Whether this is still the view's stream: one it replaced says nothing.
     const current = () => lives.get(live.id) === live && live.attaches === attempt;
-    const channel = new Channel<TermEvent>();
-    channel.onmessage = ev => {
+    const channel = new Channel<TermMessage>();
+    channel.onmessage = message => {
       if (!current()) return;
+      const ev = readTermMessage(message);
 
       if (ev.kind === "attached") {
         live.link = "attached";
@@ -182,7 +186,7 @@ export function makeTerminals(deps: TerminalDeps) {
         sendSize(live);
         redraw();
       } else if (ev.kind === "output") {
-        const bytes = fromBase64(ev.data);
+        const bytes = ev.data;
         const { skip, gap } = splice(live.next, ev.at, bytes.length);
         if (gap) live.screen.note("… earlier output was not kept");
         live.screen.write(bytes.subarray(skip));
@@ -531,13 +535,30 @@ export interface OutputView {
   earlier: boolean;
 }
 
-/// What an attached terminal sends (TermEvent): output from byte `at` in
-/// base64, its end, or that it takes no input.
+/// What an attached terminal sends: output from byte `at`, its end, or
+/// that it takes no input.
 export type TermEvent =
   | { kind: "attached" }
-  | { kind: "output"; at: number; data: string }
+  | { kind: "output"; at: number; data: Uint8Array }
+  | TermNotice;
+
+/// The events other than output, as JSON on the channel (TermNotice).
+export type TermNotice =
+  | { kind: "attached" }
   | { kind: "ended"; state: string; code: number | null }
   | { kind: "view_only" };
+
+/// What `terminal_attach`'s channel carries: output as raw bytes, the
+/// offset first as eight little-endian bytes, and notices as JSON.
+export type TermMessage = ArrayBuffer | TermNotice;
+
+/// A channel message as an event.
+export function readTermMessage(message: TermMessage): TermEvent {
+  if (!(message instanceof ArrayBuffer)) return message;
+
+  const at = Number(new DataView(message).getBigUint64(0, true));
+  return { kind: "output", at, data: new Uint8Array(message, 8) };
+}
 
 /// A machine a terminal can start on, in the project's folder there.
 export interface TerminalPlace {
@@ -546,12 +567,11 @@ export interface TerminalPlace {
   folder: string;
 }
 
-/// A terminal emulator on the page (termview.ts draws one with xterm.js).
-/// A screen whose terminal comes from `load` when first made, so xterm stays out of the
-/// window's first load. What it is given before then waits; its size is xterm's first one.
+/// A screen whose terminal comes from `load` when first made, so the terminal stays out
+/// of the window's first load. What it is given before then waits.
 export function lazyScreen(load: () => Promise<(el: HTMLElement) => Screen>): Screen {
   const el = document.createElement("div");
-  el.className = "tm-xterm";
+  el.className = "tm-term";
   let real: Screen | null = null;
   let gone = false;
   const early: ((screen: Screen) => void)[] = [];
@@ -571,6 +591,7 @@ export function lazyScreen(load: () => Promise<(el: HTMLElement) => Screen>): Sc
     focus: () => use(screen => screen.focus()),
     focused: () => el.contains(document.activeElement),
     onData: cb => use(screen => screen.onData(cb)),
+    onReply: cb => use(screen => screen.onReply(cb)),
     onResize: cb => use(screen => screen.onResize(cb)),
     onEscape: cb => use(screen => screen.onEscape(cb)),
     setInput: on => use(screen => screen.setInput(on)),
@@ -578,6 +599,7 @@ export function lazyScreen(load: () => Promise<(el: HTMLElement) => Screen>): Sc
   };
 }
 
+/// A terminal emulator on the page (termview.ts runs one with Ghostty).
 export interface Screen {
   el: HTMLElement;
   write(data: Uint8Array): void;
@@ -589,7 +611,12 @@ export interface Screen {
   focus(): void;
   /// Whether the keyboard is in it now.
   focused(): boolean;
+  /// What the user typed, pasted or clicked, for the program.
   onData(cb: (data: string) => void): void;
+  /// What the terminal answers the program's queries with (cursor position,
+  /// device attributes, image support). Apart from onData, so a node that
+  /// answers queries itself can have these dropped.
+  onReply(cb: (data: string) => void): void;
   onResize(cb: (size: { cols: number; rows: number }) => void): void;
   /// Esc typed in it, which it does not send on; only a pane's terminal sets this.
   /// A program on the alternate screen (vim, less) still gets Esc.
@@ -748,14 +775,6 @@ export function terminalTile(
 export function splice(next: number, at: number, len: number): { skip: number; gap: boolean } {
   if (at > next) return { skip: 0, gap: true };
   return { skip: Math.min(next - at, len), gap: false };
-}
-
-/// The bytes of a base64 string.
-export function fromBase64(data: string): Uint8Array {
-  const text = atob(data);
-  const out = new Uint8Array(text.length);
-  for (let i = 0; i < text.length; i++) out[i] = text.charCodeAt(i);
-  return out;
 }
 
 /// A terminal's size in cells.

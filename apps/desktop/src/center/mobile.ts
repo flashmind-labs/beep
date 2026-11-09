@@ -96,7 +96,7 @@ function longPress() {
     clearTimeout(timer);
     const t = e.touches[0], target = e.target;
     if (e.touches.length !== 1 || !(target instanceof Element) || !document.body.classList.contains("mobile")) return;
-    if (target.closest("input, textarea, .tm-xterm, .cc-menu")) return;
+    if (target.closest("input, textarea, .tm-term, .cc-menu")) return;
     from = { x: t.clientX, y: t.clientY };
     timer = setTimeout(() => {
       swallow = Date.now() + 700;
