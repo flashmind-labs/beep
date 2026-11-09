@@ -92,6 +92,27 @@ test("attaching and reconnecting do not take keyboard focus", () => {
   }
 });
 
+test("an exited or missing shell closes its tab instead of reconnecting", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+
+  for (const state of ["exited", "gone"]) {
+    calls.length = 0;
+    let ended = 0;
+    const term = paneTerm(ROW, fakeScreen(), { onEnd: () => { ended++; }, onLink() {}, onEscape() {} });
+    const stream = nextAttach();
+    attach(term);
+    stream.send({ kind: "attached" });
+    stream.send({ kind: "ended", state, code: state === "exited" ? 0 : null });
+    stream.end();
+    await settle();
+    t.mock.timers.tick(60_000);
+
+    assert.equal(ended, 1);
+    assert.equal(term.link, "ended");
+    assert.equal(count("terminal_attach"), 1);
+  }
+});
+
 test("Esc typed in the screen reaches the tab's hook, not the shell", () => {
   calls.length = 0;
   const screen = fakeScreen();

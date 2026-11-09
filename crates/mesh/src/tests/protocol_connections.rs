@@ -100,6 +100,72 @@ async fn a_new_mesh_session_closes_retired_links_even_without_a_current_link() {
     assert!(connection.close_reason().is_some());
 }
 
+#[tokio::test]
+async fn rejected_protocol_dials_share_a_cooldown_and_retry_after_restart() {
+    let pair = pair().await;
+    let mesh = &pair.controller;
+    let peer = pair.node.me();
+    // This peer accepts commands but has no subscription handler.
+    assert!(mesh.subscription_connection(peer).await.is_err());
+    let slot = mesh
+        .inner
+        .channels
+        .lock()
+        .unwrap()
+        .get(&(peer, beep_proto::node::subscriptions::ALPN))
+        .unwrap()
+        .clone();
+    let retry_at = slot.dialing.lock().await.as_ref().unwrap().retry_at;
+    let calls = (0..16).map(|_| mesh.subscription_connection(peer));
+    for result in futures::future::join_all(calls).await {
+        assert!(result.is_err());
+    }
+    assert_eq!(
+        slot.dialing.lock().await.as_ref().unwrap().retry_at,
+        retry_at
+    );
+    // A failure on subscriptions must not block commands.
+    assert!(mesh.command_connection(peer).await.is_ok());
+
+    let session = {
+        let mut conns = mesh.inner.conns();
+        let live = conns.get_mut(&peer).unwrap();
+        live.session = live.session.wrapping_add(1);
+        live.session
+    };
+    mesh.inner.restart_connections(peer, session);
+    assert!(mesh.subscription_connection(peer).await.is_err());
+    let failed = slot.dialing.lock().await;
+    assert_eq!(failed.as_ref().unwrap().peer_session, Some(session));
+    assert_eq!(failed.as_ref().unwrap().pause, FIRST_RETRY);
+}
+
+#[tokio::test]
+async fn rejected_protocol_dials_back_off_until_the_retry_deadline() {
+    let pair = pair().await;
+    let mesh = &pair.controller;
+    let peer = pair.node.me();
+    assert!(mesh.subscription_connection(peer).await.is_err());
+    let slot = mesh
+        .inner
+        .channels
+        .lock()
+        .unwrap()
+        .get(&(peer, beep_proto::node::subscriptions::ALPN))
+        .unwrap()
+        .clone();
+    {
+        let mut failed = slot.dialing.lock().await;
+        // Expire the first failure without waiting on wall clock time.
+        failed.as_mut().unwrap().retry_at = Instant::now();
+    }
+    assert!(mesh.subscription_connection(peer).await.is_err());
+    assert_eq!(
+        slot.dialing.lock().await.as_ref().unwrap().pause,
+        FIRST_RETRY * 2
+    );
+}
+
 struct Pair {
     controller: Mesh,
     node: Mesh,
