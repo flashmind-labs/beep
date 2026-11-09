@@ -4,7 +4,7 @@ import type { Root } from "react-dom/client";
 import { openBarPage } from "../bar/page-root.ts";
 import { GrantsList, RoutineEditor, RoutinesList } from "./routines-view.tsx";
 import { $, $$, bar, S } from "../bar/core.ts";
-import { hints } from "../bar/hints.ts";
+import { hintModel } from "../bar/hints.ts";
 import { openSession } from "../chat/history.ts";
 import { arrowKey, clampSel, confirmKey, dayDiff, dayMonth, type ListState, loadList } from "./memories.ts";
 import { ICON } from "../ui/icons.ts";
@@ -129,7 +129,7 @@ export function drawRoutines() {
   const keys = R.loaded && !R.list.length ? [["⌘N", "new routine"], ["esc", "back"]] : R.mode === "actions"
     ? [["⌘E", "edit"], ["tab", "hide actions"], ["esc", "back"]] : [["↑↓", "move"], ["space", "on or off"], ["tab", "actions"], ["⌘N", "new routine"], ["⌘G", "grants"], ["esc", "back"]];
   const root = routinePage();
-  flushSync(() => root.render(createElement(RoutinesList, { list: R.list, selected: R.sel, mode: R.mode, loaded: R.loaded, error: R.error, summary: sum, grants: GR.list.length, hints: hints(keys) })));
+  flushSync(() => root.render(createElement(RoutinesList, { list: R.list, selected: R.sel, mode: R.mode, loaded: R.loaded, error: R.error, summary: sum, grants: GR.list.length, hints: hintModel(keys) })));
   bar.onclick = routineClick;
   bar.oncontextmenu = routineMenu;
 }
@@ -274,7 +274,7 @@ export function drawRoutineNew() {
   const go = NR.edit ? "Save" : "Create";
   const root = routinePage();
   flushSync(() => root.render(createElement(RoutineEditor, {
-    form: NR, hints: hints([["tab", "next field"], [`⌘${ICON.ret}`, go.toLowerCase()], ["esc", "cancel"]]),
+    form: NR, hints: hintModel([["tab", "next field"], [`⌘${ICON.ret}`, go.toLowerCase()], ["esc", "cancel"]]),
     input: (key: "label" | "prompt" | "time" | "date" | "cron", value: string) => { NR[key] = value; if (key === "cron") cronSays(); },
   })));
   cronSays();
@@ -397,7 +397,7 @@ export function drawGrants() {
   const keys = GR.loaded && !GR.list.length ? [["esc", "back"]] : GR.mode === "confirm"
     ? [[ICON.ret, "revoke"], ["esc", "cancel"]] : [["↑↓", "move"], ["⌘⌫", "revoke"], ["esc", "back"]];
   const root = routinePage();
-  flushSync(() => root.render(createElement(GrantsList, { list: GR.list, selected: GR.sel, mode: GR.mode, loaded: GR.loaded, error: GR.error, hints: hints(keys) })));
+  flushSync(() => root.render(createElement(GrantsList, { list: GR.list, selected: GR.sel, mode: GR.mode, loaded: GR.loaded, error: GR.error, hints: hintModel(keys) })));
   bar.onclick = grantClick;
 }
 

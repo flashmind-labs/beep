@@ -22,6 +22,10 @@ export function hints(items: readonly Hint[], extra = "") {
   const win = !PANE && S.view === "chat" ? '<button class="win" data-act="openWindow"><kbd>⌘O</kbd>open in window</button>' : "";
   return `<div class="dhints">${items.map(([k, t], i) => `<span${i >= 2 ? ' class="lo"' : ""}><kbd>${k}</kbd>${t}</span>`).join("")}${win}${extra}${link}</div>`;
 }
+export function hintModel(items: readonly Hint[]): HintViewModel {
+  return { items: forPane(items), window: !PANE && S.view === "chat", model: null, link: linkChip(S.server, S.link, S.signedOut) };
+}
+
 /// The window does not hide and has no live mode, and ⌘K searches there.
 export function forPane(items: readonly Hint[]) {
   if (!PANE) return items;

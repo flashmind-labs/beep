@@ -15,7 +15,7 @@ test("skill validation retains the draft, caret and scroll", () => {
   const root = createRoot(host);
   const skill = { id: "one", name: "Example", description: "When needed", body: "Original", html: "", group_id: null, group_name: null, enabled: true, uses: 0, last_used: null, updated_at: "", edited: false, can_undo: false };
   let saves = 0;
-  const render = (error: string) => flushSync(() => root.render(createElement(SkillEditor, { skill, error, hints: "", save: () => saves++, cancel: () => {} })));
+  const render = (error: string) => flushSync(() => root.render(createElement(SkillEditor, { skill, error, hints: { items: [], window: false, model: null, link: null }, save: () => saves++, cancel: () => {} })));
   render("");
   const body = host.querySelector<HTMLTextAreaElement>("#kbody");
   assert.ok(body);

@@ -23,7 +23,7 @@ import { type Link, LINKED } from "./reconnect-state.ts";
 import { leavePane, newTerminal, newTerminalLike, showPaneTab } from "../agentpane/media.ts";
 import { draftEsc } from "./draft-state.ts";
 import { $, type AgentReturn, bar, S, windowHooks } from "../bar/core.ts";
-import { hints } from "../bar/hints.ts";
+import { hintModel } from "../bar/hints.ts";
 import { openSession } from "../chat/history.ts";
 import { cap } from "../chat/tools.ts";
 import { openAgent, openEditorKey, closeOpenSession, submitAgentMessage } from "./session.ts";
@@ -464,7 +464,7 @@ export function drawAgents(loading: boolean) {
   const root = listPage.root;
   flushSync(() => root.render(createElement(AgentsList, {
     rows: shown.map(sessionRow), showSessions: !!list.length, selected: AG.sel, summary: sum, error: AG.error, copies, loading,
-    hints: hints([[ICON.ret, "open"], ["⌘⇧A", "new"], ["esc", "back"]]),
+    hints: hintModel([[ICON.ret, "open"], ["⌘⇧A", "new"], ["esc", "back"]]),
   })));
   bar.onclick = e => {
     if (S.view !== "agents") return;

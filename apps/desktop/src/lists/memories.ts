@@ -6,7 +6,7 @@ import type { Root } from "react-dom/client";
 import { openBarPage } from "../bar/page-root.ts";
 import { MemoriesShell } from "./memories-shell.tsx";
 import { $, $$, S } from "../bar/core.ts";
-import { hints } from "../bar/hints.ts";
+import { hintModel } from "../bar/hints.ts";
 import { clock, dateValue } from "./routines.ts";
 import { cap } from "../chat/tools.ts";
 import { esc } from "../ui/format.ts";
@@ -247,8 +247,8 @@ export function drawMemories() {
   clampSel(M);
   const count = M.loaded ? (q || M.filter !== "all" ? `${M.list.length} of ${M.all.length}` : String(M.all.length)) : "";
   const keys = M.mode === "edit"
-    ? hints([[ICON.ret, "save"], [`⇧${ICON.ret}`, "new line"], ["esc", "cancel"]])
-    : hints([["↑↓", "move"], [ICON.ret, "edit"], ["⌘⌫", "forget"], ...(filters.length ? [["tab", "filter"]] : []), ["esc", "back"]]);
+    ? hintModel([[ICON.ret, "save"], [`⇧${ICON.ret}`, "new line"], ["esc", "cancel"]])
+    : hintModel([["↑↓", "move"], [ICON.ret, "edit"], ["⌘⌫", "forget"], ...(filters.length ? [["tab", "filter"]] : []), ["esc", "back"]]);
   flushSync(() => page.root.render(createElement(MemoriesShell, {
     filters, picked: M.filter, count, hints: keys, memories: M.list, selected: M.sel, mode: M.mode, scopes: M.scopes,
     query: M.query, today: dateValue(new Date()), loaded: M.loaded, total: M.all.length, error: M.error,
