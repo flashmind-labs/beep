@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { GroupInfoView } from "./group-info-view.tsx";
 import { GroupMessages } from "./group-view.tsx";
 import type { ApprovalField } from "./chat.ts";
 import { grow } from "./chat.ts";
@@ -9,7 +10,7 @@ import { copy } from "../ui/parts.ts";
 import { $, $$, bar, changed, G, GROUP_VIEWS, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { dayDiff } from "../lists/memories.ts";
-import { switchHtml, esc } from "../ui/format.ts";
+import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { BEEP_MARK, ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -87,7 +88,7 @@ export interface GroupApproval {
 }
 
 /// A reminder Beep posts into a group when it is due (GroupReminder).
-interface GroupReminder {
+export interface GroupReminder {
   id: string;
   label: string;
   message: string;
@@ -182,9 +183,11 @@ function setGroup(id: string) {
 let messageRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
 const pendingKeys = new WeakMap<object, number>();
 let nextPending = 0, groupRevision = 0;
+const shareVersions = new Map<string, number>(), reminderVersions = new Map<string, number>();
 function disposeMessages() { const current = messageRoot; messageRoot = null; if (current) { current.observer.disconnect(); current.root.unmount(); } }
 
 export async function renderGroup(id: string, then?: "info" | "leave") {
+  disposeInfo();
   disposeMessages();
   // The view may stay "group", so a new group is a change of its own.
   if (setGroup(id)) changed();
@@ -217,12 +220,13 @@ export async function renderGroup(id: string, then?: "info" | "leave") {
 }
 
 export async function loadGroup() {
-  const id = G.id;
+  const id = G.id, shareVersion = id ? shareVersions.get(id) ?? 0 : 0;
   clearTimeout(G.poll);
 
   try {
     const chat = await invoke<GroupChat>("open_group", { id });
     if (G.id !== id) return;
+    if (id && (shareVersions.get(id) ?? 0) !== shareVersion && G.chat) chat.group.apps_shared = G.chat.group.apps_shared;
     G.chat = chat;
 
     if (S.view === "group") { redrawHead(); drawGroup(); $$<HTMLTextAreaElement>("#gask").placeholder = `Message ${chat.group.name}, @beep to ask Beep`; }
@@ -344,19 +348,30 @@ export function insertMention(i: number) {
 
 // ---------- Group info ----------
 
+let infoRoot: { host: HTMLElement; root: Root; observer: MutationObserver; id: string; error: string } | null = null;
+const infoBusy = new Set<string>();
+function disposeInfo() { const current = infoRoot; infoRoot = null; if (current) { current.observer.disconnect(); current.root.unmount(); } }
 export function renderGroupInfo(leave = false) {
   if (!G.id) return;
+  disposeMessages(); disposeInfo();
   S.view = "ginfo";
-  G.leave = leave;
-  G.mention = null;
+  G.leave = leave; G.mention = null;
   bar.innerHTML = `${groupHead()}<div class="dbody pt dgroupbody" id="ginfobody"></div>${hints([["esc", "back to the chat"], ["⌘K", "chats"]])}`;
   wireHead();
+  const host = $$("#ginfobody"), id = G.id, reactRoot = createRoot(host);
+  const observer = new MutationObserver(() => { if (infoRoot?.host === host && !host.isConnected) disposeInfo(); });
+  observer.observe(document.body, { childList: true, subtree: true });
+  infoRoot = { host, root: reactRoot, observer, id, error: "" };
+  const owner = infoRoot;
   G.reminders = null;
   drawGroupInfo();
-  const id = G.id;
+  loadGroupReminders(owner);
+}
+function loadGroupReminders(owner: NonNullable<typeof infoRoot>) {
+  const id = owner.id, version = reminderVersions.get(id) ?? 0;
   invoke<GroupReminder[]>("list_group_reminders", { groupId: id })
-    .then(list => { if (G.id === id) { G.reminders = list; drawGroupInfo(); } })
-    .catch(() => { if (G.id === id) { G.reminders = []; drawGroupInfo(); } });
+    .then(list => { if (infoRoot === owner && G.id === id && (reminderVersions.get(id) ?? 0) === version) { G.reminders = list; drawGroupInfo(); } })
+    .catch(() => { if (infoRoot === owner && G.id === id && (reminderVersions.get(id) ?? 0) === version) { G.reminders = []; drawGroupInfo(); } });
 }
 
 // "Every day at 9:00" for the cron shapes Beep writes, "Tomorrow 10:00" for a one-off.
@@ -383,63 +398,40 @@ function describeSchedule(schedule: string) {
   return schedule;
 }
 
-function groupReminders(g: GroupSummary) {
-  const ask = 'Ask Beep in the chat to add one, like "remind us at 10 to check out".';
-  const list = G.reminders;
-  if (!list) return '<div class="dmuted"><span class="dspin"></span>Loading…</div>';
-  if (!list.length) return `<div class="dinfo dmut">No reminders yet. ${esc(ask)}</div>`;
-  const you = g.members.find(m => m.you)?.name;
-  return `<div class="dinfo">${list.map(r => `<div class="member dalignt">
-    <span class="dcol"><b>${esc(r.label)}</b><small>${esc(r.message)}</small><small>${esc(describeSchedule(r.schedule))} · set by ${esc(r.set_by === you ? "you" : r.set_by)}</small></span>
-    <button class="dbtn warn" data-rem="${esc(r.id)}" aria-label="Delete reminder">Delete</button></div>`).join("")}
-    <div class="dfine">${esc(ask)}</div></div>`;
-}
-
 function drawGroupInfo() {
-  const b = $("#ginfobody"), g = G.chat?.group;
-  if (!b) return;
-  if (!g) { b.innerHTML = '<div class="dmuted"><span class="dspin"></span>Loading…</div>'; return; }
-  const date = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short" });
-  const member = (name: string, label: string, note: string) => `<div class="member">${av(name, label)}<span><b>${esc(name)}</b><small>${esc(note)}</small></span></div>`;
-  const members = youFirst(g.members).map(m => m.you
-    ? member("You", m.name, `${m.name}, ${m.creator ? "created the group" : `joined ${date(m.joined_at)}`}`)
-    : member(m.name, m.name, m.creator ? "Created the group" : `Joined ${date(m.joined_at)}`)).join("");
-  b.innerHTML = `<div class="dsec flat">Members</div>
-    <div class="dinfo">${members}${member("Beep", "Beep", "Joins in when it can help, or when someone writes @beep")}</div>
-    <div class="dsec flat">Reminders</div>
-    ${groupReminders(g)}
-    <div class="dsec flat">Your apps</div>
-    <div class="dtoggle"><span><b>Share my apps with Beep here</b><small>${g.apps_shared
-      ? "Beep reads them to plan for the group and never shows them here. Sending anything asks you first."
-      : "Only when you ask"}</small></span>
-      ${switchHtml(g.apps_shared, "Share my apps with Beep here", `id="gapps"`)}</div>
-    <div class="dsec flat">Privacy</div>
-    <div class="dinfo dmut"><div>Beep reads every member's memories but never quotes them here. Memories from email and Slack stay out of groups.</div><div>Beep's thinking and tool calls are hidden in groups. Members only see its replies.</div></div>
-    ${G.leave ? `<div class="dcard"><div class="dask dline wrap"><span class="dfill">Leave ${esc(g.name)}? You stop getting its messages, and need a new code to come back.</span><button class="dbtn quiet" id="gstay">Cancel</button><button class="dbtn warn" id="gleave">Leave</button></div></div>`
-      : '<div><button class="dbtn warn" id="gaskleave">Leave group</button></div>'}`;
-  // A refusal shows above the info, which stays as it was.
-  const fail = (e: unknown) => b.insertAdjacentHTML("afterbegin", `<div class="derr">${esc(e)}</div>`);
-  $$("#gapps").addEventListener("click", async () => {
-    const shared = !g.apps_shared;
-    try { await invoke("share_group_apps", { id: g.id, shared }); g.apps_shared = shared; } catch (e) { fail(e); return; }
-    drawGroupInfo();
-  });
-  b.querySelectorAll<HTMLElement>("[data-rem]").forEach(btn => btn.addEventListener("click", async () => {
-    try { await invoke("delete_group_reminder", { groupId: g.id, id: btn.dataset.rem }); } catch (e) { fail(e); return; }
-    G.reminders = (G.reminders || []).filter(r => r.id !== btn.dataset.rem);
-    drawGroupInfo();
-  }));
-  $("#gaskleave")?.addEventListener("click", () => { G.leave = true; drawGroupInfo(); });
-  $("#gstay")?.addEventListener("click", () => { G.leave = false; drawGroupInfo(); });
-  $("#gleave")?.addEventListener("click", async () => {
-    try { await invoke("leave_group", { id: g.id }); } catch (e) { fail(e); return; }
-    G.approvals.delete(g.id);
-    G.drafts.delete(g.id);
-    G.id = null;
-    G.chat = null;
-    S.cache = S.cache.filter(c => c.id !== g.id);
-    renderChats();
-  });
+  const current = infoRoot, group = G.chat?.group ?? null;
+  if (!current?.host.isConnected || S.view !== "ginfo" || G.id !== current.id) return;
+  const pending = new Set([...infoBusy].filter(key => key.startsWith(`${current.id}\0`)).map(key => key.slice(current.id.length + 1)));
+  flushSync(() => current.root.render(createElement(GroupInfoView, {
+    group, reminders: G.reminders ?? null, leave: G.leave, error: current.error, busy: pending, color: avColor, schedule: describeSchedule,
+    share: () => { if (group) void changeGroupInfo(current, "share", async () => {
+      const shared = !group.apps_shared;
+      await invoke("share_group_apps", { id: group.id, shared });
+      shareVersions.set(group.id, (shareVersions.get(group.id) ?? 0) + 1);
+      if (G.id === group.id && G.chat?.group.id === group.id) G.chat.group.apps_shared = shared;
+    }); },
+    remove: (id: string) => { if (group) void changeGroupInfo(current, `reminder:${id}`, async () => {
+      await invoke("delete_group_reminder", { groupId: group.id, id });
+      reminderVersions.set(group.id, (reminderVersions.get(group.id) ?? 0) + 1);
+      if (G.id === group.id) {
+        if (G.reminders) G.reminders = G.reminders.filter(reminder => reminder.id !== id);
+        else if (infoRoot?.id === group.id) loadGroupReminders(infoRoot);
+      }
+    }); },
+    askLeave: () => { G.leave = true; drawGroupInfo(); }, stay: () => { G.leave = false; drawGroupInfo(); },
+    leaveGroup: () => { if (group) void changeGroupInfo(current, "leave", async () => {
+      await invoke("leave_group", { id: group.id });
+      G.approvals.delete(group.id); G.drafts.delete(group.id); S.cache = S.cache.filter(chat => chat.id !== group.id);
+      if (G.id === group.id) { G.id = null; G.chat = null; renderChats(); }
+    }); },
+  })));
+}
+async function changeGroupInfo(owner: NonNullable<typeof infoRoot>, action: string, run: () => Promise<void>) {
+  const key = `${owner.id}\0${action}`;
+  if (infoBusy.has(key)) return;
+  infoBusy.add(key); owner.error = ""; drawGroupInfo();
+  try { await run(); } catch (error) { if (infoRoot === owner) owner.error = String(error); }
+  finally { infoBusy.delete(key); if (infoRoot?.id === owner.id) drawGroupInfo(); }
 }
 
 // ---------- Invite ----------
