@@ -1,6 +1,7 @@
-import { createElement, Fragment, type MouseEvent, type ReactElement } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { createElement, type MouseEvent, type ReactElement } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { GroupShell } from "./group-shell-view.tsx";
 import { GroupFormView } from "./group-form-view.tsx";
 import { GroupInviteView, type GroupInvite, type InviteState } from "./group-invite-view.tsx";
 import { GroupInfoView } from "./group-info-view.tsx";
@@ -13,7 +14,6 @@ import { $, $$, bar, changed, G, GROUP_VIEWS, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { dayDiff } from "../lists/memories.ts";
 import { esc } from "../ui/format.ts";
-import { h } from "../ui/dom.ts";
 import { BEEP_MARK, ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -158,12 +158,6 @@ function wireHead() {
   for (const id of ["#gtitle", "#ginfo"]) $(id)?.addEventListener("click", () => renderGroupInfo());
   $("#ginvite")?.addEventListener("click", () => renderInvite(G.id!, G.chat?.group.name));
 }
-function redrawHead() {
-  const old = $("#ghead");
-  if (!old) return;
-  old.replaceWith(h(groupHead()));
-  wireHead();
-}
 
 function groupHints() {
   if (G.mention) return hints([["↑↓", "pick"], [ICON.ret, "insert"], ["esc", "close"]]);
@@ -182,7 +176,7 @@ function setGroup(id: string) {
 }
 
 /// Opens a group in the bar. `then` opens its info, or info with Leave asked.
-let messageRoot: { host: HTMLElement; root: Root; mentionHost: HTMLElement; message: ReactElement | null; mention: ReactElement | null; observer: MutationObserver } | null = null;
+let messageRoot: { host: HTMLElement; root: Root; message: ReactElement | null; mention: ReactElement | null; draft: string; observer: MutationObserver } | null = null;
 const pendingKeys = new WeakMap<object, number>();
 let nextPending = 0, groupRevision = 0;
 const shareVersions = new Map<string, number>(), reminderVersions = new Map<string, number>();
@@ -196,19 +190,14 @@ export async function renderGroup(id: string, then?: "info" | "leave") {
   G.mention = null;
   G.leave = false;
   S.view = "group";
-  const name = G.chat?.group.name ?? "the group";
-  bar.innerHTML = `${groupHead()}<div class="dbody pt dgroupbody" id="gbody"></div><div id="mention"></div>
-    <div class="dinput small"><textarea id="gask" rows="1" placeholder="Message ${esc(name)}, @beep to ask Beep" autocomplete="off" spellcheck="true"></textarea></div>${groupHints()}`;
-  wireHead();
-  const messageHost = $$("#gbody"), root = createRoot(messageHost);
-  const observer = new MutationObserver(() => { if (messageRoot?.host === messageHost && !messageHost.isConnected) disposeMessages(); });
+  const host = document.createElement("div");
+  host.style.display = "contents";
+  bar.replaceChildren(host);
+  const root = createRoot(host);
+  const observer = new MutationObserver(() => { if (messageRoot?.host === host && !host.isConnected) disposeMessages(); });
   observer.observe(document.body, { childList: true, subtree: true });
-  messageRoot = { host: messageHost, root, mentionHost: $$("#mention"), message: null, mention: null, observer };
-  const ask = $$<HTMLTextAreaElement>("#gask");
-  ask.value = G.drafts.get(id) ?? "";
-  grow(ask);
-  ask.addEventListener("input", () => { G.drafts.set(G.id, ask.value); grow(ask); findMention(); });
-  ask.addEventListener("click", findMention);
+  messageRoot = { host, root, message: null, mention: null, draft: G.drafts.get(id) ?? "", observer };
+  drawGroupRoot(messageRoot);
   if (G.chat) drawGroup(true);
 
   if (then) {
@@ -217,7 +206,7 @@ export async function renderGroup(id: string, then?: "info" | "leave") {
     return;
   }
 
-  ask.focus();
+  $("#gask")?.focus();
   loadGroup();
 }
 
@@ -231,7 +220,7 @@ export async function loadGroup() {
     if (id && (shareVersions.get(id) ?? 0) !== shareVersion && G.chat) chat.group.apps_shared = G.chat.group.apps_shared;
     G.chat = chat;
 
-    if (S.view === "group") { redrawHead(); drawGroup(); $$<HTMLTextAreaElement>("#gask").placeholder = `Message ${chat.group.name}, @beep to ask Beep`; if (G.mention) findMention(); }
+    if (S.view === "group") { drawGroup(); if (G.mention) findMention(); }
     else if (S.view === "ginfo") drawGroupInfo();
 
     // The local copy does not know whether Beep is typing, so ask the server.
@@ -253,7 +242,7 @@ export async function loadGroup() {
 
 export function drawGroup(jump = false) {
   const current = messageRoot, b = $("#gbody");
-  if (!current || b !== current.host || !current.host.isConnected) return;
+  if (!current || !b || !current.host.isConnected) return;
   const near = jump || b.scrollHeight - b.scrollTop - b.clientHeight < 40;
   const pending = G.pending.map(item => {
     let key = pendingKeys.get(item);
@@ -322,7 +311,15 @@ export function findMention() {
   drawMention();
 }
 function drawGroupRoot(current: NonNullable<typeof messageRoot>) {
-  flushSync(() => current.root.render(createElement(Fragment, null, current.message, createPortal(current.mention, current.mentionHost))));
+  const group = G.chat?.group;
+  const members = group ? youFirst(group.members).slice(0, 3) : [];
+  flushSync(() => current.root.render(createElement(GroupShell, {
+    name: group?.name ?? "Group", placeholder: group?.name ?? "the group", people: group ? people(group) : "Loading…",
+    avatars: members.map(m => av(m.you ? "You" : m.name, m.name)).join("") + av("Beep"), draft: current.draft,
+    message: current.message, mention: current.mention, hints: groupHints(), grow,
+    input: (ask: HTMLTextAreaElement) => { G.drafts.set(G.id, ask.value); grow(ask); findMention(); },
+    find: findMention, info: () => { void renderGroupInfo(); }, invite: () => { if (G.id) void renderInvite(G.id, G.chat?.group.name); },
+  })));
 }
 export function drawMention() {
   const current = messageRoot;
@@ -335,8 +332,6 @@ export function drawMention() {
     }, createElement("span", { className: "dav", style: { background: avColor(item.name) }, dangerouslySetInnerHTML: { __html: item.name === "Beep" ? BEEP_MARK : esc([...item.name][0]?.toUpperCase() ?? "?") } }), item.name, createElement("small", null, item.note)))
   ) : null;
   drawGroupRoot(current);
-  const old = $(".dhints");
-  if (old) old.replaceWith(h(groupHints()));
 }
 export function closeMention() {
   if (!G.mention) return;

@@ -51,8 +51,8 @@ test("mention picker preserves composer focus and inserts with keyboard or point
   }, { ...group, id: "other", members: [{ ...group.members[1], name: "Other" }] });
   await expect.poll(() => page.evaluate(() => {
     const host: unknown = Reflect.get(window, "oldMentionHost");
-    return host instanceof HTMLElement ? host.childElementCount : -1;
-  })).toBe(0);
+    return host instanceof HTMLElement ? host.isConnected : true;
+  })).toBe(false);
   await expect(ask).toHaveAttribute("placeholder", /Example group/);
   await ask.fill("@");
   await expect(picker.getByRole("option", { name: /Other/ })).toBeVisible();
