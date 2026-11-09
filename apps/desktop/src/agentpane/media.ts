@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { PaneTabs, type PaneTabItem } from "./tabs-view.tsx";
+import { PaneTabs, PhonePaneTabs, type PaneTabItem } from "./tabs-view.tsx";
 import { readView, writeView, viewKey, rememberScroll } from "./view-memory.ts";
 import { isHtmlFile, queuePreview } from "./html-preview-state.ts";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
@@ -537,13 +537,6 @@ function phoneTabs() {
     nav = document.createElement("nav");
     nav.id = "agmnav";
     nav.className = "agmnav";
-    nav.addEventListener("click", e => {
-      const id = (e.target as Element).closest<HTMLElement>("[data-mnav]")?.dataset.mnav;
-      if (!id) return;
-      el.classList.toggle("mb-log", id === "log");
-      if (id !== "log") P.on.bottom = id;
-      draw();
-    });
     box.prepend(nav);
     el.classList.add("mb-log");
   }
@@ -551,8 +544,11 @@ function phoneTabs() {
   const on = el.classList.contains("mb-log") ? "log" : P.on.bottom;
   const tabs = [...(paneOf("bottom")?.querySelectorAll<HTMLElement>(".agtabs > [data-mtab]") ?? [])]
     .map(t => ({ id: t.dataset.mtab!, name: t.querySelector("span")?.textContent ?? "" }));
-  nav.innerHTML = [{ id: "log", name: "Log" }, ...tabs]
-    .map(t => `<button data-mnav="${esc(t.id)}" aria-selected="${t.id === on}">${esc(t.name)}</button>`).join("");
+  flushSync(() => tabRoot(nav).render(createElement(PhonePaneTabs, { tabs: [{ id: "log", name: "Log" }, ...tabs], selected: on, select: (id: string) => {
+    el.classList.toggle("mb-log", id === "log");
+    if (id !== "log") P.on.bottom = id;
+    draw();
+  } })));
 }
 
 /// Draws dock `d` with tabs `ids`, moving into it the views of tabs that
