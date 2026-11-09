@@ -14,9 +14,7 @@ import { PageTiming, pageName } from "./page-timing.ts";
 import { viewHidden } from "../settings/subscription.ts";
 import { G, S } from "../bar/core.ts";
 import { syncMobile } from "./mobile.ts";
-import { createElement, Fragment } from "react";
-import { createPortal, flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { showWindowParts } from "./window-root.ts";
 
 let currentPage: Location | null = null;
 
@@ -175,7 +173,6 @@ function withReturnTarget(page: Location, current: Location | null): Location {
   return page;
 }
 
-let headerRoot: Root | null = null;
 export function drawTop() {
   const view = currentPage ? views.get(currentPage.view) : null;
   const head: ViewHead = typeof view?.title === "function" ? view.title() : { title: view?.title ?? "Beep" };
@@ -185,12 +182,10 @@ export function drawTop() {
   $("#title").textContent = head.title || "Beep";
   const page = JSON.stringify([currentPage, currentPage?.view === "pane" ? [S.view, S.session, G.id] : null]);
   const scope = $("#scope"), tools = $("#tools");
-  // The portals share one owner while each header slot changes independently.
-  headerRoot ??= createRoot(document.createElement("div"));
-  const root = headerRoot;
-  flushSync(() => root.render(createElement(Fragment, null,
-    createPortal(head.reactScope ?? null, scope, `${page}:scope`),
-    createPortal(head.reactTools ?? null, tools, `${page}:tools`))));
+  showWindowParts([
+    { part: "header-scope", host: scope, content: head.reactScope ?? null, identity: page },
+    { part: "header-tools", host: tools, content: head.reactTools ?? null, identity: page },
+  ]);
   $("#date").textContent = head.sub || "";
   syncMobile();
 }
