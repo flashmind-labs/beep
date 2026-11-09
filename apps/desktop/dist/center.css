@@ -441,7 +441,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-ctl .seg { display: inline-flex; gap: 2px }
 .pj-ctl .sp, .pj-start .sp { flex: 1 }
 .pj-ctl .on { font-weight: 600; box-shadow: inset 0 0 0 1px var(--border) }
-.cc-open > .pj-ctl { padding: 8px 12px 4px }
+.cc-open > .pj-ctl, .cc-open > span > .pj-ctl { padding: 8px 12px 4px }
 .pj-prow { display: flex; align-items: center; gap: 6px }
 .pj-prow > .pj-li { flex: 1; min-width: 0 }
 .pj-prow > .pick, .cc-row > .pick { padding-left: 10px }
