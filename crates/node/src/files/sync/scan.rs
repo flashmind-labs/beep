@@ -17,8 +17,9 @@ use iroh_blobs::{
     api::{Store, TempTag, blobs::AddPathOptions, proto::ImportMode},
 };
 use std::{
+    collections::BTreeSet,
     fs::{self, Metadata},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 use tokio::task::spawn_blocking;
 
@@ -126,12 +127,23 @@ impl Walked {
 
 /// Walks `root` under `rules`, listing at most `skipped` left-out paths.
 pub(super) fn walk(root: &Path, rules: &Rules, skipped: usize) -> Result<Walked> {
-    walk_inner(root, rules, skipped, false, false)
+    walk_inner(root, rules, skipped, false, false, None)
 }
 
 /// Git projects only scan metadata needed to seed a new checkout.
 pub(super) fn walk_git(root: &Path, rules: &Rules, packed: bool) -> Result<Walked> {
-    walk_inner(root, rules, 0, true, packed)
+    walk_inner(root, rules, 0, true, packed, None)
+}
+
+/// Inspects only event paths, walking a subtree only when its directory changed.
+pub(super) fn walk_changed(
+    root: &Path,
+    rules: &Rules,
+    paths: &BTreeSet<PathBuf>,
+    git_only: bool,
+    packed: bool,
+) -> Result<Walked> {
+    walk_inner(root, rules, 0, git_only, packed, Some(paths))
 }
 
 fn walk_inner(
@@ -140,13 +152,87 @@ fn walk_inner(
     skipped: usize,
     git_only: bool,
     packed: bool,
+    selected: Option<&BTreeSet<PathBuf>>,
 ) -> Result<Walked> {
     let mut walked = Walked {
-        dirs: vec![root.to_owned()],
+        dirs: if selected.is_none() {
+            vec![root.to_owned()]
+        } else {
+            Vec::new()
+        },
         ..Walked::default()
     };
     let mut bytes = 0u64;
-    let mut stack = vec![(root.to_owned(), String::new())];
+    let mut stack = Vec::new();
+
+    if let Some(selected) = selected {
+        for relative in selected {
+            ensure!(
+                relative
+                    .components()
+                    .all(|part| matches!(part, Component::Normal(_))),
+                "invalid changed path"
+            );
+            let Some(text) = relative.to_str() else {
+                continue;
+            };
+            #[cfg(windows)]
+            let path = text.replace('\\', "/");
+            #[cfg(not(windows))]
+            let path = text.to_owned();
+            if git_only && !gitdir::in_git(&path) && path != gitdir::GIT
+                || packed && path.starts_with(".git/objects")
+            {
+                continue;
+            }
+
+            // An event for a child of a directory replaced by a symlink must stay local.
+            let mut absolute = root.to_owned();
+            let mut metadata = None;
+            for part in relative.components() {
+                absolute.push(part);
+                metadata = match fs::symlink_metadata(&absolute) {
+                    Ok(meta) if !meta.is_symlink() => Some(meta),
+                    Ok(_) => None,
+                    Err(e)
+                        if e.kind() == std::io::ErrorKind::NotFound
+                            || e.kind() == std::io::ErrorKind::NotADirectory =>
+                    {
+                        None
+                    }
+                    Err(e) => return Err(e).with_context(|| format!("reading {path}")),
+                };
+                if metadata.is_none() {
+                    break;
+                }
+            }
+            let Some(meta) = metadata else {
+                continue;
+            };
+            if rules.skips_any(relative, meta.is_dir()) || gitdir::is_ref(&path) {
+                continue;
+            }
+            if meta.is_dir() {
+                if path != gitdir::GIT
+                    && (absolute.join(gitdir::GIT).is_file()
+                        || rules.ignored_only() && absolute.join(gitdir::GIT).exists())
+                {
+                    continue;
+                }
+                walked.dirs.push(absolute.clone());
+                stack.push((absolute, format!("{path}/")));
+            } else if meta.is_file() {
+                bytes = bytes.saturating_add(meta.len());
+                walked.files.push(Found {
+                    path,
+                    abs: absolute,
+                    stat: Stat::from(&meta),
+                });
+            }
+        }
+    } else {
+        stack.push((root.to_owned(), String::new()));
+    }
 
     while let Some((dir, prefix)) = stack.pop() {
         let listing = match fs::read_dir(&dir) {
@@ -231,6 +317,8 @@ fn walk_inner(
     }
 
     walked.files.sort_by(|a, b| a.path.cmp(&b.path));
+    walked.files.dedup_by(|a, b| a.path == b.path);
+    walked.check_limits()?;
     Ok(walked)
 }
 

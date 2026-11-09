@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, type MouseEvent } from "react";
-import { matchesFilter, splitPath, STATUS_LETTER, type DiffFile } from "./diff-state.ts";
+import { compactFolders, matchesFilter, splitPath, STATUS_LETTER, type DiffFile } from "./diff-state.ts";
 
 interface Folder {
   kind: "folder";
@@ -25,11 +25,12 @@ interface DiffTreeProps {
 function groupFiles(files: readonly DiffFile[]): TreeItem[] {
   const root: TreeItem[] = [];
   const folders = new Map<string, Folder>();
+  const labels = compactFolders(files.map(file => file.path));
   function folder(path: string): TreeItem[] {
     if (!path) return root;
     const existing = folders.get(path);
     if (existing) return existing.children;
-    const { dir, name } = splitPath(path.slice(0, -1));
+    const { dir, name } = labels.get(path) ?? splitPath(path.slice(0, -1));
     const group: Folder = { kind: "folder", path, name, children: [] };
     folder(dir).push(group);
     folders.set(path, group);

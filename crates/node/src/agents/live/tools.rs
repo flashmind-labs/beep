@@ -9,7 +9,7 @@ use crate::agents::place::call_folder;
 use crate::agents::{
     acp::wire_name,
     images::{Picture, picture_of},
-    subagent::{Activity, Run, Subagent},
+    subagent::{Activity, Conversation, Run, Subagent},
     tool_details,
     tool_diff::diff_text,
 };
@@ -64,6 +64,77 @@ pub(crate) struct CodexChild {
 }
 
 impl Live {
+    /// Recover omitted spawns once, retaining their transcript positions on later reads.
+    pub(crate) fn recover_codex_children(&mut self, runs: &[Run]) -> bool {
+        // A synthetic tool inserted between message chunks would split the reply.
+        // The next tool or completed turn allows discovery to catch up.
+        if self.in_message && self.info.state.status == beep_proto::node::agent::Status::Working {
+            return false;
+        }
+
+        if self.tools.values().any(|tool| {
+            tool.subagent
+                .as_ref()
+                .is_some_and(|sub| sub.codex && sub.threads.is_empty())
+                && matches!(
+                    tool.status,
+                    ToolCallStatus::Pending | ToolCallStatus::InProgress
+                )
+        }) {
+            return false;
+        }
+
+        let mut changed = false;
+        for run in runs {
+            let Some(session) = run.session.as_deref() else {
+                continue;
+            };
+            let Ok(Conversation::Codex(thread)) = Conversation::try_from(session) else {
+                continue;
+            };
+            if self.codex_threads.contains_key(thread) {
+                continue;
+            }
+            let saved = self.transcript.iter().position(|entry| {
+                entry.kind == EntryKind::Tool
+                    && entry
+                        .text
+                        .lines()
+                        .any(|line| line == format!("[session] {session}"))
+            });
+            let entry = match saved {
+                Some(at) => self.dropped + at as u64,
+                None => self.push_entry(EntryKind::Tool, run.entry().text),
+            };
+            let id = ToolCallId::new(format!("recovered:{session}"));
+            self.tools.insert(
+                id.clone(),
+                ToolCall {
+                    entry,
+                    title: run.task.clone().unwrap_or_else(|| "Subagent".to_owned()),
+                    kind: ToolKind::Other,
+                    status: ToolCallStatus::Completed,
+                    paths: Vec::new(),
+                    output: String::new(),
+                    pictures: Vec::new(),
+                    parent: None,
+                    steps: Vec::new(),
+                    subagent: Some(Subagent {
+                        threads: vec![thread.to_owned()],
+                        codex: true,
+                        ..Default::default()
+                    }),
+                    beep: None,
+                    backgrounded: false,
+                    details: AgentToolCall::default(),
+                },
+            );
+            self.codex_threads.insert(thread.to_owned(), id);
+            changed = true;
+        }
+        changed
+    }
+
     pub(super) fn tool_call(&mut self, call: &AcpToolCall) {
         self.in_message = false;
         // Codex saying a subagent it started began or ended goes on the
@@ -257,6 +328,10 @@ impl Live {
                 beep.input = Some(input.clone());
             }
             self.info.state.summary = cut(&call.own_title(), MAX_LINE);
+        }
+
+        if call.subagent.is_none() {
+            call.subagent = Subagent::of_call(&call.title, fields.raw_input.as_ref());
         }
 
         if let Some(subagent) = call.subagent.as_mut().filter(|sub| sub.codex) {

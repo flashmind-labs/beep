@@ -3,12 +3,16 @@
   let collapsed = false;
   const decorate = () => {
     document.querySelectorAll('.cc-win > .cc-side').forEach(side => {
+      side.querySelectorAll('.cc-org').forEach(heading => {
+        const label = heading.textContent.trim();
+        if (label) { heading.title = label; heading.setAttribute('aria-label', label); }
+        [...heading.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).forEach(node => {
+          const text = document.createElement('span'); text.textContent = node.textContent; node.replaceWith(text);
+        });
+      });
       side.querySelectorAll('.cc-si').forEach(item => {
         const label = item.querySelector('.tt')?.textContent.trim();
         if (label) { item.title = label; item.setAttribute('aria-label', label); }
-      });
-      side.querySelectorAll(':scope > .cc-grp').forEach(group => {
-        if (group.previousElementSibling?.matches('.cc-brand') || group.querySelector('[data-dgo="dWinSettings"]')) group.classList.add('cc-nav');
       });
       const brand = side.querySelector('.cc-brand');
       if (!brand || brand.querySelector('.cc-side-toggle')) return;

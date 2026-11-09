@@ -323,6 +323,25 @@ test("diff toolbar keeps filtering, keyboard focus, split and folding controls w
   await expect(diff.locator('.dv-file[data-path="beta.ts"]')).toBeVisible();
 });
 
+test("diff tree compacts single-child folders and matches file order", async ({ page }) => {
+  await page.setViewportSize({ width: 1800, height: 900 });
+  const paths = ["src/deep/first.ts", "README.md", "src/deep/second.ts"];
+  const files = paths.map(path => ({ path, old_path: null, status: "modified", additions: 1, deletions: 0, left_out: null, hunks: [] }));
+  await openDesktop(page, false, {
+    project_git_history: { machine_id: "build-box", machine_name: "build-box", root: "/srv/project", refs: [], worktrees: [], commits: [{ id: "abc123", parents: [], author: "Example", committed_at: 1, subject: "Commit" }], next: null },
+    project_git_files: files.map(({ path }) => ({ path, old_path: null, status: "modified" })),
+    project_git_diff: { root: "/srv/project", base: "main", merge_base: "", working_tree: false, additions: 3, deletions: 0, more: 0, files },
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
+  const diff = page.locator(".gh-detail .dv");
+  const folder = diff.locator('.dv-dir[data-folder="src/deep/"]');
+  await expect(folder.locator(":scope > summary")).toContainText("src/deep");
+  await expect(diff.locator('.dv-dir[data-folder="src/"]')).toHaveCount(0);
+  await expect(diff.locator(".dv-file")).toHaveCount(3);
+  expect(await diff.locator(".dv-file").evaluateAll(rows => rows.map(row => row.getAttribute("data-path")))).toEqual([paths[0], paths[2], paths[1]]);
+});
+
 test("diff tree preserves focused files and scroll when refreshed", async ({ page }) => {
   await page.setViewportSize({ width: 1800, height: 900 });
   const file = (path: string) => ({ path, old_path: null, status: "modified", additions: 1, deletions: 0, left_out: null, hunks: [] });

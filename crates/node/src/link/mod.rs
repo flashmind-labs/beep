@@ -8,6 +8,9 @@ pub mod reconnect;
 pub use protocol::{Protocol, Session};
 
 host! {
+    mod channels;
+    pub mod commands;
+    pub mod subscriptions;
     mod events;
     pub(crate) use events::sources::Registry as EventSources;
     pub(crate) mod from_mesh;

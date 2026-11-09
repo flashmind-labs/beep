@@ -524,7 +524,7 @@ impl Repo {
     /// one found above a `.git` that is not complete yet. Hooks stay off, as
     /// this is sync moving what the user's git already did elsewhere.
     pub(super) fn git(&self) -> Command {
-        let mut command = Command::new("git");
+        let mut command = crate::run::process::background_command("git");
         for name in [
             "GIT_DIR",
             "GIT_WORK_TREE",

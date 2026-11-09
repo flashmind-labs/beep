@@ -74,6 +74,7 @@ const MAX_RUNNING_TOOLS: usize = 256;
 /// What a stream asks of a session.
 #[derive(Debug)]
 pub(super) enum Command {
+    RecoverCodexChildren(Vec<crate::agents::SubagentRun>),
     Prompt(Prompt),
     /// A message for the running turn: it goes once the agent's current
     /// tool call finishes, ahead of the prompts waiting.

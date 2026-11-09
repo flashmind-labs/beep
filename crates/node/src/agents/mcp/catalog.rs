@@ -24,6 +24,19 @@ pub(super) fn tools(reviewer: bool) -> Value {
             "annotations": { "title": "List machines", "readOnlyHint": true }
         },
         {
+            "name": "list_projects",
+            "description": "List registered projects with their names, repository URLs and checkout folders on each machine. Optionally filter by exact project name or machine name. Use a project name with start_agent to work in its checkout. Reads replicated state; does not clone or sync files.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "project": { "type": "string", "description": "Exact project name" },
+                    "machine": machine("Only projects with a checkout on this machine, by its name in list_machines")
+                },
+                "additionalProperties": false
+            },
+            "annotations": { "title": "List projects", "readOnlyHint": true }
+        },
+        {
             "name": "harness_info",
             "description": "Query a coding harness on this machine or another machine: its title, \
                 model IDs, display names, descriptions, default model and supported thinking levels. \
@@ -150,18 +163,20 @@ pub(super) fn tools(reviewer: bool) -> Value {
             "description": "Start another coding agent, of any harness, on any of the user's \
                 machines, linked to this session: it shows under this session for the user, \
                 who answers any permission question it asks. It starts in your folder (on \
-                another machine, in the same project's checkout there) unless you give `cwd`, \
+                another machine, in the same project's checkout there) unless you give `project` or `cwd`, \
                 and never above your own permission mode. Agents may start agents at most 3 \
                 levels deep, and a session may have 8 running. Returns its id, or with \
                 `wait` its answer once its turn ends; `wait` returns after about 45 seconds \
-                at the latest with its state, so check long jobs with agent_status.",
+                at the latest with its state, so check long jobs with agent_status. \
+                Send follow-ups with send_to_agent. Replies arrive automatically in this session.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "harness": { "type": "string", "description": "The coding agent, such as claude or codex, as list_machines names it" },
                     "prompt": { "type": "string", "description": "What the agent should do; it has no other context" },
                     "machine": machine("The machine, by its name in list_machines; this machine when left out"),
-                    "cwd": { "type": "string", "description": "The folder to work in on that machine" },
+                    "project": { "type": "string", "description": "A project name from list_projects; starts in its checkout on the selected machine. Mutually exclusive with cwd" },
+                    "cwd": { "type": "string", "description": "The folder to work in on that machine; mutually exclusive with project" },
                     "model": { "type": "string", "description": "The model, when not the agent's own" },
                     "wait": { "type": "boolean", "description": "Wait for its first turn to end, up to about 45 seconds" }
                 },
@@ -187,7 +202,7 @@ pub(super) fn tools(reviewer: bool) -> Value {
         {
             "name": "send_to_agent",
             "description": "Send a message to an agent you started. It reads it after its current \
-                turn. Only your own agents.",
+                turn. Its reply arrives automatically in this session; agent_status reads its latest message. Only your own agents.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

@@ -54,7 +54,8 @@ document.head.insertAdjacentHTML("beforeend", `<style>
 .mac .rag small { grid-column: 2 / -1; font-size: 11.5px; line-height: 16px; color: var(--d-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .mac .rag .model { grid-column: 2 / -1; font-size: 10.5px; line-height: 14px; color: var(--d-dim) }
 .mac .ag-pane.rp { position: relative }
-.mac .rp .dsaved { position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); z-index: 5; display: flex; gap: 12px; align-items: center; max-width: calc(100% - 32px); padding: 5px 6px 5px 14px; border-radius: var(--radius); background: var(--d-fg); color: var(--d-ink); font-size: 13px; white-space: nowrap; box-shadow: 0 6px 18px rgba(0,0,0,.45) }
+.mac .dsaved { position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%); z-index: 5; display: flex; gap: 12px; align-items: center; max-width: calc(100% - 32px); padding: 5px 6px 5px 14px; border-radius: var(--radius); background: var(--d-fg); color: var(--d-ink); font-size: 13px; white-space: nowrap; box-shadow: 0 6px 18px rgba(0,0,0,.45) }
+.mac .rp .dsaved { bottom: 56px }
 .mac .rp .dsaved .dspin { border-color: color-mix(in srgb, var(--d-ink) 30%, transparent); border-top-color: var(--d-ink) }
 .mac .dsaved > span { overflow: hidden; text-overflow: ellipsis }
 .mac .dsaved .dbtn { min-height: 24px; background: var(--d-ink); border-color: transparent; color: var(--d-fg) }

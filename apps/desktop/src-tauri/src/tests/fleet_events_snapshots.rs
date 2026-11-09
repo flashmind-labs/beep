@@ -5,8 +5,9 @@ fn demanded_machine(snapshots: &Snapshots, topic: &str) -> (EndpointId, Uuid) {
     let id = iroh::SecretKey::generate().public();
     snapshots.reconcile(&BTreeMap::from([(id, vec![Topic::new(topic)])]));
     let generation = Uuid::new_v4();
-    snapshots.begin(id, generation);
-    assert!(snapshots.ready(id, generation));
+    let topic = snapshots.held.lock().unwrap().machines[&id].topics[0].clone();
+    snapshots.connected(id, topic, generation);
+
     (id, generation)
 }
 
@@ -50,12 +51,12 @@ fn reconnect_clears_values_and_rejects_late_snapshots_from_the_previous_stream()
     assert_eq!(snapshots.install(id, generation, &snapshot), Some(true));
     assert!(current.borrow().is_some());
     let replacement = Uuid::new_v4();
-    snapshots.begin(id, replacement);
+    snapshots.connected(id, Topic::new("terminals"), replacement);
     assert!(current.borrow().is_none());
     assert_eq!(snapshots.install(id, generation, &snapshot), None);
     assert!(current.borrow().is_none());
     snapshots.end(id, generation);
-    assert!(snapshots.ready(id, replacement));
+
     assert_eq!(snapshots.install(id, replacement, &snapshot), Some(true));
     assert!(current.borrow().is_some());
 }
@@ -148,8 +149,9 @@ fn switching_an_exact_file_root_releases_its_previous_projection() {
     let root = "/srv/project-a";
     snapshots.reconcile(&BTreeMap::from([(id, vec![Topic::keyed("files", root)])]));
     let generation = Uuid::new_v4();
-    snapshots.begin(id, generation);
-    assert!(snapshots.ready(id, generation));
+    let topic = snapshots.held.lock().unwrap().machines[&id].topics[0].clone();
+    snapshots.connected(id, topic, generation);
+
     let read = Read::Sessions(Box::new(SessionsRequest::Folder {
         root: root.into(),
         path: String::new(),
@@ -176,8 +178,9 @@ fn switching_a_project_alias_releases_its_physical_file_projection() {
         vec![Topic::parse("files.org.project-a").unwrap()],
     )]));
     let generation = Uuid::new_v4();
-    snapshots.begin(id, generation);
-    assert!(snapshots.ready(id, generation));
+    let topic = snapshots.held.lock().unwrap().machines[&id].topics[0].clone();
+    snapshots.connected(id, topic, generation);
+
     let read = Read::Sessions(Box::new(SessionsRequest::Folder {
         root: "/srv/project-a".into(),
         path: String::new(),
@@ -219,13 +222,75 @@ fn reads_use_finite_rpc_until_a_stream_is_accepted_and_after_it_ends() {
     snapshots.reconcile(&BTreeMap::from([(id, vec![Topic::new("terminals")])]));
     assert!(snapshots.register(id, Read::TerminalList).is_none());
     let generation = Uuid::new_v4();
-    snapshots.begin(id, generation);
-    assert!(snapshots.register(id, Read::TerminalList).is_none());
+    let topic = snapshots.held.lock().unwrap().machines[&id].topics[0].clone();
     assert!(snapshots.queries(id).is_empty());
-    assert!(!snapshots.ready(id, Uuid::new_v4()));
-    assert!(snapshots.register(id, Read::TerminalList).is_none());
-    assert!(snapshots.ready(id, generation));
+    assert!(snapshots.connected(id, topic, generation));
     assert!(snapshots.register(id, Read::TerminalList).is_some());
     snapshots.end(id, generation);
     assert!(snapshots.register(id, Read::TerminalList).is_none());
+}
+
+#[test]
+fn reconnecting_one_subscription_preserves_other_subscriptions_and_their_queries() {
+    let snapshots = Snapshots::default();
+    let id = iroh::SecretKey::generate().public();
+    let terminals = Topic::new("terminals");
+    let processes = Topic::new("processes");
+    snapshots.reconcile(&BTreeMap::from([(
+        id,
+        vec![terminals.clone(), processes.clone()],
+    )]));
+    let terminal_generation = Uuid::new_v4();
+    let process_generation = Uuid::new_v4();
+    snapshots.connected(id, terminals.clone(), terminal_generation);
+    snapshots.connected(id, processes.clone(), process_generation);
+
+    let terminal_value = snapshots.register(id, Read::TerminalList).unwrap().unwrap();
+    let process_value = snapshots
+        .register(id, Read::Process(process::Request::List {}))
+        .unwrap()
+        .unwrap();
+    let query = snapshots.queries_for(id, &terminals.clone()).pop().unwrap();
+    let snapshot = terminal_snapshot(&query);
+    assert_eq!(
+        snapshots.install(id, terminal_generation, &snapshot),
+        Some(true)
+    );
+    assert_eq!(snapshots.install(id, process_generation, &snapshot), None);
+    assert!(!snapshots.failed(id, process_generation, query.id, "wrong stream".into()));
+
+    let replacement = Uuid::new_v4();
+    snapshots.connected(id, processes.clone(), replacement);
+    snapshots.end(id, process_generation);
+
+    assert_eq!(terminal_value.borrow().as_ref(), Some(&Ok(snapshot.value)));
+    assert!(process_value.borrow().is_none());
+    assert_eq!(snapshots.queries_for(id, &terminals.clone()), [query]);
+
+    snapshots.end(id, replacement);
+    assert!(process_value.has_changed().is_err());
+    assert!(!terminal_value.has_changed().is_err());
+    assert!(snapshots.queries_for(id, &processes.clone()).is_empty());
+}
+
+#[test]
+fn removing_one_subscription_keeps_other_stream_generations_and_cached_values() {
+    let snapshots = Snapshots::default();
+    let (id, generation) = demanded_machine(&snapshots, "terminals");
+    let current = snapshots.register(id, Read::TerminalList).unwrap().unwrap();
+    let query = snapshots.queries(id).pop().unwrap();
+    let snapshot = terminal_snapshot(&query);
+    snapshots.install(id, generation, &snapshot);
+    snapshots.reconcile(&BTreeMap::from([(
+        id,
+        vec![Topic::new("terminals"), Topic::new("processes")],
+    )]));
+    let other = Uuid::new_v4();
+    snapshots.connected(id, Topic::new("processes"), other);
+
+    snapshots.reconcile(&BTreeMap::from([(id, vec![Topic::new("terminals")])]));
+    snapshots.end(id, other);
+    assert_eq!(snapshots.install(id, generation, &snapshot), Some(false));
+    assert!(current.borrow().is_some());
+    assert!(!snapshots.connected(id, Topic::new("processes"), other));
 }

@@ -508,9 +508,21 @@ async fn node_version(client: &PeerClient) -> Option<(String, Option<i64>)> {
 
 /// Takes the reports of one machine until it closes the stream or fails.
 async fn follow(client: PeerClient, id: EndpointId, shared: Arc<Shared>) {
-    if let Some((version, offset)) = node_version(&client).await {
-        shared.set_version(id, version, offset);
-    }
+    let mut startup = JoinSet::new();
+    startup.spawn({
+        let client = client.clone();
+        async move { client.prepare_events().await }
+    });
+    startup.spawn({
+        let client = client.clone();
+        let shared = shared.clone();
+        async move {
+            if let Some((version, offset)) = node_version(&client).await {
+                shared.set_version(id, version, offset);
+            }
+        }
+    });
+
     // Our half stays open: finishing it tells the node we are done.
     let (_tx, mut rx) = match client.open(PROTOCOL).await {
         Ok(stream) => stream,
@@ -521,12 +533,19 @@ async fn follow(client: PeerClient, id: EndpointId, shared: Arc<Shared>) {
     };
 
     loop {
-        match rx.recv::<Report>().await {
-            Ok(Some(report)) => shared.record(id, report),
-            Ok(None) => return,
-            Err(e) => {
-                log::debug!("status from {} broke: {e:#}", id.fmt_short());
-                return;
+        select! {
+            report = rx.recv::<Report>() => match report {
+                Ok(Some(report)) => shared.record(id, report),
+                Ok(None) => return,
+                Err(e) => {
+                    log::debug!("status from {} broke: {e:#}", id.fmt_short());
+                    return;
+                }
+            },
+            Some(result) = startup.join_next(), if !startup.is_empty() => {
+                if let Err(error) = result {
+                    log::debug!("startup probe for {} stopped: {error}", id.fmt_short());
+                }
             }
         }
     }

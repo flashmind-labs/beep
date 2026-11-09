@@ -865,7 +865,8 @@ async fn the_local_client_and_the_network_client_answer_alike() {
     peer.on_stream(session_handler());
     let b = join(&a, DeviceKind::Desktop, "b").await;
     until(&b.mesh, |m| online(m, a.id())).await;
-    let net = with_deadline(a.id(), &b.mesh).await.expect("online");
+    with_deadline(a.id(), &b.mesh).await.expect("online");
+    let net = PeerClient::new(b.mesh.peer(a.id()).expect("raw mesh connection"));
     let local = PeerClient::local(session_fn());
 
     for client in [&net, &local] {
@@ -895,7 +896,8 @@ async fn follow_ends_with_the_error_when_the_connection_drops() {
     peer.on_stream(session_handler());
     let b = join(&a, DeviceKind::Desktop, "b").await;
     until(&b.mesh, |m| online(m, a.id())).await;
-    let net = with_deadline(a.id(), &b.mesh).await.expect("online");
+    with_deadline(a.id(), &b.mesh).await.expect("online");
+    let net = PeerClient::new(b.mesh.peer(a.id()).expect("raw mesh connection"));
     let mut items = Box::pin(net.follow::<u32, u32>("stall/1", &0).await.expect("opened"));
     let first = timeout(LIMIT, items.next()).await.expect("first item");
     assert_eq!(first.expect("an item").expect("ok"), 7);
@@ -956,7 +958,7 @@ async fn an_open_to_a_node_at_its_stream_cap_ends_within_the_open_timeout() {
         held.push((send, recv));
     }
 
-    let client = PeerClient::over(b.mesh.clone(), a.id());
+    let client = PeerClient::new(conn.clone());
     pause();
     let start = Instant::now();
     let opened = timeout(Duration::from_secs(600), client.open("echo/1"))
@@ -1006,7 +1008,8 @@ async fn dropping_a_network_follow_reaches_the_session() {
     }));
     let b = join(&a, DeviceKind::Desktop, "b").await;
     until(&b.mesh, |m| online(m, a.id())).await;
-    let net = with_deadline(a.id(), &b.mesh).await.expect("online");
+    with_deadline(a.id(), &b.mesh).await.expect("online");
+    let net = PeerClient::new(b.mesh.peer(a.id()).expect("raw mesh connection"));
     let mut items = Box::pin(net.follow::<u32, u32>("tick/1", &0).await.expect("opened"));
     items.next().await.expect("an item").expect("ok");
     drop(items);

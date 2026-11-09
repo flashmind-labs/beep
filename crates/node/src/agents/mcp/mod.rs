@@ -32,6 +32,7 @@ pub(crate) mod children;
 mod debug;
 pub(crate) mod harness;
 mod machines;
+mod projects;
 mod reply;
 mod review;
 mod server;
@@ -192,6 +193,13 @@ struct Node {
 
 impl Backend for Node {
     async fn call(&self, request: &Request) -> Result<Reply> {
+        if request.tool == Tool::ListProjects {
+            return Ok(projects::call(
+                self.offers.agents.mesh().as_ref(),
+                &request.args,
+            ));
+        }
+
         if request.tool == Tool::HarnessInfo {
             return Ok(harness::call(&self.offers, request).await);
         }

@@ -1,6 +1,8 @@
 // Sending to a coding agent: messages, steers,
 // answers to its questions, and interrupting it.
 import { type Attached, dropDelivered, type Waiting } from "./agentqueue.ts";
+import { resumePicks } from "./modelpill.ts";
+import { sessionPicks } from "./session.ts";
 import { composeMessage } from "../chat/compose.ts";
 import { $, S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
@@ -296,7 +298,18 @@ export async function continueAgent(input: HTMLTextAreaElement, text: string, im
   drawAgentBody();
 
   try {
-    const started = await invoke<Started>("agent_resume", { ...where(o), prompt: images.length ? null : text }, AGENT_SEND_WAIT_MS);
+    const pick = resumePicks.get(o.session);
+    const configure = pick && (pick.model || pick.effort) ? { model: pick.model || null, effort: pick.effort } : null;
+    const started = await invoke<Started>("agent_resume", { ...where(o), prompt: images.length || configure ? null : text }, AGENT_SEND_WAIT_MS);
+
+    if (configure && pick) {
+      const target = { machineId: started.session.machine_id, agent: started.session.agent, session: started.session.id };
+      await invoke("agent_steer", { ...target, steer: { configure } }, AGENT_SEND_WAIT_MS);
+      if (!images.length) await invoke("agent_steer", { ...target, steer: { prompt: { text } } }, AGENT_SEND_WAIT_MS);
+      sessionPicks.set(started.session.id, pick);
+    }
+
+    resumePicks.delete(o.session);
     if (!isOpen(o)) return true;
     // The same session goes on in the same field.
     input.disabled = false;

@@ -606,20 +606,30 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     kept.scrollTop = returnScroll(kept, keptTop);
   } else {
     b.stuck = true;
-    // Once a frame, whatever the scroll events: a move up lets go of the end
-    // at once, and a wheel turning holds off pins to the end (`pinEnd`).
+    // Release the end immediately; redraw visible turns once per frame.
+    // Wheel and touch gestures hold off pins to the end (`pinEnd`).
     let frame = 0, top = b.scrollTop;
     b.onscroll = () => {
+      if (!b.isConnected || !agentOnScreen()) return;
+      b.stuck = followsAfterScroll(b.stuck !== false, top, b);
+      top = b.top = b.scrollTop;
       frame ||= requestAnimationFrame(() => {
         frame = 0;
         if (!b.isConnected || !agentOnScreen()) return;
-        b.stuck = followsAfterScroll(b.stuck !== false, top, b);
         scrolledLog(b);
         top = b.top = b.scrollTop;
         syncJump(b);
         if (nearTop(b)) void loadOlder("near");
       });
     };
+    b.addEventListener("touchstart", () => { b.touching = true; b.wheel = performance.now(); }, { passive: true });
+    b.addEventListener("touchmove", () => {
+      b.wheel = performance.now();
+      b.stuck = false;
+    }, { passive: true });
+    const touchEnd = () => { b.touching = false; b.wheel = performance.now(); };
+    b.addEventListener("touchend", touchEnd, { passive: true });
+    b.addEventListener("touchcancel", touchEnd, { passive: true });
     b.addEventListener("wheel", () => { b.wheel = performance.now(); }, { passive: true });
   }
 

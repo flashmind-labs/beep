@@ -172,3 +172,70 @@ async fn what_a_machine_reported_survives_a_swap_of_the_mesh() {
     let machines = status.machines();
     assert!(machines.iter().any(|m| m.id == this && m.env.is_some()));
 }
+
+#[tokio::test]
+async fn a_stalled_version_probe_does_not_delay_status_reports() {
+    use super::{Peer, Revision, Shared, follow};
+    use beep_mesh::{Device, PeerClient, SessionFn};
+    use beep_proto::node::{
+        Open, Opened, StatsReport,
+        status::{PROTOCOL, Report},
+        version,
+    };
+    use std::{
+        collections::BTreeMap,
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
+    use tokio::sync::{oneshot, watch};
+
+    let id = iroh::SecretKey::generate().public();
+    let shared = Arc::new(Shared {
+        peers: Mutex::new(BTreeMap::from([(
+            id,
+            Peer::new(Device {
+                id,
+                name: "build-box".into(),
+                kind: DeviceKind::Node,
+                added_at_ms: 0,
+            }),
+        )])),
+        changes: watch::channel(Revision::default()).0,
+    });
+    let (started, version_started) = oneshot::channel();
+    let started = Arc::new(Mutex::new(Some(started)));
+    let session: SessionFn = Arc::new(move |mut tx, mut rx| {
+        let started = started.clone();
+        Box::pin(async move {
+            let Some(Open { protocol }) = rx.recv::<Open>().await.unwrap() else {
+                return;
+            };
+            tx.send(&Opened::Ready {}).await.unwrap();
+            if protocol == version::PROTOCOL {
+                let sender = started.lock().unwrap().take().unwrap();
+                sender.send(()).unwrap();
+                std::future::pending::<()>().await;
+            } else {
+                assert_eq!(protocol, PROTOCOL);
+                tx.send(&Report::Stats(StatsReport::default()))
+                    .await
+                    .unwrap();
+                let _ = rx.recv::<u8>().await;
+            }
+        })
+    });
+    let mut changes = shared.changes.subscribe();
+    let mut follows = JoinSet::new();
+    follows.spawn(follow(PeerClient::local(session), id, shared));
+    timeout(Duration::from_secs(1), version_started)
+        .await
+        .unwrap()
+        .unwrap();
+    timeout(
+        Duration::from_secs(1),
+        changes.wait_for(|revision| revision.telemetry > 0),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+}

@@ -17,6 +17,19 @@ use std::{
 /// The project's own ignore file.
 pub(super) const BEEPIGNORE: &str = ".beepignore";
 
+/// These events can change which existing files belong to sync.
+pub(super) fn changes_rules(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+
+    matches!(name, BEEPIGNORE | ".stignore" | ".git")
+        || path.components().count() <= 2
+            && DEFAULTS
+                .iter()
+                .any(|set| set.markers.iter().any(|marker| is_marker(name, marker)))
+}
+
 /// What a kind of project leaves out, found by a marker file.
 struct Defaults {
     /// What the marker file is called, or ends with for `*.ext` markers.

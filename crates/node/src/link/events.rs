@@ -29,6 +29,7 @@ const MAX_FILE_ROOTS: usize = 512;
 mod git;
 mod snapshots;
 pub(crate) mod sources;
+pub(super) mod subscriptions;
 use snapshots::Snapshots;
 use sources::Subscriptions;
 
@@ -48,7 +49,8 @@ pub(crate) async fn serve(
     let mut snapshots = Snapshots::new();
     let stream = snapshots.stream();
     tracing::info!(%stream, "subscription stream opened");
-    static READERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(32);
+    // Several controllers may each keep one stream per demanded topic.
+    static READERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(256);
     let _reader = READERS.try_acquire().context("too many topic readers")?;
     let mut membership = offers.mesh.subscribe();
     let mut project_changes = membership
@@ -67,7 +69,7 @@ pub(crate) async fn serve(
         Duration::from_secs(10),
     );
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    send(&mut tx, &Reply::Ready).await?;
+    send(&mut tx, Reply::Ready).await?;
 
     loop {
         snapshots.start(&offers, caller);
@@ -79,7 +81,8 @@ pub(crate) async fn serve(
                     None => std::future::pending().await,
                 }
             }, if snapshot_due.is_some() => {},
-            request = rx.recv::<Request>() => match request? {
+            request = rx.recv::<Request>() => {
+                match request? {
                 None => return Ok(()),
                 Some(Request::Watch { id, topics: wanted, queries: wanted_queries }) => {
                     let started = Instant::now();
@@ -106,27 +109,28 @@ pub(crate) async fn serve(
                             topics = wanted;
                             queries = wanted_queries;
                             snapshots.replace(&offers, &topics, &queries, &roots);
-                            send(&mut tx, &Reply::Watching { id }).await?;
+                            send(&mut tx, Reply::Watching { id }).await?;
                             tracing::info!(%stream, watch = id, elapsed_ms = started.elapsed().as_millis() as u64, "subscription watch acknowledged");
                         }
                         Err(error) => {
                             tracing::warn!(%stream, watch = id, elapsed_ms = started.elapsed().as_millis() as u64, "subscription watch rejected");
-                            send(&mut tx, &Reply::Error { id, reason: format!("{error:#}") }).await?;
+                            send(&mut tx, Reply::Error { id, reason: format!("{error:#}") }).await?;
                         },
                     }
                 }
                 Some(Request::Refresh { id }) => {
                     snapshots.reset();
-                    send(&mut tx, &Reply::Watching { id }).await?;
+                    send(&mut tx, Reply::Watching { id }).await?;
                 },
-                Some(Request::Ping { id }) => send(&mut tx, &Reply::Pong { id }).await?,
+                Some(Request::Ping { id }) => send(&mut tx, Reply::Pong { id }).await?,
                 Some(Request::Call { id, operation }) => {
                     if calls.len() >= MAX_CALLS || !pending.insert(id) {
-                        send(&mut tx, &Reply::Error { id, reason: "too many pending calls or duplicate call id".into() }).await?;
+                        send(&mut tx, Reply::Error { id, reason: "too many pending calls or duplicate call id".into() }).await?;
                     } else {
                         let agents = offers.agents.clone();
                         calls.spawn(async move { (id, timeout(Duration::from_secs(120), execute(agents, caller, *operation)).await) });
                     }
+                }
                 }
             },
             Some(result) = calls.join_next(), if !calls.is_empty() => {
@@ -137,18 +141,19 @@ pub(crate) async fn serve(
                     Ok(Err(error)) => Reply::Error { id, reason: format!("{error:#}") },
                     Err(_) => Reply::Error { id, reason: "command timed out; its outcome may be unknown".into() },
                 };
-                send(&mut tx, &reply).await?;
+                send(&mut tx, reply).await?;
             },
             snapshot = snapshots.next() => if let Some(snapshot) = snapshot? {
+                let snapshot = Reply::from(snapshot);
                 let started = Instant::now();
                 let (topic, query, success) = match &snapshot {
-                    Reply::Snapshot(value) => (value.topic.name(), value.query, true),
-                    Reply::SnapshotError { topic, query, .. } => (topic.name(), *query, false),
+                    Reply::Snapshot(value) => (value.topic.name().to_owned(), value.query, true),
+                    Reply::SnapshotError { topic, query, .. } => (topic.name().to_owned(), *query, false),
                     _ => unreachable!("snapshot queue only returns snapshots"),
                 };
-                tracing::info!(%stream, topic, query, success, "subscription snapshot sending");
-                send(&mut tx, &snapshot).await?;
-                tracing::info!(%stream, topic, query, success, elapsed_ms = started.elapsed().as_millis() as u64, "subscription snapshot sent");
+                tracing::info!(%stream, %topic, query, success, "subscription snapshot sending");
+                send(&mut tx, snapshot).await?;
+                tracing::info!(%stream, %topic, query, success, elapsed_ms = started.elapsed().as_millis() as u64, "subscription snapshot sent");
             },
             Some((_, event)) = subscriptions.next(), if !subscriptions.is_empty() => {
                 // Overlapping keys can receive the same broad invalidation.
@@ -211,7 +216,7 @@ pub(crate) async fn serve(
                     snapshots.replace(&offers, &topics, &queries, &roots);
                 }
             },
-            _ = heartbeat.tick() => send(&mut tx, &Reply::Pong { id: 0 }).await?,
+            _ = heartbeat.tick() => send(&mut tx, Reply::Pong { id: 0 }).await?,
         }
     }
 }
@@ -250,8 +255,8 @@ fn sources(topics: &[Topic], queries: &[events::Query]) -> Vec<Topic> {
     sources
 }
 
-async fn send(tx: &mut LinkTx, reply: &Reply) -> Result<()> {
-    timeout(WRITE_WAIT, tx.send(reply))
+async fn send(tx: &mut LinkTx, reply: Reply) -> Result<()> {
+    timeout(WRITE_WAIT, tx.send(&reply))
         .await
         .context("event reader stopped receiving")?
 }
@@ -414,7 +419,7 @@ fn project_files(offers: &Offers) -> BTreeMap<Topic, String> {
     projects
 }
 
-async fn execute(
+pub(super) async fn execute(
     agents: Arc<crate::agents::Agents>,
     caller: iroh::EndpointId,
     operation: Operation,

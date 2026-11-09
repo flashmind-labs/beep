@@ -16,17 +16,13 @@ test("agent starts log the request and returned session without logging their co
   assert.ok(logs.every(l => !/Private|private-image|\/srv\/project/.test(l.message)));
 });
 
-test("ordinary commands trace receipt and completion with one ID and no arguments", async () => {
+test("ordinary commands do not send extra logging calls by default", async () => {
   calls.length = 0;
   answers.agent_tree = { entries: [] };
   await invoke("agent_tree", { root: "/srv/private", prompt: "private text", token: "private token" });
   const logs = calls.filter(call => call.cmd === "log_webview")
     .map(call => (call.args as { message: string }).message)
     .filter(message => message.startsWith("command trace:"));
-  assert.equal(logs.length, 2);
-  const samples = logs.map(message => JSON.parse(message.slice("command trace: ".length)) as { request: number; stage: string; outcome: string });
-  assert.equal(samples[0].request, samples[1].request);
-  assert.deepEqual(samples.map(sample => sample.stage), ["requested", "returned"]);
-  assert.equal(samples[1].outcome, "ok");
-  assert.ok(logs.every(message => !message.includes("private")));
+  assert.equal(logs.length, 0);
+  assert.equal(calls.filter(call => call.cmd === "agent_tree").length, 1);
 });

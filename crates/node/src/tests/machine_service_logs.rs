@@ -164,3 +164,60 @@ fn window_keeps_the_newest_whole_lines_under_the_cap() {
     let text = window(&[file], 0, 2 * line + line / 2).expect("the file reads");
     assert_eq!(text, format!("{}\n{}\n", lines[3], lines[4]));
 }
+
+#[test]
+fn daily_log_queries_discover_files_created_after_startup() {
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let old = log_file(
+        dir.path(),
+        "beep.2026-01-01.log",
+        &[at(100, "before"), at(200, "kept")],
+    );
+    File::options()
+        .write(true)
+        .open(&old)
+        .expect("open old log")
+        .set_modified(UNIX_EPOCH + Duration::from_secs(200))
+        .expect("set time");
+    let logs = Logs::in_directory(dir.path().to_owned());
+    assert_eq!(
+        logs.window(150, 1 << 20).expect("read window"),
+        format!("{}\n", at(200, "kept"))
+    );
+
+    let new = log_file(dir.path(), "beep.2026-01-02.log", &[at(300, "new day")]);
+    File::options()
+        .write(true)
+        .open(&new)
+        .expect("open new log")
+        .set_modified(UNIX_EPOCH + Duration::from_secs(300))
+        .expect("set time");
+    log_file(dir.path(), "other.log", &[at(400, "unrelated")]);
+    let text = logs.window(150, 1 << 20).expect("read across midnight");
+    assert_eq!(
+        text,
+        format!("{}\n{}\n", at(200, "kept"), at(300, "new day"))
+    );
+}
+
+#[test]
+fn daily_log_queries_keep_legacy_files_readable() {
+    let dir = tempfile::tempdir().expect("a temp folder");
+    log_file(dir.path(), "beep.1.log", &[at(200, "legacy")]);
+    let logs = Logs::in_directory(dir.path().to_owned());
+    assert_eq!(
+        logs.window(150, 1 << 20).expect("read legacy log"),
+        format!("{}\n", at(200, "legacy"))
+    );
+}
+
+#[test]
+fn an_empty_log_directory_does_not_query_the_service() {
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let logs = Logs::in_directory(dir.path().to_owned());
+    assert!(
+        logs.window(0, 1 << 20)
+            .expect("read empty directory")
+            .is_empty()
+    );
+}

@@ -1,0 +1,219 @@
+//! One snapshot worker per demanded topic, independent of action delivery.
+
+use super::{Events, Fleet, Snapshots, Update, controller_topic, invalidate};
+use crate::error::{DesktopError, Result};
+use beep_proto::node::{
+    events::{self, Topic},
+    subscriptions::{Reply, Request},
+};
+use iroh::EndpointId;
+use std::{
+    collections::HashSet,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use tauri::{AppHandle, Manager};
+use tokio::time::{sleep, timeout};
+use uuid::Uuid;
+
+pub(super) struct SubscriptionWorker {
+    app: AppHandle,
+    fleet: Arc<Fleet>,
+    machine: EndpointId,
+    topic: Topic,
+}
+
+impl SubscriptionWorker {
+    pub(super) fn new(
+        app: AppHandle,
+        fleet: Arc<Fleet>,
+        machine: EndpointId,
+        topic: Topic,
+    ) -> Self {
+        Self {
+            app,
+            fleet,
+            machine,
+            topic,
+        }
+    }
+
+    pub(super) async fn run(self) {
+        let mut pause = Duration::from_secs(1);
+
+        loop {
+            let started = Instant::now();
+            if let Err(error) = self.connect().await {
+                log::warn!(
+                    "subscription stream ended machine={} topic={} elapsed_ms={}: {error}",
+                    self.machine,
+                    self.topic,
+                    started.elapsed().as_millis()
+                );
+            }
+
+            if started.elapsed() >= Duration::from_secs(10) {
+                pause = Duration::from_secs(1);
+            }
+
+            sleep(pause).await;
+            pause = (pause * 2).min(Duration::from_secs(30));
+        }
+    }
+
+    async fn connect(&self) -> Result<()> {
+        let Self {
+            app,
+            fleet,
+            machine,
+            topic,
+        } = self;
+        let machine = *machine;
+        let client = fleet.client(machine).await?;
+        let generation = Uuid::new_v4();
+        let (mut tx, mut rx) = client.open_subscriptions().await?;
+        if !fleet
+            .snapshots
+            .connected(machine, topic.clone(), generation)
+        {
+            return Ok(());
+        }
+        let _snapshots = SnapshotConnection {
+            snapshots: &fleet.snapshots,
+            machine,
+            generation,
+        };
+        let mut query_changes = fleet.snapshots.changes();
+        let mut refresh = app.state::<Events>().refresh.subscribe();
+        let queries = fleet.snapshots.queries_for(machine, topic);
+        app.state::<Events>()
+            .forget_queries(machine, &fleet.snapshots.queries(machine));
+        let mut sent = queries.clone();
+        log::info!(
+            "node watch sending machine={machine} generation={generation} watch=1 topics=1 queries={}",
+            queries.len()
+        );
+        timeout(
+            Duration::from_secs(15),
+            tx.send(&Request::Watch {
+                id: 1,
+                topic: topic.clone(),
+                queries,
+            }),
+        )
+        .await
+        .map_err(|_| DesktopError::Lost("the machine".into()))??;
+        let mut watches = HashSet::from([1]);
+        let mut next = 1_u64;
+        let mut dirty = false;
+        let mut revision = 0;
+
+        loop {
+            if dirty && watches.is_empty() {
+                let queries = fleet.snapshots.queries_for(machine, topic);
+                app.state::<Events>()
+                    .forget_queries(machine, &fleet.snapshots.queries(machine));
+
+                if queries == sent {
+                    dirty = false;
+                    continue;
+                }
+
+                sent = queries.clone();
+                next = next
+                    .checked_add(1)
+                    .ok_or_else(|| DesktopError::BadRequest("request sequence exhausted".into()))?;
+                log::info!(
+                    "node watch sending machine={machine} generation={generation} watch={next} topics=1 queries={}",
+                    queries.len()
+                );
+                watches.insert(next);
+                timeout(
+                    Duration::from_secs(15),
+                    tx.send(&Request::Watch {
+                        id: next,
+                        topic: topic.clone(),
+                        queries,
+                    }),
+                )
+                .await
+                .map_err(|_| DesktopError::Lost("the machine".into()))??;
+                dirty = false;
+            }
+
+            tokio::select! {
+                changed = query_changes.changed() => {
+                    if changed.is_err() { return Ok(()); }
+                    dirty = true;
+                },
+                changed = refresh.changed() => {
+                    if changed.is_err() { return Ok(()); }
+                    next = next.checked_add(1).ok_or_else(|| DesktopError::BadRequest("request sequence exhausted".into()))?;
+                    watches.insert(next);
+                    timeout(Duration::from_secs(15), tx.send( &Request::Refresh { id: next }))
+                        .await.map_err(|_| DesktopError::Lost("the machine".into()))??;
+                },
+                reply = timeout(Duration::from_secs(35), rx.recv::<Reply>()) => {
+                    let reply = reply.map_err(|_| DesktopError::Lost("the machine".into()))??
+                        .ok_or_else(|| DesktopError::Lost("the machine".into()))?;
+
+                    match reply {
+                        Reply::Watching { id } => {
+                            log::info!("node watch acknowledged machine={machine} generation={generation} watch={id}");
+                            watches.remove(&id);
+                        },
+                        Reply::Snapshot(snapshot) => {
+                            log::info!("node snapshot received machine={machine} generation={generation} query={:?} topic={} revision={}", snapshot.query, snapshot.topic.name(), snapshot.revision);
+                            revision = snapshot.revision;
+                            let Some(initial) = fleet.snapshots.install(machine, generation, &snapshot) else { continue; };
+
+                            if let events::Value::Resources(resources) = &snapshot.value {
+                                app.state::<Events>().resources(machine, &snapshot.topic, resources);
+                            }
+
+                            if !initial { invalidate(app, snapshot.topic.name()); }
+                            if !initial && (machine == fleet.me || matches!(snapshot.topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves" | "sync")) {
+                                super::super::event_views::changed(app.clone(), snapshot.topic.clone());
+                            }
+
+                            if (machine != fleet.me || !controller_topic(&snapshot.topic))
+                                && app.state::<Events>().node_wanted(machine, &snapshot.topic) {
+                                let data = serde_json::to_value(&snapshot.value).ok();
+                                app.state::<Events>().dispatch_node(Update { machine_id: machine.to_string(), revision: snapshot.revision, query: snapshot.query, initial, data, topic: snapshot.topic });
+                            }
+                        },
+                        Reply::SnapshotError { query, topic, reason } => {
+                            log::warn!("node snapshot failed machine={machine} generation={generation} query={query:?} topic={}: {reason}", topic.name());
+                            if let Some(query) = query && !fleet.snapshots.failed(machine, generation, query, reason.clone()) { continue; }
+                            invalidate(app, topic.name());
+
+                            if machine == fleet.me || matches!(topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves" | "sync") {
+                                super::super::event_views::failed(app, &topic, &reason);
+                            }
+
+                            if (machine != fleet.me || !controller_topic(&topic)) && app.state::<Events>().node_wanted(machine, &topic) {
+                                app.state::<Events>().dispatch_node(Update { machine_id: machine.to_string(), revision, query, initial: false, data: Some(serde_json::json!({ "error": reason })), topic });
+                            }
+                        },
+                        Reply::Error { id, reason } if watches.remove(&id) => {
+                            return Err(DesktopError::BadRequest(reason));
+                        },
+                        _ => {},
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct SnapshotConnection<'a> {
+    snapshots: &'a Snapshots,
+    machine: EndpointId,
+    generation: Uuid,
+}
+
+impl Drop for SnapshotConnection<'_> {
+    fn drop(&mut self) {
+        self.snapshots.end(self.machine, self.generation);
+    }
+}

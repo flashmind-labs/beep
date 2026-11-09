@@ -13,6 +13,8 @@ pub enum Key {
     Flsh,
     /// Whether coding agent skills sync across the mesh: `skills/sync`.
     SkillSync,
+    /// The universal project sync switch and saved individual pause preferences.
+    ProjectSync,
     /// One saved version of the user's instructions: `instructions/<ms>.<id>`.
     InstructionVersion(String),
     /// A terminal kept running on a machine: `terminal/<id>`.
@@ -47,6 +49,7 @@ impl fmt::Display for Key {
             Key::Harness(n) => write!(f, "harness/{n}"),
             Key::Flsh => f.write_str("flsh"),
             Key::SkillSync => f.write_str("skills/sync"),
+            Key::ProjectSync => f.write_str("settings/project-sync"),
             Key::InstructionVersion(n) => write!(f, "instructions/{n}"),
             Key::Terminal(n) => write!(f, "terminal/{n}"),
             Key::SessionMove(n) => write!(f, "session-move/{n}"),
@@ -71,6 +74,10 @@ impl FromStr for Key {
 
         if s == "skills/sync" {
             return Ok(Key::SkillSync);
+        }
+
+        if s == "settings/project-sync" {
+            return Ok(Key::ProjectSync);
         }
 
         let (kind, name) = s.split_once('/').ok_or_else(bad)?;

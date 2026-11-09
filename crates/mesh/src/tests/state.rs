@@ -89,6 +89,7 @@ fn keys_round_trip_through_text() {
         Key::Harness("claude".into()),
         Key::Flsh,
         Key::SkillSync,
+        Key::ProjectSync,
         Key::InstructionVersion("1793000000000.a".into()),
         Key::Terminal("t1".into()),
         Key::SessionMove("0b1c2d3e".into()),

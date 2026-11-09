@@ -1,5 +1,6 @@
 use super::*;
 use beep_proto::node::events::{Query, Read, Snapshot, Value};
+use beep_proto::node::subscriptions::Reply;
 
 const MAX_READS: usize = 4;
 const MAX_VALUE_BYTES: usize = 4 * 1024 * 1024;

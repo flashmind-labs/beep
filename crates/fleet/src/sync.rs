@@ -14,7 +14,7 @@ use beep_proto::{
     ConflictKeep, MachineSync, MachineSyncDetail, ProjectMachine, ProjectSync, ProjectSyncDetail,
     SyncProgress, SyncStatus, SyncthingPlace,
     node::{
-        mesh_state::SyncSpec,
+        mesh_state::{ProjectSyncSettings, SyncSpec},
         sync::{Keep, PROTOCOL, ProjectStatus, Reply, Request, State},
     },
 };
@@ -43,6 +43,57 @@ fn status_of(state: State, error: bool) -> SyncStatus {
 }
 
 impl Desk {
+    pub fn project_sync_enabled(&self) -> bool {
+        read::<ProjectSyncSettings>(&self.mesh, &Key::ProjectSync)
+            .unwrap_or_default()
+            .enabled
+    }
+
+    /// Existing nodes honor the pause through their existing per-project records.
+    pub async fn set_project_sync_enabled(&self, enabled: bool) -> Result<()> {
+        let _write = WRITES.lock().await;
+        let mut settings =
+            read::<ProjectSyncSettings>(&self.mesh, &Key::ProjectSync).unwrap_or_default();
+        let specs = scan::<SyncSpec>(&self.mesh, "sync/");
+
+        if !enabled {
+            if settings.enabled {
+                settings.paused_projects = specs
+                    .iter()
+                    .filter_map(|(key, spec)| match key {
+                        Key::Sync(name) if spec.paused => Some(name.clone()),
+                        _ => None,
+                    })
+                    .collect();
+            }
+            settings.enabled = false;
+            write(&self.mesh, Key::ProjectSync, Some(&settings)).await?;
+        }
+
+        for (key, mut spec) in specs {
+            let Key::Sync(name) = &key else {
+                continue;
+            };
+            let paused = !enabled
+                || if settings.enabled {
+                    spec.paused
+                } else {
+                    settings.paused_projects.contains(name)
+                };
+            if spec.paused != paused {
+                spec.paused = paused;
+                write(&self.mesh, key, Some(&spec)).await?;
+            }
+        }
+
+        if enabled {
+            settings.enabled = true;
+            settings.paused_projects.clear();
+            write(&self.mesh, Key::ProjectSync, Some(&settings)).await?;
+        }
+        Ok(())
+    }
+
     pub async fn project_git_auto_recovery(
         &self,
         project: &str,
@@ -344,6 +395,19 @@ impl Desk {
             let _write = WRITES.lock().await;
             let key = Key::Sync(project.to_owned());
             let mut spec = read::<SyncSpec>(&self.mesh, &key).ok_or(FleetError::NotFound)?;
+            let mut master =
+                read::<ProjectSyncSettings>(&self.mesh, &Key::ProjectSync).unwrap_or_default();
+            let paused = if master.enabled {
+                paused
+            } else {
+                if paused {
+                    master.paused_projects.insert(project.to_owned());
+                } else {
+                    master.paused_projects.remove(project);
+                }
+                write(&self.mesh, Key::ProjectSync, Some(&master)).await?;
+                true
+            };
 
             if spec.paused != paused {
                 spec.paused = paused;
@@ -454,3 +518,7 @@ impl Desk {
             .collect())
     }
 }
+
+#[cfg(test)]
+#[path = "tests/sync.rs"]
+mod tests;

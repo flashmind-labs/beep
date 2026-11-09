@@ -15,9 +15,11 @@
 //! `lenient::from_slice` skips what it does not know. Never insert, reorder
 //! or remove a field.
 mod admin;
+pub mod commands;
 mod control;
 mod env;
 mod stream;
+pub mod subscriptions;
 
 pub mod agent;
 pub mod desktop;
