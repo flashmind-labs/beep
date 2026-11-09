@@ -81,3 +81,19 @@ test("Git issue filters and selection keep their controls and choices", async ({
   await expect(issues.getByRole("checkbox", { name: "Pick this issue" })).toHaveCount(2);
   await expect(issues.getByText("1 picked")).toBeVisible();
 });
+
+test("Machines retains a focused terminal action when another machine changes", async ({ page }) => {
+  const machine = (id: string, name: string) => ({ id, name, online: true, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null });
+  const home = { machines: [machine("one", "Build box"), machine("two", "Test box")], projects: [], running: [], needs_you: [], coming_up: null, updates: null };
+  await openDesktop(page, false, { center_home: home, terminals_all: [] });
+  await page.getByRole("tab", { name: "Machines" }).click();
+  const terminal = page.locator("#sec-machines .act").nth(1).getByRole("button", { name: "New terminal" });
+  await expect(terminal).toBeVisible();
+  await terminal.focus();
+  await terminal.evaluate(element => { (window as any).__machineAction = element; });
+  await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, { ...home, machines: [{ ...home.machines[0], agents: 2 }, home.machines[1]] });
+  await expect(page.locator("#m-one")).toContainText("Build box");
+  await expect.poll(() => page.locator("#m-one + .num").textContent()).toBe("2");
+  await expect(terminal).toBeFocused();
+  expect(await terminal.evaluate(element => element === (window as any).__machineAction)).toBe(true);
+});
