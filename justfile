@@ -45,6 +45,31 @@ desktop-build-signed: desktop-sparkle
     codesign --verify --deep --strict "$app"
     bash scripts/package-macos-dmg.sh "$app" target/beep-macos.dmg
 
+# Quits the running app, replaces the installed Beep.app and opens it.
+# Build the desktop app and reinstall it. Optional folder, default /Applications.
+[positional-arguments]
+desktop-install folder="/Applications":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ $(uname -s) == Darwin ]] || { echo "desktop-install is for macOS" >&2; exit 1; }
+    folder=${1:-/Applications}
+    [[ -d $folder ]] || { echo "$folder is not a folder" >&2; exit 1; }
+    (cd apps/desktop && npm ci --silent && PATH="/usr/bin:$PATH" npm run tauri -- build --bundles app)
+    built="${CARGO_TARGET_DIR:-apps/desktop/src-tauri/target}/release/bundle/macos/Beep.app"
+    [[ -d $built ]] || { echo "No app at $built" >&2; exit 1; }
+
+    # Quit the running app, gently first; its node stops with it.
+    if pgrep -xq beep-desktop; then
+        osascript -e 'quit app id "com.flashmind.beep.desktop"' 2> /dev/null || true
+        for _ in {1..50}; do pgrep -xq beep-desktop || break; sleep 0.2; done
+        pkill -x beep-desktop 2> /dev/null || true
+    fi
+
+    rm -rf "$folder/Beep.app"
+    ditto "$built" "$folder/Beep.app"
+    echo "Installed $folder/Beep.app"
+    open "$folder/Beep.app"
+
 # Tag HEAD server-v<version> and push the tag
 server-release version:
     #!/usr/bin/env bash
