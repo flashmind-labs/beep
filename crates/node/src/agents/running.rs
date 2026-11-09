@@ -1,6 +1,5 @@
 //! Starting, finding and stopping the sessions this node runs.
 
-use std::time::Duration;
 use super::{
     AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, NodeMode, Prompt, Session, Start,
     checkout, harnesses, live::Live, models, plans, restart::SETTINGS_WAIT,
@@ -17,6 +16,7 @@ use beep_proto::node::{
     usage::PlanUsage,
 };
 use beep_proto::{AgentAccount, ModelId, Upload};
+use std::time::Duration;
 use std::{
     borrow::Cow,
     collections::{HashMap, hash_map::RandomState},
@@ -378,7 +378,7 @@ impl Agents {
 
                 Some(SessionInfo {
                     reviewer: s.reviewer,
-                    ..live.info.clone()
+                    ..s.info()
                 })
             })
             .collect();
@@ -433,7 +433,9 @@ impl Agents {
         );
         // A reviewer changes nothing, so it needs no git rule.
         let rule = super::session::standing(
-            crate::lock(&self.instructions).clone().filter(|text| !text.trim().is_empty()),
+            crate::lock(&self.instructions)
+                .clone()
+                .filter(|text| !text.trim().is_empty()),
             checkout::rule(&cwd).filter(|_| !begin.review),
         );
         let mut sessions = self.lock();

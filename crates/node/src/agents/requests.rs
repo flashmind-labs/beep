@@ -420,6 +420,14 @@ pub async fn serve_sessions(
             }
             _ => failed("the session has ended"),
         },
+        SessionsRequest::RelocateSession {
+            agent,
+            session,
+            folder,
+        } => match agents.relocate_session(&agent, &session, &folder).await {
+            Ok(()) => SessionsReply::Deleted {},
+            Err(e) => failed(e),
+        },
         SessionsRequest::DeleteSession { agent, session } => {
             match agents.delete_session(&agent, &session).await {
                 Ok(()) => SessionsReply::Deleted {},

@@ -25,6 +25,7 @@ impl Agents {
     /// files go first, then the node's record of it, so a failure leaves
     /// the session listed. What it spent stays in the spend totals.
     pub(super) async fn delete_session(&self, agent: &str, id: &str) -> Result<()> {
+        let _store = self.session_store.lock().await;
         let which = agent
             .parse::<Agent>()
             .ok()
@@ -89,7 +90,12 @@ impl Agents {
     /// Deletes `agent`'s files of its session `id` unless a process has
     /// them open; `false` when it has none. `ours` says this node ran the
     /// session and it ended, so a recent write is not a sign of life.
-    async fn delete_files(&self, agent: Agent, id: &str, ours: bool) -> Result<bool> {
+    pub(super) async fn check_closed_files(
+        &self,
+        agent: Agent,
+        id: &str,
+        ours: bool,
+    ) -> Result<()> {
         let mut found = match agent {
             Agent::Claude => {
                 let mut owned = self.owned();
@@ -123,6 +129,12 @@ impl Agents {
                 );
             }
         }
+
+        Ok(())
+    }
+
+    async fn delete_files(&self, agent: Agent, id: &str, ours: bool) -> Result<bool> {
+        self.check_closed_files(agent, id, ours).await?;
 
         match agent {
             Agent::Claude => self.external.delete(id).await,

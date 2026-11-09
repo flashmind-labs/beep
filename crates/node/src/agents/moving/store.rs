@@ -158,6 +158,163 @@ fn private(path: &Path) -> std::io::Result<fs::File> {
     options.open(path)
 }
 
+impl Agents {
+    /// Refiles a closed conversation in another working folder.
+    pub(crate) async fn relocate_session(
+        &self,
+        agent: &str,
+        id: &str,
+        destination: &str,
+    ) -> anyhow::Result<()> {
+        use anyhow::{Context, ensure};
+        use beep_proto::node::agent::Status;
+        use tokio::task::spawn_blocking;
+
+        let _store = self.session_store.lock().await;
+        let which: Agent = agent.parse().ok().context("unknown agent")?;
+        ensure!(
+            matches!(which, Agent::Claude | Agent::Codex | Agent::Pi),
+            "this agent cannot move projects yet"
+        );
+        ensure!(
+            !id.is_empty()
+                && id.len() <= 128
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_')),
+            "invalid session id"
+        );
+        let ours = self.get(id);
+        let agent_id = match &ours {
+            Some(session) => {
+                ensure!(
+                    session.agent == agent && session.info().state.status == Status::Ended,
+                    "close the session before moving it"
+                );
+                session
+                    .live
+                    .borrow()
+                    .agent_session
+                    .clone()
+                    .context("session has no agent id")?
+            }
+            None => id.to_owned(),
+        };
+        ensure!(
+            self.lock()
+                .values()
+                .filter(|session| session.agent == agent
+                    && session.live.borrow().agent_session.as_deref() == Some(agent_id.as_str()))
+                .all(|session| session.info().state.status == Status::Ended),
+            "close the session before moving it"
+        );
+        self.check_closed_files(which, &agent_id, ours.is_some())
+            .await?;
+        let harness = Harness::try_from(which).map_err(|_| anyhow::anyhow!("unsupported agent"))?;
+        let file = self
+            .transcript_file(harness, &agent_id)
+            .await
+            .context("session transcript not found")?;
+        let mut owned = self.owned();
+        owned.remove(&agent_id);
+        let old: PathBuf = match which {
+            Agent::Claude => self
+                .external
+                .list(1, Some(agent_id.clone()), owned)
+                .await?
+                .pop()
+                .context("session not found")?
+                .cwd
+                .into(),
+            _ => {
+                let stores = self.stores.clone();
+                let find = agent_id.clone();
+                spawn_blocking(move || stores.find(which, &find))
+                    .await?
+                    .context("session not found")?
+                    .cwd
+                    .into()
+            }
+        };
+        ensure!(old.is_absolute(), "session working folder is unknown");
+        let new = PathBuf::from(destination);
+        ensure!(
+            new.is_absolute() && new.is_dir(),
+            "destination folder does not exist"
+        );
+        let agent_id_for_record = agent_id.clone();
+        let moved_cwd = destination.to_owned();
+        spawn_blocking(move || -> anyhow::Result<()> {
+            let bytes = std::fs::read(&file)?;
+            let name = file
+                .file_name()
+                .and_then(|name| name.to_str())
+                .context("invalid transcript filename")?;
+            let stored = super::rewrite(
+                harness,
+                &bytes,
+                &agent_id,
+                name,
+                &super::folder::Folders {
+                    old,
+                    new,
+                    workspace: None,
+                },
+            );
+            let target = if harness == Harness::Codex {
+                file.clone()
+            } else {
+                file.parent()
+                    .and_then(Path::parent)
+                    .context("transcript store unavailable")?
+                    .join(&stored.path)
+            };
+            let side = file.with_extension("");
+            let target_side = target.with_extension("");
+            ensure!(
+                target == file || !side.exists() || !target_side.exists(),
+                "destination already contains session data"
+            );
+            ensure!(
+                target == file || !target.exists(),
+                "destination already contains this session"
+            );
+            write(&target, &stored)?;
+
+            if target != file {
+                let moving_side = harness == Harness::Claude && side.is_dir();
+                if moving_side && let Err(error) = std::fs::rename(&side, &target_side) {
+                    let _ = std::fs::remove_file(&target);
+                    return Err(error.into());
+                }
+
+                if let Err(error) = std::fs::remove_file(&file) {
+                    if moving_side {
+                        let _ = std::fs::rename(&target_side, &side);
+                    }
+                    let _ = std::fs::remove_file(&target);
+                    return Err(error.into());
+                }
+            }
+
+            Ok(())
+        })
+        .await??;
+
+        for (key, session) in self.lock().iter() {
+            if session.agent == agent
+                && (key == id
+                    || session.live.borrow().agent_session.as_deref()
+                        == Some(agent_id_for_record.as_str()))
+            {
+                session.moved_to(&moved_cwd);
+            }
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 #[path = "../../tests/agents_moving_store.rs"]
 mod tests;
