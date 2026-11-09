@@ -1,3 +1,5 @@
+import { owningChatBody } from "./chat.ts";
+import { renderChatRoute } from "./work-view.tsx";
 import { sentBox } from "./media.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
@@ -73,11 +75,15 @@ export const ROUTE_WALK = '<svg width="14" height="14" viewBox="0 0 24 24" fill=
 
 export const ROUTE_CHEV = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
 
+export const routeSources = new WeakMap<Element, string>();
 export async function routeRow(turn: Turn, callId: string) {
   const card = h<RouteCardEl>('<div class="dchart droute"><div class="dmuted"><span class="dspin"></span>Loading the route</div></div>');
+  routeSources.set(card, callId);
   card.pick = 0;
   card.open = new Set();
   sentBox(turn).append(card);
+  const owner = owningChatBody(turn);
+  if (owner) { card.replaceChildren(); renderChatRoute(owner, turn, card, callId); return; }
 
   try {
     card.route = await invoke<RouteCard>("route_card", { callId });
