@@ -346,7 +346,28 @@ test("Stopping leaves pending steers with the node (#378)", async () => {
   assert.deepEqual(steers(), []);
 });
 
-test("replacing the shared session list does not change what a drawn row opens", async () => {
+function agentsListDom(t: TestContext) {
+  const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://app.test" });
+  Object.defineProperty(dom.window.document, "visibilityState", { value: "visible", configurable: true, writable: true });
+  const actual = dom.window.document.getElementById("root"); assert.ok(actual);
+  const previous = new Map<string, PropertyDescriptor | undefined>();
+  for (const [key, value] of Object.entries({ document: dom.window.document, window: dom.window, MutationObserver: dom.window.MutationObserver })) {
+    previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+    Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
+  }
+  const originalHtml = Object.getOwnPropertyDescriptor(bar, "innerHTML");
+  Object.defineProperty(bar, "innerHTML", { get: () => actual.innerHTML, set: (value: string) => { actual.innerHTML = value; }, configurable: true });
+  Object.defineProperty(bar, "replaceChildren", { value: (...nodes: HTMLElement[]) => { actual.replaceChildren(...nodes); for (const node of nodes) Object.defineProperty(node, "parentElement", { get: () => bar, configurable: true }); }, configurable: true });
+  t.after(async () => {
+    actual.replaceChildren(); await new Promise(resolve => setImmediate(resolve)); dom.window.close();
+    if (originalHtml) Object.defineProperty(bar, "innerHTML", originalHtml);
+    Reflect.deleteProperty(bar, "replaceChildren");
+    for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
+  });
+}
+
+test("replacing the shared session list does not change what a drawn row opens", async t => {
+  agentsListDom(t);
   const row = (id: string) => ({ machine_id: "m1", machine_name: "build-box", id, agent: "claude", cwd: "/srv/project", status: "idle", external: false, question: null });
   answers.agent_sessions = [row("a1"), row("a2")];
   S.view = "agents";
@@ -397,6 +418,7 @@ test("close refuses ended and external sessions and empty drafts", async () => {
 
 for (const back of ["agents", { view: "projects", arg: { project: "acme/widget", tile: "running" } }] satisfies AgentReturn[]) {
   test(`Esc returns to ${typeof back === "string" ? "Running agents" : "the project's Running section"} before the project overview`, async t => {
+    agentsListDom(t);
     const previous = windowHooks;
     t.mock.timers.enable({ apis: ["setInterval"] });
     t.after(() => { connectWindow(previous!); S.view = "agent"; });
@@ -431,25 +453,17 @@ function closeDestination(t: test.TestContext, from: BackTo = { view: "home", ar
 }
 
 test("a refused background close shows an error without reopening the session", async t => {
+  agentsListDom(t);
   openSession("idle");
   closeDestination(t);
   show({});
-  const messages: unknown[] = [];
-  const create = document.createElement, body = document.body;
-  Object.defineProperty(document, "body", { value: { append() { messages.push("banner"); } }, configurable: true });
-  document.createElement = (() => ({
-    style: {}, append(...kids: unknown[]) { messages.push(...kids); },
-    setAttribute() {}, addEventListener() {}, remove() {},
-  })) as unknown as typeof create;
-  t.after(() => { document.createElement = create; Object.defineProperty(document, "body", { value: body, configurable: true }); });
   refuse("agent_steer", "Machine is offline");
   const closing = closeOpenSession();
   assert.equal(S.view, "agents", "leaves before the refusal arrives");
   await closing;
   assert.deepEqual(steers(), ["close"]);
   assert.equal(S.view, "agents");
-  assert.ok(messages.includes("Could not close session: Machine is offline"));
-  assert.ok(messages.includes("banner"));
+  assert.match(document.body.textContent ?? "", /Could not close session: Machine is offline/);
 });
 
 for (const from of [{ view: "home", arg: null }, { view: "projects", arg: { project: "acme/widget", tile: "running" } }, { view: "pane", arg: "agents" }] satisfies BackTo[]) {
@@ -493,7 +507,8 @@ test("closing a child session returns to its previous page instead of opening it
   assert.deepEqual(steers(), ["close"]);
 });
 
-test("closing removes list rows and counts before the reply, survives stale reads, and restores on refusal", async () => {
+test("closing removes list rows and counts before the reply, survives stale reads, and restores on refusal", async t => {
+  agentsListDom(t);
   const row = (machine_id: string) => ({ machine_id, machine_name: "build-box", id: "close-list", agent: "claude", title: machine_id, cwd: "/srv/project", status: "idle", external: false, question: null, doing: null, started_at: 0, last_activity: 0 });
   const closing = row("first-machine"), other = row("second-machine");
   const research = { kind: "research" as const, session: "r1", topic: "Research", status: "working", round: 1, sources: 0, started_at: 0 };

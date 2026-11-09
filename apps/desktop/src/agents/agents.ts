@@ -1,3 +1,8 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import type { Root } from "react-dom/client";
+import { openBarPage } from "../bar/page-root.ts";
+import { AgentsList, type AgentListRow } from "./agents-list-view.tsx";
 import type { ProviderCredits } from "../ui/credits.ts";
 // agents/: coding agents in the bar: the start form, the picker, one
 // session's log and messages, and every session. Entry: this file.
@@ -9,7 +14,6 @@ import { nest } from "./nesting-state.ts";
 import { parentSession, loadSessions, reviewers, sessions } from "./sessions.ts";
 import { copiesClick, copiesHtml, keepCopiesFresh, onCopies, onCopyAction } from "./copies.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
-import { emptyPage } from "../lists/memories.ts";
 import { preloadModels } from "./agentpicker.ts";
 import { harnessTile } from "../ui/harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
@@ -33,7 +37,7 @@ import type { OlderStop } from "./older-state.ts";
 import { closeModelPicker } from "./modelpill.ts";
 import { interruptAgent, answerFirst } from "./messages.ts";
 import { cycleMode } from "./modepill.ts";
-import { esc, money } from "../ui/format.ts";
+import { money } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -433,20 +437,18 @@ onCopies(() => { if (S.view === "agents") drawAgents(false); });
 onClosing(() => { if (S.view === "agents") drawAgents(false); });
 onCopyAction(() => void loadSessions().catch(() => []));
 
-function sessionRow({ row, depth }: { row: AgentSession; depth: number }, i: number) {
+function sessionRow({ row, depth }: { row: AgentSession; depth: number }): AgentListRow {
   const s = { ...row, status: shownStatus(row) };
-  const k = agentKind(s.agent), folder = folderName(s.cwd);
-  const moving = moveLabel(s);
-  const tail = s.reviewer ? '<span class="w">Reviewing</span>'
-    : moving ? `<span class="dstate ${moving.chip === "Moving" ? "run" : "ask"}"${moving.why ? ` title="${esc(moving.why)}"` : ""}>${moving.chip}</span>`
-    : s.status === "asking" ? '<span class="dstate ask">Needs you</span>'
-    : s.status === "working" || s.status === "running" || s.status === "starting" ? `<span class="run" title="${esc(s.doing || "Working")}"><span class="dspin"></span><span class="tx">${esc(s.doing || "Working")}</span></span>`
-    : `<span class="w">${s.external && s.status !== "ended" ? "In terminal" : esc(cap(s.status))}</span>`;
-  const kid = depth ? ` kid" style="--depth:${depth}` : "";
-  return `<button class="dchat${kid}" role="option" aria-selected="${i === AG.sel}" data-agi="${i}">
-      <span class="t"><span>${esc(s.reviewer ? "Review" : s.title || folder || k.name)}</span><small>${esc(sessionSub(s, k.name, folder))}</small></span>${tail}</button>`;
+  const k = agentKind(s.agent), folder = folderName(s.cwd), moving = moveLabel(s);
+  const tail: AgentListRow["tail"] = s.reviewer ? { kind: "review" }
+    : moving ? { kind: "move", label: moving.chip, why: moving.why ?? null }
+    : s.status === "asking" ? { kind: "asking" }
+    : s.status === "working" || s.status === "running" || s.status === "starting" ? { kind: "running", doing: s.doing || "Working" }
+    : { kind: "plain", label: s.external && s.status !== "ended" ? "In terminal" : cap(s.status) };
+  return { key: `${s.machine_id}\0${s.agent}\0${s.id}`, depth, title: s.reviewer ? "Review" : s.title || folder || k.name, sub: sessionSub(s, k.name, folder), tail };
 }
 
+let listPage: { host: HTMLElement; root: Root } | null = null;
 /// The sessions the list on screen shows, which its rows index. Another page
 /// can replace the shared list without a redraw here.
 let drawn: AgentSession[] = [];
@@ -458,14 +460,12 @@ export function drawAgents(loading: boolean) {
   const machines = new Set(list.map(s => s.machine_id)).size;
   const copies = copiesHtml(new Set(list.map(s => s.id)));
   const sum = loading && !list.length ? "Looking at your machines…" : list.length ? `${list.length} on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
-  bar.innerHTML = `<div class="dhead"><span class="tt"><b>Coding agents</b><small>${esc(sum)}</small></span><button class="dbtn" id="agNew">${AGENT_ICON}New<kbd>⌘⇧A</kbd></button></div>
-    ${AG.error ? `<div class="derr dpadx">${esc(AG.error)}</div>` : ""}
-    <div class="dagscroll">
-    ${list.length ? `<div class="dlist top" role="listbox">${shown.map(sessionRow).join("")}</div>` : ""}
-    ${copies}
-    </div>
-    ${list.length || copies || loading ? "" : emptyPage(AGENT_ICON, "No sessions running.", "Start one here, ask Beep in a chat, or run Claude Code in a terminal on a linked machine.")}
-    ${hints([[ICON.ret, "open"], ["⌘⇧A", "new"], ["esc", "back"]])}`;
+  if (!listPage || listPage.host.parentElement !== bar) listPage = openBarPage(() => { listPage = null; });
+  const root = listPage.root;
+  flushSync(() => root.render(createElement(AgentsList, {
+    rows: shown.map(sessionRow), showSessions: !!list.length, selected: AG.sel, summary: sum, error: AG.error, copies, loading,
+    hints: hints([[ICON.ret, "open"], ["⌘⇧A", "new"], ["esc", "back"]]),
+  })));
   bar.onclick = e => {
     if (S.view !== "agents") return;
     const target = e.target as HTMLElement;
