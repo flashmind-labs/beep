@@ -13,10 +13,14 @@ import {
   GhosttyCellWide,
   GhosttyCodepointBuffer,
   GhosttyCursorStyle,
+  GhosttyImageLayer,
+  GhosttyKittyGraphicsImageData,
+  GhosttyKittyImageFormat,
   GhosttyRenderStateColors,
   GhosttyRenderStateCursor,
   GhosttyRenderStateData,
   GhosttyRenderStateDirty,
+  GhosttyRenderStateImageData,
   GhosttyRenderStateOption,
   GhosttyRenderStateRowCellsData,
   GhosttyRenderStateRowData,
@@ -79,6 +83,32 @@ export interface Colors {
   foreground: number;
   cursor: number | null;
   palette: Uint32Array;
+}
+
+export type ImageLayer = "below-background" | "below-text" | "above-text";
+
+/// Where an image is drawn: from cell (col, row) of the view, which may be
+/// above or left of it, moved by the offset, at width by height pixels of
+/// the grid's cell size, showing the source rectangle of the image.
+export interface ImagePlacement {
+  id: number;
+  /// Changes when the image's pixels do.
+  generation: bigint;
+  layer: ImageLayer;
+  z: number;
+  col: number;
+  row: number;
+  offsetX: number;
+  offsetY: number;
+  width: number;
+  height: number;
+  source: { x: number; y: number; width: number; height: number };
+}
+
+export interface ImagePixels {
+  width: number;
+  height: number;
+  rgba: Uint8Array;
 }
 
 export type Underline = "none" | "single" | "double" | "curly" | "dotted" | "dashed";
@@ -145,7 +175,7 @@ export class RowCells {
 }
 
 /// The exports this wrapper calls. Handles and pointers are i32.
-interface Exports {
+export interface Exports {
   memory: WebAssembly.Memory;
   __indirect_function_table: WebAssembly.Table;
   ghostty_wasm_alloc(len: number): number;
@@ -171,6 +201,53 @@ interface Exports {
   ghostty_render_state_row_cells_free(cells: number): void;
   ghostty_render_state_row_cells_select(cells: number, x: number): number;
   ghostty_render_state_row_cells_get(cells: number, data: number, out: number): number;
+  ghostty_free(allocator: number, ptr: number, len: number): void;
+  ghostty_kitty_graphics_image(graphics: number, id: number): number;
+  ghostty_kitty_graphics_image_get(image: number, data: number, out: number): number;
+  ghostty_kitty_graphics_animation_tick(graphics: number, nowMs: bigint, next: number): number;
+  ghostty_render_state_image_iterator_new(allocator: number, out: number): number;
+  ghostty_render_state_image_iterator_free(iterator: number): void;
+  ghostty_render_state_image_iterator_next(iterator: number): number;
+  ghostty_render_state_image_get(iterator: number, data: number, out: number): number;
+  ghostty_key_encoder_new(allocator: number, out: number): number;
+  ghostty_key_encoder_free(encoder: number): void;
+  ghostty_key_encoder_set(encoder: number, option: number, value: number): number;
+  ghostty_key_encoder_set_from_terminal(encoder: number, terminal: number): number;
+  ghostty_key_encoder_encode(encoder: number, event: number, buf: number, len: number, written: number): number;
+  ghostty_key_event_new(allocator: number, out: number): number;
+  ghostty_key_event_free(event: number): void;
+  ghostty_key_event_set_action(event: number, action: number): number;
+  ghostty_key_event_set_key(event: number, key: number): number;
+  ghostty_key_event_set_mods(event: number, mods: number): number;
+  ghostty_key_event_set_utf8(event: number, str: number): number;
+  ghostty_key_event_set_unshifted_codepoint(event: number, codepoint: number): number;
+  ghostty_mouse_encoder_new(allocator: number, out: number): number;
+  ghostty_mouse_encoder_free(encoder: number): void;
+  ghostty_mouse_encoder_set(encoder: number, option: number, value: number): number;
+  ghostty_mouse_encoder_set_from_terminal(encoder: number, terminal: number): number;
+  ghostty_mouse_encoder_encode(encoder: number, event: number, buf: number, len: number, written: number): number;
+  ghostty_mouse_event_new(allocator: number, out: number): number;
+  ghostty_mouse_event_free(event: number): void;
+  ghostty_mouse_event_set_action(event: number, action: number): number;
+  ghostty_mouse_event_set_button(event: number, button: number): number;
+  ghostty_mouse_event_clear_button(event: number): number;
+  ghostty_mouse_event_set_mods(event: number, mods: number): number;
+  ghostty_mouse_event_set_position(event: number, position: number): number;
+  ghostty_paste_encode(data: number, len: number, bracketed: number, buf: number, cap: number, written: number): number;
+  ghostty_focus_encode(event: number, buf: number, cap: number, written: number): number;
+  ghostty_terminal_grid_ref(terminal: number, point: number, out: number): number;
+  ghostty_terminal_select_all(terminal: number, out: number): number;
+  ghostty_selection_gesture_new(allocator: number, out: number): number;
+  ghostty_selection_gesture_free(gesture: number, terminal: number): void;
+  ghostty_selection_gesture_reset(gesture: number, terminal: number): void;
+  ghostty_selection_gesture_event_new(allocator: number, out: number, type: number): number;
+  ghostty_selection_gesture_event_free(event: number): void;
+  ghostty_selection_gesture_event_set(event: number, option: number, value: number): number;
+  ghostty_selection_gesture_event(gesture: number, terminal: number, event: number, out: number): number;
+  ghostty_formatter_terminal_new(allocator: number, out: number, terminal: number): number;
+  ghostty_formatter_free(formatter: number): void;
+  ghostty_formatter_set(formatter: number, option: number, value: number): number;
+  ghostty_formatter_format_alloc(formatter: number, allocator: number, outPtr: number, outLen: number): number;
 }
 
 /// Loads the engine from its compiled module. One engine serves any number
@@ -359,12 +436,56 @@ export class Terminal {
     return { cols, rows: this.g.view().getUint16(out, true) };
   }
 
+  /// An image's pixels as RGBA, or null when the terminal no longer has it.
+  /// Read them again when a placement's generation changes.
+  imagePixels(id: number): ImagePixels | null {
+    const g = this.g;
+    const x = g.x;
+    const graphics = this.graphics();
+    if (graphics === 0) return null;
+
+    const image = x.ghostty_kitty_graphics_image(graphics, id);
+    if (image === 0) return null;
+
+    const get = (key: GhosttyKittyGraphicsImageData, len: number) => {
+      const out = g.out(len);
+      check(x.ghostty_kitty_graphics_image_get(image, key, out), "reading an image");
+      return out;
+    };
+    const width = g.view().getUint32(get(GhosttyKittyGraphicsImageData.WIDTH, 4), true);
+    const height = g.view().getUint32(get(GhosttyKittyGraphicsImageData.HEIGHT, 4), true);
+    const format = g.view().getInt32(get(GhosttyKittyGraphicsImageData.FORMAT, 4), true);
+    const pixels = get(GhosttyKittyGraphicsImageData.PIXELS, GhosttyString.size);
+    const ptr = g.view().getUint32(pixels + GhosttyString.field.ptr, true);
+    const len = g.view().getUint32(pixels + GhosttyString.field.len, true);
+
+    const rgba = toRgba(g.bytes(ptr, len), format, width * height);
+    return rgba === null ? null : { width, height, rgba };
+  }
+
+  /// Advances image animations to `nowMs` on a steady clock, and gives when
+  /// the next frame is due, or null when none plays.
+  tickAnimations(nowMs: number): number | null {
+    const graphics = this.graphics();
+    if (graphics === 0) return null;
+
+    const out = this.g.out(8);
+    const result = this.g.x.ghostty_kitty_graphics_animation_tick(graphics, BigInt(Math.floor(nowMs)), out);
+    return result === GhosttyResult.SUCCESS ? Number(this.g.view().getBigUint64(out, true)) : null;
+  }
+
   free() {
     if (this.freed) return;
     this.freed = true;
     this.g.unregister(this.id);
     if (this.input !== 0) this.g.x.ghostty_wasm_free(this.input, this.inputLen);
     this.g.x.ghostty_terminal_free(this.handle);
+  }
+
+  private graphics(): number {
+    const out = this.g.out(4);
+    if (this.g.x.ghostty_terminal_get(this.handle, GhosttyTerminalData.KITTY_GRAPHICS, out) !== GhosttyResult.SUCCESS) return 0;
+    return this.g.view().getUint32(out, true);
   }
 
   /// Sets DEC private mode `mode` through `option`, MODE or MODE_DEFAULT.
@@ -393,6 +514,7 @@ export class RenderState {
   private readonly cells: number;
   /// Memory for grapheme codepoints.
   private readonly graphemes: number;
+  private readonly images: number;
   private readonly palette = new Uint32Array(256);
   private colors: Colors = { background: 0, foreground: 0, cursor: null, palette: this.palette };
   /// Styles of the current row by style id; ids are per page, so per row.
@@ -409,6 +531,8 @@ export class RenderState {
     this.rows = g.view().getUint32(out, true);
     check(x.ghostty_render_state_row_cells_new(0, out), "ghostty_render_state_row_cells_new");
     this.cells = g.view().getUint32(out, true);
+    check(x.ghostty_render_state_image_iterator_new(0, out), "ghostty_render_state_image_iterator_new");
+    this.images = g.view().getUint32(out, true);
     this.graphemes = x.ghostty_wasm_alloc(GRAPHEME_CAP * 4);
   }
 
@@ -475,6 +599,45 @@ export class RenderState {
     }
   }
 
+  /// The images to draw, in drawing order: by layer, then z-index.
+  placements(): ImagePlacement[] {
+    const g = this.g;
+    const x = g.x;
+    const out = g.out(4);
+    g.view().setUint32(out, this.images, true);
+    check(x.ghostty_render_state_get(this.handle, GhosttyRenderStateData.IMAGE_ITERATOR, out), "reading images");
+
+    const placements: ImagePlacement[] = [];
+    while (x.ghostty_render_state_image_iterator_next(this.images) !== 0) {
+      const u32 = (key: GhosttyRenderStateImageData) => {
+        const at = g.out(4);
+        check(x.ghostty_render_state_image_get(this.images, key, at), "reading an image placement");
+        return g.view().getUint32(at, true);
+      };
+      const i32 = (key: GhosttyRenderStateImageData) => u32(key) | 0;
+      const generation = g.out(8);
+      check(x.ghostty_render_state_image_get(this.images, GhosttyRenderStateImageData.IMAGE_GENERATION, generation), "reading an image generation");
+      const D = GhosttyRenderStateImageData;
+
+      placements.push({
+        id: u32(D.IMAGE_ID),
+        generation: g.view().getBigUint64(generation, true),
+        layer: imageLayer(i32(D.LAYER)),
+        z: i32(D.Z),
+        col: i32(D.VIEWPORT_COL),
+        row: i32(D.VIEWPORT_ROW),
+        offsetX: u32(D.CELL_OFFSET_X),
+        offsetY: u32(D.CELL_OFFSET_Y),
+        width: u32(D.PIXEL_WIDTH),
+        height: u32(D.PIXEL_HEIGHT),
+        source: { x: u32(D.SOURCE_X), y: u32(D.SOURCE_Y), width: u32(D.SOURCE_WIDTH), height: u32(D.SOURCE_HEIGHT) },
+      });
+    }
+
+    const order: Record<ImageLayer, number> = { "below-background": 0, "below-text": 1, "above-text": 2 };
+    return placements.sort((a, b) => order[a.layer] - order[b.layer] || a.z - b.z);
+  }
+
   /// Marks the whole frame drawn.
   clean() {
     const out = this.g.out(4); // GhosttyRenderStateDirty.FALSE
@@ -484,6 +647,7 @@ export class RenderState {
   free() {
     const x = this.g.x;
     x.ghostty_wasm_free(this.graphemes, GRAPHEME_CAP * 4);
+    x.ghostty_render_state_image_iterator_free(this.images);
     x.ghostty_render_state_row_cells_free(this.cells);
     x.ghostty_render_state_row_iterator_free(this.rows);
     x.ghostty_render_state_free(this.handle);
@@ -675,6 +839,51 @@ function resolve(color: ColorRead, colors: Colors, fallback: number): number {
       return colors.palette[color.value];
     default:
       return fallback;
+  }
+}
+
+function imageLayer(layer: number): ImageLayer {
+  switch (layer) {
+    case GhosttyImageLayer.BELOW_BACKGROUND:
+      return "below-background";
+    case GhosttyImageLayer.BELOW_TEXT:
+      return "below-text";
+    default:
+      return "above-text";
+  }
+}
+
+/// `pixels` of an image stored as `format`, as RGBA; null for a format the
+/// engine does not store decoded.
+function toRgba(data: Uint8Array, format: number, pixels: number): Uint8Array | null {
+  const rgba = new Uint8Array(pixels * 4);
+
+  switch (format) {
+    case GhosttyKittyImageFormat.RGBA:
+      rgba.set(data.subarray(0, pixels * 4));
+      return rgba;
+    case GhosttyKittyImageFormat.RGB:
+      for (let i = 0; i < pixels; i++) {
+        rgba[i * 4] = data[i * 3];
+        rgba[i * 4 + 1] = data[i * 3 + 1];
+        rgba[i * 4 + 2] = data[i * 3 + 2];
+        rgba[i * 4 + 3] = 255;
+      }
+      return rgba;
+    case GhosttyKittyImageFormat.GRAY_ALPHA:
+      for (let i = 0; i < pixels; i++) {
+        rgba.fill(data[i * 2], i * 4, i * 4 + 3);
+        rgba[i * 4 + 3] = data[i * 2 + 1];
+      }
+      return rgba;
+    case GhosttyKittyImageFormat.GRAY:
+      for (let i = 0; i < pixels; i++) {
+        rgba.fill(data[i], i * 4, i * 4 + 3);
+        rgba[i * 4 + 3] = 255;
+      }
+      return rgba;
+    default:
+      return null;
   }
 }
 
