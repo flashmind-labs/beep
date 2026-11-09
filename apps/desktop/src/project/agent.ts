@@ -1,12 +1,10 @@
 // A project's agent on its page: the Tasks list, the Workers tree and the
 // cards its chat waits on.
-import { harnessEl } from "../ui/harnessicon.ts";
 import { agentLabel } from "./projects-state.ts";
 import { el } from "../ui/dom.ts";
-import { dbtn, emptyPanel, stateChip, svgEl, secBlock } from "../ui/parts.ts";
+import { dbtn, secBlock } from "../ui/parts.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { localProjectId } from "./localid.ts";
-import type { Kid } from "../ui/dom.ts";
 import { projectOf, type ChatApproval } from "../agents/running-state.ts";
 import type { ViewName } from "../center/state.ts";
 
@@ -263,46 +261,8 @@ function section(id: string, title: string, sub: string, body: Node) {
   return box;
 }
 
-function link(text: string, url: string, open: (url: string) => unknown) {
-  const a = el("a", "", text);
-  a.href = url;
-  a.addEventListener("click", e => { e.preventDefault(); open(url); });
-  return a;
-}
-
-/// A row's actions: its button and why the last try failed.
-function acts(b: HTMLButtonElement, err: string | null | undefined) {
-  return el("span", "acts", b, err ? el("span", "cc-err", err) : null);
-}
-
-/// The Tasks section. `act.change(task, change)` drops or reopens one.
-export function tasksSection(view: ProjectView, act: RowActs) {
-  const tasks = view.tasks;
-  if (!tasks.length) return section("sec-tasks", "Tasks", "", emptyPanel(el("span", "", "No tasks yet. Ask the project agent below and it plans them.")));
-  const rows = tasks.map(t => {
-    const meta = el("span", "m", ...taskMeta(t, tasks, view.workers).map(m =>
-      m.url ? link(m.text, m.url, act.openUrl) : m.code ? el("code", "", m.text) : el("span", "", m.text)));
-    const { change, label } = taskAction(t.state);
-    const busy = act.busy(t.id);
-    const b = dbtn(busy ? "…" : label, "quiet small", () => act.change(t, change));
-    b.disabled = !!busy;
-    const err = act.error(t.id);
-    const title = el("span", "t", t.title);
-    title.title = t.title;
-    const row = el("div", "pj-task", title, stateChip(t.state, t.state, t.state === "running"), meta, acts(b, err));
-    row.dataset.task = t.id;
-    const review = reviewActs(t, act);
-    const diff = t.branch && t.state !== "dropped" ? act.diff?.(t.branch) : null;
-    if (diff) review.push(dbtn("View diff", "small", diff));
-    if (review.length) row.querySelector(".acts")!.prepend(...review);
-    row.addEventListener("contextmenu", e => taskMenu(e, t, act, diff));
-    return row;
-  });
-  return section("sec-tasks", "Tasks", taskSummary(tasks), el("div", "cc-panel", ...rows));
-}
-
 /// A task row's right-click menu: what its buttons do. Drop and Merge ask first.
-function taskMenu(e: MouseEvent, t: TaskRow, act: RowActs, diff: (() => void) | null | undefined) {
+export function taskMenu(e: MouseEvent, t: TaskRow, act: RowActs, diff: (() => void) | null | undefined) {
   const items: MenuItem[] = [];
 
   if (t.state === "review") {
@@ -335,76 +295,14 @@ function taskMenu(e: MouseEvent, t: TaskRow, act: RowActs, diff: (() => void) | 
   openMenu(e, t.title, items);
 }
 
-/// A task in review: Review its branch, Merge… (which asks first) and
-/// Open PR, as far as it has a branch and a PR.
-function reviewActs(t: TaskRow, act: RowActs) {
-  if (t.state !== "review") return [];
-  const out: HTMLButtonElement[] = [];
-  if (t.branch && act.review) out.push(dbtn("Review", "pri small", () => act.review!(t.branch!)));
-
-  if (t.branch && t.pr_url && act.merge) {
-    const m = dbtn(act.busy(t.id) ? "Asking…" : "Merge…", "small", () => act.merge!(t));
-    m.disabled = !!act.busy(t.id);
-    m.title = "Merge always asks first";
-    out.push(m);
-  }
-
-  if (t.pr_url) out.push(dbtn("Open PR", "small", () => act.openUrl(t.pr_url!)));
-  return out;
-}
-
-/// The Workers tree: the project agent, then each worker under it. A
-/// worker whose session has started opens it; a live one offers Stop.
-export function workersSection(view: ProjectView, act: RowActs, chatIcon: string) {
-  const titles = new Map(view.tasks.map(t => [t.id, t.title]));
-  const now = Date.now();
-  const lead = (ag: string, kid: Kid) => el("span", `cc-ag ${ag}`, kid);
-  const nodes = [el("div", "pj-node", lead("beep", svgEl(chatIcon)), el("span", "t", el("b", "", "Project agent"), el("span", "", "Plans tasks, files issues, places workers")))];
-
-  for (const w of view.workers) {
-    const name = titles.get(w.task_id) || workerFolder(w.folder);
-    const sub = el("span", "", workerLine(w, now));
-    sub.title = w.folder;
-    const node = el("div", "pj-node child", harnessEl(w.agent), el("span", "t", el("b", "", name), sub));
-
-    if (w.session && act.openWorker) {
-      node.classList.add("link");
-      node.title = "Open its session";
-      node.addEventListener("click", () => act.openWorker!(w, titles.get(w.task_id) ?? null));
-    }
-
-    if (w.live) {
-      const busy = act.busy(w.id);
-      const stop = dbtn(busy ? "Stopping…" : "Stop", "quiet small", e => { e.stopPropagation(); act.stop(w); });
-      stop.disabled = !!busy;
-      node.append(acts(stop, act.error(w.id)));
-    }
-
-    if (w.last_output) {
-      const out = el("span", "out", w.last_output);
-      out.title = w.last_output;
-      node.append(out);
-    }
-
-    if (!w.live) node.classList.add("over");
-    const items: MenuItem[] = [];
-    if (w.session && act.openWorker) items.push({ label: "Open session", on: () => act.openWorker!(w, titles.get(w.task_id) ?? null) });
-    if (w.live) items.push({
-      label: "Stop…",
-      warn: true,
-      on: () => confirmSheet({
-        title: `Stop ${name}?`,
-        text: "The worker stops and its session ends.",
-        action: "Stop",
-        run: async () => { await act.stop(w); },
-      }),
-    });
-    if (items.length) node.addEventListener("contextmenu", e => openMenu(e, name, items));
-    nodes.push(node);
-  }
-
-  const live = view.workers.filter(w => w.live).length;
-  return section("sec-workers", "Workers", live ? `${live} running` : "none running", el("div", "cc-panel pj-tree", ...nodes));
+export function workerMenu(e: MouseEvent, w: WorkerRow, name: string, title: string | null, act: RowActs) {
+  const items: MenuItem[] = [];
+  if (w.session && act.openWorker) items.push({ label: "Open session", on: () => act.openWorker?.(w, title) });
+  if (w.live) items.push({ label: "Stop…", warn: true, on: () => confirmSheet({
+    title: `Stop ${name}?`, text: "The worker stops and its session ends.", action: "Stop",
+    run: async () => { await act.stop(w); },
+  }) });
+  if (items.length) openMenu(e, name, items);
 }
 
 /// One card the project chat waits on: what it asks, its fields, and Approve,
