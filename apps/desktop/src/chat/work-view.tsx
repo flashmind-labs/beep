@@ -6,9 +6,11 @@ import type { ChatBody, Turn } from "../ui/turn.ts";
 
 interface Part { key: string; html: string }
 export interface WorkView { heading: TurnHeading | null; thought: string; steps: Part[]; live: string }
-interface Owner { root: Root; rows: Map<HTMLElement, { key: number; value: WorkView }>; next: number }
+interface Owner { root: Root; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
 const owners = new WeakMap<ChatBody, Owner>();
 const turns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
+const replyTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
+const replyPending = new Map<HTMLElement, { html: string; resume: () => void }>();
 const pending = new Map<HTMLElement, { value: WorkView; after: () => void; resume: () => void }>();
 
 const Html = memo(function Html({ html }: { html: string }) {
@@ -18,12 +20,17 @@ const Work = memo(function Work({ value }: { value: WorkView }) {
   return <>{value.heading && <AgentTurnHeading value={value.heading} />}{value.thought && <Html html={value.thought} />}{value.steps.map(step => <Html key={step.key} html={step.html} />)}{value.live && <Html html={value.live} />}</>;
 });
 function draw(owner: Owner) {
-  flushSync(() => owner.root.render(createElement(Fragment, null, ...[...owner.rows].map(([host, row]) => createPortal(createElement(Work, { value: row.value }), host, row.key)))));
+  flushSync(() => owner.root.render(createElement(Fragment, null,
+    ...[...owner.rows].map(([host, row]) => createPortal(createElement(Work, { value: row.value }), host, row.key)),
+    ...[...owner.replies].map(([host, row]) => createPortal(createElement(Html, { html: row.html }), host, row.key)))));
+}
+function ownerOf(body: ChatBody) {
+  let owner = owners.get(body);
+  if (!owner) { owner = { root: createRoot(document.createElement("div")), rows: new Map(), replies: new Map(), next: 0 }; owners.set(body, owner); }
+  return owner;
 }
 export function renderChatWork(body: ChatBody, turn: Turn, box: HTMLElement, value: WorkView, after: () => void) {
-  let owner = owners.get(body);
-  if (!owner) { owner = { root: createRoot(document.createElement("div")), rows: new Map(), next: 0 }; owners.set(body, owner); }
-  const current = owner;
+  const current = ownerOf(body);
   const selected = () => {
     const selection = document.getSelection();
     return !!selection && !selection.isCollapsed && selection.containsNode(box, true);
@@ -53,12 +60,45 @@ export function renderChatWork(body: ChatBody, turn: Turn, box: HTMLElement, val
   if (waiting) { document.removeEventListener("selectionchange", waiting.resume); pending.delete(box); }
   apply(value, after);
 }
+export function renderChatReply(body: ChatBody, turn: Turn, box: HTMLElement, html: string) {
+  const owner = ownerOf(body), prior = owner.replies.get(box);
+  replyTurns.set(turn, { owner, box });
+  if (prior?.html === html && !replyPending.has(box)) return;
+  const selected = () => { const selection = document.getSelection(); return !!selection && !selection.isCollapsed && selection.containsNode(box, true); };
+  const apply = (value: string) => { owner.replies.set(box, { key: prior?.key ?? ++owner.next, html: value }); draw(owner); };
+  if (prior && selected()) {
+    const waiting = replyPending.get(box);
+    if (waiting) { waiting.html = html; return; }
+    const resume = () => {
+      const latest = replyPending.get(box);
+      if (!latest || selected()) return;
+      replyPending.delete(box); document.removeEventListener("selectionchange", resume); apply(latest.html);
+    };
+    replyPending.set(box, { html, resume }); document.addEventListener("selectionchange", resume);
+    return;
+  }
+  const waiting = replyPending.get(box);
+  if (waiting) { document.removeEventListener("selectionchange", waiting.resume); replyPending.delete(box); }
+  apply(html);
+}
+export function transferChatReply(from: Turn, to: Turn) {
+  const entry = replyTurns.get(from);
+  if (!entry) return;
+  replyTurns.delete(from); replyTurns.set(to, entry);
+}
 export function discardChatWork(turn: Turn) {
-  const mounted = turns.get(turn);
-  if (!mounted) return;
-  turns.delete(turn);
-  const waiting = pending.get(mounted.box);
-  if (waiting) { document.removeEventListener("selectionchange", waiting.resume); pending.delete(mounted.box); }
-  mounted.owner.rows.delete(mounted.box);
-  draw(mounted.owner);
+  const work = turns.get(turn), reply = replyTurns.get(turn);
+  turns.delete(turn); replyTurns.delete(turn);
+  if (work) {
+    const waiting = pending.get(work.box);
+    if (waiting) { document.removeEventListener("selectionchange", waiting.resume); pending.delete(work.box); }
+    work.owner.rows.delete(work.box);
+  }
+  if (reply) {
+    const waiting = replyPending.get(reply.box);
+    if (waiting) { document.removeEventListener("selectionchange", waiting.resume); replyPending.delete(reply.box); }
+    reply.owner.replies.delete(reply.box);
+  }
+  if (work) draw(work.owner);
+  if (reply && reply.owner !== work?.owner) draw(reply.owner);
 }
