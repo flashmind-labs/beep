@@ -135,3 +135,26 @@ test("scheduled turn labels stay mounted during history refresh", async ({ page 
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_session").length)).toBeGreaterThan(1);
   expect(await label.evaluate(el => el === Reflect.get(window, "scheduledLabel"))).toBe(true);
 });
+
+test("live approval shows its answer after the card is removed", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command === "send_prompt" && args?.onEvent && typeof args.onEvent === "object" && "onmessage" in args.onEvent) {
+        const channel = args.onEvent;
+        Reflect.set(window, "approvalEvent", (event: unknown) => { if (typeof channel.onmessage === "function") channel.onmessage(event); });
+        return new Promise<T>(() => {});
+      }
+      return invoke<T>(command, args);
+    };
+  });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "live-chat" } }));
+  await page.locator("#ask").fill("Do this");
+  await page.locator("#ask").press("Enter");
+  await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, "approvalEvent"))).toBe("function");
+  await page.evaluate(() => Reflect.get(window, "approvalEvent")({ kind: "approval", query_id: "query-1", app: "Example", action: "Update", fields: [] }));
+  await page.locator(".dcard").getByRole("button", { name: /^Allow for this session/ }).click();
+  await expect(page.locator(".turn .dmuted")).toContainText("Allowed for the rest of this chat");
+  await expect(page.locator(".dcard")).toHaveCount(0);
+});
