@@ -8,7 +8,7 @@ use crate::agents::{
 };
 use agent_client_protocol::schema::v1::SessionUpdate;
 use base64::{Engine, engine::general_purpose::STANDARD};
-use beep_proto::node::agent::EntryKind;
+use beep_proto::node::agent::{EntryKind, Status};
 use beep_proto::{AgentContext, image_key};
 use futures::FutureExt;
 use serde_json::Value;
@@ -965,4 +965,121 @@ fn a_replayed_compaction_summary_does_not_name_the_session() {
             );
         }
     }
+}
+
+#[test]
+fn omitted_codex_spawns_are_recovered_once_without_splitting_a_reply() {
+    let mut live = live();
+    live.prompted("check the code");
+    live.apply(&said("Checking"));
+    let run = Run {
+        session: Some("subagent:codex:child-1".into()),
+        working: true,
+        task: Some("check_code".into()),
+        ..Default::default()
+    };
+    assert!(
+        !live.recover_codex_children(std::slice::from_ref(&run)),
+        "wait for the reply boundary"
+    );
+    live.apply(&said(" now."));
+    live.info.state.status = Status::Idle;
+    assert!(live.recover_codex_children(std::slice::from_ref(&run)));
+    assert!(!live.recover_codex_children(std::slice::from_ref(&run)));
+    let (entries, _) = live.transcript(10);
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries[1].text, "Checking now.");
+    let children = live.codex_children(0);
+    assert_eq!(children.len(), 1);
+    assert_eq!(children[0].threads, ["child-1"]);
+    let (at, text) = live
+        .with_run(&children[0].call, &run)
+        .expect("linked child");
+    assert_eq!(at, 2);
+    assert!(text.starts_with("check_code [in_progress]\n[steps] 0"));
+    assert!(text.contains("[session] subagent:codex:child-1"));
+
+    let finished = Run {
+        working: false,
+        result: Some("Checked.".into()),
+        ..run
+    };
+    assert!(!live.recover_codex_children(std::slice::from_ref(&finished)));
+    let (end_at, text) = live
+        .with_run(&children[0].call, &finished)
+        .expect("finished child");
+    assert_eq!(end_at, at);
+    assert!(text.starts_with("check_code [completed]"));
+    assert!(text.ends_with("Checked."));
+}
+
+#[test]
+fn recovered_children_do_not_duplicate_native_codex_spawns() {
+    let mut live = live();
+    live.apply(&update(
+        json!({"sessionUpdate": "tool_call", "toolCallId": "native",
+        "title": "spawnAgent", "rawInput": {"receiverThreadIds": ["child-1"]}}),
+    ));
+    assert!(!live.recover_codex_children(&[Run {
+        session: Some("subagent:codex:child-1".into()),
+        ..Default::default()
+    }]));
+    assert_eq!(live.codex_children(0).len(), 1);
+}
+
+#[test]
+fn claude_and_opencode_spawns_accept_arguments_in_a_later_update() {
+    for title in ["Agent", "Task", "task"] {
+        let mut live = live();
+        live.apply(&update(
+            json!({"sessionUpdate": "tool_call", "toolCallId": "task",
+            "title": title, "status": "in_progress"}),
+        ));
+        live.apply(&update(
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "task",
+            "rawInput": {"subagent_type": "Explore", "prompt": "Find the loader"}}),
+        ));
+        let (entries, _) = live.transcript(10);
+        assert!(
+            entries[0].text.contains("[steps] 0\n[agent] Explore"),
+            "{title}"
+        );
+    }
+}
+
+#[test]
+fn recovery_reuses_cards_restored_after_a_restart() {
+    let mut live = live();
+    let run = Run {
+        session: Some("subagent:codex:child-1".into()),
+        task: Some("check_code".into()),
+        working: true,
+        ..Default::default()
+    };
+    live.restore(vec![run.entry()]);
+    assert!(live.recover_codex_children(std::slice::from_ref(&run)));
+    assert_eq!(live.transcript(10).0.len(), 1);
+    let children = live.codex_children(0);
+    assert_eq!(live.with_run(&children[0].call, &run).expect("card").0, 0);
+}
+
+#[test]
+fn recovery_waits_for_a_native_spawn_to_name_its_thread() {
+    let mut live = live();
+    live.apply(&update(
+        json!({"sessionUpdate": "tool_call", "toolCallId": "native",
+        "title": "spawnAgent", "status": "in_progress",
+        "rawInput": {"receiverThreadIds": []}}),
+    ));
+    let run = Run {
+        session: Some("subagent:codex:child-1".into()),
+        ..Default::default()
+    };
+    assert!(!live.recover_codex_children(std::slice::from_ref(&run)));
+    live.apply(&update(
+        json!({"sessionUpdate": "tool_call_update", "toolCallId": "native",
+        "status": "completed", "rawInput": {"receiverThreadIds": ["child-1"]}}),
+    ));
+    assert!(!live.recover_codex_children(std::slice::from_ref(&run)));
+    assert_eq!(live.transcript(10).0.len(), 1);
 }
