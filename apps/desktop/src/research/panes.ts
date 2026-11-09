@@ -1,16 +1,7 @@
 // An opened research as HTML: its head, the lead's chat, and the side pane's
 // tabs, each as one string the page patches into place (open.ts).
 import { esc } from "../ui/format.ts";
-import { ICON } from "../ui/icons.ts";
-import { type Agent, type Entry, type Note, type Open, type Said, agentOf, count, doing, kind, look, round, shownTab } from "./research-state.ts";
-import type { Doing } from "./research-state.ts";
-
-const rav = (id: string) => { const l = look(id); return `<span class="rav" style="--c:${l.c}">${l.ini}</span>`; };
-const ok = () => `<span class="dok">${ICON.check}</span>`;
-const stateIcon = (st: Doing[1]) => st === "run" ? '<span class="dspin"></span>'
-  : st === "ok" ? ok()
-  : st === "wait" ? '<span class="ddot hot"></span>' : "<span></span>";
-const DOWN = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+import { type Open } from "./research-state.ts";
 
 /// The message field's placeholder.
 export function placeholder(o: Open) {
@@ -19,13 +10,6 @@ export function placeholder(o: Open) {
 }
 
 // ---------- Side pane ----------
-
-/// The tab on screen, with what sits under the strip.
-export function paneHtml(o: Open) {
-  const tab = shownTab(o);
-  if (tab === "agents") return agentsHtml(o);
-  return threadHtml(o, agentOf(o, tab));
-}
 
 /// Citation numbers as links to their sources, which open in the browser.
 function sup(o: Open, numbers: number[]) {
@@ -52,63 +36,6 @@ export function cite(o: Open, html: string) {
   }
 
   return t.innerHTML;
-}
-
-/// A note, headed `title`, with its citations.
-function noteHtml(o: Open, n: Entry & Note, title: string) {
-  const src = n.sources.length ? ` ${sup(o, n.sources)}` : "";
-  return `<div class="rmsg">${rav(n.agent)}<b>${title}</b><p>${esc(n.content)}${src}</p></div>`;
-}
-
-function msgHtml(o: Open, e: Entry & Said) {
-  const to = e.to ? ` <span class="to">to ${esc(agentOf(o, e.to).name)}</span>` : "";
-  return `<div class="rmsg">${rav(e.agent)}<b>${esc(agentOf(o, e.agent).name)}${to}</b><p>${esc(e.content)}</p></div>`;
-}
-
-/// The agents of the round picked, the room's button and the round menu.
-function agentsHtml(o: Open) {
-  const r = o.research;
-  const row = (a: Agent) => {
-    const [now, st] = doing(o, a.id);
-    return `<button class="rag" data-act="agent:${esc(a.id)}">${rav(a.id)}<b>${esc(a.name)}</b>${stateIcon(st)}<small>${esc(now || a.role)}</small><span class="model">${esc(a.model)}</span></button>`;
-  };
-  // One round's scouts at a time, picked in the header; the lead, critic and writer work in every round.
-  const agents = r?.agents ?? [{ id: "lead", name: "Lead", role: "Plans and coordinates", model: "", round: 0 }];
-  const rounds = round(o), pick = Math.min(o.pick ?? rounds, rounds);
-  const scoutOf = (a: Agent) => kind(a.id) === "scout" ? Math.max(a.round ?? 0, 1) : 0;
-  const rows = [
-    ...agents.filter(a => a.id === "lead"),
-    ...agents.filter(a => scoutOf(a) === pick),
-    ...agents.filter(a => a.id === "critic" || a.id === "writer"),
-  ].map(row).join("");
-  const scouts = (n: number) => count(agents.filter(a => scoutOf(a) === n).length, "scout");
-  const menu = o.menu ? `<span class="dmenu" role="menu">${Array.from({ length: rounds }, (_, i) => rounds - i).map(n =>
-    `<button class="mi" role="menuitemradio" aria-checked="${n === pick}" data-act="round:${n}"><b>Round ${n}</b>${n === pick ? `<span class="ok">${ICON.check}</span>` : ""}<small>${scouts(n)}</small></button>`).join("")}</span>` : "";
-  const picker = rounds > 1 ? `<div class="rhd"><h4>Agents</h4><span class="rround"><button class="dbtn small" data-act="rounds" aria-haspopup="menu" aria-expanded="${o.menu}">Round ${pick}${DOWN}</button>${menu}</span></div>` : "";
-  const said = o.entries.filter(e => e.kind === "said").length;
-  const room = r && r.status !== "planning" ? count(said, "message") : "Opens when the team starts";
-  return `${picker}<div class="rpane agents"><div class="rbox">${rows}</div>
-      <div class="rbox"><button class="rag" data-act="room"><span class="rav" style="--c:var(--muted)">#</span><b>Room</b><span></span><small>${room}</small></button></div></div>`;
-}
-
-/// One agent's steps, notes and messages, and what it does now.
-function threadHtml(o: Open, a: Agent) {
-  const mine = o.entries.filter(e => e.agent === a.id || (e.kind === "said" && e.to === a.id));
-  let html = "", steps: string[] = [];
-  const flush = () => { if (steps.length) html += `<div class="dsteps">${steps.join("")}</div>`; steps = []; };
-
-  for (const e of mine) {
-    if (e.kind === "step" && e.agent === a.id) {
-      steps.push(`<div class="dstep"><span class="s">${e.success ? ok() : `<span class="dbad">${ICON.x}</span>`}</span><span>${esc(e.label)}</span></div>`);
-    } else if (e.kind === "said") { flush(); html += msgHtml(o, e); }
-    else if (e.kind === "note") { flush(); html += noteHtml(o, e, "Note"); }
-  }
-
-  flush();
-  const [now, st] = doing(o, a.id);
-  if (st === "run") html += `<div class="dsteps"><div class="dstep run"><span class="s"><span class="dspin"></span></span><span>${esc(now)}</span></div></div>`;
-  return `<div class="rhd">${rav(a.id)}<span class="who"><b>${esc(a.name)}</b><small>${esc(a.role)} · ${esc(a.model)}</small></span></div>`
-    + `<div class="rpane thread">${html || '<div class="dmuted">Nothing yet.</div>'}</div>`;
 }
 
 /// Whether a tab's view follows the newest line, as a thread or the room does.

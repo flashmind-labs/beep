@@ -16,7 +16,7 @@ function Notes({ research }: { research: Open }) {
   </div>)}</div> : <div className="rbox rempty">No notes yet.</div>}</div>;
 }
 
-function Citations({ research, numbers }: { research: Open; numbers: number[] }) {
+export function Citations({ research, numbers }: { research: Open; numbers: number[] }) {
   return <sup>{numbers.map((number, index) => {
     const source = research.research?.sources.find(item => item.number === number);
     return <Fragment key={`${number}:${index}`}>{index > 0 && ", "}{source ? <a className="rcite" href={source.url} title={source.title}>{number}</a> : number}</Fragment>;
