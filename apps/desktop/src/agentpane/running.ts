@@ -1,11 +1,14 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { RunningView } from "./running-view.tsx";
 // Commands the session left running, following changes while its pane shows.
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { type RunningProcess, runningRow } from "./running-state.ts";
+import type { RunningProcess } from "./running-state.ts";
 import { draw, paneOf, paneSession, shell } from "./media.ts";
 import { DOCKS } from "./media-state.ts";
 import { onShownChange, paneShown } from "../ui/active.ts";
 import { h } from "../ui/dom.ts";
-import { esc } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 import { AGENT_READ_WAIT_MS } from "../agents/agents.ts";
 import { readError } from "./read.ts";
@@ -16,7 +19,7 @@ let unfollow: (() => void) | undefined;
 let list: RunningProcess[] = [];
 let local = false;
 let el: HTMLElement | null = null;
-let drawn = "";
+let root: Root | null = null;
 let error = "";
 const stopping = new Set<number>();
 /// Rows whose whole command shows, by pid.
@@ -31,7 +34,8 @@ function syncSession() {
   unfollow = s?.id && !s.external ? subscribeChanges(topic("processes", s.id), readRunning, s.machine_id, visible) : undefined;
   list = [];
   local = false;
-  error = drawn = "";
+  error = "";
+  root?.unmount(); root = null;
   stopping.clear();
   el?.remove();
   el = null;
@@ -71,7 +75,8 @@ export function runningView() {
   if (!list.length) { el?.remove(); return null; }
 
   if (!el) {
-    el = h('<div class="agpview running"><div class="agrunninglist"></div><div class="agpacts"><span class="meta"></span><span class="sp"></span><button class="dbtn warn" data-stop-all>Stop all</button></div><div class="derr agrunningerror" role="status" hidden></div></div>');
+    el = h('<div class="agpview running"></div>');
+    root = createRoot(el);
     el.addEventListener("click", e => {
       const target = e.target as HTMLElement;
       const link = target.closest<HTMLAnchorElement>("a[data-port]");
@@ -102,22 +107,11 @@ export function runningView() {
 }
 
 function render() {
-  if (!el) return;
-  const sig = JSON.stringify([list, local, [...stopping], [...whole]]);
-  if (sig !== drawn) {
-    drawn = sig;
-    el.querySelector(".agrunninglist")!.innerHTML = list.map(p => {
-      const row = runningRow(p, local);
-      const ports = row.ports.map(port => port.url
-        ? `<a data-port href="${port.url}">${port.label}</a>` : `<span>${port.label}</span>`).join("");
-      return `<div class="agart agrunningrow${whole.has(p.pid) ? " whole" : ""}"><span class="t" data-whole="${p.pid}" title="${whole.has(p.pid) ? "Click to fold" : "Click to show the whole command"}"><b>${esc(row.command)}</b><small>${esc(row.detail)}</small></span><span class="r">${ports}<button class="dbtn" data-pid="${p.pid}"${stopping.has(p.pid) ? " disabled" : ""}>${stopping.has(p.pid) ? "Stopping…" : "Stop"}</button></span></div>`;
-    }).join("");
-  }
-  el.querySelector(".meta")!.textContent = `${paneSession()?.machine_name ?? "The machine"} · closing the session stops these`;
-  el.querySelector<HTMLButtonElement>("[data-stop-all]")!.disabled = stopping.size > 0;
-  const note = el.querySelector<HTMLElement>("[role=status]")!;
-  note.hidden = !error;
-  note.textContent = error;
+  if (!el || !root) return;
+  const current = root;
+  flushSync(() => current.render(createElement(RunningView, {
+    processes: list, local, stopping, whole, machine: paneSession()?.machine_name ?? "The machine", error,
+  })));
 }
 
 async function stop(pids: number[]) {

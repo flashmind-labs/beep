@@ -101,3 +101,29 @@ test("returning and reloading reconnects the same terminal without stopping it",
   await tab.locator("[data-mclose]").click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "terminal_close").length)).toBe(1);
 });
+
+test("pane refresh preserves composer focus and terminal selection focuses its shell", async ({ page }) => {
+  await openDesktop(page, true, { terminal_open: { id: "shell-one", project: "", machine_id: "build-box", machine_name: "build-box", name: "shell", command: "", cwd: "/srv/project", state: "running", code: null, started_at: 1 } });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("button", { name: "+ Terminal", exact: true }).click();
+  const terminalTab = page.locator('[role="tab"][data-mtab^="term:"]');
+  await expect(terminalTab).toHaveAttribute("aria-selected", "true");
+  const screen = page.locator(".xterm-screen").first();
+  await expect(screen).toBeVisible();
+  await screen.evaluate(element => { element.dataset.identity = "kept"; });
+  const composer = page.locator("#agmsg");
+  await composer.focus();
+  const processes = [{ pid: 41, command: "example process", started_at: 1, ports: [], left_group: false }];
+  await page.evaluate(rows => window.__navigation.processes(rows), processes);
+  await expect(page.getByRole("tab", { name: /Running/ })).toBeVisible();
+  await expect(composer).toBeFocused();
+  await expect(screen).toHaveAttribute("data-identity", "kept");
+  expect((await screen.boundingBox())?.width).toBeGreaterThan(0);
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  await terminalTab.click();
+  await expect(page.locator(".xterm-helper-textarea:focus")).toHaveCount(1);
+  await composer.focus();
+  await page.evaluate(() => window.__navigation.processes([]));
+  await expect(page.getByRole("tab", { name: /Running/ })).toHaveCount(0);
+  await expect(composer).toBeFocused();
+});
