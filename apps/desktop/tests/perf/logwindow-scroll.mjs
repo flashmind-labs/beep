@@ -101,6 +101,28 @@ for (const kind of kinds) {
     });
     console.log(`${kind}: crossing virtualized turns preserves the scroll position`);
 
+    await page.evaluate(() => {
+      const b = document.querySelector(".dbody");
+      b.stuck = true;
+      logWindow.fillLog(b, true);
+      b.style.height = "400px";
+    });
+    await page.waitForFunction(() => {
+      const b = document.querySelector(".dbody");
+      return b.scrollHeight - b.scrollTop - b.clientHeight < 1;
+    });
+    console.log(`${kind}: shrinking the viewport keeps the log at the bottom`);
+
+    const heldTop = await page.locator(".dbody").evaluate(b => {
+      b.stuck = false;
+      b.scrollTop -= 200;
+      b.style.height = "350px";
+      return b.scrollTop;
+    });
+    await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(done)))));
+    assert.equal(await page.locator(".dbody").evaluate(b => b.scrollTop), heldTop,
+      `${kind}: resizing must preserve a reader's position above the bottom`);
+
     // Use the app's Markdown styles, including the nested overflow on code and tables.
     await page.setContent('<div class="dbody" id="agbody"><div class="dagmain"><div class="dcoderlog"></div></div></div>');
     const css = readFileSync(new URL("../../dist/style.css", import.meta.url), "utf8");
