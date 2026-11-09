@@ -21,9 +21,10 @@ export function drawModelPill() {
     && (s.status === "ended" ? !s.external || canTakeOver(s.agent) : !s.external);
   const p = sessionPicks.get(s.id) ?? { model: "", effort: null };
   const model = resumePicks.get(s.id)?.model ?? (AG.page?.model || p.model);
-  modelsOn(s.machine_id, s.agent, () => { if (AG.page?.session.id === s.id) drawModelPill(); });
+  const models = modelsOn(s.machine_id, s.agent, () => { if (AG.page?.session.id === s.id) drawModelPill(); });
+  const displayModel = model || (models?.current ? "" : "Model unknown");
   const why = can ? "Switch the model or thinking; applies from the next turn" : `${agentKind(s.agent).name} cannot switch models in a running session`;
-  el.innerHTML = `<button class="agc-pill agm" id="agmodelb" aria-expanded="${AG.modelOpen}" title="${esc(why)}"${can ? "" : " disabled"}>${pillInner(s.agent, model || "Model unknown", p.effort, s.machine_id)}</button>`;
+  el.innerHTML = `<button class="agc-pill agm" id="agmodelb" aria-expanded="${AG.modelOpen}" title="${esc(why)}"${can ? "" : " disabled"}>${pillInner(s.agent, displayModel, p.effort, s.machine_id)}</button>`;
 }
 
 export function toggleModelPicker() {
