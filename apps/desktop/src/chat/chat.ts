@@ -1,6 +1,6 @@
 // chat/: chats and groups in the bar: the open chat, the list, the composer,
 // attachments and the cards under a reply. Entry: this file.
-import { renderChatWork, type WorkView } from "./work-view.tsx";
+import { renderChatReply, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
 import { drawAgentButton } from "../agents/agents.ts";
 import { askFiles, attach, attached, attachError, drawAttached } from "./attach.ts";
 import type { AskFile } from "./attach.ts";
@@ -294,6 +294,7 @@ function stepRow(t: Step) {
 /// Turns drawn so far, so each thought has its own key.
 let turnCount = 0;
 const turnBodies = new WeakMap<Turn, ChatBody>();
+const replyContents = new WeakMap<Turn, string>();
 export const owningChatBody = (turn: Turn) => turnBodies.get(turn) ?? null;
 
 /// Draws what the turn did before its answer, as a coding agent's turn shows
@@ -356,7 +357,7 @@ function endThought(turn: Turn) {
 }
 
 export function reply(turn: Turn) {
-  let el = turn.querySelector(ANSWER);
+  let el = turn.querySelector<HTMLElement>(ANSWER);
 
   if (!el) {
     el = h('<div class="dcoderen agent md"></div>');
@@ -365,6 +366,19 @@ export function reply(turn: Turn) {
   }
 
   return el;
+}
+
+/// Sets reply HTML while keeping selected text stable.
+export function setChatReply(turn: Turn, html: string) {
+  const box = reply(turn), owner = owningChatBody(turn);
+  replyContents.set(turn, html);
+  if (owner) renderChatReply(owner, turn, box, html);
+}
+export function appendChatReply(turn: Turn, html: string) { setChatReply(turn, (replyContents.get(turn) ?? "") + html); }
+export function chatReplyHtml(turn: Turn) { return replyContents.get(turn) ?? ""; }
+export function moveChatReply(from: Turn, to: Turn) {
+  replyContents.set(to, chatReplyHtml(from)); replyContents.delete(from);
+  transferChatReply(from, to);
 }
 
 /// What a tool sent, under the reply. `route` is a `get_route` call's id,
@@ -525,7 +539,7 @@ export function follow(id: string | null, turn: Turn) {
   const flush = () => {
     cancelAnimationFrame(frame);
     frame = 0;
-    if (html != null) { reply(turn).innerHTML = answerHtml(html); html = null; }
+    if (html != null) { setChatReply(turn, answerHtml(html)); html = null; }
     if (work) { work = false; drawWork(turn); }
     if (turn.isConnected) keepDown();
   };

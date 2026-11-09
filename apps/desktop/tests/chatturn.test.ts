@@ -40,13 +40,13 @@ test("a reply stays the same element from its stream through the chat's redraws"
   runFrames();
   const reply = turn.querySelector(".dcoderen.agent")!;
   send({ kind: "finished", status: "completed" });
-  assert.equal(reply.innerHTML, "<p>No rain tomorrow.</p>");
+  assert.equal(reply.querySelector("p")?.outerHTML, "<p>No rain tomorrow.</p>");
 
   // The first notice comes before this computer's copy has the reply.
   answers.open_session = [prompt];
   await refreshSession(SESSION);
   assert.ok(reply.isConnected, "the reply left the chat while the copy caught up");
-  assert.equal(reply.innerHTML, "<p>No rain tomorrow.</p>");
+  assert.equal(reply.querySelector("p")?.outerHTML, "<p>No rain tomorrow.</p>");
 
   // Then the copy has it, with its follow-ups and cards.
   answers.open_session = [prompt, answered];
@@ -55,7 +55,7 @@ test("a reply stays the same element from its stream through the chat's redraws"
   assert.equal(turns.length, 1);
   assert.equal(turns[0], turn, "the turn was drawn again");
   assert.equal(turn.querySelector(".dcoderen.agent"), reply, "the reply was drawn again");
-  assert.equal(reply.innerHTML, "<p>No rain tomorrow, 21 degrees.</p>");
+  assert.equal(reply.querySelector("p")?.outerHTML, "<p>No rain tomorrow, 21 degrees.</p>");
   assert.deepEqual([...turn.querySelectorAll(".dreplies button")].map(b => b.textContent), ["And the weekend?", "What about Paris?"]);
   assert.ok(turn.querySelector(".dprod"), "the cards were not added");
   assert.ok(!removed.has(turn) && !removed.has(reply), "the reply was taken out of the page");
@@ -93,9 +93,9 @@ test("a stream's text is drawn once a frame, and all of it when the run ends", (
   events.onmessage({ kind: "text", html: "<p>No rain</p>" });
   assert.equal(turn.querySelector(".dcoderen.agent"), null, "drawn before the frame");
   runFrames();
-  assert.equal(turn.querySelector(".dcoderen.agent")!.innerHTML, "<p>No rain</p>");
+  assert.equal(turn.querySelector(".dcoderen.agent p")?.outerHTML, "<p>No rain</p>");
   // The run ends between frames: nothing waits for the next one.
   events.onmessage({ kind: "text", html: "<p>No rain tomorrow.</p>" });
   events.onmessage({ kind: "finished", status: "completed" });
-  assert.equal(turn.querySelector(".dcoderen.agent")!.innerHTML, "<p>No rain tomorrow.</p>");
+  assert.equal(turn.querySelector(".dcoderen.agent p")?.outerHTML, "<p>No rain tomorrow.</p>");
 });

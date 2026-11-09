@@ -1,6 +1,6 @@
 import { discardChatWork } from "./work-view.tsx";
 import { askFiles } from "./attach.ts";
-import { ANSWER, answeredTurns, approvalCard, ASK, askText, body, drawLatest, drawWork, failed, makeTurn, newTurn, ranOn, renderChat, reply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
+import { ANSWER, answeredTurns, approvalCard, appendChatReply, ASK, askText, body, chatReplyHtml, drawLatest, drawWork, failed, makeTurn, moveChatReply, newTurn, ranOn, renderChat, setChatReply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
 import type { Asking, ToolOutput } from "./chat.ts";
 import { answerHtml } from "../agents/turnrows.ts";
 import { $$, changed, live, queued, S, windowHooks } from "../bar/core.ts";
@@ -174,7 +174,7 @@ function buildTurns(id: string, turns: HistoryTurn[]) {
     } else if (t.role === "assistant") {
       turn ??= drawTurn("");
       turn.steps.push(...t.tools.filter(x => !QUIET_TOOLS.has(x.name)).map((x): Step => ({ id: "", name: x.name, label: x.label || toolLabel(x.name) || "Using a tool", state: x.success ? "ok" : "bad" })));
-      if (t.html) reply(turn).innerHTML += answerHtml(t.html);
+      if (t.html) appendChatReply(turn, answerHtml(t.html));
       for (const x of t.tools) toolOutput(turn, x, x.route);
       last = t.replies.length ? { turn, replies: t.replies } : null;
       turn.done = true;
@@ -289,10 +289,11 @@ function mergeTurn(old: Turn, fresh: Turn) {
     if (!was) {
       if (prev) prev.after(el);
       else old.prepend(el);
+      if (el.className === "dcoderen agent md") moveChatReply(fresh, old);
     } else if (STABLE.has(el.className)) {
       now = was;
     } else if (el.className === "dcoderen agent md") {
-      if (was.innerHTML !== el.innerHTML) was.innerHTML = el.innerHTML;
+      setChatReply(old, chatReplyHtml(fresh));
       now = was;
     } else if (!LISTED.has(el.className) && was.outerHTML === el.outerHTML) {
       now = was;
