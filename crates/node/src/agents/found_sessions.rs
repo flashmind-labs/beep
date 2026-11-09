@@ -347,6 +347,7 @@ impl Agents {
         id: &str,
         prompt: Option<String>,
     ) -> Result<Arc<Session>> {
+        let _store = self.session_store.lock().await;
         anyhow::ensure!(
             !id.starts_with("subagent:"),
             "This subagent is managed by its parent. Open the parent to continue it."

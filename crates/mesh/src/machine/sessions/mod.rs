@@ -8,8 +8,8 @@ mod moves;
 mod query;
 
 pub use actions::{
-    commands, delete_session, diff, harnesses, install_adapters, review, reviews, start_review,
-    update_harness,
+    commands, delete_session, diff, harnesses, install_adapters, relocate_session, review, reviews,
+    start_review, update_harness,
 };
 pub use files::{
     custom_agents, edit_files, folder, image, media, present, read_file, thumb, tree, upload_file,
