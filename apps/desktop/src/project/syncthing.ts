@@ -1,4 +1,4 @@
-import { chooseIgnoredFolders } from "./ignored-sync.ts";
+import { chooseIgnoredFolders } from "./ignored-sync.tsx";
 import type { IgnoredSync } from "./ignored-sync-state.ts";
 // A project-wide Syncthing preference, applied by each machine.
 import { invoke } from "../ui/tauri.ts";
