@@ -2,7 +2,7 @@ import { createElement, Fragment } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { AgentTurnHeading, type TurnHeading } from "./turn-heading-view.tsx";
-import { AgentReply, replyRow, type ReplyRow } from "./reply-view.tsx";
+import { AgentReply, replyHtml, replyRow, type ReplyRow } from "./reply-view.tsx";
 import { frameResize } from "../ui/dom.ts";
 
 // A session's log in the page: only the turns near the view are drawn, in
@@ -17,8 +17,9 @@ import type { ChatBody } from "../ui/turn.ts";
 
 /// One turn of the log: a key that stays while the turn does, and its
 /// rows as html, worked out only when it is drawn.
-export type TranscriptRow = string | TurnHeading;
-const rowHtml = (row: TranscriptRow) => typeof row === "string" ? row : row.html;
+export type TranscriptRow = string | TurnHeading | ReplyRow;
+const rowHtml = (row: TranscriptRow) => typeof row === "string" ? row : row.kind === "reply" ? replyHtml(row) : row.html;
+const asReply = (row: TranscriptRow) => typeof row === "string" ? replyRow(row) : row.kind === "reply" ? row : null;
 
 export interface Unit {
   key: string;
@@ -274,8 +275,8 @@ function patch(w: LogWindow, d: Drawn, rows: readonly TranscriptRow[], reuse: re
   const nodes = html.map((row, i) => {
     if (reuse[i] >= 0 && d.html[reuse[i]] === row) return d.nodes[reuse[i]];
     const typed = rows[i];
-    const heading = typeof typed === "string" ? null : typed;
-    const reply = heading ? null : replyRow(row);
+    const heading = typeof typed !== "string" && typed.kind === "heading" ? typed : null;
+    const reply = asReply(typed);
     if (reuse[i] >= 0) {
       const nodes = d.nodes[reuse[i]];
       const existing = nodes[0] instanceof HTMLElement ? w.replies.get(nodes[0]) : null;
@@ -315,14 +316,14 @@ function patch(w: LogWindow, d: Drawn, rows: readonly TranscriptRow[], reuse: re
 
 /// Preserve a reply's host while its streamed content changes.
 function reuseReplyRows(before: readonly TranscriptRow[], next: readonly TranscriptRow[]) {
-  const signature = (row: TranscriptRow) => typeof row === "string" ? `s${row}` : `h${JSON.stringify([row.id, row.html])}`;
+  const signature = (row: TranscriptRow) => typeof row === "string" ? `s${row}` : row.kind === "heading" ? `h${JSON.stringify([row.id, row.html])}` : `r${JSON.stringify([row.row, row.markdown, row.html])}`;
   const reuse = reuseRows(before.map(signature), next.map(signature));
   if (!reuse.includes(-1)) return reuse;
   const used = new Set(reuse.filter(index => index >= 0));
   const available = new Map<string, { indices: number[]; next: number }>();
   for (const [index, row] of before.entries()) {
     if (used.has(index)) continue;
-    const reply = typeof row === "string" ? replyRow(row) : null;
+    const reply = asReply(row);
     if (!reply) continue;
     let matches = available.get(reply.row);
     if (!matches) { matches = { indices: [], next: 0 }; available.set(reply.row, matches); }
@@ -331,7 +332,7 @@ function reuseReplyRows(before: readonly TranscriptRow[], next: readonly Transcr
   for (let i = 0; i < next.length; i++) {
     if (reuse[i] >= 0) continue;
     const candidate = next[i];
-    const reply = typeof candidate === "string" ? replyRow(candidate) : null;
+    const reply = asReply(candidate);
     if (!reply) continue;
     const matches = available.get(reply.row);
     if (matches && matches.next < matches.indices.length) reuse[i] = matches.indices[matches.next++];
@@ -343,13 +344,13 @@ function reuseHeadings(before: readonly TranscriptRow[], next: readonly Transcri
   const used = new Set(reuse.filter(index => index >= 0));
   const available = new Map<string, { indices: number[]; next: number }>();
   before.forEach((row, i) => {
-    if (typeof row === "string" || used.has(i)) return;
+    if (typeof row === "string" || row.kind !== "heading" || used.has(i)) return;
     let matches = available.get(row.id);
     if (!matches) { matches = { indices: [], next: 0 }; available.set(row.id, matches); }
     matches.indices.push(i);
   });
   next.forEach((row, i) => {
-    if (reuse[i] >= 0 || typeof row === "string") return;
+    if (reuse[i] >= 0 || typeof row === "string" || row.kind !== "heading") return;
     const matches = available.get(row.id);
     if (matches && matches.next < matches.indices.length) reuse[i] = matches.indices[matches.next++];
   });

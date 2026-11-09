@@ -14,7 +14,7 @@ try {
   await page.addScriptTag({ content: code });
   const result = await page.evaluate(() => {
     const body = document.querySelector(".dbody"), log = document.querySelector(".dcoderlog");
-    const row = text => `<div class="dcoderen agent md" data-row="5"><p>${text}</p><pre class="dcode"><button data-copy>Copy</button><code>example</code></pre></div>`;
+    const row = text => ({ kind: "reply", row: "5", markdown: true, html: `<p>${text}</p><pre class="dcode"><button data-copy>Copy</button><code>example</code></pre>` });
     const units = text => [{ key: "turn", rows: () => [row(text)] }];
     logWindow.setUnits(log, units("First"), []);
     logWindow.fillLog(body, false);
@@ -36,7 +36,7 @@ try {
   assert.deepEqual(result, { blocked: false, heldText: "First", updated: true, same: true, updatedText: "Updated", delegated: true, search: "UpdatedCopyexample", gone: true });
   const duplicates = await page.evaluate(() => {
     const body = document.querySelector(".dbody"), log = document.querySelector(".dcoderlog");
-    const row = text => `<div class="dcoderen agent md" data-row="5"><p>${text}</p></div>`;
+    const row = text => ({ kind: "reply", row: "5", markdown: true, html: `<p>${text}</p>` });
     const units = (one, two) => [{ key: "one", rows: () => [row(one)] }, { key: "two", rows: () => [row(two)] }];
     logWindow.setUnits(log, units("First", "Second"), []);
     logWindow.fillLog(body, false);
@@ -51,7 +51,7 @@ try {
   assert.deepEqual(duplicates, { oldCount: 2, count: 2, firstKept: true, secondKept: true, text: ["First updated", "Second"], afterRemoval: ["Second"] });
   const longLog = await page.evaluate(() => {
     const body = document.querySelector(".dbody"), log = document.querySelector(".dcoderlog");
-    const units = Array.from({ length: 1000 }, (_, index) => ({ key: `turn-${index}`, rows: () => [`<div class="dcoderen agent md" data-row="${index}"><p>Reply ${index}</p></div>`] }));
+    const units = Array.from({ length: 1000 }, (_, index) => ({ key: `turn-${index}`, rows: () => [{ kind: "reply", row: String(index), markdown: true, html: `<p>Reply ${index}</p>` }] }));
     const start = performance.now();
     logWindow.setUnits(log, units, []);
     logWindow.fillLog(body, false);

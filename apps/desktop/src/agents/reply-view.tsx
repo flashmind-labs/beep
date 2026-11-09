@@ -1,7 +1,10 @@
 import { memo } from "react";
 
 /// Replies already contain the sanitized Markdown produced by the node.
-export interface ReplyRow { row: string; markdown: boolean; html: string }
+export interface ReplyRow { kind: "reply"; row: string; markdown: boolean; html: string }
+export function replyHtml(reply: ReplyRow) {
+  return `<div class="dcoderen agent${reply.markdown ? " md" : ""}" data-row="${reply.row}">${reply.html}</div>`;
+}
 
 export function replyRow(html: string): ReplyRow | null {
   if (!html.startsWith('<div class="dcoderen agent')) return null;
@@ -12,7 +15,7 @@ export function replyRow(html: string): ReplyRow | null {
     || !node.classList.contains("dcoderen") || !node.classList.contains("agent")) return null;
   const row = node.dataset.row;
   if (!row || !Number.isSafeInteger(Number(row)) || Number(row) < 0) return null;
-  return { row, markdown: node.classList.contains("md"), html: node.innerHTML };
+  return { kind: "reply", row, markdown: node.classList.contains("md"), html: node.innerHTML };
 }
 
 export const AgentReply = memo(function AgentReply({ reply }: { reply: ReplyRow }) {
