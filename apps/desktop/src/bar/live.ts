@@ -1,9 +1,9 @@
 import { turnState } from "../chat/turn-state.ts";
 import { discardChatApproval } from "../chat/work-view.tsx";
 import { ensureChatPrompt, renderChatPrompt, updateChatPrompt } from "../chat/work-view.tsx";
-import { ASK, askText, body, owningChatBody, type Decision, focusAsk, forgetChat, followAnswered, forRoutine, newTurn, removeChatSuggestions, renderChat, scrollDown, settle, startRun } from "../chat/chat.ts";
+import { ASK, askText, body, owningChatBody, type Decision, focusAsk, forgetChat, followAnswered, forRoutine, newTurn, removeChatSuggestions, renderChat, setChatDock, scrollDown, settle, startRun } from "../chat/chat.ts";
 import { touch } from "../chat/chats.ts";
-import { $, $$, bar, entry, here, live, PANE, S } from "./core.ts";
+import { $, bar, entry, here, live, PANE, S } from "./core.ts";
 import { hints, keyGroups, LIVE_SAY, LIVE_TALK, refreshHints } from "./hints.ts";
 import { openSession } from "../chat/history.ts";
 import { notice } from "../chat/media.ts";
@@ -158,30 +158,14 @@ export function openLive(id: string | null) {
 export function mountDock() {
   const field = $(".dinput.dgrow");
   if (!field || $("#ldock")) return;
-  field.classList.add("lhid");
   // Keys go to live mode, not to the hidden field.
   $("#ask")?.blur();
-  field.after(h('<div class="ddock" id="ldock" role="region" aria-label="Live mode"></div>'));
+  setChatDock(LV.view);
 }
 export function drawDock(v: LiveView | null) {
   const dock = $("#ldock");
   if (!dock || !v) return;
-  const p = liveParts(v);
-  const lvl = $("#orb")?.style.getPropertyValue("--lvl");
-  const left = LV.soon ? Math.max(0, LV.soon.until - Date.now()) : 0;
-  const soon = LV.soon && p.mode === "listen"
-    ? `<div class="dsoon" role="progressbar" aria-label="Sending after the pause"><i style="--from:${(left / LV.soon.total).toFixed(3)};animation-duration:${left}ms"></i></div>` : "";
-  dock.innerHTML = `${LV.toast ? `<div class="ltoast" role="status">${esc(LV.toast)}</div>` : ""}
-    <div class="drow1"><button class="dorb ${p.orb}" id="orb" aria-label="${p.label}"><span class="ring b"></span><span class="ring"></span><span class="core"></span></button>
-      <div class="dtx"><div class="word ${p.word[1]}">${p.title ? `<span class="tt">${p.title}</span> · ` : ""}${p.word[0]}</div><div class="cap" aria-live="polite">${p.cap}</div></div>
-      <button class="dleave" id="lleave" aria-label="${p.replying ? "Cancel the reply and leave live mode" : "Leave live mode"}">${ICON.x}</button></div>
-    <div class="dfoot">${soon}<div class="hint">${p.hint}</div>${p.replying ? `<button class="dbtn quiet lcancel" id="lcancel">Cancel<kbd>esc</kbd></button>` : ""}</div>`;
-  if (lvl) $$("#orb").style.setProperty("--lvl", lvl);
-  const cap = dock.querySelector(".cap")!;
-  cap.scrollTop = cap.scrollHeight;
-  $$("#orb").addEventListener("click", () => invoke("live_tap").catch(() => {}));
-  $$("#lleave").addEventListener("click", () => invoke("cancel_live").catch(() => {}));
-  $("#lcancel")?.addEventListener("click", () => invoke("cancel_live").catch(() => {}));
+  setChatDock(v);
   refreshHints();
   const sheet = bar.querySelector(".lsheet");
   if (v.sheet && !sheet) bar.append(h(liveSheet()));
@@ -236,8 +220,7 @@ export function renderLeft() {
   LV.chat = null;
 
   if (S.view === "chat" && $("#ldock") && chat === (S.session ?? null)) {
-    $$("#ldock").remove();
-    $(".dinput.dgrow")?.classList.remove("lhid");
+    setChatDock(null);
     refreshHints();
     takeDraft($<HTMLTextAreaElement>("#ask"));
     focusAsk();
