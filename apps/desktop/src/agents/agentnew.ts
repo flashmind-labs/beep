@@ -11,7 +11,7 @@ import { BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
 import { AG, AGENT_ORDER, agentKind, byPreference, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
 import { loadSessions, sessions } from "./sessions.ts";
 import { openAgent, sessionPicks } from "./session.ts";
-import { closedPicker, drawPicker as drawPickerIn, focusSearch, knownModels, modelsOn, type Picked, pillInner } from "./agentpicker.ts";
+import { closedPicker, drawPicker as drawPickerIn, focusSearch, knownModels, modelsOn, type Picked, pillContent } from "./agentpicker.ts";
 import { type BaseBranches, baseFor, baseRows, type CheckoutPick, DEFAULT_CHECKOUT, folderPill, folderRows, type FormProject, formProjects, modelId, harnessFor, keepEffort, knownWorktrees, machineRows, placeMenuAt, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
 import { $, $$, type AgentReturn, bar, PANE, S } from "../bar/core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../addproject/foldercomplete.ts";
@@ -229,7 +229,7 @@ function drawPill(none: boolean) {
   const f = AG.form, button = composer.harness;
   button.disabled = none || !f.agent;
   button.setAttribute("aria-expanded", String(f.open === "pick"));
-  button.innerHTML = none || !f.agent ? "No agent" : pillInner(f.agent, f.model ?? "", f.effort ?? null, f.modelFor ? f.machine || null : null);
+  composer.setHarness(none || !f.agent ? "No agent" : pillContent(f.agent, f.model ?? "", f.effort ?? null, f.modelFor ? f.machine || null : null));
 }
 
 /// The picker by the pill: harnesses, their models, their thinking.

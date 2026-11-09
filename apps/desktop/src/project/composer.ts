@@ -15,7 +15,7 @@ import { pageAgent } from "./agent.ts";
 import { addHosts, type BarTarget, barCheckout, barPlace, barPrompt, forgeOf, nextBarMachine, reviewKey, reviewPrompt, type ReviewSession, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
 import { keepMachine, lastMachine } from "../agents/agentnew.ts";
 import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "../agents/agentpick.ts";
-import { closedPicker, drawPicker, focusSearch, modelsOn, pillInner, preloadModels } from "../agents/agentpicker.ts";
+import { closedPicker, drawPicker, focusSearch, modelsOn, pillContent, preloadModels } from "../agents/agentpicker.ts";
 import { AG, AGENT_ORDER, type AgentHost, byPreference } from "../agents/agents.ts";
 import { draftPlace } from "../agents/draft.ts";
 import { S } from "../bar/core.ts";
@@ -209,9 +209,9 @@ export function drawProjectComp(name: string) {
 
   if (agent && host) {
     modelsOn(host.machine_id, agent, () => { if (barOn(name)) redrawProjects(); });
-    c.harness.innerHTML = pillInner(agent, pc.picked.model, pc.picked.effort, host.machine_id);
+    c.setHarness(pillContent(agent, pc.picked.model, pc.picked.effort, host.machine_id));
   } else {
-    c.harness.replaceChildren("Coding agent");
+    c.setHarness("Coding agent");
   }
 
   c.harness.disabled = !agent || pc.starting;

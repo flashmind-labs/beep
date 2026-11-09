@@ -6,6 +6,8 @@ import type { Waiting } from "./agentqueue.ts";
 import type { Row } from "./mention-state.ts";
 
 interface Owner { field: HTMLElement; root: Root; queue: HTMLElement | null; attachments: HTMLElement | null; menu: HTMLElement | null; queueView: ReactElement | null; attachmentView: ReactElement | null; menuView: ReactElement | null; controls: Map<HTMLElement, { key: number; node: ReactElement | null }>; next: number; observer: MutationObserver }
+// One owner keeps all session composer portals alive until the field leaves.
+// Queue, attachment and menu hosts can come and go without replacing controls.
 let current: Owner | null = null;
 function draw(owner: Owner) {
   flushSync(() => owner.root.render(createElement(Fragment, null, owner.queue && createPortal(owner.queueView, owner.queue, "queue"), owner.attachments && createPortal(owner.attachmentView, owner.attachments, "attachments"), owner.menu && createPortal(owner.menuView, owner.menu, "menu"), ...[...owner.controls].map(([host, control]) => createPortal(control.node, host, control.key)))));

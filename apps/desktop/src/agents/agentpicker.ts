@@ -1,16 +1,12 @@
 import { createElement, type ReactElement } from "react";
-import { AgentPicker } from "./agentpicker-view.tsx";
+import { AgentPicker, AgentPillContent } from "./agentpicker-view.tsx";
 // The harness, model and thinking picker, as the start form and a project's
 // agent bar both show it: the pill that opens it, the popover with its rail,
 // model column and thinking column, and where it goes on screen.
 
 import { type AgentModels, MODELS_KEPT_MS } from "./agentmodels.ts";
 import { modelLabel, modelRows, pillDetail, placePopover } from "./agentpick.ts";
-import { harnessTile } from "../ui/harnessicon.ts";
-import { esc } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
-
-const CARET = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 
 // ----- Models -----
 
@@ -123,9 +119,9 @@ export interface PickerOpts {
 }
 
 /// The pill's inside: the harness badge, thinking level and model.
-export function pillInner(agent: string, model: string, effort: string | null, machine: string | null) {
+export function pillContent(agent: string, model: string, effort: string | null, machine: string | null) {
   const detail = pillDetail(modelLabel(knownModels(machine, agent), model), agent, effort);
-  return `${harnessTile(agent)}${esc(detail)}${CARET}`;
+  return createElement(AgentPillContent, { agent, detail });
 }
 
 /// The picker open now, for placing it again on resize and scroll.
@@ -133,6 +129,8 @@ let shown: { el: HTMLElement; o: PickerOpts } | null = null;
 let attachmentWatch: MutationObserver | null = null;
 let watchedElement: HTMLElement | null = null;
 
+// The host's owner renders the picker; it must also clear it on close so
+// search state and async model callbacks cannot outlive that host.
 const renderers = new WeakMap<HTMLElement, (view: ReactElement | null) => void>();
 
 /// Draws the picker into `el` and places it by its pill.

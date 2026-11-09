@@ -29,6 +29,10 @@ function Harness({ agent }: { agent: string }) {
   return <span className={cls} dangerouslySetInnerHTML={{ __html: harnessInner(agent) }}/>;
 }
 
+export function AgentPillContent({ agent, detail }: { agent: string; detail: string }) {
+  return <><Harness agent={agent}/>{detail}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg></>;
+}
+
 export function AgentPicker({ picked, offered, everywhere, machineName, machineId, rows, note, loading, onQuery, onAgent, onModel, onEffort }: PickerProps) {
   const name = agentKind(picked.agent).name, levels = effortsOf(picked.agent);
   const [highlight, setHighlight] = useState(-1);

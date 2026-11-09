@@ -222,6 +222,9 @@ test("the model pill uses the model reported by the session", t => {
   sessionPicks.set(page.session.id, { model: "previous-model", effort: null });
   page.model = "current-model";
   drawModelPill();
+  const badge = pill.querySelector(".cc-ag");
+  drawModelPill();
+  assert.equal(pill.querySelector(".cc-ag"), badge, "unchanged refreshes preserve the harness badge");
   assert.match(pill.innerHTML, /current-model/);
   assert.doesNotMatch(pill.innerHTML, /previous-model/);
   sessionPicks.delete(page.session.id);

@@ -84,6 +84,7 @@ export function setUnits(log: HTMLElement, units: readonly Unit[], held: readonl
   }
 
   for (const [key, d] of w.drawn) if (!keys.has(key)) going.push(d.el);
+  // Leave the whole update pending when it would replace a selection or focus.
   if (going.some(el => held.some(n => el.contains(n)))) return false;
   for (const [key, d] of w.drawn) if (!keys.has(key)) undraw(w, key, d);
   for (const { d, rows, reuse } of plans) patch(w, d, rows, reuse);
@@ -357,6 +358,8 @@ function reuseHeadings(before: readonly TranscriptRow[], next: readonly Transcri
 }
 
 function renderReplies(w: LogWindow) {
+  // One root owns all visible reply and heading portals; virtualized turns
+  // release their hosts as they leave the window.
   if (!w.replyRoot && !w.replies.size && !w.headings.size) return;
   w.replyRoot ??= createRoot(document.createElement("div"));
   flushSync(() => w.replyRoot?.render(createElement(Fragment, null,

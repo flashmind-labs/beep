@@ -2,7 +2,7 @@
 import { createElement } from "react";
 import { showAgentControl } from "./composer-ui.tsx";
 import { modelId } from "./agentpick.ts";
-import { closedPicker, knownModels, modelsOn, drawPicker, type Picked, pillInner } from "./agentpicker.ts";
+import { closedPicker, knownModels, modelsOn, drawPicker, type Picked, pillContent } from "./agentpicker.ts";
 import { $, bar } from "../bar/core.ts";
 import { type AgentRow, AG, agentKind } from "./agents.ts";
 import { SWITCHES, sessionPicks } from "./session.ts";
@@ -19,7 +19,7 @@ export function drawModelPill() {
   const model = AG.page?.model || p.model;
   if (model) modelsOn(s.machine_id, s.agent, () => { if (AG.page?.session.id === s.id) drawModelPill(); });
   const why = can ? "Switch the model or thinking; applies from the next turn" : `${agentKind(s.agent).name} cannot switch models in a running session`;
-  showAgentControl(field, el, createElement("button", { className: "agc-pill agm", id: "agmodelb", "aria-expanded": AG.modelOpen, title: why, disabled: !can, dangerouslySetInnerHTML: { __html: pillInner(s.agent, model || "Model unknown", p.effort, s.machine_id) } }));
+  showAgentControl(field, el, createElement("button", { className: "agc-pill agm", id: "agmodelb", "aria-expanded": AG.modelOpen, title: why, disabled: !can }, pillContent(s.agent, model || "Model unknown", p.effort, s.machine_id)));
 }
 
 export function toggleModelPicker() {
