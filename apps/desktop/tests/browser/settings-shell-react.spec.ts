@@ -73,3 +73,21 @@ test("Settings load failure replaces the placeholder and can recover in the same
   await expect(settings.locator(".derr")).toHaveCount(0);
   await expect(settings.locator(".dset-nav")).toHaveCount(1);
 });
+
+
+test("closing Settings during its initial read disposes the frame and ignores the late reply", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "unlinked", signed_out: true, server: false, live: false, session: null }, settings: { name: "build-box", version: "0.1", autostart: false, notice_voice: "off", send_on_pause: false, agent_notices: false }, list_machines: [] });
+  await page.evaluate(() => window.__navigation.holdNext("settings"));
+  const button = page.locator("#side").getByRole("button", { name: "Settings", exact: true });
+  await button.click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await expect(settings.locator(".cc-skel")).toHaveCount(4);
+  await page.keyboard.press("Escape");
+  await expect(settings).toHaveCount(0);
+  await expect(button).toBeFocused();
+  await page.evaluate(() => window.__navigation.release("settings"));
+  await expect(settings).toHaveCount(0);
+  await button.click();
+  await expect(settings.getByRole("navigation", { name: "Settings pages" })).toBeVisible();
+  await expect(settings.locator(".cc-skel")).toHaveCount(0);
+});

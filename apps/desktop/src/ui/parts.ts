@@ -149,20 +149,28 @@ export function sheetAbove(element: HTMLElement) {
   return openSheets.some(root => !!(element.compareDocumentPosition(root) & Node.DOCUMENT_POSITION_FOLLOWING));
 }
 
-/// A sheet on the page: a click on the scrim or Esc closes it, and focus goes
-/// back to what had it. `close` always closes, so a caller guards its own buttons.
-export function openSheet(label: string, cls: string, options: SheetOptions = {}) {
-  const back = document.activeElement;
+interface SheetFrameOptions { host: HTMLElement; scrimClass: string; onScrim(): void }
+
+/// A mounted React dialog frame. Its caller owns dismissal and focus behavior.
+export function mountSheetFrame(label: string, cls: string, options: SheetFrameOptions) {
   const rootRef = createRef<HTMLDivElement>(), sheetRef = createRef<HTMLDivElement>();
   const owner = createDocumentScope<"sheet">();
-  const allowed = () => !options.canClose || options.canClose();
-  owner.set([{ slot: "sheet", host: options.host ?? document.body, content: createElement("div", {
-    className: "am-scrim", ref: rootRef,
-    onMouseDown: (event: ReactMouseEvent) => { if (event.target === event.currentTarget && allowed()) close(); },
+  owner.set([{ slot: "sheet", host: options.host, content: createElement("div", {
+    className: options.scrimClass, ref: rootRef,
+    onMouseDown: (event: ReactMouseEvent) => { if (event.target === event.currentTarget) options.onScrim(); },
   }, createElement("div", { className: cls, role: "dialog", "aria-modal": true, "aria-label": label, ref: sheetRef })) }]);
   const root = rootRef.current, sheet = sheetRef.current;
   // The scope commits synchronously, so its DOM refs must be available here.
   if (!root || !sheet) { owner.dispose(); throw new Error("Dialog did not mount"); }
+  return { root, sheet, dispose: owner.dispose };
+}
+
+/// A sheet on the page: a click on the scrim or Esc closes it, and focus goes
+/// back to what had it. `close` always closes, so a caller guards its own buttons.
+export function openSheet(label: string, cls: string, options: SheetOptions = {}) {
+  const back = document.activeElement;
+  const allowed = () => !options.canClose || options.canClose();
+  const { root, sheet, dispose } = mountSheetFrame(label, cls, { host: options.host ?? document.body, scrimClass: "am-scrim", onScrim: () => { if (allowed()) close(); } });
   let open = true;
   const close = () => {
     if (!open) return;
@@ -170,7 +178,7 @@ export function openSheet(label: string, cls: string, options: SheetOptions = {}
     const index = openSheets.indexOf(root);
     if (index !== -1) openSheets.splice(index, 1);
     document.removeEventListener("keydown", keys, true);
-    owner.dispose();
+    dispose();
     focusBack(back);
     options.onClose?.();
   };

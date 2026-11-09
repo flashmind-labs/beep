@@ -45,3 +45,8 @@ export function AgentSettingsSection({ linked, sheet }: { linked: boolean; sheet
 export function SettingsFailure({ error }: { error: string }) {
   return <div className="dwin"><h4>Settings</h4><p className="derr">{error}</p></div>;
 }
+
+
+export function SettingsLoading() {
+  return <><nav className="dset-nav"><b>Settings</b></nav><div className="dset-body"><div className="dset-top"><span className="tt"><b>Settings</b></span><kbd>esc</kbd></div>{[80, 60, 72, 50].map(width => <div className="cc-skel" key={width} style={{ width: `${width}%` }} />)}</div></>;
+}

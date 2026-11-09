@@ -6,7 +6,7 @@ import { ModelSettingsView } from "./model-settings-view.tsx";
 import { ServerView } from "./server-view.tsx";
 import { GeneralView } from "./general-view.tsx";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
-import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsBarShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure } from "./settings-shell-view.tsx";
+import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsBarShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
 import type { PanePage } from "../bar/pane.ts";
 // settings/: the Settings pages (apps, accounts, credentials, coding agents,
@@ -489,6 +489,10 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
   // The window shows Settings as its sheet, never as a page of the pane.
   if (!SET.root && windowHooks) return windowHooks.openSettings();
   if (!SET.root) S.view = "settings";
+  if (root && shell?.sheet !== root) {
+    const current = ensureShell(root);
+    flushSync(() => current.root.render(createElement(SettingsLoading)));
+  }
   SET.confirm = confirm;
   const token = ++SET.token;
   const alive = () => SET.token === token && setShown();
