@@ -17,7 +17,10 @@ test("custom agents keep focus on redraw and retain prompt and start actions", a
   await expect(row).toBeFocused();
   await row.press('Enter');
   await expect(page.locator('.ca-prompt')).toHaveText('Review the work.');
+  await expect(page.locator('.ca-prompt')).toBeFocused();
   await page.keyboard.press('Escape');
-  await row.getByRole('button', { name: 'Start' }).click();
+  await expect(row).toBeFocused();
+  await row.press('Enter');
+  await page.getByRole('dialog', { name: 'Custom agent Reviewer' }).getByRole('button', { name: 'Start' }).click();
   await expect(page.getByRole('textbox', { name: 'Task for a coding agent' })).toHaveValue('Use the Reviewer agent to ');
 });
