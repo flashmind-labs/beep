@@ -82,11 +82,22 @@ export function initPalette(window_: PaletteDeps) {
   listen("palette-text-changed", () => searching?.requery());
 }
 
-/// `text` with the first match of `q` wrapped in <mark>; never markup.
+/// Highlight every search term, keeping message text as plain text.
 function marked(text: string, q: string): Kid[] {
-  const at = q ? text.toLowerCase().indexOf(q.toLowerCase()) : -1;
-  if (at < 0) return [text];
-  return [text.slice(0, at), el("mark", "", text.slice(at, at + q.length)), text.slice(at + q.length)];
+  const terms = q.trim().split(/\s+/u).filter(Boolean);
+  if (!terms.length) return [text];
+  const pattern = terms.map(term => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const matches = text.matchAll(new RegExp(pattern, "giu"));
+  const result: Kid[] = [];
+  let end = 0;
+
+  for (const match of matches) {
+    result.push(text.slice(end, match.index), el("mark", "", match[0]));
+    end = match.index + match[0].length;
+  }
+
+  result.push(text.slice(end));
+  return result;
 }
 
 export function openPalette() {
@@ -172,6 +183,11 @@ function draw(q: string) {
 function row(hit: Hit, i: number, q: string) {
   const note = hit.detail && ["chat", "routine", "setting", "project", "project_chat", "folder", "agent_session", "code", "branch"].includes(hit.kind) ? el("small", "", ...marked(hit.detail, q)) : null;
   const snippet = hit.snippet ? el("small", "", ...marked(hit.snippet, q)) : null;
+  if (q.trim().split(/\s+/u).length > 1) {
+    if (note) note.style.whiteSpace = "normal";
+    if (snippet) snippet.style.whiteSpace = "normal";
+  }
+
   const side = hit.detail && (hit.kind === "memory" || hit.kind === "machine") ? el("span", "w", hit.detail) : null;
   // A research is a chat; it keeps its paper's icon here.
   const name = ICON_OF[hit.kind === "chat" && deps!.research(hit.id) ? "research" : hit.kind] ?? hit.kind;

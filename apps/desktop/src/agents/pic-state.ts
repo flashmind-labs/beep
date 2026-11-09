@@ -7,7 +7,7 @@ import { ICON } from "../ui/icons.ts";
 export type PicRead = Promise<string | null> | string | null | undefined;
 
 /// A session picture that is not here: its icon and name.
-export const gonePic = (label: string) => `<span class="pic none" title="${esc(label)}">${ICON.image}${esc(label)}</span>`;
+export const gonePic = (label: string, message = label) => `<span class="pic none" title="${esc(label)}">${ICON.image}${esc(message)}</span>`;
 
 /// The tile of a picture a log entry names `n`: `sent` when this window sent
 /// it, else one read from the session's machine by its key, `image-<key>`.

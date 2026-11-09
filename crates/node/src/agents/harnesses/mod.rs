@@ -472,7 +472,7 @@ async fn sign_in(agent: &str, cli: &std::path::Path, kind: &AgentKind) -> SignIn
         "opencode" => &["auth", "list"],
         _ => return SignIn::default(),
     };
-    let mut command = crate::run::process::command(cli);
+    let mut command = crate::run::process::probe(cli);
     spawn_env::apply(&mut command, Scope::Agent(None));
     let run = command
         .args(args)

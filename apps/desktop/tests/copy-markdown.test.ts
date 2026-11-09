@@ -22,3 +22,16 @@ test("copies selected output as Markdown", () => {
   assert.match(copied, /\| One\s*\| Two\s*\|/);
   assert.equal(event.defaultPrevented, true);
 });
+
+
+test("quote copying preserves paragraphs, links and nested content without controls", async () => {
+  const { quotedMarkdown } = await import("../src/agents/copy-markdown.ts");
+  const quote = document.createElement("blockquote");
+  quote.innerHTML = '<button>Copied</button><p>First <code>command</code>.</p><p><a href="https://example.com">Details</a></p><blockquote><button>Copy</button><p>Nested quote</p></blockquote><pre><button>Copy</button><code>echo hello</code></pre>';
+  const text = quotedMarkdown(quote);
+  assert.match(text, /First `command`\.\n\n/);
+  assert.match(text, /\[Details\]\(https:\/\/example.com\)/);
+  assert.match(text, /> Nested quote/);
+  assert.match(text, /echo hello/);
+  assert.doesNotMatch(text, /Copied|Copy/);
+});

@@ -294,3 +294,32 @@ fn unchanged_empty_sessions_are_also_indexed() -> Result<()> {
     assert!(store.current(&identity(&session), &stamp(&session)?)?);
     Ok(())
 }
+
+#[test]
+fn terms_match_across_prompts_only_within_one_session() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut store = Store::open(&dir.path().join("search.sqlite"))?;
+    store.replace(
+        &session("both", "build-box", 1),
+        &["Improve the worktree search bar".into()],
+        true,
+    )?;
+    store.replace(
+        &session("split", "build-box", 2),
+        &["Add worktree support".into(), "Polish the bar".into()],
+        true,
+    )?;
+    store.replace(
+        &session("partial", "build-box", 3),
+        &["worktree only".into()],
+        true,
+    )?;
+    let found = store.find("  BAR worktree bar  ", None)?;
+    assert_eq!(found.len(), 2);
+    assert_eq!(found[0].session.id, "split");
+    assert!(found[0].texts.iter().any(|text| text.contains("worktree")));
+    assert!(found[0].texts.iter().any(|text| text.contains("bar")));
+    assert_eq!(store.find("worktree z", None)?.len(), 0);
+    assert_eq!(store.find("wo bar", None)?.len(), 2);
+    Ok(())
+}

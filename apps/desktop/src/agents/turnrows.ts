@@ -1,11 +1,12 @@
 // The rows of a chat log, drawn the same in a Beep chat and a coding agent's
 // session: the prompt, a turn's heading, a thought, a tool call, the answer,
 // a failure, a queued message and the Stop button.
+import { quotedMarkdown } from "./copy-markdown.ts";
 import { clock, duration, heading, thoughtLabel, type ToolKind, type TurnState } from "./agentturns.ts";
-import { copy } from "../ui/parts.ts";
+import { copy, writeClipboard } from "../ui/parts.ts";
 import { endedHtml, liveHtml } from "./thoughtlive.ts";
 import { esc } from "../ui/format.ts";
-import { BEEP_MARK, ICON } from "../ui/icons.ts";
+import { BEEP_MARK, COPY_ICON, ICON } from "../ui/icons.ts";
 import { onShownChange, pageShown } from "../ui/active.ts";
 
 /// `word`, its letters lit one after another in a loop.
@@ -110,12 +111,32 @@ export function toolRowHtml(r: { kind: ToolKind; verb: string; target: string; t
 /// The user's message: "You" over its text (HTML), then what it carried.
 export const userRowHtml = (html: string, attrs = "", after = "", md = false) => `<div class="dcoderen user${md ? " md" : ""}"${attrs}><b>You</b>${html ? md ? `<div class="said">${html}</div>` : `<span>${html}</span>` : ""}${after}</div>`;
 
-/// An answer's HTML, each code block with a button that copies it.
-export const answerHtml = (html: string) => html.replace(/<pre(\s[^>]*)?>/g, (_m, attrs = "") => `<pre class="dcode"${attrs}><button class="dcopy" data-copy title="Copy">Copy</button>`);
+/// An answer with copy controls for code blocks and quotes.
+export const answerHtml = (html: string) => html.replace(/<pre(\s[^>]*)?>/g, (_m, attrs = "") => `<pre class="dcode"${attrs}><button class="dcopy" data-copy title="Copy">Copy</button>`)
+  .replace(/<\/blockquote>/g, () => `</blockquote><button type="button" class="dcopy dquote-copy" data-copy aria-label="Copy quote" title="Copy quote">${COPY_ICON}</button>`);
 
-/// Copies the code block of Copy button `btn`.
+/// Copies the code block or quote containing the button.
 export function copyCode(btn: HTMLElement) {
-  copy(btn.parentElement?.querySelector("code")?.textContent ?? "", btn).catch(console.warn);
+  const parent = btn.classList.contains("dquote-copy") ? btn.previousElementSibling : btn.parentElement;
+  if (!parent) return;
+
+  const text = parent.tagName === "BLOCKQUOTE" ? quotedMarkdown(parent) : parent.querySelector("code")?.textContent ?? "";
+  const copying = btn.classList.contains("dquote-copy") ? writeClipboard(text).then(() => {
+    btn.innerHTML = ICON.check;
+    btn.setAttribute("aria-label", "Copied");
+    btn.title = "Copied";
+    setTimeout(() => {
+      if (!btn.isConnected) return;
+
+      btn.innerHTML = COPY_ICON;
+      btn.setAttribute("aria-label", "Copy quote");
+      btn.title = "Copy quote";
+    }, 1200);
+  }) : copy(text, btn);
+  copying.catch(error => {
+    console.warn(error);
+    btn.textContent = "Copy failed";
+  });
 }
 
 export const errorCardHtml = (message: string) => `<div class="derrcard"><b>The turn did not finish</b><span>${esc(message)}</span></div>`;
