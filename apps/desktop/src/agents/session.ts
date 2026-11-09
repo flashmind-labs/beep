@@ -71,7 +71,14 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
 
   // Already open: keep its log, draft, queue and scroll, and only ask for news.
   if (!why && sameSession(AG.open, s) && AG.page?.session.id === s.id) {
-    if (AG.page.session.status === "ended" && s.status !== "ended") stopAgentFollow();
+    if (AG.page.session.status === "ended" && s.status !== "ended") {
+      stopAgentFollow();
+      AG.page.session = s;
+      AG.sig = "";
+      drawAgentHeading();
+      drawModelPill();
+      redrawAgentHints();
+    }
     if (AG.open) firstRead = { open: AG.open, at: performance.now() };
     if (from !== undefined) AG.back = from;
     // Its log may come back from a hidden page, which WebKit shows scrolled

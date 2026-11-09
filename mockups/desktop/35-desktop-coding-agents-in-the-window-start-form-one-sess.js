@@ -732,6 +732,7 @@ expected 200, got 401</pre></details></span></div>`;
     // The model pill: harness, model and thinking; a switch applies from the next turn.
     const canSwitch = !ended && !outside;
     const pillAgent = ["flshmodel", "flshusage", "flshunknown"].includes(variant) ? "flsh" : "claude", pillName = pillAgent === "flsh" ? "flsh" : "Claude Code";
+    // An ended session enables its model picker as soon as it resumes.
     // A session with no known model shows Model unknown until it is selected.
     const pill = `<span id="agmodel"><button class="agc-pill agm" id="agmodelb"${canSwitch ? ` data-dact="dset:ags:${modelOpen ? "working" : "model"}"` : " disabled"} aria-expanded="${modelOpen}" title="${canSwitch ? "Switch the model or thinking; applies from the next turn" : `${pillName} cannot switch models in a running session`}"><span class="cc-ag ${pillAgent} mark">${(window.__MARKS || HARNESS)[pillAgent]}</span>${pillAgent === "flsh" ? "openai:gpt-test" : "Opus 4.6"}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button></span>`;
     const menu = modelOpen ? window.__agcPicker({ agent: pillAgent, offered: [pillAgent], machine: "build-box", act: "dset:ags:working" }) : "";
