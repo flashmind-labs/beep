@@ -7,8 +7,9 @@ import * as agentlog from "../src/agents/agentlog.ts";
 import { drawAgentBody } from "../src/agents/logview.ts";
 import { disposeQueue, drawQueue, editQueued, steerMessage } from "../src/agents/messages.ts";
 import { pollAgent, stopAgentFollow } from "../src/agents/session.ts";
-import { MN } from "../src/agents/workdrop.ts";
+import { askUpload, MN } from "../src/agents/workdrop.ts";
 import { drawTasks } from "../src/agents/tasks.ts";
+import { drawAgentAttached } from "../src/agents/images.ts";
 
 function setup() {
   globalThis.getSelection = () => null;
@@ -35,6 +36,26 @@ function setup() {
 }
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
+
+test("attachment updates preserve chips and upload choices", async t => {
+  const { input } = setup();
+  MN.redraw = drawAgentAttached;
+  t.after(() => { disposeQueue(); MN.paths = []; MN.uploads = []; MN.ask = null; MN.redraw = () => {}; });
+  MN.paths = ["src/first.ts"]; drawAgentAttached();
+  const first = bar.querySelector<HTMLElement>('[data-agment="0"]'); assert.ok(first); first.focus();
+  MN.paths.push("src/second.ts"); drawAgentAttached();
+  assert.equal(bar.querySelector('[data-agment="0"]'), first);
+  assert.equal(document.activeElement, first);
+  askUpload([new File(["notes"], "notes.txt")], "src", "/srv/project");
+  await settle();
+  const there = bar.querySelector<HTMLButtonElement>('[data-agup="there"]'); assert.ok(there);
+  assert.equal(there.textContent, "Into src/");
+  assert.equal(document.activeElement, there);
+  assert.match(bar.querySelector('[data-agup="default"]')?.getAttribute("title") ?? "", /Deleted when this session is closed/);
+  bar.querySelector<HTMLButtonElement>('[data-agup="cancel"]')?.click();
+  assert.equal(MN.ask, null);
+  first.click(); assert.deepEqual(MN.paths, ["src/second.ts"]); assert.equal(document.activeElement, input);
+});
 
 test("background task updates preserve existing controls and focus", t => {
   setup();

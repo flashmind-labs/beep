@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { P } from "../src/agentpane/media.ts";
 import { UPLOAD_PART } from "../src/agentpane/files-state.ts";
-import { MN, askUpload, mentionChips, uploadDropped } from "../src/agents/workdrop.ts";
+import { MN, uploadDropped } from "../src/agents/workdrop.ts";
 
 globalThis.FileReader = class {
   result = "";
@@ -56,14 +56,4 @@ test("a temporary attachment keeps its absolute path while browsing another work
   setup(path);
   await uploadDropped([new File(["notes"], "notes.txt")], null, "/srv/project/.worktrees/fix");
   assert.deepEqual(MN.paths, [path]);
-});
-
-test("the drop destination explains when temporary attachments are deleted", () => {
-  setup("");
-  askUpload([new File(["notes"], "notes.txt")], "src");
-  const html = mentionChips();
-  assert.match(html, /Into src\//);
-  assert.match(html, /Temporary attachments/);
-  assert.match(html, /Deleted when this session is closed/);
-  assert.doesNotMatch(html, /\.beep\/uploads/);
 });

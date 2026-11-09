@@ -1,14 +1,15 @@
 // Images for a coding agent: attached to a message, and shown in its log.
+import { createElement } from "react";
 import type { Attached } from "./agentqueue.ts";
 import { fileBase64 } from "../chat/attach.ts";
 import { $, S } from "../bar/core.ts";
-import { GONE, openViewer } from "../chat/media.ts";
-import { mentionChips, wireMentionChips } from "./workdrop.ts";
+import { GONE } from "../chat/media.ts";
+import { MN } from "./workdrop.ts";
+import { AgentAttachments } from "./attachments-view.tsx";
+import { showAgentAttachments } from "./composer-ui.tsx";
 import { type OpenAgent, AG, AGENT_IMAGE_TYPES, AGENT_MAX_IMAGES, AGENT_MAX_IMAGE, AGENT_MAX_IMAGES_TOTAL, agentPics, AGENT_PICS_KEPT, agentImages, agentThumbs } from "./agents.ts";
 import { noAgentImages, redrawAgentHints } from "./session.ts";
-import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
-import { ICON } from "../ui/icons.ts";
 import { gonePic, retryIn } from "./pic-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import { fillInlineImages } from "./inline-images.ts";
@@ -63,33 +64,12 @@ export async function attachImages(list: Attached[], files: Iterable<File>, erro
   }
 }
 
-/// The chips of `list`, each with a remove button marked `data-<attr>`.
-export const attachedChips = (list: Attached[], attr: string) => list.map((a, i) =>
-  `<span class="att"><button type="button" class="preview" data-att-preview="${i}" aria-label="Preview ${esc(a.name)}" title="Expand image"><img src="${esc(a.url)}" alt=""><span class="nm">${esc(a.name)}</span></button><button type="button" aria-label="Remove ${esc(a.name)}" data-${attr}="${i}">${ICON.x}</button></span>`).join("");
-
-/// Opens waiting images without changing the message or its attachments.
-export function wireAttachedPreviews(el: HTMLElement, list: Attached[]) {
-  el.querySelectorAll<HTMLButtonElement>("[data-att-preview]").forEach(b => b.addEventListener("click", () => {
-    openViewer(list.map(a => ({ url: a.url, name: a.name, saves: true })), Number(b.dataset.attPreview), el.closest<HTMLElement>(".cc-main") ?? undefined);
-  }));
-}
-
 /// The chips of waiting images above the field, as in the mock.
 export function drawAgentAttached() {
   const field = $("#agfield");
   if (!field) return;
-  const old = $("#agatt");
-  // Paths dragged in from the Files tab and files uploaded, after the images.
-  const mentions = mentionChips();
-  const el = AG.att.length || AG.attError || mentions ? h(`<div class="ag-att" id="agatt">${attachedChips(AG.att, "agatt")}${mentions}${AG.attError ? `<span class="derr">${esc(AG.attError)}</span>` : ""}</div>`) : null;
-  el?.querySelectorAll<HTMLElement>("[data-agatt]").forEach(b => b.addEventListener("click", () => {
-    AG.att.splice(Number(b.dataset.agatt), 1);
-    drawAgentAttached();
-    $("#agmsg")?.focus();
-  }));
-  if (el) { wireMentionChips(el); wireAttachedPreviews(el, AG.att); }
-  if (old) el ? old.replaceWith(el) : old.remove();
-  else if (el) field.before(el);
+  const visible = !!(AG.att.length || AG.attError || MN.paths.length || MN.uploads.length || MN.ask);
+  showAgentAttachments(field, visible ? createElement(AgentAttachments) : null);
   if (S.view === "agent") redrawAgentHints();
 }
 
