@@ -246,9 +246,9 @@ expected 200, got 401</pre></details></span></div>`;
       : v === "dropchoice" ? `<div class="ag-att"><div class="ag-upask"><span>Upload 2 files (1.4 MB) to build-box:</span><button class="dbtn pri" data-toast="Uploading to src/auth/">Into src/auth/</button><button class="dbtn" title="Outside the project. Deleted when this session is closed." data-toast="Uploading as temporary attachments">Temporary attachments</button><button class="dbtn quiet" data-toast="Not uploaded">Cancel</button></div></div>`
       : (v === "filemenu" || v === "filemenuwith") ? `<div class="ag-att">${mention("build.log", "62%")}${mention("src/login.rs")}</div>` : "";
     // The model pill: harness, model and thinking; a switch applies from the next turn.
-    const canSwitch = !ended && !outside;
+    const canSwitch = ended || !outside;
     const pillAgent = ["flshmodel", "flshusage", "flshunknown"].includes(variant) ? "flsh" : "claude", pillName = pillAgent === "flsh" ? "flsh" : "Claude Code";
-    // An ended session enables its model picker as soon as it resumes.
+    // An ended session keeps the model choice for its next turn.
     // A session with no known model shows Model unknown until it is selected.
     const pill = `<span id="agmodel"><button class="agc-pill agm" id="agmodelb"${canSwitch ? ` data-dact="dset:ags:${modelOpen ? "working" : "model"}"` : " disabled"} aria-expanded="${modelOpen}" title="${canSwitch ? "Switch the model or thinking; applies from the next turn" : `${pillName} cannot switch models in a running session`}"><span class="cc-ag ${pillAgent} mark">${(window.__MARKS || HARNESS)[pillAgent]}</span>${pillAgent === "flsh" ? "openai:gpt-test" : "Opus 4.6"}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button></span>`;
     const menu = modelOpen ? window.__agcPicker({ agent: pillAgent, offered: [pillAgent], machine: "build-box", act: "dset:ags:working" }) : "";
