@@ -1,3 +1,4 @@
+import { isHtmlFile, queuePreview } from "./html-preview-state.ts";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 // agentpane/: a coding agent session's side pane and its tabs (media,
 // files, changes, artifacts, terminal). Entry: this file.
@@ -584,6 +585,7 @@ function tabMenu(e: MouseEvent) {
   const items: MenuItem[] = [];
   const note = (text: string) => { const m = t.el?.querySelector(".agpacts .meta"); if (m) m.textContent = text; };
   const path = t.kind === "text" ? t.rel : t.path;
+  if (t.kind === "text" && t.rel && isHtmlFile(t.rel) && !t.text?.binary) items.push({ label: "Preview", on: () => { focusTab(t.id); previewTab(t); } });
   if (path) items.push({ label: "Copy path", on: () => void writeClipboard(path) });
   if (t.kind === "text" && t.rel) {
     const rel = t.rel;
@@ -761,6 +763,21 @@ export function paneSession(): Readonly<PaneSession> | null {
 /// picture, video, 3D model or PDF in its viewer, anything else as text.
 export function openWorkFile(rel: string) {
   openIn(paneRoot(), rel);
+}
+
+/// Opens an HTML file directly in its preview.
+export function previewWorkFile(rel: string) {
+  const root = paneRoot();
+  openIn(root, rel);
+  const id = root === P.session?.cwd ? `text:${rel}` : `text:${root}\n${rel}`;
+  const tab = P.tabs.find(t => t.id === id);
+  if (tab) previewTab(tab);
+}
+
+function previewTab(t: MediaTab) {
+  if (t.preview?.active) return;
+  if (!t.text) { queuePreview(t); return; }
+  t.el?.querySelector<HTMLButtonElement>("[data-preview]")?.click();
 }
 
 /// Opens `rel`, a file in the worktree at `root`.

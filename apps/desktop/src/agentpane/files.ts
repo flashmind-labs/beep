@@ -1,3 +1,4 @@
+import { isHtmlFile } from "./html-preview-state.ts";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // The Files tab of a coding agent session's pane: the session's working folder
 // on its machine as a tree, read three levels at a time, what git ignores left
@@ -9,7 +10,7 @@ import { relativeTo } from "./artifacts-state.ts";
 import { resolvePath } from "./media-state.ts";
 import { paneRoot } from "./worktree.ts";
 import { mentioned } from "./worktree-state.ts";
-import { openWorkFile, paneSession, saveWorkFile, showFiles } from "./media.ts";
+import { openWorkFile, previewWorkFile, paneSession, saveWorkFile, showFiles } from "./media.ts";
 import { localFileItems } from "./localfile.ts";
 import { addMention, askUpload } from "../agents/workdrop.ts";
 import { selectFile, selectionRoots, fileNameError, canPasteFiles, type FileClipboard } from "./file-actions-state.ts";
@@ -403,6 +404,7 @@ function menu(path: string, folder: boolean, x: number, y: number) {
   const dir = path && folder ? path : parentPath(path);
   const items: [string, string][] = [
     ...(n === 1 && F.selected.size === 1 ? [["open", folder ? "Open folder" : "Open in viewer"]] as [string, string][] : []),
+    ...(n === 1 && F.selected.size === 1 && !folder && isHtmlFile(path) ? [["preview", "Preview"]] as [string, string][] : []),
     ...(n ? [["mention", `Mention ${n > 1 ? `${n} items` : "in message"}`], ["-", ""], ["abs", "Copy path"], ["rel", "Copy relative path"], ["copy", `Copy${n > 1 ? ` ${n} items` : ""}`], ["cut", `Cut${n > 1 ? ` ${n} items` : ""}`]] as [string, string][] : []),
     ...(canPasteFiles(F.clipboard, F.key, dir) ? [["paste", `Paste ${F.clipboard!.paths.length} items into ${dir || "working folder"}`]] as [string, string][] : []),
     ...(n === 1 && F.selected.size === 1 ? [["rename", "Rename..."]] as [string, string][] : []),
@@ -435,6 +437,7 @@ function menu(path: string, folder: boolean, x: number, y: number) {
     e.stopPropagation();
     closeFilesMenu();
     if (act === "open") openPicked();
+    else if (act === "preview") previewWorkFile(path);
     else if (act === "mention") paths.forEach(p => addMention(mentioned(paneRoot(), s.cwd, p)));
     else if (act === "abs" || act === "rel") {
       const text = paths.map(p => act === "abs" ? resolvePath(paneRoot(), p) : p).join("\n");
