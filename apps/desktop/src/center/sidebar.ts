@@ -28,7 +28,7 @@ import { runningChats, sideThreads, threadLabel, type ThreadChatEntry } from "./
 import { withoutResearch } from "../research/research-list.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { type ChatItem, type ProjectPin, type SideChat, $, state, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
-import { projectDot, skeleton } from "../ui/pieces.ts";
+import { projectDot } from "../ui/pieces.ts";
 import { stuck, problem, draw, jump } from "./home.ts";
 import { allTerms } from "../terminals/view.ts";
 import { single } from "./openitems.ts";
@@ -47,11 +47,10 @@ import { IC } from "../ui/icons.ts";
 import { syncProjects, syncConflicts } from "../project/syncpage.ts";
 import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";
-import { lazyRows } from "../ui/lazyrows.ts";
-import { createElement } from "react";
+import { createElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { SidebarShell, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
+import { SidebarShell, SidebarItem, SidebarGroup as SidebarGroupView, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
 
 export function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
   const slot: GroupSlot<T> = { title: "", ...group, items: null, loading: false, again: false };
@@ -118,31 +117,14 @@ export function drawSide() {
   if (home?.machines && terms) links.push({ svg: IC.term, label: "Terminals", count: terms.length, current: location === "terminals", open: () => go("terminals") });
   if (syncProjects().length) links.push({ svg: IC.sync, label: "Sync", count: syncConflicts(), current: location === "sync", hot: true, open: () => go("sync") });
   if (home?.coming_up) links.push({ svg: IC.cal, label: "Coming up", count: home.coming_up.length, open: () => jump("sec-coming") });
-  const side: HTMLElement[] = [];
+  const side: ReactNode[] = [];
 
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
     // Rows that fill in once the server answers, never an empty sidebar.
-    if (name === "chats" && g.items == null && !home && groupShown("chats", state.subscribed)) side.push(h("div", "cc-grp", h("h3", "", "Chats"), ...skeleton([70, 55, 62])));
-    if (g.items == null) continue;
-    const grp = h("div", `cc-grp ${name}${name === "views" ? " cc-nav" : ""}`);
-
-    if (g.title) {
-      const h3 = h("h3", "", g.onTitle ? button(g.title, "cc-gt", g.onTitle) : g.title);
-      if (g.action) h3.append(g.action());
-      grp.append(h3);
+    if (name === "chats" && g.items == null && !home && groupShown("chats", state.subscribed)) {
+      side.push(createElement("div", { className: "cc-grp", key: name }, createElement("h3", null, "Chats"), ...[70, 55, 62].map((width, index) => createElement("div", { className: "cc-skel", style: { width: `${width}%` }, key: index }))));
     }
-
-    const none = typeof g.empty === "function" ? g.empty() : g.empty;
-    if (none && !g.items.length) grp.append(typeof none === "string" ? h("span", "cc-si none", none) : none);
-    // Hundreds of projects draw a screenful at a time as the sidebar scrolls.
-    const items = g.items;
-    grp.append(...lazyRows(`side:${name}`, "", items.length, (from, to) => items.slice(from, to).map(item => {
-      const el = g.row(item);
-      if (g.onPick) el.addEventListener("click", () => g.onPick!(item));
-      return el;
-    })));
-    if (g.foot) grp.append(...g.foot());
-    if (grp.childElementCount > (g.title ? 1 : 0)) side.push(grp);
+    if (g.items != null) side.push(createElement(SidebarGroupView, { key: name, name, group: g }));
   }
 
   const host = $("#side");
@@ -445,6 +427,7 @@ registerSidebarGroup<SideChat>("pinned", {
     return [...chats, ...pinnedProjects()];
   },
   row: chatRow,
+  key: c => `${c.kind}:${c.id}`,
   onPick: pickChat,
 });
 
@@ -466,6 +449,7 @@ registerSidebarGroup<SideChat>("chats", {
     return splitPinned(rows, SIDE_CHATS).recent;
   },
   row: chatRow,
+  key: c => `${c.kind}:${c.id}`,
   onPick: pickChat,
 });
 
@@ -478,6 +462,8 @@ registerSidebarGroup("views", {
     { view: "settings" as const, label: "Settings", svg: IC.gear },
   ], state.subscribed),
   row: v => sideItem(v.svg, v.label, 0, { current: v.view !== "settings" && paneOn().view === v.view, kbd: v.view === "settings" ? (WINDOWS ? "Ctrl+," : "⌘,") : "" }),
+  key: v => v.view,
+  render: v => createElement(SidebarItem, { svg: v.svg, label: v.label, current: v.view !== "settings" && paneOn().view === v.view, shortcut: v.view === "settings" ? (WINDOWS ? "Ctrl+," : "⌘,") : "", open: () => go("pane", v.view) }),
   onPick: v => go("pane", v.view),
 });
 
@@ -638,6 +624,7 @@ registerSidebarGroup("projects", {
     // Those pinned to the top show under Pinned instead.
     return rows ? sideProjects(splitOnTop(rows, state.top).rest, state.groups, folded) : null;
   },
+  key: p => p.group ? `group:${p.group.id}` : p.org !== undefined ? `org:${p.org}` : `project:${p.name}`,
   row(p) {
     // A group's heading, under it the projects' whole names; an org's,
     // under it only the repo names.

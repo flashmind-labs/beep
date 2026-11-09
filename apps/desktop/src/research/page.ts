@@ -98,6 +98,12 @@ registerSidebarGroup<ResearchRow>("research", {
   action: () => plusButton("New research", () => go("research")),
   empty: () => emptyRow("No research yet"),
   load: async () => (groupShown("research", state.subscribed) ? (await fetchResearch())?.slice(0, SIDE_RESEARCH) ?? null : null),
+  key: r => r.session,
+  render: r => {
+    const location = currentLocation(), current = location?.view === "researchopen" && location.arg.session === r.session;
+    return createElement("button", { type: "button", className: "cc-si", title: `${r.topic}\n${STATE_LABEL[researchState(r.status)]}`, "aria-label": r.topic, "aria-current": current ? "true" : undefined, onClick: () => openResearch(r.session) },
+      createElement("span", { className: "sidebar-icon", style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.doc } }), createElement("span", { className: "tt" }, r.topic), researchState(r.status) === "running" ? createElement("span", { className: "dspin cc-run" }) : null);
+  },
   row(r) {
     const b = sideItem(IC.doc, r.topic, 0);
     b.title = `${r.topic}\n${STATE_LABEL[researchState(r.status)]}`;
