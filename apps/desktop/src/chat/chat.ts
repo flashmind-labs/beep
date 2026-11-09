@@ -1,5 +1,8 @@
 // chat/: chats and groups in the bar: the open chat, the list, the composer,
 // attachments and the cards under a reply. Entry: this file.
+import { createElement, Fragment } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
 import { renderChatReply, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
 import { drawAgentButton } from "../agents/agents.ts";
 import { askFiles, attach, attached, attachError, drawAttached } from "./attach.ts";
@@ -100,12 +103,25 @@ interface PromptMap extends HTMLElement {
   early?: number;
 }
 
+let composerRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+function disposeComposer() {
+  const current = composerRoot;
+  composerRoot = null;
+  if (current) { current.observer.disconnect(); current.root.unmount(); }
+}
+
 export function renderChat() {
   // The chat needs the server: without it every way here lands on the agent's start form.
   if (S.link !== "linked") return renderAgentNew("", PANE ? "agents" : "chat");
+  disposeComposer();
   S.view = "chat";
-  bar.innerHTML = `<div class="dinput dgrow"><textarea id="ask" rows="1" placeholder="Ask Beep…" autocomplete="off" spellcheck="false"></textarea><div class="dgrip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the prompt" title="Drag to resize, double-click to reset"></div></div>
+  bar.innerHTML = `<div class="dinput dgrow"></div>
     <div class="dbody" id="body"></div>${chatHints()}`;
+  const host = $$(".dinput.dgrow"), root = createRoot(host);
+  const observer = new MutationObserver(() => { if (composerRoot?.host === host && !host.isConnected) disposeComposer(); });
+  observer.observe(document.body, { childList: true, subtree: true });
+  composerRoot = { host, root, observer };
+  flushSync(() => root.render(createElement(ComposerInput)));
   const kept = here()?.body;
   if (kept) $$("#body").replaceWith(kept);
   const b = body()!;
@@ -130,6 +146,11 @@ export function renderChat() {
   drawStop();
   drawAgentButton();
   focusAsk();
+}
+function ComposerInput() {
+  return createElement(Fragment, null,
+    createElement("textarea", { id: "ask", rows: 1, placeholder: "Ask Beep…", autoComplete: "off", spellCheck: false }),
+    createElement("div", { className: "dgrip", id: "grip", role: "separator", "aria-orientation": "horizontal", "aria-label": "Resize the prompt", title: "Drag to resize, double-click to reset" }));
 }
 export const ASK_HEIGHT = "bar.askHeight", ASK_MAX = 420;
 /// A height the user dragged the bar's prompt to; null lets it follow its lines.
