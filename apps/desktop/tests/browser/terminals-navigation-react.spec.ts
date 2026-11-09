@@ -34,6 +34,15 @@ test("terminal list refresh keeps its rows and mounted screen", async ({ page })
   await expect(page.locator(".tm-head")).toContainText("renamed active shell");
   await expect(screen).toHaveAttribute("data-identity", "kept");
   await expect(page.locator(".tm-panel .xterm-helper-textarea")).toBeFocused();
+  await page.getByRole("button", { name: "View only", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Take control", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Take control", exact: true }).click();
+  await page.getByRole("button", { name: "Detach", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Attach", exact: true })).toBeVisible();
+  await expect(screen).toHaveAttribute("data-identity", "kept");
+  await page.getByRole("button", { name: "Attach", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminal_detach").length)).toBe(1);
+  await expect(screen).toHaveAttribute("data-identity", "kept");
 });
 
 test("terminal switching reuses screens and stopping requires confirmation", async ({ page }) => {
