@@ -410,8 +410,13 @@ test("diff file header actions do not toggle the file", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(header).toHaveAttribute("aria-expanded", "true");
   await header.focus();
+  await header.evaluate(element => { element.dataset.identity = "kept"; });
   await page.keyboard.press("Enter");
   await expect(header).toHaveAttribute("aria-expanded", "false");
+  await expect(header).toBeFocused();
+  await expect(header).toHaveAttribute("data-identity", "kept");
+  await header.click({ button: "right" });
+  await expect(page.getByRole("menu", { name: "sample.ts" }).getByRole("menuitem", { name: "Copy path" })).toBeVisible();
 });
 
 test("diff file header opens a comment without folding", async ({ page }) => {

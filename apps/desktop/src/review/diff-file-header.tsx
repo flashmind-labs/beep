@@ -8,10 +8,15 @@ interface DiffFileHeaderProps {
   onComment: () => void;
   onCopy: () => void;
   onOpen: () => void;
+  folded: boolean;
+  onToggle: (select: boolean) => void;
+  onMenu: (event: React.MouseEvent<HTMLDivElement>) => void;
 }
 
-export function DiffFileHeader({ file, count, readOnly, openLabel, onComment, onCopy, onOpen }: DiffFileHeaderProps) {
-  return <>
+export function DiffFileHeader({ file, count, readOnly, openLabel, onComment, onCopy, onOpen, folded, onToggle, onMenu }: DiffFileHeaderProps) {
+  return <div className="dv-fh" tabIndex={0} role="button" aria-expanded={!folded} title="Click or press x to fold" onContextMenu={onMenu}
+    onClick={event => { if (!(event.target instanceof Element) || !event.target.closest(".dv-facts")) onToggle(true); }}
+    onKeyDown={event => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onToggle(false); } }}>
     <span className="dv-chev"><span style={{ display: "grid" }}>
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M9 6l6 6-6 6"/></svg>
     </span></span>
@@ -49,5 +54,5 @@ export function DiffFileHeader({ file, count, readOnly, openLabel, onComment, on
         </span>
       </button>}
     </span>
-  </>;
+  </div>;
 }

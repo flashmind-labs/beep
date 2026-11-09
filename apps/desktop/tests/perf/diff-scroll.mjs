@@ -43,7 +43,7 @@ for (const kind of kinds) {
     await page.waitForSelector(".dv-chunk .dv-l");
     await page.evaluate(() => window.openDiff(5, 3, true, ["README.md", "apps/desktop/src/main.ts", "apps/desktop/src/model.ts", "apps/mobile/src/main.ts", "lib/main.rs"]));
     await page.waitForSelector('.dv-tr[data-path="apps/desktop/src/model.ts"]');
-    const desktop = page.locator('.dv-dir[data-folder="apps/desktop/"]');
+    const desktop = page.locator('.dv-dir[data-folder="apps/desktop/src/"]');
     const apps = page.locator('.dv-dir[data-folder="apps/"]');
     await desktop.locator(':scope > summary').click();
     assert.equal(await desktop.getAttribute("open"), null);
@@ -53,7 +53,7 @@ for (const kind of kinds) {
     await page.locator('.dv-find').fill("model.ts");
     assert.equal(await desktop.getAttribute("open"), "");
     assert.equal(await apps.getAttribute("open"), "");
-    assert.equal(await page.locator('.dv-dir[data-folder="apps/mobile/"]').isVisible(), false);
+    assert.equal(await page.locator('.dv-dir[data-folder="apps/mobile/src/"]').isVisible(), false);
     assert.equal(await page.locator('.dv-dir[data-folder="lib/"]').isVisible(), false);
     assert.equal(await page.locator('.dv-tr[data-path="apps/desktop/src/model.ts"]').isVisible(), true);
     await page.locator('.dv-find').fill("");

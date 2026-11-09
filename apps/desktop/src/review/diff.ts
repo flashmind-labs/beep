@@ -549,22 +549,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const fcs = el("div", "dv-fcs");
     const mine = placed().files.get(f.path);
     if (mine) fcs.append(...[...mine.file, ...mine.top].map(c => commentHost(c, lineLabel(c), false)));
-    const fh = el("div", "dv-fh");
+    const fh = el("div");
+    fh.style.display = "contents";
     headers.set(f.path, { host: fh, file: f, comments: fcs });
-    fh.addEventListener("contextmenu", e => fileMenu(e, f));
-    fh.tabIndex = 0;
-    fh.setAttribute("role", "button");
-    fh.setAttribute("aria-expanded", String(!folded));
-    fh.title = "Click or press x to fold";
-    fh.addEventListener("click", e => {
-      if ((e.target as Element).closest(".dv-facts")) return;
-      st.cur = f.path; toggle(f.path); markCurrent();
-    });
-    fh.addEventListener("keydown", e => {
-      if (e.target !== fh || (e.key !== "Enter" && e.key !== " ")) return;
-      e.preventDefault();
-      toggle(f.path);
-    });
     const inner = el("div");
     // The lines are drawn the first time the file opens.
     if (!folded) inner.append(fileBody(f));
@@ -679,6 +666,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
   function drawHeaders() {
     const portals = [...headers.entries()].map(([path, item]) => createPortal(createElement(DiffFileHeader, {
       file: item.file, count: countLabel(path), readOnly: !!src.readOnly, openLabel: src.open?.label ?? null,
+      folded: isFolded(item.file, st.folded),
+      onToggle: select => { if (select) st.cur = path; toggle(path); if (select) markCurrent(); },
+      onMenu: event => fileMenu(event.nativeEvent, item.file),
       onComment: () => addBox({ path, side: "new", line: null, text: "" }, box => item.comments.append(box)),
       onCopy: () => void copy(path), onOpen: () => src.open?.run(path),
     }), item.host, path));
@@ -863,9 +853,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
     updateBodyModes(visibleFiles);
   }
 
-  function setFolded(path: string, folded: boolean) {
+  function setFolded(path: string, folded: boolean, redraw = true) {
     st.folded.set(path, folded);
-    remember();
+    if (redraw) remember();
     const section = sections.get(path);
     const f = st.view?.files.find(x => x.path === path);
     if (!section || !f) return;
@@ -873,8 +863,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (!folded && inner && !inner.childNodes.length) inner.append(fileBody(f));
     if (!folded) updateBodyMode(path);
     section.classList.toggle("closed", folded);
-    section.querySelector(".dv-fh")?.setAttribute("aria-expanded", String(!folded));
-    drawToolbar();
+    if (redraw) { drawHeaders(); drawToolbar(); }
   }
 
   function toggle(path: string) {
@@ -888,7 +877,10 @@ export function diffView(src: DiffSource): DiffViewHandle {
   }
 
   function foldAll(folded: boolean) {
-    for (const f of shown()) setFolded(f.path, folded);
+    for (const f of shown()) setFolded(f.path, folded, false);
+    remember();
+    drawHeaders();
+    drawToolbar();
     if (folded) files.scrollTop = 0;
   }
 
