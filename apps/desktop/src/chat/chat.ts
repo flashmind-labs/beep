@@ -125,7 +125,7 @@ export function forgetChat(id: string | null) {
   else if (!cached.isConnected && ![...live.values()].some(entry => entry.body === cached)) evictBody(cached);
 }
 
-let chatShell: { host: HTMLElement; root: import("react-dom/client").Root; body: ChatBody; hints: string } | null = null;
+let chatShell: { host: HTMLElement; root: import("react-dom/client").Root; body: ChatBody; hints: string; dock: import("../bar/live.ts").LiveView | null } | null = null;
 
 export function renderChat() {
   // The chat needs the server: without it every way here lands on the agent's start form.
@@ -141,12 +141,11 @@ export function renderChat() {
     chatShell = null;
     if (!retiringBodies.has(chatBody) && ![...live.values()].some(entry => entry.body === chatBody)) evictBody(chatBody);
     if (host?.parentElement !== bar) return;
-    host.querySelector("#ldock")?.remove();
     host.querySelector(".lsheet")?.remove();
     for (const child of [...bar.children]) if (child !== host) child.remove();
   });
   host = page.host;
-  chatShell = { host: page.host, root: page.root, body: chatBody, hints: hintContents };
+  chatShell = { host: page.host, root: page.root, body: chatBody, hints: hintContents, dock: null };
   drawQueue();
   const b = body()!;
   // A chat put back goes where the reader left it if they had scrolled up, else to its end.
@@ -589,6 +588,12 @@ export function popQueued() {
   return true;
 }
 
+export function setChatDock(view: import("../bar/live.ts").LiveView | null) {
+  if (!chatShell) return;
+  chatShell.dock = view;
+  drawQueue();
+}
+
 /// The open chat's queued prompts, between the reply and the hints. x puts
 /// one back in the field.
 export function drawQueue() {
@@ -606,7 +611,7 @@ export function drawQueue() {
     focusAsk();
   };
   flushSync(() => shell.root.render(createElement(ChatShell, {
-    body: shell.body, hints: shell.hints, queue: q ?? null, attachments: attached,
+    body: shell.body, hints: shell.hints, dock: shell.dock, queue: q ?? null, attachments: attached,
     unattach: (index: number) => { unattach(index); focusAsk(); },
     edit: (index: number) => update(index, true), remove: (index: number) => update(index, false), send: () => sendQueued(S.session),
   })));
