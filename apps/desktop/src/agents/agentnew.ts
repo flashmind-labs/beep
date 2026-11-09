@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { createElement, Fragment } from "react";
 import { flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
 import { AgentNewShell } from "./agentnew-shell.tsx";
@@ -7,6 +7,7 @@ import { startAttachments } from "./start-attachments.ts";
 import { makeStartComposer } from "./start-composer.ts";
 import { FolderChoice, NewAgentNotes, ProjectChoice } from "./start-composer-view.tsx";
 import { ChoiceMenuView, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
+import { BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
 import { AG, AGENT_ORDER, agentKind, byPreference, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
 import { loadSessions, sessions } from "./sessions.ts";
 import { openAgent, sessionPicks } from "./session.ts";
@@ -20,7 +21,6 @@ import type { CachedViews } from "../center/cached.ts";
 import type { HomeView } from "../center/home-state.ts";
 import { composeField, composeMessage } from "../chat/compose.ts";
 import type { Machine } from "../machines/machines.ts";
-import { esc } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 
 // ----- Start form -----
@@ -140,9 +140,6 @@ export function formAgents() {
   return all.sort(byPreference);
 }
 
-const CARET = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
-const BRANCH = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9c0 5-6 4-11 8"/></svg>';
-
 /// Redraws the form, keeping the prompt as typed when it shows already.
 export function drawAgentNew() {
   if ($("#agbox")) drawParts();
@@ -218,7 +215,7 @@ function drawParts() {
   drawUnder();
   composer.setNotes(createElement(NewAgentNotes, { waiting: !AG.hosts, none, noMachine: !f.machine && !!AG.hosts?.length }));
   composer.err.textContent = missing ? "Say what the agent should do." : AG.error;
-  if (focused === "#agpick .agc-search" || focused === "#agcwd" || focused === "#agbase") focusEnd(focused);
+  if ((focused === "#agpick .agc-search" || focused === "#agcwd" || focused === "#agbase") && document.activeElement !== $(focused)) focusEnd(focused);
 }
 
 /// Focuses the field at `sel` with the caret at its end.
@@ -274,17 +271,21 @@ function drawUnder() {
   c.folder.hidden = !!f.typing;
   c.folder.title = f.cwd.trim() || host?.workspace || "The machine's workspace";
   c.folder.setAttribute("aria-expanded", String(f.open === "folder"));
-  const typed = f.typing ? `<span class="agc-type"><input id="agcwd" spellcheck="false" autocomplete="off" role="combobox" aria-label="Folder" placeholder="/path/to/folder or ~/folder" value="${esc(f.cwd)}"><span id="agcwdmenu"></span></span>` : "";
-  const base = checkout && makesBranch(f.checkout ?? DEFAULT_CHECKOUT) ? baseButton() : "";
-  c.extra.innerHTML = `${typed}${base}`;
+  drawExtras();
   c.project.title = f.project ? "The project this agent works on" : "Pick a project to start";
   c.project.setAttribute("aria-expanded", String(f.open === "project"));
   c.machine.setAttribute("aria-expanded", String(f.open === "host"));
   c.setChoiceContents({ project: createElement(ProjectChoice, { name: f.project || "No project" }), machine: host ? host.machine_name : "Pick a machine", folder: createElement(FolderChoice, { checkout, label: checkout ? co.label : shown.label, detail: checkout ? co.sub : shown.path }) });
   c.setUnder(createElement(ChoiceMenuView, { menu: projectMenu() ?? hostMenu() ?? folderMenu(checkout) ?? baseMenu() }));
   placeMenu();
-  if (f.typing) bindFolderField();
-  if (f.baseTyping) bindBaseField();
+}
+
+function drawExtras() {
+  const f = AG.form, base = baseFor(f.base, formBranches()) || "HEAD";
+  const folder = f.typing ? createElement(FolderInput, { value: f.cwd, menu, bind: bindFolderField, pick: pickFolder }) : null;
+  const branch = checkoutHere() && makesBranch(f.checkout ?? DEFAULT_CHECKOUT)
+    ? f.baseTyping ? createElement(BaseInput, { value: f.base ?? "", placeholder: base, bind: bindBaseField }) : createElement(BaseChoice, { base, open: f.open === "base" }) : null;
+  composer.setExtras(createElement(Fragment, null, folder, branch));
 }
 
 /// Places the open menu by its pill, over the page so nothing clips it: below
@@ -357,18 +358,6 @@ function projectForFolder() {
     f.project = null;
     f.places = undefined;
   }
-}
-
-/// The Base button, which the new branch starts from: the ref picked, else the
-/// project's default branch, else the checkout's HEAD.
-function baseButton() {
-  const f = AG.form, base = baseFor(f.base, formBranches());
-
-  if (f.baseTyping) {
-    return `<span class="agc-type base"><input id="agbase" spellcheck="false" autocomplete="off" aria-label="Base branch" placeholder="${esc(base || "HEAD")}" value="${esc(f.base ?? "")}"></span>`;
-  }
-
-  return `<button type="button" class="pill" id="agbaseb" aria-expanded="${f.open === "base"}" title="The branch the new one starts from">${BRANCH}<small>from</small> <span class="mono">${esc(base || "HEAD")}</span>${CARET}</button>`;
 }
 
 /// The Base menu: the project's branches, the default first, and a row to
@@ -592,21 +581,14 @@ function lookFolders(input: HTMLInputElement) {
 
 function showMenu(input: HTMLInputElement, next: FolderMenu) {
   menu = document.activeElement === input ? next : NO_MENU;
-  const box = $("#agcwdmenu");
-  if (!box) return;
-  input.setAttribute("aria-expanded", String(isOpen(menu)));
-  if (!isOpen(menu)) { box.innerHTML = ""; return; }
-  const { dir, index } = menu;
-  box.innerHTML = `<div class="agc-menu" role="listbox">${menu.items.map((name, i) => `<button data-agfi="${i}" class="${i === index ? "on" : ""}" role="option"><span></span><span class="mono">${esc(name)}</span><small></small></button>`).join("")}</div>`;
-  box.querySelectorAll<HTMLButtonElement>("[data-agfi]").forEach(b => {
-    b.type = "button";
-    b.addEventListener("mousedown", e => e.preventDefault());
-    b.addEventListener("click", e => {
-      e.stopPropagation();
-      AG.form.cwd = input.value = completed(dir, menu.items[Number(b.dataset.agfi)]);
-      lookFolders(input);
-    });
-  });
+  if ($("#agcwd") === input) drawExtras();
+}
+
+function pickFolder(index: number) {
+  const input = $<HTMLInputElement>("#agcwd");
+  if (!input || !isOpen(menu)) return;
+  AG.form.cwd = input.value = completed(menu.dir, menu.items[index]);
+  lookFolders(input);
 }
 
 // ----- Models -----

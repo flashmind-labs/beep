@@ -158,7 +158,7 @@ test("new agent draft and caret survive machine discovery", async ({ page }, inf
 });
 
 test("new-agent project, machine and folder menus keep their choices", async ({ page }, info) => {
-  await openDesktop(page, false, { agent_hosts: hosts, agent_models: models });
+  await openDesktop(page, false, { agent_hosts: hosts, agent_models: models, list_machine_folder: { folders: ["project", "projects"] } });
   await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
   await expect(page.locator("#aghostb")).toContainText("build-box");
   await page.locator("#aghostb").click();
@@ -169,4 +169,14 @@ test("new-agent project, machine and folder menus keep their choices", async ({ 
   await expect(page.locator('#agunder [data-agf=""]')).toContainText("Workspace");
   await page.locator("#agprojb").click();
   await expect(page.locator('#agunder [data-agp=""]')).toContainText("No project");
+  await page.locator("#agfoldb").click();
+  await page.locator('#agunder [data-agtype="1"]').click();
+  const folder = page.locator("#agcwd");
+  await folder.fill("/srv/pro");
+  await expect(page.locator('#agcwdmenu [role="option"]')).toHaveCount(2);
+  await folder.evaluate(el => { if (el instanceof HTMLInputElement) { el.setSelectionRange(2, 4); Reflect.set(window, "folderInput", el); } });
+  await page.keyboard.press("ArrowDown");
+  expect(await folder.evaluate(el => el === Reflect.get(window, "folderInput") && document.activeElement === el && el instanceof HTMLInputElement && el.selectionStart === 2 && el.selectionEnd === 4)).toBe(true);
+  await page.keyboard.press("Enter");
+  await expect(folder).toHaveValue("/srv/projects/");
 });
