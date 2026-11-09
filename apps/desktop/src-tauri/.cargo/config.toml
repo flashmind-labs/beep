@@ -1,0 +1,5 @@
+[env]
+# Relative paths resolve from the directory containing .cargo, including worktrees.
+SPARKLE_FRAMEWORK_PATH = { value = "sparkle", relative = true }
+# Cargo-run binaries and tests load the framework before an app bundle exists.
+DYLD_FRAMEWORK_PATH = { value = "sparkle", relative = true }
