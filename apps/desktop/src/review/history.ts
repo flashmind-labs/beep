@@ -252,7 +252,7 @@ export function makeGitHistory(deps: HistoryDeps) {
 
   function listStatus(p: ProjectHistory, found: CommitList) {
     const children: HTMLElement[] = [];
-    if (found.loading) children.push(el("p", "gh-empty", "Reading history…"));
+    if (found.loading && !found.loaded) children.push(el("p", "gh-empty", "Reading history…"));
     if (found.error) children.push(el("div", "", errorNote(found.error), button("Try again", "gh-more", () => void load(p, found, found.rows.length > 0))));
     if (found.loaded && !found.rows.length) children.push(el("p", "gh-empty", found.search ? "No commits match this search." : "No commits yet."));
     if (!found.loading && found.next !== null) children.push(button("Load older commits", "gh-more", () => void load(p, found, true)));
@@ -296,6 +296,8 @@ export function makeGitHistory(deps: HistoryDeps) {
     const focusKey = p.tree.contains(focused) ? focusedNode?.dataset.key : null;
     const focusedPath = focused?.dataset.path;
     const focusedSelection = focused?.dataset.selection;
+    p.foot.textContent = p.data ? `All branches · ${p.data.machine_name}` : "";
+    if ([history, branches, worktrees].every((node, index) => node.outerHTML === p.tree.children[index]?.outerHTML) && p.tree.children.length === 3) return;
     p.tree.replaceChildren(history, branches, worktrees);
 
     if (focusedPath && focusedSelection) {
@@ -305,7 +307,6 @@ export function makeGitHistory(deps: HistoryDeps) {
     }
 
     p.tree.scrollTop = scroll;
-    p.foot.textContent = p.data ? `All branches · ${p.data.machine_name}` : "";
   }
 
   function sessionRows(p: ProjectHistory, w: GitWorktree) {
@@ -354,6 +355,14 @@ export function makeGitHistory(deps: HistoryDeps) {
     for (const [key, label] of [["changes", "Changes"], ["details", "Details"], ["sessions", "Sessions"]] as const) {
       const b = button(label, "", () => { p.tab = key; renderDetail(p); });
       b.setAttribute("aria-current", String(p.tab === key)); tabs.append(b);
+    }
+
+    const existingBody = p.detail.querySelector<HTMLElement>(".gh-detail-body");
+    const currentKey = selected ? `${selectionKey(selected)}\0${p.path || ""}` : "";
+    if (p.tab === "changes" && p.view && p.viewKey === currentKey && existingBody?.contains(p.view.el)) {
+      p.detail.querySelector(".gh-detail-head")?.replaceWith(head);
+      p.detail.querySelector(".gh-tabs")?.replaceWith(tabs);
+      return;
     }
 
     const body = el("div", "gh-detail-body");
@@ -408,9 +417,11 @@ export function makeGitHistory(deps: HistoryDeps) {
 
   function refresh(name: string) {
     const p = project(name);
-    p.files.clear(); p.view = null; p.viewKey = "";
-    for (const value of p.lists.values()) { ++value.version; value.loading = false; value.loaded = false; value.error = ""; }
-    return load(p, list(p, null, p.query));
+    for (const key of p.files.keys()) if (key.startsWith("working:")) p.files.delete(key);
+    if (p.selected?.kind === "working" && p.viewKey === `${selectionKey(p.selected)}\0${p.path || ""}`) p.view?.reload();
+    const current = list(p, null, p.query);
+    for (const value of p.lists.values()) { ++value.version; value.loading = false; if (value !== current) value.loaded = false; value.error = ""; }
+    return load(p, current);
   }
   return { panels, refresh, stop };
 }
