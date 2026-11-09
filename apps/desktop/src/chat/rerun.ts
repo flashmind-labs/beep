@@ -4,12 +4,8 @@ import { ANSWER, askText, body, owningChatBody, follow, keepDown, newTurn, runTu
 import { discardChatActions, discardChatNotice, discardChatRerunMenu, renderChatActions, renderChatNotice, renderChatRerunMenu } from "./work-view.tsx";
 import { $, here, S, stopping } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
-import { PLAY_ICON } from "../lists/memories.ts";
 import { canPickModel, modelName, modelPrice, MODELS, THINKING } from "../settings/model.ts";
 import { cap } from "./tools.ts";
-import { COPY_ICON, ICON } from "../ui/icons.ts";
-import { esc } from "../ui/format.ts";
-import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { Turn } from "../ui/turn.ts";
 
@@ -27,15 +23,11 @@ export function stoppedRow(turn: Turn, said = "Stopped") {
   const old = turn.querySelector<HTMLElement>(":scope > .dstopped");
   if (old) { discardChatNotice(turn, old); old.remove(); }
   const owner = owningChatBody(turn);
-  if (owner) {
-    const box = document.createElement("div");
-    box.className = "dmuted dstopped";
-    renderChatNotice(owner, turn, box, { kind: "stopped", message: said, retry: !!turnState(turn).user });
-    turn.append(box);
-    return;
-  }
-  const retry = turnState(turn).user ? '<button class="dbtn" data-act="retry">Retry</button>' : "";
-  turn.append(h(`<div class="dmuted dstopped">${esc(said)}${retry}</div>`));
+  if (!owner) return;
+  const box = document.createElement("div");
+  box.className = "dmuted dstopped";
+  renderChatNotice(owner, turn, box, { kind: "stopped", message: said, retry: !!turnState(turn).user });
+  turn.append(box);
 }
 
 /// Copy, and for admins Rerun, under a finished reply, then the agent that
@@ -52,7 +44,6 @@ export function replyActs(turn: Turn) {
   }
   const owner = owningChatBody(turn);
   if (owner) renderChatActions(owner, turn, row, { copy: text, rerun, agent });
-  else row.innerHTML = `${text ? `<button class="dcopy" data-act="copyReply">${COPY_ICON}Copy</button>` : ""}${rerun ? `<span class="drerun"><button class="dcopy" data-act="rerunMenu" aria-haspopup="menu" aria-expanded="false">${PLAY_ICON}Rerun<span class="dchev">${ICON.chev}</span></button></span>` : ""}${agent ? `<span class="dagent" title="The agent that answered">${esc(agent)}</span>` : ""}`;
 }
 export function closeRerunMenu() {
   const menu = $(".dmenu");
@@ -67,48 +58,18 @@ export function rerunMenu(button: HTMLElement) {
   if (closeRerunMenu()) return;
   const turn = button.closest<Turn>(".turn")!, m = MODELS.info as ModelChoices | null;
   const owner = owningChatBody(turn);
-  if (owner && m) {
-    const menu = document.createElement("div");
-    menu.className = "dmenu"; menu.setAttribute("role", "menu"); menu.setAttribute("aria-label", "Rerun on");
-    button.setAttribute("aria-expanded", "true");
-    button.closest(".dreplyacts")?.after(menu);
-    renderChatRerunMenu(owner, turn, menu, {
-      choices: m.choices.map(choice => ({ id: choice.id, name: choice.name, used: choice.id === turnState(turn).model, detail: choice.id === turnState(turn).model ? "Used for this reply" : modelPrice(choice) })),
-      levels: ["default", ...THINKING].map(id => ({ id, label: cap(id) })),
-      run: (model, thinking) => { closeRerunMenu(); void rerun(turn, model, thinking); },
-    });
-    keepDown();
-    return;
-  }
-  const rows = m!.choices.map(c => {
-    const used = c.id === turnState(turn).model;
-    return `<button class="mi" role="menuitem" data-rerun="${esc(c.id)}"${used ? ' aria-current="true"' : ""}><b>${esc(c.name)}</b>${used ? `<span class="ok">${ICON.check}</span>` : ""}<small>${used ? "Used for this reply" : esc(modelPrice(c))}</small></button>`;
-  }).join("");
-  const levels = ["default", ...THINKING].map(l => `<button class="dchip" data-rthink="${l}" aria-pressed="${l === "default"}">${cap(l)}</button>`).join("");
+  if (!owner || !m) return;
+  const menu = document.createElement("div");
+  menu.className = "dmenu"; menu.setAttribute("role", "menu"); menu.setAttribute("aria-label", "Rerun on");
   button.setAttribute("aria-expanded", "true");
-  button.closest(".dreplyacts")!.after(h(`<div class="dmenu" role="menu" aria-label="Rerun on">${rows}<div class="think">Thinking<span class="dchips">${levels}</span></div></div>`));
+  button.closest(".dreplyacts")?.after(menu);
+  renderChatRerunMenu(owner, turn, menu, {
+    choices: m.choices.map(choice => ({ id: choice.id, name: choice.name, used: choice.id === turnState(turn).model, detail: choice.id === turnState(turn).model ? "Used for this reply" : modelPrice(choice) })),
+    levels: ["default", ...THINKING].map(id => ({ id, label: cap(id) })),
+    run: (model, thinking) => { closeRerunMenu(); void rerun(turn, model, thinking); },
+  });
   keepDown();
 }
-/// Handles a click in the rerun menu: a thinking level marks itself, a
-/// model reruns the turn. Says whether the click was the menu's.
-export function rerunClick(e: MouseEvent) {
-  const target = e.target as Element;
-  const level = target.closest("[data-rthink]");
-
-  if (level) {
-    level.parentElement!.querySelectorAll(".dchip").forEach(c => c.setAttribute("aria-pressed", String(c === level)));
-    return true;
-  }
-
-  const pick = target.closest<HTMLElement>("[data-rerun]");
-  if (!pick) return false;
-  const menu = pick.closest(".dmenu")!, turn = pick.closest<Turn>(".turn")!;
-  const chosen = menu.querySelector<HTMLElement>('[data-rthink][aria-pressed="true"]')?.dataset.rthink;
-  closeRerunMenu();
-  rerun(turn, pick.dataset.rerun!, chosen && chosen !== "default" ? chosen : null);
-  return true;
-}
-/// Drops `turn` and every turn after it, then sends its prompt again on
 /// `model`, as the phone's Rerun does.
 export async function rerun(turn: Turn, model: string | null, thinking: string | null) {
   const id = S.session, busy = here();
@@ -123,7 +84,13 @@ export async function rerun(turn: Turn, model: string | null, thinking: string |
 
   if (model) {
     turnState(fresh).model = model;
-    fresh.append(h(`<div class="drerunof">Rerun on ${esc(modelName(model))}${thinking ? " · " + thinking : ""}</div>`));
+    const owner = owningChatBody(fresh);
+    if (owner) {
+      const box = document.createElement("div");
+      box.className = "drerunof";
+      renderChatNotice(owner, fresh, box, { kind: "label", message: `Rerun on ${modelName(model)}${thinking ? " · " + thinking : ""}` });
+      fresh.append(box);
+    }
   }
 
   startRun(id, fresh, null);
