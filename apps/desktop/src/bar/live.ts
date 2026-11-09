@@ -3,8 +3,8 @@ import { discardChatApproval } from "../chat/work-view.tsx";
 import { ensureChatPrompt, renderChatPrompt, updateChatPrompt } from "../chat/work-view.tsx";
 import { ASK, askText, body, owningChatBody, type Decision, focusAsk, forgetChat, followAnswered, forRoutine, newTurn, removeChatSuggestions, renderChat, setChatDock, scrollDown, settle, startRun } from "../chat/chat.ts";
 import { touch } from "../chat/chats.ts";
-import { $, bar, entry, here, live, PANE, S } from "./core.ts";
-import { hints, keyGroups, LIVE_SAY, LIVE_TALK, refreshHints } from "./hints.ts";
+import { $, entry, here, live, PANE, S } from "./core.ts";
+import { refreshHints } from "./hints.ts";
 import { openSession } from "../chat/history.ts";
 import { notice } from "../chat/media.ts";
 import { forgetHeight } from "./size.ts";
@@ -87,10 +87,6 @@ export async function loadLiveChats() {
 export const LIVE_KEYS = [["tap ⌥", "leave"], ["hold ⌥", "talk, let go to send"], ["esc", "leave live"], ["⌘/", "what to say"]];
 /// Push to talk, between holds.
 export const LIVE_PTT_KEYS = [["hold ⌥", "reply"], ["tap ⌥", "leave"], ["esc", "leave live"], ["⌘/", "what to say"]];
-/// The sheet of what to say, over the chat and the dock.
-export const liveSheet = () => `<div class="dover lsheet" role="dialog" aria-label="What to say"><div class="vt"><span class="tt"><b>What to say</b></span></div>
-  ${keyGroups([["Say", LIVE_SAY], ["Keys", LIVE_TALK]])}
-  ${hints([["esc", "close"], ["⌘/", "close"]])}</div>`;
 /// What the dock and the keys row say for view `v`.
 export function liveParts(v: LiveView) {
   const mode = v.speaking || (v.phase === "speaking" && v.line) ? "speak" : v.phase === "thinking" ? "think" : "listen";
@@ -167,9 +163,6 @@ export function drawDock(v: LiveView | null) {
   if (!dock || !v) return;
   setChatDock(v);
   refreshHints();
-  const sheet = bar.querySelector(".lsheet");
-  if (v.sheet && !sheet) bar.append(h(liveSheet()));
-  else if (!v.sheet) sheet?.remove();
 }
 /// Draws a message live mode sent into the chat under the dock and follows its
 /// reply there, like one typed in the field.
@@ -215,7 +208,6 @@ export function liveTurn(id: string, text: string, runId: string) {
 /// Live mode ended: the dock goes and the chat keeps its field, with the
 /// words kept in it and a note on why it ended.
 export function renderLeft() {
-  bar.querySelector(".lsheet")?.remove();
   const chat = LV.chat;
   LV.chat = null;
 

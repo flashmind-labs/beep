@@ -14,6 +14,12 @@ test("voice updates keep dock controls and microphone level", async ({ page }) =
   await page.evaluate(value => window.__navigation.emit("live", value), { ...view, words: "More words" });
   await expect(caption).toContainText("More words");
   expect(await orb.evaluate(el => el === Reflect.get(window, "savedOrb") && document.activeElement === el && el.style.getPropertyValue("--lvl") === "0.500")).toBe(true);
+  await page.evaluate(value => window.__navigation.emit("live", value), { ...view, words: "More words", sheet: true });
+  const sheet = page.getByRole("dialog", { name: "What to say" });
+  await expect(sheet).toContainText("Send now");
+  await page.evaluate(value => window.__navigation.emit("live", value), { ...view, words: "More words", sheet: false });
+  await expect(sheet).toHaveCount(0);
+  await expect(orb).toBeFocused();
   await orb.click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "live_tap"))).toBe(true);
   await page.locator("#lleave").click();
