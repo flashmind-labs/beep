@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { SettingsBreadcrumb, SettingsNavigation } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
 import type { PanePage } from "../bar/pane.ts";
 // settings/: the Settings pages (apps, accounts, credentials, coding agents,
@@ -12,7 +16,7 @@ import { type Machine, machinesIn, machinesOut, MC, renderMachines } from "../ma
 import { harnessTile } from "../ui/harnessicon.ts";
 import { harnessName } from "./providers-state.ts";
 import { SKINS, setSkin, skinId } from "../ui/skin.ts";
-import { back, CODING_AGENTS, crumbs, fitPath, isPage, navEntries, openSub, pageLabel, parseSub, recallPath, rememberPath, samePath, selectPage, type SettingsPage, type SettingsPath, type SettingsSub, subKey } from "./settings-nav.ts";
+import { back, CODING_AGENTS, fitPath, isPage, openSub, pageLabel, parseSub, recallPath, rememberPath, samePath, selectPage, type SettingsPage, type SettingsPath, type SettingsSub, subKey } from "./settings-nav.ts";
 import { canPickModel, type ModelChoice, type Models, modelPrice, MODELS, THINKING } from "./model.ts";
 import { cap } from "../chat/tools.ts";
 import { show } from "../bar/views.ts";
@@ -490,31 +494,10 @@ function subEntries(page: SettingsPage): SettingsSub[] {
 
 /// A count beside a page in the left pane, such as connected apps.
 function navCount(page: SettingsPage) {
-  const n = page === "apps" ? A.apps?.filter(a => a.connected).length : page === "machines" ? (SET.machines ?? MC.list)?.length : undefined;
-  return n ? `<span class="n">${n}</span>` : "";
+  return (page === "apps" ? A.apps?.filter(app => app.connected).length : page === "machines" ? (SET.machines ?? MC.list)?.length : 0) ?? 0;
 }
-
 function settingsPageLabel(page: SettingsPage) {
   return page === "agents" && !SET.local?.linked ? "Coding agents" : pageLabel(page);
-}
-
-function navHtml(shown: SettingsPage[], path: SettingsPath) {
-  return navEntries(shown, path, subEntries).map(({ page, sub, current }) => {
-    const on = current ? ' aria-current="true"' : "";
-    if (sub) return `<button class="cc-si sub" data-sub="${esc(subKey(sub))}"${on}><span class="tt">${esc(subLabel(sub))}</span></button>`;
-    return `<button class="cc-si" data-goto="${page}"${on}><span class="tt">${esc(settingsPageLabel(page))}</span>${navCount(page)}</button>`;
-  }).join("");
-}
-
-const BACK_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>';
-
-/// The breadcrumb atop the right pane, with a back link on a subpage.
-function crumbsHtml(path: SettingsPath) {
-  const [, sub] = crumbs(path, subLabel);
-  const page = settingsPageLabel(path.page);
-  if (sub === undefined) return `<b>${esc(page)}</b>`;
-  return `<button class="dset-back" data-goto="${path.page}" aria-label="Back to ${esc(page)}">${BACK_ICON}</button>`
-    + `<button class="dset-crumb" data-goto="${path.page}">${esc(page)}</button>${ICON.chev}<b>${esc(sub)}</b>`;
 }
 
 /// localStorage, or null where it cannot be reached.
@@ -529,41 +512,81 @@ function store() {
 /// The pages the sheet lists now.
 const sheetPages = () => SET.local ? settingsSections(SET.local.set, SET.local.mac, SET.local.linked, true).map(([id]) => id) : [];
 
-/// Draws the sheet: the left pane's pages, and the right pane with only the
-/// page picked (or its subpage) under its breadcrumb.
+let renderedPath: SettingsPath | null = null;
+let shell: { sheet: HTMLElement; navigation: HTMLElement; navRoot: Root; breadcrumb: HTMLElement; crumbRoot: Root; observer: MutationObserver } | null = null;
+function disposeShell() {
+  const current = shell;
+  shell = null;
+  renderedPath = null;
+  if (!current) return;
+  current.observer.disconnect();
+  current.navRoot.unmount(); current.crumbRoot.unmount();
+}
+function preserveShell(sheet: HTMLElement) {
+  if (!shell || shell.sheet !== sheet) { disposeShell(); return null; }
+  const scroll = { top: shell.navigation.scrollTop, left: shell.navigation.scrollLeft };
+  shell.navigation.remove(); shell.breadcrumb.remove();
+  return scroll;
+}
+function renderShell(sheet: HTMLElement, pages: SettingsPage[], path: SettingsPath, version: string) {
+  if (shell && shell.sheet !== sheet) disposeShell();
+  const nav = sheet.querySelector<HTMLElement>(".dset-nav"), crumb = sheet.querySelector<HTMLElement>(".dset-crumbs");
+  if (!nav || !crumb) return;
+  if (shell) {
+    if (nav !== shell.navigation) nav.replaceWith(shell.navigation);
+    if (crumb !== shell.breadcrumb) crumb.replaceWith(shell.breadcrumb);
+  }
+  else {
+    const observer = new MutationObserver(() => { if (shell?.sheet === sheet && !sheet.isConnected) disposeShell(); });
+    observer.observe(document.body, { childList: true, subtree: true });
+    shell = { sheet, navigation: nav, navRoot: createRoot(nav), breadcrumb: crumb, crumbRoot: createRoot(crumb), observer };
+  }
+  const current = shell, openPage = (page: SettingsPage) => goTo(selectPage(page));
+  flushSync(() => {
+    current.navRoot.render(createElement(SettingsNavigation, { pages, path, version, subs: subEntries, pageName: settingsPageLabel, subName: subLabel, count: navCount, openPage, openSub: (sub: SettingsSub) => goTo(openSub(sub)) }));
+    current.crumbRoot.render(createElement(SettingsBreadcrumb, { path, page: settingsPageLabel(path.page), sub: path.sub ? subLabel(path.sub) : null, openPage }));
+  });
+}
+/// Draws the sheet's current page while keeping its navigation mounted.
 function drawSheet() {
   const el = SET.root, local = SET.local;
   if (!el || !local) return;
-  leavePage();
   const sections = settingsSections(local.set, local.mac, local.linked, true);
   const shown = sections.map(([id]) => id);
   const path = SET.path = fitPath(SET.path ?? recallPath(store()), shown, subExists);
   rememberPath(store(), path);
-  // The page's sections are drawn from where the sub stands now.
-  const page = settingsSections(local.set, local.mac, local.linked, true).find(([id]) => id === path.page)?.[1] ?? "";
-  const focus = focusKey(el);
+  const page = sections.find(([id]) => id === path.page)?.[1] ?? "";
+  const retainPage = shell?.sheet === el && renderedPath && samePath(renderedPath, path)
+    && (path.page === "apps" || path.page === "machines" || path.page === "instr" || (path.page === "agents" && path.sub?.kind === "agent"));
+  const oldPage = retainPage ? el.querySelector<HTMLElement>(".dset-page") : null;
+  const active = oldPage?.contains(document.activeElement) ? document.activeElement : null;
+  const input = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? active : null;
+  const start = input?.selectionStart ?? null, end = input?.selectionEnd ?? null;
+  const scroll = oldPage ? { top: oldPage.scrollTop, left: oldPage.scrollLeft } : null;
+  if (oldPage) oldPage.remove(); else leavePage();
+  const focus = active ? null : focusKey(el);
   const restoreAgents = preserveAgents(), restoreCreds = preserveCreds();
-  el.innerHTML = `<nav class="dset-nav" aria-label="Settings pages"><b>Settings</b><div class="dset-pages">${navHtml(shown, path)}</div><small class="dset-ver">Beep desktop ${esc(local.set.version)}</small></nav>
-    <div class="dset-body"><div class="dset-top"><span class="dset-crumbs">${crumbsHtml(path)}</span><kbd>esc</kbd></div>
+  const navScroll = preserveShell(el);
+  el.innerHTML = `<nav class="dset-nav" aria-label="Settings pages"></nav>
+    <div class="dset-body"><div class="dset-top"><span class="dset-crumbs"></span><kbd>esc</kbd></div>
     <div class="dset-page dform">${page}</div></div>`;
+  renderShell(el, shown, path, local.set.version);
   restoreAgents(el); restoreCreds(el);
-  bindNav(el);
-  bindSettings(el.querySelector(".dset-page")!);
-  mountPage(path);
-  if (focus) refocus(el, focus);
+  const body = el.querySelector<HTMLElement>(".dset-page");
+  if (body && oldPage) body.replaceWith(oldPage);
+  else { if (body) { bindNav(body); bindSettings(body); } mountPage(path); }
+  renderedPath = path;
+  if (active instanceof HTMLElement && active.isConnected) {
+    active.focus({ preventScroll: true });
+    if (input && start !== null && end !== null) input.setSelectionRange(start, end);
+  } else if (focus) refocus(el, focus);
+  if (oldPage && scroll) { oldPage.scrollTop = scroll.top; oldPage.scrollLeft = scroll.left; }
+  if (navScroll && shell) { shell.navigation.scrollTop = navScroll.top; shell.navigation.scrollLeft = navScroll.left; }
 }
-
-/// Redraws the left pane and the breadcrumb only, as a page drawn by its
-/// own code (Apps, Machines, a coding agent) opens another.
 function drawChrome() {
-  const el = SET.root, path = SET.path;
-  if (!el?.isConnected || !path) return;
-  const pages = el.querySelector<HTMLElement>(".dset-pages"), top = el.querySelector<HTMLElement>(".dset-crumbs");
-  const focus = focusKey(el);
-  if (pages) pages.innerHTML = navHtml(sheetPages(), path);
-  if (top) top.innerHTML = crumbsHtml(path);
-  bindNav(el);
-  if (focus) refocus(el, focus);
+  const el = SET.root, path = SET.path, local = SET.local;
+  if (!el?.isConnected || !path || !local) return;
+  renderShell(el, sheetPages(), path, local.set.version);
 }
 
 /// The left pane, the breadcrumb and the rows that open a subpage.
@@ -688,7 +711,7 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
   const el = setRoot();
 
   if (got instanceof Error || typeof got !== "object") {
-    disposeAgents(); disposeCreds();
+    disposeAgents(); disposeCreds(); disposeShell();
     el.innerHTML = `<div class="dwin"><h4>Settings</h4><p class="derr">${esc(got)}</p></div>`;
     return;
   }
@@ -701,6 +724,7 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
   if (SET.root) {
     drawSheet();
   } else {
+    disposeShell();
     const sections = settingsSections(set, mac, linked, false).map(([, html]) => html).join("");
     const restoreAgents = preserveAgents(), restoreCreds = preserveCreds();
     el.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep desktop ${esc(set.version)}</small></span></div>
@@ -730,8 +754,15 @@ function loadServerParts(set: MacSettings, alive: () => boolean) {
     .then(() => {
       if (!alive()) return;
       // A server with no choices to offer leaves the section out.
-      if (canPickModel() || SET.modelsError) return fillSection("models", setModelsHtml());
-      if (SET.root && SET.path?.page === "models") return drawSheet();
+      if (canPickModel() || SET.modelsError) {
+        if (SET.root) drawChrome();
+        return fillSection("models", setModelsHtml());
+      }
+      if (SET.root) {
+        if (SET.path?.page === "models") drawSheet();
+        else drawChrome();
+        return;
+      }
       setRoot().querySelector("#set-models-sec")?.remove();
       setRoot().querySelector('[data-goto="models"]')?.remove();
     });

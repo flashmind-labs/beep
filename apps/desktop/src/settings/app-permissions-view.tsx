@@ -8,8 +8,8 @@ interface Props {
 }
 const levels: [Level, string, string][] = [["ask", "Ask first", "Beep shows what it is about to do and waits for you."], ["allow", "Always allow", "Beep sends, changes and deletes without asking."], ["read", "Read only", "Beep can search and read, never change anything."]];
 function Logo({ app }: { app: App }) {
-  const [failed, setFailed] = useState(false), url = app.slug === "fastmail" ? "fastmail.svg" : app.logo_url;
-  return url && !failed ? <img className="dalogo" src={url} alt="" onError={() => setFailed(true)} /> : <span className="dalogo">{app.name.slice(0, 1).toUpperCase()}</span>;
+  const [failed, setFailed] = useState<string | null>(null), url = app.slug === "fastmail" ? "fastmail.svg" : app.logo_url;
+  return url && failed !== url ? <img className="dalogo" src={url} alt="" onError={() => setFailed(url)} /> : <span className="dalogo">{app.name.slice(0, 1).toUpperCase()}</span>;
 }
 export function AppPermissionsView(p: Props) {
   const { app, permissions, accounts } = p;
