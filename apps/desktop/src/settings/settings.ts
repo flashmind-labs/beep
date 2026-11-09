@@ -25,7 +25,7 @@ import { show } from "../bar/views.ts";
 import { type Reach } from "./server-state.ts";
 import { esc } from "../ui/format.ts";
 import { invoke, listen } from "../ui/tauri.ts";
-import { toggleShortcuts } from "../ui/shortcutsheet.ts";
+import { toggleShortcuts } from "../ui/shortcutsheet.tsx";
 
 /// What a new notice does while you are at this Mac (NoticeVoice).
 export type NoticeVoice = "ask" | "aloud" | "off";
