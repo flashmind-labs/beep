@@ -1,9 +1,10 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import { renderChat } from "../chat/chat.ts";
 import { copy } from "../ui/parts.ts";
 import { bar, S } from "./core.ts";
+import { openBarPage } from "./page-root.ts";
 import { loadModels } from "../settings/model.ts";
 import { renderSettings } from "../settings/settings.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -16,20 +17,11 @@ export type LoginStep = "signin" | "browser" | "signfail" | "ownserver";
 let offer: (LinkView & { until: number }) | null = null;
 let invite: PhoneInvite | null = null, login: LoginStep = "signin", loginError = "";
 let screen: LinkScreen = { kind: "loading" }, generation = 0;
-let view: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+let view: { host: HTMLElement; root: Root } | null = null;
 
-function dispose() {
-  const current = view;
-  view = null;
-  if (current) { current.observer.disconnect(); current.root.unmount(); }
-}
 function mount() {
-  if (view?.host.isConnected) return;
-  dispose();
-  const host = document.createElement("div"); host.style.display = "contents"; bar.replaceChildren(host);
-  const root = createRoot(host), observer = new MutationObserver(() => { if (view?.host === host && !host.isConnected) dispose(); });
-  observer.observe(document.body, { childList: true, subtree: true });
-  view = { host, root, observer };
+  if (view?.host.parentElement === bar) return;
+  view = openBarPage(() => { view = null; generation++; clearInterval(S.timer); });
 }
 function draw(next: LinkScreen) {
   screen = next;
@@ -44,6 +36,7 @@ const actions: LinkActions = {
 };
 
 export async function renderLink() {
+  mount();
   const mine = ++generation;
   S.view = "login"; clearInterval(S.timer); draw({ kind: "loading" });
   const hosted = await invoke<boolean>("login_hosted").catch(() => false);
@@ -113,6 +106,7 @@ async function join(code: string) {
   } catch (error) { if (mine === generation && S.view === "joining") renderJoinCode(/not found/i.test(String(error)) ? "That code is used up or expired. Ask for a new one." : String(error)); }
 }
 export async function renderInvitePhone() {
+  mount();
   const mine = ++generation; S.view = "invite-phone"; clearInterval(S.timer);
   try {
     const value = await invoke<PhoneInvite>("invite_phone");

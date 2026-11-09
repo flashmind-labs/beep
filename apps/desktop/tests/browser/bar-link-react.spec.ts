@@ -71,3 +71,23 @@ test("phone invite expires and can request a replacement", async ({ page }) => {
   await page.getByRole("button", { name: "New code" }).click();
   await expect(page.locator(".code.big")).toHaveText("NEXT");
 });
+
+test("switching to another React bar page cancels the link countdown", async ({ page }) => {
+  await page.clock.install();
+  await openBar(page, false);
+  await expect(page.getByText("Waiting for phone…")).toBeVisible();
+  await page.evaluate(() => { window.__navigation.respond("status", { ...{ link: "linked", signed_out: false, server: true, live: false, session: null } }); window.__navigation.respond("list_researches", []); window.__navigation.emit("bar-shown", "research"); });
+  await expect(page.getByText("No research yet.")).toBeVisible();
+  await page.clock.fastForward("01:01");
+  await expect(page.getByText("No research yet.")).toBeVisible();
+  await expect(page.getByText("Code expired")).toHaveCount(0);
+});
+
+test("synchronous screen replacement remounts a detached account page", async ({ page }) => {
+  await openBar(page, false);
+  await expect(page.getByText("Waiting for phone…")).toBeVisible();
+  await page.evaluate(() => { document.querySelector("#bar")?.replaceChildren(); window.__navigation.emit("link-state", "revoked"); });
+  await expect(page.getByText("This computer was removed")).toBeVisible();
+  await page.evaluate(() => { window.__navigation.respond("status", { link: "unlinked", signed_out: false, server: true, live: false, session: null }); window.__navigation.emit("bar-shown", "link"); });
+  await expect(page.getByText("Waiting for phone…")).toBeVisible();
+});
