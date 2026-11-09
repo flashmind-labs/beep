@@ -240,6 +240,45 @@ export function splitPath(path: string) {
   return { dir: path.slice(0, cut + 1), name: path.slice(cut + 1) };
 }
 
+/// Visible folders in the changed-file tree, keyed by their full path.
+export function compactFolders(paths: readonly string[]) {
+  const children = new Map<string, Set<string>>();
+  const fileParents = new Set<string>();
+
+  for (const path of paths) {
+    const { dir } = splitPath(path);
+    fileParents.add(dir);
+    let parent = "";
+
+    for (const part of dir.split("/").filter(Boolean)) {
+      const folder = parent + part + "/";
+      let siblings = children.get(parent);
+
+      if (!siblings) {
+        siblings = new Set();
+        children.set(parent, siblings);
+      }
+
+      siblings.add(folder);
+      parent = folder;
+    }
+  }
+
+  const visible = new Set([...children.values()].flatMap(folders => [...folders])
+    .filter(path => fileParents.has(path) || (children.get(path)?.size ?? 0) !== 1));
+  const folders = new Map<string, { dir: string; name: string }>();
+
+  for (const path of visible) {
+    let parent = splitPath(path.slice(0, -1)).dir;
+
+    while (parent && !visible.has(parent)) parent = splitPath(parent.slice(0, -1)).dir;
+
+    folders.set(path, { dir: parent, name: path.slice(parent.length, -1) });
+  }
+
+  return folders;
+}
+
 /// A comment on the diff, on a line of a file (`line` set, numbered on the
 /// old or the new side) or on the whole file (`line` null).
 export interface ReviewComment {
