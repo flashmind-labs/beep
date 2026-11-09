@@ -20,7 +20,7 @@ interface InstructionsDeps {
 }
 
 export function registerInstructions(deps: InstructionsDeps) {
-  const { registerView, invoke, button, ago } = deps;
+  const { registerView, invoke, ago } = deps;
   const st: InstructionsState = { tab: "editor", newest: undefined, draft: null, note: "", saving: false, error: "", versions: undefined, shown: null };
   let root: Root | null = null;
 
@@ -92,7 +92,7 @@ export function registerInstructions(deps: InstructionsDeps) {
   function reactRoot(host: HTMLElement) { root = createRoot(host); }
 
   registerView("instructions", {
-    title: () => ({ title: "Instructions", sub: "Your rules for every agent Beep runs", tools: [button("Settings", "quiet small", () => deps.openSettings())] }),
+    title: () => ({ title: "Instructions", sub: "Your rules for every agent Beep runs", reactTools: createElement("button", { type: "button", className: "dbtn quiet small", onClick: () => deps.openSettings() }, "Settings") }),
     mount(root, arg) {
       unmount();
       root.replaceChildren();
