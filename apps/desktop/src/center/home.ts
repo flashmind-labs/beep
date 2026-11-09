@@ -1,3 +1,4 @@
+import { drawHomeComposer } from "./home-composer.tsx";
 // Home: its tabs, the Needs you, Updates, Running and Coming up sections, and the Connecting page before Home first loads.
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { harnessEl } from "../ui/harnessicon.ts";
@@ -238,9 +239,7 @@ export function draw() {
   view.scrollTop = top;
   applyScroll();
   scrollTarget = null;
-  $("#home-comp").style.display = state.subscribed ? "" : "none";
-  $<HTMLInputElement>("#home-ask").placeholder = home.machines?.length ? "Ask Beep, or start an agent on a machine" : "Ask Beep anything";
-  $("#home-agent").style.display = home.machines?.some(m => m.online && m.can_host !== false) ? "" : "none";
+  drawHomeComposer();
 }
 
 onPlaces(() => draw());
