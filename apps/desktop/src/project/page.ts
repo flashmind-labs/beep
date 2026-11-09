@@ -16,7 +16,7 @@ import { registerView, windowProject } from "../center/views.ts";
 import { setProjectOnTop, openProjectWindow, removeProject, projectRows, openProjects, loadFound } from "../center/sidebar.ts";
 import { editGroup } from "./groups.ts";
 import { importButton, overviewSection, loadOverview, projectDetail } from "./projects.ts";
-import { splitOn, openTile, gitPanel } from "./split.ts";
+import { splitOn, openTile, projectPanel } from "./split.ts";
 import { liveMode, pa, redrawProjectsPage, runs, terms } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
 import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, elsewhereSection } from "./loads.ts";
@@ -32,12 +32,14 @@ const layouts = ".pj-split, .pj-list, .pj-det, .pj-ov, .pj-ov > div, .pj-cols, .
 function patchProjectView(current: Element, next: Element) {
   const children = [...next.children].map((child, i) => {
     const old = current.children[i];
-    const panel = gitPanel(child);
+    const panel = projectPanel(child);
     if (panel) return panel;
-    if (!old || old.tagName !== child.tagName || old.className !== child.className || !old.matches(layouts)) {
+    const split = old?.classList.contains("pj-split") && child.classList.contains("pj-split");
+    if (!old || old.tagName !== child.tagName || (!split && old.className !== child.className) || !old.matches(layouts)) {
       if (child.matches(layouts)) patchProjectView(child, child);
       return child;
     }
+    if (split && old.className !== child.className) old.className = child.className;
     patchProjectView(old, child);
     return old;
   });
@@ -91,12 +93,12 @@ export function drawProjects(el: HTMLElement) {
       old.replaceWith(view);
     }
 
-    view.scrollTop = top;
-    for (const [c, at] of cols) { const col = view.querySelector(c); if (col) col.scrollTop = at; }
+    if (view.scrollTop !== top) view.scrollTop = top;
+    for (const [c, at] of cols) { const col = view.querySelector(c); if (col && col.scrollTop !== at) col.scrollTop = at; }
 
     for (const [id, at] of inner) {
       const s = view.querySelector<HTMLElement>(`#${CSS.escape(id)} .pv-scroll`);
-      if (s) s.scrollTop = at;
+      if (s && s.scrollTop !== at) s.scrollTop = at;
     }
   } else {
     patchProjectView(view, view);
