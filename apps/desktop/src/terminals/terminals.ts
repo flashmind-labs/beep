@@ -21,6 +21,8 @@ import { newTermLike } from "./newkey-state.ts";
 
 export function makeTerminals(deps: TerminalDeps) {
   const { invoke, Channel, makeScreen, ago, redraw } = deps;
+  /// A line in the app's log: how a terminal's stream went.
+  const log = (message: string, info: boolean) => { invoke("log_webview", { message, info }).catch(() => {}); };
   const all = new Map<string, ProjectTerminals>();
   /// Live views by terminal id, for the project on show.
   const lives = new Map<string, Live>();
@@ -177,8 +179,13 @@ export function makeTerminals(deps: TerminalDeps) {
     channel.onmessage = message => {
       if (!current()) return;
       const ev = readTermMessage(message);
+      if (ev === null) {
+        log(`terminal ${live.id}: a stream message was not understood (${describeMessage(message)})`, false);
+        return;
+      }
 
       if (ev.kind === "attached") {
+        log(`terminal ${live.id}: attached`, true);
         live.link = "attached";
         live.tries = 0;
         live.screen.setInput(!live.watching);
@@ -192,6 +199,7 @@ export function makeTerminals(deps: TerminalDeps) {
         live.screen.write(bytes.subarray(skip));
         live.next = Math.max(live.next, ev.at + bytes.length);
       } else if (ev.kind === "ended") {
+        log(`terminal ${live.id}: ended (${ev.state})`, true);
         live.link = "ended";
         live.screen.setInput(false);
         // Its shell exited: the terminal goes from the list and its view
@@ -201,6 +209,7 @@ export function makeTerminals(deps: TerminalDeps) {
         if (row) setRow(name, { ...row, state: ev.state, code: ev.code });
         redraw();
       } else {
+        log(`terminal ${live.id}: view only`, true);
         live.link = "view_only";
         live.screen.setInput(false);
         readOutput(name);
@@ -231,6 +240,7 @@ export function makeTerminals(deps: TerminalDeps) {
   }
 
   function retry(name: string, live: Live, why: string) {
+    log(`terminal ${live.id}: stream dropped, try ${live.tries + 1}${why ? `: ${why}` : ""}`, true);
     live.tries += 1;
     live.screen.setInput(false);
 
@@ -549,15 +559,50 @@ export type TermNotice =
   | { kind: "view_only" };
 
 /// What `terminal_attach`'s channel carries: output as raw bytes, the
-/// offset first as eight little-endian bytes, and notices as JSON.
-export type TermMessage = ArrayBuffer | TermNotice;
+/// offset first as eight little-endian bytes, and notices as JSON. Tauri
+/// hands raw bytes over as an ArrayBuffer, or as an array of numbers when its
+/// IPC falls back to postMessage.
+export type TermMessage = ArrayBuffer | ArrayBufferView | number[] | TermNotice;
 
-/// A channel message as an event.
-export function readTermMessage(message: TermMessage): TermEvent {
-  if (!(message instanceof ArrayBuffer)) return message;
+/// A channel message as an event, or null for one this page does not know.
+export function readTermMessage(message: unknown): TermEvent | null {
+  const bytes = rawBytes(message);
+  if (bytes !== null) {
+    if (bytes.length < 8) return null;
+    const at = Number(new DataView(bytes.buffer, bytes.byteOffset, 8).getBigUint64(0, true));
+    return { kind: "output", at, data: bytes.subarray(8) };
+  }
 
-  const at = Number(new DataView(message).getBigUint64(0, true));
-  return { kind: "output", at, data: new Uint8Array(message, 8) };
+  if (typeof message !== "object" || message === null || !("kind" in message)) return null;
+  switch (message.kind) {
+    case "attached":
+      return { kind: "attached" };
+    case "view_only":
+      return { kind: "view_only" };
+    case "ended": {
+      const ended = message as { state?: unknown; code?: unknown };
+      if (typeof ended.state !== "string") return null;
+      return { kind: "ended", state: ended.state, code: typeof ended.code === "number" ? ended.code : null };
+    }
+    default:
+      return null;
+  }
+}
+
+function rawBytes(message: unknown): Uint8Array | null {
+  if (message instanceof ArrayBuffer) return new Uint8Array(message);
+  if (ArrayBuffer.isView(message)) return new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
+  if (Array.isArray(message) && message.every(n => typeof n === "number")) return Uint8Array.from(message);
+  return null;
+}
+
+/// What a channel message was, for the log when it is not understood.
+export function describeMessage(message: unknown): string {
+  if (message === null) return "null";
+  if (Array.isArray(message)) return `array of ${message.length}`;
+  if (typeof message !== "object") return typeof message;
+  const name = Object.getPrototypeOf(message)?.constructor?.name ?? "object";
+  return name === "Object" ? `object with keys ${Object.keys(message).join(", ")}` : name;
 }
 
 /// A machine a terminal can start on, in the project's folder there.

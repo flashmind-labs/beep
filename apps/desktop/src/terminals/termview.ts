@@ -12,6 +12,7 @@ import { cellAt, fitGrid, routeKey, wheelAction, type Grid } from "./screen-stat
 import { isTouchDevice, makeTouchBar } from "./touchbar.ts";
 import { ZOOMED } from "../ui/zoom-state.ts";
 import { APPLE } from "../ui/platform.ts";
+import { logError } from "../ui/tauri.ts";
 import type { Screen } from "./terminals.ts";
 
 /// The terminal's colours, as the mock's terminal pane.
@@ -126,7 +127,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
     parts = { term, state: new RenderState(g), input: new TerminalInput(g, term) };
     fitNow();
     schedule();
-  }).catch(e => console.error("Terminal engine unavailable:", e));
+  }).catch(e => logError(`terminal engine unavailable: ${e instanceof Error ? e.stack ?? e.message : e}`));
 
   /// Draws on the next animation frame, once.
   const schedule = () => {
@@ -156,7 +157,11 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
     if (next !== null) animation = setTimeout(schedule, Math.max(0, next - performance.now()));
 
     if (!renderer) return;
-    if (renderer.lost()) { dropGpu(); return; }
+    if (renderer.lost()) {
+      logError("terminal GPU context lost");
+      dropGpu();
+      return;
+    }
 
     parts.state.update(parts.term);
     renderer.draw(parts.state, parts.term, fullRedraw, { visible: !inputOn || blinkOn, focused: inputOn && focused() });
@@ -188,7 +193,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
         renderer = new GridRenderer(canvas, font, THEME);
         fullRedraw = true;
       } catch (e) {
-        console.warn("Terminal GPU rendering unavailable:", e);
+        logError(`terminal GPU rendering unavailable: ${e instanceof Error ? e.message : e}`);
       }
     }
 
