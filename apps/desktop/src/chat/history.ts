@@ -97,8 +97,8 @@ export function drawHistory(id: string, turns: HistoryTurn[]) {
   turns = turns.filter(t => t.role !== "approval" || asking.has(t.query_id));
   const b = body()!;
   // From the oldest prompt already shown, else the newest few.
-  const shown = conversation(b).turns.find(turn => turn.dataset.at)?.dataset.at;
-  const kept = turns.findIndex(t => t.role === "user" && String(t.at) === shown);
+  const shown = conversation(b).turns.map(turnState).find(state => state.messageAt !== null)?.messageAt ?? null;
+  const kept = turns.findIndex(t => t.role === "user" && t.at === shown);
   const start = kept >= 0 ? kept : windowStart(turns.map(t => t.role), HISTORY_CHUNK);
   undrawn.set(b, turns.slice(0, start));
 
@@ -165,6 +165,7 @@ function buildTurns(id: string, turns: HistoryTurn[]) {
     if (t.role === "user") {
       turn = drawTurn(t.text, t.images);
       turnState(turn).user = true;
+      turnState(turn).messageAt = t.at;
       turn.dataset.at = String(t.at);
       ranOn(turn, t.model, t.thinking);
     } else if (t.role === "scheduled") {
@@ -210,17 +211,17 @@ function buildTurns(id: string, turns: HistoryTurn[]) {
 function mergeTurns(b: ChatBody, drawn: Turn[]) {
   const shown = conversation(b).turns;
   const kept = new Map<Turn, Turn>(), order: Turn[] = [], used = new Set<Turn>();
-  const byTime = new Map<string, Turn[]>();
+  const byTime = new Map<number, Turn[]>();
   for (const turn of shown) {
-    const at = turn.dataset.at;
-    if (at) { const group = byTime.get(at) ?? []; group.push(turn); byTime.set(at, group); }
+    const at = turnState(turn).messageAt;
+    if (at !== null) { const group = byTime.get(at) ?? []; group.push(turn); byTime.set(at, group); }
   }
 
-  const unkeyed = shown.filter(turn => !turn.dataset.at);
+  const unkeyed = shown.filter(turn => turnState(turn).messageAt === null);
   for (const fresh of drawn) {
-    const at = fresh.dataset.at;
-    const old = (at ? byTime.get(at)?.find(turn => !used.has(turn)) : null)
-      ?? (at ? unkeyed : shown).find(turn => !used.has(turn) && sameTurn(turn, fresh));
+    const at = turnState(fresh).messageAt;
+    const old = (at !== null ? byTime.get(at)?.find(turn => !used.has(turn)) : null)
+      ?? (at !== null ? unkeyed : shown).find(turn => !used.has(turn) && sameTurn(turn, fresh));
 
     if (old) {
       used.add(old);
@@ -232,7 +233,7 @@ function mergeTurns(b: ChatBody, drawn: Turn[]) {
   }
 
   // Keep a live turn until the server includes it in its history.
-  for (const turn of shown) if (!used.has(turn) && !turn.dataset.at) order.push(turn);
+  for (const turn of shown) if (!used.has(turn) && turnState(turn).messageAt === null) order.push(turn);
 
   conversation(b).replace(order);
 
@@ -243,7 +244,8 @@ function mergeTurns(b: ChatBody, drawn: Turn[]) {
 /// drawn live has no `at` yet, so its prompt says, or the line of a turn the
 /// server started.
 function sameTurn(old: Turn, fresh: Turn) {
-  if (old.dataset.at && fresh.dataset.at) return old.dataset.at === fresh.dataset.at;
+  const before = turnState(old).messageAt, next = turnState(fresh).messageAt;
+  if (before !== null && next !== null) return before === next;
   const said = (t: Turn) => askText(t) || (t.querySelector(":scope > .dsystem")?.textContent ?? "");
   return said(old) === said(fresh);
 }
@@ -281,7 +283,8 @@ const LISTED = new Set(["dreplies", "dcard"]);
 
 /// Takes the server's copy of a turn, `fresh`, into `old` on screen.
 function mergeTurn(old: Turn, fresh: Turn) {
-  if (fresh.dataset.at) old.dataset.at = fresh.dataset.at;
+  const at = turnState(fresh).messageAt;
+  if (at !== null) { turnState(old).messageAt = at; old.dataset.at = String(at); }
   // The server's copy may not have the reply yet: what shows stays.
   if (!turnState(fresh).done && !fresh.querySelector(":scope > .dcard")) return;
   const seen = new Map<string, number>();
@@ -372,8 +375,13 @@ async function eachTurn<T extends { message: number }>(id: string, b: ChatBody, 
   const items = await list.catch(() => []);
   if (S.session !== id || body() !== b) return;
 
+  const byTime = new Map<number, Turn>();
+  for (const turn of conversation(b).turns) {
+    const at = turnState(turn).messageAt;
+    if (at !== null && !byTime.has(at)) byTime.set(at, turn);
+  }
   for (const item of items) {
-    const turn = b.querySelector<Turn>(`.turn[data-at="${item.message}"]`);
+    const turn = byTime.get(item.message);
     if (turn) draw(turn, item);
   }
 }
