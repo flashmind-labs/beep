@@ -6,7 +6,7 @@ import { ModelSettingsView } from "./model-settings-view.tsx";
 import { ServerView } from "./server-view.tsx";
 import { GeneralView } from "./general-view.tsx";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
-import { SettingsBreadcrumb, SettingsNavigation } from "./settings-shell-view.tsx";
+import { SettingsBreadcrumb, SettingsNavigation, SettingsShell } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
 import type { PanePage } from "../bar/pane.ts";
 // settings/: the Settings pages (apps, accounts, credentials, coding agents,
@@ -342,39 +342,28 @@ function store() {
 const sheetPages = () => SET.local ? settingsSections(SET.local.set, SET.local.mac, SET.local.linked, true).map(([id]) => id) : [];
 
 let renderedPath: SettingsPath | null = null;
-let shell: { sheet: HTMLElement; navigation: HTMLElement; navRoot: Root; breadcrumb: HTMLElement; crumbRoot: Root; observer: MutationObserver } | null = null;
+let shell: { sheet: HTMLElement; navigation: HTMLElement | null; root: Root; observer: MutationObserver } | null = null;
 function disposeShell() {
   const current = shell;
   shell = null;
   renderedPath = null;
   if (!current) return;
   current.observer.disconnect();
-  current.navRoot.unmount(); current.crumbRoot.unmount();
-}
-function preserveShell(sheet: HTMLElement) {
-  if (!shell || shell.sheet !== sheet) { disposeShell(); return null; }
-  const scroll = { top: shell.navigation.scrollTop, left: shell.navigation.scrollLeft };
-  shell.navigation.remove(); shell.breadcrumb.remove();
-  return scroll;
+  current.root.unmount();
 }
 function renderShell(sheet: HTMLElement, pages: SettingsPage[], path: SettingsPath, version: string) {
   if (shell && shell.sheet !== sheet) disposeShell();
-  const nav = sheet.querySelector<HTMLElement>(".dset-nav"), crumb = sheet.querySelector<HTMLElement>(".dset-crumbs");
-  if (!nav || !crumb) return;
-  if (shell) {
-    if (nav !== shell.navigation) nav.replaceWith(shell.navigation);
-    if (crumb !== shell.breadcrumb) crumb.replaceWith(shell.breadcrumb);
-  }
-  else {
+  if (!shell) {
     const observer = new MutationObserver(() => { if (shell?.sheet === sheet && !sheet.isConnected) disposeShell(); });
     observer.observe(document.body, { childList: true, subtree: true });
-    shell = { sheet, navigation: nav, navRoot: createRoot(nav), breadcrumb: crumb, crumbRoot: createRoot(crumb), observer };
+    shell = { sheet, navigation: null, root: createRoot(sheet), observer };
   }
   const current = shell, openPage = (page: SettingsPage) => goTo(selectPage(page));
-  flushSync(() => {
-    current.navRoot.render(createElement(SettingsNavigation, { pages, path, version, subs: subEntries, pageName: settingsPageLabel, subName: subLabel, count: navCount, openPage, openSub: (sub: SettingsSub) => goTo(openSub(sub)) }));
-    current.crumbRoot.render(createElement(SettingsBreadcrumb, { path, page: settingsPageLabel(path.page), sub: path.sub ? subLabel(path.sub) : null, openPage }));
-  });
+  flushSync(() => current.root.render(createElement(SettingsShell, {
+    navigation: createElement(SettingsNavigation, { pages, path, version, subs: subEntries, pageName: settingsPageLabel, subName: subLabel, count: navCount, openPage, openSub: (sub: SettingsSub) => goTo(openSub(sub)) }),
+    breadcrumb: createElement(SettingsBreadcrumb, { path, page: settingsPageLabel(path.page), sub: path.sub ? subLabel(path.sub) : null, openPage }),
+  })));
+  current.navigation = sheet.querySelector<HTMLElement>(".dset-nav");
 }
 /// Draws the sheet's current page while keeping its navigation mounted.
 function drawSheet() {
@@ -393,18 +382,18 @@ function drawSheet() {
   const input = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? active : null;
   const start = input?.selectionStart ?? null, end = input?.selectionEnd ?? null;
   const scroll = oldPage ? { top: oldPage.scrollTop, left: oldPage.scrollLeft } : null;
-  if (oldPage) oldPage.remove(); else leavePage();
+  if (!oldPage) leavePage();
   const focus = active ? null : focusKey(el);
-  const restoreAgents = preserveAgents(), restoreCreds = preserveCreds(), restoreLocal = preserveLocalViews(el);
-  const navScroll = preserveShell(el);
-  el.innerHTML = `<nav class="dset-nav" aria-label="Settings pages"></nav>
-    <div class="dset-body"><div class="dset-top"><span class="dset-crumbs"></span><kbd>esc</kbd></div>
-    <div class="dset-page dform">${page}</div></div>`;
+  const restoreAgents = oldPage ? null : preserveAgents(), restoreCreds = oldPage ? null : preserveCreds(), restoreLocal = oldPage ? null : preserveLocalViews(el);
+  const navScroll = shell?.navigation ? { top: shell.navigation.scrollTop, left: shell.navigation.scrollLeft } : null;
   renderShell(el, shown, path, local.set.version);
-  restoreAgents(el); restoreCreds(el); restoreLocal(el);
-  const body = el.querySelector<HTMLElement>(".dset-page");
-  if (body && oldPage) body.replaceWith(oldPage);
-  else { if (body) bindSettings(body); mountPage(path); }
+  if (!oldPage) {
+    const body = el.querySelector<HTMLElement>(".dset-page");
+    if (body) body.innerHTML = page;
+    restoreAgents?.(el); restoreCreds?.(el); restoreLocal?.(el);
+    if (body) bindSettings(body);
+    mountPage(path);
+  }
   renderedPath = path;
   if (active instanceof HTMLElement && active.isConnected) {
     active.focus({ preventScroll: true });
@@ -412,7 +401,7 @@ function drawSheet() {
   } else if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
   else if (focus) refocus(el, focus);
   if (oldPage && scroll) { oldPage.scrollTop = scroll.top; oldPage.scrollLeft = scroll.left; }
-  if (navScroll && shell) { shell.navigation.scrollTop = navScroll.top; shell.navigation.scrollLeft = navScroll.left; }
+  if (navScroll && shell?.navigation) { shell.navigation.scrollTop = navScroll.top; shell.navigation.scrollLeft = navScroll.left; }
 }
 function drawChrome() {
   const el = SET.root, path = SET.path, local = SET.local;
@@ -434,6 +423,7 @@ function follow(page: SettingsPage, sub: SettingsSub | null) {
   const path = sub ? openSub(sub) : selectPage(page);
   if (SET.path && samePath(SET.path, path)) return;
   SET.path = path;
+  renderedPath = path;
   rememberPath(store(), path);
   drawChrome();
 }
