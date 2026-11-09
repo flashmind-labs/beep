@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { createDocumentView, type DocumentView } from "./document-root.tsx";
 import { S } from "../bar/core.ts";
 import { WINDOWS } from "./platform.ts";
 import { openSheet } from "./parts.ts";
@@ -11,12 +11,12 @@ let shut: (() => void) | null = null;
 export function toggleShortcuts() {
   if (shut) return shut();
   const all = visibleShortcuts({ server: S.link === "linked", live: S.live });
-  let view: Root | null = null;
+  let view: DocumentView | null = null;
   const { sheet, close } = openSheet("Keyboard shortcuts", "am-sheet ks-sheet", {
     onClose: () => { view?.unmount(); shut = null; },
   });
   shut = close;
-  view = createRoot(sheet);
+  view = createDocumentView(sheet);
   view.render(<ShortcutSheet all={all} />);
 }
 

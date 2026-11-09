@@ -92,3 +92,26 @@ test("confirmation completion uses the current checkbox choice", async () => {
   await settle();
   assert.equal(document.querySelector(".am-sheet"), null);
 });
+
+
+test("closing a nested confirmation retains the rename draft and focus", () => {
+  renameSheet({ title: "Rename item", value: "Original", run: async () => null });
+  const sheet = document.querySelector(".am-sheet");
+  const field = sheet?.querySelector<HTMLInputElement>("input");
+  assert.ok(sheet && field);
+  field.focus();
+  field.setSelectionRange(2, 5);
+  sheet.scrollTop = 42;
+
+  confirmSheet({ title: "Confirm change", text: "Continue?", action: "Continue", run: async () => null });
+  assert.equal(document.querySelectorAll(".am-sheet").length, 2);
+  document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+  assert.equal(document.querySelector(".am-sheet"), sheet);
+  assert.equal(document.activeElement, field);
+  assert.equal(field.selectionStart, 2);
+  assert.equal(field.selectionEnd, 5);
+  assert.equal(sheet.scrollTop, 42);
+  document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  assert.equal(document.querySelector(".am-sheet"), null);
+});
