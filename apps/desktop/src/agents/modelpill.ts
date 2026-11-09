@@ -12,6 +12,7 @@ import { drawAgentBody } from "./logview.ts";
 import { steerAgent } from "./messages.ts";
 
 export const resumePicks = new Map<string, SessionPick>();
+const shownPills = new WeakMap<HTMLElement, { field: HTMLElement; signature: string }>();
 
 /// The pill by the field: the harness, the model and thinking switched to.
 /// A harness that cannot switch in a running session shows it disabled.
@@ -25,7 +26,12 @@ export function drawModelPill() {
   const models = modelsOn(s.machine_id, s.agent, () => { if (AG.page?.session.id === s.id) drawModelPill(); });
   const displayModel = model || (models?.current ? "" : "Model unknown");
   const why = can ? "Switch the model or thinking; applies from the next turn" : `${agentKind(s.agent).name} cannot switch models in a running session`;
-  showAgentControl(field, el, createElement("button", { className: "agc-pill agm", id: "agmodelb", "aria-expanded": AG.modelOpen, title: why, disabled: !can }, pillContent(s.agent, displayModel, p.effort, s.machine_id)));
+  const content = pillContent(s.agent, displayModel, p.effort, s.machine_id);
+  const signature = JSON.stringify([s.agent, content.props.detail, AG.modelOpen, why, can]);
+  const shown = shownPills.get(el);
+  if (shown?.field === field && shown.signature === signature && el.querySelector("#agmodelb")) return;
+  shownPills.set(el, { field, signature });
+  showAgentControl(field, el, createElement("button", { className: "agc-pill agm", id: "agmodelb", "aria-expanded": AG.modelOpen, title: why, disabled: !can }, content));
 }
 
 export function toggleModelPicker() {
