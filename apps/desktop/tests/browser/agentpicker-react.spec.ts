@@ -38,8 +38,13 @@ test("session model picker filters and closes after selection", async ({ page })
     kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session",
     cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false,
   } }));
-  await page.locator("#agmodelb").click();
+  const pill = page.locator("#agmodelb");
+  await pill.evaluate(el => { el.dataset.identity = "kept"; });
+  await pill.click();
+  await expect(pill).toHaveAttribute("aria-expanded", "true");
   await selectBeta(page);
+  await expect(pill).toHaveAttribute("data-identity", "kept");
+  await expect(pill).toHaveAttribute("aria-expanded", "false");
 });
 
 test("new-agent picker changes harness, effort and model", async ({ page }, info) => {

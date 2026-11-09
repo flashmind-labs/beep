@@ -1,5 +1,6 @@
 import { answers, bar, calls } from "./bar-env.ts";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
+import { JSDOM } from "jsdom";
 import assert from "node:assert/strict";
 import { S, connectWindow, windowHooks, type BackTo, type AgentReturn, type WindowHooks } from "../src/bar/core.ts";
 import { AG, type AgentPage, type AgentRow, agentBack, agentKeys, drawAgents, usageLine } from "../src/agents/agents.ts";
@@ -184,10 +185,27 @@ for (const status of ["idle", "working", "ended"]) {
   });
 }
 
-test("the model pill does not display the harness default for an unknown session model", () => {
+function modelPill(t: TestContext) {
+  const dom = new JSDOM("<!doctype html><span id='pill'></span>", { url: "https://app.test" });
+  Object.defineProperty(dom.window.document, "visibilityState", { value: "visible", configurable: true, writable: true });
+  const previous = new Map<string, PropertyDescriptor | undefined>();
+  for (const [key, value] of Object.entries({ document: dom.window.document, window: dom.window, MutationObserver: dom.window.MutationObserver })) {
+    previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+    Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
+  }
+  const pill = dom.window.document.getElementById("pill");
+  assert.ok(pill);
+  t.after(async () => {
+    pill.remove(); await new Promise(resolve => setImmediate(resolve)); dom.window.close();
+    for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
+  });
+  return pill;
+}
+
+test("the model pill does not display the harness default for an unknown session model", t => {
   const page = openSession("idle");
   sessionPicks.delete(page.session.id);
-  const pill = { innerHTML: "" };
+  const pill = modelPill(t);
   show({ "#agmodel": pill });
   drawModelPill();
   assert.match(pill.innerHTML, /Model unknown/);
@@ -197,9 +215,9 @@ test("the model pill does not display the harness default for an unknown session
   sessionPicks.delete(page.session.id);
 });
 
-test("the model pill uses the model reported by the session", () => {
+test("the model pill uses the model reported by the session", t => {
   const page = openSession("idle");
-  const pill = { innerHTML: "" };
+  const pill = modelPill(t);
   show({ "#agmodel": pill });
   sessionPicks.set(page.session.id, { model: "previous-model", effort: null });
   page.model = "current-model";
@@ -209,17 +227,17 @@ test("the model pill uses the model reported by the session", () => {
   sessionPicks.delete(page.session.id);
 });
 
-test("a session refresh updates the model pill", async () => {
+test("a session refresh updates the model pill", async t => {
   const page = openSession("idle");
-  const pill = { innerHTML: "" };
+  const pill = modelPill(t);
   show({ "#agmodel": pill });
   await read({ ...page, model: "reported-model" });
   assert.match(pill.innerHTML, /reported-model/);
 });
 
-test("the model pill keeps the model that runs", async () => {
+test("the model pill keeps the model that runs", async t => {
   const page = openSession("idle");
-  const pill = { innerHTML: "" };
+  const pill = modelPill(t);
   show({ "#agmodel": pill });
   const s = page.session;
 
@@ -239,14 +257,14 @@ test("the model pill keeps the model that runs", async () => {
   assert.doesNotMatch(pill.innerHTML, /sonnet-y/);
 });
 
-test("flsh can switch its model and thinking from a working session", async () => {
+test("flsh can switch its model and thinking from a working session", async t => {
   const page = openSession("working");
   page.session.agent = "flsh";
   AG.open!.agent = "flsh";
-  const pill = { innerHTML: "" };
+  const pill = modelPill(t);
   show({ "#agmodel": pill });
   drawModelPill();
-  assert.doesNotMatch(pill.innerHTML, / disabled/);
+  assert.equal(pill.querySelector("button")?.disabled, false);
   await switchSessionModel(page.session, { model: "ollama:example", effort: null }, "model");
   await switchSessionModel(page.session, { model: "ollama:example", effort: "high" }, "effort");
   assert.deepEqual(steers(), [
