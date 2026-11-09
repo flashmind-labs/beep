@@ -126,3 +126,20 @@ test("folded activity pictures retain the image when other turns update", () => 
   assert.equal(log.querySelector(".dfoldpics img"), image);
   disposeLog(log);
 });
+
+test("parent link and older-history notice keep their nodes across updates", () => {
+  bar.innerHTML = '<div id="agbody"><div class="dcoderlog"></div></div>';
+  const body = bar.querySelector<ChatBody>("#agbody"); assert.ok(body);
+  Object.defineProperty(body, "clientHeight", { configurable: true, value: 800 });
+  const log = body.querySelector<HTMLElement>(".dcoderlog"); assert.ok(log);
+  const crumb: ActivityRow = { kind: "crumb", id: "up", html: "parent", parent: "Parent", title: "Child" };
+  const units = (text: string) => [{ key: "turn", rows: () => [crumb, { kind: "older" as const, id: "older", html: text, text }] }];
+  setUnits(log, units("Loading earlier messages"), []); fillLog(body, false);
+  const parent = log.querySelector<HTMLButtonElement>("#agup"); assert.ok(parent);
+  parent.focus();
+  setUnits(log, units("Earlier messages loaded"), []);
+  assert.equal(log.querySelector("#agup"), parent);
+  assert.equal(document.activeElement, parent);
+  assert.match(log.textContent ?? "", /Earlier messages loaded/);
+  disposeLog(log);
+});
