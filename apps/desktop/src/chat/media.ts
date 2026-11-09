@@ -72,8 +72,10 @@ export function sentBox(turn: Turn) {
 
 /// A `show_products` row, built from escaped fields on the Rust side. The
 /// bar's click handler opens and copies its links.
+export const productMarkup = new WeakMap<Element, string>();
 export function productRow(turn: Turn, html: string) {
   const row = h(html), owner = owningChatBody(turn);
+  productMarkup.set(row, row.innerHTML);
   if (owner) {
     const contents = row.innerHTML;
     row.replaceChildren();
