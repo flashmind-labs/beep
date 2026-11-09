@@ -2,7 +2,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { joinFields } from "../machines/jointicket.ts";
+import { joinTicket } from "../machines/jointicket.ts";
 import { invoke } from "../ui/tauri.ts";
 import { firstRunDue } from "../settings/subscription.ts";
 import { FirstRunScreen } from "./firstrun-view.tsx";
@@ -44,5 +44,5 @@ export async function firstRun(subscribed: boolean, after: () => void, signedOut
     closed = true;
     keep(); root.unmount(); host.remove(); after();
   };
-  flushSync(() => root.render(createElement(FirstRunScreen, { done: leave, join: joinFields })));
+  flushSync(() => root.render(createElement(FirstRunScreen, { done: leave, join: joinTicket })));
 }

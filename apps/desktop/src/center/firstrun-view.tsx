@@ -1,9 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { button } from "../ui/dom.ts";
+import { JoinTicketFields, type JoinTicket } from "../machines/jointicket-view.tsx";
 
-type JoinFields = (done: () => void, beside: Node) => { input: HTMLInputElement; nodes: Node[] };
-
-export function FirstRunScreen({ done, join }: { done: () => void; join: JoinFields }) {
+export function FirstRunScreen({ done, join }: { done: () => void; join: JoinTicket }) {
   const [step, setStep] = useState<"choose" | "link">("choose");
   const start = useRef<HTMLButtonElement>(null);
 
@@ -19,19 +17,6 @@ export function FirstRunScreen({ done, join }: { done: () => void; join: JoinFie
     {step === "choose" ? <>
       <button ref={start} type="button" className="dbtn fr-btn pri" onClick={done}><span className="fr-big"><b>Start</b><span>Use Beep on this computer. You can add machines later.</span></span></button>
       <button type="button" className="dbtn fr-btn " onClick={() => setStep("link")}><span className="fr-big"><b>Link another desktop</b><span>You already use Beep on another computer. Share its machines, projects and keys with this one.</span></span></button>
-    </> : <JoinForm done={done} join={join} back={() => setStep("choose")} />}
+    </> : <JoinTicketFields done={done} join={join} back={() => setStep("choose")} backLabel="Back" />}
   </div></div>;
-}
-
-function JoinForm({ done, join, back }: { done: () => void; join: JoinFields; back: () => void }) {
-  const host = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const target = host.current;
-    if (!target) return;
-    const fields = join(done, button("Back", "dbtn quiet", back));
-    target.replaceChildren(...fields.nodes);
-    fields.input.focus();
-    return () => target.replaceChildren();
-  }, [done, join, back]);
-  return <div ref={host} style={{ display: "contents" }} />;
 }
