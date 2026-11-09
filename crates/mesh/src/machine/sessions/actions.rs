@@ -171,3 +171,28 @@ fn harness_reply(
         Err(e) => Err(e),
     }
 }
+
+/// Moves a closed session to another working folder.
+pub async fn relocate_session<S: Sessions + ?Sized>(
+    node: &S,
+    agent: &str,
+    session: &str,
+    folder: &str,
+) -> Result<NodeWork<()>, MeshError> {
+    match hinted(
+        ask(
+            node,
+            SessionsRequest::RelocateSession {
+                agent: agent.to_owned(),
+                session: session.to_owned(),
+                folder: folder.to_owned(),
+            },
+        )
+        .await,
+        "move sessions between projects",
+    )? {
+        SessionsReply::Deleted {} => Ok(NodeWork::Done(())),
+        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
+}

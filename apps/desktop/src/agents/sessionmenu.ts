@@ -1,3 +1,4 @@
+import { windowHooks } from "../bar/core.ts";
 import { forgetView } from "../agentpane/view-memory.ts";
 import { onPhone } from "../ui/platform.ts";
 // The right-click menu of a coding agent session, shared by every row that shows one.
@@ -29,6 +30,21 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
     if (folder && !onPhone()) {
       items.push({ label: "Open in editor", on: () => void openInEditor(folder) });
       items.push({ label: "Open folder", on: () => void invoke("open_folder", { path: folder }).catch(err => console.warn("open folder:", err)) });
+    }
+
+    if (offers.delete) {
+      const targets = windowHooks?.sessionDestinations?.(s) ?? [];
+      if (targets.length) items.push({ label: "Move to project…", on: () => {
+        openMenu(e, "Move to project", targets.map(target => ({ label: target.name, on: () => confirmSheet({
+          title: `Move to ${target.name}?`,
+          text: "Keeps the conversation and changes its working folder. Files stay where they are. Resume the session after moving it.",
+          action: "Move",
+          run: async () => {
+            await invoke("agent_relocate", { ...at, folder: target.folder });
+            await loadSessions();
+          },
+        }) })));
+      } });
     }
 
     items.push({ label: "Copy id", on: () => void writeClipboard(s.id) });
