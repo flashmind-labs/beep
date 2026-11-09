@@ -6,8 +6,6 @@ import { IMAGE_TYPES } from "./compose-text.ts";
 import { focusAsk, owningChatBody } from "./chat.ts";
 import { renderChatProduct, renderChatReplyPictures, renderChatSentFile } from "./work-view.tsx";
 import { $, bar } from "../bar/core.ts";
-import { ICON } from "../ui/icons.ts";
-import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { Turn } from "../ui/turn.ts";
@@ -75,13 +73,12 @@ export function sentBox(turn: Turn) {
 /// bar's click handler opens and copies its links.
 export const productMarkup = new WeakMap<Element, string>();
 export function productRow(turn: Turn, html: string) {
-  const row = h(html), owner = owningChatBody(turn);
-  productMarkup.set(row, row.innerHTML);
-  if (owner) {
-    const contents = row.innerHTML;
-    row.replaceChildren();
-    renderChatProduct(owner, turn, row, contents);
-  }
+  const owner = owningChatBody(turn);
+  if (!owner) return;
+  const row = h(html), contents = row.innerHTML;
+  productMarkup.set(row, contents);
+  row.replaceChildren();
+  renderChatProduct(owner, turn, row, contents);
   sentBox(turn).append(row);
 }
 
@@ -100,37 +97,12 @@ export function picMime(file: SentFile) {
 
 /// A file Beep sent. Opening it downloads it once, then hands it to its app.
 export function fileCard(turn: Turn, file: SentFile) {
-  const box = sentBox(turn), owner = owningChatBody(turn);
-  if (owner) {
-    const host = document.createElement("span");
-    host.style.display = "contents";
-    box.append(host);
-    renderChatSentFile(owner, turn, host, file);
-    return;
-  }
-  const about = [fileKind(file), fileSize(file.size)].filter(Boolean).join(", ");
-  const card = h(`<button class="dfile"><span class="ic">${ICON.doc}</span><span class="dcol"><span class="nm">${esc(file.name)}</span><span class="sz">${esc(about)}</span></span><span class="go">${ICON.chev}</span></button>`);
-  const sz = card.querySelector(".sz")!, go = card.querySelector(".go")!;
-  let busy = false;
-  card.addEventListener("click", async () => {
-    if (busy || card.classList.contains("gone")) return;
-    busy = true;
-    sz.textContent = "Downloading…";
-    go.innerHTML = '<span class="dspin"></span>';
-
-    try {
-      await invoke("open_file", { id: file.id, name: file.name });
-      sz.textContent = about;
-      go.innerHTML = ICON.chev;
-    } catch (e) {
-      const gone = String(e) === GONE;
-      sz.textContent = gone ? String(e) : `${about}. ${e}`;
-      if (gone) { card.classList.add("gone"); go.remove(); } else go.innerHTML = ICON.chev;
-    }
-
-    busy = false;
-  });
-  box.append(card);
+  const owner = owningChatBody(turn);
+  if (!owner) return;
+  const host = document.createElement("span");
+  host.style.display = "contents";
+  sentBox(turn).append(host);
+  renderChatSentFile(owner, turn, host, file);
 }
 
 // ---------- Pictures ----------
@@ -142,31 +114,6 @@ export const GONE_PIC = "Picture no longer available";
 /// Pictures people sent, by id: a data URL once fetched, `null` once the
 /// server said it no longer has it, a promise while it loads.
 export const pictures = new Map<string, string | null | Promise<string | null>>();
-
-/// The pictures a message carried, as a row of tiles under its text.
-export function picRow(images: PicRef[] | undefined) {
-  if (!images?.length) return "";
-  return `<div class="dpics">${images.map(picTile).join("")}</div>`;
-}
-
-export function picTile(p: PicRef) {
-  if ("url" in p) return `<img class="dpic" src="${esc(p.url)}" alt="">`;
-  const got = pictures.get(p.id);
-  if (typeof got === "string") return `<img class="dpic" src="${got}" alt="">`;
-  if (got === null) return goneTile();
-  return `<span class="dpic wait" data-id="${esc(p.id)}" data-mime="${esc(p.mime)}"></span>`;
-}
-
-export function goneTile() { return `<span class="dpic gone">${GONE_PIC}</span>`; }
-
-/// Fetches the pictures still loading under `root` and swaps each in.
-export function fillPics(root: Element) {
-  for (const el of root.querySelectorAll<HTMLElement>(".dpic.wait")) {
-    loadPic(el.dataset.id!, el.dataset.mime!).then(url => {
-      if (el.isConnected) el.replaceWith(h(url ? `<img class="dpic" src="${url}" alt="">` : goneTile()));
-    });
-  }
-}
 
 export function loadPic(id: string, mime: string) {
   let got = pictures.get(id);
@@ -210,26 +157,11 @@ export function picsRow(turn: Turn) {
 /// One picture from `send_image` or an image file: `{ url }` from the web or
 /// `{ file }` kept with the chat. Hover shows Save, a click opens the viewer.
 export function replyPic(turn: Turn, pic: SentImage) {
-  const row = picsRow(turn), i = row.pics.push(pic) - 1;
   const owner = owningChatBody(turn);
-  if (owner) { renderChatReplyPictures(owner, turn, row, row.pics); return; }
-  const name = pic.file?.name ?? "";
-  const tile = h(`<span class="drpic wait"><button class="pic" aria-label="${esc(pic.caption || name || "Picture")}"></button>${pic.file ? `<button class="save" aria-label="Save ${esc(name)}" title="Save to Downloads">${ICON.save}</button>` : ""}</span>`);
-  const button = tile.querySelector(".pic")!;
-  const gone = () => { if (tile.isConnected) tile.replaceWith(h(`<span class="drpic gone">${GONE_PIC}</span>`)); };
-  const show = (src: string | null) => {
-    if (!src) return gone();
-    const img = h<HTMLImageElement>('<img alt="">');
-    img.onload = () => tile.classList.remove("wait");
-    img.onerror = gone;
-    img.src = src;
-    button.append(img);
-  };
-  button.addEventListener("click", () => openViewer(row.pics, i));
-  const file = pic.file;
-  if (file) tile.querySelector(".save")!.addEventListener("click", () => savePic(file));
-  row.append(tile);
-  file ? loadPic(file.id, file.mime).then(show) : show(pic.url!);
+  if (!owner) return;
+  const row = picsRow(turn);
+  row.pics.push(pic);
+  renderChatReplyPictures(owner, turn, row, row.pics);
 }
 
 /// The pictures the viewer goes through, and the one it shows.
