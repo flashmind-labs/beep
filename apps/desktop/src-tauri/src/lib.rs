@@ -223,6 +223,7 @@ pub fn run() {
             agents::media::agent_thumb,
             agents::sessions::agent_deletable,
             agents::sessions::agent_delete,
+            agents::sessions::agent_relocate,
             agents::sessions::agent_hosts,
             agents::sessions::agent_models,
             agents::sessions::agent_preview,

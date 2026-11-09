@@ -297,7 +297,7 @@ fn search_finds_the_latest_message_that_holds_the_words() {
         },
     ];
     let messages = [
-        (lunch, user(10, "Where is Kimpton?")),
+        (lunch, user(10, "Where is Kimpton? Find a bar.")),
         (lunch, tool(11, "open_maps", "kimpton")),
         (lunch, reply(12, "The kimpton is on Main St.")),
         (trip, user(13, "Book the Kimpton")),
@@ -320,6 +320,11 @@ fn search_finds_the_latest_message_that_holds_the_words() {
     assert!(found[0].from_user);
     assert_eq!(found[1].snippet, "The kimpton is on Main St.");
     assert!(!found[1].from_user);
+    let combined = chats.search("bar Main").unwrap();
+    assert_eq!(combined.len(), 1);
+    assert!(combined[0].snippet.contains("bar"));
+    assert!(combined[0].snippet.contains("Main"));
+    assert!(chats.search("bar Book").unwrap().is_empty());
     assert!(chats.search("open_maps").unwrap().is_empty());
     assert!(chats.search("k").unwrap().is_empty());
     chats.clear();

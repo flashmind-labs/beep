@@ -374,7 +374,9 @@ pub fn beep_view(host: &Host, info: SessionInfo) -> AgentSessionView {
     let state = info.state.clone();
     let last_message = info.last_message.clone();
     let turns = info.turns;
+    let model = info.model.as_ref().map(ToString::to_string);
     AgentSessionView {
+        model,
         session: beep_session(host, info),
         plan: state
             .plan

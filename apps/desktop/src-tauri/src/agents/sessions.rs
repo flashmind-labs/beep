@@ -189,6 +189,7 @@ fn without_image_lines(text: &str) -> String {
 /// One session in full.
 #[derive(Debug, Serialize)]
 pub struct SessionPage {
+    model: Option<String>,
     session: SessionRow,
     plan: Vec<StepRow>,
     files: Vec<String>,
@@ -204,6 +205,7 @@ pub struct SessionPage {
 impl From<AgentSessionView> for SessionPage {
     fn from(view: AgentSessionView) -> Self {
         Self {
+            model: view.model,
             session: view.session.into(),
             plan: view
                 .plan
@@ -881,3 +883,30 @@ pub async fn agent_tasks(
 #[cfg(test)]
 #[path = "../tests/agents_sessions.rs"]
 mod tests;
+
+/// Moves a closed conversation to a project folder on its current machine.
+#[tauri::command]
+pub async fn agent_relocate(
+    app: AppHandle,
+    fleet: Machines<'_>,
+    machine_id: String,
+    agent: String,
+    session: String,
+    folder: String,
+) -> Result<()> {
+    let machine = fleet
+        .member(&machine_id)
+        .ok_or_else(|| DesktopError::BadRequest("The machine must be in the mesh.".into()))?;
+    let client = fleet.client(machine).await?;
+    let done =
+        beep_mesh::machine::sessions::relocate_session(&client, &agent, &session, &folder).await?;
+    match done {
+        beep_mesh::machine::sessions::NodeWork::Done(()) => {}
+        beep_mesh::machine::sessions::NodeWork::Refused(why) => {
+            return Err(DesktopError::BadRequest(why));
+        }
+    }
+    app.emit("sessions-changed", session)
+        .map_err(anyhow::Error::from)?;
+    Ok(())
+}

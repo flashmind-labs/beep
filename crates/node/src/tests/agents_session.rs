@@ -804,6 +804,7 @@ async fn a_new_session_switches_to_its_model_before_the_first_prompt() {
     settle(&session).await;
     let info = session.info();
     assert_eq!(info.turns, 1, "{:?}", info.state.error);
+    assert_eq!(info.model.as_ref().map(AsRef::as_ref), Some("deep"));
     let sent = sent(&log);
     assert_eq!(sent[1]["method"], "session/new");
     assert_eq!(sent[2]["method"], "session/set_model");
@@ -867,6 +868,7 @@ async fn a_running_session_switches_its_model_for_the_next_turn() {
     let kind = script("codex", SWITCH_LATER_ADAPTER, &log);
     let session = Session::start(start_on(&kind, dir, None)).unwrap();
     settle(&session).await;
+    assert_eq!(session.info().model.as_ref().map(AsRef::as_ref), Some("fast"));
     // It cannot think at another level: refused, nothing sent.
     let refused = session
         .order(Command::Configure {
@@ -893,6 +895,7 @@ async fn a_running_session_switches_its_model_for_the_next_turn() {
             .any(|entry| entry.text.contains("Switched to deep"))
     })
     .await;
+    assert_eq!(session.info().model.as_ref().map(AsRef::as_ref), Some("deep"));
     let sent = sent(&log);
     assert_eq!(sent[3]["method"], "session/set_model");
     assert_eq!(sent[3]["params"]["modelId"], "deep");
@@ -926,6 +929,7 @@ async fn a_resumed_session_switches_its_model_with_what_load_offers() {
     };
     let session = Session::start(start).unwrap();
     settle(&session).await;
+    assert_eq!(session.info().model.as_ref().map(AsRef::as_ref), Some("fast"));
     session
         .order(Command::Configure {
             model: Some("deep".into()),
@@ -940,6 +944,7 @@ async fn a_resumed_session_switches_its_model_with_what_load_offers() {
             .any(|entry| entry.text.contains("Switched to deep"))
     })
     .await;
+    assert_eq!(session.info().model.as_ref().map(AsRef::as_ref), Some("deep"));
     let sent = sent(&log);
     assert_eq!(sent[1]["method"], "session/load");
     assert_eq!(sent[3]["method"], "session/set_config_option");

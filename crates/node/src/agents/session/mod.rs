@@ -154,6 +154,7 @@ pub(super) struct Session {
     pub(super) agent: String,
     orders: mpsc::Sender<Order>,
     pub(super) live: watch::Receiver<Live>,
+    moved_cwd: Mutex<Option<String>>,
     /// A temporary reviewer (`agents::reviews`): never listed, never kept
     /// over a restart, offered `submit_review`.
     pub(super) reviewer: bool,
@@ -289,6 +290,7 @@ impl Session {
             .as_ref()
             .filter(|_| known.is_some_and(|known| known.model_flag))
             .map(|model| format!("--model={model}"));
+        let initial_model = model.clone().filter(|_| flag.is_some());
         let model = model.filter(|_| flag.is_none());
         let policy = Policy::from(kind.compact);
         // An agent with its own auto-compaction is set to the same
@@ -343,6 +345,7 @@ impl Session {
                 .unwrap_or_else(unix_now),
             last_activity: timestamps.map_or(0, |(_, activity)| activity),
             parent,
+            model: initial_model,
             ..SessionInfo::default()
         };
         let mut first = Live::new(info, images, usage);
@@ -374,10 +377,7 @@ impl Session {
             stop_within,
             running: HashSet::new(),
             brief: brief.map(Cow::into_owned),
-            standing: actor::joined(
-                rule,
-                mcp.is_some().then_some(super::mcp::BRIEF),
-            ),
+            standing: actor::joined(rule, mcp.is_some().then_some(super::mcp::BRIEF)),
             mcp_servers: mcp.into_iter().collect(),
             resume,
             earlier,
@@ -404,6 +404,7 @@ impl Session {
             agent: kind.name.clone(),
             orders,
             live,
+            moved_cwd: Mutex::new(None),
             reviewer: false,
             processes,
             _task: AbortOnDropHandle::new(task),
@@ -418,7 +419,15 @@ impl Session {
     }
 
     pub(super) fn info(&self) -> SessionInfo {
-        self.live.borrow().info.clone()
+        let mut info = self.live.borrow().info.clone();
+        if let Some(folder) = crate::lock(&self.moved_cwd).as_ref() {
+            info.cwd.clone_from(folder);
+        }
+        info
+    }
+
+    pub(super) fn moved_to(&self, folder: &str) {
+        *crate::lock(&self.moved_cwd) = Some(folder.to_owned());
     }
 
     /// Waits for ACP to name the session. A failed startup has no session to publish.

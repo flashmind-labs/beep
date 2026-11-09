@@ -356,7 +356,7 @@ fn next_update(
 async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSnapshot> {
     let source = match agents.get(request.session.as_ref()) {
         Some(session) => {
-            let info = session.live.borrow().info.clone();
+            let info = session.info();
 
             if info.agent != request.agent.as_ref() {
                 bail!("session belongs to another agent");
