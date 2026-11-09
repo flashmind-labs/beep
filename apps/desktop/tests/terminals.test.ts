@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splice, readTermMessage } from "../src/terminals/terminals.ts";
+import { splice, readTermMessage, describeMessage } from "../src/terminals/terminals.ts";
 
 test("output already on the screen is skipped, and a gap is noted", () => {
   // Fresh: everything from the start.
@@ -15,10 +15,22 @@ test("output already on the screen is skipped, and a gap is noted", () => {
 
 test("channel messages read as events: output as raw bytes after its offset", () => {
   const raw = new Uint8Array([...new Uint8Array(new BigUint64Array([300n]).buffer), 0x68, 0x69]);
-  const ev = readTermMessage(raw.buffer);
-  assert.equal(ev.kind, "output");
-  if (ev.kind !== "output") return;
-  assert.equal(ev.at, 300);
-  assert.equal(new TextDecoder().decode(ev.data), "hi");
+  // An ArrayBuffer, a typed array, or numbers when Tauri's IPC falls back to postMessage.
+  for (const message of [raw.buffer, raw, [...raw]]) {
+    const ev = readTermMessage(message);
+    assert.ok(ev !== null && ev.kind === "output");
+    assert.equal(ev.at, 300);
+    assert.equal(new TextDecoder().decode(ev.data), "hi");
+  }
   assert.deepEqual(readTermMessage({ kind: "ended", state: "exited", code: 0 }), { kind: "ended", state: "exited", code: 0 });
+  assert.deepEqual(readTermMessage({ kind: "view_only" }), { kind: "view_only" });
+});
+
+test("messages this page does not know are not read as anything", () => {
+  assert.equal(readTermMessage({ kind: "output", at: 0, data: "aGk=" }), null);
+  assert.equal(readTermMessage({ something: 1 }), null);
+  assert.equal(readTermMessage(new Uint8Array(3)), null);
+  assert.equal(readTermMessage("text"), null);
+  assert.equal(describeMessage({ kind: "x", data: 1 }), "object with keys kind, data");
+  assert.equal(describeMessage([1, 2]), "array of 2");
 });

@@ -68,6 +68,7 @@ const stubs = new Map([
   ["./ghostty.ts", ["Terminal", "RenderState", "loadGhostty"]],
   ["./ghostty-input.ts", ["TerminalInput"]],
   ["./touchbar.ts", []],
+  ["../ui/tauri.ts", []],
 ]);
 const hooks = registerHooks({
   resolve(specifier, context, next) {
@@ -78,6 +79,8 @@ const hooks = registerHooks({
     if (!names) return next(url, context);
     const source = url.endsWith("touchbar.ts")
       ? "export const isTouchDevice = () => false; export const makeTouchBar = () => null;"
+      : url.endsWith("tauri.ts")
+      ? "export const logError = () => {};"
       : names.map(n => `export const ${n} = globalThis.terminalRendererTest.${n};`).join("\n");
     return { format: "module", shortCircuit: true, source };
   },

@@ -2,8 +2,8 @@
 // in its folder, kept running by the node like any terminal (Home lists it
 // under the machine).
 
-import { endsForGood, newView, readTermMessage, retryDelay, sizeChanged, splice, type Screen, type TermMessage, type TerminalRow, type TermSize } from "../terminals/terminals.ts";
-import { Channel, invoke } from "../ui/tauri.ts";
+import { describeMessage, endsForGood, newView, readTermMessage, retryDelay, sizeChanged, splice, type Screen, type TermMessage, type TerminalRow, type TermSize } from "../terminals/terminals.ts";
+import { Channel, invoke, logError, logInfo } from "../ui/tauri.ts";
 import { onShownChange } from "../ui/active.ts";
 
 /// The size a terminal starts at, before its screen is fitted.
@@ -135,8 +135,13 @@ export function attach(t: PaneTerm) {
   channel.onmessage = message => {
     if (t.link === "detached" || !current()) return;
     const ev = readTermMessage(message);
+    if (ev === null) {
+      logError(`terminal ${t.row.id}: a stream message was not understood (${describeMessage(message)})`);
+      return;
+    }
 
     if (ev.kind === "attached") {
+      logInfo(`terminal ${t.row.id}: attached in a pane`);
       t.link = "attached";
       t.tries = 0;
       t.screen.setInput(true);
@@ -150,12 +155,14 @@ export function attach(t: PaneTerm) {
       t.next = Math.max(t.next, ev.at + bytes.length);
       return;
     } else if (ev.kind === "ended") {
+      logInfo(`terminal ${t.row.id}: ended (${ev.state})`);
       t.link = "ended";
       t.screen.setInput(false);
       if (endsForGood(ev.state)) return t.onEnd();
       t.row = { ...t.row, state: ev.state, code: ev.code };
     } else {
       // A terminal that takes no input is not one the pane opened.
+      logInfo(`terminal ${t.row.id}: view only in a pane`);
       t.link = "ended";
       t.screen.setInput(false);
     }
@@ -171,6 +178,7 @@ export function attach(t: PaneTerm) {
 }
 
 function retry(t: PaneTerm) {
+  logInfo(`terminal ${t.row.id}: stream dropped in a pane, try ${t.tries + 1}`);
   t.tries += 1;
   t.screen.setInput(false);
   t.link = t.tries > MAX_TRIES ? "detached" : "attaching";
