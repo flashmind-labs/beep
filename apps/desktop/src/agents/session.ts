@@ -1,4 +1,6 @@
 import { SessionPicks } from "./agentmodels.ts";
+import { createElement } from "react";
+import { SessionField, SessionHead, showSessionFrame } from "./session-frame.tsx";
 import { bindSessionStash } from "./stash.ts";
 import { stashIndicator, stashActions } from "../chat/stash.ts";
 import { AgentFeed } from "./agentfeed-state.ts";
@@ -19,12 +21,12 @@ import { SHORTCUTS } from "../ui/shortcuts.ts";
 import { openViewer } from "../chat/media.ts";
 import { readRunning } from "../agentpane/running.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
-import { openLinked, openPath, openPicture, paneFrame, rebindPane, showArtifact, startPane } from "../agentpane/media.ts";
+import { openLinked, openPath, openPicture, rebindPane, showArtifact, startPane } from "../agentpane/media.ts";
 import { atBottom, followsAfterScroll, returnScroll } from "./logscroll.ts";
-import { copyCode, stopFace, toggleThought } from "./turnrows.ts";
+import { copyCode, toggleThought } from "./turnrows.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, resetMentions } from "./workdrop.ts";
-import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, drawAgents, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, agentAvatar, folderName, where, stateTag } from "./agents.ts";
+import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, drawAgents, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, folderName, where } from "./agents.ts";
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
 import { childRow } from "./nesting-state.ts";
 import { parentSession, keepNativeSession, loadSessions, sessions, sessionsRead } from "./sessions.ts";
@@ -428,7 +430,7 @@ export function agentHints() {
 export function redrawAgentHints() {
   const input = $<HTMLTextAreaElement>("#agmsg"), s = AG.page?.session;
   if (input && s) input.placeholder = AG.att.length ? "Add a message (optional)" : s.status === "ended" ? `Message ${agentKind(s.agent).name} to continue` : `Message ${agentKind(s.agent).name}`;
-  const hint = $("#agconv > .agkeys");
+  const hint = $("#agconv .agkeys");
   if (hint) hint.replaceWith(h(agentHints()));
 }
 
@@ -553,24 +555,15 @@ function followsOnly(s: AgentRow) {
 /// already drawn, goes back in as it is, where it was scrolled.
 export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const s = AG.page!.session, k = agentKind(s.agent);
-  const field = isNativeSession(s.id)
-    ? `<div class="dinput small" id="agfield"><textarea id="agnativemsg" rows="1" aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message"></textarea><span id="agmodel"></span><button class="dbtn" id="agnativeparent">Open parent</button></div>`
-    : followsOnly(s)
-    ? `<div class="dmuted dblock dbanner">${canTakeOver(s.agent) ? "Running outside Beep. Beep follows it here. Close it there to continue here." : "Started outside Beep. Beep follows it here."}</div>`
-    : `<div id="agmovebox"></div><div id="agplan"></div><div id="agtasks"></div><div class="dinput small" id="agfield"><textarea id="agmsg" rows="1" autocomplete="off" spellcheck="false" placeholder="Message ${esc(k.name)}"></textarea><span id="agmode"></span><span id="agmodel"></span><button class="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)">${stopFace()}</button><button class="dbtn" id="agsend" aria-label="Send">${ICON.send}</button></div><div id="agpickm"></div>`;
   disposeQueue();
-  // The conversation fills the window; the media pane sits beside it or under it.
   const project = windowHooks?.sessionProject?.(s);
-  const head = `<div class="dhead">${agentAvatar(s.agent)}<span class="tt"><b id="agtitle" title="${esc(s.title || k.name)}">${esc(s.title || k.name)}</b><small class="aglocation" title="${esc(s.cwd)}"><span class="agfolder">${project ? `<button class="agproj" id="agproj">${esc(project.label)}</button>` : `<span id="agproj">${esc(shortCwd(s.cwd) || k.name)}</span>`}<span id="agbranch"></span></span><span>@</span><span id="aghere">${esc(s.machine_name)}</span></small></span><small id="aguse" class="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">${esc(usage.of === usageKey(s) ? usage.text : "")}</small><span id="agstate">${stateTag(s.status)}</span><span id="agedit" class="agedit"></span></div>`;
-  const conv = `<div class="agconv" id="agconv"><div class="dbody" id="agbody"></div>${field}${agentHints()}</div>`;
   // Out of the page a box reads 0: it keeps where the reader left it.
   const keptTop = kept ? (kept.isConnected ? kept.scrollTop : kept.top ?? 0) : 0;
-  if (inPlace) {
-    bar.querySelector(":scope > .dhead")!.outerHTML = head;
-    $$("#agconv").outerHTML = conv;
-  } else {
-    bar.innerHTML = `${head}<div class="agshell" id="agshell">${paneFrame(conv)}</div>`;
-  }
+  const b = kept ?? document.createElement("div") as ChatBody;
+  if (!kept) { b.className = "dbody"; b.id = "agbody"; }
+  const mode = isNativeSession(s.id) ? "native" : followsOnly(s) ? "readonly" : "writable";
+  const banner = canTakeOver(s.agent) ? "Running outside Beep. Beep follows it here. Close it there to continue here." : "Started outside Beep. Beep follows it here.";
+  showSessionFrame({ head: createElement(SessionHead, { agent: s.agent, title: s.title || k.name, folder: project?.label || shortCwd(s.cwd) || k.name, project: !!project, cwd: s.cwd, machine: s.machine_name, usage: usage.of === usageKey(s) ? usage.text : "" }), field: createElement(SessionField, { mode, name: k.name, banner }), body: b, hints: agentHints() }, inPlace, disposeQueue);
   if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
   if (project) $("#agproj")?.addEventListener("click", project.open);
   const open = AG.open;
@@ -602,11 +595,9 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
 
   drawAgentAttached();
   drawModelPill();
-  const b = kept ?? $$<ChatBody>("#agbody");
   left = { key: sessionKey(s), body: b };
 
   if (kept) {
-    $$("#agbody").replaceWith(kept);
     kept.scrollTop = returnScroll(kept, keptTop);
   } else {
     b.stuck = true;
