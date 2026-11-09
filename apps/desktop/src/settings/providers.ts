@@ -64,12 +64,12 @@ export function registerProviders(deps: ProvidersDeps) {
   const compactErrors = new Map<string, string>();
   const savingCompacts = new Set<string>();
   let root: Root | null = null;
-  let cachedShared: { key: string; node: HTMLElement } | null = null;
+  let cachedShared: { key: string; node: { before: HTMLElement; after: HTMLElement; agent: string } } | null = null;
   /// Drawn in Settings, which lists the agents in its own left pane: the
   /// page shows the one agent it was opened at, under a toolbar of its own.
   let inSettings = false;
   const contexts = modelContextPanel({ invoke, h, button, redraw: () => draw() });
-  const flsh = flshPanel({ invoke, h, button, redraw: () => draw() });
+  const flsh = flshPanel(invoke);
 
   const fail = (e: unknown) => String(e).replace(/^(bad request|not found|error):\s*/i, "");
   const view = () => (st.machine ? st.views.get(st.machine) : undefined);
@@ -293,8 +293,8 @@ export function registerProviders(deps: ProvidersDeps) {
   }
 
   function sharedSettings(agent: string) {
-    const box = h("section", "hv-scope hv-d", h("h3", "", "All machines"),
-      h("div", "hv-note", "These settings apply on every machine."));
+    const box = h("div", "", h("div", "hv-note", "These settings apply on every machine."));
+    box.style.display = "contents";
 
     if (hasCompact(agent)) {
       const loaded = st.compacts.has(agent);
@@ -343,11 +343,12 @@ export function registerProviders(deps: ProvidersDeps) {
       refresh();
     }
 
-    if (agent === "flsh") box.append(...flsh.render());
+    const after = h("div");
+    after.style.display = "contents";
     if (st.machine) {
-      box.append(h("div", "hv-note", `Model choices and reported limits come from ${machineName()}.`), ...contexts.render(st.machine, agent));
+      after.append(h("div", "hv-note", `Model choices and reported limits come from ${machineName()}.`), ...contexts.render(st.machine, agent));
     }
-    return box;
+    return { before: box, after, agent };
   }
 
   function draw(preserveShared = false) {
@@ -373,7 +374,7 @@ export function registerProviders(deps: ProvidersDeps) {
       draft, others: hv ? st.others.get(hv.agent) : undefined, saving: st.saving,
       updating: hv ? st.updating.has(key(hv.agent)) : false, adapter: hv ? adapter(hv.agent) : null,
       error: st.machines === null ? st.note : machine ? st.errors.get(machine) ?? "" : st.note, inSettings, savedAll: st.savedAll.get(draftKey) ?? "",
-      includeProgram: st.includeProgram, shared: cachedShared?.node ?? null,
+      includeProgram: st.includeProgram, shared: cachedShared?.node ?? null, flsh,
       loading: isLoading(), checked: checkedLabel(current ? current.checked_at : null, Date.now()), updateCount, canUpdate: !!behind.length,
       pick: (agent: string) => { st.picked = agent; draw(); },
       toggle: (item: HarnessView, on: boolean) => { void save(item, toggledInput(item, on)); },
