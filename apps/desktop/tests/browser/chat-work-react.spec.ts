@@ -207,3 +207,17 @@ test("picture save notice remains after closing the viewer", async ({ page }) =>
   await page.locator("#saved").getByRole("button", { name: "Show in Finder" }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "reveal_file" && call.args.path === "/path/to/example.png"))).toBe(true);
 });
+
+test("history removes obsolete turns without disturbing kept turns", async ({ page }) => {
+  const first = { role: "user", text: "First", at: 1, images: [], model: "", thinking: "" };
+  const second = { role: "user", text: "Second", at: 2, images: [], model: "", thinking: "" };
+  const answer = { role: "assistant", html: "<p>Answer</p>", tools: [], replies: [], model: "" };
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [first, answer, second, answer], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const kept = page.locator('.turn[data-at="2"]');
+  await expect(kept).toContainText("Second");
+  await kept.evaluate(el => Reflect.set(window, "keptConversationTurn", el));
+  await page.evaluate(data => { window.__navigation.respond("open_session", data); window.__navigation.emit("sessions-changed", "chat-example"); }, [second, answer]);
+  await expect(page.locator('.turn[data-at="1"]')).toHaveCount(0);
+  expect(await kept.evaluate(el => el === Reflect.get(window, "keptConversationTurn"))).toBe(true);
+});
