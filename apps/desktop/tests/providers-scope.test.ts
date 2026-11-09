@@ -2,7 +2,6 @@ import { answers, calls } from "./dom-env.ts";
 import { JSDOM } from "jsdom";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { registerProviders } from "../src/settings/providers.ts";
 import { el, button } from "../src/ui/dom.ts";
 import { invoke } from "../src/ui/tauri.ts";
 import type { HarnessView } from "../src/settings/providers-state.ts";
@@ -28,6 +27,8 @@ test("machine selection preserves shared drafts and each save writes only its sc
   answers.agent_models = null;
   const root = el("div");
   document.body.append(root);
+  const { registerProviders } = await import("../src/settings/providers.ts");
+  const { fireEvent } = await import("@testing-library/react");
   registerProviders({ h: el, button, invoke, redrawTop: () => {}, openSettings: () => {},
     registerView: (_name, view) => { void view.mount(root, { settings: true, agent: "claude" }); },
   });
@@ -40,18 +41,22 @@ test("machine selection preserves shared drafts and each save writes only its sc
   assert.equal(scopes()[1].querySelector(".hv-bar .lbl"), null);
   const threshold = root.querySelector<HTMLInputElement>('[aria-label="Auto-compact threshold"]');
   assert.ok(threshold);
+  threshold.focus();
   threshold.value = "70%";
+  threshold.setSelectionRange(1, 2);
   threshold.dispatchEvent(new dom.window.Event("input"));
   const picker = root.querySelector<HTMLSelectElement>('select[aria-label="Machine runtime settings"]');
   assert.ok(picker);
-  picker.value = "gpu";
-  picker.dispatchEvent(new dom.window.Event("change"));
+  fireEvent.change(picker, { target: { value: "gpu" } });
   await settle();
-  assert.equal(root.querySelector<HTMLInputElement>('[aria-label="Auto-compact threshold"]')?.value, "70%");
+  const restored = root.querySelector<HTMLInputElement>('[aria-label="Auto-compact threshold"]');
+  assert.equal(restored?.value, "70%");
+  assert.equal(document.activeElement, restored);
+  assert.equal(restored?.selectionStart, 1);
+  assert.equal(restored?.selectionEnd, 2);
   const program = root.querySelector<HTMLInputElement>('[aria-label="Binary path"]');
   assert.ok(program);
-  program.value = "custom-agent";
-  program.dispatchEvent(new dom.window.Event("input"));
+  fireEvent.change(program, { target: { value: "custom-agent" } });
   const findButton = (scope: Element, label: string) => {
     const found = [...scope.querySelectorAll("button")].find(b => b.textContent === label);
     assert.ok(found);
@@ -73,6 +78,7 @@ test("shared compaction stays editable when no machine is online", async () => {
   answers.list_machines = [];
   const root = el("div");
   document.body.replaceChildren(root);
+  const { registerProviders } = await import("../src/settings/providers.ts");
   registerProviders({ h: el, button, invoke, redrawTop: () => {}, openSettings: () => {},
     registerView: (_name, view) => { void view.mount(root, { settings: true, agent: "claude" }); },
   });
