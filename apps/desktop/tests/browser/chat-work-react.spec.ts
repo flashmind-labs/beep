@@ -294,3 +294,24 @@ test("history can add prompt pictures to an existing React turn", async ({ page 
   await expect(turn.locator(".dpics img")).toHaveCount(1);
   expect(errors).toEqual([]);
 });
+
+test("route selection and stop expansion survive history updates", async ({ page }) => {
+  const leg = { mode: "bus", line: "1", name: "Bus", color: "", text_color: "", headsign: "", from: "Start", to: "End", from_track: "", to_track: "", departs: "10:00", arrives: "10:10", minutes: 10, stops: 1, meters: 0, points: [], between: [{ name: "Middle", code: "M", time: "10:05", at: { latitude: 0, longitude: 0 } }] };
+  const route = { routes: [{ departs: "10:00", arrives: "10:10", minutes: 10, transfers: 0, live: true, legs: [leg] }, { departs: "10:15", arrives: "10:30", minutes: 15, transfers: 0, live: false, legs: [leg] }] };
+  const user = { role: "user", text: "Find a route", at: 1, images: [], model: "", thinking: "" };
+  const answer = { role: "assistant", html: "<p>Here.</p>", tools: [{ name: "get_route", label: "Find route", success: true, route: "route-1", file: null, images: [], products: null, cards: null, chart: null }], replies: [], model: "" };
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [user, answer], route_card: route, session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const card = page.locator(".droute");
+  await card.getByRole("button", { name: "15 min" }).click();
+  const stops = card.locator("[data-stops]");
+  await stops.click();
+  await expect(stops).toHaveAttribute("aria-expanded", "true");
+  await expect(card).toContainText("Middle");
+  await stops.evaluate(el => Reflect.set(window, "routeStops", el));
+  await page.evaluate(data => { window.__navigation.respond("open_session", data); window.__navigation.emit("sessions-changed", "chat-example"); }, [user, { ...answer, html: "<p>Updated.</p>" }]);
+  await expect(page.locator(".dcoderen.agent")).toContainText("Updated.");
+  expect(await stops.evaluate(el => el === Reflect.get(window, "routeStops") && document.activeElement === el)).toBe(true);
+  await expect(stops).toHaveAttribute("aria-expanded", "true");
+  await expect(card.getByRole("button", { name: "15 min" })).toHaveAttribute("aria-pressed", "true");
+});

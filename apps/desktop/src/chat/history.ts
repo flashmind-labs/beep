@@ -7,6 +7,7 @@ import type { Asking, ToolOutput } from "./chat.ts";
 import { answerHtml } from "../agents/turnrows.ts";
 import { $$, changed, live, queued, S, windowHooks } from "../bar/core.ts";
 import { chartSources } from "./charts.ts";
+import { routeSources } from "./routes.ts";
 import { productMarkup, type ImageRef, type SentFile, type SentImage } from "./media.ts";
 import { replyActs } from "./rerun.ts";
 import { QUIET_TOOLS, toolLabel } from "./tools.ts";
@@ -277,6 +278,8 @@ function sameSentContent(a: Element, b: Element) {
       if (markup !== undefined) copy.children[i].innerHTML = markup;
       const chart = chartSources.get(element.children[i]);
       if (chart) copy.children[i].textContent = JSON.stringify(chart);
+      const route = routeSources.get(element.children[i]);
+      if (route !== undefined) copy.children[i].textContent = route;
     }
     const rows = element.querySelectorAll<HTMLElement & { pics?: SentImage[] }>(".drpics");
     const copies = copy.querySelectorAll(".drpics");
