@@ -5,7 +5,7 @@
 // the worktree the pane shows (`worktree.ts`) and reads again on a switch.
 
 import type { DiffView } from "../review/diff-state.ts";
-import { type DiffViewHandle, diffView } from "../review/diff.ts";
+import { type DiffViewHandle, type DiffOwner, type DiffSlot, diffView } from "../review/diff.ts";
 import { sendReview } from "../agents/messages.ts";
 import { openWorkFile, paneSession } from "./media.ts";
 import { localFileItems } from "./localfile.ts";
@@ -14,6 +14,15 @@ import { reviewHeading } from "./worktree-state.ts";
 import { homeShort } from "../project/projects-state.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
+import { setSessionChild } from "../agents/session-frame.tsx";
+import type { ReactNode } from "react";
+
+let nextDiff = 0;
+function sessionDiffOwner(): DiffOwner {
+  const id = ++nextDiff, slots = new Set<DiffSlot>();
+  return { set(slot: DiffSlot, content: ReactNode) { slots.add(slot); setSessionChild(`diff:${id}:${slot}`, content); },
+    dispose() { for (const slot of slots) setSessionChild(`diff:${id}:${slot}`, null); slots.clear(); } };
+}
 
 const C = {
   /// The session and folder the view is of.
@@ -29,6 +38,7 @@ export function changesView() {
   const s = paneSession();
   const key = s ? `${s.machine_id}\n${s.id}\n${s.cwd}` : "";
   if (C.el && C.key === key) return C.el;
+  C.view?.dispose();
   C.el?.remove();
   C.key = key;
   const el = h('<div class="agpview changes"></div>');
@@ -41,6 +51,7 @@ export function changesView() {
 
   C.note = h('<div class="dv-note" hidden></div>');
   const view = diffView({
+    owner: sessionDiffOwner(),
     uncommitted: true,
     load: (only, lockfiles, uncommitted, context) => {
       // A refresh reads the worktrees again too.
@@ -73,6 +84,7 @@ export function madeChangesView() {
 
 /// Lets go of the view, as the pane starts another session or closes.
 export function dropChanges() {
+  C.view?.dispose();
   C.el?.remove();
   Object.assign(C, { el: null, view: null, key: "" });
 }

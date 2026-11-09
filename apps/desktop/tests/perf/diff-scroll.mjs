@@ -5,7 +5,7 @@ import { buildSync } from "esbuild";
 import { playwright, stubInit } from "./stub.mjs";
 
 const code = buildSync({
-  entryPoints: [new URL("../../src/review/diff.ts", import.meta.url).pathname],
+  entryPoints: [new URL("./diff-entry.ts", import.meta.url).pathname],
   bundle: true, write: false, format: "iife", globalName: "diffViewer",
 }).outputFiles[0].text;
 const css = readFileSync(new URL("../../dist/diff.css", import.meta.url), "utf8");
@@ -30,6 +30,7 @@ for (const kind of kinds) {
           path: paths[i] ?? `src/file-${i}.ts`, old_path: null, status: "modified", additions: lines, deletions: 0, left_out: null,
           hunks: [{ old_start: 1, old_lines: 0, new_start: 1, new_lines: lines, section: "", lines: Array.from({ length: lines }, (_, n) => ({ k: "+", t: `const value${n} = "${"example ".repeat(30)}";` })) }],
         }));
+        window.diffHandle?.dispose();
         const v = diffViewer.diffView({ readOnly,
           load: async () => ({ root: "/project", base: "main", merge_base: "", working_tree: false, files, additions: count * lines, deletions: 0, more: 0 }),
           review: { key: "scroll-test", heading: () => "Review", send: async () => "" },

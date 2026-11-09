@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { RouterContextProvider, RouterProvider } from "@tanstack/react-router";
 import { windowHistory } from "./window-router.ts";
 
-type Part = "home" | "sidebar" | "header-scope" | "header-tools" | "project-shell" | "project-where" | "project-running" | "review-status" | "review-heading" | "review-findings" | "review-actions" | `project-overview:${string}` | `project-sessions:${"all" | "recent"}` | `git-history:${string}`;
+type Part = "home" | "sidebar" | "header-scope" | "header-tools" | "project-shell" | "project-where" | "project-running" | "review-status" | "review-heading" | "review-findings" | "review-actions" | `project-overview:${string}` | `project-sessions:${"all" | "recent"}` | `git-history:${string}` | `diff:${string}`;
 const parts = new Map<Part, { host: HTMLElement | null; content: ReactNode; identity: string }>();
 let root: Root | null = null;
 

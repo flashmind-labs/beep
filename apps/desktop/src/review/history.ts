@@ -13,6 +13,7 @@ import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { SessionRow } from "../project/projects-state.ts";
 import { agentLabel } from "../project/projects-state.ts";
 import { branchSessions } from "./branchsession-state.ts";
+import { windowDiffOwner } from "./diff-owner.ts";
 import { diffView, type DiffViewHandle } from "./diff.ts";
 import { type DiffView, STATUS_LETTER } from "./diff-state.ts";
 import { appendCommits, dayGroups, diffPaths, selectionKey, type BranchSessionRow, type ChangedFile, type GitCommit, type GitSelection, type GitWorktree, type HistoryPage } from "./history-state.ts";
@@ -376,9 +377,11 @@ export function makeGitHistory(deps: HistoryDeps) {
       const key = `${selectionKey(selected)}\0${path || ""}`;
 
       if (p.viewKey !== key || !p.view) {
+        p.view?.dispose();
         p.viewKey = key;
         const location = p.data;
         p.view = diffView({
+          owner: windowDiffOwner(),
           readOnly: true,
           load: async (only, lockfiles, _uncommitted, context) => {
             const requested = only.length ? only : path ? [path] : [];
