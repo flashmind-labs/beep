@@ -99,7 +99,7 @@ export function groupKeys(e: KeyboardEvent) {
   if (!(t instanceof HTMLTextAreaElement) || t.id !== "gask") return;
   const mn = G.mention;
 
-  if (mn && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+  if (mn && !e.isComposing && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
     e.preventDefault();
     mn.sel = (mn.sel + (e.key === "ArrowDown" ? 1 : mn.items.length - 1)) % mn.items.length;
     return drawMention();
