@@ -150,6 +150,7 @@ export function closeImportProject() {
 }
 
 function closed() {
+  syncthing.dispose();
   view?.unmount(); view = null;
   root = sheet = close = null;
   const done = state.step === "done" ? state.project : null;
@@ -213,7 +214,7 @@ function draw() {
   const current = view;
   const folder = state.machine ? folderText ?? state.chosen?.path ?? defaultParent() ?? "" : "";
   flushSync(() => current.render(createElement(ImportProjectView, {
-    state, machines, preview, previewFor, previewError, fork, picks, reading, folder, goes: goesIn(), menu, syncNode: syncthing.node,
+    state, machines, preview, previewFor, previewError, fork, picks, reading, folder, goes: goesIn(), menu, syncChoice: syncthing,
     edit: (repo: string) => { update({ type: "edit", repo }); schedulePreview(); },
     pick: (machine: string | null) => { update({ type: "pick", machine }); learnBase(); },
     submit: () => void submit(), close: closeImportProject, choose: () => void choose(), unchoose: () => update({ type: "unchoose" }),

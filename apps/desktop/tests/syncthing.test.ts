@@ -22,7 +22,6 @@ test("import preserves existing Syncthing rules and ignores stale folder lookups
   } });
   const { syncthingImportChoice } = await import("../src/project/syncthing.ts");
   const choice = syncthingImportChoice();
-  const checkbox = ((choice.node as unknown as Element).children[0] as Element).children[0] as Element;
   assert.equal(choice.value(), null);
   const first = choice.follow("build-box", "/srv/projects/one");
   const second = choice.follow("build-box", "/srv/projects/two");
@@ -30,11 +29,10 @@ test("import preserves existing Syncthing rules and ignores stale folder lookups
   await second;
   reads[0].reply({ available: true, enabled: true, label: "Projects" });
   await first;
-  assert.equal(checkbox.checked, false);
+  assert.equal(choice.snapshot().checked, false);
   assert.equal(choice.value(), null, "reading the setting must not change it during import");
   assert.ok(reads.every(read => read.args.enabled === undefined));
-  checkbox.checked = true;
-  checkbox.events.get("change")!();
+  choice.change(true);
   assert.equal(choice.value(), true);
   await choice.follow("build-box", "/srv/projects/three");
   assert.equal(reads.length, 2, "a chosen import preference must survive folder changes");

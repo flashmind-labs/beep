@@ -77,3 +77,37 @@ test("folder browser and import progress restore keyboard focus", async ({ page 
   await page.evaluate(() => { window.__navigation.respond("import_project", { name: "example/project", url: "https://example.test/example/project", machine_id: "one", machine_name: "Build box", folder: "/srv/example/project", cloned: true, imported_at: 1 }); window.__navigation.release("import_project"); });
   await expect(sheet.getByRole("button", { name: "Open project" })).toBeFocused();
 });
+
+test("Syncthing choice follows the folder and keeps an explicit choice", async ({ page }) => {
+  const sheet = await openImport(page);
+  await page.evaluate(() => window.__navigation.respond("project_syncthing_files", { available: true, enabled: false, label: "Projects" }));
+  await sheet.getByRole("button", { name: "Build box", exact: true }).click();
+  await sheet.getByRole("button", { name: "Choose…" }).click();
+  await sheet.getByRole("button", { name: "Use this folder" }).click();
+  const checkbox = sheet.getByRole("checkbox", { name: "Keep Syncthing file sync" });
+  await expect(checkbox).not.toBeChecked();
+  await checkbox.check();
+  await expect(checkbox).toBeFocused();
+  await sheet.getByRole("textbox", { name: "Repository" }).fill("example/project");
+  await expect(checkbox).toBeChecked();
+  await page.evaluate(() => window.__navigation.hold("import_project"));
+  await sheet.getByRole("button", { name: "Import", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "import_project").map(call => call.args.syncthingFiles))).toEqual([true]);
+});
+
+test("shared Syncthing controls mount and clean up in the other project sheets", async ({ page }) => {
+  await openDesktop(page, false, { center_home: home, list_machine_folder: folder });
+  await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
+  const add = page.getByRole("dialog", { name: "Add a project" });
+  await add.getByText("Sync options").click();
+  const choice = add.getByRole("checkbox", { name: "Keep Syncthing file sync" });
+  await expect(choice).toBeVisible();
+  await choice.uncheck();
+  await expect(choice).not.toBeChecked();
+  await add.getByRole("button", { name: "Choose folder" }).click();
+  const folderSheet = page.getByRole("dialog", { name: "Add a folder" });
+  await expect(folderSheet.getByRole("checkbox", { name: "Keep Syncthing file sync" })).toBeVisible();
+  await folderSheet.getByRole("button", { name: "Back" }).click();
+  await add.getByText("Sync options").click();
+  await expect(add.getByRole("checkbox", { name: "Keep Syncthing file sync" })).toBeChecked();
+});

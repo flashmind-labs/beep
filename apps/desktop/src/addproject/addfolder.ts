@@ -46,6 +46,7 @@ export function openAddFolder(options: AddFolderOptions = {}) {
 }
 
 function closed() {
+  syncthing.dispose();
   root = sheet = close = null;
   const done = state.step === "done" ? state.project : null;
   const then = opts.onDone;
@@ -170,7 +171,7 @@ function form() {
     folder,
     facts.length ? el("div", "ip-found", state.chosen?.origin && el("span", "ddot"), facts[0]) : null,
     facts[1] ? el("div", "am-sub", facts[1]) : null,
-    syncthing.node,
+    syncthing.mount(),
     state.error ? el("div", "am-msg bad", state.error) : null,
     el("div", "am-line ip-foot", go, button("Back", "dbtn quiet", () => { const back = opts.onBack; close?.(); back?.(); })),
   ];
