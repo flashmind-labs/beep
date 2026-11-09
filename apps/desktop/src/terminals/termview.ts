@@ -153,7 +153,7 @@ export function makeScreen(): Screen {
       document.removeEventListener("visibilitychange", fitNow);
       window.visualViewport?.removeEventListener("resize", fitNow);
       window.visualViewport?.removeEventListener("scroll", fitNow);
-      bar?.el.remove();
+      bar?.dispose();
       dropGpu();
       term.dispose();
     },
