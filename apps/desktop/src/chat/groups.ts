@@ -1,5 +1,5 @@
-import { createElement, type MouseEvent } from "react";
-import { flushSync } from "react-dom";
+import { createElement, Fragment, type MouseEvent, type ReactElement } from "react";
+import { createPortal, flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { GroupFormView } from "./group-form-view.tsx";
 import { GroupInviteView, type GroupInvite, type InviteState } from "./group-invite-view.tsx";
@@ -182,11 +182,11 @@ function setGroup(id: string) {
 }
 
 /// Opens a group in the bar. `then` opens its info, or info with Leave asked.
-let messageRoot: { host: HTMLElement; root: Root; mentionRoot: Root; observer: MutationObserver } | null = null;
+let messageRoot: { host: HTMLElement; root: Root; mentionHost: HTMLElement; message: ReactElement | null; mention: ReactElement | null; observer: MutationObserver } | null = null;
 const pendingKeys = new WeakMap<object, number>();
 let nextPending = 0, groupRevision = 0;
 const shareVersions = new Map<string, number>(), reminderVersions = new Map<string, number>();
-function disposeMessages() { const current = messageRoot; messageRoot = null; if (current) { current.observer.disconnect(); current.root.unmount(); current.mentionRoot.unmount(); } }
+function disposeMessages() { const current = messageRoot; messageRoot = null; if (current) { current.observer.disconnect(); current.root.unmount(); } }
 
 export async function renderGroup(id: string, then?: "info" | "leave") {
   disposeInfo();
@@ -203,7 +203,7 @@ export async function renderGroup(id: string, then?: "info" | "leave") {
   const messageHost = $$("#gbody"), root = createRoot(messageHost);
   const observer = new MutationObserver(() => { if (messageRoot?.host === messageHost && !messageHost.isConnected) disposeMessages(); });
   observer.observe(document.body, { childList: true, subtree: true });
-  messageRoot = { host: messageHost, root, mentionRoot: createRoot($$("#mention")), observer };
+  messageRoot = { host: messageHost, root, mentionHost: $$("#mention"), message: null, mention: null, observer };
   const ask = $$<HTMLTextAreaElement>("#gask");
   ask.value = G.drafts.get(id) ?? "";
   grow(ask);
@@ -261,14 +261,15 @@ export function drawGroup(jump = false) {
     return { key, text: item.text };
   });
   const approvals = G.id ? [...(G.approvals.get(G.id)?.values() ?? [])] : [];
-  flushSync(() => current.root.render(createElement(GroupMessages, {
+  current.message = createElement(GroupMessages, {
     chat: G.chat, error: G.error, revision: ++groupRevision, pending, approvals,
     day: dayLabel, author: (m: GroupMessage) => authorName(m.author), color: avColor, mentions,
     answer: (approval: GroupApproval, allow: boolean) => {
       G.approvals.get(approval.group_id)?.delete(approval.query_id);
       void invoke("answer_group_approval", { queryId: approval.query_id, allow }).catch(error => { G.error = String(error); drawGroup(); });
     },
-  })));
+  });
+  drawGroupRoot(current);
   if (near) b.scrollTop = b.scrollHeight;
 }
 
@@ -320,16 +321,20 @@ export function findMention() {
   G.mention = { at: before.length - m[2].length - 1, end: before.length, items, sel };
   drawMention();
 }
+function drawGroupRoot(current: NonNullable<typeof messageRoot>) {
+  flushSync(() => current.root.render(createElement(Fragment, null, current.message, createPortal(current.mention, current.mentionHost))));
+}
 export function drawMention() {
   const current = messageRoot;
   if (!current || !current.host.isConnected) return;
   const mn = G.mention;
-  flushSync(() => current.mentionRoot.render(mn ? createElement("div", { className: "dmlist", role: "listbox", "aria-label": "Mention" },
+  current.mention = mn ? createElement("div", { className: "dmlist", role: "listbox", "aria-label": "Mention" },
     mn.items.map((item, i) => createElement("button", {
       key: `${item.name}-${i}`, role: "option", "aria-selected": i === mn.sel, "data-m": i,
       onMouseDown: (event: MouseEvent) => { event.preventDefault(); insertMention(i); },
     }, createElement("span", { className: "dav", style: { background: avColor(item.name) }, dangerouslySetInnerHTML: { __html: item.name === "Beep" ? BEEP_MARK : esc([...item.name][0]?.toUpperCase() ?? "?") } }), item.name, createElement("small", null, item.note)))
-  ) : null));
+  ) : null;
+  drawGroupRoot(current);
   const old = $(".dhints");
   if (old) old.replaceWith(h(groupHints()));
 }
