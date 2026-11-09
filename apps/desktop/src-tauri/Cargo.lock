@@ -453,7 +453,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "beep-desktop"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -537,6 +537,7 @@ dependencies = [
  "rmp-serde",
  "secrecy",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "uuid",
@@ -581,7 +582,7 @@ dependencies = [
 
 [[package]]
 name = "beep-node"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
