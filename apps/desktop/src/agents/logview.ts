@@ -9,6 +9,7 @@ import { cachedCommandHtml } from "./command-state.ts";
 import { $, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
 import type { SubagentRow } from "../agentpane/subagents-view.tsx";
+import type { ActivityRow } from "./activity-view.tsx";
 import { followAgent } from "../agentpane/worktree.ts";
 import { collectArtifacts, type MadeFile, type MadeFiles, madeFiles, toolArtifacts } from "../agentpane/artifacts-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
@@ -248,6 +249,12 @@ function thoughtRow(en: AgentEntry, at: number, live = at === liveAt) {
   return thoughtHtml({ key: `${session}:${at}`, text: en.text, html: en.html, ms: en.ms, live, open: !!m?.thoughts.has(at), folding: false, row: at });
 }
 
+function typedThought(en: AgentEntry, at: number, live: boolean): ActivityRow {
+  const key = `${AG.open?.session ?? ""}:${at}`;
+  const open = !!AG.open && turnsOf(AG.open.session).thoughts.has(at);
+  return { kind: "thought", id: String(at), html: thoughtRow(en, at, live), key, at, text: en.text, content: en.html ?? null, ms: en.ms ?? null, live, open };
+}
+
 export function entryRow(en: AgentEntry, at: number) {
   const text = esc(en.text);
   if (en.kind === "thought") return thoughtRow(en, at);
@@ -380,7 +387,7 @@ function rowsOf(p: AgentPage, ats: number[]) {
 
     if (p.entries[at - p.earlier].kind === "thought") {
       flush();
-      out.push(thoughtRow(mergedThought(p.entries, group, p.earlier), at, liveAt != null && group.includes(liveAt)));
+      out.push(typedThought(mergedThought(p.entries, group, p.earlier), at, liveAt != null && group.includes(liveAt)));
       continue;
     }
 
@@ -484,11 +491,9 @@ function turnUnits(p: AgentPage): Unit[] {
       });
       const head = headingRow({ state, start, ms, stats: "", key: null, opened: false });
       const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
-      const live = running ? liveLineHtml({
-        state, thinking: thinking, start,
-        doing: state === "working" && doing !== "Thinking" && !(shownTitle && (shownTitle.includes(doing) || doing.includes(shownTitle))) ? doing : "",
-      }) : "";
-      return [...user(), head, ...work, live].filter(Boolean);
+      const liveDoing = state === "working" && doing !== "Thinking" && !(shownTitle && (shownTitle.includes(doing) || doing.includes(shownTitle))) ? doing : "";
+      const live: ActivityRow | null = running ? { kind: "live", id: String(t.key), state, thinking, start: start ?? null, doing: liveDoing, html: liveLineHtml({ state, thinking, start, doing: liveDoing }) } : null;
+      return [...user(), head, ...work, ...(live ? [live] : [])].filter(Boolean);
     };
   }
 }
@@ -664,7 +669,7 @@ function showLog(b: HTMLElement, html: string, units: Unit[] | null, polled: boo
     if (sel.focusNode) held.push(sel.focusNode);
   }
 
-  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row.kind === "prompt" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row.kind === "context" && row.type === "child" ? { ...row, body: prepareInlineImages(row.body) } : row) })) ?? null;
+  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row.kind === "prompt" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row.kind === "context" && row.type === "child" ? { ...row, body: prepareInlineImages(row.body) } : row.kind === "thought" ? { ...row, html: prepareInlineImages(row.html), content: row.content === null ? null : prepareInlineImages(row.content) } : row) })) ?? null;
   return patchRows(main, next.content, prepared, held);
 }
 
