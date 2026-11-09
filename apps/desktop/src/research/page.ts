@@ -1,6 +1,5 @@
 // The command center's Research page and its sidebar group.
 import { invoke } from "../ui/tauri.ts";
-import { el as h } from "../ui/dom.ts";
 import { newestFirst, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
 import { RESEARCHES } from "./researches.ts";
 import { state, views } from "../center/state.ts";
@@ -11,7 +10,7 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { ResearchPage } from "./page-view.tsx";
 import { currentLocation, registerView, go, drawTop, openResearch } from "../center/views.ts";
-import { registerSidebarGroup, reloadGroup, sideItem, reloadChats, plusButton, emptyRow } from "../center/sidebar.ts";
+import { registerSidebarGroup, reloadGroup, reloadChats } from "../center/sidebar.ts";
 import { IC } from "../ui/icons.ts";
 
 /// Every research on the account, newest first (null before the first
@@ -95,8 +94,8 @@ registerSidebarGroup<ResearchRow>("research", {
   order: 5.2,
   title: "Research",
   onTitle: () => go("research"),
-  action: () => plusButton("New research", () => go("research")),
-  empty: () => emptyRow("No research yet"),
+  action: { label: "New research", run: () => { go("research"); } },
+  empty: "No research yet",
   load: async () => (groupShown("research", state.subscribed) ? (await fetchResearch())?.slice(0, SIDE_RESEARCH) ?? null : null),
   key: r => r.session,
   render: r => {
@@ -104,13 +103,5 @@ registerSidebarGroup<ResearchRow>("research", {
     return createElement("button", { type: "button", className: "cc-si", title: `${r.topic}\n${STATE_LABEL[researchState(r.status)]}`, "aria-label": r.topic, "aria-current": current ? "true" : undefined, onClick: () => openResearch(r.session) },
       createElement("span", { className: "sidebar-icon", style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.doc } }), createElement("span", { className: "tt" }, r.topic), researchState(r.status) === "running" ? createElement("span", { className: "dspin cc-run" }) : null);
   },
-  row(r) {
-    const b = sideItem(IC.doc, r.topic, 0);
-    b.title = `${r.topic}\n${STATE_LABEL[researchState(r.status)]}`;
-    if (researchState(r.status) === "running") b.append(h("span", "dspin cc-run"));
-    const location = currentLocation();
-    if (location?.view === "researchopen" && location.arg.session === r.session) b.setAttribute("aria-current", "true");
-    return b;
-  },
-  onPick: r => openResearch(r.session),
+
 });
