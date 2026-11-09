@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { MachineList } from "./list-view.tsx";
 import { MachineDetail, type MachineLog } from "./detail-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
@@ -406,7 +406,7 @@ async function waitForNode(id: string, to: string, polls: number) {
 // whatever version the app was built with, which may never have been released.
 const newest = () => offeredNode(MC.released, (MC.list ?? []).filter(m => MC.updatable.has(m.id)).map(m => m.version));
 
-let screenRoot: { host: HTMLElement; mount: HTMLElement; root: Root } | null = null;
+let screenRoot: { host: HTMLElement; mount: HTMLElement; root: DocumentView } | null = null;
 
 function clearScreen() {
   if (!screenRoot) return;
@@ -421,7 +421,7 @@ function ensureScreen(el: HTMLElement) {
     const mount = document.createElement("div");
     mount.style.display = "contents";
     el.replaceChildren(mount);
-    screenRoot = { host: el, mount, root: createRoot(mount) };
+    screenRoot = { host: el, mount, root: createDocumentView(mount) };
   }
   return screenRoot.root;
 }
