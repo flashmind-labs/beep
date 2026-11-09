@@ -509,7 +509,7 @@ dependencies = [
 
 [[package]]
 name = "beep-node"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
