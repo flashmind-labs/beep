@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { ProjectNavigation, ProjectStatus } from "./split-view.tsx";
+import { ProjectIssues } from "./issues-view.tsx";
 // A project page's split: the list of tasks, PRs, issues and machines on
 // the left, the picked row's view on the right.
 import { sessionVisible } from "../agents/closing.ts";
@@ -16,7 +17,7 @@ import { terminalTile, type TerminalRow } from "../terminals/terminals.ts";
 import { fileSyncTile } from "./filesync.ts";
 import { taskTile, machineTile, askingSessions } from "./board.ts";
 import { issueMeta, prChip, prMeta } from "./threads.ts";
-import { arranged, listControls, pickBox, startBar } from "./openlist.ts";
+import { arranged, issueSelection, listControls, setIssueSelection, startBar } from "./openlist.ts";
 import type { StartEntry } from "./openlist-state.ts";
 import { pages, state } from "../center/state.ts";
 import { projectBranch } from "./projectlist-state.ts";
@@ -51,15 +52,18 @@ interface ProjectShell {
   navRoot: Root;
   strip: HTMLElement;
   stripRoot: Root;
+  issues: HTMLElement;
+  issuesRoot: Root;
 }
 let shell: ProjectShell | null = null;
 
 function projectShell(project: string) {
   if (shell?.project === project) return shell;
-  if (shell) { shell.navRoot.unmount(); shell.stripRoot.unmount(); }
+  if (shell) { shell.navRoot.unmount(); shell.stripRoot.unmount(); shell.issuesRoot.unmount(); }
   const navigation = h("div", "pj-list");
   const strip = h("div", "cc-mstrip pj-strip");
-  shell = { project, navigation, strip, navRoot: createRoot(navigation), stripRoot: createRoot(strip) };
+  const issues = h("div", "pj-det");
+  shell = { project, navigation, strip, issues, navRoot: createRoot(navigation), stripRoot: createRoot(strip), issuesRoot: createRoot(issues) };
   return shell;
 }
 
@@ -140,18 +144,6 @@ function hostNote(list: unknown[] | null | undefined, error: string, none: strin
   if (list === undefined) return "Reading…";
   if (list === null) return "The server needs an update before it lists these.";
   return list.length ? undefined : none;
-}
-
-/// One row of a list, lit when its key is `lit`. A `nav` row is one line:
-/// its title, and its count at the right.
-function splitRow(i: SplitItem, lit: string | null, f?: LabelFilter, pick?: HTMLElement | null, nav = false) {
-  const row = nav ? h("button", "pj-li nav", h("span", "t", h("b", "", i.title)), h("span", "c", i.sub)) : h("button", "pj-li", h("span", "lead", i.lead), h("span", "t", h("b", "", i.title), h("span", "", i.sub, ...(i.tags || []).map(l => f ? labelChip(l, f, "i") : h("i", "pj-tag", l)))), h("span", "r", i.right));
-  row.type = "button";
-  row.title = i.title;
-  if (i.key === lit) row.setAttribute("aria-current", "true");
-  row.addEventListener("click", () => i.open ? i.open() : openTile(i.key));
-  if (i.menu) row.addEventListener("contextmenu", i.menu);
-  return pick ? h("div", "pj-prow", pick, row) : row;
 }
 
 /// The project page: everything going on in one list at the left, the
@@ -236,12 +228,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const issueShown = arranged(issueKey, issueFilter.items, i => i.opened);
   const issueNote = hostNote(issues, thr.issuesError(pid), "No open issues.");
   // Too many to list at the left: the row opens them at the right.
-  project.push({ key: "issues", title: "Issues", sub: issueNote || `${issueItems.length} open`, detail: () => [
-    listControls(issueKey, redrawProjects, true),
-    h("div", "pj-labels", ...issueFilter.labels.all.map(l => labelChip(l, issueFilter.labels, "button"))),
-    h("div", "pj-rows", ...issueShown.map(i => splitRow(i, null, issueFilter.labels, i.start ? pickBox(issueKey, i.key, redrawProjects) : null))),
-    startBar(issueKey, issueShown.flatMap(i => i.start ?? []), redrawProjects),
-  ] });
+  project.push({ key: "issues", title: "Issues", sub: issueNote || `${issueItems.length} open`, detail: () => [] });
   const overview = projectOverview(p, running, { run: runItems, prs: prItems, issues: issueItems, prNote: hostNote(prs, thr.prsError(pid), "No open pull requests."), issueNote }, machineTile(rows, sync));
   top.unshift({ key: "overview", title: "Overview", sub: "", detail: () => [overview.body] });
   groups.unshift({ title: "", items: top });
@@ -257,7 +244,16 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
 
   const error = state.pview.get(p.name)?.error;
   const history = pa.tile === "branches" ? gitHistory.panels(p.name) : null;
-  const det = history?.detail || h("div", "pj-det", error ? errorNote(`Could not refresh the project: ${error}`) : null, ...picked.detail!());
+  const showIssues = pa.tile === "issues";
+  if (showIssues) flushSync(() => currentShell.issuesRoot.render(createElement(ProjectIssues, {
+    error: error ?? null, items: issueShown, filter: issueFilter.labels,
+    controls: listControls(issueKey, redrawProjects, true),
+    start: startBar(issueKey, issueShown.flatMap(item => item.start ?? []), redrawProjects),
+    selection: (id: string) => issueSelection(issueKey, id),
+    pick: (id: string, checked: boolean) => setIssueSelection(issueKey, id, checked, redrawProjects),
+    openTile,
+  })));
+  const det = history?.detail || (showIssues ? currentShell.issues : h("div", "pj-det", error ? errorNote(`Could not refresh the project: ${error}`) : null, ...picked.detail!()));
   const waiting = threads?.filter(t => t.needs_reply).length ?? 0;
   const cells = [
     { label: projectBranch(state.gitsync.get(p.name) ?? pages.get<GitRow[]>("gitsync", p.name), state.mac?.id || null) || "", text: "branch", key: "branches" },
@@ -268,7 +264,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     { label: plural(issueItems.length, "issue", "issues"), text: "open", key: "issues" },
   ];
   flushSync(() => currentShell.stripRoot.render(createElement(ProjectStatus, { cells, openTile })));
-  return [panelSlot(currentShell.strip), h("div", `${history ? "pj-split gh-layout" : "pj-split"}${pa.tile ? " picked" : ""}`, panelSlot(history ? history.navigation : currentShell.navigation), history ? panelSlot(det) : det)];
+  return [panelSlot(currentShell.strip), h("div", `${history ? "pj-split gh-layout" : "pj-split"}${pa.tile ? " picked" : ""}`, panelSlot(history ? history.navigation : currentShell.navigation), history || showIssues ? panelSlot(det) : det)];
 }
 
 /// The Sessions row's tab on screen.

@@ -14,11 +14,11 @@ export function ProjectNavigation({ groups, picked, openTile }: { groups: readon
   </Fragment>)}</>;
 }
 
-function LabelGroup({ filter }: { filter: LabelFilter }) {
+export function LabelGroup({ filter }: { filter: LabelFilter }) {
   return <div className="pj-labels">{filter.all.map(label => <Label key={label} label={label} filter={filter} button/>)}</div>;
 }
 
-function Row({ item, picked, filter, nav, openTile }: { item: SplitItem; picked: string; filter?: LabelFilter; nav: boolean; openTile: (key: string) => void }) {
+export function Row({ item, picked, filter, nav, openTile }: { item: SplitItem; picked: string | null; filter?: LabelFilter; nav: boolean; openTile: (key: string) => void }) {
   return <button type="button" className={`pj-li${nav ? " nav" : ""}`} title={item.title} aria-current={item.key === picked ? "true" : undefined}
     onClick={() => item.open ? item.open() : openTile(item.key)} onContextMenu={item.menu ? e => item.menu?.(e.nativeEvent) : undefined}>
     {nav ? <><span className="t"><b>{item.title}</b></span><span className="c">{item.sub}</span></> : <>
@@ -35,12 +35,13 @@ function Label({ label, filter, button = false }: { label: string; filter: Label
 }
 
 /// Keep existing controls until their feature is migrated, without detaching unchanged nodes.
-function Legacy({ node }: { node: Kid }) {
+export function Legacy({ node, flexItem = false }: { node: Kid; flexItem?: boolean }) {
   const slot = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     const target = slot.current;
     if (!target) return;
     if (node instanceof Element) {
+      if (flexItem && node instanceof HTMLElement) node.style.flex = "none";
       patchChildren(target, [node]);
     } else if (node instanceof Node) {
       if (!target.firstChild?.isEqualNode(node) || target.childNodes.length !== 1) target.replaceChildren(node);
@@ -48,7 +49,7 @@ function Legacy({ node }: { node: Kid }) {
       const text = typeof node === "string" ? node : "";
       if (target.textContent !== text) target.textContent = text;
     }
-  }, [node]);
+  }, [node, flexItem]);
   return <span ref={slot} style={{ display: "contents" }}/>;
 }
 
