@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot } from "react-dom/client";
+import { createDocumentView } from "../ui/document-root.tsx";
 import { AddMachineView } from "./addmachine-view.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // The "Add <project> to <machine>" sheet of a project's "Where it lives": the
@@ -44,7 +44,7 @@ export function openAddToMachine(o: AddToMachine) {
     onClose: () => { open = false; unfollow?.(); view.unmount(); },
   });
 
-  const view = createRoot(sheet);
+  const view = createDocumentView(sheet);
   const draw = () => {
     if (!open) return;
     flushSync(() => view.render(createElement(AddMachineView, {

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { createRoot } from "react-dom/client";
+import { createDocumentView } from "../ui/document-root.tsx";
 import { openSheet } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { reason } from "../ui/format.ts";
@@ -9,7 +9,7 @@ import { ignoredSelection, type IgnoredSync } from "./ignored-sync-state.ts";
 export function chooseIgnoredFolders(project: string, initial: IgnoredSync, onChanged: () => void) {
   let busy = false;
   const { sheet, close } = openSheet("Sync gitignored", "am-sheet", { canClose: () => !busy, onClose: () => root.unmount() });
-  const root = createRoot(sheet);
+  const root = createDocumentView(sheet);
   const save = async (enabled: boolean, paths: string, setError: (message: string) => void, setBusy: (value: boolean) => void) => {
     if (busy) return;
     try {

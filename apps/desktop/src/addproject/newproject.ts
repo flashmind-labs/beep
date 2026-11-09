@@ -1,6 +1,6 @@
 import { createElement, type MouseEvent as ReactMouseEvent } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { NewProjectView } from "./newproject-view.tsx";
 // The "New project" sheet: a name, where the repository goes (each host with
 // a token, or Local only), its owner and visibility, and the machines that
@@ -35,7 +35,7 @@ let creating = false, error: string | null = null, created: Created | null = nul
 /// Which opening of the sheet this is: a create still running when it closed
 /// reports to no later one.
 let opening = 0;
-let view: Root | null = null;
+let view: DocumentView | null = null;
 
 const online = () => (opts.machines || []).filter(m => m.online);
 
@@ -50,7 +50,7 @@ export function openNewProject(options: NewProjectOptions = {}) {
   error = null;
   created = null;
   ({ root, sheet, close } = openSheet("New project", "am-sheet ip-sheet np-sheet", { onClose: closed }));
-  view = createRoot(sheet);
+  view = createDocumentView(sheet);
   draw();
   const mine = opening;
   invoke<Forge[] | null>("project_forges")
