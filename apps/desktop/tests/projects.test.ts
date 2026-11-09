@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { ProjectRow, SessionRow } from "../src/project/projects-state.ts";
 import { START, importRoot, folderUnder, next, looksLikeRepo, progressText, doneText, cleanError } from "../src/addproject/importproject-state.ts";
-import { overviewGroups, overviewSub, awaitsView, foundFor, mergeProjects, plainPath, projectRunning, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/project/projects-state.ts";
+import { overviewGroups, overviewSub, awaitsView, foundFor, mergeProjects, plainPath, projectRunning, projectPastSessions, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/project/projects-state.ts";
 import type { RunningAgent, RunningRow } from "../src/agents/running-state.ts";
 
 const imported = [
@@ -320,4 +320,20 @@ test("overview headings use task workers when available, without counting agents
   assert.equal(overviewSub(groups), "2 projects in 1 org, 3 workers running");
   assert.equal(overviewSub(overviewGroups(rows, [{ name: "acme/widget", workers: 0 }], [], [])), "2 projects in 1 org, 2 workers running");
   assert.equal(overviewSub(overviewGroups<{ name: string; agents: number }>([{ name: "notes", agents: 0 }], null, [], [])), "1 project, no agents running");
+});
+
+test("project lists a moved conversation once with its target title and state", () => {
+  const project = { machines: [{ id: "m1", name: "build-box", folder: "/srv/project" }, { id: "m2", name: "target-box", folder: "/srv/project" }] };
+  const source: SessionRow = {
+    machine_id: "m1", machine_name: "build-box", id: "conversation", agent: "codex",
+    title: "Continue", cwd: "/srv/project", status: "idle", doing: null,
+    question: null, started_at: 1, last_activity: 2, external: false,
+  };
+  const target = { ...source, machine_id: "m2", title: "Diff improvements", status: "working", last_activity: 100 };
+  const moves = [{ session: source.id, agent: source.agent, from: "m1", to: "m2", project: "org/app", at: 3 }];
+  const running = projectRunning(project, [{ ...target, kind: "agent" }], [source], moves);
+  assert.deepEqual(running.map(s => [s.machine_id, s.title, s.status, s.last_activity]), [["m2", "Diff improvements", "working", 100]]);
+  assert.deepEqual(projectPastSessions([{ ...source, status: "ended" }], running, moves), []);
+  assert.equal(projectRunning(project, [], [source], moves)[0].machine_id, "m1", "source remains until target lists");
+  assert.equal(projectPastSessions([{ ...source, status: "ended" }], [], moves).length, 1);
 });
