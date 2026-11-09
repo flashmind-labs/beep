@@ -21,6 +21,13 @@ pub async fn run_host(
 pub async fn run_rendered(shell: &dyn Shell, rendered: &str) -> Result<String> {
     let out = shell.run(rendered, HOST_LIMIT).await?;
 
+    if out.timed_out {
+        anyhow::bail!(
+            "the host command timed out after {} seconds",
+            HOST_LIMIT.as_secs()
+        );
+    }
+
     match out.exit_code {
         Some(0) => Ok(out.output),
         code => {
