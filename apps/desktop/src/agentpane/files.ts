@@ -1,11 +1,14 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { FilesTree } from "./files-tree.tsx";
 import { isHtmlFile } from "./html-preview-state.ts";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // The Files tab of a coding agent session's pane: the session's working folder
 // on its machine as a tree, read three levels at a time, what git ignores left
 // out unless asked, git's marks beside what changed.
 
-import { patchHtml } from "../ui/patch.ts";
-import { type GitChange, type Listing, type Tree, type TreeRow, atEdge, unreadFolders, failedListing, mergeTree, parentPath, joinPath, treeRows } from "./files-state.ts";
+import { type Listing, type Tree, atEdge, unreadFolders, failedListing, mergeTree, parentPath, joinPath, treeRows } from "./files-state.ts";
 import { relativeTo } from "./artifacts-state.ts";
 import { resolvePath } from "./media-state.ts";
 import { paneRoot, worktreesReady } from "./worktree.ts";
@@ -52,19 +55,10 @@ const F = {
   el: null as HTMLElement | null,
   /// A path to scroll into view once its row is drawn.
   reveal: null as string | null,
-  /// The HTML the tree holds, to skip a redraw of the same rows.
-  drawn: "",
 };
 
-const MARKS: Record<GitChange, [string, string]> = {
-  untracked: ["U", "Untracked"],
-  added: ["A", "Added"],
-  modified: ["M", "Changed"],
-  conflicted: ["C", "In conflict"],
-};
-const FOLDER = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
-const FILE = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg>';
-const TWIST = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>';
+let treeRoot: Root | null = null;
+let showingRows = false;
 
 /// Folder reads run at once, and the entries a filter stops at.
 const WALK_AT_ONCE = 8;
@@ -75,10 +69,11 @@ export function filesView() {
   const s = paneSession();
   const key = s ? `${s.machine_id}\n${paneRoot()}` : "";
   if (F.el && F.key === key) return F.el;
+  treeRoot?.unmount(); treeRoot = null; showingRows = false;
   F.el?.remove();
   F.unfollow?.();
   Object.assign(F, {
-    key, listings: new Map(), roots: new Set(), reading: new Set(), again: new Set(), flat: false, walking: false, capped: false, open: new Set(), filter: "", picked: null, anchor: null, selected: new Set(), busy: false, fresh: false, generation: F.generation + 1, reveal: null, drawn: "",
+    key, listings: new Map(), roots: new Set(), reading: new Set(), again: new Set(), flat: false, walking: false, capped: false, open: new Set(), filter: "", picked: null, anchor: null, selected: new Set(), busy: false, fresh: false, generation: F.generation + 1, reveal: null,
     unfollow: s ? subscribeTopics(topic("files", paneRoot()), () => refresh(), s.machine_id, filesShown) : null,
   });
   const el = h(`<div class="agpview files"><div class="agfbar"><input class="agffind" placeholder="Filter files" aria-label="Filter files" spellcheck="false">`
@@ -88,6 +83,8 @@ export function filesView() {
     + `<div class="agpacts"><span class="meta mono" title="${esc(paneRoot())}">${esc(paneRoot())}</span><span data-fstatus role="status"></span><span class="sp"></span><span class="hint">Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting.</span></div></div>`);
   F.el = el;
   wire(el);
+  const tree = el.querySelector<HTMLElement>(".agtree");
+  if (tree) treeRoot = createRoot(tree);
   load("");
   return el;
 }
@@ -249,51 +246,34 @@ async function readFolder(dir: string, deep: boolean) {
   if (F.key === key && F.generation === generation && F.filter.trim()) readAll();
 }
 
-function rowHtml(r: TreeRow) {
-  const mark = r.change ? `<span class="gm ${r.change}" title="${MARKS[r.change][1]}">${MARKS[r.change][0]}</span>` : "";
-  const twist = r.folder ? `<span class="tw${r.open ? " open" : ""}">${r.loading ? '<span class="dspin"></span>' : TWIST}</span>` : '<span class="tw"></span>';
-  const row = `<div class="agtr${F.selected.has(r.path) ? " on" : ""}${r.ignored ? " ign" : ""}" role="treeitem" aria-selected="${F.selected.has(r.path)}" id="agfile-${encodeURIComponent(r.path)}" style="--d:${r.depth}" draggable="true" data-fpath="${esc(r.path)}"${r.folder ? ` data-ffolder="1" aria-expanded="${r.open}"` : ""} title="${esc(r.path)}">`
-    + `${twist}${r.folder ? FOLDER : FILE}<span class="nm">${esc(r.name)}</span>${mark}</div>`;
-  const pad = `style="--d:${r.depth + 1}"`;
-  const extra = r.error ? `<div class="agtr note derr" ${pad}>${esc(r.error)}</div>`
-    : r.more ? `<div class="agtr note" ${pad}>${r.more} more not shown</div>` : "";
-  return row + extra;
-}
-
 function draw() {
   const tree = F.el?.querySelector<HTMLElement>(".agtree");
-  if (!tree) return;
-  if (!paneSession()?.cwd) { tree.innerHTML = ""; return; }
+  if (!tree || !treeRoot) return;
+  if (!paneSession()?.cwd) { flushSync(() => treeRoot?.render(null)); showingRows = false; return; }
   const top = F.listings.get("");
   const rows = treeRows(F.listings, F.open, F.filter);
-  const visible = new Set(rows.map(r => r.path));
-  F.selected = new Set([...F.selected].filter(p => visible.has(p)));
+  const visible = new Set(rows.map(row => row.path));
+  F.selected = new Set([...F.selected].filter(path => visible.has(path)));
   if (F.picked && !visible.has(F.picked)) F.picked = null;
   tree.setAttribute("aria-busy", String(F.busy));
   if (F.picked) tree.setAttribute("aria-activedescendant", `agfile-${encodeURIComponent(F.picked)}`);
   else tree.removeAttribute("aria-activedescendant");
   const count = F.el?.querySelector(".agpacts .meta");
   if (count && !F.busy) count.textContent = F.selected.size ? `${F.selected.size} selected` : paneRoot();
-  let html = rows.map(rowHtml).join("");
-  // A failed refresh does not blank a tree that is shown.
-  if (top?.error && !top.entries) html = `<div class="agpmsg derr">${esc(top.error)}</div>`;
-  // Pointed at another folder: the rows shown stay until its first read lands.
-  else if (!top?.entries && F.reading.has("") && tree.firstChild && !F.drawn.startsWith('<div class="agpmsg')) return;
-  else if (!top?.entries) html = `<div class="agpmsg"><span class="dspin"></span>Reading the folder…</div>`;
-  else if (!rows.length && F.walking && F.filter.trim()) html = `<div class="agpmsg"><span class="dspin"></span>Reading folders…</div>`;
-  else if (!rows.length && !F.capped) html = `<div class="agpmsg">${F.filter ? "No files match." : "This folder is empty."}</div>`;
-  else if (top.more) html += `<div class="agtr note" style="--d:0">${top.more} more not shown</div>`;
 
-  if (F.filter.trim() && top?.entries && !top.error) {
-    if (F.walking) { if (rows.length) html += `<div class="agtr note" style="--d:0"><span class="dspin"></span>Reading folders…</div>`; }
-    else if (F.capped) html += `<div class="agtr note" style="--d:0">Stopped reading at ${WALK_ENTRIES.toLocaleString()} files</div>`;
-  }
-
-  // The same rows again: leave the DOM alone.
-  if (F.drawn === html && tree.firstChild && !F.reveal) return;
-  F.drawn = html;
-  // Rows that did not change stay the same elements, so a reread does not flash.
-  patchHtml(tree, html);
+  let message: string | null = null, error = false, loading = false;
+  if (top?.error && !top.entries) { message = top.error; error = true; }
+  else if (!top?.entries && F.reading.has("") && showingRows) return;
+  else if (!top?.entries) { message = "Reading the folder…"; loading = true; }
+  else if (!rows.length && F.walking && F.filter.trim()) { message = "Reading folders…"; loading = true; }
+  else if (!rows.length && !F.capped) message = F.filter ? "No files match." : "This folder is empty.";
+  const searching = !!F.filter.trim() && !!top?.entries && !top.error;
+  showingRows = message === null;
+  flushSync(() => treeRoot?.render(createElement(FilesTree, {
+    rows, selected: F.selected, message, error, more: message === null ? top?.more ?? 0 : 0,
+    walking: message !== null ? loading : searching && F.walking && !!rows.length,
+    capped: message === null && searching && !F.walking && F.capped, limit: WALK_ENTRIES,
+  })));
   const shown = F.reveal ? tree.querySelector<HTMLElement>(`[data-fpath="${CSS.escape(F.reveal)}"]`) : null;
   if (shown) { shown.scrollIntoView({ block: "center" }); F.reveal = null; }
 }
@@ -523,7 +503,6 @@ async function edit(action: FileAction, at = target()) {
       F.walking = false;
       F.reading.clear();
       F.listings.clear();
-      F.drawn = "";
       F.roots = new Set(["", ...F.open]);
       void refresh().catch(e => console.warn("files:", e));
     }
