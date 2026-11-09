@@ -183,6 +183,7 @@ export function closeAddProject() {
 }
 
 function closed() {
+  syncthing.dispose();
   root = sheet = search = bar = listBox = remoteBox = hint = close = null;
 }
 
@@ -300,8 +301,7 @@ function build() {
     way("Choose folder", () => { closeAddProject(); opts.onChoose?.(); }),
     way("Clone repository", () => { closeAddProject(); opts.onClone?.(); }),
     way("New project", () => { closeAddProject(); opts.onNew?.(); }));
-  const sync = el("details", "ap-sync", el("summary", "", "Sync options"), syncthing.node);
-  syncthing.node.querySelector("input")?.classList.add("dcheck");
+  const sync = el("details", "ap-sync", el("summary", "", "Sync options"), syncthing.mount("dcheck"));
   sheet!.replaceChildren(el("div", "am-head", el("b", "", "Add a project"), el("kbd", "", "esc")),
     ways, el("div", "am-label", "On your machines"), search, bar, hint, el("div", "ap-results", listBox, remoteBox), sync);
 }

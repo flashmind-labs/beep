@@ -2,7 +2,10 @@ import { chooseIgnoredFolders } from "./ignored-sync.ts";
 import type { IgnoredSync } from "./ignored-sync-state.ts";
 // A project-wide Syncthing preference, applied by each machine.
 import { invoke } from "../ui/tauri.ts";
-import { el } from "../ui/dom.ts";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { SyncthingChoice } from "./syncthing-choice.tsx";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { reason } from "../ui/format.ts";
 import type { Project } from "./projects-state.ts";
@@ -16,36 +19,41 @@ interface SyncthingFiles {
 /// An untouched import preserves the folder's existing Syncthing setting.
 export function syncthingImportChoice() {
   let value: boolean | null = null;
-  const checkbox = el("input");
-  checkbox.type = "checkbox";
-  checkbox.checked = true;
-  checkbox.indeterminate = true;
-  checkbox.addEventListener("change", () => { value = checkbox.checked; });
-  const node = el("div", "",
-    el("label", "am-line", checkbox, "Keep Syncthing file sync"),
-    el("div", "am-sub", "If Syncthing manages this folder, turn this off to use Beep on all machines. Git projects sync commits; uncommitted edits need a handoff. Other projects keep syncing."));
-  let lookup = 0, lastTarget = "";
-  async function follow(machine: string | null, folder: string | null) {
-    const target = `${machine ?? ""}\0${folder ?? ""}`;
-    if (target === lastTarget) return;
-    lastTarget = target;
-    const asked = ++lookup;
-    if (value !== null) return;
-    checkbox.disabled = false;
-    checkbox.checked = true;
-    checkbox.indeterminate = true;
-    if (!machine || !folder) return;
+  let snapshot = { checked: true, disabled: false, indeterminate: true };
+  const listeners = new Set<() => void>();
+  let lookup = 0, lastTarget = "", root: Root | null = null;
+  let node: HTMLDivElement | null = null;
+  const publish = (next: typeof snapshot) => { snapshot = next; listeners.forEach(listener => listener()); };
+  const choice = {
+    value: () => value,
+    snapshot: () => snapshot,
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    change: (checked: boolean) => { value = checked; publish({ checked, disabled: false, indeterminate: false }); },
+    mount: (className = "") => {
+      if (!node) { node = document.createElement("div"); node.style.display = "contents"; }
+      if (!root) { root = createRoot(node); flushSync(() => root?.render(createElement(SyncthingChoice, { choice, className }))); }
+      return node;
+    },
+    dispose: () => { lookup++; root?.unmount(); root = null; },
+    follow: async (machine: string | null, folder: string | null) => {
+      const target = `${machine ?? ""}\0${folder ?? ""}`;
+      if (target === lastTarget) return;
+      lastTarget = target;
+      const asked = ++lookup;
+      if (value !== null) return;
+      publish({ checked: true, disabled: false, indeterminate: true });
+      if (!machine || !folder) return;
 
-    try {
-      const files = await invoke<SyncthingFiles>("project_syncthing_files", { machineId: machine, folder });
-      if (asked !== lookup || value !== null) return;
-      checkbox.indeterminate = false;
-      checkbox.checked = files.enabled;
-      checkbox.disabled = !files.available;
-    } catch { /* Import keeps the current setting if the machine cannot answer. */ }
-  }
-  return { node, value: () => value, follow };
+      try {
+        const files = await invoke<SyncthingFiles>("project_syncthing_files", { machineId: machine, folder });
+        if (asked !== lookup || value !== null) return;
+        publish({ checked: files.enabled, disabled: !files.available, indeterminate: false });
+      } catch { /* Import keeps the current setting if the machine cannot answer. */ }
+    },
+  };
+  return choice;
 }
+export type SyncthingImportChoice = ReturnType<typeof syncthingImportChoice>;
 
 /// The existing project menu holds the project-wide Syncthing toggle.
 export function openProjectMenu(event: MouseEvent, project: Project, items: MenuItem[], onChanged: () => void) {
