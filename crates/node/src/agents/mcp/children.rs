@@ -124,6 +124,7 @@ struct StartArgs {
     harness: String,
     prompt: String,
     machine: Option<String>,
+    project: Option<String>,
     cwd: Option<String>,
     model: Option<String>,
     #[serde(default)]
@@ -310,6 +311,7 @@ impl Reach<'_> {
             harness,
             prompt,
             machine,
+            project,
             cwd,
             model,
             wait,
@@ -331,6 +333,25 @@ impl Reach<'_> {
             Ok(target) => target,
             Err(e) => return fail(e),
         };
+        let cwd = match project {
+            Some(project) => {
+                if cwd.is_some() {
+                    return fail("Give either `project` or `cwd`, not both.");
+                }
+
+                let Some(mesh) = &self.mesh else {
+                    return fail("This machine is in no mesh, so it has no registered projects.");
+                };
+                let machine = target.as_ref().map_or(mesh.me(), |machine| machine.id);
+
+                match super::projects::folder(mesh, &project, machine) {
+                    Ok(folder) => Some(folder),
+                    Err(e) => return fail(e),
+                }
+            }
+            None => cwd,
+        };
+
         let link = match self.agents.link_for(parent, self.who) {
             Ok(link) => link,
             Err(e) => return fail(e),
