@@ -6,7 +6,7 @@ import { ModelSettingsView } from "./model-settings-view.tsx";
 import { ServerView } from "./server-view.tsx";
 import { GeneralView } from "./general-view.tsx";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
-import { SettingsBreadcrumb, SettingsNavigation, SettingsShell } from "./settings-shell-view.tsx";
+import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsBarShell } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
 import type { PanePage } from "../bar/pane.ts";
 // settings/: the Settings pages (apps, accounts, credentials, coding agents,
@@ -15,6 +15,7 @@ import { bindAgents, disposeAgents, preserveAgents, bindCreds, disposeCreds, pre
 import { A, type App, appsIn, appsOut, type AppsView, loadApps, type McpServer, renderAppPermissions, renderApps, renderMcpServer } from "./apps.ts";
 import { toWindow } from "../chat/chat.ts";
 import { bar, type LinkState, S, windowHooks } from "../bar/core.ts";
+import { openBarPage } from "../bar/page-root.ts";
 import { hints, refreshHints } from "../bar/hints.ts";
 import { renderInvitePhone } from "../bar/link.ts";
 import { type Machine, machinesIn, machinesOut, MC, renderMachines } from "../machines/machines.ts";
@@ -137,7 +138,7 @@ function disposeLocalView(kind: LocalView) {
   if (!current) return;
   current.observer.disconnect();
   current.root?.unmount();
-  if (!current.root) drawChrome();
+  if (!current.root) { if (SET.root) drawChrome(); else drawBarSettings(); }
 }
 function preserveLocalViews(container: HTMLElement) {
   const saved = [...localViews.entries()].filter(([, view]) => container.contains(view.host)).map(([kind, view]) => {
@@ -155,6 +156,7 @@ function preserveLocalViews(container: HTMLElement) {
   };
 }
 function mountLocalViews(el: Element) {
+  let shared = false;
   for (const kind of ["general", "appearance", "mac", "devices", "models", "apps", "machines", "instr", "agent-overview", "agent-bar"] as const) {
     const host = el.querySelector<HTMLElement>(`#set-${kind}`);
     if (!host) continue;
@@ -163,7 +165,7 @@ function mountLocalViews(el: Element) {
       disposeLocalView(kind);
       const observer = new MutationObserver(() => { if (localViews.get(kind)?.host === host && !host.isConnected) disposeLocalView(kind); });
       observer.observe(document.body, { childList: true, subtree: true });
-      view = { host, root: shell?.sheet.contains(host) ? null : createRoot(host), node: null, observer };
+      view = { host, root: shell?.sheet.contains(host) || barSettings?.host.contains(host) ? null : createRoot(host), node: null, observer };
       localViews.set(kind, view);
     }
     const local = SET.local, current = view;
@@ -195,8 +197,9 @@ function mountLocalViews(el: Element) {
       allow: (permission: "ScreenRecording" | "Accessibility") => { invoke("allow_mac_permission", { permission }).catch(console.warn); },
     }) : null;
     if (current.root) flushSync(() => current.root?.render(current.node));
-    else drawChrome();
+    else shared = true;
   }
+  if (shared) { if (SET.root) drawChrome(); else drawBarSettings(); }
 }
 
 async function changeGeneral(key: string, command: string, args: Record<string, unknown>) {
@@ -500,6 +503,15 @@ async function openApps(box: HTMLElement, sub: SettingsSub | null) {
   return renderMcpServer(it as McpServer);
 }
 
+let barSettings: { host: HTMLElement; root: Root; version: string; sections: string } | null = null;
+function drawBarSettings() {
+  const current = barSettings;
+  if (!current || !current.host.isConnected) return;
+  flushSync(() => current.root.render(createElement(Fragment, null,
+    createElement(SettingsBarShell, { version: current.version, sections: current.sections, hints: hints([["esc", "close"]]) }),
+    ...[...localViews].filter(([, view]) => !view.root).map(([kind, view]) => createPortal(view.node, view.host, kind)))));
+}
+
 /// Draws Settings into `root` (the window's sheet), or the bar when none.
 /// The sheet opens on `page` when given, else on the page picked last.
 export async function renderSettings(confirm: false | "unlink" | "signout" = false, root?: HTMLElement, page?: string) {
@@ -537,10 +549,16 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
   } else {
     disposeShell();
     const sections = settingsSections(set, mac, linked, false).map(([, html]) => html).join("");
-    const restoreAgents = preserveAgents(), restoreCreds = preserveCreds(), restoreLocal = preserveLocalViews(el);
-    el.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep desktop ${esc(set.version)}</small></span></div>
-      <div class="dform dformcol">${sections}</div>${hints([["esc", "close"]])}`;
-    restoreAgents(el); restoreCreds(el); restoreLocal(el);
+    if (!barSettings || barSettings.host.parentElement !== bar) {
+      const page = openBarPage(() => { barSettings = null; });
+      barSettings = { ...page, version: set.version, sections: "" };
+    }
+    const changed = sections !== barSettings.sections;
+    const restoreAgents = changed ? preserveAgents() : null, restoreCreds = changed ? preserveCreds() : null, restoreLocal = changed ? preserveLocalViews(el) : null;
+    barSettings.version = set.version;
+    barSettings.sections = sections;
+    drawBarSettings();
+    restoreAgents?.(el); restoreCreds?.(el); restoreLocal?.(el);
     bindSettings(el);
   }
 
