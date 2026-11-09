@@ -19,6 +19,9 @@ test("streaming thoughts keep their element during refresh", () => {
   const thought = log.querySelector<HTMLElement>(".dthink[data-row]");
   const text = thought?.querySelector<HTMLElement>(".kk");
   assert.ok(thought && text);
+  for (let i = 0; i < 5; i++) { setUnits(log, units("First thought"), []); fillLog(body, false); }
+  assert.equal(log.querySelector(".dthink[data-row]"), thought);
+  assert.equal(thought.querySelector(".kk"), text);
   const selected = text.firstChild; assert.ok(selected);
   assert.equal(setUnits(log, units("First thought continues"), [selected]), false);
   assert.equal(text.textContent, "First thought");
