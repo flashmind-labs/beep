@@ -31,6 +31,10 @@ test("running process rows retain focus through updates and stop safely", async 
   await page.evaluate(() => window.__navigation.release("agent_stop_process"));
   await expect(first).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().find(call => call.command === "agent_stop_process")?.args)).toEqual({ machineId: "build-box", session: "notice-one", pid: 41 });
+  await page.evaluate(() => window.__navigation.open("home"));
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("tab", { name: /Running/ }).click();
+  await expect(page.locator(".agrunningrow").filter({ hasText: "newer process" })).toBeVisible();
 });
 
 test("a pending process read cannot update a different session", async ({ page }) => {
