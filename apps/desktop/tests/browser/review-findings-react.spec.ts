@@ -11,6 +11,7 @@ test("review findings stay mounted when a stale banner appears", async ({ page }
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
       if (command === "review_check") await new Promise<void>(resolve => window.addEventListener("test-review-check", () => resolve(), { once: true }));
       if (command === "review_dismiss") throw new Error("Review update failed");
+      if (command === "review_fix") return { id: "task-one", slug: "task", title: "Fix finding", state: "running" } as T;
       return invoke<T>(command, args);
     };
   });
@@ -34,7 +35,16 @@ test("review findings stay mounted when a stale banner appears", async ({ page }
   await expect(again).toHaveAttribute("data-identity", "kept");
   await expect(again).toBeFocused();
   await expect(detail).toHaveJSProperty("scrollTop", before);
+  await expect(page.getByRole("button", { name: "Merge…" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Post review…" })).toBeDisabled();
   await findingButton.click();
   await expect(page.getByText("Review update failed")).toBeVisible();
   await expect(findingButton).toHaveAttribute("data-identity", "kept");
+  await page.getByRole("button", { name: "Fix with worker" }).click();
+  await expect(page.getByText("Started Fix finding. It shows under Tasks.")).toBeVisible();
+  await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
+  await expect(page.getByRole("button", { name: "Review branch" })).toBeVisible();
+  await page.getByRole("button", { name: "Review branch" }).click();
+  await expect(page.getByRole("button", { name: "Run again" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Run again" })).not.toHaveAttribute("data-identity", "kept");
 });
