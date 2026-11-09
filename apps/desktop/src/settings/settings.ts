@@ -6,7 +6,7 @@ import { ModelSettingsView } from "./model-settings-view.tsx";
 import { ServerView } from "./server-view.tsx";
 import { GeneralView } from "./general-view.tsx";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
-import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsBarShell, SettingsSection, SettingsHost, AgentSettingsSection } from "./settings-shell-view.tsx";
+import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsBarShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
 import type { PanePage } from "../bar/pane.ts";
 // settings/: the Settings pages (apps, accounts, credentials, coding agents,
@@ -24,7 +24,6 @@ import { back, CODING_AGENTS, fitPath, isPage, openSub, pageLabel, recallPath, r
 import { canPickModel, type Models, type Thinking, MODELS } from "./model.ts";
 import { show } from "../bar/views.ts";
 import { type Reach } from "./server-state.ts";
-import { esc } from "../ui/format.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { toggleShortcuts } from "../ui/shortcutsheet.tsx";
 
@@ -115,9 +114,6 @@ window.addEventListener("focus", () => {
   const $set = (sel: string) => setRoot().querySelector<HTMLInputElement>(sel);
   if (setShown() && !$set("#unlinkYes") && !$set("#signOutYes") && !$set("#credSecret")?.value && !$set("#agSecret")?.value) renderSettings();
 });
-
-/// Rows that stand in for a section until the server answers.
-export const setSkeleton = (n: number) => `<div class="dskel-rows">${[78, 56, 68, 48].slice(0, n).map(w => `<div class="dskel" style="width:${w}%"></div>`).join("")}</div>`;
 
 /// Leaves Settings for another page: in the window the sheet closes and
 /// the pane shows it.
@@ -263,7 +259,7 @@ function refocus(box: HTMLElement, key: string) {
 /// The sections of Settings, in order, each with the page it is.
 function settingsSections(mac: MacControl | null, linked: boolean, sheet: boolean): [SettingsPage, ReactElement][] {
   const sec = (page: SettingsPage, title: string) => createElement(SettingsSection, { key: page, page, title });
-  const host = (page: SettingsPage) => createElement(SettingsHost, { key: page, page });
+  const host = (page: SettingsPage) => createElement(SettingsHost, { key: page, page, loading: page === "apps" && appRead !== null });
   const out: [SettingsPage, ReactElement][] = [["general", sec("general", "General")], ["appearance", sec("appearance", "Appearance")]];
   const machines: [SettingsPage, ReactElement] = ["machines", sheet ? host("machines") : sec("machines", "Machines")];
   const creds: [SettingsPage, ReactElement] = ["creds", sec("creds", "Credentials")];
@@ -339,14 +335,17 @@ function disposeShell() {
   current.observer.disconnect();
   current.root.unmount();
 }
-function renderShell(sheet: HTMLElement, pages: SettingsPage[], path: SettingsPath, version: string) {
+function ensureShell(sheet: HTMLElement) {
   if (shell && shell.sheet !== sheet) disposeShell();
   if (!shell) {
     const observer = new MutationObserver(() => { if (shell?.sheet === sheet && !sheet.isConnected) disposeShell(); });
     observer.observe(document.body, { childList: true, subtree: true });
     shell = { sheet, navigation: null, root: createDocumentView(sheet), observer };
   }
-  const current = shell, openPage = (page: SettingsPage) => goTo(selectPage(page));
+  return shell;
+}
+function renderShell(sheet: HTMLElement, pages: SettingsPage[], path: SettingsPath, version: string) {
+  const current = ensureShell(sheet), openPage = (page: SettingsPage) => goTo(selectPage(page));
   flushSync(() => current.root.render(createElement(Fragment, null, createElement(SettingsShell, {
     navigation: createElement(SettingsNavigation, { pages, path, version, subs: subEntries, pageName: settingsPageLabel, subName: subLabel, count: navCount, openPage, openSub: (sub: SettingsSub) => goTo(openSub(sub)) }),
     breadcrumb: createElement(SettingsBreadcrumb, { path, page: settingsPageLabel(path.page), sub: path.sub ? subLabel(path.sub) : null, openPage }),
@@ -409,6 +408,7 @@ export function settingsBack() {
 
 /// Stops the pages that draw themselves from drawing into the sheet.
 function leavePage() {
+  appRead = null;
   appsOut();
   machinesOut();
   const unembed = SET.unembed;
@@ -448,6 +448,7 @@ function mountPage(path: SettingsPath) {
 
 /// Apps, or one connected app or server of it. A remembered one waits for
 /// the list; one gone since shows the list.
+let appRead: { sub: SettingsSub } | null = null;
 async function openApps(box: HTMLElement, sub: SettingsSub | null) {
   if (!sub || (sub.kind !== "app" && sub.kind !== "mcp")) return renderApps();
   const find = (): App | McpServer | undefined => sub.kind === "app"
@@ -455,9 +456,12 @@ async function openApps(box: HTMLElement, sub: SettingsSub | null) {
     : A.servers?.find(s => s.id === sub.id && s.connected);
 
   if (!find()) {
-    box.innerHTML = setSkeleton(3);
+    const request = appRead = { sub };
+    drawChrome();
     await loadApps();
-    if (!box.isConnected || !SET.path?.sub || !samePath(SET.path, openSub(sub))) return;
+    if (appRead !== request || !box.isConnected || !SET.path?.sub || !samePath(SET.path, openSub(sub))) return;
+    appRead = null;
+    drawChrome();
   }
 
   const it = find();
@@ -497,8 +501,12 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
   const el = setRoot();
 
   if (got instanceof Error || typeof got !== "object") {
-    disposeAgents(); disposeCreds(); disposeShell(); for (const kind of localViews.keys()) disposeLocalView(kind);
-    el.innerHTML = `<div class="dwin"><h4>Settings</h4><p class="derr">${esc(got)}</p></div>`;
+    SET.local = null;
+    renderedPath = null;
+    disposeAgents(); disposeCreds(); for (const kind of localViews.keys()) disposeLocalView(kind);
+    leavePage();
+    const view = SET.root ? ensureShell(SET.root).root : openBarPage(() => { barSettings = null; }).root;
+    flushSync(() => view.render(createElement(SettingsFailure, { error: String(got) })));
     return;
   }
 

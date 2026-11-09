@@ -59,3 +59,17 @@ test("delayed empty model list reconciles navigation safely", async ({ page }) =
   await expect(nav.getByRole("button", { name: "General", exact: true })).toHaveAttribute("aria-current", "true");
   expect(errors).toEqual([]);
 });
+
+
+test("Settings load failure replaces the placeholder and can recover in the same dialog", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "unlinked", signed_out: true, server: false, live: false, session: null }, settings: { name: "build-box", version: "0.1", autostart: false, notice_voice: "off", send_on_pause: false, agent_notices: false }, list_machines: [] });
+  await page.evaluate(() => window.__navigation.rejectOnce("settings"));
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await expect(settings.locator(".derr")).toContainText("Requested test failure");
+  await expect(settings.locator(".dset-nav")).toHaveCount(0);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(settings.getByRole("navigation", { name: "Settings pages" })).toBeVisible();
+  await expect(settings.locator(".derr")).toHaveCount(0);
+  await expect(settings.locator(".dset-nav")).toHaveCount(1);
+});
