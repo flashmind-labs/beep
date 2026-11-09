@@ -15,7 +15,7 @@ import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive } from "./thoughtlive.ts";
 import { groupThoughts, mergedThought } from "./thoughts-state.ts";
 import { patchable, patchRows, startPatching } from "./logpatch.ts";
-import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.ts";
+import { disposeLog, fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.ts";
 import { answerHtml, collapseActivityHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml } from "./turnrows.ts";
 import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentAvatar, agentKind } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
@@ -646,6 +646,8 @@ function showLog(b: HTMLElement, html: string, units: Unit[] | null, polled: boo
   let main = b.querySelector<HTMLElement>(":scope > .dagmain");
 
   if (!main || !patchable(main)) {
+    const old = b.querySelector<HTMLElement>(".dcoderlog");
+    if (old) disposeLog(old);
     b.innerHTML = `<div class="dagmain"></div><button class="dagjump" id="agjump" hidden>Jump to latest${DOWN_ICON}</button>`;
     main = b.firstElementChild as HTMLElement;
     startPatching(main);

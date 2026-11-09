@@ -3,7 +3,7 @@
 // kept is the same element: its selection, its scroll, its animation.
 
 import { reuseRows } from "./logdiff-state.ts";
-import { setUnits, type Unit } from "./logwindow.ts";
+import { disposeLog, setUnits, type Unit } from "./logwindow.ts";
 
 /// The html each child of a container was drawn from.
 const drawnFrom = new WeakMap<Element, string[]>();
@@ -39,7 +39,7 @@ export function patchRows(live: Element, next: ParentNode, units: readonly Unit[
   const keep = new Set(reuse.filter(i => i >= 0));
   const going = kids.filter((_, i) => !keep.has(i));
   if (going.some(el => held.some(n => el.contains(n)))) return false;
-  for (const el of going) el.remove();
+  for (const el of going) { if (isLog(el) && el instanceof HTMLElement) disposeLog(el); el.remove(); }
   let cursor: Element | null = live.firstElementChild;
   fresh.forEach((el, i) => {
     const now = reuse[i] >= 0 ? kids[reuse[i]] : el;
