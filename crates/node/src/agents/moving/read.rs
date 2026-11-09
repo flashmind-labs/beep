@@ -589,7 +589,7 @@ pub(super) async fn pull_within(
                     // connection's flow control: a background copy never
                     // takes the link.
                     let secs = data.len() as f64 / rate.max(1) as f64;
-                    tokio::time::sleep(std::time::Duration::from_secs_f64(secs)).await;
+                    tokio::time::sleep(Duration::from_secs_f64(secs)).await;
                 }
             }
             Some(Reply::Work { head }) => {

@@ -1,3 +1,4 @@
+use std::time::Duration;
 use super::*;
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
@@ -123,7 +124,7 @@ fn a_pipe_is_refused_rather_than_waited_on() {
     });
     // Only bounds a hang: the replies come back at once.
     let replies = rx
-        .recv_timeout(std::time::Duration::from_secs(10))
+        .recv_timeout(Duration::from_secs(10))
         .expect("opening the pipe waited for its other end");
     for reply in replies {
         error(reply);

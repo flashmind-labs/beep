@@ -13,7 +13,7 @@ use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 /// Every read-modify-write of a record takes this, so two calls in this process never overwrite
@@ -213,5 +213,5 @@ pub(crate) fn time_ms(time: SystemTime) -> u64 {
 }
 
 pub(crate) fn time(ms: u64) -> SystemTime {
-    UNIX_EPOCH + std::time::Duration::from_millis(ms)
+    UNIX_EPOCH + Duration::from_millis(ms)
 }

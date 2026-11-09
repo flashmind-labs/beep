@@ -1,4 +1,5 @@
 use super::*;
+use std::time::Duration;
 
 #[test]
 fn a_parent_takes_the_owner_and_name() {
@@ -17,7 +18,7 @@ struct Scripted;
 
 #[async_trait]
 impl crate::Shell for Scripted {
-    async fn run(&self, script: &str, _: std::time::Duration) -> Result<ShellOutput> {
+    async fn run(&self, script: &str, _: Duration) -> Result<ShellOutput> {
         // Looking for checkouts finds none; the clone lands.
         Ok(if script.contains("BEEP_IMPORT:") {
             ShellOutput::exited(0, "\nBEEP_IMPORT: cloned\n")

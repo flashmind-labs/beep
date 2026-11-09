@@ -1,3 +1,4 @@
+use std::time::Duration;
 use super::read::{ALPN, Access, Pulled, pull};
 use crate::{
     agents::{Agents, found::Stores},
@@ -530,9 +531,9 @@ async fn a_read_the_source_stops_answering_fails_instead_of_waiting_forever() {
         copy: &copy,
         kind: super::read::Kind::Move { worktree: false },
     };
-    let quiet = std::time::Duration::from_millis(300);
+    let quiet = Duration::from_millis(300);
     let err = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
+        Duration::from_secs(10),
         super::read::pull_within(tx, rx, ask, quiet),
     )
     .await
