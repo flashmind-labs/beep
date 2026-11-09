@@ -1009,7 +1009,7 @@ pub(super) fn agent_title(name: &str) -> &str {
 }
 
 /// `first`, then `then`.
-pub(super) fn joined(first: Option<String>, then: Option<&str>) -> Option<String> {
+pub(in crate::agents) fn joined(first: Option<String>, then: Option<&str>) -> Option<String> {
     match (first, then) {
         (Some(first), Some(then)) => Some(format!("{first}\n\n{then}")),
         (first, then) => first.or(then.map(str::to_owned)),

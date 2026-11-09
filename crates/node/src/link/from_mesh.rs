@@ -18,7 +18,7 @@ use beep_proto::{
     node::{
         MachineCredentials,
         harness::{AgentSettings, HarnessConfig},
-        mesh_state::{Credential, Place, ProjectRecord, StateValue, SyncSpec},
+        mesh_state::{Credential, Place, ProjectRecord, SavedVersion, StateValue, SyncSpec},
         sync::{Project, ignored_project},
     },
 };
@@ -136,6 +136,18 @@ async fn apply_syncthing(mesh: &Mesh, me: EndpointId, offers: &Offers) {
     }
 }
 
+/// Match the desktop's newest-version ordering, including concurrent saves.
+fn instructions(mesh: &Mesh) -> Option<String> {
+    mesh.scan("instructions/")
+        .into_iter()
+        .filter_map(|(key, bytes)| {
+            let saved = SavedVersion::from_bytes(&bytes).ok()?;
+            Some((saved.saved_ms, key, saved.text))
+        })
+        .max_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)))
+        .map(|(_, _, text)| text)
+}
+
 /// What the node holds from the mesh now, to apply only what changed.
 #[derive(Default)]
 struct Applied {
@@ -162,6 +174,8 @@ impl Applied {
                 self.credentials = Some(credentials);
             }
         }
+
+        offers.agents.set_instructions(instructions(mesh));
 
         let settings = settings(mesh);
 

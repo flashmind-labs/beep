@@ -199,7 +199,7 @@ test("a terminal whose stop fails keeps its tab and is followed again", async t 
 });
 
 
-test("leaving a session stops its terminals and drops their screens", async t => {
+test("leaving a session detaches its terminals and drops their screens", async t => {
   noPane(t);
   calls.length = 0;
   let disposed = 0;
@@ -214,22 +214,22 @@ test("leaving a session stops its terminals and drops their screens", async t =>
   await settle();
   assert.equal(P.tabs.length, 0);
   assert.equal(disposed, 1);
-  assert.deepEqual(calls.filter(c => c.cmd === "terminal_close").map(c => c.args), [{ id: "t1" }]);
+  assert.equal(count("terminal_close"), 0);
   stream.end();
   await settle();
   assert.equal(count("terminal_attach"), 1);
 });
 
-test("leaving marks starting terminals closed and stops unopened existing terminals", async t => {
+test("leaving keeps starting and existing terminals alive", async t => {
   noPane(t);
   calls.length = 0;
   const starting: MediaTab = { id: "term:new", kind: "term", name: "new", path: null, url: null, size: 0, done: 0, error: "", el: null };
   P.tabs.push(starting, { ...starting, id: "term:existing", existing: ROW });
   closePaneTabs();
   await settle();
-  assert.equal(starting.closed, true);
+  assert.equal(starting.closed, undefined);
   assert.equal(P.tabs.length, 0);
-  assert.deepEqual(calls.filter(c => c.cmd === "terminal_close").map(c => c.args), [{ id: "t1" }]);
+  assert.equal(count("terminal_close"), 0);
 });
 
 test("leaving during a tab close does not send a second stop", async t => {

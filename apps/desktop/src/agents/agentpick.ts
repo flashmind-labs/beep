@@ -102,6 +102,18 @@ export function modelRows(list: AgentModels | null | undefined, query: string): 
   return { rows, note: rows.length ? "" : "No model matches." };
 }
 
+/// Resolve a readable title at the boundary; IDs take precedence over titles.
+export function modelId(list: AgentModels | null | undefined, model: string): string {
+  const value = model.trim();
+  if (!value) return "";
+
+  const exact = list?.models.find(m => m.id === value);
+  if (exact) return exact.id;
+
+  const matches = list?.models.filter(m => m.name.toLowerCase() === value.toLowerCase()) ?? [];
+  return matches.length === 1 ? matches[0].id : value;
+}
+
 /// The model's name for the pill, resolving the default when known.
 export function modelLabel(list: AgentModels | null | undefined, model: string | null | undefined): string {
   if (model && model.toLowerCase() !== "default") return list?.models.find(m => m.id === model)?.name || model;

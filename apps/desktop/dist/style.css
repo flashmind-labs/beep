@@ -843,7 +843,9 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dcoderen.agent.md pre.dcode:hover .dcopy, .dcoderen.agent.md pre.dcode .dcopy:focus-visible { opacity: 1 }
 .dcoderen.agent.md pre.dcode .dcopy:hover { color: var(--fg) }
 .dcoderen.agent.md table { border-collapse: collapse; font-size: 13px; margin: 6px 0; display: block; overflow-x: auto; max-width: 100% }
-.dcoderen.agent.md :is(th, td) { padding: 4px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top }
+.dcoderen.agent.md :is(th, td) { padding: 4px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: normal }
+/* Cells break between words, not inside them or inside code: a wide table scrolls instead. */
+.dcoderen.agent.md td code { white-space: nowrap }
 .dcoderen.agent.md th { color: var(--muted); font-weight: 500; background: var(--surface) }
 /* A turn that went wrong, and a question waiting, stand out. */
 .derrcard { display: grid; gap: 3px; padding: 10px 12px; border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--err) 45%, transparent); background: color-mix(in srgb, var(--err) 7%, transparent); width: 100%; max-width: 800px; margin-inline: auto }

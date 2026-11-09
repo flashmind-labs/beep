@@ -150,3 +150,14 @@ impl StateValue for TerminalRecord {}
 impl StateValue for SessionMove {}
 impl StateValue for HarnessConfig {}
 impl StateValue for crate::FlshSettings {}
+
+/// One saved version of the user's instructions. Each is its own key, `instructions/<ms>.<id>`, so
+/// two desktops saving at once keep both.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedVersion {
+    pub text: String,
+    pub note: String,
+    pub saved_ms: u64,
+}
+
+impl StateValue for SavedVersion {}

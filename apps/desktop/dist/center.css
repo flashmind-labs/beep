@@ -766,7 +766,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .hv-sum .on { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px }
 @container hvset (max-width: 560px) { .hv-sum .on { display: none } }
 .hv-view.in-set { container: hvset / inline-size }
-.hv-view.in-set > .hv-d { padding: 0; overflow: visible }
 .hv-view.in-set > .hv-d > .hv-acts:first-child, .hv-view.in-set > .hv-d > .hv-note:first-child { margin-top: 0 }
 /* flsh's own settings under its runtime ones. */
 .fl-seg, .fl-chips { display: flex; flex-wrap: wrap; gap: 4px }
@@ -806,6 +805,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .us-pill { display: inline-flex; align-items: center; gap: 10px; height: 28px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer }
 .us-pill:hover, .us-pill[aria-expanded="true"] { background: var(--elev) }
 .us-pill b { color: var(--fg); font-weight: 500 }
+.us-short { display: none; align-items: center; gap: 6px }
 .us-pill .bar { width: 28px; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; display: inline-block }
 .us-pill .bar i, .us-lim .bar i { display: block; height: 100%; background: var(--ok) }
 .us-pill .bar i.warn, .us-lim .bar i.warn { background: var(--warn) }
@@ -1055,3 +1055,11 @@ button.cc-note.in-go:hover { border-color: var(--border-hi) }
 .pm-sync .fs-h { flex-wrap: wrap }
 .pm-sync .fs-h > .dbtn { margin-left: auto }
 .pm-sync .pm-git { flex: 1 }
+
+/* Scope the runtime picker and controls to their machine section. */
+.hv-scope { padding: 16px; border: 1px solid var(--border); border-radius: 8px; min-width: 0 }
+.hv-scope > h3 { margin: 0 0 12px; font-size: 16px; line-height: 24px; font-weight: 600 }
+.hv-scope > .hv-d { padding: 0; overflow: visible }
+.hv-scope > .hv-sum { margin: 12px 0 }
+.hv-scope .hv-bar { flex-wrap: wrap }
+.hv-scope .hv-sel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
