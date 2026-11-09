@@ -230,7 +230,7 @@ jobs:
           CF_ACCESS_KEY_ID: ${{ secrets.CF_ACCESS_KEY_ID }}
           CF_SECRET_ACCESS_KEY: ${{ secrets.CF_SECRET_ACCESS_KEY }}
           CF_BUCKET: ${{ secrets.CF_BUCKET }}
-        run: python3 scripts/r2-prune.py macos "$VERSION"
+        run: python3 scripts/r2-prune.py beep/macos "$VERSION"
 
   linux:
     runs-on: host
@@ -389,4 +389,4 @@ jobs:
           CF_ACCESS_KEY_ID: ${{ secrets.CF_ACCESS_KEY_ID }}
           CF_SECRET_ACCESS_KEY: ${{ secrets.CF_SECRET_ACCESS_KEY }}
           CF_BUCKET: ${{ secrets.CF_BUCKET }}
-        run: python3 scripts/r2-prune.py "$PLATFORM" "${GITHUB_REF_NAME#desktop-v}"
+        run: python3 scripts/r2-prune.py "beep/$PLATFORM" "${GITHUB_REF_NAME#desktop-v}"
