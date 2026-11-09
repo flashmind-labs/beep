@@ -66,7 +66,7 @@ async function readHome(): Promise<void> {
   })();
 
   try { await homeRead; }
-  finally { homeRead = undefined; loading = false; }
+  finally { homeRead = undefined; loading = false; if (onScreen()) draw(); }
 }
 
 const refreshSync = single(async () => {

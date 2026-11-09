@@ -26,6 +26,10 @@ import { byRecent, type RunningAgent, runningKey, runningLine, type RunningRow, 
 import { onPlaces, runningLineAt } from "../agents/place.ts";
 import { moveLabel, onMoves } from "../agents/move-store.ts";
 import { closingNote, onClosing, visibleRunning } from "../agents/closing.ts";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { ConnectingView } from "./connecting-view.tsx";
 
 export function runningStatus(r: RunningRow) {
   const moving = r.kind === "agent" ? moveLabel(r) : null;
@@ -331,15 +335,6 @@ export function problem() {
   return p && !S.server && p.kind !== "revoked" && p.kind !== "refused" ? null : p;
 }
 
-const logButton = () => button("Show log", "", () => invoke("open_log").catch(e => console.warn("opening the log:", e)));
-
-/// A button that asks for Home now, and stays off until the answer.
-function retryButton(label: string, cls: string) {
-  const retry = button(label, cls, () => { refresh(); retry.disabled = true; });
-  retry.disabled = loading;
-  return retry;
-}
-
 /// What "Still connecting" says, with how long the server has been silent.
 function waitText() {
   const secs = Math.round((Date.now() - state.since) / 1000);
@@ -348,48 +343,13 @@ function waitText() {
 
 /// What Home shows before the server first answers: pulsing dots, never a blank
 /// page.
-function connecting() {
-  const p = problem();
-
-  if (p) {
-    const acts = h("div", "acts");
-    if (p.action) acts.append(button(p.action, "pri", () => go("pane", p.view)));
-    const retry = retryButton("Try again", p.action ? "" : "pri");
-    retry.classList.add("retry");
-    acts.append(retry, logButton());
-    const box = h("div", "cc-conn stuck", h("span", `ddot ${p.kind === "unlinked" || p.kind === "noserver" ? "off" : "bad"}`), h("b", "", p.title), h("span", "why", p.text), acts);
-    box.dataset.problem = `${p.kind}:${p.text}`;
-    return box;
-  }
-
-  const pulse = h("div", "cc-pulse", h("i"), h("i"), h("i"));
-  if (!stuck()) return h("div", "cc-conn", pulse, h("b", "", "Connecting to Beep…"));
-  return h("div", "cc-conn stuck", pulse, h("b", "", "Still connecting to Beep"), h("span", "why", waitText()), h("div", "acts", retryButton("Retry now", "pri"), logButton()));
-}
-
-/// Draws the waiting view, or brings the one on screen up to date so its
-/// buttons keep their focus.
+let connectingRoot: { host: HTMLElement; root: Root } | null = null;
 function drawConnecting(view: HTMLElement) {
-  const on = view.querySelector<HTMLElement>(":scope > .cc-conn");
-  const p = problem(), was = on?.dataset.problem;
-
-  if (p || was) {
-    if (p && was === `${p.kind}:${p.text}`) {
-      on!.querySelector<HTMLButtonElement>(".acts .retry")!.disabled = loading;
-      return;
-    }
-
-    return view.replaceChildren(connecting());
-  }
-
-  if (on && on.classList.contains("stuck") === stuck()) {
-    if (!stuck()) return;
-    on.querySelector(".why")!.textContent = waitText();
-    on.querySelector<HTMLButtonElement>(".acts .pri")!.disabled = loading;
-    return;
-  }
-
-  view.replaceChildren(connecting());
+  if (!connectingRoot || connectingRoot.host !== view) { connectingRoot?.root.unmount(); connectingRoot = { host: view, root: createRoot(view) }; }
+  const root = connectingRoot.root, p = problem();
+  flushSync(() => root.render(createElement(ConnectingView, { problem: p, stuck: stuck(), text: waitText(), loading,
+    open: () => { if (p?.view) go("pane", p.view); }, retry: () => { void refresh(); drawConnecting(view); },
+    log: () => { void invoke("open_log").catch(e => console.warn("opening the log:", e)); } })));
 }
 
 export function draw() {
@@ -397,6 +357,7 @@ export function draw() {
   if (currentLocation()?.view && currentLocation()?.view !== "home") return;
   const home = homeForDisplay(state.home, S.server), view = $("#view");
   if (!home || S.server && problem()) return drawConnecting(view);
+  if (connectingRoot) { connectingRoot.root.unmount(); connectingRoot = null; }
   const top = view.scrollTop;
   patchChildren(view, page(home));
   view.scrollTop = top;
