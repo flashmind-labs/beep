@@ -24,6 +24,7 @@ import { refresh } from "../center/refresh.ts";
 import { IC } from "../ui/icons.ts";
 import { resetRows } from "../ui/lazyrows.ts";
 import { patchChildren } from "../ui/patch.ts";
+import { threadPanel } from "./threaddetail.ts";
 
 // These wrappers have no event handlers. Keep them attached while their
 // independent sections change, so a sync update cannot interrupt a click.
@@ -33,7 +34,7 @@ function patchProjectView(current: Element, next: Element) {
   const replacedPanels = new Set<number>();
   const children = [...next.children].map((child, i) => {
     const old = current.children[i];
-    const panel = projectPanel(child) ?? sessionPanel(child);
+    const panel = projectPanel(child) ?? sessionPanel(child) ?? threadPanel(child);
     if (panel) { if (old !== panel) replacedPanels.add(i); return panel; }
     const split = old?.classList.contains("pj-split") && child.classList.contains("pj-split");
     if (!old || old.tagName !== child.tagName || (!split && old.className !== child.className) || !old.matches(layouts)) {
