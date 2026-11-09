@@ -11,16 +11,20 @@ const follows = new Map<string, boolean>();
 /// The thoughts already listening, which a redraw that kept them does not wire again.
 const wired = new WeakSet<HTMLElement>();
 
+/// Registers a thought before its view is rendered.
+export function trackLive(key: string) { if (!follows.has(key)) follows.set(key, true); }
+export function endLive(key: string) { follows.delete(key); }
+
 /// The live thought `key`'s text, all it has so far in `md`.
 export function liveHtml(key: string, md: string) {
-  if (!follows.has(key)) follows.set(key, true);
+  trackLive(key);
   return `<div class="kk" data-kk="${esc(key)}">${esc(liveText(md))}</div>`;
 }
 
 /// A thought that just ended, as its live view last was, for the moment
 /// it folds.
 export function endedHtml(key: string, md: string) {
-  follows.delete(key);
+  endLive(key);
   return `<div class="kk ended">${esc(liveText(md))}</div>`;
 }
 

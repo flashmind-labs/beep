@@ -247,3 +247,29 @@ test("streamed tool status updates retain the same row", async ({ page }) => {
   await expect(row.locator(".dok")).toBeVisible();
   expect(await row.evaluate(el => el === Reflect.get(window, "toolRow"))).toBe(true);
 });
+
+test("streamed thought updates keep the thought body mounted", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command === "send_prompt" && args?.onEvent && typeof args.onEvent === "object" && "onmessage" in args.onEvent) {
+        const channel = args.onEvent;
+        Reflect.set(window, "thoughtEvent", (event: unknown) => { if (typeof channel.onmessage === "function") channel.onmessage(event); });
+        return new Promise<T>(() => {});
+      }
+      return invoke<T>(command, args);
+    };
+  });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "live-chat" } }));
+  await page.locator("#ask").fill("Think");
+  await page.locator("#ask").press("Enter");
+  await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, "thoughtEvent"))).toBe("function");
+  await page.evaluate(() => Reflect.get(window, "thoughtEvent")({ kind: "reasoning", delta: "First thought" }));
+  const thought = page.locator(".tools .kk[data-kk]");
+  await expect(thought).toContainText("First thought");
+  await thought.evaluate(el => Reflect.set(window, "thoughtBody", el));
+  await page.evaluate(() => Reflect.get(window, "thoughtEvent")({ kind: "reasoning", delta: " continues" }));
+  await expect(thought).toContainText("First thought continues");
+  expect(await thought.evaluate(el => el === Reflect.get(window, "thoughtBody"))).toBe(true);
+});

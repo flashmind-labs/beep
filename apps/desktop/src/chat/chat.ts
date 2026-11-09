@@ -6,7 +6,7 @@ import { flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
 import { conversation } from "./conversation.ts";
 import { ChatShell } from "./chat-shell.tsx";
-import { createChatBody, createChatTurn, discardChatApproval, discardChatNotice, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatNotice, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkStep, type WorkView } from "./work-view.tsx";
+import { createChatBody, createChatTurn, discardChatApproval, discardChatNotice, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatNotice, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkStep, type WorkThought, type WorkView } from "./work-view.tsx";
 import { drawAgentButton } from "../agents/agents.ts";
 import { askFiles, attach, attached, attachError, drawAttached, unattach } from "./attach.ts";
 import type { AskFile } from "./attach.ts";
@@ -29,10 +29,10 @@ import { canPickModel, modelName, MODELS } from "../settings/model.ts";
 import { replyActs, stoppedRow } from "./rerun.ts";
 import { routeRow } from "./routes.ts";
 import { DESCRIBED, doneLabel, QUIET_TOOLS, toolLabel } from "./tools.ts";
-import { attachLive } from "../agents/thoughtlive.ts";
+import { attachLive, endLive, trackLive } from "../agents/thoughtlive.ts";
 import { followsAfterScroll, returnScroll } from "../agents/logscroll.ts";
 import { followEnd } from "../ui/followend.ts";
-import { answerHtml, errorCardHtml, liveLineHtml, thoughtHtml, tickTurns, toggleThought, turnHeadHtml, userRowHtml } from "../agents/turnrows.ts";
+import { answerHtml, errorCardHtml, tickTurns, toggleThought, turnHeadHtml, userRowHtml } from "../agents/turnrows.ts";
 import { esc, linkified, plural } from "../ui/format.ts";
 import type { ToolKind } from "../agents/agentturns.ts";
 import { refreshStatus } from "../bar/views.ts";
@@ -351,12 +351,14 @@ export function drawWork(turn: Turn) {
 
   const running = !data.done, steps = data.steps, th = data.thought, opened = !data.folded;
   const shown = opened ? steps : running ? steps.slice(-1) : [];
-  let thought = "";
+  let thought: WorkThought | null = null;
 
   if (th && (running || opened || !steps.length)) {
     const live = running && th.ms == null, folding = !live && !th.touched && !th.ended;
     if (!live) th.ended = true;
-    thought = thoughtHtml({ key: `chat:${box.dataset.key}`, text: th.text, ms: th.ms, live, folding, open: live ? !th.touched || !!th.open : !!th.open || folding });
+    const key = `chat:${box.dataset.key}`;
+    if (live) trackLive(key); else if (folding) endLive(key);
+    thought = { key, text: th.text, ms: th.ms ?? null, live, folding, open: live ? !th.touched || !!th.open : !!th.open || folding };
   }
 
   // Once the answer streams it says the turn is alive.
@@ -371,7 +373,7 @@ export function drawWork(turn: Turn) {
   const value: WorkView = {
     heading: html ? { kind: "heading", id: turnKey ?? "turn", html, state, start: data.begun ?? null, ms, stats, turn: turnKey, opened } : null,
     thought, steps: shown.map(stepRow),
-    live: live ? liveLineHtml({ state: "working", thinking, start: data.begun }) : "",
+    live: live ? { thinking, start: data.begun } : null,
   };
   const owner = turnBodies.get(turn) ?? body();
   if (!owner) return;
