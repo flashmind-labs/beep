@@ -108,18 +108,21 @@ export function overviewSection(rows: Project[]) {
   removeWindowParts(removed.map(id => `project-overview:${id}` as const));
   for (const id of removed) overviewRoots.delete(id);
   let drawing = true;
-  const out = lazyRows("projects-overview", "", groups.length, (from, to) => groups.slice(from, to).map(group => {
-    const id = key(group);
-    let entry = overviewRoots.get(id);
-    if (!entry) {
-      const host = h("section", "pj-org");
-      entry = { host };
-      overviewRoots.set(id, entry);
-    }
-    const current = entry;
-    showWindowParts([{ part: `project-overview:${id}`, host: current.host, content: createElement(OverviewGroupView, { group, sync: (name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name)) }) }]);
-    return drawing ? panelSlot(current.host) : current.host;
-  }), 0, 1, row => projectPanel(row) ?? row);
+  const out = lazyRows("projects-overview", "", groups.length, (from, to) => {
+    const visible = groups.slice(from, to).map(group => {
+      const id = key(group);
+      let entry = overviewRoots.get(id);
+      if (!entry) {
+        const host = h("section", "pj-org");
+        entry = { host };
+        overviewRoots.set(id, entry);
+      }
+      return { id, group, host: entry.host };
+    });
+    if (visible.length) showWindowParts(visible.map(({ id, group, host }) => ({ part: `project-overview:${id}` as const, host,
+      content: createElement(OverviewGroupView, { group, sync: (name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name)) }) })));
+    return visible.map(({ host }) => drawing ? panelSlot(host) : host);
+  }, 0, 1, row => projectPanel(row) ?? row);
   drawing = false;
   const add = h("div", "cc-panel cc-row pj-add", h("span", "t", h("b", "", "Add a project"), h("span", "", "A folder or a repository to clone.")), button("Add", "", addProject));
   return [...out, add];
