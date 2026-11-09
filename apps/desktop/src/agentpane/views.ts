@@ -49,7 +49,7 @@ function textView(t: MediaTab, text: TreeText) {
   if (t.preview?.active) {
     body = t.preview.loading ? '<div class="agpmsg">Loading preview…</div>'
       : t.preview.error ? `<div class="agpmsg derr">${esc(t.preview.error)}</div>`
-      : '<div class="agartframe-box"><iframe class="agartframe" sandbox="" referrerpolicy="no-referrer"></iframe></div>';
+      : '<div class="agartframe-box"><iframe class="agartframe" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe></div>';
   }
   const cut = text.cut || lines > MAX_LINES ? ` · the first ${lines > MAX_LINES ? `${MAX_LINES.toLocaleString()} lines` : shortSize(text.text.length)} shown` : "";
   const about = [rel, lang, text.binary ? "" : `${lines.toLocaleString()} lines`, shortSize(text.size)].filter(Boolean).join(" · ") + cut;
