@@ -522,10 +522,11 @@ function turnUnits(p: AgentPage): Unit[] {
         const stats = progressSummary(p.entries, group, p.earlier);
         const head = headingRow({ state: "working", ms: null, stats, key, opened });
         const seen = opened ? [] : folding.flatMap(at => AG.log?.imageLines(entry(at).text).names ?? []);
-        const pics = seen.length ? `<div class="dcoderen dfoldpics" data-row="${folding[0]}"><span class="pics">${seen.map(entryPic).join("")}</span></div>` : "";
+        const pictures = seen.map(entryPic).join("");
+        const pics: ActivityRow | null = seen.length ? { kind: "folded-pictures", id: String(folding[0]), at: folding[0], pictures, html: `<div class="dcoderen dfoldpics" data-row="${folding[0]}"><span class="pics">${pictures}</span></div>` } : null;
         const rows = rowsOf(p, opened ? section.ats : section.ats.filter(at => kept.has(at)));
         const collapse: ActivityRow | null = opened ? { kind: "note", id: `collapse:${key}`, at: key, html: collapseActivityHtml(key), value: { kind: "collapse" } } : null;
-        return [head, pics, ...rows, ...(collapse ? [collapse] : [])];
+        return [head, ...(pics ? [pics] : []), ...rows, ...(collapse ? [collapse] : [])];
       });
       const head = headingRow({ state, start, ms, stats: "", key: null, opened: false });
       const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
@@ -707,7 +708,7 @@ function showLog(b: HTMLElement, html: string, units: Unit[] | null, polled: boo
     if (sel.focusNode) held.push(sel.focusNode);
   }
 
-  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row.kind === "prompt" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row.kind === "context" && row.type === "child" ? { ...row, body: prepareInlineImages(row.body) } : row.kind === "thought" ? { ...row, html: prepareInlineImages(row.html), content: row.content === null ? null : prepareInlineImages(row.content) } : row.kind === "tool" ? { ...row, html: prepareInlineImages(row.html), after: prepareInlineImages(row.after) } : row.kind === "run" ? { ...row, html: prepareInlineImages(row.html), tools: row.tools.map(tool => ({ ...tool, after: prepareInlineImages(tool.after) })) } : row) })) ?? null;
+  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row.kind === "prompt" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row.kind === "context" && row.type === "child" ? { ...row, body: prepareInlineImages(row.body) } : row.kind === "thought" ? { ...row, html: prepareInlineImages(row.html), content: row.content === null ? null : prepareInlineImages(row.content) } : row.kind === "tool" ? { ...row, html: prepareInlineImages(row.html), after: prepareInlineImages(row.after) } : row.kind === "run" ? { ...row, html: prepareInlineImages(row.html), tools: row.tools.map(tool => ({ ...tool, after: prepareInlineImages(tool.after) })) } : row.kind === "folded-pictures" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row) })) ?? null;
   return patchRows(main, next.content, prepared, held);
 }
 
