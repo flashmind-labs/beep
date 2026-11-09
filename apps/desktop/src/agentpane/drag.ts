@@ -1,4 +1,6 @@
 // Dragging a session pane's tab to the other dock, by pointer or keys.
+import { createElement, Fragment } from "react";
+import { hasSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
 import { type Box, type Dock, dropDock, moveTab, paneSize, SIDE_BY_SIDE_MIN } from "./media-state.ts";
 import { DRAG_START, P, saveLayout, DOCK_RIGHT, DOCK_BOTTOM, shell, main, paneOf, dockOf, draw } from "./media.ts";
 
@@ -76,7 +78,12 @@ function drawDropZone(to: Dock | null) {
   }
 
   Object.assign(zone.style, { left: `${r.left - s.left}px`, top: `${r.top - s.top}px`, width: `${r.width}px`, height: `${r.height}px` });
-  zone.innerHTML = `${to === "right" ? DOCK_RIGHT : DOCK_BOTTOM}<span>${to === "right" ? "Dock on the right" : "Dock at the bottom"}</span>`;
+  if (zone.dataset.target !== to || !hasSessionPortal(zone)) {
+    zone.dataset.target = to;
+    setSessionPortal(zone, createElement(Fragment, null,
+      createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: to === "right" ? DOCK_RIGHT : DOCK_BOTTOM } }),
+      createElement("span", null, to === "right" ? "Dock on the right" : "Dock at the bottom")));
+  }
 }
 
 function tabUp(e: PointerEvent) {
