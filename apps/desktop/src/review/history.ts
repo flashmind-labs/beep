@@ -2,6 +2,7 @@ import { createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { HistoryFacts } from "./history-facts.tsx";
 import { HistoryHeader } from "./history-header.tsx";
+import { HistoryPath, HistorySessions } from "./history-sessions.tsx";
 import { TreeNode } from "./history-tree.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // The project's Git navigator and its selected commit or worktree diff.
@@ -50,6 +51,8 @@ interface ProjectHistory {
   treeRoot: Root;
   detail: HTMLElement;
   header: { element: HTMLElement; root: Root };
+  sessionsView: { element: HTMLElement; root: Root } | null;
+  pathView: { element: HTMLElement; root: Root } | null;
   foot: HTMLElement;
   search: HTMLInputElement;
   facts: { element: HTMLElement; root: Root } | null;
@@ -131,7 +134,7 @@ export function makeGitHistory(deps: HistoryDeps) {
     const headerElement = el("div");
     headerElement.style.display = "contents";
     p = { name, lists: new Map(), files: new Map(), commits: new Map(), open: new Set(["history"]), selected: null,
-      path: null, tab: "changes", query: "", nav, tree, treeRoot: createRoot(tree), detail, header: { element: headerElement, root: createRoot(headerElement) }, foot, search, facts: null, view: null, viewKey: "" };
+      path: null, tab: "changes", query: "", nav, tree, treeRoot: createRoot(tree), detail, header: { element: headerElement, root: createRoot(headerElement) }, sessionsView: null, pathView: null, foot, search, facts: null, view: null, viewKey: "" };
     projects.set(name, p);
     const current = p;
     search.addEventListener("input", () => {
@@ -292,16 +295,6 @@ export function makeGitHistory(deps: HistoryDeps) {
     p.treeRoot.render([history, branches, worktrees]);
   }
 
-  function sessionRows(p: ProjectHistory, w: GitWorktree) {
-    const all = deps.sessions(p.name);
-    const related = branchSessions(all || [], p.data?.machine_id, w.path, p.data?.worktrees.map(w => w.path));
-    return related.length ? related.map(s => {
-      const b = button(el("b", "", s.title || "Untitled session"), "gh-session-link", () => deps.openSession(s));
-      b.append(el("span", "", `${agentLabel(s.agent)} · ${s.status} · ${ago(s.last_activity)}`));
-      return b;
-    }) : [el("p", "gh-empty", all === undefined ? "Reading sessions…" : "No sessions in this worktree.")];
-  }
-
   function select(p: ProjectHistory, selected: GitSelection) {
     p.selected = selected; p.path = null; p.tab = "changes";
     renderDetail(p);
@@ -356,13 +349,25 @@ export function makeGitHistory(deps: HistoryDeps) {
       return;
     }
 
+    if (p.tab === "sessions") {
+      if (!p.sessionsView) {
+        const element = el("div", "gh-detail-body");
+        p.sessionsView = { element, root: createRoot(element) };
+      }
+      const currentTree = w || (ref && p.data.worktrees.find(tree => tree.branch === ref.name));
+      const all = deps.sessions(p.name);
+      const sessions = currentTree ? branchSessions(all || [], p.data.machine_id, currentTree.path, p.data.worktrees.map(tree => tree.path)) : [];
+      p.sessionsView.root.render(createElement(HistorySessions, { linked: !!currentTree, loading: all === undefined, sessions, open: deps.openSession }));
+      if (existingBody === p.sessionsView.element) return;
+      if (p.header.element.parentElement === p.detail && existingBody) existingBody.replaceWith(p.sessionsView.element);
+      else p.detail.replaceChildren(p.header.element, p.sessionsView.element);
+      return;
+    }
+
     const body = el("div", "gh-detail-body");
 
     if (p.tab === "details") {
       body.append(drawFacts());
-    } else if (p.tab === "sessions") {
-      const currentTree = w || (ref && p.data.worktrees.find(w => w.branch === ref.name));
-      body.append(el("div", "gh-session-view", ...(currentTree ? [el("p", "gh-empty", "Sessions in this worktree"), ...sessionRows(p, currentTree)] : [el("p", "gh-empty", "No recorded session link for this commit. Worktree sessions are listed under Worktrees.")])));
     } else {
       const path = p.path;
       const key = `${selectionKey(selected)}\0${path || ""}`;
@@ -383,7 +388,14 @@ export function makeGitHistory(deps: HistoryDeps) {
         });
       }
 
-      if (path) body.append(el("div", "gh-diff-toolbar", el("code", "", path), button("Show all files", "", () => { p.path = null; renderDetail(p); })));
+      if (path) {
+        if (!p.pathView) {
+          const element = el("div"); element.style.display = "contents";
+          p.pathView = { element, root: createRoot(element) };
+        }
+        p.pathView.root.render(createElement(HistoryPath, { path, showAll: () => { p.path = null; renderDetail(p); } }));
+        body.append(p.pathView.element);
+      }
       body.append(p.view.el);
     }
 

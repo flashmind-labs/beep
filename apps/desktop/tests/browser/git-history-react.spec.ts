@@ -94,6 +94,21 @@ test("Git tree opens branches, worktrees and changed files", async ({ page }) =>
   const file = tree.locator('.gh-file[data-path="sample.ts"]').first();
   await file.click();
   await expect(page.locator(".gh-diff-toolbar code")).toHaveText("sample.ts");
+  const showAll = page.getByRole("button", { name: "Show all files" });
+  await showAll.focus();
+  await showAll.evaluate(element => { element.dataset.identity = "kept"; });
+  await page.locator(".gh-nav-head button").filter({ hasText: "Refresh" }).evaluate(element => { if (element instanceof HTMLElement) element.click(); });
+  await expect(showAll).toHaveAttribute("data-identity", "kept");
+  await expect(showAll).toBeFocused();
+  await page.getByRole("navigation", { name: "Git views" }).getByRole("button", { name: "Sessions" }).click();
+  await expect(page.locator(".gh-session-view")).toContainText("Sessions in this worktree");
+  const session = page.locator(".gh-session-link").first();
+  await expect(session).toBeVisible();
+  await session.focus();
+  await session.evaluate(element => { element.dataset.identity = "kept"; });
+  await page.locator(".gh-nav-head button").filter({ hasText: "Refresh" }).evaluate(element => { if (element instanceof HTMLElement) element.click(); });
+  await expect(session).toHaveAttribute("data-identity", "kept");
+  await expect(session).toBeFocused();
   expect(errors).toEqual([]);
 });
 

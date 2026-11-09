@@ -1,0 +1,12 @@
+import { ago } from "../ui/format.ts";
+import { agentLabel, type SessionRow } from "../project/projects-state.ts";
+
+export function HistorySessions({ linked, loading, sessions, open }: { linked: boolean; loading: boolean; sessions: readonly SessionRow[]; open: (session: SessionRow) => void }) {
+  return <div className="gh-session-view">{linked ? <><p className="gh-empty">Sessions in this worktree</p>{sessions.length ? sessions.map(session =>
+    <button type="button" className="gh-session-link" key={`${session.machine_id}:${session.agent}:${session.id}`} onClick={() => open(session)}><b>{session.title || "Untitled session"}</b><span>{agentLabel(session.agent)} · {session.status} · {ago(session.last_activity)}</span></button>)
+    : <p className="gh-empty">{loading ? "Reading sessions…" : "No sessions in this worktree."}</p>}</> : <p className="gh-empty">No recorded session link for this commit. Worktree sessions are listed under Worktrees.</p>}</div>;
+}
+
+export function HistoryPath({ path, showAll }: { path: string; showAll: () => void }) {
+  return <div className="gh-diff-toolbar"><code>{path}</code><button type="button" onClick={showAll}>Show all files</button></div>;
+}
