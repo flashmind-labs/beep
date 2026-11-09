@@ -143,12 +143,13 @@ test("inactive views make no requests and unchanged focus never rereads healthy 
   nativeEvent("center-shown");
   await settle();
   calls.length = 0;
+  const requestsOnly = () => calls.filter(call => call.cmd !== "log_webview");
   let visible = false, reads = 0;
   const stop = subscribeTopics(topic("files"), () => reads++, "machine-a", () => visible);
   t.after(stop);
   await settle();
   t.mock.timers.tick(86_400_000);
-  assert.equal(calls.length, 0);
+  assert.equal(requestsOnly().length, 0);
   visible = true;
   refreshTopicSubscriptions();
   await settle();
@@ -158,21 +159,21 @@ test("inactive views make no requests and unchanged focus never rereads healthy 
   t.mock.timers.tick(100);
   await settle();
   assert.equal(reads, 1);
-  const requests = calls.length;
+  const requests = requestsOnly().length;
   for (let i = 0; i < 10; i++) window.dispatchEvent(new Event("focus"));
   t.mock.timers.tick(86_400_000);
   await settle();
   assert.equal(reads, 1);
-  assert.equal(calls.length, requests);
+  assert.equal(requestsOnly().length, requests);
   visible = false;
   refreshTopicSubscriptions();
   await settle();
-  assert.equal((calls.at(-1)!.args as { topics: unknown }).topics, null);
-  const cancelled = calls.length;
+  assert.equal((requestsOnly().at(-1)!.args as { topics: unknown }).topics, null);
+  const cancelled = requestsOnly().length;
   reader.onEvent.onmessage(update(2));
   await settle();
   assert.equal(reads, 1);
-  assert.equal(calls.length, cancelled + 1, "late registration retries cancellation");
+  assert.equal(requestsOnly().length, cancelled + 1, "late registration retries cancellation");
 });
 
 test("async snapshot application keeps the latest projection while paused or busy", async t => {

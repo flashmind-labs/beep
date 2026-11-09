@@ -48,6 +48,7 @@ host = [
     "dep:serde_yaml",
     "dep:sha2",
     "dep:tokio-util",
+    "dep:tracing",
     "dep:tempfile",
     "dep:toml",
     "dep:toml_edit",
@@ -136,6 +137,7 @@ tempfile = { version = "3", optional = true }
 toml = { version = "1", optional = true }
 # Writes Beep's keys into flsh's config.toml, keeping the rest as it was.
 toml_edit = { version = "0.25", optional = true }
+tracing = { version = "0.1", optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
 which = { version = "8", optional = true }
 zip = { version = "4", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }

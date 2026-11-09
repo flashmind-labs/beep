@@ -28,7 +28,7 @@ test("Choose a folder opens the sheet only: the macOS picker waits for Choose…
   click(sheet.querySelectorAll(".dchip")[1]);
   click(sheet.querySelector(".af-choose"));
   assert.ok(!calls.some(c => c.cmd === "pick_folder"), "another machine browses");
-  assert.deepEqual(calls.map(c => c.cmd), ["list_machine_folder"]);
+  assert.deepEqual(calls.filter(c => c.cmd !== "log_webview").map(c => c.cmd), ["list_machine_folder"]);
 });
 
 test("the sheet starts on this computer and a checkout with an origin is what Add project takes", () => {

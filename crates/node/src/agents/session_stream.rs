@@ -60,10 +60,15 @@ pub async fn serve_session(
     agents: Arc<Agents>,
     kind: AgentKind,
 ) -> Result<()> {
+    let mut trace = beep_proto::logging::RequestTrace::new("agent attachment");
+    trace.phase("reading request");
     let first: Request = rx
         .recv()
-        .await?
-        .context("the stream closed before its first request")?;
+        .await
+        .inspect_err(|_| trace.finish(false))?
+        .context("the stream closed before its first request")
+        .inspect_err(|_| trace.finish(false))?;
+    trace.phase("starting or attaching");
     // A start waits on its agent; a resume or attach should answer at once.
     let slow = match &first {
         Request::Resume { session, .. } => {
@@ -117,13 +122,16 @@ pub async fn serve_session(
     let session = match session {
         Ok(session) => session,
         Err(reason) => {
+            trace.finish(false);
             log::warn!("{} session refused: {reason}", kind.name);
             return tx.send(&Event::Refused { reason }).await;
         }
     };
     let mut live = session.live.clone();
 
+    trace.phase("reading session info");
     if let Err(reason) = session.named_info().await {
+        trace.finish(false);
         return tx.send(&Event::Refused { reason }).await;
     }
 
@@ -131,12 +139,14 @@ pub async fn serve_session(
     let mut seen = Seen::new(&info);
     let session_id = info.id.clone();
 
+    trace.phase("sending attachment");
     if let Err(error) = tx
         .send(&Event::Attached {
             session: Box::new(info),
         })
         .await
     {
+        trace.finish(false);
         log::warn!(
             "{} session {session_id}: failed to send attachment: {error:#}",
             kind.name
@@ -144,6 +154,8 @@ pub async fn serve_session(
         return Err(error);
     }
 
+    trace.finish(true);
+    drop(trace);
     log::info!("{} session {session_id}: attachment sent", kind.name);
 
     if seen.state.status == Status::Ended {

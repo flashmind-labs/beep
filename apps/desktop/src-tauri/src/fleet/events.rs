@@ -1044,7 +1044,10 @@ async fn follow(
         }
 
         if let Err(error) = result {
-            log::debug!("node event stream ended: {error}");
+            log::warn!(
+                "node event stream ended machine={machine} elapsed_ms={}: {error}",
+                started.elapsed().as_millis()
+            );
         }
 
         tokio::select! { _ = sleep(pause) => {}, _ = wanted.wait_for(|_| false) => return }
@@ -1074,6 +1077,11 @@ async fn stream(
     let queries = fleet.snapshots.queries(machine);
     app.state::<Events>().forget_queries(machine, &queries);
     let mut sent = (topics.clone(), queries.clone());
+    log::info!(
+        "node watch sending machine={machine} generation={generation} watch=1 topics={} queries={}",
+        topics.len(),
+        queries.len()
+    );
     let (mut tx, mut rx) = client
         .open_sending(
             events::PROTOCOL,
@@ -1110,6 +1118,11 @@ async fn stream(
             next = next
                 .checked_add(1)
                 .ok_or_else(|| DesktopError::BadRequest("request sequence exhausted".into()))?;
+            log::info!(
+                "node watch sending machine={machine} generation={generation} watch={next} topics={} queries={}",
+                topics.len(),
+                queries.len()
+            );
             watches.insert(next, topics.clone());
             timeout(
                 Duration::from_secs(15),
@@ -1147,8 +1160,9 @@ async fn stream(
                         app.state::<Events>().clear_node(machine);
                         commands.lock().unwrap_or_else(PoisonError::into_inner).insert(machine, (generation, orders.clone()));
                     },
-                    Reply::Watching { id } => { watches.remove(&id); },
+                    Reply::Watching { id } => { log::info!("node watch acknowledged machine={machine} generation={generation} watch={id}"); watches.remove(&id); },
                     Reply::Snapshot(snapshot) => {
+                        log::info!("node snapshot received machine={machine} generation={generation} query={:?} topic={} revision={}", snapshot.query, snapshot.topic.name(), snapshot.revision);
                         revision = snapshot.revision;
                         let Some(initial) = fleet.snapshots.install(machine, generation, &snapshot) else { continue; };
 
@@ -1168,7 +1182,7 @@ async fn stream(
                         }
                     },
                     Reply::SnapshotError { query, topic, reason } => {
-                        log::debug!("node snapshot failed for {topic}: {reason}");
+                        log::warn!("node snapshot failed machine={machine} generation={generation} query={query:?} topic={}: {reason}", topic.name());
                         if let Some(query) = query && !fleet.snapshots.failed(machine, generation, query, reason.clone()) { continue; }
                         invalidate(app, topic.name());
 

@@ -169,6 +169,21 @@ impl Inner {
     /// Serves a stream a peer, or this process, opened.
     async fn serve(&self, tx: LinkTx, mut rx: LinkRx, who: Who) -> Result<()> {
         let protocol = read_open(&mut rx).await?;
+        let mut trace = beep_proto::logging::RequestTrace::new(protocol.to_string());
+        trace.phase("waiting for protocol readiness");
+        let result = self.serve_protocol(tx, rx, protocol, who, &mut trace).await;
+        trace.finish(result.is_ok());
+        result
+    }
+
+    async fn serve_protocol(
+        &self,
+        tx: LinkTx,
+        rx: LinkRx,
+        protocol: SessionProtocol,
+        who: Who,
+        trace: &mut beep_proto::logging::RequestTrace,
+    ) -> Result<()> {
         // A protocol still on its way is waited for; the others are not held up.
         let mut later = self.later.subscribe();
 
@@ -180,6 +195,7 @@ impl Inner {
             bail!("the node stopped");
         }
 
+        trace.phase("serving");
         let offers = self.offers().clone();
         // Diagnostics are available to a desktop or this process, even when not lent.
         match protocol {
