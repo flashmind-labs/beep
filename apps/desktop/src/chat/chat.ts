@@ -1,5 +1,6 @@
 // chat/: chats and groups in the bar: the open chat, the list, the composer,
 // attachments and the cards under a reply. Entry: this file.
+import { renderChatWork, type WorkView } from "./work-view.tsx";
 import { drawAgentButton } from "../agents/agents.ts";
 import { askFiles, attach, attached, attachError, drawAttached } from "./attach.ts";
 import type { AskFile } from "./attach.ts";
@@ -250,6 +251,8 @@ export function makeTurn(question: string, images?: PicRef[], files?: AskFile[])
   const turn = h<Turn>(`<div class="turn dcoderlog">${question ? userRowHtml(linkified(question)) : ""}${picRow(images)}</div>`);
   fillPics(turn);
   if (files?.length) turn.append(askFiles(files));
+  const owner = body();
+  if (owner) turnBodies.set(turn, owner);
   turn.steps = [];
   turn.folded = true;
   return turn;
@@ -290,6 +293,7 @@ function stepRow(t: Step) {
 
 /// Turns drawn so far, so each thought has its own key.
 let turnCount = 0;
+const turnBodies = new WeakMap<Turn, ChatBody>();
 
 /// Draws what the turn did before its answer, as a coding agent's turn shows
 /// it: the heading with how long it worked, the thought, and the steps. A
@@ -326,10 +330,23 @@ export function drawWork(turn: Turn) {
   const live = running && !turn.querySelector(ANSWER);
   const thinking = (th != null && th.ms == null) || !steps.some(t => t.state === "run");
   const ms = turn.begun == null ? null : (turn.ended ?? Date.now()) - turn.begun;
-  box.innerHTML = turnHeadHtml({ state: running ? "working" : "done", start: turn.begun, ms, stats: steps.length ? plural(steps.length, "tool call", "tool calls") : "", key: steps.length ? box.dataset.key! : null, opened })
-    + thought + shown.map(stepRow).join("") + (live ? liveLineHtml({ state: "working", thinking, start: turn.begun }) : "");
-  attachLive(box, () => { if (turn.thought) turn.thought.touched = true; });
-  tickTurns();
+  const turnKey = steps.length ? box.dataset.key ?? null : null;
+  const state = running ? "working" : "done";
+  const stats = steps.length ? plural(steps.length, "tool call", "tool calls") : "";
+  const head = { state, start: turn.begun, ms, stats, key: turnKey, opened } as const;
+  const html = turnHeadHtml(head);
+  const value: WorkView = {
+    heading: html ? { kind: "heading", id: turnKey ?? "turn", html, state, start: turn.begun ?? null, ms, stats, turn: turnKey, opened } : null,
+    thought, steps: shown.map((step, i) => ({ key: step.id || `step:${i}`, html: stepRow(step) })),
+    live: live ? liveLineHtml({ state: "working", thinking, start: turn.begun }) : "",
+  };
+  const owner = turnBodies.get(turn) ?? body();
+  if (!owner) return;
+  turnBodies.set(turn, owner);
+  renderChatWork(owner, turn, box, value, () => {
+    attachLive(box, () => { if (turn.thought) turn.thought.touched = true; });
+    tickTurns();
+  });
 }
 
 /// The thought streaming into `turn` ended: something else came.

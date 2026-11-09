@@ -1,3 +1,4 @@
+import { discardChatWork } from "./work-view.tsx";
 import { askFiles } from "./attach.ts";
 import { ANSWER, answeredTurns, approvalCard, ASK, askText, body, drawLatest, drawWork, failed, makeTurn, newTurn, ranOn, renderChat, reply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
 import type { Asking, ToolOutput } from "./chat.ts";
@@ -209,6 +210,7 @@ function mergeTurns(b: ChatBody, drawn: Turn[]) {
 
     if (old && sameTurn(old, fresh)) {
       mergeTurn(old, fresh);
+      discardChatWork(fresh);
       kept.set(fresh, old);
       order.push(old);
       next++;
@@ -220,7 +222,7 @@ function mergeTurns(b: ChatBody, drawn: Turn[]) {
   // A turn the server's copy no longer lists goes, unless it was drawn live
   // and the copy has not caught up with it.
   for (const t of shown.slice(next)) {
-    if (t.dataset.at) t.remove();
+    if (t.dataset.at) { discardChatWork(t); t.remove(); }
     else order.push(t);
   }
 
