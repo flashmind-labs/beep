@@ -96,3 +96,28 @@ test("reply product links keep delegated actions after refresh", async ({ page }
   await link.click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "open_url" && call.args.url === "https://example.com/item"))).toBe(true);
 });
+
+test("live chat notices show errors and retain the retry action", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command === "send_prompt" && args?.onEvent && typeof args.onEvent === "object" && "onmessage" in args.onEvent) {
+        const channel = args.onEvent;
+        Reflect.set(window, "noticeEvent", (event: unknown) => { if (typeof channel.onmessage === "function") channel.onmessage(event); });
+        return new Promise<T>(() => {});
+      }
+      return invoke<T>(command, args);
+    };
+  });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "live-chat" } }));
+  await page.locator("#ask").fill("Try this");
+  await page.locator("#ask").press("Enter");
+  await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, "noticeEvent"))).toBe("function");
+  await page.evaluate(() => { const send = Reflect.get(window, "noticeEvent"); send({ kind: "error", message: "Example failure" }); send({ kind: "finished", status: "cancelled" }); });
+  await expect(page.locator(".derrcard")).toContainText("Example failure");
+  const retry = page.locator(".dstopped").getByRole("button", { name: "Retry" });
+  await expect(retry).toBeVisible();
+  await retry.click();
+  await expect(page.locator(".dstopped")).toHaveCount(0);
+});

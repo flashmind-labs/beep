@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
 import { ChatShell } from "./chat-shell.tsx";
-import { discardChatApproval, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
+import { discardChatApproval, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatNotice, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
 import { drawAgentButton } from "../agents/agents.ts";
 import { askFiles, attach, attached, attachError, drawAttached } from "./attach.ts";
 import type { AskFile } from "./attach.ts";
@@ -468,7 +468,13 @@ export function removeChatSuggestions(owner: ChatBody) {
 
 export function failed(turn: Turn, message: string) {
   turn.failed = true;
-  turn.append(h(errorCardHtml(message)));
+  const owner = owningChatBody(turn);
+  if (owner) {
+    const box = document.createElement("div");
+    box.className = "derrcard";
+    renderChatNotice(owner, turn, box, { kind: "error", message });
+    turn.append(box);
+  } else turn.append(h(errorCardHtml(message)));
   if (/removed|not linked/i.test(message)) refreshStatus();
 }
 

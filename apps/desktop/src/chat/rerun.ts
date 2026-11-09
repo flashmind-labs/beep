@@ -1,5 +1,5 @@
 import { ANSWER, askText, body, owningChatBody, follow, keepDown, newTurn, runTurn, scrollDown, startRun } from "./chat.ts";
-import { discardChatActions, discardChatWork, renderChatActions } from "./work-view.tsx";
+import { discardChatActions, discardChatNotice, discardChatWork, renderChatActions, renderChatNotice } from "./work-view.tsx";
 import { $, here, S, stopping } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
 import { PLAY_ICON } from "../lists/memories.ts";
@@ -22,7 +22,16 @@ interface ModelChoices {
 /// for one a server restart cut off, with Retry, which sends the prompt
 /// again, for a prompt sent from this chat.
 export function stoppedRow(turn: Turn, said = "Stopped") {
-  turn.querySelector(":scope > .dstopped")?.remove();
+  const old = turn.querySelector<HTMLElement>(":scope > .dstopped");
+  if (old) { discardChatNotice(turn, old); old.remove(); }
+  const owner = owningChatBody(turn);
+  if (owner) {
+    const box = document.createElement("div");
+    box.className = "dmuted dstopped";
+    renderChatNotice(owner, turn, box, { kind: "stopped", message: said, retry: !!turn.user });
+    turn.append(box);
+    return;
+  }
   const retry = turn.user ? '<button class="dbtn" data-act="retry">Retry</button>' : "";
   turn.append(h(`<div class="dmuted dstopped">${esc(said)}${retry}</div>`));
 }
