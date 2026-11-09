@@ -10,7 +10,7 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use tracing::{Event, Subscriber};
 use tracing_log::NormalizeEvent;
@@ -81,8 +81,63 @@ where
             .unwrap_or_default();
         let line = meta.line().unwrap_or_default();
         write!(writer, " {}: {file}:{line} ", meta.target())?;
+        if let Some(scope) = ctx.event_scope() {
+            for span in scope.from_root() {
+                let extensions = span.extensions();
+                if let Some(fields) =
+                    extensions.get::<tracing_subscriber::fmt::FormattedFields<N>>()
+                {
+                    write!(writer, "{}{{{fields}}} ", span.name())?;
+                }
+            }
+        }
         ctx.format_fields(writer.by_ref(), event)?;
         writeln!(writer)
+    }
+}
+
+/// Logs a request's phases and its end, including when its future is dropped.
+/// Pass operation labels only, never request bodies or credentials.
+pub struct RequestTrace {
+    id: uuid::Uuid,
+    operation: String,
+    started: Instant,
+    phase: &'static str,
+    outcome: &'static str,
+}
+
+impl RequestTrace {
+    pub fn new(operation: impl Into<String>) -> Self {
+        let trace = Self {
+            id: uuid::Uuid::new_v4(),
+            operation: operation.into(),
+            started: Instant::now(),
+            phase: "received",
+            outcome: "cancelled",
+        };
+        trace.record();
+        trace
+    }
+
+    pub fn phase(&mut self, phase: &'static str) {
+        self.phase = phase;
+        self.record();
+    }
+
+    pub fn finish(&mut self, success: bool) {
+        self.outcome = if success { "ok" } else { "error" };
+    }
+
+    fn record(&self) {
+        tracing::info!(request = %self.id, operation = self.operation, phase = self.phase,
+            elapsed_ms = self.started.elapsed().as_millis(), "request progress");
+    }
+}
+
+impl Drop for RequestTrace {
+    fn drop(&mut self) {
+        tracing::info!(request = %self.id, operation = self.operation, phase = self.phase,
+            outcome = self.outcome, elapsed_ms = self.started.elapsed().as_millis(), "request ended");
     }
 }
 

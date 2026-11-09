@@ -36,12 +36,31 @@ pub const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 /// Records cancelled calls as well as calls that complete: a caller may
 /// impose a shorter deadline than `call_within` itself.
 struct CallTiming<'a> {
+    id: u64,
     protocol: &'a str,
     peer: Option<EndpointId>,
     started: Instant,
     phase_started: Instant,
     phase: &'static str,
     outcome: &'static str,
+}
+
+impl<'a> CallTiming<'a> {
+    fn new(protocol: &'a str, peer: Option<EndpointId>) -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let now = Instant::now();
+        let timing = Self {
+            id: NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            protocol,
+            peer,
+            started: now,
+            phase_started: now,
+            phase: "open",
+            outcome: "cancelled",
+        };
+        tracing::info!(call = timing.id, protocol, ?peer, "peer call started");
+        timing
+    }
 }
 
 impl Drop for CallTiming<'_> {
@@ -51,8 +70,12 @@ impl Drop for CallTiming<'_> {
         metrics::histogram!("beep_peer_call_seconds", "protocol" => self.protocol.to_owned(), "outcome" => self.outcome).record(elapsed.as_secs_f64());
         metrics::histogram!("beep_peer_phase_seconds", "protocol" => self.protocol.to_owned(), "phase" => self.phase, "outcome" => self.outcome)
             .record(self.phase_started.elapsed().as_secs_f64());
+        tracing::info!(call = self.id, protocol = self.protocol, peer = ?self.peer,
+            phase = self.phase, outcome = self.outcome, elapsed_ms = elapsed.as_millis(),
+            phase_ms = self.phase_started.elapsed().as_millis(), "peer call ended");
         if elapsed >= Duration::from_secs(1) {
             tracing::warn!(
+                call = self.id,
                 protocol = self.protocol,
                 peer = ?self.peer,
                 phase = self.phase,
@@ -174,7 +197,16 @@ impl PeerClient {
 
     /// Reads from a live subscription when one owns this resource.
     pub async fn snapshot(&self, read: Read) -> Option<Result<Value, MeshError>> {
-        self.snapshots.as_ref()?.snapshot(read).await
+        let snapshots = self.snapshots.as_ref()?;
+        let mut timing = CallTiming::new("events/1", self.peer);
+        timing.phase = "snapshot";
+        let value = snapshots.snapshot(read).await;
+        timing.outcome = match &value {
+            Some(Ok(_)) => "ok",
+            Some(Err(_)) => "error",
+            None => "fallback",
+        };
+        value
     }
 
     /// Opens a stream for `protocol` and waits for the node to accept it.
@@ -259,19 +291,12 @@ impl PeerClient {
         protocol: &str,
         request: &Q,
     ) -> Result<R, MeshError> {
-        let now = Instant::now();
-        let mut timing = CallTiming {
-            protocol,
-            peer: self.peer,
-            started: now,
-            phase_started: now,
-            phase: "open",
-            outcome: "cancelled",
-        };
+        let mut timing = CallTiming::new(protocol, self.peer);
         let result = timeout(limit, async {
             let (_tx, mut rx) = self.open_sending(protocol, request).await?;
             metrics::histogram!("beep_peer_phase_seconds", "protocol" => protocol.to_owned(), "phase" => "open", "outcome" => "ok")
                 .record(timing.phase_started.elapsed().as_secs_f64());
+            tracing::info!(call = timing.id, protocol, "peer request sent; waiting for reply");
             timing.phase = "reply";
             timing.phase_started = Instant::now();
             rx.recv()

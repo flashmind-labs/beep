@@ -36,6 +36,7 @@ struct Completed {
 }
 
 pub(super) struct Snapshots {
+    stream: uuid::Uuid,
     generation: u64,
     revision: u64,
     entries: BTreeMap<(Topic, Option<u64>), Projection>,
@@ -46,12 +47,17 @@ pub(super) struct Snapshots {
 impl Snapshots {
     pub(super) fn new() -> Self {
         Self {
+            stream: uuid::Uuid::new_v4(),
             generation: 0,
             revision: 0,
             entries: BTreeMap::new(),
             reads: JoinSet::new(),
             next_key: None,
         }
+    }
+
+    pub(super) fn stream(&self) -> uuid::Uuid {
+        self.stream
     }
 
     pub(super) fn contains(&self, topic: &Topic) -> bool {
@@ -247,6 +253,7 @@ impl Snapshots {
         }
 
         self.generation = self.generation.wrapping_add(1);
+        tracing::info!(stream = %self.stream, generation = self.generation, pending_reads = self.reads.len(), projections = desired.len(), "subscription projections replaced");
         self.reads.abort_all();
         let mut next = BTreeMap::new();
 
@@ -345,7 +352,11 @@ impl Snapshots {
             let key = key.clone();
             let offers = offers.clone();
             let generation = self.generation;
+            let stream = self.stream;
+            tracing::info!(%stream, generation, query = key.1, topic = key.0.name(), "subscription snapshot scheduled");
             self.reads.spawn(async move {
+                let started = Instant::now();
+                tracing::info!(%stream, generation, query = key.1, topic = key.0.name(), "subscription snapshot read started");
                 let result = timeout(Duration::from_secs(60), async {
                     match source {
                         Source::Read(read) => read_value(offers, caller, read).await,
@@ -387,6 +398,7 @@ impl Snapshots {
                 .await
                 .context("snapshot read timed out")
                 .and_then(|r| r);
+                tracing::info!(%stream, generation, query = key.1, topic = key.0.name(), success = result.is_ok(), elapsed_ms = started.elapsed().as_millis() as u64, "subscription snapshot source completed");
                 let result = match result {
                     Ok(value) => tokio::task::spawn_blocking(move || {
                         let bytes = rmp_serde::to_vec(&value)?.len();
@@ -401,6 +413,7 @@ impl Snapshots {
                     .and_then(|result| result),
                     Err(error) => Err(error),
                 };
+                tracing::info!(%stream, generation, query = key.1, topic = key.0.name(), success = result.is_ok(), bytes = result.as_ref().map(|(_, bytes)| *bytes).unwrap_or(0), elapsed_ms = started.elapsed().as_millis() as u64, "subscription snapshot read completed");
                 Completed {
                     generation,
                     key,

@@ -54,3 +54,53 @@ fn a_file_from_an_earlier_day_is_moved_aside_and_old_ones_pruned() {
     );
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[derive(Clone, Default)]
+struct Captured(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl Write for Captured {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.lock().unwrap().write(bytes)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn rotating_log_format_keeps_nested_span_fields_and_request_outcomes() {
+    let output = Captured::default();
+    let writer = output.clone();
+    let subscriber = tracing_subscriber::registry().with(
+        tracing_subscriber::fmt::layer()
+            .event_format(TextLayout)
+            .with_ansi(false)
+            .with_writer(move || writer.clone()),
+    );
+    tracing::subscriber::with_default(subscriber, || {
+        let outer = tracing::info_span!("connection", stream = 7);
+        let _outer = outer.enter();
+        let inner = tracing::info_span!("query", query = 9);
+        let _inner = inner.enter();
+        let mut completed = RequestTrace::new("folder");
+        completed.phase("sending");
+        completed.finish(true);
+        drop(completed);
+        let mut failed = RequestTrace::new("worktrees");
+        failed.finish(false);
+        drop(failed);
+        drop(RequestTrace::new("attachment"));
+    });
+    let bytes = output.0.lock().unwrap();
+    let text = std::str::from_utf8(&bytes).unwrap();
+    assert!(
+        text.contains("connection{stream=7} query{query=9}"),
+        "{text}"
+    );
+    assert!(text.contains("outcome=\"ok\""), "{text}");
+    assert!(text.contains("outcome=\"error\""), "{text}");
+    assert!(text.contains("outcome=\"cancelled\""), "{text}");
+    assert!(text.contains("phase=\"sending\""), "{text}");
+    assert!(text.lines().all(|line| line.contains("request=")), "{text}");
+}
