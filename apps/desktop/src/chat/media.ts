@@ -1,11 +1,12 @@
-import { commandKey } from "../ui/platform.ts";
-import { hostOf } from "../settings/apps.ts";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { Viewer } from "./viewer-view.tsx";
 import { IMAGE_TYPES } from "./compose-text.ts";
 import { focusAsk, owningChatBody } from "./chat.ts";
 import { renderChatProduct, renderChatReplyPictures, renderChatSentFile } from "./work-view.tsx";
 import { $, bar } from "../bar/core.ts";
-import { hints } from "../bar/hints.ts";
-import { COPY_ICON, ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -235,17 +236,25 @@ export function replyPic(turn: Turn, pic: SentImage) {
 export const V: { pics: ViewerPic[]; at: number } = { pics: [], at: 0 };
 let viewerHost = bar;
 let viewerFocus: HTMLElement | null = null;
+let viewer: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+
+function disposeViewer() {
+  const current = viewer; viewer = null;
+  if (!current) return;
+  current.observer.disconnect(); current.root.unmount(); current.host.remove();
+}
 
 export function openViewer(pics: ViewerPic[], at: number, host = bar) {
-  viewerHost = host;
   viewerFocus = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+  disposeViewer();
+  viewerHost = host;
   Object.assign(V, { pics, at });
   $("#keys")?.remove();
   drawViewer();
 }
 
 export function closeViewer() {
-  document.getElementById("viewer")?.remove();
+  disposeViewer();
   if (viewerFocus?.isConnected) viewerFocus.focus(); else focusAsk();
   viewerFocus = null;
 }
@@ -254,39 +263,17 @@ type ViewerAct = "prev" | "next" | "close" | "save" | "copy" | "open";
 
 /// The open picture over the whole bar, with arrows when there are more.
 export function drawViewer() {
-  const p = V.pics[V.at], many = V.pics.length > 1;
-  const name = p.file ? p.file.name : p.name || hostOf(p.url);
-  const about = [many ? `${V.at + 1} of ${V.pics.length}` : "", p.file ? [fileKind(p.file), p.file.size ? fileSize(p.file.size) : ""].filter(Boolean).join(", ") : ""].filter(Boolean).join(" · ");
-  const keeps = !!p.file || !!p.saves;
-  const acts = keeps
-    ? `<button class="dbtn" data-v="copy">${COPY_ICON}Copy<kbd>⌘C</kbd></button><button class="dbtn pri" data-v="save">${ICON.save}Save<kbd>⌘S</kbd></button>`
-    : p.url.startsWith("data:") ? "" : `<button class="dbtn" data-v="open">Open in browser</button>`;
-  const nav = (dir: "prev" | "next", on: boolean) => many ? `<button class="nav${dir === "prev" ? " prev" : ""}" data-v="${dir}" aria-label="${dir === "prev" ? "Previous" : "Next"}"${on ? "" : " disabled"}>${ICON.chev}</button>` : "";
-  const keys = [...(many ? [["← →", "move"]] : []), ...(keeps ? [["⌘S", "save"], ["⌘C", "copy"]] : []), ["esc", "close"]];
-  const el = h(`<div class="dover dviewer" id="viewer" role="dialog" aria-modal="true" aria-label="${esc(name)}">
-    <div class="vt"><span class="tt"><b>${esc(name)}</b><small>${esc(about)}</small></span>${acts}<button class="dbtn" data-v="close" aria-label="Close">${ICON.x}</button></div>
-    <div class="vi">${nav("prev", V.at > 0)}<img alt="${esc(p.caption)}">${nav("next", V.at < V.pics.length - 1)}</div>
-    <div class="cap">${esc(p.caption)}</div>${hints(keys)}</div>`);
-  const img = el.querySelector("img")!;
-  const gone = () => img.replaceWith(h(`<div class="dmuted dcenter dfill">${GONE_PIC}</div>`));
-  img.onerror = gone;
-  if (p.file) loadPic(p.file.id, p.file.mime).then(url => url ? (img.src = url) : gone());
-  else img.src = p.url;
-  el.addEventListener("click", e => { const b = (e.target as Element).closest<HTMLElement>("[data-v]"); if (b) viewerAct(b.dataset.v as ViewerAct); });
-  // Keep viewer keys out of the composer and the window's page navigation.
-  el.addEventListener("keydown", e => {
-    e.stopPropagation();
-
-    if (e.key === "Tab") {
-      const buttons = [...el.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
-      const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
-      e.preventDefault();
-      buttons[(at + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length]?.focus();
-    } else viewerKeys(e, commandKey(e));
-  });
-  const old = document.getElementById("viewer");
-  old ? old.replaceWith(el) : viewerHost.append(el);
-  el.querySelector<HTMLButtonElement>('[data-v="close"]')?.focus();
+  if (viewer && !viewer.host.isConnected) disposeViewer();
+  if (!viewer) {
+    const host = document.createElement("div");
+    host.style.display = "contents";
+    viewerHost.append(host);
+    const root = createRoot(host);
+    const observer = new MutationObserver(() => { if (viewer?.host === host && !host.isConnected) disposeViewer(); });
+    observer.observe(document.body, { childList: true, subtree: true });
+    viewer = { host, root, observer };
+  }
+  flushSync(() => viewer?.root.render(createElement(Viewer, { pictures: V.pics, at: V.at })));
 }
 
 export function viewerAct(a: ViewerAct) {
@@ -368,7 +355,7 @@ export function notice(text: string, { path, bad }: { path?: string; bad?: boole
   document.getElementById("saved")?.remove();
   const el = h(`<div class="dsaved${bad ? " bad" : ""}" id="saved" role="status"><span>${esc(text)}</span>${path ? '<button class="dbtn">Show in Finder</button>' : ""}</div>`);
   el.querySelector("button")?.addEventListener("click", () => invoke("reveal_file", { path }).catch(() => {}));
-  (document.getElementById("viewer")?.parentElement ?? bar).append(el);
+  (viewer?.host.parentElement ?? bar).append(el);
   clearTimeout(noticeTimer);
   noticeTimer = setTimeout(() => el.remove(), 5000);
 }

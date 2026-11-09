@@ -1,0 +1,40 @@
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { commandKey } from "../ui/platform.ts";
+import { hostOf } from "../settings/apps.ts";
+import { hints } from "../bar/hints.ts";
+import { COPY_ICON, ICON } from "../ui/icons.ts";
+import { fileKind, fileSize, GONE_PIC, loadPic, viewerAct, viewerKeys, type ViewerPic } from "./media.ts";
+
+function ViewerImage({ picture }: { picture: ViewerPic }) {
+  const file = picture.file;
+  const [url, setUrl] = useState<string | null>(file ? null : picture.url);
+  const [gone, setGone] = useState(false);
+  useEffect(() => {
+    if (!file) return;
+    let active = true;
+    void loadPic(file.id, file.mime).then(value => { if (active) { if (value) setUrl(value); else setGone(true); } });
+    return () => { active = false; };
+  }, [file?.id, file?.mime]);
+  return gone ? <div className="dmuted dcenter dfill">{GONE_PIC}</div> : <img alt={picture.caption ?? ""} src={url ?? undefined} onError={() => setGone(true)} />;
+}
+
+export function Viewer({ pictures, at }: { pictures: ViewerPic[]; at: number }) {
+  const picture = pictures[at], many = pictures.length > 1;
+  const close = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => { close.current?.focus(); }, [at]);
+  const name = picture.file ? picture.file.name : picture.name || hostOf(picture.url);
+  const about = [many ? `${at + 1} of ${pictures.length}` : "", picture.file ? [fileKind(picture.file), picture.file.size ? fileSize(picture.file.size) : ""].filter(Boolean).join(", ") : ""].filter(Boolean).join(" · ");
+  const keeps = !!picture.file || !!picture.saves;
+  const keys: [string, string][] = [...(many ? [["← →", "move"] as [string, string]] : []), ...(keeps ? [["⌘S", "save"] as [string, string], ["⌘C", "copy"] as [string, string]] : []), ["esc", "close"]];
+  return <div className="dover dviewer" id="viewer" role="dialog" aria-modal="true" aria-label={name} onKeyDown={event => {
+    event.stopPropagation();
+    if (event.key === "Tab") {
+      const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")], index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      event.preventDefault(); buttons[(index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length]?.focus();
+    } else viewerKeys(event.nativeEvent, commandKey(event.nativeEvent));
+  }}>
+    <div className="vt"><span className="tt"><b>{name}</b><small>{about}</small></span>{keeps ? <><button className="dbtn" data-v="copy" onClick={() => viewerAct("copy")}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: COPY_ICON }} />Copy<kbd>⌘C</kbd></button><button className="dbtn pri" data-v="save" onClick={() => viewerAct("save")}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: ICON.save }} />Save<kbd>⌘S</kbd></button></> : !picture.url.startsWith("data:") && <button className="dbtn" data-v="open" onClick={() => viewerAct("open")}>Open in browser</button>}<button ref={close} className="dbtn" data-v="close" aria-label="Close" onClick={() => viewerAct("close")} dangerouslySetInnerHTML={{ __html: ICON.x }} /></div>
+    <div className="vi">{many && <button className="nav prev" data-v="prev" aria-label="Previous" disabled={at === 0} onClick={() => viewerAct("prev")} dangerouslySetInnerHTML={{ __html: ICON.chev }} />}<ViewerImage key={at} picture={picture} />{many && <button className="nav" data-v="next" aria-label="Next" disabled={at === pictures.length - 1} onClick={() => viewerAct("next")} dangerouslySetInnerHTML={{ __html: ICON.chev }} />}</div>
+    <div className="cap">{picture.caption}</div><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: hints(keys) }} />
+  </div>;
+}

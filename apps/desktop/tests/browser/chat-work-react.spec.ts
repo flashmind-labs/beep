@@ -66,12 +66,12 @@ test("reply files stay mounted during refresh and open on request", async ({ pag
 
 test("reply pictures keep their viewer actions after a history refresh", async ({ page }) => {
   const image = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==";
-  const history = [{ role: "user", text: "Show an image", at: 1, images: [], model: "", thinking: "" }, { role: "assistant", html: "<p>Here.</p>", tools: [{ name: "send_image", label: "Show image", success: true, route: null, file: null, images: [{ url: image, caption: "Example" }], products: null, cards: null, chart: null }], replies: [], model: "" }];
+  const history = [{ role: "user", text: "Show an image", at: 1, images: [], model: "", thinking: "" }, { role: "assistant", html: "<p>Here.</p>", tools: [{ name: "send_image", label: "Show image", success: true, route: null, file: null, images: [{ url: image, caption: "Example" }, { url: image, caption: "Second" }], products: null, cards: null, chart: null }], replies: [], model: "" }];
   await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, session_agents: [], session_files: [], session_sources: [], list_questions: [] });
   await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
-  const picture = page.locator(".drpics button.pic");
+  const picture = page.locator(".drpics button.pic").first();
   await expect(picture).toBeVisible();
-  await expect(page.locator(".drpic")).not.toHaveClass(/wait/);
+  await expect(page.locator(".drpic").first()).not.toHaveClass(/wait/);
   await picture.focus();
   await picture.evaluate(el => Reflect.set(window, "replyPicture", el));
   await page.evaluate(() => window.__navigation.emit("sessions-changed", "chat-example"));
@@ -80,6 +80,12 @@ test("reply pictures keep their viewer actions after a history refresh", async (
   await picture.click();
   await expect(page.locator("#viewer")).toBeVisible();
   await expect(page.locator("#viewer .cap")).toHaveText("Example");
+  await expect(page.locator("#viewer [data-v=close]")).toBeFocused();
+  await page.locator("#viewer").press("ArrowRight");
+  await expect(page.locator("#viewer .cap")).toHaveText("Second");
+  await page.locator("#viewer").press("Escape");
+  await expect(page.locator("#viewer")).toHaveCount(0);
+  await expect(picture).toBeFocused();
 });
 
 test("reply product links keep delegated actions after refresh", async ({ page }) => {
