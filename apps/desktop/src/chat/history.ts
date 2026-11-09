@@ -88,6 +88,7 @@ export async function refreshSession(id: string) {
 /// opens at its newest prompts, and draws earlier ones as the reader nears the top.
 const undrawn = new WeakMap<ChatBody, HistoryTurn[]>();
 const watching = new WeakSet<ChatBody>();
+const snapshots = new WeakMap<ChatBody, { id: string; contents: string; revision: number }>();
 /// How near the top, in pixels, the reader draws earlier turns.
 const NEAR_TOP = 1500;
 
@@ -95,7 +96,16 @@ export function drawHistory(id: string, turns: HistoryTurn[]) {
   // Approvals answered here stay gone until the server stops listing them.
   const asking = new Set(answeredTurns.keep(id, turns.flatMap(t => t.role === "approval" ? [t.query_id] : []), q => q));
   turns = turns.filter(t => t.role !== "approval" || asking.has(t.query_id));
-  const b = body()!;
+  const b = body()!, owner = conversation(b), contents = JSON.stringify(turns);
+  const previous = snapshots.get(b);
+  // A full snapshot can repeat without changing any turn. Side data still
+  // refreshes independently, while the existing rendered turns stay intact.
+  if (previous && previous.id === id && previous.contents === contents && previous.revision === owner.revision) {
+    drawChatTop();
+    loadSides(id, b);
+    keepWaitingQuestions(id);
+    return;
+  }
   // From the oldest prompt already shown, else the newest few.
   const shown = conversation(b).turns.map(turnState).find(state => state.messageAt !== null)?.messageAt ?? null;
   const kept = turns.findIndex(t => t.role === "user" && t.at === shown);
@@ -111,6 +121,7 @@ export function drawHistory(id: string, turns: HistoryTurn[]) {
   // Only the latest reply's follow-ups still make sense.
   if (last) suggestions(last.turn, last.replies);
   const merged = mergeTurns(b, drawn);
+  snapshots.set(b, { id, contents, revision: owner.revision });
   // An approval card drawn here belongs to the turn the chat keeps.
   const e = live.get(id);
 
