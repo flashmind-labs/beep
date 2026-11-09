@@ -4,6 +4,7 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // The bar under a project page: its prompt, harness picker and checkout, and
 // starting or resuming a coding agent from it.
 import { makeStartComposer } from "../agents/start-composer.ts";
+import { sessionPicks } from "../agents/session.ts";
 import { reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 import { filterProjects } from "./projects-state.ts";
@@ -294,7 +295,9 @@ export async function startIssues(rows: readonly StartRow[], done: (started: Sta
     const model = same && pc.modelFor === `${machine_id}/${agent}` ? pc.picked.model.trim() || null : null;
 
     try {
-      await invoke<Started>("agent_start", { machineId: machine_id, agent, cwd, prompt: issuePrompt(entry), chat: null, model, effort: same ? pc.picked.effort : null, checkout });
+      const effort = same ? pc.picked.effort : null;
+      const session = await invoke<Started>("agent_start", { machineId: machine_id, agent, cwd, prompt: issuePrompt(entry), chat: null, model, effort, checkout });
+      if (model || effort) sessionPicks.set(session.session.id, { model: model ?? "", effort });
     } catch (e) {
       return { started, failed: row, error: reason(e) };
     }
@@ -397,6 +400,7 @@ async function startFromBar() {
     const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd, text => { c.err.textContent = text; });
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
     const started = await invoke<Started>("agent_start", { machineId: place.machine_id, agent, cwd, prompt, chat: null, model, effort, checkout, images });
+    if (model || effort) sessionPicks.set(started.session.id, { model: model ?? "", effort });
     c.input.value = "";
     barAttachments.clear();
     pc.target = null;

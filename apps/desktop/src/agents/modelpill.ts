@@ -15,7 +15,7 @@ export function drawModelPill() {
   const can = SWITCHES.has(s.agent) && !s.external && s.status !== "ended";
   const p = sessionPicks.get(s.id) ?? { model: "", effort: null };
   const why = can ? "Switch the model or thinking; applies from the next turn" : `${agentKind(s.agent).name} cannot switch models in a running session`;
-  el.innerHTML = `<button class="agc-pill agm" id="agmodelb" aria-expanded="${AG.modelOpen}" title="${esc(why)}"${can ? "" : " disabled"}>${pillInner(s.agent, p.model, p.effort, s.machine_id)}</button>`;
+  el.innerHTML = `<button class="agc-pill agm" id="agmodelb" aria-expanded="${AG.modelOpen}" title="${esc(why)}"${can ? "" : " disabled"}>${pillInner(s.agent, p.model || "Model unknown", p.effort, s.machine_id)}</button>`;
 }
 
 export function toggleModelPicker() {
