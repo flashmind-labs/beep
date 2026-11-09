@@ -1,6 +1,6 @@
 import { AppLogo } from "./applogo-view.tsx";
 import { BackgroundView, type BackgroundQuestions } from "./background-view.tsx";
-import { createElement, Fragment, memo, useEffect, useRef, useState, type ReactElement } from "react";
+import { createElement, Fragment, memo, useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { COPY_ICON, ICON } from "../ui/icons.ts";
@@ -32,7 +32,7 @@ interface ReplyActions { copy: boolean; rerun: boolean; agent: string | null }
 interface ApprovalView { app: string; action: string; fields: ApprovalField[]; grant: boolean; answer: (decision: Decision) => void }
 type StatusNotice = { kind: "label"; message: string } | { kind: "error"; message: string } | { kind: "stopped"; message: string; retry: boolean };
 interface TurnFrame { prompt: boolean; pictures: boolean }
-interface Owner { background: Map<HTMLElement, { key: number; value: BackgroundQuestions; signature: string }>; disposed: boolean; menus: Map<HTMLElement, { key: number; value: RerunView }>; coders: Map<HTMLElement, { key: number; view: ReactElement }>; routes: Map<HTMLElement, { key: number; callId: string }>; frames: Map<HTMLElement, { key: number; value: TurnFrame; setTurn(element: HTMLDivElement | null): void }>; host: HTMLElement | null; body: ChatBody | null; setBody(element: HTMLDivElement | null): void; charts: Map<ChartCard, { key: number; chart: Chart }>; notices: Map<HTMLElement, { key: number; value: StatusNotice }>; products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: DocumentView; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
+interface Owner { background: Map<HTMLElement, { key: number; value: BackgroundQuestions; signature: string }>; disposed: boolean; menus: Map<HTMLElement, { key: number; value: RerunView }>; coders: Map<HTMLElement, { key: number; view: ReactElement }>; routes: Map<HTMLElement, { key: number; callId: string }>; frames: Map<HTMLElement, { key: number; value: TurnFrame; setTurn(element: HTMLDivElement | null): void }>; host: HTMLElement | null; body: ChatBody | null; setBody(element: HTMLDivElement | null): void; charts: Map<ChartCard, { key: number; chart: Chart }>; notices: Map<HTMLElement, { key: number; value: StatusNotice }>; products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: DocumentView; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; store: RowStore<WorkView> }>; replies: Map<HTMLElement, { key: number; store: RowStore<string> }>; next: number }
 // A retained chat body owns all its portals, including detached turns while
 // history is merged. Transfer moved hosts before discarding the fresh turn.
 const owners = new WeakMap<ChatBody, Owner>();
@@ -162,6 +162,23 @@ function LiveLine({ value }: { value: WorkLive }) {
 const Work = memo(function Work({ value }: { value: WorkView }) {
   return <>{value.heading && <AgentTurnHeading value={value.heading} />}{value.thought && <Thought value={value.thought} />}{value.steps.map(step => <WorkStepRow key={step.key} step={step} />)}{value.live && <LiveLine value={value.live} />}</>;
 });
+// Streaming updates notify only their row; portal membership remains synchronous.
+interface RowStore<T> { get(): T; subscribe(listener: () => void): () => void; set(value: T): void }
+function rowStore<T>(initial: T): RowStore<T> {
+  let value = initial;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => value,
+    subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    set: next => { if (Object.is(value, next)) return; value = next; flushSync(() => { for (const listener of listeners) listener(); }); },
+  };
+}
+const WorkSlot = memo(function WorkSlot({ store }: { store: RowStore<WorkView> }) {
+  return <Work value={useSyncExternalStore(store.subscribe, store.get, store.get)} />;
+});
+const ReplySlot = memo(function ReplySlot({ store }: { store: RowStore<string> }) {
+  return <Html html={useSyncExternalStore(store.subscribe, store.get, store.get)} />;
+});
 function draw(owner: Owner) {
   if (owner.disposed) return;
   flushSync(() => owner.root.render(createElement(Fragment, null,
@@ -183,8 +200,8 @@ function draw(owner: Owner) {
     ...[...owner.approvals].map(([host, row]) => createPortal(createElement(Approval, { value: row.value }), host, row.key)),
     ...[...owner.suggestions].map(([host, row]) => createPortal(createElement(Suggestions, { replies: row.replies, send: row.send }), host, row.key)),
     ...[...owner.prompts].map(([host, row]) => createPortal(createElement(Prompt, { html: row.html }), host, row.key)),
-    ...[...owner.rows].map(([host, row]) => createPortal(createElement(Work, { value: row.value }), host, row.key)),
-    ...[...owner.replies].map(([host, row]) => createPortal(createElement(Html, { html: row.html }), host, row.key)))));
+    ...[...owner.rows].map(([host, row]) => createPortal(createElement(WorkSlot, { store: row.store }), host, row.key)),
+    ...[...owner.replies].map(([host, row]) => createPortal(createElement(ReplySlot, { store: row.store }), host, row.key)))));
 }
 function makeOwner(host: HTMLElement | null): Owner {
   const container = host ?? document.createElement("div");
@@ -503,8 +520,8 @@ export function renderChatWork(body: ChatBody, turn: Turn, box: HTMLElement, val
   };
   const prior = current.rows.get(box);
   const apply = (next: WorkView, done: () => void) => {
-    current.rows.set(box, { key: prior?.key ?? ++current.next, value: next });
-    draw(current);
+    if (prior) prior.store.set(next);
+    else { current.rows.set(box, { key: ++current.next, store: rowStore(next) }); draw(current); }
     done();
   };
   turns.set(turn, { owner: current, box });
@@ -529,9 +546,12 @@ export function renderChatWork(body: ChatBody, turn: Turn, box: HTMLElement, val
 export function renderChatReply(body: ChatBody, turn: Turn, box: HTMLElement, html: string) {
   const owner = ownerOf(body), prior = owner.replies.get(box);
   replyTurns.set(turn, { owner, box });
-  if (prior?.html === html && !replyPending.has(box)) return;
+  if (prior?.store.get() === html && !replyPending.has(box)) return;
   const selected = () => { const selection = document.getSelection(); return !!selection && !selection.isCollapsed && selection.containsNode(box, true); };
-  const apply = (value: string) => { owner.replies.set(box, { key: prior?.key ?? ++owner.next, html: value }); draw(owner); };
+  const apply = (value: string) => {
+    if (prior) prior.store.set(value);
+    else { owner.replies.set(box, { key: ++owner.next, store: rowStore(value) }); draw(owner); }
+  };
   if (prior && selected()) {
     const waiting = replyPending.get(box);
     if (waiting) { waiting.html = html; return; }
