@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
-import { flushSync } from "react-dom";
+import { Fragment, useLayoutEffect, useRef, type ReactNode } from "react";
+import { createPortal, flushSync } from "react-dom";
 import type { Root } from "react-dom/client";
 import { openBarPage } from "../bar/page-root.ts";
 import { ICON } from "../ui/icons.ts";
@@ -7,7 +7,35 @@ import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
 
 type Dock = "bottom" | "right";
 interface Frame { head: ReactNode; field: ReactNode; body: HTMLElement; hints: string }
-let current: { host: HTMLElement; root: Root; revision: number; release(): void } | null = null;
+interface Owner { host: HTMLElement; root: Root; revision: number; frame: Frame; portals: Map<HTMLElement, { key: number; view: ReactNode }>; children: Map<string, ReactNode>; next: number; release(): void }
+let current: Owner | null = null;
+
+function draw(owner: Owner) {
+  flushSync(() => owner.root.render(<Fragment><FrameView frame={owner.frame} revision={owner.revision} />{[...owner.children].map(([key, view]) => <Fragment key={`child:${key}`}>{view}</Fragment>)}{[...owner.portals].map(([host, entry]) => createPortal(entry.view, host, entry.key))}</Fragment>));
+}
+
+export function setSessionChild(key: string, view: ReactNode) {
+  const owner = current;
+  if (!owner) return;
+  if (view === null) owner.children.delete(key); else owner.children.set(key, view);
+  draw(owner);
+}
+
+// Pane views retain their own hosts while the session root owns their React
+// children. Removing a view must release its portal before removing the host.
+export function setSessionPortal(host: HTMLElement, view: ReactNode) {
+  const owner = current;
+  if (!owner) return;
+  const prior = owner.portals.get(host);
+  owner.portals.set(host, { key: prior?.key ?? ++owner.next, view });
+  draw(owner);
+}
+
+export function removeSessionPortal(host: HTMLElement) {
+  const owner = current;
+  if (!owner?.portals.delete(host)) return;
+  draw(owner);
+}
 
 export function DraftHead({ project }: { project: string }) {
   return <><span className="tt"><b><button className="agproj" id="agproj">{project}</button></b><small id="aghere" /></span><span id="agedit" className="agedit" /></>;
@@ -29,11 +57,11 @@ export function SessionField({ mode, name, banner }: { mode: "native" | "readonl
 export function showSessionFrame(frame: Frame, inPlace: boolean, release: () => void) {
   if (!inPlace || !current?.host.isConnected) {
     const page = openBarPage(() => { const old = current; current = null; old?.release(); });
-    current = { ...page, revision: 0, release };
-  } else current.release = release;
+    current = { ...page, revision: 0, frame, portals: new Map(), children: new Map(), next: 0, release };
+  } else { current.release = release; current.frame = frame; }
   const owner = current;
-  const revision = ++owner.revision;
-  flushSync(() => owner.root.render(<FrameView frame={frame} revision={revision} />));
+  owner.revision++;
+  draw(owner);
 }
 
 function BodySlot({ body }: { body: HTMLElement }) {
