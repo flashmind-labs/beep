@@ -1,6 +1,7 @@
 import { createElement, type MouseEvent } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { GroupFormView } from "./group-form-view.tsx";
 import { GroupInviteView, type GroupInvite, type InviteState } from "./group-invite-view.tsx";
 import { GroupInfoView } from "./group-info-view.tsx";
 import { GroupMessages } from "./group-view.tsx";
@@ -502,52 +503,38 @@ export type GroupFormMode = "new" | "code" | "join";
 /// The ⌘G form's state.
 export const J: { mode: GroupFormMode; name: string; found: FoundGroup | null; error: string; busy: boolean } = { mode: "new", name: "", found: null, error: "", busy: false };
 
+let formRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+function disposeGroupForm() {
+  const current = formRoot;
+  formRoot = null;
+  if (current) { current.observer.disconnect(); current.root.unmount(); }
+}
 export function renderGroupNew(mode: GroupFormMode = "new") {
+  disposeGroupForm();
+  J.busy = false;
   S.view = "gnew";
   if (mode !== J.mode) J.error = "";
   J.mode = mode;
-  const head = (t: string, sub: string, icon: string) => `<div class="dhead">${icon}<span class="tt"><b>${esc(t)}</b><small>${esc(sub)}</small></span></div>`;
-  const logo = `<span class="dlogo" style="background:var(--accent)">${ICON.group}</span>`;
-  // Each form's Cancel and the field that takes focus.
-  let cancel: () => unknown = renderChats, first: string;
-
-  if (mode === "new") {
-    bar.innerHTML = head("New group", "Chat with people, and Beep helps when it can", logo) + `<div class="dform">
-      <label class="dfield">Group name<input id="jname" maxlength="80" autocomplete="off" spellcheck="false" value="${esc(J.name ?? "")}"></label>
-      <label class="dfield">Your name in the group<input id="jme" maxlength="40" autocomplete="off" spellcheck="false" value="${esc(memberName())}"></label>
-      <div class="dmuted dblock">You get a code to send to people. Anyone with Beep who enters it can join.</div>
-      ${J.error ? `<div class="derr">${esc(J.error)}</div>` : ""}
-      <div class="row"><button class="dbtn" id="jcode">Join with a code</button><span class="dfill"></span><button class="dbtn quiet" id="jcancel">Cancel</button><button class="dbtn pri" id="jgo">Create<kbd>${ICON.ret}</kbd></button></div>
-    </div>` + hints([[ICON.ret, "create"], ["tab", "next field"], ["esc", "back"]]);
-    $$("#jcode").addEventListener("click", () => renderGroupNew("code"));
-    first = "#jname";
-  } else if (mode === "code") {
-    bar.innerHTML = head("Join a group", "Enter the code someone sent you", logo) + `<div class="dform">
-      <label class="dfield${J.error ? " err" : ""}">Invite code<input id="jtoken" class="mono" maxlength="80" autocomplete="off" spellcheck="false" placeholder="K7QM4-X9TRP">
-        <span class="note">${esc(J.error || "Ten letters and digits, like K7QM4-X9TRP. A beep://group link works too.")}</span></label>
-      <div class="row"><button class="dbtn quiet" id="jcancel">Cancel</button><button class="dbtn pri" id="jgo">Find group<kbd>${ICON.ret}</kbd></button></div>
-    </div>` + hints([[ICON.ret, "find"], ["esc", "back"]]);
-    cancel = () => renderGroupNew("new");
-    first = "#jtoken";
-  } else {
-    const p = J.found!.preview;
-    const others = p.members.length ? `${p.members.join(", ")} and Beep are in it` : "Beep is in it";
-    bar.innerHTML = head(`Join ${p.name}?`, others, `<span class="davs">${p.members.slice(0, 3).map(n => av(n)).join("")}${av("Beep")}</span>`) + `<div class="dform">
-      <div class="dinfo dmut"><div>Beep can use your memories to help the group. It never shows or quotes them to others.</div><div>When Beep answers you, it runs with your apps and your account, never someone else's.</div><div>You get a notification for each new message.</div></div>
-      <label class="dfield${J.error ? " err" : ""}">Your name in the group<input id="jme" maxlength="40" autocomplete="off" spellcheck="false" value="${esc(memberName())}">
-        <span class="note">${esc(J.error || "The others see this name next to your messages")}</span></label>
-      <div class="row"><button class="dbtn" id="jcancel">Not now</button><button class="dbtn pri" id="jgo">Join group<kbd>${ICON.ret}</kbd></button></div>
-    </div>` + hints([[ICON.ret, "join"], ["esc", "back"]]);
-    first = "#jme";
-  }
-
-  $$("#jcancel").addEventListener("click", cancel);
-  $$("#jgo").addEventListener("click", groupFormGo);
-  $$(first).focus();
+  const host = document.createElement("div");
+  host.style.display = "contents";
+  bar.replaceChildren(host);
+  const root = createRoot(host);
+  const observer = new MutationObserver(() => { if (formRoot?.host === host && !host.isConnected) disposeGroupForm(); });
+  observer.observe(document.body, { childList: true, subtree: true });
+  formRoot = { host, root, observer };
+  const members = J.found?.preview.members ?? [];
+  const help = mode === "new" ? [[ICON.ret, "create"], ["tab", "next field"], ["esc", "back"]] : [[ICON.ret, mode === "code" ? "find" : "join"], ["esc", "back"]];
+  flushSync(() => root.render(createElement(GroupFormView, {
+    mode, name: J.name, member: memberName(), error: J.error, preview: J.found?.preview ?? null,
+    avatars: members.slice(0, 3).map(n => av(n)).join("") + av("Beep"), hints: hints(help),
+    changeMode: renderGroupNew, cancel: renderChats, go: () => void groupFormGo(),
+  })));
 }
 
 export async function groupFormGo() {
-  if (J.busy) return;
+  const owner = formRoot;
+  if (J.busy || !owner) return;
+  const current = () => formRoot === owner && S.view === "gnew";
   const val = (sel: string) => $<HTMLInputElement>(sel)?.value.trim() ?? "";
   const focus = (sel: string) => $$(sel).focus();
   J.busy = true;
@@ -560,6 +547,7 @@ export async function groupFormGo() {
       keepMemberName(me);
       J.name = name;
       const group = await invoke<GroupSummary>("create_group", { name, memberName: me });
+      if (!current()) return;
       J.name = "";
       renderInvite(group.id, group.name);
     } else if (J.mode === "code") {
@@ -567,8 +555,11 @@ export async function groupFormGo() {
       if (!code) return;
 
       try {
-        J.found = await invoke<FoundGroup>("peek_group", { code });
+        const found = await invoke<FoundGroup>("peek_group", { code });
+        if (!current()) return;
+        J.found = found;
       } catch (e) {
+        if (!current()) return;
         J.error = String(e);
         return renderGroupNew("code");
       }
@@ -582,17 +573,20 @@ export async function groupFormGo() {
 
       try {
         const group = await invoke<GroupSummary>("join_group", { token: J.found!.token, memberName: me });
+        if (!current()) return;
         keepMemberName(me);
         renderGroup(group.id);
       } catch (e) {
+        if (!current()) return;
         J.error = String(e);
         renderGroupNew("join");
       }
     }
   } catch (e) {
+    if (!current()) return;
     J.error = String(e);
     renderGroupNew(J.mode);
   } finally {
-    J.busy = false;
+    if (current()) J.busy = false;
   }
 }
