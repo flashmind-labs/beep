@@ -3,7 +3,7 @@
 //! an interactive one live while typing into it.
 
 use crate::{
-    beep::{Beep, Service, epoch_ms},
+    beep::{Beep, SERVER_ENABLED, Service, epoch_ms},
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines,
@@ -263,7 +263,7 @@ pub async fn terminal_output(
 
 #[tauri::command]
 pub async fn terminal_close(beep: Service<'_>, fleet: Machines<'_>, id: Uuid) -> Result<()> {
-    if direct::has(&fleet, id) {
+    if !SERVER_ENABLED || direct::has(&fleet, id) {
         return direct::close(&fleet, id).await;
     }
 
@@ -401,7 +401,7 @@ pub async fn terminal_attach(
     rows: u32,
     on_event: Channel<TermEvent>,
 ) -> Result<()> {
-    if direct::has(&fleet, id) {
+    if !SERVER_ENABLED || direct::has(&fleet, id) {
         let (mut tx, mut rx) = match direct::attach(&fleet, id, from, cols, rows).await? {
             Opened::Live { tx, rx } => (tx, rx),
             Opened::Over(event) => {

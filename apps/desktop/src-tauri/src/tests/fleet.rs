@@ -52,6 +52,27 @@ pub(super) async fn start(name: &str) -> Mac {
     }
 }
 
+#[tokio::test]
+async fn a_removed_terminal_ends_its_saved_tab_and_can_be_closed_again() {
+    let mac = start("build-box").await;
+    let id = uuid::Uuid::new_v4();
+    let opened = terminals::attach(&mac.fleet, id, 0, 100, 30)
+        .await
+        .expect("a missing terminal reports its end");
+    assert!(matches!(
+        opened,
+        terminals::Opened::Over(beep_proto::TerminalEvent::Ended {
+            state: beep_proto::TerminalState::Gone {}
+        })
+    ));
+    terminals::close(&mac.fleet, id)
+        .await
+        .expect("closing a removed terminal is idempotent");
+    terminals::close(&mac.fleet, id)
+        .await
+        .expect("closing it again succeeds");
+}
+
 pub(super) async fn until(mesh: &Mesh, ok: impl Fn(&Mesh) -> bool) {
     let mut updates = mesh.updates();
     timeout(LIMIT, async {
