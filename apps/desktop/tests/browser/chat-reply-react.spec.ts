@@ -181,3 +181,31 @@ test("an approval answered elsewhere releases its card", async ({ page }) => {
   await expect(page.locator("#body")).toContainText("Answered");
   await expect.poll(() => page.evaluate(() => { const old = Reflect.get(window, "remoteApproval"); return old instanceof HTMLElement && !old.isConnected && old.childElementCount === 0; })).toBe(true);
 });
+
+test("reply actions retain focus during history refresh", async ({ page }) => {
+  const user = { role: "user", text: "Explain", at: 1, images: [], model: "", thinking: "" };
+  const answer = { role: "assistant", html: "<p>Answer</p>", tools: [], replies: [], model: "" };
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [user, answer], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const copy = page.locator('.dreplyacts [data-act="copyReply"]');
+  await expect(copy).toBeVisible();
+  await copy.focus();
+  await copy.evaluate(el => Reflect.set(window, "replyCopy", el));
+  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_session").length);
+  await page.evaluate(() => window.__navigation.emit("sessions-changed", "chat-example"));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_session").length)).toBeGreaterThan(reads);
+  expect(await copy.evaluate(el => el === Reflect.get(window, "replyCopy") && document.activeElement === el)).toBe(true);
+});
+
+test("rerunning a turn releases its detached React content", async ({ page }) => {
+  const user = { role: "user", text: "Explain", at: 1, images: [], model: "", thinking: "" };
+  const answer = { role: "assistant", html: "<p>Answer</p>", tools: [], replies: ["Follow up"], model: "one" };
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, get_models: { choices: [{ id: "one", name: "One", input_price: null, output_price: null, sees_images: false, default: true }], selected: "one", thinking: "", auto: false, auto_available: false }, open_session: [user, answer], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const actions = page.locator(".dreplyacts");
+  await expect(actions.locator('[data-act="rerunMenu"]')).toBeVisible();
+  await actions.evaluate(el => Reflect.set(window, "oldReplyActions", el));
+  await actions.locator('[data-act="rerunMenu"]').click();
+  await page.getByRole("menuitem", { name: /One/ }).click();
+  await expect.poll(() => page.evaluate(() => { const node = Reflect.get(window, "oldReplyActions"); return node instanceof HTMLElement && !node.isConnected && node.childElementCount === 0; })).toBe(true);
+});

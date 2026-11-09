@@ -1,4 +1,5 @@
-import { ANSWER, askText, body, follow, keepDown, newTurn, runTurn, scrollDown, startRun } from "./chat.ts";
+import { ANSWER, askText, body, owningChatBody, follow, keepDown, newTurn, runTurn, scrollDown, startRun } from "./chat.ts";
+import { discardChatActions, discardChatWork, renderChatActions } from "./work-view.tsx";
 import { $, here, S, stopping } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
 import { PLAY_ICON } from "../lists/memories.ts";
@@ -29,14 +30,18 @@ export function stoppedRow(turn: Turn, said = "Stopped") {
 /// Copy, and for admins Rerun, under a finished reply, then the agent that
 /// answered it when there was one.
 export function replyActs(turn: Turn) {
-  turn.querySelector(".dreplyacts")?.remove();
-  const text = turn.querySelector<HTMLElement>(ANSWER)?.innerText.trim();
-  const rerun = canPickModel() && turn.user;
-  if (!text && !rerun && !turn.agent) return;
-  const agent = turn.agent ? `<span class="dagent" title="The agent that answered">${esc(turn.agent)}</span>` : "";
-  const row = h(`<div class="dreplyacts">${text ? `<button class="dcopy" data-act="copyReply">${COPY_ICON}Copy</button>` : ""}${rerun ? `<span class="drerun"><button class="dcopy" data-act="rerunMenu" aria-haspopup="menu" aria-expanded="false">${PLAY_ICON}Rerun<span class="dchev">${ICON.chev}</span></button></span>` : ""}${agent}</div>`);
-  const replies = turn.querySelector(".dreplies");
-  replies ? turn.insertBefore(row, replies) : turn.append(row);
+  const text = !!turn.querySelector<HTMLElement>(ANSWER)?.innerText.trim();
+  const rerun = !!(canPickModel() && turn.user), agent = turn.agent ?? null;
+  let row = turn.querySelector<HTMLElement>(".dreplyacts");
+  if (!text && !rerun && !agent) { discardChatActions(turn); row?.remove(); return; }
+  if (!row) {
+    row = document.createElement("div"); row.className = "dreplyacts";
+    const replies = turn.querySelector(".dreplies");
+    replies ? turn.insertBefore(row, replies) : turn.append(row);
+  }
+  const owner = owningChatBody(turn);
+  if (owner) renderChatActions(owner, turn, row, { copy: text, rerun, agent });
+  else row.innerHTML = `${text ? `<button class="dcopy" data-act="copyReply">${COPY_ICON}Copy</button>` : ""}${rerun ? `<span class="drerun"><button class="dcopy" data-act="rerunMenu" aria-haspopup="menu" aria-expanded="false">${PLAY_ICON}Rerun<span class="dchev">${ICON.chev}</span></button></span>` : ""}${agent ? `<span class="dagent" title="The agent that answered">${esc(agent)}</span>` : ""}`;
 }
 export function closeRerunMenu() {
   const menu = $(".dmenu");
@@ -85,7 +90,7 @@ export async function rerun(turn: Turn, model: string | null, thinking: string |
   const index = turns.filter(t => t.user).indexOf(turn);
   if (index < 0) return;
   const question = askText(turn);
-  for (const t of turns.slice(turns.indexOf(turn))) t.remove();
+  for (const t of turns.slice(turns.indexOf(turn))) { discardChatWork(t); t.remove(); }
   const fresh = newTurn(question);
   fresh.user = true;
 
