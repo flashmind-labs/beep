@@ -3,9 +3,8 @@
 // unless the user ticks to delete it there too.
 import { invoke } from "../ui/tauri.ts";
 import { el } from "../ui/dom.ts";
-import { dbtn, svgEl } from "../ui/parts.ts";
+import { dbtn } from "../ui/parts.ts";
 import { confirmSheet, type MenuItem } from "../ui/menu.ts";
-import { IC } from "../ui/icons.ts";
 import { state } from "../center/state.ts";
 import { refresh } from "../center/refresh.ts";
 import { loadWhere } from "./loads.ts";
@@ -41,11 +40,11 @@ function confirmRemove(project: string, m: WhereRow) {
   });
 }
 
-/// The quiet x at the end of a row with the project: off, with why, on the
+/// Removal on a machine header: disabled, with why, on the
 /// last machine and while an agent works there.
 export function removeButton(project: string, rows: readonly WhereRow[], m: WhereRow) {
   const why = blocked(project, rows, m);
-  const b = dbtn(svgEl(IC.x) ?? "", "quiet small rmx", () => confirmRemove(project, m));
+  const b = dbtn("Remove", "small warn", () => confirmRemove(project, m));
   b.setAttribute("aria-label", `Remove from ${m.name}`);
 
   if (!why) {

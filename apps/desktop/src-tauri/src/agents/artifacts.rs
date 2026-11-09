@@ -13,7 +13,9 @@
 //! by a relative URL (`chart.png`, `css/site.css`) is asked for under the
 //! same token and read from beside the page on its machine, through the
 //! same read path: only from the page's folder and the folders under it,
-//! a bounded number of files and bytes per page.
+//! a bounded number of files and bytes per page. File previews use the
+//! project root as their asset boundary and keep the entry path in the URL,
+//! allowing parent-relative dependencies within the project.
 
 use crate::{
     agents::files::read_part,
@@ -50,7 +52,7 @@ const MAX_ARTIFACT: u64 = 5 * 1024 * 1024;
 const KEPT_PAGES: usize = 8;
 
 /// How many files beside it one page may load.
-const MAX_PAGE_FILES: u32 = 64;
+const MAX_PAGE_FILES: u32 = 1024;
 
 /// How many bytes of files beside it one page may load in all.
 const MAX_PAGE_BYTES: u64 = 32 * 1024 * 1024;
@@ -72,11 +74,6 @@ const PAGE_CSP: &str = "default-src 'none'; \
     connect-src https: beepview:; frame-src 'none'; form-action 'none'; \
     base-uri 'none'; sandbox allow-scripts";
 
-/// File previews load only local assets and cannot run scripts.
-const PREVIEW_CSP: &str = "default-src 'none'; style-src 'unsafe-inline' beepview:; \
-    img-src data: blob: beepview:; font-src data: beepview:; media-src data: blob: beepview:; \
-    frame-src 'none'; form-action 'none'; base-uri 'none'; sandbox";
-
 /// The HTML pages ready to serve, by the token in their URL.
 pub struct Pages {
     kept: Mutex<VecDeque<Arc<Page>>>,
@@ -95,7 +92,7 @@ impl Default for Pages {
 
 struct Page {
     token: Uuid,
-    preview: bool,
+    entry: String,
     html: Arc<Vec<u8>>,
     place: Place,
     /// Files beside it asked for so far.
@@ -175,15 +172,15 @@ impl RelPath {
 impl Pages {
     /// Keeps `html`, read from `place`, to serve, returning its URL.
     fn keep(&self, html: Vec<u8>, place: Place) -> String {
-        self.keep_with_policy(html, place, false)
+        self.keep_at(html, place, String::new())
     }
 
-    fn keep_with_policy(&self, html: Vec<u8>, place: Place, preview: bool) -> String {
+    fn keep_at(&self, html: Vec<u8>, place: Place, entry: String) -> String {
         let token = Uuid::new_v4();
         let mut kept = self.kept.lock().unwrap_or_else(|e| e.into_inner());
         kept.push_back(Arc::new(Page {
             token,
-            preview,
+            entry: entry.clone(),
             html: Arc::new(html),
             place,
             files: AtomicU32::new(0),
@@ -194,7 +191,15 @@ impl Pages {
             kept.pop_front();
         }
 
-        format!("{SCHEME}://localhost/{token}/")
+        let mut url = url::Url::parse(&format!("{SCHEME}://localhost/{token}/"))
+            .expect("the fixed preview URL is valid");
+        if !entry.is_empty() {
+            url.path_segments_mut()
+                .expect("preview URLs have path segments")
+                .pop_if_empty()
+                .extend(entry.split('/'));
+        }
+        url.to_string()
     }
 
     fn get(&self, token: Uuid) -> Option<Arc<Page>> {
@@ -268,13 +273,33 @@ pub async fn agent_artifact(
     let kind = kind_of(&path).ok_or_else(|| {
         DesktopError::BadRequest("Only pages, documents and pictures show here.".into())
     })?;
-    let place = Place::of(machine_id.clone(), root.clone(), &path);
+    let is_preview = preview.unwrap_or(false);
+    let mut place = Place::of(machine_id.clone(), root.clone(), &path);
+    let entry = if is_preview {
+        let relative = path
+            .strip_prefix(&format!("{}/", root.trim_end_matches('/')))
+            .unwrap_or(&path);
+        // Validate decoded filesystem segments before encoding them in the URL.
+        if relative.starts_with('/')
+            || relative.split('/').any(|part| {
+                part.is_empty() || part == "." || part == ".." || part.contains(['\\', '\0'])
+            })
+        {
+            return Err(DesktopError::BadRequest(
+                "Preview must be inside the project.".into(),
+            ));
+        }
+        place.folder.clear();
+        relative.to_owned()
+    } else {
+        String::new()
+    };
     let (data, size) = read_whole(&beep, &fleet, machine_id, root, path).await?;
     Ok(match kind {
         Kind::Html => ArtifactView::Html {
             size,
-            src: if preview.unwrap_or(false) {
-                pages.keep_with_policy(data, place, true)
+            src: if is_preview {
+                pages.keep_at(data, place, entry)
             } else {
                 pages.keep(data, place)
             },
@@ -403,22 +428,24 @@ pub fn route(pages: &Pages, request: &Request<Vec<u8>>) -> Route {
         return Route::Done(status(StatusCode::NOT_FOUND));
     };
 
-    if rest.is_empty() {
+    let rel = if rest.is_empty() {
+        None
+    } else {
+        RelPath::parse(rest)
+    };
+    if rest.is_empty() || rel.as_ref().is_some_and(|path| path.0 == page.entry) {
         return Route::Done(respond(
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
-                .header(
-                    header::CONTENT_SECURITY_POLICY,
-                    if page.preview { PREVIEW_CSP } else { PAGE_CSP },
-                )
+                .header(header::CONTENT_SECURITY_POLICY, PAGE_CSP)
                 .header(header::REFERRER_POLICY, "no-referrer")
                 .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
                 .body(page.html.as_ref().clone()),
         ));
     }
 
-    let Some(rel) = RelPath::parse(rest) else {
+    let Some(rel) = rel else {
         return Route::Done(status(StatusCode::NOT_FOUND));
     };
 
@@ -464,14 +491,7 @@ impl FileRead {
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, self.mime)
-                .header(
-                    header::CONTENT_SECURITY_POLICY,
-                    if self.page.preview {
-                        PREVIEW_CSP
-                    } else {
-                        PAGE_CSP
-                    },
-                )
+                .header(header::CONTENT_SECURITY_POLICY, PAGE_CSP)
                 .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
                 // The sandboxed page's origin is opaque; its module
                 // scripts and fonts load with CORS.
