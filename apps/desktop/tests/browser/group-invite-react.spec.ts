@@ -42,3 +42,19 @@ test("invite failure is shown and back returns to the group", async ({ page }) =
   await page.keyboard.press("Escape");
   await expect(page.locator("#gask")).toBeVisible();
 });
+
+test("group views reuse the bar root across info and invite", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_group: { group, messages: [] }, group_typing: false, group_invite: invite, list_group_reminders: [] });
+  await page.evaluate(() => window.__navigation.open({ group: { id: "group" } }));
+  await expect(page.locator("#gask")).toBeVisible();
+  await page.locator("#bar > div").first().evaluate(el => Reflect.set(window, "groupPageHost", el));
+  await page.locator("#ginfo").click();
+  await expect(page.locator("#ginfobody")).toBeVisible();
+  expect(await page.locator("#bar > div").first().evaluate(el => el === Reflect.get(window, "groupPageHost"))).toBe(true);
+  await page.locator("#ginvite").click();
+  await expect(page.locator(".code.big")).toHaveText("ABC123");
+  expect(await page.locator("#bar > div").first().evaluate(el => el === Reflect.get(window, "groupPageHost"))).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#gask")).toBeVisible();
+  expect(await page.locator("#bar > div").first().evaluate(el => el === Reflect.get(window, "groupPageHost"))).toBe(true);
+});
