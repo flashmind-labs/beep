@@ -37,6 +37,22 @@ function setup() {
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
+test("session status updates preserve the status element for writable and read-only sessions", t => {
+  const { page } = setup();
+  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  bar.insertAdjacentHTML("afterbegin", '<span id="agstate"></span>');
+  const status = () => bar.querySelector("#agstate .dstate");
+  drawAgentBody();
+  const first = status(); assert.ok(first); assert.equal(first.textContent, "Working");
+  drawAgentBody(undefined, true); assert.equal(status(), first);
+  page.session.status = "asking"; drawAgentBody(undefined, true);
+  assert.equal(status(), first); assert.equal(first.textContent, "Waiting for you");
+  bar.querySelector("#agfield")?.remove();
+  page.session.external = true; drawAgentBody();
+  const readonly = status(); assert.ok(readonly); drawAgentBody(undefined, true);
+  assert.equal(status(), readonly);
+});
+
 test("streaming agent replies keep their element across updates", t => {
   const { page } = setup();
   t.after(() => { disposeQueue(); stopAgentFollow(); });
