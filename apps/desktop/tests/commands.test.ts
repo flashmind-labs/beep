@@ -14,7 +14,7 @@ const BUILT = ["dismiss_notice", "open_notice", "play_notice"];
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(e => {
     const path = join(dir, e.name);
-    return e.isDirectory() ? sources(path) : path.endsWith(".ts") ? [path] : [];
+    return e.isDirectory() ? sources(path) : /\.tsx?$/.test(path) ? [path] : [];
   });
 }
 
