@@ -6,6 +6,7 @@ import { flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
 import { conversation } from "./conversation.ts";
 import { ChatShell } from "./chat-shell.tsx";
+import { updateChatNavigation } from "./navigation-view.tsx";
 import { createChatBody, createChatTurn, disposeChatBody, discardChatApproval, discardChatNotice, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatNotice, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkStep, type WorkThought, type WorkView } from "./work-view.tsx";
 import { drawAgentButton } from "../agents/agents.ts";
 import { askFiles, attach, attached, attachError, drawAttached, unattach } from "./attach.ts";
@@ -20,7 +21,7 @@ import { AnsweredIds } from "./approvals.ts";
 import { fillAppTiles } from "./applogo.ts";
 import type { LiveEntry, PendingApproval } from "../bar/core.ts";
 import { currentChatHints, refreshHints } from "../bar/hints.ts";
-import { drawThrough, earlierPrompts, loadTurnAgent, sourceRow } from "./history.ts";
+import { loadTurnAgent, sourceRow } from "./history.ts";
 import type { WebSource } from "./history.ts";
 import { heard, takeDraft } from "../bar/live.ts";
 import { productRow, replyPic, sentFile } from "./media.ts";
@@ -38,7 +39,6 @@ import type { ToolKind } from "../agents/agentturns.ts";
 import { refreshStatus } from "../bar/views.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
 import { h } from "../ui/dom.ts";
-import { ICON } from "../ui/icons.ts";
 import type { ChatBody, Step, Turn } from "../ui/turn.ts";
 import { dragHandle } from "../ui/drag.ts";
 
@@ -97,13 +97,6 @@ interface ModelPick {
   auto: boolean;
   selected: string;
   thinking: string;
-}
-
-/// The right-edge map of prompts, which keeps the turns its ticks stand for,
-/// after a tick for each earlier prompt not drawn yet.
-interface PromptMap extends HTMLElement {
-  turns?: Turn[];
-  early?: number;
 }
 
 const retiringBodies = new WeakSet<ChatBody>();
@@ -210,70 +203,11 @@ export function scrollDown() { const b = body(); if (b) { b.stuck = true; b.scro
 export function keepDown() { if (body()?.stuck !== false) scrollDown(); }
 
 /// While the user reads back, a button that jumps to the newest text.
-export function drawLatest() {
-  const want = S.view === "chat" && body()?.stuck === false;
-  const btn = $("#latest");
-  if (!want) return btn?.remove();
-  if (btn) return;
-  const el = h(`<button class="dbtn dlatest" id="latest"><span class="down">${ICON.chev}</span>Latest</button>`);
-  el.addEventListener("click", () => { scrollDown(); drawLatest(); focusAsk(); });
-  bar.append(el);
-}
+export function drawLatest() { const b = body(); if (b) updateChatNavigation(b); }
 
-/// Past this many prompts the map hides until the chat is hovered.
-export const MAP_QUIET_AFTER = 12;
-
-/// A tick per prompt on the right edge once the chat scrolls: hover one to read
-/// the prompt, click it to jump there. Prompts not drawn yet have ticks too,
-/// spread above the drawn ones; a click draws them.
-export function drawMap() {
-  const b = body();
-  const turns = b && S.view === "chat" ? conversation(b).turns.filter(t => t.querySelector(ASK)) : [];
-  const early = b ? earlierPrompts(b) : [];
-  let map = $<PromptMap>("#map");
-  if (!b || turns.length < 2 || b.scrollHeight <= b.clientHeight + 4) return map?.remove();
-  if (!map) map = bar.appendChild(h<PromptMap>('<div class="dmap" id="map" aria-label="Prompts in this chat"></div>'));
-  const all = early.length + turns.length;
-  // A long chat's ticks are a wall of noise: they show only on hover.
-  map.classList.toggle("many", all > MAP_QUIET_AFTER);
-
-  if (map.early !== early.length || map.turns?.length !== turns.length || map.turns.some((t, i) => t !== turns[i])) {
-    map.turns = turns;
-    map.early = early.length;
-    const tick = (q: string, jump: () => void) => {
-      const tk = h('<button class="tk"><i></i><span class="tip"></span></button>');
-      tk.querySelector(".tip")!.textContent = q;
-      tk.setAttribute("aria-label", q);
-      tk.addEventListener("click", () => { jump(); focusAsk(); });
-      return tk;
-    };
-    map.replaceChildren(
-      ...early.map((q, i) => tick(q, () => {
-        drawThrough(b, i);
-        const t = conversation(b).turns.filter(t => t.querySelector(ASK))[i];
-        if (t) b.scrollTop = t.offsetTop - b.offsetTop - 6;
-      })),
-      ...turns.map(t => tick(askText(t), () => b.scrollTo({ top: t.offsetTop - b.offsetTop - 6, behavior: "smooth" }))),
-    );
-  }
-
-  map.style.top = b.offsetTop + "px";
-  map.style.height = b.clientHeight + "px";
-  // Earlier prompts spread evenly above; the drawn ones by where they sit, in the share of the track their count takes.
-  const place = (i: number, at: number) => { (map!.children[i] as HTMLElement).style.top = Math.min(97, Math.max(3, at / all * 100)) + "%"; };
-  early.forEach((_, i) => place(i, i));
-  turns.forEach((t, i) => place(early.length + i, early.length + (t.offsetTop - b.offsetTop) / b.scrollHeight * turns.length));
-  markMap();
-}
-/// Marks the prompt whose turn is at the top of the view.
-export function markMap() {
-  const b = body(), map = $<PromptMap>("#map");
-  if (!b || !map?.turns) return;
-  const early = map.early ?? 0;
-  let cur = early;
-  map.turns.forEach((t, i) => { if (t.offsetTop - b.offsetTop <= b.scrollTop + b.clientHeight / 3) cur = early + i; });
-  [...map.children].forEach((tk, i) => tk.classList.toggle("on", i === cur));
-}
+/// Prompt navigation reads layout at most once per frame.
+export const drawMap = drawLatest;
+export const markMap = drawLatest;
 
 export function newTurn(question: string, images?: PicRef[], files?: AskFile[]) {
   const turn = makeTurn(question, images, files);
