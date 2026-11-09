@@ -2,10 +2,13 @@
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 import { onShownChange } from "../ui/active.ts";
 import { invoke } from "../ui/tauri.ts";
-import { HOME_SEARCH, INSTALL, INSTALL_WINDOWS, KINDS, START, next, timeLeft, machineById, describeMachine, macOption, withSearch, inviteArgs } from "./addmachine-state.ts";
+import { START, next, machineById, inviteArgs } from "./addmachine-state.ts";
 import type { AddEvent, MacSeen, TicketKind } from "./addmachine-state.ts";
-import { button, el, present } from "../ui/dom.ts";
-import { copyButton, openSheet } from "../ui/parts.ts";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { openSheet } from "../ui/parts.ts";
+import { AddMachineBody } from "./addmachine-view.tsx";
 import type { MacControl, MachineView } from "./machine-state.ts";
 
 /// A ticket as `mesh_invite` gives it (TokenView).
@@ -28,8 +31,8 @@ let creation = 0;
 let ticker: Timer, poller: (() => void) | undefined, close: (() => void) | null = null, onClose: (() => void) | null = null;
 // This Mac's mac_control view, and whether the sheet turned it on.
 let mac: MacSeen | null = null, macAsked = false, macPoller: (() => void) | undefined;
-// Where the new machine looks for projects; it goes on the setup command.
-let searchInput: HTMLInputElement | null = null;
+let reactRoot: Root | null = null;
+let opening = 0;
 
 onShownChange(visible => {
   clearInterval(ticker);
@@ -41,40 +44,21 @@ onShownChange(visible => {
   }
 });
 
-function codeLine(text: string) {
-  return el("div", "am-line", el("div", "am-code", text), copyButton(text));
-}
-
 /// Opens the sheet over the window. `options.onClose` runs once it closes,
 /// as when the window wants to refresh its machines.
 export function openAddMachine(options: { onClose?: () => void } = {}) {
   if (root) return;
   onClose = options.onClose || null;
+  opening++;
   kind = "node";
   ({ root, sheet, close } = openSheet("Add a machine", "am-sheet", { onClose: closed }));
+  reactRoot = createRoot(sheet);
   ticker = setInterval(() => update({ type: "tick", now: Date.now() }), TICK_MS);
   mac = null;
   macAsked = false;
   loadMac();
   macPoller = subscribeTopics(topic("machines"), () => loadMac());
-  searchInput = el("input", "am-code am-search");
-  searchInput.value = HOME_SEARCH;
-  searchInput.setAttribute("aria-label", "Search for projects in");
-  searchInput.spellcheck = false;
-  searchInput.addEventListener("input", () => {
-    const shown = sheet && sheet.querySelector(".am-cmd");
-    const now = commandLine();
-    if (shown && now) shown.replaceWith(now);
-  });
   start();
-}
-
-/// The setup command to copy, with the search folder when it is not home.
-function commandLine() {
-  if (state.step !== "waiting") return null;
-  const line = codeLine(withSearch(state.command, searchInput ? searchInput.value : ""));
-  line.classList.add("am-cmd");
-  return line;
 }
 
 /// Closes the sheet.
@@ -84,6 +68,9 @@ export function closeAddMachine() {
 
 function closed() {
   creation++;
+  opening++;
+  reactRoot?.unmount();
+  reactRoot = null;
   clearInterval(ticker);
   poller?.();
   macPoller?.();
@@ -138,9 +125,10 @@ async function poll() {
 
 /// Reads where this Mac stands and redraws its option.
 async function loadMac() {
+  const asked = opening;
   try {
     const view = await invoke<MacControl>("mac_control");
-    if (!root) return;
+    if (!root || asked !== opening) return;
     mac = view;
   } catch (e) {
     console.warn("this computer's state:", e);
@@ -152,154 +140,38 @@ async function loadMac() {
 
 /// Turns on Let Beep use this Mac.
 async function useThisMac() {
+  const asked = opening;
   macAsked = true;
 
   try {
-    mac = await invoke<MacControl>("set_mac_control", { enabled: true });
+    const view = await invoke<MacControl>("set_mac_control", { enabled: true });
+    if (!root || asked !== opening) return;
+    mac = view;
   } catch (e) {
+    if (!root || asked !== opening) return;
     mac = { ...mac, enabled: true, status: "failed", error: String(e) };
   }
 
   if (root) drawMac();
 }
 
-/// Redraws only the Mac option, so the token lines keep their state.
-function drawMac() {
-  if (!sheet) return;
-  const was = sheet.querySelector(".am-mac");
-  const now = macBlock();
-  if (was && now) was.replaceWith(now);
-  else if (!!was !== !!now) draw();
-}
-
-/// Where the sheet says how it goes: the wait for the token.
-function statusLine() {
-  if (state.step !== "waiting") return el("div", "am-status");
-  return el("div", "am-status am-wait",
-    el("span", "dspin"),
-    `Waiting for ${kind === "phone" ? "the phone" : kind === "desktop" ? "the other desktop" : "the machine"} · works once, `,
-    el("span", "left", `${timeLeft(state.expiresAt, Date.now())} left`),
-    el("span", "end", button("Cancel", "dbtn quiet", closeAddMachine)));
-}
-
-/// "Use this Mac" and where it stands, above the steps for other machines.
-function macBlock() {
-  if (state.step === "linked" || state.step === "paired") return null;
-  const option = macOption(mac, macAsked);
-  if (!option) return null;
-  const status = option.busy
-    ? el("div", "am-wait", el("span", "dspin"), option.text)
-    : el("div", `am-msg${option.bad ? " bad" : ""}`, option.done ? el("span", "ddot") : null, option.done ? " " : null, option.text);
-  return el("div", "am-mac",
-    el("div", "am-label", "This computer"),
-    option.button
-      ? el("div", "am-line", el("div", "am-mac-text", option.text), button(option.button, "dbtn pri", useThisMac))
-      : status);
-}
+function drawMac() { draw(false); }
 
 function update(event: AddEvent) {
-  const was = state;
+  const previous = state;
   state = next(state, event);
-
-  if (state.step !== "waiting") {
-    poller?.();
-    poller = undefined;
-  }
-
-  if (!root) return;
-  // A tick only moves the countdown.
-  if (state === was && event.type === "tick") return tickOnly();
-  draw();
+  if (state.step !== "waiting") { poller?.(); poller = undefined; }
+  if (root) draw(event.type !== "tick" || state !== previous);
 }
 
-function tickOnly() {
-  const left = sheet && sheet.querySelector(".am-wait .left");
-  if (left && state.step === "waiting") left.textContent = `${timeLeft(state.expiresAt, Date.now())} left`;
-}
-
-function draw() {
-  const box = sheet!;
-  const mine = macBlock();
-  const other = mine && state.step !== "linked" && state.step !== "paired" ? el("div", "am-label am-other", "Another machine") : null;
-  const done = state.step === "linked" || state.step === "paired" || state.step === "expired";
-  box.replaceChildren(el("div", "am-head", el("b", "", "Add a machine"), el("kbd", "", "esc")), ...present([done ? null : kindPicker(), mine, other, ...body()]));
+function draw(focus = true) {
+  if (!sheet || !reactRoot) return;
+  const box = sheet;
+  flushSync(() => reactRoot?.render(createElement(AddMachineBody, {
+    state, kind, mac, macAsked, now: Date.now(),
+    selectKind: (selected: TicketKind) => { if (kind !== selected) { kind = selected; void start(); } },
+    useThisMac: () => { void useThisMac(); }, start: () => { void start(); }, close: closeAddMachine,
+  })));
   const first = box.querySelector("button");
-  if (first && !box.contains(document.activeElement)) first.focus();
-}
-
-/// What the ticket is for.
-function kindPicker() {
-  const card = (k: TicketKind, title: string, sub: string) => {
-    const b = el("button", "dbtn am-kind", el("b", "", title), el("span", "", sub));
-    b.type = "button";
-    b.setAttribute("role", "radio");
-    b.setAttribute("aria-checked", String(kind === k));
-    b.addEventListener("click", () => { if (kind === k) return; kind = k; start(); });
-    return b;
-  };
-  const group = el("div", "am-kinds", ...KINDS.map(k => card(k.kind, k.title, k.sub)));
-  group.setAttribute("role", "radiogroup");
-  group.setAttribute("aria-label", "Kind of machine");
-  return group;
-}
-
-function body() {
-  switch (state.step) {
-    case "loading":
-      return [el("div", "am-wait", el("span", "dspin"), "Making a ticket")];
-    case "waiting":
-      if (kind === "desktop" || kind === "phone") {
-        if (kind === "phone" && state.qrSvg) {
-          const qr = el("div", "am-phone-qr");
-          qr.innerHTML = state.qrSvg;
-          qr.setAttribute("aria-label", "Phone pairing QR code");
-          const manual = el("details", "am-phone-manual", el("summary", "", "Copy ticket instead"), codeLine(state.command));
-          return present([el("div", "am-label", "Scan with your phone"), qr,
-            el("div", "am-os", "In Beep on your phone, open Linked devices, tap Link workspace, then scan this code. It works once and expires in 5 minutes."),
-            manual, statusLine()]);
-        }
-
-        return present([
-          el("div", "am-label", "Ticket"),
-          codeLine(state.command),
-          el("div", "am-os", kind === "phone"
-            ? "On your phone, open Devices and paste this ticket. It proves the phone may join, works once and expires in 5 minutes. Keep it private."
-            : "On the other desktop, open Machines, then Link another desktop, and paste this ticket."),
-          statusLine(),
-        ]);
-      }
-
-      return present([
-        el("div", "am-line", el("span", "am-label am-search-label", "Search for projects in"), searchInput),
-        el("div", "am-label", "1. Install beep-node on the machine"),
-        el("div", "am-os", "macOS or Linux"),
-        codeLine(INSTALL),
-        el("div", "am-os", "Windows, in PowerShell"),
-        codeLine(INSTALL_WINDOWS),
-        el("div", "am-label", "2. Run this there"),
-        commandLine(),
-        statusLine(),
-      ]);
-    case "paired":
-      return [
-        el("div", "am-done", el("span", "ddot"), el("b", "", "Phone paired")),
-        el("div", "am-sub", "Observe projects and agents from your phone. Phones do not host projects or run code, and stay out of Machines."),
-        button("Done", "dbtn pri", closeAddMachine),
-      ];
-    case "linked": {
-      const what = describeMachine(state.machine);
-      return [
-        el("div", "am-done", el("span", "ddot"), el("b", "", `${state.machine.name} joined`)),
-        el("div", "am-sub", `${what ? what + ". " : ""}It shows under Machines and can run agents now.`),
-        button("Done", "dbtn pri", closeAddMachine),
-      ];
-    }
-    case "expired":
-      return [el("div", "am-msg", kind === "phone" ? "This code expired. Phone codes work once and last 5 minutes." : "This ticket expired. A ticket works once and lasts an hour."), button("New ticket", "dbtn pri", start)];
-    default:
-      return [
-        el("div", "am-msg bad", state.message || "Could not make a ticket."),
-        el("div", "am-line", button("Try again", "dbtn pri", start), button("Close", "dbtn quiet", closeAddMachine)),
-      ];
-  }
+  if (focus && first && !box.contains(document.activeElement)) first.focus();
 }
