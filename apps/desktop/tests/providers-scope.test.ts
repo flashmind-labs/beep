@@ -1,3 +1,4 @@
+import { routerWindowGlobals } from "./start-react-env.ts";
 import { answers, calls } from "./dom-env.ts";
 import { JSDOM } from "jsdom";
 import test from "node:test";
@@ -6,8 +7,11 @@ import { el, button } from "../src/ui/dom.ts";
 import { invoke } from "../src/ui/tauri.ts";
 import type { HarnessView } from "../src/settings/providers-state.ts";
 
-const dom = new JSDOM("<!doctype html><body></body>");
-Object.assign(globalThis, { window: dom.window, document: dom.window.document,
+// Exercise Router-backed views as client code in jsdom.
+process.env.NODE_ENV = "test";
+
+const dom = new JSDOM("<!doctype html><body></body>", { url: "https://app.test" });
+Object.assign(globalThis, { ...routerWindowGlobals(dom.window), window: dom.window, document: dom.window.document,
   Node: dom.window.Node, HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement });
 const settle = () => new Promise(resolve => setImmediate(resolve));
 const harness: HarnessView = {

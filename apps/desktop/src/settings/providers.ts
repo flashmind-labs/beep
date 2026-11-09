@@ -1,6 +1,5 @@
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ProviderHeader, ProvidersView } from "./providers-view.tsx";
 // The Coding agents page: per machine, each harness (Claude Code, Codex, pi,
 // ...) with its version, sign-in and an on/off switch, and the picked one's
@@ -63,7 +62,7 @@ export function registerProviders(deps: ProvidersDeps) {
   const compactDrafts = new Map<string, Pick<HarnessDraft, "compactOn" | "compactPercent">>();
   const compactErrors = new Map<string, string>();
   const savingCompacts = new Set<string>();
-  let root: Root | null = null;
+  let root: HTMLElement | null = null;
   let cachedShared: { key: string; node: { before: HTMLElement; after: HTMLElement; agent: string } } | null = null;
   /// Drawn in Settings, which lists the agents in its own left pane: the
   /// page shows the one agent it was opened at, under a toolbar of its own.
@@ -369,7 +368,7 @@ export function registerProviders(deps: ProvidersDeps) {
     const draft = hv?.installed ? st.drafts.get(draftKey) ?? draftOf(hv) : null;
     const behind = updatable(current || null);
     const updateCount = [...st.updating].filter(k => k.startsWith(`${machine} `)).length;
-    flushSync(() => root?.render(createElement(ProvidersView, {
+    showWindowParts([{ part: "settings-page:providers", host: root, content: createElement(ProvidersView, {
       machines: st.machines, machine, machineName: machineName(), view: current, picked: st.picked,
       draft, others: hv ? st.others.get(hv.agent) : undefined, saving: st.saving,
       updating: hv ? st.updating.has(key(hv.agent)) : false, adapter: hv ? adapter(hv.agent) : null,
@@ -387,7 +386,7 @@ export function registerProviders(deps: ProvidersDeps) {
       setIncludeProgram: (value: boolean) => { st.includeProgram = value; draw(true); },
       dismissError: () => { if (machine) st.errors.delete(machine); draw(true); },
       pickMachine, refresh: () => { void load(true); }, updateAll: () => { void update(behind); },
-    })));
+    }) }]);
   }
 
   registerView("providers", {
@@ -408,9 +407,9 @@ export function registerProviders(deps: ProvidersDeps) {
     },
     // Settings opens it at one agent (`arg.agent`), which its left pane picks.
     mount(host, arg) {
-      root?.unmount();
+      removeWindowPart("settings-page:providers");
       host.replaceChildren();
-      root = createRoot(host);
+      root = host;
       cachedShared = null;
       const want = arg;
       if (want?.agent) st.picked = want.agent;
@@ -418,6 +417,6 @@ export function registerProviders(deps: ProvidersDeps) {
       draw();
       loadMachines();
     },
-    unmount() { root?.unmount(); root = null; cachedShared = null; },
+    unmount() { removeWindowPart("settings-page:providers"); root = null; cachedShared = null; },
   });
 }

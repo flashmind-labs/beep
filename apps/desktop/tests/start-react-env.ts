@@ -1,4 +1,4 @@
-import { JSDOM } from "jsdom";
+import { JSDOM, type DOMWindow } from "jsdom";
 
 export function startDom() {
   const dom = new JSDOM("<!doctype html><body><div id='bar'></div></body>", { url: "https://app.test" });
@@ -10,4 +10,14 @@ export function startDom() {
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   }
   return { dom, close() { dom.window.close(); for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); } } };
+}
+
+export function routerWindowGlobals(view: DOMWindow) {
+  return {
+    self: view, history: view.history, localStorage: view.localStorage, sessionStorage: view.sessionStorage,
+    addEventListener: view.addEventListener.bind(view), removeEventListener: view.removeEventListener.bind(view),
+    Element: view.Element, Node: view.Node, HTMLButtonElement: view.HTMLButtonElement,
+    requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
+  };
 }
