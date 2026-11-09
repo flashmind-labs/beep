@@ -22,8 +22,7 @@ import { onPlaces, runningLineAt } from "../agents/place.ts";
 import { moveLabel, onMoves } from "../agents/move-store.ts";
 import { closingNote, onClosing } from "../agents/closing.ts";
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { showWindowParts } from "./window-root.ts";
 import { ConnectingView } from "./connecting-view.tsx";
 import { HomeShell, type HomeTab } from "./home-shell.tsx";
 import { HomeOverview } from "./home-overview.tsx";
@@ -222,13 +221,11 @@ function waitText() {
 
 /// What Home shows before the server first answers: pulsing dots, never a blank
 /// page.
-let connectingRoot: { host: HTMLElement; root: Root } | null = null;
 function drawConnecting(view: HTMLElement) {
-  if (!connectingRoot || connectingRoot.host !== view) { connectingRoot?.root.unmount(); connectingRoot = { host: view, root: createRoot(view) }; }
-  const root = connectingRoot.root, p = problem();
-  flushSync(() => root.render(createElement(ConnectingView, { problem: p, stuck: stuck(), text: waitText(), loading,
+  const p = problem();
+  showWindowParts([{ part: "home", host: view, content: createElement(ConnectingView, { problem: p, stuck: stuck(), text: waitText(), loading,
     open: () => { if (p?.view) go("pane", p.view); }, retry: () => { void refresh(); drawConnecting(view); },
-    log: () => { void invoke("open_log").catch(e => console.warn("opening the log:", e)); } })));
+    log: () => { void invoke("open_log").catch(e => console.warn("opening the log:", e)); } }) }]);
 }
 
 export function draw() {
@@ -236,10 +233,8 @@ export function draw() {
   if (currentLocation()?.view && currentLocation()?.view !== "home") return;
   const home = homeForDisplay(state.home, S.server), view = $("#view");
   if (!home || S.server && problem()) return drawConnecting(view);
-  if (!connectingRoot || connectingRoot.host !== view) { connectingRoot?.root.unmount(); connectingRoot = { host: view, root: createRoot(view) }; }
   const top = view.scrollTop;
-  const root = connectingRoot.root;
-  flushSync(() => root.render(createElement(HomeShell, page(home))));
+  showWindowParts([{ part: "home", host: view, content: createElement(HomeShell, page(home)) }]);
   view.scrollTop = top;
   applyScroll();
   scrollTarget = null;

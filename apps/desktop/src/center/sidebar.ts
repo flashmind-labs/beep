@@ -46,8 +46,7 @@ import { syncProjects, syncConflicts } from "../project/syncpage.ts";
 import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";
 import { createElement, type ReactNode } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { showWindowParts } from "./window-root.ts";
 import { SidebarShell, SidebarItem, SidebarGroup as SidebarGroupView, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
 import { SidebarChatRow, SidebarProjectRow } from "./sidebar-rows.tsx";
 
@@ -84,7 +83,6 @@ export function paneOn(): { view: View | null; session: string | null; group: st
   return currentLocation()?.view === "pane" ? pane.current() : { view: null, session: null, group: null };
 }
 
-let sidebarRoot: { host: HTMLElement; root: Root } | null = null;
 export function drawSide() {
   const home = state.home, location = currentLocation()?.view;
   const links: SideLink[] = [
@@ -107,9 +105,7 @@ export function drawSide() {
   }
 
   const host = $("#side");
-  if (!sidebarRoot || sidebarRoot.host !== host) { sidebarRoot?.root.unmount(); sidebarRoot = { host, root: createRoot(host) }; }
-  const root = sidebarRoot.root;
-  flushSync(() => root.render(createElement(SidebarShell, { host, phone: onPhone(), links, groups: side, footer: footer(home?.machines), signIn: () => openSettings("devices"), addMachine: openAddMachine })));
+  showWindowParts([{ part: "sidebar", host, content: createElement(SidebarShell, { host, phone: onPhone(), links, groups: side, footer: footer(home?.machines), signIn: () => openSettings("devices"), addMachine: openAddMachine }) }]);
   if (currentLocation()?.view === "pane") drawTop();
 }
 
