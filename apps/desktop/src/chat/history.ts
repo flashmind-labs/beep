@@ -4,7 +4,7 @@ import { ANSWER, answeredTurns, approvalCard, appendChatReply, ASK, askText, bod
 import type { Asking, ToolOutput } from "./chat.ts";
 import { answerHtml } from "../agents/turnrows.ts";
 import { $$, changed, live, queued, S, windowHooks } from "../bar/core.ts";
-import type { ImageRef, SentFile, SentImage } from "./media.ts";
+import { productMarkup, type ImageRef, type SentFile, type SentImage } from "./media.ts";
 import { replyActs } from "./rerun.ts";
 import { QUIET_TOOLS, toolLabel } from "./tools.ts";
 import { HISTORY_CHUNK, windowStart } from "./history-state.ts";
@@ -259,11 +259,15 @@ function sameTurn(old: Turn, fresh: Turn) {
 
 /// Parts of a turn that stay the element they are: the prompt with its
 /// pictures and files. The reply stays too, its text updated when it differs.
-// Image tiles change as their data loads. Compare the picture list itself so
-// that a refresh keeps the loaded tiles, their focus and any open actions.
+// Loaded images change the DOM without changing the reply. Compare source
+// markup and picture data to keep focused cards mounted across refreshes.
 function sameSentContent(a: Element, b: Element) {
   const normalized = (element: Element) => {
     const copy = element.cloneNode(true) as Element;
+    for (let i = 0; i < element.children.length; i++) {
+      const markup = productMarkup.get(element.children[i]);
+      if (markup !== undefined) copy.children[i].innerHTML = markup;
+    }
     const rows = element.querySelectorAll<HTMLElement & { pics?: SentImage[] }>(".drpics");
     const copies = copy.querySelectorAll(".drpics");
     for (let i = 0; i < rows.length; i++) {
