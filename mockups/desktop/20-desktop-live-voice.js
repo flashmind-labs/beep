@@ -75,7 +75,7 @@ const dDone = (steps, secs = 6) => dHead(dWorked(secs, steps.length), { act: `ds
 const dWork = (steps, secs = 4) => dHead(`Working for ${dDur(secs)} · ${steps.length} tool ${steps.length === 1 ? "call" : "calls"}`, { act: `dset:wfold:${S.d.wfold ? "" : 1}`, open: !S.d.wfold }) + dRows(steps.map(([l, s]) => dTool(l, s)).join(""), !!S.d.wfold) + dLive("Working", dDur(secs));
 // The field once the prompt is in the log.
 const dAskF = (extra = "") => dPrompt('<span style="color:var(--d-dim)">Ask a follow-up…</span>', extra);
-Object.assign(S.d, { shell: "done", agent: "ask", ctl: "done", lv: "words", lt: "think", ls: "reply", li: "tap", lc: "cancel", le: "draft", vsend: "pause" });
+Object.assign(S.d, { shell: "done", agent: "ask", ctl: "done", lv: "words", lt: "think", ls: "reply", li: "tap", lc: "stop", le: "draft", vsend: "pause" });
 
 // The orb follows a level: the microphone while listening, the playback while speaking.
 // Here it is simulated: bursts like speech, smoother for Beep's voice.

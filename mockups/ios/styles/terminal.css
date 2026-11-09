@@ -1,0 +1,12 @@
+.term{flex:1;min-height:0;background:#0b0b0c;padding:10px 12px;font:12px/18px var(--mono);color:#d0d3d8;overflow:hidden;white-space:pre}
+.term .g{color:#6fcf97}.term .b{color:#8a9cf0}.term .d{color:#6b7078}
+.tmkeys{flex:none;display:grid;grid-template-columns:repeat(9,1fr);gap:4px;padding:5px 5px 6px;background:#17181b;border-top:1px solid #26272b}
+.tmkeys button,.tmkeys span{height:28px;min-width:0;padding:0;border:0;border-radius:5px;background:#26272b;color:#d0d3d8;font:11px var(--mono);display:grid;place-items:center}
+.tmkeys span{background:none}
+.tmkeys .on{background:var(--accent);color:var(--on-accent)}
+.tl-m{margin-bottom:12px}
+.tl-m h5{margin:0 0 6px;min-height:44px;display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.tl-m h5 .btn{margin-left:auto;min-height:36px;font-size:12.5px}
+.tl-it{display:flex;align-items:center;gap:8px;min-height:44px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);margin-bottom:4px;font-size:13.5px}
+.tl-it span{margin-left:auto;font-size:12px;color:var(--muted)}
+.tl-it code,.pj-li code{font-family:var(--mono);font-size:12px}

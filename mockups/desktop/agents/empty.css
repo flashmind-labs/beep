@@ -1,0 +1,7 @@
+.mac .ag-empty { height: 100%; display: grid; place-items: center; color: var(--d-dim); font-size: 13px }
+.mac .ag-conv > .cc-pjc { margin-inline: 16px }
+.mac .ag-conv > .cc-pjc .box { border-color: color-mix(in srgb, var(--d-emerald) 60%, transparent) }
+.mac .ag-conv .dbody:has(.draft-start) { display: flex; flex-direction: column }
+.mac .draft-start { flex: 1; width: 100%; display: flex; padding: 16px; box-sizing: border-box }
+.mac .draft-start .agc { margin: auto; min-width: 0 }
+.mac .draft-start .agc .session-intro h3 { font-size: 36px; line-height: 40px }

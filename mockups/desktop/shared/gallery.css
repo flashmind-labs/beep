@@ -1,0 +1,53 @@
+
+/* Layout: sticky screen index on the left, one phone in the middle, variants under it. */
+:root {
+  --bg: #EEF3EF; --panel: #FFFFFF; --fg: #1B1D2E; --muted: #5D6168; --line: #D3E0D7;
+  --accent: #5E6AD2; --accent-soft: #DDF0E6; --pick: #F2994A;
+  --display: Inter, -apple-system, system-ui, sans-serif;
+  --body: Inter, -apple-system, system-ui, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --math: "STIX Two Text", "Latin Modern Math", "Cambria Math", Georgia, serif;
+  /* The phone always shows the app's Mint Quiet theme. */
+  --m-page: #F4F8F5; --m-surface: #FFFFFF; --m-ink: #0F1011; --m-muted: #5D6168; --m-dim: #8A8F98;
+  --m-ledge: #2A2C3A; --m-soft: #CFE0D6; --m-user: #D5F1E3; --m-brand: #5E6AD2; --m-accent: #F2994A;
+  --m-ok: #5E6AD2; --m-error: #D9473A; --m-t0: #FDE7E2; --m-t1: #E2F4EA; --m-t2: #FFF4CC; --m-frame: #0F1011;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #101112; --panel: #1A1B1D; --fg: #E3E4E6; --muted: #8A8F98; --line: #25262A;
+  --accent: #4CB782; --accent-soft: #1C3229; --pick: #F28B7D; --m-frame: #000000; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #101112; --panel: #1A1B1D; --fg: #E3E4E6; --muted: #8A8F98; --line: #25262A;
+  --accent: #4CB782; --accent-soft: #1C3229; --pick: #F28B7D; --m-frame: #000000; color-scheme: dark }
+
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 14px; line-height: 1.5 }
+button { font: inherit; color: inherit; cursor: pointer }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+
+.wrap { max-width: 1600px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 48px;
+  display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px 40px; align-items: start }
+header.top { grid-column: 1 / -1; display: grid; gap: 6px }
+header.top h1 { margin: 0; font-family: var(--display); font-weight: 600; font-size: 34px; letter-spacing: -0.03em; line-height: 1.05; text-wrap: balance }
+header.top p { margin: 0; color: var(--muted); max-width: 68ch }
+code { font-family: var(--mono); font-size: 12px }
+
+nav.index { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); display: grid; gap: 12px; align-content: start;
+  max-height: calc(100vh - 32px - env(safe-area-inset-top, 0px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-right: 4px }
+nav.index .group { display: grid; gap: 0 }
+nav.index h2 { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--accent) }
+nav.index button { text-align: left; border: 0; background: transparent; padding: 3px 10px; border-radius: 7px; color: var(--muted); font-size: 13px; line-height: 1.4 }
+nav.index button:hover { color: var(--fg); background: var(--accent-soft) }
+nav.index button[aria-current="true"] { color: var(--fg); background: var(--panel); box-shadow: inset 3px 0 0 var(--pick); font-weight: 500 }
+
+.stage { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 16px; min-width: 0 }
+.phone { width: 380px; max-width: 100%; padding: 10px; border-radius: 44px; background: var(--m-frame) }
+.screen { position: relative; height: 760px; border-radius: 34px; overflow: hidden; background: var(--m-page); color: var(--m-ink);
+  display: flex; flex-direction: column; font-family: var(--body) }
+.cam { width: 10px; height: 10px; border-radius: 50%; background: var(--m-frame) }
+#app { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column }
+.toast { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); background: var(--m-ink); color: var(--m-page);
+  padding: 8px 14px; border-radius: 8px; font-size: 13px; white-space: nowrap; z-index: 20 }
+
+.variants { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 420px }
+.variants button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 5px 12px; font-size: 13px; color: var(--muted) }
+.variants button[aria-pressed="true"] { border-color: var(--fg); color: var(--fg); background: var(--accent-soft); font-weight: 500 }

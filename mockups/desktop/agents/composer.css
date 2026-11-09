@@ -1,0 +1,127 @@
+.mac .ag-tab.dragging { opacity: .4 }
+.mac .ag-dropzone { position: absolute; left: 6px; right: 6px; bottom: 6px; height: 38%; border-radius: 8px; border: 1px dashed var(--d-emerald); background: rgba(94,106,210,.10); display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--d-emerald); font-size: 12px; pointer-events: none }
+.mac .ag-tab.ag-tabghost { position: absolute; left: 46%; bottom: calc(38% + 18px); background: var(--d-elev, #1c1d1f); box-shadow: 0 6px 18px rgba(0,0,0,.45); pointer-events: none }
+.mac .ag-phead { flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px 8px; border-bottom: 1px solid var(--d-border) }
+.mac .ag-tabs { flex: 1; min-width: 0; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none }
+.mac .ag-tab { all: unset; cursor: pointer; flex: 0 1 auto; min-width: 54px; display: inline-flex; align-items: center; gap: 6px; max-width: 180px; padding: 4px 6px 4px 8px; border-radius: 6px; font-size: 12px; color: var(--d-muted) }
+.mac .ag-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11.5px }
+.mac .ag-tab small { color: var(--d-dim) } .mac .ag-tab svg { flex: none }
+.mac .ag-tab em { font-style: normal; opacity: 0; padding: 0 2px } .mac .ag-tab:hover em, .mac .ag-tab.on em { opacity: .7 }
+.mac .ag-tab.on { background: rgba(227,228,230,.08); color: var(--d-fg) }
+.mac .ag-pbtn { all: unset; cursor: pointer; flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 6px; color: var(--d-muted) }
+.mac .ag-pbtn:hover { background: rgba(227,228,230,.06); color: var(--d-fg) }
+.mac .ag-pbody { flex: 1; min-height: 0; overflow: auto; padding: 10px; display: grid; place-items: center }
+.mac .ag-pbody.list { display: grid; place-items: stretch; align-content: start; gap: 2px; padding: 6px }
+.mac .ag-pbody .img.fit { display: block; width: 100%; max-height: 100%; aspect-ratio: 4 / 3; border-radius: 8px; background: linear-gradient(135deg, #4A2B3E, #DCA86F) }
+.mac .ag-pbody.stage { background: #0b0b0c; container-type: size }
+.mac .ag-3d { width: min(100%, 520px, 130cqh); height: auto }
+.mac .ag-video { position: relative; width: min(100%, 640px, 170cqh); aspect-ratio: 16 / 9; border-radius: 8px; background: linear-gradient(135deg, #1d2a33, #3b2a22); display: grid; place-items: center }
+.mac .ag-video .play { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; background: rgba(0,0,0,.45); color: #fff; font-size: 16px; padding-left: 3px; box-sizing: border-box }
+.mac .ag-video .bar { position: absolute; left: 10px; right: 10px; bottom: 8px; display: flex; align-items: center; gap: 10px; font: 11px var(--mono); color: #dfe8e3 }
+.mac .ag-video .track { flex: 1; height: 3px; border-radius: 2px; background: rgba(255,255,255,.25) } .mac .ag-video .track i { display: block; height: 100%; border-radius: 2px; background: var(--d-emerald) }
+.mac .ag-pdf { width: min(100%, 340px, 74cqh); aspect-ratio: 1 / 1.3; border-radius: 4px; background: #f3f1ec; color: #222; padding: 18px; box-sizing: border-box; display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 8px; align-content: start }
+.mac .ag-pdf b { grid-column: 1 / -1; font-size: 12px } .mac .ag-pdf i { display: block; border-radius: 3px; background: linear-gradient(135deg, #c7cfd8, #8fa3b6); aspect-ratio: 4 / 3 }
+.mac .ag-pacts { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--d-border); font-size: 11.5px; color: var(--d-muted) }
+.mac .ag-pacts .dbtn.on { border-color: var(--d-emerald) } .mac .ag-pacts .dbtn.ibtn { width: 26px; height: 26px; padding: 0; justify-content: center } .mac .ag-pacts .dbtn.ibtn.on { color: var(--d-emerald) } .mac .ag-pacts .sp { flex: 1 }
+.mac .ag-pacts .hint { color: var(--d-dim) } .mac .ag-pacts .zoom { font-family: var(--mono) }
+.mac .ag-anim input[type=range] { flex: 1; min-width: 80px; accent-color: var(--d-emerald) } .mac .ag-anim .time { font-family: var(--mono); color: var(--d-muted) } .mac .ag-anim select { font: inherit; font-size: 12px }
+.mac .ag-pstrip { all: unset; cursor: pointer; flex: none; width: 30px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 0; border-left: 1px solid var(--d-border); color: var(--d-muted); font-size: 11.5px }
+/* From dist/style.css: the log, the head, the field, the keys. */
+.mac { --radius-sm: 6px; --radius: 8px }
+.mac .dcoderlog { display: flex; flex-direction: column; gap: 12px; font-size: 14px; line-height: 21px }
+.mac .dcoderen { overflow-wrap: anywhere; min-width: 0 }
+.mac .dcoderen.user { display: grid; gap: 2px; align-self: stretch; max-width: none; border: 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--d-elev); font-size: 13.5px; line-height: 20px; white-space: pre-wrap }
+.mac .dcoderen.user b { font-size: 11.5px; font-weight: 600; color: var(--d-muted) }
+.mac .dcoderen.fromsession { display: grid; gap: 2px; padding: 6px 10px; border-left: 2px solid var(--d-border); font-size: 13px; line-height: 19px; white-space: pre-wrap; color: var(--d-fg) }
+.mac .dcoderen.fromsession b { font-size: 11.5px; font-weight: 600; color: var(--d-muted) }
+.mac .dcoderen.fromsession .who { margin-left: 6px; font-weight: 500 }
+.mac .dcoderen.beepctx { font-size: 12px; color: var(--d-muted) }
+.mac .dcoderen.beepctx summary { cursor: pointer; width: max-content }
+.mac .dcoderen.beepctx pre { margin: 4px 0 0; padding: 6px 8px; border: 1px solid var(--d-border); border-radius: 6px; font: 11.5px/16px var(--mono, monospace); white-space: pre-wrap }
+.mac .dcoderen.agent { color: var(--d-fg); padding: 0; white-space: normal }
+.mac .dcoderen.agent.md p { margin: 0 0 8px } .mac .dcoderen.agent.md p:last-child { margin: 0 }
+.mac .dcoderen.agent code { font-family: var(--mono); font-size: 12.5px; background: var(--d-elev); border: 1px solid var(--d-border); border-radius: 4px; padding: 0 4px }
+.mac .dcoderturn { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--d-border) }
+.mac .dlive { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 4px 0; background: var(--d-ink); font-size: 12.5px }
+.mac .agtasks { display: grid; gap: 4px; margin-bottom: 6px } .mac .agtask { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--d-muted) } .mac .agtask code { flex: 1; min-width: 0; font: 12px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mac .dlive .lb { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mac .dlive .since { flex: none; color: var(--d-dim); font-variant-numeric: tabular-nums }
+.mac .dlive .doing { min-width: 0; color: var(--d-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mac .dcoderturn .hd { all: unset; display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; line-height: 20px; color: var(--d-muted); font-variant-numeric: tabular-nums }
+.mac .dcoderturn .hd > span:first-child, .mac .dcoderturn .hd > svg, .mac .dcoderturn .when { flex: none }
+.mac .dcoderturn button.hd { cursor: pointer } .mac .dcoderturn button.hd:hover { color: var(--d-fg) }
+.mac .dcoderturn button.hd svg { transition: transform .15s var(--ease) } .mac .dcoderturn button.hd.open svg { transform: rotate(90deg) }
+.mac .dcoderturn .when { font-size: 12px; color: var(--d-dim); font-variant-numeric: tabular-nums }
+.mac .dcoderturn .stats { min-width: 0; color: var(--d-dim); margin-left: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mac .dcoderlog .dthink > button { padding: 1px 0; font-size: 12.5px }
+.mac .dcoderlog .dthink.open .cv { transform: rotate(90deg) }
+.mac .dcoderlog .dthink .tx { margin: 4px 0 2px 5px; padding: 1px 0 1px 12px; font-size: 12.5px; line-height: 1.55; color: var(--d-muted) }
+.mac .dcoderlog .thought { margin-top: -6px }
+.mac .dcoderlog .dcoderen.tool.row { padding: 1px 6px; line-height: 20px }
+.mac .dcoderlog .dcoderen.tool.row .vb { font-size: 12.5px }
+.mac .dcoderlog .dcoderen.tool.row .rm { font: 11px/20px var(--mono); color: var(--d-dim) }
+.mac .dcoderlog .dcoderen.tool.row.bad .rm { color: var(--d-coral) }
+.mac .dcoderlog .errc { gap: 3px; border-color: rgba(235,87,87,.45); background: rgba(235,87,87,.07); border-radius: var(--radius) }
+.mac .dcoderlog .errc b { color: var(--d-err) }
+.mac .dagmain { display: flex; flex-direction: column; gap: 10px; min-width: 0 }
+.mac .dagmain > :is(.dcoderlog, .dcoder, .dmuted, .derr) { width: 100%; max-width: 800px; margin-inline: auto }
+.mac #agbody { flex: 1 1 auto; position: relative; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px 20px; font-size: 14px; line-height: 21px; scrollbar-width: thin; container-type: inline-size }
+.mac .dcard.dcoder { flex: none; user-select: text }
+.mac .dcoder .row { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 20px }
+.mac .dcoder .sec { font-size: 12px; font-weight: 600; color: var(--d-dim); padding: 8px 12px 2px }
+.mac .dcoder .plan { display: grid; gap: 2px; padding: 0 12px }
+.mac .dcoder .q { margin: 10px 12px 0; padding: 10px; border-radius: var(--radius-sm); border: 1px solid rgba(242,201,76,.4); background: rgba(242,201,76,.06); display: grid; gap: 6px; font-size: 13px; line-height: 19px }
+.mac .dups { display: flex; flex-wrap: wrap; gap: 8px }
+.mac .dhead { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--d-border) }
+.mac .dhead .tt { flex: 1; min-width: 0; display: grid; line-height: 19px }
+.mac .dhead .tt b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mac .dhead .tt small { font-size: 12px; color: var(--d-muted) }
+.mac .dhead .aguse { flex: 0 1 auto; min-width: 0; max-width: 48%; margin: 0; font-size: 11px; line-height: 16px; color: var(--d-muted); font-variant-numeric: tabular-nums; text-align: right; text-wrap: balance; overflow-wrap: anywhere }
+.mac .dhead .aguse:empty { display: none }
+.mac .dapp.dcoderav { width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--d-elev); padding: 0 }
+.mac .dcoderav.mark svg, .mac .cc-ag.mark svg { width: 58%; height: 58%; display: block }
+.mac .cc-ag.mark { padding: 0 }
+.mac #agfield { position: relative }
+.mac #agfield button[aria-label="Attach files"] { width: 26px; padding: 0; justify-content: center; margin-right: -8px }
+.mac #agfield .txt.ph { color: var(--d-dim) }
+.mac #agfield .txt.typed { display: flex; align-items: center; gap: 4px; white-space: pre }
+.mac .cm-caret { width: 1px; height: 14px; background: var(--d-fg); display: inline-block }
+.mac #agfield .cm-menu { position: absolute; left: 8px; bottom: calc(100% + 6px); width: min(520px, calc(100% - 16px)); max-height: 264px; overflow: hidden; border: 1px solid var(--d-border); border-radius: 8px; background: var(--d-surface); box-shadow: 0 10px 30px rgba(0,0,0,.35); z-index: 6; padding: 4px; font-size: 13px; line-height: 18px }
+.mac .cm-row { display: flex; align-items: baseline; gap: 10px; padding: 4px 8px; border-radius: 6px; cursor: pointer; min-width: 0 }
+.mac .cm-row.on, .mac .cm-row:hover { background: rgba(94,106,210,.16) }
+.mac .cm-row .n { flex: none; color: var(--d-fg); font-weight: 500 }
+.mac .cm-row .d { flex: 1; min-width: 0; color: var(--d-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mac .cm-row .d .dir { color: var(--d-dim) }
+.mac .cm-row small { flex: none; color: var(--d-dim); font-size: 11.5px }
+.mac .cm-foot { display: flex; gap: 12px; padding: 5px 8px 2px; margin-top: 2px; border-top: 1px solid var(--d-border); font-size: 11.5px; color: var(--d-dim) }
+.mac .cm-foot kbd { font: inherit; color: var(--d-muted); margin-right: 4px }
+.mac #agmodel { flex: none; display: flex }
+.mac .agc-pill.agm { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: var(--radius-sm); font-size: 12px; line-height: 18px; color: var(--d-fg); min-width: 0; max-width: 260px; overflow: hidden; white-space: nowrap }
+.mac .agc-pill.agm:hover, .mac .agc-pill.agm[aria-expanded="true"] { background: rgba(227,228,230,.06) }
+.mac .agc-pill.agm[disabled] { opacity: .55; cursor: default; color: var(--d-dim); background: transparent }
+.mac .agc-pill.agm small { color: var(--d-muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis }
+.mac .agc-pill.agm svg { color: var(--d-muted); flex: none }
+.mac #agmodel .cc-ag { width: 22px; height: 22px; border-radius: var(--radius-sm); display: grid; place-items: center; border: 1px solid var(--d-border); background: var(--d-elev); flex: none }
+.mac #agmodel .cc-ag.mark svg { color: inherit }
+.mac .dhints.slim { padding: 2px 16px 6px; border-top: 0; background: none; font-size: 11px; color: var(--d-dim); gap: 4px 12px }
+.mac .ag-shortcuts { margin-left: auto }
+.mac .ag-shortcuts summary { cursor: pointer }
+.mac .ag-shortcuts > div { display: flex; flex-wrap: wrap; gap: 4px 12px; padding-top: 8px }
+.mac .dhints.slim kbd { font-size: 10.5px }
+@container (max-width: 560px) { .mac .dhints span.lo { display: none } }
+.mac .ag-pane { min-width: 0; background: rgba(15,16,17,.35) }
+.mac .dstate.ask { background: transparent; box-shadow: none; overflow: visible; border: 1px solid rgba(242,153,74,.5); border-radius: 999px; color: var(--d-coral) }
+.mac .dstate.run { background: transparent }
+.mac .dv { container-type: inline-size }
+.mac .ag-pane > .dv, .mac .ag-pane-content > .dv { flex: 1 }
+.mac .dv-head .dv-sum { flex-basis: 100%; overflow: hidden }
+.mac .dv-head .dv-sp { display: none }
+.mac .dv-head .dv-find { flex: 1 1 120px; max-width: none }
+@container (min-width: 641px) { .mac .dv-head .dv-sum { flex-basis: auto } .mac .dv-head .dv-sp { display: block; flex: 1 } .mac .dv-head .dv-find { flex: 0 1 200px } }
+.mac .ag-pstrip span { writing-mode: vertical-rl } .mac .ag-pstrip small { color: var(--d-dim) }
+.mac .ag-fbar { flex-wrap: wrap }
+/* The Files tab: filter, tree, git marks, drop target; code and terminal views; mention chips. */
+.mac .ag-fbar { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--d-border) }
+.mac .ag-ffind { flex: 1; min-width: 0; background: rgba(227,228,230,.05); border: 1px solid var(--d-border); border-radius: 6px; padding: 4px 8px; color: var(--d-fg); font-size: 12px }
+.mac .ag-fign { font-size: 11.5px; color: var(--d-muted); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap }
+.mac .ag-tree { position: relative; gap: 0 }
