@@ -1,7 +1,7 @@
 import { createElement, Fragment, type ReactNode } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { RouterProvider } from "@tanstack/react-router";
+import { RouterContextProvider, RouterProvider } from "@tanstack/react-router";
 import { windowHistory } from "./window-router.ts";
 
 type Part = "home" | "sidebar" | "header-scope" | "header-tools";
@@ -13,7 +13,8 @@ export function showWindowParts(updates: readonly { part: Part; host: HTMLElemen
   for (const update of updates) parts.set(update.part, { host: update.host, content: update.content, identity: update.identity ?? update.part });
   root ??= createRoot(document.createElement("div"));
   const owner = root;
-  flushSync(() => owner.render(createElement(Fragment, null,
+  const children = createElement(Fragment, null,
     createElement(RouterProvider, { router: windowHistory.router, key: "router" }),
-    ...[...parts].map(([part, value]) => createPortal(value.content, value.host, `${part}:${value.identity}`)))));
+    ...[...parts].map(([part, value]) => createPortal(value.content, value.host, `${part}:${value.identity}`)));
+  flushSync(() => owner.render(createElement(RouterContextProvider, { router: windowHistory.router, children })));
 }
