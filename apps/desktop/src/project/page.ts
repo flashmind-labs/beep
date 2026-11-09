@@ -30,10 +30,11 @@ import { patchChildren } from "../ui/patch.ts";
 const layouts = ".pj-split, .pj-list, .pj-det, .pj-ov, .pj-ov > div, .pj-cols, .ca-col, #sec-sessions";
 
 function patchProjectView(current: Element, next: Element) {
+  const replacedPanels = new Set<number>();
   const children = [...next.children].map((child, i) => {
     const old = current.children[i];
     const panel = projectPanel(child) ?? sessionPanel(child);
-    if (panel) return panel;
+    if (panel) { if (old !== panel) replacedPanels.add(i); return panel; }
     const split = old?.classList.contains("pj-split") && child.classList.contains("pj-split");
     if (!old || old.tagName !== child.tagName || (!split && old.className !== child.className) || !old.matches(layouts)) {
       if (child.matches(layouts)) patchProjectView(child, child);
@@ -43,7 +44,7 @@ function patchProjectView(current: Element, next: Element) {
     patchProjectView(old, child);
     return old;
   });
-  patchChildren(current, children);
+  patchChildren(current, children, i => replacedPanels.has(i));
 }
 
 export function drawProjects(el: HTMLElement) {
