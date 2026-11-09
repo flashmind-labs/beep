@@ -9,3 +9,8 @@ pub struct Updates(#[allow(dead_code)] Mutex<()>);
 pub async fn follow(_: AppHandle) {}
 
 pub fn install(_: &AppHandle) {}
+
+/// Only the native macOS updater requests an exit without an exit code.
+pub fn relaunching(_app: &tauri::AppHandle) -> bool {
+    false
+}

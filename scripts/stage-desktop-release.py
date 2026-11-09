@@ -7,8 +7,11 @@ import re
 import shutil
 import sys
 import tomllib
+
 from datetime import datetime, timezone
 from pathlib import Path
+
+from changelog import notes
 
 
 def stage(platform: str, source: Path, output: Path) -> None:
@@ -59,6 +62,7 @@ def stage(platform: str, source: Path, output: Path) -> None:
     key = "linux-x86_64" if platform == "linux" else "windows-x86_64"
     (manifest / "latest.json").write_text(json.dumps({
         "version": version,
+        "notes": notes((cargo.parents[3] / "changelogs/desktop.md").read_text(), version),
         "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "platforms": {key: updater},
     }, indent=2) + "\n")

@@ -24,3 +24,7 @@ admin.sock
 
 /apps/diagrams/node_modules/
 /apps/desktop/dist/diagrams/
+
+/apps/desktop/src-tauri/sparkle/
+!/apps/desktop/src-tauri/.cargo/
+!/apps/desktop/src-tauri/.cargo/config.toml

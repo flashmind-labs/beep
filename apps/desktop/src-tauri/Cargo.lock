@@ -526,6 +526,7 @@ dependencies = [
  "tauri-plugin-global-shortcut",
  "tauri-plugin-notification",
  "tauri-plugin-single-instance",
+ "tauri-plugin-sparkle-updater",
  "tauri-plugin-updater",
  "tempfile",
  "thiserror 2.0.21",
@@ -612,6 +613,7 @@ dependencies = [
  "beep-proto",
  "beep-report",
  "blake3",
+ "chrono",
  "dirs 7.0.0",
  "dunce",
  "fastrand",
@@ -630,6 +632,7 @@ dependencies = [
  "notify",
  "portable-pty",
  "rand 0.9.5",
+ "regex",
  "reqwest",
  "rmp-serde",
  "roxmltree",
@@ -1641,6 +1644,12 @@ dependencies = [
  "redox_users",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "dispatch"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd0c93bb4b0c6d9b77f4435b0ae98c24d17f1c45b2ff844c6151a07256ca923b"
 
 [[package]]
 name = "dispatch2"
@@ -6689,6 +6698,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "sparkle-updater"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6d60731c5488e4f3230adcb49041f8f03a49fd546765c896290e07fa3baf949"
+dependencies = [
+ "block2",
+ "log",
+ "objc2",
+ "objc2-foundation",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "url",
+]
+
+[[package]]
 name = "spez"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7301,6 +7326,22 @@ dependencies = [
  "tracing",
  "windows-sys 0.61.2",
  "zbus",
+]
+
+[[package]]
+name = "tauri-plugin-sparkle-updater"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edf83d807572fb7f2865cf38e248481b6d44dd5de6d4e379c2333be06ee5a898"
+dependencies = [
+ "dispatch",
+ "log",
+ "objc2",
+ "serde",
+ "serde_json",
+ "sparkle-updater",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]

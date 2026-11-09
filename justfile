@@ -12,13 +12,17 @@ mockups port="8000":
 build-server:
     cargo build --package beep-server
 
+# Download the pinned native macOS updater framework and signing tools.
+desktop-sparkle:
+    if [ "$(uname -s)" = Darwin ]; then bash scripts/download-sparkle.sh; fi
+
 # Run the macOS desktop app from source
-desktop-dev:
+desktop-dev: desktop-sparkle
     cd apps/desktop && npm ci --silent
     cd apps/desktop/src-tauri && cargo tauri dev
 
 # Build the desktop DMG.
-desktop-build:
+desktop-build: desktop-sparkle
     cd apps/desktop && npm ci --silent
     cd apps/desktop/src-tauri && PATH="/usr/bin:$PATH" cargo tauri build --bundles app
     bash scripts/package-macos-dmg.sh "${CARGO_TARGET_DIR:-apps/desktop/src-tauri/target}/release/bundle/macos/Beep.app" target/beep-macos.dmg
@@ -30,6 +34,7 @@ server-release version:
     [[ "{{version}}" =~ ^0\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 0.2.3: every app stays on 0.x until production is ready" >&2; exit 1; }
     [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
     [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
+    python3 scripts/changelog.py notes {{version}} --path changelogs/server.md > /dev/null
     git tag -a "server-v{{version}}" -m "Beep server {{version}}"
     git push origin "server-v{{version}}"
     git push forgejo "server-v{{version}}"
@@ -43,9 +48,10 @@ desktop-release version:
     [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
     [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
     ! git rev-parse -q --verify "refs/tags/desktop-v{{version}}" > /dev/null || { echo "desktop-v{{version}} already exists" >&2; exit 1; }
+    python3 scripts/changelog.py freeze {{version}}
     sed -i.bak '1,/^version = /s/^version = ".*"$/version = "{{version}}"/' apps/desktop/src-tauri/Cargo.toml && rm apps/desktop/src-tauri/Cargo.toml.bak
     (cd apps/desktop/src-tauri && cargo update --workspace --offline --quiet)
-    git commit --quiet -m "Release Beep desktop {{version}}" apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock
+    git commit --quiet -m "Release Beep desktop {{version}}" changelogs/desktop.md apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock
     git tag -a "desktop-v{{version}}" -m "Beep desktop {{version}}"
     echo "Tagged desktop-v{{version}}. Publish it with: git push forgejo main desktop-v{{version}}"
 
@@ -57,10 +63,11 @@ android-release version:
     [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
     [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
     ! git rev-parse -q --verify "refs/tags/android-v{{version}}" > /dev/null || { echo "android-v{{version}} already exists" >&2; exit 1; }
+    python3 scripts/changelog.py freeze {{version}} --path changelogs/android.md
     cfg=apps/desktop/src-tauri/tauri.android.conf.json
     sed -i.bak 's/^\( *"version": \)".*"/\1"{{version}}"/' "$cfg" && rm "$cfg.bak"
     # The version may already be set, as in a first release.
-    git diff --quiet -- "$cfg" || git commit --quiet -m "Release Beep for Android {{version}}" "$cfg"
+    git commit --quiet -m "Release Beep for Android {{version}}" changelogs/android.md "$cfg"
     git tag -a "android-v{{version}}" -m "Beep for Android {{version}}"
     echo "Tagged android-v{{version}}. Publish it with: git push origin main android-v{{version}}"
 
@@ -72,10 +79,11 @@ ios-release version:
     [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
     [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
     ! git rev-parse -q --verify "refs/tags/ios-v{{version}}" > /dev/null || { echo "ios-v{{version}} already exists" >&2; exit 1; }
+    python3 scripts/changelog.py freeze {{version}} --path changelogs/ios.md
     cfg=apps/desktop/src-tauri/tauri.ios.conf.json
     sed -i.bak 's/^\( *"version": \)".*"/\1"{{version}}"/' "$cfg" && rm "$cfg.bak"
     # The version may already be set, as in a first release.
-    git diff --quiet -- "$cfg" || git commit --quiet -m "Release Beep for iOS {{version}}" "$cfg"
+    git commit --quiet -m "Release Beep for iOS {{version}}" changelogs/ios.md "$cfg"
     git tag -a "ios-v{{version}}" -m "Beep for iOS {{version}}"
     echo "Tagged ios-v{{version}}. Publish it with: git push origin main ios-v{{version}}"
 
@@ -89,13 +97,14 @@ node-release version:
     [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
     [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
     ! git rev-parse -q --verify "refs/tags/node-v{{version}}" > /dev/null || { echo "node-v{{version}} already exists" >&2; exit 1; }
+    python3 scripts/changelog.py freeze {{version}} --path changelogs/node.md
     sed -i.bak '1,/^version = /s/^version = ".*"$/version = "{{version}}"/' crates/node/Cargo.toml && rm crates/node/Cargo.toml.bak
     cargo update --workspace --offline --quiet
     # The desktop app embeds the node, so its lockfile names the version too.
     # Resolving the lockfile records just that; `cargo update -p beep-node`
     # would also move the node's git dependencies.
     (cd apps/desktop/src-tauri && cargo metadata --offline --format-version 1 > /dev/null)
-    git commit --quiet -m "Release beep-node {{version}}" crates/node/Cargo.toml Cargo.lock apps/desktop/src-tauri/Cargo.lock
+    git commit --quiet -m "Release beep-node {{version}}" changelogs/node.md crates/node/Cargo.toml Cargo.lock apps/desktop/src-tauri/Cargo.lock
     git tag -a "node-v{{version}}" -m "beep-node {{version}}"
     echo "Tagged node-v{{version}}. Publish it with: git push origin main node-v{{version}}"
 
@@ -130,7 +139,7 @@ links-deploy:
     cd deploy/links && npx wrangler deploy
 
 # Format, lint and test the desktop app
-desktop-check:
+desktop-check: desktop-sparkle
     cd apps/desktop && npm ci --silent && npm run build && npm run check
     cd apps/desktop/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 

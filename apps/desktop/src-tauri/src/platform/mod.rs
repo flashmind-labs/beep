@@ -13,7 +13,10 @@ pub(crate) mod logfile;
 #[cfg(all(unix, desktop))]
 pub(crate) mod login_path;
 pub(crate) mod metrics;
-#[cfg(desktop)]
+#[cfg(all(desktop, not(target_os = "macos")))]
+pub(crate) mod update;
+#[cfg(target_os = "macos")]
+#[path = "update_macos.rs"]
 pub(crate) mod update;
 #[cfg(mobile)]
 #[path = "update_mobile.rs"]
