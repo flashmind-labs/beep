@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
 import { ReviewFindings } from "../src/review/review-findings.tsx";
+import { ReviewStatus } from "../src/review/review-status.tsx";
 import type { FindingView, ReviewView } from "../src/review/review.ts";
 
 test("review findings retain focus on live updates and dismiss the selected finding", async () => {
@@ -36,6 +37,11 @@ test("review findings retain focus on live updates and dismiss the selected find
     assert.ok(view.getByText("reading"));
     view.rerender(createElement(ReviewFindings, { review: { ...review, findings: [] }, busy: "", dismiss }));
     assert.ok(view.getByText("No findings"));
+    view.rerender(createElement(ReviewStatus, { starting: "feature", review: null, error: "", note: "", stale: "", branches() {}, again() {} }));
+    assert.ok(view.getByText("Starting the review of feature"));
+    view.rerender(createElement(ReviewStatus, { starting: null, review: { ...review, merge: "conflicts", conflicts: ["file.ts"], pr: { number: 7, url: "https://example.test", checks: "failing" } }, error: "", note: "", stale: "", branches() {}, again() {} }));
+    assert.ok(view.getByText("Conflicts with main in 1 file"));
+    assert.ok(view.getByText("Checks fail on PR #7. The review still ran."));
   } finally {
     cleanup(); dom.window.close();
     for (const [key, descriptor] of previous) {
