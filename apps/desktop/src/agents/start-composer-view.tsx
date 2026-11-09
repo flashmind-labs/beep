@@ -2,7 +2,15 @@ import { createPortal } from "react-dom";
 import { Fragment, useLayoutEffect, useRef, type ReactNode } from "react";
 
 export interface StartComposerNodes { input: HTMLTextAreaElement | null; project: HTMLButtonElement | null; machine: HTMLButtonElement | null; folder: HTMLButtonElement | null; extra: HTMLSpanElement | null; harness: HTMLButtonElement | null; send: HTMLButtonElement | null; pick: HTMLDivElement | null; att: HTMLDivElement | null; err: HTMLSpanElement | null; box: HTMLDivElement | null }
-export function StartComposerView(p: { nodes: StartComposerNodes; choices: HTMLSpanElement; projectPicker: boolean; externalChoices: boolean; choiceView: ReactNode; attachmentView: ReactNode; notes: ReactNode; centered: boolean; busy: boolean; welcome: string; grow(): void; submit(): void }) {
+export interface ChoiceContents { project: ReactNode; machine: ReactNode; folder: ReactNode }
+export function ProjectChoice({ name }: { name: string }) {
+  return <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>{name}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg></>;
+}
+export function FolderChoice({ checkout, label, detail }: { checkout: boolean; label: string; detail: string }) {
+  if (checkout) return <>{label} <small>{detail}</small></>;
+  return <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>{label ? <>{label} <small className="mono">{detail}</small></> : <span className="mono">{detail}</span>}</>;
+}
+export function StartComposerView(p: { nodes: StartComposerNodes; choices: HTMLSpanElement; projectPicker: boolean; externalChoices: boolean; choiceView: ReactNode; choiceContents: ChoiceContents | null; attachmentView: ReactNode; notes: ReactNode; centered: boolean; busy: boolean; welcome: string; grow(): void; submit(): void }) {
   const row = useRef<HTMLDivElement>(null), box = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => { if (p.centered) box.current?.after(p.choices); else row.current?.prepend(p.choices); }, [p.centered, p.choices]);
   return <>{p.centered && <section className="agc-intro"><h3 aria-label={p.welcome}><span aria-hidden="true">{p.welcome.split(" ").map((word, index) => <Fragment key={index}>{index > 0 && " "}<span className="agc-word" style={{ "--word": index } as React.CSSProperties}>{word}</span></Fragment>)}</span></h3><p>A fresh idea. A tricky bug. A place to start.</p></section>}
@@ -10,7 +18,7 @@ export function StartComposerView(p: { nodes: StartComposerNodes; choices: HTMLS
       <div className="row" ref={row}><span className="sp" /><button ref={node => { p.nodes.harness = node; }} className="pill" type="button" title="Harness, model and thinking" /><button ref={node => { p.nodes.send = node; }} className={p.centered ? "agc-send" : "dbtn pri"} type="submit" aria-label={p.centered ? p.busy ? "Starting" : "Start" : undefined}>{p.centered ? p.busy ? <span className="dspin" /> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg> : <>{p.busy ? "Starting" : "Start"}<kbd>⏎</kbd></>}</button></div><div className="pick" ref={node => { p.nodes.pick = node; }} /></div>
     <span className="cc-err" role="status" ref={node => { p.nodes.err = node; }} />
     {p.notes}
-    {createPortal(p.externalChoices ? p.choiceView : <>{p.projectPicker && <button ref={node => { p.nodes.project = node; }} className="pill" type="button" title="The project this agent works on" />}<button ref={node => { p.nodes.machine = node; }} className="pill" type="button" title="The machine it runs on" /><button ref={node => { p.nodes.folder = node; }} className="pill" type="button" title="The checkout, a new worktree, or an existing worktree" /><span className="choices" ref={node => { p.nodes.extra = node; }} /></>, p.choices)}
+    {createPortal(p.externalChoices ? p.choiceView : <>{p.projectPicker && <button ref={node => { p.nodes.project = node; }} className="pill" type="button" title="The project this agent works on">{p.choiceContents?.project}</button>}<button ref={node => { p.nodes.machine = node; }} className="pill" type="button" title="The machine it runs on">{p.choiceContents?.machine}</button><button ref={node => { p.nodes.folder = node; }} className="pill" type="button" title="The checkout, a new worktree, or an existing worktree">{p.choiceContents?.folder}</button><span className="choices" ref={node => { p.nodes.extra = node; }} /></>, p.choices)}
   </>;
 }
 
