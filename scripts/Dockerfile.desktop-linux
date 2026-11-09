@@ -20,6 +20,7 @@ WORKDIR /src/apps/desktop
 RUN npm ci
 ARG BEEP_SERVER_URL
 ENV APPIMAGE_EXTRACT_AND_RUN=1
+# The target cache keeps the bundles of earlier versions, so clear them.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/apps/desktop/src-tauri/target \
@@ -27,6 +28,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=secret,id=updater_password \
     export TAURI_SIGNING_PRIVATE_KEY="$(cat /run/secrets/updater_key)" \
     && export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat /run/secrets/updater_password 2>/dev/null || true)" \
+    && rm -rf src-tauri/target/release/bundle \
     && tauri build --ci --bundles deb,appimage \
         --config '{"bundle":{"createUpdaterArtifacts":true}}' \
         -- --locked \

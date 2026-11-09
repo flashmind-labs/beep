@@ -280,3 +280,12 @@ jobs:
               -T "$file" "https://$ACCOUNT.r2.cloudflarestorage.com/$CF_BUCKET/beep/node/$name" > /dev/null
             echo "Uploaded beep/node/$name"
           done
+
+      - name: Remove earlier versions from R2
+        if: steps.r2.outputs.files != ''
+        env:
+          ACCOUNT: ${{ steps.r2.outputs.account }}
+          CF_ACCESS_KEY_ID: ${{ secrets.CF_ACCESS_KEY_ID }}
+          CF_SECRET_ACCESS_KEY: ${{ secrets.CF_SECRET_ACCESS_KEY }}
+          CF_BUCKET: ${{ secrets.CF_BUCKET }}
+        run: python3 scripts/r2-prune.py beep/node "$VERSION"
