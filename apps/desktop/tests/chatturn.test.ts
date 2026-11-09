@@ -112,3 +112,28 @@ test("turn text remains available independently of its rendered nodes", () => {
   assert.equal(askText(turn), "An example");
   assert.equal(chatReplyHtml(turn), "<p>Answer</p>");
 });
+
+test("an unchanged history snapshot does not rebuild turn markup", async t => {
+  for (const cmd of ["session_agents", "session_files", "session_sources", "list_questions"]) answers[cmd] = [];
+  S.view = "chat";
+  S.session = SESSION;
+  bar.innerHTML = '<div class="dbody" id="body"></div><div class="dhints"></div>';
+  answers.open_session = [prompt, answered];
+  await refreshSession(SESSION);
+  const original = document.createElement.bind(document);
+  let templates = 0;
+  t.mock.method(document, "createElement", ((name: string) => { if (name === "template") templates++; return original(name); }) as typeof document.createElement);
+  await refreshSession(SESSION);
+  assert.equal(templates, 0);
+  answers.open_session = [prompt, { ...answered, html: "<p>Changed.</p>" }];
+  await refreshSession(SESSION);
+  assert.ok(templates > 0);
+  assert.equal(body()!.querySelector(".dcoderen.agent p")?.textContent, "Changed.");
+  const turn = body()!.querySelector<import("../src/ui/turn.ts").Turn>(".turn")!;
+  startRun(SESSION, turn, null);
+  const events = follow(SESSION, turn);
+  events.onmessage({ kind: "text", html: "<p>Local change</p>" });
+  events.onmessage({ kind: "finished", status: "completed" });
+  await refreshSession(SESSION);
+  assert.equal(body()!.querySelector(".dcoderen.agent p")?.textContent, "Changed.");
+});

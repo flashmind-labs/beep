@@ -667,6 +667,8 @@ export function follow(id: string | null, turn: Turn) {
 
 /// Makes `turn` chat `id`'s running reply, thinking until something comes.
 export function startRun(id: string | null, turn: Turn, runId: string | null) {
+  const current = owningChatBody(turn);
+  if (current) conversation(current).invalidate();
   turnState(turn).begun = Date.now();
   turnState(turn).done = false;
   drawWork(turn);
