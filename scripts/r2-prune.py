@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Delete earlier desktop versions from the R2 release folder.
+"""Delete earlier versions from an R2 release folder, or list them.
 
-    r2-prune.py <platform> <version>
+    r2-prune.py <folder> <version>
+    r2-prune.py list
 
-Removes every object under beep/<platform>/ whose name carries a version other
-than <version>. Unversioned files (latest.json, Beep-latest.dmg) stay. Reads
+Removes every object under beep/<folder>/ whose version is below <version>:
+desktop files carry it in the name (Beep-0.6.2-x86_64.deb), node releases in a
+folder (0.4.2/SHA256SUMS). Unversioned files (latest.json, Beep-latest.dmg,
+install.sh) stay, and so do newer versions. Reads
 ACCOUNT, CF_ACCESS_KEY_ID, CF_SECRET_ACCESS_KEY and CF_BUCKET from the
 environment. Needs only Python and curl.
 """
@@ -17,7 +20,7 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 
 EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-VERSIONED = re.compile(r"^Beep[-_](\d+\.\d+\.\d+)[-_.]")
+VERSIONED = re.compile(r"^(?:Beep[-_](\d+\.\d+\.\d+)[-_.]|(\d+\.\d+\.\d+)/)")
 NS = {"s3": "http://s3.amazonaws.com/doc/2006-03-01/"}
 
 
@@ -43,15 +46,27 @@ def keys(bucket_url: str, prefix: str):
             return
 
 
-def main(platform: str, version: str) -> None:
-    bucket_url = f"https://{os.environ['ACCOUNT']}.r2.cloudflarestorage.com/{os.environ['CF_BUCKET']}"
-    prefix = f"beep/{platform}/"
+def parse(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
+
+
+def prune(bucket_url: str, folder: str, version: str) -> None:
+    prefix = f"beep/{folder}/"
     for key in list(keys(bucket_url, prefix)):
         match = VERSIONED.match(key[len(prefix):])
-        if match and match[1] != version:
+        if match and parse(match[1] or match[2]) < parse(version):
             call("DELETE", f"{bucket_url}/{urllib.parse.quote(key)}")
             print(f"Deleted {key}")
 
 
+def main(args: list[str]) -> None:
+    bucket_url = f"https://{os.environ['ACCOUNT']}.r2.cloudflarestorage.com/{os.environ['CF_BUCKET']}"
+    if args == ["list"]:
+        for key in keys(bucket_url, "beep/"):
+            print(key)
+    else:
+        prune(bucket_url, *args)
+
+
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1:])
