@@ -18,7 +18,7 @@ let fitFrame = 0, barHeight = 0;
 function boxes(parent: Element): HTMLElement[] {
   return [...parent.children].flatMap(child => {
     if (!(child instanceof HTMLElement)) return [];
-    return getComputedStyle(child).display === "contents" ? boxes(child) : [child];
+    return window.getComputedStyle(child).display === "contents" ? boxes(child) : [child];
   });
 }
 /// Makes the next fit resize the bar even to the height it had.
