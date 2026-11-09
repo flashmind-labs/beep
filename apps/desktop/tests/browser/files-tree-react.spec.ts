@@ -3,6 +3,26 @@ import { openDesktop } from "./harness.ts";
 
 const listing = (names: string[]) => ({ folders: [{ path: "", entries: names.map(name => ({ name, folder: false, size: 1, ignored: false, change: null })), more: 0, git: true }], truncated: false });
 
+test("file menu keeps focus as local actions arrive and ignores late results after closing", async ({ page }) => {
+  await openDesktop(page, true, { agent_tree: listing(["a.txt"]), local_file: { apps: [] } });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  const row = page.locator('[data-fpath="a.txt"]'); await expect(row).toBeVisible();
+  await page.evaluate(() => window.__navigation.hold("local_file"));
+  await row.click({ button: "right" });
+  const menu = page.getByRole("menu", { name: "File actions" });
+  const rename = menu.getByRole("menuitem", { name: "Rename..." }); await rename.focus();
+  await page.evaluate(() => window.__navigation.release("local_file"));
+  await expect(menu.getByRole("menuitem", { name: "Reveal in Finder" })).toBeVisible();
+  await expect(rename).toBeFocused();
+  await page.keyboard.press("Escape"); await expect(menu).toHaveCount(0);
+  await page.evaluate(() => window.__navigation.hold("local_file"));
+  await row.click({ button: "right" }); await expect(menu).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.__navigation.release("local_file"));
+  await expect(menu).toHaveCount(0);
+});
+
 test("file tree keeps its menu and rows during refresh, and confirms bulk deletion", async ({ page }, info) => {
   await openDesktop(page, true, { agent_tree: listing(["a.txt", "b.txt", "report.html"]) });
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
