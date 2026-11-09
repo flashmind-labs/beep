@@ -1,6 +1,6 @@
 import { createElement, Fragment, type ReactElement } from "react";
 import { createPortal, flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { MoveMenu, MoveStatus, type MoveView } from "./move-view.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // Moving the open session to another machine: the machine name in the head is
@@ -150,7 +150,7 @@ async function cancel(s: AgentRow) {
   drawMove();
 }
 
-interface MoveOwner { head: HTMLElement | null; box: HTMLElement | null; root: Root; headView: ReactElement | null; boxView: ReactElement | null; observer: MutationObserver }
+interface MoveOwner { head: HTMLElement | null; box: HTMLElement | null; root: DocumentView; headView: ReactElement | null; boxView: ReactElement | null; observer: MutationObserver }
 let moveRoot: MoveOwner | null = null;
 function disposeMove() {
   const current = moveRoot;
@@ -160,7 +160,7 @@ function disposeMove() {
 function ownerOf(head: HTMLElement | null, box: HTMLElement | null): MoveOwner {
   if (moveRoot && moveRoot.head === head && moveRoot.box === box) return moveRoot;
   disposeMove();
-  const root = createRoot(document.createElement("div"));
+  const root = createDocumentView(document.createElement("div"));
   const observer = new MutationObserver(() => { if (moveRoot && moveRoot.head === head && moveRoot.box === box && !(head?.isConnected || box?.isConnected)) disposeMove(); });
   observer.observe(document.body, { childList: true, subtree: true });
   moveRoot = { head, box, root, headView: null, boxView: null, observer };
