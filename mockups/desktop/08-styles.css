@@ -8,3 +8,5 @@
 .mac .dprogress-collapse:hover { color: var(--d-fg); background: var(--d-elev); }
 .mac .dprogress-collapse:active { transform: scale(.98); }
 .mac .dprogress-collapse:focus-visible { outline: 2px solid var(--d-accent); outline-offset: 2px; }
+
+.mac .pj-runbox > .pj-runrow { content-visibility: visible }
