@@ -84,3 +84,43 @@ test("chat share and unshare actions use the selected conversation", async ({ pa
   const calls = await page.evaluate(() => window.__navigation.calls().filter(call => ['share_session', 'unshare_session'].includes(call.command)));
   expect(calls.map(call => [call.command, call.args.id])).toEqual([['share_session', 'one'], ['unshare_session', 'one']]);
 });
+
+test("chat search preserves its field and caret when results arrive", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, list_sessions: [], list_groups: [], search_sessions: [] });
+  await page.evaluate(() => window.__navigation.open("chats"));
+  const field = page.getByPlaceholder("Search chats and groups");
+  await field.fill("example");
+  await field.evaluate(el => { if (el instanceof HTMLInputElement) { el.setSelectionRange(2, 4); Reflect.set(window, "chatSearchField", el); } });
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "search_sessions").length)).toBe(1);
+  await expect(page.locator("#sec")).toHaveText("0 results");
+  expect(await field.evaluate(el => el === Reflect.get(window, "chatSearchField") && document.activeElement === el && el instanceof HTMLInputElement && el.selectionStart === 2 && el.selectionEnd === 4)).toBe(true);
+});
+
+test("newer search wins over an earlier delayed result", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, list_sessions: [], list_groups: [], search_sessions: [] });
+  await page.evaluate(() => window.__navigation.open("chats"));
+  const field = page.getByPlaceholder("Search chats and groups");
+  await page.evaluate(() => window.__navigation.holdNext("search_sessions"));
+  await field.fill("first");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "search_sessions").length)).toBe(1);
+  await page.evaluate(() => window.__navigation.respond("search_sessions", [{ session: { id: "new", title: "New result", pinned: false, updated_at: 2 }, snippet: "" }]));
+  await field.fill("second");
+  await expect(page.getByRole("option", { name: /New result/ })).toBeVisible();
+  await page.evaluate(() => { window.__navigation.respond("search_sessions", [{ session: { id: "old", title: "Old result", pinned: false, updated_at: 1 }, snippet: "" }]); window.__navigation.release("search_sessions"); });
+  await expect(page.getByRole("option", { name: /New result/ })).toBeVisible();
+  await expect(page.getByRole("option", { name: /Old result/ })).toHaveCount(0);
+  await expect(field).toBeFocused();
+});
+
+test("opening a group cancels a pending chat search", async ({ page }) => {
+  const group = { id: "group", name: "Example group", members: [], last: null, updated_at: 1, beep_typing: false, pinned: false, apps_shared: false };
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, list_sessions: [], list_groups: [group], open_group: { group, messages: [] }, group_typing: false });
+  await page.evaluate(() => window.__navigation.open("chats"));
+  const option = page.getByRole("option", { name: /Example group/ });
+  await expect(option).toBeVisible();
+  await page.getByPlaceholder("Search chats and groups").fill("group");
+  await option.click();
+  await expect(page.locator("#gask")).toBeVisible();
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "search_sessions").length)).toBe(0);
+});
