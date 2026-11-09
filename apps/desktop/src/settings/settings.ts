@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { AgentsOverview, AppsOverview, CodingAgentOverview, InstructionsOverview, MachinesOverview } from "./overview-view.tsx";
 import { ModelSettingsView } from "./model-settings-view.tsx";
 import { ServerView } from "./server-view.tsx";
 import { GeneralView } from "./general-view.tsx";
@@ -17,14 +18,12 @@ import { bar, type LinkState, S, windowHooks } from "../bar/core.ts";
 import { hints, refreshHints } from "../bar/hints.ts";
 import { renderInvitePhone } from "../bar/link.ts";
 import { type Machine, machinesIn, machinesOut, MC, renderMachines } from "../machines/machines.ts";
-import { harnessTile } from "../ui/harnessicon.ts";
 import { harnessName } from "./providers-state.ts";
-import { back, CODING_AGENTS, fitPath, isPage, openSub, pageLabel, parseSub, recallPath, rememberPath, samePath, selectPage, type SettingsPage, type SettingsPath, type SettingsSub, subKey } from "./settings-nav.ts";
+import { back, CODING_AGENTS, fitPath, isPage, openSub, pageLabel, recallPath, rememberPath, samePath, selectPage, type SettingsPage, type SettingsPath, type SettingsSub } from "./settings-nav.ts";
 import { canPickModel, type Models, type Thinking, MODELS } from "./model.ts";
 import { show } from "../bar/views.ts";
 import { type Reach } from "./server-state.ts";
 import { esc } from "../ui/format.ts";
-import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { toggleShortcuts } from "../ui/shortcutsheet.ts";
 
@@ -119,20 +118,6 @@ window.addEventListener("focus", () => {
 /// Rows that stand in for a section until the server answers.
 export const setSkeleton = (n: number) => `<div class="dskel-rows">${[78, 56, 68, 48].slice(0, n).map(w => `<div class="dskel" style="width:${w}%"></div>`).join("")}</div>`;
 
-function setAppsHtml() {
-  if (!A.apps) return setSkeleton(1);
-  const on = A.apps.filter((a: App) => a.connected).map((a: App) => a.name);
-  return `<div class="dtoggle"><span><b>Connected apps</b><small>${on.length ? `${on.length} connected: ${esc(on.join(", "))}` : "Gmail, Calendar, Notion and more"}</small></span><button class="dbtn" id="apps">Manage…</button></div>`;
-}
-
-/// Other machines; left out when the list could not be read.
-function setMachinesHtml() {
-  if (SET.machines === undefined) return setSkeleton(1);
-  const list = SET.machines;
-  if (!list) return "";
-  return `<div class="dtoggle"><span><b>Other machines</b><small>${list.length ? esc(`${list.length} linked: ${list.map(m => m.name).join(", ")}`) : "None linked yet"}</small></span><button class="dbtn" id="machines">Show…</button></div>`;
-}
-
 /// Leaves Settings for another page: in the window the sheet closes and
 /// the pane shows it.
 function setAway(view: PanePage, inBar: () => unknown) {
@@ -140,7 +125,7 @@ function setAway(view: PanePage, inBar: () => unknown) {
   inBar();
 }
 
-type LocalView = "general" | "appearance" | "mac" | "devices" | "models";
+type LocalView = "general" | "appearance" | "mac" | "devices" | "models" | "apps" | "machines" | "instr" | "agent-overview" | "agent-bar";
 const generalPending = new Set<string>();
 let macControlBusy = false;
 const localViews = new Map<LocalView, { host: HTMLElement; root: Root; observer: MutationObserver }>();
@@ -168,7 +153,7 @@ function preserveLocalViews(container: HTMLElement) {
   };
 }
 function mountLocalViews(el: Element) {
-  for (const kind of ["general", "appearance", "mac", "devices", "models"] as const) {
+  for (const kind of ["general", "appearance", "mac", "devices", "models", "apps", "machines", "instr", "agent-overview", "agent-bar"] as const) {
     const host = el.querySelector<HTMLElement>(`#set-${kind}`);
     if (!host) continue;
     let view = localViews.get(kind);
@@ -188,7 +173,12 @@ function mountLocalViews(el: Element) {
       notices: (enabled: boolean) => void changeGeneral("notices", "set_agent_notices", { enabled }),
       shortcuts: () => windowHooks ? windowHooks.openShortcuts() : toggleShortcuts(),
       report: () => windowHooks ? windowHooks.openReport() : toWindow("report"),
-    }) : kind === "models" ? createElement(ModelSettingsView, {
+    }) : kind === "apps" ? createElement(AppsOverview, { apps: A.apps, open: () => setAway("apps", renderApps) })
+      : kind === "machines" ? createElement(MachinesOverview, { machines: SET.machines, open: () => setAway("machines", renderMachines) })
+      : kind === "instr" ? createElement(InstructionsOverview, { open: () => windowHooks ? windowHooks.openInstructions() : toWindow("instructions") })
+      : kind === "agent-bar" ? createElement(AgentsOverview, { open: () => windowHooks ? windowHooks.openProviders() : toWindow("providers") })
+      : kind === "agent-overview" ? createElement(CodingAgentOverview, { open: (sub: SettingsSub) => goTo(openSub(sub)) })
+      : kind === "models" ? createElement(ModelSettingsView, {
       model: MODELS.info, failed: !!SET.modelsError, busy: modelSettingsBusy, error: modelSettingsError,
       pick: (id: string) => void setModelChange("set_model", { id }),
       auto: (enabled: boolean) => void setModelChange("set_auto_model", { enabled }),
@@ -234,13 +224,6 @@ async function setMacEnabled(enabled: boolean) {
 /// Binds the controls inside `el`, a section or the whole page.
 function bindSettings(el: Element) {
   mountLocalViews(el);
-  const $in = <T extends Element = HTMLElement>(sel: string) => el.querySelector<T>(sel);
-  $in("#apps")?.addEventListener("click", () => setAway("apps", renderApps));
-  $in("#machines")?.addEventListener("click", () => setAway("machines", renderMachines));
-  // Instructions is a view of the window: the sheet closes onto it, and
-  // the bar hands it over.
-  $in("#openInstr")?.addEventListener("click", () => (windowHooks ? windowHooks.openInstructions() : toWindow("instructions")));
-  $in("#openProviders")?.addEventListener("click", () => (windowHooks ? windowHooks.openProviders() : toWindow("providers")));
   bindCreds(el);
   bindAgents(el);
 
@@ -289,31 +272,23 @@ function settingsSections(_set: MacSettings, mac: MacControl | null, linked: boo
   const host = (id: SettingsPage) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dset-host" id="set-${id}-host"></div></section>`;
   const out: [SettingsPage, string][] = [["general", `<section id="set-general-sec" data-sec="general"><div class="dsec flat top">General</div><div id="set-general" style="display:contents"></div></section>`]];
   out.push(["appearance", sec("appearance", "Appearance", "")]);
-  const machines: [SettingsPage, string] = ["machines", sheet ? host("machines") : sec("machines", "Machines", setMachinesHtml())];
+  const machines: [SettingsPage, string] = ["machines", sheet ? host("machines") : sec("machines", "Machines", "")];
   const creds: [SettingsPage, string] = ["creds", sec("creds", "Credentials", setCredsHtml())];
-  const instr: [SettingsPage, string] = ["instr", sheet ? host("instr") : sec("instr", "Instructions", `<div class="dtoggle"><span><b>Your rules for every agent</b><small>One text for Claude Code, Codex, Gemini CLI and pi, with its versions, written into each agent's file on your machines</small></span><button class="dbtn" id="openInstr">Open…</button></div>`)];
+  const instr: [SettingsPage, string] = ["instr", sheet ? host("instr") : sec("instr", "Instructions", "")];
   const sub = SET.path?.sub;
   const agents: [SettingsPage, string] = ["agents", sheet && sub?.kind === "agent" ? host("agents")
-    : `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat top">${linked ? "Agent accounts" : "Coding agents"}</div>${sheet ? "" : `<div class="dtoggle"><span><b>Coding agents on each machine</b><small>Versions and updates, on or off, binary paths, launch arguments and env vars for Claude Code, Codex, pi and the rest</small></span><button class="dbtn" id="openProviders">Open…</button></div>`}${linked ? `<div id="set-agents">${setAgentsHtml()}</div>` : ""}${sheet ? codingAgentsHtml() : ""}</section>`];
+    : `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat top">${linked ? "Agent accounts" : "Coding agents"}</div>${sheet ? "" : `<div id="set-agent-bar" style="display:contents"></div>`}${linked ? `<div id="set-agents">${setAgentsHtml()}</div>` : ""}${sheet ? `<div id="set-agent-overview" style="display:contents"></div>` : ""}</section>`];
   // These settings work over the mesh without the server.
   const thisMacSec: [SettingsPage, string][] = mac && !onPhone() ? [["mac", `<section id="set-mac-sec" data-sec="mac"><div class="dsec flat top">This computer</div><div id="set-mac" style="display:contents"></div></section>`]] : [];
   if (!linked) return [...out, ...thisMacSec, machines, agents, creds, instr, ...(S.server ? [["devices", sec("devices", "Beep server", "")] as [SettingsPage, string]] : [])];
   if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models", "")]);
-  out.push(["apps", sheet ? host("apps") : sec("apps", "Apps", setAppsHtml())]);
+  out.push(["apps", sheet ? host("apps") : sec("apps", "Apps", "")]);
   out.push(...thisMacSec);
   out.push(machines);
   out.push(agents);
   out.push(creds, instr);
   out.push(["devices", sec("devices", "Beep server", "")]);
   return out;
-}
-
-/// The coding agents Settings lists under Agent accounts, each opening its
-/// versions, switch, binary path, launch arguments and env vars.
-function codingAgentsHtml() {
-  const row = (agent: string) => `<div class="dset-row" data-sub="${esc(subKey({ kind: "agent", id: agent }))}" role="button" tabindex="0">${harnessTile(agent)}
-    <span class="tt"><b>${esc(harnessName(agent))}</b><small>Version and updates, on or off, binary path, launch arguments and env vars on each machine</small></span>${ICON.chev}</div>`;
-  return `<div class="dset-h">Coding agents</div><div class="dset-box">${CODING_AGENTS.map(row).join("")}</div>`;
 }
 
 /// What a subpage is called in the breadcrumb and the left pane.
@@ -413,6 +388,7 @@ function drawSheet() {
   const retainPage = shell?.sheet === el && renderedPath && samePath(renderedPath, path)
     && (path.page === "apps" || path.page === "machines" || path.page === "instr" || (path.page === "agents" && path.sub?.kind === "agent"));
   const oldPage = retainPage ? el.querySelector<HTMLElement>(".dset-page") : null;
+  const previousFocus = document.activeElement instanceof HTMLElement && el.contains(document.activeElement) ? document.activeElement : null;
   const active = oldPage?.contains(document.activeElement) ? document.activeElement : null;
   const input = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? active : null;
   const start = input?.selectionStart ?? null, end = input?.selectionEnd ?? null;
@@ -428,12 +404,13 @@ function drawSheet() {
   restoreAgents(el); restoreCreds(el); restoreLocal(el);
   const body = el.querySelector<HTMLElement>(".dset-page");
   if (body && oldPage) body.replaceWith(oldPage);
-  else { if (body) { bindNav(body); bindSettings(body); } mountPage(path); }
+  else { if (body) bindSettings(body); mountPage(path); }
   renderedPath = path;
   if (active instanceof HTMLElement && active.isConnected) {
     active.focus({ preventScroll: true });
     if (input && start !== null && end !== null) input.setSelectionRange(start, end);
-  } else if (focus) refocus(el, focus);
+  } else if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+  else if (focus) refocus(el, focus);
   if (oldPage && scroll) { oldPage.scrollTop = scroll.top; oldPage.scrollLeft = scroll.left; }
   if (navScroll && shell) { shell.navigation.scrollTop = navScroll.top; shell.navigation.scrollLeft = navScroll.left; }
 }
@@ -441,20 +418,6 @@ function drawChrome() {
   const el = SET.root, path = SET.path, local = SET.local;
   if (!el?.isConnected || !path || !local) return;
   renderShell(el, sheetPages(), path, local.set.version);
-}
-
-/// The left pane, the breadcrumb and the rows that open a subpage.
-function bindNav(el: HTMLElement) {
-  for (const b of el.querySelectorAll<HTMLElement>("[data-goto]:not([data-bound]), [data-sub]:not([data-bound])")) {
-    b.dataset.bound = "";
-    const go = () => {
-      const sub = parseSub(b.dataset.sub);
-      if (sub) return goTo(openSub(sub));
-      if (isPage(b.dataset.goto)) goTo(selectPage(b.dataset.goto));
-    };
-    b.addEventListener("click", go);
-    if (b.tagName !== "BUTTON") b.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
-  }
 }
 
 /// Shows `path` in the sheet.
@@ -592,7 +555,7 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
   invoke<Machine[]>("list_machines").then(m => { SET.machines = m; MC.list = m; }, () => { SET.machines = null; })
     .then(() => {
       if (!alive()) return;
-      if (SET.root) drawChrome(); else fillSection("machines", setMachinesHtml());
+      if (SET.root) drawChrome(); else mountLocalViews(setRoot());
       // The git hosts say which machines have gh and teacli.
       if (CRED.list) renderCreds();
     });
@@ -624,7 +587,7 @@ function loadServerParts(alive: () => boolean) {
   invoke<App[]>("list_apps").then(a => { A.apps = a; }, () => { A.apps ??= []; })
     .then(() => {
       if (!alive()) return;
-      if (SET.root) drawChrome(); else fillSection("apps", setAppsHtml());
+      if (SET.root) drawChrome(); else mountLocalViews(setRoot());
     });
 }
 
