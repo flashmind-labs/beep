@@ -2,13 +2,11 @@
 // or pasted on the session: pictures attach as before, other files upload into
 // its host's temporary cache and are mentioned by absolute path.
 
-import { MAX_UPLOAD, joinPath, mentionText, shortSize, uploadParts, uploadRefusal } from "../agentpane/files-state.ts";
+import { MAX_UPLOAD, joinPath, uploadParts, uploadRefusal } from "../agentpane/files-state.ts";
 import { fileBase64 } from "../chat/attach.ts";
 import { reloadFolder } from "../agentpane/files.ts";
 import { paneSession } from "../agentpane/media.ts";
 import { mentioned } from "../agentpane/worktree-state.ts";
-import { esc } from "../ui/format.ts";
-import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import { stashFile, type StashFile } from "../chat/stash-state.ts";
 
@@ -64,37 +62,17 @@ export function takeMentions() {
   return paths;
 }
 
-const FILE_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg>';
-
-/// The chips of mentions and uploads, and the upload question, for the
-/// row above the field.
-export function mentionChips() {
-  const chips = MN.paths.map((p, i) =>
-    `<span class="agment" title="Goes in the message as ${esc(mentionText([p]))}">${FILE_ICON}<span class="nm">${esc(p)}</span><button aria-label="Remove ${esc(p)}" data-agment="${i}">${ICON.x}</button></span>`);
-  const ups = MN.uploads.map(u =>
-    `<span class="agment up" title="Uploading to ${esc(paneSession()?.machine_name ?? "the machine")}"><span class="dspin"></span><span class="nm">${esc(u.name)}</span><small>${u.size ? Math.round((u.done / u.size) * 100) : 0}%</small></span>`);
-  const a = MN.ask;
-  const ask = a ? `<div class="agupask"><span>Upload ${a.files.length === 1 ? `<b>${esc(a.files[0].name)}</b>` : `${a.files.length} files`} (${esc(shortSize(a.files.reduce((n, f) => n + f.size, 0)))}) to ${esc(paneSession()?.machine_name ?? "the machine")}:</span>`
-    + `<button class="dbtn pri" data-agup="there">Into ${esc(a.folder ? `${a.folder}/` : "the session's folder")}</button>`
-    + `<button class="dbtn" data-agup="default" title="Outside the project. Deleted when this session is closed.">Temporary attachments</button><button class="dbtn quiet" data-agup="cancel">Cancel</button></div>` : "";
-  return chips.join("") + ups.join("") + ask;
+export function removeMention(index: number) {
+  MN.paths.splice(index, 1);
+  MN.redraw();
+  document.querySelector<HTMLInputElement>("#agmsg")?.focus();
 }
 
-/// Wires the chips `mentionChips` drew in `el`.
-export function wireMentionChips(el: HTMLElement) {
-  el.querySelectorAll<HTMLElement>("[data-agment]").forEach(b => b.addEventListener("click", () => {
-    MN.paths.splice(Number(b.dataset.agment), 1);
-    MN.redraw();
-    document.querySelector<HTMLInputElement>("#agmsg")?.focus();
-  }));
-  el.querySelectorAll<HTMLElement>("[data-agup]").forEach(b => b.addEventListener("click", () => {
-    const a = MN.ask;
-    MN.ask = null;
-    MN.redraw();
-    if (!a || b.dataset.agup === "cancel") return;
-    uploadDropped(a.files, b.dataset.agup === "there" ? a.folder : null, a.root);
-  }));
-  if (MN.ask) queueMicrotask(() => el.querySelector<HTMLElement>('[data-agup="there"]')?.focus());
+export function answerUpload(choice: "there" | "default" | "cancel") {
+  const ask = MN.ask;
+  MN.ask = null;
+  MN.redraw();
+  if (ask && choice !== "cancel") void uploadDropped(ask.files, choice === "there" ? ask.folder : null, ask.root);
 }
 
 /// Files dropped on the folder `folder` of the Files tab: asked first.
