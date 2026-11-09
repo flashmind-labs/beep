@@ -1,0 +1,42 @@
+import { expect, test } from "@playwright/test";
+import { openDesktop } from "./harness.ts";
+
+test("artifact list updates retain focus and the selected preview frame", async ({ page }) => {
+  await openDesktop(page, true, { agent_artifact: { kind: "html", size: 30, src: "data:text/html,%3Cp%3EPreview%3C%2Fp%3E" } });
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command !== "agent_follow") return invoke<T>(command, args);
+      const channel = args?.onEvent as { onmessage(value: unknown): void };
+      const base = await invoke<Record<string, unknown>>("agent_view", { session: "notice-one" });
+      const send = (updated: boolean) => {
+        const entries = [...Array.from({ length: 20 }, (_, i) => ({ kind: "tool", text: `Artifact: /srv/project/file-${i}.html` })), { kind: "tool", text: "Artifact: /srv/project/first.html" }, ...(updated ? [{ kind: "tool", text: "Artifact: /srv/project/second.html" }] : [])];
+        channel.onmessage({ kind: "snapshot", resumed: false, cursor: { start: 0, next: entries.length, fingerprint: updated ? "two" : "one" }, page: { ...base, entries }, modes: null, tasks: [] });
+      };
+      window.addEventListener("test-artifact-update", () => send(true));
+      send(false);
+      return new Promise<T>(() => {});
+    };
+  });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("tab", { name: /Artifacts/ }).click();
+  const list = page.getByRole("listbox", { name: "Artifacts" });
+  const first = list.getByRole("option", { name: /first.html/ });
+  await expect(first).toBeVisible();
+  const frame = page.locator(".agartframe");
+  await expect(frame).toBeVisible();
+  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_artifact").length);
+  await list.evaluate(element => { element.style.height = "100px"; element.style.overflow = "auto"; element.scrollTop = 60; });
+  const active = list.getByRole("option", { name: /file-10.html/ });
+  await active.focus();
+  const position = await active.evaluate(element => element.getBoundingClientRect().top);
+  await active.evaluate(element => { element.dataset.identity = "kept"; });
+  await frame.evaluate(element => { element.dataset.identity = "kept"; });
+  await page.evaluate(() => window.dispatchEvent(new Event("test-artifact-update")));
+  await expect(list.getByRole("option", { name: /second.html/ })).toBeVisible();
+  await expect(active).toHaveAttribute("data-identity", "kept");
+  await expect(active).toBeFocused();
+  await expect.poll(() => active.evaluate(element => element.getBoundingClientRect().top)).toBe(position);
+  await expect(frame).toHaveAttribute("data-identity", "kept");
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_artifact").length)).toBe(reads);
+});

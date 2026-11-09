@@ -1,8 +1,11 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { ArtifactsList } from "./artifacts-list.tsx";
 // The Artifacts tab of a coding agent session's pane: the pages and documents
 // the agent published or wrote, newest first, and the picked one rendered.
 
 import { type Artifact, artifactVersion, frameHtml, goneArtifacts, goneMessage, KIND_NAMES, readPlace, relativeTo } from "./artifacts-state.ts";
-import { clock } from "../agents/agentturns.ts";
 import { revealPath } from "./files.ts";
 import { fileSize } from "../chat/media.ts";
 import { openPath, paneSession } from "./media.ts";
@@ -21,8 +24,6 @@ const A = {
   /// The session's machine and folder the list is of.
   key: "",
   list: [] as Artifact[],
-  /// The list as last drawn, to draw it again only when it changed.
-  drawn: "",
   picked: null as string | null,
   /// The version of the picked one on screen, or being read.
   version: "",
@@ -44,6 +45,7 @@ const A = {
 /// The sessions whose preview the user folded, by `A.key`, kept while the
 /// window is open so going back to a session finds it as it was left.
 const folded = new Set<string>();
+let listRoot: Root | null = null;
 
 /// Starts again when the pane shows another session than the one the
 /// tab is of.
@@ -51,8 +53,9 @@ function syncSession() {
   const s = paneSession();
   const key = s ? `${s.machine_id}\n${s.cwd}` : "";
   if (A.key === key) return;
+  listRoot?.unmount(); listRoot = null;
   A.el?.remove();
-  Object.assign(A, { el: null, key, list: [], drawn: "", picked: null, version: "", seen: new Map(), primed: false, gone: new Set(), asked: "", askedAt: 0 });
+  Object.assign(A, { el: null, key, list: [], picked: null, version: "", seen: new Map(), primed: false, gone: new Set(), asked: "", askedAt: 0 });
 }
 
 /// The Artifacts view of the pane's session, made once per session.
@@ -63,6 +66,8 @@ export function artifactsView() {
     + `<div class="agpacts"><button class="dbtn" data-aact="fold" title="Fold or show the preview"></button><span class="meta mono"></span><span class="sp"></span>`
     + `<button class="dbtn" data-aact="claude" hidden>Open on claude.ai</button><button class="dbtn" data-aact="file">Open file</button><button class="dbtn" data-aact="copy">Copy path</button></div></div>`);
   A.el = el;
+  const list = el.querySelector<HTMLElement>(".agartlist");
+  if (list) listRoot = createRoot(list);
   el.querySelector(".agartlist")!.addEventListener("click", e => {
     const row = (e.target as HTMLElement).closest<HTMLElement>("[data-apath]");
     if (row) pick(row.dataset.apath!);
@@ -195,25 +200,11 @@ function when(a: Artifact) {
   return A.seen.get(`${a.path}\n${artifactVersion(a)}`) ?? A.turnStart(a.turn);
 }
 
-function rowHtml(a: Artifact, cwd: string) {
-  const rel = relativeTo(cwd, a.path) ?? a.path;
-  const at = when(a);
-  const turn = a.turnNo ? `Turn ${a.turnNo}` : "";
-  const meta = [turn, at != null ? clock(at) : ""].filter(Boolean).join(" · ");
-  const gone = A.gone.has(a.path);
-  const more = gone ? "" : a.versions > 1 ? `<small>${a.versions} versions</small>` : a.made ? "<small>Made by a command</small>" : "";
-  return `<button class="agart${a.path === A.picked ? " on" : ""}${gone ? " gone" : ""}" role="option" aria-selected="${a.path === A.picked}" data-apath="${esc(a.path)}" title="${esc(a.path)}">`
-    + `<span class="k ${a.kind}">${KIND_NAMES[a.kind]}</span><span class="t"><b>${esc(a.name)}</b><small>${esc(rel)}</small></span>`
-    + `<span class="r">${a.url ? '<span class="pub">claude.ai</span>' : ""}<span>${gone ? "Removed" : esc(meta)}</span>${more}</span></button>`;
-}
-
 function drawList() {
-  const box = A.el?.querySelector<HTMLElement>(".agartlist");
   const s = paneSession();
-  if (!box || !s) return;
-  const html = A.list.length ? A.list.map(a => rowHtml(a, s.cwd)).join("")
-    : '<div class="agpmsg">Pages the agent publishes, writes outside its folder or makes with a command show here. Repo files it edits are in Files.</div>';
-  if (html !== A.drawn) { box.innerHTML = html; A.drawn = html; }
+  if (!listRoot || !s || !A.el) return;
+  const root = listRoot;
+  flushSync(() => root.render(createElement(ArtifactsList, { artifacts: A.list, cwd: s.cwd, picked: A.picked, gone: A.gone, when })));
   const a = picked();
   const acts = A.el!.querySelector<HTMLElement>(".agpacts")!;
   acts.hidden = !a;
