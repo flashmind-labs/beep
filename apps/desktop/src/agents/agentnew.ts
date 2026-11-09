@@ -5,6 +5,7 @@ import { AgentNewShell } from "./agentnew-shell.tsx";
 import { stashBar } from "../chat/stash.ts";
 import { startAttachments } from "./start-attachments.ts";
 import { makeStartComposer } from "./start-composer.ts";
+import { NewAgentNotes } from "./start-composer-view.tsx";
 import { AG, AGENT_ORDER, agentKind, byPreference, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
 import { loadSessions, sessions } from "./sessions.ts";
 import { openAgent, sessionPicks } from "./session.ts";
@@ -170,7 +171,6 @@ function drawFrame() {
   const { root } = openBarPage(() => { closedPicker(c.pick); c.dispose(); });
   flushSync(() => root.render(createElement(AgentNewShell, { pane: PANE, composer: c.form, stash: stashBar(f.project ?? null) })));
   c.box.insertAdjacentHTML("beforeend", '<div id="agunder"></div>');
-  c.form.insertAdjacentHTML("beforeend", '<div class="agnew-notes"><div class="agc-why" id="agwhy" hidden></div><div id="aghelp"></div></div>');
   c.form.addEventListener("submit", e => { e.preventDefault(); void startAgent(); });
   c.input.addEventListener("input", () => {
     f.prompt = c.input.value;
@@ -218,11 +218,8 @@ function drawParts() {
   drawPill(none);
   drawPicker();
   drawUnder();
-  drawWhy();
+  composer.setNotes(createElement(NewAgentNotes, { waiting: !AG.hosts, none, noMachine: !f.machine && !!AG.hosts?.length }));
   composer.err.textContent = missing ? "Say what the agent should do." : AG.error;
-  $$("#aghelp").innerHTML = !AG.hosts ? '<div class="agc-note"><span class="dspin"></span> Looking for machines…</div>' : none ? `<div class="agc-help"><b>No machine can run an agent yet</b>
-      <ol><li>Install beep-node on a computer that has Claude Code, Codex, Gemini CLI, pi or flsh.</li><li>Open Add a machine and run the <code>beep-node mesh join</code> command it shows there.</li></ol>
-      <div><button type="button" class="dbtn" id="agmachines">Machines settings</button></div></div>` : "";
   if (focused === "#agpick .agc-search" || focused === "#agcwd" || focused === "#agbase") focusEnd(focused);
 }
 
@@ -453,14 +450,6 @@ function folderMenu(checkout: boolean) {
     `<button data-agtype="1"><span></span>Type a folder…<small></small></button>`,
   ];
   return `<div class="agc-menu folder" role="menu">${rows.join("")}</div>`;
-}
-
-/// The line under the box until a machine is picked.
-function drawWhy() {
-  const f = AG.form, el = $$("#agwhy");
-  const show = !f.machine && !!AG.hosts?.length;
-  el.hidden = !show;
-  el.innerHTML = show ? '<span class="ddot off"></span><span>Pick a machine to start.</span>' : "";
 }
 
 function onClick(e: MouseEvent) {
