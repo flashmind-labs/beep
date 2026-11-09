@@ -221,3 +221,75 @@ fn an_empty_log_directory_does_not_query_the_service() {
             .is_empty()
     );
 }
+
+fn log_query() -> beep_proto::node::logs::Query {
+    beep_proto::node::logs::Query {
+        start: "2026-01-02T00:00:00.500Z".into(),
+        end: "2026-01-02T00:00:02Z".into(),
+        search: None,
+        regex: false,
+        lines: 300,
+        offset: 0,
+        allow_untimed: false,
+    }
+}
+
+#[test]
+fn queries_use_precise_bounds_and_inherit_continuation_timestamps() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("log");
+    std::fs::write(
+        &path,
+        "untimed\n\
+        2026-01-02T00:00:00.499Z INFO app: before\n\
+        2026-01-02T01:00:00.500+01:00 INFO app: first\n\
+        continuation\n\
+        2026-01-02T00:00:02Z INFO app: end\n\
+        excluded continuation\n\
+        2026-01-02T00:00:01Z INFO app: out of order\n",
+    )
+    .unwrap();
+    let text = query(&[path], &log_query()).unwrap();
+    assert!(text.contains("first\ncontinuation\n"), "{text}");
+    assert!(text.contains("out of order"), "{text}");
+    assert!(
+        !text.contains("before") && !text.contains("excluded") && !text.contains("untimed"),
+        "{text}"
+    );
+}
+
+#[test]
+fn queries_find_matches_before_the_old_byte_limit_and_search_literally() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("log");
+    let mut log = String::from("2026-01-02T00:00:01Z INFO app: retry [1]\n");
+    log.push_str(&format!("2026-01-02T00:00:02Z INFO app: {}\n", "x".repeat(1000)).repeat(1100));
+    std::fs::write(&path, log).unwrap();
+    let mut args = log_query();
+    args.search = Some("[1]".into());
+    let text = query(std::slice::from_ref(&path), &args).unwrap();
+    assert!(text.contains("retry [1]"), "{text}");
+    args.offset = 1;
+    assert!(query(&[path], &args).unwrap().is_empty());
+}
+
+#[test]
+fn queries_reject_oversized_pages_instead_of_silently_skipping_matches() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("log");
+    std::fs::write(
+        &path,
+        format!("2026-01-02T00:00:01Z INFO app: {}\n", "x".repeat(1000)).repeat(1100),
+    )
+    .unwrap();
+    let args = beep_proto::node::logs::Query {
+        lines: 2000,
+        ..log_query()
+    };
+    assert!(
+        query(&[path], &args)
+            .unwrap_err()
+            .to_string()
+            .contains("request fewer lines")
+    );
+}

@@ -121,7 +121,8 @@ async fn metric_periods_accept_human_durations_and_enforce_retention() {
                 &peers,
                 MetricsArgs {
                     machine: None,
-                    period: Some(period.to_owned())
+                    period: Some(period.to_owned()),
+                    ..MetricsArgs::default()
                 }
             )
             .await
@@ -146,7 +147,8 @@ async fn metric_periods_accept_human_durations_and_enforce_retention() {
                 &peers,
                 MetricsArgs {
                     machine: None,
-                    period: Some(period.to_owned())
+                    period: Some(period.to_owned()),
+                    ..MetricsArgs::default()
                 }
             )
             .await
@@ -170,4 +172,97 @@ async fn metrics_tool_reads_retained_snapshots_and_rejects_invalid_periods() {
     assert!(summary.contains("actions_total"));
     let (_, failed) = text(call(&offers, &request(Tool::BeepMetrics, r#"{"period":"8d"}"#)).await);
     assert!(failed);
+}
+
+#[test]
+fn log_query_arguments_validate_bounds_and_patterns() {
+    let parse = |value| serde_json::from_str::<LogsArgs>(value).unwrap().query();
+    assert!(parse("{}").unwrap().is_none());
+
+    for value in [
+        r#"{"start":"2026-01-02T00:00:00"}"#,
+        r#"{"start":"2026-01-02T00:00:00+01:00"}"#,
+        r#"{"start":"2026-01-02T00:00:00Z","minutes":1}"#,
+        r#"{"start":"2026-01-02T00:00:00Z","end":"2026-01-02T00:00:00Z"}"#,
+        r#"{"start":"2026-01-02T00:00:00Z","end":"2026-01-10T00:00:00Z"}"#,
+        r#"{"offset":100001}"#,
+        r#"{"regex":true}"#,
+        r#"{"search":"[","regex":true}"#,
+    ] {
+        assert!(parse(value).is_err(), "{value}");
+    }
+    let query = parse(r#"{"end":"2026-01-02T01:00:00Z","minutes":30,"search":"["}"#)
+        .unwrap()
+        .unwrap();
+    assert_eq!(query.start, "2026-01-02T00:30:00.000000000Z");
+    assert!(!query.regex);
+    assert!(!query.allow_untimed);
+}
+
+#[tokio::test]
+async fn log_queries_filter_before_paginating_and_redact_secrets() {
+    let log = "2026-01-02T00:00:00Z INFO app: retry one\n\
+        2026-01-02T00:00:01Z INFO app: unrelated\n\
+        2026-01-02T00:00:02Z INFO app: retry two token=abc123secret\n\
+        2026-01-02T00:00:03Z INFO app: retry three\n";
+    let (_peers, offers, _dir) = node(log).await;
+    let args = r#"{"start":"2026-01-02T00:00:00Z","end":"2026-01-02T00:00:04Z","search":"retry (two|three)","regex":true,"lines":1,"offset":1}"#;
+    let (log, failed) = text(call(&offers, &request(Tool::BeepLogs, args)).await);
+    assert!(!failed, "{log}");
+    assert!(log.contains("retry two"), "{log}");
+    assert!(!log.contains("retry three"), "{log}");
+    assert!(
+        log.contains("[redacted]") && !log.contains("abc123secret"),
+        "{log}"
+    );
+}
+
+#[test]
+fn metrics_query_arguments_validate_bounds_and_search() {
+    let parse = |value| {
+        serde_json::from_str::<MetricsArgs>(value)
+            .unwrap()
+            .query(Duration::from_secs(3600))
+    };
+    assert!(parse("{}").unwrap().is_none());
+
+    for value in [
+        r#"{"start":"2026-01-02T00:00:00Z","period":"1h"}"#,
+        r#"{"start":"2026-01-02T00:00:00+01:00"}"#,
+        r#"{"regex":true}"#,
+        r#"{"search":"[","regex":true}"#,
+        r#"{"limit":0}"#,
+        r#"{"offset":2049}"#,
+        r#"{"start":"1969-12-31T23:59:59Z","end":"1970-01-01T00:00:01Z"}"#,
+    ] {
+        assert!(parse(value).is_err(), "{value}");
+    }
+    let query = parse(r#"{"end":"2026-01-02T01:00:00Z","search":"quantile=\"0.99\""}"#)
+        .unwrap()
+        .unwrap();
+    assert_eq!(query.start, "2026-01-02T00:00:00.000000000Z");
+    assert_eq!(query.limit, 200);
+    assert!(!query.regex);
+}
+
+#[tokio::test]
+async fn metrics_tool_queries_utc_windows_and_paginated_matches() {
+    let (_peers, offers, dir) = node("").await;
+    std::fs::write(
+        dir.path().join("metrics.log"),
+        "# snapshot unix_seconds=100\nalpha_total 3\nbeta_total 4\ngamma_total 5\n# end snapshot\n",
+    )
+    .unwrap();
+    let args = r#"{"start":"1970-01-01T00:01:40Z","end":"1970-01-01T00:02:00Z","search":"^(alpha|gamma)_","regex":true,"limit":1,"offset":1}"#;
+    let (summary, failed) = text(call(&offers, &request(Tool::BeepMetrics, args)).await);
+    assert!(!failed, "{summary}");
+    assert!(summary.contains("gamma_total:"), "{summary}");
+    assert!(
+        !summary.contains("alpha_total:") && !summary.contains("beta_total:"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("Matching series: 2; offset: 1; returned: 1; next_offset: none"),
+        "{summary}"
+    );
 }

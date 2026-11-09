@@ -15,12 +15,16 @@ pub(super) fn read(
     options: &LogOptions,
     printer: &mut Printer<impl Write>,
     scope: Scope,
+    start: Option<i64>,
 ) -> Result<()> {
     if !scope.unit_path()?.exists() {
         bail!("the node's service is not installed here: there is no {UNIT}");
     }
 
-    let since = format!("-{}s", options.since.as_secs());
+    let since = match start {
+        Some(start) => format!("@{start}"),
+        None => format!("-{}s", options.since.as_secs()),
+    };
     // The past first, so `--lines` knows where it ends; following then
     // starts right after its last entry.
     let mut past = journalctl(scope);

@@ -202,7 +202,21 @@ impl Inner {
         let offers = self.offers().clone();
         // Diagnostics are available to a desktop or this process, even when not lent.
         match protocol {
-            SessionProtocol::Metrics => {
+            SessionProtocol::LogQuery => {
+                let mut tx = tx;
+
+                if let Who::Node { .. } = who {
+                    return tx
+                        .send(&Opened::Refused {
+                            reason: "only a desktop reads another machine's log".to_owned(),
+                        })
+                        .await;
+                }
+
+                tx.send(&Opened::Ready {}).await?;
+                return offers.log.serve_query(tx, rx).await;
+            }
+            SessionProtocol::Metrics | SessionProtocol::MetricsQuery => {
                 let mut tx = tx;
 
                 if let Who::Node { .. } = who {
@@ -214,7 +228,14 @@ impl Inner {
                 }
 
                 tx.send(&Opened::Ready {}).await?;
-                return super::metrics::serve(tx, rx, self.dir.join("metrics.log")).await;
+                let path = self.dir.join("metrics.log");
+
+                return match protocol {
+                    SessionProtocol::MetricsQuery => {
+                        super::metrics::serve_query(tx, rx, path).await
+                    }
+                    _ => super::metrics::serve(tx, rx, path).await,
+                };
             }
             SessionProtocol::Report => {
                 let mut tx = tx;

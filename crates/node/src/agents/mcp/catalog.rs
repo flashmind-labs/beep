@@ -245,13 +245,18 @@ pub(super) fn tools(reviewer: bool) -> Value {
             "name": "beep_logs",
             "description": "A machine's Beep log (on a desktop, the app's log), its newest lines \
                 from the last `minutes`, for debugging Beep. From a node only that node's own \
-                log can be read. Secrets are removed.",
+                log can be read. Search and pagination run at the source; new filters require log-query/1 support. Secrets are removed.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "machine": machine("The machine, by its name in beep_status or list_machines; this machine when left out"),
                     "minutes": { "type": "integer", "minimum": 1, "maximum": 10080, "description": "How far back, default 60" },
-                    "lines": { "type": "integer", "minimum": 1, "maximum": 2000, "description": "The most lines, newest kept, default 300" }
+                    "lines": { "type": "integer", "minimum": 1, "maximum": 2000, "description": "The most lines, newest kept, default 300" },
+                    "offset": { "type": "integer", "minimum": 0, "maximum": 100000, "description": "Matching lines to skip from the newest end, default 0. Results are chronological. Use fixed start/end for stable pagination while logs grow." },
+                    "search": { "type": "string", "maxLength": 4096, "description": "Case-sensitive literal text search, or Rust regex when regex is true. Applied per line before pagination. Use (?i) in a regex for case-insensitive search." },
+                    "regex": { "type": "boolean", "description": "Interpret search as a Rust regex, default false. Requires search." },
+                    "start": { "type": "string", "format": "date-time", "description": "Inclusive UTC RFC 3339 timestamp (Z or +00:00). Cannot combine with minutes. Defaults to minutes before end; maximum window 7 days." },
+                    "end": { "type": "string", "format": "date-time", "description": "Exclusive UTC RFC 3339 timestamp (Z or +00:00), default now. Explicit time bounds exclude lines without a known timestamp; continuation lines inherit the preceding timestamp." }
                 },
                 "additionalProperties": false
             },
@@ -259,12 +264,18 @@ pub(super) fn tools(reviewer: bool) -> Value {
         },
         {
             "name": "beep_metrics",
-            "description": "Summarize retained metrics for a period (default 1h, maximum 7d). Gives snapshot coverage, counter increases and sampled ranges. Quantiles describe exporter windows, not whole-period percentiles. From a node only its own metrics; from a desktop any machine. Secrets are removed.",
+            "description": "Summarize retained metrics for a period (default 1h, maximum 7d). Gives snapshot coverage, counter increases and sampled ranges. Quantiles describe exporter windows, not whole-period percentiles. From a node only its own metrics; from a desktop any machine. New filters and pagination require metrics/2 support. Secrets are removed.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "machine": machine("The machine by name; this machine when left out"),
-                    "period": { "type": "string", "description": "Duration such as 1h, 4h, 1d or 1h 30m, between 1s and 7d; default 1h" }
+                    "period": { "type": "string", "description": "Duration before end, such as 1h, 4h, 1d or 1h 30m, between 1s and 7d; default 1h. Cannot combine with start." },
+                    "start": { "type": "string", "format": "date-time", "description": "Inclusive UTC RFC 3339 timestamp (Z or +00:00), on or after 1970. Defaults to period before end. Maximum window 7 days." },
+                    "end": { "type": "string", "format": "date-time", "description": "Exclusive UTC RFC 3339 timestamp (Z or +00:00), default now." },
+                    "search": { "type": "string", "maxLength": 4096, "description": "Case-sensitive literal match on metric names and labels, or Rust regex when regex is true. Applied before series limits and pagination." },
+                    "regex": { "type": "boolean", "description": "Interpret search as Rust regex, default false. Requires search. Use (?i) for case-insensitive search." },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 2048, "description": "Maximum matching series per page, default 200 when any query filter or pagination option is used." },
+                    "offset": { "type": "integer", "minimum": 0, "maximum": 2048, "description": "Matching series to skip, default 0. Series sort by name and labels. Follow next_offset with fixed start/end for stable pagination." }
                 },
                 "additionalProperties": false
             },

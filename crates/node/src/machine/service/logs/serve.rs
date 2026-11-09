@@ -85,6 +85,31 @@ impl Logs {
         Ok(files.into_iter().map(|(_, path)| path).collect())
     }
 
+    pub(crate) async fn serve_query(&self, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
+        let Some(query) = rx.recv::<beep_proto::node::logs::Query>().await? else {
+            return Ok(());
+        };
+        let logs = self.clone();
+        let read = spawn_blocking(move || {
+            let files = logs.files()?;
+
+            if files.is_empty() && matches!(logs.source, Source::Directory(_)) {
+                return Ok(String::new());
+            }
+
+            super::query(&files, &query)
+        })
+        .await?;
+        let reply = match read {
+            Ok(text) => Reply::Log { text },
+            Err(e) => Reply::Failed {
+                reason: format!("{e:#}"),
+            },
+        };
+        tx.send(&reply).await?;
+        tx.finish().await
+    }
+
     /// The log from Unix second `since` on, the newest `max_bytes` of it.
     pub fn window(&self, since: i64, max_bytes: usize) -> Result<String> {
         let files = self.files()?;

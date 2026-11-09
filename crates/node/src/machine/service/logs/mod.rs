@@ -4,7 +4,9 @@
 //! networking crates' chatter unless asked.
 
 use anyhow::{Context, Result};
-use beep_proto::node::logs::{MAX_BYTES, MAX_LINES};
+use beep_proto::node::logs::{MAX_BYTES, MAX_LINES, Query};
+use chrono::{DateTime, Duration as ChronoDuration, FixedOffset};
+use regex::{Regex, RegexBuilder};
 use std::{
     borrow::Cow,
     collections::VecDeque,
@@ -99,6 +101,167 @@ pub(crate) fn window(files: &[PathBuf], since: i64, max_bytes: usize) -> Result<
     Ok(window_from(files, None, max_bytes)?.text)
 }
 
+/// Filters while scanning, before retaining a bounded page of matching lines.
+fn query(files: &[PathBuf], query: &Query) -> Result<String> {
+    anyhow::ensure!(
+        (1..=2000).contains(&query.lines),
+        "lines must be between 1 and 2000"
+    );
+    anyhow::ensure!(query.offset <= 100_000, "offset must be at most 100000");
+    anyhow::ensure!(
+        !query.regex || query.search.is_some(),
+        "regex requires search"
+    );
+    let start = DateTime::parse_from_rfc3339(&query.start)?;
+    let end = DateTime::parse_from_rfc3339(&query.end)?;
+    anyhow::ensure!(
+        start.offset().local_minus_utc() == 0 && end.offset().local_minus_utc() == 0,
+        "start and end must be UTC"
+    );
+    anyhow::ensure!(
+        start < end && end.signed_duration_since(start) <= ChronoDuration::days(7),
+        "start must precede end by at most 7 days"
+    );
+    let pattern: Option<Regex> = query
+        .search
+        .as_ref()
+        .map(|search| {
+            anyhow::ensure!(search.len() <= 4096, "search must be at most 4096 bytes");
+            let pattern = if query.regex {
+                search.clone()
+            } else {
+                regex::escape(search)
+            };
+            Ok::<_, anyhow::Error>(
+                RegexBuilder::new(&pattern)
+                    .size_limit(1024 * 1024)
+                    .build()?,
+            )
+        })
+        .transpose()?;
+    let mut sink = QueryWriter {
+        start,
+        end,
+        current: None,
+        allow_untimed: query.allow_untimed,
+        pattern,
+        pending: Vec::new(),
+        scanned: 0,
+        tail: Tail::new((query.lines + query.offset) as usize),
+    };
+    let options = LogOptions {
+        since: Duration::from_secs(
+            cutoff(Duration::ZERO)
+                .saturating_sub(start.timestamp())
+                .max(0) as u64,
+        ),
+        follow: false,
+        lines: None,
+        all: false,
+    };
+    let mut printer = Printer {
+        filter: Filter::new(true, None),
+        tail: None,
+        out: &mut sink,
+    };
+
+    if files.is_empty() {
+        read_from(&options, &mut printer, Some(start.timestamp()))?;
+    } else {
+        for file in files {
+            match read_file(file, &mut printer) {
+                Err(e)
+                    if e.downcast_ref::<io::Error>()
+                        .is_some_and(|e| e.kind() == ErrorKind::NotFound) => {}
+                result => result?,
+            }
+        }
+    }
+
+    let keep = sink.tail.lines.len().saturating_sub(query.offset as usize);
+    sink.tail.lines.truncate(keep);
+    let bytes: usize = sink.tail.lines.iter().map(|line| line.len() + 1).sum();
+
+    anyhow::ensure!(
+        bytes <= beep_proto::node::report::MAX_BYTES as usize,
+        "Page exceeds 1 MiB; request fewer lines"
+    );
+    Ok(sink
+        .tail
+        .lines
+        .into_iter()
+        .map(|line| line + "\n")
+        .collect())
+}
+
+struct QueryWriter {
+    start: DateTime<FixedOffset>,
+    end: DateTime<FixedOffset>,
+    current: Option<DateTime<FixedOffset>>,
+    allow_untimed: bool,
+    pattern: Option<Regex>,
+    pending: Vec<u8>,
+    scanned: usize,
+    tail: Tail,
+}
+
+impl Write for QueryWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.scanned = self.scanned.saturating_add(bytes.len());
+
+        if self.scanned > 256 * 1024 * 1024 {
+            return Err(io::Error::other("Log query scan exceeds 256 MiB"));
+        }
+
+        for &byte in bytes {
+            if byte != b'\n' {
+                if self.pending.len() >= 1024 * 1024 {
+                    return Err(io::Error::other("Log line exceeds 1 MiB"));
+                }
+                self.pending.push(byte);
+                continue;
+            }
+
+            let text = String::from_utf8_lossy(&self.pending);
+            let line = plain(&text);
+            if let Some(time) = line
+                .split_whitespace()
+                .next()
+                .and_then(|word| DateTime::parse_from_rfc3339(word).ok())
+            {
+                self.current = Some(time);
+            }
+            let in_window = self.current.map_or(self.allow_untimed, |time| {
+                time >= self.start && time < self.end
+            });
+
+            let noisy = head(&line).is_some_and(|head| is_noise(&head));
+
+            if in_window
+                && !noisy
+                && self
+                    .pattern
+                    .as_ref()
+                    .is_none_or(|pattern| pattern.is_match(&line))
+            {
+                self.tail.push(&line);
+
+                if self.tail.bytes > 16 * 1024 * 1024 {
+                    return Err(io::Error::other(
+                        "Log pagination exceeds 16 MiB; narrow the time range or search",
+                    ));
+                }
+            }
+            self.pending.clear();
+        }
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 /// What `window_from` read.
 struct Window {
     text: String,
@@ -157,25 +320,41 @@ fn read_file(path: &Path, printer: &mut Printer<impl Write>) -> Result<()> {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
 fn read(options: &LogOptions, printer: &mut Printer<impl Write>) -> Result<()> {
+    read_from(options, printer, None)
+}
+
+#[cfg(target_os = "linux")]
+fn read_from(
+    options: &LogOptions,
+    printer: &mut Printer<impl Write>,
+    start: Option<i64>,
+) -> Result<()> {
     use super::{Manager, systemd::Scope};
 
     match super::present()? {
-        Some(Manager::Systemd) => journal::read(options, printer, Scope::User),
-        Some(Manager::SystemdSystem) => journal::read(options, printer, Scope::System),
+        Some(Manager::Systemd) => journal::read(options, printer, Scope::User, start),
+        Some(Manager::SystemdSystem) => journal::read(options, printer, Scope::System, start),
         Some(_) => file::read(options, printer),
         None => anyhow::bail!("the node's service is not installed here"),
     }
 }
 
 #[cfg(any(target_os = "macos", windows))]
-fn read(options: &LogOptions, printer: &mut Printer<impl Write>) -> Result<()> {
+fn read_from(
+    options: &LogOptions,
+    printer: &mut Printer<impl Write>,
+    _start: Option<i64>,
+) -> Result<()> {
     file::read(options, printer)
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-fn read(_options: &LogOptions, _printer: &mut Printer<impl Write>) -> Result<()> {
+fn read_from(
+    _options: &LogOptions,
+    _printer: &mut Printer<impl Write>,
+    _start: Option<i64>,
+) -> Result<()> {
     anyhow::bail!(super::Unusable::Os(std::env::consts::OS))
 }
 
