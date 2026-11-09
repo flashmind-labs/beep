@@ -33,6 +33,29 @@ const DETAILS: [&str; 9] = [
     "message",
 ];
 
+#[derive(Debug, Clone)]
+pub(super) struct Child {
+    pub(super) parent: String,
+    pub(super) session: String,
+}
+
+/// Parent and native conversation ID from a child rollout's header.
+pub(super) fn parent(line: &str) -> Option<Child> {
+    let value: Value = serde_json::from_str(line).ok()?;
+    if value["type"] != "session_meta" {
+        return None;
+    }
+    let meta = &value["payload"];
+    let parent = meta["source"]["subagent"]["thread_spawn"]["parent_thread_id"].as_str()?;
+    let thread = meta["id"].as_str()?;
+    let session = Conversation::Codex(thread).to_string();
+    Conversation::try_from(session.as_str()).ok()?;
+    (parent != thread).then(|| Child {
+        parent: parent.to_owned(),
+        session,
+    })
+}
+
 /// The rollout of thread `thread` under the Codex folder `root`.
 pub(super) fn rollout(root: &Path, thread: &str) -> Option<PathBuf> {
     if thread.is_empty() || thread.contains(['/', '\\']) {

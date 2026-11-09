@@ -108,6 +108,20 @@ impl Agents {
         last: usize,
         before: Option<u64>,
     ) -> (Vec<agent::Entry>, u64) {
+        if session.agent == "codex" {
+            let parent = session.live.borrow().agent_session.clone();
+            if let Some(parent) = parent {
+                let stores = self.stores.clone();
+                match spawn_blocking(move || stores.codex_children(&parent)).await {
+                    Ok(runs) if !runs.is_empty() => {
+                        let _ = session.order(Command::RecoverCodexChildren(runs)).await;
+                    }
+                    Err(error) => log::debug!("Codex child discovery failed: {error}"),
+                    _ => {}
+                }
+            }
+        }
+
         let (mut entries, earlier) = session.live.borrow().transcript_before(last, before);
         let children = session.live.borrow().codex_children(earlier);
 

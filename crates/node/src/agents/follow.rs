@@ -427,7 +427,11 @@ async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSna
 
 async fn paths(agents: &Agents, request: &FollowSession) -> Result<Vec<PathBuf>> {
     if agents.get(request.session.as_ref()).is_some() {
-        return Ok(Vec::new());
+        return Ok(if request.agent == "codex" {
+            agents.stores.follow_paths(Some(Agent::Codex))
+        } else {
+            Vec::new()
+        });
     }
 
     let mut paths = Vec::new();
@@ -448,16 +452,7 @@ async fn paths(agents: &Agents, request: &FollowSession) -> Result<Vec<PathBuf>>
     if request.agent == "claude" {
         paths.extend(agents.external.presence_path());
     } else if request.agent == "codex" {
-        paths.extend(
-            agents
-                .stores
-                .follow_paths(Some(Agent::Codex))
-                .into_iter()
-                .filter(|path| {
-                    path.file_name()
-                        .is_some_and(|name| name == "session_index.jsonl")
-                }),
-        );
+        paths.extend(agents.stores.follow_paths(Some(Agent::Codex)));
     }
 
     Ok(paths)

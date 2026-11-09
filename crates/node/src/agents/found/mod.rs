@@ -122,6 +122,8 @@ pub(crate) struct Stores {
 struct Memos {
     /// Each Codex or pi session file's header.
     heads: Memo<Option<Seen>>,
+    codex_children: Memo<Option<codex_run::Child>>,
+    codex_runs: Memo<crate::agents::SubagentRun>,
     /// Each Codex or pi session file's name or first prompt.
     titles: Memo<Option<String>>,
     /// Each Codex session file's latest working folder.
@@ -141,6 +143,8 @@ impl Default for Memos {
     fn default() -> Self {
         Self {
             heads: Memo::new(MAX_FILES * 4),
+            codex_children: Memo::new(MAX_FILES * 4),
+            codex_runs: Memo::new(MAX_FILES),
             titles: Memo::new(1_000),
             folders: Memo::new(1_000),
             names: Memo::new(4),
@@ -270,6 +274,40 @@ impl Stores {
         recorded.unwrap_or_else(|| seen.cwd.clone())
     }
 
+    /// Direct Codex children, including task-path spawns not exposed over ACP.
+    pub(crate) fn codex_children(&self, parent: &str) -> Vec<crate::agents::SubagentRun> {
+        let Some(root) = self.codex.as_deref() else {
+            return Vec::new();
+        };
+        let wanted = |path: &Path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("rollout-") && name.ends_with(".jsonl"))
+        };
+        let mut files = newest_files(&root.join("sessions"), 3, &wanted);
+        files.sort_by(|(left, _), (right, _)| left.cmp(right));
+        files
+            .into_iter()
+            .filter_map(|(path, _)| {
+                let child = self
+                    .memos
+                    .codex_children
+                    .read(&path, || {
+                        first_line(&path).map(|line| line.as_deref().and_then(codex_run::parent))
+                    })
+                    .ok()??;
+                if child.parent != parent {
+                    return None;
+                }
+                self.memos
+                    .codex_runs
+                    .read(&path, || codex_run::read(&path))
+                    .ok()
+                    .filter(|run| run.session.as_deref() == Some(child.session.as_str()))
+            })
+            .collect()
+    }
+
     /// What the first of `threads` with a rollout here did, for a Codex
     /// subagent's entry; `None` when Codex has no folder or no rollout of
     /// them.
@@ -278,7 +316,9 @@ impl Stores {
         let path = threads
             .iter()
             .find_map(|thread| codex_run::rollout(root, thread))?;
-        codex_run::read(&path)
+        self.memos
+            .codex_runs
+            .read(&path, || codex_run::read(&path))
             .inspect_err(|e| {
                 log::debug!(
                     "subagent rollout not read; path={} error={e}",
