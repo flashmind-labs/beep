@@ -1,11 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { Menu, MenuItem } from "react-aria-components";
 import { reason } from "./format.ts";
-import type { ConfirmOptions, MenuItem as Action, RenameOptions } from "./menu.ts";
-
-export function ContextMenu({ title, items, choose }: { title: string; items: readonly Action[]; choose(index: number): void }) {
-  return <><span className="lbl">{title}</span><Menu aria-label={title} onAction={key => choose(Number(key))}>{items.map((item, index) => <MenuItem id={String(index)} key={index} textValue={item.label} className={item.warn ? "warn" : ""}>{item.label}</MenuItem>)}</Menu></>;
-}
+import type { ConfirmOptions, RenameOptions } from "./menu.ts";
 
 export function ConfirmView({ options, close, pending }: { options: ConfirmOptions; close(): void; pending(value: boolean): void }) {
   const [busy, setBusy] = useState(false), [ticked, setTicked] = useState(false);
