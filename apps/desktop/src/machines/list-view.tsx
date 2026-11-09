@@ -73,3 +73,8 @@ function MachineCard({ machine: m, columns, props: p }: { machine: Machine; colu
     {asking && !p.hosted && <div className="ask"><span>Remove {m.name} from your account? {note} {m.can_host === false ? "To reconnect, pair it again." : "To use it again, add it with a new setup command."}</span>{asking.error && <span className="derr">{asking.error}</span>}<span className="acts"><button type="button" className="dbtn warn" id="rmYes" disabled={asking.busy} onClick={p.remove}>Remove</button><button type="button" className="dbtn quiet" id="rmNo" onClick={p.cancelRemove}>Cancel</button></span></div>}
   </div>;
 }
+
+
+export function MachineLoading() {
+  return <div className="dskel-rows">{[78, 56, 68].map(width => <div className="dskel" key={width} style={{ width: `${width}%` }} />)}</div>;
+}

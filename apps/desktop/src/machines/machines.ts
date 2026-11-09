@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
-import { MachineList } from "./list-view.tsx";
+import { MachineList, MachineLoading } from "./list-view.tsx";
 import { MachineDetail, type MachineLog } from "./detail-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // machines/: the Machines list, Home's machine table (table.ts) and the
@@ -406,10 +406,11 @@ async function waitForNode(id: string, to: string, polls: number) {
 // whatever version the app was built with, which may never have been released.
 const newest = () => offeredNode(MC.released, (MC.list ?? []).filter(m => MC.updatable.has(m.id)).map(m => m.version));
 
-let screenRoot: { host: HTMLElement; mount: HTMLElement; root: DocumentView } | null = null;
+let screenRoot: { host: HTMLElement; mount: HTMLElement; root: DocumentView; observer: MutationObserver } | null = null;
 
 function clearScreen() {
   if (!screenRoot) return;
+  screenRoot.observer.disconnect();
   screenRoot.root.unmount();
   screenRoot.mount.remove();
   screenRoot = null;
@@ -421,7 +422,11 @@ function ensureScreen(el: HTMLElement) {
     const mount = document.createElement("div");
     mount.style.display = "contents";
     el.replaceChildren(mount);
-    screenRoot = { host: el, mount, root: createDocumentView(mount) };
+    const observer = new MutationObserver(() => {
+      if (screenRoot?.mount === mount && (!mount.isConnected || mount.parentElement !== el)) clearScreen();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    screenRoot = { host: el, mount, root: createDocumentView(mount), observer };
   }
   return screenRoot.root;
 }
@@ -476,8 +481,8 @@ function drawMachines() {
   if (open) {
     drawDetail(el, open);
   } else {
-    clearScreen();
-    el.innerHTML = `<div class="dskel-rows">${[78, 56, 68].map(w => `<div class="dskel" style="width:${w}%"></div>`).join("")}</div>`;
+    const screen = ensureScreen(el);
+    flushSync(() => screen.render(createElement(MachineLoading)));
   }
 
 }
