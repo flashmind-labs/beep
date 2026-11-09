@@ -6,6 +6,7 @@ import { stashBar } from "../chat/stash.ts";
 import { startAttachments } from "./start-attachments.ts";
 import { makeStartComposer } from "./start-composer.ts";
 import { FolderChoice, NewAgentNotes, ProjectChoice } from "./start-composer-view.tsx";
+import { ChoiceMenuView, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
 import { AG, AGENT_ORDER, agentKind, byPreference, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
 import { loadSessions, sessions } from "./sessions.ts";
 import { openAgent, sessionPicks } from "./session.ts";
@@ -168,7 +169,6 @@ function drawFrame() {
   c.err.id = "agerr";
   const { root } = openBarPage(() => { closedPicker(c.pick); c.dispose(); });
   flushSync(() => root.render(createElement(AgentNewShell, { pane: PANE, composer: c.form, stash: stashBar(f.project ?? null) })));
-  c.box.insertAdjacentHTML("beforeend", '<div id="agunder"></div>');
   c.form.addEventListener("submit", e => { e.preventDefault(); void startAgent(); });
   c.input.addEventListener("input", () => {
     f.prompt = c.input.value;
@@ -266,7 +266,7 @@ addEventListener("scroll", () => { if (S.view === "agentnew") placeMenu(); }, { 
 
 /// Project, machine and checkout controls, with whichever menu is open.
 function drawUnder() {
-  const f = AG.form, el = $$("#agunder"), host = formHost();
+  const f = AG.form, host = formHost();
   const checkout = checkoutHere();
   const shown = folderPill(f.cwd, host?.workspace, host?.home);
   const co = barCheckout(f.checkout ?? DEFAULT_CHECKOUT, baseFor(f.base, formBranches()));
@@ -281,8 +281,7 @@ function drawUnder() {
   c.project.setAttribute("aria-expanded", String(f.open === "project"));
   c.machine.setAttribute("aria-expanded", String(f.open === "host"));
   c.setChoiceContents({ project: createElement(ProjectChoice, { name: f.project || "No project" }), machine: host ? host.machine_name : "Pick a machine", folder: createElement(FolderChoice, { checkout, label: checkout ? co.label : shown.label, detail: checkout ? co.sub : shown.path }) });
-  el.innerHTML = `${projectMenu()}${hostMenu()}${folderMenu(checkout)}${baseMenu()}`;
-  el.querySelectorAll<HTMLButtonElement>("button").forEach(button => { button.type = "button"; });
+  c.setUnder(createElement(ChoiceMenuView, { menu: projectMenu() ?? hostMenu() ?? folderMenu(checkout) ?? baseMenu() }));
   placeMenu();
   if (f.typing) bindFolderField();
   if (f.baseTyping) bindBaseField();
@@ -307,18 +306,17 @@ function placeMenu() {
 }
 
 /// The Project menu: the user's projects, then none.
-function projectMenu() {
+function projectMenu(): ChoiceMenu | null {
   const f = AG.form;
-  if (f.open !== "project") return "";
+  if (f.open !== "project") return null;
   const machine = f.machine || null;
   const rows = (PROJECTS ?? []).map(p => {
     const here = machine ? p.places.find(x => x.machine === machine) : null;
     const where = here ? tildePath(here.cwd, formHost()?.home) : `${p.places.length} ${p.places.length === 1 ? "machine" : "machines"}`;
-    return `<button data-agp="${esc(p.name)}" class="${f.project === p.name ? "on" : ""}"><span></span><span>${esc(p.name)}</span><small class="${here ? "mono" : ""}">${esc(where)}</small></button>`;
+    return { kind: "button", action: "agp", value: p.name, selected: f.project === p.name, label: createElement("span", null, p.name), detail: where, mono: !!here } satisfies ChoiceRow;
   });
-  const note = PROJECTS === null ? ['<button disabled><span></span><span><span class="dspin"></span> Reading projects…</span><small></small></button>'] : [];
-  const none = `<button data-agp="" class="${f.project ? "" : "on"}"><span></span>No project<small>pick one to start</small></button>`;
-  return `<div class="agc-menu" role="menu">${[...note, ...rows, ...(rows.length || note.length ? ["<hr>"] : []), none].join("")}</div>`;
+  const note: ChoiceRow[] = PROJECTS === null ? [{ kind: "button", action: null, value: "loading", disabled: true, label: createElement("span", null, createElement("span", { className: "dspin" }), " Reading projects…"), detail: "" }] : [];
+  return { style: "", rows: [...note, ...rows, ...(rows.length || note.length ? [{ kind: "rule" } as const] : []), { kind: "button", action: "agp", value: "", selected: !f.project, label: "No project", detail: "pick one to start" }] };
 }
 
 /// Sets the form's project, on the machine last picked for it, else the one
@@ -375,13 +373,13 @@ function baseButton() {
 
 /// The Base menu: the project's branches, the default first, and a row to
 /// type any branch, tag or commit.
-function baseMenu() {
+function baseMenu(): ChoiceMenu | null {
   const f = AG.form;
-  if (f.open !== "base") return "";
+  if (f.open !== "base") return null;
   const list = formBranches(), picked = baseFor(f.base, list);
-  const rows = baseRows(list).map(name => `<button data-agb="${esc(name)}" class="${picked === name ? "on" : ""}"><span></span><span class="mono">${esc(name)}</span><small>${name === list?.default_branch ? "default" : ""}</small></button>`);
-  const note = list === undefined ? ['<button disabled><span></span><span><span class="dspin"></span> Reading branches…</span><small></small></button>'] : [];
-  return `<div class="agc-menu base" role="menu">${[...note, ...rows, ...(rows.length || note.length ? ["<hr>"] : []), `<button data-agbtype="1"><span></span>Type a branch or commit…<small></small></button>`].join("")}</div>`;
+  const rows: ChoiceRow[] = baseRows(list).map(name => ({ kind: "button", action: "agb", value: name, selected: picked === name, label: createElement("span", { className: "mono" }, name), detail: name === list?.default_branch ? "default" : "" }));
+  const note: ChoiceRow[] = list === undefined ? [{ kind: "button", action: null, value: "loading", disabled: true, label: createElement("span", null, createElement("span", { className: "dspin" }), " Reading branches…"), detail: "" }] : [];
+  return { style: "base", rows: [...note, ...rows, ...(rows.length || note.length ? [{ kind: "rule" } as const] : []), { kind: "button", action: "agbtype", value: "1", label: "Type a branch or commit…", detail: "" }] };
 }
 
 /// The base field: Enter or a click elsewhere keeps what is typed; empty
@@ -395,11 +393,11 @@ function bindBaseField() {
   input.addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== input && AG.form.baseTyping) { AG.form.baseTyping = false; drawParts(); } }, 150));
 }
 
-function hostMenu() {
+function hostMenu(): ChoiceMenu | null {
   const f = AG.form;
-  if (f.open !== "host") return "";
+  if (f.open !== "host") return null;
   const rows = machineRows(AG.hosts ?? [], KNOWN?.map(m => ({ id: m.id, name: m.name, online: m.online })) ?? null, a => agentKind(a).name, AGENT_ORDER);
-  return `<div class="agc-menu cols" role="menu">${rows.map(m => `<button data-agm="${esc(m.id)}" class="${f.machine === m.id ? "on" : ""}"${m.enabled ? "" : " disabled"}><span class="dot${m.online ? "" : " off"}"></span><span>${esc(m.name)}</span><small>${esc(m.note)}</small></button>`).join("")}</div>`;
+  return { style: "cols", rows: rows.map(m => ({ kind: "button", action: "agm", value: m.id, selected: f.machine === m.id, disabled: !m.enabled, dot: m.online ? "on" : "off", label: createElement("span", null, m.name), detail: m.note })) };
 }
 
 /// Whether the folder is one of the project's checkouts on the machine
@@ -411,21 +409,21 @@ function checkoutHere() {
   return f.places.some(p => (!machine || p.machine === machine) && (p.cwd === cwd || folderOn(p.cwd, null, null) === cwd));
 }
 
-function folderMenu(checkout: boolean) {
+function folderMenu(checkout: boolean): ChoiceMenu | null {
   const f = AG.form;
-  if (f.open !== "folder") return "";
+  if (f.open !== "folder") return null;
   const machine = f.machine || null, host = formHost();
 
   if (!f.project) {
     // Outside a project: the workspace, then the projects checked out on
     // the machine; picking one sets the Project pill.
-    const rows = folderRows(f.cwd, host?.workspace, host?.home, projectFolders(PROJECTS ?? [], machine, host?.home)).map(r => {
-      if (r.kind === "rule") return "<hr>";
-      if (r.kind === "type") return `<button data-agtype="1"><span></span>Type a folder…<small></small></button>`;
-      if (r.kind === "workspace") return `<button data-agf="" class="${r.on ? "on" : ""}"><span></span>Workspace<small class="mono">${esc(r.shown)}</small></button>`;
-      return `<button data-agf="${esc(r.cwd)}" class="${r.on ? "on" : ""}"><span></span><span>${esc(r.project)}</span><small class="mono">${esc(r.shown)}</small></button>`;
+    const rows: ChoiceRow[] = folderRows(f.cwd, host?.workspace, host?.home, projectFolders(PROJECTS ?? [], machine, host?.home)).map(r => {
+      if (r.kind === "rule") return { kind: "rule" };
+      if (r.kind === "type") return { kind: "button", action: "agtype", value: "1", label: "Type a folder…", detail: "" };
+      if (r.kind === "workspace") return { kind: "button", action: "agf", value: "", selected: r.on, label: "Workspace", detail: r.shown, mono: true };
+      return { kind: "button", action: "agf", value: r.cwd, selected: r.on, label: createElement("span", null, r.project), detail: r.shown, mono: true };
     });
-    return `<div class="agc-menu folder" role="menu">${rows.join("")}</div>`;
+    return { style: "folder", rows };
   }
 
   const places = [...new Set((f.places ?? []).filter(p => !machine || p.machine === machine).map(p => machine ? p.cwd : folderOn(p.cwd, null, null)))];
@@ -433,18 +431,18 @@ function folderMenu(checkout: boolean) {
   const same = (p: CheckoutPick) => JSON.stringify(p) === JSON.stringify(pick);
   const trees = checkout ? knownWorktrees(sessions, f.machine || null, f.cwd) : [];
   const workspace = host?.workspace ? tildePath(host.workspace, host.home) : "~";
-  const rows = [
-    ...places.map(p => `<button data-agf="${esc(p)}" class="${f.cwd.trim() === p ? "on" : ""}"><span></span><span class="mono">${esc(tildePath(p, host?.home))}</span><small>checkout</small></button>`),
-    ...(checkout ? ["<hr>",
-      `<button data-agk="current" class="${same("current") ? "on" : ""}"><span></span>Current checkout<small>as it is</small></button>`,
-      `<button data-agk="branch" class="${same("branch") ? "on" : ""}"><span></span>New branch<small>in the checkout, named from the prompt</small></button>`,
-      `<button data-agk="new" class="${same("new") ? "on" : ""}"><span></span>New worktree<small>new branch in .worktrees/</small></button>`,
-      ...trees.map(t => `<button data-agw="${esc(t)}" class="${same({ worktree: t }) ? "on" : ""}"><span></span><span class="mono">${esc(t.split("/").slice(-2).join("/"))}</span><small>worktree</small></button>`)] : []),
-    ...(places.length || checkout ? ["<hr>"] : []),
-    `<button data-agf="" class="${f.cwd.trim() ? "" : "on"}"><span></span>Workspace<small class="mono">${esc(workspace)}</small></button>`,
-    `<button data-agtype="1"><span></span>Type a folder…<small></small></button>`,
+  const rows: ChoiceRow[] = [
+    ...places.map(p => ({ kind: "button", action: "agf", value: p, selected: f.cwd.trim() === p, label: createElement("span", { className: "mono" }, tildePath(p, host?.home)), detail: "checkout" } as const)),
+    ...(checkout ? [{ kind: "rule" } as const,
+      { kind: "button", action: "agk", value: "current", selected: same("current"), label: "Current checkout", detail: "as it is" } as const,
+      { kind: "button", action: "agk", value: "branch", selected: same("branch"), label: "New branch", detail: "in the checkout, named from the prompt" } as const,
+      { kind: "button", action: "agk", value: "new", selected: same("new"), label: "New worktree", detail: "new branch in .worktrees/" } as const,
+      ...trees.map(t => ({ kind: "button", action: "agw", value: t, selected: same({ worktree: t }), label: createElement("span", { className: "mono" }, t.split("/").slice(-2).join("/")), detail: "worktree" } as const))] : []),
+    ...(places.length || checkout ? [{ kind: "rule" } as const] : []),
+    { kind: "button", action: "agf", value: "", selected: !f.cwd.trim(), label: "Workspace", detail: workspace, mono: true },
+    { kind: "button", action: "agtype", value: "1", label: "Type a folder…", detail: "" },
   ];
-  return `<div class="agc-menu folder" role="menu">${rows.join("")}</div>`;
+  return { style: "folder", rows };
 }
 
 function onClick(e: MouseEvent) {
