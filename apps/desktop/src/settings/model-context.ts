@@ -53,16 +53,16 @@ export function modelContextPanel({ invoke, h, button, redraw }: Deps) {
     if (st.loading) return [title, h("div", "hv-note", "Loading models and context limits…")];
     if (!st.loaded) return [title, h("div", "derr", st.error), button("Try again", "", () => { void load(machine, agent, state); redraw(); })];
     const defaultInput = h("input", "hv-in");
-    defaultInput.value = st.defaultModel;
+    const defaultModels = (st.models?.models ?? []).filter(model => model.id.toLowerCase() !== "default");
+    defaultInput.value = defaultModels.find(model => model.id === st.defaultModel)?.name ?? st.defaultModel;
     defaultInput.placeholder = "Harness default";
     defaultInput.setAttribute("aria-label", "Default model");
     defaultInput.setAttribute("list", "harness-default-models");
     defaultInput.disabled = st.savingDefault;
     const choices = h("datalist", "");
     choices.id = "harness-default-models";
-    for (const model of st.models?.models ?? []) {
-      if (model.id.toLowerCase() === "default") continue;
-      const option = h("option", ""); option.value = model.id; option.label = model.name; choices.append(option);
+    for (const model of defaultModels) {
+      const option = h("option", ""); option.value = model.name; choices.append(option);
     }
     const defaultError = h("span", "derr", st.defaultError);
     const saveDefault = button(st.savingDefault ? "Saving…" : "Save default model", "pri", () => {
@@ -76,7 +76,8 @@ export function modelContextPanel({ invoke, h, button, redraw }: Deps) {
     });
     saveDefault.disabled = st.savingDefault || st.defaultModel.trim() === st.savedDefault;
     defaultInput.addEventListener("input", () => {
-      state.defaultModel = defaultInput.value;
+      const value = defaultInput.value.trim();
+      state.defaultModel = defaultModels.find(model => model.name === value)?.id ?? value;
       saveDefault.disabled = state.savingDefault || state.defaultModel.trim() === state.savedDefault;
     });
     const defaultRow = h("div", "hv-f", h("span", "", h("b", "", "Default model"),
