@@ -56,14 +56,15 @@ export const KNOWS_HOTKEY = "beep.knowsHotkey";
 export function knowsHotkey() { try { return localStorage.getItem(KNOWS_HOTKEY) === "1"; } catch { return false; } }
 export function learnedHotkey() { try { localStorage.setItem(KNOWS_HOTKEY, "1"); } catch {} }
 export function refreshHints() {
-  const old = bar.querySelector(":scope > .dhints");
+  const old = bar.querySelector(".dhints");
   if (!old || S.view !== "chat") return;
-  old.replaceWith(h(LV.on && LV.view && $("#ldock") ? hints(liveParts(LV.view).keys) : chatHints()));
+  const next = h(LV.on && LV.view && $("#ldock") ? hints(liveParts(LV.view).keys) : chatHints());
+  old.replaceChildren(...next.childNodes);
   drawStop();
 }
 /// The Stop button beside the prompt while a reply runs, as ⌘. does.
 export function drawStop() {
-  const row = bar.querySelector(":scope > .dinput.dgrow"), btn = $("#stopRun");
+  const row = bar.querySelector(".dinput.dgrow"), btn = $("#stopRun");
   const running = S.view === "chat" && !!here()?.run;
   if (!row || running === !!btn) return;
   if (!running) return btn?.remove();
