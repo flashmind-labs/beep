@@ -1,0 +1,37 @@
+# Manual cleanup of the R2 release bucket: lists it, removes desktop and node
+# versions below the given ones, then lists it again. Releases do the same for
+# their own folder after each upload.
+name: r2-prune
+
+on:
+  workflow_dispatch:
+    inputs:
+      desktop:
+        description: Oldest desktop version to keep
+        required: true
+      node:
+        description: Oldest node version to keep
+        required: true
+
+jobs:
+  prune:
+    runs-on: host
+    env:
+      CF_ACCESS_KEY_ID: ${{ secrets.CF_ACCESS_KEY_ID }}
+      CF_SECRET_ACCESS_KEY: ${{ secrets.CF_SECRET_ACCESS_KEY }}
+      CF_BUCKET: ${{ secrets.CF_BUCKET }}
+      CF_ENDPOINT: ${{ secrets.CF_ENDPOINT }}
+      DESKTOP: ${{ inputs.desktop }}
+      NODE: ${{ inputs.node }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prune
+        run: |
+          set -euo pipefail
+          account=${CF_ENDPOINT#https://}
+          export ACCOUNT=${account%%.*}
+          python3 scripts/r2-prune.py list
+          for folder in macos linux windows; do python3 scripts/r2-prune.py "$folder" "$DESKTOP"; done
+          python3 scripts/r2-prune.py node "$NODE"
+          echo "After:"
+          python3 scripts/r2-prune.py list
