@@ -108,6 +108,6 @@ function trapTab(e: KeyboardEvent, sheet: HTMLElement) {
 }
 
 registerInstructions({ registerView, invoke, h, button, ago, openSettings });
-registerProviders({ registerView, invoke, h, button, openSettings, redrawTop: () => {
+registerProviders({ registerView, invoke, openSettings, redrawTop: () => {
   if (currentLocation()?.view === "providers") drawTop();
 } });

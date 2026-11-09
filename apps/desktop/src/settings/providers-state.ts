@@ -82,6 +82,8 @@ export interface HarnessDraft {
   compactPercent: string;
 }
 
+export type AutoCompactDraft = Pick<HarnessDraft, "compactOn" | "compactPercent">;
+
 /// What `harness_settings_save` takes.
 interface SettingsInput {
   enabled: boolean;

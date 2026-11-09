@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { ModelContextView } from "./model-context-view.tsx";
 import type { ModelContextPanel } from "./model-context.ts";
 import { FlshView } from "./flsh-view.tsx";
@@ -7,14 +7,20 @@ import { copy } from "../ui/parts.ts";
 import { splitFailure } from "../ui/failbanner.ts";
 import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
 import { adapterLine, type AdapterInstall } from "../machines/adapters-state.ts";
-import { differsLabel, differsOn, draftChanged, envProblem, harnessName, hasUpdate, listRows, planOf, summaryLine, versionLine, type HarnessDraft, type HarnessesView, type HarnessView, type MachineSettings, type SharedField } from "./providers-state.ts";
+import { compactKind, differsLabel, differsOn, draftChanged, envProblem, harnessName, hasUpdate, listRows, planOf, summaryLine, versionLine, type AutoCompactDraft, type HarnessDraft, type HarnessesView, type HarnessView, type MachineSettings, type SharedField } from "./providers-state.ts";
+
+export interface SharedProviderSettings {
+  agent: string; machineName: string | null;
+  compact: { loaded: boolean; draft: AutoCompactDraft; busy: boolean; edited: boolean; error: string; canSave: boolean } | null;
+}
 
 interface ProviderProps {
   machines: { id: string; name: string; online: boolean }[] | null | undefined;
   machine: string | null; machineName: string; view: HarnessesView | null | false | undefined; picked: string | null;
   draft: HarnessDraft | null; others: MachineSettings[] | false | undefined; saving: boolean; updating: boolean;
   adapter: AdapterInstall | null | undefined; error: string; inSettings: boolean; savedAll: string; includeProgram: boolean;
-  shared: { before: Node; after: Node; agent: string } | null;
+  shared: SharedProviderSettings | null;
+  loadOthers(agent: string): void; loadCompact(agent: string): void; changeCompact(agent: string, change: Partial<AutoCompactDraft>): void; saveCompact(agent: string): void; discardCompact(agent: string): void;
   flsh: FlshPanel; contexts: ModelContextPanel;
   loading: boolean; checked: string; updateCount: number; canUpdate: boolean;
   pick: (agent: string) => void; toggle: (hv: HarnessView, on: boolean) => void; update: (hv: HarnessView) => void;
@@ -25,8 +31,11 @@ interface ProviderProps {
 }
 
 export function ProvidersView(p: ProviderProps) {
+  const active = p.view ? p.view.harnesses.find(item => item.agent === p.picked) : null;
+  const agent = active?.installed && p.others === undefined ? active.agent : null;
+  useEffect(() => { if (agent) p.loadOthers(agent); }, [agent, p.loadOthers]);
   return <div className={`cc-view hv-view${p.inSettings ? " in-set" : ""}`}>
-    {p.inSettings ? <>{p.shared && <SharedSettings value={p.shared} flsh={p.flsh} contexts={p.contexts} machine={p.machine} />}<section className="hv-scope"><Toolbar p={p} /><Body {...p} /></section></> : <Body {...p} />}
+    {p.inSettings ? <>{p.shared && <SharedSettings value={p.shared} p={p} />}<section className="hv-scope"><Toolbar p={p} /><Body {...p} /></section></> : <Body {...p} />}
   </div>;
 }
 
@@ -41,7 +50,7 @@ function Body(p: ProviderProps) {
   const error = p.error && <div className="fb-err" role="alert"><div className="fb-line"><span>{failure.line}</span><button type="button" className="fb-x" aria-label="Dismiss" title="Dismiss" onClick={p.dismissError}>×</button></div>{failure.details && <details className="fb-more"><summary>Details</summary><pre>{failure.details}</pre></details>}</div>;
   if (p.view === null) return error || <div className="cc-err">Could not read the coding agents.</div>;
   if (p.inSettings) return <>{error}{hv ? <><Summary hv={hv} p={p} /><Runtime hv={hv} p={p} /></> : <Empty title={`${p.machineName} does not report ${harnessName(p.picked ?? "")}`} />}</>;
-  return <>{error}<div className="hv"><AgentList view={p.view} p={p} />{hv ? <div>{p.shared && <SharedSettings value={p.shared} flsh={p.flsh} contexts={p.contexts} machine={p.machine} />}<Runtime key={`${p.machine}:${hv.agent}`} hv={hv} p={p} /></div> : <div className="hv-d" />}</div></>;
+  return <>{error}<div className="hv"><AgentList view={p.view} p={p} />{hv ? <div>{p.shared && <SharedSettings value={p.shared} p={p} />}<Runtime key={`${p.machine}:${hv.agent}`} hv={hv} p={p} /></div> : <div className="hv-d" />}</div></>;
 }
 
 function Toolbar({ p }: { p: ProviderProps }) {
@@ -53,27 +62,18 @@ function Toolbar({ p }: { p: ProviderProps }) {
 }
 
 function Empty({ title, sub }: { title: string; sub?: string }) { return <div className="cc-panel cc-empty"><b>{title}</b>{sub && <span>{sub}</span>}</div>; }
-function SharedSettings({ value, flsh, contexts, machine }: { value: NonNullable<ProviderProps["shared"]>; flsh: FlshPanel; contexts: ModelContextPanel; machine: string | null }) {
-  return <section className="hv-scope hv-d"><h3>All machines</h3><LegacyNode node={value.before} />{value.agent === "flsh" && <FlshView panel={flsh} />}<LegacyNode node={value.after} />{machine && <ModelContextView panel={contexts} machine={machine} agent={value.agent} />}</section>;
-}
-function LegacyNode({ node }: { node: Node }) {
-  const host = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const target = host.current;
-    if (!target) return;
-    const active = document.activeElement;
-    const input = active instanceof HTMLInputElement && target.contains(active) ? active : null;
-    const label = input?.getAttribute("aria-label");
-    const start = input?.selectionStart ?? null, end = input?.selectionEnd ?? null;
-    target.replaceChildren(node);
-
-    if (label) {
-      const next = [...target.querySelectorAll<HTMLInputElement>("input[aria-label]")].find(field => field.getAttribute("aria-label") === label);
-      next?.focus({ preventScroll: true });
-      if (next && start !== null && end !== null) next.setSelectionRange(start, end);
-    }
-  }, [node]);
-  return <div ref={host} style={{ display: "contents" }} />;
+function SharedSettings({ value, p }: { value: SharedProviderSettings; p: ProviderProps }) {
+  const compact = value.compact;
+  useEffect(() => { if (compact && !compact.loaded) p.loadCompact(value.agent); }, [value.agent, compact?.loaded, p.loadCompact]);
+  return <section className="hv-scope hv-d"><h3>All machines</h3><div className="hv-note">These settings apply on every machine.</div>
+    {compact && <><div className="hv-f"><span><b>Auto-compact</b><small>Applies to sessions on every machine.</small></span><span className="fl-row">
+      <button type="button" className="dswitch" role="switch" aria-label={`Auto-compact for ${harnessName(value.agent)}`} aria-checked={compact.draft.compactOn} disabled={!compact.loaded || compact.busy} onClick={() => p.changeCompact(value.agent, { compactOn: !compact.draft.compactOn })} />
+      {compactKind(value.agent) === "percent" && <input className="hv-in" value={compact.draft.compactPercent} placeholder="80% or 350000" aria-label="Auto-compact threshold" autoComplete="off" spellCheck={false} disabled={!compact.loaded || compact.busy} onChange={event => p.changeCompact(value.agent, { compactPercent: event.currentTarget.value })} />}
+    </span></div><div className="hv-acts"><button type="button" className="dbtn pri" disabled={!compact.canSave} onClick={() => p.saveCompact(value.agent)}>{compact.busy ? "Saving…" : "Save auto-compact"}</button><button type="button" className="dbtn quiet" hidden={!compact.edited} disabled={compact.busy} onClick={() => p.discardCompact(value.agent)}>Discard</button><span className="derr">{compact.error}</span></div></>}
+    {value.agent === "flsh" && <FlshView panel={p.flsh} />}
+    {value.machineName && <div className="hv-note">Model choices and reported limits come from {value.machineName}.</div>}
+    {p.machine && <ModelContextView panel={p.contexts} machine={p.machine} agent={value.agent} />}
+  </section>;
 }
 function Mark({ agent }: { agent: string }) {
   const mark = harnessMark(agent), safe = /^[a-z0-9-]+$/.test(agent) ? ` ${agent}` : "";
