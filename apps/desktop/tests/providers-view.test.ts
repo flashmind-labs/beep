@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement, useState, type ComponentProps } from "react";
 import { modelContextPanel } from "../src/settings/model-context.ts";
-import { ProvidersView } from "../src/settings/providers-view.tsx";
 import { draftOf, type HarnessView } from "../src/settings/providers-state.ts";
 
 test("coding agent runtime keeps focused drafts and dispatches nested actions", async () => {
@@ -13,6 +12,7 @@ test("coding agent runtime keeps focused drafts and dispatches nested actions", 
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   }
+  const { ProvidersView } = await import("../src/settings/providers-view.tsx");
   const { render, fireEvent, cleanup } = await import("@testing-library/react");
   const hv: HarnessView = { agent: "codex", installed: true, runnable: true, version: "1.0", latest: null, program: "codex", home_var: null, home_default: null, sign_in: { state: "signed_in", account: null, plan: null, last4: null }, install: null, settings: { enabled: true, program: "codex", home: "", args: [], env: [] } };
   let toggled = 0, picked = 0, saved = 0;

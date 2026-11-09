@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement, type ComponentProps } from "react";
-import { AddMachineBody } from "../src/machines/addmachine-view.tsx";
 
 test("machine setup preserves the project folder and manual ticket while updates arrive", async () => {
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://app.test" });
@@ -11,6 +10,7 @@ test("machine setup preserves the project folder and manual ticket while updates
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   }
+  const { AddMachineBody } = await import("../src/machines/addmachine-view.tsx");
   const { render, fireEvent, cleanup } = await import("@testing-library/react");
   let picked = "", useMac = 0, closed = 0;
   const props: ComponentProps<typeof AddMachineBody> = { state: { step: "waiting", token: "example", command: "join", expiresAt: 120000 }, kind: "node", mac: null, macAsked: false, now: 0,

@@ -1,28 +1,19 @@
-import "./dom-env.ts";
+import "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { openSheet, sheetAbove } from "../src/ui/parts.ts";
 
 test("Escape closes the top sheet before Settings and other sheets", () => {
-  const listeners: ((event: KeyboardEvent) => void)[] = [];
-  document.addEventListener = ((_type: string, fn: EventListener) => { listeners.push(fn as (event: KeyboardEvent) => void); }) as typeof document.addEventListener;
-  document.removeEventListener = ((_type: string, fn: EventListener) => {
-    const index = listeners.indexOf(fn as (event: KeyboardEvent) => void);
-    if (index >= 0) listeners.splice(index, 1);
-  }) as typeof document.removeEventListener;
-  Object.assign(Node, { DOCUMENT_POSITION_FOLLOWING: 4 });
   const settings = document.createElement("div");
-  settings.compareDocumentPosition = () => Node.DOCUMENT_POSITION_FOLLOWING;
   document.body.append(settings);
+  let settingsClosed = false;
+  const settingsKeys = (event: KeyboardEvent) => {
+    if (event.key === "Escape" && !sheetAbove(settings)) settingsClosed = true;
+  };
+  document.addEventListener("keydown", settingsKeys, true);
   const first = openSheet("First", "sheet");
   const second = openSheet("Second", "sheet");
-  let settingsClosed = false;
-  const escape = () => {
-    let stopped = false;
-    const event = { key: "Escape", preventDefault() {}, stopImmediatePropagation() { stopped = true; } } as unknown as KeyboardEvent;
-    if (!sheetAbove(settings)) settingsClosed = true;
-    for (const listener of [...listeners]) { if (!stopped) listener(event); }
-  };
+  const escape = () => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   escape();
   assert.equal(settingsClosed, false);
   assert.equal(second.root.isConnected, false);
@@ -31,5 +22,24 @@ test("Escape closes the top sheet before Settings and other sheets", () => {
   assert.equal(first.root.isConnected, false);
   escape();
   assert.equal(settingsClosed, true);
+  document.removeEventListener("keydown", settingsKeys, true);
   settings.remove();
+});
+
+
+test("a sheet mounts and closes in its supplied host without disturbing siblings", () => {
+  const host = document.createElement("div"), sibling = document.createElement("button");
+  host.append(sibling);
+  document.body.append(host);
+  sibling.focus();
+  let closed = 0;
+  const sheet = openSheet("Hosted dialog", "sheet", { host, onClose: () => { closed++; } });
+  assert.equal(sheet.root.parentElement, host);
+  sheet.close();
+  sheet.close();
+  assert.equal(sheet.root.isConnected, false);
+  assert.equal(closed, 1);
+  assert.equal(host.firstElementChild, sibling);
+  assert.equal(document.activeElement, sibling);
+  host.remove();
 });

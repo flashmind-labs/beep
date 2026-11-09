@@ -28,9 +28,7 @@ export function openReport(host: HTMLElement, onDebug?: (text: string) => void) 
   opening++;
   state = START;
   opened = issueText = null;
-  let root: HTMLDivElement;
-  ({ root, sheet, close } = openSheet("Report a problem", "am-sheet ip-sheet", { canClose: () => !busy(), onClose: closed }));
-  host.append(root);
+  ({ sheet, close } = openSheet("Report a problem", "am-sheet ip-sheet", { host, canClose: () => !busy(), onClose: closed }));
   reactRoot = createDocumentView(sheet);
   draw();
   sheet.querySelector("textarea")?.focus();
