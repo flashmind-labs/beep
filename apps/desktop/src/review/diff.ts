@@ -5,6 +5,7 @@ import { DiffToolbar } from "./diff-toolbar.tsx";
 import { DiffTree } from "./diff-tree.tsx";
 import { DiffFileHeader } from "./diff-file-header.tsx";
 import { DiffChunk } from "./diff-chunk.tsx";
+import { DiffComment } from "./diff-comment.tsx";
 import { readView, writeView } from "../agentpane/view-memory.ts";
 // The diff viewer: a one-line header with the counts, a filter, icon toggles
 // and the review buttons; a list of the files at wide widths; each file folding under
@@ -18,9 +19,7 @@ import { initTreeResize } from "./treewidth.ts";
 import { loadDraft, saveDraft } from "./draftstore.ts";
 import { feedbackButton } from "./feedback.ts";
 import { mergeComments } from "./feedback-state.ts";
-import { harnessEl } from "../ui/harnessicon.ts";
-import { agentLabel } from "../project/projects-state.ts";
-import { button, el, type Kid } from "../ui/dom.ts";
+import { el, type Kid } from "../ui/dom.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 
 /// Where a diff comes from and what its files can open in.
@@ -138,7 +137,15 @@ export function diffView(src: DiffSource): DiffViewHandle {
   const chunkRoot = createRoot(document.createElement("div"));
   const noComments = new Map<string, readonly ReviewComment[]>();
   let nextChunk = 0;
-  const createLineComment = (comment: ReviewComment) => commentEl(comment, "");
+  const commentRoot = createRoot(document.createElement("div"));
+  const comments = new Map<HTMLElement, { id: number; comment: ReviewComment; label: string; isNew: boolean; chunkOwned: boolean }>();
+  const lostComments = new Map<ReviewComment, HTMLElement>();
+  const lostHeading = el("div", "dv-lh", "On files no longer in the changes");
+  let nextComment = 0;
+  const mountLineComment = (host: HTMLElement, comment: ReviewComment) => {
+    comments.set(host, { id: ++nextComment, comment, label: "", isNew: false, chunkOwned: true });
+  };
+  const unmountLineComment = (host: HTMLElement) => { comments.delete(host); };
   const headers = new Map<string, { host: HTMLElement; file: DiffFile; comments: HTMLElement }>();
   const headerRoot = createRoot(document.createElement("div"));
   const bodyModes = new Map<string, boolean>();
@@ -219,8 +226,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
       else liveChunks.delete(c);
     }
 
+    for (const { c, want } of changes) if (!want) forgetCommentsIn(c.box);
     if (changes.length) drawChunks();
-    // Inline editors are still mounted imperatively and are not React children.
     for (const { c, want } of changes) if (!want) c.box.replaceChildren();
     let shift = 0;
 
@@ -280,6 +287,10 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const v = st.view;
     chunkObserver.disconnect();
     fileObserver.disconnect();
+    comments.clear();
+    lostComments.clear();
+    drawComments();
+    lostBox.replaceChildren();
     chunks.clear();
     liveChunks.clear();
     drawChunks();
@@ -378,7 +389,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     // Comments on the file itself sit outside the fold, so a folded, deleted or binary file shows them.
     const fcs = el("div", "dv-fcs");
     const mine = placed().files.get(f.path);
-    if (mine) fcs.append(...[...mine.file, ...mine.top].map(c => commentEl(c, lineLabel(c))));
+    if (mine) fcs.append(...[...mine.file, ...mine.top].map(c => commentHost(c, lineLabel(c), false)));
     const fh = el("div", "dv-fh");
     headers.set(f.path, { host: fh, file: f, comments: fcs });
     fh.addEventListener("contextmenu", e => fileMenu(e, f));
@@ -475,9 +486,10 @@ export function diffView(src: DiffSource): DiffViewHandle {
 
   function drawChunks() {
     const portals = [...liveChunks].map(chunk => createPortal(createElement(DiffChunk, {
-      rows: chunk.rows, comments: chunk.comments, createComment: createLineComment,
+      rows: chunk.rows, comments: chunk.comments, mountComment: mountLineComment, unmountComment: unmountLineComment,
     }), chunk.box, String(chunk.id)));
     flushSync(() => chunkRoot.render(portals));
+    drawComments();
   }
 
   /// Stop observing chunks removed by a file or mode change.
@@ -486,6 +498,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     for (const [box] of chunks) {
       if (root.contains(box)) continue;
       chunkObserver.unobserve(box);
+      forgetCommentsIn(box);
       const chunk = chunks.get(box);
       if (chunk && liveChunks.delete(chunk)) removed = true;
       chunks.delete(box);
@@ -507,7 +520,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
   function drawHeaders() {
     const portals = [...headers.entries()].map(([path, item]) => createPortal(createElement(DiffFileHeader, {
       file: item.file, count: countLabel(path), readOnly: !!src.readOnly, openLabel: src.open?.label ?? null,
-      onComment: () => addBox({ path, side: "new", line: null, text: "" }, "", "Comment on this file", box => item.comments.append(box)),
+      onComment: () => addBox({ path, side: "new", line: null, text: "" }, box => item.comments.append(box)),
       onCopy: () => void copy(path), onOpen: () => src.open?.run(path),
     }), item.host, path));
     flushSync(() => headerRoot.render(portals));
@@ -521,7 +534,26 @@ export function diffView(src: DiffSource): DiffViewHandle {
     drawHeaders();
 
     const lost = st.view ? placed().lost : [];
-    lostBox.replaceChildren(...(lost.length ? [el("div", "dv-lh", "On files no longer in the changes"), ...lost.map(c => commentEl(c, `${c.path} ${lineLabel(c)}`.trim()))] : []));
+    const kept = new Set(lost);
+    for (const [comment, host] of lostComments) {
+      if (kept.has(comment)) continue;
+      comments.delete(host);
+      host.remove();
+      lostComments.delete(comment);
+    }
+    if (lost.length && lostHeading.parentElement !== lostBox) lostBox.prepend(lostHeading);
+    if (!lost.length) lostHeading.remove();
+    let cursor = lostHeading.nextSibling;
+    for (const comment of lost) {
+      let host = lostComments.get(comment);
+      if (!host) {
+        host = commentHost(comment, `${comment.path} ${lineLabel(comment)}`.trim(), false);
+        lostComments.set(comment, host);
+      }
+      if (host === cursor) cursor = cursor.nextSibling;
+      else lostBox.insertBefore(host, cursor);
+    }
+    drawComments();
   }
 
   /// The draft changed: keep it and show it.
@@ -543,64 +575,43 @@ export function diffView(src: DiffSource): DiffViewHandle {
     return merged.added;
   }
 
-  /// Who wrote a comment an agent made: its mark and name.
-  function byEl(by: string) {
-    const name = agentLabel(by);
-    const tag = el("span", "by", harnessEl(by), name);
-    tag.title = `Written by ${name}`;
-    return tag;
+  function commentHost(comment: ReviewComment, label: string, isNew: boolean) {
+    const host = el("span", "dv-comment-slot");
+    host.style.display = "contents";
+    comments.set(host, { id: ++nextComment, comment, label, isNew, chunkOwned: false });
+    return host;
   }
 
-  /// A comment as saved, with Edit and remove.
-  function commentEl(c: ReviewComment, label: string) {
-    const place = c.line == null ? "Comment on this file" : "Comment on this line";
-    const row = el("div", "dv-cmt", el("div", "b", c.by ? byEl(c.by) : null, label ? el("code", "", label) : null, label ? " " : null, c.text),
-      el("div", "a", el("button", "", "Edit"), el("button", "", "×")));
-    const [edit, drop] = row.querySelectorAll("button");
-    edit.type = drop.type = "button";
-    drop.setAttribute("aria-label", "Remove the comment");
-    edit.addEventListener("click", () => {
-      const box = writeBox(c.text, place, text => { c.text = text; changed(); box.replaceWith(commentEl(c, label)); }, () => box.replaceWith(row));
-      row.replaceWith(box);
-      focusBox(box);
-    });
-    drop.addEventListener("click", () => {
-      st.draft.splice(st.draft.indexOf(c), 1);
-      row.remove();
-      changed();
-    });
-    return row;
+  function forgetCommentsIn(container: Element) {
+    for (const host of comments.keys()) if (container.contains(host)) comments.delete(host);
   }
 
-  /// The box to write in: Add (or Cmd+Enter) gives the text, Cancel and Esc drop it.
-  function writeBox(text: string, place: string, add: (text: string) => void, drop: () => void) {
-    const ta = el("textarea");
-    ta.rows = 2;
-    ta.value = text;
-    ta.placeholder = place;
-    ta.setAttribute("aria-label", place);
-    const done = () => { const t = ta.value.trim(); if (t) add(t); };
-    ta.addEventListener("keydown", e => {
-      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); drop(); root.focus({ preventScroll: true }); }
-      else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); done(); }
-    });
-    return el("div", "dv-cmt open", ta, el("div", "a", button("Add", "dbtn small pri", done), button("Cancel", "dbtn small quiet", drop)));
+  function drawComments() {
+    const portals = [...comments].map(([host, entry]) => createPortal(createElement(DiffComment, {
+      comment: entry.comment, label: entry.label, initiallyEditing: entry.isNew, isNew: entry.isNew,
+      onSave: value => {
+        entry.comment.text = value;
+        if (entry.isNew) { st.draft.push(entry.comment); entry.isNew = false; }
+        changed();
+      },
+      onRemove: () => {
+        const index = st.draft.indexOf(entry.comment);
+        if (index >= 0) st.draft.splice(index, 1);
+        comments.delete(host);
+        if (!entry.chunkOwned) host.remove();
+        changed();
+      },
+      onCancelNew: () => { comments.delete(host); host.remove(); drawComments(); },
+      onEscape: () => root.focus({ preventScroll: true }),
+    }), host, String(entry.id)));
+    flushSync(() => commentRoot.render(portals));
   }
 
-  function focusBox(box: HTMLElement) {
-    box.querySelector("textarea")?.focus({ preventScroll: true });
-  }
-
-  /// A new comment `c`: its box goes where `put` says, and Add keeps it.
-  function addBox(c: ReviewComment, label: string, place: string, put: (box: HTMLElement) => void) {
-    const box = writeBox("", place, text => {
-      c.text = text;
-      st.draft.push(c);
-      changed();
-      box.replaceWith(commentEl(c, label));
-    }, () => box.remove());
-    put(box);
-    focusBox(box);
+  /// A new comment goes where `put` says and enters the draft on Add.
+  function addBox(comment: ReviewComment, put: (box: HTMLElement) => void) {
+    const host = commentHost(comment, "", true);
+    put(host);
+    drawComments();
   }
 
   /// A click on a line's number opens a box under its row (under the pair, side by side).
@@ -618,7 +629,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (!line) return;
     let at: Element = pair ?? row;
     while (at.nextElementSibling?.matches(".dv-cmt, .dv-comment-slot")) at = at.nextElementSibling;
-    addBox({ path, side: del ? "old" : "new", line, text: "" }, "", "Comment on this line", box => at.after(box));
+    addBox({ path, side: del ? "old" : "new", line, text: "" }, box => at.after(box));
   }
 
   async function sendReview() {
@@ -798,9 +809,11 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const f = st.view?.files.find(x => x.path === path), old = sections.get(path);
     if (!f || !old) return;
     const next = fileSection(f);
+    forgetCommentsIn(old);
     old.replaceWith(next);
     sections.set(path, next);
     drawHeaders();
+    drawComments();
     pruneChunks();
     markedPath = null;
     markCurrent();
