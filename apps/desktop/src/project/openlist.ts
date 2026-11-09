@@ -9,14 +9,14 @@ import { OPENED_IN, arrange, newChoice, pickedInOrder, startLabel, type ListChoi
 
 const choices = new Map<string, ListChoice>();
 
-const choiceOf = (key: string) => {
+export const choiceOf = (key: string) => {
   let c = choices.get(key);
   if (!c) choices.set(key, c = newChoice());
   return c;
 };
 
 /// How the last Start N agents of a list ended.
-interface Outcome {
+export interface Outcome {
   started: StartRow[];
   failed: StartRow | null;
   error: string | null;
@@ -24,8 +24,8 @@ interface Outcome {
   left: StartRow[];
 }
 
-const outcomes = new Map<string, Outcome>();
-const starting = new Set<string>();
+export const outcomes = new Map<string, Outcome>();
+export const starting = new Set<string>();
 
 /// `items` for list `key`, in the window and order picked there.
 export function arranged<T>(key: string, items: readonly T[], opened: (item: T) => number | null | undefined) {
