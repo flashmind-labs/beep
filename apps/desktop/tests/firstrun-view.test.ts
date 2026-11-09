@@ -13,14 +13,7 @@ test("first run moves focus through the link flow and removes its fields when go
   }
   const { render, fireEvent, cleanup } = await import("@testing-library/react");
   let completions = 0;
-  const join = (done: () => void, beside: Node) => {
-    const input = dom.window.document.createElement("input");
-    input.setAttribute("aria-label", "Desktop ticket");
-    const link = dom.window.document.createElement("button");
-    link.textContent = "Link";
-    link.addEventListener("click", done);
-    return { input, nodes: [input, link, beside] };
-  };
+  const join = async (_ticket: string) => {};
   try {
     const view = render(createElement(FirstRunScreen, { done: () => { completions++; }, join }));
     const start = view.getByRole("button", { name: /^Start/ });
@@ -32,7 +25,9 @@ test("first run moves focus through the link flow and removes its fields when go
     assert.equal(field.isConnected, false);
     assert.equal(dom.window.document.activeElement, view.getByRole("button", { name: /^Start/ }));
     fireEvent.click(view.getByRole("button", { name: /^Link another desktop/ }));
+    fireEvent.change(view.getByLabelText("Desktop ticket"), { target: { value: "ticket" } });
     fireEvent.click(view.getByRole("button", { name: "Link" }));
+    await new Promise<void>(resolve => setImmediate(resolve));
     assert.equal(completions, 1);
   } finally {
     cleanup();
