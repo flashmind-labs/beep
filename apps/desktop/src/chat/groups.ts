@@ -1,7 +1,8 @@
-import { createElement, type MouseEvent, type ReactElement } from "react";
+import { createElement, Fragment, type MouseEvent, type ReactElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
-import { GroupShell } from "./group-shell-view.tsx";
+import type { Root } from "react-dom/client";
+import { openBarPage } from "../bar/page-root.ts";
+import { GroupHeader, GroupShell } from "./group-shell-view.tsx";
 import { GroupFormView } from "./group-form-view.tsx";
 import { GroupInviteView, type GroupInvite, type InviteState } from "./group-invite-view.tsx";
 import { GroupInfoView } from "./group-info-view.tsx";
@@ -10,7 +11,7 @@ import type { ApprovalField } from "./chat.ts";
 import { grow } from "./chat.ts";
 import { renderChats } from "./chats.ts";
 import { copy } from "../ui/parts.ts";
-import { $, $$, bar, changed, G, GROUP_VIEWS, S } from "../bar/core.ts";
+import { $, $$, changed, G, GROUP_VIEWS, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
 import { dayDiff } from "../lists/memories.ts";
 import { esc } from "../ui/format.ts";
@@ -147,18 +148,6 @@ function dayLabel(ms: number) {
 }
 function mentions(text: string) { return esc(text).replace(/@beep\b/gi, m => `<span class="dmention">${m}</span>`); }
 
-function groupHead() {
-  const g = G.chat?.group;
-  const members = g ? youFirst(g.members).slice(0, 3) : [];
-  return `<div class="dhead" id="ghead"><span class="davs">${members.map(m => av(m.you ? "You" : m.name, m.name)).join("")}${av("Beep")}</span>
-    <button class="tt" id="gtitle"><b>${esc(g?.name ?? "Group")}</b><small>${g ? esc(people(g)) : "Loading…"}</small></button>
-    <button class="dbtn" id="ginvite">Invite</button><button class="dbtn" id="ginfo">Info<kbd>⌘I</kbd></button></div>`;
-}
-function wireHead() {
-  for (const id of ["#gtitle", "#ginfo"]) $(id)?.addEventListener("click", () => renderGroupInfo());
-  $("#ginvite")?.addEventListener("click", () => renderInvite(G.id!, G.chat?.group.name));
-}
-
 function groupHints() {
   if (G.mention) return hints([["↑↓", "pick"], [ICON.ret, "insert"], ["esc", "close"]]);
   return hints([[ICON.ret, "send"], ["⌘I", "info"], ["⌘K", "chats"], ["esc", "to hide"]]);
@@ -176,11 +165,11 @@ function setGroup(id: string) {
 }
 
 /// Opens a group in the bar. `then` opens its info, or info with Leave asked.
-let messageRoot: { host: HTMLElement; root: Root; message: ReactElement | null; mention: ReactElement | null; draft: string; observer: MutationObserver } | null = null;
+let messageRoot: { host: HTMLElement; root: Root; message: ReactElement | null; mention: ReactElement | null; draft: string } | null = null;
 const pendingKeys = new WeakMap<object, number>();
 let nextPending = 0, groupRevision = 0;
 const shareVersions = new Map<string, number>(), reminderVersions = new Map<string, number>();
-function disposeMessages() { const current = messageRoot; messageRoot = null; if (current) { current.observer.disconnect(); current.root.unmount(); } }
+function disposeMessages() { messageRoot = null; }
 
 export async function renderGroup(id: string, then?: "info" | "leave") {
   disposeInfo();
@@ -190,13 +179,8 @@ export async function renderGroup(id: string, then?: "info" | "leave") {
   G.mention = null;
   G.leave = false;
   S.view = "group";
-  const host = document.createElement("div");
-  host.style.display = "contents";
-  bar.replaceChildren(host);
-  const root = createRoot(host);
-  const observer = new MutationObserver(() => { if (messageRoot?.host === host && !host.isConnected) disposeMessages(); });
-  observer.observe(document.body, { childList: true, subtree: true });
-  messageRoot = { host, root, message: null, mention: null, draft: G.drafts.get(id) ?? "", observer };
+  const { host, root } = openBarPage(() => { messageRoot = null; });
+  messageRoot = { host, root, message: null, mention: null, draft: G.drafts.get(id) ?? "" };
   drawGroupRoot(messageRoot);
   if (G.chat) drawGroup(true);
 
@@ -353,20 +337,16 @@ export function insertMention(i: number) {
 
 // ---------- Group info ----------
 
-let infoRoot: { host: HTMLElement; root: Root; observer: MutationObserver; id: string; error: string } | null = null;
+let infoRoot: { host: HTMLElement; root: Root; id: string; error: string } | null = null;
 const infoBusy = new Set<string>();
-function disposeInfo() { const current = infoRoot; infoRoot = null; if (current) { current.observer.disconnect(); current.root.unmount(); } }
+function disposeInfo() { infoRoot = null; }
 export function renderGroupInfo(leave = false) {
   if (!G.id) return;
   disposeMessages(); disposeInfo();
   S.view = "ginfo";
   G.leave = leave; G.mention = null;
-  bar.innerHTML = `${groupHead()}<div class="dbody pt dgroupbody" id="ginfobody"></div>${hints([["esc", "back to the chat"], ["⌘K", "chats"]])}`;
-  wireHead();
-  const host = $$("#ginfobody"), id = G.id, reactRoot = createRoot(host);
-  const observer = new MutationObserver(() => { if (infoRoot?.host === host && !host.isConnected) disposeInfo(); });
-  observer.observe(document.body, { childList: true, subtree: true });
-  infoRoot = { host, root: reactRoot, observer, id, error: "" };
+  const id = G.id, { host, root } = openBarPage(() => { infoRoot = null; });
+  infoRoot = { host, root, id, error: "" };
   const owner = infoRoot;
   G.reminders = null;
   drawGroupInfo();
@@ -407,7 +387,9 @@ function drawGroupInfo() {
   const current = infoRoot, group = G.chat?.group ?? null;
   if (!current?.host.isConnected || S.view !== "ginfo" || G.id !== current.id) return;
   const pending = new Set([...infoBusy].filter(key => key.startsWith(`${current.id}\0`)).map(key => key.slice(current.id.length + 1)));
-  flushSync(() => current.root.render(createElement(GroupInfoView, {
+  const members = group ? youFirst(group.members).slice(0, 3) : [];
+  const header = createElement(GroupHeader, { name: group?.name ?? "Group", people: group ? people(group) : "Loading…", avatars: members.map(m => av(m.you ? "You" : m.name, m.name)).join("") + av("Beep"), info: () => renderGroupInfo(), invite: () => { if (G.id) void renderInvite(G.id, group?.name); } });
+  const content = createElement(GroupInfoView, {
     group, reminders: G.reminders ?? null, leave: G.leave, error: current.error, busy: pending, color: avColor, schedule: describeSchedule,
     share: () => { if (group) void changeGroupInfo(current, "share", async () => {
       const shared = !group.apps_shared;
@@ -429,7 +411,8 @@ function drawGroupInfo() {
       G.approvals.delete(group.id); G.drafts.delete(group.id); S.cache = S.cache.filter(chat => chat.id !== group.id);
       if (G.id === group.id) { G.id = null; G.chat = null; renderChats(); }
     }); },
-  })));
+  });
+  flushSync(() => current.root.render(createElement(Fragment, null, header, createElement("div", { className: "dbody pt dgroupbody", id: "ginfobody" }, content), createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: hints([["esc", "back to the chat"], ["⌘K", "chats"]]) } }))));
 }
 async function changeGroupInfo(owner: NonNullable<typeof infoRoot>, action: string, run: () => Promise<void>) {
   const key = `${owner.id}\0${action}`;
@@ -441,25 +424,16 @@ async function changeGroupInfo(owner: NonNullable<typeof infoRoot>, action: stri
 
 // ---------- Invite ----------
 
-let inviteRoot: { host: HTMLElement; root: Root; observer: MutationObserver; id: string; title: string; revision: number } | null = null;
-function disposeInvite() {
-  const current = inviteRoot;
-  inviteRoot = null;
-  if (current) { current.observer.disconnect(); current.root.unmount(); }
-}
+let inviteRoot: { host: HTMLElement; root: Root; id: string; title: string; revision: number } | null = null;
+function disposeInvite() { inviteRoot = null; }
 
 export async function renderInvite(id: string, name?: string | null, reset = false) {
   disposeInvite();
   S.view = "invite";
   setGroup(id);
   const title = name ?? G.chat?.group.name ?? "the group";
-  const host = document.createElement("div");
-  host.style.display = "contents";
-  bar.replaceChildren(host);
-  const root = createRoot(host);
-  const observer = new MutationObserver(() => { if (inviteRoot?.host === host && !host.isConnected) disposeInvite(); });
-  observer.observe(document.body, { childList: true, subtree: true });
-  const owner = { host, root, observer, id, title, revision: 0 };
+  const { host, root } = openBarPage(() => { inviteRoot = null; });
+  const owner = { host, root, id, title, revision: 0 };
   inviteRoot = owner;
   await loadInvite(owner, reset);
 }
@@ -503,25 +477,17 @@ export type GroupFormMode = "new" | "code" | "join";
 /// The ⌘G form's state.
 export const J: { mode: GroupFormMode; name: string; found: FoundGroup | null; error: string; busy: boolean } = { mode: "new", name: "", found: null, error: "", busy: false };
 
-let formRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
-function disposeGroupForm() {
-  const current = formRoot;
-  formRoot = null;
-  if (current) { current.observer.disconnect(); current.root.unmount(); }
-}
+let formRoot: { host: HTMLElement; root: Root } | null = null;
+function disposeGroupForm() { formRoot = null; }
+
 export function renderGroupNew(mode: GroupFormMode = "new") {
   disposeGroupForm();
   J.busy = false;
   S.view = "gnew";
   if (mode !== J.mode) J.error = "";
   J.mode = mode;
-  const host = document.createElement("div");
-  host.style.display = "contents";
-  bar.replaceChildren(host);
-  const root = createRoot(host);
-  const observer = new MutationObserver(() => { if (formRoot?.host === host && !host.isConnected) disposeGroupForm(); });
-  observer.observe(document.body, { childList: true, subtree: true });
-  formRoot = { host, root, observer };
+  const { host, root } = openBarPage(() => { formRoot = null; });
+  formRoot = { host, root };
   const members = J.found?.preview.members ?? [];
   const help = mode === "new" ? [[ICON.ret, "create"], ["tab", "next field"], ["esc", "back"]] : [[ICON.ret, mode === "code" ? "find" : "join"], ["esc", "back"]];
   flushSync(() => root.render(createElement(GroupFormView, {

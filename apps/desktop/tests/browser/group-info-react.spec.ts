@@ -50,7 +50,7 @@ test("late leave does not navigate away from a different group", async ({ page }
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "leave_group"))).toBe(true);
   await page.evaluate(value => { window.__navigation.respond("open_group", { group: value, messages: [] }); window.__navigation.open({ group: { id: value.id } }); }, { ...group, id: "other", name: "Other group" });
   await expect(page.locator("#gask")).toHaveAttribute("placeholder", /Other group/);
-  await expect.poll(() => page.evaluate(() => { const old: unknown = Reflect.get(window, "oldGroupInfo"); return old instanceof HTMLElement ? old.childElementCount : -1; })).toBe(0);
+  await expect.poll(() => page.evaluate(() => { const old: unknown = Reflect.get(window, "oldGroupInfo"); return old instanceof HTMLElement && old.isConnected; })).toBe(false);
   await page.evaluate(() => window.__navigation.release("leave_group"));
   await expect(page.locator("#gask")).toHaveAttribute("placeholder", /Other group/);
 });
