@@ -43,25 +43,16 @@ export function bindPromptStash(field: HTMLTextAreaElement, binding: StashBindin
   field.addEventListener("input", () => { if (panel) drawPanel(); });
 }
 
-function indicator(project: string) {
-  const count = entries.get(project)?.length ?? 0;
-  return count ? `<button class="prompt-stash-count" data-stash-open="${esc(project)}" aria-haspopup="dialog" aria-expanded="${panelProject === project}">Stash ${count}</button>` : "";
-}
-
-export function stashIndicator(project: string | null) {
-  if (!project) return "";
-  if (!reads.has(project)) void reload(project);
-  return `<span class="prompt-stash-slot" data-stash-project="${esc(project)}">${indicator(project)}</span>`;
-}
-
-export const stashActions = () => '<section><b>Stash</b><button type="button" data-stash-action="save"><kbd>Ctrl S</kbd>Stash draft</button><button type="button" data-stash-action="pop"><kbd>Ctrl P</kbd>Pop latest</button></section>';
-
-export function stashBar(project: string | null) {
-  return `<div class="agkeys prompt-stash-bar"><div class="dhints slim"><span><kbd>⌘M</kbd>model</span><span><kbd>esc</kbd>back</span></div>${stashIndicator(project)}<details><summary>Show more</summary><div class="agkeys-list">${stashActions()}</div></details></div>`;
-}
-
+const subscribers = new Set<() => void>();
+let revision = 0;
+export function subscribeStash(listener: () => void) { subscribers.add(listener); return () => { subscribers.delete(listener); }; }
+export function stashRevision() { return revision; }
+export function stashCount(project: string) { return entries.get(project)?.length ?? 0; }
+export function stashIsOpen(project: string) { return panelProject === project; }
+export function ensureStash(project: string) { if (!reads.has(project)) void reload(project); }
+function changedIndicators() { revision++; for (const listener of subscribers) listener(); }
 function drawIndicators() {
-  document.querySelectorAll<HTMLElement>("[data-stash-project]").forEach(el => { el.innerHTML = indicator(el.dataset.stashProject!); });
+  flushSync(changedIndicators);
   if (panel) drawPanel();
 }
 
@@ -92,7 +83,7 @@ function note(field: HTMLTextAreaElement, text: string) {
 function close() {
   panelRoot?.unmount(); panelRoot = null;
   panel?.remove(); panel = null; panelProject = null;
-  document.querySelectorAll("[data-stash-open]").forEach(el => el.setAttribute("aria-expanded", "false"));
+  flushSync(changedIndicators);
 }
 
 function drawPanel() {
@@ -106,7 +97,6 @@ function drawPanel() {
   if (!current) return;
   flushSync(() => current.render(createElement(StashPanel, { project, entries: list, busy, canPop: !!field, swap })));
 
-  anchor.setAttribute("aria-expanded", "true");
   positionPanel();
 }
 
@@ -128,6 +118,7 @@ function show(project: string) {
   panel = h('<div class="prompt-stash-panel" role="dialog" aria-label="Project stash"></div>');
   document.body.append(panel);
   panelRoot = createRoot(panel);
+  flushSync(changedIndicators);
   drawPanel();
   panel?.querySelector<HTMLButtonElement>("[data-stash-close]")?.focus();
 }

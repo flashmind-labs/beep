@@ -1,3 +1,4 @@
+import { StashActions, StashIndicator } from "../chat/stash-hints.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { SHORTCUTS } from "../ui/shortcuts.ts";
 import { Fragment, useLayoutEffect, useRef, type ReactNode } from "react";
@@ -8,7 +9,7 @@ import { ICON } from "../ui/icons.ts";
 import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
 
 type Dock = "bottom" | "right";
-export interface AgentHintsModel { value: HintViewModel; stash: string }
+export interface AgentHintsModel { value: HintViewModel; project: string | null }
 interface Frame { head: ReactNode; field: ReactNode; body: HTMLElement; hints: AgentHintsModel }
 interface Owner { host: HTMLElement; root: Root; revision: number; frame: Frame; portals: Map<HTMLElement, { key: number; view: ReactNode }>; children: Map<string, ReactNode>; next: number; release(): void }
 let current: Owner | null = null;
@@ -82,7 +83,7 @@ export function updateSessionHints(hints: AgentHintsModel) {
 
 function AgentHints({ value }: { value: AgentHintsModel }) {
   const sections = SHORTCUTS.filter(section => ["Agent session", "Side pane", "Terminals"].includes(section.title));
-  return <div className="agkeys"><HintView value={value.value} slim /><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: value.stash }} /><details id="agshortcuts"><summary>Show more</summary><div className="agkeys-list">{sections.map(section => <section key={section.title}><b>{section.title}</b>{section.rows.map(row => <span key={`${row.keys}:${row.does}`}><kbd>{row.keys}</kbd>{row.does}</span>)}</section>)}<section><b>Stash</b><button type="button" data-stash-action="save"><kbd>Ctrl S</kbd>Stash draft</button><button type="button" data-stash-action="pop"><kbd>Ctrl P</kbd>Pop latest</button></section></div></details></div>;
+  return <div className="agkeys"><HintView value={value.value} slim /><StashIndicator project={value.project} /><details id="agshortcuts"><summary>Show more</summary><div className="agkeys-list">{sections.map(section => <section key={section.title}><b>{section.title}</b>{section.rows.map(row => <span key={`${row.keys}:${row.does}`}><kbd>{row.keys}</kbd>{row.does}</span>)}</section>)}<StashActions /></div></details></div>;
 }
 
 function DockFrame({ dock }: { dock: Dock }) {

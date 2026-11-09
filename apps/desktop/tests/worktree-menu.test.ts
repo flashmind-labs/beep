@@ -17,7 +17,7 @@ const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 function setup(id: string, trees: Tree[]) {
   answers.agent_worktrees = trees;
   answers.agent_place = {folder: main.path, main: main.path, linked: false, branch: "main", origin: ""};
-  showSessionFrame({ head: null, field: null, body: document.createElement("div"), hints: { value: { items: [], window: false, model: null, link: null }, stash: "" } }, false, () => {});
+  showSessionFrame({ head: null, field: null, body: document.createElement("div"), hints: { value: { items: [], window: false, model: null, link: null }, project: null } }, false, () => {});
   const host = document.createElement("div");
   document.body.append(host);
   const draw = () => drawWorktrees(host, true);

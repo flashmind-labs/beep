@@ -3,7 +3,6 @@ import { createElement } from "react";
 import { SessionField, SessionHead, showSessionFrame, updateSessionHints } from "./session-frame.tsx";
 import { disposeLog } from "./logwindow.ts";
 import { bindSessionStash } from "./stash.ts";
-import { stashIndicator } from "../chat/stash.ts";
 import { AgentFeed } from "./agentfeed-state.ts";
 import { TranscriptCache, transcriptKey, type TranscriptUpdate } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.ts";
@@ -402,7 +401,7 @@ export function agentHints() {
   const s = AG.page?.session, q = s?.question;
   const slim = (items: readonly Hint[]) => {
     const project = AG.draft ?? (s && windowHooks?.sessionProject?.(s)?.name) ?? null;
-    return { value: hintModel(items), stash: stashIndicator(project) };
+    return { value: hintModel(items), project };
   };
   if (AG.draft) return slim([["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]]);
   const mode: readonly Hint[] = hasModes() ? [["⇧Tab", "mode"]] : [];
