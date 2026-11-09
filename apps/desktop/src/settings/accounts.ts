@@ -20,7 +20,6 @@ export const CRED: CredState & { mod: typeof CredentialsModule | null } = { mod:
 const credModule = () => import("./credentials.ts").then(m => (CRED.mod = m));
 
 const redrawCreds = () => { if (setShown()) renderCreds(); };
-export function setCredsHtml() { return ""; }
 
 /// Asks gh and teacli on this Mac what they are signed in to, then redraws.
 async function loadCliLogins() {
@@ -191,10 +190,6 @@ const ACC: AgentAccountsState & {
   poll: (() => void) | null;
 } = { mod: null, data: undefined, edit: null, busy: "", error: "", claudeFlow: false, claudeError: "", codex: {}, poll: null };
 const agModule = () => import("./agentaccounts.ts").then(m => (ACC.mod = m));
-
-export function setAgentsHtml() {
-  return "";
-}
 
 /// Redraws Agent accounts, unless a token is being typed there.
 function redrawAgents() {

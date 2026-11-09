@@ -11,7 +11,7 @@ import { onPhone } from "../ui/platform.ts";
 import type { PanePage } from "../bar/pane.ts";
 // settings/: the Settings pages (apps, accounts, credentials, coding agents,
 // instructions, model) and the window's sheet (sheet.ts). Entry: this file.
-import { bindAgents, disposeAgents, preserveAgents, bindCreds, disposeCreds, preserveCreds, renderCreds, CRED, loadAgentAccounts, loadCreds, setAgentsHtml, setCredsHtml } from "./accounts.ts";
+import { bindAgents, disposeAgents, preserveAgents, bindCreds, disposeCreds, preserveCreds, renderCreds, CRED, loadAgentAccounts, loadCreds } from "./accounts.ts";
 import { A, type App, appsIn, appsOut, type AppsView, loadApps, type McpServer, renderAppPermissions, renderApps, renderMcpServer } from "./apps.ts";
 import { toWindow } from "../chat/chat.ts";
 import { bar, type LinkState, S, windowHooks } from "../bar/core.ts";
@@ -236,16 +236,6 @@ function bindSettings(el: Element) {
 
 }
 
-/// Redraws one section in place, once its data came.
-export function fillSection(id: string, html: string) {
-  const box = setRoot().querySelector<HTMLElement>(`#set-${id}`);
-  if (!box) return;
-  const focus = focusKey(box);
-  box.innerHTML = html;
-  bindSettings(box);
-  if (focus) refocus(box, focus);
-}
-
 // The data attributes that name a Settings control when it has no id.
 const FOCUS_KEYS = ["remove", "vn", "pause", "allow", "goto", "sub", "setlevel"];
 
@@ -280,11 +270,11 @@ function settingsSections(_set: MacSettings, mac: MacControl | null, linked: boo
   const out: [SettingsPage, string][] = [["general", `<section id="set-general-sec" data-sec="general"><div class="dsec flat top">General</div><div id="set-general" style="display:contents"></div></section>`]];
   out.push(["appearance", sec("appearance", "Appearance", "")]);
   const machines: [SettingsPage, string] = ["machines", sheet ? host("machines") : sec("machines", "Machines", "")];
-  const creds: [SettingsPage, string] = ["creds", sec("creds", "Credentials", setCredsHtml())];
+  const creds: [SettingsPage, string] = ["creds", sec("creds", "Credentials", "")];
   const instr: [SettingsPage, string] = ["instr", sheet ? host("instr") : sec("instr", "Instructions", "")];
   const sub = SET.path?.sub;
   const agents: [SettingsPage, string] = ["agents", sheet && sub?.kind === "agent" ? host("agents")
-    : `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat top">${linked ? "Agent accounts" : "Coding agents"}</div>${sheet ? "" : `<div id="set-agent-bar" style="display:contents"></div>`}${linked ? `<div id="set-agents">${setAgentsHtml()}</div>` : ""}${sheet ? `<div id="set-agent-overview" style="display:contents"></div>` : ""}</section>`];
+    : `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat top">${linked ? "Agent accounts" : "Coding agents"}</div>${sheet ? "" : `<div id="set-agent-bar" style="display:contents"></div>`}${linked ? `<div id="set-agents"></div>` : ""}${sheet ? `<div id="set-agent-overview" style="display:contents"></div>` : ""}</section>`];
   // These settings work over the mesh without the server.
   const thisMacSec: [SettingsPage, string][] = mac && !onPhone() ? [["mac", `<section id="set-mac-sec" data-sec="mac"><div class="dsec flat top">This computer</div><div id="set-mac" style="display:contents"></div></section>`]] : [];
   if (!linked) return [...out, ...thisMacSec, machines, agents, creds, instr, ...(S.server ? [["devices", sec("devices", "Beep server", "")] as [SettingsPage, string]] : [])];
