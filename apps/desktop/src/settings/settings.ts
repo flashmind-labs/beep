@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { AppearanceView, ComputerView } from "./local-view.tsx";
 import { SettingsBreadcrumb, SettingsNavigation } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
 import type { PanePage } from "../bar/pane.ts";
@@ -15,7 +16,6 @@ import { renderInvitePhone } from "../bar/link.ts";
 import { type Machine, machinesIn, machinesOut, MC, renderMachines } from "../machines/machines.ts";
 import { harnessTile } from "../ui/harnessicon.ts";
 import { harnessName } from "./providers-state.ts";
-import { SKINS, setSkin, skinId } from "../ui/skin.ts";
 import { back, CODING_AGENTS, fitPath, isPage, openSub, pageLabel, parseSub, recallPath, rememberPath, samePath, selectPage, type SettingsPage, type SettingsPath, type SettingsSub, subKey } from "./settings-nav.ts";
 import { canPickModel, type ModelChoice, type Models, modelPrice, MODELS, THINKING } from "./model.ts";
 import { cap } from "../chat/tools.ts";
@@ -46,7 +46,7 @@ interface MacSettings {
 
 /// Settings, This Mac (`mac_control`): whether Beep may use it, where its
 /// link stands and the permissions desktop control needs.
-interface MacControl {
+export interface MacControl {
   id: string;
   name: string;
   enabled: boolean;
@@ -70,27 +70,6 @@ interface Device {
 interface DeviceList {
   devices: Device[];
   server: Reach;
-}
-
-/// Settings, This Mac: the switch that lets Beep use this Mac, where its
-/// link stands, and the two permissions desktop control needs.
-function thisMac(mac: MacControl) {
-  const p = mac.permissions;
-  const desktopControl = !navigator.userAgent.includes("Windows");
-  const sub = !mac.enabled ? (desktopControl ? "Beep can see the screen, click, type and run commands here when you ask" : "Beep can run commands and coding agents here when you ask")
-    : mac.status === "failed" ? `Couldn't connect: ${esc(mac.error || "unknown error")}`
-    : mac.status === "connected" ? (!desktopControl || p.screen_recording && p.accessibility ? "Connected" : "Connected. Allow both below")
-    : "Connecting…";
-  const perm = (key: string, name: string, why: string, ok: boolean) => `<div class="dtoggle"><span><b>${name}</b><small>${why}</small></span>${ok
-    ? '<span class="dtag ok">Allowed</span>'
-    : `<button class="dbtn" data-allow="${key}">Allow…</button>`}</div>`;
-  const rows = mac.enabled && desktopControl
-    ? perm("ScreenRecording", "Screen Recording", "To see the screen", p.screen_recording)
-      + perm("Accessibility", "Accessibility", "To click, type and read app controls", p.accessibility)
-    : "";
-  return `<div class="dsec flat top">This computer</div>
-    <div class="dtoggle"><span><b>Let Beep use this computer</b><small>${sub}</small></span>
-      ${switchHtml(mac.enabled, "Let Beep use this computer", `id="usemac"`)}</div>${rows}`;
 }
 
 /// Settings: what a new notice does while you are at this Mac.
@@ -260,8 +239,68 @@ async function thenRedraw(change: Promise<unknown>) {
   if (setShown()) renderSettings();
 }
 
+type LocalView = "appearance" | "mac";
+let macControlBusy = false;
+const localViews = new Map<LocalView, { host: HTMLElement; root: Root; observer: MutationObserver }>();
+function disposeLocalView(kind: LocalView) {
+  const current = localViews.get(kind);
+  localViews.delete(kind);
+  if (!current) return;
+  current.observer.disconnect();
+  current.root.unmount();
+}
+function preserveLocalViews(container: HTMLElement) {
+  const saved = [...localViews.entries()].filter(([, view]) => container.contains(view.host)).map(([kind, view]) => {
+    const active = view.host.contains(document.activeElement) ? document.activeElement : null;
+    view.host.remove();
+    return { kind, view, active };
+  });
+  return (next?: HTMLElement) => {
+    for (const { kind, view, active } of saved) {
+      const replacement = next?.querySelector(`#set-${kind}`);
+      if (!replacement) { disposeLocalView(kind); continue; }
+      replacement.replaceWith(view.host);
+      if (active instanceof HTMLElement) active.focus({ preventScroll: true });
+    }
+  };
+}
+function mountLocalViews(el: Element) {
+  for (const kind of ["appearance", "mac"] as const) {
+    const host = el.querySelector<HTMLElement>(`#set-${kind}`);
+    if (!host) continue;
+    let view = localViews.get(kind);
+    if (view?.host !== host) {
+      disposeLocalView(kind);
+      const observer = new MutationObserver(() => { if (localViews.get(kind)?.host === host && !host.isConnected) disposeLocalView(kind); });
+      observer.observe(document.body, { childList: true, subtree: true });
+      view = { host, root: createRoot(host), observer };
+      localViews.set(kind, view);
+    }
+    const mac = SET.local?.mac, current = view;
+    flushSync(() => current.root.render(kind === "appearance" ? createElement(AppearanceView) : mac ? createElement(ComputerView, {
+      mac, busy: macControlBusy,
+      setEnabled: (enabled: boolean) => void setMacEnabled(enabled),
+      allow: (permission: "ScreenRecording" | "Accessibility") => { invoke("allow_mac_permission", { permission }).catch(console.warn); },
+    }) : null));
+  }
+}
+
+async function setMacEnabled(enabled: boolean) {
+  if (macControlBusy) return;
+  macControlBusy = true;
+  if (setShown()) mountLocalViews(setRoot());
+  try {
+    try { await invoke("set_mac_control", { enabled }); } catch (error) { console.warn(error); }
+    if (setShown()) await renderSettings();
+  } finally {
+    macControlBusy = false;
+    if (setShown()) mountLocalViews(setRoot());
+  }
+}
+
 /// Binds the controls inside `el`, a section or the whole page.
 function bindSettings(el: Element) {
+  mountLocalViews(el);
   const skillSync = el.querySelector<HTMLElement>("#skillSyncSetting");
   if (skillSync) mountSkillSync(skillSync);
   const $in = <T extends Element = HTMLElement>(sel: string) => el.querySelector<T>(sel);
@@ -285,10 +324,6 @@ function bindSettings(el: Element) {
   each("data-remove", b => b.addEventListener("click", () => {
     b.disabled = true;
     thenRedraw(invoke("remove_device", { id: b.dataset.remove }));
-  }));
-  each("data-skin-pick", b => b.addEventListener("click", () => {
-    setSkin(b.dataset.skinPick!);
-    for (const x of el.querySelectorAll("[data-skin-pick]")) x.setAttribute("aria-pressed", String(x === b));
   }));
   $in("#setModel")?.addEventListener("change", e => setModelChange("set_model", { id: (e.target as HTMLSelectElement).value }));
   $in("#setAuto")?.addEventListener("click", () => setModelChange("set_auto_model", { enabled: !MODELS.info!.auto }));
@@ -334,9 +369,6 @@ function bindSettings(el: Element) {
       if (err) err.textContent = String(e);
     }
   });
-  flip("#usemac", "set_mac_control");
-  each("data-allow", b => b.addEventListener("click", () =>
-    invoke("allow_mac_permission", { permission: b.dataset.allow }).catch(e => console.warn(e))));
   each("data-vn", b => b.addEventListener("click", () => thenRedraw(invoke("set_notice_voice", { choice: b.dataset.vn }))));
   each("data-pause", b => b.addEventListener("click", () => thenRedraw(invoke("set_send_on_pause", { enabled: b.dataset.pause === "1" }))));
   flip("#agentNotices", "set_agent_notices");
@@ -402,6 +434,7 @@ function focusKey(box: HTMLElement) {
   if (!a || a === document.body) return box.closest(".cc-set") ? "*" : null;
   if (a === box || !box.contains(a)) return null;
   if (a.id) return `#${CSS.escape(a.id)}`;
+  if (a.dataset.skinPick) return `[data-skin-pick="${CSS.escape(a.dataset.skinPick)}"]`;
   const k = FOCUS_KEYS.find(k => k in a.dataset);
   return k ? `[data-${k}="${CSS.escape(a.dataset[k]!)}"]` : "*";
 }
@@ -412,14 +445,6 @@ function refocus(box: HTMLElement, key: string) {
   const again = key === "*" ? null : box.querySelector<HTMLButtonElement>(key);
   if (again && !again.disabled) return again.focus();
   (box.closest<HTMLElement>(".cc-set") || box).focus();
-}
-
-/// The skin picker: a swatch per skin, dark ones then light ones.
-function skinsHtml() {
-  const on = skinId();
-  const group = (title: string, light: boolean) => `<div class="dskins"><small>${title}</small><div>${SKINS.filter(k => !!k.light === light).map(k =>
-    `<button class="dskin" data-skin-pick="${k.id}" aria-pressed="${k.id === on}"><i style="background:${k.swatch}"></i>${esc(k.name)}</button>`).join("")}</div></div>`;
-  return group("Dark", false) + group("Light", true);
 }
 
 /// The sections of Settings, in order, each with the page it is.
@@ -434,7 +459,7 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
       <div id="skillSyncSetting"></div>
       <div class="dtoggle"><span><b>Keyboard shortcuts</b><small>Every shortcut, by where it works</small></span><button class="dbtn" id="openShortcuts">Show…</button></div>
       <div class="dtoggle"><span><b>Report a problem</b><small>Collect logs from your machines and send them to us</small></span><button class="dbtn" id="openReport">Report…</button></div></section>`]];
-  out.push(["appearance", sec("appearance", "Appearance", skinsHtml())]);
+  out.push(["appearance", sec("appearance", "Appearance", "")]);
   const machines: [SettingsPage, string] = ["machines", sheet ? host("machines") : sec("machines", "Machines", setMachinesHtml())];
   const creds: [SettingsPage, string] = ["creds", sec("creds", "Credentials", setCredsHtml())];
   const instr: [SettingsPage, string] = ["instr", sheet ? host("instr") : sec("instr", "Instructions", `<div class="dtoggle"><span><b>Your rules for every agent</b><small>One text for Claude Code, Codex, Gemini CLI and pi, with its versions, written into each agent's file on your machines</small></span><button class="dbtn" id="openInstr">Open…</button></div>`)];
@@ -442,7 +467,7 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
   const agents: [SettingsPage, string] = ["agents", sheet && sub?.kind === "agent" ? host("agents")
     : `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat top">${linked ? "Agent accounts" : "Coding agents"}</div>${sheet ? "" : `<div class="dtoggle"><span><b>Coding agents on each machine</b><small>Versions and updates, on or off, binary paths, launch arguments and env vars for Claude Code, Codex, pi and the rest</small></span><button class="dbtn" id="openProviders">Open…</button></div>`}${linked ? `<div id="set-agents">${setAgentsHtml()}</div>` : ""}${sheet ? codingAgentsHtml() : ""}</section>`];
   // These settings work over the mesh without the server.
-  const thisMacSec: [SettingsPage, string][] = mac && !onPhone() ? [["mac", `<section id="set-mac-sec" data-sec="mac">${thisMac(mac)}</section>`]] : [];
+  const thisMacSec: [SettingsPage, string][] = mac && !onPhone() ? [["mac", `<section id="set-mac-sec" data-sec="mac"><div class="dsec flat top">This computer</div><div id="set-mac" style="display:contents"></div></section>`]] : [];
   if (!linked) return [...out, ...thisMacSec, machines, agents, creds, instr, ...(S.server ? [["devices", sec("devices", "Beep server", setServerHtml(set))] as [SettingsPage, string]] : [])];
   if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models", setModelsHtml())]);
   out.push(["apps", sheet ? host("apps") : sec("apps", "Apps", setAppsHtml())]);
@@ -565,13 +590,13 @@ function drawSheet() {
   const scroll = oldPage ? { top: oldPage.scrollTop, left: oldPage.scrollLeft } : null;
   if (oldPage) oldPage.remove(); else leavePage();
   const focus = active ? null : focusKey(el);
-  const restoreAgents = preserveAgents(), restoreCreds = preserveCreds();
+  const restoreAgents = preserveAgents(), restoreCreds = preserveCreds(), restoreLocal = preserveLocalViews(el);
   const navScroll = preserveShell(el);
   el.innerHTML = `<nav class="dset-nav" aria-label="Settings pages"></nav>
     <div class="dset-body"><div class="dset-top"><span class="dset-crumbs"></span><kbd>esc</kbd></div>
     <div class="dset-page dform">${page}</div></div>`;
   renderShell(el, shown, path, local.set.version);
-  restoreAgents(el); restoreCreds(el);
+  restoreAgents(el); restoreCreds(el); restoreLocal(el);
   const body = el.querySelector<HTMLElement>(".dset-page");
   if (body && oldPage) body.replaceWith(oldPage);
   else { if (body) { bindNav(body); bindSettings(body); } mountPage(path); }
@@ -711,7 +736,7 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
   const el = setRoot();
 
   if (got instanceof Error || typeof got !== "object") {
-    disposeAgents(); disposeCreds(); disposeShell();
+    disposeAgents(); disposeCreds(); disposeShell(); for (const kind of localViews.keys()) disposeLocalView(kind);
     el.innerHTML = `<div class="dwin"><h4>Settings</h4><p class="derr">${esc(got)}</p></div>`;
     return;
   }
@@ -726,10 +751,10 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
   } else {
     disposeShell();
     const sections = settingsSections(set, mac, linked, false).map(([, html]) => html).join("");
-    const restoreAgents = preserveAgents(), restoreCreds = preserveCreds();
+    const restoreAgents = preserveAgents(), restoreCreds = preserveCreds(), restoreLocal = preserveLocalViews(el);
     el.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep desktop ${esc(set.version)}</small></span></div>
       <div class="dform dformcol">${sections}</div>${hints([["esc", "close"]])}`;
-    restoreAgents(el); restoreCreds(el);
+    restoreAgents(el); restoreCreds(el); restoreLocal(el);
     bindSettings(el);
   }
 
