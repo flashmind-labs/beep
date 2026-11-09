@@ -1,6 +1,6 @@
 import { commandKey } from "../ui/platform.ts";
-import { createElement } from "react";
-import { flushSync } from "react-dom";
+import { createElement, Fragment, type ReactElement } from "react";
+import { createPortal, flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { ResearchHead } from "./head-view.tsx";
 import { ResearchTabs } from "./tabs-view.tsx";
@@ -60,9 +60,8 @@ const fresh = (session: string): Open => ({
 
 let R = fresh("");
 let page: Page | null = null;
-let headRoot: Root | null = null;
-let tabsRoot: Root | null = null;
-let paneRoot: Root | null = null;
+let shellRoot: Root | null = null;
+let headNode: ReactElement | null = null, tabsNode: ReactElement | null = null, paneNode: ReactElement | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let inflight = false;
 let polls = 0;
@@ -94,10 +93,9 @@ registerView("researchopen", {
 
 function build(el: HTMLElement, session: string) {
   zoomed = false;
-  headRoot?.unmount();
-  tabsRoot?.unmount();
-  paneRoot?.unmount();
-  headRoot = tabsRoot = paneRoot = null;
+  shellRoot?.unmount();
+  shellRoot = null;
+  headNode = tabsNode = paneNode = null;
   R = fresh(session);
   polls = 0;
   const root = h(`<div class="rs"><div class="dhead"></div>
@@ -108,8 +106,10 @@ function build(el: HTMLElement, session: string) {
   el.replaceChildren(root);
   const q = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
   page = { root, head: q(".dhead"), shell: q(".agshell"), log: q(".rs-log"), chat: q(".dcoderlog"), ask: q("textarea"), pane: q(".rs-pane"), tabs: q(".agtabs"), view: q(".agpviews") };
-  headRoot = createRoot(page.head);
-  tabsRoot = createRoot(page.tabs);
+  const host = document.createElement("div");
+  host.hidden = true;
+  el.append(host);
+  shellRoot = createRoot(host);
   composeField(page.ask, { grow: 156 });
   root.addEventListener("click", onClick);
   page.ask.addEventListener("keydown", onAskKey);
@@ -172,8 +172,19 @@ function wireDivider(p: Page) {
 
 // ---------- Drawing ----------
 
+function drawShell() {
+  const root = shellRoot, current = page;
+  if (!root || !current) return;
+  flushSync(() => root.render(createElement(Fragment, null,
+    headNode && createPortal(headNode, current.head),
+    tabsNode && createPortal(tabsNode, current.tabs),
+    paneNode && createPortal(paneNode, current.view),
+  )));
+}
+
 function drawHead() {
-  if (headRoot) flushSync(() => headRoot?.render(createElement(ResearchHead, { research: R.research, entries: R.entries, sending: R.sending })));
+  headNode = createElement(ResearchHead, { research: R.research, entries: R.entries, sending: R.sending });
+  drawShell();
 }
 
 function drawChat() {
@@ -188,14 +199,16 @@ function drawPane() {
   if (!page) return;
   const tab = shownTab(R), same = page.view.dataset.tab === tab;
   page.view.dataset.tab = tab;
-  if (tabsRoot) flushSync(() => tabsRoot?.render(createElement(ResearchTabs, { research: R })));
+  tabsNode = createElement(ResearchTabs, { research: R });
   const before = page.view.querySelector<HTMLElement>(".rpane");
   const stuck = !!before && atBottom(before);
   if (tab === "sources" || tab === "notes" || tab === "room") {
-    paneRoot ??= createRoot(page.view);
-    flushSync(() => paneRoot?.render(createElement(ResearchLivePane, { research: R, tab })));
+    if (!paneNode) page.view.replaceChildren();
+    paneNode = createElement(ResearchLivePane, { research: R, tab });
+    drawShell();
   } else {
-    if (paneRoot) { paneRoot.unmount(); paneRoot = null; }
+    paneNode = null;
+    drawShell();
     patchHtml(page.view, paneHtml(R));
   }
   const body = page.view.querySelector<HTMLElement>(".rpane");
