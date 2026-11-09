@@ -8,7 +8,7 @@ export function ProjectNavigation({ groups, picked, openTile }: { groups: readon
     {!group.title && index > 0 && <hr/>}
     {group.title && <h4>{group.title}{group.items.length > 0 && <span className="n">{group.items.length}</span>}</h4>}
     {group.note && <div className="note">{group.note}</div>}
-    {group.controls && <Legacy node={group.controls}/>}
+    {group.controls}
     {group.labels && group.labels.all.length > 0 && <LabelGroup filter={group.labels}/>}
     {group.items.map(item => <Row key={item.key} item={item} picked={picked} filter={group.labels} nav={!group.title} openTile={openTile}/>)}
   </Fragment>)}</>;

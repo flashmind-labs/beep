@@ -3,25 +3,25 @@ import { agentLabel } from "./projects-state.ts";
 import { choiceOf, outcomes, starting, type Outcome } from "./openlist.ts";
 import { OPENED_IN, pickedInOrder, startLabel, type StartEntry, type StartRow } from "./openlist-state.ts";
 
-export function OpenListControls({ list, redraw, issues }: { list: string; redraw(): void; issues: boolean }) {
+export function OpenListControls({ list, redraw, issues, flexItem = false }: { list: string; redraw(): void; issues: boolean; flexItem?: boolean }) {
   const choice = choiceOf(list);
-  return <div className="pj-ctl"><span className="seg">{OPENED_IN.map(window => <button type="button" key={window.id} className={`dbtn quiet small${choice.window === window.id ? " on" : ""}`} aria-pressed={choice.window === window.id} onClick={() => { choice.window = window.id; redraw(); }}>{window.label}</button>)}</span><span className="sp" /><button type="button" className="dbtn quiet small" onClick={() => { choice.order = choice.order === "newest" ? "oldest" : "newest"; redraw(); }}>{choice.order === "newest" ? "Newest first" : "Oldest first"}</button>{issues && <button type="button" className={`dbtn quiet small${choice.selecting ? " on" : ""}`} aria-pressed={choice.selecting} onClick={() => { choice.selecting = !choice.selecting; choice.confirming = false; if (!choice.selecting) choice.picked.clear(); else void loadStartHosts().then(redraw).catch(error => console.warn("agent hosts:", error)); redraw(); }}>Select</button>}</div>;
+  return <div className="pj-ctl" style={flexItem ? { flex: "none" } : undefined}><span className="seg">{OPENED_IN.map(window => <button type="button" key={window.id} className={`dbtn quiet small${choice.window === window.id ? " on" : ""}`} aria-pressed={choice.window === window.id} onClick={() => { choice.window = window.id; redraw(); }}>{window.label}</button>)}</span><span className="sp" /><button type="button" className="dbtn quiet small" onClick={() => { choice.order = choice.order === "newest" ? "oldest" : "newest"; redraw(); }}>{choice.order === "newest" ? "Newest first" : "Oldest first"}</button>{issues && <button type="button" className={`dbtn quiet small${choice.selecting ? " on" : ""}`} aria-pressed={choice.selecting} onClick={() => { choice.selecting = !choice.selecting; choice.confirming = false; if (!choice.selecting) choice.picked.clear(); else void loadStartHosts().then(redraw).catch(error => console.warn("agent hosts:", error)); redraw(); }}>Select</button>}</div>;
 }
-function Result({ outcome, dismiss }: { outcome: Outcome; dismiss(): void }) {
+function Result({ outcome, dismiss, flexItem = false }: { outcome: Outcome; dismiss(): void; flexItem?: boolean }) {
   const code = (row: StartRow) => `${row.entry.project ? `${row.entry.project} ` : ""}#${row.entry.number}`;
   const text = [outcome.started.length ? `Started ${outcome.started.map(code).join(", ")}.` : "Nothing started."];
   if (outcome.failed) text.push(`${code(outcome.failed)} failed: ${outcome.error}`);
   if (outcome.left.length) text.push(`Left out: ${outcome.left.map(row => `${code(row)} (${row.skip})`).join(", ")}.`);
-  return <div className={`pj-start${outcome.error ? " cc-err" : ""}`}><span>{text.join(" ")}</span><span className="sp" /><button type="button" className="dbtn quiet small" onClick={dismiss}>Dismiss</button></div>;
+  return <div className={`pj-start${outcome.error ? " cc-err" : ""}`} style={flexItem ? { flex: "none" } : undefined}><span>{text.join(" ")}</span><span className="sp" /><button type="button" className="dbtn quiet small" onClick={dismiss}>Dismiss</button></div>;
 }
-export function OpenListStart({ list, shown, redraw }: { list: string; shown: readonly StartEntry[]; redraw(): void }) {
+export function OpenListStart({ list, shown, redraw, flexItem = false }: { list: string; shown: readonly StartEntry[]; redraw(): void; flexItem?: boolean }) {
   const choice = choiceOf(list), done = outcomes.get(list), busy = starting.has(list);
-  const result = done ? <Result outcome={done} dismiss={() => { outcomes.delete(list); redraw(); }} /> : null;
+  const result = done ? <Result flexItem={flexItem} outcome={done} dismiss={() => { outcomes.delete(list); redraw(); }} /> : null;
   if (!choice.selecting) return result;
   const picked = pickedInOrder(shown, choice.picked);
-  if (!choice.confirming) return <div className="pj-start"><span>{picked.length} picked</span><span className="sp" /><button type="button" className="dbtn pri small" disabled={!picked.length} onClick={() => { choice.confirming = true; redraw(); }}>{startLabel(picked.length)}</button>{result}</div>;
+  if (!choice.confirming) return <div className="pj-start" style={flexItem ? { flex: "none" } : undefined}><span>{picked.length} picked</span><span className="sp" /><button type="button" className="dbtn pri small" disabled={!picked.length} onClick={() => { choice.confirming = true; redraw(); }}>{startLabel(picked.length)}</button>{result}</div>;
   const plan = issueStartPlan(picked);
-  if (!plan) return <div className="pj-start"><span>Reading machines…</span></div>;
+  if (!plan) return <div className="pj-start" style={flexItem ? { flex: "none" } : undefined}><span>Reading machines…</span></div>;
   const runnable = plan.filter(row => !row.skip);
   const start = async () => {
     if (starting.has(list)) return;
@@ -30,5 +30,5 @@ export function OpenListStart({ list, shown, redraw }: { list: string; shown: re
     starting.delete(list); outcomes.set(list, { ...outcome, left: plan.filter(row => row.skip) });
     choice.picked.clear(); choice.confirming = false; choice.selecting = !!outcome.error; redraw();
   };
-  return <div className="pj-start ask"><b>{startLabel(runnable.length)}?</b><span>One new worktree each, started one after another. Each runs on your plan.</span>{plan.map(row => <span key={row.entry.key} className={row.skip !== null ? "skip" : ""}>{row.entry.project ?? "No project"} #{row.entry.number} {row.entry.title}{row.skip !== null ? ` (${row.skip})` : ` on ${agentLabel(row.agent)}, ${row.machine_name}`}</span>)}<span className="acts"><button type="button" className="dbtn pri small" disabled={busy || !runnable.length} onClick={() => { void start(); }}>{busy ? "Starting…" : startLabel(runnable.length)}</button><button type="button" className="dbtn quiet small" disabled={busy} onClick={() => { choice.confirming = false; redraw(); }}>Cancel</button></span></div>;
+  return <div className="pj-start ask" style={flexItem ? { flex: "none" } : undefined}><b>{startLabel(runnable.length)}?</b><span>One new worktree each, started one after another. Each runs on your plan.</span>{plan.map(row => <span key={row.entry.key} className={row.skip !== null ? "skip" : ""}>{row.entry.project ?? "No project"} #{row.entry.number} {row.entry.title}{row.skip !== null ? ` (${row.skip})` : ` on ${agentLabel(row.agent)}, ${row.machine_name}`}</span>)}<span className="acts"><button type="button" className="dbtn pri small" disabled={busy || !runnable.length} onClick={() => { void start(); }}>{busy ? "Starting…" : startLabel(runnable.length)}</button><button type="button" className="dbtn quiet small" disabled={busy} onClick={() => { choice.confirming = false; redraw(); }}>Cancel</button></span></div>;
 }
