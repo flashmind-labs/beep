@@ -5,38 +5,43 @@ import { composeMessage } from "../chat/compose.ts";
 import { $ } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { MN, takeMentions } from "./workdrop.ts";
-import { queueRowHtml } from "./turnrows.ts";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { AgentQueue } from "./queue-view.tsx";
 import { type AgentPage, type OpenAgent, type Started, type Steer, AG, AGENT_LAST, AGENT_READ_WAIT_MS, AGENT_SEND_WAIT_MS, where } from "./agents.ts";
 import { HOLD_MS, type SendError, sendError, tookIt, viewError } from "./reconnect-state.ts";
 import { openAgent, isOpen, resumeAgent, turnRuns, redrawAgentHints } from "./session.ts";
 import { agentAttachError, drawAgentAttached, keepSentImages, keepAgentPics } from "./images.ts";
 import { drawAgentBody } from "./logview.ts";
-import { h } from "../ui/dom.ts";
-import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 
-/// The pending steers above the field, each with what goes
-/// with it, to edit or take out.
+let queueMount: { field: HTMLElement; container: HTMLElement; root: Root } | null = null;
+
+export function disposeQueue() {
+  if (!queueMount) return;
+  queueMount.root.unmount();
+  queueMount.container.remove();
+  queueMount = null;
+}
+
+/// The pending steers above the field, each with what goes with it.
 export function drawQueue() {
   const field = $("#agfield");
-  if (!field) return;
+  if (!field) { disposeQueue(); return; }
   dropDelivered(AG.queue);
-  const old = $("#agqueue");
-  const row = (q: Waiting, i: number) => {
-    const steer = q.how === "steer";
-    return queueRowHtml({
-      label: "Steer",
-      cls: steer ? " steer" : "",
-      text: q.typed || (q.images.length || q.paths.length ? "" : q.text),
-      tip: q.text,
-      chips: [...q.images.map(a => a.name), ...q.paths],
-      when: q.state === "sending" ? "sending" : "after the current step",
-      buttons: `<button data-agq="${i}" data-act="edit">Edit</button><button data-agq="${i}" aria-label="Remove">${ICON.x}</button>`,
-    });
-  };
-  const el = AG.queue.length ? h(`<div class="ag-queue" id="agqueue">${AG.queue.map(row).join("")}</div>`) : null;
-  if (old) el ? old.replaceWith(el) : old.remove();
-  else if (el) ($("#agatt") ?? field).before(el);
+  if (queueMount && (queueMount.field !== field || !queueMount.container.isConnected)) disposeQueue();
+  if (!AG.queue.length) { disposeQueue(); return; }
+
+  if (!queueMount) {
+    const container = document.createElement("div");
+    container.className = "ag-queue";
+    container.id = "agqueue";
+    ($("#agatt") ?? field).before(container);
+    queueMount = { field, container, root: createRoot(container) };
+  }
+
+  flushSync(() => queueMount?.root.render(createElement(AgentQueue, { items: AG.queue })));
 }
 
 /// A message as `agent_steer` takes it, its images without what only the

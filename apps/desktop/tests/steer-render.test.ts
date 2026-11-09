@@ -1,18 +1,18 @@
-import { answers, bar, calls } from "./dom-env.ts";
+import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { S } from "../src/bar/core.ts";
 import { AG, type AgentPage } from "../src/agents/agents.ts";
 import * as agentlog from "../src/agents/agentlog.ts";
 import { drawAgentBody } from "../src/agents/logview.ts";
-import { editQueued, steerMessage } from "../src/agents/messages.ts";
+import { disposeQueue, drawQueue, editQueued, steerMessage } from "../src/agents/messages.ts";
 import { pollAgent, stopAgentFollow } from "../src/agents/session.ts";
 import { MN } from "../src/agents/workdrop.ts";
 
 function setup() {
   globalThis.getSelection = () => null;
   globalThis.getComputedStyle = () => ({ rowGap: "0" }) as CSSStyleDeclaration;
-  Object.assign(document, { visibilityState: "hidden" });
+  Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
   S.view = "agent";
   const page: AgentPage = {
     session: { machine_id: "m1", machine_name: "build-box", id: "steer-render", agent: "claude", cwd: "/srv/project", status: "working", external: false, question: null },
@@ -25,11 +25,12 @@ function setup() {
   });
   Object.assign(MN, { paths: [], uploads: [] });
   bar.innerHTML = '<div id="agbody"></div><div id="agfield"><textarea id="agmsg"></textarea></div>';
-  Object.assign(bar.querySelector("#agbody")!, { clientHeight: 800 });
+  Object.defineProperty(bar.querySelector("#agbody")!, "clientHeight", { configurable: true, value: 800 });
   const input = bar.querySelector("#agmsg")!;
+  assert.ok(input instanceof HTMLTextAreaElement);
   input.value = "Use the existing fixture";
   calls.length = 0;
-  return { page, input: input as unknown as HTMLTextAreaElement };
+  return { page, input };
 }
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -58,7 +59,7 @@ test("steers appear only in the composer until recorded in the transcript", asyn
   AG.queue[0].state = "delivered";
   drawAgentBody();
   assert.equal(queued(), null);
-  assert.equal(bar.querySelectorAll(".dcoderen.user").filter(e => e.textContent.includes("Use the existing fixture")).length, 1);
+  assert.equal([...bar.querySelectorAll(".dcoderen.user")].filter(e => e.textContent.includes("Use the existing fixture")).length, 1);
 });
 
 test("a refused steer removes its steering row and restores the draft", async t => {
@@ -89,7 +90,6 @@ test("editing a pending steer removes its steering row and restores its text", a
 
 test("a pending steer returns after switching conversations without sending it again", async t => {
   const { page, input } = setup();
-  t.mock.timers.enable({ apis: ["setTimeout"] });
   answers.agent_steer = [];
   answers.agent_tasks = [];
   t.after(() => {
@@ -135,4 +135,54 @@ test("a send acknowledged after switching updates its original queue", async t =
   assert.equal(original[0].state, "sent");
   assert.equal(AG.note, "Keep this conversation's note");
   assert.deepEqual(AG.queue, []);
+});
+
+
+test("stream updates keep queued message controls and focus", t => {
+  setup();
+  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  const item = (text: string) => ({ how: "steer" as const, typed: text, text, paths: [], images: [], state: "sending" as "sending" | "sent", after: 0 });
+  const first = item("First"), second = item("Second");
+  AG.queue = [first, second];
+  drawQueue();
+  const edit = bar.querySelector<HTMLButtonElement>('[data-agq="1"][data-act="edit"]');
+  assert.ok(edit);
+  edit.focus();
+  first.state = "sent";
+  drawQueue();
+  assert.equal(bar.querySelector('[data-agq="1"][data-act="edit"]'), edit);
+  assert.equal(document.activeElement, edit);
+  AG.queue.splice(0, 1);
+  drawQueue();
+  assert.equal(bar.querySelector('[data-agq="0"][data-act="edit"]'), edit);
+  assert.equal(document.activeElement, edit);
+});
+
+
+test("leaving the agent disposes its queue view but keeps pending messages", async t => {
+  setup();
+  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  const item = { how: "steer" as const, typed: "Pending", text: "Pending", paths: [], images: [], state: "sent" as const, after: 0 };
+  AG.queue = [item];
+  drawQueue();
+  assert.ok(bar.querySelector("#agqueue"));
+  S.view = "chat";
+  await settle();
+  assert.equal(bar.querySelector("#agqueue"), null);
+  assert.equal(AG.queue[0], item);
+  S.view = "agent";
+  drawQueue();
+  assert.ok(bar.querySelector("#agqueue")?.textContent.includes("Pending"));
+});
+
+
+test("drawing with no agent field leaves the queued messages unchanged", t => {
+  setup();
+  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  const delivered = { how: "steer" as const, typed: "Delivered", text: "Delivered", paths: [], images: [], state: "delivered" as const, after: 0 };
+  AG.queue = [delivered];
+  bar.querySelector("#agfield")?.remove();
+  drawQueue();
+  assert.equal(AG.queue.length, 1);
+  assert.equal(AG.queue[0], delivered);
 });
