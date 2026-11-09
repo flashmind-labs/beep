@@ -7,7 +7,7 @@
 //! checks origins against the list. Sync never decides "in sync" from
 //! heads: it sends `since(what the peer holds)` and keeps going.
 
-use crate::mesh::{AddrNote, Inner, Live, MAX_STREAMS, PeerStream};
+use crate::mesh::{AddrNote, Inner, Live, MAX_STREAMS, PeerStream, Retired};
 use crate::wire::{self, FrameReader, MAX_FRAME};
 use crate::{DeviceOp, Entry, Heads, MeshError};
 use iroh::EndpointId;
@@ -147,6 +147,7 @@ fn register(
         }
     }
 
+    inner.restart_connections(peer, session);
     let retire = Arc::new(Notify::new());
     conns.insert(
         peer,
@@ -214,7 +215,19 @@ async fn run(
     // The sync link is over. Streams on the connection carry on until they
     // end (see `streams`), so it is no longer reachable but not closed; a
     // removal still cuts it, through `retired`.
-    inner.retired().insert(conn.stable_id(), conn.clone());
+    {
+        let conns = inner.conns();
+        if conns.get(&peer).is_some_and(|live| live.session != session) {
+            conn.close(3u32.into(), b"peer restarted");
+        }
+        inner.retired().insert(
+            conn.stable_id(),
+            Retired {
+                conn: conn.clone(),
+                session,
+            },
+        );
+    }
     unregister(inner, conn, peer);
 
     if !inner.is_member(inner.me) || !inner.is_member(peer) {

@@ -64,6 +64,9 @@ const STATUS: &str = "status";
 /// closes. A node from before it closes without answering.
 const REPORT: &str = "report ";
 
+/// How long a channel may wait for its opening frame.
+pub(super) const CHANNEL_OPEN_WAIT: Duration = Duration::from_secs(10);
+
 /// How often the machine is probed again for changes.
 const REPROBE: Duration = Duration::from_secs(10 * 60);
 /// How often free disk and memory are sampled.
@@ -343,6 +346,89 @@ impl Peers {
     /// The `beep-peer/2` handler.
     pub fn peer_handler(&self) -> PeerAlpn {
         PeerAlpn(self.clone())
+    }
+
+    pub(super) async fn serve_command_session(
+        &self,
+        tx: LinkTx,
+        rx: LinkRx,
+        peer: iroh::EndpointId,
+        mesh: iroh::EndpointId,
+        protocol: &str,
+    ) -> Result<()> {
+        let protocol = protocol.parse::<SessionProtocol>()?;
+        anyhow::ensure!(
+            protocol != SessionProtocol::Events,
+            "subscriptions use their own ALPN"
+        );
+        let mut trace = beep_proto::logging::RequestTrace::new(protocol.to_string());
+        let who = self.channel_who(peer, mesh).context("not authorized")?;
+        let result = self
+            .inner
+            .serve_protocol(tx, rx, protocol, who, &mut trace)
+            .await;
+        trace.finish(result.is_ok());
+        result
+    }
+
+    pub fn commands_handler(&self) -> super::commands::CommandsAlpn {
+        super::commands::CommandsAlpn(self.clone())
+    }
+
+    pub fn subscriptions_handler(&self) -> super::subscriptions::SubscriptionsAlpn {
+        super::subscriptions::SubscriptionsAlpn(self.clone())
+    }
+
+    pub(super) fn channel_offers(&self) -> Offers {
+        self.inner.offers().clone()
+    }
+
+    pub(super) fn channel_access(
+        &self,
+        connection: &iroh::endpoint::Connection,
+    ) -> Option<(iroh::EndpointId, watch::Receiver<u64>)> {
+        let peer = connection.remote_id();
+        let active = self.active()?;
+        active.mesh.track_protocol_connection(connection).ok()?;
+        self.channel_allowed(peer, active.mesh.id())
+            .then(|| (active.mesh.id(), active.mesh.updates()))
+    }
+
+    pub(super) fn channel_allowed(&self, peer: iroh::EndpointId, mesh: iroh::EndpointId) -> bool {
+        self.channel_who(peer, mesh).is_some()
+    }
+
+    pub(super) fn controller_allowed(
+        &self,
+        peer: iroh::EndpointId,
+        mesh: iroh::EndpointId,
+    ) -> bool {
+        matches!(self.channel_who(peer, mesh), Some(Who::Everything(_)))
+            && self.inner.offers().lends_to_peers()
+    }
+
+    fn channel_who(&self, peer: iroh::EndpointId, mesh: iroh::EndpointId) -> Option<Who> {
+        let active = self.active()?;
+        if active.mesh.id() != mesh || !active.mesh.is_member(active.mesh.me()) {
+            return None;
+        }
+
+        let devices = active.mesh.devices();
+        let kind = devices
+            .iter()
+            .find(|status| status.device.id == peer)?
+            .device
+            .kind;
+        Some(match kind {
+            DeviceKind::Desktop => Who::Everything(peer),
+            DeviceKind::Node => Who::Node {
+                peer,
+                desktop_here: devices.iter().any(|status| {
+                    status.device.id == active.mesh.me()
+                        && status.device.kind == DeviceKind::Desktop
+                }),
+            },
+        })
     }
 
     /// The `beep-join/2` handler.

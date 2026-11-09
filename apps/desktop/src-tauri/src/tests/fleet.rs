@@ -14,6 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tempfile::TempDir;
+use tokio::task::JoinSet;
 
 pub(super) const LIMIT: Duration = Duration::from_secs(60);
 
@@ -75,6 +76,15 @@ pub(super) fn online(mesh: &Mesh, id: EndpointId) -> bool {
 /// A device that joins the mesh of `host` as `kind`, serving its own
 /// side of the mesh so the two connect.
 pub(super) async fn join(host: &Fleet, kind: DeviceKind, name: &str) -> (Mesh, Router, Endpoint) {
+    join_serving(host, kind, name, None).await
+}
+
+async fn join_serving(
+    host: &Fleet,
+    kind: DeviceKind,
+    name: &str,
+    commands: Option<SessionsProtocol>,
+) -> (Mesh, Router, Endpoint) {
     let ticket = host
         .mesh()
         .expect("the host is in a mesh")
@@ -87,10 +97,13 @@ pub(super) async fn join(host: &Fleet, kind: DeviceKind, name: &str) -> (Mesh, R
         .await
         .expect("the device joins");
     let (peer, join) = mesh.protocols();
-    let router = Router::builder(endpoint.clone())
+    let mut router = Router::builder(endpoint.clone())
         .accept(PEER_ALPN, peer)
-        .accept(JOIN_ALPN, join)
-        .spawn();
+        .accept(JOIN_ALPN, join);
+    if let Some(commands) = commands {
+        router = router.accept(beep_proto::node::commands::ALPN, commands);
+    }
+    let router = router.spawn();
     (mesh, router, endpoint)
 }
 
@@ -493,48 +506,67 @@ async fn the_node_follows_the_new_mesh_after_a_join() {
     .expect("the node took the setting from the new mesh");
 }
 
-/// A node that lists one session of its own, or never answers.
-fn sessions_handler(answers: bool) -> beep_mesh::StreamHandler {
-    use beep_proto::node::{
-        Open, Opened,
-        agent::{SessionInfo, SessionsReply, SessionsRequest},
-        link,
-    };
-    Arc::new(move |stream: beep_mesh::PeerStream| {
-        Box::pin(async move {
-            let (mut tx, mut rx) = link(stream.send, stream.recv);
-            let Ok(Some(_)) = rx.recv::<Open>().await else {
-                return;
-            };
-            tx.send(&Opened::Ready {}).await.ok();
-            let Ok(Some(_)) = rx.recv::<SessionsRequest>().await else {
-                return;
-            };
-            if answers {
-                let info = SessionInfo {
-                    id: "s1".into(),
-                    agent: "claude".into(),
-                    ..SessionInfo::default()
-                };
-                let reply = SessionsReply::Sessions {
-                    sessions: vec![info],
-                };
-                tx.send(&reply).await.ok();
-            } else {
-                std::future::pending::<()>().await;
+/// A command peer that lists one session, or never answers.
+#[derive(Debug)]
+struct SessionsProtocol(bool);
+
+impl iroh::protocol::ProtocolHandler for SessionsProtocol {
+    async fn accept(
+        &self,
+        connection: iroh::endpoint::Connection,
+    ) -> Result<(), iroh::protocol::AcceptError> {
+        use beep_proto::node::{
+            Opened,
+            agent::{SessionInfo, SessionsReply, SessionsRequest},
+            commands::Open,
+            link,
+        };
+        let mut streams = JoinSet::new();
+        loop {
+            tokio::select! {
+                stream = connection.accept_bi() => {
+                    let Ok((send, recv)) = stream else { return Ok(()); };
+                    let answers = self.0;
+                    streams.spawn(async move {
+                        let (mut tx, mut rx) = link(send, recv);
+                        let Some(Open::Session { protocol }) = rx.recv::<Open>().await.unwrap() else { return; };
+                        if protocol != "agents/1" {
+                            tx.send(&Opened::Refused { reason: "not offered".into() }).await.unwrap();
+                            return;
+                        }
+                        tx.send(&Opened::Ready {}).await.unwrap();
+                        let Some(_) = rx.recv::<SessionsRequest>().await.unwrap() else { return; };
+                        if answers {
+                            tx.send(&SessionsReply::Sessions { sessions: vec![SessionInfo { id: "s1".into(), agent: "claude".into(), ..SessionInfo::default() }] }).await.unwrap();
+                        } else {
+                            std::future::pending::<()>().await;
+                        }
+                    });
+                },
+                Some(result) = streams.join_next() => result.unwrap(),
             }
-        })
-    })
+        }
+    }
 }
 
 #[tokio::test]
 async fn one_peer_that_never_answers_does_not_hold_the_others() {
     let mac = start("Studio").await;
     let host = mac.fleet.mesh().expect("the mesh is open");
-    let (quick, _quick_router, quick_endpoint) = join(&mac.fleet, DeviceKind::Node, "Quick").await;
-    let (slow, _slow_router, slow_endpoint) = join(&mac.fleet, DeviceKind::Node, "Slow").await;
-    quick.protocols().0.on_stream(sessions_handler(true));
-    slow.protocols().0.on_stream(sessions_handler(false));
+    let (_quick, _quick_router, quick_endpoint) = join_serving(
+        &mac.fleet,
+        DeviceKind::Node,
+        "Quick",
+        Some(SessionsProtocol(true)),
+    )
+    .await;
+    let (_slow, _slow_router, slow_endpoint) = join_serving(
+        &mac.fleet,
+        DeviceKind::Node,
+        "Slow",
+        Some(SessionsProtocol(false)),
+    )
+    .await;
     let (quick_id, slow_id) = (quick_endpoint.id(), slow_endpoint.id());
     until(&host, |mesh| {
         online(mesh, quick_id) && online(mesh, slow_id)

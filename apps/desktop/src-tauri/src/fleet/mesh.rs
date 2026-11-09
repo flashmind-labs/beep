@@ -89,7 +89,12 @@ impl Serving {
         let router = Router::builder(endpoint.clone())
             .accept(PEER_ALPN, peers.peer_handler())
             .accept(JOIN_ALPN, peers.join_handler())
-            .accept(SESSIONS_ALPN, peers.sessions_handler());
+            .accept(SESSIONS_ALPN, peers.sessions_handler())
+            .accept(beep_proto::node::commands::ALPN, peers.commands_handler())
+            .accept(
+                beep_proto::node::subscriptions::ALPN,
+                peers.subscriptions_handler(),
+            );
         let late = Late::default();
         Self {
             router: late.add_to(router).spawn(),

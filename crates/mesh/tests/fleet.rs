@@ -501,10 +501,11 @@ async fn a_terminal_attach_ends_when_the_peer_goes_away() {
     node.protocols().0.on_stream(terminal_handler());
     let node_id = node_endpoint.id();
     let node_router = serve_mesh(node_endpoint, &node).await;
-    let client = timeout(LIMIT, with_deadline(node_id, &desktop))
+    let _client = timeout(LIMIT, with_deadline(node_id, &desktop))
         .await
         .expect("answered in time")
         .expect("the node is online");
+    let client = PeerClient::new(desktop.peer(node_id).expect("raw mesh connection"));
     let (_tx, mut rx) = terminals::attach(&client, TaskId(1), 0, Size::clamped(80, 24))
         .await
         .expect("it attaches");

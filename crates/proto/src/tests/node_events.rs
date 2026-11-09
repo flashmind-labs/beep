@@ -78,3 +78,26 @@ fn subscriptions_match_a_resource_a_namespace_or_everything() {
     assert!(event.matches(&Topic::new("files")));
     assert!(!Topic::keyed("files", "bad\0path").valid());
 }
+
+#[test]
+fn dedicated_protocols_reject_each_others_operations() {
+    use crate::node::{commands, subscriptions};
+    let call = commands::Request::Call {
+        id: 1,
+        operation: Box::new(Operation::Process(process::Request::List {})),
+    };
+    let bytes = rmp_serde::to_vec(&call).unwrap();
+    assert!(crate::lenient::from_slice::<subscriptions::Request>(&bytes).is_err());
+
+    let watch = subscriptions::Request::Watch {
+        id: 2,
+        topic: Topic::new("agents"),
+        queries: vec![],
+    };
+    let bytes = rmp_serde::to_vec(&watch).unwrap();
+    assert!(crate::lenient::from_slice::<commands::Request>(&bytes).is_err());
+    assert_eq!(
+        crate::lenient::from_slice::<subscriptions::Request>(&bytes).unwrap(),
+        watch
+    );
+}

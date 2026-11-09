@@ -1,6 +1,7 @@
 //! `Mesh`: one device's membership. An owner task keeps a dialer per other
 //! member; `link` runs each connection; `join` handles tickets.
 
+mod channels;
 mod lifecycle;
 mod membership;
 mod owner;
@@ -101,6 +102,11 @@ pub(crate) struct Live {
     pub retire: Arc<Notify>,
 }
 
+pub(crate) struct Retired {
+    pub conn: Connection,
+    pub session: u64,
+}
+
 pub(crate) struct Inner {
     pub endpoint: Endpoint,
     pub me: EndpointId,
@@ -111,9 +117,10 @@ pub(crate) struct Inner {
     pub rev: Arc<watch::Sender<u64>>,
     pub changes: broadcast::Sender<Key>,
     pub conns: Mutex<BTreeMap<EndpointId, Live>>,
+    channels: channels::Channels,
     /// Connections that left the mesh link and stay for their open streams,
     /// by stable id. A removal cuts these too.
-    retired: Mutex<BTreeMap<usize, Connection>>,
+    retired: Mutex<BTreeMap<usize, Retired>>,
     pub addrs: Mutex<BTreeMap<EndpointId, AddrNote>>,
     /// When each peer's link last ended, since the mesh opened.
     pub last_seen: Mutex<BTreeMap<EndpointId, SystemTime>>,
@@ -148,7 +155,7 @@ impl Inner {
         self.conns.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    pub fn retired(&self) -> MutexGuard<'_, BTreeMap<usize, Connection>> {
+    pub fn retired(&self) -> MutexGuard<'_, BTreeMap<usize, Retired>> {
         self.retired.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -259,8 +266,12 @@ impl Drop for Guard {
             live.conn.close(0u32.into(), b"closed");
         }
 
-        for conn in self.inner.retired().values() {
+        for conn in self.inner.channel_connections() {
             conn.close(0u32.into(), b"closed");
+        }
+
+        for retired in self.inner.retired().values() {
+            retired.conn.close(0u32.into(), b"closed");
         }
     }
 }
@@ -310,6 +321,7 @@ impl Mesh {
             rev,
             changes: broadcast::channel(CHANGES).0,
             conns: Mutex::default(),
+            channels: Mutex::default(),
             retired: Mutex::default(),
             addrs: Mutex::new(known),
             last_seen: Mutex::default(),

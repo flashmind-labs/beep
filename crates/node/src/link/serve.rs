@@ -179,7 +179,12 @@ pub async fn serve(
     let mut router = Router::builder(endpoint.clone())
         .accept(PEER_ALPN, peers.peer_handler())
         .accept(JOIN_ALPN, peers.join_handler())
-        .accept(SESSIONS_ALPN, peers.sessions_handler());
+        .accept(SESSIONS_ALPN, peers.sessions_handler())
+        .accept(beep_proto::node::commands::ALPN, peers.commands_handler())
+        .accept(
+            beep_proto::node::subscriptions::ALPN,
+            peers.subscriptions_handler(),
+        );
     if let Some(served) = served {
         router = served.add_to(router);
     }
@@ -573,6 +578,14 @@ pub(super) async fn serve_open(
         {
             tx.send(&Opened::Ready {}).await?;
             provision.serve_updates(tx, rx).await
+        }
+        SessionProtocol::Commands => {
+            tx.send(&Opened::Ready {}).await?;
+            super::commands::serve_open(tx, rx, offers, who.id()).await
+        }
+        SessionProtocol::Subscriptions => {
+            tx.send(&Opened::Ready {}).await?;
+            super::subscriptions::serve_open(tx, rx, offers, who.id()).await
         }
         SessionProtocol::Events => {
             tx.send(&Opened::Ready {}).await?;

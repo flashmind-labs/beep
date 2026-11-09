@@ -50,6 +50,10 @@ host! {
         FlshUpdate,
         #[strum(serialize = "events/1")]
         Events,
+        #[strum(serialize = "peer-commands/1")]
+        Commands,
+        #[strum(serialize = "peer-subscriptions/1")]
+        Subscriptions,
         #[strum(serialize = "agent-view/1")]
         AgentFollow,
         #[strum(serialize = "agent-transcripts/1")]

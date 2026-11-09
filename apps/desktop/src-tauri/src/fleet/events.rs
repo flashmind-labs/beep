@@ -1,8 +1,8 @@
-//! All windows share one duplex topic stream per demanded node.
+//! All windows share one duplex stream per subscription on each demanded node.
 
 use super::{Fleet, Machines, Opened};
 use crate::error::{DesktopError, Result};
-use beep_proto::node::events::{self, CallReply, Operation, Reply, Request, Topic};
+use beep_proto::node::events::{self, CallReply, Operation, Topic};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -14,12 +14,18 @@ use tauri::{AppHandle, Manager, State, WebviewWindow, ipc::Channel};
 use tokio::{
     sync::{mpsc, oneshot, watch},
     task::JoinSet,
-    time::{sleep, timeout},
+    time::timeout,
 };
 use uuid::Uuid;
 
+mod commands;
 mod snapshots;
+mod subscriptions;
+use commands::CommandWorker;
+#[cfg(test)]
+use commands::Registered;
 pub(crate) use snapshots::Snapshots;
+use subscriptions::SubscriptionWorker;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Interest {
@@ -874,11 +880,6 @@ fn home_sources() -> [Topic; 3] {
     ]
 }
 
-struct Worker {
-    topics: watch::Sender<Vec<Topic>>,
-    task: tokio::task::AbortHandle,
-}
-
 fn mesh_is_open(mesh: &watch::Receiver<Opened>) -> bool {
     matches!(*mesh.borrow(), Opened::Open(_))
 }
@@ -896,14 +897,17 @@ async fn run(
     let mut revision = *status.borrow_and_update();
     let mut materialized = Vec::new();
     let mut workers = JoinSet::new();
-    let mut held: BTreeMap<EndpointId, Worker> = BTreeMap::new();
+    let mut command_workers: BTreeMap<EndpointId, tokio::task::AbortHandle> = BTreeMap::new();
+    let mut subscriptions: BTreeMap<(EndpointId, Topic), tokio::task::AbortHandle> =
+        BTreeMap::new();
 
     loop {
         while workers.try_join_next().is_some() {}
         let interests = demand.borrow_and_update().clone();
 
         if interests.is_empty() {
-            held.clear();
+            command_workers.clear();
+            subscriptions.clear();
             workers.abort_all();
             fleet.snapshots.reconcile(&BTreeMap::new());
             materialized.clear();
@@ -935,31 +939,41 @@ async fn run(
             })
             .collect();
         fleet.snapshots.reconcile(&wanted);
-        held.retain(|machine, worker| {
+        command_workers.retain(|machine, task| {
             if wanted.contains_key(machine) {
                 true
             } else {
-                worker.task.abort();
+                task.abort();
+                false
+            }
+        });
+        subscriptions.retain(|(machine, topic), task| {
+            if wanted
+                .get(machine)
+                .is_some_and(|topics| topics.contains(topic))
+            {
+                true
+            } else {
+                task.abort();
                 false
             }
         });
 
         for (machine, topics) in wanted {
-            if let Some(worker) = held.get(&machine) {
-                worker.topics.send_if_modified(|current| {
-                    if *current == topics {
-                        false
-                    } else {
-                        *current = topics;
-                        true
-                    }
-                });
-            } else {
-                let (topics, receiver) = watch::channel(topics);
-                let (app, fleet, commands) = (app.clone(), fleet.clone(), commands.clone());
-                let task = workers
-                    .spawn(async move { follow(app, fleet, machine, receiver, commands).await });
-                held.insert(machine, Worker { topics, task });
+            command_workers.entry(machine).or_insert_with(|| {
+                app.state::<Events>().clear_node(machine);
+                workers.spawn(CommandWorker::new(fleet.clone(), machine, commands.clone()).run())
+            });
+
+            for topic in topics {
+                subscriptions
+                    .entry((machine, topic.clone()))
+                    .or_insert_with(|| {
+                        workers.spawn(
+                            SubscriptionWorker::new(app.clone(), fleet.clone(), machine, topic)
+                                .run(),
+                        )
+                    });
             }
         }
 
@@ -978,7 +992,7 @@ async fn run(
             changed = mesh.changed() => {
                 if changed.is_err() { return; }
                 mesh.borrow_and_update();
-                held.clear(); workers.abort_all();
+                command_workers.clear(); subscriptions.clear(); workers.abort_all();
                 app.state::<Events>().registry.lock().unwrap_or_else(PoisonError::into_inner).latest.retain(|(machine, _, _), _| machine == &fleet.me.to_string());
                 fleet.snapshots.reconcile(&BTreeMap::new());
                 members = fleet.mesh().map(|mesh| mesh.updates());
@@ -1018,219 +1032,6 @@ async fn run(
                 _ => {},
             },
             Some(result) = workers.join_next() => if let Err(error) = result { log::debug!("event reader stopped: {error}"); },
-        }
-    }
-}
-
-async fn follow(
-    app: AppHandle,
-    fleet: Arc<Fleet>,
-    machine: EndpointId,
-    mut wanted: watch::Receiver<Vec<Topic>>,
-    commands: Commands,
-) {
-    let mut pause = Duration::from_secs(1);
-
-    loop {
-        if wanted.has_changed().is_err() {
-            return;
-        }
-
-        let started = std::time::Instant::now();
-        let result = stream(&app, &fleet, machine, &mut wanted, &commands).await;
-
-        if started.elapsed() >= Duration::from_secs(10) {
-            pause = Duration::from_secs(1);
-        }
-
-        if let Err(error) = result {
-            log::warn!(
-                "node event stream ended machine={machine} elapsed_ms={}: {error}",
-                started.elapsed().as_millis()
-            );
-        }
-
-        tokio::select! { _ = sleep(pause) => {}, _ = wanted.wait_for(|_| false) => return }
-        pause = (pause * 2).min(Duration::from_secs(30));
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn stream(
-    app: &AppHandle,
-    fleet: &Fleet,
-    machine: EndpointId,
-    wanted: &mut watch::Receiver<Vec<Topic>>,
-    commands: &Commands,
-) -> Result<()> {
-    let client = fleet.client(machine).await?;
-    let topics = wanted.borrow_and_update().clone();
-    let generation = Uuid::new_v4();
-    fleet.snapshots.begin(machine, generation);
-    let _snapshots = SnapshotConnection {
-        snapshots: &fleet.snapshots,
-        machine,
-        generation,
-    };
-    let mut query_changes = fleet.snapshots.changes();
-    let mut refresh = app.state::<Events>().refresh.subscribe();
-    let queries = fleet.snapshots.queries(machine);
-    app.state::<Events>().forget_queries(machine, &queries);
-    let mut sent = (topics.clone(), queries.clone());
-    log::info!(
-        "node watch sending machine={machine} generation={generation} watch=1 topics={} queries={}",
-        topics.len(),
-        queries.len()
-    );
-    let (mut tx, mut rx) = client
-        .open_sending(
-            events::PROTOCOL,
-            &Request::Watch {
-                id: 1,
-                topics: topics.clone(),
-                queries,
-            },
-        )
-        .await?;
-    let (orders, mut input) = mpsc::channel::<Call>(16);
-    let _registered = Registered {
-        machine,
-        commands,
-        generation,
-    };
-    let mut pending = HashMap::new();
-    let mut watches = HashMap::from([(1, topics)]);
-    let mut next = 1_u64;
-    let mut dirty = false;
-    let mut revision = 0;
-
-    loop {
-        if dirty && watches.is_empty() {
-            let topics = wanted.borrow_and_update().clone();
-            let queries = fleet.snapshots.queries(machine);
-            app.state::<Events>().forget_queries(machine, &queries);
-
-            if (topics.clone(), queries.clone()) == sent {
-                dirty = false;
-                continue;
-            }
-            sent = (topics.clone(), queries.clone());
-            next = next
-                .checked_add(1)
-                .ok_or_else(|| DesktopError::BadRequest("request sequence exhausted".into()))?;
-            log::info!(
-                "node watch sending machine={machine} generation={generation} watch={next} topics={} queries={}",
-                topics.len(),
-                queries.len()
-            );
-            watches.insert(next, topics.clone());
-            timeout(
-                Duration::from_secs(15),
-                tx.send(&Request::Watch {
-                    id: next,
-                    topics,
-                    queries,
-                }),
-            )
-            .await
-            .map_err(|_| DesktopError::Lost("the machine".into()))??;
-            dirty = false;
-        }
-
-        tokio::select! {
-            changed = wanted.changed() => { if changed.is_err() { return Ok(()); } dirty = true; },
-            changed = query_changes.changed() => { if changed.is_err() { return Ok(()); } dirty = true; },
-            changed = refresh.changed() => {
-                if changed.is_err() { return Ok(()); }
-                next = next.checked_add(1).ok_or_else(|| DesktopError::BadRequest("request sequence exhausted".into()))?;
-                watches.insert(next, wanted.borrow().clone());
-                timeout(Duration::from_secs(15), tx.send(&Request::Refresh { id: next })).await.map_err(|_| DesktopError::Lost("the machine".into()))??;
-            },
-            call = input.recv(), if pending.len() < 16 => if let Some(call) = call {
-                next = next.checked_add(1).ok_or_else(|| DesktopError::BadRequest("command sequence exhausted".into()))?;
-                timeout(Duration::from_secs(15), tx.send(&Request::Call { id: next, operation: Box::new(call.operation) })).await.map_err(|_| DesktopError::Unsure("the machine".into()))??;
-                pending.insert(next, call.reply);
-            },
-            reply = timeout(Duration::from_secs(35), rx.recv::<Reply>()) => {
-                let reply = reply.map_err(|_| DesktopError::Lost("the machine".into()))??.ok_or_else(|| DesktopError::Lost("the machine".into()))?;
-
-                match reply {
-                    Reply::Ready => {
-                        if !fleet.snapshots.ready(machine, generation) { return Ok(()); }
-                        app.state::<Events>().clear_node(machine);
-                        commands.lock().unwrap_or_else(PoisonError::into_inner).insert(machine, (generation, orders.clone()));
-                    },
-                    Reply::Watching { id } => { log::info!("node watch acknowledged machine={machine} generation={generation} watch={id}"); watches.remove(&id); },
-                    Reply::Snapshot(snapshot) => {
-                        log::info!("node snapshot received machine={machine} generation={generation} query={:?} topic={} revision={}", snapshot.query, snapshot.topic.name(), snapshot.revision);
-                        revision = snapshot.revision;
-                        let Some(initial) = fleet.snapshots.install(machine, generation, &snapshot) else { continue; };
-
-                        if let events::Value::Resources(resources) = &snapshot.value {
-                            app.state::<Events>().resources(machine, &snapshot.topic, resources);
-                        }
-
-                        if !initial { invalidate(app, snapshot.topic.name()); }
-                        if !initial && (machine == fleet.me || matches!(snapshot.topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves" | "sync")) {
-                            super::event_views::changed(app.clone(), snapshot.topic.clone());
-                        }
-
-                        if (machine != fleet.me || !controller_topic(&snapshot.topic))
-                            && app.state::<Events>().node_wanted(machine, &snapshot.topic) {
-                            let data = serde_json::to_value(&snapshot.value).ok();
-                            app.state::<Events>().dispatch_node(Update { machine_id: machine.to_string(), revision: snapshot.revision, query: snapshot.query, initial, data, topic: snapshot.topic });
-                        }
-                    },
-                    Reply::SnapshotError { query, topic, reason } => {
-                        log::warn!("node snapshot failed machine={machine} generation={generation} query={query:?} topic={}: {reason}", topic.name());
-                        if let Some(query) = query && !fleet.snapshots.failed(machine, generation, query, reason.clone()) { continue; }
-                        invalidate(app, topic.name());
-
-                        if machine == fleet.me || matches!(topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves" | "sync") {
-                            super::event_views::failed(app, &topic, &reason);
-                        }
-
-                        if (machine != fleet.me || !controller_topic(&topic)) && app.state::<Events>().node_wanted(machine, &topic) {
-                            app.state::<Events>().dispatch_node(Update { machine_id: machine.to_string(), revision, query, initial: false, data: Some(serde_json::json!({ "error": reason })), topic });
-                        }
-                    },
-                    Reply::Result { id, reply } => if let Some(waiter) = pending.remove(&id) { let _ = waiter.send(Ok(*reply)); },
-                    Reply::Error { id, reason } => {
-                        if watches.remove(&id).is_some() { return Err(DesktopError::BadRequest(reason)); }
-                        if let Some(waiter) = pending.remove(&id) { let _ = waiter.send(Err(reason)); }
-                    },
-                    _ => {},
-                }
-            }
-        }
-    }
-}
-
-struct SnapshotConnection<'a> {
-    snapshots: &'a Snapshots,
-    machine: EndpointId,
-    generation: Uuid,
-}
-impl Drop for SnapshotConnection<'_> {
-    fn drop(&mut self) {
-        self.snapshots.end(self.machine, self.generation);
-    }
-}
-
-struct Registered<'a> {
-    machine: EndpointId,
-    commands: &'a Commands,
-    generation: Uuid,
-}
-impl Drop for Registered<'_> {
-    fn drop(&mut self) {
-        let mut commands = self.commands.lock().unwrap_or_else(PoisonError::into_inner);
-
-        if commands
-            .get(&self.machine)
-            .is_some_and(|(id, _)| *id == self.generation)
-        {
-            commands.remove(&self.machine);
         }
     }
 }
