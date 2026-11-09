@@ -1,5 +1,6 @@
 // The model and thinking pill by a session's field, and switching them.
-import { closedPicker, drawPicker, type Picked, pillInner } from "./agentpicker.ts";
+import { modelId } from "./agentpick.ts";
+import { closedPicker, knownModels, drawPicker, type Picked, pillInner } from "./agentpicker.ts";
 import { $, bar } from "../bar/core.ts";
 import { type AgentRow, AG, agentKind } from "./agents.ts";
 import { SWITCHES, sessionPicks } from "./session.ts";
@@ -61,6 +62,7 @@ function drawModelPicker() {
 
 /// Switches session `s` to the model or thinking in `next`.
 export async function switchSessionModel(s: AgentRow, next: { model: string; effort: string | null }, what: "model" | "effort") {
+  next = { ...next, model: modelId(knownModels(s.machine_id, s.agent), next.model) };
   const was = sessionPicks.get(s.id) ?? { model: "", effort: null };
   const model = what === "model" ? next.model || null : null, effort = what === "effort" ? next.effort : null;
 
