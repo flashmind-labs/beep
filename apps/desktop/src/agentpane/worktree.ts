@@ -10,8 +10,7 @@ import { onPlaces, placeOf } from "../agents/place.ts";
 import { type WorkPlace, placeName } from "../agents/place-state.ts";
 import { baseName } from "./media-state.ts";
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { hasSessionPortal, removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
 import { WorktreeMenu } from "./worktree-view.tsx";
 import { invoke } from "../ui/tauri.ts";
 
@@ -255,8 +254,6 @@ export function removedBranch() {
   return p && main && removed(p) && W.shown === W.cwd ? treeName(main) : null;
 }
 
-const roots = new WeakMap<HTMLElement, Root>();
-
 /// Draws the dropdown into `host`, in the header of a dock: only while the
 /// dock shows Files or Changes (`here`) and there is more than one worktree
 /// to show, or the pane is not on the session's folder.
@@ -264,12 +261,10 @@ export function drawWorktrees(host: HTMLElement, here: boolean) {
   const p = W.place;
   const show = !!p && here && (W.trees.length > 1 || W.shown !== bare(p.cwd) || removed(p) || !!W.placed?.linked);
   const sig = show ? JSON.stringify([W.trees, W.shown, W.follow, W.seen, W.open, W.search, W.cwd, W.placed]) : "";
-  if (host.dataset.sig === sig) return;
+  if (host.dataset.sig === sig && (!show || hasSessionPortal(host))) return;
   host.dataset.sig = sig;
   host.hidden = !show;
-  let root = roots.get(host);
-  if (!root) { root = createRoot(host); roots.set(host, root); }
-  if (!show || !p) { flushSync(() => root.render(null)); return; }
+  if (!show || !p) { removeSessionPortal(host); return; }
   const now = W.trees.find(t => rootOf(t, W.cwd) === W.shown);
   const label = now ? treeName(now) : W.placed && bare(W.placed.folder) === W.shown ? placeName(W.placed) : baseName(W.shown);
   const main = W.trees.find(t => t.own);
@@ -279,7 +274,7 @@ export function drawWorktrees(host: HTMLElement, here: boolean) {
       : main && t.path.startsWith(`${bare(main.path)}/`) ? t.path.slice(bare(main.path).length + 1) : t.path;
     return { path, title: t.path, name: treeName(t), sub: sub + (W.seen === path ? " · agent here" : ""), visible: matchesTree(t, W.search) };
   });
-  flushSync(() => root.render(createElement(WorktreeMenu, {
+  setSessionPortal(host, createElement(WorktreeMenu, {
     label, items, shown: W.shown, follow: W.follow, open: W.open, search: W.search,
     pick: pickRoot, searchChanged: (value: string) => { W.search = value; W.changed(false); },
     toggle: () => {
@@ -288,7 +283,7 @@ export function drawWorktrees(host: HTMLElement, here: boolean) {
       W.changed(false);
       if (W.open) host.querySelector<HTMLInputElement>(".agwt-search")?.focus();
     },
-  })));
+  }));
 }
 
 /// Closes the menu; true when one was open.

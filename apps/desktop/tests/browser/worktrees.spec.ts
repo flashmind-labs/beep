@@ -40,5 +40,13 @@ test("the worktree picker can pause following and search branches or paths", asy
   await expect(follow).toBeChecked();
   await page.keyboard.press("Escape");
   await expect(search).toHaveCount(0);
+  await page.evaluate(() => window.__navigation.open("home"));
+  await page.evaluate(() => window.__navigation.open({ agent: {
+    kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "First notification",
+    cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false,
+  } }));
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  await page.locator(".agwt:visible").click();
+  await expect(page.getByRole("menuitemcheckbox", { name: "Follow the agent" })).toBeChecked();
   expect(errors).toEqual([]);
 });
