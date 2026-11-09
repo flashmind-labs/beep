@@ -6,8 +6,9 @@ import type { ChatBody, Turn } from "../ui/turn.ts";
 
 interface Part { key: string; html: string }
 export interface WorkView { heading: TurnHeading | null; thought: string; steps: Part[]; live: string }
-interface Owner { root: Root; prompts: Map<HTMLElement, { key: number; html: string }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
+interface Owner { root: Root; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
 const owners = new WeakMap<ChatBody, Owner>();
+const suggestionTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
 const promptTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
 const turns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
 const replyTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
@@ -21,19 +22,43 @@ const Html = memo(function Html({ html }: { html: string }) {
 const Prompt = memo(function Prompt({ html }: { html: string }) {
   return <><b>You</b><span dangerouslySetInnerHTML={{ __html: html }} /></>;
 });
+const Suggestions = memo(function Suggestions({ replies, send }: { replies: string[]; send: (text: string) => void }) {
+  return <>{replies.map((reply, i) => <button className="dbtn" key={`${i}:${reply}`} onClick={() => send(reply)}>{reply}</button>)}</>;
+});
 const Work = memo(function Work({ value }: { value: WorkView }) {
   return <>{value.heading && <AgentTurnHeading value={value.heading} />}{value.thought && <Html html={value.thought} />}{value.steps.map(step => <Html key={step.key} html={step.html} />)}{value.live && <Html html={value.live} />}</>;
 });
 function draw(owner: Owner) {
   flushSync(() => owner.root.render(createElement(Fragment, null,
+    ...[...owner.suggestions].map(([host, row]) => createPortal(createElement(Suggestions, { replies: row.replies, send: row.send }), host, row.key)),
     ...[...owner.prompts].map(([host, row]) => createPortal(createElement(Prompt, { html: row.html }), host, row.key)),
     ...[...owner.rows].map(([host, row]) => createPortal(createElement(Work, { value: row.value }), host, row.key)),
     ...[...owner.replies].map(([host, row]) => createPortal(createElement(Html, { html: row.html }), host, row.key)))));
 }
 function ownerOf(body: ChatBody) {
   let owner = owners.get(body);
-  if (!owner) { owner = { root: createRoot(document.createElement("div")), prompts: new Map(), rows: new Map(), replies: new Map(), next: 0 }; owners.set(body, owner); }
+  if (!owner) { owner = { root: createRoot(document.createElement("div")), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 }; owners.set(body, owner); }
   return owner;
+}
+export function renderChatSuggestions(body: ChatBody, turn: Turn, box: HTMLElement, replies: string[], send: (text: string) => void) {
+  const owner = ownerOf(body), prior = owner.suggestions.get(box);
+  suggestionTurns.set(turn, { owner, box });
+  owner.suggestions.set(box, { key: prior?.key ?? ++owner.next, replies, send });
+  draw(owner);
+}
+export function discardChatSuggestions(turn: Turn) {
+  const entry = suggestionTurns.get(turn);
+  suggestionTurns.delete(turn);
+  if (entry) { entry.owner.suggestions.delete(entry.box); draw(entry.owner); }
+}
+export function transferChatSuggestions(from: Turn, to: Turn) {
+  const next = suggestionTurns.get(from), prior = suggestionTurns.get(to);
+  suggestionTurns.delete(from);
+  if (prior) prior.owner.suggestions.delete(prior.box);
+  if (next) suggestionTurns.set(to, next); else suggestionTurns.delete(to);
+  if (prior && prior.owner !== next?.owner) draw(prior.owner);
+  const current = next ?? prior;
+  if (current) draw(current.owner);
 }
 export function renderChatPrompt(body: ChatBody, turn: Turn, box: HTMLElement, html: string) {
   const owner = ownerOf(body);
@@ -127,8 +152,9 @@ export function transferChatReply(from: Turn, to: Turn) {
   replyTurns.delete(from); replyTurns.set(to, entry);
 }
 export function discardChatWork(turn: Turn) {
-  const prompt = promptTurns.get(turn), work = turns.get(turn), reply = replyTurns.get(turn);
-  promptTurns.delete(turn); turns.delete(turn); replyTurns.delete(turn);
+  const suggestion = suggestionTurns.get(turn), prompt = promptTurns.get(turn), work = turns.get(turn), reply = replyTurns.get(turn);
+  suggestionTurns.delete(turn); promptTurns.delete(turn); turns.delete(turn); replyTurns.delete(turn);
+  if (suggestion) suggestion.owner.suggestions.delete(suggestion.box);
   if (prompt) {
     const waiting = promptPending.get(prompt.box);
     if (waiting) { document.removeEventListener("selectionchange", waiting.resume); promptPending.delete(prompt.box); }
@@ -144,7 +170,8 @@ export function discardChatWork(turn: Turn) {
     if (waiting) { document.removeEventListener("selectionchange", waiting.resume); replyPending.delete(reply.box); }
     reply.owner.replies.delete(reply.box);
   }
-  if (prompt) draw(prompt.owner);
-  if (work && work.owner !== prompt?.owner) draw(work.owner);
-  if (reply && reply.owner !== work?.owner && reply.owner !== prompt?.owner) draw(reply.owner);
+  if (suggestion) draw(suggestion.owner);
+  if (prompt && prompt.owner !== suggestion?.owner) draw(prompt.owner);
+  if (work && work.owner !== prompt?.owner && work.owner !== suggestion?.owner) draw(work.owner);
+  if (reply && reply.owner !== work?.owner && reply.owner !== prompt?.owner && reply.owner !== suggestion?.owner) draw(reply.owner);
 }

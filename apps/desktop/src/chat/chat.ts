@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
 import { ChatShell } from "./chat-shell.tsx";
-import { renderChatPrompt, renderChatReply, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
+import { discardChatSuggestions, renderChatPrompt, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
 import { drawAgentButton } from "../agents/agents.ts";
 import { askFiles, attach, attached, attachError, drawAttached } from "./attach.ts";
 import type { AskFile } from "./attach.ts";
@@ -437,10 +437,25 @@ export function approvalCard(id: string | null, turn: Turn, { query_id, app, act
 
 /// Follow-ups under the reply; picking one sends it.
 export function suggestions(turn: Turn, replies: string[]) {
-  turn.querySelector(".dreplies")?.remove();
-  const row = h(`<div class="dreplies">${replies.map(r => `<button class="dbtn">${esc(r)}</button>`).join("")}</div>`);
-  row.querySelectorAll("button").forEach((b, i) => b.addEventListener("click", () => send(replies[i])));
-  turn.append(row);
+  let row = turn.querySelector<HTMLElement>(".dreplies");
+  if (!row) { row = document.createElement("div"); row.className = "dreplies"; turn.append(row); }
+  const owner = owningChatBody(turn);
+  if (owner) renderChatSuggestions(owner, turn, row, replies, reply => void send(reply));
+  else {
+    row.replaceChildren(...replies.map(reply => {
+      const button = h<HTMLButtonElement>(`<button class="dbtn">${esc(reply)}</button>`);
+      button.addEventListener("click", () => void send(reply));
+      return button;
+    }));
+  }
+}
+
+export function removeChatSuggestions(owner: ChatBody) {
+  owner.querySelectorAll<HTMLElement>(".dreplies").forEach(row => {
+    const turn = row.closest<Turn>(".turn");
+    if (turn) discardChatSuggestions(turn);
+    row.remove();
+  });
 }
 
 export function failed(turn: Turn, message: string) {
@@ -660,7 +675,7 @@ export async function send(message: string) {
   drawAttached();
   const id = S.session ??= newId();
   const ask = $$<HTMLTextAreaElement>("#ask");
-  body()!.querySelectorAll(".dreplies").forEach(r => r.remove());
+  removeChatSuggestions(body()!);
   ask.value = "";
   ask.placeholder = "Ask a follow-up…";
   grow(ask);

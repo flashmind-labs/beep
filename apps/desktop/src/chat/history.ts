@@ -1,4 +1,4 @@
-import { discardChatWork, transferChatPrompt } from "./work-view.tsx";
+import { discardChatSuggestions, discardChatWork, transferChatPrompt, transferChatSuggestions } from "./work-view.tsx";
 import { askFiles } from "./attach.ts";
 import { ANSWER, answeredTurns, approvalCard, appendChatReply, ASK, askText, body, chatReplyHtml, drawLatest, drawWork, failed, makeTurn, moveChatReply, newTurn, ranOn, renderChat, setChatReply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
 import type { Asking, ToolOutput } from "./chat.ts";
@@ -291,21 +291,28 @@ function mergeTurn(old: Turn, fresh: Turn) {
       else old.prepend(el);
       if (el.className === "dcoderen agent md") moveChatReply(fresh, old);
       if (el.className === "dcoderen user") transferChatPrompt(fresh, old);
+      if (el.className === "dreplies") transferChatSuggestions(fresh, old);
     } else if (STABLE.has(el.className)) {
       now = was;
     } else if (el.className === "dcoderen agent md") {
       setChatReply(old, chatReplyHtml(fresh));
       now = was;
+    } else if (was.outerHTML === el.outerHTML && el.className === "dreplies") {
+      now = was;
     } else if (!LISTED.has(el.className) && was.outerHTML === el.outerHTML) {
       now = was;
     } else {
       was.replaceWith(el);
+      if (el.className === "dreplies") transferChatSuggestions(fresh, old);
     }
 
     prev = now;
   }
 
-  for (const el of before.values()) if (!matched.has(el) && LISTED.has(el.className)) el.remove();
+  for (const el of before.values()) if (!matched.has(el) && LISTED.has(el.className)) {
+    if (el.className === "dreplies") discardChatSuggestions(old);
+    el.remove();
+  }
   if (fresh.user !== undefined) old.user = fresh.user;
   if (fresh.model) old.model = fresh.model;
   if (!fresh.done) return;

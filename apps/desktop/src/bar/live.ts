@@ -1,5 +1,5 @@
 import { renderChatPrompt, updateChatPrompt } from "../chat/work-view.tsx";
-import { ASK, askText, body, owningChatBody, type Decision, focusAsk, followAnswered, forRoutine, newTurn, renderChat, scrollDown, settle, startRun } from "../chat/chat.ts";
+import { ASK, askText, body, owningChatBody, type Decision, focusAsk, followAnswered, forRoutine, newTurn, removeChatSuggestions, renderChat, scrollDown, settle, startRun } from "../chat/chat.ts";
 import { touch } from "../chat/chats.ts";
 import { $, $$, bar, entry, here, live, PANE, S } from "./core.ts";
 import { hints, keyGroups, LIVE_SAY, LIVE_TALK, refreshHints } from "./hints.ts";
@@ -215,7 +215,7 @@ export function liveTurn(id: string, text: string, runId: string) {
   }
 
   const b = body()!;
-  b.querySelectorAll(".dreplies").forEach(r => r.remove());
+  removeChatSuggestions(b);
   // The server's copy may have drawn the message already.
   const last = [...b.querySelectorAll<Turn>(".turn")].at(-1);
   const turn = last?.user && !last.done && askText(last) === text ? last : newTurn(text);

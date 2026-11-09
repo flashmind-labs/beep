@@ -118,3 +118,33 @@ test("history refresh keeps a selected user prompt while answers update", async 
   await expect(page.locator(".dcoderen.agent")).toContainText("Updated answer");
   expect(await prompt.evaluate(el => el === Reflect.get(window, "keptPrompt") && window.getSelection()?.toString() === "A selected prompt")).toBe(true);
 });
+
+test("follow-up suggestions retain focus through an unchanged history refresh", async ({ page }) => {
+  const user = { role: "user", text: "Explain", at: 1, images: [], model: "", thinking: "" };
+  const answer = { role: "assistant", html: "<p>Answer</p>", tools: [], replies: ["Tell me more", "Show an example"], model: "" };
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [user, answer], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const button = page.getByRole("button", { name: "Tell me more" });
+  await button.focus();
+  await button.evaluate(el => Reflect.set(window, "followUpButton", el));
+  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_session").length);
+  await page.evaluate(() => window.__navigation.emit("sessions-changed", "chat-example"));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_session").length)).toBeGreaterThan(reads);
+  expect(await button.evaluate(el => el === Reflect.get(window, "followUpButton") && document.activeElement === el)).toBe(true);
+});
+
+test("changed follow-ups replace old actions and send the new choice", async ({ page }) => {
+  const user = { role: "user", text: "Explain", at: 1, images: [], model: "", thinking: "" };
+  const answer = { role: "assistant", html: "<p>Answer</p>", tools: [], replies: ["Old suggestion"], model: "" };
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [user, answer], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  await expect(page.getByRole("button", { name: "Old suggestion" })).toBeVisible();
+  await page.evaluate(data => { window.__navigation.respond("open_session", data); window.__navigation.emit("sessions-changed", "chat-example"); }, [user, { ...answer, replies: ["New suggestion"] }]);
+  const button = page.getByRole("button", { name: "New suggestion" });
+  await expect(button).toBeVisible();
+  await expect(page.getByRole("button", { name: "Old suggestion" })).toHaveCount(0);
+  await button.evaluate(el => Reflect.set(window, "retiredSuggestions", el.closest(".dreplies")));
+  await button.click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "send_prompt" && call.args.message === "New suggestion"))).toBe(true);
+  await expect.poll(() => page.evaluate(() => { const node = Reflect.get(window, "retiredSuggestions"); return node instanceof HTMLElement ? node.childElementCount : -1; })).toBe(0);
+});
