@@ -32,6 +32,13 @@ export interface DiffFile {
   left_out: LeftOut | null;
 }
 
+export function sameDiffFile(a: DiffFile, b: DiffFile): boolean {
+  return a.path === b.path && a.old_path === b.old_path && a.status === b.status && a.additions === b.additions && a.deletions === b.deletions && a.left_out === b.left_out && a.hunks.length === b.hunks.length && a.hunks.every((hunk, index) => {
+    const other = b.hunks[index];
+    return hunk.old_start === other.old_start && hunk.old_lines === other.old_lines && hunk.new_start === other.new_start && hunk.new_lines === other.new_lines && hunk.section === other.section && hunk.lines.length === other.lines.length && hunk.lines.every((line, i) => line.k === other.lines[i].k && line.t === other.lines[i].t && line.e === other.lines[i].e);
+  });
+}
+
 /// What `work_diff` and `branch_diff` give (DiffView).
 export interface DiffView {
   root: string;
