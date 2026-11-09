@@ -1,11 +1,14 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
+import { UsageWidget } from "./usage-view.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
-import { creditAmount, creditScope, providerName, type ProviderCredits } from "../ui/credits.ts";
+import type { ProviderCredits } from "../ui/credits.ts";
 export { creditAmount, creditScope, type ProviderCredits } from "../ui/credits.ts";
 // The pill at the right end of every command center header: how much of each
 // coding agent's plan is used and what the agents cost today.
 
 import { agentLabel } from "../project/projects-state.ts";
-import { el as h } from "../ui/dom.ts";
 import { money, tokenCount } from "../ui/format.ts";
 
 export interface UsageWindow {
@@ -189,148 +192,17 @@ export function hasUsage(view: UsageView | null): view is UsageView {
   return view.limits.some(p => p.windows.length || p.credits?.length) || spent(view.today) || spent(view.week) || spent(view.month);
 }
 
-function bar(used: number, cls: string) {
-  const i = h("i", used > WARN_USED ? "warn" : "");
-  i.style.width = `${used}%`;
-  return h("span", cls, i);
-}
-
-function pill(view: UsageView) {
-  const parts: Node[] = [];
-
-  for (const plan of view.limits) {
-    const used = planUsed(plan);
-    if (used != null) parts.push(h("span", "", `${shortName(plan.agent)} `, h("b", "", `${used}%`), " used"), bar(used, "bar"));
-
-    for (const credit of plan.credits ?? []) {
-      if (credit.remaining != null) parts.push(h("span", "", `${providerName(credit.provider)} `, h("b", "", creditAmount(credit, credit.remaining)), " left"));
-    }
-  }
-
-  parts.push(h("span", "", h("b", "", todayLine(view.today)), " today"));
-  parts.push(short(view));
-  return parts;
-}
-
-/// The phone's pill: the tightest plan's share with its bar, else today's spend.
-function short(view: UsageView) {
-  const used = view.limits.map(planUsed).filter(u => u != null);
-  if (!used.length) return h("span", "us-short", h("b", "", todayLine(view.today)));
-
-  const most = Math.max(...used);
-  return h("span", "us-short", bar(most, "bar"), h("b", "", `${most}%`));
-}
-
-function limitBlock(plan: PlanLimits, now: number) {
-  const credits = plan.credits ?? [];
-  const singleProvider = !plan.windows.length && credits.length === 1;
-  const name = [agentLabel(plan.agent), planName(plan.agent, plan.plan), singleProvider ? `${providerName(credits[0].provider)} credits` : ""].filter(Boolean).join(" · ");
-  const head = h("h5", "", h("span", "", name), h("span", "", asOf(plan.as_of, now)));
-  head.title = `Read on ${plan.machine_name}`;
-  const rows = plan.windows.map(w => {
-    const used = windowUsed(w);
-    const reset = w.resets_at != null ? ` · resets ${resetName(w.resets_at, now)}` : "";
-    return h("div", "us-lim", h("span", "", windowName(w)), bar(used, "bar"), h("small", "", `${used}% used${reset}`));
-  });
-
-  for (const credit of credits) {
-    const label = singleProvider ? creditScope(credit.scope) : `${providerName(credit.provider)} · ${creditScope(credit.scope)}`;
-    rows.push(h("div", "us-row", h("span", "", label), h("span", "", `${creditAmount(credit, credit.remaining)} remaining`)));
-    rows.push(h("div", "us-row", h("small", "", credit.resets ? `Resets ${credit.resets}` : ""), h("small", "", `${creditAmount(credit, credit.used)} used · ${creditAmount(credit, credit.total)} total`)));
-
-    if (credit.provider === "openrouter" && credit.scope === "api_key" && credit.remaining == null) {
-      rows.push(h("div", "us-note", "Account balance unavailable."));
-    }
-  }
-
-  return h("div", "", head, ...rows);
-}
-
-function spendRow(name: Node | string, cost: string, extra: string, strong = false) {
-  const tag = strong ? "b" : "span";
-  const right = h(tag, "us-r", cost, extra ? h("small", "", `${cost ? " · " : ""}${extra}`) : null);
-  return h("div", "us-row", typeof name === "string" ? h(tag, "", name) : name, right);
-}
-
-/// How many projects a period lists before "Show more".
-const SHOWN_PROJECTS = 5;
-/// Whether the user asked to see every project, for the app's run.
 let allProjects = false;
-
-function periodBlock(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => void) {
-  const period = view[key] ?? view.today;
-  const metered = !!view.metered;
-  // The month only when the server keeps it.
-  const seg = h("div", "us-seg", ...PERIODS.filter(p => p.key !== "month" || view.month != null).map(p => {
-    const b = h("button", p.key === key ? "on" : "", p.label);
-    b.type = "button";
-    b.setAttribute("aria-pressed", String(p.key === key));
-    b.addEventListener("click", () => pick(p.key));
-    return b;
-  }));
-  const block = h("div", "", seg);
-
-  if (period.projects.length) {
-    block.append(h("h5", "", h("span", "", "By project"), metered ? null : h("span", "", "at API prices")));
-    const shown = allProjects ? period.projects : period.projects.slice(0, SHOWN_PROJECTS);
-    for (const s of shown) block.append(spendRow(s.project, s.cost_usd > 0 ? money(s.cost_usd) : "", projectExtra(s, metered)));
-    const more = period.projects.length - SHOWN_PROJECTS;
-
-    if (more > 0) {
-      const b = h("button", "us-more", allProjects ? "Show less" : `Show ${more} more`);
-      b.type = "button";
-      b.addEventListener("click", () => { allProjects = !allProjects; pick(key); });
-      block.append(b);
-    }
-  } else if (key === "today") {
-    block.append(h("div", "us-row", h("small", "", "Nothing yet today")));
-  }
-
-  if (period.harnesses.length) {
-    block.append(h("h5", period.projects.length ? "us-sub" : "", h("span", "", "By harness")));
-
-    for (const spend of period.harnesses) {
-      const row = spendRow(h("small", "", harnessName(spend)), "", harnessLine(spend));
-      if (spend.models.length) row.title = spend.models.map(m => `${m.name}: ${tokenCount(m.tokens)} tokens`).join("\n");
-      block.append(row);
-    }
-  }
-
-  const models = modelTotals(period.harnesses);
-
-  if (models.length) {
-    block.append(h("h5", "us-sub", h("span", "", "By model")));
-    for (const model of models) block.append(spendRow(h("small", "", model.name), "", tokenCount(model.tokens)));
-  }
-
-  const tokens = period.tokens ? tokenCount(period.tokens) : metered ? "" : unpricedLine(period.total.unpriced);
-  const paid = period.total.cost_usd > 0 || !tokens;
-  block.append(spendRow("Total", paid ? money(period.total.cost_usd) : "", tokens, true));
-  return block;
-}
 
 /// Moves `pop` back inside the window when its edge would leave it, and
 /// lets it scroll when it is taller than the room below.
 function keepInWindow(pop: HTMLElement) {
+  pop.style.transform = "";
   const r = pop.getBoundingClientRect();
   const gap = 8;
   if (r.right > window.innerWidth - gap) pop.style.transform = `translateX(${window.innerWidth - gap - r.right}px)`;
   else if (r.left < gap) pop.style.transform = `translateX(${gap - r.left}px)`;
   pop.style.maxHeight = `${Math.max(160, window.innerHeight - r.top - gap)}px`;
-}
-
-function popover(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => void, now: number) {
-  const blocks: Node[] = view.limits.filter(p => p.windows.length || p.credits?.length).map(p => limitBlock(p, now));
-  blocks.push(
-    periodBlock(view, key, pick),
-    h("div", "us-note", view.metered
-      ? "Dollars are API spend. ~ is what plan use would cost on the API, not in the total."
-      : "Dollars are what the same work would cost at API prices."),
-  );
-  const pop = h("div", "us-pop", ...blocks);
-  pop.setAttribute("role", "dialog");
-  pop.setAttribute("aria-label", "Plan usage and cost");
-  return pop;
 }
 
 /// Draws the pill into `host` and keeps it current. Gives what reads it again when the
@@ -340,19 +212,14 @@ export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promis
   let open = false;
   let period: PeriodKey = "today";
   host.classList.add("us");
+  const root = createRoot(host);
   const pick = (key: PeriodKey) => { period = key; draw(); };
-
   const draw = () => {
     host.hidden = !hasUsage(view);
-    if (!hasUsage(view)) return host.replaceChildren();
-    const button = h("button", "us-pill", ...pill(view));
-    button.type = "button";
-    button.title = "Plan usage and cost today";
-    button.setAttribute("aria-expanded", String(open));
-    button.addEventListener("click", () => toggle(!open));
-    const pop = open ? popover(view, period, pick, Date.now()) : null;
-    host.replaceChildren(button, ...(pop ? [pop] : []));
-    if (pop) keepInWindow(pop);
+    if (!hasUsage(view)) { flushSync(() => root.render(null)); return; }
+    const current = view;
+    flushSync(() => root.render(createElement(UsageWidget, { view: current, open, period, allProjects,
+      toggle: () => toggle(!open), pick, more: () => { allProjects = !allProjects; draw(); }, position: keepInWindow })));
   };
 
   const load = async (refresh: boolean) => {
