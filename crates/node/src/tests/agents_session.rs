@@ -1,6 +1,7 @@
 // The fake agents are sh scripts, so most tests run on Unix only.
 #![cfg_attr(windows, allow(dead_code, unused_imports))]
 
+use std::time::Duration;
 use super::*;
 use super::{
     orders::{choose, queue_room},
@@ -97,7 +98,7 @@ fn script(name: &str, script: &str, log: &Path) -> AgentKind {
 async fn settle(session: &Session) {
     let mut live = session.live.clone();
     tokio::time::timeout(
-        std::time::Duration::from_secs(10),
+        Duration::from_secs(10),
         live.wait_for(|live| {
             live.info.turns >= 1 || matches!(live.status(), Status::Ended | Status::Asking)
         }),
@@ -461,7 +462,7 @@ async fn a_question_left_open_by_a_turn_is_answered_cancelled() {
     let mut live = session.live.clone();
     // The adapter exits once it hears the answer; without one it waits.
     tokio::time::timeout(
-        std::time::Duration::from_secs(10),
+        Duration::from_secs(10),
         live.wait_for(|live| live.status() == Status::Ended),
     )
     .await
@@ -504,7 +505,7 @@ async fn a_large_prompt_and_a_large_burst_do_not_deadlock() {
     let mut live = session.live.clone();
     // The timeout only bounds a failure; the turn ending is the signal.
     tokio::time::timeout(
-        std::time::Duration::from_secs(60),
+        Duration::from_secs(60),
         live.wait_for(|live| live.info.turns >= 1 || live.status() == Status::Ended),
     )
     .await
@@ -542,7 +543,7 @@ read -r line
 /// Waits until `done` holds. The timeout only bounds a failure.
 async fn until(session: &Session, done: impl FnMut(&Live) -> bool) {
     let mut live = session.live.clone();
-    tokio::time::timeout(std::time::Duration::from_secs(60), live.wait_for(done))
+    tokio::time::timeout(Duration::from_secs(60), live.wait_for(done))
         .await
         .expect("the session got there")
         .unwrap();

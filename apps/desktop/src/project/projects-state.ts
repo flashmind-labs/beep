@@ -1,3 +1,4 @@
+import { dedupe, type MoveRecord } from "../agents/move-state.ts";
 import { plural } from "../ui/format.ts";
 import { syncedBySyncthing } from "./filesync.ts";
 import type { AgentQuestion, RunningAgent, RunningRow } from "../agents/running-state.ts";
@@ -221,7 +222,7 @@ export function lookingText(machines: readonly { online: boolean }[] | null | un
 
 /// The project's running sessions, including live rows read from its history
 /// before Home has refreshed. Home supplies the full state when both have a row.
-export function projectRunning(project: Pick<Project, "machines">, running: readonly RunningRow[] | null | undefined, sessions: readonly SessionRow[] | null | undefined): RunningAgent[] {
+export function projectRunning(project: Pick<Project, "machines">, running: readonly RunningRow[] | null | undefined, sessions: readonly SessionRow[] | null | undefined, moves: readonly MoveRecord[] = []): RunningAgent[] {
   const inside = (r: RunningAgent) => project.machines.some(m => r.machine_id === m.id && (r.cwd === m.folder || r.cwd.startsWith(m.folder + "/")));
   const live = (running || []).filter(isAgent).filter(inside);
   const known = new Set(live.map(r => `${r.machine_id} ${r.id}`));
@@ -232,8 +233,7 @@ export function projectRunning(project: Pick<Project, "machines">, running: read
     known.add(key);
     live.push({ ...s, kind: "agent" });
   }
-
-  return live;
+  return dedupe(live, moves);
 }
 
 /// Ended sessions, excluding any still listed as live, newest first.
@@ -242,6 +242,12 @@ export function pastSessions<T extends Pick<SessionRow, "machine_id" | "id" | "s
   return [...(sessions || [])]
     .filter(s => s.status === "ended" && !live.has(`${s.machine_id} ${s.id}`))
     .sort((a, b) => (b.last_activity || 0) - (a.last_activity || 0));
+}
+
+/// History excludes the source copy once a moved session lists on its target.
+export function projectPastSessions(sessions: readonly SessionRow[] | null | undefined, running: readonly RunningAgent[], moves: readonly MoveRecord[]): SessionRow[] {
+  const kept = new Set(dedupe<SessionRow | RunningAgent>([...(sessions ?? []), ...running], moves));
+  return pastSessions((sessions ?? []).filter(s => kept.has(s)), running);
 }
 
 /// A project's session list after a read: `got`, else (`got` null, the read

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Delete earlier versions from an R2 release folder, or list them.
 
-    r2-prune.py <folder> <version>
+    r2-prune.py <folder> <version>    (beep/node, flashmind/cli, ...)
     r2-prune.py list
 
-Removes every object under beep/<folder>/ whose version is below <version>:
-desktop files carry it in the name (Beep-0.6.2-x86_64.deb), node releases in a
-folder (0.4.2/SHA256SUMS). Unversioned files (latest.json, Beep-latest.dmg,
+Removes every object under <folder>/ whose version is below <version>:
+desktop files carry it in the name (Beep-0.6.2-x86_64.deb), node and CLI releases
+in a folder (0.4.2/SHA256SUMS). Unversioned files (latest.json, Beep-latest.dmg,
 install.sh) stay, and so do newer versions. Reads
 ACCOUNT, CF_ACCESS_KEY_ID, CF_SECRET_ACCESS_KEY and CF_BUCKET from the
 environment. Needs only Python and curl.
@@ -55,8 +55,7 @@ def parse(version: str) -> tuple[int, ...]:
 
 
 def prune(bucket_url: str, folder: str, version: str) -> None:
-    prefix = f"beep/{folder}/"
-
+    prefix = f"{folder}/"
     for key in list(keys(bucket_url, prefix)):
         match = VERSIONED.match(key[len(prefix):])
 
@@ -69,8 +68,9 @@ def main(args: list[str]) -> None:
     bucket_url = f"https://{os.environ['ACCOUNT']}.r2.cloudflarestorage.com/{os.environ['CF_BUCKET']}"
 
     if args == ["list"]:
-        for key in keys(bucket_url, "beep/"):
-            print(key)
+        for prefix in ("beep/", "flashmind/cli/"):
+            for key in keys(bucket_url, prefix):
+                print(key)
     else:
         prune(bucket_url, *args)
 

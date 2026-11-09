@@ -93,3 +93,19 @@ fn a_newer_user_message_reads_too() {
     assert_eq!(prompt(line).as_deref(), Some("Fix the parser"));
     assert_eq!(header("{\"type\":\"turn_context\"}"), None);
 }
+
+#[test]
+fn a_workdir_survives_a_new_turn_in_the_same_launch_folder() {
+    let root = tempfile::tempdir().expect("a temp folder");
+    let turn =
+        serde_json::json!({"type": "turn_context", "payload": {"cwd": "/srv/project"}}).to_string();
+    let call = serde_json::json!({"type": "response_item", "payload": {
+        "type": "function_call", "name": "exec_command",
+        "arguments": serde_json::json!({"cmd": "git diff", "workdir": "/srv/project/.worktrees/fix"}).to_string()
+    }}).to_string();
+    let path = write(root.path(), "wrapped.jsonl", &[turn.clone(), call, turn]);
+    assert_eq!(
+        latest_folder(&path),
+        Some(PathBuf::from("/srv/project/.worktrees/fix"))
+    );
+}

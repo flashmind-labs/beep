@@ -136,7 +136,7 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
         .expect("the session starts");
     let mut live = session.live.clone();
     tokio::time::timeout(
-        std::time::Duration::from_secs(10),
+        Duration::from_secs(10),
         live.wait_for(|live| {
             live.status() == Status::Idle
                 && live
@@ -220,7 +220,7 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
         .unwrap();
     let mut live = session.live.clone();
     tokio::time::timeout(
-        std::time::Duration::from_secs(10),
+        Duration::from_secs(10),
         live.wait_for(|live| matches!(live.status(), Status::Idle | Status::Ended)),
     )
     .await

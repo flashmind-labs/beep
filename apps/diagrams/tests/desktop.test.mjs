@@ -38,6 +38,22 @@ test("desktop renders through streamed updates, caches, expands and exports", as
   const preview = page.frameLocator('iframe[title="Mermaid diagram"]').first();
   await preview.locator("#svg:not(:disabled)").waitFor();
   assert.equal(loads, 1);
+  // Conversation panes detach their DOM while another session is open.
+  await page.evaluate(async () => {
+    const reply = document.getElementById("reply");
+    reply.innerHTML = `<pre><code class="language-mermaid">sequenceDiagram\n A-&gt;&gt;B: Hello</code></pre>`;
+    reply.remove();
+    await new Promise(requestAnimationFrame);
+    document.getElementById("bar").append(reply);
+  });
+  await preview.locator("#svg:not(:disabled)").waitFor({ timeout: 5000 });
+  await page.evaluate(async () => {
+    const reply = document.getElementById("reply");
+    reply.remove();
+    await new Promise(requestAnimationFrame);
+    document.getElementById("bar").append(reply);
+  });
+  await preview.locator("#svg:not(:disabled)").waitFor({ timeout: 5000 });
   assert.equal(await page.locator('iframe[title="Mermaid diagram"]').getAttribute("sandbox"), "allow-scripts");
   await preview.locator("#svg").click();
   await page.waitForFunction(() => calls.some(c => c.name === "save_picture"));

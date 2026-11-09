@@ -76,7 +76,10 @@ function next() {
   if (working) return;
 
   for (const [source, elements] of waiting) {
-    for (const element of elements) if (!element.isConnected) elements.delete(element);
+    for (const element of elements) if (!element.isConnected) {
+      elements.delete(element);
+      delete element.dataset.diagram;
+    }
     if (!elements.size) { waiting.delete(source); continue; }
     working = true;
 
@@ -96,7 +99,10 @@ function finish(result: Rendered, discard = false) {
   if (discard) { worker.frame.remove(); diagrams.delete(worker.frame); worker = null; }
   cache.set(source, result);
   if (cache.size > 16) cache.delete(cache.keys().next().value!);
-  for (const pre of waiting.get(source) ?? []) if (pre.isConnected) pre.before(makeFrame(source, false, pre));
+  for (const pre of waiting.get(source) ?? []) {
+    if (pre.isConnected) pre.before(makeFrame(source, false, pre));
+    else delete pre.dataset.diagram;
+  }
   waiting.delete(source); working = false; next();
 }
 addEventListener("message", event => {
@@ -130,7 +136,7 @@ addEventListener("message", event => {
 function scan(root: ParentNode) {
   for (const code of root.querySelectorAll<HTMLElement>("pre > code.language-mermaid")) {
     const pre = code.parentElement!;
-    if (pre.dataset.diagram) continue;
+    if (!pre.isConnected || pre.dataset.diagram) continue;
     pre.dataset.diagram = "true";
     const source = code.textContent ?? "";
 
@@ -149,6 +155,11 @@ new MutationObserver(changes => {
   }
   for (const [frame, diagram] of diagrams) if (!frame.isConnected) {
     clearTimeout(diagram.timer); diagrams.delete(frame);
+    if (diagram.fallback) {
+      delete diagram.fallback.dataset.diagram;
+      diagram.fallback.hidden = false;
+      frame.remove();
+    }
   }
 }).observe(document.body, { childList: true, subtree: true });
 scan(document.body);
