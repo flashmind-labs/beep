@@ -6,6 +6,8 @@ import { PLAY_ICON } from "../lists/memories.ts";
 import type { ApprovalField, Decision } from "./chat.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { WebSource } from "./history.ts";
+import { liveText } from "../agents/karaoke.ts";
+import { duration, thoughtLabel } from "../agents/agentturns.ts";
 import { KIND_ICONS } from "../agents/turnrows.ts";
 import type { ToolKind } from "../agents/agentturns.ts";
 import { AgentTurnHeading, type TurnHeading } from "../agents/turn-heading-view.tsx";
@@ -17,7 +19,9 @@ import type { AskFile } from "./attach.ts";
 import type { ChatBody, Turn } from "../ui/turn.ts";
 
 export interface WorkStep { key: string; kind: ToolKind; verb: string; target: string; label: string; state: "run" | "ok" | "bad" | "stop" }
-export interface WorkView { heading: TurnHeading | null; thought: string; steps: WorkStep[]; live: string }
+export interface WorkThought { key: string; text: string; ms: number | null; live: boolean; open: boolean; folding: boolean }
+export interface WorkLive { thinking: boolean; start: number | null }
+export interface WorkView { heading: TurnHeading | null; thought: WorkThought | null; steps: WorkStep[]; live: WorkLive | null }
 type Source = WebSource & { site: string };
 interface ReplyActions { copy: boolean; rerun: boolean; agent: string | null }
 interface ApprovalView { app: string; action: string; fields: ApprovalField[]; grant: boolean; answer: (decision: Decision) => void }
@@ -135,8 +139,16 @@ const Suggestions = memo(function Suggestions({ replies, send }: { replies: stri
 const WorkStepRow = memo(function WorkStepRow({ step }: { step: WorkStep }) {
   return <div className="dcoderen tool row"><span className="ki" dangerouslySetInnerHTML={{ __html: KIND_ICONS[step.kind] }} /><span className="vb">{step.verb}</span><code className="tt" title={step.label}>{step.target}</code><span className={`rm${step.state === "bad" ? " bad" : ""}`}>{step.state === "bad" ? "failed" : ""}</span><span className="mk">{step.state === "run" ? <span className="dspin" title="Running" /> : step.state === "stop" ? <span className="ddot off" title="Did not finish" /> : <span className={step.state === "ok" ? "dok" : "dbad"} title={step.state === "ok" ? "Done" : "Failed"} dangerouslySetInnerHTML={{ __html: step.state === "ok" ? ICON.check : ICON.x }} />}</span></div>;
 });
+function Thought({ value }: { value: WorkThought }) {
+  const text = value.live || value.folding ? liveText(value.text) : value.text;
+  return <div className={`dthink${value.live ? " live" : ""}${value.open ? " open" : ""}`} data-folding={value.folding ? "" : undefined}><button data-thought={value.key} aria-expanded={value.open}><span className="lb">{thoughtLabel(value.ms)}</span><span className="cv" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></button><div className="bd"><div>{value.live || value.folding ? <div className="tx"><div className={`kk${value.folding ? " ended" : ""}`} data-kk={value.live ? value.key : undefined}>{text}</div></div> : <div className="tx md">{text.split("\n").map((line, index) => <Fragment key={index}>{index > 0 && <br />}{line}</Fragment>)}</div>}</div></div></div>;
+}
+function LiveLine({ value }: { value: WorkLive }) {
+  const lead = value.thinking ? "Thinking" : "Working";
+  return <div className="dthink dlive live"><span className="lb" title={lead}>{lead}</span>{value.start !== null && <span className="since" data-since={value.start}>{duration(Date.now() - value.start)}</span>}</div>;
+}
 const Work = memo(function Work({ value }: { value: WorkView }) {
-  return <>{value.heading && <AgentTurnHeading value={value.heading} />}{value.thought && <Html html={value.thought} />}{value.steps.map(step => <WorkStepRow key={step.key} step={step} />)}{value.live && <Html html={value.live} />}</>;
+  return <>{value.heading && <AgentTurnHeading value={value.heading} />}{value.thought && <Thought value={value.thought} />}{value.steps.map(step => <WorkStepRow key={step.key} step={step} />)}{value.live && <LiveLine value={value.live} />}</>;
 });
 function draw(owner: Owner) {
   flushSync(() => owner.root.render(createElement(Fragment, null,
