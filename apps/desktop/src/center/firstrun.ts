@@ -1,31 +1,21 @@
 // The first launch of an app with no subscription: start here, or link another desktop.
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
 import { joinFields } from "../machines/jointicket.ts";
-import { button, el } from "../ui/dom.ts";
-import { svgEl } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { firstRunDue } from "../settings/subscription.ts";
+import { FirstRunScreen } from "./firstrun-view.tsx";
 
 const KEY = "beep.firstRunDone";
 
 function stored() {
-  try {
-    return localStorage.getItem(KEY);
-  } catch {
-    return null;
-  }
+  try { return localStorage.getItem(KEY); } catch { return null; }
 }
 
 function keep() {
-  try {
-    localStorage.setItem(KEY, "1");
-  } catch { /* shown again next launch */ }
+  try { localStorage.setItem(KEY, "1"); } catch { /* shown again next launch */ }
 }
-
-/// flashmind's mark.
-const LOGO = '<svg width="34" height="34" viewBox="0 0 28 28" fill="currentColor" aria-hidden="true"><path d="M14 1 27 27h-3.1L15.4 10v17h-2.8V10L4.1 27H1Z"/></svg>';
-
-const big = (title: string, text: string, cls: string, onClick: () => void) =>
-  button(el("span", "fr-big", el("b", "", title), el("span", "", text)), `dbtn fr-btn ${cls}`, onClick);
 
 /// Whether this Mac's mesh holds other machines. The list is empty until the mesh opens, so an
 /// empty one is asked again, for three seconds at most.
@@ -45,27 +35,14 @@ async function linked() {
 export async function firstRun(subscribed: boolean, after: () => void, signedOut = false) {
   if (!firstRunDue(subscribed, stored(), signedOut)) return after();
   if (await linked()) { keep(); return after(); }
-  const root = el("div", "fr-scrim");
-  const leave = () => { keep(); root.remove(); after(); };
-  const card = el("div", "fr-card");
-  const choose = () => {
-    card.replaceChildren(
-      el("div", "fr-head", svgEl(LOGO), el("div", "", el("b", "", "Welcome to Beep"), el("div", "fr-sub", "Run coding agents on your machines."))),
-      big("Start", "Use Beep on this computer. You can add machines later.", "pri", leave),
-      big("Link another desktop", "You already use Beep on another computer. Share its machines, projects and keys with this one.", "", link));
-    card.querySelector("button")?.focus();
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  let closed = false;
+  const leave = () => {
+    if (closed) return;
+    closed = true;
+    keep(); root.unmount(); host.remove(); after();
   };
-  const link = () => {
-    const fields = joinFields(leave, button("Back", "dbtn quiet", choose));
-    card.replaceChildren(
-      el("div", "fr-head", svgEl(LOGO), el("div", "", el("b", "", "Link another desktop"),
-        el("div", "fr-sub", "On your other desktop, open Machines, then Add a machine, choose Desktop and copy the ticket. This computer then shares its machines, projects and keys."))),
-      ...fields.nodes);
-    fields.input.focus();
-  };
-  card.setAttribute("role", "dialog");
-  card.setAttribute("aria-label", "First run");
-  root.append(card);
-  document.body.append(root);
-  choose();
+  flushSync(() => root.render(createElement(FirstRunScreen, { done: leave, join: joinFields })));
 }
