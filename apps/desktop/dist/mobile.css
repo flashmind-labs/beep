@@ -3,7 +3,7 @@
    src/center/mobile.ts sets for a phone, a narrow window or a small touch screen; the
    desktop layout is untouched. Colors come from the skin. */
 
-.mb-tabs, .mb-back { display: none }
+.mb-tabs, .mb-back, .mb-kbdhide { display: none }
 
 body.mobile { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none }
 body.mobile .cwin { display: flex; flex-direction: column; height: 100vh; height: 100dvh; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right) }
