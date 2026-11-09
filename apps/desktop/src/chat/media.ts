@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { Viewer, ViewerNotice } from "./viewer-view.tsx";
 import { IMAGE_TYPES } from "./compose-text.ts";
 import { focusAsk, owningChatBody } from "./chat.ts";
@@ -236,7 +236,7 @@ export function replyPic(turn: Turn, pic: SentImage) {
 export const V: { pics: ViewerPic[]; at: number } = { pics: [], at: 0 };
 let viewerHost = bar;
 let viewerFocus: HTMLElement | null = null;
-let viewer: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+let viewer: { host: HTMLElement; root: DocumentView; observer: MutationObserver } | null = null;
 
 function disposeViewer() {
   const current = viewer; viewer = null;
@@ -268,7 +268,7 @@ export function drawViewer() {
     const host = document.createElement("div");
     host.style.display = "contents";
     viewerHost.append(host);
-    const root = createRoot(host);
+    const root = createDocumentView(host);
     const observer = new MutationObserver(() => { if (viewer?.host === host && !host.isConnected) disposeViewer(); });
     observer.observe(document.body, { childList: true, subtree: true });
     viewer = { host, root, observer };
@@ -348,7 +348,7 @@ export async function copyUrl(url: string) {
   }
 }
 
-let noticeView: { host: HTMLElement; root: Root; observer: MutationObserver; timer: ReturnType<typeof setTimeout> } | null = null;
+let noticeView: { host: HTMLElement; root: DocumentView; observer: MutationObserver; timer: ReturnType<typeof setTimeout> } | null = null;
 function disposeNotice() {
   const current = noticeView; noticeView = null;
   if (!current) return;
@@ -361,7 +361,7 @@ export function notice(text: string, { path, bad }: { path?: string; bad?: boole
   const host = document.createElement("div");
   host.style.display = "contents";
   (viewer?.host.parentElement ?? bar).append(host);
-  const root = createRoot(host);
+  const root = createDocumentView(host);
   const observer = new MutationObserver(() => { if (noticeView?.host === host && !host.isConnected) disposeNotice(); });
   observer.observe(document.body, { childList: true, subtree: true });
   const timer = setTimeout(disposeNotice, 5000);

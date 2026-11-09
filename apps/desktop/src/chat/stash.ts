@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { StashPanel } from "./stash-view.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
 import { esc } from "../ui/format.ts";
@@ -22,7 +22,7 @@ const entries = new Map<string, StashEntry[]>();
 const reads = new Map<string, number>();
 let busy = false;
 let panel: HTMLElement | null = null;
-let panelRoot: Root | null = null;
+let panelRoot: DocumentView | null = null;
 let panelProject: string | null = null;
 
 function active(project?: string) {
@@ -117,7 +117,7 @@ function show(project: string) {
   panelProject = project;
   panel = h('<div class="prompt-stash-panel" role="dialog" aria-label="Project stash"></div>');
   document.body.append(panel);
-  panelRoot = createRoot(panel);
+  panelRoot = createDocumentView(panel);
   flushSync(changedIndicators);
   drawPanel();
   panel?.querySelector<HTMLButtonElement>("[data-stash-close]")?.focus();
