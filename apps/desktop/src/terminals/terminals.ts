@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { TerminalMachines } from "./machines-view.tsx";
 import { NewTerminalFields } from "./new-terminal-view.tsx";
-import { patchChildren } from "../ui/patch.ts";
+import { TerminalFooter, TerminalHeader } from "./terminal-controls.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // terminals/: terminals kept running on the machines, and the window's
 // Terminals page (view.ts). Entry: makeTerminals here.
@@ -291,7 +291,7 @@ export function makeTerminals(deps: TerminalDeps) {
   let polling: string | null = null;
   let formShell: { value: TerminalForm; host: HTMLFormElement; root: Root; canStart: boolean } | null = null;
   let machineShell: { list: HTMLElement; root: Root; panel: HTMLElement; right: HTMLElement | null } | null = null;
-  let openShell: { id: string; name: string; link: boolean; panel: HTMLElement; head: HTMLElement; foot: HTMLElement; menu: MenuItem[] } | null = null;
+  let openShell: { id: string; name: string; link: boolean; panel: HTMLElement; head: HTMLElement; headRoot: Root; foot: HTMLElement; footRoot: Root; menu: MenuItem[] } | null = null;
   /// The project whose terminals view shows.
   let shown: string | null = null;
 
@@ -634,7 +634,6 @@ export function makeTerminals(deps: TerminalDeps) {
   function openView(name: string, open: TerminalRow) {
     const t = of(name);
     const live = liveOf(name, open.id);
-    const acts: HTMLElement[] = [];
     const items: MenuItem[] = [];
     const toggleTyping = () => {
       live.watching = !live.watching;
@@ -646,14 +645,8 @@ export function makeTerminals(deps: TerminalDeps) {
     const attachHere = () => { live.tries = 0; attach(name, live); redraw(); };
 
     if (live.link === "attached" || live.link === "attaching") {
-      const typing = button(live.watching ? "Take control" : "View only", "small", toggleTyping);
-      typing.title = live.watching ? "Type into the terminal again" : "Stop typing into it, keep watching";
-      const off = button("Detach", "small", detachHere);
-      off.title = "Stop following it here; it keeps running";
-      acts.push(typing, off);
       items.push({ label: live.watching ? "Take control" : "View only", on: toggleTyping }, { label: "Detach", on: detachHere });
     } else if (live.link === "detached" || (live.link === "ended" && open.state === "offline")) {
-      acts.push(button("Attach", "small pri", attachHere));
       items.push({ label: "Attach", on: attachHere });
     }
 
@@ -667,14 +660,7 @@ export function makeTerminals(deps: TerminalDeps) {
         run: () => close(name, open.id),
       });
     };
-    acts.push(button(running ? "Kill…" : "Close", "small warn", stop));
     items.push({ label: running ? "Kill…" : "Close", warn: true, on: stop });
-    const focus = button("Focus", "small", () => focusOpen());
-    focus.title = "Focus terminal (Shift+Esc)";
-    acts.unshift(focus);
-    const head = h("div", "tm-head",
-      h("span", "", h("b", "", open.name), ` ${open.machine_name} · ${open.cwd}`),
-      h("span", "tm-st", stateLabel(open)), ...acts);
     let body: HTMLElement;
 
     if (live.link === "view_only") {
@@ -696,22 +682,23 @@ export function makeTerminals(deps: TerminalDeps) {
       if (keep) queueMicrotask(() => live.screen.focus());
     }
 
-    const on = live.link === "attached" && open.state === "running";
-    const foot = h("div", "tm-foot", h("span", "", h("span", `ddot${on ? "" : " off"}`), " ", linkLabel(live.link, live.watching, open.machine_name, live.tries)), h("span", "", `started ${ago(open.started_at)}`));
     const linked = live.link !== "view_only";
-    if (openShell?.id === open.id && openShell.link === linked && linked) {
-      openShell.name = open.name;
-      openShell.menu = items;
-      patchChildren(openShell.head, [...head.children]);
-      patchChildren(openShell.foot, [...foot.children]);
-      return openShell.panel;
+    if (!openShell || openShell.id !== open.id || openShell.link !== linked || !linked) {
+      openShell?.headRoot.unmount(); openShell?.footRoot.unmount();
+      const head = h("div", "tm-head"), foot = h("div", "tm-foot");
+      const panel = h("div", "cc-panel tm-panel", head, body, foot);
+      const shell = openShell = { id: open.id, name: open.name, link: linked, panel, head, headRoot: createRoot(head), foot, footRoot: createRoot(foot), menu: items };
+      head.addEventListener("contextmenu", e => { if (openShell === shell) openMenu(e, shell.name, shell.menu); });
     }
-    const panel = h("div", "cc-panel tm-panel", head, body, foot);
-    const shell = openShell = { id: open.id, name: open.name, link: linked, panel, head, foot, menu: items };
-    head.addEventListener("contextmenu", e => { if (openShell === shell) openMenu(e, shell.name, shell.menu); });
-    patchChildren(head, [...head.children]);
-    patchChildren(foot, [...foot.children]);
-    return panel;
+    const shell = openShell;
+    shell.name = open.name;
+    shell.menu = items;
+    flushSync(() => {
+      shell.headRoot.render(createElement(TerminalHeader, { terminal: open, state: stateLabel(open), link: live.link, watching: live.watching,
+        focus: () => { focusOpen(); }, toggle: toggleTyping, detach: detachHere, attach: attachHere, stop }));
+      shell.footRoot.render(createElement(TerminalFooter, { active: live.link === "attached" && open.state === "running", label: linkLabel(live.link, live.watching, open.machine_name, live.tries), started: ago(open.started_at) }));
+    });
+    return shell.panel;
   }
 
   /// Opens the New terminal form of the Terminals page on `machine`.
@@ -807,6 +794,6 @@ export function makeTerminals(deps: TerminalDeps) {
     show: (id: string) => select(ALL, id),
     /// Closes the open terminal or form on the Terminals page, back to its list.
     unselect: () => { const t = of(ALL); t.open = null; t.form = null; redraw(); },
-    stop: () => { watch(null); dropAll(); machineShell?.root.unmount(); machineShell = null; formShell?.root.unmount(); formShell = null; openShell = null; shown = null; },
+    stop: () => { watch(null); dropAll(); machineShell?.root.unmount(); machineShell = null; formShell?.root.unmount(); formShell = null; openShell?.headRoot.unmount(); openShell?.footRoot.unmount(); openShell = null; shown = null; },
   };
 }
