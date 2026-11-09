@@ -204,3 +204,26 @@ test("suggestion updates preserve queued controls and focus", async t => {
   assert.equal(bar.querySelector('[data-agq="0"][data-act="edit"]'), button);
   assert.equal(document.activeElement, button);
 });
+
+test("mode and plan controls share the queue owner without losing focus", async t => {
+  const { page } = setup();
+  const field = bar.querySelector("#agfield"); assert.ok(field);
+  field.insertAdjacentHTML("beforeend", '<span id="agmode"></span>');
+  field.insertAdjacentHTML("beforebegin", '<div id="agplan"></div>');
+  page.session.question = { id: 7, text: "Approve?", detail: null, options: [{ id: "yes", name: "Approve", allow: true }, { id: "no", name: "Reject", allow: false }] };
+  AG.modes = { current: "plan", modes: [{ id: "plan", name: "Plan" }, { id: "edit", name: "Edit" }], plan: "<p>Plan text</p>" };
+  const { drawModes } = await import("../src/agents/modepill.ts");
+  t.after(() => { disposeQueue(); AG.modes = null; });
+  drawModes();
+  const mode = bar.querySelector<HTMLButtonElement>("#agmodeb"), approve = bar.querySelector<HTMLButtonElement>('[data-agopt="0"]');
+  assert.ok(mode && approve); approve.focus();
+  AG.queue.push({ how: "steer", typed: "Queued", text: "Queued", paths: [], images: [], state: null, after: 0 });
+  drawQueue();
+  assert.equal(bar.querySelector("#agmodeb"), mode);
+  assert.equal(bar.querySelector('[data-agopt="0"]'), approve);
+  assert.equal(document.activeElement, approve);
+  AG.answering = 7; drawModes();
+  assert.equal(bar.querySelector('[data-agopt="0"]'), approve);
+  assert.equal(approve.disabled, true);
+  AG.answering = null;
+});

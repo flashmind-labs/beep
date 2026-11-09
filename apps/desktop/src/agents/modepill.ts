@@ -1,11 +1,11 @@
 // The session's mode: the pill by its field, Shift+Tab, and the plan waiting
 // for approval above the field.
+import { createElement } from "react";
+import { showAgentControl } from "./composer-ui.tsx";
+import { AgentMode, AgentPlan } from "./mode-view.tsx";
 import { $ } from "../bar/core.ts";
-import { answerHtml } from "./turnrows.ts";
 import { type AgentModes, type OpenAgent, AG, AGENT_READ_WAIT_MS, agentKind, where } from "./agents.ts";
 import { steerAgent } from "./messages.ts";
-import { esc } from "../ui/format.ts";
-import { showHtml } from "../ui/patch.ts";
 import { invoke } from "../ui/tauri.ts";
 
 /// The server did not know the request, so it is not asked again.
@@ -55,10 +55,8 @@ const FULL_MODES = new Set(["bypassPermissions", "agent-full-access", "yolo"]);
 export function drawModes() {
   const m = AG.modes, s = AG.page?.session, q = s?.question;
   const name = m?.modes.find(x => x.id === m.current)?.name ?? m?.current ?? "";
-  showHtml($("#agmode"), hasModes() && !FULL_MODES.has(m?.current ?? "") ? `<button class="agc-pill agmode${m?.current === "plan" ? " on" : ""}" id="agmodeb" title="Switch mode (Shift+Tab)">${esc(name)}</button>` : "");
-  // The node puts a plan to the user as a question with these two answers.
-  const plan = s && q && m?.plan != null ? `<div class="ag-plan"><div class="h"><b>Plan ready</b><small>${esc(agentKind(s.agent).name)} waits for you</small></div>
-    ${m.plan ? `<div class="dcoderen agent md">${answerHtml(m.plan)}</div>` : ""}
-    <div class="acts">${q.options.map((o, i) => `<button class="dbtn${o.allow ? " pri" : ""}" data-agopt="${i}"${q.id === AG.answering ? " disabled" : ""}>${esc(o.name)}</button>`).join("")}</div></div>` : "";
-  showHtml($("#agplan"), plan);
+  const field = $("#agfield"), mode = $("#agmode"), plan = $("#agplan");
+  if (!field) return;
+  if (mode) showAgentControl(field, mode, hasModes() && !FULL_MODES.has(m?.current ?? "") ? createElement(AgentMode, { name, plan: m?.current === "plan" }) : null);
+  if (plan) showAgentControl(field, plan, s && q && m?.plan != null ? createElement(AgentPlan, { harness: agentKind(s.agent).name, plan: m.plan, question: q, answering: AG.answering }) : null);
 }
