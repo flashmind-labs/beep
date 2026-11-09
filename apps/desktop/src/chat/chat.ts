@@ -30,7 +30,7 @@ import { DESCRIBED, doneLabel, QUIET_TOOLS, toolLabel } from "./tools.ts";
 import { attachLive } from "../agents/thoughtlive.ts";
 import { followsAfterScroll, returnScroll } from "../agents/logscroll.ts";
 import { followEnd } from "../ui/followend.ts";
-import { answerHtml, errorCardHtml, queueRowHtml, liveLineHtml, stepMark, thoughtHtml, tickTurns, toggleThought, toolRowHtml, turnHeadHtml, userRowHtml } from "../agents/turnrows.ts";
+import { answerHtml, errorCardHtml, liveLineHtml, stepMark, thoughtHtml, tickTurns, toggleThought, toolRowHtml, turnHeadHtml, userRowHtml } from "../agents/turnrows.ts";
 import { esc, linkified, plural } from "../ui/format.ts";
 import type { ToolKind } from "../agents/agentturns.ts";
 import { refreshStatus } from "../bar/views.ts";
@@ -104,6 +104,8 @@ interface PromptMap extends HTMLElement {
   early?: number;
 }
 
+let chatShell: { host: HTMLElement; root: import("react-dom/client").Root; body: ChatBody; hints: string } | null = null;
+
 export function renderChat() {
   // The chat needs the server: without it every way here lands on the agent's start form.
   if (S.link !== "linked") return renderAgentNew("", PANE ? "agents" : "chat");
@@ -117,13 +119,15 @@ export function renderChat() {
   const hintContents = hint.content.firstElementChild?.innerHTML ?? "";
   let host: HTMLElement | null = null;
   const page = openBarPage(() => {
+    chatShell = null;
     if (host?.parentElement !== bar) return;
     host.querySelector("#ldock")?.remove();
     host.querySelector(".lsheet")?.remove();
     for (const child of [...bar.children]) if (child !== host) child.remove();
   });
   host = page.host;
-  flushSync(() => page.root.render(createElement(ChatShell, { body: chatBody, hints: hintContents })));
+  chatShell = { host: page.host, root: page.root, body: chatBody, hints: hintContents };
+  drawQueue();
   const b = body()!;
   // A chat put back goes where the reader left it if they had scrolled up, else to its end.
   if (kept) { b.scrollTop = returnScroll(b, b.top ?? 0); resumeCoderCards(b); }
@@ -545,23 +549,23 @@ export function popQueued() {
 /// The open chat's queued prompts, between the reply and the hints. x puts
 /// one back in the field.
 export function drawQueue() {
-  const old = $("#queue"), q = queued.get(S.session);
-  if (S.view !== "chat" || !q?.list.length) return old?.remove();
-  const el = h(`<div class="ag-queue" id="queue">${q.list.map((t, i) => queueRowHtml({
-    label: "Queued", cls: "", text: t, tip: t, chips: [], when: q.held ? "not sent" : "after the reply",
-    buttons: `${q.held && !i ? '<button data-q="send">Send</button>' : ""}<button data-q="${i}" data-act="edit">Edit</button><button data-q="${i}" aria-label="Remove">${ICON.x}</button>`,
-  })).join("")}</div>`);
-  el.querySelectorAll<HTMLElement>("[data-q]").forEach(b => b.addEventListener("click", () => {
-    if (b.dataset.q === "send") return sendQueued(S.session);
-    const [text] = q.list.splice(Number(b.dataset.q), 1);
-    if (!q.list.length) queued.delete(S.session);
-    if (b.dataset.act === "edit") setAsk([text, $$<HTMLTextAreaElement>("#ask").value].filter(s => s.trim()).join("\n\n"));
+  const shell = chatShell;
+  if (!shell || shell.host.parentElement !== bar || S.view !== "chat") return;
+  const q = queued.get(S.session);
+  const update = (index: number, edit: boolean) => {
+    const current = queued.get(S.session);
+    if (!current) return;
+    const [text] = current.list.splice(index, 1);
+    if (!current.list.length) queued.delete(S.session);
+    if (edit) setAsk([text, $$<HTMLTextAreaElement>("#ask").value].filter(value => value.trim()).join("\n\n"));
     drawQueue();
     refreshHints();
     focusAsk();
-  }));
-  if (old) old.replaceWith(el);
-  else $$(".dhints").before(el);
+  };
+  flushSync(() => shell.root.render(createElement(ChatShell, {
+    body: shell.body, hints: shell.hints, queue: q ?? null,
+    edit: (index: number) => update(index, true), remove: (index: number) => update(index, false), send: () => sendQueued(S.session),
+  })));
 }
 
 /// A channel that draws one run's events into `turn`, which stays in its

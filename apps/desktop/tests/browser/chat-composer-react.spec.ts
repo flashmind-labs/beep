@@ -56,3 +56,25 @@ test("leaving live chat removes its dock when switching pages", async ({ page })
   await expect(page.getByPlaceholder("What should the team research?")).toBeVisible();
   await expect(page.locator("#ldock")).toHaveCount(0);
 });
+
+test("chat queue updates keep the prompt and running controls mounted", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => { const invoke = window.__TAURI__.core.invoke; window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => command === "send_prompt" ? new Promise<T>(() => {}) : invoke<T>(command, args); });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const ask = page.locator("#ask");
+  await ask.fill("First request");
+  await ask.press("Enter");
+  await expect(page.locator("#stopRun")).toBeVisible();
+  await ask.fill("First queued");
+  await ask.press("Enter");
+  const first = page.locator("#queue .it").filter({ hasText: "First queued" });
+  await first.evaluate(el => Reflect.set(window, "queuedFirst", el));
+  await ask.fill("Second queued");
+  await ask.press("Enter");
+  expect(await first.evaluate(el => el === Reflect.get(window, "queuedFirst"))).toBe(true);
+  await expect(page.locator("#stopRun")).toBeVisible();
+  await page.locator("#queue .it").filter({ hasText: "Second queued" }).getByRole("button", { name: "Edit" }).click();
+  await expect(ask).toHaveValue("Second queued");
+  await expect(ask).toBeFocused();
+  await expect(first).toBeVisible();
+});
