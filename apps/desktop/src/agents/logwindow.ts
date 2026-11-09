@@ -144,6 +144,7 @@ const pinning = new WeakSet<ChatBody>();
 /// if the log still follows: a write during a flick's glide stops it and
 /// holds back the next scroll.
 export function pinEnd(b: ChatBody) {
+  if (b.touching) return false;
   const wait = pinWait(performance.now(), b.wheel);
 
   if (wait <= 0) {
