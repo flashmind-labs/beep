@@ -52,6 +52,7 @@ fn put(db: &Connection, project: &str, message: &Message) -> anyhow::Result<Stri
     if project.is_empty() {
         bail!("Choose a project before stashing a message");
     }
+
     if message.text.trim().is_empty()
         && message.images.is_empty()
         && message.files.is_empty()
@@ -59,6 +60,7 @@ fn put(db: &Connection, project: &str, message: &Message) -> anyhow::Result<Stri
     {
         bail!("There is no message to stash");
     }
+
     let id = Uuid::new_v4().to_string();
     let summary = Entry {
         id: id.clone(),
@@ -107,9 +109,11 @@ fn take(
 ) -> anyhow::Result<Message> {
     let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let message = read(&tx, project, id)?;
+
     if let Some(swap) = swap {
         put(&tx, project, swap)?;
     }
+
     tx.execute(
         "DELETE FROM stash WHERE project = ?1 AND id = ?2",
         params![project, id],
@@ -132,6 +136,7 @@ async fn run<T: Send + 'static>(
     if changed {
         let _ = app.emit("prompt-stash-changed", event_project);
     }
+
     Ok(result)
 }
 

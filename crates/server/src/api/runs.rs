@@ -16,12 +16,15 @@ use uuid::Uuid;
 
 pub(super) async fn chat(cx: Cx, mut req: Chat, sink: Sink<Event>) -> Reply<()> {
     let untyped = req.message.trim().is_empty();
+
     if (untyped && req.voice.is_none()) || req.message.len() > 32768 {
         return Err(ApiError::bad_request("message must be 1-32768 bytes"));
     }
+
     if req.voice.is_some() && req.research {
         return Err(ApiError::bad_request("a research starts from text"));
     }
+
     check_images(&req.images)?;
     check_files(&req.files)?;
     // A run started now would be cut off by the restart; the app sends it
@@ -31,6 +34,7 @@ pub(super) async fn chat(cx: Cx, mut req: Chat, sink: Sink<Event>) -> Reply<()> 
             message: RESTARTING.into(),
         });
     }
+
     let model = match &req.model {
         Some(id) => Some(cx.app.models.find(id).ok_or(ApiError::NotFound {})?.clone()),
         None => None,
@@ -38,6 +42,7 @@ pub(super) async fn chat(cx: Cx, mut req: Chat, sink: Sink<Event>) -> Reply<()> 
     // Transcribed last: a refused or retried message costs no transcription.
     if let Some(voice) = &req.voice {
         let request = req.request_id.to_string();
+
         match cx.user.run_for_spoken(req.session_id, &request).await? {
             Some(CreateRun::Created(run) | CreateRun::Existing(run)) => {
                 return follow(&cx, run, 0, &sink).await;
@@ -49,17 +54,21 @@ pub(super) async fn chat(cx: Cx, mut req: Chat, sink: Sink<Event>) -> Reply<()> 
             }
             None => {}
         }
+
         let said = cx.app.transcribe(&cx.user, voice).await?;
         req.message = spoken_message(&req.message, &said);
     }
+
     if req.research {
         if cx.app.models.research().is_none() {
             return Err(ApiError::bad_request(
                 "research is not set up on this server",
             ));
         }
+
         cx.user.start_research(req.session_id, &req.message).await?;
     }
+
     let message = Message {
         session_id: req.session_id,
         request_id: req.request_id,
@@ -80,6 +89,7 @@ pub(super) async fn chat(cx: Cx, mut req: Chat, sink: Sink<Event>) -> Reply<()> 
         voice: req.voice,
         spoken: req.spoken,
     };
+
     match cx.app.submit(&cx.user, message).await? {
         CreateRun::Created(run) | CreateRun::Existing(run) => follow(&cx, run, 0, &sink).await,
         CreateRun::Conflict => Err(ApiError::Conflict {
@@ -104,9 +114,11 @@ pub(super) async fn speak_notice(
     if title.len() + body.len() > 32768 {
         return Err(ApiError::bad_request("a notice is at most 32768 bytes"));
     }
+
     if title.trim().is_empty() && body.trim().is_empty() {
         return Err(ApiError::bad_request("nothing to say"));
     }
+
     cx.app.speak_notice(&cx.user, &title, &body).await
 }
 
@@ -127,12 +139,14 @@ pub(super) fn check_images(images: &[String]) -> Reply<()> {
             "at most {MAX_IMAGES} images per message"
         )));
     }
+
     if images.iter().any(|image| image.len() > MAX_IMAGE_BYTES) {
         return Err(ApiError::bad_request(format!(
             "each image must be at most {} MiB",
             MAX_IMAGE_BYTES >> 20
         )));
     }
+
     Ok(())
 }
 
@@ -143,18 +157,21 @@ pub(super) fn check_files(files: &[Upload]) -> Reply<()> {
             "at most {MAX_IMAGES} files per message"
         )));
     }
+
     if files.iter().map(|file| file.data.len()).sum::<usize>() > MAX_UPLOAD {
         return Err(ApiError::bad_request(format!(
             "files may be at most {} MiB in all",
             MAX_UPLOAD >> 20
         )));
     }
+
     if files
         .iter()
         .any(|file| file.name.trim().is_empty() || file.name.len() > 255 || file.mime.len() > 255)
     {
         return Err(ApiError::bad_request("each file needs a name"));
     }
+
     Ok(())
 }
 
@@ -179,9 +196,11 @@ pub(super) async fn cancel_run(cx: Cx, CancelRun { id }: CancelRun) -> Reply<()>
 /// Resumes a run's events after `after`, the last `seq` the client saw.
 pub(super) async fn get_events(cx: Cx, req: GetEvents, sink: Sink<Event>) -> Reply<()> {
     let GetEvents { run_id, after } = req;
+
     if after < 0 {
         return Err(ApiError::bad_request("after must be >= 0"));
     }
+
     let run = owned_run(&cx, &run_id).await?;
     follow(&cx, run, after, &sink).await
 }
@@ -218,6 +237,7 @@ pub(super) async fn follow(cx: &Cx, run: Run, mut after: i64, sink: &Sink<Event>
                 Err(RecvError::Closed) => return Ok(()),
             },
         };
+
         if event.seq <= after {
             continue;
         }
@@ -225,6 +245,7 @@ pub(super) async fn follow(cx: &Cx, run: Run, mut after: i64, sink: &Sink<Event>
         after = event.seq;
         let finished = matches!(event.event, RunEvent::RunFinished { .. });
         sink.send(&event).await?;
+
         if finished {
             return Ok(());
         }
@@ -283,6 +304,7 @@ pub(super) async fn answer_approval(cx: Cx, req: AnswerApproval) -> Reply<Run> {
                 message: "nothing is waiting for this answer".into(),
             })?
     };
+
     match created {
         CreateRun::Created(run) | CreateRun::Existing(run) => Ok(run),
         CreateRun::Conflict => Err(ApiError::Conflict {

@@ -33,6 +33,52 @@ fn a_machine_not_lent_keeps_its_status_but_gives_no_shell_task_or_screen() {
             "{protocol}"
         );
     }
+
     offers.lend_to_peers(true);
     assert_eq!(withheld("shell/1", copy.lends_to_peers()), None);
+}
+
+#[test]
+fn known_protocol_names_round_trip_and_compare_as_variants() {
+    use beep_proto::node::{
+        agent, events, metrics, process, report, shell, sign_in, skills, status, terminal,
+        tool_update, tools, version,
+    };
+
+    for (name, protocol) in [
+        (metrics::PROTOCOL, SessionProtocol::Metrics),
+        (report::PROTOCOL, SessionProtocol::Report),
+        (status::PROTOCOL, SessionProtocol::Status),
+        (version::PROTOCOL, SessionProtocol::Version),
+        (tools::PROTOCOL, SessionProtocol::Tools),
+        (shell::PROTOCOL, SessionProtocol::Shell),
+        (skills::PROTOCOL, SessionProtocol::Skills),
+        (process::PROTOCOL, SessionProtocol::Tasks),
+        (terminal::PROTOCOL, SessionProtocol::Terminal),
+        (sign_in::PROTOCOL, SessionProtocol::SignIn),
+        (tool_update::CHECK, SessionProtocol::ToolCheck),
+        (tool_update::PROTOCOL, SessionProtocol::ToolUpdate),
+        (tool_update::FLSH, SessionProtocol::FlshUpdate),
+        (events::PROTOCOL, SessionProtocol::Events),
+        (agent::SESSION_FOLLOW_PROTOCOL, SessionProtocol::AgentFollow),
+        (
+            crate::agents::TRANSCRIPT_PROTOCOL,
+            SessionProtocol::Transcripts,
+        ),
+        (agent::SESSIONS_PROTOCOL, SessionProtocol::Agents),
+    ] {
+        assert_eq!(SessionProtocol::from(name), protocol);
+        assert_eq!(protocol.as_ref(), name);
+        assert_eq!(protocol.to_string(), name);
+    }
+}
+
+#[test]
+fn unknown_and_host_protocols_keep_their_original_names() {
+    for name in ["future/2", "desktop/1", "custom-agent/1"] {
+        let protocol = SessionProtocol::from(name);
+        assert_eq!(protocol, SessionProtocol::Other(name.to_owned()));
+        assert_eq!(protocol.as_ref(), name);
+        assert_eq!(protocol.to_string(), name);
+    }
 }

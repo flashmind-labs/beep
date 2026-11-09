@@ -208,10 +208,12 @@ async fn a_rebuild_continues_across_pages_below_the_reset_threshold() {
             let mut cursor = start;
             let mut seen = HashSet::new();
             let mut finished = false;
+
             for page_number in 0..count + 2 {
                 let page = store.updates_page(&alice, cursor).await.unwrap();
                 assert_eq!(page.reset, start > 0 && page_number == 0);
                 assert!(page.last.abs() > cursor.abs() || page_number == 0);
+
                 for update in &page.updates {
                     let id = match update {
                         Update::Chat { update_id, .. } | Update::Message { update_id, .. } => {
@@ -222,12 +224,15 @@ async fn a_rebuild_continues_across_pages_below_the_reset_threshold() {
                     assert!(seen.insert(id), "a page repeated an update");
                 }
                 cursor = page.last;
+
                 if !page.more {
                     finished = true;
                     break;
                 }
+
                 assert!(cursor < 0, "rebuild cursor must bypass the reset threshold");
             }
+
             assert!(finished, "the rebuild must finish");
             assert_eq!(seen.len() as i64, newest);
             assert_eq!(cursor, newest);

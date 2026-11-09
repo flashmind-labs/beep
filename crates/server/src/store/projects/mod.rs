@@ -58,6 +58,7 @@ pub(super) async fn end<T>(
         tx.commit().await?;
         return done;
     }
+
     match (tx.rollback().await, done) {
         (Ok(()), done) => done,
         (Err(error), Ok(_)) => Err(error.into()),
@@ -88,10 +89,13 @@ async fn agent_in(tx: &mut PgConnection, user: &UserKey, project: ProjectId) -> 
     if let Some(chat) = chat {
         return Ok(chat);
     }
+
     let chat = Uuid::new_v4();
+
     if ensure_session(&mut *tx, user.as_ref(), chat).await? != SessionChat::New {
         bail!("a fresh chat id was already taken");
     }
+
     sqlx::query("UPDATE chats SET title=$2 WHERE id=$1")
         .bind(chat)
         .bind(&name)
@@ -121,9 +125,11 @@ async fn home_in(
     .execute(&mut *tx)
     .await?
     .rows_affected();
+
     if found == 0 {
         bail!("{path} is not a checkout of the project on that machine");
     }
+
     sqlx::query(
         "UPDATE project_checkouts SET home=false
          WHERE project_id=$1 AND NOT (machine=$2 AND path=$3)",

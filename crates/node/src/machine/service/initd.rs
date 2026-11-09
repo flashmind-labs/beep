@@ -65,6 +65,7 @@ impl Init {
         if !status.success() {
             bail!("{SCRIPT} {verb} failed ({status})");
         }
+
         Ok(())
     }
 }
@@ -119,7 +120,9 @@ pub(super) fn uninstall(init: Init) -> Result<()> {
         println!("{SCRIPT} is not installed.");
         return Ok(());
     }
+
     init.run("stop")?;
+
     match init {
         Init::OpenRc => run("rc-update", &["del", NAME, "default"])?,
         Init::SysV => {
@@ -128,6 +131,7 @@ pub(super) fn uninstall(init: Init) -> Result<()> {
             quietly("chkconfig", &["--del", NAME]);
         }
     }
+
     fs::remove_file(SCRIPT).with_context(|| format!("removing {SCRIPT}"))?;
     println!("Stopped and removed {SCRIPT}.");
     Ok(())
@@ -152,6 +156,7 @@ pub(super) fn restart(init: Init) -> Result<()> {
     if !status.success() {
         bail!("{SCRIPT} restart failed ({status})");
     }
+
     Ok(())
 }
 
@@ -162,9 +167,11 @@ pub(super) fn plan(exe: &Path, init: Init) -> Result<Restart> {
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Restart::NotInstalled),
         Err(e) => return Err(e).with_context(|| format!("reading {SCRIPT}")),
     };
+
     if !runs(&script, exe) {
         return Ok(Restart::OtherBinary(PathBuf::from(SCRIPT)));
     }
+
     let running = init
         .command("status")
         .stdout(Stdio::null())
@@ -174,6 +181,7 @@ pub(super) fn plan(exe: &Path, init: Init) -> Result<Restart> {
     if !running {
         return Ok(Restart::Stopped(init.manager()));
     }
+
     Ok(Restart::Restarted(init.manager()))
 }
 
@@ -233,6 +241,7 @@ fn words(line: &str) -> Vec<String> {
     let mut words = Vec::new();
     let mut word: Option<String> = None;
     let mut chars = line.chars();
+
     while let Some(c) = chars.next() {
         match c {
             ' ' | '\t' => words.extend(word.take()),
@@ -242,6 +251,7 @@ fn words(line: &str) -> Vec<String> {
             }
             '"' => {
                 let word = word.get_or_insert_default();
+
                 while let Some(c) = chars.next() {
                     match c {
                         '"' => break,
@@ -254,6 +264,7 @@ fn words(line: &str) -> Vec<String> {
             c => word.get_or_insert_default().push(c),
         }
     }
+
     words.extend(word);
     words
 }

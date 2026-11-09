@@ -57,15 +57,18 @@ def main():
     with psycopg.connect(url) as db:
         print(f"Last {args.days} days, USD at list prices\n")
         print(f"{'agent':16} {'users':>5} {'user-days':>9} {'calls':>7} {'prompt':>11} {'cached':>11} {'output':>9} {'cost':>9}")
+
         for row in db.execute(PER_AGENT, query):
             name, users, user_days, calls, prompt, cached, output, cost = row
             print(f"{agent(name):16} {users:5} {user_days:9} {calls:7} {prompt:11} {cached:11} {output:9} {cost:9.4f}")
 
         print(f"\nCost per user-day\n{'agent':16} {'median':>9} {'p90':>9} {'max':>9}")
+
         for name, median, p90, top in db.execute(USER_DAYS, query):
             print(f"{agent(name):16} {median:9.4f} {p90:9.4f} {top:9.4f}")
 
         print("\nCostliest user-days")
+
         for day, user, cost, split in db.execute(TOP, query):
             print(f"{day} {user[:12]:12} {cost:8.4f}  {split}")
 

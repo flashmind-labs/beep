@@ -71,6 +71,7 @@ pub async fn agent_thumb(
         };
         return picture_url(image);
     }
+
     let thumb = beep
         .call(GetAgentThumb {
             machine_id: machine_id.clone(),
@@ -122,9 +123,11 @@ fn picture_url(image: Result<AgentImageData>) -> Result<String> {
         }
         other => other?,
     };
+
     if !image_mime(&image.mime) {
         return Err(DesktopError::BadRequest("bad picture".into()));
     }
+
     Ok(format!(
         "data:{};base64,{}",
         image.mime,
@@ -205,9 +208,11 @@ async fn file_chunk(
     offset: u64,
 ) -> Result<AgentFileChunk> {
     let len = u32::try_from(AGENT_FILE_CHUNK).map_err(anyhow::Error::from)?;
+
     if let Some(chunk) = work_copy::read(beep, fleet, &machine_id, &path, offset, len).await {
         return Ok(chunk);
     }
+
     let request = GetAgentFile {
         machine_id,
         path,
@@ -217,6 +222,7 @@ async fn file_chunk(
         Some(machine) => direct::file(fleet, machine, &request).await,
         None => beep.call(request).await,
     };
+
     match chunk {
         Err(DesktopError::Api(ApiError::NotFound {})) => Err(DesktopError::BadRequest(GONE.into())),
         other => other,
@@ -226,18 +232,23 @@ async fn file_chunk(
 /// The whole media file `path` on `machine_id`, read a chunk at a time.
 async fn whole_file(beep: &Beep, fleet: &Fleet, machine_id: &str, path: &str) -> Result<Vec<u8>> {
     let mut data = Vec::new();
+
     loop {
         let offset = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
         let chunk = file_chunk(beep, fleet, machine_id.to_owned(), path.to_owned(), offset).await?;
+
         if chunk.size > MAX_AGENT_FILE || chunk.data.len() > AGENT_FILE_CHUNK {
             return Err(DesktopError::BadRequest("file too large".into()));
         }
+
         data.extend_from_slice(&chunk.data);
         let have = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
+
         if have >= chunk.size {
             data.truncate(usize::try_from(chunk.size).map_err(anyhow::Error::from)?);
             return Ok(data);
         }
+
         if chunk.data.is_empty() {
             return Err(DesktopError::BadRequest(
                 "the file changed while read".into(),

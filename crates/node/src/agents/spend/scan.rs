@@ -93,10 +93,12 @@ pub(super) fn pass(ledger: &mut Ledger, roots: &Roots, since: u64) {
     listed.retain(|log| ledger.logs.get(&log.path).map(|read| read.stamp) != Some(log.stamp));
     listed.sort_by_key(|log| Reverse(log.stamp.modified_ns));
     let mut budget = MAX_BYTES;
+
     for log in listed.into_iter().take(MAX_FILES) {
         if budget == 0 {
             break;
         }
+
         let entry = ledger
             .logs
             .entry(log.path.clone())
@@ -114,6 +116,7 @@ pub(super) fn pass(ledger: &mut Ledger, roots: &Roots, since: u64) {
             Err(e) => log::debug!("agent log not read; path={} error={e}", log.path.display()),
         }
     }
+
     read_databases(ledger, roots, since, accounts);
 }
 
@@ -121,11 +124,13 @@ pub(super) fn pass(ledger: &mut Ledger, roots: &Roots, since: u64) {
 fn list_logs(roots: &Roots, since: u64) -> Vec<Listed> {
     let mut out = Vec::new();
     let jsonl = |path: &Path| path.extension().is_some_and(|ext| ext == "jsonl");
+
     if let Some(root) = &roots.claude {
         // `<project>/<session>.jsonl`, and a subagent's in
         // `<project>/<session>/subagents/`.
         for project in subfolders(root) {
             collect(Agent::Claude, &project, 0, &jsonl, since, &mut out);
+
             for session in subfolders(&project) {
                 collect(
                     Agent::Claude,
@@ -138,6 +143,7 @@ fn list_logs(roots: &Roots, since: u64) -> Vec<Listed> {
             }
         }
     }
+
     if let Some(root) = &roots.codex {
         let rollout = |path: &Path| {
             path.file_name()
@@ -146,9 +152,11 @@ fn list_logs(roots: &Roots, since: u64) -> Vec<Listed> {
         };
         collect(Agent::Codex, root, 3, &rollout, since, &mut out);
     }
+
     if let Some(root) = &roots.pi {
         collect(Agent::Pi, root, 1, &jsonl, since, &mut out);
     }
+
     out
 }
 
@@ -176,10 +184,12 @@ fn collect(
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
+
     for entry in entries.flatten() {
         if out.len() >= MAX_LISTED {
             return;
         }
+
         let path = entry.path();
         let Ok(kind) = entry.file_type() else {
             continue;
@@ -206,31 +216,39 @@ fn read_log(
     accounts: &mut Accounts,
 ) -> io::Result<BTreeSet<String>> {
     let mut touched = BTreeSet::new();
+
     if log.stamp.len < entry.read {
         // Rewritten shorter: read it again from the start.
         touched.extend(entry.parts.keys().cloned());
         *entry = LogFile::new(log.agent);
     }
+
     let mut file = File::open(&log.path)?;
     file.seek(SeekFrom::Start(entry.read))?;
     let mut reader = BufReader::new(file);
     let mut line = Vec::new();
+
     loop {
         if *budget == 0 {
             // The rest waits; the stamp stays, so the next pass goes on.
             return Ok(touched);
         }
+
         line.clear();
         let got = (&mut reader).take(MAX_LINE).read_until(b'\n', &mut line)?;
+
         if got == 0 {
             break;
         }
+
         if !line.ends_with(b"\n") {
             if (got as u64) < MAX_LINE {
                 // A line still being written.
                 break;
             }
+
             let rest = skip_line(&mut reader)?;
+
             match rest {
                 Some(skipped) => {
                     entry.read += got as u64 + skipped;
@@ -240,17 +258,20 @@ fn read_log(
                 None => break,
             }
         }
+
         entry.read += got as u64;
         *budget = budget.saturating_sub(got as u64);
         let Ok(text) = str::from_utf8(&line) else {
             continue;
         };
+
         if let Some(parsed) = parse(log.agent, text)
             && let Some(session) = entry.take(parsed, accounts)
         {
             touched.insert(session);
         }
     }
+
     entry.stamp = log.stamp;
     Ok(touched)
 }
@@ -276,11 +297,14 @@ pub(super) fn header_of(agent: Agent, path: &Path, accounts: &AccountFiles) -> i
 /// included, or `None` when the line is not finished yet.
 fn skip_line(reader: &mut impl BufRead) -> io::Result<Option<u64>> {
     let mut skipped = 0u64;
+
     loop {
         let buffer = reader.fill_buf()?;
+
         if buffer.is_empty() {
             return Ok(None);
         }
+
         match buffer.iter().position(|&b| b == b'\n') {
             Some(at) => {
                 reader.consume(at + 1);
@@ -309,6 +333,7 @@ fn parse(agent: Agent, text: &str) -> Option<Line> {
 /// imported into session files is left out, so nothing counts twice.
 fn list_databases(roots: &Roots, since: u64) -> Vec<(Agent, PathBuf)> {
     let mut out: Vec<(Agent, PathBuf)> = Vec::new();
+
     if let Some(root) = &roots.opencode {
         out.extend(
             found::opencode_databases(root)
@@ -316,6 +341,7 @@ fn list_databases(roots: &Roots, since: u64) -> Vec<(Agent, PathBuf)> {
                 .map(|path| (Agent::OpenCode, path)),
         );
     }
+
     if let Some(root) = &roots.flsh {
         out.extend(
             subfolders(root)
@@ -331,6 +357,7 @@ fn list_databases(roots: &Roots, since: u64) -> Vec<(Agent, PathBuf)> {
         collect(Agent::Flsh, root, 1, &jsonl, since, &mut files);
         out.extend(files.into_iter().map(|file| (Agent::Flsh, file.path)));
     }
+
     out
 }
 
@@ -364,9 +391,11 @@ fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut
         let Ok(stamp) = database_stamp(path) else {
             continue;
         };
+
         if ledger.databases.get(path).map(|read| read.stamp) == Some(stamp) {
             continue;
         }
+
         let read = match agent {
             Agent::OpenCode => {
                 databases::opencode(path, since, accounts).map_err(|e| e.to_string())
@@ -383,6 +412,7 @@ fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut
         });
         entry.stamp = stamp;
         ledger.changed = true;
+
         match read {
             Ok(parts) => {
                 for session in changed_sessions(&entry.parts, &parts) {
@@ -391,6 +421,7 @@ fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut
                         session,
                     });
                 }
+
                 entry.parts = parts;
             }
             Err(e) => log::debug!("agent database not read; path={} error={e}", path.display()),

@@ -82,6 +82,7 @@ pub async fn link_fork(
         upstream_remote: &plan.upstream_remote,
         branches: &fork.found.branches,
     });
+
     match shell.run(script.expose_secret(), LINK_LIMIT).await {
         Ok(ran) if clone::linked(&ran.output, ran.exit_code) => {}
         Ok(ran) => log::info!(

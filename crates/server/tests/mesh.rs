@@ -192,12 +192,14 @@ async fn another_accounts_machine_is_refused_and_changes_nothing() {
 async fn an_unknown_machine_is_not_found() {
     let h = harness().await;
     let a = h.account().await;
+
     for id in [SecretKey::generate().public().to_string(), "nope".into()] {
         assert_eq!(
             a.mirror(&mirror(&id)).await.unwrap_err(),
             ApiError::NotFound {}
         );
     }
+
     assert!(a.list().await.is_empty());
 }
 
@@ -260,8 +262,10 @@ async fn bad_input_is_refused_and_stores_nothing() {
             ..mirror(&machine)
         },
     ];
+
     for case in cases {
         bad_request(a.mirror(&case).await);
     }
+
     assert!(a.list().await.is_empty());
 }

@@ -45,6 +45,7 @@ export function openAddToMachine(o: AddToMachine) {
   const draw = () => {
     if (!open) return;
     sheet.replaceChildren(el("div", "am-head", el("b", "", title), el("kbd", "", "esc")), ...(copying ? copyBody(copying) : form()));
+
     if (!copying && !browsing) {
       const field = sheet.querySelector<HTMLInputElement>(".ip-dir");
       field?.focus();
@@ -57,12 +58,14 @@ export function openAddToMachine(o: AddToMachine) {
     if (reading) return;
     reading = true;
     draw();
+
     try {
       then(await invoke<MachineFolder>("list_machine_folder", { machineId: machine.id, path }));
       error = null;
     } catch (e) {
       error = reason(e);
     }
+
     reading = false;
     draw();
   };
@@ -72,6 +75,7 @@ export function openAddToMachine(o: AddToMachine) {
       read(browseStart(folder), listing => { browsing = listing; });
       return;
     }
+
     try {
       const path = await invoke<string | null>("pick_folder", { start: browseStart(folder) });
       if (path) read(path, listing => { folder = destination(listing, project, change); });
@@ -86,6 +90,7 @@ export function openAddToMachine(o: AddToMachine) {
     adding = true;
     error = null;
     draw();
+
     try {
       await invoke<string>(change ? "project_change_folder" : "project_add_to_machine", { project, machineId: machine.id, folder });
       o.added();
@@ -94,6 +99,7 @@ export function openAddToMachine(o: AddToMachine) {
     } catch (e) {
       error = reason(e);
     }
+
     adding = false;
     draw();
   };
@@ -106,6 +112,7 @@ export function openAddToMachine(o: AddToMachine) {
     } catch (e) {
       console.warn("project sync:", e);
     }
+
     if (!open) return;
     if (copying?.done) { close(); return; }
     draw();
@@ -160,11 +167,13 @@ export function openAddToMachine(o: AddToMachine) {
   }
 
   draw();
+
   // Changing starts where the folder is now.
   if (change) {
     read(browseStart(o.from!), listing => { browsing = listing; });
     return;
   }
+
   // The field starts at the machine's default, unless the user got there first.
   read(null, listing => {
     const parent = defaultParent(machine.id, listing.path, o.os, lastImport());

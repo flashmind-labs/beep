@@ -28,6 +28,7 @@ function restoreModels() {
   let kept: Record<string, { list: AgentModels; at: number }> = {};
   try { kept = JSON.parse(localStorage.getItem(MODELS_STORE) || "{}") || {}; } catch { return; }
   const now = Date.now();
+
   for (const [key, v] of Object.entries(kept)) {
     if (v && v.list && typeof v.at === "number" && now - v.at < MODELS_STORE_MAX_MS) {
       // Shown at once, and asked again the first time it is wanted.
@@ -150,6 +151,7 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   el.onclick = e => {
     const at = (sel: string) => (e.target as HTMLElement).closest<HTMLElement>(sel);
     const harness = at("[data-agh]"), model = at("[data-agmo]"), effort = at("[data-age]");
+
     if (harness) { p.agent = harness.dataset.agh!; p.query = ""; p.model = ""; o.changed("agent"); }
     else if (model) { p.model = model.dataset.agmo!; p.query = ""; o.changed("model"); }
     else if (effort) { p.effort = effort.dataset.age || null; o.changed("effort"); }
@@ -161,6 +163,7 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   q.addEventListener("keydown", e => {
     const rows = [...el.querySelectorAll<HTMLElement>("[data-agmo]")];
     const at = rows.findIndex(r => r.classList.contains("hi"));
+
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       if (!rows.length) return;
@@ -170,6 +173,7 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
       rows[to].scrollIntoView({ block: "nearest" });
       return;
     }
+
     if (e.key !== "Enter" || e.metaKey) return;
     e.preventDefault();
     const pick = rows[at] ?? rows[0];
@@ -192,10 +196,12 @@ export function closedPicker(el: HTMLElement) {
 function drawModels(el: HTMLElement, o: PickerOpts) {
   const box = el.querySelector<HTMLElement>(".agc-models"), p = o.picked;
   if (!box) return;
+
   if (!o.machine) {
     box.innerHTML = `<button type="button" data-agmo="" class="on">Default<small>its own</small></button><p class="none">${esc(o.noMachine)}</p>`;
     return placeOpen();
   }
+
   const machine = o.machine.id, agent = p.agent;
   const list = modelsOn(machine, agent, () => { if (shown?.el === el && el.isConnected && p.agent === agent) { drawModels(el, o); o.changed("models"); } });
   const { rows, note } = modelRows(list, p.query);

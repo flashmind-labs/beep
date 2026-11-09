@@ -18,6 +18,7 @@ export interface ConnectProblem {
 /// or lost connection or a server error.
 export function connectProblem(error: unknown): ConnectProblem | null {
   const e = String(error ?? "");
+
   if (e === "not linked to a phone yet") {
     return {
       kind: "unlinked",
@@ -27,6 +28,7 @@ export function connectProblem(error: unknown): ConnectProblem | null {
       view: "link",
     };
   }
+
   if (e === "no server") {
     return {
       kind: "noserver",
@@ -36,6 +38,7 @@ export function connectProblem(error: unknown): ConnectProblem | null {
       view: null,
     };
   }
+
   if (e === "this computer was removed from the account") {
     return {
       kind: "revoked",
@@ -45,8 +48,10 @@ export function connectProblem(error: unknown): ConnectProblem | null {
       view: "revoked",
     };
   }
+
   // The server answered and said no; asking again gets the same answer.
   const refused = /^(?:bad request|conflict): (.+)$/s.exec(e);
+
   if (refused || e === "not found") {
     return {
       kind: "refused",
@@ -56,5 +61,6 @@ export function connectProblem(error: unknown): ConnectProblem | null {
       view: null,
     };
   }
+
   return null;
 }

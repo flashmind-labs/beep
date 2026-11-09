@@ -193,11 +193,13 @@ export async function renderGroup(id: string, then?: "info" | "leave") {
   ask.addEventListener("input", () => { G.drafts.set(G.id, ask.value); grow(ask); findMention(); });
   ask.addEventListener("click", findMention);
   if (G.chat) drawGroup(true);
+
   if (then) {
     await loadGroup();
     if (G.id === id) { G.leave = then === "leave"; renderGroupInfo(G.leave); }
     return;
   }
+
   ask.focus();
   loadGroup();
 }
@@ -205,12 +207,15 @@ export async function renderGroup(id: string, then?: "info" | "leave") {
 export async function loadGroup() {
   const id = G.id;
   clearTimeout(G.poll);
+
   try {
     const chat = await invoke<GroupChat>("open_group", { id });
     if (G.id !== id) return;
     G.chat = chat;
+
     if (S.view === "group") { redrawHead(); drawGroup(); $$<HTMLTextAreaElement>("#gask").placeholder = `Message ${chat.group.name}, @beep to ask Beep`; }
     else if (S.view === "ginfo") drawGroupInfo();
+
     // The local copy does not know whether Beep is typing, so ask the server.
     if (!chat.group.beep_typing) {
       const typing = await invoke<boolean>("group_typing", { groupId: id }).catch(() => false);
@@ -218,6 +223,7 @@ export async function loadGroup() {
       chat.group.beep_typing = true;
       if (S.view === "group") drawGroup();
     }
+
     // No notice comes while Beep types, so look again until it is done.
     if (chat.group.beep_typing) G.poll = setTimeout(() => { if (G.id === id && GROUP_VIEWS.has(S.view)) loadGroup(); }, 5000);
   } catch (e) {
@@ -229,18 +235,22 @@ export async function loadGroup() {
 
 export function drawGroup(jump = false) {
   const b = $("#gbody");
+
   if (!b || !G.chat) {
     if (b && G.error) b.innerHTML = `<div class="derr">${esc(G.error)}</div>`;
     return;
   }
+
   const near = jump || b.scrollHeight - b.scrollTop - b.clientHeight < 40;
   const msgs = G.chat.messages;
   let html = "", day = "";
+
   for (const m of msgs) {
     const d = dayLabel(m.timestamp);
     if (d !== day) { html += `<div class="dday">${esc(d)}</div>`; day = d; }
     html += groupMessage(m);
   }
+
   for (const p of G.pending) html += `<div class="dg me pending"><div class="b">${mentions(p.text)}</div></div>`;
   if (!msgs.length && !G.pending.length) html += '<div class="dmuted dblock dnomsg">No messages yet.\nSay hi. Beep joins in when it can help.</div>';
   if (G.chat.group.beep_typing) html += '<div class="dmuted"><span class="dtyping"><i></i><i></i><i></i></span>Beep is typing</div>';
@@ -290,6 +300,7 @@ export async function sendGroup() {
   grow(ask);
   closeMention();
   drawGroup(true);
+
   try {
     const sent = await invoke<GroupMessage>("send_to_group", { groupId: id, message: text, images: [] });
     if (G.id !== id) return;
@@ -301,6 +312,7 @@ export async function sendGroup() {
     if (G.id !== id) return;
     G.pending = G.pending.filter(x => x !== p);
     G.error = `Not sent: ${e}`;
+
     if (S.view === "group") {
       if (!ask.value) { ask.value = text; G.drafts.set(id, text); grow(ask); }
       drawGroup(true);
@@ -373,12 +385,14 @@ export function renderGroupInfo(leave = false) {
 function describeSchedule(schedule: string) {
   const clock = (h: number, m: number) => new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   const at = new Date(schedule);
+
   if (/^\d{4}-\d\d-\d\dT/.test(schedule) && !isNaN(at.getTime())) {
     const days = dayDiff(new Date(), at);
     const day = days === 0 ? "Today" : days === 1 ? "Tomorrow" : days > 1 && days < 7
       ? at.toLocaleDateString(undefined, { weekday: "short" }) : at.toLocaleDateString(undefined, { day: "numeric", month: "short" });
     return `${day} ${clock(at.getHours(), at.getMinutes())}`;
   }
+
   const fields = schedule.trim().split(/\s+/);
   if (fields.length !== 5) return schedule;
   const [min, hour, dom, mon, dow] = fields;
@@ -464,6 +478,7 @@ export async function renderInvite(id: string, name?: string | null, reset = fal
   setGroup(id);
   const title = name ?? G.chat?.group.name ?? "the group";
   bar.innerHTML = `<div class="dwin"><h4>Invite people</h4><p>They scan it with Beep on their phone, or enter the code under New group, Join with a code.</p><div class="dmuted"><span class="dspin"></span>Making a code…</div></div>`;
+
   try {
     const link = await invoke<GroupInvite>("group_invite", { id, reset });
     if (S.view !== "invite" || G.id !== id) return;
@@ -512,6 +527,7 @@ export function renderGroupNew(mode: GroupFormMode = "new") {
   const logo = `<span class="dlogo" style="background:var(--accent)">${ICON.group}</span>`;
   // Each form's Cancel and the field that takes focus.
   let cancel: () => unknown = renderChats, first: string;
+
   if (mode === "new") {
     bar.innerHTML = head("New group", "Chat with people, and Beep helps when it can", logo) + `<div class="dform">
       <label class="dfield">Group name<input id="jname" maxlength="80" autocomplete="off" spellcheck="false" value="${esc(J.name ?? "")}"></label>
@@ -541,6 +557,7 @@ export function renderGroupNew(mode: GroupFormMode = "new") {
     </div>` + hints([[ICON.ret, "join"], ["esc", "back"]]);
     first = "#jme";
   }
+
   $$("#jcancel").addEventListener("click", cancel);
   $$("#jgo").addEventListener("click", groupFormGo);
   $$(first).focus();
@@ -551,6 +568,7 @@ export async function groupFormGo() {
   const val = (sel: string) => $<HTMLInputElement>(sel)?.value.trim() ?? "";
   const focus = (sel: string) => $$(sel).focus();
   J.busy = true;
+
   try {
     if (J.mode === "new") {
       const name = val("#jname"), me = val("#jme");
@@ -564,18 +582,21 @@ export async function groupFormGo() {
     } else if (J.mode === "code") {
       const code = val("#jtoken");
       if (!code) return;
+
       try {
         J.found = await invoke<FoundGroup>("peek_group", { code });
       } catch (e) {
         J.error = String(e);
         return renderGroupNew("code");
       }
+
       if (J.found.preview.joined) return renderGroup(J.found.preview.id);
       J.error = "";
       renderGroupNew("join");
     } else {
       const me = val("#jme");
       if (!me) return focus("#jme");
+
       try {
         const group = await invoke<GroupSummary>("join_group", { token: J.found!.token, memberName: me });
         keepMemberName(me);

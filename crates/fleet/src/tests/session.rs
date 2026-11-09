@@ -21,9 +21,11 @@ fn a_failed_read_dates_the_last_one_so_the_next_try_waits_for_its_age() {
 #[test]
 fn the_oldest_reads_go_past_the_limit() {
     let cache: Cache<u8, u8> = Cache::default();
+
     for key in 0..4 {
         cache.put_within(key, key, 3);
     }
+
     let hour = Duration::from_secs(3600);
     assert_eq!(cache.get(&0, hour), None);
     assert!((1..4).all(|key| cache.get(&key, hour).is_some()));

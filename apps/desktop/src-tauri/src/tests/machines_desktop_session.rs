@@ -16,10 +16,12 @@ fn live_desktop() {
         let reply = session.handle(request);
         let body = rmp_serde::to_vec(&reply).expect("a reply encodes");
         let back: Reply = rmp_serde::from_slice(&body).expect("a reply decodes");
+
         match &back {
             Reply::Tree(tree) => println!("{} ({} bytes)\n{}", tree.app, body.len(), tree.text),
             other => println!("{other:?} ({} bytes)", body.len()),
         }
+
         assert_eq!(back, reply);
     }
 }

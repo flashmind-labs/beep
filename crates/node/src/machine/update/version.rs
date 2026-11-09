@@ -25,12 +25,14 @@ impl FromStr for Version {
                 if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
                     return Err(bad());
                 }
+
                 part.parse::<u64>().map_err(|_| bad())
             })
             .collect::<Result<Vec<_>, _>>()?;
         while parts.last() == Some(&0) {
             parts.pop();
         }
+
         Ok(Self {
             text: trimmed.to_owned(),
             parts,

@@ -42,12 +42,14 @@ test("a move's answer replaces its machine's row", () => {
 
 test("automatic Git conflicts warn while ordinary waiting does not", async () => {
   const { gitSyncWarning } = await import("../src/project/gitsync-state.ts");
+
   for (const error of ["Git commits differ; histories diverged; merge the peer commits to resume sync", "Git has unmerged conflicts; resolve them to resume sync", "fatal: Not possible to fast-forward, aborting.", "Git commits differ between peers"]) {
     assert.equal(gitSyncWarning({ status: "failed", error }), "Git sync needs review");
     assert.equal(gitSyncWarning({ status: "failed", error: `waiting for Git: ${error}` }), "Git sync needs review");
     assert.equal(gitSyncWarning({ status: "in_sync", error }), null, "a stale error cannot warn");
     assert.equal(gitSyncWarning({ status: "offline", error }), null);
   }
+
   for (const error of [null, "Waiting for peer Git commits to arrive", "Git commits differ; waiting for peer commits to arrive", "Git commits differ; histories diverged or peer commits have not arrived", "Git commits differ between branches", "authentication failed", "disk full"]) {
     assert.equal(gitSyncWarning({ status: "failed", error }), null);
   }
@@ -65,6 +67,7 @@ test("repair draft includes both checkouts and bounded recent session references
 
 test("local edits get a distinct warning without calling them a merge conflict", async () => {
   const { gitSyncWarning } = await import("../src/project/gitsync-state.ts");
+
   for (const error of ["waiting for Git: Git commits differ; commit or stash staged, unstaged and untracked changes before syncing", "Your local changes would be overwritten by merge", "cannot pull with rebase: You have unstaged changes"]) {
     assert.equal(gitSyncWarning({ status: "failed", error }), "Local edits block Git sync");
   }

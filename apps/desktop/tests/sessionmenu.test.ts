@@ -18,6 +18,7 @@ test("a session started outside Beep can be continued where its agent allows", (
   for (const status of ["working", "idle"]) {
     assert.deepEqual(sessionOffers({ status, external: true, agent: "claude" }), { stop: false, close: false, resume: true, delete: false });
   }
+
   assert.deepEqual(sessionOffers({ status: "ended", external: true, agent: "claude" }), { stop: false, close: false, resume: true, delete: true });
   assert.equal(sessionOffers({ status: "ended", external: true, agent: "other" }).resume, false);
 });
@@ -26,6 +27,7 @@ test("only an ended session of a file-based harness can be deleted", () => {
   for (const agent of ["claude", "codex", "pi"]) {
     assert.equal(sessionOffers({ status: "ended", external: false, agent }).delete, true);
   }
+
   for (const agent of ["flsh", "opencode", "gemini"]) {
     assert.equal(sessionOffers({ status: "ended", external: false, agent }).delete, false);
   }

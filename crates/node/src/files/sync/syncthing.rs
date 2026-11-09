@@ -17,9 +17,11 @@ impl Syncs {
         };
         let path = folder.to_owned();
         let root = spawn_blocking(move || open_target(&folders, &path)).await??;
+
         if enabled.is_none() {
             return self.inner.syncthing.project_files(root.path(), None).await;
         }
+
         let _one = self.inner.configuring.lock().await;
         // Stop Beep before allowing Syncthing to write this checkout again.
         let names: Vec<_> = if enabled == Some(true) {
@@ -32,8 +34,10 @@ impl Syncs {
             Vec::new()
         };
         let mut stopped = Vec::new();
+
         for name in names {
             let running = lock(&self.inner.projects).remove(&name);
+
             if let Some(running) = running {
                 let project = running.project.clone();
                 let from = running.from;
@@ -41,6 +45,7 @@ impl Syncs {
                 stopped.push((project, from));
             }
         }
+
         let result = self
             .inner
             .syncthing
@@ -70,10 +75,13 @@ impl Syncs {
                 }
             }
         }
+
         drop(_one);
+
         if enabled.is_some() {
             self.check_syncthing().await;
         }
+
         result
     }
 }

@@ -44,9 +44,11 @@ impl Teller {
     pub fn tell(&self, news: RunNews) {
         {
             let mut queue = self.0.queue();
+
             if queue.hearer_gone {
                 return;
             }
+
             if let RunNews::Text(more) = &news
                 && let Some(RunNews::Text(waiting)) = queue.news.back_mut()
             {
@@ -76,9 +78,11 @@ impl Heard {
         loop {
             {
                 let mut queue = self.0.queue();
+
                 if let Some(news) = queue.news.pop_front() {
                     return Some(news);
                 }
+
                 if queue.teller_gone {
                     return None;
                 }

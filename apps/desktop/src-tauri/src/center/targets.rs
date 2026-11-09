@@ -154,6 +154,7 @@ pub(crate) fn open_on<R: Runtime>(
     if let Err(e) = app.emit_to(LABEL, "center-open", &target) {
         log::warn!("telling the command center what to open: {e}");
     }
+
     Ok(())
 }
 

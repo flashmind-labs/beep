@@ -14,6 +14,7 @@ fn mesh(desktops: usize, nodes: usize) -> Mesh {
         .map(|_| SecretKey::generate())
         .collect();
     let mut devices = Devices::genesis(&keys[0], "d0", DeviceKind::Desktop);
+
     for (i, key) in keys.iter().enumerate().skip(1) {
         let kind = if i < desktops {
             DeviceKind::Desktop
@@ -61,15 +62,19 @@ fn orders<T: Clone>(items: &[T]) -> Vec<Vec<T>> {
     if items.len() <= 1 {
         return vec![items.to_vec()];
     }
+
     let mut all = Vec::new();
+
     for i in 0..items.len() {
         let mut rest = items.to_vec();
         let first = rest.remove(i);
+
         for mut tail in orders(&rest) {
             tail.insert(0, first.clone());
             all.push(tail);
         }
     }
+
     all
 }
 
@@ -93,9 +98,11 @@ fn keys_round_trip_through_text() {
         Key::NoticeRead("abc".into()),
         Key::Other("future-kind/x y".into()),
     ];
+
     for key in keys {
         assert_eq!(key.to_string().parse::<Key>().expect("parses"), key);
     }
+
     assert_eq!(project("a").to_string(), "project/a");
     assert!("project/".parse::<Key>().is_err());
     assert!("flsh/x".parse::<Key>().is_err());
@@ -118,13 +125,17 @@ fn two_writes_at_one_millisecond_end_on_the_same_value_everywhere() {
         .max_by_key(|i| m.keys[*i].public())
         .expect("three keys");
     let want = val(&format!("v{winner}"));
+
     for order in orders(&entries) {
         let (_dir, mut s) = open(&m, 0);
+
         for e in order {
             s.apply(vec![e], &m.devices).expect("apply");
         }
+
         assert_eq!(s.get(&project("p")), want.as_deref());
     }
+
     for order in orders(&entries) {
         let (_dir, mut s) = open(&m, 1);
         let applied = s.apply(order, &m.devices).expect("apply");
@@ -168,10 +179,12 @@ fn a_compacted_log_still_converges_on_a_fresh_peer() {
     let dir = TempDir::new().expect("tempdir");
     {
         let mut s = reopen(&m, 0, &dir);
+
         for i in 0..10 {
             s.set(project("a"), val(&format!("a{i}"))).expect("set");
             s.set(project("b"), val(&format!("b{i}"))).expect("set");
         }
+
         s.set(project("a"), None).expect("set");
     }
     let s = reopen(&m, 0, &dir);
@@ -339,6 +352,7 @@ fn compaction_keeps_the_heads() {
     let big = vec![7u8; 4096];
     {
         let mut s = reopen(&m, 0, &dir);
+
         for _ in 0..20 {
             s.set(project("a"), Some(big.clone())).expect("set");
         }

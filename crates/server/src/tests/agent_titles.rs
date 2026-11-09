@@ -82,9 +82,11 @@ async fn picks_quiet_changed_sessions_and_keeps_manual_titles() {
 async fn deletes_sessions_in_bulk() {
     let db = TestDb::new().await.unwrap();
     let store = db.store().await.unwrap();
+
     for id in ["a", "b", "c"] {
         chat(&store, id).await;
     }
+
     let deleted = User::for_test(store.clone(), "alice")
         .delete_sessions(&[test_chat("a"), test_chat("c"), test_chat("missing")])
         .await

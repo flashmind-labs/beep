@@ -50,15 +50,18 @@ function makeFrame(source: string, expanded: boolean, fallback?: HTMLElement, is
   frame.setAttribute("referrerpolicy", "no-referrer");
   Object.assign(frame.style, { width: "100%", height: "320px", display: "block", border: "0" });
   const diagram: Diagram = { frame, source, expanded, fallback, worker: isWorker };
+
   if (isWorker) {
     frame.setAttribute("aria-hidden", "true"); frame.tabIndex = -1;
     Object.assign(frame.style, { position: "fixed", left: "-10000px", width: "800px", height: "600px", pointerEvents: "none" });
     worker = diagram;
   }
+
   frame.addEventListener("load", () => {
     render(diagram);
     diagram.timer = setTimeout(() => {
       if (!frame.isConnected) return;
+
       if (isWorker) finish({ failed: true }, true);
       else if (fallback && !fallback.hidden) {
         const error = document.createElement("p"); error.textContent = "Diagram unavailable. Source is shown below.";
@@ -71,15 +74,18 @@ function makeFrame(source: string, expanded: boolean, fallback?: HTMLElement, is
 }
 function next() {
   if (working) return;
+
   for (const [source, elements] of waiting) {
     for (const element of elements) if (!element.isConnected) elements.delete(element);
     if (!elements.size) { waiting.delete(source); continue; }
     working = true;
+
     if (!worker) document.body.append(makeFrame(source, false, undefined, true));
     else {
       worker.source = source; render(worker);
       worker.timer = setTimeout(() => finish({ failed: true }, true), 20000);
     }
+
     break;
   }
 }
@@ -98,12 +104,14 @@ addEventListener("message", event => {
   if (!diagram || !diagram.frame.isConnected) return;
   const data = event.data;
   if (data?.kind !== "beep-diagram") return;
+
   if (diagram.worker) {
     if (data.source !== diagram.source) return;
     if (data.action === "rendered") finish(typeof data.svg === "string" && data.svg.length <= 4000000 ? { svg: data.svg } : { failed: true });
     else if (data.action === "error") finish({ failed: true });
     return;
   }
+
   if (data.action === "resize" && !diagram.expanded && Number.isFinite(data.height)) {
     diagram.frame.style.height = `${Math.max(120, Math.min(700, data.height))}px`;
   } else if (data.action === "rendered" || data.action === "error") {
@@ -125,12 +133,14 @@ function scan(root: ParentNode) {
     if (pre.dataset.diagram) continue;
     pre.dataset.diagram = "true";
     const source = code.textContent ?? "";
+
     if (cache.has(source)) pre.before(makeFrame(source, false, pre));
     else {
       const elements = waiting.get(source) ?? new Set<HTMLElement>();
       elements.add(pre); waiting.set(source, elements);
     }
   }
+
   next();
 }
 new MutationObserver(changes => {

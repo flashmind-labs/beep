@@ -126,6 +126,7 @@ pub async fn jobs(
         target.repo_url(),
         target.page(JOBS_PAGE)
     );
+
     match calls.get_json::<JobsReply>(caller, &target.who, &url).await {
         Ok(reply) => Ok(Some(reply.jobs())),
         Err(HostError::Status { status, .. })

@@ -8,9 +8,11 @@ async fn lines_over_the_cap_are_dropped_whole() {
     let reader = BufReader::with_capacity(8, input.as_bytes());
     let mut lines = LineReader::new(reader, 10);
     let mut read = Vec::new();
+
     while let Some(line) = lines.next().await.unwrap() {
         read.push(line);
     }
+
     assert_eq!(
         read,
         [

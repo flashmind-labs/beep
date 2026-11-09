@@ -33,9 +33,11 @@ impl Dir {
     /// The folder at `path`; its last part must not be a link.
     pub(crate) fn open(path: &Path) -> io::Result<Self> {
         let metadata = fs::symlink_metadata(path)?;
+
         if metadata.file_type().is_symlink() || !metadata.is_dir() {
             return Err(ErrorKind::NotADirectory.into());
         }
+
         Ok(Self {
             path: path.to_owned(),
         })
@@ -49,9 +51,11 @@ impl Dir {
 
     pub(crate) fn read_file(&self, name: &OsStr) -> io::Result<File> {
         let file = open_read(&self.path.join(name))?;
+
         if !file.metadata()?.is_file() {
             return Err(ErrorKind::InvalidInput.into());
         }
+
         Ok(file)
     }
 
@@ -104,6 +108,7 @@ impl Dir {
         if fs::symlink_metadata(&path)?.file_type().is_symlink_dir() {
             return fs::remove_dir(&path);
         }
+
         fs::remove_file(&path)
     }
 
@@ -119,6 +124,7 @@ impl Dir {
             Ok(_) => self.remove_file(name),
             Err(e) => Err(e),
         };
+
         match result {
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
             other => other,
@@ -150,6 +156,7 @@ pub(crate) fn volume(path: &Path) -> io::Result<Volume> {
     if ok == 0 {
         return Err(io::Error::last_os_error());
     }
+
     Ok(Volume {
         device: id_of_path(path)?.device,
         free,
@@ -180,6 +187,7 @@ pub(crate) fn rename_new(
     if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0) } == 0 {
         return Err(io::Error::last_os_error());
     }
+
     Ok(())
 }
 
@@ -212,6 +220,7 @@ pub(crate) fn id_of_path(path: &Path) -> io::Result<FileId> {
     // SAFETY: the handle is open for the call, and `info` is a writable
     // struct of the type the call fills.
     let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle(), info.as_mut_ptr()) };
+
     if ok == 0 {
         return Err(io::Error::last_os_error());
     }
@@ -264,6 +273,7 @@ pub(crate) fn open_no_follow(options: &mut OpenOptions, path: &Path) -> io::Resu
             format!("{} is a link", path.display()),
         ));
     }
+
     Ok(file)
 }
 

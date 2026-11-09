@@ -17,6 +17,7 @@ export function joinFields(done: () => void, beside: Node) {
     join.disabled = true;
     note.className = "am-wait";
     note.replaceChildren(el("span", "dspin"), "Linking");
+
     try {
       await invoke("mesh_join", { ticket: input.value });
       done();

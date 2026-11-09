@@ -33,6 +33,7 @@ pub(crate) use fsat::Space;
 /// source gave.
 pub(crate) fn plain_name(name: &str) -> Result<&str> {
     let mut parts = Path::new(name).components();
+
     match (parts.next(), parts.next()) {
         (Some(Component::Normal(part)), None) if part == OsStr::new(name) => Ok(name),
         _ => bail!("{name:?} is not a plain file name"),
@@ -44,12 +45,14 @@ pub(crate) fn plain_name(name: &str) -> Result<&str> {
 pub(crate) fn relative_path(path: &str) -> Result<PathBuf> {
     ensure!(!path.is_empty(), "a folder entry has no name");
     let mut out = PathBuf::new();
+
     for part in Path::new(path).components() {
         match part {
             Component::Normal(part) => out.push(part),
             _ => bail!("{path:?} is not a relative path inside the folder"),
         }
     }
+
     ensure!(
         out.as_os_str().len() == path.trim_end_matches('/').len(),
         "{path:?} is not a plain relative path"
@@ -106,6 +109,7 @@ pub(crate) fn open_target(folders: &Folders, folder: &str) -> Result<Folder> {
         .with_context(|| format!("{folder} is outside the shared folders"))?;
     let mut dir = Dir::open(root).with_context(|| format!("opening {}", root.display()))?;
     let rest = resolved.strip_prefix(root)?;
+
     for part in rest.components() {
         dir = match dir.open_dir(part.as_os_str()) {
             Ok(dir) => dir,
@@ -115,6 +119,7 @@ pub(crate) fn open_target(folders: &Folders, folder: &str) -> Result<Folder> {
             Err(e) => return Err(e).with_context(|| format!("{folder} is not a folder")),
         };
     }
+
     Ok(Folder {
         dir,
         path: resolved,
@@ -129,6 +134,7 @@ fn make_dir_at(dir: &Dir, name: &OsStr) -> io::Result<Dir> {
         Err(e) if e.kind() == ErrorKind::AlreadyExists => {}
         Err(e) => return Err(e),
     }
+
     dir.open_dir(name)
 }
 
@@ -136,9 +142,11 @@ fn make_dir_at(dir: &Dir, name: &OsStr) -> io::Result<Dir> {
 /// itself for an empty path.
 pub(crate) fn make_dirs_at(dir: &Dir, path: &Path) -> io::Result<Dir> {
     let mut current = dir.try_clone()?;
+
     for part in path.components() {
         current = make_dir_at(&current, part.as_os_str())?;
     }
+
     Ok(current)
 }
 
@@ -147,6 +155,7 @@ pub(crate) fn make_dirs_at(dir: &Dir, path: &Path) -> io::Result<Dir> {
 /// landed.
 pub(crate) fn place(partial: &Partial, name: &str, kind: ContentKind) -> Result<PathBuf> {
     let target = &partial.target;
+
     for n in 1..=MAX_SUFFIX {
         let numbered = numbered(name, kind, n);
         match fsat::rename_new(
@@ -165,6 +174,7 @@ pub(crate) fn place(partial: &Partial, name: &str, kind: ContentKind) -> Result<
             }
         }
     }
+
     bail!(
         "{name} and {MAX_SUFFIX} numbered names after it are taken in {}",
         target.path.display()
@@ -233,6 +243,7 @@ impl Journal {
                     }
                 }
             }
+
             if let Err(e) = fs::remove_file(&entry) {
                 log::warn!(
                     "could not remove the journal entry {}: {e}",
@@ -240,6 +251,7 @@ impl Journal {
                 );
             }
         }
+
         Ok(())
     }
 
@@ -332,6 +344,7 @@ impl Drop for Partial {
         if self.done {
             return;
         }
+
         let (target, name, entry) = (self.target.clone(), self.name.clone(), self.entry.clone());
         let remove = move || {
             if let Err(e) = remove_partial(&target, &name, &entry) {
@@ -371,9 +384,11 @@ pub(crate) struct Reserved {
 impl Drop for Reserved {
     fn drop(&mut self) {
         let mut reserved = lock(&self.room.reserved);
+
         for want in &self.held {
             if let Some(bytes) = reserved.get_mut(&want.space.device) {
                 *bytes = bytes.saturating_sub(want.bytes);
+
                 if *bytes == 0 {
                     reserved.remove(&want.space.device);
                 }
@@ -411,17 +426,21 @@ impl Room {
             ]
         };
         let mut reserved = lock(&self.reserved);
+
         for (at, want) in held.iter().enumerate() {
             let others = reserved.get(&want.space.device).copied().unwrap_or(0);
             let free = want.space.free.saturating_sub(others);
+
             if free >= want.bytes.saturating_add(margin) {
                 continue;
             }
+
             let busy = if others > 0 {
                 format!(" ({others} bytes are held for other transfers)")
             } else {
                 String::new()
             };
+
             match (held.len(), at) {
                 (1, _) => bail!(
                     "not enough free space: the transfer needs {} bytes on the target's disk \
@@ -438,10 +457,12 @@ impl Room {
                 ),
             }
         }
+
         for want in &held {
             let bytes = reserved.entry(want.space.device).or_default();
             *bytes = bytes.saturating_add(want.bytes);
         }
+
         drop(reserved);
         Ok(Reserved {
             room: self.clone(),

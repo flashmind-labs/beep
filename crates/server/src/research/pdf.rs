@@ -60,9 +60,11 @@ fn render_now(paper: &Paper) -> Result<Pdf> {
         }
         Err(error) => return Err(error),
     };
+
     if data.len() > MAX_PDF {
         bail!("the PDF is too large");
     }
+
     Ok(Pdf {
         name: file_name(&markup.title),
         data,
@@ -144,6 +146,7 @@ fn typst_markup(paper: &Paper, math: Math) -> Markup {
     for event in Parser::new_ext(&paper.draft, options) {
         writer.event(event);
     }
+
     writer.flush();
     let title = match writer.title.trim() {
         "" => paper.topic.trim().to_owned(),
@@ -171,8 +174,10 @@ fn typst_markup(paper: &Paper, math: Math) -> Markup {
         escape(&date)
     );
     out.push_str(&writer.out);
+
     if !paper.sources.is_empty() {
         out.push_str("\n#heading(numbering: none)[Sources]\n#set text(size: 9.5pt)\n#set par(justify: false)\n");
+
         for source in &paper.sources {
             let _ = writeln!(
                 out,
@@ -205,6 +210,7 @@ fn link(url: &str, body: &str) -> String {
 fn string(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
     out.push('"');
+
     for c in text.chars() {
         match c {
             '\\' => out.push_str("\\\\"),
@@ -215,6 +221,7 @@ fn string(text: &str) -> String {
             c => out.push(c),
         }
     }
+
     out.push('"');
     out
 }
@@ -222,12 +229,14 @@ fn string(text: &str) -> String {
 /// `text` as Typst markup that shows it as is.
 fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
+
     for c in text.chars() {
         if "\\#$*_`<>@[]~/=-+.:'\"".contains(c) {
             out.push('\\');
         }
         out.push(c);
     }
+
     out
 }
 
@@ -287,16 +296,20 @@ impl<'a> Writer<'a> {
                 }
                 _ => {}
             }
+
             return;
         }
+
         if self.in_title {
             match event {
                 Event::End(TagEnd::Heading(_)) => self.in_title = false,
                 Event::Text(text) | Event::Code(text) => self.title.push_str(&text),
                 _ => {}
             }
+
             return;
         }
+
         match event {
             Event::Text(text) => {
                 self.text.push_str(&text);
@@ -308,7 +321,9 @@ impl<'a> Writer<'a> {
             }
             _ => {}
         }
+
         self.flush();
+
         match event {
             Event::Start(tag) => self.start(tag),
             Event::End(tag) => self.end(tag),
@@ -375,9 +390,11 @@ impl<'a> Writer<'a> {
             Tag::Strikethrough => self.out.push_str("#strike["),
             Tag::Link { dest_url, .. } => {
                 let opened = link(&dest_url, "").ends_with("[]");
+
                 if opened {
                     let _ = write!(self.out, "#link({})[", string(&dest_url));
                 }
+
                 self.links.push(opened);
             }
             Tag::Image { .. } => {
@@ -419,6 +436,7 @@ impl<'a> Writer<'a> {
             Math::Typeset => mitex::convert_math(latex, None).ok(),
             Math::Source => None,
         };
+
         match (typeset, display) {
             (Some(math), true) => {
                 let _ = write!(self.out, "$ {math} $");
@@ -440,8 +458,10 @@ impl<'a> Writer<'a> {
         if self.text.is_empty() {
             return;
         }
+
         let text = std::mem::take(&mut self.text);
         let mut rest = text.as_str();
+
         while let Some(open) = rest.find('[') {
             let (before, from) = rest.split_at(open);
             let cited = from
@@ -461,6 +481,7 @@ impl<'a> Writer<'a> {
                 }
             }
         }
+
         self.out.push_str(&escape(rest));
     }
 
@@ -477,6 +498,7 @@ impl<'a> Writer<'a> {
         {
             return None;
         }
+
         let links: Vec<String> = numbers
             .iter()
             .map(|n| format!("#link(<src-{n}>)[{n}]"))

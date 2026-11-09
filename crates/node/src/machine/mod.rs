@@ -31,6 +31,7 @@ pub fn raise_open_files() {
             current: Some(wanted),
             maximum: limit.maximum,
         };
+
         if let Err(e) = setrlimit(Resource::Nofile, raised) {
             log::warn!("could not raise the open files limit to {wanted}: {e}");
         }

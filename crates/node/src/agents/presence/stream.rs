@@ -11,13 +11,16 @@ pub(in crate::agents) async fn follow(
     agents: &Agents,
 ) -> Result<()> {
     let mut changes = agents.presence.subscribe();
+
     loop {
         changes.borrow_and_update();
         let owned = agents.owned();
         let mut sessions = agents.presence.snapshot();
+
         for session in &mut sessions {
             session.taken_over = owned.get(&session.id).cloned();
         }
+
         tx.send(&SessionsReply::External { sessions }).await?;
         tokio::select! {
             changed = changes.changed() => if changed.is_err() { return Ok(()); },

@@ -206,10 +206,12 @@ export function thisMacRow(mac: Pick<MacControl, "id" | "name" | "enabled" | "st
   if (machines.some(m => m.id === mac.id)) return null;
   const row = { name: "This computer", sub: mac.name || "", action: null };
   if (!mac.enabled) return { ...row, state: "Off", title: "Let Beep use this computer is off. Add turns it on.", action: "Add" };
+
   if (mac.status === "failed") {
     const error = mac.error || "Could not connect";
     return { ...row, state: error, title: `${error}. Beep tries again on its own.`, bad: true };
   }
+
   // Connected too, until the next list has it.
   return { ...row, state: "Connecting", title: "Joining your machines" };
 }

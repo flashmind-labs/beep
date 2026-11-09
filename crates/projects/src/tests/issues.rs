@@ -112,6 +112,7 @@ async fn issues_read_tries_each_machine_and_reports_every_failure() {
         ),
     ];
     let why = refused(read_issues(&sources).await);
+
     for part in ["build-box", "not logged in", "mac-box", "unknown flag"] {
         assert!(why.contains(part), "{part} missing from {why}");
     }

@@ -23,12 +23,14 @@ export const TOOL_CHIPS = 7;
 export function bareVersion(name: string, raw: string | null | undefined): string | null {
   const line = String(raw ?? "").trim();
   if (!line) return null;
+
   for (let word of line.split(/\s+/)) {
     word = word.replace(/^[("',;]+|[)"',;:]+$/g, "");
     if (word.startsWith(name) && /^\d/.test(word.slice(name.length))) word = word.slice(name.length);
     if (/^v\d/i.test(word)) word = word.slice(1);
     if (/^\d[\w.+-]*$/.test(word) && word.includes(".")) return word;
   }
+
   return line;
 }
 

@@ -130,6 +130,7 @@ impl DiffParser {
     /// it is part of a changed line in a file with CRLF endings, and goes.
     pub(super) fn line(&mut self, raw: &str) {
         let line = raw.strip_suffix('\r').unwrap_or(raw);
+
         if let Some(file) = self.file.as_mut()
             && file.in_hunk()
         {
@@ -147,6 +148,7 @@ impl DiffParser {
                     return self.header(line);
                 }
             };
+
             match kind {
                 DiffLineKind::Added {} => {
                     file.new_left = file.new_left.saturating_sub(1);
@@ -161,8 +163,10 @@ impl DiffParser {
                     file.new_left = file.new_left.saturating_sub(1);
                 }
             }
+
             return self.keep_line(kind, text);
         }
+
         self.header(line);
     }
 
@@ -177,6 +181,7 @@ impl DiffParser {
             });
             return;
         }
+
         let Some(file) = self.file.as_mut() else {
             return;
         };
@@ -223,15 +228,19 @@ impl DiffParser {
         let Some(file) = self.file.as_mut() else {
             return;
         };
+
         if file.left_out.is_some() {
             return;
         }
+
         let text = cut(text, MAX_LINE);
+
         if file.lines >= caps.file_lines || file.bytes + text.len() > caps.file_bytes {
             file.left_out = Some(DiffLeftOut::TooLarge {});
             file.hunks = Vec::new();
             return;
         }
+
         let Some(hunk) = file.hunks.last_mut() else {
             return;
         };
@@ -256,6 +265,7 @@ impl DiffParser {
             binary,
             ..Building::default()
         };
+
         if !binary && lines > 0 {
             file.hunks.push(DiffHunk {
                 old_start: 0,
@@ -267,6 +277,7 @@ impl DiffParser {
             });
             file.new_left = lines;
         }
+
         self.file = Some(file);
     }
 
@@ -283,12 +294,15 @@ impl DiffParser {
         if !wanted {
             return;
         }
+
         self.out.additions = self.out.additions.saturating_add(file.additions);
         self.out.deletions = self.out.deletions.saturating_add(file.deletions);
+
         if self.out.files.len() >= MAX_DIFF_FILES {
             self.out.more += 1;
             return;
         }
+
         if file.left_out.is_none() && !self.keep.lockfiles && is_lockfile(&path) {
             file.left_out = Some(DiffLeftOut::Lockfile {});
         }
@@ -298,12 +312,14 @@ impl DiffParser {
         {
             file.left_out = Some(DiffLeftOut::OverTotal {});
         }
+
         if file.left_out.is_some() {
             file.hunks = Vec::new();
         } else {
             self.lines += file.lines;
             self.bytes += file.bytes;
         }
+
         let status = file.status(renamed);
         self.out.files.push(DiffFile {
             path,
@@ -327,7 +343,9 @@ fn cut(text: &str, max: usize) -> &str {
     if text.len() <= max {
         return text;
     }
+
     let mut end = max;
+
     while !text.is_char_boundary(end) {
         end -= 1;
     }
@@ -355,6 +373,7 @@ fn git_paths(rest: &str) -> (Option<String>, Option<String>) {
     // `a/X b/X`: the halves are the same length.
     if rest.len() >= 5 && (rest.len() - 1).is_multiple_of(2) {
         let half = (rest.len() - 1) / 2;
+
         if let (Some(old), Some(new)) = (rest.get(..half), rest.get(half + 1..))
             && let (Some(old), Some(new)) = (old.strip_prefix("a/"), new.strip_prefix("b/"))
             && old == new
@@ -362,6 +381,7 @@ fn git_paths(rest: &str) -> (Option<String>, Option<String>) {
             return (Some(old.to_owned()), Some(new.to_owned()));
         }
     }
+
     match rest.split_once(" b/") {
         Some((old, new)) => (
             old.strip_prefix("a/").map(str::to_owned),
@@ -375,9 +395,11 @@ fn git_paths(rest: &str) -> (Option<String>, Option<String>) {
 /// its `prefix` and the tab git puts after a name with spaces.
 fn side_path(rest: &str, prefix: &str) -> Option<String> {
     let rest = rest.strip_suffix('\t').unwrap_or(rest);
+
     if rest == "/dev/null" {
         return None;
     }
+
     let path = unquote(rest);
     Some(path.strip_prefix(prefix).map(str::to_owned).unwrap_or(path))
 }
@@ -398,6 +420,7 @@ fn quoted(text: &str) -> (String, &str) {
     let bytes = text.as_bytes();
     let mut out = Vec::new();
     let mut i = 1;
+
     while i < bytes.len() {
         match bytes[i] {
             b'"' => {
@@ -405,6 +428,7 @@ fn quoted(text: &str) -> (String, &str) {
             }
             b'\\' if i + 1 < bytes.len() => {
                 i += 1;
+
                 match bytes[i] {
                     b'n' => out.push(b'\n'),
                     b't' => out.push(b'\t'),
@@ -416,6 +440,7 @@ fn quoted(text: &str) -> (String, &str) {
                     d @ b'0'..=b'7' => {
                         let mut value = u32::from(d - b'0');
                         let mut taken = 1;
+
                         while taken < 3
                             && i + 1 < bytes.len()
                             && (b'0'..=b'7').contains(&bytes[i + 1])
@@ -424,6 +449,7 @@ fn quoted(text: &str) -> (String, &str) {
                             taken += 1;
                             value = value * 8 + u32::from(bytes[i] - b'0');
                         }
+
                         out.push(u8::try_from(value).unwrap_or(b'?'));
                     }
                     other => out.push(other),

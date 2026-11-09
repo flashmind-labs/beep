@@ -111,9 +111,11 @@ struct Read {
 
 async fn read(source: &dyn Source) -> Result<Read> {
     let mut harness = Vec::new();
+
     for known in HARNESSES {
         harness.push((known.agent, source.harness(known.agent).await?));
     }
+
     Ok(Read {
         imports: source.imports().await?,
         sync: source.sync().await?,
@@ -146,18 +148,21 @@ impl Writer<'_> {
 /// kept per account, so another login, on the same server or not, is another move.
 pub async fn run(mesh: &Mesh, source: &dyn Source) -> Result<Report> {
     let account = source.account().await?;
+
     if mesh.get(&moved_key(&account)).is_some() {
         return Ok(Report {
             already: true,
             ..Report::default()
         });
     }
+
     let found = read(source).await?;
     let _write = WRITES.lock().await;
     let mut out = Writer { mesh, written: 0 };
     let base = now_ms();
     projects(&mut out, &found.imports).await?;
     sync(&mut out, &found.sync).await?;
+
     for (index, group) in found.groups.iter().enumerate() {
         let record = GroupRecord {
             name: group.name.clone(),
@@ -167,12 +172,14 @@ pub async fn run(mesh: &Mesh, source: &dyn Source) -> Result<Report> {
         out.absent(Key::Group(group.id.to_string()), &record)
             .await?;
     }
+
     for (index, name) in found.on_top.iter().enumerate() {
         let pin = PinRecord {
             at_ms: base + offset(index),
         };
         out.absent(Key::Pin(name.clone()), &pin).await?;
     }
+
     let unmoved = unmoved(&mut out, &found.credentials).await?;
     harness(&mut out, &found.harness).await?;
     out.absent(Key::Flsh, &found.flsh).await?;
@@ -221,6 +228,7 @@ async fn projects(out: &mut Writer<'_>, imports: &[ImportedProject]) -> Result<(
         };
         out.absent(place_key(&name, machine), &place).await?;
     }
+
     Ok(())
 }
 
@@ -232,15 +240,19 @@ async fn sync(out: &mut Writer<'_>, projects: &[ProjectSync]) -> Result<()> {
                 .await?;
             continue;
         }
+
         let mut folders = BTreeMap::new();
+
         for on in &project.machines {
             if let Some(machine) = machine(&on.machine_id) {
                 folders.insert(machine, on.folder.clone());
             }
         }
+
         if folders.is_empty() {
             continue;
         }
+
         let spec = SyncSpec {
             ignored: Default::default(),
             folders,
@@ -249,6 +261,7 @@ async fn sync(out: &mut Writer<'_>, projects: &[ProjectSync]) -> Result<()> {
         out.absent(Key::Sync(project.project.clone()), &spec)
             .await?;
     }
+
     Ok(())
 }
 
@@ -261,6 +274,7 @@ async fn unmoved(out: &mut Writer<'_>, credentials: &[Credential]) -> Result<usi
     for credential in machines {
         let mut shown = credential.clone();
         shown.unreadable = true;
+
         if out
             .absent(
                 unmoved_credential(&credential.id),
@@ -271,6 +285,7 @@ async fn unmoved(out: &mut Writer<'_>, credentials: &[Credential]) -> Result<usi
             count += 1;
         }
     }
+
     Ok(count)
 }
 
@@ -285,6 +300,7 @@ async fn harness(
         // On or off and the launch arguments are the same on every machine. The values of its env
         // vars never come back from the server, so a variable cannot be copied.
         let shared = &first.settings;
+
         for var in &shared.env {
             let record = Unmoved::HarnessEnv {
                 agent: (*agent).to_owned(),
@@ -292,6 +308,7 @@ async fn harness(
             };
             out.absent(unmoved_env(agent, &var.name), &record).await?;
         }
+
         if !shared.enabled || !shared.args.is_empty() {
             let config = HarnessConfig {
                 enabled: shared.enabled,
@@ -301,14 +318,17 @@ async fn harness(
             out.absent(Key::Harness((*agent).to_owned()), &config)
                 .await?;
         }
+
         for each in machines {
             let (program, home) = (&each.settings.program, &each.settings.home);
             let Some(id) = machine(&each.machine_id) else {
                 continue;
             };
+
             if program.is_empty() && home.is_empty() {
                 continue;
             }
+
             let own = HarnessConfig {
                 program: Some(program.clone()).filter(|text| !text.is_empty()),
                 home: Some(home.clone()).filter(|text| !text.is_empty()),
@@ -318,6 +338,7 @@ async fn harness(
                 .await?;
         }
     }
+
     Ok(())
 }
 
@@ -348,8 +369,10 @@ async fn instructions(out: &mut Writer<'_>, versions: &[InstructionsVersion]) ->
     if foreign {
         return Ok(());
     }
+
     for (key, saved) in keyed {
         out.absent(key, &saved).await?;
     }
+
     Ok(())
 }

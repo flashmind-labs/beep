@@ -202,15 +202,20 @@ impl Inner {
         let mut changed = false;
         {
             let mut known = self.addrs();
+
             for note in list.into_iter().take(MAX_ADDRS) {
                 let id = note.addr.id;
+
                 if id == self.me || !view.devices.is_member(id) {
                     continue;
                 }
+
                 let first_hand = from == id;
+
                 if !first_hand && note.generation > ceiling {
                     continue;
                 }
+
                 let newer = known
                     .get(&id)
                     .is_none_or(|old| note.generation > old.generation);
@@ -223,9 +228,11 @@ impl Inner {
         }
         if changed {
             let all: Vec<_> = self.addrs().values().cloned().collect();
+
             if let Err(e) = self.store.run(move |core| core.save_addrs(&all)).await {
                 debug!("could not save peer addresses: {e}");
             }
+
             self.addr_wake.notify_waiters();
             self.bump();
         }
@@ -247,9 +254,11 @@ impl Drop for Guard {
     fn drop(&mut self) {
         self.inner.closed.store(true, Ordering::Relaxed);
         self.owner.abort();
+
         for live in self.inner.conns().values() {
             live.conn.close(0u32.into(), b"closed");
         }
+
         for conn in self.inner.retired().values() {
             conn.close(0u32.into(), b"closed");
         }
@@ -276,8 +285,10 @@ impl Mesh {
         let view = core.view();
         let rev = core.rev();
         let mut known: BTreeMap<EndpointId, AddrNote> = BTreeMap::new();
+
         for note in addrs.into_iter().filter(|n| n.addr.id != me) {
             let id = note.addr.id;
+
             if known
                 .get(&id)
                 .is_none_or(|old| note.generation > old.generation)
@@ -285,6 +296,7 @@ impl Mesh {
                 known.insert(id, note);
             }
         }
+
         let first = AddrNote {
             addr: endpoint.addr(),
             generation: now_ms(),
@@ -357,6 +369,7 @@ impl Mesh {
     ) -> Result<(SendStream, RecvStream), MeshError> {
         let mut conn = first;
         let mut retries = OPEN_RETRIES;
+
         loop {
             match conn.open_bi().await {
                 Ok(streams) => return Ok(streams),

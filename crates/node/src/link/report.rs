@@ -71,9 +71,11 @@ pub(crate) async fn serve_report(
 fn recent_metrics(path: &Path, since: i64, max_bytes: usize) -> String {
     const LIMIT: usize = 256 * 1024;
     let limit = max_bytes.min(LIMIT);
+
     if limit == 0 {
         return String::new();
     }
+
     let mut paths: Vec<_> = path
         .parent()
         .and_then(|dir| std::fs::read_dir(dir).ok())
@@ -93,10 +95,12 @@ fn recent_metrics(path: &Path, since: i64, max_bytes: usize) -> String {
     paths.push(path.to_owned());
     let mut chunks = Vec::new();
     let mut remaining = limit;
+
     for path in paths.into_iter().rev() {
         if remaining == 0 {
             break;
         }
+
         let Ok(mut file) = std::fs::File::open(path) else {
             continue;
         };
@@ -104,23 +108,30 @@ fn recent_metrics(path: &Path, since: i64, max_bytes: usize) -> String {
             continue;
         };
         let start = size.saturating_sub(remaining as u64);
+
         if file.seek(SeekFrom::Start(start)).is_err() {
             continue;
         }
+
         let mut bytes = Vec::new();
+
         if file.take(size - start).read_to_end(&mut bytes).is_err() {
             continue;
         }
         remaining = remaining.saturating_sub(bytes.len());
         chunks.push(bytes);
     }
+
     let mut result = String::new();
+
     for bytes in chunks.into_iter().rev() {
         let text = String::from_utf8_lossy(&bytes);
+
         for snapshot in text.split("# snapshot unix_seconds=").skip(1) {
             let Some((time, _)) = snapshot.split_once('\n') else {
                 continue;
             };
+
             if snapshot.contains("# end snapshot\n")
                 && time.parse::<i64>().is_ok_and(|time| time >= since)
             {
@@ -129,6 +140,7 @@ fn recent_metrics(path: &Path, since: i64, max_bytes: usize) -> String {
             }
         }
     }
+
     if result.is_empty() {
         result
     } else {
@@ -155,6 +167,7 @@ const PROGRAMS: &[&str] = &[
 /// `home`, or nowhere, then `path` itself.
 fn programs(path: Option<OsString>, home: Option<&Path>) -> String {
     let mut text = String::from("Programs\n");
+
     for name in PROGRAMS {
         let found = match which::which_in(name, path.as_ref(), "/") {
             Ok(at) => format!("{} (on PATH)", at.display()),
@@ -165,6 +178,7 @@ fn programs(path: Option<OsString>, home: Option<&Path>) -> String {
         };
         text.push_str(&format!("  {name:<17} {found}\n"));
     }
+
     let path = path.unwrap_or_default();
     text.push_str(&format!("PATH\n  {}\n", path.to_string_lossy()));
     text

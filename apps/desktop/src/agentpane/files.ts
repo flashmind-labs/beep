@@ -8,7 +8,7 @@ import { patchHtml } from "../ui/patch.ts";
 import { type GitChange, type Listing, type Tree, type TreeRow, atEdge, unreadFolders, failedListing, mergeTree, parentPath, joinPath, treeRows } from "./files-state.ts";
 import { relativeTo } from "./artifacts-state.ts";
 import { resolvePath } from "./media-state.ts";
-import { paneRoot } from "./worktree.ts";
+import { paneRoot, worktreesReady } from "./worktree.ts";
 import { mentioned } from "./worktree-state.ts";
 import { openWorkFile, previewWorkFile, paneSession, saveWorkFile, showFiles } from "./media.ts";
 import { localFileItems } from "./localfile.ts";
@@ -128,16 +128,19 @@ export function revealPath(rel: string) {
   const parts = inRoot.split("/").filter(Boolean);
   if (!parts.length) return;
   showFiles();
+
   if (F.filter) {
     F.filter = "";
     const find = F.el?.querySelector<HTMLInputElement>(".agffind");
     if (find) find.value = "";
   }
+
   for (let i = 1; i < parts.length; i++) {
     const dir = parts.slice(0, i).join("/");
     F.open.add(dir);
     if (!F.listings.get(dir)?.entries) load(dir);
   }
+
   F.picked = F.reveal = F.anchor = parts.join("/");
   F.selected = new Set([F.picked]);
   draw();
@@ -157,10 +160,12 @@ async function refresh() {
   const key = F.key, generation = F.generation;
   F.fresh = true;
   const roots = [...new Set([...F.roots, ...F.reading])];
+
   for (let offset = 0; offset < roots.length; offset += WALK_AT_ONCE) {
     if (F.key !== key || F.generation !== generation) return;
     await Promise.all(roots.slice(offset, offset + WALK_AT_ONCE).map(dir => load(dir)));
   }
+
   if (F.key !== key || F.generation !== generation) return;
   const error = [...F.listings.values()].find(listing => listing.error)?.error;
   if (error) throw new Error(error);
@@ -177,6 +182,7 @@ async function readAll() {
   const key = F.key, generation = F.generation;
   F.walking = true;
   draw();
+
   while (F.key === key && F.generation === generation && F.filter.trim()) {
     let entries = 0;
     for (const listing of F.listings.values()) entries += listing.entries?.length ?? 0;
@@ -185,6 +191,7 @@ async function readAll() {
     if (F.capped || !next.length) break;
     await Promise.all(next.map(dir => load(dir, true)));
   }
+
   if (F.key !== key || F.generation !== generation) return;
   F.walking = false;
   draw();
@@ -210,16 +217,19 @@ function load(dir: string, deep = false): Promise<void> {
 }
 
 async function readFolder(dir: string, deep: boolean) {
+  const key = F.key, generation = F.generation;
+  await worktreesReady();
+  if (F.key !== key || F.generation !== generation) return;
   const s = paneSession();
   // A session with no folder yet has nothing to read.
   if (!s?.cwd) return;
-  const key = F.key, generation = F.generation;
   const had = F.listings.get(dir);
   F.listings.set(dir, { entries: had?.entries ?? null, more: had?.more ?? 0, error: "" });
   F.reading.add(dir);
   // A folder shown stays as it is while it is read again.
   if (!had?.entries) draw();
   let changed = true;
+
   try {
     const got = await invoke<Tree>("agent_tree", { machineId: s.machine_id, root: paneRoot(), path: dir, ignored: F.ignored, deep, fresh: F.fresh });
     if (F.key !== key || F.generation !== generation) return;
@@ -235,6 +245,7 @@ async function readFolder(dir: string, deep: boolean) {
       F.reading.delete(dir);
     }
   }
+
   if (changed || !had?.entries) draw();
   if (F.key === key && F.generation === generation && F.filter.trim()) readAll();
 }
@@ -273,10 +284,12 @@ function draw() {
   else if (!rows.length && F.walking && F.filter.trim()) html = `<div class="agpmsg"><span class="dspin"></span>Reading folders…</div>`;
   else if (!rows.length && !F.capped) html = `<div class="agpmsg">${F.filter ? "No files match." : "This folder is empty."}</div>`;
   else if (top.more) html += `<div class="agtr note" style="--d:0">${top.more} more not shown</div>`;
+
   if (F.filter.trim() && top?.entries && !top.error) {
     if (F.walking) { if (rows.length) html += `<div class="agtr note" style="--d:0"><span class="dspin"></span>Reading folders…</div>`; }
     else if (F.capped) html += `<div class="agtr note" style="--d:0">Stopped reading at ${WALK_ENTRIES.toLocaleString()} files</div>`;
   }
+
   // The same rows again: leave the DOM alone.
   if (F.drawn === html && tree.firstChild && !F.reveal) return;
   F.drawn = html;
@@ -293,6 +306,7 @@ function toggle(path: string) {
     // Read on from a folder at the edge: shown at once when it was read.
     if (!F.listings.get(path)?.entries || (!F.flat && atEdge(F.listings, path))) load(path);
   }
+
   draw();
 }
 
@@ -320,6 +334,7 @@ function wire(el: HTMLElement) {
     const path = row.dataset.fpath!;
     Object.assign(F, selectFile(F, visiblePaths(), path, e.metaKey || e.ctrlKey, e.shiftKey));
     if (e.metaKey || e.ctrlKey || e.shiftKey) { draw(); return; }
+
     if (row.dataset.ffolder) toggle(path);
     else { draw(); openWorkFile(path); }
   });
@@ -328,8 +343,10 @@ function wire(el: HTMLElement) {
     tree.focus();
     const row = (e.target as HTMLElement).closest<HTMLElement>("[data-fpath]");
     const path = row?.dataset.fpath ?? "";
+
     if (path && !F.selected.has(path)) Object.assign(F, selectFile(F, visiblePaths(), path));
     else if (!path) { F.selected.clear(); F.picked = F.anchor = null; }
+
     draw();
     menu(path, !!row?.dataset.ffolder, e.clientX, e.clientY);
   });
@@ -337,6 +354,7 @@ function wire(el: HTMLElement) {
     if (e.isComposing || (e.target as HTMLElement).closest("input,textarea,[contenteditable=true]")) return;
     const cmd = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
     let handled = true;
+
     if (cmd && key === "a") { F.selected = new Set(visiblePaths()); draw(); }
     else if (cmd && (key === "c" || key === "x")) clipboard(key === "x");
     else if (cmd && key === "v") void paste(destination());
@@ -355,6 +373,7 @@ function wire(el: HTMLElement) {
       const row = tree.querySelector<HTMLElement>(".agtr.on"), box = row?.getBoundingClientRect() ?? tree.getBoundingClientRect();
       menu(F.picked ?? "", !!row?.dataset.ffolder, box.left, box.bottom);
     } else handled = false;
+
     if (handled) { e.preventDefault(); e.stopPropagation(); }
   });
   tree.addEventListener("dragstart", e => {
@@ -419,11 +438,13 @@ function menu(path: string, folder: boolean, x: number, y: number) {
   m.style.left = `${Math.max(0, Math.min(x - box.left, box.width - m.offsetWidth - 4))}px`;
   m.style.top = `${Math.max(0, Math.min(y - box.top, box.height - m.offsetHeight - 4))}px`;
   m.querySelector<HTMLElement>("button")?.focus();
+
   // A file this Mac has can be opened here, in another app, or shown in Finder.
   if (n === 1 && F.selected.size === 1 && !folder) {
     void localFileItems({ machineId: s.machine_id, root: paneRoot(), path }, { x, y }).then(more => {
       if (!more.length || !m.isConnected) return;
       m.append(document.createElement("hr"));
+
       for (const item of more) {
         const b = h(`<button role="menuitem">${esc(item.label)}</button>`);
         b.addEventListener("click", e => { e.stopPropagation(); closeFilesMenu(); item.on(); });
@@ -431,11 +452,13 @@ function menu(path: string, folder: boolean, x: number, y: number) {
       }
     });
   }
+
   m.addEventListener("click", e => {
     const act = (e.target as HTMLElement).closest<HTMLElement>("[data-fact]")?.dataset.fact;
     if (!act) return;
     e.stopPropagation();
     closeFilesMenu();
+
     if (act === "open") openPicked();
     else if (act === "preview") previewWorkFile(path);
     else if (act === "mention") paths.forEach(p => addMention(mentioned(paneRoot(), s.cwd, p)));
@@ -489,6 +512,7 @@ async function edit(action: FileAction, at = target()) {
   F.busy = true;
   draw();
   note("Updating files...");
+
   try {
     await invoke("agent_tree_edit", { machineId: at.machineId, root: at.root, action });
     if (F.key === at.key) note("Files updated.");
@@ -535,6 +559,7 @@ function clipboard(cut: boolean) {
 async function paste(folder: string) {
   const clip = F.clipboard;
   if (F.busy || !canPasteFiles(clip, F.key, folder) || !clip) return;
+
   try {
     await edit(clip.cut ? { Move: { paths: clip.paths, folder } } : { Copy: { paths: clip.paths, folder } });
     if (clip.cut && F.clipboard === clip) F.clipboard = null;
@@ -556,6 +581,7 @@ async function saveItems() {
   F.busy = true;
   draw();
   note(`Saving ${paths.length} items...`);
+
   try {
     const to = await invoke<string>("agent_tree_save_many", { machineId: at.machineId, root: at.root, paths });
     if (F.key === at.key) note("Saved to Downloads.");

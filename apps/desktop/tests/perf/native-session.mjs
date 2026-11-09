@@ -19,6 +19,7 @@ const childEntries = [
 ];
 const { server, origin } = await serve(fileURLToPath(new URL("../../dist", import.meta.url)));
 const browser = await playwright().chromium.launch({ executablePath: process.env.CHROMIUM_BIN });
+
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.setDefaultTimeout(8000);
@@ -32,6 +33,7 @@ try {
         window.__sessionReads.push(args.session);
         return { session: args.session === child.id ? child : parent, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0, entries: args.session === child.id ? childEntries : parentEntries, earlier: 0 };
       }
+
       if (cmd === "agent_sessions") return [parent];
       if (cmd === "editors") return [];
       if (cmd === "agent_tree") return { folders: [{ path: "", git: true, more: 0, entries: [{ name: "tests", folder: true, size: 0, ignored: false, change: null }] }], truncated: false };

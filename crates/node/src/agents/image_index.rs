@@ -53,11 +53,13 @@ impl FileIndexes {
         let Some(at) = index.line_of(key)? else {
             return Ok(None);
         };
+
         if let Some(found) = picture_at(path, at, key)? {
             return Ok(Some(found));
         }
         // The line does not hold it any more: the file was replaced.
         *lock(&index.scanned) = Scanned::default();
+
         match index.line_of(key)? {
             Some(at) => picture_at(path, at, key),
             None => Ok(None),
@@ -78,9 +80,11 @@ impl FileIndexes {
                 })
             });
         files.push_back(index.clone());
+
         if files.len() > MAX_FILES {
             files.pop_front();
         }
+
         index
     }
 }
@@ -92,15 +96,19 @@ impl FileIndex {
         let mut scanned = lock(&self.scanned);
         let file = File::open(&self.path)?;
         let len = file.metadata()?.len();
+
         if len < scanned.end {
             *scanned = Scanned::default();
         }
+
         if let Some(&at) = scanned.lines.get(key) {
             return Ok(Some(at));
         }
+
         if len > scanned.end {
             scanned.scan(file)?;
         }
+
         Ok(scanned.lines.get(key).copied())
     }
 }
@@ -112,13 +120,17 @@ impl Scanned {
         let mut lines = BufReader::new(file);
         let mut line = Vec::new();
         let limit = u64::try_from(MAX_LINE).unwrap_or(u64::MAX);
+
         loop {
             line.clear();
             let read = (&mut lines).take(limit).read_until(b'\n', &mut line)?;
+
             if read == 0 {
                 return Ok(());
             }
+
             let ended = line.last() == Some(&b'\n');
+
             if !ended && read == MAX_LINE {
                 // Too long to read: skip the rest of it. What arrives after
                 // reads as a line that is not JSON.
@@ -126,11 +138,14 @@ impl Scanned {
                 self.passed(read + rest);
                 continue;
             }
+
             self.index_line(&line);
+
             if !ended {
                 self.count_read(read);
                 return Ok(());
             }
+
             self.passed(read);
         }
     }
@@ -140,6 +155,7 @@ impl Scanned {
         if !has_base64(line) {
             return;
         }
+
         let Ok(value) = serde_json::from_slice::<Value>(line) else {
             return;
         };

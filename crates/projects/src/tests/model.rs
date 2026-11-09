@@ -45,6 +45,7 @@ fn paths_join_and_contain() {
     assert_eq!(project.join(".worktrees/x"), inside);
     // A join cannot climb out of the path.
     assert_eq!(project.join("../x").as_ref(), "/srv/project/x");
+
     for bad in ["/srv/../etc", "srv/project", "/srv/project/", "", "/srv//x"] {
         assert!(
             MachinePath::from_str(bad).is_err(),

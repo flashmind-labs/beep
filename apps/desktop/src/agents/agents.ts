@@ -173,10 +173,12 @@ export function usageLine(u: AgentUsage) {
   if (u.tokens) parts.push(`${sessionTokens.format(u.tokens).replace("K", "k")} tokens`);
   const credit = u.credits?.find(c => c.unit === "usd");
   const spent = u.cost_usd == null ? "?" : money(u.cost_usd);
+
   if (credit) {
     const remaining = credit.remaining == null ? NaN : Number(credit.remaining);
     parts.push(`${spent} / ${Number.isFinite(remaining) ? money(remaining) : "?"}`);
   } else if (u.cost_usd != null) parts.push(spent);
+
   return parts.join(" · ");
 }
 
@@ -376,6 +378,7 @@ export async function loadAgentHosts() {
   } catch {
     AG.hosts = [];
   }
+
   drawAgentButton();
   if (S.view === "agentnew") drawAgentNew();
 }
@@ -404,12 +407,14 @@ export async function renderAgents() {
   AG.sel = 0;
   keepCopiesFresh(() => S.view === "agents");
   drawAgents(true);
+
   try {
     await loadSessions();
     AG.error = "";
   } catch (e) {
     AG.error = String(e);
   }
+
   if (S.view === "agents") drawAgents(false);
 }
 
@@ -481,10 +486,12 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     if (cmd && e.key.toLowerCase() === "m") { e.preventDefault(); togglePicker(); return true; }
     return false;
   }
+
   if (S.view === "agent") {
     if (cmd && e.key === "Enter" && answerFirst(true)) { e.preventDefault(); return true; }
     if (cmd && e.key.toLowerCase() === "d" && answerFirst(false)) { e.preventDefault(); return true; }
     if (cmd && e.key === ".") { e.preventDefault(); interruptAgent(); return true; }
+
     // ⌘T a terminal in the pane, ⌘N one like the terminal on screen, ⌘1 focuses chat, ⌘2 ⌘3 ⌘4 the pane's Files,
     // Changes and Artifacts, ⌘O the folder in the editor. ⌘U opens or folds every thought, ⌘Y
     // every command, ⇧⌘Y the last one. They work from the field and from a terminal: none edits text.
@@ -495,6 +502,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
       if (k === "n" && !e.shiftKey && newTerminalLike()) { e.preventDefault(); return true; }
       if (k === "u" && !e.shiftKey) { e.preventDefault(); toggleThoughts(); return true; }
       if (k === "y") { e.preventDefault(); (e.shiftKey ? toggleLastCommand : toggleCommands)(); return true; }
+
       if (!e.shiftKey && k === "1") {
         e.preventDefault();
         leavePane();
@@ -503,12 +511,15 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
         chat?.focus();
         return true;
       }
+
       if (!e.shiftKey && (k === "2" || k === "3" || k === "4")) { e.preventDefault(); showPaneTab(Number(k) - 2); return true; }
       if (k === "o" && !e.shiftKey) { e.preventDefault(); openEditorKey(); return true; }
     }
+
     const target = e.target as HTMLElement | null;
     const body = $<ChatBody>("#agbody");
     const page = pageDirection(e, !!body && ((target?.id === "agmsg" && !(target as HTMLTextAreaElement).value) || target === body || target === document.body));
+
     if (page && body) {
       e.preventDefault();
       body.stuck = false;
@@ -516,30 +527,37 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
       if (nearTop(body)) void loadOlder("near");
       return true;
     }
+
     // Home and ⌘↑ go to the first entry of the log, End and ⌘↓ to the last,
     // unless the field has text to move through.
     const jump = logJumpKey(e, cmd);
     if (jump) { e.preventDefault(); void (jump === "start" ? jumpToStart() : jumpToEnd()); return true; }
     if (e.key === "Tab" && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && (e.target as HTMLElement).id === "agmsg" && cycleMode()) { e.preventDefault(); return true; }
+
     // On a phone Return starts a new line; the Send button sends.
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (e.target as HTMLElement).id === "agmsg" && !document.body?.classList.contains("mobile")) {
       e.preventDefault();
       submitAgentMessage(e.target as HTMLTextAreaElement);
       return true;
     }
+
     return false;
   }
+
   if (S.view === "agents") {
     const n = drawn.length;
     if (!n) return false;
+
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       AG.sel = (AG.sel + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
       drawAgents(false);
       return true;
     }
+
     if (e.key === "Enter") { e.preventDefault(); openAgent(drawn[AG.sel], { back: "agents" }); return true; }
   }
+
   return false;
 }
 
@@ -554,6 +572,7 @@ export function agentBack(closed = false) {
     if (draftEsc(typed) === "project") windowHooks?.goBack({ view: "projects", arg: { project: AG.draft } });
     return;
   }
+
   if (!closed && S.view === "agent" && closeModelPicker()) return;
   // Esc from a child opens its parent; closing returns to the previous page.
   const up = !closed && S.view === "agent" && AG.open ? AG.page && parentSession(AG.page.session) : undefined;
@@ -561,11 +580,13 @@ export function agentBack(closed = false) {
   if (S.view === "agent" && windowHooks && !closed && leavePane()) return;
   if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back);
   if ((S.view === "agent" || S.view === "agentnew") && AG.back === "agents") return renderAgents();
+
   // A session without a return target goes to its project.
   if (S.view === "agent" && windowHooks) {
     const project = AG.page && windowHooks.sessionProject?.(AG.page.session);
     if (project) return project.open();
   }
+
   if (S.link === "unlinked" && !windowHooks) return void invoke("hide_bar");
   return S.session ? openSession(S.session) : renderChat();
 }

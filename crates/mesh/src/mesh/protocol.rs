@@ -33,18 +33,22 @@ impl Debug for MeshProtocol {
 impl ProtocolHandler for MeshProtocol {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         let peer = connection.remote_id();
+
         if self.inner.is_closed() {
             connection.close(1u32.into(), b"closed");
             return Ok(());
         }
+
         if !self.inner.is_member(peer) {
             if self.inner.view().devices.is_removed(peer) {
                 link::tell_removed(&self.inner, connection).await;
             } else {
                 connection.close(1u32.into(), b"not a member");
             }
+
             return Ok(());
         }
+
         link::serve(self.inner.clone(), connection, peer).await;
         Ok(())
     }

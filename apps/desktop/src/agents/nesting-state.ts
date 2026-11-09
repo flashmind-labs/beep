@@ -27,12 +27,14 @@ export function parentRow(rows: AgentSession[], s: Pick<AgentSession, "machine_i
 export function nest(rows: AgentSession[]): Nested[] {
   const kids = new Map<AgentSession, AgentSession[]>();
   const nested = new Set<AgentSession>();
+
   for (const row of rows) {
     const parent = parentRow(rows, row);
     if (!parent || parent === row) continue;
     kids.set(parent, [...(kids.get(parent) ?? []), row]);
     nested.add(row);
   }
+
   const out: Nested[] = [];
   const seen = new Set<AgentSession>();
   const add = (row: AgentSession, depth: number) => {

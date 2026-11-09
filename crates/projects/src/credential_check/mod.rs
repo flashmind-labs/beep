@@ -80,6 +80,7 @@ impl Checker {
                 return Vec::new();
             }
         };
+
         match reply.json::<Vec<UserReply>>().await {
             Ok(orgs) => orgs
                 .into_iter()
@@ -166,9 +167,11 @@ impl Checker {
                 return Checked::Unreachable;
             }
         };
+
         if !reply.status().is_success() {
             return refused(host, reply.status());
         }
+
         match reply.json::<UserReply>().await {
             Ok(user) => Checked::Valid { login: user.login },
             Err(_) => Checked::Refused(format!(

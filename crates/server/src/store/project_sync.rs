@@ -99,6 +99,7 @@ impl Store {
                 .execute(&mut *tx)
                 .await?;
         }
+
         tx.commit().await?;
         Ok(())
     }

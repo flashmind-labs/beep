@@ -63,9 +63,11 @@ impl Agents {
     pub(in crate::agents) fn adopt_remote(&self, parent: &Session, kid: RemoteKid) {
         {
             let mut remote = crate::lock(&self.family.remote);
+
             if !kid.pending() && remote.contains(&kid) {
                 return;
             }
+
             remote.push(kid.clone());
         }
         restart::changed();
@@ -97,6 +99,7 @@ impl Agents {
     pub(crate) fn forget_expected(&self, parent: &str, machine: EndpointId) {
         {
             let mut remote = crate::lock(&self.family.remote);
+
             if let Some(at) = remote
                 .iter()
                 .position(|kid| kid.parent == parent && kid.machine == machine && kid.pending())
@@ -142,6 +145,7 @@ impl Agents {
             if !parent_gone(&mut live).await {
                 return;
             }
+
             let Some(mesh) = membership.get().and_then(Membership::get) else {
                 return;
             };
@@ -174,6 +178,7 @@ fn mark_ended(remote: &Mutex<Vec<RemoteKid>>, kid: &RemoteKid) {
             known.ended = true;
         }
     }
+
     restart::changed();
 }
 

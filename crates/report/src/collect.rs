@@ -101,6 +101,7 @@ pub async fn collect_within(targets: Vec<Target>, since: i64, max_bytes: u32) ->
     let mut shares = Vec::with_capacity(targets.len());
     let mut tasks = JoinSet::new();
     let mut slots = HashMap::new();
+
     for (slot, target) in targets.into_iter().enumerate() {
         let Target {
             id,
@@ -108,6 +109,7 @@ pub async fn collect_within(targets: Vec<Target>, since: i64, max_bytes: u32) ->
             kind,
             client,
         } = target;
+
         match client {
             Ok(client) => {
                 let mut share = Share::empty(id, name, kind, Answer::Silent);
@@ -125,6 +127,7 @@ pub async fn collect_within(targets: Vec<Target>, since: i64, max_bytes: u32) ->
             Err(reason) => shares.push(Share::empty(id, name, kind, Answer::Offline { reason })),
         }
     }
+
     while let Some(joined) = tasks.join_next_with_id().await {
         match joined {
             Ok((task, share)) => {
@@ -141,6 +144,7 @@ pub async fn collect_within(targets: Vec<Target>, since: i64, max_bytes: u32) ->
             }
         }
     }
+
     shares
 }
 
@@ -148,6 +152,7 @@ pub async fn collect_within(targets: Vec<Target>, since: i64, max_bytes: u32) ->
 /// `share` as answers come in.
 async fn ask(client: &PeerClient, since: u64, max_bytes: u32, share: &mut Share) -> Answer {
     let request = Request { since, max_bytes };
+
     match client.call::<_, Reply>(PROTOCOL, &request).await {
         Ok(Reply::Share {
             log,
@@ -188,6 +193,7 @@ pub(crate) fn newest_lines(log: String, max: usize) -> String {
     if log.len() <= max {
         return log;
     }
+
     let from = log.len() - max;
     // A line starts right after a newline; one longer than `max` is dropped.
     match log.as_bytes()[from - 1..].iter().position(|&b| b == b'\n') {

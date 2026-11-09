@@ -81,6 +81,7 @@ impl Timing {
         if recent(self.forced, now, FORCE_EVERY) {
             return false;
         }
+
         self.forced = Some(now);
         true
     }
@@ -100,6 +101,7 @@ impl Timing {
         if !self.open(now) || recent(self.polled, now, POLL_EVERY) {
             return false;
         }
+
         self.polled = Some(now);
         true
     }

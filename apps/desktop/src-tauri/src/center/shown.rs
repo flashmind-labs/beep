@@ -139,6 +139,7 @@ fn remember_in(holder: Holder, bar: &impl Current, shown: &ShownIn<'_>, chat: Ch
         Holder::Bar => bar,
         Holder::Center => shown,
     };
+
     match chat {
         Chat::Session(session) => {
             current.set_session(session);
@@ -148,6 +149,7 @@ fn remember_in(holder: Holder, bar: &impl Current, shown: &ShownIn<'_>, chat: Ch
             if holder == Holder::Center && group.is_some() {
                 current.set_session(None);
             }
+
             current.set_group(group);
         }
     }

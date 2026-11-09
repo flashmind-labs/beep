@@ -34,6 +34,7 @@ pub async fn read_hosts(
         if gh.is_empty() {
             return None;
         }
+
         let runs: Vec<Run> = gh
             .iter()
             .map(|shell| Run {
@@ -123,6 +124,7 @@ async fn read_forgejo(machines: &[TeaMachine], server: &ForgejoUrl) -> Result<Ve
     if machines.is_empty() {
         return Err(anyhow!("No online machine has teacli."));
     }
+
     let runs: Vec<Run> = machines
         .iter()
         .filter_map(|machine| {
@@ -139,6 +141,7 @@ async fn read_forgejo(machines: &[TeaMachine], server: &ForgejoUrl) -> Result<Ve
             server.host()
         ));
     }
+
     read_any(&runs, parse_teacli).await
 }
 
@@ -251,11 +254,13 @@ fn parse_teacli(out: &str) -> Result<Vec<Listed>> {
         updated_at: Option<SystemTime>,
     }
     let mut all: Vec<Partial> = Vec::new();
+
     for line in out.lines() {
         let Some((key, value)) = line.trim().split_once(':') else {
             continue;
         };
         let value: Value = serde_json::from_str(value.trim().trim_end_matches(','))?;
+
         match (key.trim_matches('"'), all.last_mut()) {
             ("full_name", _) => all.push(Partial {
                 name: value.as_str().unwrap_or_default().to_owned(),
@@ -272,6 +277,7 @@ fn parse_teacli(out: &str) -> Result<Vec<Listed>> {
             _ => {}
         }
     }
+
     Ok(all
         .into_iter()
         .filter(|repo| !repo.archived && !repo.name.is_empty())

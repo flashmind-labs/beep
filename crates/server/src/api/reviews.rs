@@ -32,11 +32,13 @@ pub(super) async fn list_branch_reviews(
     let rows = cx.user.reviews(request.project.trim(), MAX_REVIEWS).await?;
     let names = machine_names(&cx).await?;
     let mut out = Vec::with_capacity(rows.len());
+
     for review in rows {
         let shards = cx.user.review_shards(&review).await?;
         let findings = cx.user.review_findings(&review).await?;
         out.push(view(review, &names, shards, findings, &HashMap::new()));
     }
+
     Ok(out)
 }
 
@@ -45,6 +47,7 @@ pub(super) async fn dismiss_review_finding(
     request: DismissReviewFinding,
 ) -> Reply<BranchReview> {
     let review = review_of(&cx, request.review).await?;
+
     if !cx
         .user
         .dismiss_finding(review.id, request.finding, request.dismissed)
@@ -52,6 +55,7 @@ pub(super) async fn dismiss_review_finding(
     {
         return Err(ApiError::NotFound {});
     }
+
     shown(&cx, review, &HashMap::new()).await
 }
 
@@ -59,13 +63,17 @@ pub(super) async fn fix_review_findings(cx: Cx, request: FixReviewFindings) -> R
     let review = review_of(&cx, request.review).await?;
     let shards = cx.user.review_shards(&review).await?;
     let findings = cx.user.review_findings(&review).await?;
+
     if running(&shards) {
         return Err(ApiError::bad_request("The review is still running."));
     }
+
     let open = open(&findings);
+
     if open.is_empty() {
         return Err(ApiError::bad_request("No finding is open to fix."));
     }
+
     let project = project_row(&cx, &review.project).await?;
     let names = machine_names(&cx).await?;
     let fix = Fix {
@@ -85,9 +93,11 @@ pub(super) async fn post_branch_review(cx: Cx, request: PostBranchReview) -> Rep
     let review = review_of(&cx, request.review).await?;
     let shards = cx.user.review_shards(&review).await?;
     let findings = cx.user.review_findings(&review).await?;
+
     if running(&shards) {
         return Err(ApiError::bad_request("The review is still running."));
     }
+
     let Some(pr) = &review.pr else {
         return Err(ApiError::bad_request(
             "The branch has no open pull request to post the review on.",
@@ -120,6 +130,7 @@ fn place_of(finding: &ReviewFindingRow) -> String {
 
 fn finding_lines(findings: &[&ReviewFindingRow]) -> String {
     let mut out = String::new();
+
     for (n, finding) in findings.iter().enumerate() {
         let severity: &'static str = finding.severity.into();
         let _ = writeln!(
@@ -131,6 +142,7 @@ fn finding_lines(findings: &[&ReviewFindingRow]) -> String {
             finding.why
         );
     }
+
     out
 }
 
@@ -195,6 +207,7 @@ pub(super) async fn project_row(cx: &Cx, name: &str) -> Result<ProjectRow, ApiEr
     if let Some(project) = known {
         return Ok(project);
     }
+
     let imported = cx
         .user
         .imports()
@@ -204,6 +217,7 @@ pub(super) async fn project_row(cx: &Cx, name: &str) -> Result<ProjectRow, ApiEr
     if !imported {
         return Err(ApiError::NotFound {});
     }
+
     Ok(cx.user.ensure_project(&name).await?)
 }
 

@@ -55,6 +55,7 @@ impl Agents {
         let mut processes = crate::lock(&source.processes);
         let before = active_roots(&processes);
         processes.retain(|_, held| !held._task.is_finished());
+
         for session in sessions {
             let key = (session.agent.clone(), session.id.clone());
             let revision = match (session.pid, recent_deadline(session)) {
@@ -65,6 +66,7 @@ impl Agents {
                     continue;
                 }
             };
+
             if let Some(held) = processes.get_mut(&key)
                 && held.revision == revision
             {
@@ -72,6 +74,7 @@ impl Agents {
                 held.cwd = PathBuf::from(&session.cwd);
                 continue;
             }
+
             if processes.len() >= 512
                 && !processes.contains_key(&key)
                 && let Some(oldest) = processes
@@ -81,6 +84,7 @@ impl Agents {
             {
                 processes.remove(&oldest);
             }
+
             let exit = match revision {
                 Observation::Process(pid) => match crate::events::exits::Exit::watch(pid) {
                     Ok(exit) => Some(exit),
@@ -103,6 +107,7 @@ impl Agents {
                         }
                     }
                 }
+
                 hub.changed(beep_proto::node::events::Topic::keyed("agent", &id));
                 hub.changed(beep_proto::node::events::Topic::new("agents"));
             }));
@@ -116,8 +121,10 @@ impl Agents {
                 },
             );
         }
+
         let changed = before != active_roots(&processes);
         drop(processes);
+
         if changed {
             self.events
                 .changed(beep_proto::node::events::Topic::new("agents"));
@@ -155,6 +162,7 @@ impl Agents {
         if let Some(held) = crate::lock(&self.event_watcher).upgrade() {
             return Ok(held);
         }
+
         let roots: Vec<_> = [Agent::Codex, Agent::Pi, Agent::Flsh, Agent::OpenCode]
             .into_iter()
             .flat_map(|agent| self.stores.follow_paths(Some(agent)))
@@ -169,15 +177,18 @@ impl Agents {
             let summary_hub = hub.clone();
             let summary = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
                 let mut previous = None;
+
                 while summaries.recv().await.is_some() {
                     sleep(Duration::from_millis(400)).await;
                     while summaries.try_recv().is_ok() {}
                     let Some(agents) = agents.upgrade() else {
                         return;
                     };
+
                     if summary_structure.swap(false, std::sync::atomic::Ordering::AcqRel) {
                         *agents.sighted.lock().await = None;
                     }
+
                     match source_summary(&agents).await {
                         Ok(summary) if previous.as_ref() != Some(&summary) => {
                             previous = Some(summary);
@@ -195,6 +206,7 @@ impl Agents {
                 if structural {
                     structure.store(true, std::sync::atomic::Ordering::Release);
                 }
+
                 hub.changed(beep_proto::node::events::Topic::new("agent"));
                 let _ = dirty.try_send(());
             })?;
@@ -208,6 +220,7 @@ impl Agents {
         .context("starting session notifications")??;
         source.paths.replace(roots).await?;
         let mut held = crate::lock(&self.event_watcher);
+
         if let Some(current) = held.upgrade() {
             return Ok(current);
         }

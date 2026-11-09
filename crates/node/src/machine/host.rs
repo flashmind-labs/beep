@@ -15,8 +15,10 @@ pub async fn host_name() -> String {
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
         .unwrap_or_default();
     let name = name.split('.').next().unwrap_or_default();
+
     if name.is_empty() || name.len() > MAX_NAME {
         return NO_HOSTNAME.to_owned();
     }
+
     name.to_owned()
 }

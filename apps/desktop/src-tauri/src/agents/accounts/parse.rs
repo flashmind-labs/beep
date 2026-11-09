@@ -15,6 +15,7 @@ pub(super) fn ended_without_token(output: &str) -> String {
     if last.is_empty() {
         return "Claude Code ended without a token. Paste one instead.".into();
     }
+
     let short: String = last.chars().take(REASON_CHARS).collect();
     format!("Claude Code ended without a token: {short}")
 }
@@ -24,17 +25,20 @@ pub(super) fn ended_without_token(output: &str) -> String {
 pub(super) fn plain(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
+
     while let Some(c) = chars.next() {
         match c {
             '\u{1b}' => match chars.next() {
                 Some('[') => {
                     let mut last = ' ';
+
                     for c in chars.by_ref() {
                         if c.is_ascii_alphabetic() || c == '~' {
                             last = c;
                             break;
                         }
                     }
+
                     match last {
                         'C' => out.push(' '),
                         'A' | 'B' | 'E' | 'F' | 'H' | 'f' => out.push('\n'),
@@ -47,6 +51,7 @@ pub(super) fn plain(text: &str) -> String {
                         if c == '\u{7}' {
                             break;
                         }
+
                         if c == '\u{1b}' && chars.peek() == Some(&'\\') {
                             chars.next();
                             break;
@@ -61,6 +66,7 @@ pub(super) fn plain(text: &str) -> String {
             c => out.push(c),
         }
     }
+
     out
 }
 
@@ -81,8 +87,10 @@ pub(super) fn token(output: &str) -> Option<String> {
         .take_while(|c| token_char(*c))
         .collect();
     let mut ended = false;
+
     for line in lines {
         let line = line.trim();
+
         if !line.is_empty() && line.chars().all(token_char) {
             token.push_str(line);
             continue;

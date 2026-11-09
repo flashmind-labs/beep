@@ -45,11 +45,14 @@ const VALUE = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "va
 export function composeField(field: HTMLTextAreaElement, opts: ComposeOptions = {}) {
   if (fields.has(field)) return;
   const draftKey = opts.draft === undefined ? null : `beep.promptDraft.v1.${opts.draft}`;
+
   if (draftKey) {
     try { field.value = localStorage.getItem(draftKey) ?? field.value; } catch { /* Storage can be unavailable. */ }
   }
+
   const saveDraft = () => {
     if (!draftKey) return;
+
     try {
       // Pill IDs only live in this window. Keep their text without changing
       // whitespace or adding the code fences that sending would add.
@@ -99,6 +102,7 @@ const COPIED = ["fontFamily", "fontSize", "fontWeight", "fontStyle", "fontStretc
 function draw(field: HTMLTextAreaElement) {
   const f = fields.get(field);
   if (!f || !field.isConnected) return;
+
   if (f.opts.grow) {
     // Collapsing the field to measure it makes the log above taller for a
     // moment, which moves a log scrolled to its end.
@@ -107,12 +111,15 @@ function draw(field: HTMLTextAreaElement) {
     field.style.height = `${Math.min(field.scrollHeight, f.opts.grow)}px`;
     if (log && log.scrollTop !== top) log.scrollTop = top!;
   }
+
   const value = field.value, pills = pillsIn(value), fence = fenceSpan(value, pastes), layer = f.layer;
+
   if (!pills.length && !fence) {
     layer.hidden = true;
     layer.replaceChildren();
     return;
   }
+
   layer.hidden = false;
   const cs = getComputedStyle(field);
   for (const k of COPIED) layer.style[k] = cs[k];
@@ -124,6 +131,7 @@ function draw(field: HTMLTextAreaElement) {
   const run = (a: number, b: number) => {
     const out: Node[] = [];
     let at = a;
+
     for (const p of pills) {
       if (p.start < a || p.end > b) continue;
       out.push(document.createTextNode(value.slice(at, p.start)));
@@ -134,10 +142,12 @@ function draw(field: HTMLTextAreaElement) {
       out.push(span);
       at = p.end;
     }
+
     out.push(document.createTextNode(value.slice(at, b)));
     return out;
   };
   let code: HTMLSpanElement | null = null;
+
   if (fence) {
     code = document.createElement("span");
     code.append(...run(fence.start, fence.end));
@@ -145,6 +155,7 @@ function draw(field: HTMLTextAreaElement) {
   } else {
     layer.replaceChildren(...run(0, value.length));
   }
+
   // A last empty line still takes its height, as in the field.
   layer.append(document.createTextNode(" "));
   layer.scrollTop = field.scrollTop;
@@ -184,6 +195,7 @@ function paste(field: HTMLTextAreaElement, e: ClipboardEvent) {
   const text = data.getData("text/plain");
   if (!text) return;
   const image = f.opts.images ? imagePath(text) : null;
+
   if (image) {
     e.preventDefault();
     readImage(image.path).then(file => f.opts.images!([file])).catch(err => {
@@ -193,6 +205,7 @@ function paste(field: HTMLTextAreaElement, e: ClipboardEvent) {
     });
     return;
   }
+
   const whole = normalizeNewlines(text);
   if (lineCount(whole) <= PASTE_PILL_LINES) return;
   e.preventDefault();
@@ -210,12 +223,14 @@ async function readImage(path: string) {
 
 function key(field: HTMLTextAreaElement, e: KeyboardEvent) {
   const f = fields.get(field)!;
+
   if (e.key === "Escape" && f.pop) {
     e.preventDefault();
     e.stopPropagation();
     closePop(field);
     return;
   }
+
   if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.shiftKey && !e.metaKey && !e.altKey && !e.ctrlKey) {
     // Over a pill in one step.
     const at = field.selectionStart, back = e.key === "ArrowLeft";
@@ -227,6 +242,7 @@ function key(field: HTMLTextAreaElement, e: KeyboardEvent) {
     f.caret = to;
     return;
   }
+
   if ((e.key !== "Backspace" && e.key !== "Delete") || e.isComposing) return;
   const at = field.selectionStart;
   if (at !== field.selectionEnd) return;
@@ -248,12 +264,14 @@ function snap(field: HTMLTextAreaElement) {
   const f = fields.get(field);
   if (!f || f.composing) return;
   const a = field.selectionStart, b = field.selectionEnd, pills = pillsIn(field.value);
+
   if (a === b) {
     const to = snapCaret(pills, a, f.caret);
     f.caret = to;
     if (to !== a) field.setSelectionRange(to, to);
     return;
   }
+
   const s = snapSelection(pills, a, b);
   if (s.start !== a || s.end !== b) field.setSelectionRange(s.start, s.end, field.selectionDirection);
 }
@@ -263,6 +281,7 @@ function snap(field: HTMLTextAreaElement) {
 /// A click on a pill shows its text, to expand into the field or remove.
 function click(field: HTMLTextAreaElement, e: MouseEvent) {
   const f = fields.get(field)!;
+
   for (const span of f.layer.querySelectorAll<HTMLElement>(".cx-pill")) {
     for (const r of span.getClientRects()) {
       if (e.clientX >= r.left - 2 && e.clientX <= r.right + 2 && e.clientY >= r.top && e.clientY <= r.bottom) return openPop(field, Number(span.dataset.id));

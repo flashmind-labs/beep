@@ -24,6 +24,7 @@ pub fn show<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     if !LIVE_ENABLED {
         return Ok(());
     }
+
     let orb = match app.get_webview_window(LABEL) {
         Some(orb) => orb,
         None => {

@@ -77,6 +77,7 @@ pub(super) struct State {
 impl State {
     pub(super) fn new(saved: Saved) -> Self {
         let mut have = HashMap::new();
+
         for seen in saved.seen.values() {
             *have.entry(seen.hash).or_default() += 1;
         }
@@ -92,15 +93,18 @@ impl State {
         if !self.unsaved {
             return None;
         }
+
         self.unsaved = false;
         Some(self.saved.clone())
     }
 
     pub(super) fn set_seen(&mut self, path: &str, seen: Seen) {
         *self.have.entry(seen.hash).or_default() += 1;
+
         if let Some(old) = self.saved.seen.insert(path.to_owned(), seen) {
             self.forget_hash(&old.hash);
         }
+
         self.unsaved = true;
     }
 
@@ -114,6 +118,7 @@ impl State {
     fn forget_hash(&mut self, hash: &[u8; 32]) {
         if let Some(count) = self.have.get_mut(hash) {
             *count -= 1;
+
             if *count == 0 {
                 self.have.remove(hash);
             }
@@ -130,6 +135,7 @@ pub(super) fn read_saved(file: &Path) -> Saved {
             return Saved::default();
         }
     };
+
     match beep_proto::lenient::from_slice::<Saved>(&bytes) {
         Ok(mut saved) => {
             saved.map = saved.map.loaded();
@@ -143,9 +149,11 @@ pub(super) fn read_saved(file: &Path) -> Saved {
                 file.display(),
                 aside.display()
             );
+
             if let Err(e) = fs::rename(file, &aside) {
                 log::warn!("could not keep {}: {e}", file.display());
             }
+
             Saved::default()
         }
     }

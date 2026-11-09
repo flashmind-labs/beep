@@ -34,6 +34,7 @@ export function tabDown(e: PointerEvent) {
 function tabMove(e: PointerEvent) {
   const d = drag, el = shell();
   if (!d || e.pointerId !== d.pointer || !el) return;
+
   if (!d.ghost) {
     if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < DRAG_START) return;
     d.ghost = d.tab.cloneNode(true) as HTMLElement;
@@ -44,6 +45,7 @@ function tabMove(e: PointerEvent) {
     el.classList.add("tabdrag");
     document.addEventListener("keydown", dragKey, true);
   }
+
   d.ghost.style.transform = `translate(${e.clientX + 8}px, ${e.clientY + 6}px)`;
   // Over a dock's own pane or strip, the tab goes there; else by the edge.
   const over = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>(".agpane, .agpstrip")?.dataset.dock as Dock | undefined;
@@ -63,6 +65,7 @@ function drawDropZone(to: Dock | null) {
   const s = el.getBoundingClientRect();
   const pane = paneOf(to);
   let r: Box;
+
   if (pane && !pane.hidden) r = (pane.querySelector(".agpane-content") ?? pane).getBoundingClientRect();
   else if (to === "right") {
     const w = paneSize("right", P.layout.right, s.width);
@@ -71,6 +74,7 @@ function drawDropZone(to: Dock | null) {
     const m = box.getBoundingClientRect(), hgt = paneSize("bottom", P.layout.bottom, m.height);
     r = { left: m.left, top: m.bottom - hgt, width: m.width, height: hgt };
   }
+
   Object.assign(zone.style, { left: `${r.left - s.left}px`, top: `${r.top - s.top}px`, width: `${r.width}px`, height: `${r.height}px` });
   zone.innerHTML = `${to === "right" ? DOCK_RIGHT : DOCK_BOTTOM}<span>${to === "right" ? "Dock on the right" : "Dock at the bottom"}</span>`;
 }

@@ -280,13 +280,16 @@ pub async fn center_project_runs(
     if let Some(name) = desk(&fleet).await?.project_name(project_id) {
         return Ok(Some(fleet.runs(&name, refresh).await?.into()));
     }
+
     let all = ListProjectRunsAll {
         project_id,
         refresh,
     };
+
     if let Some(runs) = known(beep.call(all).await)? {
         return Ok(Some(runs.into()));
     }
+
     let primary = ListProjectRuns {
         project_id,
         refresh,
@@ -383,18 +386,21 @@ pub async fn center_project_run(
         row.run.host = host;
         return Ok(row);
     }
+
     if let Some(host) = host {
         let on = GetProjectRunOn {
             project_id,
             host: host.clone(),
             run_id,
         };
+
         if let Some(detail) = known(beep.call(on).await)? {
             let mut row: RunDetailRow = detail.into();
             row.run.host = Some(host);
             return Ok(row);
         }
     }
+
     let detail = beep.call(GetProjectRun { project_id, run_id }).await?;
     Ok(detail.into())
 }

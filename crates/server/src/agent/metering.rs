@@ -80,6 +80,7 @@ forward_llm!(Metered {
         if request.user.is_none() {
             request.user = BILLED_TO.try_with(String::clone).ok();
         }
+
         let Some(user) = request.user.clone() else {
             log::warn!(
                 "model call with no user is not counted; model={}",

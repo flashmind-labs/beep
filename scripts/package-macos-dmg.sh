@@ -6,6 +6,7 @@ if [[ $# != 2 ]]; then
     echo 'Usage: bash scripts/package-macos-dmg.sh <Beep.app> <output.dmg>' >&2
     exit 1
 fi
+
 app=$1
 dmg=$2
 [[ -d "$app/Contents" ]] || { echo "$app is not an app bundle" >&2; exit 1; }

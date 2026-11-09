@@ -66,8 +66,10 @@ fn walk(root: &Path) -> Result<Walked> {
     let mut walked = Walked::default();
     let mut total = 0u64;
     let mut folders = vec![(root.to_owned(), String::new())];
+
     while let Some((dir, prefix)) = folders.pop() {
         let mut kept = 0;
+
         for item in fs::read_dir(&dir).with_context(|| format!("listing {}", dir.display()))? {
             let item = item?;
             let Some(name) = item.file_name().to_str().map(str::to_owned) else {
@@ -103,12 +105,14 @@ fn walk(root: &Path) -> Result<Walked> {
                 walked.skipped += 1;
             }
         }
+
         if kept == 0 && !prefix.is_empty() {
             walked
                 .empty_folders
                 .push(prefix.trim_end_matches('/').to_owned());
         }
     }
+
     ensure!(
         (walked.entries.len() + walked.empty_folders.len()) as u64 <= MAX_FILES,
         "the folder holds more than {MAX_FILES} files and folders"
@@ -133,9 +137,11 @@ pub(crate) fn check_same(path: &Path, identity: Identity) -> Result<()> {
         .with_context(|| format!("opening {}", path.display()))?;
     let opened = Identity::from(&file.metadata()?);
     let named = Identity::from(&fs::symlink_metadata(path)?);
+
     if opened != identity || named != identity {
         bail!("{} changed while it was being sent", path.display());
     }
+
     Ok(())
 }
 
@@ -230,6 +236,7 @@ pub(super) async fn offer(
             _tags: vec![tag],
         });
     }
+
     ensure!(
         metadata.is_dir(),
         "{} is neither a file nor a folder",
@@ -249,6 +256,7 @@ pub(super) async fn offer(
             .collect(),
         empty_folders: walked.empty_folders.clone(),
     };
+
     if manifest != Manifest::default() {
         // A released receiver reads this with plain `rmp_serde` over an
         // unchanged protocol name, so `Manifest` gains no field (AGENTS.md).
@@ -262,8 +270,10 @@ pub(super) async fn offer(
         collection.push(MANIFEST_NAME.to_owned(), tag.hash());
         tags.push(tag);
     }
+
     let mut ticker = Ticker::new(Stage::Hashing, total);
     let mut done = 0u64;
+
     for entry in &walked.entries {
         let tag = add_file(store, entry, done, &mut ticker, tx).await?;
         collection.push(entry.name.clone(), tag.hash());
@@ -271,6 +281,7 @@ pub(super) async fn offer(
         done = done.saturating_add(entry.size);
         ticker.tick(tx, done).await?;
     }
+
     ticker.finish(tx, done).await?;
     let root = collection
         .store(store)

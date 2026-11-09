@@ -55,12 +55,14 @@ impl Desk {
         local_only: bool,
     ) -> Result<(DeskProject, DeskMachines)> {
         let store = DeskProject::of(&self.mesh, name)?;
+
         if local_only
             && store.is_on(self.local)
             && let Some(local) = self.local_machine().await
         {
             return Ok((store, DeskMachines::of(&[local])));
         }
+
         let machines = self.machines_among(&store.machine_ids()).await;
         Ok((store, DeskMachines::of(&machines)))
     }
@@ -74,6 +76,7 @@ impl Desk {
     {
         let (store, machines) = self.host_reads(project, true).await?;
         let here = store.is_on(self.local);
+
         match read(store, machines).await {
             Err(_) if here => {
                 let (store, machines) = self.host_reads(project, false).await?;
@@ -140,10 +143,12 @@ impl Desk {
     pub async fn lists(&self, project: &str) -> Result<LabeledProjectLists> {
         let local = self.lists_on(project, true).await?;
         let failed = local.lists.prs_error.is_some() || local.lists.issues_error.is_some();
+
         if failed && DeskProject::of(&self.mesh, project)?.is_on(self.local) {
             // This Mac could not read it; the others may.
             return self.lists_on(project, false).await;
         }
+
         Ok(local)
     }
 
@@ -160,6 +165,7 @@ impl Desk {
                     pr_labels.push(one.pr.labels.clone());
                     pull_requests.push(pull_request_view(one));
                 }
+
                 None
             }
             Err(e) => Some(e.to_string()),
@@ -185,6 +191,7 @@ impl Desk {
     pub(crate) async fn machine_view(&self, project: &str) -> Option<MachineView> {
         let (store, machines) = self.host_reads(project, true).await.ok()?;
         let here = store.is_on(self.local);
+
         match machine_view(&store, &machines).await {
             None if here => {
                 let (store, machines) = self.host_reads(project, false).await.ok()?;
@@ -296,6 +303,7 @@ impl DeskMachines {
     pub(crate) fn of(machines: &[Machine]) -> Self {
         let mut shells = HashMap::new();
         let mut names = Vec::new();
+
         for machine in machines {
             let Ok(id) = machine.id.parse::<EndpointId>() else {
                 continue;

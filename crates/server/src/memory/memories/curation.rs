@@ -60,6 +60,7 @@ impl LearnOp {
         if self.op == LearnKind::Forget {
             return None;
         }
+
         self.content
             .as_deref()
             .map(str::trim)
@@ -159,6 +160,7 @@ pub(crate) fn core_ids(
 ) -> HashSet<String> {
     let mut merged = HashMap::new();
     let mut forgotten = HashSet::new();
+
     for step in steps {
         match step {
             Step::Split { .. } => {}
@@ -175,13 +177,16 @@ pub(crate) fn core_ids(
             }
         }
     }
+
     let mut ids = HashSet::new();
+
     for id in &core {
         let id = merged.get(id.as_str()).copied().unwrap_or(id);
         if rows.contains_key(id) && !forgotten.contains(id) && ids.len() < MAX_CORE {
             ids.insert(id.to_owned());
         }
     }
+
     ids
 }
 
@@ -216,15 +221,18 @@ pub(crate) fn languages(rows: &[MemoryRow], today: NaiveDate) -> Option<&str> {
 pub(crate) fn profile(rows: &[MemoryRow], today: NaiveDate) -> Option<String> {
     let mut text = String::from(PROFILE_HEADER);
     let mut any = false;
+
     for fact in profile_facts(rows, today) {
         let line = format!("\n- {fact}");
         // A fact too long for what is left gives way to shorter ones.
         if text.chars().count() + line.chars().count() > MAX_PROFILE_CHARS {
             continue;
         }
+
         text.push_str(&line);
         any = true;
     }
+
     any.then_some(text)
 }
 
@@ -268,9 +276,11 @@ pub(super) fn merged_days(
     if dated.iter().all(|valid| valid.ended(today)) {
         return Some(asked.unwrap_or_default());
     }
+
     if dated.len() < rows.len() {
         return None;
     }
+
     let from = dated
         .iter()
         .map(|valid| valid.from)
@@ -295,9 +305,11 @@ pub(crate) fn plan_curation(
     let mut steps = Vec::new();
     let mut claim = |ids: &[String]| -> Option<Vec<&MemoryRow>> {
         let unique: HashSet<&str> = ids.iter().map(String::as_str).collect();
+
         if unique.len() != ids.len() || ids.iter().any(|id| used.contains(id.as_str())) {
             return None;
         }
+
         let found: Vec<&MemoryRow> = ids
             .iter()
             .map(|id| rows.get(id.as_str()).copied())
@@ -313,6 +325,7 @@ pub(crate) fn plan_curation(
             source,
         })
     };
+
     for op in ops {
         match op {
             CurateOp::Split { id, contents } => {
@@ -326,6 +339,7 @@ pub(crate) fn plan_curation(
                 {
                     continue;
                 }
+
                 if claim(slice::from_ref(&id)).is_some() {
                     steps.push(Step::Split { id, contents });
                 }
@@ -334,9 +348,11 @@ pub(crate) fn plan_curation(
                 let Some(row) = rows.get(id.as_str()) else {
                     continue;
                 };
+
                 if row.source == (MemorySource::User {}) && !row.valid.ended(today) {
                     continue;
                 }
+
                 if claim(slice::from_ref(&id)).is_some() {
                     steps.push(Step::Forget(id));
                 }
@@ -353,6 +369,7 @@ pub(crate) fn plan_curation(
                 {
                     continue;
                 }
+
                 if claim(slice::from_ref(&id)).is_some() {
                     steps.push(Step::Supersede { id, by });
                 }
@@ -364,6 +381,7 @@ pub(crate) fn plan_curation(
                 // An update without days keeps a memory's days, but one that is
                 // over becomes the lasting fact it was rewritten into.
                 let ended = found[0].valid.ended(today);
+
                 if let Some(mut fact) = text(new, found[0].source) {
                     if ended && fact.valid.is_none() {
                         fact.valid = Some(Validity::default());
@@ -379,6 +397,7 @@ pub(crate) fn plan_curation(
                 if ids.len() < 2 {
                     continue;
                 }
+
                 let Some(found) = claim(&ids) else {
                     continue;
                 };
@@ -410,6 +429,7 @@ pub(crate) fn plan_curation(
             }
         }
     }
+
     follow_supersedes(steps)
 }
 
@@ -417,6 +437,7 @@ pub(crate) fn plan_curation(
 pub(super) fn follow_supersedes(steps: Vec<Step>) -> Vec<Step> {
     let mut gone = HashSet::new();
     let mut merged = HashMap::new();
+
     for step in &steps {
         match step {
             Step::Split { .. } => {}
@@ -430,6 +451,7 @@ pub(super) fn follow_supersedes(steps: Vec<Step>) -> Vec<Step> {
             }
         }
     }
+
     steps
         .into_iter()
         .filter_map(|step| match step {

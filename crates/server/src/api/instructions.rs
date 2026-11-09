@@ -27,12 +27,15 @@ pub(super) async fn save_instructions(
             "Instructions can be at most 16 KB.".to_owned(),
         ));
     }
+
     let note = request.note.trim();
+
     if note.len() > MAX_NOTE || note.chars().any(char::is_control) {
         return Err(ApiError::bad_request(format!(
             "A note can be at most {MAX_NOTE} characters on one line."
         )));
     }
+
     match cx
         .user
         .save_instructions(request.base, &request.text, note)

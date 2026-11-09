@@ -29,6 +29,7 @@ pub(super) fn detail(input: &Value) -> Option<String> {
 pub(super) fn replayed(text: &str, found: &mut Vec<Picture>) -> String {
     let mut out = String::new();
     let mut rest = text;
+
     while let Some(at) = rest.find("](data:image/") {
         let url_at = at + 2;
         let (Some(open), Some(len)) = (rest[..at].rfind('['), rest[url_at..].find(')')) else {
@@ -36,6 +37,7 @@ pub(super) fn replayed(text: &str, found: &mut Vec<Picture>) -> String {
         };
         let picture = data_url(&rest[url_at..url_at + len]);
         let end = url_at + len + 1;
+
         match picture {
             Some(picture) => {
                 out.push_str(rest[..open].trim_end_matches(' '));
@@ -54,6 +56,7 @@ pub(super) fn replayed(text: &str, found: &mut Vec<Picture>) -> String {
         }
         rest = &rest[end..];
     }
+
     out.push_str(rest);
     out
 }
@@ -71,22 +74,27 @@ pub(super) fn parent_tool(meta: Option<&serde_json::Map<String, Value>>) -> Opti
 pub(super) fn thought_line(text: &str) -> Option<String> {
     let mut heading = None;
     let mut rest = text;
+
     while let Some(start) = rest.find("**") {
         let after = &rest[start + 2..];
         let Some(end) = after.find("**") else {
             break;
         };
         let bold = after[..end].trim();
+
         if !bold.is_empty() && !bold.contains('\n') {
             heading = Some(bold);
         }
         rest = &after[end + 2..];
     }
+
     if let Some(heading) = heading {
         return Some(heading.to_owned());
     }
+
     let text = text.trim_start();
     let mut chars = text.char_indices().peekable();
+
     while let Some((at, c)) = chars.next() {
         let end = match c {
             '\n' => Some(at),
@@ -95,6 +103,7 @@ pub(super) fn thought_line(text: &str) -> Option<String> {
             }
             _ => None,
         };
+
         if let Some(end) = end {
             let line: String = text[..end]
                 .chars()
@@ -104,5 +113,6 @@ pub(super) fn thought_line(text: &str) -> Option<String> {
             return (!line.is_empty()).then(|| line.to_owned());
         }
     }
+
     None
 }

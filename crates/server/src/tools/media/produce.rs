@@ -187,12 +187,14 @@ pub(super) async fn model_3d(
     progress: &mut (dyn FnMut(&str) + Send),
 ) -> Result<Url, JobError> {
     let call = job.call;
+
     if call.provider != MediaProvider::Meshy {
         return Err(JobError::Failed(anyhow::anyhow!(
             "{} does not make 3D models",
             call.provider.name()
         )));
     }
+
     let request = model_request(&job).map_err(JobError::Failed)?;
     let client = ThreeDClient::new(ThreeDProvider::Meshy, job.key.clone())
         .map_err(JobError::Failed)?

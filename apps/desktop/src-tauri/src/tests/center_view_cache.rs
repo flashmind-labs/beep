@@ -90,6 +90,7 @@ fn a_broken_file_is_dropped() {
     let cache = ViewCache::load(path.clone(), "1.0.0");
     cache.put(View::Home, json!({}));
     cache.write_unsaved();
+
     for broken in [&b"{\"format\":1,"[..], b"", b"\x00\xff", b"{\"views\":{}}"] {
         fs::write(&path, broken).expect("the file is written");
         assert!(ViewCache::load(path.clone(), "1.0.0").views().is_empty());

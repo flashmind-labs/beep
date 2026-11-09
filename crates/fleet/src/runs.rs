@@ -87,9 +87,11 @@ impl Desk {
             ),
             _ => return Err(NO_HOST.to_owned()),
         };
+
         if let (Some(base), GitHostKind::GitHub {}) = (&self.github_api, &kind) {
             target.base.clone_from(base);
         }
+
         Ok(Place {
             target,
             kind,
@@ -118,13 +120,16 @@ impl Desk {
             .iter()
             .filter(|repo| repo.name().eq_ignore_ascii_case(own.name()));
         let mut repos: Vec<&RepoRef> = Vec::new();
+
         for repo in [&own].into_iter().chain(full).chain(named) {
             if !repos.iter().any(|seen| seen.host == repo.host) {
                 repos.push(repo);
             }
         }
+
         let mut places: Vec<Place> = Vec::new();
         let mut first_error = None;
+
         for repo in repos {
             match self.place_of(repo, &opened) {
                 Ok(place) if !places.iter().any(|p| p.target.host == place.target.host) => {
@@ -136,7 +141,9 @@ impl Desk {
                 }
             }
         }
+
         places.truncate(MAX_HOSTS);
+
         match first_error {
             Some(why) if places.is_empty() => Err(why),
             _ => Ok(places),
@@ -149,9 +156,11 @@ impl Desk {
         if let Some(kept) = self.hosts.remotes(&stored.name, REMOTES_FOR) {
             return kept;
         }
+
         let mut machines: Vec<_> = stored.places.keys().copied().collect();
         crate::nearest_first(&self.mesh, &mut machines, |machine| *machine);
         machines.sort_by_key(|machine| *machine != self.local);
+
         for id in machines.into_iter().take(REMOTES_ASKED) {
             let Some(seen) = self.seen_one(id).await else {
                 continue;
@@ -160,6 +169,7 @@ impl Desk {
                 continue;
             };
             let folder = stored.places[&id].folder.clone();
+
             match run_script(shell, &remotes_script(&[folder]), READ_LIMIT).await {
                 Ok(out) => {
                     let urls: Vec<String> = parse_remotes(&out)
@@ -172,6 +182,7 @@ impl Desk {
                 Err(e) => log::info!("runs: remotes not read on {}: {e:#}", seen.machine.name),
             }
         }
+
         Vec::new()
     }
 
@@ -209,6 +220,7 @@ impl Desk {
             hosts: Vec::new(),
             error: None,
         };
+
         for (runs, mut host) in read {
             host.primary = all.hosts.is_empty();
             let checks = pr_checks(&runs, &refs);
@@ -223,6 +235,7 @@ impl Desk {
             }));
             all.hosts.push(host);
         }
+
         newest_first(&mut all.runs);
         Ok(all)
     }
@@ -274,6 +287,7 @@ impl Desk {
             }))
             .await;
         }
+
         host.rate_limited_until = calls.limited_until(&place.target.who, SystemTime::now());
         (shown.into_iter().map(|listed| listed.run).collect(), host)
     }

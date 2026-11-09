@@ -53,15 +53,19 @@ impl User {
         let Some(decision) = self.decision.as_ref() else {
             return vec![None; contents.len()];
         };
+
         match contents {
             [] => return Vec::new(),
             [content] => return vec![self.file(content).await],
             _ => {}
         }
+
         let mut state = String::from("Memories about the user:");
+
         for (number, content) in contents.iter().enumerate() {
             let _ = write!(state, "\n{}. {content}", number + 1);
         }
+
         let keys: Vec<String> = (1..=contents.len()).map(|n| n.to_string()).collect();
         let asked: Vec<String> = keys.iter().map(|key| file_question_for(key)).collect();
         let questions: Vec<(&str, &str)> = keys
@@ -81,6 +85,7 @@ impl User {
     /// Jev's category for a memory, `None` when Jev is not set up or failed.
     pub(super) async fn file(&self, content: &str) -> Option<&'static str> {
         let decision = self.decision.as_ref()?;
+
         match decision.choose(content, FILE_QUESTION, &FILING).await {
             Ok(category) => Some(category),
             Err(error) => {
@@ -95,6 +100,7 @@ impl User {
         if self.decision.is_none() {
             return Ok(0);
         }
+
         let rows: Vec<MemoryRow> = self
             .memory_rows()
             .await?
@@ -109,9 +115,11 @@ impl User {
             .collect()
             .await;
         let mut changed = 0;
+
         for (id, category) in filed {
             changed += usize::from(self.store.set_category(&self.key, &id, category).await?);
         }
+
         Ok(changed)
     }
 

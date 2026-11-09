@@ -30,6 +30,7 @@ export const closingNote = (s: Ref) => closings.stateOf(s, Date.now());
 export async function closeSession(s: Ref & { agent: string }) {
   closings.start(s, Date.now());
   changed();
+
   try {
     await invoke("agent_steer", { machineId: s.machine_id, agent: s.agent, session: s.id, steer: "close" });
   } catch (e) {

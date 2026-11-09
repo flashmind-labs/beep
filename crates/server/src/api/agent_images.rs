@@ -36,6 +36,7 @@ async fn kept_picture(cx: &Cx, key: &str) -> Result<AgentImageBytes, ApiError> {
     if !is_image_key(key) {
         return Err(ApiError::bad_request("That is not an image key."));
     }
+
     cx.user.agent_image(key).await?.ok_or(ApiError::NotFound {})
 }
 

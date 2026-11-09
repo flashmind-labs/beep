@@ -290,18 +290,22 @@ pub fn check_agent_images(images: &[Upload]) -> Result<(), ApiError> {
             "At most {MAX_AGENT_IMAGES} images go with one message."
         )));
     }
+
     let mut total = 0usize;
+
     for image in images {
         let name = if image.name.is_empty() {
             "An image"
         } else {
             image.name.as_str()
         };
+
         if !AGENT_IMAGE_TYPES.contains(&image.mime.as_str()) {
             return Err(ApiError::bad_request(format!(
                 "{name} is not a PNG, JPEG, GIF or WebP image."
             )));
         }
+
         if image.data.len() > MAX_AGENT_IMAGE {
             return Err(ApiError::bad_request(format!(
                 "{name} is over {} MB; images up to {} MB go.",
@@ -309,6 +313,7 @@ pub fn check_agent_images(images: &[Upload]) -> Result<(), ApiError> {
                 MAX_AGENT_IMAGE >> 20
             )));
         }
+
         if sniff_image(&image.data) != Some(image.mime.as_str()) {
             return Err(ApiError::bad_request(format!(
                 "{name} is not the {} it says it is.",
@@ -317,12 +322,14 @@ pub fn check_agent_images(images: &[Upload]) -> Result<(), ApiError> {
         }
         total = total.saturating_add(image.data.len());
     }
+
     if total > MAX_AGENT_IMAGES_TOTAL {
         return Err(ApiError::bad_request(format!(
             "The images are over {} MB together.",
             MAX_AGENT_IMAGES_TOTAL >> 20
         )));
     }
+
     Ok(())
 }
 

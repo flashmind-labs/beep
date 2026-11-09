@@ -23,10 +23,12 @@ const FIRST_JSONL: &str = "0.2.9";
 pub(super) fn rewrite(transcript: &[u8], id: &str, folders: &Folders) -> Stored {
     let mut lines = transcript.split_inclusive(|b| *b == b'\n');
     let mut bytes = Vec::with_capacity(transcript.len() + 64);
+
     if let Some(header) = lines.next() {
         let spans = string_spans(header, &[Step::Key("metadata"), Step::Key("working_dir")]);
         bytes.extend(replace(header, &spans, |dir| folders.remap(dir)));
     }
+
     for line in lines {
         bytes.extend_from_slice(line);
     }

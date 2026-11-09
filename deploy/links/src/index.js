@@ -25,6 +25,7 @@ const KINDS = {
 export default {
   fetch(request) {
     const { pathname } = new URL(request.url);
+
     if (pathname === "/.well-known/assetlinks.json") {
       return Response.json([
         {
@@ -33,6 +34,7 @@ export default {
         },
       ]);
     }
+
     if (pathname === "/oauth/callback") {
       return new Response(OAUTH_PAGE, {
         headers: {
@@ -43,6 +45,7 @@ export default {
         },
       });
     }
+
     const match = pathname.match(/^\/([sg])\/([A-Za-z0-9]+)\/?$/);
     if (!match) return new Response("Not found", { status: 404 });
     const kind = KINDS[match[1]];

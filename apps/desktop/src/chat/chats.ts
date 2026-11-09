@@ -184,6 +184,7 @@ export async function chatAction(a: ChatAction) {
   const c = S.chats.list[S.chats.sel];
   if (!c) return;
   const reload = () => { S.chats.mode = "list"; loadChats(S.chats.query); };
+
   try {
     switch (a) {
       case "rename": case "delete": if (c.kind === "chat") chatMode(a); break;
@@ -208,12 +209,14 @@ export async function chatAction(a: ChatAction) {
       case "share":
         S.chats.share = { id: c.id };
         chatMode("share");
+
         try {
           const link = await invoke<{ url: string }>("share_session", { id: c.id });
           if (S.chats.share?.id === c.id) S.chats.share!.url = link.url;
         } catch (e) {
           if (S.chats.share?.id === c.id) S.chats.share!.error = String(e);
         }
+
         if (S.view === "chats" && S.chats.mode === "share") drawChats();
         break;
       case "copy-share":

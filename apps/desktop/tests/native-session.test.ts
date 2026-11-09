@@ -29,5 +29,6 @@ test("native sessions cannot be resumed or stopped as independent processes", ()
   for (const status of ["working", "idle", "ended"]) {
     assert.deepEqual(sessionOffers({ id: "subagent:codex:thread-1", status, external: true, agent: "codex" }), { stop: false, close: false, resume: false, delete: false });
   }
+
   for (const id of ["subagent:codex:../thread", "subagent:claude:root:child:extra", "subagent:codex:"]) assert.equal(isNativeSession(id), false);
 });

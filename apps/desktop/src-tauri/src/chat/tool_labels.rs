@@ -46,7 +46,9 @@ pub fn action_label(name: &str, output: &str) -> Option<&'static str> {
             None
         };
     }
+
     let value: Value = serde_json::from_str(output).ok()?;
+
     if let Value::Array(items) = &value {
         if name != MEMORY {
             return None;
@@ -59,6 +61,7 @@ pub fn action_label(name: &str, output: &str) -> Option<&'static str> {
             "Recalling memories"
         });
     }
+
     MARKED
         .iter()
         .find(|marked| marked.tool == name && value.get(marked.key).is_some())

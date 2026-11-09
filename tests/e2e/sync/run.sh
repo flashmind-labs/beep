@@ -52,12 +52,15 @@ head -c ${BIG_MB}M /dev/urandom > big.bin" || abort "could not write on node-a"
 if poll 300 listed; then
   measure "sync: in node-a's list" "$(since "$t0")" s max "${E2E_BUDGET_SYNC_LISTED-15}"
 fi
+
 if poll 300 on node-b "find $P -type f ! -name '.beep-*' | grep -q ."; then
   measure "sync: first file" "$(since "$t0")" s max "${E2E_BUDGET_SYNC_FIRST-20}"
 fi
+
 if poll 300 same_files; then
   measure "sync: all files" "$(since "$t0")" s max "${E2E_BUDGET_SYNC_ALL-30}"
 fi
+
 synced 60 "${BIG_MB} MB file, nested tree and small files on node-b"
 
 step "1b. a ${SPEED_MB} MB file, node-a to node-b"
@@ -90,16 +93,19 @@ start_node node-b
 conflict_settled(){
   same_files && [[ "$(on node-a "ls $P | grep -c '^notes (conflict [0-9a-f]*).txt\$'")" == 1 ]]
 }
+
 if wait_for 180 "the conflict settled on both nodes" conflict_settled; then
   pass "both nodes hold notes.txt and one conflict copy"
   kept_a="$(on node-a "cat $P/notes.txt")"
   kept_b="$(on node-b "cat $P/notes.txt")"
   copy_a="$(on node-a "cat $P/notes\ \(conflict\ *\).txt")"
+
   if [[ "$kept_a" == "edit on b" && "$kept_b" == "edit on b" ]]; then
     pass "the newer edit (node-b's) keeps notes.txt"
   else
     fail "notes.txt holds '$kept_a' on node-a and '$kept_b' on node-b, not node-b's edit"
   fi
+
   if [[ "$copy_a" == "edit on a" ]]; then
     pass "node-a's edit is in the conflict copy"
   else
@@ -111,6 +117,7 @@ else
   on node-a "ls -la $P" | sed 's/^/   a| /'
   on node-b "ls -la $P" | sed 's/^/   b| /'
 fi
+
 wait_for 60 "both in sync" in_sync && pass "the server sees both in sync" \
   || { fail "the server does not see both in sync"; probe sync-status "$PROJECT" | sed 's/^/   /'; }
 

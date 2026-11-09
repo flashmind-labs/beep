@@ -63,10 +63,12 @@ export class Pastes {
   add(text: string) {
     const id = this.next++;
     this.texts.set(id, text);
+
     for (const old of this.texts.keys()) {
       if (this.texts.size <= KEPT_PASTES) break;
       this.texts.delete(old);
     }
+
     return pillLabel(id, lineCount(text));
   }
 
@@ -94,11 +96,13 @@ export function pillsIn(value: string): Pill[] {
 /// gone keeps its visible label.
 export function expandPills(value: string, pastes: Pick<Pastes, "get">) {
   let out = "", at = 0;
+
   for (const p of pillsIn(value)) {
     out += value.slice(at, p.start);
     out += pastes.get(p.id) ?? `[Pasted text · ${p.lines === 1 ? "1 line" : `${p.lines} lines`}]`;
     at = p.end;
   }
+
   return out + value.slice(at);
 }
 
@@ -136,6 +140,7 @@ export function snapSelection(pills: readonly Pill[], start: number, end: number
     if (start > p.start && start < p.end) start = p.start;
     if (end > p.start && end < p.end) end = p.end;
   }
+
   return { start, end };
 }
 
@@ -156,10 +161,12 @@ export function imagePath(text: string): { path: string; mime: string } | null {
   if (!t || t.includes("\n")) return null;
   const quoted = /^'(.*)'$/.exec(t) ?? /^"(.*)"$/.exec(t);
   if (quoted) t = quoted[1];
+
   if (t.startsWith("file://")) {
     t = t.slice("file://".length);
     try { t = decodeURIComponent(t); } catch { return null; }
   }
+
   t = t.replace(/\\ /g, " ");
   if (!t.startsWith("/") && !t.startsWith("~/")) return null;
   const ext = /\.([A-Za-z0-9]+)$/.exec(t)?.[1].toLowerCase();

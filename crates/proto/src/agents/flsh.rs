@@ -154,6 +154,7 @@ impl FlshSettings {
     /// Whether these settings can be written to flsh's config as they are.
     pub fn check(&self) -> Result<(), FlshSettingsError> {
         let mut seen = HashSet::new();
+
         for quantization in &self.quantizations {
             if !seen.insert(*quantization) {
                 return Err(FlshSettingsError::DuplicateQuantization(
@@ -161,13 +162,17 @@ impl FlshSettings {
                 ));
             }
         }
+
         if let Some(autocompact) = &self.autocompact {
             autocompact.check()?;
         }
+
         if self.models.len() > MAX_MODEL_RULES {
             return Err(FlshSettingsError::TooManyModels);
         }
+
         let mut models = HashSet::new();
+
         for rule in &self.models {
             let name = rule.model.to_string();
             let plain = name.len() <= MAX_MODEL_LEN
@@ -176,11 +181,14 @@ impl FlshSettings {
             if !plain {
                 return Err(FlshSettingsError::BadModel);
             }
+
             if !models.insert(name.clone()) {
                 return Err(FlshSettingsError::DuplicateModel(name));
             }
+
             rule.autocompact.check()?;
         }
+
         Ok(())
     }
 }

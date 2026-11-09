@@ -61,6 +61,7 @@ export async function renameGroup(g: ProjectGroup, name: string) {
   const before = state.groups;
   state.groups = (before || []).map(x => (x.id === g.id ? { ...x, name: to } : x));
   redrawGroups();
+
   try {
     await invoke("project_group_save", { id: g.id, name: to, paths: g.paths });
   } catch (e) {
@@ -117,6 +118,7 @@ registerSidebarGroup<MachineCard | { thisMac: MacRow }>("machines", {
 /// The sidebar's This Mac: its state, or Add while it is off.
 function thisMacItem(mac: MacRow) {
   const title = `This computer: ${mac.title}`;
+
   if (mac.action) {
     // A row with a button in it, never a button inside a button.
     const row = h("div", "cc-si", h("span", "ddot off"), h("span", "tt", mac.name),
@@ -124,6 +126,7 @@ function thisMacItem(mac: MacRow) {
     row.title = title;
     return row;
   }
+
   const b = sideItem(null, mac.name, 0);
   b.prepend(h("span", "ddot off"));
   b.append(h("span", `n mac-state${mac.bad ? " bad" : ""}`, mac.state));

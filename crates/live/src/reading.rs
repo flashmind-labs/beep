@@ -17,10 +17,12 @@ impl Reading {
     pub fn push(&mut self, delta: &str) -> Vec<String> {
         self.buf.push_str(delta);
         let mut out = Vec::new();
+
         while let Some(cut) = self.boundary() {
             let piece: String = self.buf.drain(..cut).collect();
             self.take(&piece, &mut out);
         }
+
         out
     }
 
@@ -37,32 +39,40 @@ impl Reading {
     /// sentence's end followed by a space. Inside code only lines count.
     fn boundary(&self) -> Option<usize> {
         let mut chars = self.buf.char_indices().peekable();
+
         while let Some((i, c)) = chars.next() {
             if c == '\n' {
                 return Some(i + 1);
             }
+
             if self.in_code || !matches!(c, '.' | '!' | '?' | '…') {
                 continue;
             }
+
             if let Some(&(j, next)) = chars.peek()
                 && next.is_whitespace()
             {
                 return Some(j);
             }
         }
+
         None
     }
 
     fn take(&mut self, piece: &str, out: &mut Vec<String>) {
         let line = piece.trim();
+
         if line.starts_with("```") {
             self.in_code = !self.in_code;
             return;
         }
+
         if self.in_code || line.starts_with('|') {
             return;
         }
+
         let text = speakable(line);
+
         if text.chars().any(char::is_alphanumeric) {
             out.extend(fit(&text));
         }
@@ -73,13 +83,16 @@ impl Reading {
 /// marks, or link targets.
 fn speakable(line: &str) -> String {
     let mut line = line.trim_start_matches('#').trim_start();
+
     for mark in ["- ", "* ", "+ ", "> "] {
         if let Some(rest) = line.strip_prefix(mark) {
             line = rest;
         }
     }
+
     let mut out = String::with_capacity(line.len());
     let mut rest = line;
+
     while let Some(open) = rest.find('[') {
         out.push_str(&rest[..open]);
         let after = &rest[open + 1..];
@@ -97,6 +110,7 @@ fn speakable(line: &str) -> String {
             }
         }
     }
+
     out.push_str(rest);
     let words: Vec<&str> = out
         .split_whitespace()
@@ -113,6 +127,7 @@ fn speakable(line: &str) -> String {
 fn fit(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut piece = String::new();
+
     for word in text.split(' ') {
         if !piece.is_empty() && piece.chars().count() + 1 + word.chars().count() > MAX_SAY_CHARS {
             out.push(std::mem::take(&mut piece));
@@ -122,6 +137,7 @@ fn fit(text: &str) -> Vec<String> {
         }
         piece.extend(word.chars().take(MAX_SAY_CHARS));
     }
+
     if !piece.is_empty() {
         out.push(piece);
     }
@@ -193,13 +209,16 @@ impl Fillers {
         {
             return None;
         }
+
         let quiet = now.saturating_duration_since(self.voice_at);
+
         if quiet >= STEP_QUIET
             && let Some(step) = self.step.take()
         {
             self.said += 1;
             return Some(Filler { step, still: false });
         }
+
         if quiet >= STILL_QUIET && !self.still_said {
             self.still_said = true;
             self.said += 1;
@@ -208,6 +227,7 @@ impl Fillers {
                 still: true,
             });
         }
+
         None
     }
 }

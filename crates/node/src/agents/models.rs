@@ -67,10 +67,13 @@ impl ModelCache {
         if let Some(list) = self.recent(agent, Instant::now()) {
             return list;
         }
+
         let _finding = self.finding.lock().await;
+
         if let Some(list) = self.recent(agent, Instant::now()) {
             return list;
         }
+
         let list = find.await;
         self.keep(agent, list.clone(), Instant::now());
         list
@@ -95,9 +98,11 @@ impl ModelCache {
 /// say gives a list without models.
 pub(super) async fn find(kind: AgentKind) -> ModelList {
     let flag = known(&kind.name).is_some_and(|known| known.model_flag);
+
     if kind.name.parse::<Agent>().ok() == Some(Agent::Flsh) {
         return flsh(&kind).await;
     }
+
     let Some(home) = dirs::home_dir() else {
         return listed(Offered::default(), flag);
     };
@@ -279,14 +284,17 @@ fn flsh_config_dir(env: &dyn Fn(&str) -> Option<OsString>, home: Option<&Path>) 
         let dir = PathBuf::from(dir);
         return dir.is_absolute().then_some(dir);
     }
+
     if let Some(legacy) = home.map(|home| home.join(".flashmind"))
         && legacy.is_dir()
     {
         return Some(legacy);
     }
+
     if cfg!(windows) {
         return dirs::config_dir().map(|dir| dir.join("flashmind"));
     }
+
     env("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|dir| dir.is_absolute())
@@ -299,10 +307,12 @@ fn flsh_default_model(path: &Path) -> Option<String> {
     use std::io::Read;
     let file = std::fs::File::open(path).ok()?;
     let mut text = String::new();
+
     if let Err(e) = file.take(MAX_CONFIG).read_to_string(&mut text) {
         log::debug!("flsh's config not read; path={} error={e}", path.display());
         return None;
     }
+
     let config: toml::Table = match toml::from_str(&text) {
         Ok(config) => config,
         Err(e) => {

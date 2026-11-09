@@ -84,6 +84,7 @@ impl Live {
     /// Code, if anything.
     pub(super) fn hear(&self, message: &HookMessage) -> Option<Value> {
         let mut sessions = lock(&self.0);
+
         if !sessions.contains_key(&message.session_id)
             && sessions.len() >= MAX_TRACKED
             && let Some(oldest) = sessions
@@ -93,10 +94,12 @@ impl Live {
         {
             sessions.remove(&oldest);
         }
+
         let tracked = sessions
             .entry(message.session_id.clone())
             .or_insert_with(Tracked::new);
         tracked.heard = Instant::now();
+
         match message.event {
             HookEvent::SessionStart => {
                 tracked.state = LiveState::Idle;
@@ -123,12 +126,14 @@ impl Live {
             HookEvent::PostToolUse | HookEvent::PostToolUseFailure => {
                 tracked.state = LiveState::Working;
                 tracked.tool = None;
+
                 if let Some(file) = &message.file
                     && !tracked.files.contains(file)
                     && tracked.files.len() < MAX_FILES
                 {
                     tracked.files.push(file.clone());
                 }
+
                 if message.error.is_some() {
                     tracked.error = message.error.clone();
                 }
@@ -143,10 +148,12 @@ impl Live {
             }
             HookEvent::Stop => {
                 tracked.tool = None;
+
                 if let Some(Steer::Message { text }) = tracked.queued.take() {
                     tracked.state = LiveState::Working;
                     return Some(block(&from_user(&text)));
                 }
+
                 tracked.state = LiveState::Idle;
                 if let Some(text) = &message.message {
                     tracked.last_message = text.clone();
@@ -162,6 +169,7 @@ impl Live {
                     }
                     _ => {}
                 }
+
                 None
             }
             HookEvent::SessionEnd => {
@@ -222,6 +230,7 @@ impl Live {
                  restart of the session, or it has not done anything since."
             ));
         };
+
         match tracked.state {
             LiveState::Working | LiveState::Asking => {}
             LiveState::Idle => {
@@ -233,6 +242,7 @@ impl Live {
             }
             _ => return Err(format!("session {session} has ended")),
         }
+
         tracked.queued = match (tracked.queued.take(), steer) {
             (Some(Steer::Message { text: before }), Steer::Message { text }) => {
                 Some(Steer::Message {

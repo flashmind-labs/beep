@@ -47,6 +47,7 @@ pub(super) fn markdown(text: &str) -> Found {
         };
     };
     let prompt = parts.body.trim().to_owned();
+
     match serde_yaml::from_str::<Yaml>(parts.yaml) {
         Ok(Yaml::Mapping(meta)) => from_yaml(&meta, prompt),
         Ok(Yaml::Null) => Found {
@@ -77,6 +78,7 @@ fn split_frontmatter(text: &str) -> Option<Frontmatter<'_>> {
         .strip_prefix("---\n")
         .or_else(|| text.strip_prefix("---\r\n"))?;
     let mut at = 0;
+
     for line in rest.split_inclusive('\n') {
         if line.trim_end() == "---" {
             return Some(Frontmatter {
@@ -86,6 +88,7 @@ fn split_frontmatter(text: &str) -> Option<Frontmatter<'_>> {
         }
         at += line.len();
     }
+
     None
 }
 
@@ -148,17 +151,21 @@ fn from_lines(yaml: &str, prompt: String) -> Found {
         prompt,
         ..Found::default()
     };
+
     for line in yaml.lines() {
         if line.starts_with([' ', '\t', '-', '#']) {
             continue;
         }
+
         let Some((key, value)) = line.split_once(':') else {
             continue;
         };
         let value = unquote(value.trim());
+
         if value.is_empty() {
             continue;
         }
+
         match key.trim() {
             "name" => found.name = Some(value.to_owned()),
             "description" => found.description = value.to_owned(),
@@ -168,6 +175,7 @@ fn from_lines(yaml: &str, prompt: String) -> Found {
             _ => {}
         }
     }
+
     found
 }
 
@@ -180,6 +188,7 @@ fn unquote(value: &str) -> &str {
             return inner;
         }
     }
+
     value
 }
 
@@ -297,12 +306,15 @@ fn json_tools(value: &Json) -> Vec<String> {
 fn strip_jsonc(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
+
     while let Some(c) = chars.next() {
         match c {
             '"' => {
                 out.push(c);
+
                 while let Some(s) = chars.next() {
                     out.push(s);
+
                     match s {
                         '\\' => {
                             if let Some(escaped) = chars.next() {
@@ -314,6 +326,7 @@ fn strip_jsonc(text: &str) -> String {
                     }
                 }
             }
+
             '/' if chars.peek() == Some(&'/') => {
                 for s in chars.by_ref() {
                     if s == '\n' {
@@ -325,6 +338,7 @@ fn strip_jsonc(text: &str) -> String {
             '/' if chars.peek() == Some(&'*') => {
                 chars.next();
                 let mut last = ' ';
+
                 for s in chars.by_ref() {
                     if last == '*' && s == '/' {
                         break;
@@ -334,14 +348,17 @@ fn strip_jsonc(text: &str) -> String {
             }
             '}' | ']' => {
                 let kept = out.trim_end().len();
+
                 if out[..kept].ends_with(',') {
                     out.truncate(kept - 1);
                 }
+
                 out.push(c);
             }
             _ => out.push(c),
         }
     }
+
     out
 }
 

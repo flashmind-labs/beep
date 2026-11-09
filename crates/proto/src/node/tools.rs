@@ -84,6 +84,8 @@ pub enum Tool {
     FileReport,
     /// The models and capabilities of a coding harness on this machine.
     HarnessInfo,
+    /// Retained metrics for a bounded period, on the caller's own node.
+    BeepMetrics,
     /// A tool a newer node calls that this server does not know.
     #[serde(other)]
     Unknown,

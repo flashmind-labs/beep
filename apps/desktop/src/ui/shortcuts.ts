@@ -146,10 +146,12 @@ export function filterShortcuts(sections: readonly ShortcutSection[], query: str
   const q = squash(query);
   if (!q) return [...sections];
   const out: ShortcutSection[] = [];
+
   for (const s of sections) {
     if (squash(s.title).includes(q)) { out.push(s); continue; }
     const rows = s.rows.filter(r => squash(r.does).includes(q) || squash(r.keys).includes(q));
     if (rows.length) out.push({ title: s.title, rows });
   }
+
   return out;
 }

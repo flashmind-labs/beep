@@ -98,6 +98,7 @@ pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
 
 fn encode(records: &[Record]) -> Result<Vec<u8>, MeshError> {
     let mut buf = Vec::new();
+
     for record in records {
         let body = rmp_serde::to_vec(record)?;
         let len = u32::try_from(body.len()).map_err(|_| MeshError::TooLarge)?;
@@ -105,6 +106,7 @@ fn encode(records: &[Record]) -> Result<Vec<u8>, MeshError> {
         buf.extend(crc32fast::hash(&body).to_le_bytes());
         buf.extend(body);
     }
+
     Ok(buf)
 }
 
@@ -112,18 +114,23 @@ fn encode(records: &[Record]) -> Result<Vec<u8>, MeshError> {
 fn decode(bytes: &[u8]) -> (Vec<Record>, usize) {
     let mut out = Vec::new();
     let mut at = 0;
+
     while let Some(head) = bytes.get(at..at + HEADER) {
         let len = u32::from_le_bytes([head[0], head[1], head[2], head[3]]) as usize;
         let crc = u32::from_le_bytes([head[4], head[5], head[6], head[7]]);
+
         if len > MAX_RECORD {
             break;
         }
+
         let Some(body) = bytes.get(at + HEADER..at + HEADER + len) else {
             break;
         };
+
         if crc32fast::hash(body) != crc {
             break;
         }
+
         let Ok(record) = lenient::from_slice(body) else {
             break;
         };
@@ -159,6 +166,7 @@ impl State {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
         }
+
         let (records, good) = decode(&bytes);
         let mut state = State {
             secret: secret.clone(),
@@ -172,6 +180,7 @@ impl State {
             highest_ms: 0,
         };
         let mut held = 0usize;
+
         for record in records {
             match record {
                 Record::Heads(heads) => {
@@ -186,7 +195,9 @@ impl State {
                 }
             }
         }
+
         let superseded = held > state.winners.len();
+
         if good < bytes.len() {
             warn!(
                 kept = good,
@@ -196,9 +207,11 @@ impl State {
             state.file.set_len(good as u64)?;
             state.file.sync_all()?;
         }
+
         if superseded {
             state.compact(&path)?;
         }
+
         Ok(state)
     }
 
@@ -209,6 +222,7 @@ impl State {
         for (origin, log) in &mut self.logs {
             log.retain(|seq, _| keep.contains(&(*origin, *seq)));
         }
+
         let mut records = vec![Record::Heads(self.heads.clone())];
         records.extend(
             self.logs
@@ -227,9 +241,11 @@ impl State {
         out.sync_all()?;
         drop(out);
         fs::rename(&tmp, path)?;
+
         if let Some(dir) = path.parent() {
             sync_dir(dir)?;
         }
+
         self.file = private_options().append(true).open(path)?;
         self.len = buf.len() as u64;
         Ok(())
@@ -248,6 +264,7 @@ impl State {
             let _ = self.file.set_len(self.len);
             return Err(e.into());
         }
+
         self.len += buf.len() as u64;
         Ok(())
     }
@@ -319,25 +336,30 @@ impl State {
     /// Everything this side holds above `theirs`, per origin by rising seq.
     pub fn since(&self, theirs: &Heads) -> Vec<Entry> {
         let mut out = Vec::new();
+
         for (origin, log) in &self.logs {
             let have = theirs.get(origin).copied().unwrap_or(0);
             out.extend(log.range(have.saturating_add(1)..).map(|(_, e)| e.clone()));
         }
+
         out
     }
 
     /// Why `entry` may not be taken, if it may not. Signature first.
     fn check(&self, entry: &Entry, devices: &Devices, now: u64) -> Result<(), MeshError> {
         entry.verify(self.mesh)?;
+
         match devices.write_limit(&entry.origin) {
             WriteLimit::Always => {}
             WriteLimit::Refused => return Err(MeshError::NotDesktop(entry.origin)),
             WriteLimit::Until(limit) if entry.at_ms <= limit => {}
             WriteLimit::Until(_) => return Err(MeshError::Removed(entry.origin)),
         }
+
         if entry.at_ms > now.saturating_add(MAX_AHEAD_MS) {
             return Err(MeshError::Future(entry.origin));
         }
+
         Ok(())
     }
 
@@ -356,20 +378,26 @@ impl State {
         let mut skipped = Vec::new();
         let mut next = self.heads.clone();
         let mut fresh = Vec::new();
+
         for entry in entries {
             if stopped.contains(&entry.origin) {
                 continue;
             }
+
             if let Err(e) = self.check(&entry, devices, now) {
                 stopped.insert(entry.origin);
                 applied.refused.push(e);
                 continue;
             }
+
             let head = next.get(&entry.origin).copied().unwrap_or(0);
+
             if entry.seq <= head {
                 continue;
             }
+
             next.insert(entry.origin, entry.seq);
+
             if entry.key.is_malformed() {
                 // Signed by a desktop but not a key: nothing to keep, and the origin's later
                 // entries still count, so the head moves past it.
@@ -379,24 +407,30 @@ impl State {
                 skipped.push((entry.origin, entry.seq));
                 continue;
             }
+
             fresh.push(entry);
         }
+
         for (origin, seq) in skipped {
             let head = self.heads.entry(origin).or_insert(0);
             *head = (*head).max(seq);
         }
+
         if fresh.is_empty() {
             return Ok(applied);
         }
+
         let touched: BTreeSet<Key> = fresh.iter().map(|e| e.key.clone()).collect();
         let before: Vec<Option<Vec<u8>>> = touched
             .iter()
             .map(|key| self.get(key).map(<[u8]>::to_vec))
             .collect();
         self.append(&fresh)?;
+
         for entry in fresh {
             self.insert(entry);
         }
+
         applied.changed = touched
             .into_iter()
             .zip(before)

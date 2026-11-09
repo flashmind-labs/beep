@@ -63,9 +63,11 @@ pub(super) async fn delete_memory(cx: Cx, DeleteMemory { id }: DeleteMemory) -> 
 /// The new text is embedded on the next lookup.
 pub(super) async fn update_memory(cx: Cx, UpdateMemory { id, content }: UpdateMemory) -> Reply<()> {
     let content = content.trim();
+
     if content.is_empty() || content.len() > 4000 {
         return Err(ApiError::bad_request("memory text must be 1 to 4000 bytes"));
     }
+
     found(cx.user.edit_memory(&id, content).await?)
 }
 
@@ -98,11 +100,13 @@ fn skill_id(id: &str) -> Result<Uuid, ApiError> {
 /// `text` trimmed, refused when empty or longer than `max` characters.
 fn skill_text<'a>(text: &'a str, what: &str, max: usize) -> Result<&'a str, ApiError> {
     let text = text.trim();
+
     if text.is_empty() || text.chars().count() > max {
         return Err(ApiError::bad_request(format!(
             "a skill's {what} must be 1 to {max} characters"
         )));
     }
+
     Ok(text)
 }
 
@@ -129,18 +133,21 @@ pub(super) async fn update_skill(cx: Cx, req: UpdateSkill) -> Reply<Skill> {
         .map(|text| skill_text(text, "description", skills::DESCRIPTION_MAX))
         .transpose()?;
     let body = req.body.as_deref().map(str::trim);
+
     if body.is_some_and(|body| body.is_empty() || body.len() > skills::BODY_MAX) {
         return Err(ApiError::bad_request(format!(
             "a skill's text must be 1 to {} bytes",
             skills::BODY_MAX
         )));
     }
+
     let change = SkillPatch {
         name,
         description,
         body,
         enabled: req.enabled,
     };
+
     match cx.user.edit_skill(id, change).await {
         Ok(Some(row)) => Ok(skill_view(row)),
         Ok(None) => Err(ApiError::NotFound {}),

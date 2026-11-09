@@ -49,15 +49,19 @@ impl LlmProvider for Brain {
     }
     fn complete(&self, request: CompletionRequest) -> CompletionStream {
         let system = &request.messages[0].content;
+
         if system.starts_with("You keep the long-term memory") {
             return text(r#"{"ops":[]}"#);
         }
+
         if system.starts_with("You name chats") {
             return text("Events");
         }
+
         if system.starts_with("You triage events") {
             return triage(&request);
         }
+
         let after_tool = request
             .messages
             .last()
@@ -65,6 +69,7 @@ impl LlmProvider for Brain {
         if after_tool {
             return text("Ana asked you to review PR #42 on org/repo. Want me to review it?");
         }
+
         let asked: String = request
             .messages
             .iter()
@@ -74,6 +79,7 @@ impl LlmProvider for Brain {
         if asked.contains("From your event triage agent") || asked.contains("ci failed") {
             return call("notify_user", json!({}));
         }
+
         text("Nothing here needs the user.")
     }
 }
@@ -87,21 +93,25 @@ fn triage(request: &CompletionRequest) -> CompletionStream {
         .map(|message| message.content.clone())
         .collect();
     let id = first_id(&batch).unwrap_or(0);
+
     if batch.contains("BROKEN") || batch.contains("ci failed") {
         return text("I am not sure.");
     }
+
     if batch.contains("review requested") {
         return call(
             "inform_beep",
             json!({"summary": REVIEW_SUMMARY, "why": "A person is waiting.", "urgency": "now", "refs": [id]}),
         );
     }
+
     if batch.contains("Newsletter") {
         return call(
             "inform_beep",
             json!({"summary": "A newsletter came in.", "why": "The user reads it.", "urgency": "later", "refs": [id]}),
         );
     }
+
     call("ignore", json!({"reason": "Nothing the user needs."}))
 }
 
@@ -234,6 +244,7 @@ async fn next_notice(notices: &mut broadcast::Receiver<UserNotice>) -> UserNotic
     timeout(Duration::from_secs(20), async {
         loop {
             let notice = notices.recv().await.expect("the notices go on");
+
             if !notice.notice.title.is_empty() {
                 return notice;
             }
@@ -249,9 +260,11 @@ async fn events_in(user: &User, state: EventState, count: usize) -> Vec<i64> {
     timeout(Duration::from_secs(20), async {
         loop {
             let rows = user.events_in(state, Duration::ZERO, 50).await.unwrap();
+
             if rows.len() >= count {
                 return rows.iter().map(|row| row.id).collect();
             }
+
             sleep(Duration::from_millis(20)).await;
         }
     })
@@ -485,12 +498,14 @@ async fn duplicates_do_not_count_toward_the_hourly_limit() {
         events::accept(&h.app, alice, mail("d1")).await.unwrap(),
         Accepted::Stored(_)
     ));
+
     for _ in 0..3 {
         assert_eq!(
             events::accept(&h.app, alice, mail("d1")).await.unwrap(),
             Accepted::Duplicate
         );
     }
+
     assert!(matches!(
         events::accept(&h.app, alice, mail("d2")).await.unwrap(),
         Accepted::Stored(_)

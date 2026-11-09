@@ -68,11 +68,13 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
   const published = AG.page ? toolArtifacts(en.text, AG.page.session.cwd).files.find(f => f.published) : undefined;
   const artifact = published ? ` data-artifact="${esc(published.path)}" title="Open in the Artifacts tab"` : "";
   const state = failed ? (exit != null ? `exit ${exit}` : "Failed") : status === "completed" ? "Done" : live ? "Running" : "";
+
   if (beep) {
     return `<div class="dcoderen tool beep${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${toggleAttrs}${artifact}>`
       + `<span class="mk">${stepMark(status, live)}</span>${beepHead(beep, title, state, live, open, since)}`
       + mediaButtons(title) + body + pics + "</div>";
   }
+
   // Opened, a command or a long title leaves the row's one line and shows whole under it.
   const wrapped = open && (parts.kind === "command" || long);
   const rowBody = !open ? "" : (wrapped ? `<pre class="cmd">${parts.kind === "command" ? cachedCommandHtml(parts.target) : esc(parts.target)}</pre>` : "") + toolBody(output);
@@ -238,6 +240,7 @@ export function entryRow(en: AgentEntry, at: number) {
   // Codex echoes answered questions as a message: show them as answered.
   const answered = en.kind === "user" && AG.log ? AG.log.answeredQuestions(en.text) : null;
   if (answered) return `<div class="dcoderen qa" data-row="${at}">${answered.map(x => `${x.question ? `<span class="q">${esc(x.question)}</span>` : ""}<span class="a">${esc(x.answer)}</span>`).join("")}</div>`;
+
   if (en.kind === "user") {
     // Beep's context, what another session sent and what a child came to
     // get rows of their own, never the user's box.
@@ -265,6 +268,7 @@ export function entryRow(en: AgentEntry, at: number) {
     const said = html.replace(/data-paste="(\d+)"/g, (m, i) => AG.opened.has(`${at}:${i}`) ? `${m} open` : m);
     return others + userRowHtml(said, ` data-at="${at}"`, names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "", true);
   }
+
   // The pictures the agent or a tool showed go after the text, as a
   // user's do. The HTML is already without their lines.
   const { text: said, names } = AG.log ? AG.log.imageLines(en.text) : { text: en.text, names: [] };
@@ -323,10 +327,12 @@ function noteTurns(m: TurnMemory, turns: Turn[], running: number | null) {
   const now = Date.now(), first = !m.known.size;
   // A turn older than the ones known was read from further back, not seen starting.
   const newest = Math.max(-1, ...m.known);
+
   for (const t of turns) {
     if (!m.known.has(t.key) && !first && t.key > newest) m.starts.set(t.key, now);
     m.known.add(t.key);
   }
+
   if (m.running != null && m.running !== running && !m.ends.has(m.running)) m.ends.set(m.running, now);
   m.running = running;
 }
@@ -353,18 +359,22 @@ function rowsOf(p: AgentPage, ats: number[]) {
   };
   const flush = () => { if (run.length) out.push(subCard(run)); run = []; };
   const groups = AG.log ? toolRuns(p.entries, ats, p.earlier, openedSteps()) : ats.map(at => [at]);
+
   for (const group of groupThoughts(p.entries, groups, p.earlier)) {
     const at = group[0];
+
     if (p.entries[at - p.earlier].kind === "thought") {
       flush();
       out.push(thoughtRow(mergedThought(p.entries, group, p.earlier), at, liveAt != null && group.includes(liveAt)));
       continue;
     }
+
     if (group.length > 1) { flush(); out.push(runRow(p, group)); continue; }
     if (isSub(at)) { run.push(at); continue; }
     flush();
     out.push(entryRow(p.entries[at - p.earlier], at));
   }
+
   flush();
   return out;
 }
@@ -485,10 +495,12 @@ function scrollAnchor(b: HTMLElement, sel?: string): ScrollAnchor {
   const top = b.getBoundingClientRect().top;
   const picked = sel ? b.querySelector<HTMLElement>(sel) : null;
   if (sel && picked) return { sel, off: picked.getBoundingClientRect().top - top, scroll: b.scrollTop };
+
   for (const el of b.querySelectorAll<HTMLElement>("[data-row]")) {
     const r = el.getBoundingClientRect();
     if (r.bottom > top) return { sel: `[data-row="${el.dataset.row}"]`, off: r.top - top, scroll: b.scrollTop };
   }
+
   return { sel: null, off: 0, scroll: b.scrollTop };
 }
 
@@ -558,6 +570,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   redrawAgentHints();
   // Only a turn that runs can be stopped.
   const stop = $<HTMLButtonElement>("#agstop");
+
   if (stop) {
     stop.style.display = AGENT_ACTIVE.has(s.status) ? "" : "none";
     // Stopped: it says so at once, while the agent winds the turn down.
@@ -566,6 +579,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
       stop.innerHTML = stopFace(stopping);
     }
   }
+
   if (scroll === "bottom") pinEnd(b);
   else if (anchor) restoreScroll(b, anchor);
   // A row opened at the bottom pushes the bottom away: the log follows
@@ -595,18 +609,22 @@ export function scrolledLog(b: ChatBody) {
 /// unselected: false then, with that row as it was.
 function showLog(b: HTMLElement, html: string, units: Unit[] | null, polled: boolean) {
   let main = b.querySelector<HTMLElement>(":scope > .dagmain");
+
   if (!main || !patchable(main)) {
     b.innerHTML = `<div class="dagmain"></div><button class="dagjump" id="agjump" hidden>Jump to latest${DOWN_ICON}</button>`;
     main = b.firstElementChild as HTMLElement;
     startPatching(main);
   }
+
   const next = document.createElement("template");
   next.innerHTML = prepareInlineImages(html);
   const sel = getSelection(), held: Node[] = [];
+
   if (polled && sel && (!sel.isCollapsed || b.matches(":active"))) {
     if (sel.anchorNode) held.push(sel.anchorNode);
     if (sel.focusNode) held.push(sel.focusNode);
   }
+
   const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(prepareInlineImages) })) ?? null;
   return patchRows(main, next.content, prepared, held);
 }

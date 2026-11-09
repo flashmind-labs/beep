@@ -58,10 +58,12 @@ impl MeshStore {
     async fn ensure(&self, name: &str, url: &str) -> anyhow::Result<()> {
         let key = project_key(name);
         let mut record = read::<ProjectRecord>(&self.mesh, &key).unwrap_or_default();
+
         if record.url.is_empty() {
             record.url = url.to_owned();
             write(&self.mesh, key, Some(&record)).await?;
         }
+
         Ok(())
     }
 
@@ -76,6 +78,7 @@ impl MeshStore {
         let Some(stored) = find_project(&self.mesh, name) else {
             return;
         };
+
         if let Err(e) = sync_checkouts(&self.mesh, &stored).await {
             log::warn!("{name} does not sync yet: {e}");
         }
@@ -119,9 +122,11 @@ impl ImportStore for MeshStore {
         let _write = WRITES.lock().await;
         let name = self.name_of(import.project);
         let key = place_key(&name, machine);
+
         if self.mesh.get(&key).is_some() {
             return Ok(false);
         }
+
         self.ensure(&name, import.url).await?;
         let place = Place {
             folder: import.folder.to_owned(),
@@ -146,9 +151,11 @@ impl ImportStore for MeshStore {
             return Ok(());
         };
         let fork = fork.map(ToString::to_string);
+
         if place.fork == fork {
             return Ok(());
         }
+
         place.fork = fork;
         write(&self.mesh, key, Some(&place)).await?;
         Ok(())

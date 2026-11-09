@@ -78,9 +78,11 @@ impl Paths {
                     invalidated.store(true, Ordering::Release);
                 }
                 drop(roots);
+
                 if changed_roots.is_empty() {
                     return;
                 }
+
                 let structural = event.as_ref().map_or(true, |event| {
                     event.need_rescan()
                         || matches!(
@@ -91,6 +93,7 @@ impl Paths {
                         )
                 });
                 direct(changed_roots, structural);
+
                 if structural {
                     let _ = refresh.try_send(());
                 }
@@ -119,6 +122,7 @@ impl Paths {
                     Ok(done) => done,
                     Err(_) => return,
                 };
+
                 if result.is_err() {
                     log::debug!("filesystem notification watches need reconciliation");
                 }
@@ -153,9 +157,11 @@ impl Paths {
             let mut inner = crate::lock(&inner);
             let before = crate::lock(&inner.roots).clone();
             let result = inner.install(&roots);
+
             if result.is_ok() {
                 *crate::lock(&inner.roots) = roots.clone();
             }
+
             let changed = if before != roots || !matches!(result, Ok(false)) {
                 before.into_iter().chain(roots).collect()
             } else {
@@ -165,9 +171,11 @@ impl Paths {
         })
         .await
         .context("filesystem watcher stopped")??;
+
         if !changed.is_empty() {
             (self.changed)(changed, true);
         }
+
         result.map(|_| ())
     }
 }
@@ -175,6 +183,7 @@ impl Paths {
 impl Inner {
     fn install(&mut self, roots: &[PathBuf]) -> Result<bool> {
         let mut wanted = BTreeMap::new();
+
         for root in roots {
             let (path, mode) = existing(root)?;
             wanted
@@ -198,6 +207,7 @@ impl Inner {
                 .any(|parent| parent != path && path.starts_with(parent))
         });
         let stale = self.stale.swap(false, Ordering::AcqRel);
+
         if self.installed == wanted && !stale {
             return Ok(false);
         }
@@ -206,20 +216,26 @@ impl Inner {
         for path in self.installed.keys() {
             let _ = self.watcher.unwatch(path);
         }
+
         let mut added: Vec<PathBuf> = Vec::new();
+
         for (path, mode) in &wanted {
             if let Err(error) = self.watcher.watch(path, *mode) {
                 for path in added {
                     let _ = self.watcher.unwatch(&path);
                 }
+
                 for (path, mode) in &self.installed {
                     let _ = self.watcher.watch(path, *mode);
                 }
+
                 self.stale.store(true, Ordering::Release);
                 return Err(error.into());
             }
+
             added.push(path.clone());
         }
+
         self.installed = wanted;
         Ok(true)
     }
@@ -234,6 +250,7 @@ fn affects(root: &Path, path: &Path) -> bool {
             )
         });
     }
+
     root.starts_with(path)
 }
 
@@ -241,11 +258,13 @@ fn existing(root: &Path) -> Result<(PathBuf, RecursiveMode)> {
     if root.exists() {
         return Ok((root.to_owned(), RecursiveMode::Recursive));
     }
+
     for parent in root.ancestors().skip(1) {
         if parent.is_dir() {
             return Ok((parent.to_owned(), RecursiveMode::NonRecursive));
         }
     }
+
     bail!("the watched path has no existing parent")
 }
 

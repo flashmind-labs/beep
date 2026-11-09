@@ -126,6 +126,7 @@ impl Agents {
         if session.reviewer {
             return;
         }
+
         let Some(link) = session.info().parent else {
             return;
         };
@@ -176,10 +177,12 @@ async fn follow(mut live: watch::Receiver<Live>, to: To, membership: Arc<OnceLoc
     // this first look is told too.
     let (mut turns, mut asking) = (0, false);
     let mut first = true;
+
     while std::mem::take(&mut first) || live.changed().await.is_ok() {
         let mut ended = false;
         let note = {
             let now = live.borrow_and_update();
+
             match now.status() {
                 Status::Ended => {
                     ended = true;
@@ -232,9 +235,11 @@ async fn follow(mut live: watch::Receiver<Live>, to: To, membership: Arc<OnceLoc
                 None => Err("this machine is in no mesh".to_owned()),
             },
         };
+
         if let Err(e) = sent {
             log::info!("the parent of child {} was not told: {e}", note.id);
         }
+
         if ended {
             return;
         }
@@ -280,9 +285,11 @@ async fn deliver(
             || (status == Status::Idle && live.last_stop == Some(StopReason::Cancelled));
         (status == Status::Idle, stopped)
     };
+
     if stopped || waits.holds(&Agents::name_of(parent), id) {
         return Ok(());
     }
+
     let text = note.text_for(id).into();
     let command = if idle {
         Command::Prompt(text)

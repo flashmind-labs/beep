@@ -50,10 +50,12 @@ impl Desk {
     ) -> Result<bool> {
         let _write = WRITES.lock().await;
         let mut stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+
         if let Some(enabled) = enabled {
             stored.record.git_auto_recovery = enabled;
             write(&self.mesh, project_key(&stored.name), Some(&stored.record)).await?;
         }
+
         Ok(stored.record.git_auto_recovery)
     }
 
@@ -65,10 +67,12 @@ impl Desk {
     ) -> Result<Option<bool>> {
         let _write = WRITES.lock().await;
         let mut stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+
         if let Some(enabled) = enabled {
             stored.record.syncthing_files = Some(enabled);
             write(&self.mesh, project_key(&stored.name), Some(&stored.record)).await?;
         }
+
         Ok(stored.record.syncthing_files)
     }
 
@@ -86,6 +90,7 @@ impl Desk {
                 "Choose two machines with checkouts of this project.",
             ));
         }
+
         let source = self.peers.client(from).await?;
         let reply: Reply = source
             .call(
@@ -167,6 +172,7 @@ impl Desk {
             Some(_) => return None,
             None => client.call(PROTOCOL, &Request::Status {}).await.ok()?,
         };
+
         match reply {
             Reply::Status { projects } => Some(projects),
             _ => None,
@@ -338,6 +344,7 @@ impl Desk {
             let _write = WRITES.lock().await;
             let key = Key::Sync(project.to_owned());
             let mut spec = read::<SyncSpec>(&self.mesh, &key).ok_or(FleetError::NotFound)?;
+
             if spec.paused != paused {
                 spec.paused = paused;
                 write(&self.mesh, key, Some(&spec)).await?;
@@ -397,6 +404,7 @@ impl Desk {
             return Vec::new();
         };
         let mut out = Vec::new();
+
         for seen in self.seen().await {
             let Ok(id) = seen.machine.id.parse::<EndpointId>() else {
                 continue;
@@ -404,6 +412,7 @@ impl Desk {
             let (Some(place), Some(env)) = (record.places.get(&id), seen.env) else {
                 continue;
             };
+
             if let Some(synced) = env.syncthing_folder(&place.folder) {
                 if self
                     .syncthing_files(&seen.machine.id, &place.folder, None)
@@ -412,6 +421,7 @@ impl Desk {
                 {
                     continue;
                 }
+
                 out.push(SyncthingPlace {
                     machine_id: seen.machine.id,
                     folder: place.folder.clone(),
@@ -419,6 +429,7 @@ impl Desk {
                 });
             }
         }
+
         out
     }
 

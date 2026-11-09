@@ -13,6 +13,7 @@ async fn jobs_dropped_for_a_full_queue_are_armed_again() {
     let (done, mut finished) = mpsc::unbounded_channel();
     let tries = JOBS_RUNNING + JOBS_QUEUED + 8;
     let mut queued = 0;
+
     for _ in 0..tries {
         let (gate, done) = (gate.clone(), done.clone());
         let job = Job::new(JobKind::Check, move |_| async move {
@@ -20,10 +21,12 @@ async fn jobs_dropped_for_a_full_queue_are_armed_again() {
             drop(gate.acquire().await);
             done.send(()).map_err(|_| anyhow!("the test stopped"))
         });
+
         if projects.spawn(app, job) {
             queued += 1;
         }
     }
+
     assert!(queued < tries, "{queued} of {tries} queued");
     let now = Utc::now();
     let check = Due::Check(ProjectId(Uuid::new_v4()));
@@ -40,12 +43,15 @@ async fn jobs_dropped_for_a_full_queue_are_armed_again() {
         .armed_at(&Due::Worker(worker))
         .expect("the worker's jobs are armed");
     gate.close();
+
     for _ in 0..queued {
         finished.recv().await.expect("a job finishes");
     }
+
     for due in projects.take_due(retry) {
         projects.run_due(app, due, retry);
     }
+
     report.await.expect("the report ran");
 }
 

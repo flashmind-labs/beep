@@ -134,6 +134,7 @@ pub struct LocalTime {
 impl LocalTime {
     fn describe(&self) -> String {
         const FORMAT: &str = "%A %Y-%m-%d %H:%M";
+
         match self.timezone {
             Some(tz) => format!("{} ({tz})", self.time.with_timezone(&tz).format(FORMAT)),
             None => self.time.with_timezone(&Local).format(FORMAT).to_string(),
@@ -161,20 +162,26 @@ impl StarterContext {
     fn render(&self) -> String {
         let mut text = String::new();
         let _ = writeln!(text, "Local time: {}", self.now.describe());
+
         if let Some(place) = &self.place {
             let _ = writeln!(text, "Location: {}", clip(place, 80));
         }
+
         if !self.connected_apps.is_empty() {
             let _ = writeln!(text, "Connected apps: {}", self.connected_apps.join(", "));
         }
+
         if !self.recent_titles.is_empty() {
             let _ = writeln!(text, "\nRecent conversations:");
+
             for title in self.recent_titles.iter().take(MAX_TITLES) {
                 let _ = writeln!(text, "- {}", clip(title, 80));
             }
         }
+
         if !self.done.is_empty() {
             let _ = writeln!(text, "\nDone recently:");
+
             for done in self.done.iter().take(MAX_DONE) {
                 let at = LocalTime {
                     time: done.at,
@@ -184,8 +191,10 @@ impl StarterContext {
                 let _ = writeln!(text, "- {}: {description}", at.describe());
             }
         }
+
         if !self.shown.is_empty() {
             let _ = writeln!(text, "\nShown just before:");
+
             for starter in &self.shown {
                 let prompt = clip(&starter.prompt, MAX_PROMPT_CHARS);
                 let _ = writeln!(
@@ -195,13 +204,16 @@ impl StarterContext {
                 );
             }
         }
+
         if !self.memories.is_empty() {
             let _ = writeln!(text, "\nWhat the user has shared:");
+
             for memory in self.memories.iter().take(MAX_MEMORIES) {
                 let content = clip(&memory.content, MAX_MEMORY_CHARS);
                 let _ = writeln!(text, "- [{}] {content}", memory.category);
             }
         }
+
         text
     }
 }
@@ -306,6 +318,7 @@ impl Generator<'_> {
         };
         let mut stream = self.provider.complete(request);
         let mut answer = String::new();
+
         while let Some(event) = stream.next().await {
             match event {
                 Ok(StreamEvent::ContentDelta(delta)) => answer.push_str(&delta),
@@ -316,6 +329,7 @@ impl Generator<'_> {
                 Err(_) => bail!("provider error"),
             }
         }
+
         Ok(answer)
     }
 }
@@ -323,6 +337,7 @@ impl Generator<'_> {
 /// Strips an optional Markdown code fence around a JSON answer.
 pub(crate) fn unfence(answer: &str) -> &str {
     let text = answer.trim();
+
     match text.strip_prefix("```") {
         Some(rest) => {
             let rest = rest.strip_prefix("json").unwrap_or(rest);
@@ -357,7 +372,9 @@ fn strip_marker(line: &str) -> &str {
     {
         return rest.trim_start();
     }
+
     let digits = line.len() - line.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+
     match line[digits..].strip_prefix(['.', ')']) {
         // `10.30` is a number, not a marker.
         Some(rest) if digits > 0 && (rest.is_empty() || rest.starts_with(char::is_whitespace)) => {

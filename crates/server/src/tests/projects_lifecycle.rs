@@ -165,6 +165,7 @@ impl Harness {
                 .await
                 .expect("the PR");
         }
+
         let worker = user
             .project_worker(WorkerId(id))
             .await

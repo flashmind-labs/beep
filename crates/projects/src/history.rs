@@ -177,13 +177,16 @@ fn decode(output: &str) -> Result<BTreeMap<String, String>> {
             result.insert(name.to_owned(), String::from_utf8_lossy(&raw).into_owned());
             encoded.clear();
         }
+
         Ok(())
     };
+
     for line in output.lines() {
         if line == "@@end" {
             flush(header.take(), &mut encoded, &mut result)?;
             return Ok(result);
         }
+
         if let Some(rest) = line.strip_prefix("@@") {
             flush(header.take(), &mut encoded, &mut result)?;
             let (name, bytes) = rest.split_once(' ').context("Invalid Git response")?;
@@ -193,6 +196,7 @@ fn decode(output: &str) -> Result<BTreeMap<String, String>> {
             encoded.push_str(line.trim());
         }
     }
+
     bail!("Git output was clipped. Select an individual file or narrow the history.")
 }
 
@@ -208,11 +212,14 @@ pub fn parse_history(mut parts: BTreeMap<String, String>, offset: u32) -> Result
     let log = take("commits")?;
     let mut commits = Vec::new();
     let mut fields = log.split('\0');
+
     while let Some(id) = fields.next() {
         let id = id.trim_start_matches('\n');
+
         if id.is_empty() {
             break;
         }
+
         let parents = fields.next().context("Missing commit parents")?;
         let author = fields.next().context("Missing commit author")?;
         let seconds: u64 = fields.next().context("Missing commit date")?.parse()?;
@@ -228,6 +235,7 @@ pub fn parse_history(mut parts: BTreeMap<String, String>, offset: u32) -> Result
             subject: subject.to_owned(),
         });
     }
+
     let next = if commits.len() > PAGE_SIZE {
         Some(
             offset
@@ -240,16 +248,21 @@ pub fn parse_history(mut parts: BTreeMap<String, String>, offset: u32) -> Result
     commits.truncate(PAGE_SIZE);
     let mut found_refs = Vec::new();
     let mut fields = refs.split('\0');
+
     while let Some(name) = fields.next() {
         let name = name.trim_start_matches('\n');
+
         if name.is_empty() {
             break;
         }
+
         let head = fields.next().context("Missing ref head")?;
         let symbolic = fields.next().context("Missing symbolic ref")?;
+
         if !symbolic.is_empty() {
             continue;
         }
+
         let (name, kind) = if let Some(n) = name.strip_prefix("refs/heads/") {
             (n, RefKind::Local)
         } else if let Some(n) = name.strip_prefix("refs/remotes/") {
@@ -265,24 +278,30 @@ pub fn parse_history(mut parts: BTreeMap<String, String>, offset: u32) -> Result
             kind,
         });
     }
+
     let mut worktrees = Vec::new();
+
     for record in trees.split("\0\0") {
         let mut path = None;
         let mut head = None;
         let mut branch = None;
+
         for field in record.split('\0') {
             if let Some(value) = field.strip_prefix("worktree ") {
                 path = Some(value.to_owned());
             }
+
             if let Some(value) = field.strip_prefix("HEAD ")
                 && !value.bytes().all(|b| b == b'0')
             {
                 head = Some(CommitId::from_str(value)?);
             }
+
             if let Some(value) = field.strip_prefix("branch refs/heads/") {
                 branch = Some(value.to_owned());
             }
         }
+
         if let Some(path) = path {
             worktrees.push(Worktree {
                 path,
@@ -292,6 +311,7 @@ pub fn parse_history(mut parts: BTreeMap<String, String>, offset: u32) -> Result
             });
         }
     }
+
     Ok(History {
         root: root.strip_suffix('\n').unwrap_or(&root).to_owned(),
         refs: found_refs,
@@ -324,6 +344,7 @@ pub fn files_script(folder: &str, commit: &CommitId) -> String {
 pub fn parse_files(output: &str) -> Result<Vec<ChangedFile>> {
     let mut fields = output.split('\0').filter(|s| !s.is_empty());
     let mut files = Vec::new();
+
     while let Some(status) = fields.next() {
         let path = fields.next().context("Missing changed file path")?;
         let (path, old_path, status) = match status.trim_start_matches('\n').as_bytes().first() {
@@ -344,6 +365,7 @@ pub fn parse_files(output: &str) -> Result<Vec<ChangedFile>> {
             status,
         });
     }
+
     Ok(files)
 }
 

@@ -79,6 +79,7 @@ impl Tool for SetupTool {
             Ok(args) => args,
             Err(error) => return Ok(ToolResult::failure(id, error.to_string())),
         };
+
         if let SetupAction::Checkout = args.action {
             let checkout_card = || {
                 let text = |value: &Option<String>| value.clone().unwrap_or_default();
@@ -100,6 +101,7 @@ impl Tool for SetupTool {
                 Gate::Park(result) => return Ok(result),
             }
         }
+
         let done = match args.action {
             SetupAction::Show => self.show().await?,
             action => self.change(action, &args).await?,
@@ -128,6 +130,7 @@ impl SetupTool {
         let visibility: &'static str = project.visibility.into();
         let _ = writeln!(text, "Visibility: {visibility}");
         let _ = writeln!(text, "Default branch: {}", project.default_branch);
+
         for checkout in tools.user.checkouts(project.id).await? {
             let home = if checkout.home { " (home)" } else { "" };
             let _ = writeln!(
@@ -137,9 +140,11 @@ impl SetupTool {
                 fleet::name_of(&machines, &checkout.machine)
             );
         }
+
         if let Some(pin) = &project.pin {
             let _ = writeln!(text, "Pinned to: {}", fleet::name_of(&machines, pin));
         }
+
         Ok(Ok(text))
     }
 
@@ -163,6 +168,7 @@ impl SetupTool {
                 machine_list(&machines)
             )));
         };
+
         if let SetupAction::Pin = action {
             tools.user.set_pin(project.id, Some(&machine.id)).await?;
             return Ok(Ok(format!(
@@ -170,11 +176,13 @@ impl SetupTool {
                 command_name(&machine.name)
             )));
         }
+
         let path = match args.path.as_deref().map(str::parse::<MachinePath>) {
             Some(Ok(path)) => path,
             Some(Err(error)) => return Ok(Err(format!("Not a usable path: {error}."))),
             None => return Ok(Err("Give the checkout's `path`.".to_owned())),
         };
+
         if let SetupAction::Home = action {
             return Ok(
                 match tools.user.set_home(project.id, &machine.id, &path).await {
@@ -186,6 +194,7 @@ impl SetupTool {
                 },
             );
         }
+
         self.checkout(&project, machine, &path).await
     }
 
@@ -197,6 +206,7 @@ impl SetupTool {
     ) -> Result<Result<String, String>> {
         let tools = &self.tools;
         let name = command_name(&machine.name);
+
         match fleet::shared(tools.fleet.as_ref(), &machine.id, path).await {
             Ok(true) => {}
             Ok(false) => {
@@ -212,6 +222,7 @@ impl SetupTool {
                 )));
             }
         }
+
         let Some(shell) = tools.fleet.shell(&machine.id) else {
             return Ok(Err(format!("{name} is offline or offers no shell.")));
         };
@@ -229,12 +240,14 @@ impl SetupTool {
             None => project.visibility,
         };
         let excluded = shell.run(&exclude_project_dirs(path), HOST_LIMIT).await?;
+
         if excluded.exit_code != Some(0) {
             return Ok(Err(format!(
                 "Could not keep .worktrees/ and .beep/ out of git there: {}",
                 excluded.output.trim()
             )));
         }
+
         if let Some(host) = &setup.roles.issues
             && let Err(error) = run_host(
                 shell.as_ref(),
@@ -250,6 +263,7 @@ impl SetupTool {
                 host
             )));
         }
+
         let checkouts = tools.user.checkouts(project.id).await?;
         let home = checkouts.iter().all(|checkout| !checkout.home)
             || checkouts.iter().any(|checkout| {

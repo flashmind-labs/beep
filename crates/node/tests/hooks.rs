@@ -28,9 +28,11 @@ async fn hook(dir: &Path, event: &str, fields: Value) -> String {
         "cwd": "/srv/project",
         "hook_event_name": event,
     });
+
     if let (Some(input), Some(fields)) = (input.as_object_mut(), fields.as_object()) {
         input.extend(fields.clone());
     }
+
     let started = Instant::now();
     let mut child = Command::new(env!("CARGO_BIN_EXE_beep-node"))
         .arg("--dir")
@@ -126,6 +128,7 @@ async fn hooks_deliver_what_beep_queued_and_pass_through_without_a_node() {
 
     // A stop denies each tool call until the turn ends.
     live(Some(Steer::Stop {})).await.unwrap();
+
     for _ in 0..2 {
         let denied = decision(&hook(dir.path(), "PreToolUse", bash("rm -r build")).await);
         let output = &denied["hookSpecificOutput"];
@@ -136,6 +139,7 @@ async fn hooks_deliver_what_beep_queued_and_pass_through_without_a_node() {
             "The user asked you to stop."
         );
     }
+
     let last = json!({ "last_assistant_message": "Stopped.", "stop_hook_active": false });
     assert_eq!(hook(dir.path(), "Stop", last.clone()).await, "");
     let status = live(None).await.unwrap();

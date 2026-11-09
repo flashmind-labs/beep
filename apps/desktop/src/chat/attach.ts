@@ -41,11 +41,13 @@ export const attachedCount = () => attached.pics.length + attached.files.length;
 /// it waits in the prompt, as a button that opens it once it is kept.
 export function fileChip(f: AskFile, i?: number) {
   const tag = f.id ? "button" : "span";
+
   // A spoken message's recording, kept with it.
   if (i === undefined && f.mime?.startsWith("audio/")) {
     const about = ["Audio", fileSize(f.size)].filter(Boolean).join(", ");
     return `<${tag} class="dachip" aria-label="Open your recording"><span class="ic">${VOICE_ICON.mic}</span><span class="dcol0"><span class="nm">Your recording</span><span class="sz">${esc(about)}</span></span></${tag}>`;
   }
+
   const about = [fileKind(f), fileSize(f.size)].filter(Boolean).join(", ");
   const remove = i === undefined ? "" : `<button aria-label="Remove ${esc(f.name)}" data-i="${i}">${ICON.x}</button>`;
   return `<${tag} class="dachip"><span class="ic">${ICON.doc}</span><span class="dcol0"><span class="nm">${esc(f.name)}</span><span class="sz">${esc(about)}</span></span>${remove}</${tag}>`;
@@ -59,6 +61,7 @@ export function askFiles(files: AskFile[]) {
     if (!file.id) return;
     chip.addEventListener("click", async () => {
       if (chip.classList.contains("gone")) return;
+
       try { await invoke("open_file", { id: file.id, name: file.name }); }
       catch (e) {
         chip.querySelector(".sz")!.textContent = String(e);
@@ -80,6 +83,7 @@ export function drawAttached() {
   el?.querySelectorAll<HTMLElement>("button").forEach(b => b.addEventListener("click", () => { unattach(+b.dataset.i!); focusAsk(); }));
   if (old) el ? old.replaceWith(el) : old.remove();
   else if (el) input.before(el);
+
   if (n) {
     ask.dataset.ph ??= ask.placeholder;
     const what = attached.files.length ? (n > 1 ? "these" : "this file") : (n > 1 ? "these images" : "this image");
@@ -88,6 +92,7 @@ export function drawAttached() {
     ask.placeholder = ask.dataset.ph;
     delete ask.dataset.ph;
   }
+
   refreshHints();
 }
 
@@ -111,16 +116,21 @@ export function attachError(text: string) {
 export async function attach(files: Iterable<File>) {
   const all = [...files];
   if (!all.length) return false;
+
   for (const f of all) {
     if (attachedCount() >= MAX_IMAGES) { attachError(`Up to ${MAX_IMAGES} attachments in one message`); break; }
+
     if (f.type.startsWith("image/")) {
       try { attached.pics.push(await shrinkPic(f)); continue; } catch { /* sent as a file, such as a HEIC */ }
     }
+
     const used = attached.files.reduce((n, x) => n + x.size, 0);
     if (used + f.size > MAX_UPLOAD) { attachError(`Files up to ${MAX_UPLOAD >> 20} MB in one message`); continue; }
+
     try { attached.files.push({ name: f.name || "file", mime: f.type, size: f.size, data: await fileBase64(f) }); }
     catch { attachError(`${f.name || "That file"} could not be read`); }
   }
+
   drawAttached();
   return true;
 }
@@ -179,11 +189,13 @@ async function agentJpeg(file: File) {
 /// be drawn included.
 export async function agentPics(files: Iterable<File>) {
   const pics: File[] = [], rest: File[] = [];
+
   for (const f of files) {
     if (AGENT_IMAGE_TYPES.includes(f.type) && f.size <= AGENT_IMAGE_KEPT) pics.push(f);
     else if (f.type.startsWith("image/")) await agentJpeg(f).then(jpeg => pics.push(jpeg), () => rest.push(f));
     else rest.push(f);
   }
+
   return { pics, rest };
 }
 
@@ -201,6 +213,7 @@ export async function agentDrop(files: Iterable<File>) {
 bar.addEventListener("dragover", e => {
   const agent = agentField();
   const types = e.dataTransfer?.types ?? [];
+
   if (agent && types.includes(PATH_TYPE)) {
     if (!(e.target as HTMLElement).closest?.("#agconv")) return;
     e.preventDefault();
@@ -208,6 +221,7 @@ bar.addEventListener("dragover", e => {
     $("#agfield")?.classList.add("dropping");
     return;
   }
+
   if ((S.view !== "chat" && !agent) || !types.includes("Files")) return;
   e.preventDefault();
   if (!$("#ddrop")) bar.append(h(`<div class="ddrop" id="ddrop">${ICON.image}${agent ? "Drop images to send, other files to upload" : "Drop images or files to ask about them"}</div>`));
@@ -220,16 +234,19 @@ bar.addEventListener("drop", e => {
   $("#ddrop")?.remove();
   $("#agfield")?.classList.remove("dropping");
   const path = e.dataTransfer?.getData(PATH_TYPE);
+
   if (agentField() && path) {
     e.preventDefault();
     addMention(path);
     return;
   }
+
   if (agentField() && e.dataTransfer?.files.length) {
     e.preventDefault();
     agentDrop(e.dataTransfer.files).then(() => $("#agmsg")?.focus());
     return;
   }
+
   if (S.view !== "chat" || !e.dataTransfer?.files.length) return;
   e.preventDefault();
   attach(e.dataTransfer.files).then(() => focusAsk());

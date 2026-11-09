@@ -31,9 +31,11 @@ impl App {
         body: &str,
     ) -> Result<VoiceNote, ApiError> {
         let text = voice::spoken_text(&self.generator(user.id()), title, body).await;
+
         if text.is_empty() {
             return Err(ApiError::bad_request("nothing to say"));
         }
+
         let audio = self.voice.speak(user.id(), &text).await.map_err(refused)?;
         Ok(VoiceNote {
             text,
@@ -48,9 +50,11 @@ impl App {
     /// A line of live mode spoken as it is.
     pub async fn say(&self, user: &User, text: &str) -> Result<VoiceNote, ApiError> {
         let text = text.trim();
+
         if text.is_empty() {
             return Err(ApiError::bad_request("nothing to say"));
         }
+
         let audio = self.voice.say(user.id(), text).await.map_err(refused)?;
         Ok(VoiceNote {
             text: text.to_owned(),
@@ -92,6 +96,7 @@ impl LiveSlots {
         let all = self.all.clone().try_acquire_owned().ok()?;
         let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
         let running = users.entry(user.to_owned()).or_default();
+
         if *running >= MAX_LIVE_PER_USER {
             return None;
         }
@@ -114,8 +119,10 @@ struct LiveSlot {
 impl Drop for LiveSlot {
     fn drop(&mut self) {
         let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
+
         if let Some(running) = users.get_mut(&self.user) {
             *running = running.saturating_sub(1);
+
             if *running == 0 {
                 users.remove(&self.user);
             }

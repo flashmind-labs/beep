@@ -30,12 +30,14 @@ fn the_scripts_take_the_launch_and_keep_nothing_unfilled() {
 fn the_script_names_its_folder_and_binary() {
     let mut odd = launch(None);
     odd.dir = PathBuf::from("/srv/it's a \"$node\" `x` \\ 50%");
+
     for init in [Init::OpenRc, Init::SysV] {
         let script = script(&odd, init);
         assert_eq!(dir_in(&script), Some(odd.dir.clone()), "{script}");
         assert!(runs(&script, Path::new("/opt/beep node/beep-node")));
         assert!(!runs(&script, Path::new("/opt/beep node/beep")));
     }
+
     assert_eq!(dir_in("#!/bin/sh\ncommand=x\n"), None);
 }
 

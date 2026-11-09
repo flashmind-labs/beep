@@ -14,6 +14,7 @@ pub(super) async fn health(_: Cx, _: Health) -> Reply<()> {
 /// One symbol's chart over another range, for a stock chart's range buttons.
 pub(super) async fn stock_chart(_: Cx, req: StockChart) -> Reply<Chart> {
     let symbol = Symbol::parse(&req.symbol).map_err(|e| ApiError::bad_request(e.to_string()))?;
+
     match stocks::fetch(&[symbol], req.range).await {
         Ok(histories) => Ok(stocks::chart(req.range, &histories)),
         Err(StockError::NotFound(_) | StockError::NoPrices(_)) => Err(ApiError::NotFound {}),

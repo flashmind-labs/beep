@@ -147,12 +147,14 @@ fn files_resolve_under_the_page_folder() {
 async fn a_page_loads_a_bounded_number_of_files() {
     let pages = Pages::default();
     let src = pages.keep(b"<p>hi</p>".to_vec(), place());
+
     for _ in 0..MAX_PAGE_FILES {
         assert_eq!(
             fetch(&pages, &format!("{src}chart.png")).await.status(),
             StatusCode::OK
         );
     }
+
     assert_eq!(
         done(&pages, &format!("{src}chart.png")).status(),
         StatusCode::TOO_MANY_REQUESTS
@@ -163,9 +165,11 @@ async fn a_page_loads_a_bounded_number_of_files() {
 fn only_the_oldest_pages_go() {
     let pages = Pages::default();
     let first = pages.keep(b"1".to_vec(), place());
+
     for _ in 0..KEPT_PAGES {
         pages.keep(b"more".to_vec(), place());
     }
+
     let token = |src: &str| {
         src.trim_end_matches('/')
             .rsplit('/')

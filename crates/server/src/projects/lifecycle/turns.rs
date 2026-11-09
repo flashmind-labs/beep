@@ -66,6 +66,7 @@ pub(super) async fn relabel(
     if task.issue_foreign {
         return;
     }
+
     let home = match fleet::home_shell(fleet, user, project).await {
         Ok(home) => home,
         Err(why) => {
@@ -78,6 +79,7 @@ pub(super) async fn relabel(
         add,
         remove,
     };
+
     if let Err(error) = run_host(home.as_ref(), host, &project.name, command).await {
         log::warn!("projects: unable to relabel an issue: {error:#}");
     }
@@ -105,5 +107,6 @@ pub(crate) async fn block(
         )
         .await;
     }
+
     Ok(())
 }

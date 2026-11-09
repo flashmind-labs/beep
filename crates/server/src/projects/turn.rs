@@ -91,12 +91,14 @@ pub(crate) async fn start_with(
             }
         }
     };
+
     if !fleet.projects().mirror(project.id, budget, work).await {
         log::info!(
             "projects: filing missing issues takes over {}s; the turn goes on without them",
             budget.as_secs()
         );
     }
+
     context_with(fleet.as_ref(), user, project).await
 }
 
@@ -143,6 +145,7 @@ pub(crate) async fn context_with(fleet: &dyn Fleet, user: &User, project: &Proje
         let _ = writeln!(ctx, "Checkouts: none yet");
     } else {
         let _ = writeln!(ctx, "Checkouts:");
+
         for checkout in &checkouts {
             let home = if checkout.home { " (home)" } else { "" };
             let _ = writeln!(
@@ -153,9 +156,11 @@ pub(crate) async fn context_with(fleet: &dyn Fleet, user: &User, project: &Proje
             );
         }
     }
+
     for line in syncthing_lines(&project.name.to_string(), &machines, &checkouts) {
         let _ = writeln!(ctx, "{line}");
     }
+
     if let Some(pin) = &project.pin {
         let _ = writeln!(ctx, "Pinned to: {}", fleet::name_of(&machines, pin));
     }
@@ -172,8 +177,10 @@ pub(crate) async fn context_with(fleet: &dyn Fleet, user: &User, project: &Proje
         Vec::new()
     });
     let slug_of = |task: &TaskRow| task.slug.to_string();
+
     if !machines.is_empty() {
         let _ = writeln!(ctx, "Machines:");
+
         for machine in &machines {
             let running: Vec<String> = workers
                 .iter()
@@ -194,24 +201,30 @@ pub(crate) async fn context_with(fleet: &dyn Fleet, user: &User, project: &Proje
         let _ = writeln!(ctx, "Open tasks: none");
     } else {
         let _ = writeln!(ctx, "Open tasks:");
+
         for task in open {
             let state: &'static str = task.state.into();
             let mut line = format!("- {}: {state}, \"{}\"", task.slug, task.title);
+
             if let Some(after) = task
                 .depends_on
                 .and_then(|id| tasks.iter().find(|t| t.id == id))
             {
                 let _ = write!(line, ", after {}", after.slug);
             }
+
             if let Some(issue) = &task.issue {
                 let _ = write!(line, ", issue #{}", issue.number);
             }
+
             if let Some(branch) = &task.branch {
                 let _ = write!(line, ", branch {branch}");
             }
+
             if let Some(pr) = &task.pr_url {
                 let _ = write!(line, ", PR {pr}");
             }
+
             if let Some(worker) = workers.iter().find(|worker| worker.task == task.id) {
                 let state: &'static str = worker.state.into();
                 let _ = write!(
@@ -220,26 +233,32 @@ pub(crate) async fn context_with(fleet: &dyn Fleet, user: &User, project: &Proje
                     fleet::name_of(&machines, &worker.machine)
                 );
             }
+
             if task.start.is_some() {
                 line.push_str(", waiting to start");
             }
+
             let _ = writeln!(ctx, "{line}");
         }
     }
 
     memories(&mut ctx, user, project).await;
+
     if let Some(home) = checkouts.iter().find(|checkout| checkout.home) {
         persona_lines(&mut ctx, fleet, home).await;
     }
+
     if let Some(host) = &project.roles.issues {
         owned_issues(&mut ctx, fleet, user, project, host).await;
     }
+
     ctx
 }
 
 /// A line per Syncthing-synced checkout naming the machines sharing its folder.
 fn syncthing_lines(project: &str, machines: &[Machine], checkouts: &[CheckoutRow]) -> Vec<String> {
     let mut lines = Vec::new();
+
     for checkout in checkouts {
         let Some(machine) = machines.iter().find(|m| m.id == checkout.machine) else {
             continue;
@@ -273,12 +292,14 @@ fn syncthing_lines(project: &str, machines: &[Machine], checkouts: &[CheckoutRow
             )
         });
     }
+
     lines
 }
 
 /// `gpu-box (cuda, blender): online, running fix-it`.
 fn machine_line(machine: &Machine, running: &[String]) -> String {
     let mut line = fleet::name_of(std::slice::from_ref(machine), &machine.id);
+
     if !machine.capabilities.is_empty() {
         let names: Vec<&'static str> = machine
             .capabilities
@@ -287,14 +308,17 @@ fn machine_line(machine: &Machine, running: &[String]) -> String {
             .collect();
         let _ = write!(line, " ({})", names.join(", "));
     }
+
     line.push_str(if machine.online {
         ": online"
     } else {
         ": offline"
     });
+
     if !running.is_empty() {
         let _ = write!(line, ", running {}", running.join(", "));
     }
+
     line
 }
 
@@ -317,7 +341,9 @@ async fn memories(ctx: &mut String, user: &User, project: &ProjectRow) {
     if found.peek().is_none() {
         return;
     }
+
     let _ = writeln!(ctx, "Project memories:");
+
     for row in found {
         let _ = writeln!(ctx, "- {} ({})", row.content, row.updated());
     }
@@ -352,6 +378,7 @@ pub(crate) async fn read_personas(
     files.sort();
     files.truncate(MAX_PERSONAS);
     let mut found = Vec::new();
+
     for name in files {
         let path: MachinePath = dir.join(&name);
         let read = fleet
@@ -372,34 +399,42 @@ pub(crate) async fn read_personas(
         let parsed = personas::parse(&text);
         found.push((file, parsed));
     }
+
     found
 }
 
 /// The personas in the home checkout's `.agents/`.
 async fn persona_lines(ctx: &mut String, fleet: &dyn Fleet, home: &CheckoutRow) {
     let mut lines = Vec::new();
+
     for (file, parsed) in read_personas(fleet, home).await {
         lines.push(match parsed {
             Ok(found) => {
                 let mut line = format!("- {}", found.persona.name);
+
                 if let Some(description) = found.persona.description.as_deref() {
                     let _ = write!(line, ": {}", description.trim());
                 }
+
                 if let Some(engine) = found.engine {
                     let _ = write!(line, " (engine {engine})");
                 }
+
                 if !found.needs.is_empty() {
                     let needs: Vec<&'static str> =
                         found.needs.iter().map(|&need| need.into()).collect();
                     let _ = write!(line, " (needs {})", needs.join(", "));
                 }
+
                 line
             }
             Err(error) => format!("- {file} does not read as a persona: {error}"),
         });
     }
+
     if !lines.is_empty() {
         let _ = writeln!(ctx, "Personas:");
+
         for line in lines {
             let _ = writeln!(ctx, "{line}");
         }
@@ -428,6 +463,7 @@ async fn owned_issues(
                     .map_or("no code".to_owned(), |code| code.to_string())
             ));
         }
+
         parse_owned_issues(host, &out.output).map_err(|error| format!("{error:#}"))
     };
     let issues: Vec<OwnedIssue> = match timeout(ISSUES_LIMIT, read).await {
@@ -444,11 +480,14 @@ async fn owned_issues(
             return;
         }
     };
+
     if issues.is_empty() {
         let _ = writeln!(ctx, "Issues Beep filed: none");
         return;
     }
+
     let _ = writeln!(ctx, "Issues Beep filed:");
+
     for issue in issues {
         let state = if issue.open { "open" } else { "closed" };
         let _ = writeln!(

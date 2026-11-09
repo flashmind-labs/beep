@@ -191,6 +191,7 @@ impl Config {
         if let Some(url) = &self.database_url {
             return Ok(url.clone());
         }
+
         env::var("DATABASE_URL")
             .map(SecretString::from)
             .context("set database_url in the config or DATABASE_URL")
@@ -222,6 +223,7 @@ pub fn ensure_parent_dir(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         fs::create_dir_all(parent)?;
     }
+
     Ok(())
 }
 
@@ -229,6 +231,7 @@ pub fn load_secret_key(path: Option<&Path>) -> Result<SecretKey> {
     let Some(path) = path else {
         return Ok(SecretKey::generate());
     };
+
     match fs::read_to_string(path) {
         Ok(data) => Ok(data.trim().parse::<SecretKey>()?),
         Err(err) if err.kind() == io::ErrorKind::NotFound => {

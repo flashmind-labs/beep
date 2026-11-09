@@ -45,9 +45,11 @@ fn only_the_newest_and_the_last_thirty_days_are_kept() {
     notes.put(note("old", now - 31 * DAY_MS), now);
     notes.put(note("month", now - 30 * DAY_MS), now);
     assert_eq!(ids(&notes), ["month"]);
+
     for i in 0..KEEP as u64 + 5 {
         notes.put(note(&format!("n{i}"), now - 1000 + i), now);
     }
+
     let kept = ids(&notes);
     assert_eq!(kept.len(), KEEP);
     assert_eq!(kept[0], format!("n{}", KEEP + 4));
@@ -289,9 +291,11 @@ fn opening_a_session_removes_only_its_ready_notes_and_saves_the_removal() {
     assert!(!notes.viewed_agent("m1", "codex", "s1"));
     assert!(notes.get(&ready.to_string()).is_none());
     assert_eq!(notes.list().len(), 5);
+
     for key in [&other_machine, &other_agent, &other_session, &question] {
         assert!(notes.get(&key.to_string()).is_some());
     }
+
     notes.save().expect("the notes are written");
     assert_eq!(store(&dir).list(), notes.list());
 }

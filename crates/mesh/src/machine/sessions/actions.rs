@@ -23,6 +23,7 @@ pub async fn commands<S: Sessions + ?Sized>(
     let request = SessionsRequest::Commands {
         session: session.to_owned(),
     };
+
     match ask(node, request).await? {
         SessionsReply::Commands { commands } => Ok(NodeWork::Done(commands)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
@@ -37,6 +38,7 @@ pub async fn start_review<S: Sessions + ?Sized>(
     order: ReviewOrder,
 ) -> Result<NodeWork<ReviewRun>, MeshError> {
     let request = SessionsRequest::StartReview { order };
+
     match hinted(node.sessions(request, REVIEW_TIMEOUT).await, "review")? {
         SessionsReply::Review { run } => Ok(NodeWork::Done(run)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
@@ -50,6 +52,7 @@ pub async fn review<S: Sessions + ?Sized>(
     id: &str,
 ) -> Result<NodeWork<ReviewRun>, MeshError> {
     let request = SessionsRequest::Review { id: id.to_owned() };
+
     match ask(node, request).await? {
         SessionsReply::Review { run } => Ok(NodeWork::Done(run)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
@@ -66,6 +69,7 @@ pub async fn reviews<S: Sessions + ?Sized>(
     let request = SessionsRequest::Reviews {
         session: session.to_owned(),
     };
+
     match ask(node, request).await? {
         SessionsReply::Reviews { runs } => Ok(runs),
         SessionsReply::Error { .. } => Ok(Vec::new()),
@@ -84,6 +88,7 @@ pub async fn delete_session<S: Sessions + ?Sized>(
         agent: agent.to_owned(),
         session: session.to_owned(),
     };
+
     match hinted(ask(node, request).await, "delete sessions")? {
         SessionsReply::Deleted {} => Ok(NodeWork::Done(())),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),

@@ -25,6 +25,7 @@ pub(super) async fn enrich(kind: &AgentKind, list: &mut ModelList) {
     if kind.name != "codex" {
         return;
     }
+
     let home = kind
         .env
         .get("CODEX_HOME")
@@ -36,6 +37,7 @@ pub(super) async fn enrich(kind: &AgentKind, list: &mut ModelList) {
         return;
     };
     let mut bytes = Vec::new();
+
     if file
         .take(MAX_CATALOG + 1)
         .read_to_end(&mut bytes)
@@ -45,6 +47,7 @@ pub(super) async fn enrich(kind: &AgentKind, list: &mut ModelList) {
     {
         return;
     }
+
     apply(&bytes, list);
 }
 

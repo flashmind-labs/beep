@@ -62,11 +62,14 @@ pub(in crate::agents) fn async_task(message: &UntypedMessage) -> Option<AsyncTas
     if message.method != CLIENT_METHOD_NAMES.session_update {
         return None;
     }
+
     let update = message.params.get("update")?;
     let name = update.get("sessionUpdate")?.as_str()?;
+
     if !name.starts_with("async_task_") {
         return None;
     }
+
     match serde_json::from_value(update.clone()) {
         Ok(task) => Some(task),
         Err(e) => {

@@ -65,6 +65,7 @@ export async function reloadGroup(name: string, redraw = true) {
   if (!g) return;
   if (g.loading) { g.again = true; return; }
   g.loading = true;
+
   try {
     g.items = await g.load();
   } catch (e) {
@@ -72,6 +73,7 @@ export async function reloadGroup(name: string, redraw = true) {
   } finally {
     g.loading = false;
   }
+
   if (redraw) drawSide();
   if (g.again) { g.again = false; reloadGroup(name, redraw); }
 }
@@ -115,16 +117,19 @@ export function drawSide() {
   if (syncProjects().length) top.append(sideItem(IC.sync, "Sync", syncConflicts(), { current: currentLocation()?.view === "sync", hot: true, on: () => go("sync") }));
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
   const side = [h("div", "cc-brand", h("b", "", "Beep")), top];
+
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
     // Rows that fill in once the server answers, never an empty sidebar.
     if (name === "chats" && g.items == null && !home && groupShown("chats", state.subscribed)) side.push(h("div", "cc-grp", h("h3", "", "Chats"), ...skeleton([70, 55, 62])));
     if (g.items == null) continue;
     const grp = h("div", `cc-grp ${name}`);
+
     if (g.title) {
       const h3 = h("h3", "", g.onTitle ? button(g.title, "cc-gt", g.onTitle) : g.title);
       if (g.action) h3.append(g.action());
       grp.append(h3);
     }
+
     const none = typeof g.empty === "function" ? g.empty() : g.empty;
     if (none && !g.items.length) grp.append(typeof none === "string" ? h("span", "cc-si none", none) : none);
     // Hundreds of projects draw a screenful at a time as the sidebar scrolls.
@@ -137,8 +142,10 @@ export function drawSide() {
     if (g.foot) grp.append(...g.foot());
     if (grp.childElementCount > (g.title ? 1 : 0)) side.push(grp);
   }
+
   const foot = h("div", "cc-foot", ...footer(home?.machines).map(f => h("span", "", f)));
   const out = signedOutFooter(S.server, S.signedOut);
+
   if (out) {
     // Signed out: the state, and the way to Sign in, in place of the machine count.
     const signIn = button(out.action, "quiet", () => openSettings("devices"));
@@ -149,15 +156,18 @@ export function drawSide() {
     add.classList.add("dbtn", "quiet");
     foot.append(add);
   }
+
   side.push(foot);
   // The head stays put under the window buttons; only the list below it
   // scrolls, and a redraw keeps where it was.
   const el = $("#side");
   let list = el.querySelector<HTMLElement>(":scope > .cc-side-list");
+
   if (!list) {
     list = h("div", "cc-side-list");
     el.replaceChildren(head, list);
   }
+
   patchChildren(list, side);
   // A chat's title comes from the list, which may just have loaded.
   if (currentLocation()?.view === "pane") drawTop();
@@ -221,6 +231,7 @@ export async function setProjectOnTop(name: string, pinned: boolean) {
   const before = state.top;
   state.top = pinned ? [...before.filter(n => n !== name), name] : before.filter(n => n !== name);
   redrawProjectPins();
+
   try {
     await invoke("pin_project_to_top", { project: name, pinned });
   } catch (e) {
@@ -256,11 +267,13 @@ export async function setPinned(c: SideChat, pinned: boolean) {
   if (c.kind === "project") return setProjectOnTop(c.id, pinned);
   const active = document.activeElement as HTMLElement | null;
   const hadFocus = active?.classList.contains("pa") && active.dataset.id === c.id;
+
   try {
     await invoke(c.kind === "group" ? "pin_group" : "pin_session", { id: c.id, pinned });
   } catch (e) {
     console.warn("pinning a chat:", e);
   }
+
   await reloadChats();
   if (hadFocus) restorePinFocus(c.id);
 }
@@ -427,8 +440,10 @@ export function removeProject(name: string) {
       if (state.home?.projects) state.home = { ...state.home, projects: state.home.projects.filter(p => p.name !== name) };
       state.where.delete(name);
       state.pview.delete(name);
+
       if (currentLocation()?.view === "projects" && state.picked === name) openProjects();
       else { draw(); redrawProjectsPage(); }
+
       loadFound();
       loadOverview();
       refresh();
@@ -604,6 +619,7 @@ export const loadFound = single(async () => {
     console.warn("found projects:", e);
     state.found = state.found || [];
   }
+
   if (!state.picked) redrawProjects();
   await rescanAll(() => {}, (_, after) => {
     if (!after.rows) return;
@@ -618,6 +634,7 @@ export async function importFromPage(row: FoundRow) {
   state.importing = row.name;
   state.foundError = null;
   drawProjects(projectsEl());
+
   try {
     const project = await importFound(row);
     state.importing = null;

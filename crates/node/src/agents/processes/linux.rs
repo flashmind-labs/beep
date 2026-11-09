@@ -24,9 +24,11 @@ fn read(pid: u32, boot: u64, ticks: u64) -> Option<Process> {
     let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let (_, fields) = stat.rsplit_once(") ")?;
     let fields: Vec<_> = fields.split_whitespace().collect();
+
     if matches!(*fields.first()?, "Z" | "X") {
         return None;
     }
+
     let birth: u64 = fields.get(19)?.parse().ok()?;
     let cmd = fs::read(format!("/proc/{pid}/cmdline")).ok()?;
     let command = String::from_utf8_lossy(&cmd)
@@ -47,6 +49,7 @@ fn snapshot_blocking() -> io::Result<HashMap<u32, Process>> {
     let (boot, ticks) = timing()?;
     let deadline = Instant::now() + Duration::from_secs(2);
     let mut all = HashMap::new();
+
     for entry in fs::read_dir("/proc")?.flatten() {
         if Instant::now() >= deadline {
             return Err(io::Error::new(
@@ -54,6 +57,7 @@ fn snapshot_blocking() -> io::Result<HashMap<u32, Process>> {
                 "process listing timed out",
             ));
         }
+
         let Some(pid) = entry.file_name().to_str().and_then(|s| s.parse().ok()) else {
             continue;
         };
@@ -61,6 +65,7 @@ fn snapshot_blocking() -> io::Result<HashMap<u32, Process>> {
             all.insert(pid, p);
         }
     }
+
     Ok(all)
 }
 
@@ -72,15 +77,18 @@ pub(super) fn signal(p: &Process, kill: bool) -> io::Result<()> {
     if !alive(p) {
         return Ok(());
     }
+
     let pid = libc::pid_t::try_from(p.pid).map_err(io::Error::other)?;
     // SAFETY: the positive pid and signal are plain integers. Birth was checked
     // above so a stale observation is not deliberately sent to a reused pid.
     if unsafe { libc::kill(pid, if kill { libc::SIGKILL } else { libc::SIGTERM }) } != 0 {
         let e = io::Error::last_os_error();
+
         if e.raw_os_error() != Some(libc::ESRCH) {
             return Err(e);
         }
     }
+
     Ok(())
 }
 
@@ -89,18 +97,23 @@ pub(super) async fn ports(processes: &[Process]) -> HashMap<u32, Vec<u16>> {
     tokio::task::spawn_blocking(move || {
         let deadline = Instant::now() + Duration::from_millis(500);
         let mut sockets = HashMap::new();
+
         for path in ["/proc/net/tcp", "/proc/net/tcp6"] {
             let Ok(net) = fs::read_to_string(path) else {
                 continue;
             };
+
             for line in net.lines().skip(1) {
                 if Instant::now() >= deadline {
                     break;
                 }
+
                 let f: Vec<_> = line.split_whitespace().collect();
+
                 if f.get(3) != Some(&"0A") {
                     continue;
                 }
+
                 if let Some((inode, port)) = f.get(9).and_then(|s| s.parse::<u64>().ok()).zip(
                     f.get(1)
                         .and_then(|s| s.rsplit_once(':'))
@@ -110,23 +123,29 @@ pub(super) async fn ports(processes: &[Process]) -> HashMap<u32, Vec<u16>> {
                 }
             }
         }
+
         let mut result = HashMap::new();
+
         for pid in pids {
             if Instant::now() >= deadline {
                 break;
             }
+
             let Ok(fds) = fs::read_dir(format!("/proc/{pid}/fd")) else {
                 continue;
             };
             let mut ports = Vec::new();
+
             for fd in fds.flatten() {
                 if Instant::now() >= deadline {
                     break;
                 }
+
                 let Ok(link) = fs::read_link(fd.path()) else {
                     continue;
                 };
                 let text = link.to_string_lossy();
+
                 if let Some(port) = text
                     .strip_prefix("socket:[")
                     .and_then(|s| s.strip_suffix(']'))
@@ -136,10 +155,12 @@ pub(super) async fn ports(processes: &[Process]) -> HashMap<u32, Vec<u16>> {
                     ports.push(*port);
                 }
             }
+
             ports.sort_unstable();
             ports.dedup();
             result.insert(pid, ports);
         }
+
         result
     })
     .await

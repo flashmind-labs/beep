@@ -13,11 +13,13 @@ export function keepNativeSession(row: AgentSession, parent?: AgentRow) {
   const key = `${row.machine_id}\n${row.id}`;
   if (parent) nativeParents.set(key, parent);
   nativeSessions.set(key, row);
+
   if (nativeSessions.size > 500) {
     const oldest = nativeSessions.keys().next().value!;
     nativeSessions.delete(oldest);
     nativeParents.delete(oldest);
   }
+
   const at = sessions.findIndex(s => s.machine_id === row.machine_id && s.id === row.id);
   if (at < 0) sessions.push(row); else sessions[at] = row;
 }

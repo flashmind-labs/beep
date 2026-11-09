@@ -182,9 +182,11 @@ fn every_grantable_tool_acts() {
         let (app, acts) = permissions::lookup(spec.tool).expect("a known tool");
         assert_ne!(acts, permissions::Acts::Never, "{} does not act", spec.tool);
         assert!(!app.name().is_empty());
+
         for key in spec.required {
             assert!(spec.pinnable.contains(key), "{} requires {key}", spec.tool);
         }
+
         for key in spec.primary {
             assert!(spec.recipients.contains(key), "{} names {key}", spec.tool);
         }

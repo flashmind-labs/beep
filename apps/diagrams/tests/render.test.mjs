@@ -49,6 +49,7 @@ test('PNG export, expansion, source and copying', async t => {
   await page.locator('#expand').click();
   assert.ok(await page.evaluate(() => window.messages.some(m => m.action === 'close')));
 });
+
 for (const source of ['not a diagram', '%%{init: {"securityLevel":"loose"}}%%\nflowchart LR\n A-->B', '---\nconfig: {}\n---\nflowchart LR\n A-->B', 'x'.repeat(50001)]) {
   test('invalid or configurable diagram falls back to source', async t => {
     const page = await pageFor(t, source);
@@ -57,6 +58,7 @@ for (const source of ['not a diagram', '%%{init: {"securityLevel":"loose"}}%%\nf
     assert.equal(await page.locator('#svg').isDisabled(), true);
   });
 }
+
 test('diagram text cannot fetch resources or execute script', async t => {
   const page = await pageFor(t, `flowchart LR\n A["<img src='https://example.invalid/pixel' onerror='alert(1)'>"] --> B[Done]`);
   await page.locator('#svg').click();
@@ -74,10 +76,12 @@ test('copies the image with a button, shortcuts and the context menu', async t =
   await page.getByRole('menuitem', { name: 'Copy image', exact: true }).click();
   const copies = await page.evaluate(() => messages.filter(m => m.action === 'copy-image'));
   assert.equal(copies.length, 4);
+
   for (const copy of copies) {
     assert.equal(copy.mime, 'image/png');
     assert.equal(Buffer.from(copy.data, 'base64').subarray(1, 4).toString(), 'PNG');
   }
+
   await page.locator('#picture').click({ button: 'right' });
   await page.keyboard.press('ArrowDown');
   assert.equal(await page.getByRole('menuitem', { name: 'Save image', exact: true }).evaluate(el => el === document.activeElement), true);

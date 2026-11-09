@@ -28,6 +28,7 @@ pub(super) async fn update_location(cx: Cx, req: UpdateLocation) -> Reply<()> {
     if !valid {
         return Err(ApiError::bad_request("invalid coordinates"));
     }
+
     let place = place
         .map(|p| p.trim().chars().take(200).collect::<String>())
         .filter(|p| !p.is_empty());
@@ -48,6 +49,7 @@ pub(super) async fn update_location(cx: Cx, req: UpdateLocation) -> Reply<()> {
             cx.user.id()
         );
     }
+
     if let Some(event) = before.and_then(|before| wake::arrival(&before, &fix)) {
         log::info!("wake: arrival; user={}", cx.user.id());
         let (app, user) = (cx.app.clone(), cx.user.clone());
@@ -57,6 +59,7 @@ pub(super) async fn update_location(cx: Cx, req: UpdateLocation) -> Reply<()> {
             }
         });
     }
+
     Ok(())
 }
 
@@ -84,10 +87,12 @@ pub(super) async fn list_places(cx: Cx, _: ListPlaces) -> Reply<Vec<Place>> {
 pub(super) async fn delete_place(cx: Cx, DeletePlace { id }: DeletePlace) -> Reply<()> {
     let id: Uuid = id.parse().map_err(|_| ApiError::NotFound {})?;
     let deleted = cx.user.delete_place(id).await?;
+
     if deleted {
         // Its routines went with it.
         cx.user.changed("");
     }
+
     found(deleted)
 }
 
@@ -104,9 +109,11 @@ pub(super) async fn update_place(cx: Cx, req: UpdatePlace) -> Reply<Place> {
 pub(super) async fn cross_place(cx: Cx, CrossPlace { id, crossing }: CrossPlace) -> Reply<bool> {
     let id: Uuid = id.parse().map_err(|_| ApiError::NotFound {})?;
     let changed = places::cross(&cx.app, &cx.user, id, crossing.into()).await?;
+
     if changed {
         cx.user.changed("");
     }
+
     Ok(changed)
 }
 

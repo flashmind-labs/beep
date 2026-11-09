@@ -13,6 +13,7 @@ use std::path::PathBuf;
 
 pub(super) fn rewrite(transcript: &[u8], file_name: &str, folders: &Folders) -> Stored {
     let mut bytes = Vec::with_capacity(transcript.len() + 64);
+
     for line in transcript.split_inclusive(|b| *b == b'\n') {
         let mut spans = match string_at(line, &[Step::Key("type")]).as_deref() {
             Some("session_meta") => {
@@ -45,6 +46,7 @@ fn day_folder(file_name: &str) -> PathBuf {
     let mut parts = day.splitn(3, '-');
     let (year, month, rest) = (parts.next(), parts.next(), parts.next());
     let date = rest.and_then(|rest| rest.get(..2));
+
     match (year, month, date) {
         (Some(y), Some(m), Some(d)) => PathBuf::from("sessions").join(y).join(m).join(d),
         _ => PathBuf::from("sessions"),

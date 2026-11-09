@@ -82,11 +82,13 @@ impl Store {
         .await?;
         // Their turns were never saved, so the prompts shown meanwhile go too.
         let mut bumped = Vec::new();
+
         for row in rows {
             if let Some(prompt) = row.try_get::<Option<i64>, _>(1)? {
                 bumped.extend(drop_prompt(&mut tx, row.try_get(0)?, prompt).await?);
             }
         }
+
         tx.commit().await?;
         self.announce(&bumped);
         // Their teams died with the last server too.
@@ -121,6 +123,7 @@ impl Store {
             tx.rollback().await?;
             return Ok(());
         }
+
         touch(&mut tx, chat).await?;
         let bumped =
             log_messages(&mut tx, chat, &[id], UpdateOp::Message, Readers::Members).await?;
@@ -163,28 +166,34 @@ impl Store {
         message: &str,
     ) -> Result<CreateRun> {
         let user = user.as_ref();
+
         if let Some(found) = self
             .run_for_request(user, chat, request, Some(message))
             .await?
         {
             return Ok(found);
         }
+
         let mut tx = self.pool.begin().await?;
         let session = ensure_session(&mut tx, user, chat).await?;
+
         if session == SessionChat::Taken {
             tx.rollback().await?;
             return Ok(CreateRun::Conflict);
         }
+
         let busy: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM runs WHERE chat_id=$1 AND status='running')",
         )
         .bind(chat)
         .fetch_one(&mut *tx)
         .await?;
+
         if busy {
             tx.rollback().await?;
             return Ok(CreateRun::Conflict);
         }
+
         let active: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM runs WHERE status='running'")
             .fetch_one(&mut *tx)
             .await?;
@@ -192,6 +201,7 @@ impl Store {
             tx.rollback().await?;
             return Ok(CreateRun::Conflict);
         }
+
         let run = Run {
             id: Uuid::new_v4().to_string(),
             session_id: chat.to_string(),
@@ -222,11 +232,14 @@ impl Store {
         if inserted == 1 && session == SessionChat::Owned {
             clear_alert(&mut tx, chat).await?;
         }
+
         tx.commit().await?;
         self.announce(&bumped);
+
         if inserted == 1 {
             return Ok(CreateRun::Created(run));
         }
+
         Ok(self
             .run_for_request(user, chat, request, Some(message))
             .await?
@@ -292,10 +305,12 @@ impl Store {
                 .flatten();
         if let Some(prompt) = prompt {
             bumped.extend(drop_prompt(&mut tx, chat, prompt).await?);
+
             if turn.is_none() {
                 touch(&mut tx, chat).await?;
             }
         }
+
         if let Some(turn) = turn {
             sqlx::query(
                 "INSERT INTO sessions (chat_id, context, context_tokens) VALUES ($1, $2, COALESCE($3, 0))
@@ -312,6 +327,7 @@ impl Store {
             if !turn.steps.is_empty() {
                 bumped.extend(drop_approvals(&mut tx, chat).await?);
             }
+
             let opens = turn
                 .steps
                 .first()
@@ -331,6 +347,7 @@ impl Store {
             bumped.extend(
                 log_messages(&mut tx, chat, &ids, UpdateOp::Message, Readers::Members).await?,
             );
+
             if let Some(carried) = carried
                 && turn.carried != TurnRecord::default()
             {
@@ -341,6 +358,7 @@ impl Store {
             if !turn.steps.is_empty() || prompt.is_some() {
                 touch(&mut tx, chat).await?;
             }
+
             let updated_at: DateTime<Utc> =
                 sqlx::query_scalar("SELECT updated_at FROM chats WHERE id = $1")
                     .bind(chat)
@@ -352,6 +370,7 @@ impl Store {
                 turn: opened.or(carried),
             });
         }
+
         sqlx::query("UPDATE runs SET status=$1 WHERE id=$2 AND user_id=$3")
             .bind(status.as_ref())
             .bind(&run.id)

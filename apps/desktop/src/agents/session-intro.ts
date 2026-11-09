@@ -68,14 +68,17 @@ let current = "";
 export function nextSessionIntro(): string {
   if (!remaining.length) {
     remaining = [...sentences];
+
     for (let i = remaining.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
     }
+
     if (remaining.at(-1) === current) {
       [remaining[0], remaining[remaining.length - 1]] = [remaining.at(-1)!, remaining[0]];
     }
   }
+
   current = remaining.pop()!;
   return current;
 }

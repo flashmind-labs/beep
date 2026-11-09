@@ -24,10 +24,13 @@ pub(super) async fn run(pool: &PgPool) -> Result<()> {
     )
     .fetch_one(pool)
     .await?;
+
     if !pending {
         return Ok(());
     }
+
     let mut done = 0;
+
     loop {
         let mut tx = pool.begin().await?;
         let chats: Vec<Uuid> = sqlx::query_scalar(
@@ -37,20 +40,25 @@ pub(super) async fn run(pool: &PgPool) -> Result<()> {
         .bind(BATCH)
         .fetch_all(&mut *tx)
         .await?;
+
         if chats.is_empty() {
             break;
         }
+
         for chat in &chats {
             backfill(&mut tx, *chat)
                 .await
                 .with_context(|| format!("backfilling session {chat}"))?;
         }
+
         tx.commit().await?;
         done += chats.len();
     }
+
     if done > 0 {
         log::info!("backfilled the messages of {done} session(s)");
     }
+
     Ok(())
 }
 
@@ -84,6 +92,7 @@ async fn backfill(tx: &mut PgConnection, chat: Uuid) -> Result<()> {
     .bind(&session)
     .fetch_all(&mut *tx)
     .await?;
+
     for row in models {
         let thinking: Option<String> = row.try_get(2)?;
         turns.insert(
@@ -95,6 +104,7 @@ async fn backfill(tx: &mut PgConnection, chat: Uuid) -> Result<()> {
             },
         );
     }
+
     let scores = sqlx::query(
         "SELECT turn_at, probability FROM memory_scores WHERE user_id = $1 AND session_id = $2",
     )
@@ -102,6 +112,7 @@ async fn backfill(tx: &mut PgConnection, chat: Uuid) -> Result<()> {
     .bind(&session)
     .fetch_all(&mut *tx)
     .await?;
+
     for row in scores {
         turns.entry(row.try_get(0)?).or_default().memory_score = Some(row.try_get(1)?);
     }
@@ -125,6 +136,7 @@ async fn backfill(tx: &mut PgConnection, chat: Uuid) -> Result<()> {
             body: StepBody::Approval { query_id, approval },
         });
     }
+
     let ids = insert_steps(tx, chat, &owner, &saved, None).await?;
 
     // Pictures named their turn by the time of its opening message.
@@ -145,6 +157,7 @@ async fn backfill(tx: &mut PgConnection, chat: Uuid) -> Result<()> {
         .execute(&mut *tx)
         .await?;
     }
+
     log_messages(tx, chat, &ids, UpdateOp::Message, Readers::Members).await?;
     sqlx::query("UPDATE sessions SET messages_backfilled = TRUE WHERE chat_id = $1")
         .bind(chat)

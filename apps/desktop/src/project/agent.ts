@@ -304,6 +304,7 @@ export function tasksSection(view: ProjectView, act: RowActs) {
 /// A task row's right-click menu: what its buttons do. Drop and Merge ask first.
 function taskMenu(e: MouseEvent, t: TaskRow, act: RowActs, diff: (() => void) | null | undefined) {
   const items: MenuItem[] = [];
+
   if (t.state === "review") {
     if (t.branch && act.review) items.push({ label: "Review", on: () => act.review!(t.branch!) });
     if (t.branch && t.pr_url && act.merge) items.push({
@@ -317,6 +318,7 @@ function taskMenu(e: MouseEvent, t: TaskRow, act: RowActs, diff: (() => void) | 
     });
     if (t.pr_url) items.push({ label: "Open PR", on: () => act.openUrl(t.pr_url!) });
   }
+
   if (diff) items.push({ label: "View diff", on: diff });
   const { change, label } = taskAction(t.state);
   if (change === "reopen") items.push({ label, on: () => void act.change(t, change) });
@@ -339,12 +341,14 @@ function reviewActs(t: TaskRow, act: RowActs) {
   if (t.state !== "review") return [];
   const out: HTMLButtonElement[] = [];
   if (t.branch && act.review) out.push(dbtn("Review", "pri small", () => act.review!(t.branch!)));
+
   if (t.branch && t.pr_url && act.merge) {
     const m = dbtn(act.busy(t.id) ? "Asking…" : "Merge…", "small", () => act.merge!(t));
     m.disabled = !!act.busy(t.id);
     m.title = "Merge always asks first";
     out.push(m);
   }
+
   if (t.pr_url) out.push(dbtn("Open PR", "small", () => act.openUrl(t.pr_url!)));
   return out;
 }
@@ -356,27 +360,32 @@ export function workersSection(view: ProjectView, act: RowActs, chatIcon: string
   const now = Date.now();
   const lead = (ag: string, kid: Kid) => el("span", `cc-ag ${ag}`, kid);
   const nodes = [el("div", "pj-node", lead("beep", svgEl(chatIcon)), el("span", "t", el("b", "", "Project agent"), el("span", "", "Plans tasks, files issues, places workers")))];
+
   for (const w of view.workers) {
     const name = titles.get(w.task_id) || workerFolder(w.folder);
     const sub = el("span", "", workerLine(w, now));
     sub.title = w.folder;
     const node = el("div", "pj-node child", harnessEl(w.agent), el("span", "t", el("b", "", name), sub));
+
     if (w.session && act.openWorker) {
       node.classList.add("link");
       node.title = "Open its session";
       node.addEventListener("click", () => act.openWorker!(w, titles.get(w.task_id) ?? null));
     }
+
     if (w.live) {
       const busy = act.busy(w.id);
       const stop = dbtn(busy ? "Stopping…" : "Stop", "quiet small", e => { e.stopPropagation(); act.stop(w); });
       stop.disabled = !!busy;
       node.append(acts(stop, act.error(w.id)));
     }
+
     if (w.last_output) {
       const out = el("span", "out", w.last_output);
       out.title = w.last_output;
       node.append(out);
     }
+
     if (!w.live) node.classList.add("over");
     const items: MenuItem[] = [];
     if (w.session && act.openWorker) items.push({ label: "Open session", on: () => act.openWorker!(w, titles.get(w.task_id) ?? null) });
@@ -393,6 +402,7 @@ export function workersSection(view: ProjectView, act: RowActs, chatIcon: string
     if (items.length) node.addEventListener("contextmenu", e => openMenu(e, name, items));
     nodes.push(node);
   }
+
   const live = view.workers.filter(w => w.live).length;
   return section("sec-workers", "Workers", live ? `${live} running` : "none running", el("div", "cc-panel pj-tree", ...nodes));
 }
@@ -404,6 +414,7 @@ function card(c: ChatApproval, act: ProjectActs) {
   const a = c.approval;
   const items = a.fields.map(f => el("li", "", f.label, " ", el("small", "", f.value)));
   const row = el("div", "acts");
+
   if (out?.said) row.append(el("span", "ok", out.said));
   else {
     row.append(
@@ -412,6 +423,7 @@ function card(c: ChatApproval, act: ProjectActs) {
       dbtn("Deny", "warn small", () => act.answer(c, "deny", "Denied")));
     if (out?.error) row.append(el("span", "cc-err", out.error));
   }
+
   const box = el("div", "pj-plan", el("b", "", a.action), a.app ? el("small", "", a.app) : null, items.length ? el("ol", "", ...items) : null, row);
   if (out?.said) box.style.opacity = ".55";
   return box;

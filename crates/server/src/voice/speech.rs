@@ -144,9 +144,11 @@ impl Said {
         if self.audio.contains_key(text) || audio.len() > CACHE_BYTES {
             return;
         }
+
         self.bytes += audio.len();
         self.audio.insert(text.to_owned(), audio);
         self.order.push_back(text.to_owned());
+
         while self.order.len() > CACHE_LINES || self.bytes > CACHE_BYTES {
             let Some(old) = self.order.pop_front() else {
                 break;
@@ -191,6 +193,7 @@ impl Voice {
         if let Some(audio) = cached {
             return Ok(audio);
         }
+
         count(&self.live_calls, user, LIVE_CALLS)?;
         let audio = Arc::new(self.synthesize(text).await?);
         self.said
@@ -215,6 +218,7 @@ impl Voice {
                 match event {
                     Ok(StreamEvent::AudioDelta { data, .. }) => {
                         audio.extend_from_slice(&data);
+
                         if audio.len() > MAX_SPEECH {
                             log::warn!("speech ran past {MAX_SPEECH} bytes");
                             return Err(VoiceError::Provider);
@@ -225,8 +229,10 @@ impl Voice {
                     Err(error) => return Err(provider_failed("speech", &error)),
                 }
             }
+
             Ok(())
         };
+
         match timeout(CALL_TIMEOUT, read).await {
             Ok(result) => result?,
             Err(_) => {
@@ -234,10 +240,12 @@ impl Voice {
                 return Err(VoiceError::Provider);
             }
         }
+
         if audio.is_empty() {
             log::warn!("speech came back empty");
             return Err(VoiceError::Provider);
         }
+
         Ok(audio)
     }
 
@@ -270,8 +278,10 @@ impl Voice {
                     Err(error) => return Err(provider_failed("transcription", &error)),
                 }
             }
+
             Ok(())
         };
+
         match timeout(CALL_TIMEOUT, read).await {
             Ok(result) => result?,
             Err(_) => {
@@ -279,10 +289,13 @@ impl Voice {
                 return Err(VoiceError::Provider);
             }
         }
+
         let text = text.trim();
+
         if text.is_empty() {
             return Err(VoiceError::Silent);
         }
+
         Ok(text.to_owned())
     }
 
@@ -310,12 +323,15 @@ pub(super) fn count(
         {
             times.pop_front();
         }
+
         !times.is_empty()
     });
     let times = calls.entry(user.to_owned()).or_default();
+
     if times.len() >= limit {
         return Err(VoiceError::RateLimited);
     }
+
     times.push_back(now);
     Ok(())
 }
@@ -337,6 +353,7 @@ pub(super) fn voice_type(audio: &Upload) -> Result<&'static str, VoiceError> {
     if audio.data.is_empty() || audio.data.len() > MAX_VOICE {
         return Err(VoiceError::BadAudio);
     }
+
     let mime = audio
         .mime
         .split(';')
@@ -387,6 +404,7 @@ pub async fn spoken_text(generator: &Generator<'_>, title: &str, body: &str) -> 
 pub(super) fn fallback(title: &str, body: &str) -> String {
     let body = plain(body);
     let title = plain(title);
+
     match (title.is_empty(), body.is_empty()) {
         (_, true) => title,
         (true, false) => body,
@@ -404,6 +422,7 @@ pub(super) fn fallback(title: &str, body: &str) -> String {
 /// Text without markdown marks, links and line breaks.
 pub(super) fn plain(text: &str) -> String {
     let mut out = Vec::new();
+
     for word in text.split_whitespace() {
         // A markdown link keeps its words: [the invoice](https://...).
         let word = match word.find("](") {
@@ -411,9 +430,11 @@ pub(super) fn plain(text: &str) -> String {
             None => word,
         };
         let bare = word.trim_matches(|c: char| "([<\"'".contains(c));
+
         if bare.starts_with("http://") || bare.starts_with("https://") || bare.starts_with("www.") {
             continue;
         }
+
         let word: String = word
             .chars()
             .filter(|c| !matches!(c, '*' | '_' | '`' | '#' | '[' | ']' | '>' | '|' | '~'))
@@ -422,6 +443,7 @@ pub(super) fn plain(text: &str) -> String {
             out.push(word);
         }
     }
+
     out.join(" ")
 }
 
@@ -431,6 +453,7 @@ pub(super) fn cut(text: &str, max: usize) -> String {
         return text.to_owned();
     };
     let head = &text[..end];
+
     match head.rfind(['.', '!', '?']) {
         Some(stop) if stop >= head.len() * 2 / 3 => head[..=stop].to_owned(),
         _ => format!("{}...", head.trim_end()),

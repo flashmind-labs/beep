@@ -27,6 +27,7 @@ since(){ awk -v a="$1" -v b="$(now)" 'BEGIN { printf "%.1f", b - a }'; }
 # budget only records it.
 measure(){
   local what="$1" value="$2" unit="$3" kind="$4" budget="$5" verdict=ok
+
   if [[ -n "$budget" ]]; then
     if awk -v v="$value" -v b="$budget" -v k="$kind" \
         'BEGIN { exit !((k == "max" && v > b) || (k == "min" && v < b)) }'; then
@@ -35,6 +36,7 @@ measure(){
       fail "$what: $value $unit, budget $kind $budget"
     fi
   fi
+
   MEASURED+=("$what|$value $unit|${budget:+$kind $budget}|$verdict")
 }
 
@@ -43,6 +45,7 @@ timings(){
   [[ ${#MEASURED[@]} -gt 0 ]] || return 0
   printf '   %-46s %12s %12s  %s\n' measurement value budget ""
   local row what value budget verdict
+
   for row in "${MEASURED[@]}"; do
     IFS='|' read -r what value budget verdict <<< "$row"
     printf '   %-46s %12s %12s  %s\n' "$what" "$value" "${budget:--}" "$verdict"
@@ -54,6 +57,7 @@ timings(){
 summary(){
   step "summary"
   timings
+
   if [[ "$FAILS" -eq 0 ]]; then
     printf '\033[32mALL CHECKS PASSED\033[0m\n'; exit 0
   else
@@ -68,6 +72,7 @@ abort(){ fail "$*"; timings; echo "aborting"; exit 1; }
 vm_id(){
   local id role
   [[ -f "$FLEET" ]] || { echo "no $FLEET: provision first" >&2; return 1; }
+
   while read -r id role; do
     [[ "$role" == "$1" ]] && { echo "$id"; return 0; }
   done < "$FLEET"
@@ -101,6 +106,7 @@ get(){
 poll(){
   local limit="$1"; shift
   local started=$SECONDS
+
   until "$@" > /dev/null 2>&1; do
     (( SECONDS - started < limit )) || return 1
     sleep 0.2
@@ -112,13 +118,16 @@ poll(){
 wait_for(){
   local limit="$1" what="$2"; shift 2
   local started=$SECONDS
+
   while (( SECONDS - started < limit )); do
     if "$@" > /dev/null 2>&1; then
       note "$what after $((SECONDS - started)) s"
       return 0
     fi
+
     sleep 2
   done
+
   note "gave up waiting for $what after $limit s"
   return 1
 }

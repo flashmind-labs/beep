@@ -77,16 +77,20 @@ impl ModelChoices {
         configured: Vec<Model>,
     ) -> Self {
         let listed = provider.list_models().await;
+
         if listed.is_none() && !configured.is_empty() {
             log::warn!("the provider lists no models; model choices are unpriced");
         }
+
         let mut choices = Vec::new();
+
         for (model, is_default) in
             iter::once((default, true)).chain(configured.into_iter().map(|model| (model, false)))
         {
             if choices.iter().any(|c: &Choice| c.model == model) {
                 continue;
             }
+
             let info = listed
                 .as_deref()
                 .and_then(|list| list.iter().find(|info| info.id == model.name()));
@@ -137,6 +141,7 @@ impl ModelChoices {
         for model in described.keys() {
             log::warn!("auto model is not a model choice; model={model}");
         }
+
         self
     }
 
@@ -151,6 +156,7 @@ impl ModelChoices {
             ("critic", &config.critic),
             ("writer", &config.writer),
         ];
+
         for (role, model) in roles {
             if self.find(&model.model.to_string()).is_none() {
                 log::warn!(
@@ -160,11 +166,14 @@ impl ModelChoices {
                 return self;
             }
         }
+
         config.scout_choices.retain(|model| {
             let offered = self.find(&model.to_string()).is_some();
+
             if !offered {
                 log::warn!("research scout choice is not a model choice; model={model}");
             }
+
             offered
         });
         self.research = Some(config);
@@ -176,6 +185,7 @@ impl ModelChoices {
         let Some(config) = configured else {
             return self;
         };
+
         if self.find(&config.planner.model.to_string()).is_none() {
             log::warn!(
                 "project planner is not a model choice; projects plan on the default; model={}",
@@ -183,6 +193,7 @@ impl ModelChoices {
             );
             return self;
         }
+
         self.project = Some(config);
         self
     }

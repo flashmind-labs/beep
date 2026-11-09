@@ -52,6 +52,7 @@ async fn ask(env: &Env, record: &SessionMove) -> Result<Target> {
         .await
         .context("the target did not answer in time")??;
     connection.close(0u32.into(), b"done");
+
     match answer {
         Some(Reply::State {
             failed: Some(reason),
@@ -73,6 +74,7 @@ pub(super) async fn watch_target(env: &Env, record: &SessionMove, said: watch::S
     // `Some(true)` once the last ask reached the target, `Some(false)` once
     // it did not.
     let mut reached = None;
+
     loop {
         let more = match ask(env, record).await {
             Ok(now) => {
@@ -83,13 +85,16 @@ pub(super) async fn watch_target(env: &Env, record: &SessionMove, said: watch::S
                     );
                     reached = Some(true);
                 }
+
                 said.send_if_modified(|before| {
                     // What was told stays told, unless the target says more.
                     let more = now != Target::Unknown && *before != now;
+
                     if more {
                         log::info!("session {}: the target says {now:?}", record.id);
                         *before = now;
                     }
+
                     more
                 })
             }
@@ -100,6 +105,7 @@ pub(super) async fn watch_target(env: &Env, record: &SessionMove, said: watch::S
                 } else {
                     log::debug!("session {} target not asked: {e:#}", record.id);
                 }
+
                 false
             }
         };

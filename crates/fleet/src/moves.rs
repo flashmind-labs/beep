@@ -68,9 +68,11 @@ impl Desk {
                 ask.agent
             )));
         }
+
         if ask.from == ask.to {
             return Err(refused("the session is on that machine already".to_owned()));
         }
+
         let theirs = self
             .project_folder(ask.project, ask.from)
             .ok_or_else(|| refused("the source has no checkout of the project".to_owned()))?;
@@ -80,11 +82,13 @@ impl Desk {
         // A worktree session's folder is below the worktree, else below the
         // checkout.
         let base = ask.worktree.as_ref().map_or(theirs.as_str(), |w| w.folder);
+
         if self.project_folder(ask.project, ask.to).is_none() {
             return Err(refused(
                 "that machine has no checkout of the project: import it first".to_owned(),
             ));
         }
+
         let path = Path::new(ask.cwd)
             .strip_prefix(base)
             .ok()
@@ -141,6 +145,7 @@ impl Desk {
                 self.mesh.set(key, None).await?;
             }
         }
+
         Ok(())
     }
 
@@ -179,6 +184,7 @@ impl Desk {
                 "a session in a worktree with no branch cannot move".to_owned(),
             ));
         }
+
         for machine in [ask.from, ask.to] {
             // A machine that is away is asked when it returns: the target
             // checks again before it takes the session.
@@ -188,6 +194,7 @@ impl Desk {
             else {
                 continue;
             };
+
             match answer {
                 WorktreeMove::Takes => {}
                 WorktreeMove::NeedsUpdate => {
@@ -204,6 +211,7 @@ impl Desk {
                 WorktreeMove::Ignored => {}
             }
         }
+
         Ok(())
     }
 
@@ -235,6 +243,7 @@ impl Desk {
     /// aside at `lost`) in its own checkout. Refused in the node's words.
     pub async fn continue_copy(&self, agent: &str, id: &str, lost: Option<u64>) -> Result<()> {
         let client = self.peers.client(self.local).await?;
+
         match continue_copy(&client, agent, id, lost).await? {
             NodeWork::Done(()) => Ok(()),
             NodeWork::Refused(why) => Err(refused(why)),

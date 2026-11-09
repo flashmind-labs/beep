@@ -77,9 +77,11 @@ impl Tool for GroupMemoryTool {
                 "category":{"type":"string","enum":MEMORY_CATEGORIES,"description":"recall: only this category."}
             }),
         );
+
         if let Some(content) = schema.pointer_mut("/properties/content/description") {
             *content = json!("store: one short self-contained sentence that names the member.");
         }
+
         schema
     }
     fn humanize(&self, args: &Value) -> String {
@@ -108,10 +110,12 @@ impl GroupMemoryTool {
         let category = opt_arg(&ctx.args, "category");
         let mut found = Vec::new();
         let mut read = Vec::new();
+
         for member in self.members.iter() {
             if about.is_some_and(|name| name != member.name) {
                 continue;
             }
+
             let hits = member
                 .user
                 .search_memories(query, category, Some(&Scope::User), RECALL_LIMIT)
@@ -129,6 +133,7 @@ impl GroupMemoryTool {
                 });
             }
         }
+
         self.secrets
             .lock()
             .unwrap_or_else(PoisonError::into_inner)

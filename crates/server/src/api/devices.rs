@@ -49,11 +49,13 @@ pub(super) async fn link_device(cx: Cx, LinkDevice { offer }: LinkDevice) -> Rep
             "that is this server's own code, not a device's",
         ));
     }
+
     let key = NewKey {
         endpoint: offer.device,
         name: offer.name.trim(),
         kind: DeviceKind::Desktop {},
     };
+
     match cx.user.link_key(key).await? {
         LinkKey::Linked(key) => {
             // Also the new device's first notice, which tells it it is linked.
@@ -77,9 +79,11 @@ pub(super) async fn list_devices(cx: Cx, _: ListDevices) -> Reply<Vec<LinkedDevi
 /// The primary key removes any linked one; a linked key only itself.
 pub(super) async fn remove_device(cx: Cx, RemoveDevice { id }: RemoveDevice) -> Reply<()> {
     let caller = cx.key;
+
     if !cx.primary && id != caller.to_string() {
         return Err(ApiError::Unauthorized {});
     }
+
     let key: EndpointId = id
         .parse()
         .map_err(|_| ApiError::bad_request("not a device id"))?;
@@ -94,9 +98,11 @@ pub(super) async fn unlink(cx: &Cx, key: EndpointId) -> Reply<()> {
         .await?
         .ok_or(ApiError::NotFound {})?;
     cx.user.changed("");
+
     if let Err(e) = cx.app.store.end_streams(&key).await {
         log::warn!("the streams of a removed device were not ended: {e:#}");
     }
+
     machine_removed(&cx.app, &cx.user, &removed).await;
     Ok(())
 }
@@ -107,11 +113,13 @@ pub(super) async fn invite_device(
     InviteDevice { name }: InviteDevice,
 ) -> Reply<DeviceInvite> {
     let name = name.trim();
+
     if name.is_empty() || name.len() > link::MAX_NAME {
         return Err(ApiError::bad_request(
             "the device name is empty or too long",
         ));
     }
+
     let invite = cx.user.create_invite(&cx.key, name, INVITE_TTL).await?;
     Ok(DeviceInvite {
         uri: link::join_uri(&invite.code),
@@ -142,6 +150,7 @@ async fn inviter(cx: &Cx, code: &str) -> Result<Inviter, ApiError> {
             message: "that code is for this account".into(),
         });
     }
+
     Ok(inviter)
 }
 
@@ -161,6 +170,7 @@ pub(super) async fn join_account(cx: Cx, JoinAccount { code }: JoinAccount) -> R
     if !cx.primary {
         return Err(ApiError::Unauthorized {});
     }
+
     let inviter = inviter(&cx, &code).await?;
     let target = cx.app.user_for(&inviter.account);
     // The joiner's apps stay connected when the target has none of its own.
@@ -171,10 +181,12 @@ pub(super) async fn join_account(cx: Cx, JoinAccount { code }: JoinAccount) -> R
         adopt_external_id: mine == Some(true) && theirs == Some(false),
         credential_key: &cx.app.credential_key,
     };
+
     match cx.user.merge_into(into).await? {
         Merge::Merged { target, keys } => {
             log::info!("account merged; from={} into={target}", cx.user.id());
             cx.app.merged(cx.user.id(), &target).await?;
+
             if let Some(user) = cx.app.user(&target) {
                 user.changed("");
             }
@@ -182,6 +194,7 @@ pub(super) async fn join_account(cx: Cx, JoinAccount { code }: JoinAccount) -> R
             let store = cx.app.store.clone();
             tokio::spawn(async move {
                 sleep(REJOIN_AFTER).await;
+
                 for key in keys.iter().filter_map(|key| key.parse::<EndpointId>().ok()) {
                     if let Err(e) = store.end_streams(&key).await {
                         log::warn!("the streams of a moved device were not ended: {e:#}");

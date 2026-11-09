@@ -82,6 +82,7 @@ pub(super) async fn poll_user(app: &Arc<App>, user: &Arc<User>) {
             return;
         }
     };
+
     for source in sources(app, user, &topics).await {
         let since = match user.polled_at(source.as_ref()).await {
             Ok(Some(at)) => at - OVERLAP,
@@ -96,12 +97,14 @@ pub(super) async fn poll_user(app: &Arc<App>, user: &Arc<User>) {
             None => poll_github(app, user, since).await,
             Some(mailbox) => poll_mail(app, user, mailbox, since).await,
         };
+
         match polled {
             Ok(found) => {
                 log::debug!(
                     "events: polled {}; user={user} found={found}",
                     source.as_ref()
                 );
+
                 if let Err(error) = user.mark_polled(source.as_ref(), started).await {
                     log::warn!("events: unable to save a poll cursor: {error:#}");
                 }
@@ -119,6 +122,7 @@ pub(super) async fn poll_user(app: &Arc<App>, user: &Arc<User>) {
 async fn sources(app: &App, user: &User, topics: &Topics) -> Vec<PollSource> {
     let mut sources = Vec::new();
     let wants_github = GITHUB_TOPICS.iter().any(|topic| topics.is_on(*topic));
+
     if wants_github
         && PollSource::Github.listed()
         && let Some(client) = user.composio_client()
@@ -129,10 +133,13 @@ async fn sources(app: &App, user: &User, topics: &Topics) -> Vec<PollSource> {
             Err(error) => log::warn!("events: unable to list accounts: {error:#}"),
         }
     }
+
     if !topics.is_on(Topic::Mail) {
         return sources;
     }
+
     let realtime = app.events.realtime_up();
+
     for feed in user.feeds().await {
         let source = match feed {
             Feed::Mail(Mailbox::Fastmail) => PollSource::Fastmail,
@@ -156,6 +163,7 @@ async fn sources(app: &App, user: &User, topics: &Topics) -> Vec<PollSource> {
             sources.push(source);
         }
     }
+
     sources
 }
 
@@ -184,6 +192,7 @@ async fn poll_github(app: &App, user: &User, since: DateTime<Utc>) -> Result<usi
             if response.successful == Some(false) {
                 bail!("GitHub notifications failed");
             }
+
             Ok(response.data["notifications"]
                 .as_array()
                 .cloned()
@@ -192,6 +201,7 @@ async fn poll_github(app: &App, user: &User, since: DateTime<Utc>) -> Result<usi
     })
     .await?;
     let read = notifications.len();
+
     for payload in notifications {
         let notification = match serde_json::from_value::<GitHubNotification>(payload) {
             Ok(notification) => notification,
@@ -200,10 +210,12 @@ async fn poll_github(app: &App, user: &User, since: DateTime<Utc>) -> Result<usi
                 continue;
             }
         };
+
         if let Ok(event) = AppEvent::try_from(&notification) {
             submit(app, user.id(), event).await;
         }
     }
+
     Ok(read)
 }
 
@@ -214,13 +226,17 @@ where
     Fut: Future<Output = Result<Vec<Value>>>,
 {
     let mut items = Vec::new();
+
     for page in 1..=GITHUB_MAX_PAGES {
         let found = fetch(page).await?;
+
         if found.is_empty() {
             return Ok(items);
         }
+
         items.extend(found);
     }
+
     log::warn!("events: stopped after {GITHUB_MAX_PAGES} pages of GitHub notifications");
     Ok(items)
 }
@@ -234,11 +250,13 @@ async fn poll_mail(
 ) -> Result<usize> {
     let unread = mail::unread_after(user, mailbox, since).await?;
     let found = unread.len();
+
     for email in &unread {
         if let Some(event) = normalize::from_email(mailbox, email) {
             submit(app, user.id(), event).await;
         }
     }
+
     Ok(found)
 }
 

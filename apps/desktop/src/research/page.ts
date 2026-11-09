@@ -33,6 +33,7 @@ async function fetchResearch() {
     console.warn("listing researches:", e);
     research.error = failure(e);
   }
+
   if (currentLocation()?.view === "research") { drawResearch(); drawTop(); }
   return research.list;
 }
@@ -43,6 +44,7 @@ async function startResearch() {
   if (!topic || research.starting) return;
   research.starting = true;
   drawResearch();
+
   try {
     const session = await invoke<string>("research_begin", { topic });
     RESEARCHES.add(session);
@@ -53,6 +55,7 @@ async function startResearch() {
   } finally {
     research.starting = false;
   }
+
   drawResearch(true);
   reloadGroup("research");
 }
@@ -93,6 +96,7 @@ function researchProgress(r: ResearchRow) {
 function researchTable(list: ResearchRow[]) {
   const table = headedTable("cc-rt", "Research", "Status", "Progress", "Sources", "Started");
   table.setAttribute("role", "table");
+
   for (const r of list) {
     const off = ["failed", "stopped"].includes(researchState(r.status)) ? " off" : "";
     const open = h("button", "", h("span", "", r.topic));
@@ -107,12 +111,15 @@ function researchTable(list: ResearchRow[]) {
     ];
     if (off) cells[2].classList.add("off");
     cells[4].title = new Date(r.started_at).toLocaleString();
+
     for (const c of cells) {
       c.classList.add("r");
       c.addEventListener("click", () => openResearch(r.session));
     }
+
     table.append(...cells);
   }
+
   return table;
 }
 
@@ -127,6 +134,7 @@ function drawResearch(focus = false) {
   const kids: Node[] = [field];
   if (research.error) kids.push(errorNote(research.error));
   const list = research.list;
+
   if (list == null) {
     if (!research.error) kids.push(h("div", "cc-panel", ...skeleton([70, 55, 62])));
   } else if (!list.length) {
@@ -134,6 +142,7 @@ function drawResearch(focus = false) {
   } else {
     kids.push(h("div", "", secHead("Research"), researchTable(list)));
   }
+
   const view = h("div", "cc-view", ...kids);
   if (old) { const top = old.scrollTop; old.replaceWith(view); view.scrollTop = top; } else el.append(view);
   if (focus || typing) field.querySelector("input")!.focus();

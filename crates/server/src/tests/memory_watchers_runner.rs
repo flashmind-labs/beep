@@ -215,11 +215,13 @@ async fn gives_up_after_failing_three_times() {
     let skills = Stub::new(WatcherKind::Skills, Act::Fail);
     let mut runner = stub_runner(&h, 1, &[skills]);
     let mut now = after_quiet();
+
     for wait in [0, 10, 20] {
         now += TimeDelta::minutes(wait);
         runner.tick(now).await;
         runner.drain().await;
     }
+
     let states = h.app.store.watcher_states(&[chat]).await.unwrap();
     let state = &states[&(chat, WatcherKind::Skills)];
     assert_eq!((state.reviewed_seq, state.failures), (last, 0));

@@ -55,6 +55,7 @@ pub async fn transcript_before<S: Sessions + ?Sized>(
         thoughts,
         before,
     };
+
     match ask(node, request).await? {
         SessionsReply::Transcript { entries, earlier } => Ok((entries, earlier)),
         SessionsReply::Error { message } => Err(said(message)),
@@ -109,6 +110,7 @@ pub async fn live<S: Sessions + ?Sized>(
         Some(steer) => SessionsRequest::Steer { session, steer },
         None => SessionsRequest::Live { session },
     };
+
     match hinted(ask(node, request).await, "for live status")? {
         SessionsReply::Live { status } => Ok(*status),
         SessionsReply::Error { message } => Err(said(message)),
@@ -139,6 +141,7 @@ pub async fn models<S: Sessions + ?Sized>(
     let request = SessionsRequest::Models {
         agent: agent.to_owned(),
     };
+
     match node.sessions(request, MODELS_TIMEOUT).await {
         Ok(SessionsReply::Models { models }) => Ok(Some(models)),
         Ok(SessionsReply::Error { message }) => Err(said(message)),

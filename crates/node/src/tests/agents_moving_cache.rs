@@ -110,6 +110,7 @@ fn two_versions_set_aside_in_the_same_second_both_stay() {
     let cache = Cache::new(dir.path());
     let agent = AgentSlug::CODEX;
     let meta = entry("s1", 7, 3).copy.expect("meta");
+
     for (name, text) in [("one.jsonl", "1\n"), ("two.jsonl", "2\n")] {
         let transcript = dir.path().join(name);
         fs::write(&transcript, text).expect("a transcript");
@@ -117,6 +118,7 @@ fn two_versions_set_aside_in_the_same_second_both_stay() {
             .keep_lost(&agent, "s1", &transcript, &meta, 9)
             .expect("kept");
     }
+
     let lost = cache.entries()[0].lost.clone();
     assert_eq!(lost.len(), 2, "{lost:?}");
     let texts: Vec<_> = lost

@@ -20,6 +20,7 @@ impl BranchTip {
     pub(in crate::files::sync) fn validate(tips: &[Self]) -> Result<()> {
         ensure!(tips.len() <= MAX_BRANCHES, "Too many Git branches to sync");
         let mut names = HashSet::new();
+
         for tip in tips {
             ensure!(
                 tip.name.starts_with(HEADS)
@@ -29,6 +30,7 @@ impl BranchTip {
                 "Invalid or duplicate Git branch advertisement"
             );
         }
+
         Ok(())
     }
 }
@@ -98,9 +100,11 @@ impl Repo {
             blake3::hash(branch.as_bytes()).to_hex(),
             commit
         );
+
         if self.ref_oid(&retained) != Some(commit) {
             self.set_ref(&retained, commit, None)?;
         }
+
         Ok(())
     }
 
@@ -112,13 +116,17 @@ impl Repo {
         tips: &[BranchTip],
     ) -> Result<()> {
         let mut wanted = HashSet::new();
+
         for tip in tips {
             self.validate_branch(&tip.name)?;
             wanted.insert(Self::peer_ref(peer, &tip.name)?);
         }
+
         let prefix = format!("refs/remotes/beep/{peer}/");
+
         for reference in self.refs()? {
             let name = reference.found.path.trim_start_matches(".git/");
+
             if let Some(branch) = name.strip_prefix(&prefix)
                 && !wanted.contains(name)
             {
@@ -126,6 +134,7 @@ impl Repo {
                 self.delete_ref(name, reference.oid)?;
             }
         }
+
         Ok(())
     }
 
@@ -142,6 +151,7 @@ impl Repo {
         );
         let reference = Self::peer_ref(peer, &tip.name)?;
         let old = self.ref_oid(&reference);
+
         if old == Some(tip.commit) {
             return Ok(());
         }
@@ -151,6 +161,7 @@ impl Repo {
         {
             self.retain_peer_history(peer, &tip.name, old)?;
         }
+
         self.set_ref(&reference, tip.commit, old)
     }
 
@@ -162,10 +173,12 @@ impl Repo {
         candidates: &[Oid],
     ) -> Result<Option<Oid>> {
         let mut target = own;
+
         for &candidate in candidates {
             if self.is_ancestor(candidate, target) == Some(true) {
                 continue;
             }
+
             match self.is_ancestor(target, candidate) {
                 Some(true) => target = candidate,
                 Some(false) => bail!(
@@ -176,6 +189,7 @@ impl Repo {
                 }
             }
         }
+
         Ok((target != own).then_some(target))
     }
 

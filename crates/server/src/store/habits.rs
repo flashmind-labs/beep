@@ -23,7 +23,9 @@ impl Store {
         if name.is_empty() || name.chars().count() > 200 {
             bail!("habit name must be 1-200 characters");
         }
+
         let valid_freq = ["daily", "weekly", "weekdays"];
+
         if !valid_freq.contains(&frequency) {
             bail!(
                 "invalid frequency '{}', must be one of: {}",
@@ -59,6 +61,7 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         let mut result = Vec::with_capacity(rows.len());
+
         for r in rows {
             let habit_id: String = r.try_get(0)?;
             result.push(json!({
@@ -69,6 +72,7 @@ impl Store {
                 "current_streak": self.habit_streak(&habit_id).await?,
             }));
         }
+
         Ok(result)
     }
 
@@ -92,9 +96,11 @@ impl Store {
         .execute(&self.pool)
         .await?
         .rows_affected();
+
         if inserted == 0 {
             bail!("habit not found: check the name and make sure it is not archived");
         }
+
         Ok(())
     }
 
@@ -190,11 +196,14 @@ fn streak(days: &[NaiveDate], today: NaiveDate) -> i64 {
     let Some(&newest) = days.first() else {
         return 0;
     };
+
     if newest != today && Some(newest) != today.pred_opt() {
         return 0;
     }
+
     let mut expected = newest;
     let mut streak = 0;
+
     for &day in days {
         if day != expected {
             break;
@@ -205,6 +214,7 @@ fn streak(days: &[NaiveDate], today: NaiveDate) -> i64 {
         };
         expected = previous;
     }
+
     streak
 }
 

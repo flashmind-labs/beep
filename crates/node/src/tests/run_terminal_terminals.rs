@@ -18,9 +18,11 @@ async fn wait_for_output(live: &Live, needle: &str) -> String {
             changed.borrow_and_update();
             let bytes: Vec<u8> = lock(&live.screen).lines.iter().flatten().copied().collect();
             let text = String::from_utf8_lossy(&bytes).into_owned();
+
             if text.contains(needle) {
                 return text;
             }
+
             changed.changed().await.expect("the terminal is kept");
         }
     })

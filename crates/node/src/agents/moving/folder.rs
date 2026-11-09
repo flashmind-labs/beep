@@ -55,6 +55,7 @@ fn under(path: &str, old: &Path, new: &Path) -> Option<String> {
 
 fn encode(path: &str) -> String {
     let mut out = String::with_capacity(path.len());
+
     for byte in path.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'-' | b'_' | b'.' | b'~') {
             out.push(char::from(byte));
@@ -63,6 +64,7 @@ fn encode(path: &str) -> String {
             let _ = write!(out, "%{byte:02X}");
         }
     }
+
     out
 }
 
@@ -70,6 +72,7 @@ fn decode(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
+
     while let Some(&byte) = bytes.get(i) {
         if byte == b'%' {
             let hex = text.get(i + 1..i + 3)?;
@@ -80,6 +83,7 @@ fn decode(text: &str) -> Option<String> {
             i += 1;
         }
     }
+
     String::from_utf8(out).ok()
 }
 

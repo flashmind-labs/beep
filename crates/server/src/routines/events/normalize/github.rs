@@ -47,6 +47,7 @@ impl TryFrom<String> for GitHubThreadId {
         if id.is_empty() {
             return Err(UnsupportedEvent);
         }
+
         Ok(Self(id))
     }
 }
@@ -157,9 +158,11 @@ impl TryFrom<&GitHubNotification> for AppEvent {
             }
             _ => EventKind::GithubOther,
         };
+
         if kind == EventKind::CiFailed && title.to_ascii_lowercase().contains("succeeded") {
             return Err(UnsupportedEvent);
         }
+
         let number = subject
             .url
             .as_ref()
@@ -192,12 +195,15 @@ impl TryFrom<&GitHubNotification> for AppEvent {
             _ => None,
         };
         let mut ids = json!({"repo": repo, "thread_id": thread, "type": kind_of_thread});
+
         if let Some(n) = number {
             ids["number"] = json!(n);
         }
+
         if let Some(link) = link {
             ids["url"] = json!(link);
         }
+
         Ok(AppEvent {
             app: EventApp::Github,
             kind,

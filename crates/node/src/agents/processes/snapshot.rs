@@ -28,9 +28,11 @@ impl Reader {
     ) -> anyhow::Result<Table> {
         // Coalesce concurrent reads instead of starting another full OS scan.
         let mut last = self.last.lock().await;
+
         if !fresh && let Some(snapshot) = last.as_ref().filter(|s| s.at.elapsed() < FRESH) {
             return Ok(snapshot.table.clone());
         }
+
         let table = Arc::new(scan.await?);
         *last = Some(Snapshot {
             at: Instant::now(),

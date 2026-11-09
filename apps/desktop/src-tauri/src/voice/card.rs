@@ -67,12 +67,15 @@ impl Voice {
             until: Instant::now() + CARD_FOR,
             held: false,
         });
+
         if let Some(before) = before {
             crate::notices::notify::notice(&self.app, &before.notice);
         }
+
         if let Err(e) = orb::show(&self.app) {
             log::warn!("showing the orb for a notice: {e}");
         }
+
         self.emit_card(Some(card));
         let me = self.clone();
         tauri::async_runtime::spawn(async move { me.expire(id).await });
@@ -151,6 +154,7 @@ impl Voice {
     /// Waits out card `id`, then lets it go.
     async fn expire(self: Arc<Self>, id: u64) {
         let mut wait = CARD_FOR;
+
         loop {
             sleep(wait).await;
             let gone = {
@@ -169,6 +173,7 @@ impl Voice {
                     state.card.take()
                 }
             };
+
             if let Some(card) = gone {
                 self.card_gone(card);
                 self.hide_orb_unless_live();
@@ -194,9 +199,11 @@ impl Voice {
     fn open_chat_of(&self, card: &Pending) {
         self.emit_card(None);
         self.hide_orb_unless_live();
+
         if Uuid::parse_str(&card.notice.session_id).is_ok() {
             self.beep.set_session(Some(card.notice.session_id.clone()));
         }
+
         bar::show(&self.app, Some("open"));
     }
 

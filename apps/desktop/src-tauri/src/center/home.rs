@@ -55,6 +55,7 @@ pub async fn center_answer_agent(
                     reply: reply.clone(),
                 },
             };
+
             if events
                 .call(window.label(), machine, operation)
                 .await?
@@ -63,6 +64,7 @@ pub async fn center_answer_agent(
                 return Ok(());
             }
         }
+
         let key = AgentNoticeKey {
             machine_id,
             agent,
@@ -72,6 +74,7 @@ pub async fn center_answer_agent(
         };
         return alerts::answer(&fleet, &key, &reply).await;
     }
+
     beep.call(AnswerAgentQuestion {
         machine_id,
         agent,
@@ -284,6 +287,7 @@ pub async fn center_home(
         updates,
         projects,
     })?;
+
     for card in view.machines.iter_mut().flatten() {
         card.joined = fleet.member(&card.id).is_some();
         card.can_host = card
@@ -292,6 +296,7 @@ pub async fn center_home(
             .ok()
             .is_none_or(|id| !fleet.mesh().is_some_and(|mesh| mesh.is_observer(id)));
     }
+
     cache_view(&cache, View::Home, &view);
     Ok(view)
 }
@@ -302,6 +307,7 @@ pub(crate) async fn mesh_imports(fleet: &Fleet, session: &FleetState<'_>) -> Vec
     if fleet.mesh().is_none() {
         return Vec::new();
     }
+
     match desk(session).await {
         Ok(desk) => desk.imported().await,
         Err(e) => {
@@ -413,9 +419,11 @@ fn machine_cards(
     live: &[&MachineSession],
 ) -> Vec<MachineCard> {
     let mut agents: HashMap<&str, u32> = HashMap::new();
+
     for session in live {
         *agents.entry(session.machine_id.as_str()).or_default() += 1;
     }
+
     let mut details: HashMap<String, MachineDetails> =
         details.into_iter().map(|d| (d.id.clone(), d)).collect();
     let mut stats: HashMap<String, MachineStats> =
@@ -500,6 +508,7 @@ pub(crate) fn needs_you<'a>(
         .map(|c| (c.id.as_str(), c.updated_at))
         .collect();
     let mut waiting: Vec<(u64, NeedsYou)> = Vec::new();
+
     for session in sessions {
         if let Some(question) = &session.question {
             waiting.push((
@@ -515,6 +524,7 @@ pub(crate) fn needs_you<'a>(
             ));
         }
     }
+
     for approval in approvals {
         let since = changed
             .get(approval.session_id.to_string().as_str())
@@ -528,6 +538,7 @@ pub(crate) fn needs_you<'a>(
             },
         ));
     }
+
     waiting.sort_by_key(|(since, _)| *since);
     waiting.into_iter().map(|(_, item)| item).collect()
 }

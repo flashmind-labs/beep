@@ -25,6 +25,7 @@ pub mod events;
 pub mod files;
 pub mod harness;
 pub mod mesh_state;
+pub mod metrics;
 pub mod process;
 pub mod report;
 pub mod sign_in;

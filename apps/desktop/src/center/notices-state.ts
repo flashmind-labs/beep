@@ -157,6 +157,7 @@ export function copies(i: Item): Copy[] {
     const last = Math.max(...i.held.map(c => c.changed));
     return i.held.map(c => ({ machine: c.label, folder: c.folder, here: !!i.here?.includes(`${c.label} ${c.folder}`), held: c, newest: last > 0 && c.changed === last }));
   }
+
   return i.text.split("\n").filter(Boolean).map(line => {
     const at = line.indexOf(" ~/");
     return { machine: at < 0 ? line : line.slice(0, at), folder: at < 0 ? "" : line.slice(at + 1), here: !!i.here?.includes(line) };

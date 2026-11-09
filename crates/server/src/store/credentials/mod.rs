@@ -103,6 +103,7 @@ impl Store {
         if *new.slot == Slot::GitHub {
             bail!("a GitHub token is saved as its account, with save_github_account");
         }
+
         let id = Uuid::new_v4().simple().to_string();
         let owner = Owner {
             user: user.as_ref(),
@@ -157,16 +158,20 @@ impl Store {
         .await?;
         let mut github = false;
         let mut out = Vec::new();
+
         for row in &rows {
             let credential = credential_from(row, !opens(row, user, key))?;
+
             if credential.kind == (CredentialKind::GitHub {}) {
                 if github {
                     continue;
                 }
                 github = true;
             }
+
             out.push(credential);
         }
+
         Ok(out)
     }
 
@@ -214,6 +219,7 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         let mut out = Vec::new();
+
         for row in &rows {
             let id: String = row.try_get("id")?;
             let sealed: Vec<u8> = row.try_get("secret")?;
@@ -229,11 +235,13 @@ impl Store {
                 let secret = key.open(&owner, &sealed)?;
                 Ok(ApiKey { provider, secret })
             });
+
             match opened {
                 Ok(opened) => out.push(opened),
                 Err(e) => log::warn!("credential {id} skipped: {e:#}"),
             }
         }
+
         Ok(out)
     }
 }
@@ -257,6 +265,7 @@ pub(super) async fn reseal_for(
     .bind(source)
     .fetch_all(&mut *tx)
     .await?;
+
     for row in &rows {
         let id: String = row.try_get("id")?;
         let sealed: Vec<u8> = row.try_get("secret")?;
@@ -274,6 +283,7 @@ pub(super) async fn reseal_for(
             };
             key.seal(&to, &secret)
         });
+
         match resealed {
             Ok(resealed) => {
                 sqlx::query("UPDATE credentials SET secret=$2 WHERE id=$1")
@@ -285,6 +295,7 @@ pub(super) async fn reseal_for(
             Err(e) => log::warn!("credential {id} not resealed for the merge: {e:#}"),
         }
     }
+
     Ok(())
 }
 

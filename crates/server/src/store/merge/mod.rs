@@ -196,11 +196,13 @@ impl Store {
         .execute(&mut *tx)
         .await?
         .rows_affected();
+
         if linked == 0 {
             // The code stays usable for the key it was meant for.
             tx.rollback().await?;
             return Ok(None);
         }
+
         tx.commit().await?;
         Ok(Some(target))
     }
@@ -219,6 +221,7 @@ impl Store {
             tx.rollback().await?;
             return Ok(Merge::NoInvite);
         };
+
         if target == source {
             tx.rollback().await?;
             return Ok(Merge::SameAccount);
@@ -234,10 +237,12 @@ impl Store {
         .bind(source)
         .fetch_one(&mut *tx)
         .await?;
+
         if busy {
             tx.rollback().await?;
             return Ok(Merge::Busy);
         }
+
         sqlx::query("DELETE FROM account_invites WHERE code=$1")
             .bind(into.code)
             .execute(&mut *tx)
@@ -256,9 +261,11 @@ impl Store {
         .bind(&target)
         .execute(&mut *tx)
         .await?;
+
         for (table, key) in MOVED {
             move_rows(&mut tx, table, key, source, &target).await?;
         }
+
         projects::move_projects(&mut tx, source, &target).await?;
         summed::move_usage(&mut tx, source, &target).await?;
         move_instructions(&mut tx, source, &target).await?;
@@ -282,6 +289,7 @@ impl Store {
         .bind(&target)
         .fetch_all(&mut *tx)
         .await?;
+
         if into.adopt_external_id {
             sqlx::query("UPDATE users SET external_id = s.external_id FROM users s WHERE users.id=$2 AND s.id=$1")
                 .bind(source)
@@ -396,6 +404,7 @@ async fn move_rows(
         .execute(&mut *tx)
         .await?;
     }
+
     sqlx::query(&format!("UPDATE {table} SET user_id=$2 WHERE user_id=$1"))
         .bind(source)
         .bind(target)

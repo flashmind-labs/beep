@@ -10,6 +10,7 @@ import { type MachineCard, machineOs } from "./machine-state.ts";
 /// A ticket's line, copied from the button that asked for it; a failure shows on the button.
 async function copyJoinLine(on: HTMLButtonElement) {
   on.disabled = true;
+
   try {
     const made = await invoke<{ command: string }>("mesh_invite", { kind: "Node" });
     await copy(made.command, on);
@@ -17,6 +18,7 @@ async function copyJoinLine(on: HTMLButtonElement) {
     console.warn("minting a ticket:", e);
     on.textContent = "Try again";
   }
+
   on.disabled = false;
 }
 

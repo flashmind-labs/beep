@@ -56,10 +56,12 @@ async fn row(fleet: &Fleet, place: &Place, from: ReadFrom) -> GitRow {
                 .await
                 .map_err(|e| e.to_string())?;
         }
+
         read_state(&shell, &place.folder)
             .await
             .map_err(|e| format!("{e:#}"))
     };
+
     match read.await {
         Ok(state) => {
             row.branch = state.branch;
@@ -69,6 +71,7 @@ async fn row(fleet: &Fleet, place: &Place, from: ReadFrom) -> GitRow {
         }
         Err(why) => row.error = Some(why),
     }
+
     row
 }
 

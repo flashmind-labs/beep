@@ -77,6 +77,7 @@ impl Agents {
                 })
             }),
         };
+
         match read {
             Ok(Some((entries, earlier))) => SessionsReply::Transcript {
                 entries: shown_entries(entries, thoughts),
@@ -271,6 +272,7 @@ pub async fn serve_sessions(
                         media_file::read_chunk(real, offset, None)
                     })
                     .await;
+
                     match read {
                         Ok(Ok(Some(chunk))) => file_reply(chunk),
                         Ok(Ok(None)) => SessionsReply::NoFile {},
@@ -469,6 +471,7 @@ pub async fn serve_sessions(
         }
         SessionsRequest::Present { mut paths } => {
             paths.truncate(agent::MAX_PRESENT_PATHS);
+
             match spawn_blocking(move || media_file::present(&paths, dirs::home_dir().as_deref()))
                 .await
             {
@@ -497,11 +500,14 @@ pub async fn serve_sessions(
             message: format!("this node does not serve {other:?}"),
         },
     };
+
     if let SessionsReply::External { sessions } = &reply {
         agents.observe_external(sessions);
     }
+
     let computed = started.elapsed();
     let result = tx.send(&reply).await;
+
     if let Some(operation) = operation {
         let elapsed = started.elapsed();
         let outcome = if result.is_ok() { "ok" } else { "error" };
@@ -518,6 +524,7 @@ pub async fn serve_sessions(
             );
         }
     }
+
     result
 }
 
@@ -558,6 +565,7 @@ async fn work_request(
         Ok(real) => real,
         Err(e) => return failed(e),
     };
+
     match spawn_blocking(move || job(real)).await {
         Ok(Ok(reply)) => reply,
         Ok(Err(e)) => failed(e),
@@ -577,6 +585,7 @@ async fn send_images(mut tx: LinkTx, mut rx: LinkRx, images: &Images) -> Result<
                 if unsent.picture.data.len() > MAX_IMAGE {
                     continue;
                 }
+
                 tx.send(&SessionsReply::SessionImage {
                     session: unsent.session,
                     mime: unsent.picture.mime.clone(),
@@ -599,6 +608,7 @@ async fn send_alerts<T: Clone>(
     reply: impl Fn(T) -> SessionsReply,
 ) -> Result<()> {
     let follow = alerts.follow(caller);
+
     loop {
         tokio::select! {
             alert = follow.next() => {
@@ -625,12 +635,14 @@ async fn send_usage(
     // What earlier reads left goes out at once: a desktop opens a stream per
     // look and listens only briefly, so it would miss a CLI that starts slowly.
     let mut sent = plans.borrow_and_update().clone();
+
     for plan in sent.values() {
         tx.send(&SessionsReply::PlanUsage {
             usage: plan.clone(),
         })
         .await?;
     }
+
     let mut every = interval(PLAN_EVERY);
     every.set_missed_tick_behavior(MissedTickBehavior::Delay);
     // When this stream last asked for a read, which runs beside it.
@@ -643,6 +655,7 @@ async fn send_usage(
     // The first pass gives this stream every session: a desktop keeps nothing
     // between reads, so sessions only one earlier stream heard would go missing.
     let mut first_pass = true;
+
     loop {
         tokio::select! {
             turn = agents.usage.next_turn() => {
@@ -650,6 +663,7 @@ async fn send_usage(
             }
             Ok(()) = plans.changed() => {
                 let now = plans.borrow_and_update().clone();
+
                 for plan in now.values().filter(|plan| sent.get(&plan.agent) != Some(plan)) {
                     tx.send(&SessionsReply::PlanUsage { usage: plan.clone() }).await?;
                 }
@@ -668,10 +682,12 @@ async fn send_usage(
             }
             Some(read) = async { Some(scanning.as_mut()?.await) }, if scanning.is_some() => {
                 scanning = None;
+
                 match read {
                     Ok(reports) => {
                         for report in reports {
                             tx.send(&SessionsReply::SessionSpend { usage: report.clone() }).await?;
+
                             if !first_pass {
                                 agents.spend.sent(&report);
                             }
@@ -684,6 +700,7 @@ async fn send_usage(
             message = rx.recv::<SessionsRequest>() => match message {
                 Ok(Some(SessionsRequest::RefreshPlanUsage {})) => {
                     let recent = last_read.is_some_and(|at| at.elapsed() < PLAN_REFRESH_GAP);
+
                     if !recent {
                         agents.read_plans_soon();
                         last_read = Some(Instant::now());

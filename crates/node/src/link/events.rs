@@ -66,6 +66,7 @@ pub(crate) async fn serve(
     );
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
     send(&mut tx, &Reply::Ready).await?;
+
     loop {
         snapshots.start(&offers, caller);
         let snapshot_due = snapshots.due();
@@ -89,6 +90,7 @@ pub(crate) async fn serve(
                         Ok(()) => sources::subscribe(&offers, &source_topics).await,
                         Err(error) => Err(error),
                     };
+
                     match result {
                         Ok(next) => {
                             subscriptions = next;
@@ -130,20 +132,24 @@ pub(crate) async fn serve(
                 // Overlapping keys can receive the same broad invalidation.
                 // Drain a bounded ready batch before reconciling its sources.
                 let mut batch = vec![event];
+
                 for _ in 0..subscriptions.len() {
                     let Some(Some((_, event))) = subscriptions.next().now_or_never() else {
                         break;
                     };
                     batch.push(event);
                 }
+
                 let mut changed = HashSet::new();
                 let mut lagged = false;
+
                 for event in batch {
                     match event {
                         Ok(event) => { changed.insert(event.topic); }
                         Err(BroadcastStreamRecvError::Lagged(_)) => lagged = true,
                     }
                 }
+
                 let reconcile = lagged || broad_files(&sources(&topics, &queries))
                     && changed.iter().any(|topic| matches!(topic.name(), "agents" | "projects" | "*"));
                 if reconcile {
@@ -154,9 +160,11 @@ pub(crate) async fn serve(
                 if reconcile || changed.iter().any(|topic| !snapshots.contains(topic) && offers.agents.events.current(topic).is_some()) {
                     snapshots.replace(&offers, &topics, &queries, &roots);
                 }
+
                 if lagged {
                     snapshots.reset();
                 }
+
                 for topic in changed {
                     snapshots.changed(&topic);
                 }
@@ -174,6 +182,7 @@ pub(crate) async fn serve(
                     Err(RecvError::Closed) => { project_changes = None; false },
                     _ => false,
                 };
+
                 if reconcile {
                     sources::reconcile(&offers, &subscriptions).await?;
                     roots = sources::roots(&subscriptions);
@@ -188,9 +197,11 @@ pub(crate) async fn serve(
 fn sources(topics: &[Topic], queries: &[events::Query]) -> Vec<Topic> {
     let mut sources = topics.to_vec();
     sources.extend(queries.iter().map(|query| query.topic.clone()));
+
     if sources.iter().any(|topic| topic.name() == "agents") {
         sources.extend([Topic::new("agent"), Topic::new("moves")]);
     }
+
     if sources.iter().any(|topic| topic.name() == "agent") {
         sources.push(Topic::new("agents"));
     }
@@ -200,15 +211,18 @@ fn sources(topics: &[Topic], queries: &[events::Query]) -> Vec<Topic> {
     {
         sources.extend([Topic::new("processes"), Topic::new("process-output")]);
     }
+
     if sources
         .iter()
         .any(|topic| matches!(topic.name(), "terminals" | "terminal-output"))
     {
         sources.extend([Topic::new("terminals"), Topic::new("terminal-output")]);
     }
+
     if broad_files(&sources) {
         sources.extend([Topic::new("agents"), Topic::new("projects")]);
     }
+
     sources.sort();
     sources.dedup();
     sources
@@ -239,13 +253,16 @@ async fn watch(
     topics: &[Topic],
 ) -> Result<()> {
     let mut wanted = BTreeMap::new();
+
     if broad_files(topics) {
         for root in offers.agents.notification_roots().await? {
             let key = root.to_str().context("a notification root is not UTF-8")?;
             wanted.insert(Topic::keyed("files", key), root);
         }
     }
+
     let projects = project_files(offers);
+
     for (topic, path) in projects {
         if topics.iter().any(|wanted| wanted.covers(&topic)) {
             match offers
@@ -261,6 +278,7 @@ async fn watch(
             }
         }
     }
+
     for topic in topics
         .iter()
         .filter(|topic| topic.name() == "files" && !topic.is_pattern())
@@ -276,18 +294,22 @@ async fn watch(
             }
         }
     }
+
     if wanted.len() > MAX_FILE_ROOTS {
         bail!("too many watched directories; subscribe to specific file roots");
     }
+
     if *crate::lock(roots) == wanted {
         return Ok(());
     }
+
     if wanted.is_empty() {
         *watcher = None;
     } else {
         let bindings = stream::iter(wanted.clone())
             .map(|(topic, root)| async move {
                 let mut dependencies = vec![root.clone()];
+
                 match git::watch_paths(&root).await {
                     Ok(paths) => dependencies.extend(paths),
                     Err(error) => log::debug!("Git metadata notifications unavailable: {error:#}"),
@@ -303,6 +325,7 @@ async fn watch(
             let hub = offers.agents.events.clone();
             let paths = crate::events::paths::Paths::new(move |paths| {
                 let held = crate::lock(&changed_roots);
+
                 for (topic, dependencies) in held.iter() {
                     if dependencies
                         .iter()
@@ -314,6 +337,7 @@ async fn watch(
             })?;
             *watcher = Some(FileWatcher { paths, bindings });
         }
+
         if let Some(watcher) = watcher.as_ref() {
             let paths = bindings.values().flatten().cloned().collect();
             watcher.paths.replace(paths).await?;
@@ -323,9 +347,11 @@ async fn watch(
     // A root can appear or disappear while a broad subscription remains active.
     // Reconcile it after installing the new key mapping, including any watch gap.
     let previous = std::mem::replace(&mut *crate::lock(roots), wanted.clone());
+
     for topic in previous.keys().chain(wanted.keys()).collect::<HashSet<_>>() {
         offers.agents.events.changed(topic.clone());
     }
+
     Ok(())
 }
 
@@ -337,6 +363,7 @@ fn project_files(offers: &Offers) -> BTreeMap<Topic, String> {
         return BTreeMap::new();
     };
     let mut projects = BTreeMap::new();
+
     for (key, bytes) in mesh.scan("sync/") {
         if let Key::Sync(name) = key
             && let Ok(spec) = SyncSpec::from_bytes(&bytes)
@@ -348,6 +375,7 @@ fn project_files(offers: &Offers) -> BTreeMap<Topic, String> {
             }
         }
     }
+
     for (key, bytes) in mesh.scan("project/") {
         if let Key::Project(name) = key
             && ProjectRecord::from_bytes(&bytes).is_ok()
@@ -360,6 +388,7 @@ fn project_files(offers: &Offers) -> BTreeMap<Topic, String> {
             }
         }
     }
+
     projects
 }
 

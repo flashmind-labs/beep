@@ -55,10 +55,12 @@ fn a_path_outside_is_refused() {
     let outside = TempDir::new().unwrap();
     fs::write(outside.path().join("secret.png"), "secret").unwrap();
     let reach = project_reach(&project);
+
     for access in [Access::Read, Access::Write] {
         let e = check(&reach, &outside.path().join("secret.png"), access).unwrap_err();
         assert!(e.to_string().contains("outside the folders"), "{e:#}");
     }
+
     let e = check(&reach, Path::new("/etc/passwd"), Access::Read).unwrap_err();
     assert!(e.to_string().contains("outside the folders"), "{e:#}");
 }
@@ -87,6 +89,7 @@ fn a_symlink_escape_is_refused() {
     )
     .unwrap();
     let reach = project_reach(&project);
+
     for asked in ["out", "out/id_key", "key.png", "out/not-yet.png"] {
         let e = check(&reach, &project.path().join(asked), Access::Read).unwrap_err();
         assert!(
@@ -185,10 +188,12 @@ fn custom_agents_are_listed_only_in_a_work_folder() {
     let agents = super::super::custom_agents::list(&real, None).unwrap();
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0].name, "reviewer");
+
     for refused_folder in [outside.path(), logs.path(), Path::new("/etc")] {
         let e = check(&reach, refused_folder, Access::Work).unwrap_err();
         assert!(e.to_string().contains("outside the folders"), "{e:#}");
     }
+
     assert!(check(&reach, Path::new("relative/path"), Access::Work).is_err());
 }
 

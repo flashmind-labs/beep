@@ -144,29 +144,35 @@ impl Task {
             )),
             Err(e) => Some(e),
         };
+
         if let Some(e) = error {
             self.scan_failed = true;
             self.fail("not syncing", &e);
             self.publish_status(None);
             return false;
         }
+
         let aligned = self.shared.align_git().await;
+
         if aligned
             .as_ref()
             .is_ok_and(|alignment| alignment.checkout_changed)
         {
             self.scan().await;
         }
+
         let aligned = aligned.and_then(|alignment| match alignment.warning {
             Some(warning) => Err(warning),
             None => Ok(()),
         });
+
         if let Err(e) = aligned.and(self.shared.check_git().await) {
             self.pending = 1;
             self.fail("waiting for Git", &e);
             self.publish_status(None);
             return false;
         }
+
         if self
             .error
             .as_deref()
@@ -174,9 +180,12 @@ impl Task {
         {
             self.error = None;
         }
+
         let copies_git = self.shared.copies_git();
+
         if !copies_git && (self.scan_failed || self.shared.list_checkout().await.is_err()) {
             self.scan().await;
+
             if self.scan_failed {
                 self.pending = 1;
                 return false;
@@ -197,6 +206,7 @@ impl Task {
             self.publish_status(None);
             return true;
         }
+
         let (work, checkout) = {
             let state = self.shared.lock();
             let rules = read_lock(&self.shared.rules);
@@ -223,6 +233,7 @@ impl Task {
             .map(|file| Hash::from_bytes(file.hash))
             .collect();
         self.fetcher.keep_only(&wanted);
+
         if work.is_empty() {
             self.pending = 0;
             self.waiting.clear();
@@ -230,6 +241,7 @@ impl Task {
             self.publish_status(None);
             return true;
         }
+
         self.publish_status(Some(SyncState::Syncing));
         let total = work.len();
         let paths: Vec<String> = work.iter().map(|item| item.path.clone()).collect();
@@ -272,6 +284,7 @@ impl Task {
         };
         self.show(&round.meter, progress::waiting(&round.lost, &paths));
         let mut shown = Instant::now();
+
         for (at, item) in work.into_iter().enumerate() {
             if self.shared.stop.is_cancelled() || self.shared.is_paused() {
                 break;
@@ -281,6 +294,7 @@ impl Task {
                 round.turn = turn(&item);
                 self.flush(&mut round).await;
             }
+
             let size = item.file.as_ref().map_or(0, |file| file.size);
             let hash = item.file.as_ref().map(|file| Hash::from_bytes(file.hash));
             let path = item.path.clone();
@@ -290,17 +304,21 @@ impl Task {
             } else {
                 self.bring(item, &mut round, &mut ahead).await
             };
+
             if let Some(hash) = hash {
                 ahead.forget(&hash);
             }
+
             match brought {
                 Ok(true) => round.meter.done(size, Instant::now()),
                 Ok(false) => {}
                 Err(e) => self.note_failure(&mut round, path, size, &e),
             }
+
             if round.is_due() {
                 self.flush(&mut round).await;
             }
+
             if shown.elapsed() >= SHOW_EVERY {
                 shown = Instant::now();
                 let rest = paths.get(at + 1..).unwrap_or_default();
@@ -310,6 +328,7 @@ impl Task {
         // Stops the fetches. What they got stays for the next round.
         drop(ahead);
         self.flush(&mut round).await;
+
         if round.unsynced {
             let root = self.shared.root.clone();
             let synced = spawn_blocking(move || root.dir().sync_disk()).await;
@@ -318,15 +337,19 @@ impl Task {
                 self.fail("writing to the disk failed", &anyhow!("{e}"));
             }
         }
+
         self.waiting = mem::take(&mut round.lost);
+
         if let Some(partial) = round.partial.take() {
             // A file that failed to go in place is still in it; it is fetched
             // again, so the folder goes with what is left.
             let finished = spawn_blocking(move || partial.remove()).await;
+
             if let Ok(Err(e)) | Err(e) = finished.map_err(anyhow::Error::from) {
                 log::warn!("a partial folder stays until the next start: {e:#}");
             }
         }
+
         if round.failed == 0 {
             self.error = None;
         }
@@ -340,9 +363,11 @@ impl Task {
         );
         self.pending = round.failed;
         self.finish_git().await;
+
         if let Err(e) = self.protect().await {
             self.fail("keeping the files in the store failed", &e);
         }
+
         self.publish_status(None);
         true
     }
@@ -354,6 +379,7 @@ impl Task {
         } else {
             log::debug!("{}: {path}: {e:#}", self.shared.name);
         }
+
         round.failed += 1;
         round.meter.failed(size);
         if round.lost.len() < MAX_WAITING {
@@ -368,12 +394,15 @@ impl Task {
         };
         let started = Instant::now();
         let batch = mem::take(&mut round.batch);
+
         if let Err(e) = self.check_round_git(round).await {
             for sealed in batch {
                 self.note_failure(round, sealed.work.path, sealed.size, &e);
             }
+
             return;
         }
+
         round.batch_bytes = 0;
         let (root, dir) = (self.shared.root.clone(), partial.dir().try_clone());
         let checkout = (!self.shared.copies_git()).then_some(round.checkout);
@@ -401,9 +430,11 @@ impl Task {
                 for sealed in batch {
                     self.note_failure(round, sealed.work.path, sealed.size, &e);
                 }
+
                 return;
             }
         };
+
         for (sealed, placed) in batch.into_iter().zip(placed) {
             match placed {
                 Ok(stat) => {
@@ -434,9 +465,12 @@ impl Task {
             self.bring_ref(work).await?;
             return Ok(true);
         }
+
         let kind = gitdir::kind(&work.path);
+
         if kind == Some(Kind::Head) {
             let root = self.shared.root().to_owned();
+
             if spawn_blocking(move || gitdir::is_busy(&root)).await? {
                 bail!("waiting for the git operation running on this machine");
             }
@@ -456,15 +490,18 @@ impl Task {
                 (!self.shared.copies_git()).then_some(round.checkout),
             )
             .await?;
+
             if work.file.is_none() {
                 return Ok(true);
             }
+
             let work = Work {
                 expected: None,
                 ..work
             };
             return Box::pin(self.bring(work, round, ahead)).await;
         }
+
         let Some(file) = work.file.clone() else {
             round.unsynced = true;
             self.check_round_git(round).await?;
@@ -472,9 +509,11 @@ impl Task {
                 .await?;
             return Ok(true);
         };
+
         if !self.still_wanted(&work) {
             return Ok(true);
         }
+
         let hash = Hash::from_bytes(file.hash);
         let fetched = self.blob_from(ahead, hash, round).await?;
         let started = Instant::now();
@@ -517,6 +556,7 @@ impl Task {
             )
             .await?;
         }
+
         out.flush().await?;
         let out = out.into_std().await;
         // An object must not look old enough for this machine's next
@@ -546,10 +586,13 @@ impl Task {
         if self.shared.copies_git() {
             return Ok(());
         }
+
         self.shared.check_git().await?;
+
         if self.shared.head().await? != round.checkout {
             bail!("the Git checkout changed while syncing; retrying from its new base");
         }
+
         Ok(())
     }
 
@@ -566,6 +609,7 @@ impl Task {
             if let Some(got) = ahead.take(&hash) {
                 break got;
             }
+
             let waiting = !round.batch.is_empty();
             tokio::select! {
                 () = ahead.finish_one() => {}
@@ -584,6 +628,7 @@ impl Task {
         if !self.still_wanted(&work) {
             return Ok(());
         }
+
         let (old, stays_ahead) = {
             let state = self.shared.lock();
             let old = state.saved.seen.get(&work.path).map(|seen| seen.hash);
@@ -606,6 +651,7 @@ impl Task {
             return Ok(());
         };
         let mut state = self.shared.lock();
+
         match work.file {
             Some(file) => state.set_seen(
                 &work.path,
@@ -619,6 +665,7 @@ impl Task {
                 state.remove_seen(&work.path);
             }
         }
+
         state.saved.index_stale |= done == Stay::HeadMoved;
         state.unsaved = true;
         Ok(())
@@ -630,6 +677,7 @@ impl Task {
         if !self.shared.copies_git() {
             return;
         }
+
         self.settle_refs().await;
         let stale = self.shared.lock().saved.index_stale;
         let root = self.shared.root().to_owned();
@@ -637,12 +685,15 @@ impl Task {
             let Some(repo) = Repo::open(&root) else {
                 return Ok(false);
             };
+
             if !(stale || repo.has_no_index()) || repo.head().is_none() {
                 return Ok(false);
             }
+
             if gitdir::is_busy(&root) {
                 bail!("waiting for the git operation running on this machine");
             }
+
             repo.rebuild_index()?;
             repo.materialize_checkout()?;
             exclude_from_git(&root);
@@ -651,6 +702,7 @@ impl Task {
         .await
         .map_err(anyhow::Error::from)
         .and_then(|rebuilt| rebuilt);
+
         match rebuilt {
             Ok(true) => {
                 let mut state = self.shared.lock();
@@ -666,7 +718,9 @@ impl Task {
                 self.fail("rebuilding the git index failed", &e);
             }
         }
+
         let finished = self.pending == 0 && self.shared.git_copy_received();
+
         if finished {
             let root = self.shared.root().to_owned();
             let complete = spawn_blocking(move || {
@@ -727,9 +781,11 @@ impl Task {
                 })
                 .collect()
         };
+
         if pairs.is_empty() {
             return;
         }
+
         let root = self.shared.root().to_owned();
         let settled = spawn_blocking(move || {
             let repo = Repo::open(&root)?;
@@ -761,6 +817,7 @@ impl Task {
             }
         };
         let mut state = self.shared.lock();
+
         for (pair, forward) in settled {
             if forward && let Some(branch) = state.saved.map.get(&pair.branch).cloned() {
                 state
@@ -768,10 +825,12 @@ impl Task {
                     .map
                     .edit(&pair.branch, &branch.version, Some(pair.lost));
             }
+
             if let Some(copy) = state.saved.map.get(&pair.copy).cloned() {
                 state.saved.map.edit(&pair.copy, &copy.version, None);
             }
         }
+
         state.unsaved = true;
         let seq = state.saved.map.seq();
         drop(state);
@@ -851,9 +910,11 @@ impl Task {
         let Some(expected) = work.expected else {
             return Ok(());
         };
+
         if !self.still_wanted(work) {
             return Ok(());
         }
+
         let removed = {
             let (root, path) = (self.shared.root.clone(), work.path.clone());
             let shared = self.shared.clone();
@@ -863,9 +924,11 @@ impl Task {
             })
             .await??
         };
+
         if removed {
             self.shared.lock().remove_seen(&work.path);
         }
+
         Ok(())
     }
 }

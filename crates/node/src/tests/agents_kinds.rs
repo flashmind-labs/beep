@@ -19,6 +19,7 @@ fn own() -> adapters::Installed {
 #[test]
 fn a_native_cli_with_no_adapter_and_no_npx_lacks_its_adapter() {
     let natives = has(&["claude", "codex", "pi", "gemini", "hermes"]);
+
     for name in ["claude", "codex", "pi"] {
         assert_eq!(
             launch(known(name), &natives, None),

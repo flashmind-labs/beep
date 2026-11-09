@@ -22,18 +22,22 @@ const PRUNE_EVERY: Duration = Duration::from_secs(60 * 60);
 pub fn start_pruning(store: Store) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(PRUNE_EVERY);
+
         loop {
             interval.tick().await;
+
             match store.prune_updates().await {
                 Ok(0) => {}
                 Ok(users) => log::info!("pruned old tombstones of {users} user(s)"),
                 Err(error) => log::warn!("unable to prune tombstones: {error}"),
             }
+
             match store.prune_grants().await {
                 Ok(0) => {}
                 Ok(rows) => log::info!("pruned {rows} ended grant(s) and old grant uses"),
                 Err(error) => log::warn!("unable to prune grants: {error:#}"),
             }
+
             match store.prune_notices().await {
                 Ok(0) => {}
                 Ok(rows) => log::info!("pruned {rows} old notice(s)"),
@@ -107,6 +111,7 @@ pub(super) async fn log_messages(
     if messages.is_empty() {
         return Ok(Vec::new());
     }
+
     let rows = sqlx::query(&format!(
         "WITH bumped AS (
              INSERT INTO sync_counters (user_id, last)
@@ -151,6 +156,7 @@ pub(super) async fn log_chat(
         .execute(&mut *tx)
         .await?;
     }
+
     let rows = sqlx::query(&format!(
         "WITH bumped AS (
              INSERT INTO sync_counters (user_id, last)
@@ -199,9 +205,11 @@ impl UpdateHub {
             .or_insert_with(|| watch::channel(last).0);
         sender.send_if_modified(|current| {
             let newer = last > *current;
+
             if newer {
                 *current = last;
             }
+
             newer
         });
         sender.subscribe()
@@ -209,17 +217,21 @@ impl UpdateHub {
 
     fn announce(&self, bumped: &[Bumped]) {
         let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
+
         for Bumped { user_id, last } in bumped {
             if let Some(sender) = users.get(user_id) {
                 sender.send_if_modified(|current| {
                     let newer = *last > *current;
+
                     if newer {
                         *current = *last;
                     }
+
                     newer
                 });
             }
         }
+
         users.retain(|_, sender| sender.receiver_count() > 0);
     }
 }

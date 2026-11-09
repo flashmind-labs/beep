@@ -78,6 +78,7 @@ struct Made {
 
 pub(super) async fn run(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result<()> {
     let saved = env.state.load(&record.id);
+
     if let Some(saved) = saved.filter(|saved| saved.is_over(record.at)) {
         // After a restart, how it ended is still what the source and the
         // desktop are told.
@@ -90,6 +91,7 @@ pub(super) async fn run(env: &Env, record: &SessionMove, tracker: &Tracker) -> R
         });
         return Ok(());
     }
+
     let result = move_here(env, record, tracker).await;
     let (phase, reason) = match &result {
         Ok(()) => (Phase::Done, None),
@@ -120,9 +122,11 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     {
         bail!("{} sessions cannot move yet", record.agent);
     }
+
     let folders = folders(env, record)?;
     // What an earlier try, or an earlier move, made here and left goes first.
     take_back(env, &record.id).await;
+
     match &folders.worktree {
         Some(made) => {
             if !made.checkout.is_dir() {
@@ -131,6 +135,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
                     record.project
                 );
             }
+
             env.agents.moves.prepare_worktree(&record.project).await?;
             // Whether the branch and folder allow it is known before the
             // source ends anything.
@@ -151,6 +156,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         ),
         None => {}
     }
+
     let kind = env
         .agents
         .named(record.agent.as_ref())
@@ -158,6 +164,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     if kind.name.parse::<Agent>().ok() == Some(Agent::Flsh) {
         flsh::check(&kind, &env.name_of(&env.mesh.me())).await?;
     }
+
     if env.agents.runs(&record.id) {
         // A restart between starting and noting it.
         return Ok(());
@@ -175,9 +182,11 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         record.id
     );
     files(record, &arriving, tracker, copied.since).await?;
+
     if let (Some(made), Some(work)) = (&folders.worktree, &copied.work) {
         commits(env, record, &made.checkout, &work.head).await?;
     }
+
     log::info!("session {}: the files are here, resuming", record.id);
     show(tracker, |progress| progress.phase = MovePhase::Resuming);
     let made = match (&folders.worktree, &record.worktree, &copied.work) {
@@ -225,9 +234,11 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
                         .load(&record.id)
                         .unwrap_or_else(|| Saved::over(record.at, Phase::Working, None));
                     saved.made = None;
+
                     if let Err(e) = env.state.save(&record.id, &saved) {
                         log::warn!("the pending note of session {} stays: {e}", record.id);
                     }
+
                     return Err(e);
                 }
             };
@@ -249,12 +260,14 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
                     made: Some(note.clone()),
                 },
             );
+
             if let Err(e) = kept {
                 // Nothing would remember it: back out now, while it holds
                 // only what was put there.
                 undo_logged(&record.id, note).await;
                 return Err(e).context("keeping the worktree made for the move");
             }
+
             true
         }
         (Some(_), ..) => bail!("the source sent no worktree state"),
@@ -279,9 +292,11 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         },
     };
     let resumed = resume(env, &arrival, &kind, &placed, copied.file_name, copy).await;
+
     if resumed.is_err() && made {
         take_back(env, &record.id).await;
     }
+
     resumed
 }
 
@@ -289,9 +304,11 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
 /// directly from the source before the target attaches the worktree.
 async fn commits(env: &Env, record: &SessionMove, checkout: &Path, head: &str) -> Result<()> {
     let (folder, commit) = (checkout.to_owned(), head.to_owned());
+
     if spawn_blocking(move || worktree::has_commit(&folder, &commit)).await? {
         return Ok(());
     }
+
     let connection = dial(env, record.from).await?;
     let (send, recv) = connection.open_bi().await?;
     let (tx, rx) = link(send, recv);
@@ -320,6 +337,7 @@ pub(super) async fn take_back(env: &Env, id: &str) {
     if !env.agents.reopened() {
         log::info!("session {id}: waiting for the sessions open before the restart to resume");
     }
+
     env.agents.until_reopened().await;
     let Some(mut saved) = env.state.load(id) else {
         return;
@@ -332,6 +350,7 @@ pub(super) async fn take_back(env: &Env, id: &str) {
         log::warn!("the worktree of session {id} was not taken back, it could not be noted: {e}");
         return;
     }
+
     if env.agents.runs(id) || runs_in(env, &made.folder) {
         log::info!(
             "the worktree of session {id} stays: a session runs in {}",
@@ -339,6 +358,7 @@ pub(super) async fn take_back(env: &Env, id: &str) {
         );
         return;
     }
+
     undo_logged(id, made).await;
 }
 
@@ -348,6 +368,7 @@ async fn undo_logged(id: &str, made: MadeWorktree) {
         worktree::undo(&made.checkout, &made.folder, &made.placed, &made.applied)
     })
     .await;
+
     match done {
         Ok(Undone::Removed | Undone::Reset) => {
             log::info!(
@@ -367,12 +388,14 @@ fn folders(env: &Env, record: &SessionMove) -> Result<Folders> {
     let mine = project_folder(&env.mesh, &record.project, &env.mesh.me())
         .context("this machine does not keep the project")?;
     let relative = Path::new(&record.path);
+
     if relative
         .components()
         .any(|part| !matches!(part, Component::Normal(_)))
     {
         bail!("the session's folder is not inside the project");
     }
+
     let Some(worktree) = &record.worktree else {
         return Ok(Folders {
             old: Path::new(&theirs).join(relative),
@@ -403,19 +426,23 @@ async fn conversation(
     if let Some(dir) = copy.parent() {
         tokio::fs::create_dir_all(dir).await?;
     }
+
     let mut wait = FIRST_WAIT;
     // Whether the last read reached the source, so each change is logged
     // once rather than on every try.
     let mut reached = None;
+
     loop {
         show(tracker, |progress| {
             if progress.phase != MovePhase::Waiting {
                 progress.phase = MovePhase::Waiting;
             }
         });
+
         match pull_once(env, record, copy).await {
             Ok(pulled) => {
                 wait = FIRST_WAIT;
+
                 if reached != Some(true) {
                     log::info!(
                         "session {}: read {} bytes from its source, which {}",
@@ -439,6 +466,7 @@ async fn conversation(
                         progress.phase = MovePhase::Conversation;
                     }
                 });
+
                 if !pulled.live {
                     return Ok(Copied {
                         since: Instant::now(),
@@ -456,10 +484,12 @@ async fn conversation(
                 } else {
                     log::debug!("session {} not read from its source yet: {e:#}", record.id);
                 }
+
                 show(tracker, |progress| progress.source_away = true);
                 wait = (wait * 2).min(LAST_WAIT);
             }
         }
+
         sleep(wait).await;
     }
 }
@@ -497,6 +527,7 @@ async fn arriving<'a>(
     {
         return Ok(Arriving::Beep(syncs));
     }
+
     let folder = folders
         .worktree
         .as_ref()
@@ -519,18 +550,21 @@ async fn syncthing_done(record: &SessionMove, managed: &Managed, tracker: &Track
     };
     let syncthing = Syncthing::local();
     let until = Instant::now() + SYNCTHING_WAIT;
+
     loop {
         match syncthing.folder_status(id).await {
             Ok(status) => {
                 show(tracker, |progress| {
                     progress.files_left = status.need_total_items;
                 });
+
                 if status.is_complete() {
                     return;
                 }
             }
             Err(e) => log::debug!("Syncthing did not say how {id} stands: {e:#}"),
         }
+
         if Instant::now() >= until {
             log::warn!(
                 "session {}: Syncthing has not finished {} in {}s, resuming anyway",
@@ -540,6 +574,7 @@ async fn syncthing_done(record: &SessionMove, managed: &Managed, tracker: &Track
             );
             return;
         }
+
         sleep(SYNCTHING_LOOK).await;
     }
 }
@@ -560,6 +595,7 @@ async fn files(
             if record.worktree.is_none() {
                 syncthing_done(record, managed, tracker).await;
             }
+
             return Ok(());
         }
     };
@@ -580,5 +616,6 @@ async fn files(
             .handoff_for_move(&record.project, &record.from)
             .await?;
     }
+
     Ok(())
 }

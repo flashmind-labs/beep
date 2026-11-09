@@ -37,6 +37,7 @@ async fn open_among(real: &HashMap<PathBuf, PathBuf>) -> Option<HashMap<PathBuf,
     let scan = move || {
         let processes = std::fs::read_dir("/proc").ok()?;
         let mut open = HashMap::new();
+
         for process in processes
             .flatten()
             .filter(|entry| {
@@ -51,6 +52,7 @@ async fn open_among(real: &HashMap<PathBuf, PathBuf>) -> Option<HashMap<PathBuf,
             let Ok(fds) = std::fs::read_dir(process.path().join("fd")) else {
                 continue;
             };
+
             for fd in fds.flatten() {
                 if let Ok(to) = std::fs::read_link(fd.path())
                     && wanted.contains(&to)
@@ -62,10 +64,12 @@ async fn open_among(real: &HashMap<PathBuf, PathBuf>) -> Option<HashMap<PathBuf,
                     open.entry(to).or_insert(pid);
                 }
             }
+
             if open.len() == wanted.len() {
                 break;
             }
         }
+
         Some(open)
     };
     tokio::task::spawn_blocking(scan).await.ok()?
@@ -89,6 +93,7 @@ async fn open_among(real: &HashMap<PathBuf, PathBuf>) -> Option<HashMap<PathBuf,
     // lsof exits 1 when any file is not open; what it printed still counts.
     let mut open = HashMap::new();
     let mut pid = None;
+
     for line in String::from_utf8_lossy(&out.stdout).lines() {
         if let Some(value) = line.strip_prefix('p') {
             pid = value.parse::<u32>().ok();
@@ -98,6 +103,7 @@ async fn open_among(real: &HashMap<PathBuf, PathBuf>) -> Option<HashMap<PathBuf,
             open.entry(PathBuf::from(path)).or_insert(pid);
         }
     }
+
     Some(open)
 }
 
@@ -115,6 +121,7 @@ pub(super) fn settle(presence: Presence, pid: Option<u32>, held: Option<bool>) -
     if pid.is_some() {
         return presence;
     }
+
     match held {
         // Quiet for a while, it may still be loaded in an app server.
         Some(true) if presence.is_live() => presence,

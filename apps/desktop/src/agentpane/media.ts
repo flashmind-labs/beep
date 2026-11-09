@@ -21,7 +21,7 @@ import { drag, tabDown } from "./drag.ts";
 import { readError, loadText, startTerminal, load } from "./read.ts";
 import { viewOf } from "./views.ts";
 import { esc } from "../ui/format.ts";
-import { h } from "../ui/dom.ts";
+import { frameResize, h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import { runningCount, runningView } from "./running.ts";
@@ -197,8 +197,9 @@ export function startPane(s: PaneSession) {
   if (!el) return;
   P.watch?.disconnect();
   // Too narrow for a right dock, its tabs join the bottom one, and back.
-  P.watch = new ResizeObserver(() => el.classList.contains("narrow") !== (el.clientWidth < SIDE_BY_SIDE_MIN) ? draw() : place());
+  P.watch = frameResize(() => el.classList.contains("narrow") !== (el.clientWidth < SIDE_BY_SIDE_MIN) ? draw() : place());
   P.watch.observe(el);
+
   for (const d of DOCKS) {
     wireDivider(d);
     const pane = paneOf(d)!;
@@ -241,6 +242,7 @@ export function closePaneTabs() {
     t.term = undefined;
     if (id && !closing) invoke("terminal_close", { id }).catch(e => console.warn("stopping a terminal on leaving its session:", e));
   }
+
   P.tabs = [];
 }
 
@@ -280,6 +282,7 @@ function place() {
   const narrow = el.clientWidth < SIDE_BY_SIDE_MIN;
   el.classList.toggle("narrow", narrow);
   const split = docked();
+
   for (const d of DOCKS) {
     const pane = paneOf(d), div = document.getElementById(`agdiv-${d}`), strip = document.getElementById(`agpstrip-${d}`);
     if (!pane || !div || !strip) continue;
@@ -292,6 +295,7 @@ function place() {
     pane.style.flexBasis = `${paneSize(d, P.layout[d], total)}px`;
     div.setAttribute("aria-orientation", d === "right" ? "vertical" : "horizontal");
   }
+
   const shown = DOCKS.some(d => paneOf(d)?.hidden === false);
   if (shown && !paneWasShown) queueMicrotask(() => window.dispatchEvent(new Event("agent-pane-shown")));
   paneWasShown = shown;
@@ -311,9 +315,11 @@ function toggleZoom() {
     const shown = DOCKS.filter(d => paneOf(d)?.hidden === false);
     P.zoom = shown.find(d => paneOf(d)?.contains(document.activeElement)) ?? shown.find(d => d === "right") ?? shown[0] ?? null;
   }
+
   place();
   // From the input, the zoomed tab takes the keys: a terminal fills the view and is typed in.
   const pane = P.zoom && paneOf(P.zoom);
+
   if (pane && !pane.contains(document.activeElement)) {
     const term = P.tabs.find(t => t.id === P.on[P.zoom!])?.term;
     if (term) term.screen.focus(); else pane.focus({ preventScroll: true });
@@ -420,10 +426,12 @@ export function draw() {
   if (drag?.ghost) return;
   const split = docked();
   for (const d of DOCKS) drawDock(d, split[d]);
+
   for (const d of DOCKS) {
     const host = paneOf(d)?.querySelector<HTMLElement>(".agwtw");
     if (host) drawWorktrees(host, P.on[d] === FILES || P.on[d] === CHANGES);
   }
+
   place();
   phoneTabs();
 }
@@ -435,6 +443,7 @@ function phoneTabs() {
   const el = shell(), box = main();
   if (!el || !box || !document.body.classList.contains("mobile")) return;
   let nav = box.querySelector<HTMLElement>(":scope > #agmnav");
+
   if (!nav) {
     nav = document.createElement("nav");
     nav.id = "agmnav";
@@ -449,6 +458,7 @@ function phoneTabs() {
     box.prepend(nav);
     el.classList.add("mb-log");
   }
+
   const on = el.classList.contains("mb-log") ? "log" : P.on.bottom;
   const tabs = [...(paneOf("bottom")?.querySelectorAll<HTMLElement>(".agtabs > [data-mtab]") ?? [])]
     .map(t => ({ id: t.dataset.mtab!, name: t.querySelector("span")?.textContent ?? "" }));
@@ -490,19 +500,24 @@ function drawDock(d: Dock, ids: string[]) {
   const made = filesView();
   let filesEl = document.querySelector<HTMLElement>(".agpviews > .agpview.files");
   if (filesEl !== made) { filesEl?.remove(); filesEl = made; }
+
   if (ids.includes(FILES)) {
     if (filesEl.parentElement !== views) views.prepend(filesEl);
     filesEl.hidden = on !== FILES;
     if (on !== FILES) closeFilesMenu();
   }
+
   // The Changes view is made the first time it shows, as it runs git.
   const changesEl = on === CHANGES ? changesView() : madeChangesView();
+
   if (changesEl && ids.includes(CHANGES)) {
     if (changesEl.parentElement !== views) views.append(changesEl);
     changesEl.hidden = on !== CHANGES;
   }
+
   // So is the Artifacts view, while there are any.
   const artsEl = artifactsView();
+
   if (!artifactCount()) artsEl.remove();
   else if (ids.includes(ARTS)) {
     if (artsEl.parentElement !== views) views.append(artsEl);
@@ -510,13 +525,17 @@ function drawDock(d: Dock, ids: string[]) {
     showFrames(on === ARTS && !P.layout.hidden[d]);
     if (on === ARTS) checkArtifacts();
   }
+
   const runningEl = runningView();
+
   if (runningEl && ids.includes(RUNNING)) {
     if (runningEl.parentElement !== views) views.append(runningEl);
     runningEl.hidden = on !== RUNNING;
   }
+
   // Subagents redraw each time; a file's view is drawn once and kept.
   let subView = document.querySelector<HTMLElement>(".agpviews > .agpview.subs");
+
   if (!P.subCount) subView?.remove();
   else if (ids.includes(SUBS)) {
     if (!subView) subView = h('<div class="agpview subs"></div>');
@@ -524,6 +543,7 @@ function drawDock(d: Dock, ids: string[]) {
     if (subView.innerHTML !== P.subs) subView.innerHTML = P.subs;
     subView.hidden = on !== SUBS;
   }
+
   for (const t of P.tabs) {
     if (!ids.includes(t.id)) continue;
     if (!t.el) t.el = viewOf(t);
@@ -587,6 +607,7 @@ function tabMenu(e: MouseEvent) {
   const path = t.kind === "text" ? t.rel : t.path;
   if (t.kind === "text" && t.rel && isHtmlFile(t.rel) && !t.text?.binary) items.push({ label: "Preview", on: () => { focusTab(t.id); previewTab(t); } });
   if (path) items.push({ label: "Copy path", on: () => void writeClipboard(path) });
+
   if (t.kind === "text" && t.rel) {
     const rel = t.rel;
     items.push({ label: "Save", on: () => saveWorkFile(rel, note, t.root) });
@@ -596,6 +617,7 @@ function tabMenu(e: MouseEvent) {
       .then(to => { note(`Saved to Downloads as ${baseName(to)}`); return invoke("reveal_file", { path: to }); })
       .catch(err => note(readError(err))) });
   }
+
   items.push({ label: "Close", on: () => closeTab(t.id) });
   openMenu(e, t.name, items);
 }
@@ -605,11 +627,14 @@ function paneClick(e: MouseEvent, d: Dock) {
   const close = target.closest<HTMLElement>("[data-mclose]");
   if (close) { e.stopPropagation(); return closeTab(close.dataset.mclose!); }
   const tab = target.closest<HTMLElement>("[data-mtab]");
+
   if (tab) {
     if (P.dragged) return;
     return showTab(d, tab.dataset.mtab!);
   }
+
   const act = target.closest<HTMLElement>("[data-pact]")?.dataset.pact;
+
   if (act === "dock") {
     // This dock's tabs go to the other, which shows the one on screen here.
     const to: Dock = d === "right" ? "bottom" : "right", on = P.on[d];
@@ -620,6 +645,7 @@ function paneClick(e: MouseEvent, d: Dock) {
     saveLayout();
     return draw();
   }
+
   if (act === "fold") { P.layout.hidden[d] = true; saveLayout(); return draw(); }
   if (act === "term") return newTerminal(d);
 }
@@ -629,6 +655,7 @@ export function closeTab(id: string) {
   if (i < 0) return;
   // The tab goes once its terminal stopped, and says why when it could not.
   const tab = P.tabs[i];
+
   if (tab.term) {
     if (tab.closed) return;
     tab.closed = true;
@@ -644,17 +671,20 @@ export function closeTab(id: string) {
     });
     return;
   }
+
   // A shell still starting is stopped once it is there.
   if (tab.kind === "term") tab.closed = true;
   const d = dockOf(id);
   dropTab(P.tabs[i]);
   P.tabs.splice(i, 1);
   P.moved.delete(id);
+
   // The neighbour in the same dock shows next.
   if (P.on[d] === id) {
     const left = docked()[d];
     P.on[d] = P.tabs.slice(i).find(t => left.includes(t.id))?.id ?? left.at(-1) ?? FILES;
   }
+
   draw();
 }
 
@@ -714,12 +744,14 @@ export function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> 
   if (!P.tabs.some(x => x.id === t.id)) {
     const tab: MediaTab = { size: 0, done: 0, error: "", el: null, ...t };
     P.tabs.push(tab);
+
     if (!tab.error) {
       if (tab.kind === "text") loadText(tab);
       else if (tab.kind === "term") startTerminal(tab);
       else if (!tab.url) load(tab);
     }
   }
+
   focusTab(t.id);
 }
 

@@ -29,6 +29,7 @@ export function endedHtml(key: string, md: string) {
 /// thought that ended folds now. Forgets thoughts no longer drawn.
 export function attachLive(root: HTMLElement, touched?: (key: string) => void) {
   const drawn = new Set<string>();
+
   for (const el of root.querySelectorAll<HTMLElement>(".kk[data-kk]")) {
     const key = el.dataset.kk ?? "";
     if (!follows.has(key)) continue;
@@ -45,11 +46,13 @@ export function attachLive(root: HTMLElement, touched?: (key: string) => void) {
     el.addEventListener("wheel", byHand, { passive: true });
     el.addEventListener("pointerdown", byHand);
   }
+
   for (const key of follows.keys()) if (!drawn.has(key)) follows.delete(key);
   for (const el of root.querySelectorAll<HTMLElement>(".kk.ended")) el.scrollTop = el.scrollHeight;
   const folding = root.querySelectorAll<HTMLElement>(".dthink[data-folding]");
   // Their open state is laid out once first, so taking it away animates.
   if (folding.length) void root.offsetHeight;
+
   for (const el of folding) {
     el.classList.remove("open");
     el.querySelector("button")?.setAttribute("aria-expanded", "false");

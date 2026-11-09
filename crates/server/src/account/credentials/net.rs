@@ -26,18 +26,23 @@ fn embedded_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
     if let Some(v4) = ip.to_ipv4_mapped() {
         return Some(v4);
     }
+
     let seg = ip.segments();
     let octets = ip.octets();
     let last = Ipv4Addr::new(octets[12], octets[13], octets[14], octets[15]);
+
     if seg[..6] == [0; 6] && !ip.is_loopback() && !ip.is_unspecified() {
         return Some(last);
     }
+
     if seg[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
         return Some(last);
     }
+
     if seg[0] == 0x2002 {
         return Some(Ipv4Addr::new(octets[2], octets[3], octets[4], octets[5]));
     }
+
     None
 }
 
@@ -75,6 +80,7 @@ fn is_public_v6(ip: Ipv6Addr) -> bool {
 /// Whether every address of `url`'s host is public; false when it does not resolve.
 pub async fn resolves_public(url: &Url) -> bool {
     let port = url.port_or_known_default().unwrap_or(443);
+
     match url.host() {
         Some(Host::Ipv4(ip)) => is_public(IpAddr::V4(ip)),
         Some(Host::Ipv6(ip)) => is_public(IpAddr::V6(ip)),
@@ -97,6 +103,7 @@ impl Resolve for PublicOnly {
         Box::pin(async move {
             let found = tokio::net::lookup_host((name.as_str(), 0)).await?;
             let public: Vec<SocketAddr> = found.filter(|addr| is_public(addr.ip())).collect();
+
             if public.is_empty() {
                 let refused = io::Error::new(
                     io::ErrorKind::PermissionDenied,
@@ -104,6 +111,7 @@ impl Resolve for PublicOnly {
                 );
                 return Err(Box::new(refused) as Box<dyn std::error::Error + Send + Sync>);
             }
+
             Ok(Box::new(public.into_iter()) as Addrs)
         })
     }

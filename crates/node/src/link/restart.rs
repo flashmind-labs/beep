@@ -74,9 +74,11 @@ pub(crate) async fn keep(dir: &Path, agents: &Agents) {
         let noting = watchdog::enter(Step::OpenNote);
         let saved = Reopen::now(agents).save(dir);
         drop(noting);
+
         if let Err(e) = saved {
             log::warn!("what is open would not open again after a crash: {e:#}");
         }
+
         CHANGED.notified().await;
     }
 }
@@ -104,8 +106,10 @@ pub fn note_on_quit(dir: &Path, agents: &Agents) -> Result<()> {
 /// Answers updates asking the node to hold still, one at a time.
 pub(crate) async fn listen(dir: &Path, agents: Arc<Agents>) -> Result<()> {
     let mut listener = Listener::bind(&dir.join(SOCKET))?;
+
     loop {
         let stream = listener.accept().await.context("taking an update")?;
+
         if let Err(e) = answer(stream, &agents).await {
             log::debug!("an update's connection failed: {e:#}");
         }
@@ -116,9 +120,11 @@ pub(crate) async fn listen(dir: &Path, agents: Arc<Agents>) -> Result<()> {
 async fn answer(stream: Stream, agents: &Agents) -> Result<()> {
     let (read, mut write) = split(stream);
     let mut lines = BufReader::new(read).lines();
+
     if lines.next_line().await?.as_deref() != Some(DRAIN) {
         return Ok(());
     }
+
     log::info!("an update waits for the sessions to be idle");
     tokio::select! {
         () = agents.until_idle() => {}
@@ -165,6 +171,7 @@ mod client {
             return Drained::NoNode;
         };
         let (read, mut write) = split(stream);
+
         if write
             .write_all(format!("{DRAIN}\n").as_bytes())
             .await
@@ -172,7 +179,9 @@ mod client {
         {
             return Drained::NoNode;
         }
+
         let mut lines = BufReader::new(read).lines();
+
         match timeout(limit, lines.next_line()).await {
             Ok(Ok(Some(line))) if line == IDLE => Drained::Idle(UpdateConnection {
                 _read: lines,

@@ -17,6 +17,7 @@ let switching = false;
 export async function readModes(o: OpenAgent) {
   const s = AG.page?.session;
   if (oldServer || !s || s.external || s.status === "ended") return null;
+
   try {
     const modes = await invoke<AgentModes | null>("agent_modes", where(o), AGENT_READ_WAIT_MS);
     if (!modes) oldServer = true;

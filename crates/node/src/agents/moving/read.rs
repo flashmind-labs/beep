@@ -171,6 +171,7 @@ impl Access<'_> {
         if (self.check)(ask, id) {
             return true;
         }
+
         let Some(updates) = self.updates.as_mut() else {
             return false;
         };
@@ -180,6 +181,7 @@ impl Access<'_> {
                     return true;
                 }
             }
+
             false
         })
         .await
@@ -226,6 +228,7 @@ pub(super) async fn serve(
     let refuse = |message: &str| Reply::Refused {
         message: message.to_owned(),
     };
+
     match rx.recv::<Request>().await? {
         Some(Request::Read {
             agent,
@@ -237,9 +240,11 @@ pub(super) async fn serve(
             if !access.allows(Asked::Read, &id).await {
                 return tx.send(&refuse("no move of that session to you")).await;
             }
+
             if let Some(why) = agents.moves.refusal(&id) {
                 return tx.send(&refuse(&why)).await;
             }
+
             let found = match locate(agents, me, &agent, &id).await {
                 Ok(found) => found,
                 Err(message) => return tx.send(&Reply::Refused { message }).await,
@@ -283,11 +288,13 @@ pub(super) async fn serve(
                     }
                 }
             }
+
             match send_after(&mut tx, &found, from, &prefix_hash, live, work).await {
                 Ok(sent) => {
                     if let Some(sent) = sent {
                         agents.moves.set_sent(&id, sent);
                     }
+
                     tx.finish().await
                 }
                 Err(e) => {
@@ -300,9 +307,11 @@ pub(super) async fn serve(
             if !access.allows(Asked::Read, &id).await {
                 return tx.send(&refuse("no move of that session to you")).await;
             }
+
             if let Some(why) = agents.moves.refusal(&id) {
                 return tx.send(&refuse(&why)).await;
             }
+
             let Some(dir) = agents.moves.worktree_of(&id) else {
                 return tx.send(&refuse("the session has no moving worktree")).await;
             };
@@ -311,12 +320,14 @@ pub(super) async fn serve(
                 Ok(bytes) => bytes,
                 Err(e) => return tx.send(&refuse(&format!("{e:#}"))).await,
             };
+
             for chunk in bytes.chunks(CHUNK) {
                 tx.send(&Reply::Bundle {
                     data: chunk.to_vec(),
                 })
                 .await?;
             }
+
             tx.send(&Reply::BundleEnd {}).await?;
             tx.finish().await
         }
@@ -324,6 +335,7 @@ pub(super) async fn serve(
             if !access.allows(Asked::Background, "").await {
                 return tx.send(&refuse("not in the mesh")).await;
             }
+
             let offers = offers(agents, projects).await;
             tx.send(&Reply::Offers { offers }).await?;
             tx.finish().await
@@ -345,11 +357,13 @@ pub(super) async fn serve(
             if !offered {
                 return tx.send(&refuse("that session is not offered")).await;
             }
+
             let found = match locate(agents, me, &agent, &id).await {
                 Ok(found) => found,
                 Err(message) => return tx.send(&Reply::Refused { message }).await,
             };
             let live = !agents.reopened() || agents.runs(&id) || agents.moves.holds(&id);
+
             match send_after(&mut tx, &found, from, &prefix_hash, live, None).await {
                 Ok(_) => tx.finish().await,
                 Err(e) => {
@@ -362,6 +376,7 @@ pub(super) async fn serve(
             if !access.allows(Asked::State, &id).await {
                 return tx.send(&refuse("no move of that session from you")).await;
             }
+
             let (taken, failed, landed) = match agents.moves.target(&id, at) {
                 Target::Unknown => (false, None, false),
                 Target::Taken => (true, None, false),
@@ -423,9 +438,11 @@ async fn send_after(
 ) -> Result<Option<String>> {
     let mut file = File::open(&found.path).await?;
     let size = file.metadata().await?.len();
+
     if size > MAX_TRANSCRIPT {
         bail!("the transcript is too large to move");
     }
+
     let start = if from > 0 && from <= size && prefix_of(&mut file, from).await? == prefix_hash {
         from
     } else {
@@ -441,9 +458,11 @@ async fn send_after(
     // meanwhile, and the End says how far this went.
     let mut left = size - start;
     let mut buf = vec![0; CHUNK];
+
     while left > 0 {
         let want = usize::try_from(left).map_or(CHUNK, |left| left.min(CHUNK));
         let got = file.read(&mut buf[..want]).await?;
+
         if got == 0 {
             bail!("the transcript got shorter");
         }
@@ -453,11 +472,14 @@ async fn send_after(
         })
         .await?;
     }
+
     let mut sent = None;
+
     if let Some(dir) = worktree {
         let work = spawn_blocking(move || snapshot(&dir)).await??;
         sent = Some(work.fingerprint());
         tx.send(&Reply::Work { head: work.head }).await?;
+
         for piece in work.patch.chunks(CHUNK) {
             tx.send(&Reply::Patch {
                 data: piece.to_vec(),
@@ -465,6 +487,7 @@ async fn send_after(
             .await?;
         }
     }
+
     tx.send(&Reply::End { size, live }).await?;
     // What a worktree held when it was sent, for the source to know later
     // that it still holds that and nothing else.
@@ -477,15 +500,19 @@ async fn prefix_of(file: &mut File, len: u64) -> Result<Vec<u8>> {
     let mut hasher = blake3::Hasher::new();
     let mut buf = vec![0; CHUNK];
     let mut left = len;
+
     while left > 0 {
         let want = usize::try_from(left).map_or(CHUNK, |left| left.min(CHUNK));
         let got = file.read(&mut buf[..want]).await?;
+
         if got == 0 {
             break;
         }
+
         hasher.update(&buf[..got]);
         left -= got as u64;
     }
+
     Ok(hasher.finalize().as_bytes().to_vec())
 }
 
@@ -565,25 +592,31 @@ pub(super) async fn pull_within(
         Some(Reply::Refused { message }) => return Err(Refused(message).into()),
         _ => bail!("the source ended without answering"),
     };
+
     if !valid_file_name(&file_name) {
         return Err(Refused(format!("it named the transcript {file_name:?}")).into());
     }
+
     let restarted = from > 0 && start == 0;
+
     if restarted {
         let mut aside = copy.as_os_str().to_owned();
         aside.push(".diverged");
         fs::rename(copy, aside).await?;
     }
+
     let mut out = fs::OpenOptions::new();
     out.create(true).append(true);
     #[cfg(unix)]
     out.mode(0o600);
     let mut out = out.open(copy).await?;
     let mut work: Option<Work> = None;
+
     loop {
         match next(&mut rx, quiet).await? {
             Some(Reply::Chunk { data }) => {
                 out.write_all(&data).await?;
+
                 if let Kind::Background { rate } = kind {
                     // Receiving slowly slows the sender through the
                     // connection's flow control: a background copy never
@@ -602,17 +635,21 @@ pub(super) async fn pull_within(
                 let Some(work) = work.as_mut() else {
                     bail!("the source sent a patch before its commit");
                 };
+
                 if work.patch.len() + data.len() > MAX_PATCH {
                     return Err(Refused("the uncommitted changes are too large".into()).into());
                 }
+
                 work.patch.extend_from_slice(&data);
             }
             Some(Reply::End { size, live }) => {
                 out.sync_all().await?;
                 let held = out.metadata().await?.len();
+
                 if held != size {
                     bail!("the copy is {held} bytes, the source said {size}");
                 }
+
                 return Ok(Pulled {
                     size,
                     live,
@@ -640,12 +677,14 @@ pub(super) async fn pull_bundle(
     })
     .await?;
     let mut bytes = Vec::new();
+
     loop {
         match next(&mut rx, QUIET_FOR).await? {
             Some(Reply::Bundle { data }) => {
                 if data.len() > MAX_BUNDLE.saturating_sub(bytes.len()) {
                     bail!("the worktree's commit history is too large to move");
                 }
+
                 bytes.extend_from_slice(&data);
             }
             Some(Reply::BundleEnd {}) => return Ok(bytes),

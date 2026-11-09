@@ -26,10 +26,12 @@ export function fit() {
     if ($("#viewer")) height = Math.max(height, VIEWER_HEIGHT);
     const keys = $("#keys");
     if (keys) height = Math.max(height, natural(keys) + 2);
+
     if (!PANE && height !== barHeight) {
       barHeight = height;
       invoke("resize_bar", { height }).catch(() => {});
     }
+
     drawMap();
   });
 }

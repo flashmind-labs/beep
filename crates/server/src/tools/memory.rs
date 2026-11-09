@@ -117,12 +117,15 @@ impl ScopeNames {
 
     fn parse(&self, text: &str) -> Result<Scope> {
         let text = text.trim();
+
         if text.is_empty() || text == "user" {
             return Ok(Scope::User);
         }
+
         let Some((kind, name)) = text.split_once(':') else {
             bail!("unknown scope {text:?}. {SCOPE_HELP}");
         };
+
         match kind {
             "machine" => {
                 let wanted = machines::command_name(name);
@@ -149,6 +152,7 @@ impl ScopeNames {
             Scope::User => return None,
             Scope::Machine(key) => {
                 let key = key.to_string();
+
                 match self.0.iter().find(|node| node.endpoint == key) {
                     Some(node) => format!("machine:{}", node.name),
                     None => "machine:(unlinked)".to_owned(),
@@ -206,9 +210,11 @@ pub(super) fn fact_schema(required: &[&str], extra: Value) -> Value {
         "valid_from":{"type":"string","description":"YYYY-MM-DD the fact starts holding, for temporary facts like a trip."},
         "valid_until":{"type":"string","description":"YYYY-MM-DD of the last day the fact holds. Leave out for lasting facts."}
     });
+
     if let (Some(properties), Some(extra)) = (properties.as_object_mut(), extra.as_object()) {
         properties.extend(extra.clone());
     }
+
     json!({"type":"object","properties":properties,"required":required,"additionalProperties":false})
 }
 
@@ -252,6 +258,7 @@ impl Tool for MemoryTool {
             "id": {"type": "string", "description": "The id recall gave."},
             "scope": {"type": "string", "description": format!("{SCOPE_HELP} For recall, only memories in that scope; leave out to search them all.")}
         });
+
         if self.writer.is_some()
             && let (Some(properties), Some(fact)) = (
                 properties.as_object_mut(),
@@ -260,6 +267,7 @@ impl Tool for MemoryTool {
         {
             properties.extend(fact.clone());
         }
+
         json!({"type": "object", "properties": properties, "required": ["action"], "additionalProperties": false})
     }
     fn humanize(&self, args: &Value) -> String {
@@ -284,6 +292,7 @@ impl Tool for MemoryTool {
             }
             Err(error) => return Ok(ToolResult::failure(ctx.tool_call_id, error.to_string())),
         };
+
         match action {
             Action::Recall => self.recall(&ctx).await,
             Action::Store => self.store(&ctx, self.writer(action)?).await,
@@ -342,11 +351,13 @@ impl MemoryTool {
                 if hits.len() == limit {
                     break;
                 }
+
                 if !hits.iter().any(|h| h.id == hit.id) {
                     hits.push(hit);
                 }
             }
         }
+
         reply(
             ctx,
             hits.iter()

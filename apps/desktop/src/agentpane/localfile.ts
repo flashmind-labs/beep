@@ -29,14 +29,17 @@ function run(t: FileTarget, action: Action) {
 /// where Open With opens its list of apps.
 export async function localFileItems(t: FileTarget, at: { x: number; y: number }): Promise<MenuItem[]> {
   let file: { apps: OpenApp[] } | null = null;
+
   try {
     file = await invoke<{ apps: OpenApp[] } | null>("local_file", { ...t });
   } catch (e) {
     console.warn("local file:", e);
   }
+
   if (!file) return [];
   const { apps } = file;
   const items: MenuItem[] = [{ label: "Open", on: () => run(t, "open") }];
+
   if (apps.length) {
     items.push({
       label: "Open With",
@@ -46,6 +49,7 @@ export async function localFileItems(t: FileTarget, at: { x: number; y: number }
       },
     });
   }
+
   items.push({ label: "Reveal in Finder", on: () => run(t, "reveal") });
   return items;
 }

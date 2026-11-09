@@ -129,12 +129,14 @@ async fn pages_before_an_entry_cover_a_found_session_without_a_gap_or_a_repeat()
 
     let mut seen = Vec::new();
     let mut before = None;
+
     loop {
         let SessionsReply::Transcript { entries, earlier } =
             agents.transcript_reply(CODEX_ID, 4, true, before).await
         else {
             panic!("a transcript");
         };
+
         if let Some(end) = before {
             assert_eq!(
                 u64::from(earlier) + entries.len() as u64,
@@ -142,15 +144,19 @@ async fn pages_before_an_entry_cover_a_found_session_without_a_gap_or_a_repeat()
                 "ends at before"
             );
         }
+
         if entries.is_empty() {
             break;
         }
+
         seen.splice(0..0, entries);
         before = Some(u64::from(earlier));
+
         if earlier == 0 {
             break;
         }
     }
+
     assert_eq!(seen, all);
 }
 

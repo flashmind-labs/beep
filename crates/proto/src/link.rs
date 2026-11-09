@@ -90,9 +90,11 @@ impl LinkOffer {
         let now = unix_secs(now);
         // A minute of clock skew either way.
         let fresh = self.signed_at <= now + 60 && now <= self.signed_at + OFFER_TTL.as_secs();
+
         if !fresh {
             return Err(LinkError::Expired);
         }
+
         Ok(())
     }
 
@@ -171,6 +173,7 @@ fn check_name(name: &str) -> Result<(), LinkError> {
     if name.trim().is_empty() || name.len() > MAX_NAME {
         return Err(LinkError::BadName);
     }
+
     Ok(())
 }
 

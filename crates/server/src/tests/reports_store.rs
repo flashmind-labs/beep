@@ -41,17 +41,20 @@ async fn a_failed_r2_put_does_not_log_the_signed_url() {
         let (mut stream, _) = listener.accept().await.expect("the put connects");
         let mut read = Vec::new();
         let mut chunk = [0u8; 4096];
+
         while !read.ends_with(b"zip") {
             let n = stream.read(&mut chunk).await.expect("the put reads");
             assert!(n > 0, "the put ended early");
             read.extend_from_slice(&chunk[..n]);
         }
+
         let answer = "HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";
         stream
             .write_all(answer.as_bytes())
             .await
             .expect("the answer writes");
     });
+
     for endpoint in [format!("http://{closed}"), format!("http://{open}")] {
         let text = failed_put(&endpoint).await;
         assert!(

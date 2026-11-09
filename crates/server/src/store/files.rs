@@ -99,6 +99,7 @@ impl Store {
         staged: &mut Vec<String>,
     ) -> Result<Vec<ImageRef>> {
         let mut saved = Vec::with_capacity(pictures.len());
+
         for (position, picture) in pictures.iter().enumerate() {
             let id = Uuid::new_v4().simple().to_string();
             sqlx::query(
@@ -125,6 +126,7 @@ impl Store {
                 height: picture.height,
             });
         }
+
         Ok(saved)
     }
 
@@ -166,6 +168,7 @@ impl Store {
             staged.push(id.clone());
             self.blobs.put(&id, file.data).await?;
         }
+
         Ok(())
     }
 
@@ -180,12 +183,14 @@ impl Store {
             Ok(kept) => self.attach(of, &staged).await.map(|()| kept),
             Err(error) => Err(error),
         };
+
         if attached.is_err()
             && !staged.is_empty()
             && let Err(error) = self.drop_staged(&staged).await
         {
             log::warn!("files: unable to drop files of a failed save: {error:#}");
         }
+
         attached
     }
 
@@ -193,6 +198,7 @@ impl Store {
         if ids.is_empty() {
             return Ok(());
         }
+
         let mut tx = self.pool.begin().await?;
         sqlx::query("UPDATE files SET message_id = $1 WHERE id = ANY($2)")
             .bind(of.message)
@@ -262,6 +268,7 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         let mut sent: Vec<SentFiles> = Vec::new();
+
         for row in &rows {
             let message: i64 = row.try_get("message")?;
             let size: i64 = row.try_get("size")?;
@@ -271,6 +278,7 @@ impl Store {
                 mime: row.try_get("mime")?,
                 size: u64::try_from(size)?,
             };
+
             match sent.last_mut() {
                 Some(last) if last.message == message => last.files.push(file),
                 _ => sent.push(SentFiles {
@@ -279,6 +287,7 @@ impl Store {
                 }),
             }
         }
+
         Ok(sent)
     }
 
@@ -291,6 +300,7 @@ impl Store {
                 .await?;
             return Err(error);
         }
+
         Ok(())
     }
 
@@ -348,9 +358,11 @@ impl Store {
         .bind(FILE_KEEP.as_secs_f64())
         .fetch_one(&self.pool)
         .await?;
+
         if !readable {
             return Ok(None);
         }
+
         self.blobs.part(id, offset, len).await
     }
 }
@@ -358,6 +370,7 @@ impl Store {
 /// Rows of `message, id, mime, width, height`, sorted by message, grouped.
 fn by_message(rows: &[PgRow]) -> Result<Vec<SentImages>> {
     let mut sent: Vec<SentImages> = Vec::new();
+
     for row in rows {
         let message: i64 = row.try_get("message")?;
         let width: i32 = row.try_get("width")?;
@@ -368,6 +381,7 @@ fn by_message(rows: &[PgRow]) -> Result<Vec<SentImages>> {
             width: u32::try_from(width)?,
             height: u32::try_from(height)?,
         };
+
         match sent.last_mut() {
             Some(last) if last.message == message => last.images.push(image),
             _ => sent.push(SentImages {
@@ -376,6 +390,7 @@ fn by_message(rows: &[PgRow]) -> Result<Vec<SentImages>> {
             }),
         }
     }
+
     Ok(sent)
 }
 

@@ -39,6 +39,7 @@ impl ImageClipboard {
         if clipboard.is_none() {
             *clipboard = Some(Clipboard::new().context("open clipboard")?);
         }
+
         clipboard
             .as_mut()
             .context("clipboard unavailable")?

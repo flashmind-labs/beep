@@ -49,18 +49,22 @@ export function toggleThoughts() {
   const m = turnsOf(o.session);
   const open = allOpen(ats.map(at => m.thoughts.has(at)));
   const keep = rowInView();
+
   if (open) {
     const wanted = new Set(ats);
+
     for (const turn of splitTurns(p.entries, p.earlier)) {
       for (const section of turnSections(p.entries, turn, p.earlier)) {
         if (section.progress && section.ats.some(at => wanted.has(at))) m.opened.add(section.ats[0]);
       }
     }
   }
+
   for (const at of ats) {
     if (open) m.thoughts.add(at);
     else m.thoughts.delete(at);
   }
+
   drawAgentBody(keep);
   return true;
 }

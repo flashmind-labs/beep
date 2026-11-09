@@ -207,6 +207,7 @@ async fn a_root_may_not_have_more_than_eight_agents_across_machines() {
         mode: None,
     };
     let mut started = Vec::new();
+
     for _ in 0..MAX_CHILDREN {
         let child = rig
             .agents
@@ -215,6 +216,7 @@ async fn a_root_may_not_have_more_than_eight_agents_across_machines() {
             .expect("within the limit");
         started.push(child);
     }
+
     let refused = rig
         .agents
         .start_child(link.clone(), start("kid", "go", rig.dir.path()))
@@ -248,6 +250,7 @@ async fn a_session_may_not_have_more_than_eight_children() {
         };
         crate::lock(&rig.agents.family.remote).push(kid);
     }
+
     let refused = rig.agents.link_for(&parent, &who).unwrap_err();
     assert!(refused.contains("8 children"), "{refused}");
     // One that ended frees its place but stays there to read.
@@ -481,6 +484,7 @@ fn every_harness_is_held_to_any_mode_but_its_own_full_access() {
             Ok(None),
             "{agent}"
         );
+
         for mode in ["plan", "read-only", "default"] {
             assert_eq!(
                 held_to(&info_in(agent, Some(mode), &offers)),
@@ -505,6 +509,7 @@ fn every_harness_is_held_to_any_mode_but_its_own_full_access() {
     for agent in ["pi", "flsh", "opencode", "custom"] {
         assert_eq!(held_to(&info_in(agent, None, &[])), Ok(None), "{agent}");
     }
+
     assert_eq!(
         held_to(&info_in("custom", Some("safe"), &["safe", "free"])),
         Ok(Some("safe".to_owned()))
@@ -628,6 +633,7 @@ async fn a_start_with_no_answer_holds_its_place_until_it_expires_and_a_refusal_f
     let name = Agents::name_of(&parent);
     let who = rig.agents.who_of(&parent);
     let there = SecretKeyFor::id();
+
     for _ in 0..MAX_CHILDREN {
         rig.agents
             .adopt_remote(&parent, RemoteKid::expected(&name, there, "box"));
@@ -707,10 +713,12 @@ async fn sessions_are_listed_while_the_open_note_waits_on_the_children() {
         });
         let task = rx.recv().expect("the noting thread starts");
         let deadline = Instant::now() + Duration::from_secs(10);
+
         while !sleeps(&task) {
             assert!(Instant::now() < deadline, "the note never waited");
             std::thread::yield_now();
         }
+
         let (tx, rx) = mpsc::channel();
         scope.spawn(move || {
             // Sending fails only once the test gave up.

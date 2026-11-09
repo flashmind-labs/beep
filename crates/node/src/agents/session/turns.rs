@@ -31,9 +31,11 @@ impl Actor {
         let Some(turn) = self.turn else {
             return;
         };
+
         if self.stopping == Some(Stopping::User) {
             return;
         }
+
         self.stopping = Some(Stopping::User);
         self.show_stopping(Stopping::User);
         let within = self.stop_within;
@@ -65,6 +67,7 @@ impl Actor {
             SessionUpdate::ToolCallUpdate(update) => (&update.tool_call_id, update.fields.status),
             _ => return false,
         };
+
         match status {
             Some(ToolCallStatus::Completed | ToolCallStatus::Failed) => {
                 self.running.remove(id);
@@ -90,9 +93,11 @@ impl Actor {
         {
             return Ok(());
         }
+
         let Some(session) = self.acp_session.clone() else {
             return Ok(());
         };
+
         if self.takes_steering {
             let Some(prompt) = self.steers.pop_front() else {
                 return Ok(());
@@ -105,6 +110,7 @@ impl Actor {
             self.send(cx, request, Reply::Steered);
             return Ok(());
         }
+
         cx.send_notification(CancelNotification::new(session))?;
         self.stopping = Some(Stopping::Steer);
         self.show_stopping(Stopping::Steer);
@@ -120,6 +126,7 @@ impl Actor {
             for picture in steer.prompt.pictures() {
                 live.keep(picture);
             }
+
             live.steered(&steer.prompt.shown());
         });
     }
@@ -133,12 +140,15 @@ impl Actor {
             serde_json::from_value::<acp::SteeringOutcome>(value)
                 .map_err(|e| agent_client_protocol::Error::internal_error().data(e.to_string()))
         });
+
         if matches!(outcome, Ok(acp::SteeringOutcome::Injected)) {
             self.show_steer();
         }
+
         let Some(steer) = self.steering.take() else {
             return Ok(());
         };
+
         match outcome {
             Ok(acp::SteeringOutcome::Injected) => {}
             Ok(acp::SteeringOutcome::PromptRequired) => {
@@ -147,9 +157,11 @@ impl Actor {
                 // Wait for the owning prompt's terminal reply. Sending it
                 // again now would race the adapter's end-of-turn handling.
                 self.show_queued();
+
                 if self.turn.is_none() {
                     self.next_prompt(cx);
                 }
+
                 return Ok(());
             }
             Err(e) if steer.shown => {
@@ -166,10 +178,12 @@ impl Actor {
                 self.steers.push_front(steer.prompt);
             }
         }
+
         self.show_queued();
         if self.turn.is_none() {
             if self.waiting() == 0 {
                 let live = self.live.borrow();
+
                 if let Some(stop_reason) = live.last_stop {
                     self.alert(AlertKind::TurnEnded {
                         stop_reason,
@@ -178,10 +192,12 @@ impl Actor {
                     });
                 }
             }
+
             self.next_prompt(cx);
         } else if self.running.is_empty() {
             self.steer_now(cx)?;
         }
+
         Ok(())
     }
 
@@ -199,12 +215,14 @@ impl Actor {
             .chain(self.queued.iter())
             .map(|prompt| {
                 let mut text = prompt.text.clone();
+
                 for image in &prompt.images {
                     if !text.is_empty() {
                         text.push('\n');
                     }
                     text.push_str(&format!("[Image: {}]", image.name));
                 }
+
                 text
             })
             .collect()
@@ -244,6 +262,7 @@ impl Actor {
                 error: error.clone(),
             });
         }
+
         let mut files = None;
         let mut made = None;
         let by_user = std::mem::take(&mut self.by_user) && stop == StopReason::Cancelled;
@@ -261,12 +280,15 @@ impl Actor {
             files = live.turn_files();
             made = live.turn_made();
         });
+
         if let Some(files) = files {
             self.read_files(files);
         }
+
         if let Some(made) = made {
             self.find_made(made);
         }
+
         let live = self.live.borrow();
         self.compactor.turn_ended(TurnEnd {
             usage: live.info.context,
@@ -374,6 +396,7 @@ impl Actor {
             {
                 live.push(kind, &line);
             }
+
             let state = &mut live.info.state;
             state.status = Status::Idle;
             state.summary.clear();
@@ -399,9 +422,11 @@ impl Actor {
         if self.steering.is_some() {
             return;
         }
+
         if self.queued.is_empty() && self.steers.is_empty() {
             return;
         }
+
         if self.compactor.start(!self.asked.is_empty()) {
             self.compact(cx, &session);
             return;
@@ -410,6 +435,7 @@ impl Actor {
         let Some(prompt) = take_steers(&mut self.steers).or_else(|| self.queued.pop_front()) else {
             return;
         };
+
         if self.standing.is_some() {
             // The agent compacted on its own since the last prompt.
             let mut compacted = false;
@@ -417,10 +443,12 @@ impl Actor {
                 compacted = live.take_compacted();
                 false
             });
+
             if compacted {
                 self.restate();
             }
         }
+
         let brief = self.brief.take();
         self.send(
             cx,
@@ -435,6 +463,7 @@ impl Actor {
             for picture in prompt.pictures() {
                 live.keep(picture);
             }
+
             live.prompted(&prompt.shown());
             live.info.state.queued = queued;
             live.info.state.queued_messages = messages;
@@ -475,6 +504,7 @@ pub(super) fn turn_tokens(done: &PromptResponse) -> TurnTokens {
 /// images, as many as one prompt takes. The rest wait for the next.
 pub(super) fn take_steers(steers: &mut VecDeque<Prompt>) -> Option<Prompt> {
     let mut merged = steers.pop_front()?;
+
     while let Some(next) = steers.front() {
         let images = merged.images.len() + next.images.len();
         let bytes = merged
@@ -485,6 +515,7 @@ pub(super) fn take_steers(steers: &mut VecDeque<Prompt>) -> Option<Prompt> {
         if images > MAX_AGENT_IMAGES || bytes > MAX_AGENT_IMAGES_TOTAL {
             break;
         }
+
         let Some(next) = steers.pop_front() else {
             break;
         };
@@ -495,5 +526,6 @@ pub(super) fn take_steers(steers: &mut VecDeque<Prompt>) -> Option<Prompt> {
         }
         merged.images.extend(next.images);
     }
+
     Some(merged)
 }

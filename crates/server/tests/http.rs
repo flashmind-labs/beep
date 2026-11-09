@@ -313,6 +313,7 @@ async fn open_streams_get_heartbeats() {
     let c = h.client();
     let mut events = c.events(None).await.expect("the stream opens");
     opened(&mut events).await;
+
     for _ in 0..2 {
         h.pulse.beat();
         assert!(matches!(next(&mut events).await, AppEvent::Heartbeat {}));

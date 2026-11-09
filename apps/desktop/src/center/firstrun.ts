@@ -35,6 +35,7 @@ async function linked() {
     if (machines.length) return machines.length > 1;
     await new Promise(done => setTimeout(done, 100));
   }
+
   return false;
 }
 

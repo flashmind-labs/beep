@@ -20,6 +20,7 @@ test("reopening Actions restores the selected workflow detail subscription", asy
     return node;
   };
   const runs = makeRuns({ invoke, h, button, redraw() {}, openUrl() {}, fix() {} });
+
   try {
     runs.section({ project_id: "example", name: "example" });
     runs.show("example", 42);

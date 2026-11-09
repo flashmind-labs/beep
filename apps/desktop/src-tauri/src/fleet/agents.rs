@@ -230,6 +230,7 @@ pub(crate) async fn session(
             }
         }
     };
+
     match read {
         Ok((entries, earlier)) => {
             view.entries = machine::entries_for(entries, true);
@@ -243,9 +244,11 @@ pub(crate) async fn session(
             if !view.session.external {
                 return Err(e);
             }
+
             view.error = Some(format!("{e:#}"));
         }
     }
+
     Ok(view)
 }
 
@@ -320,9 +323,11 @@ pub(crate) async fn start(
     images: Vec<Upload>,
 ) -> Result<StartedAgent> {
     let prompt = start.prompt.trim().to_owned();
+
     if prompt.is_empty() && images.is_empty() {
         return Err(ApiError::bad_request("Say what the agent should do.").into());
     }
+
     let model = machine::picked_model(start.model.as_deref())?;
     let (host, why) = match &start.machine_id {
         Some(id) => {
@@ -379,6 +384,7 @@ async fn pick(
     prompt: &str,
 ) -> Result<(AgentHost, String)> {
     let mut asking = Vec::new();
+
     for host in hosts(fleet) {
         let machine = fleet.member(&host.machine_id).ok_or_else(not_found)?;
         asking.push(AutoHost {
@@ -386,6 +392,7 @@ async fn pick(
             host,
         });
     }
+
     let choice = machine::auto::pick(&asking, start, prompt).await?;
     let host = asking
         .into_iter()
@@ -522,6 +529,7 @@ async fn ordered(fleet: &Fleet, machine: EndpointId, steer: SteerAgentSession) -
         if e.is_transport() {
             return DesktopError::Unsure(fleet.name_of(machine));
         }
+
         let error = format!("{e:#}");
         let old = error.contains("unknown request");
         let said = if images && old {
@@ -553,6 +561,7 @@ pub(crate) async fn models(
 ) -> Result<AgentModels> {
     let client = fleet.client(machine).await?;
     let host = fleet.agent_host(machine);
+
     if !host.is_some_and(|host| host.agents.contains(&list.agent)) {
         return Err(ApiError::bad_request(format!(
             "{} does not offer {}.",
@@ -561,6 +570,7 @@ pub(crate) async fn models(
         ))
         .into());
     }
+
     let found = sessions::models(&client, &list.agent).await?;
     Ok(found.map_or(
         AgentModels {
@@ -584,6 +594,7 @@ pub(crate) async fn file(
         )
         .into());
     }
+
     let client = fleet.client(machine).await?;
     chunk(
         sessions::media(&client, &get.path, get.offset).await?,
@@ -624,6 +635,7 @@ pub(crate) async fn image(
     if image_key(&found.data) != get.key {
         return Err(not_found());
     }
+
     Ok(AgentImageData {
         key: get.key.clone(),
         mime: found.mime,
@@ -696,6 +708,7 @@ pub(crate) async fn place(
     external: bool,
 ) -> Result<Option<WorkPlace>> {
     let client = fleet.client(machine).await?;
+
     if external {
         let found = limited(sessions::external(
             &client,
@@ -706,7 +719,12 @@ pub(crate) async fn place(
         .await?;
         return Ok(found.into_iter().next().and_then(|found| found.place));
     }
-    Ok(info(&client, agent, session).await?.place)
+    // Lists may still show a session that just ended or is not named yet.
+    Ok(limited(sessions::list_all(&client))
+        .await?
+        .into_iter()
+        .find(|info| info.id == session && info.agent == agent)
+        .and_then(|info| info.place))
 }
 
 /// What a node did in a folder, or its refusal as the user reads it.

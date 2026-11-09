@@ -153,35 +153,42 @@ impl Planned {
 impl PlanTool {
     pub(super) async fn plan(&self, id: &str, args: PlanArgs) -> Result<Planned> {
         let tools = &self.tools;
+
         if args.tasks.is_empty() || args.tasks.len() > MAX_PLAN {
             return Ok(Planned::Refused(format!(
                 "A plan has 1 to {MAX_PLAN} tasks."
             )));
         }
+
         let project = tools.project().await?;
         let machines = tools.fleet.machines().await?;
         let mut checked = Vec::with_capacity(args.tasks.len());
+
         for (at, planned) in args.tasks.iter().enumerate() {
             match self.check(&project, &machines, at, planned).await? {
                 Ok(task) => checked.push(task),
                 Err(why) => return Ok(Planned::Refused(why)),
             }
         }
+
         let public_text =
             fleet::project_public_text(tools.fleet.as_ref(), &tools.user, &project, &machines)
                 .await?;
         let mut hits: Vec<String> = Vec::new();
+
         for task in &checked {
             let command = HostCommand::CreateIssue {
                 title: &task.task.title,
                 body: &task.task.body,
             };
+
             for hit in command.leaks(&public_text) {
                 if !hits.contains(&hit) {
                     hits.push(hit);
                 }
             }
         }
+
         if !hits.is_empty() {
             return Ok(Planned::Refused(leaked(&hits)));
         }
@@ -199,9 +206,11 @@ impl PlanTool {
                             |pin| fleet::name_of(&machines, pin),
                         )
                     });
+
                     if let Some(after) = &task.after {
                         let _ = write!(value, ", after {after}");
                     }
+
                     field(format!("{}. {}", at + 1, task.task.title), value)
                 })
                 .collect();
@@ -210,6 +219,7 @@ impl PlanTool {
                 fields,
             )
         };
+
         if let Some(stop) = gated(tools.gate.check(id, PLAN_SLUG, asks, plan_card)) {
             return Ok(stop);
         }
@@ -226,6 +236,7 @@ impl PlanTool {
         let mut text = String::new();
         let mut failed = Vec::new();
         let mut filed = Vec::new();
+
         if let Some(host) = &project.roles.issues {
             match fleet::home_shell(tools.fleet.as_ref(), &tools.user, &project).await {
                 Ok(home) => {
@@ -245,11 +256,14 @@ impl PlanTool {
                 }
             }
         }
+
         let slugs: Vec<String> = made.iter().map(|task| task.slug.to_string()).collect();
         let _ = write!(text, "Made {}: {}.", plural(made.len()), slugs.join(", "));
+
         if !filed.is_empty() {
             let _ = write!(text, " Issues: {}.", filed.join(", "));
         }
+
         if !failed.is_empty() {
             let _ = write!(
                 text,
@@ -257,12 +271,14 @@ impl PlanTool {
                 failed.join(", ")
             );
         }
+
         if args.start {
             text.push_str(
                 " Each is marked to start, but Beep cannot start workers yet: they wait until \
                  it can.",
             );
         }
+
         Ok(Planned::Done(text))
     }
 
@@ -276,16 +292,20 @@ impl PlanTool {
     ) -> Result<Result<Checked, String>> {
         let number = at + 1;
         let title = planned.title.trim();
+
         if title.is_empty() {
             return Ok(Err(format!("Task {number} has no title.")));
         }
+
         let mut needs = Vec::new();
+
         for need in &planned.needs {
             match Capability::from_str(need.trim()) {
                 Ok(need) => needs.push(need),
                 Err(_) => return Ok(Err(format!("Task {number} needs an unknown {need:?}."))),
             }
         }
+
         let agent = match planned.agent.as_deref().map(WorkerAgent::from_str) {
             None => None,
             Some(Ok(agent)) => Some(agent),

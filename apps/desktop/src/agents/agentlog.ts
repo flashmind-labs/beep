@@ -45,11 +45,13 @@ const IMAGE_LINE = /^\[image: (.+)\]$/;
 /// the names those lines give, in order.
 export function imageLines(text: string) {
   const kept: string[] = [], names: string[] = [];
+
   for (const line of String(text).split("\n")) {
     const m = IMAGE_LINE.exec(line.trim());
     if (m) names.push(m[1]);
     else kept.push(line);
   }
+
   return { text: kept.join("\n").replace(/\s+$/, ""), names };
 }
 
@@ -68,6 +70,7 @@ export function tailLines(output: string, keep = TAIL_LINES) {
   if (!output) return { shown: "", total: 0, cut: false };
   const lines = output.split("\n"), shown: string[] = [];
   let used = 0;
+
   for (let i = lines.length - 1; i >= 0 && used < keep; i--) {
     const line = lines[i], room = keep - used;
     if (rows(line) <= room) { shown.unshift(line); used += rows(line); continue; }
@@ -75,6 +78,7 @@ export function tailLines(output: string, keep = TAIL_LINES) {
     shown.unshift(`…${line.slice(line.length - room * WRAP_AT + 1)}`);
     used = keep;
   }
+
   const text = shown.join("\n");
   return { shown: text, total: lines.length, cut: text !== output };
 }
@@ -105,11 +109,13 @@ export function subagent(output: string): { count: number; steps: SubStep[]; res
   if (!head) return null;
   const steps: SubStep[] = [];
   let i = 1;
+
   for (; i < lines.length; i++) {
     const m = /^\[step (pending|in_progress|completed|failed)\] (.*)$/.exec(lines[i]);
     if (!m) break;
     steps.push({ status: m[1], title: m[2] });
   }
+
   const named = /^\[agent\] (.+)$/.exec(lines[i] ?? "");
   if (named) i++;
   const session = /^\[session\] (subagent:\S+)$/.exec(lines[i] ?? "");
@@ -156,16 +162,19 @@ const REPLY = /^\s*<send_user_message_question_reply>([\s\S]*)<\/send_user_messa
 export function answeredQuestions(text: string): Answered[] | null {
   const m = REPLY.exec(text);
   if (!m) return null;
+
   try {
     const items: unknown = JSON.parse(m[1]);
     if (!Array.isArray(items) || !items.length) return null;
     const out: Answered[] = [];
+
     for (const it of items) {
       if (!it || typeof it !== "object") return null;
       const { question, answer } = it as Record<string, unknown>;
       if (typeof answer !== "string") return null;
       out.push({ question: typeof question === "string" ? question : "", answer });
     }
+
     return out;
   } catch {
     return null;
@@ -196,14 +205,17 @@ export function linkImagePaths(html: string) {
       else if (/^<\/(a|pre)>/i.test(part)) skip = Math.max(0, skip - 1);
       return part;
     }
+
     if (skip) return part;
     return part.replace(MEDIA_PATH, (_, lead: string, path: string) => {
       let img = "";
+
       if (PICTURE.test(path)) {
         let i = paths.indexOf(path);
         if (i < 0) { i = paths.length; paths.push(path); }
         img = ` data-img="${i}"`;
       }
+
       return `${lead}<a class="imgl"${img} data-path="${attr(path)}" title="${attr(path)}">${path}</a>`;
     });
   });

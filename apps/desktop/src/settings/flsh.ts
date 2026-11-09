@@ -29,6 +29,7 @@ export function flshPanel(deps: FlshDeps) {
 
   async function load() {
     asked = true;
+
     try {
       saved = (await invoke<FlshSettings | null>("flsh_settings_get")) ?? false;
       error = "";
@@ -36,6 +37,7 @@ export function flshPanel(deps: FlshDeps) {
       saved = EMPTY;
       error = fail(e);
     }
+
     draft = null;
     redraw();
   }
@@ -44,6 +46,7 @@ export function flshPanel(deps: FlshDeps) {
     if (!draft || saving) return;
     saving = true;
     redraw();
+
     try {
       await invoke("flsh_settings_save", { settings: flshInput(draft) });
       await load();
@@ -52,6 +55,7 @@ export function flshPanel(deps: FlshDeps) {
     } finally {
       saving = false;
     }
+
     redraw();
   }
 
@@ -64,9 +68,11 @@ export function flshPanel(deps: FlshDeps) {
     const row = h("span", cls);
     row.setAttribute("role", "group");
     row.setAttribute("aria-label", label);
+
     for (const [text, v] of opts) {
       row.append(press(button(text, "dchip", () => on(v)), pressed(v)));
     }
+
     return row;
   }
 

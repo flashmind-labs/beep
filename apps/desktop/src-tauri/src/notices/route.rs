@@ -34,6 +34,7 @@ pub(crate) async fn serve(
     mut direct: mpsc::Receiver<Direct>,
 ) {
     let mut heard = Heard::default();
+
     loop {
         let (notice, via) = select! {
             Some(notice) = notices.recv() => (notice, Via::Server),
@@ -72,15 +73,18 @@ pub(crate) async fn serve(
         if matches!(via, Via::Server) && beep.signed_out() {
             continue;
         }
+
         if matches!(via, Via::Server) && beep.link_state() == LinkState::Unlinked {
             beep.set_link_state(LinkState::Linked);
             tray::became_linked(&app);
         }
+
         if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>()
             && !heard.first(&key, via, Instant::now())
         {
             continue;
         }
+
         route(&app, &beep, &voice, notice);
     }
 }
@@ -101,20 +105,24 @@ fn route(app: &AppHandle, beep: &Arc<Beep>, voice: &Arc<Voice>, notice: Notice) 
         voice.withdrawn(query_id);
         return;
     }
+
     if notice.group {
         group_notice(app, beep, notice);
         return;
     }
+
     if notice.changed {
         // The assistant started or ended an alert if the session is empty.
         if notice.session_id.is_empty() {
             let app = app.clone();
             tauri::async_runtime::spawn(async move { alerts::refresh(&app).await });
         }
+
         let _ = app.emit("sessions-changed", notice.session_id);
         tauri::async_runtime::spawn(tray::refresh_recent(app.clone()));
         return;
     }
+
     if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>() {
         agent_notice(app, beep, &key, &notice);
         return;
@@ -138,6 +146,7 @@ fn route(app: &AppHandle, beep: &Arc<Beep>, voice: &Arc<Voice>, notice: Notice) 
         ));
         return;
     }
+
     chat_notice(app, beep, voice, notice, false);
 }
 
@@ -162,6 +171,7 @@ pub(super) fn chat_notice(
     let Some(notice) = voice.approval_notice(notice) else {
         return;
     };
+
     match voice.wants(&notice) {
         NoticeVoice::Aloud => {
             tauri::async_runtime::spawn(voice.clone().speak_notice(notice));
@@ -177,6 +187,7 @@ pub(super) fn chat_notice(
 fn group_notice(app: &AppHandle, beep: &Beep, notice: Notice) {
     let id = notice.session_id.clone();
     let _ = app.emit("group-changed", &id);
+
     if let Some(pending) = &notice.approval {
         let _ = app.emit(
             "group-approval",
@@ -195,15 +206,18 @@ fn group_notice(app: &AppHandle, beep: &Beep, notice: Notice) {
             },
         );
     }
+
     if notice.changed || notice.title.is_empty() {
         return;
     }
     // An approval still notifies: the bar may be on another chat by then.
     let showing = focused_center(app);
+
     if center::on_screen(&seen(app, beep.group(), showing.group), &id) && notice.approval.is_none()
     {
         return;
     }
+
     notify::notice(app, &notice);
 }
 
@@ -217,13 +231,16 @@ fn agent_notice(app: &AppHandle, beep: &Beep, key: &AgentNoticeKey, notice: &Not
     if bar::is_open(app) {
         on_screen.push(bar::LABEL);
     }
+
     let shown = app
         .state::<center::AgentsShown>()
         .shows(&on_screen, key, Instant::now());
     history::agent_notice(app, key, notice, shown);
+
     if !beep.agent_notices() || shown {
         return;
     }
+
     notify::notice(app, notice);
 }
 

@@ -106,12 +106,14 @@ impl Images {
             session: session.to_owned(),
             picture,
         });
+
         while outbox.waiting.len() > MAX_UNSENT || outbox.bytes > MAX_UNSENT_BYTES {
             let Some(dropped) = outbox.waiting.pop_front() else {
                 break;
             };
             outbox.bytes -= dropped.picture.data.len();
         }
+
         drop(outbox);
         self.arrived.notify_one();
     }
@@ -128,9 +130,11 @@ impl Images {
                 }
                 next
             };
+
             if let Some(next) = next {
                 return next;
             }
+
             arrived.await;
         }
     }
@@ -140,6 +144,7 @@ impl Images {
         if picture.data.len() > SESSION_BYTES {
             return None;
         }
+
         let key = image_key(&picture.data);
         let picture = Arc::new(picture);
         let mut kept = lock(&self.kept);
@@ -150,13 +155,17 @@ impl Images {
             key,
             picture: picture.clone(),
         });
+
         loop {
             let (count, bytes) = kept.of(session);
+
             if count <= SESSION_IMAGES && bytes <= SESSION_BYTES {
                 break;
             }
+
             kept.drop_oldest(Some(session));
         }
+
         while kept.held.len() > MAX_IMAGES || kept.bytes > MAX_BYTES {
             kept.drop_oldest(None);
         }
@@ -225,6 +234,7 @@ pub(crate) fn picture_of(mime: &str, data: &str) -> Option<Picture> {
     if !mime.starts_with("image/") {
         return None;
     }
+
     let data = STANDARD.decode(data.trim()).ok()?;
     Some(Picture {
         mime: mime.to_owned(),
@@ -239,6 +249,7 @@ pub(crate) fn block_picture(block: &Value) -> Option<Picture> {
     if block["type"] != "image" {
         return None;
     }
+
     let source = &block["source"];
     let (mime, data) = match source["data"].as_str() {
         Some(data) => (source["media_type"].as_str()?, data),
@@ -265,6 +276,7 @@ pub(super) fn find_in(value: &Value, key: &str) -> Option<Picture> {
             ControlFlow::Continue(())
         }
     });
+
     match found {
         ControlFlow::Break(picture) => Some(picture),
         ControlFlow::Continue(()) => None,
@@ -282,6 +294,7 @@ pub(super) fn each_picture<B>(
             if let Some(picture) = block_picture(value) {
                 each(picture)?;
             }
+
             fields
                 .values()
                 .try_for_each(|field| each_picture(field, each))

@@ -122,10 +122,12 @@ impl Store {
         } else {
             None
         };
+
         if let Some(refused) = refused {
             tx.rollback().await?;
             return Ok(refused);
         }
+
         let user: String = row.try_get("user_id")?;
         let token_name: Option<String> = row.try_get("name")?;
         let name = claim
@@ -164,6 +166,7 @@ impl Store {
                 return Ok(Claim::OtherAccount);
             }
         }
+
         sqlx::query("UPDATE node_tokens SET used_at=now(), endpoint_id=$2 WHERE hash=$1")
             .bind(claim.hash)
             .bind(&endpoint)

@@ -11,6 +11,7 @@ const session = { ...data.center_home.running[0], status: "idle", question: null
 const dist = fileURLToPath(new URL("../../dist/", import.meta.url));
 const origin = "https://app.test";
 const browser = await playwright().chromium.launch({ executablePath: process.env.CHROMIUM_BIN });
+
 try {
   for (const windows of [false, true]) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, userAgent: windows ? "Windows" : "Macintosh" });
@@ -18,6 +19,7 @@ try {
     // Intercept local assets so this test needs no listening server.
     await page.route(`${origin}/**`, async route => {
       const path = new URL(route.request().url()).pathname;
+
       try { await route.fulfill({ path: join(dist, path) }); }
       catch { await route.fulfill({ status: 404, body: "Missing test asset" }); }
     });
@@ -31,11 +33,13 @@ try {
       window.__history = [];
       window.__TAURI__.core.invoke = async (cmd, args = {}) => {
         if (cmd === "mesh_watch") return new Promise(() => {});
+
         if (cmd === "agent_view") {
           const end = args.before ?? entries.length, start = Math.max(0, end - (args.last ?? 200));
           window.__history.push({ start, end });
           return { session, entries: entries.slice(start, end), earlier: start, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 160 };
         }
+
         if (cmd === "agent_sessions") return [session];
         if (cmd === "agent_tree") return { folders: [], truncated: false };
         if (cmd === "agent_tasks" || cmd === "editors" || cmd === "project_machines") return [];

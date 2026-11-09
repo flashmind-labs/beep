@@ -122,6 +122,7 @@ function menu(s: AgentRow) {
 async function start(s: AgentRow, to: MoveTarget, stop: boolean) {
   UI.open = false;
   UI.error = "";
+
   try {
     const project = windowHooks?.sessionProject?.(s)?.name ?? "";
     const tree = placeOf(s);
@@ -135,6 +136,7 @@ async function start(s: AgentRow, to: MoveTarget, stop: boolean) {
   } catch (e) {
     UI.error = String(e);
   }
+
   moved();
   drawMove();
 }
@@ -156,10 +158,12 @@ function drawBox(s: AgentRow) {
     if (act === "cancel") void cancel(s);
     if (act === "stop" && r) void start(s, UI.targets.find(t => t.id === r.to) ?? { id: r.to, name: nameOf(r.to), online: true, harnesses: [], checkout: true }, true);
   };
+
   if (UI.error) {
     box.innerHTML = `<div class="mvs" role="alert"><div class="h"><span class="t">${esc(UI.error)}</span></div></div>`;
     return;
   }
+
   if (!r || r.from !== s.machine_id || !p || !going(p)) {
     // The session stayed where it was; the record stays to say why until it is dismissed.
     box.innerHTML = p?.answer === "known" && p.phase === "failed" && r?.from === s.machine_id
@@ -167,8 +171,10 @@ function drawBox(s: AgentRow) {
       : "";
     return;
   }
+
   const to = nameOf(r.to);
   const turn = p.phase === "waiting" && !p.source_away && (s.status === "working" || s.status === "asking");
+
   if (turn) {
     box.innerHTML = `<div class="mvs bar" role="status"><span>Moving to ${esc(to)} after this turn</span><span class="sp"></span><button class="dbtn small" data-mvact="stop">Stop and move</button><button class="dbtn quiet small" data-mvact="cancel">Cancel</button></div>`;
   } else {

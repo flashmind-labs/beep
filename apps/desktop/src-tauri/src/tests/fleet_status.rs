@@ -44,9 +44,11 @@ async fn settled(status: &Status, ok: impl Fn(&Status) -> bool) {
     timeout(LIMIT, async {
         loop {
             changes.borrow_and_update();
+
             if ok(status) {
                 return;
             }
+
             changes.changed().await.expect("the status is alive");
         }
     })
@@ -57,6 +59,7 @@ async fn settled(status: &Status, ok: impl Fn(&Status) -> bool) {
 #[tokio::test]
 async fn ended_follows_leave_the_set() {
     let mut follows = JoinSet::new();
+
     for _ in 0..8 {
         follows.spawn(async {});
     }
@@ -65,6 +68,7 @@ async fn ended_follows_leave_the_set() {
         tokio::task::yield_now().await;
         reap(&mut follows);
     }
+
     assert_eq!(follows.len(), 0);
     follows.spawn(std::future::pending());
     reap(&mut follows);

@@ -55,15 +55,19 @@ impl fmt::Display for TurnState<'_> {
         // What is already remembered comes first, so a fact that is already
         // known does not score high.
         writeln!(f, "Already remembered:")?;
+
         if self.known.is_empty() {
             writeln!(f, "(nothing related)")?;
         }
+
         for hit in self.known {
             writeln!(f, "- {}", hit.content)?;
         }
+
         if let Some(earlier) = self.exchange.earlier.last() {
             write!(f, "\nEarlier turn:\n{earlier}\n")?;
         }
+
         writeln!(f)?;
         self.follow_up.write_results(f)?;
         write!(f, "Latest turn:\n{}", self.exchange.latest)
@@ -98,6 +102,7 @@ impl App {
         if state.kind == followups::Kind::FollowUps {
             questions.push((FOLLOW_UP, followups::QUESTION, &followups::CRITERIA));
         }
+
         let answers = match decision.probabilities(&state.to_string(), &questions).await {
             Ok(answers) => answers,
             Err(error) => {
@@ -106,6 +111,7 @@ impl App {
             }
         };
         let follow_up = answers.get(FOLLOW_UP).copied();
+
         if let Some(probability) = follow_up {
             log::info!("follow-up score {probability:.2}");
         }
@@ -135,6 +141,7 @@ pub(super) fn add_server_calls(
     if calls.is_empty() {
         return;
     }
+
     let calls: Vec<(ToolCall, ServerCall)> = calls
         .into_iter()
         .map(|call| {
@@ -154,6 +161,7 @@ pub(super) fn add_server_calls(
             .collect(),
         None,
     ));
+
     for (tool_call, call) in calls {
         live.push(RunEvent::ToolStarted {
             name: call.name.clone(),
@@ -174,6 +182,7 @@ pub(super) fn add_server_calls(
 pub(super) fn drop_follow_ups(conversation: &mut Conversation) {
     let mut dropped = HashSet::new();
     let entries = conversation.entries_mut();
+
     for entry in entries.iter_mut() {
         if let EntryKind::Assistant {
             tool_calls: Some(calls),
@@ -189,9 +198,11 @@ pub(super) fn drop_follow_ups(conversation: &mut Conversation) {
             });
         }
     }
+
     if dropped.is_empty() {
         return;
     }
+
     entries.retain(|entry| match &entry.kind {
         EntryKind::Tool { call_id, .. } => !dropped.contains(call_id),
         EntryKind::Assistant {
@@ -205,6 +216,7 @@ pub(super) fn drop_follow_ups(conversation: &mut Conversation) {
         }
         _ => true,
     });
+
     for entry in entries.iter_mut() {
         if let EntryKind::Assistant { tool_calls, .. } = &mut entry.kind
             && tool_calls.as_ref().is_some_and(Vec::is_empty)
@@ -221,6 +233,7 @@ pub(super) fn drop_text_since(conversation: &mut Conversation, since: DateTime<U
         if entry.timestamp < since {
             return true;
         }
+
         let EntryKind::Assistant {
             content,
             tool_calls,
@@ -237,10 +250,12 @@ pub(super) fn drop_text_since(conversation: &mut Conversation, since: DateTime<U
 /// The last few turns before `turn_started`, oldest first, for the memory extractor.
 pub(super) fn earlier_turns(conversation: &Conversation, turn_started: DateTime<Utc>) -> Vec<Turn> {
     let mut turns: Vec<Turn> = Vec::new();
+
     for entry in conversation.entries() {
         if entry.timestamp >= turn_started {
             break;
         }
+
         if entry.is_user() {
             turns.push(Turn {
                 message: entry.content().to_owned(),
@@ -257,6 +272,7 @@ pub(super) fn earlier_turns(conversation: &Conversation, turn_started: DateTime<
             turn.reply.push_str(entry.content());
         }
     }
+
     let skip = turns.len().saturating_sub(memories::LEARN_CONTEXT_TURNS);
     turns.split_off(skip)
 }

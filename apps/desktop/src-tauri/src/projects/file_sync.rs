@@ -114,9 +114,11 @@ impl SyncRow {
 /// The status a machine's row shows: a failure says which, when the node said why.
 fn shown(status: SyncStatus, error: Option<&str>) -> &'static str {
     let failed: &'static str = status.into();
+
     if failed != "failed" {
         return failed;
     }
+
     match error {
         Some(why) if why.contains(PARENT_MISSING) => "parent_missing",
         Some(why) if why.contains(FOLDER_MISSING) => "missing",
@@ -156,6 +158,7 @@ pub async fn project_sync(
                     Err(e) => log::info!("the server's sync did not read: {e}"),
                 }
             }
+
             Ok(rows(ours))
         }
         Err(e) => Err(e),
@@ -266,14 +269,17 @@ pub async fn project_sync_detail(
     let Some(desk) = desk_or_server(&fleet, &beep).await? else {
         return Ok(known(beep.call(GetProjectSyncDetail { project }).await)?.map(Into::into));
     };
+
     match desk.sync_detail(&project).await {
         Ok(detail) => {
             let mut view: SyncDetailView = detail.into();
+
             if let Ok(settings) = desk.project_ignored_sync(&project, None).await
                 && settings.enabled
             {
                 view.ignored_folders = settings.folders;
             }
+
             Ok(Some(view))
         }
         // Synced by the server alone, until the project is moved into the mesh.
@@ -303,6 +309,7 @@ pub async fn project_sync_pause(
         let detail = beep.call(PauseProjectSync { project, paused }).await?;
         return Ok(detail.into());
     };
+
     match desk.pause_sync(&project, paused).await {
         Ok(detail) => Ok(detail.into()),
         Err(beep_fleet::FleetError::NotFound) if beep.has_server() => {

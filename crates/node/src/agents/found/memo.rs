@@ -96,9 +96,11 @@ impl<V: Clone> Memo<V> {
         let Some((key, Some(_))) = files.first().zip(stamps.first()) else {
             return read();
         };
+
         if let Some(value) = self.kept_value(key, &stamps) {
             return Ok(value);
         }
+
         let value = read()?;
         self.keep(key.to_path_buf(), stamps, value.clone());
         Ok(value)
@@ -109,9 +111,11 @@ impl<V: Clone> Memo<V> {
         kept.clock += 1;
         let now = kept.clock;
         let entry = kept.entries.get_mut(key)?;
+
         if entry.stamps != stamps {
             return None;
         }
+
         entry.used = now;
         Some(entry.value.clone())
     }
@@ -127,6 +131,7 @@ impl<V: Clone> Memo<V> {
                 used,
             },
         );
+
         if kept.entries.len() > self.cap {
             let mut ages: Vec<u64> = kept.entries.values().map(|entry| entry.used).collect();
             let middle = ages.len() / 2;

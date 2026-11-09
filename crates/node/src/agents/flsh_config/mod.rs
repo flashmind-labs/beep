@@ -64,14 +64,17 @@ pub(super) fn apply(dir: &Path, settings: &FlshSettings) -> Result<()> {
     let before = read_owned(&owned_path);
     let owned = edit(&mut doc, settings, &before)?;
     let edited = doc.to_string();
+
     if edited != text {
         fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
         write_atomic(&path, edited.as_bytes())?;
         log::info!("flsh settings written; path={}", path.display());
     }
+
     if owned != before {
         write_atomic(&owned_path, &serde_json::to_vec(&owned)?)?;
     }
+
     Ok(())
 }
 
@@ -98,8 +101,10 @@ fn edit(doc: &mut DocumentMut, settings: &FlshSettings, before: &Owned) -> Resul
             settings.allow_fallbacks.map(value),
         ),
     ];
+
     for (key, item) in routing {
         let name = key.as_ref();
+
         match item {
             Some(item) => {
                 let openrouter = table(root, "openrouter")?;
@@ -144,7 +149,9 @@ fn edit(doc: &mut DocumentMut, settings: &FlshSettings, before: &Owned) -> Resul
         set_rule(table(models, &key)?, &rule.autocompact, "enabled", "enable");
         owned.models.insert(key);
     }
+
     let dropped: Vec<&String> = before.models.difference(&owned.models).collect();
+
     if !dropped.is_empty()
         && let Some(models) = existing(root, &["auto_compact_models"])
     {
@@ -152,6 +159,7 @@ fn edit(doc: &mut DocumentMut, settings: &FlshSettings, before: &Owned) -> Resul
             models.remove(key);
         }
     }
+
     Ok(owned)
 }
 
@@ -160,6 +168,7 @@ fn edit(doc: &mut DocumentMut, settings: &FlshSettings, before: &Owned) -> Resul
 fn set_rule(table: &mut dyn TableLike, rule: &FlshAutoCompact, name: &str, alias: &str) {
     table.remove(alias);
     table.insert(name, value(rule.enabled));
+
     match rule.tokens {
         Some(tokens) => {
             table.insert("tokens", value(i64::from(tokens)));
@@ -184,6 +193,7 @@ fn table<'a>(parent: &'a mut dyn TableLike, key: &str) -> Result<&'a mut dyn Tab
         table.set_implicit(true);
         parent.insert(key, Item::Table(table));
     }
+
     match parent.get_mut(key).and_then(Item::as_table_like_mut) {
         Some(table) => Ok(table),
         None => bail!("`{key}` in flsh's config is not a table"),
@@ -193,9 +203,11 @@ fn table<'a>(parent: &'a mut dyn TableLike, key: &str) -> Result<&'a mut dyn Tab
 /// The table at `path` under `root`, when there is one.
 fn existing<'a>(root: &'a mut dyn TableLike, path: &[&str]) -> Option<&'a mut dyn TableLike> {
     let mut at = root;
+
     for key in path {
         at = at.get_mut(key)?.as_table_like_mut()?;
     }
+
     Some(at)
 }
 
@@ -213,6 +225,7 @@ fn read_capped(path: &Path) -> Result<String> {
     if u64::try_from(text.len()).unwrap_or(u64::MAX) > MAX_CONFIG {
         bail!("{} is larger than {MAX_CONFIG} bytes", path.display());
     }
+
     Ok(text)
 }
 
@@ -245,15 +258,18 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let temp = dir.join(format!(".{name}.beep-{}.tmp", std::process::id()));
     let written = (|| -> io::Result<()> {
         let mut file = fs::File::create(&temp)?;
+
         match fs::metadata(path) {
             Ok(meta) => file.set_permissions(meta.permissions())?,
             Err(e) if e.kind() == io::ErrorKind::NotFound => private(&file)?,
             Err(e) => return Err(e),
         }
+
         file.write_all(bytes)?;
         file.sync_all()?;
         fs::rename(&temp, path)
     })();
+
     if let Err(e) = written {
         // The temporary file is ours; a failed removal leaves only it.
         if let Err(removed) = fs::remove_file(&temp)
@@ -264,8 +280,10 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
                 temp.display()
             );
         }
+
         return Err(e).with_context(|| format!("writing {}", path.display()));
     }
+
     Ok(())
 }
 

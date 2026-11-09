@@ -26,6 +26,7 @@ impl IgnoredRoot {
         if !name.starts_with(IGNORED_PREFIX) {
             return Ok(None);
         }
+
         let (_, path) = ignored_folder(name).context("Invalid ignored-folder dataset.")?;
         let relative = PathBuf::from(path);
         ensure!(
@@ -59,8 +60,10 @@ impl IgnoredRoot {
             "Ignored-folder sync requires the main Git checkout."
         );
         let mut at = self.repository.clone();
+
         for part in self.relative.components() {
             at.push(part);
+
             if let Ok(meta) = fs::symlink_metadata(&at) {
                 ensure!(
                     meta.is_dir() && !meta.file_type().is_symlink(),
@@ -72,6 +75,7 @@ impl IgnoredRoot {
                 );
             }
         }
+
         let repo = Repo::open(&self.repository).context("The Git checkout is unavailable.")?;
         let path = self.relative.to_string_lossy().replace('\\', "/");
         let directory = if self.repository.join(&self.relative).is_dir() {
@@ -93,6 +97,7 @@ impl IgnoredRoot {
             index.stdout.is_empty(),
             "{path} contains tracked or staged files; ignored-folder sync is waiting."
         );
+
         if repo.head().is_some() {
             let head = repo.run(&["ls-tree", "-r", "--name-only", "HEAD", "--", &literal])?;
             ensure!(
@@ -100,6 +105,7 @@ impl IgnoredRoot {
                 "{path} contains committed files; ignored-folder sync is waiting."
             );
         }
+
         ensure!(
             !Rules::load(&self.repository)?.skips_any(&self.relative, true),
             "{path} is excluded by Beep's sync rules."
@@ -137,13 +143,16 @@ impl IgnoredRoot {
         if self.repository.join(".git/beep-recovery").is_dir() {
             dirs.push(self.repository.join(".git/beep-recovery"));
         }
+
         let mut prefix = self.repository.clone();
+
         for component in self.relative.components() {
             prefix.push(component);
             if prefix.is_dir() {
                 dirs.push(prefix.clone());
             }
         }
+
         dirs
     }
 }

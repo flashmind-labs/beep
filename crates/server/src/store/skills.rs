@@ -154,6 +154,7 @@ async fn patch(
     if patch.changes_text() {
         save_version(tx, id).await?;
     }
+
     let done = sqlx::query(
         "UPDATE skills SET
             name = COALESCE($2, name),
@@ -173,9 +174,11 @@ async fn patch(
     .bind(edited)
     .execute(&mut *tx)
     .await?;
+
     if done.rows_affected() == 0 {
         return Ok(None);
     }
+
     skill_by_id(tx, id).await
 }
 
@@ -225,9 +228,11 @@ impl Store {
         .bind(owner.group_id())
         .fetch_one(&mut *tx)
         .await?;
+
         if count >= SKILL_LIMIT {
             return Ok(None);
         }
+
         let id = Uuid::new_v4();
         let added = sqlx::query(
             "INSERT INTO skills (id, user_id, group_id, name, description, body)
@@ -262,9 +267,11 @@ impl Store {
         .bind(owner.group_id())
         .fetch_one(&mut *tx)
         .await?;
+
         if !owned {
             return Ok(None);
         }
+
         let changed = patch(&mut tx, id, change, false).await?;
         tx.commit().await?;
         Ok(changed)
@@ -285,9 +292,11 @@ impl Store {
         .bind(id)
         .fetch_one(&mut *tx)
         .await?;
+
         if !visible {
             return Ok(None);
         }
+
         let changed = patch(&mut tx, id, change, true).await?;
         tx.commit().await?;
         Ok(changed)
@@ -320,9 +329,11 @@ impl Store {
         .bind(id)
         .execute(&mut *tx)
         .await?;
+
         if restored.rows_affected() == 0 {
             return Ok(None);
         }
+
         let skill = skill_by_id(&mut tx, id).await?;
         tx.commit().await?;
         Ok(skill)

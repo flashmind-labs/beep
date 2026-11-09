@@ -19,6 +19,7 @@ export async function serve(dist) {
   const server = createServer(async (req, res) => {
     const path = normalize(join(root, decodeURIComponent(new URL(req.url, "http://x").pathname)));
     if (!path.startsWith(root)) { res.writeHead(403).end(); return; }
+
     try {
       const body = await readFile(path);
       res.writeHead(200, { "content-type": TYPES[extname(path)] || "application/octet-stream" }).end(body);

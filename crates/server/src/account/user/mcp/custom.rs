@@ -31,11 +31,13 @@ impl User {
     /// Adds a server by URL and connects it, or starts its sign-in.
     pub async fn add_custom_mcp(&self, label: &str, url: &str) -> Result<McpConnect, ApiError> {
         let label = label.trim();
+
         if label.is_empty() || label.chars().count() > MAX_LABEL || url.len() > MAX_URL {
             return Err(ApiError::bad_request(
                 "Give the server a short name and its URL.",
             ));
         }
+
         let name = server_name(label)
             .ok_or_else(|| ApiError::bad_request("The name needs at least one letter or digit."))?;
         let url = check_url(url)
@@ -50,11 +52,13 @@ impl User {
                 "You already have a server called {label}."
             )));
         }
+
         if rows.iter().filter(|row| row.custom.is_some()).count() >= MAX_SERVERS {
             return Err(ApiError::bad_request(format!(
                 "You can add up to {MAX_SERVERS} servers."
             )));
         }
+
         let custom = CustomMcp {
             url: url.to_string(),
             label: label.to_owned(),
@@ -69,11 +73,14 @@ impl User {
         if !added {
             return Err(ApiError::bad_request("That name is taken."));
         }
+
         let connect = self.connect_custom(&name, custom).await;
+
         if connect.is_err() {
             // Nothing was saved worth keeping: the user fixes the URL and adds again.
             let _ = self.delete_mcp_server(&name).await;
         }
+
         connect
     }
 
@@ -81,11 +88,13 @@ impl User {
     pub async fn reconnect_custom_mcp(&self, id: &str) -> Result<McpConnect, ApiError> {
         let row = self.custom_row(id).await?;
         let custom = row.custom.clone().ok_or(ApiError::NotFound {})?;
+
         if let Some(registry) = self.custom_mcp.get() {
             // Drops the old connection, so the next one starts from the saved login.
             let _ = registry.remove(id).await;
             registry.drain_pending_ops();
         }
+
         self.connect_custom(id, custom).await
     }
 
@@ -120,6 +129,7 @@ impl User {
             .complete_auth(&flow.server, code, state, issuer)
             .await;
         registry.drain_pending_ops();
+
         if let Err(error) = result {
             permit.finish(custom_mcp::outcome_of(&error));
             log::warn!(
@@ -131,6 +141,7 @@ impl User {
                 custom.label
             )));
         }
+
         permit.finish(Outcome::Ok);
         let row = self.custom_row(&flow.server).await?;
         server_info(&row).ok_or(ApiError::NotFound {})
@@ -139,10 +150,12 @@ impl User {
     /// Removes an added server and its login.
     pub async fn remove_custom_mcp(&self, id: &str) -> Result<(), ApiError> {
         self.custom_row(id).await?;
+
         if let Some(registry) = self.custom_mcp.get() {
             let _ = registry.remove(id).await;
             registry.drain_pending_ops();
         }
+
         if let Ok(mut flows) = self.mcp_flows.lock() {
             flows.retain(|_, flow| flow.server != id);
         }
@@ -165,9 +178,11 @@ impl User {
         let row = self.custom_row(id).await?;
         let custom = row.custom.as_ref().ok_or(ApiError::NotFound {})?;
         let defs = config_of(&row, custom).cached_tools;
+
         if on && !defs.iter().any(|def| def.name == tool) {
             return Err(ApiError::NotFound {});
         }
+
         let picks = choose(id, &defs, custom.tools.as_deref(), tool, on);
         self.store
             .set_mcp_tools(&self.key, id, &picks)
@@ -180,6 +195,7 @@ impl User {
         if !is_custom(id) {
             return Err(ApiError::NotFound {});
         }
+
         self.mcp_servers()
             .await
             .map_err(internal("list MCP servers"))?
@@ -207,6 +223,7 @@ impl User {
         if !custom.sign_in || row.credentials.is_some() {
             let connected = registry.connect(config.clone()).await;
             registry.drain_pending_ops();
+
             match connected {
                 Ok(tools) => {
                     permit.finish(Outcome::Ok);
@@ -231,6 +248,7 @@ impl User {
         if row.credentials.is_some() {
             let _ = self.save_mcp_credentials(name, Value::Null).await;
         }
+
         let started = registry.start_auth(name, &mcp_callback_url()).await;
         let auth_url = match started {
             Ok(url) => url,
@@ -260,6 +278,7 @@ impl User {
                 },
             );
         }
+
         Ok(McpConnect {
             server: info(name, &custom, false, Vec::new()),
             auth_url: Some(auth_url),
@@ -271,13 +290,16 @@ impl User {
         let Ok(row) = self.custom_row(name).await else {
             return;
         };
+
         if row.credentials.is_none() {
             return;
         }
+
         if let Err(error) = self.save_mcp_credentials(name, Value::Null).await {
             log::warn!("mcp: unable to clear a lost login; server={name} error={error:#}");
             return;
         }
+
         let label = row.custom.map(|custom| custom.label).unwrap_or_default();
         log::warn!("mcp: {name} rejected the saved login, asking to reconnect; user={self}");
         let notice = UserNotice {

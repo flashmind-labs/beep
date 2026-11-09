@@ -69,12 +69,15 @@ pub mod fake {
                 let (said, heard) = mpsc::channel(HEARD_QUEUE);
                 tokio::spawn(async move {
                     let mut all = Vec::new();
+
                     while let Some(chunk) = chunks.recv().await {
                         if chunk.is_empty() {
                             continue;
                         }
+
                         let word = if all.is_empty() { "word" } else { " word" };
                         all.push("word");
+
                         if said.send(Ok(Heard::Delta(word.into()))).await.is_err() {
                             return;
                         }

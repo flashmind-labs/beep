@@ -159,8 +159,10 @@ function parse(html: string): FakeNode[] {
   const top = new FakeElement("#fragment");
   let cur = top;
   const re = /<!--[\s\S]*?-->|<\/([\w-]+)\s*>|<([\w-]+)((?:\s+[^\s=>/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)>|([^<]+|<)/g;
+
   for (const m of html.matchAll(re)) {
     const [, close, open, attrs, self, text] = m;
+
     if (text !== undefined) cur.append(new FakeText(decode(text)));
     else if (close) {
       for (let x: FakeElement | null = cur; x && x !== top; x = x.parentNode) {
@@ -168,13 +170,16 @@ function parse(html: string): FakeNode[] {
       }
     } else if (open) {
       const el = new FakeElement(open.toLowerCase());
+
       for (const a of (attrs ?? "").matchAll(/([^\s=>/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)) {
         el.attrs.set(a[1].toLowerCase(), decode(a[2] ?? a[3] ?? a[4] ?? ""));
       }
+
       cur.append(el);
       if (!self && !VOID.has(el.tagName)) cur = el;
     }
   }
+
   const nodes = [...top.childNodes];
   for (const n of nodes) n.parentNode = null;
   return nodes;
@@ -190,10 +195,12 @@ function matchChain(el: FakeElement, parts: string[], scope: FakeElement | null)
   if (!matchCompound(el, last, scope)) return false;
   if (parts.length === 1) return true;
   const rest = parts.slice(0, -1);
+
   if (rest.at(-1) === ">") {
     const p = el.parentElement;
     return !!p && matchChain(p, rest.slice(0, -1), scope);
   }
+
   for (let p = el.parentElement; p; p = p.parentElement) if (matchChain(p, rest, scope)) return true;
   return false;
 }
@@ -209,6 +216,7 @@ function matchCompound(el: FakeElement, sel: string, scope: FakeElement | null):
       if (!el.hasAttribute(m[1]) || (m[2] !== undefined && el.getAttribute(m[1]) !== m[2])) return false;
     } else if (el.tagName !== tok.toLowerCase()) return false;
   }
+
   return true;
 }
 

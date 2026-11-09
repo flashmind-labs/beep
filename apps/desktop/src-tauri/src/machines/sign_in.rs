@@ -40,6 +40,7 @@ impl From<State> for SignInView {
             asks_code: false,
             reason: None,
         };
+
         match state {
             State::Starting {} => view.state = "starting",
             State::Waiting {
@@ -60,6 +61,7 @@ impl From<State> for SignInView {
             // `Idle`, and whatever a newer node says.
             _ => {}
         }
+
         view
     }
 }

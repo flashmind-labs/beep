@@ -34,10 +34,13 @@ fn load_or_create_file(path: &Path) -> Result<Identity> {
             .map_err(|_| anyhow::anyhow!("{} is not a 32 byte key", path.display()))?;
         return Ok(SecretBox::new(Box::new(bytes)));
     }
+
     let key = SecretKey::generate().to_bytes();
+
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
+
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -172,12 +175,14 @@ mod keychain {
             SecretBox::new(Box::new(SecretKey::generate().to_bytes()))
         };
         save(&key)?;
+
         match fs::remove_file(old_file) {
             Err(e) if e.kind() != ErrorKind::NotFound => {
                 return Err(e).context("removing the old key file");
             }
             _ => {}
         }
+
         Ok(key)
     }
 
@@ -237,6 +242,7 @@ mod keychain {
         if !from.is_dir() {
             return None;
         }
+
         let to = mesh_dir(data, &key);
         let moved =
             fs::create_dir_all(data.join("workspace")).and_then(|()| fs::rename(&from, &to));

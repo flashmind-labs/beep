@@ -126,12 +126,15 @@ fn merged_path(prefix: &[PathBuf], inherited: Option<&OsStr>) -> Option<OsString
     if prefix.is_empty() {
         return None;
     }
+
     let mut dirs: Vec<PathBuf> = prefix.to_vec();
+
     for dir in inherited.map(env::split_paths).into_iter().flatten() {
         if !dirs.contains(&dir) {
             dirs.push(dir);
         }
     }
+
     env::join_paths(dirs).ok()
 }
 

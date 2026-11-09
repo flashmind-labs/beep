@@ -63,6 +63,7 @@ impl Live {
                     ContentBlock::Text(text) => {
                         let mut found = Vec::new();
                         let shown = replayed(&text.text, &mut found);
+
                         for picture in found {
                             self.keep(picture);
                         }
@@ -139,6 +140,7 @@ impl Live {
             SessionUpdate::CompactionUpdate(update) => self.compaction(update),
             _ => {}
         }
+
         self.info.state != before || self.info.title != title
     }
 
@@ -159,12 +161,15 @@ impl Live {
             CompactionStatus::Failed => true,
             _ => return,
         };
+
         if self.compactions.len() >= MAX_COMPACTIONS {
             self.compactions.clear();
         }
+
         if !self.compactions.insert(update.compaction_id.clone()) {
             return;
         }
+
         if failed {
             let why = match &update.error {
                 MaybeUndefined::Value(error) => format!(": {error}"),
@@ -176,6 +181,7 @@ impl Live {
             );
             return;
         }
+
         self.push(EntryKind::Compacted, COMPACTED_ENTRY);
         self.info.context = None;
         self.compacted = true;
@@ -195,6 +201,7 @@ impl Live {
             // Only the first prompt of a session with no title names it.
             self.naming = self.info.title.is_none();
         }
+
         if self.naming
             && let Some(prompt) = self.transcript.back()
             && let Some(line) = crate::agents::tags::said(&prompt.text)
@@ -258,7 +265,9 @@ impl Live {
             if self.turn_images.len() >= image_files::MAX_PER_TURN {
                 return;
             }
+
             let line = picture.line();
+
             if picture.data.len() > image_files::MAX_FILE || self.turn_images.contains(&line) {
                 continue;
             }
@@ -288,12 +297,14 @@ impl Live {
         let start = self.turn_start;
         let mut entry = None;
         let mut named: Vec<String> = Vec::new();
+
         for (at, item) in (self.dropped..).zip(&self.transcript) {
             if at > start && item.kind == EntryKind::Agent {
                 entry = Some(at);
                 named.extend(image_files::named_in(&item.text).map(str::to_owned));
             }
         }
+
         named.append(&mut self.turn_links);
         let mut done: Vec<&ToolCall> = self
             .tools
@@ -303,6 +314,7 @@ impl Live {
         done.sort_by_key(|tool| tool.entry);
         let mut shown: Vec<PathBuf> = Vec::new();
         let mut ran: Vec<&str> = Vec::new();
+
         for tool in done {
             let read = tool.kind == ToolKind::Read;
             if read && !tool.pictures.is_empty() {
@@ -318,8 +330,10 @@ impl Live {
                 ran.extend(image_files::named_in(&tool.output));
             }
         }
+
         let room = image_files::MAX_PER_TURN.saturating_sub(self.turn_images.len());
         let mut paths: Vec<PathBuf> = Vec::new();
+
         for path in named
             .iter()
             .filter_map(|name| image_files::resolve(&cwd, name))
@@ -327,11 +341,14 @@ impl Live {
             if paths.len() >= room {
                 break;
             }
+
             if !paths.contains(&path) && !shown.contains(&path) {
                 paths.push(path);
             }
         }
+
         let mut made: Vec<PathBuf> = Vec::new();
+
         for path in ran
             .into_iter()
             .filter_map(|name| image_files::resolve(&cwd, name))
@@ -339,6 +356,7 @@ impl Live {
             if paths.len() + made.len() >= room {
                 break;
             }
+
             if !paths.contains(&path) && !made.contains(&path) && !shown.contains(&path) {
                 made.push(path);
             }
@@ -371,6 +389,7 @@ impl Live {
         if !turn.iter().any(|tool| tool.kind == ToolKind::Execute) {
             return None;
         }
+
         let written = turn
             .iter()
             .filter(|tool| tool.status == ToolCallStatus::Completed)
@@ -388,6 +407,7 @@ impl Live {
     /// agent message `entry`: each on its own line, once.
     pub(crate) fn show_files(&mut self, entry: Option<u64>, pictures: Vec<Picture>) {
         let mut lines = String::new();
+
         for picture in pictures {
             let line = picture.line();
             self.keep(picture);
@@ -400,6 +420,7 @@ impl Live {
                 lines.push_str(&line);
             }
         }
+
         if lines.is_empty() {
             return;
         }
@@ -429,12 +450,15 @@ impl Live {
                 started,
             });
         }
+
         if let ContentBlock::Text(text) = content {
             if self.thought.len() < MAX_THOUGHT {
                 self.thought.push_str(&text.text);
             }
+
             self.thought_text(&text.text);
         }
+
         if let Some(line) = thought_line(&self.thought) {
             self.info.state.summary = cut(&line, MAX_LINE);
         }
@@ -445,6 +469,7 @@ impl Live {
         let Some(open) = &self.open_thought else {
             return;
         };
+
         match open.entry {
             Some(at) => {
                 if let Some(entry) = self.entry_mut(at) {
@@ -489,6 +514,7 @@ impl Live {
             self.in_message = true;
             self.info.last_message.clear();
         }
+
         push_cut(&mut self.info.last_message, text, MAX_LAST_MESSAGE);
     }
 }

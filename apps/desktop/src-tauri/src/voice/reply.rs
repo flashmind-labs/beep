@@ -81,9 +81,11 @@ impl Voice {
                 .unwrap_or_default();
             (chat, s.reply, dropped)
         };
+
         for query_id in dropped {
             self.emit(LiveEvent::Withdrawn { query_id });
         }
+
         let (teller, heard) = news::channel();
         let beep = self.beep.clone();
         let me = self.clone();
@@ -107,6 +109,7 @@ impl Voice {
                 log::warn!("sending a spoken message: {e}");
                 teller.tell(RunNews::Failed(e.to_string()));
             }
+
             me.run_over(id, reply);
             // Dropping the teller ends the reader's stream.
         });
@@ -148,6 +151,7 @@ impl Voice {
             let outcome = me.read(id, feed, &voiced).await;
             me.reply_ended(id, outcome);
         };
+
         if let Some(s) = self.state().live.as_mut().filter(|s| s.id == id) {
             s.reader.start(reader);
         }
@@ -181,6 +185,7 @@ impl Voice {
                 // Answered already: the rest of the reply goes on.
                 return self.follow_reply(id, heard, false);
             }
+
             if outcome.waits() {
                 Input::Approval
             } else {
@@ -190,6 +195,7 @@ impl Voice {
             if let Some(why) = &outcome.failed {
                 log::warn!("a spoken reply failed: {why}");
             }
+
             self.toast(NO_ANSWER);
             Input::ReplyFailed
         } else {
@@ -198,6 +204,7 @@ impl Voice {
         };
         let asked = matches!(input, Input::Approval);
         self.input(id, input);
+
         if asked {
             self.cue_reply(id);
         }
@@ -211,12 +218,15 @@ impl Voice {
         };
         s.hush();
         let mut lines = sentences(&s.reply_text);
+
         if lines.is_empty() {
             lines = s.last_reply.clone();
         }
+
         if lines.is_empty() {
             return false;
         }
+
         let me = self.clone();
         s.reader.start(async move {
             let voiced = Voiced::new(0);

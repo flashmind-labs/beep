@@ -114,6 +114,7 @@ impl Walked {
             self.skipped_more = true;
             return;
         }
+
         self.skipped.push(SkippedPath {
             path,
             folder,
@@ -146,6 +147,7 @@ fn walk_inner(
     };
     let mut bytes = 0u64;
     let mut stack = vec![(root.to_owned(), String::new())];
+
     while let Some((dir, prefix)) = stack.pop() {
         let listing = match fs::read_dir(&dir) {
             Ok(listing) => listing,
@@ -153,6 +155,7 @@ fn walk_inner(
             Err(e) if e.kind() == std::io::ErrorKind::NotFound && dir != root => continue,
             Err(e) => return Err(e).with_context(|| format!("listing {}", dir.display())),
         };
+
         for item in listing {
             let item = item.with_context(|| format!("listing {}", dir.display()))?;
             let Some(name) = item.file_name().to_str().map(str::to_owned) else {
@@ -160,6 +163,7 @@ fn walk_inner(
                 continue;
             };
             let path = format!("{prefix}{name}");
+
             if git_only && path != gitdir::GIT && !gitdir::in_git(&path) {
                 continue;
             }
@@ -167,10 +171,12 @@ fn walk_inner(
             if packed && path == ".git/objects" {
                 continue;
             }
+
             let Ok(kind) = item.file_type() else {
                 continue;
             };
             let is_dir = kind.is_dir();
+
             match rules.skip(Path::new(&path), is_dir) {
                 Some(Skip::Own) => continue,
                 Some(Skip::Rule { rule, marker }) => {
@@ -179,6 +185,7 @@ fn walk_inner(
                 }
                 None => {}
             }
+
             if is_dir {
                 // A linked worktree or a submodule: its `.git` file names
                 // this machine's paths, so it stays here whole.
@@ -189,6 +196,7 @@ fn walk_inner(
                     walked.skip(skipped, path, true, Rule::Git, None);
                     continue;
                 }
+
                 if !gitdir::is_quiet(&path) {
                     walked.dirs.push(item.path());
                 }
@@ -198,6 +206,7 @@ fn walk_inner(
                 if gitdir::is_ref(&path) {
                     continue;
                 }
+
                 let meta = match item.metadata() {
                     Ok(meta) => meta,
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
@@ -220,6 +229,7 @@ fn walk_inner(
             }
         }
     }
+
     walked.files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(walked)
 }

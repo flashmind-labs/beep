@@ -63,6 +63,7 @@ function drawIndicators() {
 async function reload(project: string) {
   const read = (reads.get(project) ?? 0) + 1;
   reads.set(project, read);
+
   try {
     const list = await invoke<StashEntry[]>("prompt_stash_list", { project });
     if (reads.get(project) !== read) return;
@@ -134,6 +135,7 @@ async function act(action: "save" | "pop", field: HTMLTextAreaElement, id?: stri
   field.readOnly = true;
   binding.lock?.(true);
   drawPanel();
+
   try {
     if (action === "save") {
       const message = await binding.capture();
@@ -152,6 +154,7 @@ async function act(action: "save" | "pop", field: HTMLTextAreaElement, id?: stri
       if (live()) apply();
       else await invoke("prompt_stash_put", { project, message });
     }
+
     close();
     await reload(project);
   } catch (error) {
@@ -170,6 +173,7 @@ document.addEventListener("click", e => {
   if (!button) { if (panel && !panel.contains(e.target as Node)) close(); return; }
   if (button instanceof HTMLButtonElement && button.disabled) return;
   e.preventDefault();
+
   if (button.dataset.stashOpen) { if (panelProject === button.dataset.stashOpen) close(); else show(button.dataset.stashOpen); }
   else if (button.hasAttribute("data-stash-close")) close();
   else if (button.dataset.stashRemove && panelProject && !busy) {

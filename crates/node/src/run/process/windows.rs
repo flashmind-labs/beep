@@ -37,6 +37,7 @@ impl Group {
         // SAFETY: both arguments may be null: no security attributes and no
         // name.
         let job = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
+
         if job.is_null() {
             return Err(io::Error::last_os_error());
         }
@@ -56,6 +57,7 @@ impl Group {
                 size,
             )
         };
+
         if set == 0 {
             return Err(io::Error::last_os_error());
         }
@@ -64,6 +66,7 @@ impl Group {
         if unsafe { AssignProcessToJobObject(job.as_raw_handle(), process) } == 0 {
             return Err(io::Error::last_os_error());
         }
+
         Ok(Some(Self(Arc::new(job))))
     }
 

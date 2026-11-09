@@ -43,6 +43,7 @@ async function loadCliLogins() {
     console.warn(e);
     CRED.cli = null;
   }
+
   redrawCreds();
 }
 
@@ -50,6 +51,7 @@ async function loadCliLogins() {
 /// saved, once per token: from the server, else from a machine with teacli.
 function checkForgejo(list: Credential[]) {
   const checks = (CRED.checks ??= {});
+
   for (const c of list) {
     if (c.kind !== "forgejo" || c.unreadable || c.account || checks[c.id]) continue;
     checks[c.id] = { state: "checking" };
@@ -63,6 +65,7 @@ function checkForgejo(list: Credential[]) {
 /// Lists the credentials again and redraws their section.
 export async function loadCreds() {
   loadCliLogins();
+
   try {
     // A server from before several GitHub accounts does not list them:
     // the credentials list then has the one GitHub token.
@@ -75,6 +78,7 @@ export async function loadCreds() {
     console.warn(e);
     CRED.list ??= null;
   }
+
   if (setShown()) {
     fillSection("creds", setCredsHtml());
   }
@@ -94,16 +98,19 @@ async function signInGh(redraw: () => void) {
     CRED.ghFlow = { code, url, copied: false };
     redraw();
     await copy(code);
+
     if (CRED.ghFlow?.code === code) {
       CRED.ghFlow.copied = true;
       redraw();
     }
   };
+
   try {
     await invoke("gh_sign_in", { onCode });
   } catch (e) {
     CRED.cliError = { key: "github", message: String(e) };
   }
+
   CRED.ghFlow = null;
   CRED.ghAdd = !!CRED.cliError;
   await loadCreds();
@@ -113,11 +120,13 @@ async function signInGh(redraw: () => void) {
 /// section redraws, and a failure only goes to the console.
 const settle = (b: HTMLButtonElement, act: () => Promise<unknown>, after: () => Promise<unknown>) => async () => {
   b.disabled = true;
+
   try {
     await act();
   } catch (e) {
     console.warn(e);
   }
+
   await after();
 };
 
@@ -139,11 +148,13 @@ export function bindCreds(el: Element) {
     CRED.cliBusy = busy;
     CRED.cliError = null;
     redraw();
+
     try {
       await act();
     } catch (e) {
       CRED.cliError = { key: errorKey, message: String(e) };
     }
+
     CRED.cliBusy = "";
     await loadCreds();
   };
@@ -186,15 +197,18 @@ export function bindCreds(el: Element) {
     const url = $in<HTMLInputElement>("#credUrl")?.value;
     if (CRED.edit?.kind === "forgejo" && url !== undefined) CRED.edit.url = url;
     const d = CRED.mod.draft(CRED.edit, url, $in<HTMLInputElement>("#credSecret")?.value);
+
     if (d.error) {
       CRED.error = d.error;
       const err = $in("#credErr");
       if (err) err.textContent = d.error;
       return;
     }
+
     CRED.busy = true;
     CRED.error = "";
     redraw();
+
     try {
       await invoke("save_credential", { credential: d.credential });
       if (CRED.edit?.kind === "github") CRED.ghAdd = false;
@@ -202,6 +216,7 @@ export function bindCreds(el: Element) {
     } catch (e) {
       CRED.error = String(e);
     }
+
     CRED.busy = false;
     // The typed token is gone from the page either way.
     await loadCreds();
@@ -247,6 +262,7 @@ export async function loadAgentAccounts() {
     console.warn(e);
     ACC.data ??= null;
   }
+
   redrawAgents();
 }
 
@@ -261,12 +277,15 @@ function pollCodex() {
   if (ACC.poll) return;
   const check = async () => {
     const waiting = Object.entries(ACC.codex).filter(([, f]) => f.task !== undefined);
+
     if (!waiting.length || !setShown()) {
       ACC.poll?.();
       ACC.poll = null;
       return;
     }
+
     let done = false;
+
     for (const [id, f] of waiting) {
       try {
         const st = await invoke<CodexState>("codex_login_state", { machineId: id, task: f.task });
@@ -279,6 +298,7 @@ function pollCodex() {
         done = true;
       }
     }
+
     if (done) await loadAgentAccounts();
     else redrawAgents();
   };
@@ -301,6 +321,7 @@ export function bindAgents(el: Element) {
   const save = async () => {
     if (ACC.busy || !ACC.mod) return;
     const d = ACC.mod.tokenDraft(ACC.edit, $in<HTMLInputElement>("#agSecret")?.value);
+
     // A draft names its agent unless it is an error.
     if (!d.agent) {
       ACC.error = d.error;
@@ -308,14 +329,17 @@ export function bindAgents(el: Element) {
       if (err) err.textContent = d.error;
       return;
     }
+
     ACC.busy = d.agent;
     ACC.error = "";
+
     try {
       await invoke("save_agent_token", { agentSlug: d.agent, secret: d.secret });
       ACC.edit = null;
     } catch (e) {
       ACC.error = String(e);
     }
+
     ACC.busy = "";
     // The typed token is gone from the page either way.
     const input = setRoot().querySelector<HTMLInputElement>("#agSecret");
@@ -328,12 +352,14 @@ export function bindAgents(el: Element) {
     const agent = b.dataset.agRevoke;
     ACC.busy = `revoke:${agent}`;
     b.disabled = true;
+
     try {
       await invoke("revoke_agent_token", { agentSlug: agent });
     } catch (e) {
       if (agent === "claude") ACC.claudeError = String(e);
       else ACC.error = String(e);
     }
+
     ACC.busy = "";
     await loadAgentAccounts();
   }));
@@ -344,11 +370,13 @@ export function bindAgents(el: Element) {
     ACC.claudeError = "";
     ACC.edit = null;
     draw();
+
     try {
       await invoke("claude_sign_in");
     } catch (e) {
       ACC.claudeError = String(e);
     }
+
     ACC.claudeFlow = false;
     await loadAgentAccounts();
   }));
@@ -362,6 +390,7 @@ export function bindAgents(el: Element) {
     if (ACC.codex[id]?.starting || ACC.codex[id]?.task !== undefined) return;
     ACC.codex[id] = { starting: true };
     redrawAgents();
+
     try {
       const flow = await invoke<CodexLogin>("codex_login_start", { machineId: id });
       ACC.codex[id] = { ...flow, copied: false };
@@ -374,6 +403,7 @@ export function bindAgents(el: Element) {
     } catch (e) {
       ACC.codex[id] = { error: String(e) };
     }
+
     redrawAgents();
   }));
   each("data-ag-codex-cancel", b => b.addEventListener("click", async () => {

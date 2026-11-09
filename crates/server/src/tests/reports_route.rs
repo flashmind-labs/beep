@@ -35,5 +35,6 @@ fn the_header_names_the_client_only_from_cloudflare_or_a_tunnel() {
         let peer: IpAddr = peer.parse().expect("an address");
         assert_eq!(client_ip(&headers, Some(peer)), Some(peer), "{peer}");
     }
+
     assert_eq!(client_ip(&headers, None), None);
 }

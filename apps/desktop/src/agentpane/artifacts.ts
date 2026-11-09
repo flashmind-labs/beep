@@ -105,8 +105,10 @@ export function showFrames(shown: boolean) {
 /// frame is emptied, its address kept to load it again.
 function liveFrames() {
   const live = tabShown && paneShown() && !folded.has(A.key);
+
   for (const frame of A.el?.querySelectorAll<HTMLIFrameElement>(".agartframe") ?? []) {
     const kept = frame.dataset.src;
+
     if (live && kept != null) {
       frame.src = kept;
       delete frame.dataset.src;
@@ -125,10 +127,12 @@ export function setArtifacts(list: Artifact[], turnStart: (turn: number) => numb
   syncSession();
   A.turnStart = turnStart;
   const now = Date.now();
+
   for (const a of list) {
     const v = `${a.path}\n${artifactVersion(a)}`;
     if (A.primed && !A.seen.has(v)) A.seen.set(v, now);
   }
+
   A.primed = true;
   A.list = list;
   if (!A.picked || !list.some(a => a.path === A.picked)) A.picked = list[0]?.path ?? null;
@@ -247,22 +251,27 @@ async function load(a: Artifact) {
   const s = paneSession();
   if (!s) return;
   const version = artifactVersion(a), key = A.key;
+
   if (A.gone.has(a.path)) {
     A.version = `gone:${version}`;
     drawShown(`<div class="agpmsg">${esc(goneMessage(a.name, s.machine_name))}</div>`);
     note(about(a, null));
     return;
   }
+
   A.version = version;
+
   if (a.kind === "pdf") {
     drawShown(`<div class="agpmsg">PDFs open in a tab of their own. <button class="dbtn" data-aact="pdf">Open ${esc(a.name)}</button></div>`);
     note(about(a, null));
     return;
   }
+
   const keep = A.el?.querySelector(".agartshow > :not(.agpmsg)");
   if (!keep) drawShown(`<div class="agpmsg"><span class="dspin"></span>Reading ${esc(a.name)} from ${esc(s.machine_name)}…</div>`);
   note(about(a, null));
   const place = readPlace(s.cwd, a.path);
+
   try {
     const got = await invoke<Shown>("agent_artifact", { machineId: s.machine_id, root: place.root, path: place.path });
     if (A.key !== key || A.picked !== a.path || A.version !== version) return;
@@ -292,8 +301,10 @@ function action(act: string) {
     drawFold();
     return;
   }
+
   const a = picked(), s = paneSession();
   if (!a || !s) return;
+
   if (act === "pdf") openPath(a.path);
   else if (act === "claude" && a.url) invoke("open_url", { url: a.url }).catch(e => note(readError(e)));
   else if (act === "file") {

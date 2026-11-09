@@ -21,17 +21,22 @@ impl Exit {
         if pid == 0 {
             bail!("invalid process id");
         }
+
         let mut processes = crate::lock(&PROCESSES);
         processes.retain(|_, entry| entry.strong_count() > 0);
+
         if let Some(held) = processes.get(&pid).and_then(Weak::upgrade)
             && !*held.exited.borrow()
         {
             return Ok(held);
         }
+
         processes.remove(&pid);
+
         if processes.len() >= MAX_PROCESSES {
             bail!("too many observed external processes");
         }
+
         let registration = platform::register(pid)?;
         let (sender, exited) = watch::channel(false);
         let held = Arc::new(Self {
@@ -40,6 +45,7 @@ impl Exit {
                 if let Err(error) = registration.wait().await {
                     log::debug!("process exit notification failed: {error}");
                 }
+
                 sender.send_replace(true);
             })),
         });
@@ -65,6 +71,7 @@ mod platform {
 
     pub(super) fn register(pid: u32) -> Result<Registration> {
         let pid = Pid::from_raw(i32::try_from(pid)?).context("invalid process id")?;
+
         match pidfd_open(pid, PidfdFlags::NONBLOCK) {
             Ok(fd) => Ok(Registration(Some(AsyncFd::new(fd)?))),
             Err(rustix::io::Errno::SRCH) => Ok(Registration(None)),
@@ -77,6 +84,7 @@ mod platform {
             if let Some(fd) = self.0 {
                 let _ = fd.readable().await?;
             }
+
             Ok(())
         }
     }
@@ -116,6 +124,7 @@ mod platform {
     unsafe extern "system" fn completed(context: *mut c_void, _: bool) {
         // SAFETY: the registration owns this Arc reference until synchronous unregister completes.
         let context = unsafe { &*context.cast::<Callback>() };
+
         if let Some(sender) = crate::lock(&context.0).take() {
             let _ = sender.send(());
         }
@@ -124,8 +133,10 @@ mod platform {
     pub(super) fn register(pid: u32) -> Result<Registration> {
         // SAFETY: no pointers are supplied; the result is checked before taking ownership.
         let process = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+
         if process.is_null() {
             let error = io::Error::last_os_error();
+
             if error.raw_os_error() == Some(87) {
                 return Ok(Registration {
                     wait: 0,
@@ -134,6 +145,7 @@ mod platform {
                     exited: None,
                 });
             }
+
             return Err(error.into());
         }
         // SAFETY: OpenProcess returned a fresh owned process handle.
@@ -153,11 +165,13 @@ mod platform {
                 WT_EXECUTEONLYONCE,
             )
         };
+
         if result == 0 {
             // SAFETY: registration failed, so no callback owns or uses this Arc reference.
             drop(unsafe { Arc::from_raw(callback) });
             return Err(io::Error::last_os_error().into());
         }
+
         Ok(Registration {
             wait: wait as usize,
             callback: callback as usize,
@@ -171,6 +185,7 @@ mod platform {
             if let Some(exited) = self.exited.take() {
                 let _ = exited.await;
             }
+
             Ok(())
         }
     }
@@ -180,6 +195,7 @@ mod platform {
             if self.wait == 0 {
                 return;
             }
+
             let wait = self.wait;
             let callback = self.callback;
             let process = self.process.take();
@@ -187,6 +203,7 @@ mod platform {
             let cleanup = move || {
                 // SAFETY: wait belongs to this registration. INVALID_HANDLE_VALUE waits for callbacks.
                 let done = unsafe { UnregisterWaitEx(wait as HANDLE, INVALID_HANDLE_VALUE) };
+
                 if done == 0 {
                     // Preserve the callback and its handle if Windows cannot confirm cancellation.
                     // Leaking this failed registration is safer than freeing an in-flight callback.

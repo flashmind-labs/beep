@@ -61,9 +61,11 @@ pub(super) async fn condense(
     source: Source,
 ) -> Result<usize> {
     let notes = user.profile_notes().await?;
+
     if notes.is_empty() {
         return Ok(0);
     }
+
     let mut texts: Vec<String> = notes
         .iter()
         .map(|note| match note.date {
@@ -94,9 +96,11 @@ pub(super) async fn condense(
         "Today: {}\n\nKept memories:\n",
         Utc::now().format("%Y-%m-%d")
     );
+
     for row in user.memory_rows().await? {
         let _ = writeln!(prompt, "- {}", row.content);
     }
+
     let _ = write!(prompt, "\nDossiers:\n{}", texts.join("\n\n"));
     let answer = generator
         .text_up_to(FACTS_SYSTEM, prompt, FACTS_TOKENS)
@@ -104,11 +108,14 @@ pub(super) async fn condense(
     let facts: Facts = serde_json::from_str(unfence(&answer)).context("facts are not JSON")?;
     let read = read_reference(source, Utc::now());
     let mut saved = 0;
+
     for fact in facts.facts.into_iter().take(MAX_FACTS) {
         let content = fact.content.trim();
+
         if content.is_empty() {
             continue;
         }
+
         let valid = Validity {
             from: fact.valid_from.as_deref().and_then(parse_day),
             until: fact.valid_until.as_deref().and_then(parse_day),
@@ -125,10 +132,12 @@ pub(super) async fn condense(
             origin: Some(origin),
             scope: Some(Scope::User),
         };
+
         match user.remember(fact).await {
             Ok(_) => saved += 1,
             Err(error) => log::debug!("profile: a fact was not saved: {error:#}"),
         }
     }
+
     Ok(saved)
 }

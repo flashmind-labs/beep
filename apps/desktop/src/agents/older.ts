@@ -34,6 +34,7 @@ export function loadOlder(mode: Reading): Promise<void> {
     const open = AG.open;
     return mode === "all" ? reading.then(() => AG.open === open ? loadOlder(mode) : undefined) : reading;
   }
+
   reading = readOlder(mode).finally(() => { reading = null; });
   return reading;
 }
@@ -43,6 +44,7 @@ async function readOlder(mode: Reading) {
   if (!o || AG.older.loading) return;
   AG.older.loading = true;
   let reads = 0;
+
   try {
     while (goesOn(mode, reads, $<ChatBody>("#agbody"))) {
       const held = AG.page!;
@@ -59,12 +61,14 @@ async function readOlder(mode: Reading) {
       AG.page = { ...AG.page, ...taken.run };
       if (drawsEachPage(mode)) drawAgentBody(keep, false, true);
     }
+
     if (mode === "prompt" && AG.page && lacksPrompt(AG.page) && !AG.older.stop) AG.older.gaveUp = true;
   } catch (e) {
     console.warn("older entries not read", e);
   } finally {
     AG.older.loading = false;
   }
+
   // One draw for a whole run not drawn page by page, and for what a run says at its end.
   if (reads && S.view === "agent" && AG.open === o) drawAgentBody(rowInView(), false, true);
 }

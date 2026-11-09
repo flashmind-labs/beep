@@ -12,6 +12,7 @@ const code = buildSync({
   bundle: true, write: false, format: "iife", globalName: "steerCheck",
 }).outputFiles[0].text;
 const browser = await playwright().chromium.launch({ executablePath: process.env.CHROMIUM_BIN || undefined });
+
 try {
   const page = await browser.newPage();
   await page.setContent('<div id="bar" data-mode="window"></div>');
@@ -27,10 +28,12 @@ try {
     window.__TAURI__.core.invoke = async (cmd, args) => {
       if (cmd === "mesh_watch") return new Promise(() => {});
       if (cmd === "agent_view") return structuredClone(window.__pages[args.session]);
+
       if (cmd === "agent_steer") {
         window.__sent++;
         return new Promise(resolve => { window.__acknowledge = resolve; });
       }
+
       return invoke(cmd, args);
     };
   });

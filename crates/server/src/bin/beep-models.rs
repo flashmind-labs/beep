@@ -75,6 +75,7 @@ async fn main() -> Result<()> {
         "{:<48} {:>6} {:>6} {:>8}  {:<10} notes",
         "id", "in", "out", "context", "released"
     );
+
     for (m, input, output) in &models {
         let released = DateTime::from_timestamp(m.created, 0)
             .map(|d| d.format("%Y-%m-%d").to_string())
@@ -96,6 +97,7 @@ async fn main() -> Result<()> {
             notes.join(", ")
         );
     }
+
     println!("{} models; prices in USD per million tokens", models.len());
     Ok(())
 }

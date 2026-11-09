@@ -108,6 +108,7 @@ pub(crate) async fn sync_user(user: &User) -> Result<()> {
                             spec.slug
                         );
                     }
+
                     user.save_event_trigger(&TriggerRow {
                         slug: spec.slug.to_owned(),
                         account_id: account.id.clone(),
@@ -137,6 +138,7 @@ pub(crate) async fn sync_user(user: &User) -> Result<()> {
             user.delete_event_trigger(row).await?;
         }
     }
+
     Ok(())
 }
 

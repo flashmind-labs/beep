@@ -100,6 +100,7 @@ pub fn parse_setup(out: &str, name: &RepoName) -> Result<Setup, SetupError> {
     let mut issues = "";
     let mut prs = "";
     let mut head = "";
+
     for line in out.lines().map(str::trim) {
         match line {
             REMOTES_MARK | CONFIG_MARK | HEAD_MARK => section = line,
@@ -115,6 +116,7 @@ pub fn parse_setup(out: &str, name: &RepoName) -> Result<Setup, SetupError> {
             _ => {}
         }
     }
+
     let host = remotes
         .iter()
         .filter_map(|line| line.split_once(char::is_whitespace))
@@ -162,6 +164,7 @@ fn role(configured: &str, remote_host: &str) -> Result<Option<IssueHost>, SetupE
             .map(Some)
             .ok_or_else(|| SetupError::BadHost(remote_host.to_owned()))
     };
+
     match configured {
         "" => from_host(),
         "none" => Ok(None),

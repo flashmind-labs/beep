@@ -48,9 +48,11 @@ pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
 
 fn header(line: &str) -> Option<Seen> {
     let value: Value = serde_json::from_str(line.trim()).ok()?;
+
     if value["type"] != "session" {
         return None;
     }
+
     let id = value["id"].as_str().filter(|id| !id.is_empty())?;
     let cwd = value["cwd"].as_str().filter(|cwd| !cwd.is_empty())?;
     let started = value["timestamp"]
@@ -72,13 +74,16 @@ fn header(line: &str) -> Option<Seen> {
 pub(super) fn title(path: &Path) -> Option<String> {
     let mut first = None;
     let mut name = None;
+
     for line in head_lines(path).ok()? {
         if !line.contains("\"session_info\"") && (first.is_some() || !line.contains("\"user\"")) {
             continue;
         }
+
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
+
         match value["type"].as_str() {
             Some("session_info") => {
                 if let Some(given) = value["name"].as_str().and_then(prompt_title) {
@@ -91,6 +96,7 @@ pub(super) fn title(path: &Path) -> Option<String> {
             _ => {}
         }
     }
+
     name.or(first)
 }
 
@@ -99,6 +105,7 @@ fn prompt(content: &Value) -> Option<String> {
     if let Some(text) = content.as_str() {
         return prompt_title(text);
     }
+
     let text: Vec<&str> = content
         .as_array()?
         .iter()

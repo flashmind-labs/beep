@@ -48,11 +48,13 @@ impl Tokens {
         key.verify(&session_message(&self.server, &key, start.at), &signature)
             .map_err(|_| refused())?;
         let now = secs(now);
+
         if start.at.abs_diff(now) > SESSION_SKEW.as_secs() {
             return Err(ApiError::bad_request(
                 "this device's clock is off; set it right and try again",
             ));
         }
+
         let expires = now + SESSION_TTL.as_secs();
         Ok(SessionToken {
             token: SecretText::new(self.mint(&key, expires)),
@@ -71,9 +73,11 @@ impl Tokens {
     /// The key `token` was made for, when it is this server's and still good.
     pub fn check(&self, token: &str, now: SystemTime) -> Option<EndpointId> {
         let bytes = URL_SAFE_NO_PAD.decode(token).ok()?;
+
         if bytes.len() != TOKEN_LEN {
             return None;
         }
+
         let (key, rest) = bytes.split_at(KEY_LEN);
         let (expires, mac) = rest.split_at(8);
         let expires = u64::from_be_bytes(expires.try_into().ok()?);
@@ -82,6 +86,7 @@ impl Tokens {
         if self.mac(key, expires) != blake3::Hash::from_bytes(mac) || expires <= secs(now) {
             return None;
         }
+
         let key: [u8; KEY_LEN] = key.try_into().ok()?;
         EndpointId::from_bytes(&key).ok()
     }

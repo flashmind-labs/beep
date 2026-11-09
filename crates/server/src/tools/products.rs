@@ -134,26 +134,31 @@ impl Tool for ShowProductsTool {
             Ok(args) => args,
             Err(e) => return Ok(ToolResult::failure(ctx.tool_call_id, e.to_string())),
         };
+
         if args.products.is_empty() || args.products.len() > MAX_PRODUCTS {
             return Ok(ToolResult::failure(
                 ctx.tool_call_id,
                 format!("Show between 1 and {MAX_PRODUCTS} products."),
             ));
         }
+
         let mut dropped = Vec::new();
         let mut cards = Vec::new();
+
         for requested in args.products {
             match card(requested, &mut dropped) {
                 Ok(card) => cards.push(card),
                 Err(reason) => dropped.push(reason),
             }
         }
+
         if cards.is_empty() {
             return Ok(ToolResult::failure(
                 ctx.tool_call_id,
                 format!("No product could be shown. {}", dropped.join("; ")),
             ));
         }
+
         let checks = cards.iter().map(|card| async move {
             match card.image.as_deref() {
                 Some(url) => image::check(url).await.err(),
@@ -161,6 +166,7 @@ impl Tool for ShowProductsTool {
             }
         });
         let failures = futures::future::join_all(checks).await;
+
         for (card, failure) in cards.iter_mut().zip(failures) {
             if let Some(reason) = failure {
                 dropped.push(format!("image of {}: {reason}", card.title));
@@ -175,11 +181,13 @@ impl Tool for ShowProductsTool {
             }
         });
         let previews = futures::future::join_all(previews).await;
+
         for (card, preview) in cards.iter_mut().zip(previews) {
             if preview.is_some() {
                 card.image = preview;
             }
         }
+
         let shown = Shown {
             action: NAME,
             products: cards,
@@ -195,9 +203,11 @@ impl Tool for ShowProductsTool {
 /// The card for `requested`, or why not; bad fields are noted in `dropped`.
 fn card(requested: Requested, dropped: &mut Vec<String>) -> Result<Card, String> {
     let title = clip(&requested.title, MAX_TITLE);
+
     if title.is_empty() {
         return Err("a product without a title".to_owned());
     }
+
     let url = requested.url.trim();
     let host = public_host(url).ok_or_else(|| format!("{title}: {url} is not a web page"))?;
     let store = requested
@@ -246,9 +256,11 @@ fn card(requested: Requested, dropped: &mut Vec<String>) -> Result<Card, String>
 /// The host of an http(s) page on a public domain name.
 pub(super) fn public_host(url: &str) -> Option<String> {
     let parsed = Url::parse(url).ok()?;
+
     if !matches!(parsed.scheme(), "http" | "https") || url.len() > 2048 {
         return None;
     }
+
     let host = parsed.domain()?;
     (host != "localhost" && !host.ends_with(".localhost") && host.contains('.'))
         .then(|| host.to_owned())

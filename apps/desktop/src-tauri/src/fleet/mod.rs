@@ -84,6 +84,7 @@ const CLOSE_POLL: Duration = Duration::from_millis(25);
 /// `wait`. Handed back, still running, when one stays.
 async fn close_within(mut mesh: Mesh, wait: Duration) -> Result<(), InUse> {
     let deadline = Instant::now() + wait;
+
     loop {
         match mesh.close().await {
             Ok(()) => return Ok(()),
@@ -154,9 +155,11 @@ impl Fleet {
         peers.expect(&mesh::LATER);
         // Local file reads need no blob store: served from the first call.
         let folders = mesh::home_folders();
+
         if !folders.is_empty() {
             peers.offer(Arc::new(folders.clone()));
         }
+
         let session = peers.local_session();
         Self {
             me,
@@ -257,6 +260,7 @@ impl Fleet {
     #[cfg(desktop)]
     async fn open(&self) {
         let peers = &self.peers;
+
         match mesh::open_or_create(&self.dir, &self.endpoint, &self.name).await {
             Ok(mesh) => {
                 // The node reads its own kind from the mesh's device list.
@@ -265,6 +269,7 @@ impl Fleet {
                 if let Err(e) = carry::replay(&self.dir, &mesh).await {
                     log::warn!("{e}");
                 }
+
                 self.status.watch(mesh.clone()).await;
                 self.mesh.send_replace(Opened::Open(mesh));
             }
@@ -329,6 +334,7 @@ impl Fleet {
         // The status follows and the alert follows (which let go on seeing the
         // mesh close) stop holding it; calls still running get `CLOSE_WAIT`.
         self.status.stop().await;
+
         if let Err(in_use) = close_within(old, CLOSE_WAIT).await {
             let message = in_use.to_string();
             let InUse(old) = in_use;
@@ -338,6 +344,7 @@ impl Fleet {
             carry::discard(&self.dir);
             return Err(DesktopError::BadRequest(message));
         }
+
         let joined =
             Mesh::join_replacing_lone(&self.dir, self.endpoint.clone(), ticket, name).await;
         let new = match joined {
@@ -468,6 +475,7 @@ impl Fleet {
                 "this Mac cannot remove itself".into(),
             ));
         }
+
         Ok(self.ready().await?.remove(machine).await?)
     }
 
@@ -527,6 +535,7 @@ impl Fleet {
         let ticket =
             beep_fleet::phone_ticket(text).map_err(|e| DesktopError::BadRequest(e.to_string()))?;
         let _one = self.joining.lock().await;
+
         if self.paired().await {
             return Err(DesktopError::BadRequest(
                 "this phone is already paired".into(),
@@ -537,12 +546,15 @@ impl Fleet {
             Opened::Open(mesh) => Some(mesh.clone()),
             _ => None,
         };
+
         if let Some(old) = old {
             self.stop().await;
+
             if let Err(in_use) = close_within(old, CLOSE_WAIT).await {
                 return Err(DesktopError::BadRequest(in_use.to_string()));
             }
         }
+
         let mesh =
             Mesh::join_replacing_lone(&self.dir, self.endpoint.clone(), &ticket, name).await?;
         self.observe(mesh).await;
@@ -563,6 +575,7 @@ impl Fleet {
                 )),
             };
         }
+
         let mesh = timeout(OPENING, self.ready())
             .await
             .map_err(|_| DesktopError::NoMesh("still opening".into()))??;
@@ -571,6 +584,7 @@ impl Fleet {
                 "Phones do not host sessions or files.".into(),
             ));
         }
+
         with_deadline(machine, &mesh)
             .await
             .map(|client| client.with_snapshot_reader(self.snapshots.reader(machine)))

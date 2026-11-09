@@ -40,6 +40,7 @@ pub async fn project_sessions(
         let sessions = direct::project_sessions(&fleet, &places).await;
         return Ok(sessions.into_iter().map(SessionRow::from).collect());
     }
+
     let sessions = known(beep.call(ListProjectSessions { project }).await)?;
     Ok(sessions
         .into_iter()
@@ -180,6 +181,7 @@ pub async fn project_remove_from_machine(
             machines.name_of(id)
         )));
     }
+
     let index = app.state::<Arc<crate::palette::prompts::PromptIndex>>();
     let _projects = index.project_lock().await;
     let desk = desk(&fleet).await?;
@@ -252,6 +254,7 @@ pub async fn center_open_project(
             })
             .map_err(Into::into);
     }
+
     beep.call(GetProjectAgent { project: name })
         .await
         .map_err(outdated)
@@ -334,6 +337,7 @@ pub async fn center_project(
             approvals: Vec::new(),
         }));
     }
+
     let (tasks, workers, turns, approvals) = join!(
         beep.call(ListProjectTasks {
             project: project_id

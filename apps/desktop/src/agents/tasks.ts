@@ -16,6 +16,7 @@ const stopping = new Set<string>();
 export async function readTasks(o: OpenAgent) {
   const s = AG.page?.session;
   if (oldServer || !s || s.external || s.status === "ended") return [];
+
   try {
     return await invoke<AgentTask[]>("agent_tasks", where(o), AGENT_READ_WAIT_MS);
   } catch (e) {

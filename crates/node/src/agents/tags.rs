@@ -87,6 +87,7 @@ pub(crate) fn from_child(id: &str, name: &str, state: &str, text: &str) -> Strin
 pub fn parts(text: &str) -> Vec<Part<'_>> {
     let mut parts = Vec::new();
     let mut rest = text;
+
     loop {
         let next = [CONTEXT, FROM_SESSION, CHILD]
             .into_iter()
@@ -194,10 +195,13 @@ pub(crate) fn bare_block(text: &str) -> String {
 #[cfg(feature = "host")]
 pub(crate) fn untagged(text: &str) -> String {
     let trimmed = text.trim_start();
+
     if !is_bare(trimmed) {
         return text.to_owned();
     }
+
     let old_brief = BRIEF.split(" For Rust, C, or C++ builds").next();
+
     for end in [Some(BRIEF), old_brief, Some(BARE_WORKTREE)]
         .into_iter()
         .flatten()
@@ -207,6 +211,7 @@ pub(crate) fn untagged(text: &str) -> String {
             return join(&[Part::Context(brief), Part::User(rest.trim_start())]);
         }
     }
+
     text.to_owned()
 }
 
@@ -220,13 +225,16 @@ fn is_bare(text: &str) -> bool {
 fn open_at(text: &str, tag: &str) -> Option<usize> {
     let open = format!("<{tag}");
     let mut from = 0;
+
     while let Some(found) = text[from..].find(&open) {
         let at = from + found;
+
         match text[at + open.len()..].chars().next() {
             Some('>' | ' ') => return Some(at),
             _ => from = at + open.len(),
         }
     }
+
     None
 }
 

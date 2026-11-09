@@ -53,9 +53,11 @@ pub fn script(places: &[Place]) -> String {
          \x20 fi\n\
          }}\n"
     );
+
     for (n, place) in places.iter().enumerate() {
         out.push_str(&format!("look {} {n}\n", quote(&place.folder)));
     }
+
     out
 }
 
@@ -64,21 +66,26 @@ pub fn missing(output: &str, finished: bool, count: usize) -> Vec<usize> {
     if !finished {
         return Vec::new();
     }
+
     let mut out = BTreeSet::new();
+
     for line in output.lines() {
         let Some(said) = line.trim_end_matches('\r').strip_prefix(MARK) else {
             continue;
         };
         let mut words = said.split_whitespace();
+
         if words.next() != Some("missing") {
             continue;
         }
+
         if let Some(n) = words.next().and_then(|n| n.parse::<usize>().ok())
             && n < count
         {
             out.insert(n);
         }
     }
+
     out.into_iter().collect()
 }
 

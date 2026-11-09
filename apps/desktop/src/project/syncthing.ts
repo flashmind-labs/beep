@@ -35,6 +35,7 @@ export function syncthingImportChoice() {
     checkbox.checked = true;
     checkbox.indeterminate = true;
     if (!machine || !folder) return;
+
     try {
       const files = await invoke<SyncthingFiles>("project_syncthing_files", { machineId: machine, folder });
       if (asked !== lookup || value !== null) return;
@@ -78,6 +79,7 @@ export function openProjectMenu(event: MouseEvent, project: Project, items: Menu
         chooseIgnoredFolders(project.name, { ...settings, enabled: true }, onChanged);
         return;
       }
+
       try {
         await invoke("project_ignored_sync", { project: project.name, settings: { ...settings, enabled: !settings.enabled } });
         onChanged();

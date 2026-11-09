@@ -39,6 +39,7 @@ pub struct SyncRow {
 pub fn project_of(endpoint: &EndpointId, cwd: &str, imports: &[ImportRow]) -> String {
     imported_project_of(endpoint, cwd, imports).unwrap_or_else(|| {
         let cwd = cwd.trim_end_matches(is_separator);
+
         match cwd.rsplit(is_separator).next() {
             Some(name) if !name.is_empty() => name.to_owned(),
             _ => cwd.to_owned(),

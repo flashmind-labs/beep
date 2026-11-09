@@ -67,6 +67,7 @@ where
     let mut lines = LineReader::new(reader, MAX_MESSAGE);
     let mut running = FuturesUnordered::new();
     let mut open = true;
+
     loop {
         tokio::select! {
             line = lines.next(), if open && running.len() < MAX_RUNNING => match line? {
@@ -184,6 +185,7 @@ async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -
     if name == ASK_USER {
         return ask_user(backend, session, args).await;
     }
+
     if name == READ_TRANSCRIPT {
         return match backend.read_transcript(args).await {
             Ok(Reply::Done { text, failed }) => Called { text, failed },
@@ -224,11 +226,13 @@ async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -
         args: args.to_string(),
         approved: Approved::No,
     };
+
     loop {
         let reply = match backend.call(&request).await {
             Ok(reply) => reply,
             Err(e) => return Called::failed(format!("{e:#}")),
         };
+
         match reply {
             Reply::Done { text, failed } => return Called { text, failed },
             Reply::Ask {
@@ -299,9 +303,11 @@ async fn ask_user<B: Backend>(backend: &B, session: &str, args: Value) -> Called
         Ok(args) => args,
         Err(e) => return Called::failed(format!("Bad arguments: {e}")),
     };
+
     if args.question.trim().is_empty() {
         return Called::failed("The question is empty.");
     }
+
     let options = args
         .options
         .iter()
@@ -318,6 +324,7 @@ async fn ask_user<B: Backend>(backend: &B, session: &str, args: Value) -> Called
         detail: None,
         options,
     };
+
     match asked(backend, session, question).await {
         Ok(Answered::Picked(option)) => Called::ok(format!("The user picked: {}", option.name)),
         Ok(Answered::Said(text)) => Called::ok(format!("The user answered: {text}")),

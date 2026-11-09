@@ -102,10 +102,12 @@ main() {
     tmp=$(mktemp -d)
 
     version=${BEEP_NODE_VERSION:-}
+
     if [ -z "$version" ]; then
         fetch "$base/latest.txt" "$tmp/latest.txt" || fail "could not read the latest version from $base"
         version=$(tr -d ' \t\r\n' < "$tmp/latest.txt")
     fi
+
     version=${version#v}
     case "$version" in
         "" | *[!0-9.]*) fail "bad version '$version'" ;;
@@ -119,6 +121,7 @@ main() {
     expected=$(awk -v f="$archive" '$2 == f || $2 == "*" f { print $1 }' "$tmp/SHA256SUMS")
     [ -n "$expected" ] || fail "$archive is not listed in SHA256SUMS"
     actual=$(sha256 "$tmp/$archive")
+
     if [ "$actual" != "$expected" ]; then
         fail "checksum mismatch for $archive (expected $expected, got $actual); nothing was installed"
     fi

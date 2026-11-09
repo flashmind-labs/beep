@@ -127,11 +127,13 @@ impl Cli {
         if let Some(token) = spawn_env::secret(GITHUB_ENV_VAR) {
             return Some(token);
         }
+
         if let Some(cached) = lock(&self.gh_token).as_ref()
             && cached.read.elapsed() < GH_TOKEN_AGE
         {
             return cached.token.clone();
         }
+
         let args: Vec<String> = vec!["auth".into(), "token".into()];
         let mut command = command("gh", &args);
         command.stdout(Stdio::piped()).stderr(Stdio::null());
@@ -173,6 +175,7 @@ impl Cli {
             let said = String::from_utf8_lossy(&output.stderr);
             bail!("{program} failed: {}", tail(&said));
         }
+
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 }
@@ -319,10 +322,12 @@ async fn read_watch(output: impl AsyncRead + Unpin) -> Watched {
     }
     let mut lines = FramedRead::new(output, LinesCodec::new_with_max_length(MAX_LINE));
     let mut watched = Watched::default();
+
     while let Some(line) = lines.next().await {
         let Ok(line) = line else {
             continue;
         };
+
         match serde_json::from_str::<Line>(&line) {
             Ok(Line::Snapshot { status, conclusion }) => {
                 watched.last = Some(state_of(&status, conclusion.as_deref()));
@@ -331,6 +336,7 @@ async fn read_watch(output: impl AsyncRead + Unpin) -> Watched {
             Err(_) => {}
         }
     }
+
     watched
 }
 

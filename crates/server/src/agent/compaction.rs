@@ -32,6 +32,7 @@ const SWEEP_EVERY: Duration = Duration::from_secs(60);
 pub fn start(app: Arc<App>) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(SWEEP_EVERY);
+
         loop {
             interval.tick().await;
             app.compact_idle_sessions().await;
@@ -65,9 +66,11 @@ impl Summarizer<'_> {
     /// The lowest `compact_at` of any model that can be summarized.
     async fn lowest_limit(&self) -> u32 {
         let mut lowest = compact_at(self.provider.context_window(self.default).await);
+
         for model in self.models.all() {
             lowest = lowest.min(compact_at(self.provider.context_window(model).await));
         }
+
         lowest
     }
 }
@@ -87,12 +90,15 @@ pub async fn compact_idle(store: &Store, summarizer: Summarizer<'_>) {
             return;
         }
     };
+
     for quiet in sessions {
         let model = summarizer.model_for(store, &quiet.session).await;
         let limit = compact_at(summarizer.provider.context_window(model).await);
+
         if quiet.context_tokens < limit {
             continue;
         }
+
         compact_session(store, summarizer.provider, model, &quiet.session, limit).await;
     }
 }
@@ -127,6 +133,7 @@ async fn compact(
     if !permissions::open_calls(&before.conversation).is_empty() {
         return Ok(false);
     }
+
     let mut context = before.conversation.clone();
     // Recalled facts are not part of a summary; they can be found again.
     crate::app::memory_context::discard_saved(&mut context);
@@ -139,6 +146,7 @@ async fn compact(
         );
         return store.save_compacted(session, &before, &context).await;
     }
+
     let summary = metering::billed_to(
         &session.user,
         context.compact_with_llm_keeping_tokens(provider, model, KEEP_RECENT_TOKENS),
@@ -157,12 +165,15 @@ fn trim_tool_output(conversation: &mut Conversation, keep_recent_tokens: u32) ->
     let keep_chars = keep_recent_tokens as usize * CHARS_PER_TOKEN;
     let mut seen = 0;
     let mut dropped = 0;
+
     for entry in conversation.entries_mut().iter_mut().rev() {
         let recent = seen < keep_chars;
         seen += entry.content().len();
+
         if recent {
             continue;
         }
+
         if let EntryKind::Tool { output, .. } = &mut entry.kind
             && output.len() > TRIM_OVER_CHARS
         {
@@ -173,6 +184,7 @@ fn trim_tool_output(conversation: &mut Conversation, keep_recent_tokens: u32) ->
             );
         }
     }
+
     dropped
 }
 

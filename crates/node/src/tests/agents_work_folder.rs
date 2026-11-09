@@ -15,6 +15,7 @@ fn names_of(folder: &WorkFolder) -> Vec<&str> {
 fn paths_stay_inside_the_root() {
     assert_eq!(names("src/./lib.rs").unwrap(), PathBuf::from("src/lib.rs"));
     assert_eq!(names("").unwrap(), PathBuf::new());
+
     for bad in ["../secret", "src/../../etc", "a/.."] {
         let e = names(bad).unwrap_err();
         assert!(e.to_string().contains("outside"), "{bad}: {e:#}");
@@ -58,6 +59,7 @@ fn marks_what_git_sees_changed() {
         eprintln!("skipped: no git");
         return;
     }
+
     let dir = TempDir::new().unwrap();
     let at = dir.path();
     run_git(at, &["init", "-q"]);
@@ -116,13 +118,16 @@ fn a_tree_reads_levels_down_to_its_depth() {
 #[test]
 fn a_tree_stops_past_its_entries() {
     let dir = TempDir::new().unwrap();
+
     for folder in ["a", "b", "c"] {
         let at = dir.path().join(folder);
         fs::create_dir_all(&at).unwrap();
+
         for n in 0..MAX_WORK_ENTRIES {
             fs::write(at.join(n.to_string()), "").unwrap();
         }
     }
+
     let got = tree(&root_in(&dir), "", false, 3).unwrap();
     assert_eq!(paths_of(&got), ["", "a", "b"]);
     assert!(got.truncated);
@@ -134,6 +139,7 @@ fn a_tree_marks_changes_in_each_folder() {
         eprintln!("skipped: no git");
         return;
     }
+
     let dir = TempDir::new().unwrap();
     let at = dir.path();
     run_git(at, &["init", "-q"]);

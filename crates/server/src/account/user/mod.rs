@@ -156,6 +156,7 @@ impl User {
     /// The user's date in their timezone, UTC when unknown.
     pub async fn today(&self) -> NaiveDate {
         let now = Utc::now();
+
         match self.timezone().await {
             Some(tz) => now.with_timezone(&tz).date_naive(),
             None => now.date_naive(),
@@ -180,6 +181,7 @@ impl User {
             let mut ticks = interval(KEEP_ALIVE);
             // The first tick is immediate; the servers connect on first use.
             ticks.tick().await;
+
             while user.tick(&mut ticks).await {
                 user.keep_mcp_alive().await;
             }
@@ -189,6 +191,7 @@ impl User {
         tokio::spawn(async move {
             let mut ticks = interval(SYNC_SWEEP);
             ticks.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
             while user.tick(&mut ticks).await {
                 feeds::sync_user(&sync_app, &user, &user.feeds().await).await;
             }
@@ -197,12 +200,14 @@ impl User {
         let (app, user) = (app.clone(), self.clone());
         tokio::spawn(async move {
             let mut ticks = interval(CURATE_SWEEP);
+
             while user.tick(&mut ticks).await {
                 match user.file_memories().await {
                     Ok(0) => {}
                     Ok(filed) => log::info!("filed {filed} memories; user={user}"),
                     Err(error) => log::warn!("unable to file memories: {error}; user={user}"),
                 }
+
                 user.curate_if_needed(app.generator(user.id())).await;
             }
         });

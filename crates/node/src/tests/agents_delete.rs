@@ -53,6 +53,7 @@ impl Machine {
         let dir = tempfile::tempdir().expect("a temp folder");
         let root = dir.path();
         let user = r#"{"type":"user","timestamp":"2026-10-29T08:00:00.000Z","message":{"role":"user","content":"hi"}}"#;
+
         for id in [CLAUDE_ID, CLAUDE_OTHER] {
             write(
                 &root.join(format!("claude/projects/-srv-project/{id}.jsonl")),
@@ -65,6 +66,7 @@ impl Machine {
                 "{}",
             );
         }
+
         for id in [CODEX_ID, CODEX_OTHER] {
             let head = format!(
                 r#"{{"type":"session_meta","payload":{{"id":"{id}","cwd":"/srv/project","timestamp":"2026-08-27T23:01:39.077Z"}}}}"#
@@ -74,6 +76,7 @@ impl Machine {
                 &format!("{head}\n"),
             );
         }
+
         for id in ["p1", "p2"] {
             let head = format!(
                 r#"{{"type":"session","version":3,"id":"{id}","timestamp":"2026-08-27T23:01:39.077Z","cwd":"/srv/project"}}"#
@@ -83,6 +86,7 @@ impl Machine {
                 &format!("{head}\n"),
             );
         }
+
         write(&root.join("outside.jsonl"), "keep me");
         let agents = Agents {
             kinds: watch::Sender::new(Arc::new(vec![kind("claude"), kind("codex"), kind("pi")])),
@@ -170,6 +174,7 @@ async fn a_running_session_is_refused_and_an_ended_one_is_forgotten() {
         let err = m.agents.delete_session("claude", id).await.unwrap_err();
         assert!(err.to_string().contains("still runs"), "{err}");
     }
+
     assert!(m.claude(CLAUDE_ID), "the transcript stays");
     assert_eq!(m.agents.list().len(), 1);
 
@@ -207,6 +212,7 @@ async fn a_session_another_process_has_recently_written_is_refused() {
 #[tokio::test]
 async fn an_id_that_walks_out_of_the_store_is_refused() {
     let m = Machine::new();
+
     for agent in ["claude", "codex", "pi"] {
         for id in [
             "..",
@@ -225,6 +231,7 @@ async fn an_id_that_walks_out_of_the_store_is_refused() {
             );
         }
     }
+
     assert!(m.has("outside.jsonl"));
     assert!(m.claude(CLAUDE_ID) && m.codex(CODEX_ID) && m.pi("p1"));
 }
@@ -248,10 +255,12 @@ fn a_file_outside_the_store_or_a_link_to_one_is_not_removed() {
 #[tokio::test]
 async fn sessions_kept_in_a_database_are_refused() {
     let m = Machine::new();
+
     for agent in ["flsh", "opencode"] {
         let err = m.agents.delete_session(agent, "ses_1").await.unwrap_err();
         assert!(err.to_string().contains("database"), "{err}");
     }
+
     let err = m
         .agents
         .delete_session("gemini", "ses_1")

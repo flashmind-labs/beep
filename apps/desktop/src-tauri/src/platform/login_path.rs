@@ -23,10 +23,13 @@ const MARK: &str = "__beep_path__";
 /// Changes the environment, so it must run before any other thread starts.
 pub unsafe fn adopt() {
     let current = env::var("PATH").unwrap_or_default();
+
     if !bare(&current) {
         return;
     }
+
     let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+
     match login_path(&shell) {
         // SAFETY: the caller runs this before any other thread exists.
         Some(path) => unsafe { env::set_var("PATH", path) },
@@ -61,6 +64,7 @@ fn login_path(shell: &str) -> Option<String> {
         .spawn()
         .ok()?;
     let start = Instant::now();
+
     loop {
         match child.try_wait() {
             Ok(Some(_)) => break,
@@ -73,6 +77,7 @@ fn login_path(shell: &str) -> Option<String> {
             }
         }
     }
+
     let mut out = String::new();
     child.stdout.take()?.read_to_string(&mut out).ok()?;
     parse(&out)

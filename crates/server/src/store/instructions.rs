@@ -74,9 +74,11 @@ impl Store {
                 .fetch_one(&mut *tx)
                 .await?;
         let newest = newest.map(u32::try_from).transpose()?;
+
         if newest != base {
             return Ok(Saved::Stale(newest.unwrap_or_default()));
         }
+
         let next = i32::try_from(newest.unwrap_or_default())?
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("too many versions"))?;

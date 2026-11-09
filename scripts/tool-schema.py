@@ -21,8 +21,10 @@ COMPOSIO = "https://backend.composio.dev/api/v3.1"
 
 def composio(key, path):
     response = httpx.get(f"{COMPOSIO}/{path}", headers={"x-api-key": key}, timeout=30)
+
     if response.is_error:
         return {"error": f"{response.status_code} {response.reason_phrase}"}
+
     return response.json()
 
 
@@ -39,14 +41,18 @@ def fastmail_tools(database_url):
 
 def show(name, schema, description=""):
     print(f"## {name}")
+
     if description:
         print(f"   {description.strip().splitlines()[0][:160]}")
+
     required = set(schema.get("required") or [])
+
     for arg, spec in (schema.get("properties") or {}).items():
         mark = "*" if arg in required else " "
         kind = spec.get("type", "")
         about = (spec.get("description") or "").replace("\n", " ")[:120]
         print(f"  {mark} {arg} ({kind}) {about}")
+
     print()
 
 
@@ -63,27 +69,35 @@ def main():
     if args.list == "fastmail":
         print("\n".join(sorted(fastmail_tools(config["database_url"]))))
         return
+
     if args.list:
         listed = composio(config["composio_key"], f"tools?toolkit_slug={args.list}&limit=500")
         print("\n".join(sorted(tool["slug"] for tool in listed.get("items", []))))
         return
 
     fastmail = None
+
     for tool in args.tools:
         if tool.upper().startswith("FASTMAIL_"):
             if fastmail is None:
                 fastmail = fastmail_tools(config["database_url"])
+
             found = fastmail.get(tool.upper().removeprefix("FASTMAIL_").lower())
+
             if not found:
                 print(f"## {tool}: not in the cached Fastmail tools\n")
                 continue
+
             schema, description = found["input_schema"], found.get("description", "")
         else:
             found = composio(config["composio_key"], f"tools/{tool.upper()}")
+
             if "error" in found:
                 print(f"## {tool}: {found['error']}\n")
                 continue
+
             schema, description = found["input_parameters"], found.get("description", "")
+
         if args.json:
             json.dump({"name": tool, "input": schema}, sys.stdout, indent=1)
             print()

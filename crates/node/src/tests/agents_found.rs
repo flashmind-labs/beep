@@ -20,9 +20,11 @@ fn sessions_fold_into_their_checkout() {
     let sub = repo.join("crates/core");
     let tree = repo.join(".worktrees/fix");
     let loose = home.join("notes");
+
     for dir in [&sub, &tree, &loose] {
         std::fs::create_dir_all(dir).expect("folders");
     }
+
     let gone = home.join("gone");
     let all = vec![
         seen(Agent::Claude, "a", &repo, 100),

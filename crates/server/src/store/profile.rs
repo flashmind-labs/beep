@@ -90,6 +90,7 @@ impl Store {
     /// Forgets the read of `source` and its notes, so the next read starts over.
     pub(crate) async fn reset_profile_read(&self, user: &UserKey, source: &str) -> Result<()> {
         let mut tx = self.pool.begin().await?;
+
         for table in ["profile_notes", "profile_reads"] {
             sqlx::query(&format!(
                 "DELETE FROM {table} WHERE user_id=$1 AND source=$2"
@@ -99,6 +100,7 @@ impl Store {
             .execute(&mut *tx)
             .await?;
         }
+
         tx.commit().await?;
         Ok(())
     }

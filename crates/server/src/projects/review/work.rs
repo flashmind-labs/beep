@@ -62,5 +62,6 @@ pub(crate) async fn start_fix(
             start_failed(&fleet, user, project, &task, &error.to_string()).await?;
         }
     }
+
     Ok(user.project_task(task.id).await?.unwrap_or(task))
 }

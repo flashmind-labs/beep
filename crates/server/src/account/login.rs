@@ -53,6 +53,7 @@ pub(crate) async fn start(
     device: &str,
 ) -> Result<SecretText, ApiError> {
     let config = config(app)?;
+
     if device.trim().is_empty() || device.len() > MAX_NAME {
         return Err(ApiError::bad_request(
             "the device name is empty or too long",
@@ -77,6 +78,7 @@ pub(crate) async fn complete(app: &App, key: NewKey<'_>, token: &str) -> Result<
         name: claims.name.as_deref(),
     };
     let endpoint = key.endpoint;
+
     match app
         .store
         .complete_login(&code_hash(&claims.code), &login, key)
@@ -84,9 +86,11 @@ pub(crate) async fn complete(app: &App, key: NewKey<'_>, token: &str) -> Result<
     {
         LoginEnd::SignedIn { user } => {
             log::info!("a login signed in; user={user} key={endpoint}");
+
             if let Some(user) = app.user(&user) {
                 user.changed("");
             }
+
             Ok(())
         }
         LoginEnd::BadCode => Err(refused()),

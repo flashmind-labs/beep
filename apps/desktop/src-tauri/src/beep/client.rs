@@ -163,9 +163,11 @@ impl Beep {
     /// works without a server works the same.
     fn reach(&self) -> Result<Arc<Client>> {
         let client = self.server.as_ref().ok_or(DesktopError::NoServer)?;
+
         if self.signed_out() {
             return Err(DesktopError::Unlinked);
         }
+
         Ok(client.clone())
     }
 
@@ -200,6 +202,7 @@ impl Beep {
         if self.server.is_none() {
             return LinkState::Unlinked;
         }
+
         self.saved().effective_link()
     }
 
@@ -253,9 +256,11 @@ impl Beep {
             let saved = self.saved();
             sessions.iter().any(|id| !saved.researches.contains(id))
         };
+
         if !missing {
             return;
         }
+
         self.update_saved(|s| {
             for session in sessions {
                 if !s.researches.contains(session) {
@@ -311,6 +316,7 @@ impl Beep {
         if self.saved().live_chats.last() == Some(&session) {
             return;
         }
+
         self.update_saved(|s| {
             s.live_chats.retain(|id| *id != session);
             s.live_chats.push(session);
@@ -334,11 +340,13 @@ impl Beep {
     /// unlinked, so the server does not make this key an account of its own.
     async fn client(&self) -> Result<Arc<Client>> {
         let client = self.reach()?;
+
         match self.link_state() {
             LinkState::Unlinked => return Err(DesktopError::Unlinked),
             LinkState::Revoked => return Err(DesktopError::Revoked),
             LinkState::Linked => {}
         }
+
         self.follow_events(&client);
         Ok(client)
     }
@@ -346,9 +354,11 @@ impl Beep {
     /// Opens the events stream if none is followed.
     fn follow_events(&self, client: &Arc<Client>) {
         let mut follow = self.follow.lock().unwrap_or_else(PoisonError::into_inner);
+
         if follow.is_some() {
             return;
         }
+
         let notices = self.notices.clone();
         let updates = self.updates.clone();
         let on_event: OnEvent = Arc::new(move |event| match event {
@@ -403,6 +413,7 @@ impl Beep {
     /// that took it as a guest answers.
     pub(super) async fn guest_call<R: Call>(&self, request: R) -> Result<R::Reply> {
         let client = self.reach()?;
+
         match timeout(CALL_TIMEOUT, client.call(&request)).await {
             Ok(Ok(reply)) => Ok(reply),
             Ok(Err(e)) => Err(self.failed(e)),
@@ -422,11 +433,13 @@ impl Beep {
     pub(super) async fn connect_to(&self, server: EndpointId) -> Result<Client> {
         let client = new_client(&self.identity)?;
         let id = connect_in_time(client.server_id(), CONNECT_TIMEOUT).await?;
+
         if id != server {
             return Err(DesktopError::BadRequest(
                 "this Mac does not know where that server answers".into(),
             ));
         }
+
         Ok(client)
     }
 
@@ -437,6 +450,7 @@ impl Beep {
             self.stop_events();
             return DesktopError::Revoked;
         }
+
         e.into()
     }
 
@@ -447,6 +461,7 @@ impl Beep {
     /// `call` for a request that may take longer, such as a clone.
     pub async fn call_within<R: Call>(&self, request: R, limit: Duration) -> Result<R::Reply> {
         let client = self.client().await?;
+
         match timeout(limit, client.call(&request)).await {
             Ok(Ok(reply)) => Ok(reply),
             Ok(Err(e)) => Err(self.failed(e)),
@@ -456,6 +471,7 @@ impl Beep {
 
     pub async fn stream<R: Stream>(&self, request: R) -> Result<Replies<R::Reply>> {
         let client = self.client().await?;
+
         match client.stream(&request).await {
             Ok(replies) => Ok(replies),
             Err(e) => Err(self.failed(e)),
@@ -469,6 +485,7 @@ impl Beep {
         request: R,
     ) -> Result<(Uplink<R::Up>, Replies<R::Reply>)> {
         let client = self.client().await?;
+
         match client.duplex(&request).await {
             Ok(opened) => Ok(opened),
             Err(e) => Err(self.failed(e)),
@@ -494,6 +511,10 @@ impl Beep {
     }
 
     pub async fn sessions(&self) -> Result<Vec<Session>> {
+        if !self.has_server() {
+            return Ok(self.chats.sessions().unwrap_or_default());
+        }
+
         match self.chats.sessions() {
             Some(sessions) => Ok(sessions),
             // Without the alerts; a server from before them lists all.
@@ -513,6 +534,7 @@ impl Beep {
             .map_err(anyhow::Error::from)?;
         match copy {
             Some(found) => Ok(found),
+            None if !self.has_server() => Ok(Vec::new()),
             None => match known(
                 self.call(SearchChats {
                     query: query.clone(),
@@ -532,13 +554,16 @@ impl Beep {
         partial.push(".part");
         let partial = PathBuf::from(partial);
         let mut result = self.download_to(id, &partial).await;
+
         if result.is_ok() {
             result = fs::rename(&partial, dest).map_err(|e| anyhow::Error::from(e).into());
         }
+
         if result.is_err() {
             // Best effort: a leftover `.part` file is never opened.
             let _ = fs::remove_file(&partial);
         }
+
         result
     }
 
@@ -546,6 +571,7 @@ impl Beep {
     async fn download_to(&self, id: &str, path: &Path) -> Result<()> {
         let mut out = File::create(path).map_err(anyhow::Error::from)?;
         let mut offset = 0;
+
         loop {
             let part = self
                 .call(GetFile {
@@ -559,8 +585,10 @@ impl Beep {
                     part.size
                 )));
             }
+
             out.write_all(&part.data).map_err(anyhow::Error::from)?;
             offset += part.data.len() as u64;
+
             if offset >= part.size {
                 return Ok(());
             }

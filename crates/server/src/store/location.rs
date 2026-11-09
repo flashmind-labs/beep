@@ -55,6 +55,7 @@ impl Store {
         if changed {
             self.notify_crons_changed();
         }
+
         Ok(())
     }
 

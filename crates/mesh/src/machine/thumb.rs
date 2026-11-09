@@ -39,6 +39,7 @@ pub async fn thumb_of(image: Picture) -> Picture {
         thumbnail(&reading.data)
     })
     .await;
+
     match made {
         Ok(Ok(Some(data))) => Picture {
             mime: "image/jpeg".to_owned(),
@@ -78,6 +79,7 @@ fn small_picture(data: &[u8]) -> ImageResult<Option<RgbImage>> {
     if width.max(height) <= THUMB_EDGE {
         return Ok(None);
     }
+
     let mut limits = Limits::default();
     limits.max_image_width = Some(DECODED_EDGE);
     limits.max_image_height = Some(DECODED_EDGE);
@@ -85,9 +87,11 @@ fn small_picture(data: &[u8]) -> ImageResult<Option<RgbImage>> {
     let mut reader = ImageReader::new(Cursor::new(data)).with_guessed_format()?;
     reader.limits(limits);
     let small = reader.decode()?.thumbnail(THUMB_EDGE, THUMB_EDGE);
+
     if !small.color().has_alpha() {
         return Ok(Some(small.to_rgb8()));
     }
+
     let mut flat = RgbaImage::from_pixel(small.width(), small.height(), Rgba([255; 4]));
     overlay(&mut flat, &small.to_rgba8(), 0, 0);
     Ok(Some(DynamicImage::ImageRgba8(flat).to_rgb8()))

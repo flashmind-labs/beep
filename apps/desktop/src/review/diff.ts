@@ -231,13 +231,16 @@ export function diffView(src: DiffSource): DiffViewHandle {
   files.style.position = "relative";
   const fileObserver = new IntersectionObserver(entries => {
     const near: string[] = [];
+
     for (const entry of entries) {
       const path = (entry.target as HTMLElement).dataset.path!;
+
       if (entry.isIntersecting) {
         visibleFiles.add(path);
         near.push(path);
       } else visibleFiles.delete(path);
     }
+
     updateBodyModes(near);
   }, { root: files, rootMargin: `${MARGIN}px 0px` });
   const chunkObserver = new IntersectionObserver(entries => {
@@ -248,6 +251,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
       if (!entry.isIntersecting && (c.box.querySelector(".dv-cmt.open") || selected(c.box))) return [];
       return [{ c, want: entry.isIntersecting, rect: c.box.getBoundingClientRect() }];
     });
+
     // Read all old heights before changing the DOM, then measure the new ones
     // together. Scrolling itself never walks the offscreen chunks.
     for (const { c, want, rect } of changes) {
@@ -255,10 +259,13 @@ export function diffView(src: DiffSource): DiffViewHandle {
       c.box.style.height = want ? "" : `${rect.height}px`;
       c.live = want;
     }
+
     let shift = 0;
+
     for (const { c, want, rect } of changes) {
       if (want && rect.bottom <= top) shift += c.box.getBoundingClientRect().height - rect.height;
     }
+
     // Even assigning the same scrollTop stops WebKit's trackpad momentum.
     if (shift) files.scrollTop += shift;
     markCurrent();
@@ -294,6 +301,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     sum.replaceChildren();
     sum.title = "";
     const v = st.view;
+
     if (!v) {
       sum.append(el("b", "", st.loading ? "Reading the changes…" : "Changes"));
     } else {
@@ -301,6 +309,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
       sum.title = baseTitle(v, st.uncommitted);
       sum.append(el("b", "", changedLabel(v)), ...counts(v.additions, v.deletions).filter(x => x != null), base);
     }
+
     const none = !v?.files.length;
     foldBtn.disabled = none;
     find.disabled = none;
@@ -325,17 +334,21 @@ export function diffView(src: DiffSource): DiffViewHandle {
     placedCache = null;
     if (st.error) files.append(el("div", "dv-err", st.error));
     files.append(lostBox);
+
     if (!v) {
       if (st.loading) files.append(el("div", "dv-empty", el("span", "dspin"), "Reading the changes…"));
       return;
     }
+
     if (!v.files.length) {
       files.append(el("div", "dv-empty", el("b", "", "Nothing changed"),
         el("span", "", v.working_tree ? `The folder matches ${v.base}, with nothing uncommitted.` : `The branch has no commits past ${v.base}.`)));
       drawReview();
       return;
     }
+
     files.append(matchNote);
+
     for (const f of v.files) {
       const { dir, name } = splitPath(f.path);
       const row = el("button", "dv-tr", el("span", `dv-st ${STATUS_LETTER[f.status]}`, STATUS_LETTER[f.status]),
@@ -352,6 +365,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
       files.append(section);
       fileObserver.observe(section);
     }
+
     if (v.more) files.append(el("div", "dv-more", `And ${v.more.toLocaleString("en-US")} more files not shown.`));
     applyFilter();
     drawReview();
@@ -390,11 +404,13 @@ export function diffView(src: DiffSource): DiffViewHandle {
       sections.get(f.path)!.hidden = hide;
       treeFiles.get(f.path)!.hidden = hide;
     });
+
     // Check child folders before deciding whether to hide their parents.
     for (const [path, { group, children }] of [...treeFolders].reverse()) {
       group.hidden = [...children.children].every(child => (child as HTMLElement).hidden);
       group.open = !!st.filter.trim() || !st.closedFolders.has(path);
     }
+
     matchNote.hidden = !st.filter.trim();
     matchNote.textContent = `${shown().length} of ${v.files.length} files match`;
     markCurrent();
@@ -404,10 +420,12 @@ export function diffView(src: DiffSource): DiffViewHandle {
   /// The right-click menu of a file, on its header or its row in the list.
   function fileMenu(e: MouseEvent, f: DiffFile) {
     const items: MenuItem[] = [{ label: "Copy path", on: () => void copy(f.path) }];
+
     if (src.open && f.status !== "deleted") {
       const open = src.open;
       items.unshift({ label: open.label, on: () => open.run(f.path) });
     }
+
     const fuller = openMenu(e, f.path, items);
     if (!src.menu || f.status === "deleted") return;
     src.menu(f.path, { x: e.clientX, y: e.clientY }).then(more => { if (more.length) fuller([...items, ...more]); }, () => {});
@@ -418,6 +436,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const section = el("section", `dv-file${folded ? " closed" : ""}`);
     section.dataset.path = f.path;
     const path = el("span", "dv-path");
+
     if (f.old_path) {
       const old = el("span", "old", f.old_path);
       old.title = f.old_path;
@@ -426,6 +445,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
       to.title = "renamed to";
       path.append(old, to);
     }
+
     const now = el("span", "", f.path);
     now.title = f.path;
     path.append(now);
@@ -436,10 +456,12 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const acts = el("span", "dv-facts", ...(!src.readOnly ? [btn("Comment", "", "Comment on this file", () => {
       addBox({ path: f.path, side: "new", line: null, text: "" }, "", "Comment on this file", box => fcs.append(box));
     })] : []), btn(icon(SVG.copy), "icon", "Copy path", () => copy(f.path)));
+
     if (src.open && f.status !== "deleted") {
       const open = src.open;
       acts.append(btn(icon(SVG.open), "icon", open.label, () => open.run(f.path)));
     }
+
     const fh = el("div", "dv-fh", el("span", "dv-chev", icon(SVG.chev)), path, el("span", `dv-chip ${f.status}`, f.status),
       el("span", "dv-fct", ...counts(f.additions, f.deletions)), el("span", "dv-fcm", countLabel(f.path)), acts);
     fh.addEventListener("contextmenu", e => fileMenu(e, f));
@@ -463,16 +485,20 @@ export function diffView(src: DiffSource): DiffViewHandle {
   function fileBody(f: DiffFile): HTMLElement {
     bodyModes.set(f.path, st.split && !st.narrow);
     const note = leftOutNote(f);
+
     if (note) {
       const box = el("div", "dv-note", note.text);
+
       if (note.load) {
         const busy = st.pending.has(f.path);
         const b = btn(busy ? "Loading…" : note.load, "", "", () => loadFull(f));
         b.disabled = busy;
         box.append(b);
       }
+
       return box;
     }
+
     const split = st.split && !st.narrow;
     const lines = el("div", split ? "dv-lines split" : "dv-lines");
     lines.style.setProperty("--nw", String(Math.max(2, numberWidth(f))));
@@ -486,16 +512,19 @@ export function diffView(src: DiffSource): DiffViewHandle {
       if (r.kind === "gap") return [gapRow(r.lines)];
       const lc = placed().files.get(f.path)?.lines;
       const saved = (...keys: (string | null)[]) => (lc?.size ? keys.flatMap(k => (k && lc.get(k)) || []).map(c => commentEl(c, "")) : []);
+
       if (r.kind === "pair") {
         return [el("div", "dv-pair", cell(r.left), cell(r.right)),
           ...saved(r.left?.k === "-" ? lineKey("old", r.left.num) : null, r.right ? lineKey("new", r.right.num) : null)];
       }
+
       return [lineRow(r.k, r.old, r.new, r.text, r.eol), ...saved(r.k === "-" ? lineKey("old", r.old!) : lineKey("new", r.new!))];
     };
     // Rows are drawn in chunks, only while they are near the viewport; a
     // chunk off screen is an empty box as tall as it last was.
     const cols = Math.floor(((files.clientWidth || 900) / 2 - Math.max(2, numberWidth(f)) * CH - 50) / CH);
     const items: (DiffRow | SplitRow)[] = split ? splitRows(rows) : rows;
+
     for (let i = 0; i < items.length; i += CHUNK) {
       const slice = items.slice(i, i + CHUNK);
       const box = el("div", "dv-chunk");
@@ -504,6 +533,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
       chunkObserver.observe(box);
       lines.append(box);
     }
+
     return el("div", "dv-scroll", lines);
   }
 
@@ -535,10 +565,12 @@ export function diffView(src: DiffSource): DiffViewHandle {
     send.title = `Send ${n} ${n === 1 ? "comment" : "comments"} to the agent as one message`;
     send.hidden = !!src.readOnly || !n;
     send.disabled = st.sending;
+
     for (const [path, s] of sections) {
       const t = s.querySelector(".dv-fcm");
       if (t) t.textContent = countLabel(path);
     }
+
     const lost = st.view ? placed().lost : [];
     lostBox.replaceChildren(...(lost.length ? [el("div", "dv-lh", "On files no longer in the changes"), ...lost.map(c => commentEl(c, `${c.path} ${lineLabel(c)}`.trim()))] : []));
   }
@@ -648,12 +680,14 @@ export function diffView(src: DiffSource): DiffViewHandle {
     drawReview();
     const why = await src.review.send(reviewText(src.review.heading(), st.view?.files ?? [], sent));
     st.sending = false;
+
     if (why) {
       st.error = why;
     } else {
       st.draft = st.draft.filter(c => !sent.includes(c));
       saveDraft(src.review.key, st.draft);
     }
+
     const keep = files.scrollTop;
     drawHead();
     drawFiles();
@@ -735,9 +769,11 @@ export function diffView(src: DiffSource): DiffViewHandle {
   function jump(path: string) {
     const section = sections.get(path);
     if (!section) return;
+
     for (const [folder, { group }] of treeFolders) {
       if (path.startsWith(folder)) { st.closedFolders.delete(folder); group.open = true; }
     }
+
     st.cur = path;
     markCurrent();
     files.scrollTo({ top: section.offsetTop - 10, behavior: typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
@@ -746,14 +782,17 @@ export function diffView(src: DiffSource): DiffViewHandle {
   function onKey(e: KeyboardEvent) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const t = e.target as HTMLElement;
+
     if (t === find) {
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); find.blur(); root.focus(); }
       return;
     }
+
     if (t.closest("input, textarea, [contenteditable='true']")) return;
     const list = shown();
     if (["j", "k", "x", "/"].includes(e.key)) e.stopPropagation();
     const at = list.findIndex(f => f.path === st.cur);
+
     if (e.key === "j" || e.key === "k") {
       const i = stepFile(at, list.length, e.key === "j" ? 1 : -1);
       e.preventDefault();
@@ -781,12 +820,14 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (!st.view || st.pending.has(f.path)) return;
     st.pending.add(f.path);
     redrawFile(f.path);
+
     try {
       const got = await src.load([f.path], true, st.uncommitted);
       if (st.view) st.view = withLoaded(st.view, got.files);
     } catch (e) {
       st.error = `Could not read ${f.path}: ${reasonOf(e)}`;
     }
+
     st.pending.delete(f.path);
     st.folded.set(f.path, false);
     drawFiles();
@@ -810,6 +851,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     st.error = "";
     drawHead();
     if (!st.view) drawFiles();
+
     try {
       const view = await src.load([], false, st.uncommitted);
       if (seq !== st.seq) return;
@@ -818,6 +860,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
       if (seq !== st.seq) return;
       st.error = reasonOf(e);
     }
+
     st.loading = false;
     const keep = files.scrollTop;
     drawHead();

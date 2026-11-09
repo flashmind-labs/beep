@@ -39,7 +39,9 @@ pub(super) fn read_chunk(path: &str, offset: u64, home: Option<&Path>) -> Result
     if !meta.is_file() {
         bail!("{path} is not a file");
     }
+
     let size = meta.len();
+
     if size > MAX_AGENT_FILE {
         bail!(
             "{path} is {} MB, over the {} MB that can be shown",
@@ -47,13 +49,16 @@ pub(super) fn read_chunk(path: &str, offset: u64, home: Option<&Path>) -> Result
             MAX_AGENT_FILE / (1024 * 1024)
         );
     }
+
     let mut data = Vec::new();
+
     if offset < size {
         let want = (size - offset).min(AGENT_FILE_CHUNK as u64);
         file.seek(SeekFrom::Start(offset))
             .and_then(|_| file.take(want).read_to_end(&mut data))
             .with_context(|| format!("could not read {path}"))?;
     }
+
     Ok(Some(Chunk { size, mime, data }))
 }
 
@@ -64,10 +69,13 @@ pub(super) fn resolve(path: &str, home: Option<&Path>) -> Result<PathBuf> {
         let home = home.context("this node has no home folder to read ~/ in")?;
         return Ok(home.join(rest));
     }
+
     let full = Path::new(path);
+
     if !full.is_absolute() {
         bail!("{path} is not an absolute path or one starting ~/");
     }
+
     Ok(full.to_path_buf())
 }
 

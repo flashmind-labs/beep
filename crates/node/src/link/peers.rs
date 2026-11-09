@@ -9,11 +9,12 @@
 use crate::{
     agents::SessionsAlpn,
     files::transfer::Transfers,
+    link::Protocol,
     link::from_mesh,
     link::local_socket::{Listener, Stream},
     link::local_status::{self, LocalStatus},
+    link::protocol::SessionProtocol,
     link::report::serve_report,
-    link::Protocol,
     link::serve::{Offers, Who, read_open, serve_open, withheld},
     link::watchdog::{self, Step},
     machine::{env, stats},
@@ -167,45 +168,66 @@ impl Inner {
 
     /// Serves a stream a peer, or this process, opened.
     async fn serve(&self, tx: LinkTx, mut rx: LinkRx, who: Who) -> Result<()> {
-        let open = read_open(&mut rx).await?;
+        let protocol = read_open(&mut rx).await?;
         // A protocol still on its way is waited for; the others are not held up.
         let mut later = self.later.subscribe();
+
         if later
-            .wait_for(|later| !later.contains(&open.protocol))
+            .wait_for(|later| !later.contains::<str>(protocol.as_ref()))
             .await
             .is_err()
         {
             bail!("the node stopped");
         }
+
         let offers = self.offers().clone();
-        // Only a desktop, or this process, reads a problem report, lent or
-        // not: a node sends its own and reads no one else's.
-        if open.protocol == report::PROTOCOL {
-            let mut tx = tx;
-            if let Who::Node { .. } = who {
-                let reason = "only a desktop reads a problem report".to_owned();
-                return tx.send(&Opened::Refused { reason }).await;
+        // Diagnostics are available to a desktop or this process, even when not lent.
+        match protocol {
+            SessionProtocol::Metrics => {
+                let mut tx = tx;
+
+                if let Who::Node { .. } = who {
+                    return tx
+                        .send(&Opened::Refused {
+                            reason: "only a desktop reads another machine's metrics".to_owned(),
+                        })
+                        .await;
+                }
+
+                tx.send(&Opened::Ready {}).await?;
+                return super::metrics::serve(tx, rx, self.dir.join("metrics.log")).await;
             }
-            tx.send(&Opened::Ready {}).await?;
-            return match self.local_status().await {
-                Ok(status) => {
-                    serve_report(tx, rx, status, offers.log, self.dir.join("metrics.log")).await
+            SessionProtocol::Report => {
+                let mut tx = tx;
+
+                if let Who::Node { .. } = who {
+                    let reason = "only a desktop reads a problem report".to_owned();
+                    return tx.send(&Opened::Refused { reason }).await;
                 }
-                Err(e) => {
-                    let reason = format!("this machine's status could not be read: {e:#}");
-                    tx.send(&report::Reply::Failed { reason }).await?;
-                    tx.finish().await
-                }
-            };
+
+                tx.send(&Opened::Ready {}).await?;
+                return match self.local_status().await {
+                    Ok(status) => {
+                        serve_report(tx, rx, status, offers.log, self.dir.join("metrics.log")).await
+                    }
+                    Err(e) => {
+                        let reason = format!("this machine's status could not be read: {e:#}");
+                        tx.send(&report::Reply::Failed { reason }).await?;
+                        tx.finish().await
+                    }
+                };
+            }
+            _ => {}
         }
         // The person at this machine is not held to the setting; a device of the mesh is.
         if who.id() != self.endpoint.id()
-            && let Some(reason) = withheld(&open.protocol, offers.lends_to_peers())
+            && let Some(reason) = withheld(protocol.as_ref(), offers.lends_to_peers())
         {
             let mut tx = tx;
             return tx.send(&Opened::Refused { reason }).await;
         }
-        serve_open(tx, rx, open, offers, who).await
+
+        serve_open(tx, rx, protocol, offers, who).await
     }
 }
 
@@ -271,16 +293,20 @@ impl Peers {
     /// once this returns. Peers are refused until `install`.
     pub async fn leave(&self) {
         let follower = self.inner.follower().take();
+
         if let Some(follower) = follower {
             follower.abort();
             // Returns once the task, and the mesh it held, is gone.
             follower.await.ok();
         }
+
         let offers = self.inner.offers().clone();
         offers.mesh.clear();
+
         if let Some(transfers) = offers.transfers.get() {
             transfers.syncs().unfollow();
         }
+
         self.inner
             .active
             .lock()
@@ -336,9 +362,11 @@ impl Peers {
     pub(crate) async fn join(&self, ticket: &str) -> Result<()> {
         let ticket = JoinTicket::parse(ticket)?;
         let old = self.active().map(|active| active.mesh);
+
         if old.as_ref().is_some_and(|mesh| mesh.is_member(mesh.me())) {
             bail!("this node already belongs to a mesh");
         }
+
         let mesh = match old {
             Some(old) => {
                 self.leave().await;
@@ -371,9 +399,11 @@ impl Peers {
     pub(crate) async fn forget(&self) -> Result<()> {
         let old = self.active().map(|active| active.mesh);
         self.leave().await;
+
         if let Some(old) = old {
             close_within(old).await?;
         }
+
         Mesh::forget(&self.inner.dir)
             .await
             .context("could not delete the mesh")
@@ -421,6 +451,7 @@ impl Peers {
             kind,
             client: Ok(PeerClient::local(self.local_session())),
         };
+
         match active.filter(|active| active.mesh.is_member(me)) {
             Some(active) => active
                 .mesh
@@ -428,6 +459,7 @@ impl Peers {
                 .into_iter()
                 .map(|status| {
                     let device = status.device;
+
                     if device.id == me {
                         return own(device.name, device.kind);
                     }
@@ -480,9 +512,11 @@ impl Peers {
         };
         let offers = self.inner.offers().clone();
         offers.mesh.set(active.mesh.clone());
+
         if let Some(transfers) = offers.transfers.get() {
             transfers.syncs().follow(active.mesh.clone());
         }
+
         let follow = from_mesh::follow(
             active.mesh.clone(),
             self.inner.endpoint.id(),
@@ -560,6 +594,7 @@ impl Peers {
                     DeviceKind::Node => Who::Node { peer, desktop_here },
                 };
                 let (tx, rx) = link(send, recv);
+
                 if let Err(e) = inner.serve(tx, rx, who).await {
                     log::debug!("a stream from {peer} ended: {e:#}");
                 }
@@ -646,6 +681,7 @@ where
     let mut traffic = interval(REPORT_TRAFFIC);
     traffic.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut reported = None;
+
     loop {
         tokio::select! {
             // The peer finished its side: it has no more to say, or left.
@@ -664,6 +700,7 @@ where
             }
             Some(probed) = async { probing.as_mut()?.await.into() }, if probing.is_some() => {
                 probing = None;
+
                 match probed {
                     Ok(now) => {
                         let now = EnvReport { adapters: offers.agents.adapter_installs(), ..now };
@@ -694,6 +731,7 @@ async fn send_env(tx: &mut LinkTx, reported: &mut Option<EnvReport>, now: EnvRep
         tx.send(&Report::Env(now.clone())).await?;
         *reported = Some(now);
     }
+
     Ok(())
 }
 
@@ -706,6 +744,7 @@ const CLOSE_POLL: Duration = Duration::from_millis(25);
 /// a handle, for at most `CLOSE_WAIT`.
 async fn close_within(mut mesh: Mesh) -> Result<()> {
     let deadline = tokio::time::Instant::now() + CLOSE_WAIT;
+
     loop {
         match mesh.close().await {
             Ok(()) => return Ok(()),
@@ -725,15 +764,19 @@ pub(crate) async fn listen(dir: &Path, peers: Peers) -> Result<()> {
     let mut listener = Listener::bind(&dir.join(SOCKET))?;
     let mut commands = JoinSet::new();
     log::info!("taking mesh commands on the control socket");
+
     loop {
         let stream = listener.accept().await.context("taking a mesh command")?;
+
         if commands.len() >= MAX_COMMANDS {
             log::warn!("refused a mesh command: {MAX_COMMANDS} already open");
             continue;
         }
+
         let peers = peers.clone();
         commands.spawn(async move {
             let _running = watchdog::enter(Step::MeshCommand);
+
             match timeout(COMMAND_LIMIT, answer(stream, &peers)).await {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => log::debug!("a mesh command failed: {e:#}"),
@@ -776,6 +819,7 @@ async fn answer(stream: Stream, peers: &Peers) -> Result<()> {
         }
     } else if request == DEVICES {
         let mut out = String::new();
+
         for status in peers.devices() {
             let device = status.device;
             let online = if status.online { "online" } else { "offline" };
@@ -785,6 +829,7 @@ async fn answer(stream: Stream, peers: &Peers) -> Result<()> {
                 device.kind, device.id, device.name
             )?;
         }
+
         out.push_str("end\n");
         out
     } else if request == STATUS {
@@ -820,6 +865,7 @@ const MAX_REQUEST: u64 = 16 * 1024;
 #[cfg(feature = "cli")]
 pub async fn join(dir: &Path, ticket: &str) -> Result<()> {
     let lines = ask(dir, &format!("{JOIN}{}", ticket.trim())).await?;
+
     match lines.first().map(String::as_str) {
         Some("joined") => Ok(()),
         Some(failed) => bail!("{}", failed.strip_prefix("failed ").unwrap_or(failed)),
@@ -831,6 +877,7 @@ pub async fn join(dir: &Path, ticket: &str) -> Result<()> {
 #[cfg(feature = "cli")]
 pub async fn leave(dir: &Path) -> Result<()> {
     let lines = ask(dir, LEAVE).await?;
+
     match lines.first().map(String::as_str) {
         Some("left") => Ok(()),
         Some(failed) => bail!("{}", failed.strip_prefix("failed ").unwrap_or(failed)),
@@ -871,6 +918,7 @@ async fn wait_for_node(dir: &Path, limit: Duration, mut retrying: impl FnMut()) 
             if local_socket::connect(&socket).await.is_ok() {
                 return;
             }
+
             retrying();
             tokio::time::sleep(RETRY).await;
         }
@@ -917,6 +965,7 @@ pub async fn local_status(dir: &Path) -> Result<Option<LocalStatus>> {
              this version (`beep-node update`, or restart the service)"
         );
     }
+
     let status = beep_proto::lenient::from_slice(&bytes).context("reading the node's status")?;
     Ok(Some(status))
 }
@@ -965,9 +1014,11 @@ pub async fn collect_report_within(
     })
     .await
     .map_err(|_| ReportError::Silent(limit.as_secs()))??;
+
     if bytes.is_empty() {
         return Err(ReportError::Older.into());
     }
+
     let shares = beep_proto::lenient::from_slice(&bytes).context("reading the node's report")?;
     Ok(Some(shares))
 }
@@ -988,10 +1039,12 @@ async fn ask(dir: &Path, request: &str) -> Result<Vec<String>> {
         while let Some(line) = lines.next_line().await? {
             let end = line == "end";
             answer.push(line);
+
             if end {
                 break;
             }
         }
+
         anyhow::Ok(())
     })
     .await

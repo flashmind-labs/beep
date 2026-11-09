@@ -29,9 +29,11 @@ impl Installation {
         let removed = remove_matching(&mut settings, |handler| {
             handler["command"].as_str() == Some(self.command.as_str())
         });
+
         if removed > 0 {
             write_settings(&self.settings, &settings)?;
         }
+
         Ok(())
     }
 }

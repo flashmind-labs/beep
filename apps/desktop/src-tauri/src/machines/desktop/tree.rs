@@ -94,9 +94,11 @@ pub fn compact<H>(root: Node<H>, max_elements: usize) -> Compact<H> {
     let max_lines = max_elements * (LINES_PER_ELEMENT + 1);
     let mut lines = 0;
     walk(root, 0, max_elements, max_lines, &mut lines, &mut out);
+
     if out.text.ends_with('\n') {
         out.text.pop();
     }
+
     out
 }
 
@@ -111,10 +113,12 @@ fn walk<H>(
     if !node.visible && depth > 0 {
         return;
     }
+
     if out.handles.len() >= max_elements || *lines >= max_lines {
         out.truncated = true;
         return;
     }
+
     let label = label(&node);
     let control = node.pressable || CONTROLS.contains(&node.role.as_str());
     let shown =
@@ -137,6 +141,7 @@ fn walk<H>(
             String::new()
         };
         let _ = write!(out.text, "{indent}{index}{}", role_name(&role));
+
         if let Some(label) = &label {
             let _ = write!(out.text, " {label:?}");
         }
@@ -146,18 +151,22 @@ fn walk<H>(
         {
             let _ = write!(out.text, " value={:?}", clip(value));
         }
+
         if !enabled {
             out.text.push_str(" (disabled)");
         }
+
         if focused {
             out.text.push_str(" (focused)");
         }
+
         out.text.push('\n');
         *lines += 1;
         depth + 1
     } else {
         depth
     };
+
     for child in children {
         walk(child, child_depth, max_elements, max_lines, lines, out);
     }
@@ -178,9 +187,11 @@ fn label<H>(node: &Node<H>) -> Option<String> {
 
 fn clip(text: &str) -> String {
     let line = text.lines().next().unwrap_or_default();
+
     if line.chars().count() <= MAX_LABEL && line.len() == text.len() {
         return line.to_owned();
     }
+
     let cut: String = line.chars().take(MAX_LABEL).collect();
     format!("{cut}...")
 }
@@ -188,16 +199,20 @@ fn clip(text: &str) -> String {
 /// `AXPopUpButton` reads as `pop up button`, `AXStaticText` as `text`.
 fn role_name(role: &str) -> String {
     let bare = role.strip_prefix("AX").unwrap_or(role);
+
     if bare == "StaticText" {
         return "text".into();
     }
+
     let mut out = String::new();
+
     for (i, c) in bare.chars().enumerate() {
         if c.is_uppercase() && i > 0 {
             out.push(' ');
         }
         out.extend(c.to_lowercase());
     }
+
     if out.is_empty() {
         "element".into()
     } else {

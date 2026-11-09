@@ -104,9 +104,11 @@ async fn until(mesh: &Mesh, ok: impl Fn(&Mesh) -> bool) {
     timeout(LIMIT, async {
         loop {
             updates.borrow_and_update();
+
             if ok(mesh) {
                 return;
             }
+
             updates.changed().await.expect("mesh is alive");
         }
     })
@@ -162,9 +164,11 @@ impl FakeNode {
         let Ok(Some(open)) = rx.recv::<Open>().await else {
             return;
         };
+
         if tx.send(&Opened::Ready {}).await.is_err() {
             return;
         }
+
         match open.protocol.as_str() {
             "status/1" => {
                 let offers = vec![shell::PROTOCOL.to_owned(), SESSIONS_PROTOCOL.to_owned()];
@@ -182,6 +186,7 @@ impl FakeNode {
                     syncthing: self.syncthing.clone(),
                     ..EnvReport::default()
                 };
+
                 if tx.send(&Report::Offers(offers)).await.is_err()
                     || tx.send(&Report::Env(env)).await.is_err()
                 {
@@ -201,6 +206,7 @@ impl FakeNode {
                         fresh: false,
                         truncated: false,
                     };
+
                     if tx.send(&Event::Output { text }).await.is_err()
                         || tx.send(&done).await.is_err()
                     {
@@ -218,6 +224,7 @@ impl FakeNode {
             }
             "agents/1" => {
                 let first = rx.recv::<SessionsRequest>().await;
+
                 if let Ok(Some(SessionsRequest::Diff { ask })) = first {
                     let diff = WorkDiff {
                         root: ask.root.clone(),
@@ -233,6 +240,7 @@ impl FakeNode {
                     tx.send(&SessionsReply::Diff { diff }).await.ok();
                     return;
                 }
+
                 if self.moves
                     && let Ok(Some(SessionsRequest::MoveProgress { .. })) = first
                 {
@@ -241,22 +249,27 @@ impl FakeNode {
                         .ok();
                     return;
                 }
+
                 let Ok(Some(SessionsRequest::FollowUsage { .. })) = first else {
                     return;
                 };
+
                 for reply in &self.usage {
                     if tx.send(reply).await.is_err() {
                         return;
                     }
                 }
+
                 if !self.late.is_empty() {
                     self.release.notified().await;
+
                     for reply in &self.late {
                         if tx.send(reply).await.is_err() {
                             return;
                         }
                     }
                 }
+
                 while let Ok(Some(_)) = rx.recv::<Open>().await {}
             }
             _ => {}
@@ -286,9 +299,11 @@ impl Peers for Peering {
         if self.never {
             std::future::pending::<()>().await;
         }
+
         if self.broken.load(Ordering::Relaxed) {
             return Err(FleetError::NoMesh("gone".into()));
         }
+
         Ok(self.mesh.clone())
     }
 
@@ -304,6 +319,7 @@ impl Peers for Peering {
         if self.stuck.contains(&machine) {
             std::future::pending::<()>().await;
         }
+
         Ok(match self.nodes.get(&machine) {
             Some(session) => PeerClient::local(session.clone()),
             None => PeerClient::over(self.mesh.clone(), machine),
@@ -489,6 +505,7 @@ async fn a_saved_github_token_reaches_every_node_and_no_log() {
             .map(|(_, bytes)| {
                 let value = Credential::from_bytes(bytes).expect("a node reads it");
                 assert!(!format!("{value:?}").contains(SECRET));
+
                 match value {
                     Credential::Env(env) => (env.name, env.value.expose().to_owned()),
                     other => panic!("{other:?}"),
@@ -505,6 +522,7 @@ async fn a_saved_github_token_reaches_every_node_and_no_log() {
             ]
         );
     }
+
     let laptop = desk(&f.laptop, &[]).await;
     let listed = laptop.credentials();
     assert_eq!(listed.len(), 1);
@@ -662,9 +680,11 @@ async fn home_sends_the_list_as_sources_answer_and_ends_on_the_final_one() {
         .expect("home's items read");
     drop(tx);
     let mut sent = Vec::new();
+
     while let Some(items) = rx.recv().await {
         sent.push(items);
     }
+
     assert!(!sent.is_empty(), "the list is sent before the run ends");
     assert_eq!(sent.last(), Some(&done.items), "the last one is the final");
     let mut numbers: Vec<u64> = done
@@ -1025,6 +1045,7 @@ async fn groups_pins_and_settings_replicate_to_every_desktop() {
     assert_eq!(shown[0].settings.args, ["--profile", "work"]);
     // The path is the machine's own: no other machine has it.
     let build_id = f.build.id.to_string();
+
     for row in &shown {
         let want = if row.machine_id == build_id {
             "/opt/codex"
@@ -1180,6 +1201,7 @@ async fn two_desktops_importing_a_project_on_different_machines_keep_both() {
     let (one, two) = tokio::join!(studio.import(job(a.leak())), laptop.import(job(b.leak())));
     one.expect("the first import works");
     two.expect("the second import works");
+
     for dev in [&f.studio, &f.laptop] {
         until(&dev.mesh, |m| m.scan("project/").len() == 3).await;
         let seen = desk(dev, &[]).await.imported().await;
@@ -1428,6 +1450,7 @@ async fn a_machine_points_at_an_empty_folder_or_a_checkout_and_the_old_one_stays
         ..FakeNode::default()
     });
     let studio = desk(&f.studio, &[(&f.build, &build), (&mac, &at_mac)]).await;
+
     for dev in [&f.build, &mac] {
         studio
             .import(ImportJob {
@@ -1440,6 +1463,7 @@ async fn a_machine_points_at_an_empty_folder_or_a_checkout_and_the_old_one_stays
             .await
             .expect("the import works");
     }
+
     let key = Key::Sync("acme/widget".to_owned());
     let folder_on = |id: EndpointId| {
         f.studio
@@ -1505,11 +1529,13 @@ async fn a_machine_points_at_an_empty_folder_or_a_checkout_and_the_old_one_stays
 async fn each_machine_says_how_it_syncs_and_only_an_unreachable_one_is_offline() {
     let f = fleet().await;
     let mut others = Vec::new();
+
     for name in ["mac-box", "win-box"] {
         let dev = join(&f.studio, DeviceKind::Node, name).await;
         until(&f.studio.mesh, |m| online(m, dev.id)).await;
         others.push(dev);
     }
+
     let status = |state: SyncState, error: Option<String>| ProjectStatus {
         name: "acme/widget".into(),
         folder: "/srv/widget".into(),
@@ -1533,6 +1559,7 @@ async fn each_machine_says_how_it_syncs_and_only_an_unreachable_one_is_offline()
     let devs = [&f.build, &others[0], &others[1]];
     let nodes: Vec<(&Dev, &Arc<FakeNode>)> = devs.iter().copied().zip(fakes.iter()).collect();
     let studio = desk(&f.studio, &nodes).await;
+
     for dev in devs {
         studio
             .import(ImportJob {
@@ -1545,6 +1572,7 @@ async fn each_machine_says_how_it_syncs_and_only_an_unreachable_one_is_offline()
             .await
             .expect("the import works");
     }
+
     let detail = studio.sync_detail("acme/widget").await.expect("a detail");
     let of = |dev: &Dev| {
         detail
@@ -1577,11 +1605,13 @@ async fn on(desk: &Desk) -> Vec<EndpointId> {
 async fn removing_a_project_from_a_machine_stops_its_sync_and_keeps_the_last_one() {
     let f = fleet().await;
     let mut others = Vec::new();
+
     for name in ["mac-box", "mini-box"] {
         let dev = join(&f.studio, DeviceKind::Node, name).await;
         until(&f.studio.mesh, |m| online(m, dev.id)).await;
         others.push(dev);
     }
+
     let fakes = [
         Arc::new(FakeNode::default()),
         Arc::new(FakeNode::default()),
@@ -1593,6 +1623,7 @@ async fn removing_a_project_from_a_machine_stops_its_sync_and_keeps_the_last_one
     let devs = [&f.build, &others[0], &others[1]];
     let nodes: Vec<(&Dev, &Arc<FakeNode>)> = devs.iter().copied().zip(fakes.iter()).collect();
     let studio = desk(&f.studio, &nodes).await;
+
     for dev in devs {
         studio
             .import(ImportJob {
@@ -1605,6 +1636,7 @@ async fn removing_a_project_from_a_machine_stops_its_sync_and_keeps_the_last_one
             .await
             .expect("the import works");
     }
+
     let key = Key::Sync("acme/widget".to_owned());
     let spec = |mesh: &Mesh| {
         mesh.get(&key)
@@ -1699,6 +1731,7 @@ async fn two_desktops_saving_instructions_keep_both_versions() {
         .await
         .expect("the laptop saves on top");
     assert_eq!(second.version, 2);
+
     for dev in [&f.studio, &f.laptop] {
         until(&dev.mesh, |m| m.scan("instructions/").len() == 2).await;
         let versions = desk(dev, &[]).await.instructions_versions();
@@ -1715,6 +1748,7 @@ async fn two_desktops_saving_instructions_keep_both_versions() {
             .await
             .expect("a desktop writes it");
     }
+
     for dev in [&f.studio, &f.laptop] {
         until(&dev.mesh, |m| m.scan("instructions/").len() == 4).await;
     }
@@ -1936,6 +1970,7 @@ async fn actions_host() -> (String, Arc<Mutex<Vec<String>>>) {
                 if path.starts_with("/repos/") {
                     log.lock().expect("log").push(path.clone());
                 }
+
                 let body = actions_reply(&path);
                 let reply = format!(
                     "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
@@ -2182,6 +2217,7 @@ async fn a_session_does_not_wait_for_a_mesh_that_never_opens() {
         |_| {},
     )
     .expect("a session");
+
     match session.desk().await {
         Err(FleetError::NoMesh(_)) => {}
         _ => panic!("a mesh still opening is NoMesh"),
@@ -2296,6 +2332,7 @@ impl beep_fleet::migrate::Source for LastFour {
         if agent != "codex" {
             return Ok(Vec::new());
         }
+
         Ok(vec![beep_proto::MachineHarnessSettings {
             machine_id: SecretKey::generate().public().to_string(),
             machine_name: "box".into(),
@@ -2688,6 +2725,7 @@ async fn a_move_takes_folders_from_place_records_when_there_is_no_sync_record() 
         Err(FleetError::Refused(why)) => assert!(why.contains("no checkout"), "{why}"),
         other => panic!("not refused: {:?}", other.map(|_| ())),
     }
+
     f.studio
         .mesh
         .set(

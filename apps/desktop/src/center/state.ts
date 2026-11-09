@@ -141,6 +141,7 @@ export function keptSection<T>(section: PageSection): SectionStore<T> {
 /// and another account's goes.
 export function pagesAccount(mac: MacControl | null) {
   if (!mac?.id) return;
+
   if (pagesFile !== undefined) {
     pages.restore(pagesFile, mac.id);
     pagesFile = undefined;
@@ -156,14 +157,17 @@ export function warm(name: string) {
     const view = pages.get<ProjectView>("view", name);
     if (view) state.pview.set(name, { view, error: state.pview.get(name)?.error ?? null });
   }
+
   if (!state.where.get(name)) {
     const where = pages.get<ProjectMachineRow[]>("where", name);
     if (where) state.where.set(name, where);
   }
+
   if (!state.gitsync.has(name)) {
     const git = pages.get<GitRow[]>("gitsync", name);
     if (git) state.gitsync.set(name, git);
   }
+
   if (!state.sessions.has(name)) {
     const sessions = pages.get<SessionRow[]>("sessions", name);
     if (sessions) state.sessions.set(name, sessions);

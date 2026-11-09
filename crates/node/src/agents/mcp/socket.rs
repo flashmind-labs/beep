@@ -46,9 +46,11 @@ fn choose(dir: &Path, tmp: Option<&Path>, uid: u32) -> PathBuf {
 #[cfg(unix)]
 fn choose_named(dir: &Path, tmp: Option<&Path>, uid: u32, name: &str) -> PathBuf {
     let inside = dir.join(name);
+
     if fits(&inside) {
         return inside;
     }
+
     let hash = blake3::hash(dir.as_os_str().as_encoded_bytes()).to_hex();
     let name = format!("{}-{}.sock", name.trim_end_matches(".sock"), &hash[..16]);
     let short = |base: &Path| base.join(format!("beep-{uid}")).join(&name);
@@ -70,6 +72,7 @@ pub(super) fn prepare(socket: &Path, dir: &Path) -> Result<()> {
     let Some(parent) = socket.parent() else {
         anyhow::bail!("{} has no folder", socket.display());
     };
+
     if parent == dir {
         return Ok(());
     }
@@ -81,14 +84,17 @@ pub(super) fn prepare(socket: &Path, dir: &Path) -> Result<()> {
             io::ErrorKind,
             os::unix::fs::{DirBuilderExt, MetadataExt},
         };
+
         match DirBuilder::new().mode(0o700).create(parent) {
             Ok(()) => {}
             Err(e) if e.kind() == ErrorKind::AlreadyExists => {}
             Err(e) => return Err(e).with_context(|| format!("creating {}", parent.display())),
         }
+
         let meta = std::fs::symlink_metadata(parent)
             .with_context(|| format!("reading {}", parent.display()))?;
         let uid = rustix::process::getuid().as_raw();
+
         if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o077 != 0 {
             bail!(
                 "{} is not a folder only this user can open",

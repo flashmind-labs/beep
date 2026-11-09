@@ -68,6 +68,7 @@ pub(crate) static LIMITS: LazyLock<Limits> = LazyLock::new(Limits::default);
 /// `mcp_` plus the lowercased label with non-alphanumerics as `-` (no `_`, so tool names split back).
 pub(crate) fn server_name(label: &str) -> Option<String> {
     let mut slug = String::new();
+
     for c in label.trim().chars().flat_map(char::to_lowercase) {
         if c.is_ascii_alphanumeric() {
             slug.push(c);
@@ -78,6 +79,7 @@ pub(crate) fn server_name(label: &str) -> Option<String> {
             break;
         }
     }
+
     let slug = slug.trim_end_matches('-');
     (!slug.is_empty()).then(|| format!("{PREFIX}{slug}"))
 }
@@ -177,9 +179,11 @@ impl Limits {
     fn begin_at(&self, host: &str, user: &str, now: Instant) -> Result<Permit<'_>, Refused> {
         let mut hosts = self.hosts.lock().map_err(|_| Refused::HostBusy)?;
         let state = hosts.entry(host.to_owned()).or_default();
+
         if state.paused_until.is_some_and(|until| now < until) {
             return Err(Refused::Paused);
         }
+
         if state
             .second
             .is_none_or(|start| now.duration_since(start) >= Duration::from_secs(1))
@@ -187,11 +191,14 @@ impl Limits {
             state.second = Some(now);
             state.calls_this_second = 0;
         }
+
         if state.calls_this_second >= HOST_CALLS_PER_SECOND || state.in_flight >= HOST_IN_FLIGHT {
             return Err(Refused::HostBusy);
         }
+
         let mut users = self.users.lock().map_err(|_| Refused::HostBusy)?;
         let window = users.entry((host.to_owned(), user.to_owned())).or_default();
+
         if window
             .minute
             .is_none_or(|start| now.duration_since(start) >= Duration::from_secs(60))
@@ -199,9 +206,11 @@ impl Limits {
             window.minute = Some(now);
             window.calls = 0;
         }
+
         if window.calls >= USER_CALLS_PER_MINUTE {
             return Err(Refused::UserLimit);
         }
+
         window.calls += 1;
         state.calls_this_second += 1;
         state.in_flight += 1;
@@ -216,6 +225,7 @@ impl Limits {
             return;
         };
         let state = hosts.entry(host.to_owned()).or_default();
+
         match outcome {
             Outcome::Ok => state.failures = 0,
             Outcome::Limited => {
@@ -224,6 +234,7 @@ impl Limits {
             }
             Outcome::Failed => {
                 state.failures += 1;
+
                 if state.failures >= FAILURES_TO_REST {
                     log::warn!(
                         "mcp: {host} failed {} times in a row, resting it",
@@ -257,9 +268,11 @@ impl Limits {
 pub(crate) async fn recheck(url: &str) -> Result<(), UrlError> {
     let host = host_of(url);
     let now = Instant::now();
+
     if !LIMITS.needs_check(&host, now) {
         return Ok(());
     }
+
     check_url(url).await?;
     LIMITS.mark_checked(&host, now);
     Ok(())
@@ -342,6 +355,7 @@ impl McpConfigProvider for CustomProvider {
         if !is_custom(&config.name) {
             anyhow::bail!("not an added MCP server");
         }
+
         let kept = McpServerConfig {
             name: config.name.clone(),
             cached_tools: config.cached_tools.clone(),
@@ -373,6 +387,7 @@ pub(crate) async fn register(registry: &McpRegistry, config: &McpServerConfig) -
     if registry.get_config(&config.name).await.is_none() {
         registry.add(config.clone()).await?;
     }
+
     Ok(())
 }
 
@@ -395,10 +410,12 @@ impl Reaps {
     fn due(&self, user: &str, now: TokioInstant) -> Option<TokioInstant> {
         let mut calls = lock(&self.last_call);
         let at = *calls.get(user)? + IDLE;
+
         if at <= now {
             calls.remove(user);
             return None;
         }
+
         Some(at)
     }
 }
@@ -408,12 +425,14 @@ fn reap_later(registry: &McpRegistry, user: &str) {
     if !REAPS.called(user, TokioInstant::now()) {
         return;
     }
+
     let registry = registry.clone();
     let user = user.to_owned();
     tokio::spawn(async move {
         while let Some(at) = REAPS.due(&user, TokioInstant::now()) {
             sleep_until(at).await;
         }
+
         registry.reap_idle(IDLE).await;
     });
 }
@@ -422,16 +441,19 @@ fn reap_later(registry: &McpRegistry, user: &str) {
 pub(crate) fn tool_name(name: &str, tool: &str) -> String {
     let mut out = name.to_ascii_uppercase();
     out.push('_');
+
     for c in tool.chars() {
         if out.len() >= MAX_TOOL_NAME {
             break;
         }
+
         out.push(if c.is_ascii_alphanumeric() {
             c.to_ascii_uppercase()
         } else {
             '_'
         });
     }
+
     out
 }
 
@@ -537,6 +559,7 @@ pub(crate) fn custom_tools(
     rows: &[McpServerRow],
 ) -> Vec<Arc<dyn Tool>> {
     let mut tools: Vec<Arc<dyn Tool>> = Vec::new();
+
     for row in rows.iter().filter(|row| ready(row)) {
         let Some(custom) = &row.custom else {
             continue;
@@ -545,6 +568,7 @@ pub(crate) fn custom_tools(
         let host = host_of(&custom.url);
         let defs = &config.cached_tools;
         let on = enabled(&row.name, defs, custom.tools.as_deref());
+
         for (def, _) in defs.iter().zip(on).filter(|(_, on)| *on) {
             tools.push(Arc::new(CustomTool {
                 registry: registry.clone(),
@@ -564,6 +588,7 @@ pub(crate) fn custom_tools(
             }));
         }
     }
+
     tools
 }
 
@@ -602,10 +627,12 @@ impl Tool for CustomTool {
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let server = self.config.name.as_str();
         let url = self.config.url.as_deref().unwrap_or_default();
+
         if let Err(error) = recheck(url).await {
             log::warn!("mcp: {server} refused on recheck: {error}");
             return Ok(ToolResult::failure(ctx.tool_call_id, error.to_string()));
         }
+
         let permit = match LIMITS.begin(&self.host, &self.user) {
             Ok(permit) => permit,
             Err(refused) => {
@@ -626,6 +653,7 @@ impl Tool for CustomTool {
         };
         let result = self.registry.call_tool(server, &self.tool, args).await;
         reap_later(&self.registry, &self.user);
+
         match result {
             Ok(result) => {
                 let limited = result.is_error
@@ -645,6 +673,7 @@ impl Tool for CustomTool {
             Err(error) => {
                 log::warn!("mcp: {server}/{} failed: {error:#}", self.tool);
                 permit.finish(outcome_of(&error));
+
                 if lost_login(&error)
                     && let Some(owner) = self.owner.upgrade()
                 {
@@ -657,6 +686,7 @@ impl Tool for CustomTool {
                         ),
                     ));
                 }
+
                 Ok(ToolResult::failure(
                     ctx.tool_call_id,
                     format!("{} is not reachable right now.", self.label),

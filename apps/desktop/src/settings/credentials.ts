@@ -98,11 +98,13 @@ export function draft(edit: CredEdit | null | undefined, url: string | undefined
   secret = String(secret || "").trim();
   if (!edit) return { error: "Nothing to save." };
   if (!secret) return { error: "Paste the token first." };
+
   if (edit.kind === "forgejo") {
     const u = String(url || edit.url || "").trim();
     if (!/^https?:\/\/[^\s/]+/i.test(u)) return { error: "The server URL starts with https://, such as https://git.example.com." };
     return { credential: { kind: "forgejo", url: u, secret } };
   }
+
   return { credential: { kind: "github", secret } };
 }
 
@@ -259,6 +261,7 @@ interface Offer {
 function ghOffer(esc: Esc, gh: CliLogin | null | undefined, busy: boolean, flow: GhFlow | null | undefined): Offer {
   const paste = (quiet: boolean) => `<button class="dbtn small${quiet ? " quiet" : ""}" data-cred-edit="github">Paste a token</button>`;
   if (flow) return { acts: `<button class="dbtn quiet small" data-cred-gh-cancel>Cancel</button>`, help: "", body: ghWaiting(esc, flow) };
+
   switch (gh?.state) {
     case "signed_in":
       return {
@@ -417,6 +420,7 @@ function githubHtml(state: CredState, machines: ToolMachine[] | null, esc: Esc, 
   const cli = state.cli;
   const accounts = githubAccounts(state);
   const pasteForm = (id: string) => form(state, esc, { title: "GitHub", url: id === "new" ? "Another account" : "Replace the token", noteHtml: `Make one on ${link(esc, GITHUB_TOKEN_PAGE, "GitHub")} with repo access, or run ${code("gh auth login")} in Terminal and use that sign-in instead.` });
+
   if (!accounts.length) {
     if (e?.kind === "github") return { rows: pasteForm(e.id ?? "new"), adding: "", canAdd: false };
     const choices = ghChoices(cli, accounts);
@@ -430,12 +434,15 @@ function githubHtml(state: CredState, machines: ToolMachine[] | null, esc: Esc, 
     }
     return { rows: hostRow(esc, { icon: GITHUB_ICON, name: "GitHub", cli: "gh", machines, editKey: "github", ...rowState("github"), offer }), adding: "", canAdd: false };
   }
+
   let rows = "";
+
   for (const acc of accounts) {
     rows += e?.kind === "github" && e.id === acc.id
       ? pasteForm(acc.id)
       : accountRow(esc, acc, { machines, cli, ...(acc.unreadable ? rowState("github") : { busy: false, error: "" }) });
   }
+
   if (e?.kind === "github" && (!e.id || e.id === "new")) return { rows, adding: pasteForm("new"), canAdd: false };
   if (state.ghAdd || state.ghFlow) return { rows, adding: addAccount(esc, state, accounts), canAdd: false };
   return { rows, adding: "", canAdd: true };
@@ -453,6 +460,7 @@ export function credentialsHtml(state: CredState, machines: ToolMachine[] | null
   const rowState = (key: string): RowState => ({ busy: state.cliBusy === key, error: state.cliError?.key === key ? state.cliError.message : "" });
   const github = githubHtml(state, machines, esc, rowState);
   let html = head("Git hosts", 4) + github.rows;
+
   for (const c of list) {
     if (c.kind !== "forgejo") continue;
     const page = forgejoTokenPage(c.url);
@@ -461,6 +469,7 @@ export function credentialsHtml(state: CredState, machines: ToolMachine[] | null
       ? form(state, esc, { title: hostOf(c.url), url: "Replace the token", noteHtml: page ? `Make one at ${link(esc, page, hostOf(page))}, with repository and issue access.` : undefined })
       : hostRow(esc, { icon: FORGEJO_ICON, name: hostOf(c.url), cred: c, cli: "teacli", machines, editKey: `forgejo:${c.id}`, cliKey: teaHas(cli, c.url) ? key : "", check: state.checks?.[c.id], ...rowState(key) });
   }
+
   // Servers teacli here has a token for that Beep does not have yet.
   for (const s of teaOffers(cli, list)) {
     const key = `forgejo:${s.url}`;
@@ -470,6 +479,7 @@ export function credentialsHtml(state: CredState, machines: ToolMachine[] | null
       offer: { account: "teacli on this computer", acts: useButton(esc, key, "Use teacli sign-in", busy), help: "Signed in with teacli here, not in Beep yet" },
     });
   }
+
   // What is being added sits under the hosts, the add buttons side by side under that.
   html += github.adding;
   const addingForgejo = e?.kind === "forgejo" && !e.id;
@@ -485,10 +495,12 @@ export function editFor(key: string, list: Credential[] | null | undefined): Cre
   if (key === "github") return { kind: "github" };
   if (key.startsWith("github:")) return { kind: "github", id: key.slice("github:".length) };
   if (key === "forgejo") return { kind: "forgejo" };
+
   if (key.startsWith("forgejo:")) {
     const id = key.slice("forgejo:".length);
     const c = (list ?? []).find(x => x.id === id);
     return c ? { kind: "forgejo", id, url: c.kind === "forgejo" ? c.url : undefined } : { kind: "forgejo" };
   }
+
   return null;
 }

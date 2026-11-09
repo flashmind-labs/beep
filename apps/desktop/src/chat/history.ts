@@ -45,6 +45,7 @@ export async function openSession(id: string) {
   if (!running) live.delete(id);
   renderChat();
   $$<HTMLTextAreaElement>("#ask").placeholder = "Ask a follow-up…";
+
   if (running) {
     drawChatTop();
     // renderChat put the kept body back where the reader left it.
@@ -52,6 +53,7 @@ export async function openSession(id: string) {
     invoke("open_session", { id }).catch(() => {});
     return;
   }
+
   try {
     const turns = await invoke<HistoryTurn[]>("open_session", { id });
     // The user may have moved on, or started a run here, while it loaded.
@@ -95,20 +97,24 @@ export function drawHistory(id: string, turns: HistoryTurn[]) {
   const kept = turns.findIndex(t => t.role === "user" && String(t.at) === shown);
   const start = kept >= 0 ? kept : windowStart(turns.map(t => t.role), HISTORY_CHUNK);
   undrawn.set(b, turns.slice(0, start));
+
   if (!watching.has(b)) {
     watching.add(b);
     b.addEventListener("scroll", () => { if (b.scrollTop < NEAR_TOP) drawEarlier(b); }, { passive: true });
   }
+
   const { drawn, last } = buildTurns(id, turns.slice(start));
   // Only the latest reply's follow-ups still make sense.
   if (last) suggestions(last.turn, last.replies);
   const merged = mergeTurns(b, drawn);
   // An approval card drawn here belongs to the turn the chat keeps.
   const e = live.get(id);
+
   if (e) {
     if (e.approval) e.approval.turn = merged.get(e.approval.turn) ?? e.approval.turn;
     e.body ??= b;
   }
+
   drawChatTop();
   scrollDown();
   loadSides(id, b);
@@ -152,6 +158,7 @@ function buildTurns(id: string, turns: HistoryTurn[]) {
     return turn;
   };
   let turn: Turn | null = null, last: { turn: Turn; replies: string[] } | null = null;
+
   for (const t of turns) {
     if (t.role === "user") {
       turn = drawTurn(t.text, t.images);
@@ -170,11 +177,13 @@ function buildTurns(id: string, turns: HistoryTurn[]) {
       for (const x of t.tools) toolOutput(turn, x, x.route);
       last = t.replies.length ? { turn, replies: t.replies } : null;
       turn.done = true;
+
       if (t.model) {
         turn.model = t.model;
         // A turn Auto did not pick still names the model that answered.
         if (!turn.querySelector(".dranon")) ranOn(turn, t.model, "");
       }
+
       drawWork(turn);
       replyActs(turn);
     } else if (t.role === "approval") {
@@ -183,6 +192,7 @@ function buildTurns(id: string, turns: HistoryTurn[]) {
       last = null;
     }
   }
+
   return { drawn, last };
 }
 
@@ -193,8 +203,10 @@ function mergeTurns(b: ChatBody, drawn: Turn[]) {
   const shown = [...b.children].filter(el => el.classList.contains("turn")) as Turn[];
   const kept = new Map<Turn, Turn>(), order: Turn[] = [];
   let next = 0;
+
   for (const fresh of drawn) {
     const old = shown[next];
+
     if (old && sameTurn(old, fresh)) {
       mergeTurn(old, fresh);
       kept.set(fresh, old);
@@ -204,13 +216,16 @@ function mergeTurns(b: ChatBody, drawn: Turn[]) {
       order.push(fresh);
     }
   }
+
   // A turn the server's copy no longer lists goes, unless it was drawn live
   // and the copy has not caught up with it.
   for (const t of shown.slice(next)) {
     if (t.dataset.at) t.remove();
     else order.push(t);
   }
+
   let prev: Element | null = null;
+
   for (const t of order) {
     if (t.parentElement !== b) {
       const first = b.querySelector(":scope > .turn");
@@ -218,8 +233,10 @@ function mergeTurns(b: ChatBody, drawn: Turn[]) {
       else if (first) first.before(t);
       else b.append(t);
     }
+
     prev = t;
   }
+
   return kept;
 }
 
@@ -255,14 +272,18 @@ function mergeTurn(old: Turn, fresh: Turn) {
   seen.clear();
   const matched = new Set<Element>();
   let prev: Element | null = null;
+
   for (const el of [...fresh.children]) {
     const was = before.get(keyOf(el));
     if (was) matched.add(was);
+
     if (REDRAWN.has(el.className)) {
       if (was) prev = was;
       continue;
     }
+
     let now: Element = el;
+
     if (!was) {
       if (prev) prev.after(el);
       else old.prepend(el);
@@ -276,8 +297,10 @@ function mergeTurn(old: Turn, fresh: Turn) {
     } else {
       was.replaceWith(el);
     }
+
     prev = now;
   }
+
   for (const el of before.values()) if (!matched.has(el) && LISTED.has(el.className)) el.remove();
   if (fresh.user !== undefined) old.user = fresh.user;
   if (fresh.model) old.model = fresh.model;
@@ -305,6 +328,7 @@ export function drawChatTop() {
 async function eachTurn<T extends { message: number }>(id: string, b: ChatBody, list: Promise<T[]>, draw: (turn: Turn, item: T) => void) {
   const items = await list.catch(() => []);
   if (S.session !== id || body() !== b) return;
+
   for (const item of items) {
     const turn = b.querySelector<Turn>(`.turn[data-at="${item.message}"]`);
     if (turn) draw(turn, item);

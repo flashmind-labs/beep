@@ -41,11 +41,13 @@ pub(super) async fn save_credential(
 ) -> Reply<Credential> {
     let slot = Slot::try_from(&kind).map_err(|e| ApiError::bad_request(e.to_string()))?;
     let secret = trimmed(&secret)?;
+
     if slot == Slot::GitHub {
         // An app from before several accounts replaces the default one.
         let saved = save_github(&cx, &secret, true).await?;
         return Ok(github_credential(saved));
     }
+
     let account = check(&slot, &secret).await?;
     let shown = last4(secret.expose_secret());
     let row = cx
@@ -71,6 +73,7 @@ pub(super) async fn remove_credential(
     if !cx.user.remove_credential(&id).await? {
         return Err(ApiError::NotFound {});
     }
+
     Ok(())
 }
 
@@ -118,11 +121,13 @@ pub(super) async fn check_credential(
             message: format!("{} is not reachable from the server.", url.host()),
         },
     };
+
     if let CredentialCheck::Valid { account, .. } = &checked
         && login.account.as_deref() != Some(account.as_str())
     {
         cx.user.set_forgejo_account(&id, account).await?;
     }
+
     Ok(checked)
 }
 
@@ -154,6 +159,7 @@ pub(super) async fn set_default_github_account(
     if !cx.user.set_default_github(&id).await? {
         return Err(ApiError::NotFound {});
     }
+
     Ok(())
 }
 
@@ -161,14 +167,17 @@ pub(super) async fn set_default_github_account(
 pub(super) fn trimmed(secret: &SecretText) -> Reply<SecretString> {
     let secret = SecretString::from(secret.expose().trim());
     let text = secret.expose_secret();
+
     if text.is_empty() {
         return Err(ApiError::bad_request("Paste the token or key first."));
     }
+
     if text.len() > MAX_SECRET || text.chars().any(char::is_whitespace) {
         return Err(ApiError::bad_request(
             "That does not look like a token or key: it has spaces or is too long.",
         ));
     }
+
     Ok(secret)
 }
 
@@ -217,6 +226,7 @@ async fn check(slot: &Slot, secret: &SecretString) -> Reply<Option<String>> {
         }
         Slot::ApiKey(_) | Slot::AgentToken(_) => return Ok(None),
     };
+
     match checked {
         Checked::Valid { login } => Ok(login),
         Checked::Refused(why) => Err(ApiError::bad_request(why)),

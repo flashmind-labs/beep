@@ -39,6 +39,7 @@ export type BackTo = "overview" | "tile" | "projects" | "terminals" | "history";
 /// What Back does from `at`; null on the first page of a tab, where there is no Back.
 export function backTo(at: MobileAt): BackTo | null {
   if (!at.page) return null;
+
   switch (at.page) {
     case "home": return at.homeTab === "git" ? "overview" : null;
     case "projects": return at.tile ? "tile" : at.picked ? "projects" : null;

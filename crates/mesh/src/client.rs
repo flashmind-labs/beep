@@ -284,6 +284,7 @@ impl PeerClient {
                 })
         })
         .await;
+
         match result {
             Ok(result) => {
                 timing.outcome = if result.is_ok() { "ok" } else { "error" };
@@ -310,6 +311,7 @@ impl PeerClient {
         // `tx` rides along: finishing our half would read as a cancel.
         Ok(unfold(Some((tx, rx, protocol)), |state| async move {
             let (tx, mut rx, protocol) = state?;
+
             match rx.recv::<R>().await {
                 Ok(Some(item)) => Some((Ok(item), Some((tx, rx, protocol)))),
                 Ok(None) => None,
@@ -362,9 +364,11 @@ pub async fn with_deadline(machine: EndpointId, mesh: &Mesh) -> Result<PeerClien
             if !mesh.is_member(machine) {
                 return Err(Offline(machine));
             }
+
             if mesh.peer(machine).is_some() {
                 return Ok(PeerClient::over(mesh.clone(), machine));
             }
+
             if updates.changed().await.is_err() {
                 return Err(Offline(machine));
             }
@@ -396,6 +400,7 @@ fn dropped(cause: &(dyn StdError + 'static)) -> bool {
         if let Some(inner) = e.get_ref() {
             return dropped(inner);
         }
+
         return matches!(
             e.kind(),
             ErrorKind::ConnectionReset
@@ -406,9 +411,11 @@ fn dropped(cause: &(dyn StdError + 'static)) -> bool {
                 | ErrorKind::TimedOut
         );
     }
+
     if let Some(e) = cause.downcast_ref::<MeshError>() {
         return e.is_transport();
     }
+
     cause.is::<WriteError>()
         || cause.is::<ReadError>()
         || cause.is::<ReadExactError>()

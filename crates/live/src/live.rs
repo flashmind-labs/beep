@@ -255,6 +255,7 @@ impl Live {
         if self.over {
             return Vec::new();
         }
+
         match (self.phase, input) {
             (_, Input::Escape) => self.leave(Leaving::Asked),
             (_, Input::End(why)) => self.leave(why),
@@ -435,26 +436,31 @@ impl Live {
 
     fn listening_tick(&mut self, now: Instant) -> Vec<Effect> {
         let quiet = now.saturating_duration_since(self.active_at);
+
         if self.turn.is_open()
             && quiet >= PHRASE_PAUSE
             && let Closed::Command(command) = self.turn.close()
         {
             return self.command(command);
         }
+
         if self.mode == EndMode::Pause && self.armed && !self.turn.is_empty() {
             if quiet >= PAUSE_SEND {
                 return self.send();
             }
+
             if quiet >= SOON_AFTER && !self.soon {
                 self.soon = true;
                 return vec![Effect::Soon(Some(PAUSE_SEND - quiet))];
             }
         }
+
         if self.phase == Phase::Listening
             && now.saturating_duration_since(self.heard_at) >= QUIET_LIMIT
         {
             return self.leave(Leaving::Quiet);
         }
+
         Vec::new()
     }
 
@@ -463,11 +469,14 @@ impl Live {
     /// coming back does nothing.
     fn barge_tick(&mut self, now: Instant) -> Vec<Effect> {
         let quiet = now.saturating_duration_since(self.active_at);
+
         if !self.barge.is_open() || quiet < PHRASE_PAUSE {
             return Vec::new();
         }
+
         let closed = self.barge.close();
         self.barge.clear();
+
         match closed {
             Closed::Command(Command::Stop) => {
                 let mut out = self.interrupt(now);
@@ -490,9 +499,11 @@ impl Live {
     fn send(&mut self) -> Vec<Effect> {
         let text = self.turn.text();
         let mut out = self.not_soon();
+
         if text.is_empty() {
             return out;
         }
+
         self.turn.clear();
         self.phase = Phase::Thinking;
         // A new message leaves an approval unanswered.

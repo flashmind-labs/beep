@@ -49,6 +49,7 @@ pub(super) async fn adapter(root: &Path, known: &Known) -> Result<Installed> {
         clean(&stage).await;
         return Err(e);
     }
+
     let target = layout::prefix(root, known.name);
     swap_in(&stage, &target).await?;
     let script = layout::script_in(&target, package, bin)
@@ -60,9 +61,11 @@ pub(super) async fn adapter(root: &Path, known: &Known) -> Result<Installed> {
 async fn node(root: &Path) -> Result<PathBuf> {
     let node_root = layout::node_root(root);
     let program = layout::node_program(&node_root, env::consts::OS);
+
     if program.is_file() {
         return Ok(program);
     }
+
     let musl = env::consts::OS == "linux" && node_dist::is_musl(Path::new("/"));
     let dist =
         node_dist::node_dist(env::consts::OS, env::consts::ARCH, musl).with_context(|| {
@@ -195,6 +198,7 @@ async fn run(command: &mut tokio::process::Command, limit: Duration) -> Result<V
         let last: Vec<&str> = last.into_iter().rev().collect();
         bail!("{}: {}", out.status, last.join(" / "));
     }
+
     Ok(out.stdout)
 }
 

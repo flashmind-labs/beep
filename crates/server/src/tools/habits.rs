@@ -81,6 +81,7 @@ impl Tool for HabitTool {
                 if name.is_empty() {
                     return Ok(ToolResult::failure(ctx.tool_call_id, "habit is required"));
                 }
+
                 match self.user.create_habit(name, frequency).await {
                     Ok(_id) => json!({"created": true, "name": name, "frequency": frequency}),
                     Err(e) if is_duplicate(&e) => {
@@ -96,12 +97,14 @@ impl Tool for HabitTool {
                 let habit = ctx.args.get("habit").and_then(Value::as_str).unwrap_or("");
                 let value = ctx.args.get("value").and_then(Value::as_f64).unwrap_or(1.0);
                 let note = ctx.args.get("note").and_then(Value::as_str);
+
                 if habit.is_empty() {
                     return Ok(ToolResult::failure(
                         ctx.tool_call_id,
                         "habit name is required",
                     ));
                 }
+
                 match self.user.log_habit(habit, value, note).await {
                     Ok(()) => json!({"logged": true, "habit": habit, "value": value}),
                     Err(e) => {
@@ -112,6 +115,7 @@ impl Tool for HabitTool {
             Action::Status => {
                 let habit = ctx.args.get("habit").and_then(Value::as_str);
                 let days = ctx.args.get("days").and_then(Value::as_i64).unwrap_or(7);
+
                 match habit {
                     Some(name) => self.user.habit_status(name, days).await?,
                     None => {
@@ -122,12 +126,14 @@ impl Tool for HabitTool {
             }
             Action::Delete => {
                 let habit = ctx.args.get("habit").and_then(Value::as_str).unwrap_or("");
+
                 if habit.is_empty() {
                     return Ok(ToolResult::failure(
                         ctx.tool_call_id,
                         "habit name is required",
                     ));
                 }
+
                 let archived = self.user.archive_habit(habit).await?;
                 json!({"archived": archived, "habit": habit})
             }

@@ -42,6 +42,7 @@ pub struct LogOptions {
 pub fn show(options: &LogOptions) -> Result<()> {
     let stdout = io::stdout().lock();
     let mut printer = Printer::new(options, cutoff(options.since), stdout);
+
     match read(options, &mut printer) {
         // `beep-node logs | head` closed the pipe: nothing more to show.
         Err(e) if is_broken_pipe(&e) => Ok(()),
@@ -59,6 +60,7 @@ pub(crate) fn recent(file: Option<&Path>, lines: u32) -> Result<String> {
         all: false,
     };
     let mut printer = Printer::new(&options, cutoff(RECENT), Vec::new());
+
     match file {
         Some(file) => {
             read_file(file, &mut printer)?;
@@ -66,6 +68,7 @@ pub(crate) fn recent(file: Option<&Path>, lines: u32) -> Result<String> {
         }
         None => read(&options, &mut printer)?,
     }
+
     let out = &printer.out;
     let from = out.len().saturating_sub(MAX_BYTES);
     let whole = match out[from..].iter().position(|&byte| byte == b'\n') {
@@ -81,9 +84,11 @@ pub(crate) fn recent(file: Option<&Path>, lines: u32) -> Result<String> {
 /// its last lines.
 pub(crate) fn window(files: &[PathBuf], since: i64, max_bytes: usize) -> Result<String> {
     let read = window_from(files, Some(since), max_bytes)?;
+
     if read.timed {
         return Ok(read.text);
     }
+
     Ok(window_from(files, None, max_bytes)?.text)
 }
 
@@ -120,12 +125,15 @@ fn window_from(files: &[PathBuf], cutoff: Option<i64>, max_bytes: usize) -> Resu
                 Err(e) if e.kind() == ErrorKind::NotFound => continue,
                 file => file.with_context(|| format!("opening {}", path.display()))?,
             };
+
             for line in BufReader::new(file).split(b'\n') {
                 printer.bytes(&line?)?;
             }
         }
+
         printer.caught_up()?;
     }
+
     Ok(Window {
         text: String::from_utf8_lossy(&printer.out).into_owned(),
         timed: printer.filter.timed,
@@ -134,15 +142,18 @@ fn window_from(files: &[PathBuf], cutoff: Option<i64>, max_bytes: usize) -> Resu
 
 fn read_file(path: &Path, printer: &mut Printer<impl Write>) -> Result<()> {
     let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
+
     for line in BufReader::new(file).split(b'\n') {
         printer.bytes(&line?)?;
     }
+
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
 fn read(options: &LogOptions, printer: &mut Printer<impl Write>) -> Result<()> {
     use super::{Manager, systemd::Scope};
+
     match super::present()? {
         Some(Manager::Systemd) => journal::read(options, printer, Scope::User),
         Some(Manager::SystemdSystem) => journal::read(options, printer, Scope::System),
@@ -215,6 +226,7 @@ fn noisy_target(target: &str) -> bool {
     if target == "tracing::span" || target.starts_with("tracing::span::") {
         return true;
     }
+
     let root = target.split("::").next().unwrap_or(target);
     NOISY_CRATES.iter().any(|name| {
         root.strip_prefix(name)
@@ -258,8 +270,10 @@ fn plain(line: &str) -> Cow<'_, str> {
     if !line.contains('\x1b') {
         return Cow::Borrowed(line);
     }
+
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars();
+
     while let Some(c) = chars.next() {
         if c != '\x1b' {
             out.push(c);
@@ -274,6 +288,7 @@ fn plain(line: &str) -> Cow<'_, str> {
             }
         }
     }
+
     Cow::Owned(out)
 }
 
@@ -281,21 +296,27 @@ fn plain(line: &str) -> Cow<'_, str> {
 /// it (`2026-01-02T03:04:05.123456+01:00`), into Unix seconds.
 fn parse_time(text: &str) -> Option<i64> {
     let b = text.as_bytes();
+
     if b.len() < 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' {
         return None;
     }
+
     if b[13] != b':' || b[16] != b':' {
         return None;
     }
+
     let num = |from: usize, to: usize| -> Option<i64> {
         let digits = text.get(from..to)?;
+
         if !digits.bytes().all(|d| d.is_ascii_digit()) {
             return None;
         }
+
         digits.parse().ok()
     };
     let (year, month, day) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
     let (hour, minute, second) = (num(11, 13)?, num(14, 16)?, num(17, 19)?);
+
     if !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 23 || minute > 59 {
         return None;
     }
@@ -396,11 +417,14 @@ impl Tail {
         if self.cap == 0 {
             return;
         }
+
         if self.lines.len() == self.cap {
             self.pop();
         }
+
         self.bytes += line.len() + 1;
         self.lines.push_back(line.to_owned());
+
         while self.bytes > self.max_bytes {
             self.pop();
         }
@@ -435,6 +459,7 @@ impl<W: Write> Printer<W> {
         if !self.filter.keep(line) {
             return Ok(());
         }
+
         match &mut self.tail {
             Some(tail) => {
                 tail.push(line);
@@ -459,6 +484,7 @@ impl<W: Write> Printer<W> {
                 writeln!(self.out, "{line}")?;
             }
         }
+
         self.out.flush()
     }
 }

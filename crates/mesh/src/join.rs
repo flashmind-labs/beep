@@ -162,16 +162,20 @@ pub(crate) async fn redeem(
         conn.close(0u32.into(), b"done");
         reply.ok_or_else(|| wire::net("no answer"))
     };
+
     match elapsed(timeout(STEP, work).await)? {
         Reply::Refused(why) => Err(MeshError::Refused(why)),
         Reply::Welcome { ops, addrs } => {
             let (devices, _) = Devices::from_ops(&ops)?;
+
             if devices.mesh() != ticket.mesh {
                 return Err(MeshError::OtherMesh);
             }
+
             if !devices.is_member(endpoint.id()) {
                 return Err(MeshError::Stranger(endpoint.id()));
             }
+
             Ok(Welcome { devices, addrs })
         }
     }
@@ -183,6 +187,7 @@ pub(crate) async fn serve(inner: &Inner, conn: Connection) {
         conn.close(1u32.into(), b"not a desktop");
         return;
     }
+
     let Ok(_permit) = inner.joins.try_acquire() else {
         conn.close(1u32.into(), b"busy");
         return;
@@ -212,6 +217,7 @@ pub(crate) async fn serve(inner: &Inner, conn: Connection) {
                 }
             }
         }
+
         let reply = match outcome {
             Ok(ops) => Reply::Welcome {
                 ops,
@@ -229,8 +235,10 @@ pub(crate) async fn serve(inner: &Inner, conn: Connection) {
         conn.closed().await;
         Ok::<(), MeshError>(())
     };
+
     if let Err(e) = elapsed(timeout(STEP, work).await) {
         debug!("a join ended: {e}");
     }
+
     conn.close(0u32.into(), b"done");
 }

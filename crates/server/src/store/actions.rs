@@ -23,6 +23,7 @@ impl Store {
         descriptions: &[String],
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
+
         for description in descriptions {
             sqlx::query("INSERT INTO actions (user_id, description) VALUES ($1, $2)")
                 .bind(user.as_ref())
@@ -30,6 +31,7 @@ impl Store {
                 .execute(&mut *tx)
                 .await?;
         }
+
         sqlx::query(
             "DELETE FROM actions WHERE user_id=$1 AND done_at < now() - make_interval(days => $2)",
         )

@@ -98,6 +98,7 @@ pub async fn remove_project(
     };
     // Record locations even if the menu has not read this new import yet.
     index.sync_projects(desk.imported().await).await?;
+
     match desk.remove(&project).await {
         Ok(()) => {
             // Nothing read of it is kept.

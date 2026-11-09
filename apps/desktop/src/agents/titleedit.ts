@@ -29,6 +29,7 @@ export function bindTitleEdit(title: HTMLElement, options: { value: () => string
       input.readOnly = true;
       title.setAttribute("aria-busy", "true");
       error.remove();
+
       try {
         await options.save(input.value.trim());
         finish();
@@ -49,6 +50,7 @@ export function bindTitleEdit(title: HTMLElement, options: { value: () => string
     input.addEventListener("keydown", e => {
       e.stopPropagation();
       if (e.isComposing) return;
+
       if (e.key === "Escape") {
         e.preventDefault();
         if (!saving) { finish(); title.focus(); }

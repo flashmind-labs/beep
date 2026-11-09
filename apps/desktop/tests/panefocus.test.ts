@@ -32,11 +32,13 @@ test("pane refreshes keep conversation focus and terminal selection still focuse
   P.tabs = [tab];
   P.on.right = tab.id;
   active(composer);
+
   for (let i = 0; i < 3; i++) {
     drawPane();
     runFrames();
     assert.ok(document.activeElement === composer, "the composer keeps focus");
   }
+
   assert.equal(fits, 3, "the terminal still fits on refresh");
 
   // Opening an existing tab gives its terminal the keys.

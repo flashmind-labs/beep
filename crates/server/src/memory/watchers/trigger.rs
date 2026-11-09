@@ -65,16 +65,20 @@ pub(crate) fn due(
     if chat.running {
         return false;
     }
+
     let state = state.cloned().unwrap_or_default();
+
     if chat.last_seq <= state.reviewed_seq {
         return false;
     }
+
     if state.failures > 0
         && let Some(failed_at) = state.failed_at
         && now < failed_at + timing.backoff(state.failures)
     {
         return false;
     }
+
     match cause {
         Cause::TaskEnded => true,
         Cause::Sweep => now - chat.last_at >= timing.quiet,

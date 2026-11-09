@@ -77,6 +77,7 @@ export function hunkHeader(h: Pick<DiffHunk, "old_start" | "old_lines" | "new_st
 export function diffRows(f: Pick<DiffFile, "hunks">): DiffRow[] {
   const out: DiffRow[] = [];
   let lastOld: number | null = null;
+
   for (const h of f.hunks) {
     // A side with no lines names the line before it, so the first one
     // after is the start, not the one past it.
@@ -84,14 +85,17 @@ export function diffRows(f: Pick<DiffFile, "hunks">): DiffRow[] {
     let now = h.new_lines ? h.new_start : h.new_start + 1;
     if (lastOld != null && old - lastOld > 1) out.push({ kind: "gap", lines: old - lastOld - 1 });
     out.push({ kind: "hunk", text: hunkHeader(h) });
+
     for (const l of h.lines) {
       const row: DiffRow = { kind: "line", k: l.k, old: l.k === "+" ? null : old, new: l.k === "-" ? null : now, text: l.t, eol: !!l.e };
       if (l.k !== "+") old++;
       if (l.k !== "-") now++;
       out.push(row);
     }
+
     lastOld = old - 1;
   }
+
   return out;
 }
 
@@ -122,6 +126,7 @@ export function splitRows(rows: readonly DiffRow[]): SplitRow[] {
     dels = [];
     adds = [];
   };
+
   for (const r of rows) {
     if (r.kind !== "line") {
       flush();
@@ -139,6 +144,7 @@ export function splitRows(rows: readonly DiffRow[]): SplitRow[] {
       });
     }
   }
+
   flush();
   return out;
 }
@@ -272,6 +278,7 @@ export function placeComments(files: readonly DiffFile[], draft: readonly Review
   const by = new Map(files.map(f => [f.path, f]));
   const have = new Map<string, Set<string>>();
   const out: Placed = { files: new Map(), lost: [] };
+
   for (const c of draft) {
     const f = by.get(c.path);
     if (!f) { out.lost.push(c); continue; }
@@ -279,16 +286,19 @@ export function placeComments(files: readonly DiffFile[], draft: readonly Review
     if (!p) out.files.set(c.path, p = { file: [], top: [], lines: new Map() });
     if (c.line == null) { p.file.push(c); continue; }
     let keys = have.get(c.path);
+
     if (!keys) {
       keys = new Set();
       for (const r of diffRows(f)) if (r.kind === "line") keys.add(r.k === "-" ? lineKey("old", r.old!) : lineKey("new", r.new!));
       have.set(c.path, keys);
     }
+
     const key = lineKey(c.side, c.line);
     if (!keys.has(key)) { p.top.push(c); continue; }
     const at = p.lines.get(key);
     if (at) at.push(c); else p.lines.set(key, [c]);
   }
+
   return out;
 }
 

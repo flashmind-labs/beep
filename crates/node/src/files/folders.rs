@@ -114,9 +114,11 @@ impl Folders {
             }
             Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
         };
+
         if !self.roots.iter().any(|root| resolved.starts_with(root)) {
             bail!("{} is outside the shared folders", path.display());
         }
+
         Ok(resolved)
     }
 
@@ -146,12 +148,15 @@ impl Folders {
         let mut file =
             fsat::open_read(&path).with_context(|| format!("opening {}", path.display()))?;
         let metadata = file.metadata()?;
+
         if metadata.is_dir() {
             bail!("{} is a folder", path.display());
         }
+
         if !metadata.is_file() {
             bail!("{} is not a file", path.display());
         }
+
         let size = metadata.len();
         let limit = if limit == 0 {
             MAX_CHUNK
@@ -172,6 +177,7 @@ impl Folders {
         if data.len() > MAX_CHUNK as usize {
             bail!("at most {MAX_CHUNK} bytes go in one write");
         }
+
         let path = self.resolve(path)?;
         let mut options = OpenOptions::new();
         options.create(true);
@@ -180,11 +186,13 @@ impl Folders {
         } else {
             options.write(true).truncate(true);
         }
+
         let mut file = fsat::open_no_follow(&mut options, &path)
             .with_context(|| format!("opening {}", path.display()))?;
         if !file.metadata()?.is_file() {
             bail!("{} is not a file", path.display());
         }
+
         file.write_all(data)?;
         Ok(Reply::Written {
             path: shown(&path),
@@ -200,6 +208,7 @@ impl Folders {
             limit.min(MAX_ENTRIES)
         };
         let mut entries = Vec::new();
+
         for item in fs::read_dir(&path).with_context(|| format!("listing {}", path.display()))? {
             let item = item?;
             let name = item.file_name().to_string_lossy().into_owned();
@@ -208,6 +217,7 @@ impl Folders {
                 entries.push(entry(name, &metadata));
             }
         }
+
         entries.sort_by(|a, b| a.name.cmp(&b.name));
         let more = entries.len().saturating_sub(limit as usize);
         entries.truncate(limit as usize);
@@ -278,6 +288,7 @@ async fn serve(mut tx: LinkTx, mut rx: LinkRx, folders: Folders) -> Result<()> {
         let reply = spawn_blocking(move || folders.answer(request)).await?;
         tx.send(&reply).await?;
     }
+
     Ok(())
 }
 

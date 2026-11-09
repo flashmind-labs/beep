@@ -76,6 +76,7 @@ impl Peers for Mine {
 
 fn key_in(dir: &Path) -> Result<SecretKey> {
     let file = dir.join("key");
+
     match fs::read(&file) {
         Ok(bytes) => {
             let bytes: [u8; 32] = bytes
@@ -119,6 +120,7 @@ impl Driver {
     async fn run(&mut self, line: &str) -> Result<()> {
         let words: Vec<&str> = line.split_whitespace().collect();
         let rest = |n: usize| words[n..].join(" ");
+
         match words.as_slice() {
             ["ticket", label] => {
                 let ticket = self
@@ -146,11 +148,13 @@ impl Driver {
             ["machines"] => {
                 for d in self.mesh.devices() {
                     let mut said = String::new();
+
                     if d.online
                         && let Ok(client) = beep_mesh::with_deadline(d.device.id, &self.mesh).await
                     {
                         said = probe(&client).await;
                     }
+
                     println!(
                         "  {:<10} {:?} {} {}",
                         d.device.name,
@@ -219,6 +223,7 @@ impl Driver {
             }
             ["sessions", name] => {
                 let client = self.client(name).await?;
+
                 for s in sessions::list(&client).await? {
                     println!(
                         "  {} {} turns={} status={:?} cwd={}",
@@ -234,6 +239,7 @@ impl Driver {
                 let (mut tx, mut rx) =
                     terminals::attach(&client, TaskId(task.id.0), 0, Size::DEFAULT).await?;
                 let mut text = Vec::new();
+
                 loop {
                     match timeout(Duration::from_secs(10), rx.recv::<TermReply>()).await {
                         Ok(Ok(Some(TermReply::Output { data, .. }))) => {
@@ -245,6 +251,7 @@ impl Driver {
                                 })
                                 .await?;
                             }
+
                             text.extend_from_slice(&data)
                         }
                         Ok(Ok(Some(TermReply::Ended { .. }))) | Ok(Ok(None)) => break,
@@ -253,6 +260,7 @@ impl Driver {
                         Err(_) => break,
                     }
                 }
+
                 println!("terminal output: {:?}", String::from_utf8_lossy(&text));
             }
             ["diff", name, root] => {
@@ -264,6 +272,7 @@ impl Driver {
                     only: Vec::new(),
                     lockfiles: false,
                 };
+
                 match sessions::diff(&client, ask).await? {
                     NodeWork::Done(diff) => {
                         println!(
@@ -272,6 +281,7 @@ impl Driver {
                             diff.additions,
                             diff.deletions
                         );
+
                         for f in &diff.files {
                             println!("  {f:?}");
                         }
@@ -288,8 +298,10 @@ impl Driver {
                 let client = self.client(name).await?;
                 // One call first, so a connection that has to open does not count.
                 let mut times = Vec::new();
+
                 for i in 0..=n {
                     let t = Instant::now();
+
                     match *what {
                         "list" => {
                             sessions::list(&client).await?;
@@ -302,10 +314,12 @@ impl Driver {
                         }
                         other => bail!("bench what? {other}"),
                     }
+
                     if i > 0 {
                         times.push(t.elapsed());
                     }
                 }
+
                 times.sort();
                 println!(
                     "bench {what} on {name}: n={n} min={:?} median={:?} max={:?}",
@@ -336,6 +350,7 @@ impl Driver {
                     "imported {} on {} at {} cloned={}",
                     landed.project, landed.machine_name, landed.folder, landed.cloned
                 );
+
                 for p in self.desk.imported().await {
                     println!(
                         "  recorded: {} on {} {}",
@@ -345,10 +360,12 @@ impl Driver {
             }
             ["syncset", project, places @ ..] => {
                 let mut spec = SyncSpec::default();
+
                 for place in places {
                     let (name, folder) = place.split_once('=').context("name=folder")?;
                     spec.folders.insert(self.id_of(name)?, folder.to_owned());
                 }
+
                 self.mesh
                     .set(Key::Sync((*project).to_owned()), Some(spec.to_bytes()?))
                     .await?;
@@ -359,6 +376,7 @@ impl Driver {
                     if !d.online || d.device.id == self.me {
                         continue;
                     }
+
                     let Ok(client) = beep_mesh::with_deadline(d.device.id, &self.mesh).await else {
                         continue;
                     };
@@ -394,12 +412,14 @@ impl Driver {
             [] => {}
             other => bail!("unknown command {other:?}"),
         }
+
         Ok(())
     }
 
     /// Prints the session's events until its turn ends, it asks, or it ends.
     async fn pump(&mut self, label: &str) -> Result<()> {
         let opened = self.sessions.get_mut(label).context("no such session")?;
+
         loop {
             let event = timeout(Duration::from_secs(90), opened.rx.recv::<Event>())
                 .await
@@ -454,13 +474,16 @@ async fn read_one(client: &PeerClient, root: &str, path: &str) -> Result<String>
 
 async fn loop_until<T>(secs: u64, mut f: impl FnMut() -> Option<T>) -> Option<T> {
     let end = Instant::now() + Duration::from_secs(secs);
+
     loop {
         if let Some(v) = f() {
             return Some(v);
         }
+
         if Instant::now() > end {
             return None;
         }
+
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }
@@ -469,6 +492,7 @@ async fn probe(client: &PeerClient) -> String {
     let read = async {
         let (_tx, mut rx) = client.open(status::PROTOCOL).await.ok()?;
         let (mut offers, mut env) = (None, None);
+
         while offers.is_none() || env.is_none() {
             match rx.recv::<Report>().await.ok()?? {
                 Report::Offers(o) => offers = Some(o),
@@ -476,6 +500,7 @@ async fn probe(client: &PeerClient) -> String {
                 _ => {}
             }
         }
+
         let env = env?;
         Some(format!(
             "os={} {} host={} offers={}",
@@ -535,18 +560,23 @@ async fn main() -> Result<()> {
         sessions: HashMap::new(),
     };
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
+
     while let Some(line) = lines.next_line().await? {
         let line = line.trim();
+
         if line == "quit" {
             break;
         }
+
         println!("> {line}");
         let t = Instant::now();
+
         match driver.run(line).await {
             Ok(()) => println!("ok ({} ms)", t.elapsed().as_millis()),
             Err(e) => println!("FAIL ({} ms): {e:#}", t.elapsed().as_millis()),
         }
     }
+
     router.shutdown().await.ok();
     Ok(())
 }

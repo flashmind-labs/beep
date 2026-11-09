@@ -107,6 +107,7 @@ function groupSection(g: ProjectGroup, section: OverviewGroup<Project, OverviewC
   const n = section.cards.length;
   const head = h("h3", "gp", icon(IC.folder));
   const editing = state.renaming?.id === g.id ? state.renaming : null;
+
   if (editing) {
     // What is typed lives in `state.renaming`, so a refresh that draws the
     // page again keeps it.
@@ -116,6 +117,7 @@ function groupSection(g: ProjectGroup, section: OverviewGroup<Project, OverviewC
     input.addEventListener("input", () => { editing.draft = input.value; });
     const finish = (save: boolean) => {
       if (state.renaming !== editing) return;
+
       if (save) renameGroup(g, input.value);
       else { state.renaming = null; redrawProjects(); }
     };
@@ -140,6 +142,7 @@ function groupSection(g: ProjectGroup, section: OverviewGroup<Project, OverviewC
         button("Remove", "quiet warn", () => removeGroup(g))));
     head.addEventListener("contextmenu", e => groupMenu(e, g));
   }
+
   const body = n ? h("div", "pj-grid", ...section.cards.map(projectCard)) : h("span", "gp-none", "No projects in these folders yet.");
   return h("section", "pj-org", head, body);
 }
@@ -155,14 +158,17 @@ function projectCard(c: OverviewCardRow<Project, OverviewCard>) {
   card.tabIndex = 0;
   card.setAttribute("role", "button");
   card.title = c.name;
+
   if (c.sum) {
     const bar = h("div", "pj-bar");
+
     for (const s of barSegments(c.sum.tasks)) {
       const seg = h("i", s.state);
       seg.style.width = `${s.share}%`;
       seg.title = `${s.n} ${s.state}`;
       bar.append(seg);
     }
+
     const [open, ...rest] = countsLine(c.sum.tasks);
     card.append(bar, h("span", "line", h("b", "", open), rest.map(x => ` · ${x}`).join("")));
     const latest = c.sum.latest;
@@ -170,6 +176,7 @@ function projectCard(c: OverviewCardRow<Project, OverviewCard>) {
   } else {
     card.append(h("span", "line", c.last ? `Last activity ${since(c.last)}` : "No recent activity"));
   }
+
   if (c.machines.length) card.append(h("span", "line sync", `on ${c.machines.map(m => m.name).join(", ")}`));
   // Only a project's page reads what Syncthing keeps, so that is what shows
   // here: no read per card.
@@ -190,6 +197,7 @@ export const loadOverview = single(async () => {
   } catch (e) {
     console.warn("project overview:", e);
   }
+
   if (!state.picked) redrawProjectsPage();
 });
 
@@ -204,11 +212,13 @@ export function projectDetail(p: Project) {
   const rows = whereRows(p, machines || null, state.mac?.id || null);
   const running = projectRunning(p, state.home?.running, state.sessions.get(p.name)).filter(sessionVisible);
   if (splitOn(p)) return projectSplit(p, rows, !!machines, running);
+
   // The project agent's view is on its way, or who has an agent is not known yet.
   if (awaitsView(p, state.agents)) {
     const error = state.pview.get(p.name)?.error;
     return [error ? errorNote(`Could not read the project: ${error}`) : emptyPanel(h("span", "", "Reading the project…"))];
   }
+
   // Without a project agent there are no tasks, runs or code host lists.
   return [h("div", "pj-cols pj-half", sessionsSection(p, running), h("div", "ca-col", whereSection(p, rows, !!machines), agentsSection(running), customAgentsSection(rows)))];
 }
@@ -244,6 +254,7 @@ function startWithAgent(a: CustomAgentRow, place: AgentsPlace) {
 export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
   const where = headedTable("cc-pt pj-where", "Machine", "Folder", "");
   where.style.gridTemplateColumns = "fit-content(40%) minmax(0,1fr) auto";
+
   for (const m of rows) {
     const cells = whereRow(p, m);
     if (m.kind === "here" && p.imported) cells[2]?.append(removeButton(p.name, rows, m));
@@ -251,6 +262,7 @@ export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
     const canHost = state.home?.machines?.find(x => x.id === m.id)?.can_host;
     if (m.id) machineMenuWith({ id: m.id, name: m.name, online: m.kind !== "offline", can_host: canHost }, () => p.imported && canHost !== false ? [...changeFolderItems(p.name, m), ...removeMenuItems(p.name, rows, m)] : [], ...cells);
   }
+
   // Once every machine answered, the note says the count instead.
   return section("sec-where", "Where it lives", known ? "" : rows.filter(m => m.kind === "here").length, null, where,
     known && h("small", "", `on ${whereCount(rows, true)}`), freshNote(pageFresh("where", p.name, readingWhere.has(p.name))));

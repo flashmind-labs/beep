@@ -129,6 +129,7 @@ impl<K: Hash + Eq + Clone, T: Clone> Cache<K, T> {
                 value,
             },
         );
+
         while held.len() > max {
             let Some(oldest) = held
                 .iter()
@@ -231,9 +232,11 @@ impl Session {
         let spend = Cache::default();
         let saved = options.usage_file.as_deref().and_then(load_spend);
         let plans = saved.as_ref().map(|report| report.limits.clone());
+
         if let Some(report) = saved {
             spend.hold((), report, None);
         }
+
         Ok(Arc::new(Self {
             options,
             peers,
@@ -261,12 +264,14 @@ impl Session {
             .map_err(|_| FleetError::NoMesh("still opening".into()))??;
         desk.settle = self.options.settle;
         desk.github_api.clone_from(&self.options.github_api);
+
         if !self.checkouts_synced.swap(true, Ordering::Relaxed)
             && let Err(e) = desk.sync_all_checkouts().await
         {
             // The next session writes them; the desk is good without.
             log::warn!("the imported projects are not all synced: {e}");
         }
+
         Ok(desk)
     }
 
@@ -286,17 +291,22 @@ impl Session {
         refresh: bool,
     ) -> Result<LabeledProjectLists> {
         let key = project.to_owned();
+
         if !refresh && let Some((held, stale)) = self.lists.get(&key, self.options.fresh) {
             if stale {
                 self.read_lists_later(key);
             }
+
             return Ok(held);
         }
+
         let started = self.epoch.load(Ordering::Relaxed);
         let read = self.desk().await?.lists(project).await?;
+
         if started == self.epoch.load(Ordering::Relaxed) {
             self.lists.put(key, read.clone());
         }
+
         Ok(read)
     }
 
@@ -304,6 +314,7 @@ impl Session {
         if !self.lists.begin(&key) {
             return;
         }
+
         let this = self.clone();
         self.spawn(async move {
             let _slot = this.limit.acquire().await;
@@ -320,6 +331,7 @@ impl Session {
                 }
             };
             this.lists.end(&key);
+
             if let Some(read) = read
                 && kept
             {
@@ -338,17 +350,22 @@ impl Session {
     pub async fn runs(self: &Arc<Self>, project: &str, refresh: bool) -> Result<HostedRuns> {
         let key = project.to_owned();
         let fresh = |runs: &HostedRuns| runs_fresh(runs, self.options.fresh, SystemTime::now());
+
         if !refresh && let Some((held, stale)) = self.runs.get_by(&key, fresh) {
             if stale {
                 self.read_runs_later(key);
             }
+
             return Ok(held);
         }
+
         let started = self.epoch.load(Ordering::Relaxed);
         let read = self.desk().await?.runs(project).await?;
+
         if started == self.epoch.load(Ordering::Relaxed) {
             self.runs.put(key, read.clone());
         }
+
         Ok(read)
     }
 
@@ -369,12 +386,15 @@ impl Session {
         if !refresh && let Some((held, false)) = self.run_details.get_by(&key, fresh) {
             return Ok(held);
         }
+
         let started = self.epoch.load(Ordering::Relaxed);
         let read = self.desk().await?.run(project, host, id).await?;
+
         if started == self.epoch.load(Ordering::Relaxed) {
             self.run_details
                 .put_within(key, read.clone(), MAX_RUN_DETAILS);
         }
+
         Ok(read)
     }
 
@@ -382,6 +402,7 @@ impl Session {
         if !self.runs.begin(&key) {
             return;
         }
+
         let this = self.clone();
         self.spawn(async move {
             let _slot = this.limit.acquire().await;
@@ -397,6 +418,7 @@ impl Session {
                 }
             };
             this.runs.end(&key);
+
             if let Some(read) = read
                 && kept
             {
@@ -422,6 +444,7 @@ impl Session {
                 if stale {
                     self.read_spend_later();
                 }
+
                 held
             }
             _ => {
@@ -438,9 +461,11 @@ impl Session {
         if !self.spend.begin(&()) {
             return;
         }
+
         let this = self.clone();
         self.spawn(async move {
             let _slot = this.limit.acquire().await;
+
             match async { this.desk().await?.spend_and_follow().await }.await {
                 Ok((read, follows)) => {
                     this.keep_spend(read, follows);
@@ -451,6 +476,7 @@ impl Session {
                     this.spend.touch(&());
                 }
             }
+
             this.spend.end(&());
         });
     }
@@ -460,6 +486,7 @@ impl Session {
         self.hear(read.limits.clone());
         self.spend.put((), read);
         self.save_spend();
+
         for mut follow in follows {
             // A plan of the agent already shown is not waited for: the next read brings it.
             let shown = self.plans.borrow().clone();
@@ -469,10 +496,12 @@ impl Session {
             if follow.waiting.is_empty() {
                 continue;
             }
+
             if self.following.fetch_add(1, Ordering::Relaxed) >= PLAN_FOLLOWS {
                 self.following.fetch_sub(1, Ordering::Relaxed);
                 continue;
             }
+
             let this = self.clone();
             self.spawn(async move {
                 follow
@@ -496,6 +525,7 @@ impl Session {
         let this = self.clone();
         self.spawn(async move {
             let saved = tokio::task::spawn_blocking(move || this.write_spend(&path)).await;
+
             match saved {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => log::warn!("the usage was not kept for the next run: {e}"),

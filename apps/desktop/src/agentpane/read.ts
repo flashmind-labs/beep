@@ -20,6 +20,7 @@ function bytesOf(b64: string) {
 export async function readFile(machine: string, path: string, progress: (done: number, size: number) => void) {
   const parts: Uint8Array[] = [];
   let done = 0, size = 0, mime = "";
+
   do {
     const part = await invoke<FilePart>("agent_file", { machineId: machine, path, offset: done });
     size = part.size;
@@ -31,6 +32,7 @@ export async function readFile(machine: string, path: string, progress: (done: n
     done += bytes.length;
     progress(done, size);
   } while (done < size);
+
   const all = new Uint8Array(done);
   let at = 0;
   for (const p of parts) { all.set(p, at); at += p.length; }
@@ -50,14 +52,17 @@ export function readError(e: unknown) {
 export async function loadText(t: MediaTab) {
   const s = P.session;
   if (!s || !t.rel) return;
+
   try {
     t.text = await invoke<TreeText>("agent_tree_text", { machineId: s.machine_id, root: t.root ?? s.cwd, path: t.rel });
     t.size = t.text.size;
   } catch (e) {
     t.error = readError(e);
   }
+
   if (P.tabs.includes(t)) {
     redraw(t);
+
     if (takeQueuedPreview(t) && t.text && !t.text.binary) {
       t.el?.querySelector<HTMLButtonElement>("[data-preview]")?.click();
     }
@@ -82,22 +87,27 @@ export async function startTerminal(t: MediaTab) {
     onLink: () => drawTermStatus(t),
     onEscape: leavePane,
   };
+
   try {
     // One that runs already is followed; a new one starts where the tab was opened.
     const term = await (t.existing ? followTerm(t.existing, hooks) : openTerm({ ...t.at!, name: t.name }, hooks));
+
     if (!P.tabs.includes(t)) {
       // Its tab or session was closed while it started.
       if (t.closed) {
         dropTerm(term);
         return killTerm(term).catch(e => console.warn("stopping a terminal whose tab closed:", e));
       }
+
       return dropTerm(term);
     }
+
     t.term = term;
   } catch (e) {
     if (!P.tabs.includes(t)) return;
     t.error = readError(e);
   }
+
   redraw(t);
 }
 
@@ -111,6 +121,7 @@ export function drawTermStatus(t: MediaTab) {
 export async function load(t: MediaTab) {
   const s = P.session;
   if (!s || !t.path) return;
+
   try {
     const { bytes, mime } = await readFile(s.machine_id, t.path, (done, size) => {
       t.done = done;
@@ -126,6 +137,7 @@ export async function load(t: MediaTab) {
     if (!P.tabs.includes(t)) return;
     t.error = readError(e);
   }
+
   // Drawn again now its bytes are here.
   redraw(t);
 }

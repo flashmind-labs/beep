@@ -49,6 +49,7 @@ pub(crate) async fn target(
             if !is_public(url).await {
                 return Err(HostError::Private(url.host()).to_string());
             }
+
             Ok(Target::forgejo(
                 user_id,
                 place.repo.clone(),

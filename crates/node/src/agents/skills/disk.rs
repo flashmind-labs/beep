@@ -85,20 +85,25 @@ pub(super) fn scan(home: &Path, hashes: &mut Hashes) -> Scan {
     let mut visited = HashSet::new();
     // Name and hash, to that copy.
     let mut copies: BTreeMap<(String, String), Listed> = BTreeMap::new();
+
     for rel in READ {
         let root = home.join(rel);
         let Ok(entries) = fs::read_dir(&root) else {
             continue;
         };
+
         for entry in entries.flatten() {
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
                 continue;
             };
             let dir = entry.path();
+
             if !valid_part(&name) || !dir.is_dir() {
                 continue;
             }
+
             names.insert(name.clone());
+
             match summary(&dir, hashes) {
                 Ok(Some(found)) => {
                     let copy = copies
@@ -120,9 +125,11 @@ pub(super) fn scan(home: &Path, hashes: &mut Hashes) -> Scan {
                 Ok(None) => {}
                 Err(e) => log::debug!("skill {name} in {} not read: {e:#}", label(rel)),
             }
+
             visited.insert(dir);
         }
     }
+
     hashes.0.retain(|dir, _| visited.contains(dir));
     Scan {
         listed: copies.into_values().collect(),
@@ -151,6 +158,7 @@ fn summary(dir: &Path, hashes: &mut Hashes) -> Result<Option<Summary>> {
     {
         return Ok(hashed.skill.clone());
     }
+
     let skill = load(&listing)?.map(|files| Summary {
         hash: hash(&files),
         bytes: listing.bytes,
@@ -177,6 +185,7 @@ pub(super) fn files_of(home: &Path, name: &str, hash: &str) -> Vec<SkillFile> {
     if !valid_part(name) {
         return Vec::new();
     }
+
     for rel in READ {
         if let Ok(Some(files)) = read(&home.join(rel).join(name))
             && self::hash(&files) == hash
@@ -184,6 +193,7 @@ pub(super) fn files_of(home: &Path, name: &str, hash: &str) -> Vec<SkillFile> {
             return files;
         }
     }
+
     Vec::new()
 }
 
@@ -223,11 +233,14 @@ fn list(dir: &Path) -> Result<Option<Listing>> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e).context("reading SKILL.md"),
     }
+
     let mut listing = Listing::default();
+
     if !walk(dir, "", 0, &mut listing)? {
         log::debug!("{} is too big to sync", dir.display());
         return Ok(None);
     }
+
     listing.entries.sort_by(|a, b| a.rel.cmp(&b.rel));
     Ok(Some(listing))
 }
@@ -235,17 +248,20 @@ fn list(dir: &Path) -> Result<Option<Listing>> {
 /// Reads the files `listing` names; `None` for Beep's own skill.
 fn load(listing: &Listing) -> Result<Option<Vec<SkillFile>>> {
     let mut files = Vec::with_capacity(listing.entries.len());
+
     for entry in &listing.entries {
         let data =
             fs::read(&entry.path).with_context(|| format!("reading {}", entry.path.display()))?;
         if entry.rel == "SKILL.md" && installed_by_beep(&String::from_utf8_lossy(&data)) {
             return Ok(None);
         }
+
         files.push(SkillFile {
             path: entry.rel.clone(),
             data: ByteBuf::from(data),
         });
     }
+
     Ok(Some(files))
 }
 
@@ -255,14 +271,17 @@ fn walk(dir: &Path, prefix: &str, depth: usize, found: &mut Listing) -> Result<b
     if depth > MAX_DEPTH {
         return Ok(false);
     }
+
     for entry in fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
         let entry = entry?;
         let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
             continue;
         };
+
         if !valid_part(&name) {
             continue;
         }
+
         let path = entry.path();
         let rel = if prefix.is_empty() {
             name
@@ -277,9 +296,11 @@ fn walk(dir: &Path, prefix: &str, depth: usize, found: &mut Listing) -> Result<b
             }
         } else if meta.is_file() {
             found.bytes += meta.len();
+
             if found.entries.len() >= MAX_FILES || found.bytes > MAX_BYTES {
                 return Ok(false);
             }
+
             let modified = meta.modified().ok();
             // A clock before 1970 reads as no time.
             if let Some(ms) = modified
@@ -288,6 +309,7 @@ fn walk(dir: &Path, prefix: &str, depth: usize, found: &mut Listing) -> Result<b
             {
                 found.changed = found.changed.max(ms);
             }
+
             found.entries.push(Entry {
                 rel,
                 path,
@@ -296,6 +318,7 @@ fn walk(dir: &Path, prefix: &str, depth: usize, found: &mut Listing) -> Result<b
             });
         }
     }
+
     Ok(true)
 }
 
@@ -304,12 +327,14 @@ pub(super) fn hash(files: &[SkillFile]) -> String {
     let mut sorted: Vec<&SkillFile> = files.iter().collect();
     sorted.sort_by(|a, b| a.path.cmp(&b.path));
     let mut digest = Sha256::new();
+
     for file in sorted {
         digest.update(file.path.as_bytes());
         digest.update([0]);
         digest.update((file.data.len() as u64).to_le_bytes());
         digest.update(&file.data);
     }
+
     hex::encode(digest.finalize())
 }
 
@@ -346,11 +371,13 @@ fn check(name: &str, files: &[SkillFile]) -> Result<()> {
     if !valid_part(name) {
         bail!("{name:?} is not a skill name");
     }
+
     for file in files {
         if !file.path.split('/').all(valid_part) {
             bail!("{:?} is not a path in a skill", file.path);
         }
     }
+
     Ok(())
 }
 
@@ -359,6 +386,7 @@ fn check(name: &str, files: &[SkillFile]) -> Result<()> {
 fn stage(dir: &Path, name: &str, files: &[SkillFile]) -> Result<PathBuf> {
     let partial = dir.join(format!(".{name}.beep"));
     remove(&partial)?;
+
     for file in files {
         let path = file
             .path
@@ -367,8 +395,10 @@ fn stage(dir: &Path, name: &str, files: &[SkillFile]) -> Result<PathBuf> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
+
         fs::write(&path, &file.data).with_context(|| format!("writing {}", path.display()))?;
     }
+
     Ok(partial)
 }
 
@@ -388,15 +418,19 @@ fn remove(path: &Path) -> Result<()> {
 pub(super) fn install(home: &Path, name: &str, files: &[SkillFile]) -> Result<bool> {
     check(name, files)?;
     let mut wrote = false;
+
     for dir in targets(home) {
         let place = dir.join(name);
+
         if fs::symlink_metadata(&place).is_ok() {
             continue;
         }
+
         let partial = stage(&dir, name, files)?;
         fs::rename(&partial, &place).with_context(|| format!("writing {}", place.display()))?;
         wrote = true;
     }
+
     Ok(wrote)
 }
 
@@ -414,26 +448,33 @@ pub(super) fn replace(
 ) -> Result<usize> {
     check(name, files)?;
     let mut replaced = 0;
+
     for rel in READ.iter().filter(|rel| folders.contains(&label(rel))) {
         let dir = home.join(rel);
         let place = dir.join(name);
+
         if !matches!(read(&place), Ok(Some(now)) if hash(&now) == old) {
             continue;
         }
+
         let partial = stage(&dir, name, files)?;
         let aside = dir.join(format!(".{name}.beep-old"));
         remove(&aside)?;
         fs::rename(&place, &aside).with_context(|| format!("moving {}", place.display()))?;
+
         if let Err(e) = fs::rename(&partial, &place) {
             // The old copy goes back rather than leave no skill.
             if let Err(back) = fs::rename(&aside, &place) {
                 log::warn!("{} not put back: {back}", place.display());
             }
+
             return Err(e).with_context(|| format!("writing {}", place.display()));
         }
+
         remove(&aside)?;
         replaced += 1;
     }
+
     Ok(replaced)
 }
 
@@ -441,12 +482,15 @@ pub(super) fn replace(
 /// the other copies here, as the user kept it.
 pub(super) fn keep(home: &Path, name: &str, hash: &str, old: &[Listed]) -> Result<()> {
     let files = files_of(home, name, hash);
+
     if files.is_empty() {
         bail!("the copy kept is gone or changed");
     }
+
     for copy in old {
         replace(home, name, &files, &copy.folders, &copy.hash)?;
     }
+
     Ok(())
 }
 
@@ -534,18 +578,24 @@ impl Seen {
         if !self.dirty {
             return None;
         }
+
         self.dirty = false;
         let mut text = String::new();
+
         for (name, base) in &self.names {
             text.push_str(name);
+
             if let Some(base) = base {
                 text.push_str(&format!("\t{}\t{}", base.hash, base.ver));
+
                 if base.kept {
                     text.push_str(&format!("\t{KEPT}"));
                 }
             }
+
             text.push('\n');
         }
+
         Some(Saved {
             file: self.file.clone(),
             text,
@@ -565,6 +615,7 @@ impl Saved {
         if let Some(parent) = self.file.parent() {
             fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
+
         let partial = self.file.with_extension("beep");
         fs::write(&partial, &self.text)
             .with_context(|| format!("writing {}", partial.display()))?;

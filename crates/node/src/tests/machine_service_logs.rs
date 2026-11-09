@@ -17,9 +17,11 @@ fn options(lines: Option<usize>, all: bool) -> LogOptions {
 
 fn shown(options: &LogOptions, cutoff: i64, lines: &[&str]) -> Vec<String> {
     let mut printer = Printer::new(options, cutoff, Vec::new());
+
     for line in lines {
         printer.line(line).expect("writing to a Vec cannot fail");
     }
+
     printer.caught_up().expect("writing to a Vec cannot fail");
     String::from_utf8(printer.out)
         .expect("the lines written were UTF-8")

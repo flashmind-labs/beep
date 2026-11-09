@@ -116,6 +116,7 @@ fn call_state(joined: &JoinedGroup, history: &[MessageRow]) -> String {
         joined.group.name,
         names.join(", ")
     );
+
     for (i, row) in history.iter().enumerate() {
         let latest = if i + 1 == history.len() {
             " (latest)"
@@ -124,6 +125,7 @@ fn call_state(joined: &JoinedGroup, history: &[MessageRow]) -> String {
         };
         let _ = write!(state, "\n{}{latest}: {}", row.author_name, row.content);
     }
+
     state
 }
 
@@ -141,6 +143,7 @@ fn learn_text(joined: &JoinedGroup, history: &[MessageRow], member: &MemberRow) 
         member.name,
         others.join(", ")
     );
+
     for (i, row) in history.iter().enumerate() {
         let author = match &row.author_id {
             Some(id) if *id == member.user_id => format!("{} (the user)", row.author_name),
@@ -150,6 +153,7 @@ fn learn_text(joined: &JoinedGroup, history: &[MessageRow], member: &MemberRow) 
         let new = if i + 1 == history.len() { " (new)" } else { "" };
         let _ = write!(text, "\n{author}{new}: {}", row.content);
     }
+
     text
 }
 
@@ -230,6 +234,7 @@ impl App {
                 ));
                 continue;
             }
+
             let _ = self.notifications.send(UserNotice {
                 user: member.user_id.clone(),
                 notice: Notice {

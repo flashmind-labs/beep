@@ -30,9 +30,11 @@ impl Event {
     /// The message the run starts on.
     fn message(&self) -> String {
         let mut message = self.description.trim().to_owned();
+
         if !self.data.is_null() {
             let _ = write!(message, "\n\nDetails: {}", self.data);
         }
+
         message
     }
 }
@@ -44,15 +46,18 @@ const ARRIVAL_KM: f64 = 30.0;
 pub fn arrival(before: &Location, now: &Location) -> Option<Event> {
     let (from, to) = (Place::parse(before)?, Place::parse(now)?);
     let km = distance_km(before, now);
+
     if from == to || km < ARRIVAL_KM {
         return None;
     }
+
     let new_country = from.country != to.country;
     let mut description =
         format!("The user's phone is now in {to}. Its last report before this was from {from}.");
     if let Some(shift) = clock_shift(before, now) {
         let _ = write!(description, " {shift}");
     }
+
     Some(Event {
         label: format!("Arrived in {}", to.city),
         description,
@@ -81,9 +86,11 @@ fn clock_shift(before: &Location, now: &Location) -> Option<String> {
         )
     };
     let minutes = (offset(now)? - offset(before)?) / 60;
+
     if minutes == 0 {
         return None;
     }
+
     let (hours, rest) = (minutes.abs() / 60, minutes.abs() % 60);
     let amount = match (hours, rest) {
         (0, m) => format!("{m} minutes"),
@@ -289,6 +296,7 @@ pub async fn wake_with(
         voice: None,
         spoken: false,
     };
+
     match app.submit(user, message).await? {
         CreateRun::Created(run) => {
             log::info!("wake: run started; run_id={} user={user}", run.id);
@@ -314,6 +322,7 @@ pub(crate) async fn finish(app: &App, user: &User, run: &Run, finished: Finished
     let Ok(chat) = Uuid::parse_str(&run.session_id) else {
         return;
     };
+
     match finished.status {
         // The approval notice asks the user; the chat holds the question.
         RunStatus::Waiting => {}
@@ -322,6 +331,7 @@ pub(crate) async fn finish(app: &App, user: &User, run: &Run, finished: Finished
                 user: user.id().to_owned(),
                 id: chat,
             };
+
             if let Err(error) = app
                 .store
                 .set_generated_title(&session, finished.label)
@@ -336,6 +346,7 @@ pub(crate) async fn finish(app: &App, user: &User, run: &Run, finished: Finished
             {
                 log::warn!("wake: unable to keep the alert: {error}; run_id={}", run.id);
             }
+
             app.notify_run_complete(user, run, finished.status, finished.reply)
                 .await;
         }
@@ -345,6 +356,7 @@ pub(crate) async fn finish(app: &App, user: &User, run: &Run, finished: Finished
                 run.id,
                 status.as_ref()
             );
+
             if let Err(error) = user.delete_session(chat).await {
                 log::warn!(
                     "wake: unable to delete the chat: {error}; run_id={}",

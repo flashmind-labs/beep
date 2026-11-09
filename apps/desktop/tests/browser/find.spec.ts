@@ -19,6 +19,7 @@ for (const width of [1280, 640]) {
         message.textContent = `Example message ${i}`;
         node.append(message);
       }
+
       node.scrollTop = 400;
     });
     const metrics = () => body.evaluate(node => ({
@@ -37,12 +38,14 @@ for (const width of [1280, 640]) {
     const bodyBox = await body.boundingBox();
     expect(barBox).not.toBeNull();
     expect(bodyBox).not.toBeNull();
+
     if (barBox && bodyBox) {
       expect(barBox.y).toBeGreaterThanOrEqual(bodyBox.y);
       expect(barBox.y + barBox.height).toBeLessThan(bodyBox.y + bodyBox.height);
       expect(barBox.x).toBeGreaterThanOrEqual(bodyBox.x);
       expect(barBox.x + barBox.width).toBeLessThanOrEqual(bodyBox.x + bodyBox.width);
     }
+
     await page.keyboard.press("Escape");
     await expect(bar).toHaveCount(0);
     await expect(page.locator(".chat-find-layer")).toHaveCount(0);

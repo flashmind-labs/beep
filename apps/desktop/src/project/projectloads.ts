@@ -22,14 +22,18 @@ export function keyedReads<T>(deps: KeyedReadDeps<T>) {
   function load(key: string, after = false): Promise<void> {
     const on = reading.get(key);
     if (on && !after) return on;
+
     if (on) {
       let queued = next.get(key);
+
       if (!queued) {
         queued = on.then(() => { next.delete(key); return load(key); });
         next.set(key, queued);
       }
+
       return queued;
     }
+
     const run = (async () => {
       try {
         deps.got(key, await deps.read(key));
@@ -38,6 +42,7 @@ export function keyedReads<T>(deps: KeyedReadDeps<T>) {
       } finally {
         reading.delete(key);
       }
+
       if (deps.shown() === key) deps.redraw();
     })();
     reading.set(key, run);

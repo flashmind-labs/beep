@@ -51,6 +51,7 @@ pub(super) async fn own(inner: Arc<Inner>) {
     let mut closers: JoinSet<usize> = JoinSet::new();
     let mut cutting: BTreeSet<usize> = BTreeSet::new();
     let mut rev = inner.rev.subscribe();
+
     loop {
         rev.borrow_and_update();
         let view = inner.view();
@@ -66,16 +67,19 @@ pub(super) async fn own(inner: Arc<Inner>) {
             for handle in running.values() {
                 handle.abort();
             }
+
             Vec::new()
         };
         // A dialer for a removed member ends on its own once its link has
         // told the peer; aborting it would cut that short.
         running.retain(|id, _| wanted.contains(id));
+
         for id in wanted {
             running
                 .entry(id)
                 .or_insert_with(|| dialers.spawn(dial(inner.clone(), id)));
         }
+
         let doomed: Vec<Doomed> = inner
             .conns()
             .iter()
@@ -97,6 +101,7 @@ pub(super) async fn own(inner: Arc<Inner>) {
             .collect();
         for Doomed { conn, told } in doomed {
             let id = conn.stable_id();
+
             if cutting.insert(id) {
                 // The link tells the peer first when it can; this ends it
                 // when the peer will not read, and with it the peer's streams.
@@ -112,6 +117,7 @@ pub(super) async fn own(inner: Arc<Inner>) {
                 });
             }
         }
+
         tokio::select! {
             changed = rev.changed() => {
                 if changed.is_err() {
@@ -136,13 +142,16 @@ pub(super) async fn own(inner: Arc<Inner>) {
 async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
     let mut backoff = Backoff(FIRST_RETRY);
     let mut waited = false;
+
     loop {
         let notified = inner.wake.notified();
         tokio::pin!(notified);
         notified.as_mut().enable();
+
         if !inner.is_member(peer) || !inner.is_member(inner.me) || inner.is_closed() {
             return peer;
         }
+
         if let Some(conn) = inner.live(peer) {
             tokio::select! {
                 () = &mut notified => {}
@@ -150,6 +159,7 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
             }
             continue;
         }
+
         if inner.me > peer && !waited {
             waited = true;
             tokio::select! {
@@ -158,6 +168,7 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
             }
             continue;
         }
+
         let tried = inner.addrs().get(&peer).cloned();
         let addr = tried
             .as_ref()
@@ -173,16 +184,19 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
                     if inner.live(peer).is_some() {
                         break None;
                     }
+
                     notified.set(inner.wake.notified());
                     notified.as_mut().enable();
                 }
             }
         };
         let Some(dialed) = dialed else { continue };
+
         match dialed {
             Ok(Ok(conn)) => {
                 link::serve(inner.clone(), conn, inner.me).await;
                 waited = false;
+
                 if started.elapsed() >= STABLE {
                     backoff.reset();
                     continue;
@@ -194,14 +208,17 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
         // Only a new address for this peer ends the wait early.
         let pause = sleep(backoff.pause());
         tokio::pin!(pause);
+
         loop {
             let moved = inner.addr_wake.notified();
             tokio::pin!(moved);
             moved.as_mut().enable();
             let now = inner.addrs().get(&peer).cloned();
+
             if now != tried {
                 break;
             }
+
             tokio::select! {
                 () = &mut pause => break,
                 () = &mut moved => {}

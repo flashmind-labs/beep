@@ -25,6 +25,7 @@ Sentence case, no quotes, no trailing punctuation, no emoji, and never words lik
 pub fn start(app: Arc<App>) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(SWEEP_EVERY);
+
         loop {
             interval.tick().await;
             app.retitle_idle_sessions().await;
@@ -40,6 +41,7 @@ pub async fn name_first(
     message: &str,
 ) -> bool {
     let prompt = format!("First message:\n{}", clip(message, MAX_MESSAGE_CHARS));
+
     match ask(&generator, prompt).await {
         Ok(title) => match store.set_generated_title(session, &title).await {
             Ok(titled) => titled,
@@ -69,18 +71,21 @@ pub async fn retitle_idle(
         }
     };
     let mut retitled = Vec::new();
+
     for session in sessions {
         let generator = Generator {
             provider,
             llm,
             user: &session.user,
         };
+
         match retitle(store, generator, &session).await {
             Ok(true) => retitled.push(session),
             Ok(false) => {}
             Err(error) => log::warn!("retitle failed: {error}; session={}", session.id),
         }
     }
+
     retitled
 }
 
@@ -88,9 +93,11 @@ pub async fn retitle_idle(
 async fn retitle(store: &Store, generator: Generator<'_>, session: &SessionRef) -> Result<bool> {
     let chat = store.chat_messages(session.id).await?;
     let text = render(&chat);
+
     if text.is_empty() {
         return Ok(false);
     }
+
     let title = ask(&generator, format!("Chat:\n{text}")).await?;
     store.set_generated_title(session, &title).await
 }
@@ -105,6 +112,7 @@ async fn ask(generator: &Generator<'_>, prompt: String) -> Result<String> {
 /// The chat's user messages and replies, oldest first, cut to fit.
 fn render(chat: &[StoredMessage]) -> String {
     let mut text = String::new();
+
     for message in chat {
         let (speaker, said) = match &message.body {
             StoredBody::User { content, .. } => ("User", content),
@@ -112,11 +120,14 @@ fn render(chat: &[StoredMessage]) -> String {
             _ => continue,
         };
         let line = format!("{speaker}: {}\n", clip(said, MAX_MESSAGE_CHARS));
+
         if text.len() + line.len() > MAX_CHAT_CHARS {
             break;
         }
+
         text.push_str(&line);
     }
+
     text
 }
 

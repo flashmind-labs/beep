@@ -17,9 +17,11 @@ pub(super) const TASK: &str = "Beep node";
 pub(super) fn install(launch: &Launch) -> Result<PathBuf> {
     let path = task_path()?;
     let logs = log_dir()?;
+
     for folder in [path.parent(), Some(logs.as_path())].into_iter().flatten() {
         fs::create_dir_all(folder).with_context(|| format!("creating {}", folder.display()))?;
     }
+
     let xml = task_xml(launch, &user()?, &conhost(), &logs.join(LOG_NAME));
     fs::write(&path, utf16(&xml)).with_context(|| format!("writing {}", path.display()))?;
     run(
@@ -44,14 +46,17 @@ pub(super) fn uninstall() -> Result<()> {
         println!("The scheduled task {TASK:?} is not installed.");
         return Ok(());
     }
+
     end();
     run("schtasks", &["/Delete", "/TN", TASK, "/F"])?;
     let path = task_path()?;
+
     match fs::remove_file(&path) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e).with_context(|| format!("removing {}", path.display())),
     }
+
     println!("Stopped and removed the scheduled task {TASK:?}.");
     Ok(())
 }
@@ -71,6 +76,7 @@ pub(super) fn plan(exe: &Path) -> Result<Restart> {
     if !installed() {
         return Ok(Restart::NotInstalled);
     }
+
     let path = task_path()?;
     let xml = match fs::read(&path) {
         Ok(bytes) => from_utf16(&bytes),
@@ -78,9 +84,11 @@ pub(super) fn plan(exe: &Path) -> Result<Restart> {
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Restart::OtherBinary(path)),
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
     };
+
     if !runs(&xml, exe) {
         return Ok(Restart::OtherBinary(path));
     }
+
     Ok(Restart::Restarted(Manager::TaskScheduler))
 }
 
@@ -98,6 +106,7 @@ fn split(line: &str) -> Vec<String> {
     let mut words = Vec::new();
     let mut word = String::new();
     let (mut in_word, mut quoted, mut slashes) = (false, false, 0);
+
     for c in line.chars() {
         match c {
             '\\' => slashes += 1,
@@ -127,6 +136,7 @@ fn split(line: &str) -> Vec<String> {
             }
         }
     }
+
     word.extend(std::iter::repeat_n('\\', slashes));
     if in_word {
         words.push(word);
@@ -266,8 +276,10 @@ fn quote_arg(arg: &str) -> String {
     if !arg.is_empty() && !arg.contains([' ', '\t', '"']) {
         return arg.to_owned();
     }
+
     let mut out = String::from('"');
     let mut slashes = 0;
+
     for c in arg.chars() {
         match c {
             '\\' => slashes += 1,
@@ -283,6 +295,7 @@ fn quote_arg(arg: &str) -> String {
             }
         }
     }
+
     out.extend(std::iter::repeat_n('\\', slashes * 2));
     out.push('"');
     out

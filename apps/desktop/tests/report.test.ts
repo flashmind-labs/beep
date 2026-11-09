@@ -34,6 +34,7 @@ test("collect then send then sent offers github only with gh", () => {
     assert.equal(s.reference, "R-AB");
     assert.equal(s.text, "The sync stalls");
   }
+
   const s = run([{ type: "collect" }, { type: "collected", draft }]);
   assert.equal(s.step, "files");
   assert.equal(s.draft, draft);

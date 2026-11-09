@@ -9,6 +9,7 @@ fn main_checkouts_are_found_and_the_rest_left_out() {
         eprintln!("skipped: no git");
         return;
     }
+
     let temp = tempfile::tempdir().expect("a temp folder");
     let home = paths::canonicalize(temp.path()).expect("a real path");
     let repo = |rel: &str| {
@@ -65,9 +66,11 @@ fn a_rescan_adds_new_checkouts_and_drops_gone_ones() {
     let temp = tempfile::tempdir().expect("a temp folder");
     let (home, dir) = (temp.path().join("home"), temp.path().join("node"));
     let (kept, gone, new) = (home.join("code/app"), home.join("old"), home.join("ops"));
+
     for repo in [&kept, &gone] {
         fs::create_dir_all(repo.join(".git")).expect("a checkout");
     }
+
     fs::create_dir_all(&dir).expect("the node's folder");
     let known = walk(&home, &dir).found;
     assert_eq!(known.len(), 2);

@@ -95,6 +95,7 @@ function wasTaken(key: string, id: string) {
 function markTaken(key: string, id: string) {
   const all = taken();
   all[key] = [...(all[key] ?? []).filter(x => x !== id), id].slice(-50);
+
   try {
     localStorage.setItem(TAKEN_KEY, JSON.stringify(all));
   } catch {
@@ -122,6 +123,7 @@ function fail(run: Run, text: string) {
 async function tick(run: Run) {
   if (runs.get(run.key) !== run) return;
   let read: ReviewRun;
+
   try {
     read = await invoke<ReviewRun>("agent_review", { machineId: run.machineId, id: run.id });
     run.failed = 0;
@@ -130,6 +132,7 @@ async function tick(run: Run) {
     if (++run.failed >= 5) return fail(run, `The review could not be read: ${reason(e)}`);
     throw e;
   }
+
   if (runs.get(run.key) !== run) return;
   const state = runState(read);
   if (state === "running") return schedule(run);
@@ -223,11 +226,13 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     const offered = host()?.agents ?? [];
     if (offered.includes(picked.agent)) return;
     const first = lastPick && offered.includes(lastPick.agent) ? lastPick : null;
+
     if (first) Object.assign(picked, { agent: first.agent, model: first.model, effort: first.effort });
     else {
       const agent = o.prefer && offered.includes(o.prefer) ? o.prefer : [...offered].sort(byPreference)[0] ?? "";
       Object.assign(picked, { agent, model: "", effort: null });
     }
+
     picked.query = "";
   }
 
@@ -236,17 +241,20 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     button.replaceChildren();
     button.removeAttribute("aria-expanded");
     button.disabled = false;
+
     if (run) {
       button.append(el("span", "dspin"), "Reviewing ", el("small", "", agentLabel(run.agent)));
       button.title = "Open the review. The reviewer only reads; its findings become comments here";
       return;
     }
+
     if (starting) {
       button.append(el("span", "dspin"), "Starting");
       button.disabled = true;
       button.title = "";
       return;
     }
+
     const reasonNot = why();
     button.append("Review with agent");
     const caret = el("span");
@@ -325,6 +333,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     const uncommitted = o.uncommitted();
     starting = true;
     drawButton();
+
     try {
       const started = await invoke<ReviewRun>("agent_review_start", {
         machineId: machine.id, agent: picked.agent, cwd: v.root, base: reviewBase(target),
@@ -340,6 +349,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     } catch (e) {
       o.say(`Could not start the review: ${reason(e)}`);
     }
+
     starting = false;
     redraw();
   }
@@ -351,6 +361,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     const list = await invoke<ReviewRun[]>("agent_reviews", { machineId: machine.id, session: o.session })
       .catch(e => { console.warn("session reviews not read:", e); return [] as ReviewRun[]; });
     const root = o.view()?.root ?? "";
+
     for (const read of list) {
       if (runState(read) !== "done" || wasTaken(o.key, read.id)) continue;
       // One the button started is delivered by its own run.

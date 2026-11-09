@@ -22,6 +22,7 @@ pub async fn move_progress<S: Sessions + ?Sized>(
     let request = SessionsRequest::MoveProgress {
         session: session.to_owned(),
     };
+
     match node.sessions(request, READ_TIMEOUT).await {
         Ok(SessionsReply::Moving {
             progress: Some(progress),
@@ -62,6 +63,7 @@ pub async fn worktree_move<S: Sessions + ?Sized>(
         project: project.to_owned(),
         branch: branch.to_owned(),
     };
+
     match node.sessions(request, READ_TIMEOUT).await {
         Ok(SessionsReply::MoveChecked { ignored: false }) => Ok(WorktreeMove::Takes),
         Ok(SessionsReply::MoveChecked { ignored: true }) => Ok(WorktreeMove::Ignored),
@@ -113,6 +115,7 @@ pub async fn continue_copy<S: Sessions + ?Sized>(
         session: session.to_owned(),
         lost,
     };
+
     match node.sessions(request, UPDATE_TIMEOUT).await? {
         SessionsReply::CopyDone {} => Ok(NodeWork::Done(())),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
@@ -132,6 +135,7 @@ pub async fn discard_copy<S: Sessions + ?Sized>(
         session: session.to_owned(),
         lost,
     };
+
     match ask(node, request).await? {
         SessionsReply::CopyDone {} => Ok(()),
         SessionsReply::Error { message } => Err(said(message)),
@@ -148,6 +152,7 @@ pub async fn worktrees<S: Sessions + ?Sized>(
     let request = SessionsRequest::Worktrees {
         folder: folder.to_owned(),
     };
+
     match ask(node, request).await? {
         SessionsReply::Worktrees { worktrees } => Ok(NodeWork::Done(worktrees)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),

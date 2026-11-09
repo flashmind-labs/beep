@@ -24,6 +24,7 @@ fn bad_values_are_refused() {
         twice.check(),
         Err(FlshSettingsError::DuplicateQuantization("fp8"))
     );
+
     for tokens in [0, 999, MAX_COMPACT_TOKENS + 1] {
         let global = FlshSettings {
             autocompact: Some(FlshAutoCompact {

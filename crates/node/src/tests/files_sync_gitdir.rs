@@ -67,6 +67,7 @@ fn object_names_of_either_length_read_back() {
     for hex in ["0a".repeat(20), "0a".repeat(32)] {
         assert_eq!(hex.parse::<Oid>().ok().unwrap().to_string(), hex);
     }
+
     assert_eq!("0a".parse::<Oid>().ok(), None);
     assert_eq!("zz".repeat(20).parse::<Oid>().ok(), None);
 }

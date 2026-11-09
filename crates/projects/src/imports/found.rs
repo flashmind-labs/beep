@@ -49,6 +49,7 @@ pub fn group(
                 .any(|repo| repo.matches_remote(remote))
     };
     let mut rows: HashMap<String, Row> = HashMap::new();
+
     for machine in found {
         for folder in machine.folders {
             let Some(key) = remote_key(&folder.origin) else {
@@ -60,15 +61,18 @@ pub fn group(
             if here || is_imported(&folder.origin, &key) {
                 continue;
             }
+
             let row = rows.entry(key).or_insert_with(|| Row {
                 remote: folder.origin.clone(),
                 places: Vec::new(),
                 agents: HashMap::new(),
                 last_activity: 0,
             });
+
             for counted in &folder.agents {
                 *row.agents.entry(counted.agent.clone()).or_default() += counted.sessions;
             }
+
             row.last_activity = row.last_activity.max(folder.last_activity);
             let place = FoundPlace {
                 machine_id: machine.machine_id.clone(),
@@ -89,6 +93,7 @@ pub fn group(
             }
         }
     }
+
     let mut out: Vec<FoundProject> = rows
         .into_iter()
         .map(|(key, row)| project(&key, row, servers))
@@ -107,6 +112,7 @@ fn project(key: &str, mut row: Row, servers: &[ForgejoUrl]) -> FoundProject {
         // A host without a token: its last two parts read as `org/repo`.
         Err(_) => {
             let parts: Vec<&str> = key.rsplitn(3, '/').collect();
+
             match parts[..] {
                 [repo, org, _] => format!("{org}/{repo}"),
                 _ => row.remote.clone(),

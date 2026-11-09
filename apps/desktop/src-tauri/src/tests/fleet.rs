@@ -56,9 +56,11 @@ pub(super) async fn until(mesh: &Mesh, ok: impl Fn(&Mesh) -> bool) {
     timeout(LIMIT, async {
         loop {
             updates.borrow_and_update();
+
             if ok(mesh) {
                 return;
             }
+
             updates.changed().await.expect("the mesh is alive");
         }
     })
@@ -371,9 +373,11 @@ async fn a_local_sync_call_waits_for_the_services_and_a_shell_does_not() {
         .expect("a shell opens at once");
     let waiting = client.clone();
     let sync = tokio::spawn(async move { waiting.open("sync/1").await.map(|_| ()) });
+
     for _ in 0..50 {
         tokio::task::yield_now().await;
     }
+
     assert!(!sync.is_finished(), "sync was served before its service");
     fleet.start_services().await;
     timeout(LIMIT, sync)

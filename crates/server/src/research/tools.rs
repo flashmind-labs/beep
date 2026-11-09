@@ -45,6 +45,7 @@ pub(crate) fn team_tools(seat: Seat) -> TeamTools {
         Arc::new(ReadRoom(seat.clone())),
         Arc::new(ReadNotes(seat.clone())),
     ];
+
     match seat.member {
         Member::Scout(_) => {
             tools.push(Arc::new(AddSource(seat.clone())));
@@ -57,6 +58,7 @@ pub(crate) fn team_tools(seat: Seat) -> TeamTools {
         }
         Member::Lead => tools.push(Arc::new(ReadDraft(seat))),
     }
+
     TeamTools(tools)
 }
 
@@ -64,6 +66,7 @@ fn check_text(what: &str, text: &str) -> Result<()> {
     if text.trim().is_empty() || text.len() > MAX_TEXT {
         bail!("{what} must be 1-{MAX_TEXT} bytes");
     }
+
     Ok(())
 }
 
@@ -147,6 +150,7 @@ impl Tool for ReadRoom {
         if said.is_empty() {
             return Ok(ToolResult::success(ctx.tool_call_id, "The room is empty."));
         }
+
         let latest = &said[said.len().saturating_sub(ROOM_READ)..];
         Ok(ToolResult::success(ctx.tool_call_id, latest.join("\n")))
     }
@@ -184,12 +188,14 @@ impl Tool for AddSource {
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
         let args: SourceArgs = parse_args(self.name(), ctx.args)?;
+
         if !args.url.starts_with("http://") && !args.url.starts_with("https://") {
             return Ok(ToolResult::failure(
                 ctx.tool_call_id,
                 "url must be a web address",
             ));
         }
+
         check_text("title", &args.title)?;
         check_text("quote", &args.quote)?;
         let source = NewSource {
@@ -243,6 +249,7 @@ impl Tool for AddNote {
         check_text("text", &args.text)?;
         let seat = &self.0;
         let known = seat.store.research_sources(seat.research).await?.len();
+
         if let Some(bad) = args
             .sources
             .iter()
@@ -253,6 +260,7 @@ impl Tool for AddNote {
                 format!("There is no source {bad}. Keep it with add_source first."),
             ));
         }
+
         let entry = Entry::Note {
             content: args.text.trim().to_owned(),
             sources: args.sources,
@@ -295,6 +303,7 @@ pub(crate) fn notes_text(
 ) -> String {
     let mut out = String::from("Notes:\n");
     let mut any = false;
+
     for row in entries {
         if let Entry::Note { content, sources } = &row.entry {
             any = true;
@@ -302,10 +311,13 @@ pub(crate) fn notes_text(
             let _ = writeln!(out, "- ({}) {content} [{}]", row.member, cited.join(", "));
         }
     }
+
     if !any {
         out.push_str("(none yet)\n");
     }
+
     out.push_str("\nSources:\n");
+
     for source in sources {
         let _ = writeln!(
             out,
@@ -313,6 +325,7 @@ pub(crate) fn notes_text(
             source.number, source.title, source.url, source.quote
         );
     }
+
     out
 }
 
@@ -368,9 +381,11 @@ impl Tool for WriteDraft {
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
         let args: DraftArgs = parse_args(self.name(), ctx.args)?;
+
         if args.markdown.trim().is_empty() || args.markdown.len() > MAX_DRAFT {
             bail!("the draft must be 1-{MAX_DRAFT} bytes");
         }
+
         self.0
             .store
             .set_research_draft(self.0.research, args.markdown.trim())

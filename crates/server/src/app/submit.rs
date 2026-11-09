@@ -41,11 +41,13 @@ impl App {
                 run_id: run.id.clone(),
                 session_id: run.session_id.clone(),
             });
+
             if message.voice.is_some() {
                 live.push(RunEvent::Transcript {
                     text: message.message.clone(),
                 });
             }
+
             runs.insert(run.id.clone(), live.clone());
             drop(runs);
 
@@ -60,6 +62,7 @@ impl App {
                     let (app, text) = (self.clone(), message.message.clone());
                     tokio::spawn(async move {
                         let generator = app.generator(&session.user);
+
                         if titles::name_first(&app.store, generator, &session, &text).await {
                             // Nobody listening just means no phone is online.
                             let _ = app
@@ -71,6 +74,7 @@ impl App {
                 Ok(_) => {}
                 Err(error) => log::warn!("unable to check title: {error}; run_id={}", run.id),
             }
+
             tokio::spawn(async move {
                 // Saved before the run can finish, which replaces it.
                 if message.is_prompt()
@@ -78,23 +82,29 @@ impl App {
                 {
                     log::warn!("unable to save the prompt: {error:#}; run_id={}", run.id);
                 }
+
                 let turn = metering::in_turn(app.execute(&user, &run, &message, &live));
+
                 if let Err(error) = turn.await {
                     log::error!("run failed: {error}; run_id={}", run.id);
+
                     if let Err(error) = user.finish(&run, None, RunStatus::Failed).await {
                         log::error!("unable to persist failure: {error}; run_id={}", run.id);
                     }
+
                     live.push(RunEvent::RunFinished {
                         status: RunStatus::Failed.as_ref().to_owned(),
                         updated_at: None,
                     });
                 }
+
                 app.runs.lock().await.remove(&run.id);
                 live.done.cancel();
                 // Node reports wait for the chat to be free.
                 app.subagents.turn_ended();
             });
         }
+
         Ok(result)
     }
 
@@ -114,6 +124,7 @@ impl App {
         {
             return Ok(false);
         }
+
         Ok(true)
     }
 
@@ -130,9 +141,11 @@ impl App {
     pub async fn drain(&self, limit: Duration) {
         self.draining.store(true, Ordering::Relaxed);
         let running = self.runs.lock().await.len();
+
         if running == 0 {
             return;
         }
+
         log::info!("shutdown: waiting up to {limit:?} for {running} runs to end");
         let ended = timeout(limit, async {
             while !self.runs.lock().await.is_empty() {
@@ -140,6 +153,7 @@ impl App {
             }
         })
         .await;
+
         if ended.is_err() {
             let left = self.runs.lock().await.len();
             log::warn!("shutdown: interrupting {left} runs still going");
@@ -158,14 +172,17 @@ impl App {
         self.watchers.stop();
         self.subagents.stop();
         self.stop_teams().await;
+
         for live in self.runs.lock().await.values() {
             live.cancel.cancel();
         }
+
         let _ = timeout(Duration::from_secs(10), async {
             loop {
                 if self.runs.lock().await.is_empty() {
                     break;
                 }
+
                 sleep(Duration::from_millis(25)).await;
             }
         })

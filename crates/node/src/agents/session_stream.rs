@@ -25,6 +25,7 @@ impl Agents {
             session.close().await;
             return Ok(session.info());
         }
+
         let cascade = matches!(request, Request::Cancel {});
         let command = match request {
             Request::Prompt { text } => Command::Prompt(text.into()),
@@ -42,9 +43,11 @@ impl Agents {
             _ => return Err("this request cannot order an existing session".into()),
         };
         session.order(command).await?;
+
         if cascade {
             self.cancel_family(&session).await;
         }
+
         Ok(session.info())
     }
 }
@@ -119,12 +122,15 @@ pub async fn serve_session(
         }
     };
     let mut live = session.live.clone();
+
     if let Err(reason) = session.named_info().await {
         return tx.send(&Event::Refused { reason }).await;
     }
+
     let info = live.borrow_and_update().info.clone();
     let mut seen = Seen::new(&info);
     let session_id = info.id.clone();
+
     if let Err(error) = tx
         .send(&Event::Attached {
             session: Box::new(info),
@@ -137,7 +143,9 @@ pub async fn serve_session(
         );
         return Err(error);
     }
+
     log::info!("{} session {session_id}: attachment sent", kind.name);
+
     if seen.state.status == Status::Ended {
         return tx
             .send(&Event::Ended {
@@ -145,6 +153,7 @@ pub async fn serve_session(
             })
             .await;
     }
+
     loop {
         tokio::select! {
             request = rx.recv::<Request>() => {
@@ -195,24 +204,29 @@ pub async fn serve_session(
                     }
                 };
                 let error = session.order(command).await.err();
+
                 if cascade {
                     // The session keeps the task, so it ends with it; it is
                     // bounded by the time each machine has to answer.
                     let (agents, family) = (agents.clone(), session.clone());
                     session.keep(tokio::spawn(async move { agents.cancel_family(&family).await }));
                 }
+
                 tx.send(&Event::Ack { error }).await?;
             }
             changed = live.changed() => {
                 let events = seen.events(&live.borrow_and_update());
                 let mut ended = false;
+
                 for event in events {
                     ended |= matches!(event, Event::Ended { .. });
                     tx.send(&event).await?;
                 }
+
                 if ended {
                     return Ok(());
                 }
+
                 if changed.is_err() {
                     let reason = "the session stopped".to_owned();
                     return tx.send(&Event::Ended { reason }).await;
@@ -246,21 +260,26 @@ impl Seen {
     fn events(&mut self, live: &live::Live) -> Vec<Event> {
         let info = &live.info;
         let mut events = Vec::new();
+
         if info.state != self.state {
             self.state = info.state.clone();
             events.push(Event::State {
                 state: self.state.clone(),
             });
         }
+
         let question = info.question.as_ref().map(|question| question.id);
+
         if question != self.question {
             self.question = question;
+
             if let Some(question) = &info.question {
                 events.push(Event::Question {
                     question: question.clone(),
                 });
             }
         }
+
         if info.turns > self.turns {
             self.turns = info.turns;
             events.push(Event::TurnDone {
@@ -269,11 +288,13 @@ impl Seen {
                 last_message: info.last_message.clone(),
             });
         }
+
         if info.state.status == Status::Ended {
             events.push(Event::Ended {
                 reason: self.ended(),
             });
         }
+
         events
     }
 }

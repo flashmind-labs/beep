@@ -10,6 +10,7 @@ async fn a_long_reply_is_heard_whole_while_the_reader_is_behind() {
         said.push_str(&delta);
         teller.tell(RunNews::Text(delta));
     }
+
     teller.tell(RunNews::Tool("Searching".into()));
     teller.tell(RunNews::Text("after.".into()));
     drop(teller);
@@ -24,9 +25,11 @@ async fn a_waiting_reader_wakes_for_news() {
     let (teller, mut heard) = channel();
     let reader = tokio::spawn(async move {
         let mut got = Vec::new();
+
         while let Some(news) = heard.recv().await {
             got.push(news);
         }
+
         got
     });
     tokio::task::yield_now().await;

@@ -105,6 +105,7 @@ pub(super) fn watcher_of(
         if *machine == me {
             return Some((me, reach));
         }
+
         let said = peers.get(machine)?;
         Some((*machine, said.hosts.get(host).copied().unwrap_or_default()))
     });
@@ -187,6 +188,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
         // The first list comes with the first tick; the first check after.
         let mut check = interval_at(Instant::now() + CHECK, CHECK);
         check.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
         loop {
             select! {
                 _ = check.tick() => self.check_due().await,
@@ -198,6 +200,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
                     if due {
                         self.ask_peers().await;
                     }
+
                     self.elect();
                     self.list_due().await;
                 }
@@ -207,9 +210,11 @@ impl<F: Forge, W: World> Watcher<F, W> {
                     }
                     // A machine came or went: its reach decides the watcher.
                     let online = self.world.online();
+
                     if self.asked.as_ref().is_some_and(|(_, then)| *then != online) {
                         self.ask_peers().await;
                     }
+
                     for project in self.elect() {
                         self.list(&project).await;
                     }
@@ -277,10 +282,12 @@ impl<F: Forge, W: World> Watcher<F, W> {
             .map(|project| project.name.clone())
             .collect();
         let lost: Vec<String> = self.held.difference(&held).cloned().collect();
+
         for lost in lost {
             log::info!("CI watch: {lost} is watched elsewhere now");
             self.drop_waits(&lost);
         }
+
         let gained: Vec<Project> = self
             .projects
             .iter()
@@ -290,6 +297,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
         for project in &gained {
             log::info!("CI watch: watching {} here", project.name);
         }
+
         self.held = held;
         let pinned: BTreeSet<&str> = self.projects.iter().map(|p| p.name.as_str()).collect();
         self.books.retain(|name| pinned.contains(name));
@@ -312,9 +320,11 @@ impl<F: Forge, W: World> Watcher<F, W> {
         for project in held {
             let now = Instant::now();
             let checks = self.checks.entry(project.name.clone()).or_default();
+
             if !checks.due(now) {
                 continue;
             }
+
             let answer = bounded(self.forge.check(&project.target, checks.etag())).await;
             let answer = match answer {
                 Ok(Some(answer)) => Ok(answer),
@@ -322,6 +332,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
                 Err(e) => Err(e),
             };
             let checks = self.checks.entry(project.name.clone()).or_default();
+
             if checks.answered(answer, now, SystemTime::now()) {
                 self.list(&project).await;
             }
@@ -333,6 +344,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
     async fn list_due(&mut self) {
         let now = Instant::now();
         let held: Vec<Project> = self.held_projects().collect();
+
         for project in held {
             if let Some(at) = self.world.pushed(&project).await {
                 let before = self.pushes.insert(project.name.clone(), at);
@@ -341,6 +353,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
                     self.next.remove(&project.name);
                 }
             }
+
             if self.next.get(&project.name).is_none_or(|next| now >= *next) {
                 self.list(&project).await;
             }
@@ -392,9 +405,11 @@ impl<F: Forge, W: World> Watcher<F, W> {
         for run in seen.tell {
             self.tell(project, run);
         }
+
         for run in seen.going {
             self.queue(project, run);
         }
+
         self.save().await;
     }
 
@@ -418,9 +433,11 @@ impl<F: Forge, W: World> Watcher<F, W> {
     fn queue(&mut self, project: &Project, run: WorkflowRun) {
         let key = (project.name.clone(), run.id);
         self.last.insert(key.clone(), run);
+
         if self.waiting.contains_key(&key) || self.queued.contains(&key) {
             return;
         }
+
         if self.waiting.len() < MAX_WAITS {
             self.start_wait(key, project.target.clone());
         } else if self.queued.len() < MAX_QUEUED {
@@ -464,9 +481,11 @@ impl<F: Forge, W: World> Watcher<F, W> {
     fn drop_waits(&mut self, project: &str) {
         self.waiting.retain(|key, task| {
             let stays = key.0 != project;
+
             if !stays {
                 task.abort();
             }
+
             stays
         });
         self.queued.retain(|key| key.0 != project);
@@ -485,6 +504,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
                 if let Some(key) = self.tasks.remove(&e.id()) {
                     self.waiting.remove(&key);
                 }
+
                 self.start_queued();
                 return;
             }
@@ -518,6 +538,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
         let Some(run) = run else {
             return;
         };
+
         if self.books.settle(&project.name, &run, SystemTime::now()) {
             self.tell(&project, run);
             self.save().await;
@@ -533,9 +554,11 @@ impl<F: Forge, W: World> Watcher<F, W> {
                 return;
             }
         };
+
         if self.saved.as_ref() == Some(&bytes) {
             return;
         }
+
         match book::write(&self.file, &bytes).await {
             Ok(()) => self.saved = Some(bytes),
             Err(e) => log::warn!("CI watch: {e:#}"),
@@ -583,6 +606,7 @@ impl World for MeshWorld {
             args: "{}".to_owned(),
             approved: Default::default(),
         };
+
         match over_the_mesh(&self.mesh, peer, &request).await? {
             Reply::Done {
                 text,
@@ -614,10 +638,12 @@ fn remote_refs_changed(folder: &Path) -> Option<SystemTime> {
     let modified = |path: &Path| fs::metadata(path).and_then(|meta| meta.modified()).ok();
     let mut newest = modified(&git.join("packed-refs"));
     let mut dirs = vec![git.join("refs/remotes")];
+
     while let Some(dir) = dirs.pop() {
         let Ok(entries) = fs::read_dir(&dir) else {
             continue;
         };
+
         for entry in entries.flatten() {
             let Ok(kind) = entry.file_type() else {
                 continue;
@@ -629,5 +655,6 @@ fn remote_refs_changed(folder: &Path) -> Option<SystemTime> {
             }
         }
     }
+
     newest
 }

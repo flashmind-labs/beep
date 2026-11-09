@@ -180,9 +180,11 @@ impl Notes {
     /// Runs `change` on every note; true when it changed one.
     fn change(&self, mut change: impl FnMut(&mut Note) -> bool) -> bool {
         let mut changed = false;
+
         for note in self.lock().iter_mut() {
             changed |= change(note);
         }
+
         changed
     }
 
@@ -253,10 +255,12 @@ impl Notes {
                     && asked.question != key.question
             })
         });
+
         if seen && key.question.is_none() {
             let removed = self.viewed_agent(&key.machine_id, &key.agent, &key.session);
             return finished || removed;
         }
+
         let kind = if key.question.is_some() {
             NoteKind::Asks
         } else {
@@ -282,9 +286,11 @@ impl Notes {
     fn save(&self) -> anyhow::Result<()> {
         let _one = self.saving.lock().unwrap_or_else(PoisonError::into_inner);
         let bytes = serde_json::to_vec(&*self.lock())?;
+
         if let Some(dir) = self.path.parent() {
             fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
         }
+
         let mut partial = self.path.as_os_str().to_owned();
         partial.push(".part");
         fs::write(&partial, &bytes).with_context(|| format!("writing {}", self.path.display()))?;
@@ -303,6 +309,7 @@ fn changed(app: &AppHandle, notes: Arc<Notes>) {
     if let Err(e) = app.emit("notes", notes.list()) {
         log::warn!("telling the windows about the notifications: {e}");
     }
+
     tauri::async_runtime::spawn_blocking(move || {
         if let Err(e) = notes.save() {
             log::warn!("saving the notifications: {e:#}");
@@ -320,6 +327,7 @@ pub(crate) fn record(app: &AppHandle, note: Note) {
 /// Marks done the notes `which` picks.
 pub(crate) fn finish(app: &AppHandle, which: impl Fn(&Note) -> bool) {
     let notes = notes(app);
+
     if notes.finish(which) {
         changed(app, notes);
     }
@@ -342,6 +350,7 @@ fn asked(note: &Note) -> Option<AgentNoticeKey> {
     if note.kind != NoteKind::Asks {
         return None;
     }
+
     note.id.parse().ok()
 }
 
@@ -349,6 +358,7 @@ fn asked(note: &Note) -> Option<AgentNoticeKey> {
 /// Anything the session asked before no longer waits.
 pub(crate) fn agent_notice(app: &AppHandle, key: &AgentNoticeKey, notice: &Notice, seen: bool) {
     let notes = notes(app);
+
     if notes.agent_notice(key, notice, seen) {
         changed(app, notes);
     }
@@ -357,6 +367,7 @@ pub(crate) fn agent_notice(app: &AppHandle, key: &AgentNoticeKey, notice: &Notic
 /// The user opened this session; its finished-turn notifications no longer wait.
 pub(crate) fn agent_viewed(app: &AppHandle, machine: &str, agent: &str, session: &str) {
     let notes = notes(app);
+
     if notes.viewed_agent(machine, agent, session) {
         changed(app, notes);
     }
@@ -404,9 +415,11 @@ fn run_note(news: &RunNews) -> Option<Note> {
 pub(crate) fn run_ended(app: &AppHandle, news: &RunNews) -> Option<Note> {
     let note = run_note(news)?;
     let notes = notes(app);
+
     if notes.get(&note.id).is_some() {
         return None;
     }
+
     notes.put(note.clone(), now_ms());
     changed(app, notes);
     Some(note)
@@ -428,6 +441,7 @@ pub(crate) fn no_longer_waiting(app: &AppHandle, gone: &[String]) {
     if gone.is_empty() {
         return;
     }
+
     finish(app, |note| {
         asked(note).is_some_and(|key| {
             key.question.is_some_and(|question| {
@@ -456,9 +470,11 @@ pub async fn notes_read(
     ids: Vec<String>,
 ) -> Result<()> {
     let read = notes.read(&ids);
+
     if read.is_empty() {
         return Ok(());
     }
+
     changed(&app, notes.inner().clone());
     let mesh = fleet.ready().await?;
     beep_fleet::mark_read(&mesh, &read, &notes.listed(), now_ms()).await?;
@@ -476,11 +492,14 @@ pub(crate) async fn follow_reads(app: AppHandle, fleet: Arc<Fleet>) {
     };
     // Subscribed before the first scan, so no change falls between the two.
     let mut changes = mesh.changes();
+
     loop {
         let notes = notes(&app);
+
         if notes.shared_reads(beep_fleet::read_marks(&mesh)) {
             changed(&app, notes);
         }
+
         loop {
             match changes.recv().await {
                 Ok(beep_mesh::Key::NoticeRead(_)) | Err(RecvError::Lagged(_)) => break,
@@ -508,9 +527,11 @@ pub fn skill_reveal(app: AppHandle, folder: String, name: String) -> Result<()> 
         None => PathBuf::from(&folder).join(&name),
     };
     let climbs = skill.components().any(|part| part == Component::ParentDir);
+
     if name.contains(['/', '\\']) || climbs || !skill.starts_with(&home) || !skill.is_dir() {
         return Err(DesktopError::BadRequest("not a skill on this Mac".into()));
     }
+
     crate::platform::reveal(&skill)?;
     Ok(())
 }

@@ -134,9 +134,11 @@ impl Syncthing {
             })
             .collect();
         let mut decided = vec![None; folders.len()];
+
         while let Some((at, managed)) = deciding.next().await {
             decided[at] = managed;
         }
+
         decided
     }
 
@@ -204,6 +206,7 @@ impl Syncthing {
                 Some(listed) => holding(&listed, &folder),
                 None => marked(&folder, home.as_deref()),
             };
+
             if let Some(managed) = &managed
                 && let Err(e) = protect_checkout(&managed.root)
             {
@@ -216,6 +219,7 @@ impl Syncthing {
             })
         })
         .await;
+
         match decided {
             Ok(managed) => managed,
             Err(e) => {
@@ -246,6 +250,7 @@ impl Syncthing {
             }
         };
         let home = self.inner.home.clone();
+
         match spawn_blocking(move || resolve(raw, home.as_deref())).await {
             Ok(folders) => Some(folders),
             Err(e) => {
@@ -270,13 +275,17 @@ fn protect_checkout(root: &Path) -> Result<()> {
         Err(e) => return Err(e).context("reading Syncthing ignore rules"),
     };
     let text = old.trim_start_matches('\u{feff}');
+
     if text.starts_with(LOCAL_GIT) {
         return Ok(());
     }
+
     let mut temp = tempfile::NamedTempFile::new_in(root)?;
+
     if let Ok(meta) = fs::metadata(&path) {
         temp.as_file().set_permissions(meta.permissions())?;
     }
+
     temp.write_all(LOCAL_GIT.as_bytes())?;
     temp.write_all(text.as_bytes())?;
     temp.as_file().sync_all()?;
@@ -304,12 +313,14 @@ fn default_homes() -> Vec<PathBuf> {
 fn find_gui(homes: &[PathBuf]) -> Result<Option<Gui>> {
     for home in homes {
         let file = home.join(CONFIG);
+
         match fs::read_to_string(&file) {
             Ok(text) => return parse_gui(&text).map(Some),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
             Err(e) => return Err(e).with_context(|| format!("reading {}", file.display())),
         }
     }
+
     Ok(None)
 }
 
@@ -343,10 +354,13 @@ fn gui_addr(address: &str, tls: bool) -> Result<String> {
     if tls || address.starts_with("https://") {
         bail!("the GUI takes HTTPS only");
     }
+
     let rest = address.strip_prefix("http://").unwrap_or(address);
+
     if rest.starts_with("unix") || rest.starts_with('/') {
         bail!("the GUI listens on a socket");
     }
+
     let rest = rest.trim_end_matches('/');
     // Listening on every address is reached on loopback.
     Ok(if let Some(port) = rest.strip_prefix("0.0.0.0:") {
@@ -416,6 +430,7 @@ async fn request(gui: &Gui, method: &str, path: &str, body: &[u8]) -> Result<Vec
     if reply.len() > MAX_REPLY {
         bail!("Syncthing's reply is over {MAX_REPLY} bytes");
     }
+
     let split = reply
         .windows(4)
         .position(|w| w == b"\r\n\r\n")
@@ -429,6 +444,7 @@ async fn request(gui: &Gui, method: &str, path: &str, body: &[u8]) -> Result<Vec
     if status != "200" {
         bail!("Syncthing answered {status}");
     }
+
     Ok(reply.split_off(split + 4))
 }
 
@@ -470,6 +486,7 @@ fn real(path: &Path) -> PathBuf {
             };
         }
     }
+
     path.to_owned()
 }
 
@@ -512,10 +529,12 @@ fn marked(folder: &Path, home: Option<&Path>) -> Option<Managed> {
                 root: dir.to_owned(),
             });
         }
+
         if home == Some(dir) {
             break;
         }
     }
+
     None
 }
 

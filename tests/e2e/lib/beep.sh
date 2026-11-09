@@ -31,6 +31,7 @@ build(){
     note "E2E_SKIP_BUILD=1: using the binaries in $BIN_DIR"
     return 0
   fi
+
   step "build static beep-server, beep-probe and beep-node ($TARGET)"
   ( cd "$ROOT" && CC_x86_64_unknown_linux_musl="${CC_x86_64_unknown_linux_musl:-musl-gcc}" \
       cargo build --release --target "$TARGET" -p beep-server --bin beep-server --bin beep-probe \
@@ -49,21 +50,27 @@ deploy(){
   step "deploy binaries"
   local f
   STAGE="$(mktemp -d)"
+
   for f in beep-server beep-probe beep-node; do
     [[ -x "$BIN_DIR/$f" ]] || { echo "missing $BIN_DIR/$f: build first" >&2; return 1; }
     strip -o "$STAGE/$f" "$BIN_DIR/$f" && gzip -1 "$STAGE/$f" || return 1
   done
+
   local pids=() role failed=0
+
   for role in server $(fleet_nodes); do
     on "$role" 'mkdir -p ~/beep/bin ~/beep/state ~/beep/logs' || return 1
   done
+
   ( ship server beep-server && ship server beep-probe \
       && on server "docker pull -q $PG_IMAGE > /dev/null" ) &
   pids+=($!)
+
   for role in $(fleet_nodes); do
     ship "$role" beep-node &
     pids+=($!)
   done
+
   for role in "${pids[@]}"; do wait "$role" || failed=1; done
   rm -rf "$STAGE"
   [[ "$failed" == 0 ]] || { echo "deploy failed" >&2; return 1; }
@@ -76,6 +83,7 @@ deploy(){
 fresh_world(){
   step "fresh server, database and nodes"
   local role
+
   for role in $(fleet_nodes); do
     stop_node "$role" KILL
     on "$role" 'rm -rf ~/beep/state ~/ws ~/beep/logs/*; mkdir -p ~/beep/state ~/ws' || true

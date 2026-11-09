@@ -46,6 +46,7 @@ export function nextFolder(state: FolderState, event: FolderEvent): FolderState 
   if (event.type === "done") return state.step === "adding" ? { ...state, step: "done", project: event.project } : state;
   if (event.type === "failed") return state.step === "adding" ? { ...state, step: "form", error: cleanError(event.message) } : state;
   if (state.step !== "form") return state;
+
   switch (event.type) {
     case "pick":
       if (event.machine === state.machine) return state;

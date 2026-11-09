@@ -11,6 +11,7 @@ use std::path::PathBuf;
 
 pub(super) fn rewrite(transcript: &[u8], id: &str, folders: &Folders) -> Stored {
     let mut bytes = Vec::with_capacity(transcript.len() + 64);
+
     for line in transcript.split_inclusive(|b| *b == b'\n') {
         let spans = string_spans(line, &[Step::Key("cwd")]);
         bytes.extend(replace(line, &spans, |cwd| folders.remap(cwd)));

@@ -53,6 +53,7 @@ pub fn steps(
     // Where the open turn's record is in `out.steps`.
     let mut opener: Option<usize> = None;
     let mut reasoning = String::new();
+
     for entry in entries {
         if let EntryKind::Assistant {
             tool_calls: Some(calls),
@@ -66,7 +67,9 @@ pub fn steps(
         if since.is_some_and(|since| entry.timestamp < since) || entry.is_summary() {
             continue;
         }
+
         let sent_at = entry.timestamp;
+
         match &entry.kind {
             EntryKind::User { content, .. } => {
                 finish(&mut out, opener, &mut reasoning);
@@ -101,8 +104,10 @@ pub fn steps(
                     if !reasoning.is_empty() {
                         reasoning.push_str("\n\n");
                     }
+
                     reasoning.push_str(said);
                 }
+
                 if !content.is_empty() {
                     out.steps.push(Step {
                         sent_at,
@@ -134,6 +139,7 @@ pub fn steps(
             _ => {}
         }
     }
+
     finish(&mut out, opener, &mut reasoning);
     out
 }
@@ -193,6 +199,7 @@ pub fn routine_notice(
 /// Gives the gathered reasoning to the turn at `opener`, or to the carried turn.
 fn finish(out: &mut Steps, opener: Option<usize>, reasoning: &mut String) {
     let reasoning = cap_tail(&mem::take(reasoning), MAX_REASONING);
+
     match opener.and_then(|at| out.steps.get_mut(at)) {
         Some(Step {
             body: StepBody::User { turn, .. } | StepBody::Scheduled { turn, .. },
@@ -206,8 +213,10 @@ fn finish(out: &mut Steps, opener: Option<usize>, reasoning: &mut String) {
 pub fn history(messages: &[StoredMessage]) -> Vec<HistoryEntry> {
     let mut history = Vec::new();
     let mut turn = Turn::default();
+
     for message in messages {
         let timestamp = message.timestamp();
+
         match &message.body {
             StoredBody::User { content, turn: run } => {
                 turn.finish(&mut history);
@@ -235,6 +244,7 @@ pub fn history(messages: &[StoredMessage]) -> Vec<HistoryEntry> {
                 if message.turn_id.is_none() {
                     turn.finish(&mut history);
                 }
+
                 turn.last_reply = Some(history.len());
                 history.push(HistoryEntry::Assistant {
                     content: content.clone(),
@@ -269,6 +279,7 @@ pub fn history(messages: &[StoredMessage]) -> Vec<HistoryEntry> {
             StoredBody::Member { .. } | StoredBody::Beep { .. } => {}
         }
     }
+
     turn.finish(&mut history);
     history
 }
@@ -290,6 +301,7 @@ impl Turn {
 
     fn finish(&mut self, history: &mut Vec<HistoryEntry>) {
         let turn = mem::take(self);
+
         match turn.last_reply.and_then(|index| history.get_mut(index)) {
             Some(HistoryEntry::Assistant {
                 tools,
@@ -313,6 +325,7 @@ impl Turn {
                 model: turn.record.model,
             }),
         }
+
         history.extend(turn.approvals);
     }
 }

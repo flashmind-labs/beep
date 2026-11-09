@@ -64,6 +64,7 @@ impl Shell for PeerShell {
             })
             .await?;
             let mut clip = Clip::default();
+
             loop {
                 match rx.recv::<Event>().await? {
                     Some(Event::Output { text }) => clip.push(&text),
@@ -135,6 +136,7 @@ pub(crate) async fn probe(client: &PeerClient) -> Result<Probe> {
     let read = async {
         // Held open: finishing our half would end the stream.
         let (_tx, mut rx) = client.open(status::PROTOCOL).await?;
+
         while !(offered && said.env.is_some()) {
             match rx.recv::<Report>().await.map_err(FleetError::Other)? {
                 Some(Report::Offers(offers)) => {
@@ -146,11 +148,14 @@ pub(crate) async fn probe(client: &PeerClient) -> Result<Probe> {
                 None => break,
             }
         }
+
         Ok::<(), FleetError>(())
     };
+
     match timeout(PROBE, read).await {
         Ok(Ok(())) | Err(_) => {}
         Ok(Err(e)) => return Err(e),
     }
+
     Ok(said)
 }

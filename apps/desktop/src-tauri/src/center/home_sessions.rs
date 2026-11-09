@@ -102,11 +102,13 @@ impl AgentSessions {
         cache: &Arc<ViewCache>,
     ) -> Result<Vec<MachineSession>> {
         let last = self.last().clone();
+
         if let Some(listed) = &last
             && listed.at.is_some_and(|at| at.elapsed() < FRESH)
         {
             return Ok(listed.sessions.clone());
         }
+
         let Ok(asking) = self.asking.clone().try_lock_owned() else {
             // Another window is asking already; its answer redraws this one.
             return match last {
@@ -131,6 +133,7 @@ impl AgentSessions {
             let listed: Result<Vec<MachineSession>> =
                 Ok(machine_sessions(&app, &beep, &fleet, &app.state::<Outside>()).await);
             let answered = listed.is_ok();
+
             if let Ok(sessions) = &listed {
                 cache_view(&cache, View::AgentSessions, sessions);
                 *me.last() = Some(Listed {
@@ -149,6 +152,7 @@ impl AgentSessions {
         let Some(last) = last else {
             return rx.await.map_err(|_| stopped())?;
         };
+
         match timeout(WAIT, rx).await {
             Ok(Ok(listed)) => listed,
             Ok(Err(_)) => {

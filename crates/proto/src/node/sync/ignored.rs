@@ -16,14 +16,17 @@ impl IgnoredSync {
         if self.folders.len() > 16 {
             return Err("Choose at most 16 ignored folders.");
         }
+
         for folder in &mut self.folders {
             *folder = folder.trim().trim_end_matches('/').to_owned();
+
             if folder.is_empty()
                 || folder.len() > 1024
                 || folder.contains(['\\', ':', '\n', '\r', '\0'])
             {
                 return Err("Use project-relative folder paths, such as assets/models.");
             }
+
             if folder.split('/').any(|part| {
                 part.is_empty()
                     || matches!(
@@ -37,12 +40,16 @@ impl IgnoredSync {
                 );
             }
         }
+
         self.folders.sort();
         self.folders.dedup();
+
         for (i, a) in self.folders.iter().enumerate() {
             let a = a.to_lowercase();
+
             for b in &self.folders[i + 1..] {
                 let b = b.to_lowercase();
+
                 if a == b || a.starts_with(&format!("{b}/")) || b.starts_with(&format!("{a}/")) {
                     return Err(
                         "Choose folders that do not overlap, including differences only in letter case.",
@@ -50,9 +57,11 @@ impl IgnoredSync {
                 }
             }
         }
+
         if self.enabled && self.folders.is_empty() {
             return Err("Choose at least one ignored folder before enabling sync.");
         }
+
         Ok(self)
     }
 }
@@ -67,9 +76,11 @@ impl IgnoredSync {
         let project = &main.name;
         let config = self;
         let mut status = main.clone();
+
         if !config.enabled {
             return status;
         }
+
         for folder in &config.folders {
             let name = ignored_project(project, folder);
             let Some(child) = all.iter().find(|s| s.name == name) else {
@@ -105,6 +116,7 @@ impl IgnoredSync {
                     |previous| format!("{previous}\n{reason}"),
                 ));
             }
+
             status.state = if status.error.is_some()
                 || status.state == State::Failed
                 || child.state == State::Failed
@@ -118,6 +130,7 @@ impl IgnoredSync {
                 status.state
             };
         }
+
         status
     }
 }

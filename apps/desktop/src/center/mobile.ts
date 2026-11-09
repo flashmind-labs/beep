@@ -68,6 +68,7 @@ let tabBtns: Map<MobileTab, HTMLButtonElement> | null = null;
 function build() {
   const nav = $("#mb-tabs");
   tabBtns = new Map();
+
   for (const t of TABS) {
     const b = h("button", "", h("span", "ic", svg(PATHS[t.id], 21)), t.label);
     b.type = "button";
@@ -75,6 +76,7 @@ function build() {
     nav.append(b);
     tabBtns.set(t.id, b);
   }
+
   backBtn = h("button", "mb-back");
   backBtn.type = "button";
   backBtn.setAttribute("aria-label", "Back");
@@ -88,10 +90,12 @@ function build() {
 export function syncMobile() {
   if (!document.body.classList.contains("mobile") || !tabBtns || !backBtn) return;
   const now = at(), tab = activeTab(now);
+
   for (const [id, b] of tabBtns) {
     if (id === tab) b.setAttribute("aria-current", "true");
     else b.removeAttribute("aria-current");
   }
+
   // A dot on Home while something needs an answer.
   tabBtns.get("home")!.classList.toggle("dot", !!state.home?.needs_you.length && tab !== "home");
   backBtn.hidden = backTo(now) === null;

@@ -82,6 +82,7 @@ impl Names {
     fn resolve(&self, text: &str) -> String {
         let mut out = String::with_capacity(text.len());
         let mut rest = text;
+
         while let Some(start) = rest.find("<@") {
             let Some(end) = rest[start..].find('>') else {
                 break;
@@ -93,6 +94,7 @@ impl Names {
             out.push_str(self.get(id));
             rest = &rest[start + end + 1..];
         }
+
         out.push_str(rest);
         out
     }
@@ -135,13 +137,17 @@ impl Window {
         } else {
             let _ = writeln!(text, "Slack channel #{}", self.name);
         }
+
         let mut day = None;
+
         for message in &self.messages {
             let date = message.at.date_naive();
+
             if day != Some(date) {
                 let _ = writeln!(text, "\n{}", message.at.format("%A %Y-%m-%d"));
                 day = Some(date);
             }
+
             let author = names.get(&message.author_id);
             let marker = if message.author_id == self.me {
                 " (the user)"
@@ -155,6 +161,7 @@ impl Window {
                 names.resolve(message.text.trim())
             );
         }
+
         clip(&text, chars)
     }
 
@@ -229,12 +236,14 @@ pub(crate) async fn sync(app: &App, decision: &DecisionTool, user: &User) -> Res
         .map(|window| score(decision, &names, &today, window))
         .buffered(CONCURRENCY);
     let generator = app.generator(user.id());
+
     while let Some((window, score)) = scored.next().await {
         let probability = score.context("Jev failed")?;
         log::debug!(
             "slack: scored {probability:.2}; user={user} id={}",
             window.id()
         );
+
         if probability >= MEMORY_THRESHOLD {
             outcome.passed += 1;
             outcome.learned += user
@@ -242,11 +251,13 @@ pub(crate) async fn sync(app: &App, decision: &DecisionTool, user: &User) -> Res
                 .await
                 .len();
         }
+
         for message in &window.messages {
             user.mark_feed_seen(Feed::Slack, &message.id, message.at)
                 .await?;
         }
     }
+
     Ok(outcome)
 }
 
@@ -266,13 +277,16 @@ async fn score(
 /// Runs one Slack Web API tool through Composio and returns Slack's reply.
 async fn slack(client: &ComposioClient, tool: &str, arguments: Value) -> Result<Value> {
     let response = client.execute_tool(tool, arguments).await?;
+
     if response.successful == Some(false) {
         bail!("Slack call failed");
     }
+
     if response.data["ok"] == json!(false) {
         // Slack's error codes, like missing_scope, carry no content.
         bail!("Slack call failed: {}", text(&response.data["error"]));
     }
+
     Ok(response.data)
 }
 
@@ -304,19 +318,23 @@ async fn list(client: &ComposioClient, after: DateTime<Utc>) -> Result<Vec<Messa
     // Slack's `after:` takes a day and leaves that day out.
     let query = format!("after:{}", (after - Days::days(1)).format("%Y-%m-%d"));
     let mut messages = Vec::new();
+
     for page in 1..=MAX_PAGES {
         let result = search(client, &query, PAGE_SIZE, page)
             .await
             .with_context(|| format!("page {page}"))?;
         let pages = result["paging"]["pages"].as_u64().unwrap_or(1);
         messages.extend(parse_matches(&result).into_iter().filter(|m| m.at >= after));
+
         if page >= pages {
             break;
         }
+
         if page == MAX_PAGES {
             log::warn!("slack: stopped listing after {MAX_PAGES} pages");
         }
     }
+
     messages.sort_by_key(|m| m.at);
     Ok(messages)
 }
@@ -325,6 +343,7 @@ async fn list(client: &ComposioClient, after: DateTime<Utc>) -> Result<Vec<Messa
 async fn names(client: &ComposioClient, windows: &[Window]) -> Names {
     let mut names = Names::default();
     let mut ids = BTreeSet::new();
+
     for message in windows.iter().flat_map(|w| &w.messages) {
         names
             .0
@@ -332,6 +351,7 @@ async fn names(client: &ComposioClient, windows: &[Window]) -> Names {
         ids.insert(message.author_id.clone());
         ids.extend(mentions(&message.text).map(str::to_owned));
     }
+
     let lookups = stream::iter(ids)
         .map(|id| async move {
             let name = real_name(client, &id).await;
@@ -349,6 +369,7 @@ async fn names(client: &ComposioClient, windows: &[Window]) -> Names {
             Err(error) => log::debug!("slack: unable to look up a name: {error:#}"),
         }
     }
+
     names
 }
 
@@ -407,6 +428,7 @@ fn is_anchor(message: &Message, me: &str) -> bool {
 /// Ranges of `messages` around anchors, merged where they touch and split when long.
 fn spans(messages: &[Message], me: &str) -> Vec<Range<usize>> {
     let mut merged: Vec<Range<usize>> = Vec::new();
+
     for (index, _) in messages
         .iter()
         .enumerate()
@@ -419,6 +441,7 @@ fn spans(messages: &[Message], me: &str) -> Vec<Range<usize>> {
             _ => merged.push(span),
         }
     }
+
     merged
         .into_iter()
         .flat_map(|span| {
@@ -432,15 +455,19 @@ fn spans(messages: &[Message], me: &str) -> Vec<Range<usize>> {
 /// Windows around what concerns `me`, oldest first.
 fn windows(messages: impl Iterator<Item = Message>, me: &str) -> Vec<Window> {
     let mut by_channel: BTreeMap<String, Vec<Message>> = BTreeMap::new();
+
     for message in messages {
         by_channel
             .entry(message.channel.clone())
             .or_default()
             .push(message);
     }
+
     let mut windows = Vec::new();
+
     for mut messages in by_channel.into_values() {
         messages.sort_by_key(|m| m.at);
+
         for span in spans(&messages, me) {
             let messages = messages[span].to_vec();
             windows.push(Window {
@@ -451,6 +478,7 @@ fn windows(messages: impl Iterator<Item = Message>, me: &str) -> Vec<Window> {
             });
         }
     }
+
     windows.sort_by_key(Window::started);
     windows
 }

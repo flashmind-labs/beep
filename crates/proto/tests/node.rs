@@ -911,6 +911,7 @@ mod tools {
             (Tool::AgentNote, "agent_note"),
             (Tool::BeepStatus, "beep_status"),
             (Tool::BeepLogs, "beep_logs"),
+            (Tool::BeepMetrics, "beep_metrics"),
             (Tool::FileReport, "file_report"),
             (Tool::HarnessInfo, "harness_info"),
         ] {
@@ -1194,6 +1195,7 @@ mod agent {
                     base: Some("origin/main".into()),
                 },
             ];
+
             for plan in plans {
                 assert_eq!(
                     CheckoutPlan::from(AgentCheckoutPlan::from(plan.clone())),
@@ -1224,6 +1226,7 @@ mod agent {
             for good in ["main", "origin/main", "v1.2.0", "HEAD~2", "a1b2c3d"] {
                 assert!(valid_ref(good), "{good}");
             }
+
             let long = "x".repeat(MAX_REF + 1);
             for bad in [
                 "",
@@ -1339,9 +1342,11 @@ mod agent {
             assert_eq!(efforts("codex"), [Low, Medium, High]);
             assert_eq!(efforts("pi"), [Off, Minimal, Low, Medium, High, Xhigh, Max]);
             assert_eq!(efforts("flsh"), [Off, Low, Medium, High]);
+
             for agent in ["gemini", "opencode", "other"] {
                 assert!(efforts(agent).is_empty(), "{agent}");
             }
+
             let names: Vec<&str> = efforts("pi").iter().map(AsRef::as_ref).collect();
             assert_eq!(
                 names,
@@ -1349,6 +1354,7 @@ mod agent {
             );
             let body = rmp_serde::to_vec_named(&Xhigh).unwrap();
             assert_eq!(rmp_serde::from_slice::<String>(&body).unwrap(), "xhigh");
+
             for effort in efforts("pi") {
                 assert_eq!(Effort::from(AgentEffort::from(*effort)), *effort);
             }
@@ -1766,6 +1772,7 @@ mod agent {
             };
             assert!(read.is_read());
             assert!(!stop.is_read());
+
             for request in [read, stop] {
                 let bytes = rmp_serde::to_vec(&request).unwrap();
                 assert_eq!(
@@ -1774,6 +1781,7 @@ mod agent {
                 );
                 assert!(beep_proto::lenient::from_slice::<BeforeMoves>(&bytes).is_err());
             }
+
             let reply = SessionsReply::Processes {
                 processes: vec![RunningProcess {
                     pid: 42,

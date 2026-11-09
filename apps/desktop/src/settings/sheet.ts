@@ -39,10 +39,12 @@ export function openSettings(section?: string) {
   // the page behind.
   const keys = (e: KeyboardEvent) => {
     if (sheetAbove(scrim)) return;
+
     // Esc on a subpage, such as Apps then Gmail, goes back to its page first.
     if (e.key === "Escape") { e.preventDefault(); if (!pane.settingsBack()) closeSettings(); }
     else if (commandKey(e) && e.key === ",") e.preventDefault();
     else if (e.key === "Tab") trapTab(e, sheet);
+
     e.stopImmediatePropagation();
   };
   window.addEventListener("keydown", keys, true);
@@ -76,6 +78,7 @@ function unembed() {
   const was = embedded;
   embedded = null;
   const page = currentLocation();
+
   if (was && page && page.view === was.name) {
     const view = views.get(was.name);
     if (!view) return;
@@ -109,6 +112,7 @@ function trapTab(e: KeyboardEvent, sheet: HTMLElement) {
   const first = all[0], last = all[all.length - 1];
   // Focus lost to the page (a redraw removed it): bring it back in.
   if (!sheet.contains(document.activeElement)) { e.preventDefault(); return (e.shiftKey ? last : first).focus(); }
+
   if (e.shiftKey && (document.activeElement === first || document.activeElement === sheet)) { e.preventDefault(); last.focus(); }
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 }

@@ -17,20 +17,24 @@ use std::{
 /// exclusion for every child of a project that is itself a shared folder.
 pub(crate) fn project_ignored(project: &Path, share: &Path) -> Result<bool> {
     let file = share.join(STIGNORE);
+
     if !file.exists() {
         return Ok(false);
     }
+
     let mut lines = Vec::new();
     read_lines_for_project(&file, &mut HashSet::new(), &mut lines, None)?;
     let relative = project.strip_prefix(share)?;
     // A preceding exception may include a child even when its directory
     // matches the blanket rule. Keep ownership with Syncthing in that case.
     let mut exception = false;
+
     for line in lines {
         if line.starts_with('!') {
             exception = true;
             continue;
         }
+
         let mut builder = GitignoreBuilder::new(share);
         builder.add_line(None, &line)?;
         let matcher = builder.build()?;
@@ -44,6 +48,7 @@ pub(crate) fn project_ignored(project: &Path, share: &Path) -> Result<bool> {
             return Ok(!exception);
         }
     }
+
     Ok(false)
 }
 
@@ -66,11 +71,14 @@ impl Stignore {
     /// cannot read in full, saying why.
     pub(super) fn load_above(root: &Path) -> Result<Vec<Self>> {
         let mut found = Vec::new();
+
         for folder in root.ancestors() {
             let file = folder.join(STIGNORE);
+
             if !fs::symlink_metadata(&file).is_ok_and(|meta| meta.is_file()) {
                 continue;
             }
+
             let matcher = parse_for_project(&file, folder, Some(root)).with_context(|| {
                 format!(
                     "{} has rules Beep cannot follow, so it does not take over from Syncthing",
@@ -82,6 +90,7 @@ impl Stignore {
                 matcher,
             });
         }
+
         Ok(found)
     }
 
@@ -104,6 +113,7 @@ fn parse_for_project(file: &Path, folder: &Path, project: Option<&Path>) -> Resu
             .add_line(None, line)
             .with_context(|| format!("the pattern {line}"))?;
     }
+
     Ok(builder.build()?)
 }
 
@@ -116,12 +126,14 @@ fn read_lines_for_project(
     if open.len() >= MAX_INCLUDES || !open.insert(file.to_owned()) {
         bail!("#include of {} goes around or too deep", file.display());
     }
+
     let text = match fs::read_to_string(file) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => bail!("{} is missing", file.display()),
         Err(e) => return Err(e).with_context(|| format!("reading {}", file.display())),
     };
     let lines: Vec<_> = text.trim_start_matches('\u{feff}').lines().collect();
+
     for (at, line) in lines.iter().enumerate() {
         // Only Beep's own whole-project exclusion is omitted. User rules,
         // including identical patterns, still apply to Beep's file list.
@@ -146,9 +158,11 @@ fn read_lines_for_project(
             continue;
         }
         let line = line.trim();
+
         if line.is_empty() || line.starts_with("//") {
             continue;
         }
+
         if let Some(name) = line.strip_prefix("#include ") {
             let parent = file.parent().unwrap_or(Path::new(""));
             read_lines_for_project(&parent.join(name.trim()), open, out, project)?;
@@ -162,6 +176,7 @@ fn read_lines_for_project(
             out.push(translate(line)?);
         }
     }
+
     open.remove(file);
     Ok(())
 }
@@ -171,6 +186,7 @@ fn read_lines_for_project(
 /// which this sync never does for files it did not sync, so it changes nothing.
 fn translate(line: &str) -> Result<String> {
     let (mut rest, mut negated, mut folded) = (line, false, false);
+
     loop {
         if let Some(after) = rest.strip_prefix("(?d)") {
             rest = after;
@@ -186,15 +202,19 @@ fn translate(line: &str) -> Result<String> {
             break;
         }
     }
+
     let body = rest.trim_end_matches('/');
+
     if body.is_empty() {
         bail!("the empty pattern {line}");
     }
     // Gitignore would read these as literal text, and match nothing.
     let count = |c: char| body.matches(c).count();
+
     if count('[') != count(']') || count('{') != count('}') {
         bail!("the unbalanced pattern {line}");
     }
+
     let body = if folded { fold(body) } else { body.to_owned() };
     // Without a leading `/`, Syncthing matches at any depth, even with a `/`
     // inside, where gitignore would tie it to the root.
@@ -214,6 +234,7 @@ fn fold(pattern: &str) -> String {
     let mut out = String::with_capacity(pattern.len() * 2);
     let mut chars = pattern.chars();
     let mut in_class = false;
+
     while let Some(c) = chars.next() {
         match c {
             '\\' => {
@@ -237,6 +258,7 @@ fn fold(pattern: &str) -> String {
             c => out.push(c),
         }
     }
+
     out
 }
 

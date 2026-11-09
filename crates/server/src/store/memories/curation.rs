@@ -29,6 +29,7 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         let mut states = HashMap::new();
+
         for row in rows {
             let scope: String = row.try_get(0)?;
             let curated_at: Option<DateTime<Utc>> = row.try_get(1)?;
@@ -43,6 +44,7 @@ impl Store {
                 },
             );
         }
+
         Ok(states)
     }
 

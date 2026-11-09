@@ -7,9 +7,11 @@ use crate::{Duplex, Transcribe};
 pub fn media_mime(path: &str) -> Option<&'static str> {
     let name = path.rsplit(['/', '\\']).next()?;
     let (stem, ext) = name.rsplit_once('.')?;
+
     if stem.is_empty() {
         return None;
     }
+
     Some(match ext.to_ascii_lowercase().as_str() {
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",

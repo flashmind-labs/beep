@@ -122,9 +122,11 @@ async fn until(mesh: &Mesh, ok: impl Fn(&Mesh) -> bool) {
     timeout(LIMIT, async {
         loop {
             updates.borrow_and_update();
+
             if ok(mesh) {
                 return;
             }
+
             updates.changed().await.expect("mesh is alive");
         }
     })
@@ -229,6 +231,7 @@ async fn two_desktops_removing_one_temporary_device_both_succeed() {
         b.mesh.remove_temporary(box_.id())
     );
     assert!(on_a.expect("a removes") || on_b.expect("b removes"));
+
     for mesh in [&a.mesh, &b.mesh] {
         until(mesh, |m| {
             m.is_removed(box_.id()) && !m.is_temporary(box_.id())
@@ -394,10 +397,12 @@ async fn a_ticket_works_once() {
     let _b = join_with(&ticket, "b").await.expect("first use works");
     let before = a.mesh.devices().len();
     let again = join_with(&ticket, "x").await;
+
     match again {
         Err(MeshError::Refused(message)) => assert_eq!(message, "ticket not valid"),
         other => panic!("second use must be refused, got {:?}", other.map(|_| ())),
     }
+
     assert_eq!(a.mesh.devices().len(), before);
 }
 
@@ -426,6 +431,7 @@ async fn an_expired_ticket_is_refused() {
         Err(MeshError::Refused(message)) => assert_eq!(message, "ticket expired"),
         other => panic!("expired must be refused, got {:?}", other.map(|_| ())),
     }
+
     assert_eq!(a.mesh.devices().len(), 1);
 }
 
@@ -683,6 +689,7 @@ async fn a_removed_device_stops_dialing() {
 
 fn copy_dir(from: &Path, to: &Path) {
     create_dir_all(to).expect("mkdir");
+
     for entry in read_dir(from).expect("read dir") {
         let entry = entry.expect("entry");
         let target = to.join(entry.file_name());
@@ -720,6 +727,7 @@ fn echo() -> StreamHandler {
         Box::pin(async move {
             assert_eq!(stream.kind, DeviceKind::Desktop);
             let mut byte = [0u8; 1];
+
             if stream.recv.read_exact(&mut byte).await.is_ok() {
                 stream.send.write_all(&byte).await.ok();
                 stream.send.finish().ok();
@@ -765,17 +773,20 @@ async fn a_peer_may_have_64_streams_open_and_no_more() {
     until(&b.mesh, |m| online(m, a.id())).await;
     let conn = b.mesh.peer(a.id()).expect("connected");
     let mut open = Vec::new();
+
     for _ in 0..64 {
         let (mut send, recv) = conn.open_bi().await.expect("stream");
         send.write_all(b"x").await.expect("write");
         open.push((send, recv));
     }
+
     for _ in 0..64 {
         timeout(LIMIT, entries.recv())
             .await
             .expect("entered")
             .expect("open");
     }
+
     let (mut send, mut recv) = conn.open_bi().await.expect("stream");
     send.write_all(b"x").await.expect("write");
     let mut byte = [0u8; 1];
@@ -791,15 +802,18 @@ async fn session(mut tx: LinkTx, mut rx: LinkRx) {
     let Ok(Some(open)) = rx.recv::<Open>().await else {
         return;
     };
+
     match open.protocol.as_str() {
         "echo/1" => {
             tx.send(&Opened::Ready {}).await.ok();
+
             if let Ok(Some(n)) = rx.recv::<u32>().await {
                 tx.send(&(n + 1)).await.ok();
             }
         }
         "count/1" => {
             tx.send(&Opened::Ready {}).await.ok();
+
             if let Ok(Some(n)) = rx.recv::<u32>().await {
                 for i in 0..n {
                     tx.send(&i).await.ok();
@@ -808,6 +822,7 @@ async fn session(mut tx: LinkTx, mut rx: LinkRx) {
         }
         "stall/1" => {
             tx.send(&Opened::Ready {}).await.ok();
+
             if let Ok(Some(_)) = rx.recv::<u32>().await {
                 tx.send(&7u32).await.ok();
                 never::<()>().await;
@@ -852,11 +867,13 @@ async fn the_local_client_and_the_network_client_answer_alike() {
     until(&b.mesh, |m| online(m, a.id())).await;
     let net = with_deadline(a.id(), &b.mesh).await.expect("online");
     let local = PeerClient::local(session_fn());
+
     for client in [&net, &local] {
         let reply: u32 = client.call("echo/1", &41u32).await.expect("answered");
         assert_eq!(reply, 42);
         assert_eq!(count(client, 4).await, [0, 1, 2, 3]);
     }
+
     let refused = |client: &PeerClient| {
         let client = client.clone();
         async move {
@@ -932,11 +949,13 @@ async fn an_open_to_a_node_at_its_stream_cap_ends_within_the_open_timeout() {
     until(&b.mesh, |m| online(m, a.id())).await;
     let conn = b.mesh.peer(a.id()).expect("connected");
     let mut held = Vec::new();
+
     for _ in 0..64 {
         let (mut send, recv) = conn.open_bi().await.expect("stream");
         send.write_all(b"x").await.expect("write");
         held.push((send, recv));
     }
+
     let client = PeerClient::over(b.mesh.clone(), a.id());
     pause();
     let start = Instant::now();
@@ -969,15 +988,19 @@ async fn dropping_a_network_follow_reaches_the_session() {
         let gone = gone.clone();
         Box::pin(async move {
             let (mut tx, mut rx) = link(stream.send, stream.recv);
+
             if rx.recv::<Open>().await.is_err() {
                 return;
             }
+
             tx.send(&Opened::Ready {}).await.ok();
             rx.recv::<u32>().await.ok();
             let mut i = 0u32;
+
             while tx.send(&i).await.is_ok() {
                 i = i.wrapping_add(1);
             }
+
             gone.send(()).ok();
         })
     }));
@@ -997,6 +1020,7 @@ async fn dropping_a_network_follow_reaches_the_session() {
 async fn a_device_on_the_previous_protocols_is_turned_away() {
     let a = create("a").await;
     let old = bind(&SecretKey::generate()).await;
+
     for alpn in [&b"beep-peer/1"[..], b"beep-join/1"] {
         assert!(
             old.connect(a.router.endpoint().addr(), alpn).await.is_err(),
@@ -1165,9 +1189,11 @@ mod local_client {
         let Ok(Some(open)) = rx.recv::<Open>().await else {
             return;
         };
+
         match open.protocol.as_str() {
             "echo/1" => {
                 tx.send(&Opened::Ready {}).await.ok();
+
                 while let Ok(Some(n)) = rx.recv::<u32>().await {
                     if tx.send(&(n + 1)).await.is_err() {
                         break;
@@ -1176,6 +1202,7 @@ mod local_client {
             }
             "count/1" => {
                 tx.send(&Opened::Ready {}).await.ok();
+
                 if let Ok(Some(n)) = rx.recv::<u32>().await {
                     for i in 0..n {
                         tx.send(&i).await.ok();
@@ -1199,12 +1226,15 @@ mod local_client {
         if rx.recv::<Open>().await.is_err() {
             return;
         }
+
         tx.send(&Opened::Ready {}).await.ok();
         rx.recv::<u32>().await.ok();
         let mut i = 0u32;
+
         while tx.send(&i).await.is_ok() {
             i = i.wrapping_add(1);
         }
+
         gone.send(()).ok();
     }
 
@@ -1281,11 +1311,13 @@ mod local_client {
     async fn a_local_call_costs_under_five_milliseconds() {
         let client = PeerClient::local(session());
         let mut fastest = Duration::MAX;
+
         for _ in 0..200 {
             let start = Instant::now();
             let _: u32 = client.call("echo/1", &1u32).await.expect("answered");
             fastest = fastest.min(start.elapsed());
         }
+
         eprintln!("fastest local call: {fastest:?}");
         // The fastest of 200 is steady on a loaded box; 5 ms is far above it.
         assert!(fastest < Duration::from_millis(5), "{fastest:?}");
@@ -1344,6 +1376,7 @@ async fn observer_phones_stay_members_but_never_become_hosts() {
     assert!(desktop.mesh.is_observer(phone_id));
     until(&node.mesh, |mesh| mesh.is_observer(phone_id)).await;
     until(&phone.mesh, |mesh| mesh.is_observer(phone_id)).await;
+
     for mesh in [&desktop.mesh, &node.mesh, &phone.mesh] {
         assert!(
             mesh.machines()

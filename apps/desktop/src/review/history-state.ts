@@ -35,12 +35,14 @@ export function selectionKey(selection: GitSelection) {
 
 export function dayGroups(commits: readonly GitCommit[]) {
   const groups = new Map<string, GitCommit[]>();
+
   for (const c of commits) {
     const day = new Date(c.committed_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
     const list = groups.get(day) || [];
     list.push(c);
     groups.set(day, list);
   }
+
   return [...groups];
 }
 

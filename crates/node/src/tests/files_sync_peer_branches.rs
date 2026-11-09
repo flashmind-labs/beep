@@ -46,6 +46,7 @@ impl ProtocolHandler for LegacyPeer {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         while let Ok((send, recv)) = connection.accept_bi().await {
             let (mut tx, mut rx) = link(send, recv);
+
             match rx.recv::<LegacyRequest>().await {
                 Ok(Some(LegacyRequest::Pull { .. })) => {
                     self.pulled.fetch_add(1, Ordering::SeqCst);
@@ -65,6 +66,7 @@ impl ProtocolHandler for LegacyPeer {
                 _ => {}
             }
         }
+
         Ok(())
     }
 }

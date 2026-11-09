@@ -50,6 +50,7 @@ impl RoutineGrants {
                 return None;
             }
         };
+
         for grant in grants {
             let constraints: Constraints = match serde_json::from_value(grant.constraints.clone()) {
                 Ok(constraints) => constraints,
@@ -61,9 +62,11 @@ impl RoutineGrants {
                     continue;
                 }
             };
+
             if !constraints.allow(spec, args) {
                 continue;
             }
+
             match self.user.use_grant(grant.id, &self.run, call_id).await {
                 Ok(true) => return Some(grant),
                 Ok(false) => {}
@@ -75,6 +78,7 @@ impl RoutineGrants {
                 }
             }
         }
+
         None
     }
 
@@ -131,6 +135,7 @@ pub(super) fn sent(tool: &ToolSlug, args: &Value) -> String {
         return String::new();
     };
     let mut to: Vec<String> = Vec::new();
+
     for key in spec.recipients {
         for address in args.get(*key).and_then(addresses).unwrap_or_default() {
             if !to.contains(&address) {
@@ -138,7 +143,9 @@ pub(super) fn sent(tool: &ToolSlug, args: &Value) -> String {
             }
         }
     }
+
     let mut lines = vec![format!("To: {}", to.join(", "))];
+
     for key in spec.text {
         if let Some(text) = args.get(*key).and_then(Value::as_str).map(str::trim)
             && !text.is_empty()
@@ -150,5 +157,6 @@ pub(super) fn sent(tool: &ToolSlug, args: &Value) -> String {
             ));
         }
     }
+
     lines.join("\n")
 }

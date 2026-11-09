@@ -29,14 +29,18 @@ fn find_ignoring_case(text: &str, query: &str) -> Option<Range<usize>> {
             .position(|w| w.eq_ignore_ascii_case(query.as_bytes()))
             .map(|at| at..at + query.len());
     }
+
     text.char_indices().find_map(|(start, _)| {
         let mut rest = text[start..].char_indices();
+
         for wanted in query.chars() {
             let (_, got) = rest.next()?;
+
             if !got.to_lowercase().eq(wanted.to_lowercase()) {
                 return None;
             }
         }
+
         let end = rest.next().map_or(text.len(), |(at, _)| start + at);
         Some(start..end)
     })
@@ -50,17 +54,21 @@ fn snippet(text: &str, at: Range<usize>) -> String {
     let after: String = text[at.start..].chars().take(SNIPPET_AFTER).collect();
     let cut_after = text[at.start..].chars().count() > SNIPPET_AFTER;
     let mut snippet = String::new();
+
     if from > 0 {
         snippet.push_str("...");
     }
+
     let kept: String = before[from..].iter().collect();
     snippet.push_str(if from > 0 { kept.trim_start() } else { &kept });
     snippet.push_str(&after);
     let words: Vec<&str> = snippet.split_whitespace().collect();
     let mut snippet = words.join(" ").replace(['*', '`', '#'], "");
+
     if cut_after {
         snippet.push_str("...");
     }
+
     snippet
 }
 

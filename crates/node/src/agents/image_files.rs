@@ -82,21 +82,27 @@ fn read_one(cwd: &Path, path: &Path, since: SystemTime) -> std::io::Result<Optio
     };
     // Resolves links too, so one cannot point outside the folder.
     let path = paths::canonicalize(path)?;
+
     if !path.starts_with(cwd) {
         return Ok(None);
     }
+
     let file = crate::files::fsat::open_read(&path)?;
     let meta = file.metadata()?;
     let limit = u64::try_from(MAX_FILE).unwrap_or(u64::MAX);
+
     if !meta.is_file() || meta.len() > limit || meta.modified()? < since {
         return Ok(None);
     }
+
     let mut data = Vec::new();
     // A file that grew since is cut at the limit and then refused below.
     file.take(limit + 1).read_to_end(&mut data)?;
+
     if data.len() > MAX_FILE || !holds(mime, &data) {
         return Ok(None);
     }
+
     Ok(Some(Picture {
         mime: mime.to_owned(),
         data,
@@ -108,6 +114,7 @@ fn holds(mime: &str, data: &[u8]) -> bool {
     if mime == "image/svg+xml" {
         return data.windows(4).any(|window| window == b"<svg");
     }
+
     sniff_image(data) == Some(mime)
 }
 

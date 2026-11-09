@@ -32,6 +32,7 @@ impl Agents {
         if matches!(which, Agent::Flsh | Agent::OpenCode) {
             bail!("{agent} keeps its sessions in a database, which Beep does not edit");
         }
+
         ensure!(valid_id(id), "{id:?} is not a session id");
         let agent_id = match self.get(id) {
             Some(ours) => {
@@ -40,9 +41,11 @@ impl Agents {
             }
             None => Some(id.to_owned()),
         };
+
         if let Some(agent_id) = &agent_id {
             ensure!(valid_id(agent_id), "{agent_id:?} is not a session id");
         }
+
         let records: Vec<(String, bool)> = self
             .lock()
             .iter()
@@ -75,9 +78,11 @@ impl Agents {
         let attachment_id = agent_id.unwrap_or_else(|| id.to_owned());
         spawn_blocking(move || super::uploads::remove(&attachment_agent, &attachment_id)).await??;
         let mut sessions = self.lock();
+
         for (key, _) in records {
             sessions.remove(&key);
         }
+
         Ok(())
     }
 
@@ -100,13 +105,16 @@ impl Agents {
                 spawn_blocking(move || stores.find(other, &find)).await?
             }
         };
+
         if let Some(found) = &mut found {
             // Deleting cannot be undone: for Claude Code a recent write still
             // counts, in case a process Beep cannot see is writing it.
             if agent != Agent::Claude {
                 found.presence = self.presence(agent, found).await;
             }
+
             let live = found.pid.is_some() || (found.presence.is_live() && !ours);
+
             if live {
                 bail!(
                     "session {id} is open in a terminal or IDE (it is {}). \
@@ -115,6 +123,7 @@ impl Agents {
                 );
             }
         }
+
         match agent {
             Agent::Claude => self.external.delete(id).await,
             other => {

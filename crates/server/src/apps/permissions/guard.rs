@@ -41,6 +41,7 @@ pub(super) fn classify(tool: &str, hinted: &HashSet<ToolSlug>) -> Option<(ToolAp
     if hinted.contains(&slug) && !over_hints {
         return Some((app, Acts::Always));
     }
+
     Some((app, acts))
 }
 
@@ -85,9 +86,11 @@ pub(crate) fn guard(
                 return Some(tool);
             };
             let level = shared.rules.level(app.as_ref());
+
             if level == (PermissionLevel::ReadOnly {}) && acts == Acts::Always {
                 return None;
             }
+
             let slug = ToolSlug::new(tool.name());
             // The model only drafts in a send tool when it knows the user sees the call first.
             let description = if acts == Acts::Always
@@ -292,6 +295,7 @@ impl Tool for Guarded {
         if !self.acts.on(&ctx.args) {
             return self.tool.execute(ctx).await;
         }
+
         match check(&self.shared.rules, &self.app, self.slug.as_ref(), &ctx.args) {
             Check::Run => self.tool.execute(ctx).await,
             Check::Refuse(reason) => Ok(ToolResult::success(ctx.tool_call_id, reason)),
@@ -306,11 +310,14 @@ impl Tool for Guarded {
                 {
                     let args = ctx.args.clone();
                     let result = self.tool.execute(ctx).await?;
+
                     if result.is_success() && went_through(&result.output()) {
                         grants.report(&grant, self.slug.as_ref(), &args);
                     }
+
                     return Ok(result);
                 }
+
                 Ok(ToolResult::interrupt(
                     ctx.tool_call_id,
                     Arc::new(ApprovalPayload { approval }),

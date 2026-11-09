@@ -53,6 +53,7 @@ fn the_issue_names_no_machine_path_or_log() {
     assert!(got.body.contains(&sender[..8]));
     assert!(got.body.contains("> sync stalls\n> second line"));
     assert!(got.body.contains("`@someone`"));
+
     for secret in ["build-box", "gpu-box", "old-box", "/path/to/work", &sender] {
         assert!(!got.body.contains(secret), "{secret} leaked");
     }

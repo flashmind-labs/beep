@@ -117,9 +117,11 @@ impl FromStr for PlaceTrigger {
             Some("always") => return Err(invalid),
             Some(ending) => ending.parse()?,
         };
+
         if parts.next().is_some() {
             return Err(invalid);
         }
+
         Ok(Self {
             event,
             place,
@@ -140,9 +142,11 @@ impl PlaceTrigger {
 impl fmt::Display for PlaceTrigger {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}", self.event.as_ref(), self.place)?;
+
         if let Some(suffix) = self.repeat.suffix() {
             write!(f, ":{suffix}")?;
         }
+
         Ok(())
     }
 }
@@ -223,6 +227,7 @@ pub async fn track(app: &Arc<App>, user: &Arc<User>, fix: &Location) -> Result<(
     for crossing in user.cross_places(fix).await? {
         spawn_routines(app, user, crossing);
     }
+
     Ok(())
 }
 
@@ -255,6 +260,7 @@ pub async fn start_routines(app: &Arc<App>, user: &Arc<User>, crossing: &Crossed
     let now = Utc::now();
     let today = start_of_day(now, &user.get_timezone().await?);
     let mut started = 0;
+
     for routine in user
         .place_routines(crossing.place.id, crossing.event)
         .await?
@@ -266,6 +272,7 @@ pub async fn start_routines(app: &Arc<App>, user: &Arc<User>, crossing: &Crossed
                 log::debug!("places: ran today already; job_id={}", routine.job.id);
                 return Ok(false);
             }
+
             let task = format!(
                 "{}\n\n(This started because the user just {}.)",
                 routine.job.task.trim(),
@@ -275,6 +282,7 @@ pub async fn start_routines(app: &Arc<App>, user: &Arc<User>, crossing: &Crossed
             if routine.trigger.repeat == PlaceRepeat::Once {
                 user.delete_cron(&routine.job.id.to_string()).await?;
             }
+
             Ok(
                 cron::submit(app, user, &routine.job, &task, cron::WhenBusy::Wait)
                     .await?
@@ -282,6 +290,7 @@ pub async fn start_routines(app: &Arc<App>, user: &Arc<User>, crossing: &Crossed
             )
         }
         .await;
+
         match result {
             Ok(true) => started += 1,
             Ok(false) => {}
@@ -291,6 +300,7 @@ pub async fn start_routines(app: &Arc<App>, user: &Arc<User>, crossing: &Crossed
             ),
         }
     }
+
     Ok(started)
 }
 

@@ -42,6 +42,7 @@ impl Desk {
         } else if self.mesh.get(&key).is_some() {
             self.mesh.set(key, None).await?;
         }
+
         Ok(())
     }
 
@@ -91,9 +92,11 @@ impl Desk {
     pub async fn delete_group(&self, id: Uuid) -> Result<()> {
         let _write = WRITES.lock().await;
         let key = Key::Group(id.to_string());
+
         if self.mesh.get(&key).is_none() {
             return Err(FleetError::NotFound);
         }
+
         self.mesh.set(key, None).await?;
         Ok(())
     }

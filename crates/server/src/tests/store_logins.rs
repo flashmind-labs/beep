@@ -50,12 +50,14 @@ async fn a_key_holds_only_so_many_codes() {
     let store = db.store().await.expect("test store");
     let phone = SecretKey::generate().public();
     let now = Utc::now() + Duration::minutes(10);
+
     for i in 0..MAX_CODES_PER_KEY + 2 {
         store
             .add_login_code(&i.to_be_bytes(), &phone, now + Duration::seconds(i))
             .await
             .unwrap();
     }
+
     assert_eq!(
         store
             .complete_login(&0i64.to_be_bytes(), &LOGIN, key(phone))

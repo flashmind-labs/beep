@@ -43,11 +43,13 @@ export function listingKey(l: Listing | undefined) {
 /// a listing differs from the one it replaces.
 export function mergeTree(listings: Map<string, Listing>, tree: Tree) {
   let changed = false;
+
   for (const f of tree.folders) {
     const next: Listing = { entries: f.entries, more: f.more, error: "" };
     if (listingKey(listings.get(f.path)) !== listingKey(next)) changed = true;
     listings.set(f.path, next);
   }
+
   return changed;
 }
 
@@ -62,12 +64,14 @@ export function atEdge(listings: ReadonlyMap<string, Listing>, dir: string) {
 /// node does not read into what git ignores, so those stay out.
 export function unreadFolders(listings: ReadonlyMap<string, Listing>) {
   const out: string[] = [];
+
   for (const [dir, listing] of listings) {
     for (const e of listing.entries ?? []) {
       const path = joinPath(dir, e.name);
       if (e.folder && !e.ignored && !listings.has(path)) out.push(path);
     }
   }
+
   return out;
 }
 
@@ -124,6 +128,7 @@ export function treeRows(listings: ReadonlyMap<string, Listing>, open: ReadonlyS
   const walk = (dir: string, depth: number, hidden: boolean): boolean => {
     const listing = listings.get(dir);
     let any = false;
+
     for (const e of listing?.entries ?? []) {
       const path = joinPath(dir, e.name);
       const isOpen = e.folder && (open.has(path) || (!!want && listings.has(path)));
@@ -140,6 +145,7 @@ export function treeRows(listings: ReadonlyMap<string, Listing>, open: ReadonlyS
       if (!hit) out.length = at;
       any ||= hit;
     }
+
     return any;
   };
   walk("", 0, false);
@@ -167,11 +173,13 @@ export const UPLOAD_PART = 2 * 1024 * 1024;
 export function uploadParts(size: number, part = UPLOAD_PART) {
   const out: { offset: number; len: number }[] = [];
   let offset = 0;
+
   do {
     const len = Math.min(part, size - offset);
     out.push({ offset, len });
     offset += len;
   } while (offset < size);
+
   return out;
 }
 
@@ -218,6 +226,7 @@ export function highlight(line: string, lang: string) {
     ? /(#.*$)|("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)|(\b\d[\d_.xXa-fA-F]*\b)|([A-Za-z_][A-Za-z0-9_]*)/g
     : /(\/\/.*$|\/\*.*?(?:\*\/|$))|("(?:[^"\\]|\\.)*"?|`(?:[^`\\]|\\.)*`?)|(\b\d[\d_.xXa-fA-F]*\b)|([A-Za-z_][A-Za-z0-9_]*)/g;
   let out = "", last = 0;
+
   for (const m of line.matchAll(re)) {
     out += esc(line.slice(last, m.index));
     const [all, comment, str, num, word] = m;
@@ -225,6 +234,7 @@ export function highlight(line: string, lang: string) {
     out += cls ? `<span class="${cls}">${esc(all)}</span>` : esc(all);
     last = m.index! + all.length;
   }
+
   return out + esc(line.slice(last));
 }
 
@@ -234,6 +244,7 @@ export function highlight(line: string, lang: string) {
 /// not taken by another tab of that folder.
 export function terminalName(cwd: string, taken: readonly string[]) {
   const base = cwd.replace(/\/+$/, "").split("/").pop() || "shell";
+
   for (let n = 1; ; n++) {
     const name = `${base} ${n}`;
     if (!taken.includes(name)) return name;

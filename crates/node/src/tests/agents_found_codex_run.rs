@@ -26,12 +26,14 @@ fn rollout_lines(done: bool) -> String {
         json!({"type": "response_item", "payload": {"type": "custom_tool_call",
             "name": "exec", "input": "\nrun('cargo test')\n", "call_id": "c2"}}),
     ];
+
     if done {
         lines.push(
             json!({"type": "event_msg", "payload": {"type": "task_complete",
             "last_agent_message": "Slept for a minute."}}),
         );
     }
+
     lines.iter().map(|line| format!("{line}\n")).collect()
 }
 

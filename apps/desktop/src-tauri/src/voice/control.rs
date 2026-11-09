@@ -60,11 +60,13 @@ impl Voice {
             }
             None => return,
         };
+
         if let Err(e) = orb::show(&self.app) {
             log::warn!("showing the orb: {e}");
         }
         // A new orb has seen nothing yet.
         self.show(id);
+
         for waiting in self.waiting() {
             self.emit(LiveEvent::Approval(waiting));
         }
@@ -75,6 +77,7 @@ impl Voice {
         if self.voice() == hotkey::Voice::Note {
             return self.leave_live();
         }
+
         self.input_now(Input::Tap);
     }
 
@@ -94,12 +97,14 @@ impl Voice {
             let Some(s) = state.live.as_mut() else {
                 return;
             };
+
             if s.sheet {
                 s.sheet = false;
                 let id = s.id;
                 drop(state);
                 return self.show(id);
             }
+
             let replying = matches!(s.live.phase(), Phase::Thinking | Phase::Speaking);
             if s.note {
                 Input::Escape
@@ -139,6 +144,7 @@ impl Voice {
                 },
                 (None, None) => return,
             };
+
             if let Err(e) = beep.call(CancelRun { id: run }).await {
                 log::warn!("cancelling a spoken reply: {e}");
             }
@@ -148,6 +154,7 @@ impl Voice {
     /// The pause setting changed.
     pub fn set_end_mode(&self) {
         let mode = self.end_mode();
+
         if let Some(s) = self.state().live.as_mut() {
             s.live.set_mode(mode);
         }
@@ -158,12 +165,14 @@ impl Voice {
         if !bar::is_open(&self.app) {
             return None;
         }
+
         self.beep.session().and_then(|s| Uuid::parse_str(&s).ok())
     }
 
     /// Hands `input` to the live session running now.
     pub(super) fn input_now(self: &Arc<Self>, input: Input) {
         let id = self.state().live.as_ref().map(|s| s.id);
+
         if let Some(id) = id {
             self.input(id, input);
         }
@@ -185,8 +194,10 @@ impl Voice {
             {
                 s.hush();
             }
+
             effects
         };
+
         if !effects.is_empty() {
             self.apply(id, effects);
             self.show(id);
@@ -196,8 +207,10 @@ impl Voice {
     pub(super) fn apply(self: &Arc<Self>, id: u64, effects: Vec<Effect>) {
         // "Repeat that" with nothing to repeat goes back to listening.
         let mut nothing_to_repeat = false;
+
         for effect in effects {
             log::debug!("live {id}: {}", effect);
+
             match effect {
                 // A voice note is only read out: nothing listens.
                 Effect::Transcribe if self.is_note(id) => {}
@@ -237,6 +250,7 @@ impl Voice {
                 Effect::Show => {}
             }
         }
+
         if nothing_to_repeat {
             self.toast(NOTHING_TO_REPEAT);
             self.input(id, Input::SpeakDone);
@@ -278,11 +292,13 @@ impl Voice {
                     return;
                 };
                 s.mic_level = chunk.level;
+
                 if let Some(stt) = s.stt.as_ref() {
                     // A full queue drops a stretch rather than falling behind.
                     let _ = stt.try_send(chunk.pcm);
                 }
             }
+
             if chunk.level >= SOUND_LEVEL {
                 self.input(id, Input::Sound);
             }
@@ -292,6 +308,7 @@ impl Voice {
     /// Checks pauses and sends the orb its level.
     pub(super) async fn tick(self: Arc<Self>, id: u64) {
         let mut every = interval(TICK);
+
         loop {
             every.tick().await;
             self.input(id, Input::Tick);
@@ -300,6 +317,7 @@ impl Voice {
                 let Some(s) = state.live.as_mut().filter(|s| s.id == id) else {
                     return;
                 };
+
                 match s.playing.as_ref() {
                     Some(p) => p.played.level_at(p.since.elapsed()),
                     None => {

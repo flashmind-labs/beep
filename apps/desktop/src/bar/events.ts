@@ -34,6 +34,7 @@ listen<LinkState>("link-state", async e => {
   S.link = e.payload;
   // Signed out while the bar shows the assistant: it opens on coding agents instead.
   if (S.signedOut && S.view !== "settings" && S.view !== "login" && S.view !== "link") return void show(null);
+
   if (S.view === "link" && S.link === "linked") {
     clearInterval(S.timer);
     drawLink("linked");
@@ -87,22 +88,28 @@ bar.addEventListener("click", e => {
   if (menuButton) return rerunMenu(menuButton);
   if (!t.closest(".dmenu")) closeRerunMenu();
   const copyReply = t.closest<UndoButton>('[data-act="copyReply"]');
+
   if (copyReply) {
     copy(copyReply.closest(".turn")!.querySelector<HTMLElement>(ANSWER)?.innerText.trim() ?? "");
     return flash(copyReply, ICON.check + "Copied", COPY_ICON + "Copy");
   }
+
   const code = t.closest<HTMLElement>(".dcoderen.agent [data-copy]");
   if (code) return copyCode(code);
   const c = t.closest<UndoButton>("[data-copy]");
+
   if (c) {
     e.preventDefault();
     copy(c.dataset.copy!);
     return flash(c, ICON.check, COPY_ICON);
   }
+
   const img = t.closest<HTMLImageElement>(".dcoderen.agent img");
+
   if (img && !img.closest("a, .dprods, .drecs")) {
     return openViewer([{ url: img.currentSrc || img.src, caption: img.alt }], 0);
   }
+
   const a = t.closest<HTMLAnchorElement>("a[href]");
   if (!a) return;
   e.preventDefault();

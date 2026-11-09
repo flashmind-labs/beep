@@ -44,6 +44,7 @@ export function drawProjects(el: HTMLElement) {
   let view: HTMLElement = h("div", "cc-view");
   view.dataset.project = state.picked ?? "";
   let one: Project | null = null;
+
   if (!state.home) {
     view.append(emptyPanel(h("b", "", "Loading projects…")));
   } else if (!rows || !rows.length) {
@@ -55,23 +56,28 @@ export function drawProjects(el: HTMLElement) {
     const shownRows = filterProjects(rows, state.picked);
     one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
     liveMode.follow(one ? agentFor(state.agents, one.name)?.project_id ?? null : null);
+
     if (one) {
       view.append(...projectDetail(one));
       if (splitOn(one)) view.classList.add("split");
     } else view.append(...overviewSection(shownRows.length ? shownRows : rows));
+
     const found = one ? null : foundSection();
     if (found) view.append(found);
     const elsewhere = !state.picked ? elsewhereSection(rows) : null;
     if (elsewhere) view.append(elsewhere);
   }
+
   // Patch within one project; changing projects installs new event handlers
   // even when the two projects happen to have the same markup.
   const old = el.querySelector<HTMLElement>(":scope > .cc-view");
+
   if (old) {
     // Read before the swap: a detached element scrolls to 0.
     const top = old.scrollTop;
     const inner = new Map([...old.querySelectorAll<HTMLElement>("[id] .pv-scroll")].map(s => [s.closest("[id]")!.id, s.scrollTop]));
     const cols = [".pj-list", ".pj-det", ".pj-scroll"].map(c => [c, old.querySelector(c)?.scrollTop ?? 0] as const);
+
     if (old.dataset.project === view.dataset.project && old.className === view.className) {
       patchProjectView(old, view);
       view = old;
@@ -79,8 +85,10 @@ export function drawProjects(el: HTMLElement) {
       patchProjectView(view, view);
       old.replaceWith(view);
     }
+
     view.scrollTop = top;
     for (const [c, at] of cols) { const col = view.querySelector(c); if (col) col.scrollTop = at; }
+
     for (const [id, at] of inner) {
       const s = view.querySelector<HTMLElement>(`#${CSS.escape(id)} .pv-scroll`);
       if (s) s.scrollTop = at;
@@ -89,6 +97,7 @@ export function drawProjects(el: HTMLElement) {
     patchProjectView(view, view);
     el.prepend(view);
   }
+
   // The bar starts coding agents in the project's checkout.
   if (one) {
     drawProjectComp(one.name);
@@ -109,15 +118,19 @@ registerView("projects", {
       if (tools.length) tools[0].append(icon(IC.folder)!, " New group");
       return { title: "Projects", sub, tools: [...tools, importButton("small")] };
     }
+
     const p = filterProjects(projectRows() || [], state.picked)[0];
     const tools = [];
+
     if (p) {
       const agent = pageAgent(state.agents, p.name, state.subscribed);
+
       for (const f of forgeLinks(p.url, agent ? runs.hosts(agent.project_id) : null)) {
         const b = button(f.label, "small", () => openUrl(f.url));
         b.title = f.url;
         tools.push(b);
       }
+
       const here = whereRows(p, state.where.get(p.name) || null, state.mac?.id || null).find(r => r.mac && r.folder);
       tools.push(...editorTools(here?.folder, redrawProjectsPage));
       // The rest goes in one menu, so the header keeps to a line.
@@ -133,6 +146,7 @@ registerView("projects", {
       more.setAttribute("aria-label", "More");
       tools.push(more);
     }
+
     return { title: state.picked, sub: projectLine(p), tools };
   },
   mount(el, arg) {
@@ -140,6 +154,7 @@ registerView("projects", {
     // A build's notification opens its run on the Actions tile.
     const run = arg?.run;
     pa.run = run && state.picked ? { project: state.picked, ...run } : null;
+
     // What the project last showed draws at once; what is due reads again
     // behind it.
     if (state.picked) {
@@ -149,11 +164,14 @@ registerView("projects", {
       if (pages.due("gitsync", state.picked)) gitDue.add(state.picked);
       noteRecent(state.picked);
     }
+
     openTile(pa.run ? "actions" : arg?.tile ?? null, false);
     resetRows("projects-overview");
     drawProjects(el);
+
     if (state.picked) revalidate(state.picked);
     else { loadFound(); loadOverview(); }
+
     refresh();
     prefetchRecentSoon();
   },

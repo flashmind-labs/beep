@@ -70,6 +70,7 @@ impl Tool for EventTopicsTool {
             Ok(args) => args,
             Err(error) => return Ok(ToolResult::failure(call, format!("Bad arguments: {error}"))),
         };
+
         for change in &args.changes {
             let Ok(topic) = Topic::from_str(&change.topic) else {
                 return Ok(ToolResult::failure(
@@ -79,7 +80,9 @@ impl Tool for EventTopicsTool {
             };
             self.user.set_event_topic(topic, change.enabled).await?;
         }
+
         let mut text = String::new();
+
         if !args.changes.is_empty() {
             let synced =
                 tokio::time::timeout(TRIGGER_SYNC_TIMEOUT, triggers::sync_user(&self.user)).await;
@@ -93,10 +96,12 @@ impl Tool for EventTopicsTool {
                 Err(_) => text.push_str("Saved; the app triggers are still being updated.\n"),
             }
         }
+
         for (topic, on) in self.user.event_topics().await?.iter() {
             let state = if on { "on" } else { "off" };
             let _ = writeln!(text, "{}: {state} ({})", topic.as_ref(), topic.describe());
         }
+
         Ok(ToolResult::success(call, text.trim_end()))
     }
 }
@@ -138,12 +143,14 @@ impl Tool for HoldEventsTool {
         // The run can start before its events are marked woken, so pending
         // ones are held too; the wake then leaves them held.
         let mut held = 0;
+
         for from in [EventState::Woken, EventState::Pending] {
             held += self
                 .user
                 .move_events(&args.ids, from, EventState::Held, None)
                 .await?;
         }
+
         Ok(ToolResult::success(
             call,
             format!("Held {held} events for the digest."),
@@ -204,16 +211,20 @@ impl Tool for RecentEventsTool {
         let hours = args.hours.clamp(1, MAX_HOURS);
         let since = Utc::now() - Days::hours(hours);
         let events = self.user.recent_events(since, MAX_RECENT).await?;
+
         if events.is_empty() {
             return Ok(ToolResult::success(
                 call,
                 format!("Nothing came in over the last {hours} hours."),
             ));
         }
+
         let mut text = String::new();
+
         for event in &events {
             let _ = writeln!(text, "{}", recent_line(event));
         }
+
         Ok(ToolResult::success(call, text.trim_end()))
     }
 }

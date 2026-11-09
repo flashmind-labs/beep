@@ -47,12 +47,15 @@ impl Desk {
         if let Some(why) = why_kept(&shown, &roots, &others) {
             return kept(&why);
         }
+
         let Ok(shell) = seen.machine.shell() else {
             return kept("the machine is offline.");
         };
+
         if !self.stopped_syncing(machine, project).await {
             return kept("its node did not say it stopped syncing it.");
         }
+
         let script = format!(
             "d={word}\n\
              if command -v cygpath >/dev/null 2>&1; then d=$(cygpath -u -- \"$d\"); fi\n\
@@ -60,6 +63,7 @@ impl Desk {
              rm -rf -- \"$d\" 2>&1 && echo '{MARK} deleted'\n",
             word = quote(&shown),
         );
+
         match shell.run(&script, DELETE_LIMIT).await {
             Ok(ran) if ran.output.contains(&format!("{MARK} deleted")) => {
                 format!("Deleted {shown} on {name}.")
@@ -75,15 +79,18 @@ impl Desk {
     /// Whether the node on `machine` no longer syncs `project`, asking it until it says so.
     async fn stopped_syncing(&self, machine: EndpointId, project: &str) -> bool {
         let until = Instant::now() + STOP_WAIT;
+
         loop {
             if let Some(projects) = self.node_statuses(machine).await
                 && !projects.iter().any(|status| status.name == project)
             {
                 return true;
             }
+
             if Instant::now() >= until {
                 return false;
             }
+
             sleep(STOP_POLL).await;
         }
     }
@@ -93,12 +100,15 @@ impl Desk {
 /// Syncthing share (`roots`), or a folder that holds or lies in another project's (`others`).
 fn why_kept(folder: &str, roots: &[&str], others: &[String]) -> Option<String> {
     let folder = normal(folder);
+
     if folder.matches('/').count() < 2 {
         return Some("it is too near the root of the disk.".to_owned());
     }
+
     if roots.iter().any(|root| normal(root) == folder) {
         return Some("it is the home folder or a shared folder.".to_owned());
     }
+
     if let Some(other) = others.iter().find(|other| {
         let other = normal(other);
         within(&other, &folder) || within(&folder, &other)

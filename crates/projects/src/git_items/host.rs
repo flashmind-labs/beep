@@ -117,9 +117,11 @@ impl Caller<'_> {
             .await;
         let reply = sent.map_err(|e| send_error(&host, &e))?;
         let status = reply.status();
+
         if !status.is_success() {
             return Err(status_error(host, status, reply.headers()));
         }
+
         let next = reply
             .headers()
             .get(header::LINK)
@@ -164,6 +166,7 @@ fn next_link(link: &str) -> Option<&str> {
         if !next {
             return None;
         }
+
         url.trim().strip_prefix('<')?.strip_suffix('>')
     })
 }
@@ -173,6 +176,7 @@ pub fn send_error(host: &str, error: &reqwest::Error) -> HostError {
     if error.is_timeout() {
         return HostError::Timeout(host.to_owned());
     }
+
     log::info!("asking {host}: {error}");
     HostError::Unreachable(host.to_owned())
 }

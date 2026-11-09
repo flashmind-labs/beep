@@ -40,9 +40,11 @@ impl AgentNoticeKey {
 impl fmt::Display for AgentNoticeKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(PREFIX)?;
+
         if let Some(question) = self.question {
             write!(f, "{question}")?;
         }
+
         write!(
             f,
             ":{}:{}:{}:{}",
@@ -71,9 +73,11 @@ impl FromStr for AgentNoticeKey {
         let agent = next()?.to_owned();
         let session = next()?.to_owned();
         let machine_name = next()?.to_owned();
+
         if machine_id.is_empty() || agent.is_empty() || session.is_empty() {
             return Err(NotAgentKey);
         }
+
         Ok(Self {
             machine_id,
             agent,
@@ -130,6 +134,7 @@ impl Alert {
                 error,
             } => {
                 let fallback = || stop_reason.to_string();
+
                 match stop_reason {
                     StopReason::EndTurn => Some(last_message.as_str())
                         .filter(|message| !message.trim().is_empty())
@@ -148,6 +153,7 @@ impl Alert {
         if let Some(title) = self.title.as_deref().filter(|t| !t.trim().is_empty()) {
             return title.trim().to_owned();
         }
+
         Path::new(&self.cwd)
             .file_name()
             .and_then(|name| name.to_str())
@@ -175,6 +181,7 @@ pub fn agent_name(agent: &str) -> &str {
 fn clip(text: &str) -> String {
     let plain = text.replace("**", "").replace('`', "");
     let line = plain.split_whitespace().collect::<Vec<_>>().join(" ");
+
     match line.char_indices().nth(MAX_BODY) {
         Some((end, _)) => format!("{}...", line[..end].trim_end()),
         None => line,

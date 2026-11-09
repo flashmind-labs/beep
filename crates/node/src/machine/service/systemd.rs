@@ -66,6 +66,7 @@ pub(super) fn usable() -> Result<(), String> {
     if !Path::new("/run/systemd/system").is_dir() {
         return Err("this machine was not started by systemd".to_owned());
     }
+
     let out = Command::new("systemctl")
         .args(["--user", "show-environment"])
         .stdin(Stdio::null())
@@ -77,31 +78,38 @@ pub(super) fn usable() -> Result<(), String> {
         let said = said.lines().next().unwrap_or("no output").trim();
         return Err(format!("systemctl --user failed: {said}"));
     }
+
     Ok(())
 }
 
 pub(super) fn install(launch: &Launch, scope: Scope) -> Result<PathBuf> {
     let path = scope.unit_path()?;
+
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
+
     fs::write(&path, unit(launch, scope)).with_context(|| format!("writing {}", path.display()))?;
     systemctl(scope, &["daemon-reload"])?;
     systemctl(scope, &["enable", "--now", UNIT])?;
     // Picks up a new binary or unit when it was already running.
     systemctl(scope, &["restart", UNIT])?;
+
     if scope == Scope::User {
         linger();
     }
+
     Ok(path)
 }
 
 pub(super) fn uninstall(scope: Scope) -> Result<()> {
     let path = scope.unit_path()?;
+
     if !path.exists() {
         println!("{UNIT} is not installed.");
         return Ok(());
     }
+
     systemctl(scope, &["disable", "--now", UNIT])?;
     fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
     systemctl(scope, &["daemon-reload"])?;
@@ -125,6 +133,7 @@ pub(super) fn plan(exe: &Path, scope: Scope) -> Result<Restart> {
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Restart::NotInstalled),
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
     };
+
     if !runs(&unit, exe) {
         return Ok(Restart::OtherBinary(path));
     }
@@ -134,9 +143,11 @@ pub(super) fn plan(exe: &Path, scope: Scope) -> Result<Restart> {
         fs::write(&path, newer).with_context(|| format!("writing {}", path.display()))?;
         systemctl(scope, &["daemon-reload"])?;
     }
+
     if !active(scope) {
         return Ok(Restart::Stopped(scope.manager()));
     }
+
     Ok(Restart::Restarted(scope.manager()))
 }
 
@@ -153,16 +164,20 @@ pub(super) fn dir_in(unit: &str) -> Option<PathBuf> {
 fn split(line: &str) -> Vec<String> {
     let mut words = Vec::new();
     let mut chars = line.chars().peekable();
+
     while let Some(&c) = chars.peek() {
         if c == ' ' {
             chars.next();
             continue;
         }
+
         let mut word = String::new();
         let quoted = c == '"';
+
         if quoted {
             chars.next();
         }
+
         while let Some(c) = chars.next() {
             match c {
                 '"' if quoted => break,
@@ -175,8 +190,10 @@ fn split(line: &str) -> Vec<String> {
                 _ => word.push(c),
             }
         }
+
         words.push(word);
     }
+
     words
 }
 
@@ -269,6 +286,7 @@ fn systemctl(scope: Scope, args: &[&str]) -> Result<()> {
         let command: Vec<&str> = scope.flags().iter().chain(args).copied().collect();
         bail!("systemctl {} failed", command.join(" "));
     }
+
     Ok(())
 }
 
@@ -276,9 +294,11 @@ fn systemctl(scope: Scope, args: &[&str]) -> Result<()> {
 /// Only warns when it cannot: the service still runs while the user is in.
 fn linger() {
     let user = user();
+
     if lingering(&user) {
         return;
     }
+
     let enabled = Command::new("loginctl")
         .args(["--no-ask-password", "enable-linger", &user])
         .stdin(Stdio::null())

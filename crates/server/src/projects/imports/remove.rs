@@ -31,23 +31,28 @@ pub(crate) async fn remove_project(app: &Arc<App>, user: &Arc<User>, name: &str)
 /// Winds down after a removed machine: the tasks it left without a worker are blocked.
 pub(crate) async fn machine_removed(app: &Arc<App>, user: &Arc<User>, removed: &RemovedProject) {
     let fleet = RecordedFleet::new(app, user);
+
     for worker in &removed.workers {
         if let Err(e) = lifecycle::machine_removed(&fleet, user, worker).await {
             log::warn!("machine removal: a worker's task not blocked: {e:#}");
         }
     }
+
     wind_down(app, user, removed).await;
 }
 
 /// Forgets what ran for a removed project, each failure logged.
 async fn wind_down(app: &Arc<App>, user: &Arc<User>, removed: &RemovedProject) {
     let fleet = RecordedFleet::new(app, user);
+
     for project in &removed.projects {
         app.projects.forget_project(*project);
     }
+
     for worker in &removed.workers {
         app.projects.untrack(worker.id);
     }
+
     if !removed.workers.is_empty()
         && let Err(e) = fill_slots(&fleet, user).await
     {

@@ -76,6 +76,7 @@ impl Limits {
 pub(super) async fn run(env: Arc<Env>) {
     loop {
         sleep(env.limits.every).await;
+
         if let Err(e) = pass(&env).await {
             log::debug!("background copies: {e:#}");
         }
@@ -96,10 +97,13 @@ async fn pass(env: &Env) -> Result<()> {
     let projects = projects_of(&env.mesh);
     let locals = locals(env).await;
     tidy(env, &locals).await;
+
     if projects.is_empty() {
         return Ok(());
     }
+
     let waits = busy(env);
+
     if env.agents.moves.set_paused(waits) {
         log::info!(
             "background copies {}",
@@ -110,9 +114,11 @@ async fn pass(env: &Env) -> Result<()> {
             }
         );
     }
+
     if waits {
         return Ok(());
     }
+
     let me = env.mesh.me();
     let peers: Vec<EndpointId> = env
         .mesh
@@ -123,17 +129,21 @@ async fn pass(env: &Env) -> Result<()> {
         .collect();
     let mut fetched = 0;
     let mut no_room = 0;
+
     for peer in peers {
         if busy(env) || fetched >= MAX_FETCHES {
             break;
         }
+
         if let Err(e) = from_peer(env, &projects, &locals, peer, &mut fetched, &mut no_room).await {
             log::debug!("background copies from {peer}: {e:#}");
         }
     }
+
     if no_room > 0 {
         log::info!("not copying {no_room} sessions: the cache is full");
     }
+
     Ok(())
 }
 
@@ -145,6 +155,7 @@ async fn tidy(env: &Env, locals: &Locals) {
         return;
     };
     let now = now_secs();
+
     for entry in entries {
         let Some(copy) = &entry.copy else {
             // A pull that stopped before it noted anything is picked up by
@@ -161,6 +172,7 @@ async fn tidy(env: &Env, locals: &Locals) {
             continue;
         };
         let held_here = locals.has(&entry.id);
+
         if held_here || !is_recent(copy.last_activity, now) {
             let cache = env.cache.clone();
             let _ = spawn_blocking(move || cache.remove(&entry.agent, &entry.id, false)).await;
@@ -181,6 +193,7 @@ async fn from_peer(
         let (send, recv) = connection.open_bi().await?;
         let (mut tx, mut rx) = link(send, recv);
         tx.send(&Request::List {}).await?;
+
         match rx.recv::<Reply>().await? {
             Some(Reply::Offers { offers }) => offers,
             Some(Reply::Refused { message }) => bail!("it refused the list: {message}"),
@@ -188,27 +201,33 @@ async fn from_peer(
         }
     };
     let now = now_secs();
+
     for offer in offers {
         if *fetched >= MAX_FETCHES || busy(env) {
             break;
         }
+
         if harness_of(offer.agent.as_ref()).is_none() {
             continue;
         }
+
         if !is_recent(offer.last_activity, now) || !projects.iter().any(|p| p.name == offer.project)
         {
             continue;
         }
+
         let done = match locals.get(&offer.id) {
             Some(local) => settle(env, peer, &offer, local).await,
             None => fetch(env, &connection, peer, &offer, fetched).await,
         };
+
         match done {
             Err(e) if e.is::<CacheFull>() => *no_room += 1,
             Err(e) => log::debug!("session {} not copied from {peer}: {e:#}", offer.id),
             Ok(()) => {}
         }
     }
+
     connection.close(0u32.into(), b"done");
     Ok(())
 }
@@ -224,15 +243,19 @@ async fn fetch(
     let Some(copy) = env.cache.copy(&offer.agent, &offer.id) else {
         bail!("not a session name");
     };
+
     if let Some(meta) = env.cache.meta(&offer.agent, &offer.id)
         && is_held(&meta, offer, peer)
     {
         return Ok(());
     }
+
     let evict = make_room(env, offer, &copy).await?;
+
     if let Some(dir) = copy.parent() {
         tokio::fs::create_dir_all(dir).await?;
     }
+
     let (send, recv) = connection.open_bi().await?;
     let (tx, rx) = link(send, recv);
     let pulled = pull(
@@ -270,10 +293,12 @@ async fn fetch(
     };
     let (cache, agent, id) = (env.cache.clone(), offer.agent.clone(), offer.id.clone());
     spawn_blocking(move || cache.save_meta(&agent, &id, &meta)).await??;
+
     if pulled.restarted {
         // The older copy kept beside the new one counts against the cap.
         trim_after_restart(env, offer).await?;
     }
+
     Ok(())
 }
 
@@ -300,6 +325,7 @@ async fn trim_after_restart(env: &Env, offer: &Offer) -> Result<()> {
     spawn_blocking(move || {
         let entries = cache.entries();
         let own = Some((&agent, id.as_str()));
+
         match evictions(&entries, cap, 0, activity, own) {
             Some(gone) => {
                 for (other, key) in &gone {
@@ -338,6 +364,7 @@ async fn make_room(env: &Env, offer: &Offer, copy: &Path) -> Result<Vec<(AgentSl
         evictions(&entries, cap, need, activity, Some((&agent, id.as_str())))
     })
     .await?;
+
     match gone {
         Some(gone) => Ok(gone),
         None => Err(CacheFull.into()),
@@ -379,9 +406,11 @@ async fn settle(env: &Env, peer: EndpointId, offer: &Offer, local: &Path) -> Res
             return Ok(());
         }
     }
+
     if !env.agents.reopened() || env.agents.runs(&offer.id) || env.agents.moves.holds(&offer.id) {
         return Ok(());
     }
+
     let (len, modified) = {
         let local = local.to_owned();
         spawn_blocking(move || -> Result<_> {
@@ -391,9 +420,11 @@ async fn settle(env: &Env, peer: EndpointId, offer: &Offer, local: &Path) -> Res
         .await??
     };
     let me = env.mesh.me();
+
     if (modified, me.as_bytes()) > (offer.last_activity, peer.as_bytes()) {
         return Ok(());
     }
+
     log::info!(
         "session {} went two ways; the version on {} is later, this machine's is kept as a copy",
         offer.id,
@@ -490,11 +521,14 @@ fn hash_file(path: &Path) -> Result<Vec<u8>> {
     let mut hasher = blake3::Hasher::new();
     let mut reader = File::open(path)?;
     let mut buf = vec![0; 256 * 1024];
+
     loop {
         let got = reader.read(&mut buf)?;
+
         if got == 0 {
             return Ok(hasher.finalize().as_bytes().to_vec());
         }
+
         hasher.update(&buf[..got]);
     }
 }
@@ -505,6 +539,7 @@ pub(crate) async fn views(env: &Env) -> Vec<CopyView> {
     let cache = env.cache.clone();
     spawn_blocking(move || {
         let mut out = Vec::new();
+
         for entry in cache.entries() {
             let view = |meta: &Meta, lost: Option<u64>| CopyView {
                 agent: entry.agent.to_string(),
@@ -526,6 +561,7 @@ pub(crate) async fn views(env: &Env) -> Vec<CopyView> {
                 }
             }
         }
+
         out
     })
     .await
@@ -540,6 +576,7 @@ pub(crate) async fn discard(env: &Env, agent: &AgentSlug, id: &str, lost: Option
         None => cache.remove(&agent, &id, false),
     })
     .await;
+
     if let Err(e) = done {
         log::warn!("a copy was not discarded: {e}");
     }

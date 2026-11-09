@@ -240,6 +240,7 @@ pub(super) async fn run(app: Weak<App>) {
     let Some(wake) = app.upgrade().map(|app| app.repo_watch.wake.clone()) else {
         return;
     };
+
     loop {
         tokio::select! {
             _ = tick.tick() => {}

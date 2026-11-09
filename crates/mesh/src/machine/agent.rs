@@ -168,9 +168,11 @@ pub fn picked_model(model: Option<&str>) -> Result<Option<String>, ApiError> {
     let Some(model) = model.map(str::trim).filter(|model| !model.is_empty()) else {
         return Ok(None);
     };
+
     if !agent::valid_model(model) {
         return Err(ApiError::bad_request("That is not a model name."));
     }
+
     Ok(Some(model.to_owned()))
 }
 
@@ -182,6 +184,7 @@ pub fn picked_effort(
     let Some(effort) = effort.map(agent::Effort::from) else {
         return Ok(None);
     };
+
     if !agent::efforts(agent).contains(&effort) {
         return Err(ApiError::bad_request(format!(
             "{} cannot be set to think at {}.",
@@ -189,6 +192,7 @@ pub fn picked_effort(
             <&'static str>::from(effort)
         )));
     }
+
     Ok(Some(effort))
 }
 
@@ -198,6 +202,7 @@ const PREFERRED: [&str; 6] = ["claude", "codex", "gemini", "opencode", "pi", "fl
 /// `named`, or the one `host` prefers when the call names none.
 pub fn pick_agent(host: &AgentHost, named: Option<&str>) -> Result<String, ApiError> {
     let offers = |agent: &str| host.agents.iter().any(|offered| offered == agent);
+
     if let Some(named) = named {
         return if offers(named) {
             Ok(named.to_owned())
@@ -209,6 +214,7 @@ pub fn pick_agent(host: &AgentHost, named: Option<&str>) -> Result<String, ApiEr
             )))
         };
     }
+
     PREFERRED
         .iter()
         .find(|agent| offers(agent))
@@ -238,6 +244,7 @@ pub fn checkout_for(
     let Some(plan) = checkout.map(agent::CheckoutPlan::from) else {
         return Ok(None);
     };
+
     if let Some(base) = plan.base()
         && !agent::valid_ref(base)
     {
@@ -245,23 +252,27 @@ pub fn checkout_for(
             "{base:?} is not a branch or commit name."
         )));
     }
+
     if let Some(branch) = plan.branch() {
         if !agent::valid_branch(branch) {
             return Err(ApiError::bad_request(format!(
                 "{branch:?} is not a branch name git takes."
             )));
         }
+
         if !makes.branches {
             return Err(ApiError::bad_request(format!(
                 "beep-node on {name} is too old to start on a named branch. Update it, or start on a new worktree."
             )));
         }
     }
+
     if !makes.checkouts {
         return Err(ApiError::bad_request(format!(
             "beep-node on {name} is too old to make a branch or worktree. Update it, or start in the checkout as it is."
         )));
     }
+
     Ok(Some(plan))
 }
 

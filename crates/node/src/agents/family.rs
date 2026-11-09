@@ -135,12 +135,15 @@ impl Agents {
         let info = parent.info();
         let above = info.parent.as_ref();
         let depth = above.map_or(0, |link| link.depth).saturating_add(1);
+
         if depth > MAX_DEPTH {
             return Err(too_deep());
         }
+
         if self.children_count(who) >= MAX_CHILDREN {
             return Err(too_many(&format!("this agent has {MAX_CHILDREN} children")));
         }
+
         let (root_machine, root) = match above {
             Some(link) => (link.root_machine, link.root.clone()),
             None => (who.machine, who.session.clone()),
@@ -239,6 +242,7 @@ impl Agents {
         if link.depth == 0 || link.depth > MAX_DEPTH {
             return Err(too_deep());
         }
+
         let kinds = self.kinds();
         let kind = kinds
             .iter()
@@ -271,11 +275,13 @@ impl Agents {
         let session = {
             // From counting to the child's place in the list, one start at a time.
             let _starting = self.family.starting.lock().await;
+
             if self.live_under(root.0, &root.1).await >= MAX_CHILDREN {
                 return Err(too_many(&format!(
                     "the session this chain started from has {MAX_CHILDREN} agents running"
                 )));
             }
+
             self.start_in(&kind, start.cwd.as_deref(), None, begin)
                 .await
                 .map_err(|e| format!("{e:#}"))?
@@ -301,29 +307,35 @@ impl Agents {
         let mut local: Vec<Arc<Session>> = Vec::new();
         let mut remote: Vec<(String, RemoteKid)> = Vec::new();
         let mut queue = vec![session.clone()];
+
         while let Some(next) = queue.pop() {
             // The tree is bounded by the limits; this guards a loop in links.
             if local.len() + remote.len() > MAX_CHILDREN * usize::from(MAX_DEPTH) {
                 break;
             }
+
             let who = self.who_of(&next);
+
             for kid in self.children_of(&who) {
                 if kid.live.borrow().status() != Status::Ended {
                     queue.push(kid.clone());
                     local.push(kid);
                 }
             }
+
             for kid in self.remote_kids(&who.session) {
                 if kid.counts() && !kid.pending() {
                     remote.push((who.session.clone(), kid));
                 }
             }
         }
+
         let mesh = self.mesh();
         let remote = remote.iter().map(|(parent, kid)| async {
             let Some(mesh) = &mesh else {
                 return;
             };
+
             if let Err(e) = children::stop_remote(mesh, parent, kid, true).await {
                 log::warn!("child {} on {} was not stopped: {e}", kid.id, kid.name);
             }

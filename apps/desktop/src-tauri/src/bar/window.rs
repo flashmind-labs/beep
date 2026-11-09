@@ -31,9 +31,11 @@ pub fn toggle<R: Runtime>(app: &AppHandle<R>) {
 /// page to open a view, such as "link".
 pub fn show<R: Runtime>(app: &AppHandle<R>, view: Option<&str>) {
     let Some(bar) = window(app) else { return };
+
     if let Err(e) = place(app, &bar) {
         log::warn!("placing the bar: {e}");
     }
+
     orb::hide(app);
     let _ = bar.show();
     activate();

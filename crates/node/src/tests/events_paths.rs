@@ -106,6 +106,7 @@ async fn a_directory_created_after_subscribing_becomes_recursive() {
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
             reconciled.borrow_and_update();
+
             if crate::lock(&watcher.inner)
                 .installed
                 .get(&crate::agents::reach::real(&path).unwrap())
@@ -113,6 +114,7 @@ async fn a_directory_created_after_subscribing_becomes_recursive() {
             {
                 break;
             }
+
             reconciled.changed().await.unwrap();
         }
     })

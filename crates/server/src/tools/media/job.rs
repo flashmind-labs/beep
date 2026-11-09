@@ -32,6 +32,7 @@ pub(super) async fn first_file(
     progress: &mut (dyn FnMut(&str) + Send),
 ) -> Result<Produced, JobError> {
     let deadline = Instant::now() + limit;
+
     loop {
         let event = tokio::select! {
             biased;
@@ -39,6 +40,7 @@ pub(super) async fn first_file(
             () = sleep_until(deadline) => return Err(JobError::TimedOut(limit)),
             event = stream.next() => event,
         };
+
         match event {
             None | Some(Ok(StreamEvent::Finished(_))) => {
                 return Err(JobError::Failed(anyhow::anyhow!(

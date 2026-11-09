@@ -30,9 +30,11 @@ export function resultText(call: AgentToolCall | null | undefined) {
   if (call.result_truncated) return call.result;
   const value = json(call.result);
   if (typeof value === "string") return value;
+
   // Claude's transcript stores tool output as text content blocks.
   if (Array.isArray(value) && value.every(item => item?.type === "text" && typeof item.text === "string")) {
     return value.map(item => item.text).join("\n");
   }
+
   return value == null ? call.result : JSON.stringify(value, null, 2);
 }

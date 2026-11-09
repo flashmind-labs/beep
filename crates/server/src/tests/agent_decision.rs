@@ -19,15 +19,18 @@ fn args() -> Value {
 
 async fn read_request(stream: &mut TcpStream) -> String {
     let mut data = Vec::new();
+
     loop {
         let mut buf = [0u8; 4096];
         let n = stream.read(&mut buf).await.unwrap();
         assert!(n > 0);
         data.extend_from_slice(&buf[..n]);
+
         if data.ends_with(b"}") {
             break;
         }
     }
+
     String::from_utf8(data).unwrap()
 }
 

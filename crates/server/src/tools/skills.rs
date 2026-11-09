@@ -71,6 +71,7 @@ impl Tool for SkillTool {
             "action": {"type": "string", "enum": actions},
             "name": {"type": "string", "description": "The skill's name as listed, or a new one's."}
         });
+
         if self.writes
             && let Some(properties) = properties.as_object_mut()
         {
@@ -83,6 +84,7 @@ impl Tool for SkillTool {
                 json!({"type": "string", "description": "create, update: the steps and preferences, in Markdown."}),
             );
         }
+
         json!({"type": "object", "properties": properties, "required": ["action", "name"], "additionalProperties": false})
     }
     fn humanize(&self, args: &Value) -> String {
@@ -91,6 +93,7 @@ impl Tool for SkillTool {
             Ok(Action::Update) => "Updating",
             _ => "Loading",
         };
+
         match args.get("name").and_then(Value::as_str).map(str::trim) {
             Some(name) if !name.is_empty() => format!("{verb} the {name} skill"),
             _ => format!("{verb} a skill"),
@@ -108,6 +111,7 @@ impl Tool for SkillTool {
             Err(error) => return Ok(ToolResult::failure(ctx.tool_call_id, error.to_string())),
         };
         let name = arg(&ctx.args, "name")?.trim();
+
         match action {
             Action::View => self.view(&ctx, name).await,
             Action::Create => self.create(&ctx, name).await,
@@ -142,14 +146,17 @@ impl SkillTool {
     async fn create(&self, ctx: &ToolContext<'_>, name: &str) -> Result<ToolResult> {
         let description = opt_arg(&ctx.args, "description").unwrap_or_default().trim();
         let body = opt_arg(&ctx.args, "body").unwrap_or_default().trim();
+
         if !skills::valid(name, description, body) {
             return Ok(ToolResult::failure(ctx.tool_call_id, limits()));
         }
+
         let skill = NewSkill {
             name,
             description,
             body,
         };
+
         match self.store.create_skill(&self.owner, skill).await? {
             Some(id) => reply(ctx, json!({"created": true, "id": id, "name": name})),
             None => Ok(ToolResult::failure(
@@ -188,6 +195,7 @@ impl SkillTool {
             body,
             ..SkillPatch::default()
         };
+
         match self
             .store
             .learn_skill_change(&self.owner, skill.id, patch)

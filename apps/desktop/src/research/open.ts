@@ -215,15 +215,18 @@ async function send(text: string, start = false) {
   const channel = new Channel<SendEvent>();
   channel.onmessage = ev => {
     if (R.session !== session) return;
+
     if (ev.kind === "text") { R.sending = ev.html; drawChat(); }
     else if (ev.kind === "error") R.error = ev.message;
   };
   let error = "";
+
   try {
     await invoke("research_send", { session, message: text, start, onEvent: channel });
   } catch (err) {
     error = String(err);
   }
+
   if (R.session !== session) return;
   if (error) R.error = error;
   R.sending = null;
@@ -250,9 +253,11 @@ async function poll(now = false) {
   clearTimeout(timer);
   const session = R.session;
   inflight = true;
+
   try {
     if (!now && (!busy() || ++polls % CHAT_EVERY === 0)) await loadChat();
     const r = await invoke<ResearchView | null>("get_research", { session, after: R.after });
+
     if (r && R.session === session) {
       const was = R.research?.status;
       take(r);
@@ -264,6 +269,7 @@ async function poll(now = false) {
   } finally {
     inflight = false;
   }
+
   // Whichever research is open now keeps polling, also when this read was for another.
   clearTimeout(timer);
   if (active()) timer = setTimeout(poll, busy() ? POLL_BUSY : POLL_IDLE);
@@ -288,10 +294,12 @@ function onClick(e: MouseEvent) {
   const name = b?.dataset.act;
   if (R.menu && name !== "rounds" && !name?.startsWith("round:")) { R.menu = false; drawPane(); }
   if (target.closest("[data-copy]")) return copyCode(target.closest<HTMLElement>("[data-copy]")!);
+
   if (b) {
     const [a, v] = b.dataset.act!.split(/:(.*)/);
     return void act(a, v);
   }
+
   const link = target.closest<HTMLAnchorElement>("a[href]");
   if (!link) return;
   e.preventDefault();
@@ -300,10 +308,12 @@ function onClick(e: MouseEvent) {
 
 async function act(a: string, v: string | undefined) {
   if (a === "go") return void send("Go");
+
   if (a === "stop") {
     await invoke("stop_research", { session: R.session }).catch(err => { R.error = String(err); });
     return void poll(true);
   }
+
   if (a === "tab") { R.tab = v!; return drawPane(); }
   if (a === "agent") { if (R.research?.status === "planning" && v !== "lead") return; openTab(R, v!); return drawPane(); }
   if (a === "room") { if (!R.research || R.research.status === "planning") return; openTab(R, "room"); return drawPane(); }
@@ -320,12 +330,14 @@ async function exportPdf() {
   R.exporting = true;
   notice("Typesetting the PDF", { busy: true });
   draw();
+
   try {
     const path = await invoke<string>("export_research", { session });
     notice(`Saved ${path.split("/").pop()} to Downloads`, { path });
   } catch (err) {
     notice(String(err), { bad: true });
   }
+
   R.exporting = false;
   if (R.session === session) draw();
 }
@@ -398,10 +410,12 @@ document.addEventListener("selectionchange", () => { if (!selectedText()) docume
 
 document.addEventListener("keydown", e => {
   if (!active()) return;
+
   if (commandKey(e) && e.key === "Enter" && R.research?.status === "planning" && R.sending === null) {
     e.preventDefault();
     return void send("Go");
   }
+
   if (e.key === "Escape" && R.menu) { R.menu = false; return drawPane(); }
   if (commandKey(e) && e.key === "'" && selectedText()) { e.preventDefault(); quote(); }
 });

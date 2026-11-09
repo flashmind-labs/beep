@@ -54,6 +54,7 @@ pub fn level(samples: &[f32]) -> f32 {
     if samples.is_empty() {
         return 0.0;
     }
+
     let sum: f32 = samples.iter().map(|s| s * s).sum();
     let rms = (sum / samples.len() as f32).sqrt();
     (rms * 4.0).min(1.0)
@@ -65,6 +66,7 @@ pub fn resample(samples: &[f32], from: u32, to: u32) -> Vec<f32> {
     if from == to || samples.is_empty() || from == 0 || to == 0 {
         return samples.to_vec();
     }
+
     let step = f64::from(from) / f64::from(to);
     let len = (samples.len() as f64 / step).floor() as usize;
     (0..len)
@@ -82,10 +84,12 @@ pub fn resample(samples: &[f32], from: u32, to: u32) -> Vec<f32> {
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn pcm16(samples: &[f32]) -> Vec<u8> {
     let mut out = Vec::with_capacity(samples.len() * 2);
+
     for s in samples {
         let v = (s.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16;
         out.extend_from_slice(&v.to_le_bytes());
     }
+
     out
 }
 
@@ -156,6 +160,7 @@ mod engine {
             if mic.is_some() {
                 allowed()?;
             }
+
             let (commands, inbox) = mpsc::channel();
             let (ready, opened) = mpsc::channel();
             thread::Builder::new()
@@ -211,6 +216,7 @@ mod engine {
         let audio = unsafe { AVMediaTypeAudio }.context("AVFoundation has no audio media type")?;
         // SAFETY: a class method safe to call from any thread.
         let status = unsafe { AVCaptureDevice::authorizationStatusForMediaType(audio) };
+
         match status {
             AVAuthorizationStatus::Authorized => Ok(()),
             AVAuthorizationStatus::NotDetermined => {
@@ -224,6 +230,7 @@ mod engine {
                 unsafe {
                     AVCaptureDevice::requestAccessForMediaType_completionHandler(audio, &asked)
                 };
+
                 match answered.recv() {
                     Ok(true) => Ok(()),
                     Ok(false) => Err(MicDenied.into()),
@@ -275,6 +282,7 @@ mod engine {
                 return;
             }
         };
+
         while let Ok(command) = inbox.recv() {
             match command {
                 Command::Play {
@@ -310,6 +318,7 @@ mod engine {
             let input = engine.inputNode();
             input.removeTapOnBus(0);
             engine.stop();
+
             if input.isVoiceProcessingEnabled()
                 && let Err(e) = input.setVoiceProcessingEnabled_error(false)
             {
@@ -330,6 +339,7 @@ mod engine {
         unsafe {
             let engine = AVAudioEngine::new();
             let input = engine.inputNode();
+
             if voice_processing {
                 match input.setVoiceProcessingEnabled_error(true) {
                     Ok(()) => duck_lightly(&input),
@@ -339,6 +349,7 @@ mod engine {
                     ),
                 }
             }
+
             let format = input.outputFormatForBus(0);
             let rate = format.sampleRate();
             log::info!(
@@ -376,6 +387,7 @@ mod engine {
             let player = AVAudioPlayerNode::new();
             engine.attachNode(&player);
             engine.connect_to_format(&player, &engine.mainMixerNode(), None);
+
             if voice_processing {
                 // Voice processing wants the output at the microphone's
                 // rate; left alone it takes the speakers' rate, and when
@@ -394,7 +406,9 @@ mod engine {
                     Some(&output),
                 );
             }
+
             engine.prepare();
+
             if let Err(e) = engine.startAndReturnError() {
                 tear_down(&engine, true);
                 return Err(anyhow!(
@@ -402,6 +416,7 @@ mod engine {
                     e.localizedDescription()
                 ));
             }
+
             Ok((engine, player))
         }
     }
@@ -437,6 +452,7 @@ mod engine {
             engine.attachNode(&player);
             engine.connect_to_format(&player, &engine.mainMixerNode(), None);
             engine.prepare();
+
             if let Err(e) = engine.startAndReturnError() {
                 engine.stop();
                 return Err(anyhow!(
@@ -444,6 +460,7 @@ mod engine {
                     e.localizedDescription()
                 ));
             }
+
             Ok((engine, player))
         }
     }
@@ -459,9 +476,11 @@ mod engine {
         // long, and the first channel pointer is valid while `buffer` is.
         unsafe {
             let channels = buffer.floatChannelData();
+
             if channels.is_null() {
                 return None;
             }
+
             let first = *channels;
             let frames = buffer.frameLength() as usize;
             Some(std::slice::from_raw_parts(first.as_ptr(), frames).to_vec())
@@ -497,6 +516,7 @@ mod engine {
             let done = Mutex::new(Some(done));
             let finished = RcBlock::new(move || {
                 let done = done.lock().unwrap_or_else(PoisonError::into_inner).take();
+
                 if let Some(done) = done {
                     // Gone when live mode ended meanwhile.
                     let _ = done.send(());

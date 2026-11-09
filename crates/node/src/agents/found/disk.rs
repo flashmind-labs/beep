@@ -46,6 +46,7 @@ pub(crate) struct Walk {
 /// next walk ends.
 pub(crate) fn forget_checkouts(dir: &Path) -> Result<()> {
     let path = dir.join(FILE);
+
     match fs::remove_file(&path) {
         Err(e) if e.kind() != ErrorKind::NotFound => {
             Err(e).with_context(|| format!("removing {}", path.display()))
@@ -74,11 +75,13 @@ pub(crate) fn saved_checkouts(dir: &Path) -> Option<Vec<Checkout>> {
 /// Walks `root` for checkouts and saves them in `dir` when the walk was whole.
 pub(crate) fn walk(root: &Path, dir: &Path) -> Walk {
     let walk = checkouts(root, MAX_DEPTH, WALK_FOR);
+
     if walk.whole
         && let Err(e) = save(dir, &walk.found)
     {
         log::warn!("the checkouts found were not saved: {e:#}");
     }
+
     walk
 }
 
@@ -96,9 +99,11 @@ pub(crate) fn rescan(root: &Path, dir: &Path, known: &[Checkout]) -> Vec<Checkou
             all.push(one);
         }
     }
+
     if let Err(e) = save(dir, &all) {
         log::warn!("the checkouts found were not saved: {e:#}");
     }
+
     all
 }
 
@@ -125,13 +130,16 @@ fn checkouts(home: &Path, depth: usize, time: Duration) -> Walk {
                     cut.store(true, Ordering::Relaxed);
                     return WalkState::Quit;
                 }
+
                 let Ok(entry) = entry else {
                     return WalkState::Continue;
                 };
                 let root = entry.path();
+
                 if entry.depth() == 0 || !root.join(".git").is_dir() {
                     return WalkState::Continue;
                 }
+
                 let checkout = Checkout {
                     root: root.to_owned(),
                     origin: git::origin(root),
@@ -159,9 +167,11 @@ fn walked(entry: &DirEntry) -> bool {
     if !entry.file_type().is_some_and(|kind| kind.is_dir()) {
         return false;
     }
+
     if PRUNED.iter().any(|name| entry.file_name() == *name) {
         return false;
     }
+
     entry.depth() < 2
         || entry
             .path()

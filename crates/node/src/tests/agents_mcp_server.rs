@@ -77,9 +77,11 @@ async fn exchange(fake: &Fake, messages: &[Value]) -> Vec<Value> {
     let (server_read, server_write) = tokio::io::split(server);
     let (client_read, mut client_write) = tokio::io::split(client);
     let mut input = String::new();
+
     for message in messages {
         input.push_str(&format!("{message}\n"));
     }
+
     client_write.write_all(input.as_bytes()).await.unwrap();
     client_write.shutdown().await.unwrap();
     serve(fake, "a3f9c1", BufReader::new(server_read), server_write)
@@ -87,9 +89,11 @@ async fn exchange(fake: &Fake, messages: &[Value]) -> Vec<Value> {
         .unwrap();
     let mut out = Vec::new();
     let mut lines = BufReader::new(client_read).lines();
+
     while let Some(line) = lines.next_line().await.unwrap() {
         out.push(serde_json::from_str::<Value>(&line).unwrap());
     }
+
     out.sort_by_key(|message| message["id"].as_i64());
     out
 }
@@ -152,6 +156,7 @@ async fn it_lists_the_tools_and_answers_a_call() {
             "list_agents",
             "beep_status",
             "beep_logs",
+            "beep_metrics",
             "file_report",
             "ask_user",
             "review"
@@ -234,12 +239,14 @@ async fn an_acting_call_asks_the_user_first() {
 #[tokio::test]
 async fn machine_log_and_run_on_are_no_tools() {
     let fake = Fake::new(ALLOW);
+
     for name in ["machine_log", "run_on"] {
         let call = json!({ "name": name, "arguments": { "machine": "build-box" } });
         let out = exchange(&fake, &[request(1, "tools/call", call)]).await;
         assert_eq!(out[0]["result"]["isError"], true);
         assert_eq!(text(&out[0]), format!("There is no tool {name}."));
     }
+
     assert!(fake.calls.lock().unwrap().is_empty(), "nothing was sent");
 }
 

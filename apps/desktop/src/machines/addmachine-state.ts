@@ -124,10 +124,12 @@ export function describeMachine(machine: { env?: { os: string; tools?: readonly 
   const parts = [];
   const os = OS_NAMES[env.os] || env.os;
   if (os) parts.push(os);
+
   for (const tool of env.tools || []) {
     const name = TOOL_NAMES[tool.name];
     if (name && !parts.includes(name)) parts.push(name);
   }
+
   return parts.join(", ");
 }
 
@@ -151,6 +153,7 @@ export function macOption(mac: MacSeen | null | undefined, asked: boolean): MacO
   if (!mac || mac.status === "unlinked") return null;
   const name = mac.name || "This computer";
   if (!mac.enabled) return { text: `Let Beep run commands and use the screen on ${name}.`, button: "Use this computer" };
+
   switch (mac.status) {
     case "connected": return asked ? { text: `${name} is linked. It shows under Machines.`, done: true } : null;
     case "failed": return { text: `Couldn't connect: ${mac.error || "unknown error"}. Beep tries again on its own.`, bad: true };

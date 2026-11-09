@@ -20,18 +20,22 @@ ROLES=(server node-a node-b)
 # provision : make the roles $FLEET does not have yet, in parallel.
 provision(){
   local role missing=() pids=() failed=0
+
   for role in "${ROLES[@]}"; do
     [[ -f "$FLEET" ]] && grep -q " $role\$" "$FLEET" || missing+=("$role")
   done
+
   if [[ ${#missing[@]} == 0 ]]; then
     note "reusing the fleet in $FLEET"
     cat "$FLEET"
     return 0
   fi
+
   command -v boat > /dev/null || { echo "boat not found (https://boat.dev)" >&2; return 1; }
   command -v jq > /dev/null || { echo "jq not found" >&2; return 1; }
   step "provision: ${missing[*]} (boat ${E2E_BOAT_TYPE:-small})"
   touch "$FLEET"
+
   for role in "${missing[@]}"; do
     (
       local id
@@ -45,8 +49,10 @@ provision(){
     ) &
     pids+=($!)
   done
+
   for role in "${pids[@]}"; do wait "$role" || failed=1; done
   local made; made="$(wc -l < "$FLEET")"
+
   if [[ "$failed" != 0 || "$made" -lt "${#ROLES[@]}" ]]; then
     echo "provisioning failed; $made VM(s) recorded in $FLEET" >&2
     return 1
@@ -58,10 +64,12 @@ cost_report(){
   [[ -f "$FLEET" ]] || return 0
   step "boat cost"
   local id role usage cost total=0
+
   while read -r id role; do
     [[ -n "$id" ]] || continue
     usage="$(boat usage "$id" --json 2> /dev/null < /dev/null || true)"
     cost="$(jq -r '.dollars // empty' <<< "$usage" 2> /dev/null)"
+
     if [[ -n "$cost" ]]; then
       total="$(awk -v a="$total" -v b="$cost" 'BEGIN { printf "%.5f", a + b }')"
       note "$role ($id): \$$cost for $(jq -r .seconds <<< "$usage") s billed"
@@ -78,11 +86,13 @@ teardown(){
   [[ -f "$FLEET" ]] || { note "no $FLEET, nothing to tear down"; return 0; }
   step "teardown"
   local id role failed=0
+
   while read -r id role; do
     [[ -n "$id" ]] || continue
     note "deleting $role ($id)"
     boat delete "$id" --yes > /dev/null < /dev/null || { note "delete failed for $id, check 'boat list'"; failed=1; }
   done < "$FLEET"
+
   if [[ "$failed" == 0 ]]; then
     rm -f "$FLEET"
   else

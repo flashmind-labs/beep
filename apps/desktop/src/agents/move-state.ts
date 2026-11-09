@@ -75,6 +75,7 @@ export interface MoveRow {
 export function moveRows(p: MoveProgress, from: string, to: string, toOnline = true): MoveRow[] {
   const resume = `Resuming on ${to}`;
   const left = p.files_left > 0 ? ` ${p.files_left} left` : "";
+
   switch (p.phase) {
     case "waiting":
       return [
@@ -138,9 +139,11 @@ export function listLabel(
 ): { sub: string; chip: "Moving" | "Move failed"; why: string | null } | null {
   if (!record || !p || p.answer !== "known") return null;
   if (GOING.has(p.phase)) return { sub: `${name(record.from)} to ${name(record.to)}`, chip: "Moving", why: null };
+
   if (p.phase === "failed") {
     return { sub: name(record.from), chip: "Move failed", why: `Move failed: ${p.reason ?? "the move did not finish"}. Still on ${name(record.from)}.` };
   }
+
   return null;
 }
 
@@ -149,12 +152,14 @@ export function listLabel(
 /// list yet (a move that waits, or failed) stays on its source.
 export function dedupe<T extends { machine_id: string; id: string; agent: string }>(rows: readonly T[], records: readonly MoveRecord[]): T[] {
   const drop = new Set<T>();
+
   for (const r of records) {
     const mine = rows.filter(s => s.id === r.session && s.agent === r.agent);
     const onTarget = mine.some(s => s.machine_id === r.to);
     if (!onTarget) continue;
     for (const s of mine) if (s.machine_id === r.from) drop.add(s);
   }
+
   return rows.filter(s => !drop.has(s));
 }
 
@@ -170,9 +175,11 @@ export function movedTo<T extends { machine_id: string; id: string; agent: strin
 /// The records by session, the latest of each.
 export function bySession(records: readonly MoveRecord[]) {
   const out = new Map<string, MoveRecord>();
+
   for (const r of records) {
     const had = out.get(r.session);
     if (!had || r.at > had.at) out.set(r.session, r);
   }
+
   return out;
 }

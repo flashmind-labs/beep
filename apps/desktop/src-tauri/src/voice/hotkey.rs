@@ -67,13 +67,16 @@ impl Taps {
                 };
                 // No press at all since the clock started counts as long ago.
                 let pressed = now.checked_sub(since_press);
+
                 if now.duration_since(down) > WINDOW || pressed.is_some_and(|p| p >= down) {
                     self.forget();
                     return TapStep::Nothing;
                 }
+
                 let follows = self.last_tap.is_some_and(|last| {
                     down.duration_since(last) <= WINDOW && pressed.is_none_or(|p| p < last)
                 });
+
                 if !follows {
                     self.count = 1;
                     self.last_tap = Some(now);
@@ -154,6 +157,7 @@ impl Hold {
                 // A key or click while Option was down means it was used for
                 // something else, such as typing a character.
                 let pressed = now.checked_sub(since_press);
+
                 if let Some(since) = self.recording_since.take() {
                     return if pressed.is_some_and(|p| p >= since) {
                         HoldStep::Cancel
@@ -161,12 +165,15 @@ impl Hold {
                         HoldStep::Send
                     };
                 }
+
                 let tap = down.is_some_and(|down| {
                     now.duration_since(down) <= WINDOW && pressed.is_none_or(|p| p < down)
                 });
+
                 if !tap {
                     return HoldStep::Nothing;
                 }
+
                 self.tapped_at = Some(now);
                 HoldStep::Tap(self.press)
             }
@@ -190,13 +197,16 @@ impl Hold {
         if press != self.press || !self.held || self.recording_since.is_some() {
             return HoldStep::Nothing;
         }
+
         let pressed = now.checked_sub(since_press);
+
         if self
             .down_at
             .is_some_and(|down| pressed.is_some_and(|p| p >= down))
         {
             return HoldStep::Nothing;
         }
+
         self.recording_since = Some(now);
         HoldStep::Start
     }
@@ -208,13 +218,17 @@ impl Hold {
         let Some(tapped) = self.tapped_at else {
             return HoldStep::Nothing;
         };
+
         if press != self.press || self.held {
             return HoldStep::Nothing;
         }
+
         self.tapped_at = None;
+
         if now.checked_sub(since_press).is_some_and(|p| p >= tapped) {
             return HoldStep::Nothing;
         }
+
         HoldStep::Single
     }
 
@@ -316,9 +330,11 @@ mod monitor {
 
     fn input(event: &NSEvent) -> Input {
         let key = event.keyCode();
+
         if key != LEFT_OPTION && key != RIGHT_OPTION {
             return Input::Other;
         }
+
         let flags = event.modifierFlags();
         let others = NSEventModifierFlags::Command
             | NSEventModifierFlags::Control
@@ -381,6 +397,7 @@ mod monitor {
         let local = unsafe {
             NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::FlagsChanged, &local)
         };
+
         if global.is_none() {
             log::warn!("macOS refused the Option monitor");
         }
@@ -401,6 +418,7 @@ mod monitor {
                 // Handled: the bar would otherwise act on it again.
                 return std::ptr::null_mut();
             }
+
             event.as_ptr()
         });
         // SAFETY: the block returns the event it was given or nothing.
@@ -408,6 +426,7 @@ mod monitor {
             NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &local)
         };
         let old = ESCAPE_MONITORS.with(|m| m.replace(local.into_iter().collect()));
+
         for monitor in old {
             remove(&monitor);
         }

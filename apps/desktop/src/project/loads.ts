@@ -67,6 +67,7 @@ export async function loadProjectAgent(after = true) {
   agentLoading = true;
   const picked = state.picked;
   const early = picked ? loadView(picked, after) : undefined;
+
   // The project agent needs a subscription: no panel, and no call to ask for one.
   if (!state.subscribed) {
     agentLoading = false;
@@ -75,6 +76,7 @@ export async function loadProjectAgent(after = true) {
     redrawProjectsPage();
     return;
   }
+
   try {
     state.agents = await invoke<ProjectAgent[] | null>("center_projects");
   } catch (e) {
@@ -83,6 +85,7 @@ export async function loadProjectAgent(after = true) {
   } finally {
     agentLoading = false;
   }
+
   // A project whose agent was not known before reads now.
   if (state.picked && (state.picked !== picked || !early)) loadView(state.picked);
   // The header's Board and List switch shows once the project has an agent.
@@ -109,10 +112,12 @@ export function noteRecent(name: string) {
 export function revalidate(name: string) {
   loadView(name);
   const agent = pageAgent(state.agents, name, state.subscribed);
+
   if (agent) {
     thr.ensure(agent.project_id, SWITCH_MS);
     runs.ensure(agent.project_id, SWITCH_MS);
   }
+
   terms.ensure(name);
   fsync.ensure(name);
   if (sessionsDue.has(name) || !state.sessions.has(name)) loadSessions(name);
@@ -126,12 +131,14 @@ function prefetch(name: string): Promise<unknown> {
   if (!p?.imported) return Promise.resolve();
   const agent = pageAgent(state.agents, name, state.subscribed);
   const reads: (Promise<unknown> | undefined)[] = [revs.ensure(name), terms.ensure(name), fsync.ensure(name, MACHINE_REFRESH_MS)];
+
   if (agent) {
     if (agentFor(state.agents, name) && pages.due("view", name, MACHINE_REFRESH_MS)) reads.push(loadView(name));
     // The code host's lists at their own pace: an ask keeps the server
     // reading the host for that project a while.
     reads.push(thr.ensure(agent.project_id), runs.ensure(agent.project_id));
   }
+
   if (pages.due("where", name)) reads.push(loadWhere(name));
   if (pages.due("sessions", name)) reads.push(loadSessions(name));
   return Promise.allSettled(reads);
@@ -158,6 +165,7 @@ export function prefetchRecentSoon() {
   idleTimer = setTimeout(async () => {
     if (prefetching || !onScreen()) return;
     prefetching = true;
+
     try {
       const names = new Set((projectRows() || []).map(r => r.name));
       for (const name of prefetchOrder(recent, state.picked, n => names.has(n))) await prefetch(name);
@@ -179,6 +187,7 @@ const copies = new Map<string, { state: "copying" | "already" | "failed"; text?:
 async function copyHere(p: Project, m: WhereRow, key: string) {
   copies.set(key, { state: "copying" });
   redrawProjectsPage();
+
   try {
     const copy = await invoke<{ folder: string; from: string | null } | null>("project_copy", { project: p.name, machineId: m.id });
     copies.delete(key);
@@ -189,6 +198,7 @@ async function copyHere(p: Project, m: WhereRow, key: string) {
   } catch (e) {
     copies.set(key, { state: "failed", text: reason(e) });
   }
+
   redrawProjectsPage();
 }
 
@@ -203,6 +213,7 @@ export async function loadGit(name: string) {
   if (readingGit.has(name)) return;
   readingGit.add(name);
   gitDue.delete(name);
+
   try {
     const rows = await invoke<GitRow[]>("project_git_state", { project: name });
     state.gitsync.set(name, rows);
@@ -213,6 +224,7 @@ export async function loadGit(name: string) {
   } finally {
     readingGit.delete(name);
   }
+
   if (currentLocation()?.view === "projects" && state.picked === name) redrawProjectsPage();
 }
 
@@ -225,6 +237,7 @@ async function gitMove(p: Project, m: WhereRow, row: GitRow, move: GitMove) {
   if (moves.get(key)?.moving || !row.branch) return;
   moves.set(key, { moving: move });
   redrawProjectsPage();
+
   try {
     const next = await invoke<GitRow>("project_git_move", { project: p.name, machineId: m.id, branch: row.branch, direction: move });
     moves.delete(key);
@@ -234,6 +247,7 @@ async function gitMove(p: Project, m: WhereRow, row: GitRow, move: GitMove) {
   } catch (e) {
     moves.set(key, { moving: null, failed: reason(e) });
   }
+
   redrawProjectsPage();
 }
 
@@ -258,16 +272,20 @@ function gitCells(p: Project, m: WhereRow): { note: HTMLElement | null; buttons:
   if (!line.buttons) return { note, buttons: [] };
   const mv = moves.get(moveKey(p.name, m.id));
   const buttons = [moveButton(p, m, row, "pull", line.pull, mv?.moving), moveButton(p, m, row, "push", line.push, mv?.moving)];
+
   if (p.machines.length > 1 && !m.syncthing) {
     buttons.push(button("Bring work here", "small", () => openHandoff(p, m.id, () => { loadGit(p.name); refresh(); })));
   }
+
   if (mv?.failed) {
     const why = h("small", "gs err", mv.failed);
     note.append(h("br"), why);
+
     if (agentCanFix(mv.failed)) {
       buttons.push(button("Fix with an agent", "small", () => void openSyncRepair(p.name, m.id, mv.failed!)));
     }
   }
+
   return { note, buttons };
 }
 
@@ -277,8 +295,10 @@ export async function openSyncRepair(project: string, machine: string, error: st
   const place = p?.machines.find(m => m.id === machine);
   if (!p || !place) return;
   let sessions: SessionRow[] = [];
+
   try { sessions = await invoke<SessionRow[]>("project_sessions", { project }); }
   catch (e) { console.warn("repair sessions:", e); }
+
   const prompt = syncRepairPrompt({ project, machine, error, checkouts: p.machines, git: state.gitsync.get(project) ?? [], sessions });
   go("pane", { agentnew: { prompt, at: { machine, cwd: place.folder, places: projectPlaces(p), project } } });
 }
@@ -287,6 +307,7 @@ export async function openSyncRepair(project: string, machine: string, error: st
 /// there, or why there is none.
 export function whereRow(p: Project, m: WhereRow) {
   const name = h("span", "nm", h("b", "", m.name));
+
   if (m.kind === "here") {
     const path = m.folder!;
     // One menu instead of a row of buttons; what needs fixing keeps its button.
@@ -304,45 +325,56 @@ export function whereRow(p: Project, m: WhereRow) {
     const moving = machineSync(m.id, state.sync.filter(s => s.project === p.name));
     const said = moving ? (moving.pct == null ? "Scanning" : `Syncing ${moving.pct}%`) : copies.get(`${p.name}\n${m.id}`)?.state === "already" ? "Already here" : "";
     if (said) folder.append(" ", h("small", "", said));
+
     if (m.syncthing) {
       // Syncthing keeps it in step, so Beep's own sync stays off here.
       const note = h("small", "", "Synced by Syncthing");
       note.title = `Syncthing folder "${m.syncthing}". Beep does not sync it here.`;
       folder.append(" ", note);
     }
+
     // A folder that went is made again and filled by its node; one whose disk is gone waits.
     const row = state.sync.find(s => s.project === p.name && s.machine_id === m.id);
+
     if (row && (row.status === "missing" || row.status === "parent_missing")) {
       const why = h("small", "gs err", row.status === "missing" ? "Folder missing: filling it again from the other machines" : "The folder above it is missing");
       why.title = stateNote(row) || "";
       folder.append(h("br"), why);
     }
+
     const git = gitCells(p, m);
     if (git.note) folder.append(h("span", "gs-line", git.note));
     const warning = row && !m.syncthing ? gitSyncWarning(row) : null;
+
     if (warning) {
       folder.append(Object.assign(h("small", "gs err", warning), { title: row!.error || "" }));
+
       if (!agentCanFix(moves.get(moveKey(p.name, m.id))?.failed ?? "")) {
         git.buttons.push(button("Fix with an agent", "small", () => void openSyncRepair(p.name, m.id, row!.error!)));
       }
     }
+
     return [name, folder, h("span", "acts", ...git.buttons, more)];
   }
+
   const key = `${p.name}\n${m.id}`;
   const copied = copies.get(key);
   const said = h("span", "os", copied?.text || m.text);
   if (m.kind === "none" && m.checked_at) said.title = `Checked ${since(m.checked_at)}`;
   const what = h("span", "nm", said);
+
   if (m.kind === "none" && m.syncthing) {
     // Sync would hold, so nothing would ever arrive.
     const note = h("small", "", "Synced by Syncthing");
     note.title = `Syncthing folder "${m.syncthing}". Beep does not sync it.`;
     what.append(" ", note);
   }
+
   if (state.home?.machines?.some(x => x.id === m.id && x.can_host === false)) {
     what.classList.add("wide");
     return [name, what];
   }
+
   if (m.kind === "none" && m.add) {
     const add = button("Add", "small", () => openAddToMachine({
       project: p.name,
@@ -353,11 +385,13 @@ export function whereRow(p: Project, m: WhereRow) {
     }));
     return [name, what, h("span", "acts", add)];
   }
+
   if (m.kind === "none" && m.copy && copied?.state !== "failed") {
     const copy = button(copied ? "Copying…" : "Copy here", "small", () => copyHere(p, m, key));
     copy.disabled = !!copied;
     return [name, what, h("span", "acts", copy)];
   }
+
   const clone = m.kind === "none" && p.url ? button("Clone here", "small", () => importSheet(repoFromRemote(p.url), m.id)) : null;
   if (clone) return [name, what, h("span", "acts", clone)];
   // Nothing to do there, so the note takes the buttons' room too.
@@ -389,6 +423,7 @@ async function readWhere(name: string) {
   // A kept list shows a spinner in its header meanwhile.
   if (before && state.picked === name) queueMicrotask(redrawProjects);
   let got: ProjectMachineRow[] | null = null;
+
   try {
     const [machines, places] = await Promise.all([
       invoke<ProjectMachineRow[] | null>("project_machines", { project: name }),
@@ -400,14 +435,17 @@ async function readWhere(name: string) {
   } finally {
     readingWhere.delete(name);
   }
+
   // A failed read keeps the last list it had.
   if (got || !before) state.where.set(name, got);
   if (got && !got.some(m => m.checking)) keep("where", name, got);
   const folders = (list: ProjectMachineRow[] | null) => (list || []).filter(m => m.folder).map(m => `${m.id} ${m.folder}`).join("\n");
+
   if (got && before !== undefined && folders(before) !== folders(got)) {
     sessionsDue.add(name);
     refresh();
   }
+
   // The header's Open in follows this Mac's checkout.
   if (state.picked === name) redrawProjectsPage();
 }
@@ -427,6 +465,7 @@ export function sessionsList(p: Project, running: RunningAgent[], all: boolean) 
   const past = pastSessions(sessions, running).filter(sessionVisible);
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
   let body;
+
   if (!p.imported) body = emptyPanel(h("span", "", "Import this project to see its sessions."));
   else if (sessions === undefined) body = emptyPanel(h("span", "", "Reading sessions…"));
   else {
@@ -434,6 +473,7 @@ export function sessionsList(p: Project, running: RunningAgent[], all: boolean) 
       ? h("div", "cc-panel", ...(all ? past.map(sessionRow) : [fitRows(past.map(sessionRow), SESSIONS_SHOWN)]))
       : emptyPanel(h("span", "", "No past sessions yet."));
   }
+
   const note = sessions !== undefined ? freshNote(pageFresh("sessions", p.name, readingSessions.has(p.name))) : null;
   note?.classList.add("ss-updating");
   return { body, note, count: past.length };
@@ -464,6 +504,7 @@ export async function loadSessions(name: string) {
   readingSessions.add(name);
   sessionsDue.delete(name);
   let got: SessionRow[] | null = null;
+
   try {
     got = await invoke<SessionRow[]>("project_sessions", { project: name });
   } catch (e) {
@@ -471,6 +512,7 @@ export async function loadSessions(name: string) {
   } finally {
     readingSessions.delete(name);
   }
+
   const { list, changed } = nextSessions(state.sessions.get(name), got);
   state.sessions.set(name, list);
   if (got) keep("sessions", name, list);
@@ -497,6 +539,7 @@ export function elsewhereSection(rows: Project[]) {
     if (!askedGit) { askedGit = true; refreshGit().then(redrawProjects); }
     return null;
   }
+
   const repos = outsideThreads(state.git, rows).slice(0, 8);
   if (!repos.length) return null;
   const body = repos.flatMap((r, i) => {

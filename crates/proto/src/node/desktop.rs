@@ -133,10 +133,13 @@ impl FromStr for KeyPress {
             "backspace" => "delete".to_owned(),
             _ => key,
         };
+
         if key.is_empty() {
             return Err(format!("{text:?} names no key"));
         }
+
         let mut modifiers = Vec::new();
+
         for word in mods.split('+').filter(|word| !word.is_empty()) {
             let modifier = word
                 .parse::<Modifier>()
@@ -145,6 +148,7 @@ impl FromStr for KeyPress {
                 modifiers.push(modifier);
             }
         }
+
         modifiers.sort();
         Ok(Self { key, modifiers })
     }
@@ -155,6 +159,7 @@ impl fmt::Display for KeyPress {
         for modifier in &self.modifiers {
             write!(f, "{}+", modifier.as_ref())?;
         }
+
         f.write_str(&self.key)
     }
 }

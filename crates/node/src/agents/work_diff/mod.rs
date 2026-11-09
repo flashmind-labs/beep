@@ -47,9 +47,11 @@ pub fn parse_git_patch(ask: &DiffAsk, text: &str) -> WorkDiff {
             lockfiles: ask.lockfiles || !ask.only.is_empty(),
         },
     );
+
     for line in text.lines() {
         parser.line(line);
     }
+
     let parsed = parser.finish();
     WorkDiff {
         root: ask.root.clone(),

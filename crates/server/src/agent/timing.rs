@@ -69,7 +69,9 @@ impl TurnTimer {
         if let Some(sent) = self.call_sent.take() {
             self.waits.push(sent.elapsed());
         }
+
         let elapsed = self.started.elapsed();
+
         match output {
             Output::Reasoning => {
                 self.first_reasoning.get_or_insert(elapsed);

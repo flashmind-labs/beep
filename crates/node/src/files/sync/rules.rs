@@ -347,35 +347,44 @@ impl Rules {
         {
             return Some(Skip::rule(Rule::Other));
         }
+
         let mut parts = path.components().peekable();
+
         if parts
             .peek()
             .is_some_and(|part| part.as_os_str() == gitdir::GIT)
         {
             return self.skip_in_git(path, is_dir);
         }
+
         while let Some(part) = parts.next() {
             let Component::Normal(name) = part else {
                 return Some(Skip::Own);
             };
+
             if name == gitdir::GIT {
                 return Some(Skip::rule(Rule::Git));
             }
+
             if name.to_str().is_some_and(is_syncthings) {
                 return Some(Skip::Own);
             }
+
             if parts.peek().is_none() && name.to_str().is_some_and(is_own) {
                 return Some(Skip::Own);
             }
         }
+
         if self.stignored(path, is_dir) {
             return Some(Skip::rule(Rule::Other));
         }
+
         match self.beepignored(path, is_dir) {
             Match::Ignore(()) => return Some(Skip::rule(Rule::BeepIgnore)),
             Match::Whitelist(()) => return None,
             Match::None => {}
         }
+
         if !self.tracked.is_empty()
             && self
                 .tracked
@@ -383,6 +392,7 @@ impl Rules {
         {
             return None;
         }
+
         self.defaults
             .iter()
             .find(|found| {
@@ -401,6 +411,7 @@ impl Rules {
         if self.git_stays.is_some() {
             return self.git_stays.clone();
         }
+
         let text = path.to_string_lossy().replace('\\', "/");
         let keep = if is_dir {
             gitdir::walks(&text)
@@ -420,13 +431,16 @@ impl Rules {
     pub(super) fn skips_any(&self, path: &Path, is_dir: bool) -> bool {
         let parts: Vec<_> = path.components().collect();
         let mut prefix = PathBuf::new();
+
         for (at, part) in parts.iter().enumerate() {
             prefix.push(part);
             let last = at + 1 == parts.len();
+
             if self.skip(&prefix, !last || is_dir).is_some() {
                 return true;
             }
         }
+
         false
     }
 
@@ -442,16 +456,20 @@ impl Rules {
 
 fn read_ignore(root: &Path, name: &str) -> Result<Option<Gitignore>> {
     let path = root.join(name);
+
     match fs::symlink_metadata(&path) {
         Ok(meta) if meta.is_file() => {}
         Ok(_) => return Ok(None),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
     }
+
     let mut builder = GitignoreBuilder::new(root);
+
     if let Some(e) = builder.add(&path) {
         log::warn!("some rules in {} were skipped: {e}", path.display());
     }
+
     let built = builder
         .build()
         .with_context(|| format!("reading {}", path.display()))?;
@@ -470,6 +488,7 @@ fn defaults(root: &Path) -> Result<Vec<Found>> {
             Err(_) if dir != root => return Ok(folders),
             Err(e) => return Err(e).with_context(|| format!("listing {}", dir.display())),
         };
+
         for item in listing.flatten() {
             let Some(name) = item.file_name().to_str().map(str::to_owned) else {
                 continue;
@@ -479,12 +498,16 @@ fn defaults(root: &Path) -> Result<Vec<Found>> {
             }
             names.push(name);
         }
+
         Ok(folders)
     };
+
     for folder in collect(root, &mut names)? {
         collect(&root.join(folder), &mut names)?;
     }
+
     let mut found = Vec::new();
+
     for set in DEFAULTS {
         let Some(marker) = set
             .markers
@@ -494,22 +517,27 @@ fn defaults(root: &Path) -> Result<Vec<Found>> {
             continue;
         };
         let mut builder = GitignoreBuilder::new(root);
+
         for rule in set.rules {
             builder
                 .add_line(None, rule)
                 .with_context(|| format!("the default rule {rule}"))?;
         }
+
         found.push(Found {
             marker: Some(marker.clone()),
             matcher: builder.build()?,
         });
     }
+
     let mut builder = GitignoreBuilder::new(root);
+
     for rule in ALWAYS {
         builder
             .add_line(None, rule)
             .with_context(|| format!("the default rule {rule}"))?;
     }
+
     found.push(Found {
         marker: None,
         matcher: builder.build()?,
@@ -530,16 +558,21 @@ fn tracked(root: &Path) -> HashSet<String> {
         None => return HashSet::new(),
     };
     let mut tracked = HashSet::with_capacity(files.len());
+
     for file in files {
         let mut folder = file.as_str();
+
         while let Some(at) = folder.rfind('/') {
             folder = &folder[..at];
+
             if !tracked.insert(folder.to_owned()) {
                 break;
             }
         }
+
         tracked.insert(file);
     }
+
     tracked
 }
 

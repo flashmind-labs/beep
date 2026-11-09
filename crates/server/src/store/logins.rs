@@ -73,6 +73,7 @@ impl Store {
         // A second try covers a first login racing another one.
         for _ in 0..2 {
             let mut tx = self.pool.begin().await?;
+
             match complete_in(&mut tx, hash, login, &key).await? {
                 Some(LoginEnd::SignedIn { user }) => {
                     tx.commit().await?;
@@ -85,6 +86,7 @@ impl Store {
                 None => tx.rollback().await?,
             }
         }
+
         bail!("a login kept racing another connection")
     }
 }
@@ -106,9 +108,11 @@ async fn complete_in(
     .execute(&mut *tx)
     .await?
     .rows_affected();
+
     if used == 0 {
         return Ok(Some(LoginEnd::BadCode));
     }
+
     let own: Option<(String, bool)> = sqlx::query_as(
         "SELECT user_id, revoked_at IS NOT NULL FROM user_keys WHERE endpoint_id=$1",
     )
@@ -137,16 +141,20 @@ async fn complete_in(
             .execute(&mut *tx)
             .await?
             .rows_affected();
+
             if added == 0 {
                 return Ok(None);
             }
+
             holder
         }
         (None, None) => {
             let user = Uuid::new_v4().simple().to_string();
+
             if !insert_account(&mut *tx, &user, &key.endpoint).await? {
                 return Ok(None);
             }
+
             user
         }
     };
@@ -162,9 +170,11 @@ async fn complete_in(
     .execute(&mut *tx)
     .await?
     .rows_affected();
+
     if saved == 0 {
         return Ok(None);
     }
+
     Ok(Some(LoginEnd::SignedIn { user }))
 }
 

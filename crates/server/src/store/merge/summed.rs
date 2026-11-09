@@ -97,5 +97,6 @@ pub(super) async fn move_usage(tx: &mut PgConnection, source: &str, target: &str
             .execute(&mut *tx)
             .await?;
     }
+
     Ok(())
 }

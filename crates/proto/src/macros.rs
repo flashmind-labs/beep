@@ -21,6 +21,7 @@ macro_rules! wire_enum {
         impl serde::Serialize for $enum {
             fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
                 use serde::ser::SerializeTuple;
+
                 match self {
                     $(Self::$name { $($field),* } => {
                         let mut t = s.serialize_tuple(1 $(+ one!($field))*)?;
@@ -43,6 +44,7 @@ macro_rules! wire_enum {
                     }
                     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<$enum, A::Error> {
                         let op: u8 = seq.next_element()?.ok_or_else(|| A::Error::custom("missing op"))?;
+
                         match op {
                             $($op => Ok($enum::$name {
                                 $($field: seq.next_element()?.ok_or_else(|| {

@@ -32,6 +32,7 @@ function machineTable(machines: MachineCard[]) {
   readSyncDetails();
   const table = headedTable("", "Machine", "Agents", "Disk", "Memory", "Sent / received", "Can run", "Now", "");
   const terms = byMachine(termMachines(), allTerms.list(ALL) || []);
+
   for (const m of machines) {
     const off = m.online ? "" : " off";
     const name = h("span", `nm${off}`, h("b", "", dot(m), h("span", "", m.name)), h("span", "os", m.can_host === false ? "Phone" : machineOs(m)));
@@ -59,6 +60,7 @@ function machineTable(machines: MachineCard[]) {
     for (const t of terms.find(x => x.id === m.id)?.terms || []) table.append(terminalRow(t, m.online));
     for (const p of machineProjects(m.id, state.sync, fsync.detail)) table.append(projectRow(p));
   }
+
   const mac = thisMacRow(state.mac, machines);
   if (mac) table.append(...thisMacCells(mac));
   return table;
@@ -77,6 +79,7 @@ function readSyncDetails() {
 /// project's File sync.
 function projectRow(p: MachineProject) {
   let right: HTMLElement;
+
   if (p.pct == null) {
     right = h("span", `chip${p.chip.wait ? " wait" : ""}`, p.chip.text);
   } else {
@@ -84,6 +87,7 @@ function projectRow(p: MachineProject) {
     fill.style.width = `${p.pct}%`;
     right = h("span", "fs-pct", h("span", "fs-bar", fill), `${p.pct}%`);
   }
+
   const row = h("button", "cc-row tl-row", h("span", `ddot${p.off ? " off" : ""}`),
     h("span", "t", h("b", "", p.project), h("span", "", p.meta.join(" · "))), h("span", "r", right));
   row.type = "button";
@@ -113,6 +117,7 @@ export async function useThisMac() {
   } catch (e) {
     console.warn("turning on this computer:", e);
   }
+
   draw();
   reloadGroup("machines");
   // The link takes a moment; Home looks again soon after.
@@ -168,6 +173,7 @@ export function machinesSection(machines: MachineCard[]) {
     return [section("sec-machines", "Machines", "", addMachineButton("small"),
       emptyPanel(h("b", "", "No machines linked yet"), addMachineButton("pri")))];
   }
+
   const { mesh, outside } = splitJoined(machines);
   const online = machines.filter(m => m.online).length;
   const count = machines.length ? `${online} of ${machines.length} online` : "";

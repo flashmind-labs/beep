@@ -28,6 +28,7 @@ enum ImageType {
 impl ImageType {
     fn of(path: &Path) -> Option<Self> {
         let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+
         match ext.as_str() {
             "png" => Some(Self::Png),
             "jpg" | "jpeg" => Some(Self::Jpeg),
@@ -79,9 +80,11 @@ fn read(path: &Path) -> Result<PastedImage> {
     let mime =
         ImageType::of(path).ok_or_else(|| DesktopError::BadRequest("not a picture".into()))?;
     let size = fs::metadata(path).map_err(anyhow::Error::from)?.len();
+
     if size > MAX_BYTES {
         return Err(DesktopError::BadRequest("picture too large".into()));
     }
+
     let bytes = fs::read(path).map_err(anyhow::Error::from)?;
     let name = path
         .file_name()

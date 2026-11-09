@@ -231,6 +231,7 @@ pub async fn terminal_open(
         Some(_) => direct::open(&fleet, request).await,
         None => beep.call(request).await,
     };
+
     match opened {
         Ok(row) => Ok(Some(row.into())),
         Err(e) if unknown_op(&e) => Ok(None),
@@ -265,6 +266,7 @@ pub async fn terminal_close(beep: Service<'_>, fleet: Machines<'_>, id: Uuid) ->
     if direct::has(&fleet, id) {
         return direct::close(&fleet, id).await;
     }
+
     beep.call(CloseTerminal { id }).await.map_err(outdated)
 }
 
@@ -345,6 +347,7 @@ impl Attached {
 
     fn unfollow(&self, viewer: Viewer, serial: u64) {
         let mut following = self.lock();
+
         if following
             .by_view
             .get(&viewer)
@@ -418,6 +421,7 @@ pub async fn terminal_attach(
         let ended = |state| TermEvent::from(TerminalEvent::Ended { state });
         let (label, handle) = (window.label().to_owned(), window.app_handle().clone());
         let mut watch = tokio::time::interval(WINDOW_CHECK);
+
         loop {
             tokio::select! {
                 // The window closed: nobody reads the output, so stop following.
@@ -449,6 +453,7 @@ pub async fn terminal_attach(
                         // Detached: closing the node's stream detaches there too.
                         None => return Ok(()),
                     };
+
                     if tx.send(&request).await.is_err() {
                         on_event.send(ended(TerminalState::Offline {}))?;
                         return Ok(());
@@ -457,6 +462,7 @@ pub async fn terminal_attach(
             }
         }
     }
+
     let (mut uplink, mut replies) = beep
         .duplex(AttachTerminal {
             id,
@@ -475,12 +481,14 @@ pub async fn terminal_attach(
         serial,
     };
     on_event.send(TermEvent::Attached)?;
+
     loop {
         tokio::select! {
             reply = replies.next() => match reply.map_err(DesktopError::from).map_err(outdated)? {
                 Some(event) => {
                     let last = !matches!(event, TerminalEvent::Output { .. });
                     on_event.send(event.into())?;
+
                     if last {
                         return Ok(());
                     }
@@ -508,12 +516,14 @@ pub async fn terminal_input(
     data: String,
 ) -> Result<()> {
     let input = attached.input(Viewer { terminal: id, view })?;
+
     for piece in keys(data.as_bytes()) {
         input
             .send(piece)
             .await
             .map_err(|_| DesktopError::BadRequest("The terminal is no longer attached.".into()))?;
     }
+
     Ok(())
 }
 

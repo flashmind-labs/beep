@@ -29,6 +29,7 @@ impl Protocol for Desktop {
 
 async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     let session = Arc::new(Mutex::new(mac::Session::default()));
+
     while let Some(request) = rx.recv::<Request>().await? {
         let session = session.clone();
         let reply = spawn_blocking(move || {
@@ -44,6 +45,7 @@ async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
         });
         tx.send(&reply).await?;
     }
+
     Ok(())
 }
 

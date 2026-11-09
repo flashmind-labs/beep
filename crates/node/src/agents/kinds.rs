@@ -286,6 +286,7 @@ impl Detection {
                 known.adapter_bin().unwrap_or(known.cli)
             );
         }
+
         let names: Vec<&str> = self.kinds.iter().map(|kind| kind.name.as_str()).collect();
         if !names.is_empty() {
             log::info!("coding agents found: {}", names.join(", "));
@@ -308,16 +309,19 @@ pub(super) fn detection(extra: &[AgentKind], node_dir: Option<&Path>) -> Detecti
         lacking: Vec::new(),
         on_own_node: Vec::new(),
     };
+
     for known in KNOWN {
         let own = node_dir.and_then(|dir| adapters::installed(dir, known));
         detection.record(known, launch(known, &found, own.as_ref()), home.as_deref());
     }
+
     for kind in extra {
         detection.kinds.retain(|known| known.name != kind.name);
         detection.lacking.retain(|known| known.name != kind.name);
         detection.on_own_node.retain(|name| *name != kind.name);
         detection.kinds.push(kind.clone());
     }
+
     detection
 }
 
@@ -328,6 +332,7 @@ fn anchored(mut kind: AgentKind, home: Option<&Path>) -> AgentKind {
     if which::which(&kind.program).is_ok() {
         return kind;
     }
+
     let Some(path) = locate::find(&kind.program, home) else {
         return kind;
     };
@@ -379,6 +384,7 @@ pub(super) fn launch(
     if !found(known.cli) {
         return None;
     }
+
     let mut on_own_node = false;
     let (program, args) = match (&known.adapter, own) {
         (Adapter::Npm { bin, .. }, _) if found(bin) => ((*bin).to_owned(), Vec::new()),

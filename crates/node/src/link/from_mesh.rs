@@ -73,6 +73,7 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
     let preferences_offers = offers.clone();
     let _preferences = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
         let mut changes = preferences_mesh.changes();
+
         loop {
             apply_syncthing(&preferences_mesh, me, &preferences_offers).await;
             tokio::select! {
@@ -81,6 +82,7 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
             }
         }
     }));
+
     loop {
         applied.apply(&mesh, me, &offers).await;
         tokio::select! {
@@ -103,6 +105,7 @@ async fn apply_syncthing(mesh: &Mesh, me: EndpointId, offers: &Offers) {
         return;
     };
     let syncs = transfers.syncs();
+
     for (key, bytes) in mesh.scan("project/") {
         let Key::Project(name) = key else {
             continue;
@@ -119,6 +122,7 @@ async fn apply_syncthing(mesh: &Mesh, me: EndpointId, offers: &Offers) {
         let Ok(place) = Place::from_bytes(&bytes) else {
             continue;
         };
+
         match syncs.syncthing_files(&place.folder, None).await {
             Ok(files) if !files.available || files.enabled == enabled => {}
             Ok(_) => {
@@ -147,6 +151,7 @@ impl Applied {
     async fn apply(&mut self, mesh: &Mesh, me: EndpointId, offers: &Offers) {
         if let Some(provision) = &offers.provision {
             let credentials = credentials(mesh);
+
             if self.credentials.as_ref() != Some(&credentials) {
                 provision.apply(credentials.clone()).await;
                 log::info!(
@@ -156,7 +161,9 @@ impl Applied {
                 self.credentials = Some(credentials);
             }
         }
+
         let settings = settings(mesh);
+
         if self.settings.as_ref() != Some(&settings) {
             offers.agents.set_settings(settings.clone());
             offers.agents.settings_arrived();
@@ -166,8 +173,10 @@ impl Applied {
             );
             self.settings = Some(settings);
         }
+
         if let Some(transfers) = offers.transfers.get() {
             let (projects, pending) = projects(mesh, me, &mut self.specs);
+
             if self.projects.as_ref() != Some(&projects) || self.pending != pending {
                 let started = Instant::now();
                 log::info!(
@@ -181,9 +190,11 @@ impl Applied {
                     .configure_from_mesh(projects.clone(), pending.clone())
                     .await;
                 drop(applying);
+
                 for refused in &refused {
                     log::warn!("not syncing {}: {}", refused.project, refused.message);
                 }
+
                 for project in &projects {
                     log::info!(
                         "from the mesh: sync {} with {} peers",
@@ -191,6 +202,7 @@ impl Applied {
                         project.peers.len()
                     );
                 }
+
                 log::info!(
                     "from the mesh: applied the sync set in {} ms, {} refused",
                     started.elapsed().as_millis(),
@@ -199,6 +211,7 @@ impl Applied {
                 self.projects = Some(projects);
                 self.pending = pending;
             }
+
             transfers.syncs().set_git_auto_recovery(
                 &offers.agents,
                 mesh.scan("project/")
@@ -207,11 +220,13 @@ impl Applied {
                         let Key::Project(name) = key else {
                             return None;
                         };
+
                         if !offers.agents.reopened()
                             || !self.specs.contains_key(&Key::Sync(name.clone()))
                         {
                             return None;
                         }
+
                         let record = ProjectRecord::from_bytes(&bytes).ok()?;
                         record.git_auto_recovery.then_some(name)
                     })
@@ -249,6 +264,7 @@ pub(crate) fn forgejo_servers(mesh: &Mesh) -> Vec<String> {
 /// keys are kept on the server only.
 fn credentials(mesh: &Mesh) -> MachineCredentials {
     let mut out = MachineCredentials::default();
+
     for (_, credential) in read::<Credential>(mesh, "credential/") {
         match credential {
             Credential::Env(secret)
@@ -257,6 +273,7 @@ fn credentials(mesh: &Mesh) -> MachineCredentials {
             Credential::Forgejo(login) => out.forgejo.push(login),
         }
     }
+
     out
 }
 
@@ -289,6 +306,7 @@ fn settings(mesh: &Mesh) -> AgentSettings {
 fn harnesses_for(me: &str, named: Vec<(String, HarnessConfig)>) -> Vec<HarnessConfig> {
     let mut shared = Vec::new();
     let mut mine = BTreeMap::new();
+
     for (name, config) in named {
         match name.split_once('/') {
             None => shared.push(config),
@@ -298,6 +316,7 @@ fn harnesses_for(me: &str, named: Vec<(String, HarnessConfig)>) -> Vec<HarnessCo
             Some(_) => {}
         }
     }
+
     for config in &mut shared {
         // Whatever a shared value says about paths is not for this machine; only its own key is.
         config.program = None;
@@ -307,6 +326,7 @@ fn harnesses_for(me: &str, named: Vec<(String, HarnessConfig)>) -> Vec<HarnessCo
             config.home = own.home;
         }
     }
+
     shared.extend(mine.into_values());
     shared
 }
@@ -322,6 +342,7 @@ fn projects(
 ) -> (Vec<Project>, BTreeSet<String>) {
     let devices = mesh.code_hosts();
     let mut now = BTreeMap::new();
+
     for (key, bytes) in mesh.scan("sync/") {
         match SyncSpec::from_bytes(&bytes) {
             Ok(spec) => {
@@ -377,6 +398,7 @@ fn projects(
                 paused: spec.paused,
             };
             let mut all = vec![main.clone()];
+
             if let Ok(config) = spec.ignored.clone().normalized()
                 && config.enabled
             {
@@ -392,6 +414,7 @@ fn projects(
                     }
                 }));
             }
+
             Some(all)
         })
         .flatten()

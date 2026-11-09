@@ -48,12 +48,16 @@ burst=$((bytes / 4))
 [ "$burst" -ge 16384 ] || burst=16384
 
 set -- tc qdisc replace dev "$device" root tbf rate "${bits}bit" burst "$burst" latency 200ms
+
 if [ "${BEEP_EGRESS_DRY_RUN:-}" = 1 ]; then
     echo "$*"
     exit 0
 fi
+
 command -v tc > /dev/null || fail "tc is missing; the image needs iproute2"
+
 if ! "$@"; then
     fail "could not cap outgoing traffic on $device (the container needs NET_ADMIN). Refusing to start; set BEEP_EGRESS_LIMIT=unlimited to run without a cap."
 fi
+
 echo "beep-egress: outgoing traffic on $device capped at $bytes bytes/s"

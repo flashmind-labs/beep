@@ -108,6 +108,7 @@ impl<'a> Post<'a> {
         if let Some(ip) = self.ip {
             request = request.header("CF-Connecting-IP", ip);
         }
+
         let reply = request.body(body).send().await.expect("the server answers");
         let status = reply.status();
         let bytes = reply.bytes().await.expect("the reply reads");
@@ -243,6 +244,7 @@ async fn a_blocked_address_is_refused_from_cloudflare_or_the_peer() {
     .await;
     let key = SecretKey::generate();
     let body = report(key.public(), None, "from a blocked place");
+
     for ip in [Some("192.0.2.7"), None] {
         let post = Post {
             ip,
@@ -252,6 +254,7 @@ async fn a_blocked_address_is_refused_from_cloudflare_or_the_peer() {
         assert_eq!(status, StatusCode::FORBIDDEN, "{ip:?}");
         assert_eq!(text, "refused");
     }
+
     let post = Post {
         ip: Some("198.51.100.1"),
         ..Post::by(&key)
@@ -281,12 +284,14 @@ async fn the_twenty_first_report_of_a_day_is_refused() {
         StatusCode::BAD_REQUEST,
         "a refused one uses nothing up"
     );
+
     for n in 0..2 {
         let body = report(key.public(), None, &format!("report {n}"));
         send(&server.url, body, &key)
             .await
             .expect("within the limit");
     }
+
     let body = report(key.public(), None, "one too many");
     let (status, _) = Post::by(&key).send(&server.url, body).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);

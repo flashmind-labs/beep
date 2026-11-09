@@ -102,6 +102,7 @@ impl Machine {
         if let Err(e) = std::fs::create_dir_all(&self.home.dir) {
             log::warn!("not serving the Beep MCP server or noting what is open: {e}");
         }
+
         self.reopen();
         let home = self.home.clone();
         async_runtime::spawn(async move {
@@ -142,6 +143,7 @@ impl Machine {
                 // Its write in flight lands before this one.
                 let _ = keeping.await;
             }
+
             if let Err(e) = link::note_on_quit(&home.dir, &home.offers.agents) {
                 log::warn!("what is open will not open again: {e:#}");
             }

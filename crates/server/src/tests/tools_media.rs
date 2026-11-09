@@ -63,6 +63,7 @@ async fn serve(replies: Vec<Reply>) -> (Url, JoinHandle<Vec<Seen>>) {
     let root = Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
     let server = tokio::spawn(async move {
         let mut seen = Vec::new();
+
         for reply in replies {
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut data = Vec::new();
@@ -71,6 +72,7 @@ async fn serve(replies: Vec<Reply>) -> (Url, JoinHandle<Vec<Seen>>) {
                 let n = stream.read(&mut buf).await.unwrap();
                 assert!(n > 0, "the client hung up mid-request");
                 data.extend_from_slice(&buf[..n]);
+
                 if let Some(at) = data.windows(4).position(|w| w == b"\r\n\r\n") {
                     break at + 4;
                 }
@@ -84,12 +86,14 @@ async fn serve(replies: Vec<Reply>) -> (Url, JoinHandle<Vec<Seen>>) {
                 })
             };
             let length: usize = header("content-length").map_or(0, |v| v.parse().unwrap());
+
             while data.len() < head_end + length {
                 let mut buf = [0u8; 8192];
                 let n = stream.read(&mut buf).await.unwrap();
                 assert!(n > 0, "the client hung up mid-body");
                 data.extend_from_slice(&buf[..n]);
             }
+
             let body = &data[head_end..head_end + length];
             let line = head.lines().next().unwrap_or_default();
             let line = line.rsplit_once(' ').map_or(line, |(start, _)| start);
@@ -107,6 +111,7 @@ async fn serve(replies: Vec<Reply>) -> (Url, JoinHandle<Vec<Seen>>) {
             stream.write_all(&reply.body).await.unwrap();
             stream.shutdown().await.unwrap();
         }
+
         seen
     });
     (root, server)
@@ -370,6 +375,7 @@ fn calls_take_only_a_service_the_user_has_a_key_for() {
         Some("https://example.com/chair.png")
     );
     let video = [MediaProvider::Venice];
+
     for duration in [json!(0), json!(31), json!(2.5), json!("5")] {
         let args = json!({ "prompt": "waves", "duration": duration });
         assert!(
@@ -377,6 +383,7 @@ fn calls_take_only_a_service_the_user_has_a_key_for() {
             "{args}"
         );
     }
+
     let args = json!({ "prompt": "a fox", "image": "file:///etc/passwd" });
     assert!(Call::parse(MediaKind::Image, &available, &args).is_err());
 }

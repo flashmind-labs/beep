@@ -30,6 +30,7 @@ pub(super) async fn dismiss_updates(cx: Cx, DismissUpdates { ids }: DismissUpdat
     if !ids.is_empty() {
         cx.user.mark_delivered(&ids, None).await?;
     }
+
     Ok(())
 }
 

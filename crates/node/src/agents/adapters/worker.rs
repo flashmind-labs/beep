@@ -56,6 +56,7 @@ impl Installs {
         self.states.send_if_modified(|installs| {
             let before = installs.clone();
             installs.retain(|name, _| detection.lacking.iter().any(|known| known.name == *name));
+
             for name in &detection.on_own_node {
                 installs.insert(name, Install::Done);
             }
@@ -99,6 +100,7 @@ impl Installs {
             if kinds.iter().any(|kind| kind.name == *name) {
                 continue;
             }
+
             let state = match install {
                 Install::Running => AgentState::Installing,
                 Install::Failed(reason) => AgentState::Failed {
@@ -111,6 +113,7 @@ impl Installs {
                 state,
             });
         }
+
         agents
     }
 }
@@ -144,13 +147,17 @@ impl Agents {
         };
         self.adapters.saw(&detection);
         self.set_kinds(detection.kinds);
+
         if detection.lacking.is_empty() {
             return;
         }
+
         let root = layout::root(node_dir);
+
         for known in detection.lacking {
             log::info!("{} found, installing its adapter", known.cli);
             self.adapters.set(known.name, Install::Running);
+
             match install::adapter(&root, known).await {
                 Ok(installed) => {
                     log::info!(
@@ -159,6 +166,7 @@ impl Agents {
                         installed.script.display()
                     );
                     self.adapters.set(known.name, Install::Done);
+
                     if let Some(after) = detect(node_dir, extra).await {
                         self.adapters.saw(&after);
                         self.set_kinds(after.kinds);
@@ -197,12 +205,14 @@ impl Agents {
     pub(crate) fn install_adapters_now(&self) {
         self.adapters.states.send_if_modified(|installs| {
             let mut any = false;
+
             for install in installs.values_mut() {
                 if matches!(install, Install::Failed(_)) {
                     *install = Install::Running;
                     any = true;
                 }
             }
+
             any
         });
         self.adapters.again.notify_one();
@@ -213,6 +223,7 @@ impl Agents {
 async fn detect(node_dir: &Path, extra: &[AgentKind]) -> Option<Detection> {
     let node_dir = node_dir.to_owned();
     let extra = extra.to_vec();
+
     match spawn_blocking(move || kinds::detection(&extra, Some(&node_dir))).await {
         Ok(detection) => Some(detection),
         Err(e) => {

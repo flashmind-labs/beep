@@ -20,9 +20,11 @@ use tauri::{AppHandle, Emitter, Manager};
 pub async fn sign_out(app: AppHandle, beep: Service<'_>) -> Result<()> {
     beep.sign_out().await;
     let voice = app.state::<Arc<Voice>>();
+
     if voice.is_live() {
         voice.leave_live();
     }
+
     app.state::<Machine>().sync(&beep);
     app.state::<PaletteCache>().link_changed();
     // Only the open webviews listen; there is nothing to do if none does.
@@ -45,7 +47,9 @@ pub(super) async fn resume(app: &AppHandle, beep: &Beep) -> Result<()> {
     if !beep.signed_out() {
         return Ok(());
     }
+
     beep.set_signed_out(false);
+
     if let Err(e) = beep.call(ListDevices {}).await {
         // A key the server dropped is not signed out, it is removed.
         if beep.link_state() == LinkState::Revoked {
@@ -53,8 +57,10 @@ pub(super) async fn resume(app: &AppHandle, beep: &Beep) -> Result<()> {
         } else {
             beep.set_signed_out(true);
         }
+
         return Err(e);
     }
+
     let _ = app.emit("signed-out", false);
     app.state::<PaletteCache>().link_changed();
     tray::became_linked(app);

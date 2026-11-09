@@ -62,12 +62,14 @@ pub(crate) async fn fetch(app: &AppHandle, beep: &Beep) -> Result<Option<Vec<Ale
         // The chat lists redraw without them, or with the one just answered.
         let _ = app.emit("sessions-changed", "");
     }
+
     Ok(listed.map(|alerts| alerts.into_iter().map(AlertView::from).collect()))
 }
 
 /// Reads the alerts again and tells every window.
 pub(crate) async fn refresh(app: &AppHandle) {
     let beep = app.state::<Arc<Beep>>().inner().clone();
+
     match fetch(app, &beep).await {
         Ok(alerts) => {
             if let Err(e) = app.emit("alerts", alerts) {
@@ -94,11 +96,13 @@ pub(super) async fn arrived(app: AppHandle, beep: Arc<Beep>, voice: Arc<Voice>, 
             .iter()
             .any(|alert| alert.session_id.to_string() == notice.session_id)
     });
+
     if alerts.is_some()
         && let Err(e) = app.emit("alerts", alerts)
     {
         log::warn!("telling the windows about the alerts: {e}");
     }
+
     route::chat_notice(&app, &beep, &voice, notice, is_alert);
 }
 

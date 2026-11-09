@@ -45,6 +45,7 @@ const PANE_TITLES: Partial<Record<View, [string, string]>> = {
 
 export function paneTitle(): ViewHead {
   const on = paneOn();
+
   if (on.view === "chat") {
     const c = chatList.find(x => x.id === on.session);
     // A chat just started is not in the list until the server has it.
@@ -53,10 +54,12 @@ export function paneTitle(): ViewHead {
     if (thread) return threadHead(thread, c);
     return { title: c?.title ?? "New chat", sub: at ? `Started ${startedWhen(at)}` : "", tools: c ? [pinButton(c)] : [], scope: scopeTag(on.session) };
   }
+
   if (on.group) {
     const g = chatList.find(x => x.id === on.group);
     return { title: g?.title ?? "Group", tools: g ? [pinButton(g)] : [] };
   }
+
   const [title, sub] = (on.view ? PANE_TITLES[on.view] : null) ?? ["Beep", ""];
   if (on.view === "agentnew") return { title, sub, tools: [button("All sessions", "small", () => go("pane", "agents"))] };
   return { title, sub };
@@ -84,12 +87,14 @@ export async function loadAgents() {
     state.agents = null;
     return;
   }
+
   try {
     state.agents = await invoke<ProjectAgent[] | null>("center_projects");
   } catch (e) {
     console.warn("project agents:", e);
     return;
   }
+
   if (currentLocation()?.view === "pane") drawTop();
   loadThreadChats();
 }
@@ -108,19 +113,23 @@ export async function takePending(fallback: "home" | null) {
   const target = await invoke<CenterTarget | null>("center_pending").catch(() => null);
   if (target == null) return fallback && go(fallback);
   if (target === "home" || target === "instructions" || target === "providers" || target === "terminals" || target === "research") return go(target);
+
   // The report target: the Report a problem sheet over the page on screen.
   if (target === "report") {
     if (!currentLocation()) go("home");
     return openReport(document.body, debugWithAgent);
   }
+
   if (typeof target === "object" && "projects" in target) return go("projects", target.projects);
   if (typeof target === "object" && "ask" in target) return askBeep(target.ask.prompt);
   if (typeof target === "object" && "open_research" in target) return openResearch(target.open_research.session);
+
   // A notification's click: the page behind stays, the pane opens over it.
   if (typeof target === "object" && "notice" in target) {
     if (!currentLocation()) go("home");
     return showNotices(target.notice.session);
   }
+
   go("pane", target);
   // Home is not on screen, but the sidebar counts come from it.
   refresh();

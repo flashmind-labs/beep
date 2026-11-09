@@ -77,6 +77,7 @@ fn a_host_takes_a_few_calls_a_second_from_everyone() {
     let limits = Limits::default();
     let now = Instant::now();
     let mut permits = Vec::new();
+
     for i in 0..HOST_CALLS_PER_SECOND {
         permits.push(
             limits
@@ -84,6 +85,7 @@ fn a_host_takes_a_few_calls_a_second_from_everyone() {
                 .unwrap(),
         );
     }
+
     assert_eq!(
         limits.begin_at("mcp.example", "other", now).err(),
         Some(Refused::HostBusy)
@@ -99,11 +101,13 @@ fn a_host_takes_a_few_calls_a_second_from_everyone() {
 fn one_user_gets_a_few_calls_a_minute() {
     let limits = Limits::default();
     let start = Instant::now();
+
     for i in 0..USER_CALLS_PER_MINUTE {
         // Spread out so the host's per-second budget is not what stops it.
         let at = start + Duration::from_secs(u64::from(i));
         limits.begin_at("mcp.example", "alice", at).unwrap();
     }
+
     let at = start + Duration::from_secs(30);
     assert_eq!(
         limits.begin_at("mcp.example", "alice", at).err(),

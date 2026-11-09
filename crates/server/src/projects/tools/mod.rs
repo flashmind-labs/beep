@@ -149,6 +149,7 @@ fn machine_list(machines: &[Machine]) -> String {
     if machines.is_empty() {
         return "The user has no machines running beep-node.".to_owned();
     }
+
     let names: Vec<String> = machines
         .iter()
         .map(|machine| command_name(&machine.name))

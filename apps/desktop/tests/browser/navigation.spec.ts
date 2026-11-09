@@ -55,6 +55,7 @@ test("Git panels stay visible across unchanged project redraws", async ({ page }
   await branch.click();
   await expect(page.locator(".gh-nav")).toBeVisible();
   await expect(page.locator(".gh-tree")).toContainText("No commits yet.");
+
   for (let i = 0; i < 5; ++i) {
     await branch.click();
     await expect(page.locator(".gh-nav")).toBeVisible();

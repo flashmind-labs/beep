@@ -43,11 +43,13 @@ function within(path: string, dir: string) {
 export function treeAt(trees: readonly Tree[], cwd: string, path: string) {
   let found: Tree | null = null;
   let length = 0;
+
   for (const t of trees) {
     for (const dir of t.own ? [t.path, cwd] : [t.path]) {
       if (within(path, dir) && bare(dir).length > length) { found = t; length = bare(dir).length; }
     }
   }
+
   return found;
 }
 
@@ -80,6 +82,7 @@ function places(text: string, base: string, cwd: string) {
   const moves = MOVES.exec(title)?.[1];
   const scan = (words: string) => {
     let before = "";
+
     for (const word of words.match(WORD) ?? []) {
       if (word.startsWith("/")) found.push(resolvePath(base, word));
       else if (DIR_AFTER.has(before) && !word.startsWith("-") && !word.startsWith("~")) found.push(resolvePath(base, word));
@@ -88,12 +91,14 @@ function places(text: string, base: string, cwd: string) {
     }
   };
   scan(title);
+
   for (const line of output.split("\n")) {
     const diff = DIFF.exec(line);
     if (diff) found.push(resolvePath(cwd, diff[1]));
     // What Enter and ExitWorktree report is the worktree they went to.
     else if (moves) scan(line);
   }
+
   return { found, exit: moves === "Exit" && !found.length };
 }
 
@@ -122,11 +127,14 @@ export function follow(entries: readonly Entry[], trees: readonly Tree[], cwd: s
   entries.forEach((en, i) => {
     const { title, status } = parseTool(en.kind === "tool" ? en.text : "");
     const running = status === "pending" || status === "in_progress";
+
     if (en.kind === "tool" && status !== "failed") {
       if (WORKTREE_WORD.test(title)) out.unknown.push(title.split("\n")[0].slice(0, 200));
+
       if (trees.length > 1) {
         const { found, exit } = places(en.text, out.last, cwd);
         if (exit) { out.last = bare(cwd); out.hit = true; }
+
         for (const path of found) {
           const nested = NESTED.exec(path)?.[1];
           if (nested && !trees.some(t => bare(t.path) === nested)) out.unknown.push(nested);
@@ -135,6 +143,7 @@ export function follow(entries: readonly Entry[], trees: readonly Tree[], cwd: s
         }
       }
     }
+
     if (running) settled = false;
     if (settled) { out.done = i + 1; out.kept = out.last; }
   });

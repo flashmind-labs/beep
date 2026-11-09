@@ -33,12 +33,14 @@ impl Prompt {
     /// key, `[image: image-<key>]`, which the apps ask the node for.
     pub(in crate::agents) fn shown(&self) -> String {
         let mut shown = self.text.clone();
+
         for image in &self.images {
             if !shown.is_empty() {
                 shown.push('\n');
             }
             shown.push_str(&image_line(&image.data));
         }
+
         shown
     }
 
@@ -138,11 +140,13 @@ pub(in crate::agents) fn prompt(
     brief: Option<&str>,
 ) -> PromptRequest {
     let mut blocks = Vec::with_capacity(2 + prompt.images.len());
+
     if let Some(brief) = brief {
         blocks.push(ContentBlock::Text(TextContent::new(
             crate::agents::tags::context(brief),
         )));
     }
+
     if !prompt.text.is_empty() || prompt.images.is_empty() {
         blocks.push(ContentBlock::Text(TextContent::new(prompt.text.as_str())));
     }
@@ -152,6 +156,7 @@ pub(in crate::agents) fn prompt(
             image.mime.as_str(),
         )));
     }
+
     PromptRequest::new(session.clone(), blocks)
 }
 

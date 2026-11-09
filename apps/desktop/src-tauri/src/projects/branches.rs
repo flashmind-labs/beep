@@ -31,6 +31,7 @@ pub(crate) enum Placed {
 /// places it on the mesh's machines, or else it stays the server's.
 pub(crate) async fn placed(beep: &Beep, fleet: &Fleet, project: &str) -> Result<Placed> {
     let online = fleet.online();
+
     if let Some(mesh) = fleet.mesh()
         && beep_fleet::has_project(&mesh, project)
     {
@@ -40,13 +41,16 @@ pub(crate) async fn placed(beep: &Beep, fleet: &Fleet, project: &str) -> Result<
             .map(|(machine, folder)| Place { machine, folder })
             .collect();
         beep_fleet::nearest_first(&mesh, &mut recorded, |place| place.machine);
+
         if recorded.is_empty() {
             return Err(crate::error::DesktopError::BadRequest(
                 "No machine with a checkout of the project is online.".into(),
             ));
         }
+
         return Ok(Placed::Mesh(recorded));
     }
+
     let machines = beep
         .call(ListProjectMachines {
             project: project.to_owned(),
@@ -65,6 +69,7 @@ pub(crate) async fn placed(beep: &Beep, fleet: &Fleet, project: &str) -> Result<
     if let Some(mesh) = fleet.mesh() {
         beep_fleet::nearest_first(&mesh, &mut places, |place| place.machine);
     }
+
     Ok(if places.is_empty() {
         Placed::Server
     } else {
@@ -177,6 +182,7 @@ pub async fn add_branch_worktree(
         let added = direct::add_worktree(&fleet, &place, &branch, FALLBACK_DEFAULT).await?;
         return Ok(added.into());
     }
+
     let request = AddBranchWorktree {
         project,
         branch,

@@ -29,6 +29,7 @@ impl Watcher for SkillsWatcher {
         if !review.transcript.talk {
             return Ok(());
         }
+
         let user = review.user;
         let done = skills::review(
             &review.app.store,
@@ -38,6 +39,7 @@ impl Watcher for SkillsWatcher {
             &review.transcript.text,
         )
         .await?;
+
         if !done.created.is_empty() || !done.updated.is_empty() {
             log::info!(
                 "skills watcher: created {:?}, updated {:?}; user={user} chat={}",
@@ -46,6 +48,7 @@ impl Watcher for SkillsWatcher {
                 review.chat
             );
         }
+
         Ok(())
     }
 }

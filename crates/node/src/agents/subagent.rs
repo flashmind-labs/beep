@@ -36,9 +36,11 @@ impl<'a> TryFrom<&'a str> for Conversation<'a> {
             },
             _ => bail!("unknown subagent harness"),
         };
+
         if parts.next().is_some() {
             bail!("too many subagent id parts");
         }
+
         Ok(found)
     }
 }
@@ -86,6 +88,7 @@ impl Subagent {
     /// The subagent the call `title` with `input` starts, if it starts one.
     pub(crate) fn of_call(title: &str, input: Option<&Value>) -> Option<Self> {
         let input = input?;
+
         if title == CODEX_SPAWN {
             let asked = input["prompt"]
                 .as_str()
@@ -100,6 +103,7 @@ impl Subagent {
                 ..Self::default()
             });
         }
+
         if let Ok(activity) = Activity::try_from(input) {
             return Some(Self {
                 threads: vec![activity.thread],
@@ -109,6 +113,7 @@ impl Subagent {
                 ..Self::default()
             });
         }
+
         let name = text(input, "subagent_type")?;
         Some(Self {
             name: Some(name),

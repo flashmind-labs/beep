@@ -148,6 +148,7 @@ impl Voice {
                         break;
                     }
                 }
+
                 return outcome;
             }
             Feed::Reply {
@@ -158,6 +159,7 @@ impl Voice {
         };
         let mut reading = Reading::default();
         let mut check = interval(FILLER_CHECK);
+
         loop {
             tokio::select! {
                 news = heard.recv() => match news {
@@ -169,6 +171,7 @@ impl Voice {
                         if let Some(s) = self.state().live.as_mut().filter(|s| s.id == id) {
                             s.reply_text.push_str(&delta);
                         }
+
                         for line in reading.push(&delta) {
                             if lines.send(queue(Line::Answer(line))).await.is_err() {
                                 return outcome;
@@ -189,6 +192,7 @@ impl Voice {
                 },
                 _ = check.tick() => {
                     let due = lock(voiced).fillers.due(Instant::now());
+
                     if let Some(filler) = due
                         && lines.send(queue(Line::Filler(filler))).await.is_err()
                     {
@@ -197,17 +201,20 @@ impl Voice {
                 }
             }
         }
+
         for line in reading.finish() {
             if lines.send(queue(Line::Answer(line))).await.is_err() {
                 break;
             }
         }
+
         outcome
     }
 
     /// Tells the user once per reply that it cannot be read aloud.
     fn warn_not_aloud(&self, voiced: &Mutex<Voiced>) {
         let first = !std::mem::replace(&mut lock(voiced).warned, true);
+
         if first {
             self.toast(NOT_ALOUD);
         }
@@ -249,6 +256,7 @@ impl Voice {
                 },
                 Err(e) => {
                     log::warn!("speaking a line: {e}");
+
                     if !filler {
                         self.warn_not_aloud(voiced);
                     }
@@ -261,9 +269,11 @@ impl Voice {
                     }
                 }
             };
+
             if !filler {
                 answers.send_modify(|n| *n += 1);
             }
+
             if ready.send(ready_line).await.is_err() {
                 return;
             }
@@ -286,6 +296,7 @@ impl Voice {
             return false;
         };
         let mut spoke = false;
+
         while let Some(line) = playable.recv().await {
             // An answer readied since the last line started makes a filler
             // moot.
@@ -293,26 +304,31 @@ impl Voice {
             answers.borrow_and_update();
             let cut = line.filler && fresh;
             let shown = !line.filler && !line.text.trim().is_empty();
+
             if (!line.audio.is_empty() || shown) && !cut {
                 if !line.filler && reply && !spoke {
                     self.input_reply_ready(id);
                 }
+
                 let played = if line.audio.is_empty() {
                     Err(anyhow::anyhow!("no audio for the line"))
                 } else {
                     self.play_line(id, &audio, &line, &mut answers).await
                 };
+
                 if let Err(e) = played {
                     if shown {
                         if !line.audio.is_empty() {
                             log::warn!("playing a line: {e:#}");
                             self.warn_not_aloud(voiced);
                         }
+
                         self.caption(id, &line.text).await;
                     } else {
                         log::warn!("playing a filler: {e:#}");
                     }
                 }
+
                 if !line.filler {
                     spoke = true;
                     if let Some(s) = self.state().live.as_mut().filter(|s| s.id == id) {
@@ -320,12 +336,15 @@ impl Voice {
                     }
                 }
             }
+
             let mut v = lock(voiced);
             v.queued = v.queued.saturating_sub(1);
+
             if v.queued == 0 {
                 v.fillers.speaking(false, Instant::now());
             }
         }
+
         spoke
     }
 
@@ -367,10 +386,13 @@ impl Voice {
             .with_context(|| format!("writing {}", path.display()))?;
         let played = audio.play(&path).await;
         let removed = tokio::fs::remove_file(&path).await;
+
         if let Err(e) = removed {
             log::debug!("removing {}: {e}", path.display());
         }
+
         let (played, done) = played?;
+
         if let Some(s) = self.state().live.as_mut().filter(|s| s.id == id) {
             s.prev = s.line.take();
             s.line = Some(line.text.clone());
@@ -379,6 +401,7 @@ impl Voice {
                 played,
             });
         }
+
         self.show(id);
         if line.filler {
             tokio::select! {
@@ -390,6 +413,7 @@ impl Voice {
             // Stopped playback ends it as well.
             let _ = done.await;
         }
+
         if let Some(s) = self.state().live.as_mut().filter(|s| s.id == id) {
             s.playing = None;
         }

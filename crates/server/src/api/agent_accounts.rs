@@ -32,9 +32,11 @@ pub(super) async fn save_agent_token(
 ) -> Reply<AgentToken> {
     let agent = agent_named(&agent)?;
     let secret = trimmed(&secret)?;
+
     if let Some(why) = refusal(agent, secret.expose_secret()) {
         return Err(ApiError::bad_request(why));
     }
+
     let shown = last4(secret.expose_secret());
     let row = cx
         .user
@@ -61,9 +63,11 @@ pub(super) async fn revoke_agent_token(
     RevokeAgentToken { agent }: RevokeAgentToken,
 ) -> Reply<()> {
     let agent = agent_named(&agent)?;
+
     if !cx.user.remove_agent_token(agent).await? {
         return Err(ApiError::NotFound {});
     }
+
     Ok(())
 }
 

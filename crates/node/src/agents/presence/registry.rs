@@ -37,6 +37,7 @@ impl Registration {
         if self.version != 1 || self.agent != Agent::Flsh {
             bail!("unsupported session presence protocol or agent");
         }
+
         if self.session_id.is_empty()
             || self.session_id.len() > 256
             || self.session_id.contains(['/', '\\', '\0'])
@@ -46,6 +47,7 @@ impl Registration {
         {
             bail!("invalid session presence registration");
         }
+
         Ok(())
     }
 }
@@ -70,6 +72,7 @@ impl Registry {
         registration.validate()?;
         let mut tracked = lock(&self.tracked);
         let exists = tracked.get(&registration.session_id);
+
         if !exists.is_some_and(|session| !session.connections.is_empty())
             && tracked
                 .values()
@@ -79,6 +82,7 @@ impl Registry {
         {
             bail!("too many open sessions");
         }
+
         let now = unix_now();
         let session = tracked
             .entry(registration.session_id.clone())
@@ -114,9 +118,11 @@ impl Registry {
         let Some(session) = tracked.get_mut(id) else {
             return;
         };
+
         if !session.connections.remove(&connection) || !session.connections.is_empty() {
             return;
         }
+
         session.session.presence = Presence::Stopped;
         session.session.pid = None;
         // Closed entries override recent transcript writes until evicted.
@@ -133,6 +139,7 @@ impl Registry {
         {
             tracked.remove(&oldest);
         }
+
         self.changes
             .send_modify(|count| *count = count.wrapping_add(1));
         crate::events::system().changed(beep_proto::node::events::Topic::new("agents"));

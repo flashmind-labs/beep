@@ -27,6 +27,7 @@ fn sent(messages: &[Message]) -> Vec<String> {
 fn screenshots(count: usize) -> Conversation {
     let mut conversation = Conversation::new();
     conversation.add(ConversationEntry::user("look at my screen"));
+
     for n in 0..count {
         conversation.add(ConversationEntry::assistant("again"));
         conversation.add(ConversationEntry::tool_with_parts(
@@ -35,6 +36,7 @@ fn screenshots(count: usize) -> Conversation {
             vec![image(&format!("shot {n}"))],
         ));
     }
+
     conversation
 }
 

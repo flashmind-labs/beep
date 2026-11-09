@@ -64,6 +64,7 @@ impl Snapshots {
             queries.len() <= events::MAX_QUERIES,
             "too many snapshot queries"
         );
+
         for query in queries {
             anyhow::ensure!(ids.insert(query.id), "duplicate snapshot query id");
             anyhow::ensure!(
@@ -71,6 +72,7 @@ impl Snapshots {
                 "a snapshot query must name its read-only source topic"
             );
         }
+
         Ok(())
     }
 
@@ -87,12 +89,14 @@ impl Snapshots {
                 .iter()
                 .any(|topic| topic.name() == name || topic.name() == "*")
         };
+
         if selected("agents") {
             wanted.push((
                 Topic::new("agents"),
                 Source::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {}))),
             ));
         }
+
         for topic in topics.iter().filter(|topic| topic.name() == "agent") {
             let source = match topic.key().filter(|_| !topic.is_pattern()) {
                 Some(session) => Source::Agent(session.to_owned()),
@@ -100,6 +104,7 @@ impl Snapshots {
             };
             wanted.push((topic.clone(), source));
         }
+
         if selected("reviews") {
             wanted.push((Topic::new("reviews"), Source::Reviews));
         }
@@ -113,6 +118,7 @@ impl Snapshots {
                 ));
             }
         }
+
         if topics.iter().any(|topic| {
             topic.name() == "*"
                 || topic.name() == "process-output"
@@ -133,6 +139,7 @@ impl Snapshots {
                 beep_proto::node::sign_in::Tool::Opencode,
             ] {
                 let topic = Topic::keyed("sign-in", tool.to_string());
+
                 if topics.iter().any(|wanted| wanted.covers(&topic)) {
                     wanted.push((
                         topic,
@@ -143,6 +150,7 @@ impl Snapshots {
                 }
             }
         }
+
         if selected("sync") {
             wanted.push((Topic::new("sync"), Source::Read(Read::SyncList)));
         }
@@ -152,6 +160,7 @@ impl Snapshots {
                 Source::Read(Read::Sessions(Box::new(SessionsRequest::Copies {}))),
             ));
         }
+
         for topic in topics
             .iter()
             .filter(|topic| topic.is_pattern() && matches!(topic.name(), "files" | "*"))
@@ -168,6 +177,7 @@ impl Snapshots {
                 .collect();
             wanted.push((scope, Source::Resources(resources)));
         }
+
         for (topic, root) in roots {
             if topics.iter().any(|wanted| wanted.matches(topic)) {
                 wanted.push((
@@ -181,6 +191,7 @@ impl Snapshots {
                 ));
             }
         }
+
         for topic in topics
             .iter()
             .filter(|topic| topic.name() == "files" && !topic.is_pattern())
@@ -234,9 +245,11 @@ impl Snapshots {
         {
             return;
         }
+
         self.generation = self.generation.wrapping_add(1);
         self.reads.abort_all();
         let mut next = BTreeMap::new();
+
         for ((topic, query), source) in desired {
             let key = (topic.clone(), query);
             let previous = self.entries.remove(&key).filter(|old| old.source == source);
@@ -281,6 +294,7 @@ impl Snapshots {
                 );
             }
         }
+
         self.entries = next;
     }
 
@@ -304,20 +318,25 @@ impl Snapshots {
         let now = Instant::now();
         // Round robin prevents a busy low-sorted topic from starving other projections.
         let mut keys: Vec<_> = self.entries.keys().cloned().collect();
+
         if let Some(previous) = &self.next_key {
             let at = keys.partition_point(|key| key <= previous);
             keys.rotate_left(at);
         }
+
         for key in keys {
             if self.reads.len() >= MAX_READS {
                 break;
             }
+
             let Some(entry) = self.entries.get_mut(&key) else {
                 continue;
             };
+
             if !entry.dirty || entry.running || entry.not_before > now {
                 continue;
             }
+
             self.next_key = Some(key.clone());
             entry.dirty = false;
             entry.running = true;
@@ -337,6 +356,7 @@ impl Snapshots {
                                 Read::Sessions(Box::new(SessionsRequest::ListAll {})),
                             )
                             .await?;
+
                             match value {
                                 Value::Sessions(reply) => match *reply {
                                     SessionsReply::Sessions { sessions } => {
@@ -394,6 +414,7 @@ impl Snapshots {
         if self.reads.len() >= MAX_READS {
             return None;
         }
+
         self.entries
             .values()
             .filter(|entry| entry.dirty && !entry.running)
@@ -414,9 +435,11 @@ impl Snapshots {
             Err(error) if error.is_cancelled() => return Ok(None),
             Err(error) => return Err(error.into()),
         };
+
         if generation != self.generation {
             return Ok(None);
         }
+
         let retained: usize = self.entries.values().map(|entry| entry.bytes).sum();
         let Some(entry) = self.entries.get_mut(&key) else {
             return Ok(None);
@@ -427,6 +450,7 @@ impl Snapshots {
                 if entry.previous.as_ref() == Some(&value) {
                     return Ok(None);
                 }
+
                 if retained.saturating_sub(entry.bytes).saturating_add(bytes) > MAX_RETAINED_BYTES {
                     entry.previous = None;
                     entry.bytes = 0;
@@ -436,6 +460,7 @@ impl Snapshots {
                         reason: "snapshot cache budget exceeded; narrow the subscription".into(),
                     }));
                 }
+
                 entry.bytes = bytes;
                 entry.previous = Some(value.clone());
                 self.revision = self

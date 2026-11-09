@@ -142,6 +142,7 @@ impl fmt::Debug for PeerHandler {
 impl ProtocolHandler for PeerHandler {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         let peer = connection.remote_id();
+
         if !self.syncs.is_peer(&peer) {
             log::info!("refused a sync connection from {peer}: not a peer");
             connection.close(1u32.into(), b"not a peer");
@@ -149,16 +150,19 @@ impl ProtocolHandler for PeerHandler {
         }
         // The streams end with the connection: dropping the set stops them.
         let mut streams = JoinSet::new();
+
         loop {
             tokio::select! {
                 stream = connection.accept_bi() => {
                     let Ok((send, recv)) = stream else {
                         return Ok(());
                     };
+
                     if streams.len() >= MAX_STREAMS {
                         log::warn!("refused a pull from {peer}: {MAX_STREAMS} open");
                         continue;
                     }
+
                     let (tx, rx) = link(send, recv);
                     streams.spawn(serve(self.syncs.clone(), peer, tx, rx));
                 }
@@ -168,6 +172,7 @@ impl ProtocolHandler for PeerHandler {
                         Ok(Err(e)) => log::debug!("a pull from {peer} ended: {e:#}"),
                         Err(e) => log::warn!("a pull task failed: {e}"),
                     }
+
                     if !self.syncs.is_peer(&peer) {
                         connection.close(1u32.into(), b"not a peer");
                         return Ok(());
@@ -248,6 +253,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
                     })
                     .await;
             }
+
             let reply = match syncs.handoff_snapshot(&project).await {
                 Ok(snapshot) => Reply::Handoff { snapshot },
                 Err(e) => Reply::Refused {
@@ -267,6 +273,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
     };
     let _serving = syncs.serving();
     let mut peers = shared.watch_peers();
+
     loop {
         tokio::select! {
             scanned = shared.scan_before_matching() => {
@@ -280,12 +287,14 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
             },
         }
     }
+
     let mut since = if replica == shared.replica() {
         since
     } else {
         0
     };
     let mut head = shared.list_checkout().await?;
+
     if shared.copies_git() && head.present {
         return tx
             .send(&Reply::Refused {
@@ -293,6 +302,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
             })
             .await;
     }
+
     let mut branch = git_branch(shared.root()).await?;
     let mut tips = if with_branches {
         let tips = branches::catalog(&shared).await?;
@@ -309,12 +319,14 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
     })
     .await?;
     let mut seq = shared.subscribe();
+
     loop {
         // A device removed meanwhile gets nothing more, not even what is
         // already queued.
         if !syncs.allows(&peer) || shared.is_stopped() {
             return Ok(());
         }
+
         let now = match shared.list_checkout().await {
             Ok(head) => head,
             Err(_) => {
@@ -322,14 +334,18 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
                 shared.list_checkout().await?
             }
         };
+
         if with_branches {
             let next = branches::catalog(&shared).await?;
+
             if next != tips {
                 tx.send(&Reply::Branches { tips: next.clone() }).await?;
                 tips = next;
             }
         }
+
         let next_branch = git_branch(shared.root()).await?;
+
         if now != head || next_branch != branch {
             shared.scan_before_matching().await?;
             head = shared.head().await?;
@@ -342,7 +358,9 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
             })
             .await?;
         }
+
         let mut changes = shared.changes(since, BATCH, head)?;
+
         if !changes.entries.is_empty() {
             since = changes.upto;
             let git_only = shared.status().git_only;
@@ -363,6 +381,7 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
             .await?;
             continue;
         }
+
         tokio::select! {
             changed = seq.changed() => if changed.is_err() {
                 return Ok(());
@@ -382,15 +401,18 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
 /// with growing waits.
 pub(super) async fn pull(shared: Arc<Shared>, endpoint: Endpoint, peer: EndpointAddr) {
     let mut wait = FIRST_RETRY;
+
     loop {
         let pulled = tokio::select! {
             pulled = pull_once(&shared, &endpoint, &peer, &mut wait) => pulled,
             () = shared.stopped() => return,
         };
+
         match pulled {
             Ok(()) => wait = FIRST_RETRY,
             Err(e) => log::debug!("pulling {} from {}: {e:#}", shared.name(), peer.id),
         }
+
         shared.heard(&peer.id);
         tokio::select! {
             () = sleep(wait) => {}
@@ -414,6 +436,7 @@ async fn pull_once(
     let mut last = None;
     let mut again = shared.watch_pull_again();
     again.mark_unchanged();
+
     loop {
         let reply = if let Some(first) = first.take() {
             Some(first)
@@ -427,6 +450,7 @@ async fn pull_once(
         let Some(reply) = reply else {
             break;
         };
+
         match reply {
             Reply::Branches { tips } => {
                 branches::receive_catalog(&connection, shared, &peer.id, tips).await?;
@@ -469,6 +493,7 @@ async fn pull_once(
                         if repo.head_ref().as_deref() != Some(remote_branch.as_str()) {
                             bail!("Git commits differ between branches");
                         }
+
                         let have = repo.head();
                         Ok((
                             have.is_some_and(|oid| {
@@ -479,6 +504,7 @@ async fn pull_once(
                         ))
                     })
                     .await??;
+
                     if need {
                         receive_objects(
                             &connection,
@@ -504,6 +530,7 @@ async fn pull_once(
                     )
                     .await?;
                 last = behind;
+
                 if last.is_none() {
                     shared.heard(&peer.id);
                     shared.caught_up(&peer.id);
@@ -521,10 +548,13 @@ async fn pull_once(
                 {
                     bail!("Git commits differ; waiting for Git before accepting this batch");
                 }
+
                 if !shared.copies_git() {
                     shared.check_git().await?;
                 }
+
                 shared.merge_from(&peer.id, &entries, Cursor { replica, seq: upto });
+
                 if last.is_some_and(|last| upto >= last) {
                     last = None;
                     shared.heard(&peer.id);
@@ -537,6 +567,7 @@ async fn pull_once(
             }
         }
     }
+
     Ok(())
 }
 
@@ -572,6 +603,7 @@ async fn serve_objects(
     let root = shared.root().to_owned();
     let (command, input) = spawn_blocking(move || -> Result<_> {
         let repo = Repo::open(&root).context("Git checkout is unavailable")?;
+
         match scope {
             ObjectScope::Checkout => {
                 if repo.head() != Some(commit)
@@ -582,15 +614,19 @@ async fn serve_objects(
             }
             ObjectScope::Branch => {
                 repo.validate_branch(&branch)?;
+
                 if repo.ref_oid(&branch) != Some(commit) {
                     bail!("The peer branch changed; retrying sync");
                 }
             }
         }
+
         let mut input = format!("{commit}\n");
+
         if let Some(have) = have.filter(|have| repo.is_ancestor(*have, commit) == Some(true)) {
             input.push_str(&format!("^{have}\n"));
         }
+
         let mut command = repo.git();
         command
             .args(["pack-objects", "--stdout", "--revs"])
@@ -608,22 +644,28 @@ async fn serve_objects(
     drop(stdin);
     let mut stdout = child.stdout.take().context("pack output missing")?;
     let mut buffer = vec![0; 64 * 1024];
+
     loop {
         let n = stdout.read(&mut buffer).await?;
+
         if n == 0 {
             break;
         }
+
         if !syncs.allows(&peer) || !shared.has_peer(&peer) || shared.is_stopped() {
             bail!("Project sharing stopped");
         }
+
         tx.send(&Reply::GitChunk {
             bytes: buffer[..n].to_vec(),
         })
         .await?;
     }
+
     if !child.wait().await?.success() {
         bail!("Git could not create the object pack");
     }
+
     tx.send(&Reply::GitDone).await
 }
 
@@ -669,6 +711,7 @@ async fn receive_objects(connection: &Connection, shared: &Shared, want: ObjectW
         let mut child = command.spawn()?;
         let mut stdin = child.stdin.take().context("pack input missing")?;
         let mut total = 0u64;
+
         loop {
             match rx.recv::<Reply>().await? {
                 Some(Reply::GitChunk { bytes }) => {
@@ -678,6 +721,7 @@ async fn receive_objects(connection: &Connection, shared: &Shared, want: ObjectW
                     if total > 2 * 1024 * 1024 * 1024 {
                         bail!("Git pack exceeds the transfer limit");
                     }
+
                     stdin.write_all(&bytes).await?;
                 }
                 Some(Reply::GitDone) => break,
@@ -685,10 +729,13 @@ async fn receive_objects(connection: &Connection, shared: &Shared, want: ObjectW
                 _ => bail!("The peer did not complete the Git pack"),
             }
         }
+
         drop(stdin);
+
         if !child.wait().await?.success() {
             bail!("Git could not read the object pack");
         }
+
         Ok(())
     })
     .await
@@ -709,6 +756,7 @@ pub(super) async fn handoff_snapshot(
             project: project.to_owned(),
         })
         .await?;
+
         match rx.recv::<Reply>().await? {
             Some(Reply::Handoff { snapshot }) => Ok(snapshot),
             Some(Reply::Refused { message }) => bail!("{message}"),

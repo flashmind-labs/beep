@@ -36,16 +36,20 @@ pub(crate) fn maintain() -> AbortOnDropHandle<()> {
     AbortOnDropHandle::new(tokio::spawn(async {
         let mut every = tokio::time::interval(DAY);
         every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
         loop {
             every.tick().await;
             let done = tokio::task::spawn_blocking(|| -> Result<()> {
                 let _writing = lock(&WRITING);
+
                 if let Some(folder) = folder() {
                     sweep(&folder, SystemTime::now())?;
                 }
+
                 Ok(())
             })
             .await;
+
             if let Err(e) = done.unwrap_or_else(|e| Err(e.into())) {
                 log::warn!("could not clean temporary attachments: {e:#}");
             }
@@ -63,9 +67,11 @@ pub(super) fn write(
     running: Option<&super::Session>,
 ) -> Result<String> {
     let _writing = lock(&WRITING);
+
     if running.is_some_and(|session| session.live.borrow().closing) {
         bail!("the session is closed; its attachments were removed");
     }
+
     let folder = folder().context("this host has no cache folder for attachments")?;
     let owner = owner(agent, session);
     write_in(&folder, MAX_BYTES, &owner, path, offset, size, data)
@@ -87,6 +93,7 @@ pub(super) fn remove(agent: &str, session: &str) -> Result<()> {
 fn remove_in(cache: &Path, owner: &str) -> Result<()> {
     let _writing = lock(&WRITING);
     let path = cache.join(owner);
+
     match fs::symlink_metadata(&path) {
         Ok(meta) if meta.is_dir() => {
             fs::remove_dir_all(path).context("removing session attachments")
@@ -110,6 +117,7 @@ fn write_in(
     if size > MAX_WORK_UPLOAD || data.len() > AGENT_FILE_CHUNK {
         bail!("the attachment or its part is too large");
     }
+
     let end = offset
         .checked_add(u64::try_from(data.len())?)
         .filter(|end| *end <= size)
@@ -128,11 +136,13 @@ fn write_in(
     let cache = paths::canonicalize(cache)?;
     let (bucket, upload) = if offset == 0 {
         file_name(path)?;
+
         if count >= MAX_UPLOADS || used.checked_add(size).is_none_or(|sum| sum > limit) {
             bail!(
                 "the temporary attachment cache is full; remove old attachments or upload into a project folder"
             );
         }
+
         let relative = Path::new(owner).join(Uuid::new_v4().to_string());
         WorkRoot::at(&cache)?.make_folder(&relative.join("files"))?;
         let bucket = cache.join(relative);
@@ -155,12 +165,15 @@ fn write_in(
         else {
             bail!("the attachment path is invalid");
         };
+
         if *files != "files" || Uuid::parse_str(&id.to_string_lossy()).is_err() {
             bail!("the attachment path is invalid");
         }
+
         let bucket = cache.join(owner).join(id);
         WorkRoot::at(&bucket)?;
         let upload = record(&bucket)?;
+
         if name.to_str() != Some(&upload.name) || upload.size != size {
             bail!("the attachment changed during upload; drop it again");
         }
@@ -173,9 +186,11 @@ fn write_in(
         .open(bucket.join("upload.json"))?
         .set_modified(now)?;
     let full = bucket.join("files").join(written);
+
     if end == size && !full.is_file() {
         bail!("the attachment did not finish; drop it again");
     }
+
     full.into_os_string()
         .into_string()
         .map_err(|_| anyhow::anyhow!("the attachment path is not UTF-8"))
@@ -183,6 +198,7 @@ fn write_in(
 
 fn file_name(name: &str) -> Result<()> {
     let mut parts = Path::new(name).components();
+
     if name.is_empty()
         || name.contains(['/', '\\'])
         || !matches!(
@@ -192,6 +208,7 @@ fn file_name(name: &str) -> Result<()> {
     {
         bail!("an attachment needs a file name without folders");
     }
+
     Ok(())
 }
 
@@ -212,18 +229,23 @@ fn sweep(cache: &Path, now: SystemTime) -> Result<(u64, usize)> {
     };
     let mut used = 0u64;
     let mut count = 0usize;
+
     for group in groups {
         let group = group?;
+
         if !group.file_type()?.is_dir() {
             continue;
         }
+
         for bucket in fs::read_dir(group.path())? {
             let bucket = bucket?;
+
             if !bucket.file_type()?.is_dir()
                 || Uuid::parse_str(&bucket.file_name().to_string_lossy()).is_err()
             {
                 continue;
             }
+
             let path = bucket.path();
             let upload = record(&path).ok();
             let touched = fs::metadata(path.join("upload.json"))
@@ -248,6 +270,7 @@ fn sweep(cache: &Path, now: SystemTime) -> Result<(u64, usize)> {
             Err(e) => return Err(e.into()),
         }
     }
+
     Ok((used, count))
 }
 

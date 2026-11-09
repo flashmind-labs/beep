@@ -36,12 +36,14 @@ function follow(card: CoderCard, row: AgentSession) {
   if (observer) return;
   observer = new MutationObserver(records => {
     if (!records.some(record => record.removedNodes.length)) return;
+
     for (const card of followed) {
       if (card.isConnected) continue;
       card.unfollow?.();
       card.unfollow = undefined;
       followed.delete(card);
     }
+
     if (!followed.size) { observer?.disconnect(); observer = undefined; }
   });
   observer.observe(document, { subtree: true, childList: true });
@@ -54,6 +56,7 @@ export function coderCard(turn: Turn, text: string | null | undefined) {
   if (!report) return;
   const key = cardKey(report);
   let card = [...turn.querySelectorAll<CoderCard>(".dcoder[data-card]")].find(c => c.dataset.card === key);
+
   if (!card) {
     card = h<CoderCard>(`<div class="dcard dcoder dcodercard"></div>`);
     card.dataset.card = key;
@@ -61,6 +64,7 @@ export function coderCard(turn: Turn, text: string | null | undefined) {
     const reply = turn.querySelector(ANSWER);
     reply ? turn.insertBefore(card, reply) : turn.append(card);
   }
+
   card.report = report;
   draw(card);
   if (!card.found) find(card);
@@ -80,6 +84,7 @@ async function poll(card: CoderCard) {
 
   const f = card.found;
   if (!f || !card.isConnected) return;
+
   try {
     const page = await invoke<AgentPage>("agent_view", { machineId: f.row.machine_id, agent: f.row.agent, session: f.row.id, last: 1 });
     f.page = page;
@@ -89,6 +94,7 @@ async function poll(card: CoderCard) {
     draw(card);
     throw error;
   }
+
   draw(card);
 
 }
@@ -117,6 +123,7 @@ async function answer(card: CoderCard, i: number) {
   if (!f || !q || !opt || card.answering === q.id) return;
   card.answering = q.id;
   draw(card);
+
   try {
     await invoke("center_answer_agent", { machineId: f.row.machine_id, agent: f.row.agent, session: f.row.id, question: q.id, reply: opt.id });
   } catch (e) {
@@ -124,6 +131,7 @@ async function answer(card: CoderCard, i: number) {
     if (!/^conflict/i.test(String(e))) card.answering = null;
     console.warn("answering the agent:", e);
   }
+
   void poll(card).catch(e => console.warn("agent card:", e));
 }
 
@@ -131,6 +139,7 @@ function cardClick(card: CoderCard, e: MouseEvent) {
   const t = e.target as Element;
   const opt = t.closest<HTMLElement>("[data-cardopt]");
   if (opt) { e.stopPropagation(); return void answer(card, Number(opt.dataset.cardopt)); }
+
   if (t.closest("[data-cardopen]") && card.found) {
     e.stopPropagation();
     openAgent(card.found.page?.session ?? card.found.row);

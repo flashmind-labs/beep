@@ -21,6 +21,7 @@ impl Store {
         if sources.is_empty() {
             return Ok(());
         }
+
         let mut tx = self.pool.begin().await?;
         // Locks the turn's opening message, so two saves cannot take the
         // same positions.
@@ -31,9 +32,11 @@ impl Store {
         .bind(chat)
         .fetch_optional(&mut *tx)
         .await?;
+
         if opens.is_none() {
             return Ok(());
         }
+
         let kept: Vec<String> = sqlx::query_scalar(
             "SELECT url FROM turn_sources WHERE message_id = $1 ORDER BY position",
         )
@@ -47,6 +50,7 @@ impl Store {
             .filter(|source| !kept.contains(&source.url))
             .take(room);
         let mut added = false;
+
         for (position, source) in (first..).zip(new) {
             sqlx::query(
                 "INSERT INTO turn_sources (message_id, position, url, title)
@@ -60,6 +64,7 @@ impl Store {
             .await?;
             added = true;
         }
+
         if !added {
             return Ok(());
         }
@@ -86,12 +91,14 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         let mut turns: Vec<TurnSources> = Vec::new();
+
         for row in &rows {
             let message: i64 = row.try_get("message")?;
             let source = WebSource {
                 url: row.try_get("url")?,
                 title: row.try_get("title")?,
             };
+
             match turns.last_mut() {
                 Some(last) if last.message == message => last.sources.push(source),
                 _ => turns.push(TurnSources {
@@ -100,6 +107,7 @@ impl Store {
                 }),
             }
         }
+
         Ok(turns)
     }
 }

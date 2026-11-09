@@ -18,6 +18,7 @@ pub(in crate::agents) fn allow_option(options: &[AnswerOption]) -> Option<&Answe
     if !options.iter().any(|option| option.kind.rejects()) {
         return None;
     }
+
     let keeps_context = |option: &&AnswerOption| !option.id.starts_with("exit-plan-clear");
     options
         .iter()

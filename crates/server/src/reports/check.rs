@@ -61,21 +61,26 @@ pub(crate) fn check(headers: &HeaderMap, body: &[u8], now_ms: u64) -> Result<Man
     if body.len() > MAX_BODY {
         return Err(Refused::TooLarge);
     }
+
     let key: EndpointId = header(headers, KEY_HEADER)?;
     let at_ms: u64 = header(headers, TIME_HEADER)?;
     let signature = signature(headers)?;
     let off_ms = now_ms.abs_diff(at_ms);
+
     if u128::from(off_ms) > MAX_AGE.as_millis() {
         return Err(Refused::Clock(
             (off_ms.saturating_add(30_000) / 60_000).max(1),
         ));
     }
+
     key.verify(&signed_message(body, at_ms), &signature)
         .map_err(|_| Refused::Signature)?;
     let manifest = read_manifest(body).map_err(|_| Refused::Manifest)?;
+
     if manifest.sender != key {
         return Err(Refused::Sender);
     }
+
     Ok(manifest)
 }
 

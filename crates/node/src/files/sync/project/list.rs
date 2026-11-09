@@ -91,6 +91,7 @@ pub(super) fn move_target(state: &State, rules: &Rules, path: &str) -> Option<St
     if gitdir::in_git(path) {
         return None;
     }
+
     let seen = state.saved.seen.get(path)?;
     state
         .saved
@@ -120,12 +121,15 @@ pub(super) fn merge_peer(map: &mut Map, entries: &[Entry]) -> Merged {
         refused: 0,
     };
     let is_live = |map: &Map, path: &str| map.get(path).is_some_and(|known| known.file.is_some());
+
     for entry in entries {
         let was_live = is_live(map, &entry.path);
+
         if !valid_path(&entry.path) || (entry.file.is_some() && !was_live && live >= MAX_FILES) {
             merged.refused += 1;
             continue;
         }
+
         for path in map.merge(entry) {
             merged.changed = true;
             let now_live = is_live(map, &path);
@@ -133,6 +137,7 @@ pub(super) fn merge_peer(map: &mut Map, entries: &[Entry]) -> Merged {
             live = live + usize::from(now_live) - usize::from(before);
         }
     }
+
     merged
 }
 
@@ -168,6 +173,7 @@ pub(super) fn plan(state: &State, rules: &Rules) -> Vec<Work> {
         .filter(|entry| !rules.skips_any(Path::new(&entry.path), false))
         .filter_map(|entry| {
             let seen = state.saved.seen.get(&entry.path);
+
             match (&entry.file, seen) {
                 (Some(file), Some(seen)) if seen.hash == file.hash => None,
                 (None, None) => None,

@@ -123,6 +123,7 @@ pub(super) async fn ask(
     if let Some(etag) = etag {
         request = request.header(IF_NONE_MATCH, etag);
     }
+
     let response = request.send().await.context("asking GitHub")?;
     let status = response.status();
     let headers = response.headers().clone();

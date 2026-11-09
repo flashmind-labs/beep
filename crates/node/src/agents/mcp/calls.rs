@@ -72,15 +72,19 @@ impl Tool {
 
     fn of_title(title: &str) -> Option<Self> {
         let title = title.trim();
+
         if let Some(tool) = Self::of_name(title) {
             return Some(tool);
         }
+
         let bare = title.strip_prefix("Tool: ").unwrap_or(title);
+
         if let Some(rest) = bare.strip_prefix(SERVER_NAME)
             && let Some(tool) = rest.strip_prefix('/').or_else(|| rest.strip_prefix('.'))
         {
             return tool.parse().ok();
         }
+
         let (tool, server) = title.split_once(" (")?;
         let server = server.strip_suffix(" MCP Server)")?;
         (server == SERVER_NAME).then(|| tool.parse().ok()).flatten()
@@ -103,10 +107,12 @@ impl Tool {
             Some(detail) => format!("{PREFIX}{head}: {detail}"),
             None => format!("{PREFIX}{head}"),
         };
+
         match self {
             Self::ListMachines => format!("{PREFIX}List machines"),
             Self::HarnessInfo => {
                 let harness = text("harness").unwrap_or("a harness");
+
                 match machine {
                     Some(machine) => format!("{PREFIX}Query {harness} on {machine}"),
                     None => format!("{PREFIX}Query {harness}"),
@@ -116,6 +122,7 @@ impl Tool {
             Self::RunOn => with(on("Run"), text("command")),
             Self::SyncProject => {
                 let project = text("project").unwrap_or("a project");
+
                 match machine {
                     Some(machine) => format!("{PREFIX}Sync {project} to {machine}"),
                     None => format!("{PREFIX}Sync {project}"),
@@ -166,6 +173,7 @@ impl TryFrom<&Value> for Tool {
         if input.get("server").and_then(Value::as_str) != Some(SERVER_NAME) {
             return Err(strum::ParseError::VariantNotFound);
         }
+
         input
             .get("tool")
             .and_then(Value::as_str)

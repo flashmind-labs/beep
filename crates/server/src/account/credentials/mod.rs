@@ -30,6 +30,7 @@ pub async fn is_public(url: &ForgejoUrl) -> bool {
 pub fn for_machines(opened: Vec<Opened>) -> MachineCredentials {
     let mut out = MachineCredentials::default();
     let mut owners: Vec<&str> = Vec::new();
+
     for login in opened.iter().filter_map(|o| o.github.as_ref()) {
         for owner in std::iter::once(&login.login).chain(&login.orgs) {
             if !owners.iter().any(|seen| seen.eq_ignore_ascii_case(owner)) {
@@ -37,11 +38,13 @@ pub fn for_machines(opened: Vec<Opened>) -> MachineCredentials {
             }
         }
     }
+
     for owner in owners {
         let Some(picked) = github_for(&opened, owner) else {
             continue;
         };
         let is_default = picked.github.as_ref().is_some_and(|login| login.default);
+
         if let (false, Some(name)) = (is_default, github_owner_var(owner)) {
             out.env.push(EnvSecret {
                 name,
@@ -49,6 +52,7 @@ pub fn for_machines(opened: Vec<Opened>) -> MachineCredentials {
             });
         }
     }
+
     for Opened {
         slot,
         secret,
@@ -56,6 +60,7 @@ pub fn for_machines(opened: Vec<Opened>) -> MachineCredentials {
     } in opened
     {
         let value = SecretText::new(secret.expose_secret());
+
         match slot {
             Slot::Forgejo(url) => out.forgejo.push(ForgejoLogin {
                 url: url.as_ref().to_owned(),

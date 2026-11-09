@@ -38,14 +38,17 @@ pub(crate) fn fallback(program: &str, home: &Path) -> Option<PathBuf> {
 pub(super) fn path_with(programs: &[&Path]) -> Option<OsString> {
     let current = env::var_os("PATH").unwrap_or_default();
     let mut dirs: Vec<PathBuf> = Vec::new();
+
     for dir in programs.iter().filter_map(|program| program.parent()) {
         if !dirs.iter().any(|known| known == dir) {
             dirs.push(dir.to_owned());
         }
     }
+
     if dirs.is_empty() {
         return None;
     }
+
     dirs.extend(env::split_paths(&current));
     env::join_paths(dirs).ok()
 }
@@ -80,9 +83,11 @@ fn folders(home: &Path) -> Vec<PathBuf> {
         );
     }
     dirs.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
+
     if cfg!(windows) {
         dirs.extend(env::var_os("APPDATA").map(|dir| PathBuf::from(dir).join("npm")));
     }
+
     dirs
 }
 

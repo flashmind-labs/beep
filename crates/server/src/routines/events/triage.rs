@@ -150,9 +150,11 @@ fn event_ref(value: &Value) -> Option<i64> {
 
 fn nonempty(text: String, what: &str) -> Result<String, String> {
     let text = text.trim().to_owned();
+
     if text.is_empty() {
         return Err(format!("{what} is empty"));
     }
+
     Ok(text)
 }
 
@@ -244,10 +246,12 @@ pub(crate) fn urgent_looking(rows: &[EventRow]) -> Vec<EventRow> {
 pub(crate) async fn run(app: Arc<App>, user: Arc<User>, rows: Vec<EventRow>, settings: Settings) {
     let spec = spec(&app, &user, &rows, &settings.triage).await;
     let decided = app.subagents.run(user.id(), spec).await;
+
     if let Err(error) = settle(&app, &user, &rows, decided, &settings).await {
         log::warn!("events: unable to settle a triage: {error:#}; user={user}");
         // Those it did not settle go to the next triage.
         let ids: Vec<i64> = rows.iter().map(|row| row.id).collect();
+
         match user
             .move_events(&ids, EventState::Triaging, EventState::Pending, None)
             .await
@@ -314,13 +318,17 @@ pub(crate) async fn settle(
         "events: triaged; user={user} triage_id={new} events={} route={routed:?}",
         ids.len()
     );
+
     if routed == Route::Wake {
         let woke = wake_informed(app, user, rows).await;
+
         if !matches!(woke, Ok(true)) {
             app.events.give_back_wake(user.id());
         }
+
         woke?;
     }
+
     Ok(())
 }
 
@@ -349,13 +357,16 @@ async fn fall_back(
         ids.len(),
         urgent.len()
     );
+
     if urgent.is_empty() {
         return Ok(());
     }
+
     if !app.events.take_wake(user.id()) {
         log::warn!("events: no wake left for a failed triage; dropped; user={user}");
         return Ok(());
     }
+
     pipeline::wake_rows(
         app,
         user,
@@ -427,16 +438,20 @@ pub(crate) fn describe_inform(
         .collect();
     if !covered.is_empty() {
         text.push_str("\n\nThe events it covers:");
+
         for row in covered {
             pipeline::write_event(&mut text, row);
         }
     }
+
     if !earlier.is_empty() {
         text.push_str("\n\nEarlier, less urgent:");
+
         for row in earlier {
             let _ = write!(text, "\n- {}", row.summary.as_deref().unwrap_or_default());
         }
     }
+
     if !read_only.is_empty() {
         let names: Vec<&str> = read_only.iter().map(|app| app.name()).collect();
         let _ = write!(
@@ -445,6 +460,7 @@ pub(crate) fn describe_inform(
             names.join(", ")
         );
     }
+
     text
 }
 
@@ -494,9 +510,11 @@ async fn tools(user: &Arc<User>, rows: &[EventRow]) -> Vec<Arc<dyn Tool>> {
 /// Today's date, the user's topics, held events and memory profile.
 async fn context(user: &User) -> String {
     let mut ctx = format!("Today is {}.\n", Utc::now().format("%A %Y-%m-%d %H:%M UTC"));
+
     match user.event_topics().await {
         Ok(topics) => {
             ctx.push_str("\nEvent topics the user chose (only topics that are on reach you):\n");
+
             for (topic, on) in topics.iter() {
                 let state = if on { "on" } else { "off" };
                 let _ = writeln!(ctx, "- {}: {state} ({})", topic.as_ref(), topic.describe());
@@ -504,12 +522,14 @@ async fn context(user: &User) -> String {
         }
         Err(error) => log::warn!("events: unable to read topics: {error:#}; user={user}"),
     }
+
     match user
         .events_in(EventState::Held, Duration::ZERO, MAX_HELD_SHOWN)
         .await
     {
         Ok(held) if !held.is_empty() => {
             ctx.push_str("\nEvents Beep is holding for a later digest:\n");
+
             for row in held {
                 let _ = writeln!(ctx, "- {}: {}", row.app.name(), row.summary);
             }
@@ -517,6 +537,7 @@ async fn context(user: &User) -> String {
         Ok(_) => {}
         Err(error) => log::warn!("events: unable to read held events: {error:#}; user={user}"),
     }
+
     match user.memory_profile().await {
         Ok(Some(profile)) => {
             let _ = write!(ctx, "\n{profile}");
@@ -526,6 +547,7 @@ async fn context(user: &User) -> String {
             log::warn!("events: unable to build the memory profile: {error}; user={user}")
         }
     }
+
     ctx
 }
 

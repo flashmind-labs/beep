@@ -32,10 +32,12 @@ export function runningStatus(r: RunningRow) {
   const closing = r.kind === "agent" ? closingNote(r) : null;
   const working = r.kind === "agent" && ["working", "running", "starting"].includes(r.status);
   const spin = working && !moving && !closing ? h("span", "dspin") : null;
+
   if (spin) {
     spin.setAttribute("role", "img");
     spin.setAttribute("aria-label", r.status === "starting" ? "Starting" : "Working");
   }
+
   const when = spin ? h("span", "cc-running", spin, runningWhen(r)) : runningWhen(r);
   return moving ? tag(moving.chip === "Moving" ? "run" : "bad", moving.chip) : closing || (r.status === "asking" ? tag("wait", "needs you") : when);
 }
@@ -162,6 +164,7 @@ function dismissUpdates(ids: number[]) {
 /// replies; the same chat each time.
 async function openUpdate(u: UpdateRow) {
   dismissUpdates([u.id]);
+
   try {
     const session = await invoke<string | null>("center_open_update_chat", { id: u.id });
     if (session) return go("pane", { chat: { session } });
@@ -228,12 +231,14 @@ function machineStrip(machines: MachineCard[]) {
     return cell;
   });
   const mac = thisMacRow(state.mac, machines);
+
   if (mac) {
     const cell = h("div", "m off", h("span", "ddot off"), h("b", "", mac.name), h("span", `${mac.bad ? "bad" : ""}`, mac.state));
     if (mac.action) cell.append(rowButton(mac.action, "quiet small", useThisMac));
     cell.title = `This computer: ${mac.title}`;
     cells.push(cell);
   }
+
   return h("div", "cc-mstrip", ...cells, addMachineButton("quiet small"));
 }
 
@@ -251,6 +256,7 @@ function page(home: HomeView) {
   const tab = shownTabs.find(t => t.key === homeTab) || shownTabs[0];
   const bar = h("div", "cc-tabs");
   bar.setAttribute("role", "tablist");
+
   for (const t of shownTabs) {
     const b = h("button", "", t.label, t.count ? h("span", "n", String(t.count)) : null);
     b.type = "button";
@@ -259,16 +265,19 @@ function page(home: HomeView) {
     b.addEventListener("click", () => openHomeTab(t.key));
     bar.append(b);
   }
+
   const out: HTMLElement[] = [];
   if (machines) out.push(machineStrip(machines));
   out.push(bar);
   if (state.error) out.push(errorNote(`Could not refresh: ${state.error}`));
+
   if (!machines && !running) {
     out.push(note("off", "Machines and running sessions aren't available for this account or server."));
   } else if (machines) {
     const off = offlineNote(machines);
     if (off) out.push(off);
   }
+
   out.push(...tab.make());
   return out;
 }
@@ -301,10 +310,12 @@ export function overview(home: HomeView) {
   if (updates?.length) out.push(updatesSection(updates));
   if (running?.length) out.push(homeBox("sec-running", "Running", running.length, () => go("pane", "agents"), byRecent(running).map(runningRow), Infinity));
   if (coming?.length) out.push(homeBox("sec-coming", "Coming up", coming.length, () => go("pane", "routines"), coming.map(comingRow)));
+
   if (!out.length && !state.subscribed) {
     const starting = !state.home && !S.server;
     out.push(emptyPanel(h("b", "", starting ? "Start an agent" : "Nothing running"), h("span", "", starting ? "Your machines connect in the background." : "Start an agent on this computer, or add a machine to run it there."), button("Start an agent", "small", () => go("pane", { agentnew: { prompt: "" } }))));
   } else if (!out.length) out.push(emptyPanel(h("span", "", "Nothing needs you, and nothing is running.")));
+
   return out;
 }
 
@@ -339,6 +350,7 @@ function waitText() {
 /// page.
 function connecting() {
   const p = problem();
+
   if (p) {
     const acts = h("div", "acts");
     if (p.action) acts.append(button(p.action, "pri", () => go("pane", p.view)));
@@ -349,6 +361,7 @@ function connecting() {
     box.dataset.problem = `${p.kind}:${p.text}`;
     return box;
   }
+
   const pulse = h("div", "cc-pulse", h("i"), h("i"), h("i"));
   if (!stuck()) return h("div", "cc-conn", pulse, h("b", "", "Connecting to Beep…"));
   return h("div", "cc-conn stuck", pulse, h("b", "", "Still connecting to Beep"), h("span", "why", waitText()), h("div", "acts", retryButton("Retry now", "pri"), logButton()));
@@ -359,19 +372,23 @@ function connecting() {
 function drawConnecting(view: HTMLElement) {
   const on = view.querySelector<HTMLElement>(":scope > .cc-conn");
   const p = problem(), was = on?.dataset.problem;
+
   if (p || was) {
     if (p && was === `${p.kind}:${p.text}`) {
       on!.querySelector<HTMLButtonElement>(".acts .retry")!.disabled = loading;
       return;
     }
+
     return view.replaceChildren(connecting());
   }
+
   if (on && on.classList.contains("stuck") === stuck()) {
     if (!stuck()) return;
     on.querySelector(".why")!.textContent = waitText();
     on.querySelector<HTMLButtonElement>(".acts .pri")!.disabled = loading;
     return;
   }
+
   view.replaceChildren(connecting());
 }
 
@@ -406,11 +423,13 @@ export let scrollTarget: string | null = null;
 export function jump(id?: string) {
   if (!go("home")) return;
   const tab = !id ? "overview" : id.startsWith("m-") ? "machines" : TAB_OF[id];
+
   if (tab && tab !== homeTab) {
     homeTab = tab;
     homeTabChanged();
     if (state.home) draw();
   }
+
   const view = $("#view");
   if (!id) return view.scrollTo({ top: 0 });
   scrollTarget = id;

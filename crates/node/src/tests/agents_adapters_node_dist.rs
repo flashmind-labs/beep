@@ -55,9 +55,11 @@ fn musl_is_told_by_its_loader() {
     assert!(is_musl(alpine.path()));
     // Ubuntu with the musl package: glibc's loader says glibc.
     let ubuntu = tempfile::tempdir().expect("a temp folder");
+
     for dir in ["lib", "lib64"] {
         std::fs::create_dir_all(ubuntu.path().join(dir)).expect("folders");
     }
+
     std::fs::write(ubuntu.path().join("lib/ld-musl-x86_64.so.1"), "").expect("musl");
     std::fs::write(ubuntu.path().join("lib64/ld-linux-x86-64.so.2"), "").expect("glibc");
     assert!(!is_musl(ubuntu.path()));

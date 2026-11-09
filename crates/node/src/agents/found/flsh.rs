@@ -74,11 +74,14 @@ pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
         return seen;
     };
     let mut ids: HashSet<String> = seen.iter().map(|one| one.id.clone()).collect();
+
     for entry in entries.flatten().take(MAX_DATABASES) {
         let database = entry.path().join("sessions.db");
+
         if !database.is_file() || entry.path().join(".sqlite-imported").exists() {
             continue;
         }
+
         match memos
             .databases
             .read_database(&database, || read(&database).map(Arc::new))
@@ -94,10 +97,12 @@ pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
                 database.display()
             ),
         }
+
         if seen.len() >= MAX_FILES {
             break;
         }
     }
+
     seen
 }
 
@@ -106,9 +111,11 @@ pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
 fn head(path: &Path) -> Option<Seen> {
     let mut lines = head_lines(path).ok()?;
     let header: Value = serde_json::from_str(&lines.next()?).ok()?;
+
     if header["subtype"] != "session_metadata" {
         return None;
     }
+
     let id = header["sessionId"].as_str().filter(|id| !id.is_empty())?;
     let metadata = &header["metadata"];
     let cwd = metadata["working_dir"]
@@ -116,16 +123,19 @@ fn head(path: &Path) -> Option<Seen> {
         .filter(|cwd| !cwd.is_empty())?;
     let mut started = None;
     let mut first = None;
+
     for line in lines {
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
         started = started.or_else(|| value["timestamp"].as_str().and_then(unix_seconds));
+
         if value["type"] == "user" {
             first = value["message"]["content"].as_str().and_then(prompt_title);
             break;
         }
     }
+
     let started = started?;
     Some(Seen {
         agent: Agent::Flsh,

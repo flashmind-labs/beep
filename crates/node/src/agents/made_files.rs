@@ -47,36 +47,47 @@ pub(crate) fn find(cwd: &Path, since: SystemTime, written: &[PathBuf]) -> Vec<St
     let mut found: Vec<(SystemTime, PathBuf)> = Vec::new();
     let mut folders = vec![(PathBuf::new(), 0usize)];
     let mut seen = 0usize;
+
     while let Some((folder, depth)) = folders.pop() {
         let Ok(entries) = fs::read_dir(cwd.join(&folder)) else {
             continue;
         };
+
         for entry in entries.flatten() {
             seen += 1;
+
             if seen > MAX_SEEN {
                 break;
             }
+
             let Ok(kind) = entry.file_type() else {
                 continue;
             };
             let name = entry.file_name();
+
             if name == ".git" || kind.is_symlink() {
                 continue;
             }
+
             let rel = folder.join(&name);
+
             if rules.leaves_out(&rel, kind.is_dir()) {
                 continue;
             }
+
             if kind.is_dir() {
                 if depth < MAX_DEPTH {
                     folders.push((rel, depth + 1));
                 }
                 continue;
             }
+
             if !is_artifact(&rel) || written.contains(&cwd.join(&rel)) {
                 continue;
             }
+
             let modified = entry.metadata().and_then(|meta| meta.modified());
+
             if let Ok(modified) = modified
                 && modified >= since
             {
@@ -84,6 +95,7 @@ pub(crate) fn find(cwd: &Path, since: SystemTime, written: &[PathBuf]) -> Vec<St
             }
         }
     }
+
     found.sort_by_key(|(modified, _)| Reverse(*modified));
     found
         .into_iter()

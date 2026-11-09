@@ -101,6 +101,7 @@ function body(f: CodeFinding) {
 /// new side of the diff; one with no file or text is left out.
 export function findingsOf(review: SubmittedReview, root = ""): Finding[] {
   const out: Finding[] = [];
+
   for (const f of review.findings.slice(0, MAX_FINDINGS)) {
     const path = cleanPath(f.file, root).replace(CONTROL, "");
     const text = body(f);
@@ -108,6 +109,7 @@ export function findingsOf(review: SubmittedReview, root = ""): Finding[] {
     const line = Number.isInteger(f.line) && (f.line ?? 0) > 0 ? f.line : null;
     out.push({ path, side: "new", line, body: text });
   }
+
   return out;
 }
 
@@ -154,11 +156,13 @@ const same = (a: ReviewComment, b: ReviewComment) => a.path === b.path && a.side
 export function mergeComments(draft: readonly ReviewComment[], add: readonly ReviewComment[]) {
   const out = draft.slice();
   let added = 0;
+
   for (const c of add) {
     if (out.some(x => same(x, c))) continue;
     out.push(c);
     added++;
   }
+
   return { draft: out, added };
 }
 

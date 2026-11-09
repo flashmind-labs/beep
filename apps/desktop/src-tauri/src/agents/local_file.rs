@@ -47,9 +47,11 @@ pub enum Action {
 /// the folder, a link that leads out, or a file that is not there.
 fn inside(root: &Path, rel: &str) -> Option<PathBuf> {
     let rel = Path::new(rel);
+
     if !rel.is_relative() {
         return None;
     }
+
     let root = root.canonicalize().ok()?;
     let file = root.join(rel).canonicalize().ok()?;
     file.starts_with(&root).then_some(file)
@@ -115,6 +117,7 @@ pub async fn open_local_file(
         #[cfg(target_os = "macos")]
         {
             let mut cmd = Command::new("open");
+
             match action {
                 Action::Open => {}
                 Action::Reveal => {
@@ -130,6 +133,7 @@ pub async fn open_local_file(
                     cmd.arg("-a").arg(app.id);
                 }
             }
+
             let status = cmd.arg(&file).status().map_err(anyhow::Error::from)?;
             if status.success() {
                 Ok(())
@@ -158,13 +162,16 @@ fn apps_for(file: &Path) -> Vec<OpenApp> {
         .and_then(|app| app.path())
         .map(|path| path.to_string());
     let mut apps: Vec<OpenApp> = Vec::new();
+
     for app in workspace.URLsForApplicationsToOpenURL(&url).iter() {
         let Some(bundle) = app.path().map(|path| path.to_string()) else {
             continue;
         };
+
         if apps.iter().any(|a| a.id == bundle) {
             continue;
         }
+
         let name = Path::new(&bundle)
             .file_stem()
             .map_or_else(|| bundle.clone(), |n| n.to_string_lossy().into_owned());
@@ -174,6 +181,7 @@ fn apps_for(file: &Path) -> Vec<OpenApp> {
             name,
         });
     }
+
     apps.sort_by(|a, b| b.default.cmp(&a.default).then_with(|| a.name.cmp(&b.name)));
     apps
 }

@@ -32,6 +32,7 @@ export function splitTurns(entries: LogEntry[], offset = 0): Turn[] {
   const turns: Turn[] = [];
   entries.forEach((en, i) => {
     const at = offset + i;
+
     if (en.kind === "user") turns.push({ key: at, user: at, steps: [], answer: [] });
     else {
       if (!turns.length) turns.push({ key: at, user: null, steps: [], answer: [] });
@@ -41,6 +42,7 @@ export function splitTurns(entries: LogEntry[], offset = 0): Turn[] {
   // The answer is the run of agent text the turn ends with, and what
   // follows it that is neither a tool nor a thought (the files it made).
   const kind = (at: number) => entries[at - offset].kind;
+
   for (const t of turns) {
     let end = t.steps.length;
     while (end && kind(t.steps[end - 1]) === "other") end--;
@@ -48,6 +50,7 @@ export function splitTurns(entries: LogEntry[], offset = 0): Turn[] {
     while (start && kind(t.steps[start - 1]) === "agent") start--;
     if (start < end) t.answer = t.steps.splice(start);
   }
+
   return turns;
 }
 
@@ -55,6 +58,7 @@ export function splitTurns(entries: LogEntry[], offset = 0): Turn[] {
 /// notes stay outside it and start a new group for subsequent activity.
 export function turnSections(entries: LogEntry[], t: Turn, offset = 0): { progress: boolean; ats: number[] }[] {
   const sections: { progress: boolean; ats: number[] }[] = [];
+
   for (const at of [...t.steps, ...t.answer]) {
     const kind = entries[at - offset].kind;
     const progress = kind === "tool" || kind === "thought";
@@ -62,6 +66,7 @@ export function turnSections(entries: LogEntry[], t: Turn, offset = 0): { progre
     if (last && last.progress === progress) last.ats.push(at);
     else sections.push({ progress, ats: [at] });
   }
+
   return sections;
 }
 
@@ -93,10 +98,12 @@ export function beepCall(title: string): BeepCall | null {
   let m: RegExpExecArray | null;
   if (rest === "List machines") return call("Listed machines", "Listing machines");
   if ((m = /^Run on (.+?)(?:: ([\s\S]*))?$/.exec(rest))) return call("Ran on", "Running on", { machine: m[1], detail: m[2] });
+
   if ((m = /^Start (\S+ agent|an agent|\S+)(?: on (.+?))?(?:: ([\s\S]*))?$/.exec(rest))) {
     const on = m[2] ? " on" : "";
     return call(`Started ${m[1]}${on}`, `Starting ${m[1]}${on}`, { machine: m[2], detail: m[3] });
   }
+
   if ((m = /^Sync (.+?)(?: to (.+))?$/.exec(rest))) return call("Synced", "Syncing", { detail: m[1], machine: m[2] });
   if ((m = /^Send (\d+) (files?) to (.+)$/.exec(rest))) return call("Sent files to", "Sending files to", { machine: m[3], files: `${m[1]} ${m[2]}` });
   if ((m = /^Check job ?(.*)$/.exec(rest))) return call("Checked job", "Checking job", { detail: m[1] });
@@ -183,19 +190,23 @@ export function rowParts(text: string, running = false, whole = false): RowParts
   const known = first ? VERBS[first[1].toLowerCase()] : undefined;
   let verb = known ? known[running ? 1 : 0] : kind === "command" ? (running ? "Running" : "Ran") : "Used";
   let target = known ? first![2] : label;
+
   if (!known && kind === "other") {
     const named = /^([A-Za-z]+): ([\s\S]*)$/.exec(label);
     verb = named ? named[1] : label;
     target = named ? named[2] : "";
   }
+
   if (kind === "edit" && !failed) {
     const d = diffBlocks(output);
     if (d.length) detail = `+${d.reduce((n, b) => n + b.added, 0)} -${d.reduce((n, b) => n + b.removed, 0)}`;
   }
+
   if (kind === "read") {
     const r = RANGE.exec(target);
     if (r) { detail = detail || `L${r[1] ?? r[3]}${(r[2] ?? r[4]) ? `-${r[2] ?? r[4]}` : ""}`; target = target.slice(0, r.index); }
   }
+
   return { kind, verb, target: target.trim(), detail, bad: failed };
 }
 
@@ -212,6 +223,7 @@ export interface DiffBlock {
 /// The diffs in a tool's output; none when it shows none.
 export function diffBlocks(output: string): DiffBlock[] {
   const out: DiffBlock[] = [];
+
   for (const line of output.split("\n")) {
     const head = /^\[diff\] (.+) \+(\d+) -(\d+)$/.exec(line);
     if (head) { out.push({ path: head[1], added: Number(head[2]), removed: Number(head[3]), lines: [], more: 0 }); continue; }
@@ -221,6 +233,7 @@ export function diffBlocks(output: string): DiffBlock[] {
     if (more) cur.more = Number(more[1]);
     else if (line[0] === "+" || line[0] === "-" || line[0] === " ") cur.lines.push({ mark: line[0], text: line.slice(1) });
   }
+
   return out;
 }
 
@@ -228,12 +241,14 @@ export function diffBlocks(output: string): DiffBlock[] {
 export function withoutDiffs(output: string) {
   const keep: string[] = [];
   let inDiff = false;
+
   for (const line of output.split("\n")) {
     if (/^\[diff\] /.test(line)) { inDiff = true; continue; }
     if (inDiff && (/^[ +-]/.test(line) || /^… \d+ more lines$/.test(line))) continue;
     inDiff = false;
     keep.push(line);
   }
+
   return keep.join("\n").trim();
 }
 
@@ -252,12 +267,14 @@ export function toolRuns(entries: LogEntry[], ats: number[], offset = 0, pinned?
   };
   let run: number[] = [], runKind: ToolKind | null = null;
   const flush = () => { if (run.length) out.push(run); run = []; runKind = null; };
+
   for (const at of ats) {
     const k = kindOf(at);
     if (k && k === runKind) { run.push(at); continue; }
     flush();
     if (k) { run = [at]; runKind = k; } else out.push([at]);
   }
+
   flush();
   return out;
 }
@@ -330,10 +347,12 @@ export function progressSummary(entries: LogEntry[], t: Turn, offset = 0, steps 
 export function stepLabel(text: string, running = false, whole = false) {
   const { title } = parseTool(text);
   const beep = beepLine(title, running);
+
   if (beep != null) {
     const lines = beep.split("\n");
     return whole || lines.length === 1 ? beep : `${lines[0]} …`;
   }
+
   const lines = title.trim().split("\n");
   const line = whole ? title.trim() : lines.length > 1 ? `${lines[0]} …` : lines[0];
   const named = /^([A-Za-z]+): ([\s\S]*)$/.exec(line);

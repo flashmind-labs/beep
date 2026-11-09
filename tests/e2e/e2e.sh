@@ -73,11 +73,13 @@ finish(){
   trap '' INT TERM
   if [[ "$status" != 0 ]]; then fetch_logs; fi
   cost_report
+
   if [[ "${E2E_KEEP:-0}" == 1 ]]; then
     note "E2E_KEEP=1: the fleet stays up; remove it with: $0 all teardown"
   else
     teardown || status=1
   fi
+
   step "done in $((SECONDS - STARTED)) s"
   for line in "${results[@]}"; do note "$line"; done
   exit "$status"

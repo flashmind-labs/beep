@@ -57,9 +57,11 @@ impl User {
         name: &str,
     ) -> Result<Option<crate::store::RemovedProject>> {
         let removed = self.store.remove_project(&self.key, name).await?;
+
         if removed.is_some() {
             self.changed("");
         }
+
         Ok(removed)
     }
 

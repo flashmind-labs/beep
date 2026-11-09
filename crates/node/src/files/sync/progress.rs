@@ -78,9 +78,11 @@ impl Meter {
             return 0;
         };
         let span = last.at.saturating_duration_since(first.at);
+
         if span < MIN_SPAN {
             return 0;
         }
+
         let moved = u128::from(last.bytes.saturating_sub(first.bytes));
         u64::try_from(moved * 1000 / span.as_millis()).unwrap_or(u64::MAX)
     }
@@ -104,9 +106,11 @@ pub(super) fn eta(left: u64, rate: u64) -> Option<u32> {
     if left == 0 {
         return Some(0);
     }
+
     if rate == 0 {
         return None;
     }
+
     u32::try_from(left.div_ceil(rate)).ok()
 }
 

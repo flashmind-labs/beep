@@ -62,5 +62,6 @@ pub(super) async fn run_cron(cx: Cx, RunCron { id }: RunCron) -> Reply<String> {
     if job.once {
         cx.user.delete_cron(&id).await?;
     }
+
     Ok(run.session_id)
 }

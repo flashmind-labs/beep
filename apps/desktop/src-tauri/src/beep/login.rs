@@ -39,6 +39,7 @@ pub fn open_link(app: &AppHandle, url: &str) {
     if !SERVER_ENABLED {
         return;
     }
+
     let Some(token) = login_token(url) else {
         return;
     };
@@ -47,6 +48,7 @@ pub fn open_link(app: &AppHandle, url: &str) {
         let beep = app.state::<Arc<Beep>>().inner().clone();
         let failed = finish(&app, &beep, token).await.err();
         bar::show(&app, Some("link"));
+
         if let Some(failed) = failed {
             let _ = app.emit_to("bar", "login-failed", failed.to_string());
         }
@@ -56,12 +58,14 @@ pub fn open_link(app: &AppHandle, url: &str) {
 async fn finish(app: &AppHandle, beep: &Beep, token: String) -> Result<()> {
     let token = SecretText::new(token.trim());
     beep.guest_call(CompleteLogin { token }).await?;
+
     if beep.link_state() != LinkState::Linked {
         // The key is on the account now; its events stream opens as it.
         beep.restart_events();
         beep.set_link_state(LinkState::Linked);
         tray::became_linked(app);
     }
+
     Ok(())
 }
 

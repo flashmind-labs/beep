@@ -24,6 +24,7 @@ test("invalid and duplicate model overrides cannot be saved", () => {
   for (const threshold of ["0", "101%", "no", "9007199254740992", "-1", "1.5"]) {
     assert.notEqual(modelProblem([{ model: "model", threshold }]), "", threshold);
   }
+
   assert.match(modelProblem([{ model: "", threshold: "50%" }]), /model id/);
   assert.match(modelProblem([{ model: "m", threshold: "50%" }, { model: " m ", threshold: "off" }]), /twice/);
 });

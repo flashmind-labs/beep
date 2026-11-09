@@ -17,6 +17,7 @@ use tokio_util::task::AbortOnDropHandle;
 /// Worktree metadata can live outside the checkout. Avoid watching the object database.
 pub(super) async fn watch_paths(root: &Path) -> Result<Vec<PathBuf>> {
     let mut repository = false;
+
     for folder in root.ancestors() {
         if tokio::fs::symlink_metadata(folder.join(".git"))
             .await
@@ -26,9 +27,11 @@ pub(super) async fn watch_paths(root: &Path) -> Result<Vec<PathBuf>> {
             break;
         }
     }
+
     if !repository {
         return Ok(Vec::new());
     }
+
     let output = tokio::time::timeout(
         Duration::from_secs(5),
         tokio::process::Command::new("git")
@@ -49,9 +52,11 @@ pub(super) async fn watch_paths(root: &Path) -> Result<Vec<PathBuf>> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         other => other?,
     };
+
     if !output.status.success() {
         return Ok(Vec::new());
     }
+
     let text = String::from_utf8(output.stdout).context("Git metadata path is not UTF-8")?;
     let mut paths = text.lines();
     let git = paths
@@ -109,6 +114,7 @@ pub(super) async fn read(agents: &Agents, root: &str, query: GitRead) -> Result<
     })
     .await?;
     let mut output = String::new();
+
     loop {
         match rx
             .recv::<shell::Event>()

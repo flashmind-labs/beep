@@ -18,9 +18,11 @@ pub(super) async fn list_pending_approvals(
 /// The cards the project chats wait on.
 pub(super) async fn pending_approvals(user: &User) -> Reply<Vec<ChatApproval>> {
     let pending = super::projects::project_cards(user).await?;
+
     if pending.is_empty() {
         return Ok(Vec::new());
     }
+
     let titles: HashMap<String, String> = user
         .sessions()
         .await?

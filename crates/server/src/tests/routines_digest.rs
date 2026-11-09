@@ -20,6 +20,7 @@ fn trimming_keeps_flagged_emails_and_the_newest_others() {
             .emails
             .push(email(Mailbox::Gmail, hours, &format!("{hours}"), false));
     }
+
     report.trim();
     assert_eq!(report.emails.len(), MAX_EMAILS);
     assert!(

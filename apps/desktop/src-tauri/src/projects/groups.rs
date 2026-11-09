@@ -39,6 +39,7 @@ pub async fn project_groups(
                     Err(e) => log::info!("the server's groups did not read: {e}"),
                 }
             }
+
             Ok(Some(groups))
         }
         Err(e) => Err(e),
@@ -69,6 +70,7 @@ pub async fn project_group_save(
             })
             .await;
     }
+
     match desk {
         Some(desk) => Ok(desk.save_group(id, &name, &paths).await?),
         None => beep.call(SaveProjectGroup { id, name, paths }).await,

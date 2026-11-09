@@ -25,11 +25,13 @@ const INTERPRETERS: [RegExp, string][] = [
 export function heredocLang(before: string) {
   // The last command of a pipeline or list is the one that reads it.
   const words = (before.split(SEPARATOR).pop() ?? "").trim().split(/\s+/);
+
   for (const w of words) {
     const name = w.replace(/^["']|["']$/g, "").split("/").pop() ?? "";
     const hit = INTERPRETERS.find(([re]) => re.test(name));
     if (hit) return hit[1];
   }
+
   const file = /(?:^|\s)\d*>>?\s*(?:"([^"]+)"|'([^']+)'|(\S+))/.exec(before) ?? /\btee\s+(?:-a\s+)?(?:"([^"]+)"|'([^']+)'|(\S+))/.exec(before);
   const path = file ? (file[1] ?? file[2] ?? file[3]) : "";
   return path ? languageOf(path) : "";
@@ -39,11 +41,13 @@ export function heredocLang(before: string) {
 /// are stripped from its end line (`<<-`), and the language of the body.
 function opened(line: string) {
   const out: { end: string; dash: boolean; lang: string }[] = [];
+
   for (const m of line.matchAll(/<<(-?)\s*(?:'([^']+)'|"([^"]+)"|\\?([A-Za-z_][\w]*))/g)) {
     // `<<<` is a here-string, not a heredoc.
     if (line[m.index! - 1] === "<" || line[m.index! + 2] === "<") continue;
     out.push({ end: m[2] ?? m[3] ?? m[4], dash: m[1] === "-", lang: heredocLang(`${line.slice(0, m.index)} ${line.slice(m.index! + m[0].length).split(SEPARATOR)[0]}`) });
   }
+
   return out;
 }
 
@@ -57,8 +61,10 @@ export function segments(command: string): Segment[] {
     else out.push({ lang, lines: [line] });
   };
   let pending: ReturnType<typeof opened> = [];
+
   for (const line of command.split("\n")) {
     const doc = pending[0];
+
     if (!doc) {
       add("Shell", line);
       pending = opened(line);
@@ -67,6 +73,7 @@ export function segments(command: string): Segment[] {
       pending.shift();
     } else add(doc.lang, line);
   }
+
   return out;
 }
 
@@ -85,10 +92,12 @@ const cache = new Map<string, string>();
 /// `commandHtml`, kept by command text so a redraw does not color it again.
 export function cachedCommandHtml(command: string) {
   let html = cache.get(command);
+
   if (html === undefined) {
     html = commandHtml(command);
     if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value!);
     cache.set(command, html);
   }
+
   return html;
 }

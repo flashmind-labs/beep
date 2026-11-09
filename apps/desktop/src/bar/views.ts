@@ -65,6 +65,7 @@ export async function show(view: string | null) {
   if (view && Object.hasOwn(NAMED, view)) return NAMED[view]();
   // Back from the browser: look again at what is connected.
   if (S.view === "apps") return loadApps();
+
   // A chat picked from the tray's Recent menu, or the orb's approval card,
   // already made current in Rust. In live mode it opens under the dock.
   if (view === "open" && st.session) {
@@ -72,18 +73,23 @@ export async function show(view: string | null) {
     if (S.view !== "chat" || !$("#ldock") || LV.chat !== st.session) openLive(st.session);
     return drawDock(LV.view);
   }
+
   // A group stays up between showings, fetched again for what came in.
   if (GROUP_VIEWS.has(S.view)) {
     if (S.view === "group") { loadGroup(); $("#gask")?.focus(); }
     else if (S.view === "ginfo") loadGroup();
     else bar.querySelector("input")?.focus();
+
     return;
   }
+
   // Live mode runs in the bar until it ends.
   if (LV.on) return renderLive();
+
   if (S.view !== "chat" || !$("#ask")) {
     if (S.session) return openSession(S.session);
     return renderChat();
   }
+
   focusAsk();
 }

@@ -53,10 +53,13 @@ impl App {
                 return false;
             }
         };
+
         if history.last().is_none_or(|last| last.id != seq) {
             return false;
         }
+
         let state = call_state(joined, &history);
+
         match decision
             .probability_with(&state, CALL_QUESTION, &CALL_CRITERIA)
             .await
@@ -104,9 +107,11 @@ impl App {
             }
         };
         log::info!("group memory scored {probability:.2}; group={group_id} seq={seq}");
+
         if probability < MEMORY_THRESHOLD {
             return;
         }
+
         for row in &joined.members {
             let Some(user) = self.user(&row.user_id) else {
                 continue;
@@ -171,6 +176,7 @@ impl App {
                 .collect::<Vec<_>>()
                 .join(", ")
         );
+
         match self.store.owned_skills(&SkillOwner::Group(group_id)).await {
             Ok(owned) => {
                 if let Some(index) = skills::index(GROUP_INDEX_HEADER, &owned) {
@@ -179,8 +185,10 @@ impl App {
             }
             Err(error) => log::warn!("unable to list group skills: {error:#}; group={group_id}"),
         }
+
         if decision.is_some() {
             let mut private = String::new();
+
             for member in members.iter() {
                 let rows = member.user.memory_rows().await.unwrap_or_default();
                 let rows: Vec<_> = rows
@@ -189,11 +197,14 @@ impl App {
                     .collect();
                 // `profile_facts` keeps to memories about the member.
                 let facts = profile_facts(&rows, today);
+
                 if facts.is_empty() {
                     continue;
                 }
+
                 let _ = write!(private, "\n\nAbout {} (private):", member.name);
                 let mut secrets = secrets.lock().unwrap_or_else(PoisonError::into_inner);
+
                 for fact in facts.into_iter().take(15) {
                     let _ = write!(private, "\n- {fact}");
                     secrets.push(Secret {
@@ -202,6 +213,7 @@ impl App {
                     });
                 }
             }
+
             context.push_str(&private);
         }
 
@@ -212,9 +224,11 @@ impl App {
             owner: SkillOwner::Group(group_id),
             writes: false,
         }));
+
         if let Some(search) = &self.tools.search {
             registry.register(search.clone());
         }
+
         let chat: Vec<Said> = history
             .iter()
             .map(|row| Said {
@@ -272,12 +286,14 @@ impl App {
                 if let Some(key) = &self.tools.firecrawl_key {
                     register_web_tools(&mut registry, key.expose_secret());
                 }
+
                 let (composio, mcp) = tokio::join!(actor.app_tools(), actor.mcp_tools());
                 let rules = actor.app_rules().await.unwrap_or_else(|error| {
                     log::warn!("permissions: unable to load, asking for everything: {error:#}");
                     Rules::default()
                 });
                 let tools = markdown::wrap(composio.tools.into_iter().chain(mcp).collect());
+
                 for tool in permissions::guard(tools, rules, Approved(None), &composio.hinted, None)
                 {
                     registry.register(tool);
@@ -295,6 +311,7 @@ impl App {
         if let Some(routing) = self.models.routing(&model) {
             llm.provider_preferences = Some(routing.clone());
         }
+
         let mut agent = Agent::builder(self.provider.clone())
             .llm(llm)
             .tools(registry)
@@ -304,12 +321,14 @@ impl App {
 
         let mut conversation = Conversation::new();
         conversation.set_system(include_str!("../../../prompts/group.md"));
+
         for row in earlier {
             conversation.add(match row.author_id {
                 Some(_) => ConversationEntry::user(said(&row.author_name, &row.content)),
                 None => ConversationEntry::assistant(&row.content),
             });
         }
+
         let input = AgentInput::User {
             content: said(&latest.author_name, &latest.content),
             context: Some(context),
@@ -324,6 +343,7 @@ impl App {
             tokio::pin!(stream);
             let deadline = sleep(MAX_RUN);
             tokio::pin!(deadline);
+
             loop {
                 let event = tokio::select! {
                     _ = &mut deadline => { cancel.cancel(); return Ok(FAILED.to_owned()); }
@@ -332,6 +352,7 @@ impl App {
                         Err(_) => { cancel.cancel(); return Ok(FAILED.to_owned()); }
                     },
                 };
+
                 match event {
                     Some(AgentEvent::TextDelta(delta)) => reply.push_str(&delta),
                     Some(AgentEvent::Interrupted { .. }) => {
@@ -344,9 +365,11 @@ impl App {
             }
         }
         let reply = reply.trim();
+
         if needs_approval && reply.is_empty() {
             return Ok(NEEDS_APPROVAL.to_owned());
         }
+
         if reply.is_empty() {
             return Ok(FAILED.to_owned());
         }

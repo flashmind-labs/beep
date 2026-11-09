@@ -36,12 +36,15 @@ impl RepeatGuard {
         self.tail.extend(delta.chars());
         self.unchecked += self.tail.len() - before;
         let keep = MAX_PERIOD * COPIES;
+
         if self.tail.len() > keep {
             self.tail.drain(..self.tail.len() - keep);
         }
+
         if self.unchecked < CHECK_EVERY {
             return false;
         }
+
         self.unchecked = 0;
         (MIN_PERIOD..=MAX_PERIOD)
             .take_while(|period| period * COPIES <= self.tail.len())
@@ -82,6 +85,7 @@ pub fn guard_tool_calls(registry: &mut ToolRegistry) -> Refusals {
             refusals: refusals.clone(),
         }));
     }
+
     refusals
 }
 
@@ -125,6 +129,7 @@ impl Tool for CallGuard {
             *count += 1;
             *count
         };
+
         if count > SAME_CALLS {
             self.refusals.0.fetch_add(1, Ordering::Relaxed);
             return Ok(ToolResult::failure(
@@ -133,6 +138,7 @@ impl Tool for CallGuard {
                  Change the arguments, try another tool, or answer with what you have.",
             ));
         }
+
         let mut result = self.tool.execute(ctx).await?;
         paging::rewrite_text(&mut result, |output| Some(paging::mark(output)));
         Ok(result)

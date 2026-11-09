@@ -7,12 +7,14 @@ import type { Freshness } from "./pagecache.ts";
 export function svgEl(markup: string) {
   // Each icon is parsed once; rows that repeat it get a copy.
   let node = parsedSvg.get(markup);
+
   if (node === undefined) {
     const s = el("span");
     s.innerHTML = markup;
     node = s.firstChild;
     parsedSvg.set(markup, node);
   }
+
   return node && node.cloneNode(true);
 }
 const parsedSvg = new Map<string, ChildNode | null>();
@@ -45,12 +47,14 @@ export function headedTable(cls: string, ...cols: string[]) {
 /// `rows` in a box as tall as its first `shown` rows; the rest scroll.
 export function fitRows(rows: HTMLElement[], shown: number) {
   const list = el("div", "pj-scroll", ...rows);
+
   if (rows.length > shown && typeof requestAnimationFrame === "function") {
     requestAnimationFrame(() => {
       const tall = rows.slice(0, shown).reduce((sum, row) => sum + row.offsetHeight, 0);
       if (tall > 0) list.style.maxHeight = `${tall}px`;
     });
   }
+
   return list;
 }
 
@@ -72,6 +76,7 @@ export function freshNote(f: Freshness) {
     spin.title = "Updating";
     return spin;
   }
+
   return f.text ? el("small", "sw-age", f.text) : null;
 }
 

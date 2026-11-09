@@ -54,9 +54,11 @@ impl Hub {
                 let Some(sender) = weak.upgrade() else {
                     return false;
                 };
+
                 if topic.matches(&change.topic) {
                     let _ = sender.send(change.clone());
                 }
+
                 true
             });
         }
@@ -83,9 +85,11 @@ impl Hub {
                 "too many plugin topics"
             );
             let value = Value::Plugin(state);
+
             if states.get(&topic) == Some(&value) {
                 return Ok(());
             }
+
             states.insert(topic.clone(), value);
         }
         self.changed(topic);
@@ -109,6 +113,7 @@ impl Hub {
         if !Arc::ptr_eq(&self.0, &system().0) {
             topics.extend(crate::lock(&system().0.states).keys().cloned());
         }
+
         topics.into_iter().collect()
     }
 }

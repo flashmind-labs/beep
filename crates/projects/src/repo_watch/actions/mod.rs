@@ -112,11 +112,13 @@ impl HostRun {
                     .to_owned()
             });
         let mut pull_requests: Vec<u64> = self.pull_requests.iter().map(|pr| pr.number).collect();
+
         if let Some(number) = pull_of(&reference).or_else(|| pull_of(&branch))
             && !pull_requests.contains(&number)
         {
             pull_requests.push(number);
         }
+
         let finished = if state.finished() {
             time(self.completed_at.as_deref()).or_else(|| time(self.updated_at.as_deref()))
         } else {
@@ -144,6 +146,7 @@ impl HostRun {
         if let Some(name) = self.name.as_deref().filter(|name| !name.trim().is_empty()) {
             return name.trim().to_owned();
         }
+
         let file = self
             .path
             .clone()
@@ -162,6 +165,7 @@ fn pull_of(reference: &str) -> Option<u64> {
     if let Some(rest) = reference.strip_prefix("refs/pull/") {
         return rest.split('/').next()?.parse().ok();
     }
+
     reference.strip_prefix('#')?.parse().ok()
 }
 
@@ -183,6 +187,7 @@ pub fn state_of(status: &str, conclusion: Option<&str>) -> RunState {
         _ => None,
     };
     let status = status.trim().to_ascii_lowercase();
+
     match status.as_str() {
         "queued" | "pending" | "requested" => RunState::Queued {},
         "waiting" | "blocked" => RunState::Waiting {},
@@ -433,10 +438,12 @@ fn clean_line(line: &str) -> String {
     };
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars().peekable();
+
     while let Some(c) = chars.next() {
         if c == '\u{1b}' {
             if chars.peek() == Some(&'[') {
                 chars.next();
+
                 for c in chars.by_ref() {
                     if c.is_ascii_alphabetic() {
                         break;
@@ -445,8 +452,10 @@ fn clean_line(line: &str) -> String {
             }
             continue;
         }
+
         out.push(c);
     }
+
     out
 }
 

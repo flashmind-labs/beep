@@ -245,6 +245,7 @@ async fn seed(pool: &PgPool, statements: &[&str], user: &str, tag: &str, chat: U
 /// Each owner table's rows owned by `user`.
 async fn counts(pool: &PgPool, owners: &[(String, String)], user: &str) -> BTreeMap<String, i64> {
     let mut out = BTreeMap::new();
+
     for (table, column) in owners {
         let count: i64 =
             sqlx::query_scalar(&format!("SELECT count(*) FROM {table} WHERE {column}=$1"))
@@ -254,6 +255,7 @@ async fn counts(pool: &PgPool, owners: &[(String, String)], user: &str) -> BTree
                 .unwrap();
         *out.entry(table.clone()).or_default() += count;
     }
+
     out
 }
 
@@ -316,6 +318,7 @@ async fn merged(store: &Store) -> (String, String) {
         "rows left with the merged account: {left:?}"
     );
     let target_after = counts(pool, &owners, &target).await;
+
     for (table, after) in &target_after {
         let expected = if table == "account_invites" {
             // The source's codes go with it, and the target's was used.
@@ -350,11 +353,13 @@ async fn a_merge_keeps_the_rows_of_every_table() {
         names,
         ["Acme/App-Copy", "acme/app", "acme/app-copy-2", "solo/tool"]
     );
+
     for (table, column) in projects::NAMED.iter().filter(|(t, _)| *t != "projects") {
         let sql = format!("SELECT {column} FROM {table} WHERE user_id=$1 ORDER BY 1");
         let named = texts(pool, &sql, &target).await;
         assert_eq!(named, ["acme/app", "acme/app-copy-2"], "{table}");
     }
+
     let worker_project = texts(
         pool,
         "SELECT p.name FROM project_workers w JOIN projects p ON p.id = w.project_id

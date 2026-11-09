@@ -46,6 +46,7 @@ impl Watcher for MemoryWatcher {
         if !review.transcript.talk {
             return Ok(());
         }
+
         let user = review.user;
         let machines = user.nodes().await?;
         let known = known(review).await?;
@@ -80,6 +81,7 @@ impl Watcher for MemoryWatcher {
                 review.chat
             );
         }
+
         Ok(())
     }
 }
@@ -97,6 +99,7 @@ async fn known(review: &Review<'_>) -> Result<Vec<Hit>> {
             }
         }
     };
+
     for query in [said, replied] {
         if !query.trim().is_empty() {
             add(user
@@ -104,17 +107,20 @@ async fn known(review: &Review<'_>) -> Result<Vec<Hit>> {
                 .await?);
         }
     }
+
     for category in ["identity", "people"] {
         add(user
             .search_memories("", Some(category), Some(&Scope::User), 15)
             .await?);
     }
+
     Ok(known)
 }
 
 /// What the user said and what Beep said in `transcript`, each clipped.
 fn sides(transcript: &str) -> (String, String) {
     let (mut said, mut replied) = (String::new(), String::new());
+
     for line in transcript.lines() {
         let line = line.split_once("] ").map_or(line, |(_, rest)| rest);
         if let Some(text) = line.strip_prefix("User: ") {
@@ -147,10 +153,13 @@ fn scope_name(scope: &Scope, machines: &[NodeRow]) -> String {
 /// The scope the model named; a machine is named by its name.
 fn parse_scope(text: &str, machines: &[NodeRow]) -> Option<Scope> {
     let text = text.trim();
+
     if text.eq_ignore_ascii_case("user") {
         return Some(Scope::User);
     }
+
     let (kind, name) = text.split_once(':')?;
+
     match kind.trim().to_ascii_lowercase().as_str() {
         "project" => Scope::project(name).ok(),
         "account" => Scope::account(name).ok(),
@@ -167,16 +176,21 @@ fn prompt(today: &str, known: &[Hit], machines: &[NodeRow], transcript: &str) ->
     let mut text = String::new();
     let _ = writeln!(text, "Today: {today}");
     let _ = writeln!(text, "\nThe user's machines:");
+
     if machines.is_empty() {
         let _ = writeln!(text, "(none)");
     }
+
     for machine in machines {
         let _ = writeln!(text, "- {}", machine.name);
     }
+
     let _ = writeln!(text, "\nKnown memories:");
+
     if known.is_empty() {
         let _ = writeln!(text, "(none related)");
     }
+
     for hit in known {
         let _ = writeln!(
             text,
@@ -190,6 +204,7 @@ fn prompt(today: &str, known: &[Hit], machines: &[NodeRow], transcript: &str) ->
             hit.content
         );
     }
+
     let _ = write!(text, "\nConversation:\n{transcript}\n");
     text
 }

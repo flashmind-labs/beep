@@ -24,11 +24,13 @@ pub fn start(endpoint: &Endpoint, path: &Path) -> anyhow::Result<AbortOnDropHand
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
         loop {
             tokio::select! {
                 scheduled = tick.tick() => {
                     let delay = tokio::time::Instant::now().saturating_duration_since(scheduled);
                     metrics::histogram!("beep_runtime_tick_delay_seconds").record(delay.as_secs_f64());
+
                     if delay >= Duration::from_secs(1) {
                         log::warn!("runtime timer delayed {} ms", delay.as_millis());
                     }

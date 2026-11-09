@@ -24,7 +24,9 @@ fn checked(path: &str) -> Result<PathBuf> {
     if path.starts_with('/') || path.contains('\\') || path.contains(':') {
         bail!("Use a relative path inside the working folder");
     }
+
     let path = names(path)?;
+
     if path.as_os_str().is_empty()
         || path
             .components()
@@ -32,14 +34,17 @@ fn checked(path: &str) -> Result<PathBuf> {
     {
         bail!("The working folder and Git metadata cannot be changed here");
     }
+
     Ok(path)
 }
 
 fn folder(root: &WorkRoot, rel: &Path) -> Result<Dir> {
     let mut dir = Dir::open(&root.root)?;
+
     for part in rel.components() {
         dir = dir.open_dir(part.as_os_str())?;
     }
+
     Ok(dir)
 }
 
@@ -56,6 +61,7 @@ fn roots(paths: &[String]) -> Result<Vec<PathBuf>> {
     if paths.is_empty() || paths.len() > MAX_ITEMS {
         bail!("Select between 1 and {MAX_ITEMS} items");
     }
+
     let all = paths
         .iter()
         .map(|p| checked(p))
@@ -82,12 +88,15 @@ fn measure(
         bail!("Cannot copy Git metadata or folders nested over 128 levels");
     }
     *count += 1;
+
     if *count > MAX_ITEMS {
         bail!("Copy at most {MAX_ITEMS} items at once");
     }
+
     let meta = dir.metadata(entry)?.context("An item is no longer there")?;
     if meta.is_dir() {
         let child = dir.open_dir(entry)?;
+
         for name in child.entries()? {
             measure(&child, &name, count, bytes, depth + 1)?;
         }
@@ -101,6 +110,7 @@ fn measure(
     } else {
         bail!("Only regular files and folders can be copied");
     }
+
     Ok(())
 }
 
@@ -116,10 +126,13 @@ fn copy_entry(
     if depth > 128 || source.eq_ignore_ascii_case(".git") {
         bail!("Cannot copy this folder");
     }
+
     budget.count += 1;
+
     if budget.count > MAX_ITEMS {
         bail!("Too many items to copy");
     }
+
     let meta = from
         .metadata(source)?
         .context("An item is no longer there")?;
@@ -127,6 +140,7 @@ fn copy_entry(
         let src = from.open_dir(source)?;
         to.make_dir(dest, false)?;
         let dst = to.open_dir(dest)?;
+
         for entry in src.entries()? {
             copy_entry(&src, &entry, &dst, &entry, budget, depth + 1)?;
         }
@@ -148,6 +162,7 @@ fn copy_entry(
     } else {
         bail!("Only regular files and folders can be copied");
     }
+
     Ok(())
 }
 
@@ -164,9 +179,11 @@ pub(in crate::agents) fn edit(root: &WorkRoot, action: &FileAction) -> Result<()
         }
         FileAction::Rename { path, to } => {
             let (path, to) = (checked(path)?, checked(to)?);
+
             if to.starts_with(&path) {
                 bail!("An item cannot be moved into itself");
             }
+
             let (src, dst) = (parent(root, &path)?, parent(root, &to)?);
             let meta = src
                 .metadata(name(&path)?)?
@@ -193,22 +210,28 @@ pub(in crate::agents) fn edit(root: &WorkRoot, action: &FileAction) -> Result<()
             // Validate the whole selection before the first mutation.
             for path in &paths {
                 let entry = name(path)?;
+
                 if dest.starts_with(path) {
                     bail!("A folder cannot be placed inside itself");
                 }
+
                 if !taken.insert(entry.to_owned()) || dst.metadata(entry)?.is_some() {
                     bail!(
                         "{} already exists in the destination",
                         entry.to_string_lossy()
                     );
                 }
+
                 let src = parent(root, path)?;
                 src.metadata(entry)?.context("An item is no longer there")?;
+
                 if matches!(action, FileAction::Copy { .. }) {
                     measure(&src, entry, &mut count, &mut bytes, 0)?;
                 }
             }
+
             let mut budget = CopyBudget::default();
+
             for path in &paths {
                 let src = parent(root, path)?;
                 let entry = name(path)?;
@@ -223,9 +246,11 @@ pub(in crate::agents) fn edit(root: &WorkRoot, action: &FileAction) -> Result<()
         }
         FileAction::Delete { paths } => {
             let paths = roots(paths)?;
+
             for path in &paths {
                 parent(root, path)?;
             }
+
             for path in &paths {
                 parent(root, path)?
                     .remove_tree(name(path)?)
@@ -238,6 +263,7 @@ pub(in crate::agents) fn edit(root: &WorkRoot, action: &FileAction) -> Result<()
             }
         }
     }
+
     Ok(())
 }
 

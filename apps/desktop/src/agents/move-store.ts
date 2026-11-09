@@ -29,10 +29,12 @@ export async function refreshMoves() {
   // A node of the mesh may answer with something else; then there are none.
   MV.records = bySession(Array.isArray(records) ? records : []);
   const recent = [...MV.records.values()].filter(r => Date.now() - r.at < RECENT_MS).slice(0, MAX_ASKED);
+
   if (recent.length && !MV.names.size) {
     try { for (const m of await invoke<{ machine_id: string; machine_name: string }[]>("agent_hosts")) MV.names.set(m.machine_id, m.machine_name); }
     catch (e) { console.warn("machine names not read", e); }
   }
+
   await Promise.all(recent.map(async r => {
     try { MV.progress.set(r.session, await invoke<MoveProgress>("session_move_progress", { session: r.session })); }
     catch (e) { console.warn("move progress not read", e); }

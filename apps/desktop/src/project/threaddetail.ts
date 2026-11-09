@@ -87,9 +87,11 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
   function md(html: string) {
     const box = h("div", "pj-md");
     box.innerHTML = html;
+
     for (const a of box.querySelectorAll("a")) {
       a.addEventListener("click", e => { e.preventDefault(); if (a.href) deps.openUrl(a.href); });
     }
+
     return box;
   }
 
@@ -125,9 +127,11 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
     const r = read(projectId, stub.number);
     const d = r.data;
     const meta = h("div", "meta");
+
     if (d) {
       meta.append(d.state === "merged" ? stateChip("done", "merged") : d.state === "closed" ? stateChip("", "closed") : stateChip("running", d.draft ? "draft" : "open"));
     }
+
     const author = d?.author || stub.author, opened = d?.opened_at || stub.opened_at;
     meta.append(h("span", "", `#${stub.number}`, author && " opened by ", author && h("b", "", author), opened ? ` ${ago(opened)}` : ""));
     for (const l of d?.labels || []) meta.append(h("i", "pj-tag", l));
@@ -142,15 +146,19 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
     if (r.error) body.push(h("div", "cc-err", r.error));
     if (d === undefined && !r.error) body.push(emptyPanel(h("span", "", "Loading…")));
     if (d === null) body.push(emptyPanel(h("span", "", "The server needs an update before it shows the description and comments.")));
+
     if (d) {
       body.push(d.body_html.trim() ? md(d.body_html) : h("p", "dmuted", "No description."));
       if (d.earlier) body.push(h("small", "dmuted", `${d.earlier} earlier ${d.earlier === 1 ? "comment" : "comments"} on the host`));
+
       for (const c of d.comments) {
         body.push(h("div", "pj-post", h("div", "by", h("b", "", c.author || "someone"), ` · ${ago(c.at)}`), md(c.html)));
       }
+
       if (deps.comment() && d.state === "open") body.push(replyBox(projectId, d));
       else body.push(h("small", "dmuted", `Read only here. Comment on ${forgeLabel(url).replace(/^Open on /, "")}.`));
     }
+
     return [head, h("div", "pj-db", ...body)];
   }
 

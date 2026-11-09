@@ -53,12 +53,14 @@ impl LlmProvider for Scripted {
 
     fn complete(&self, request: CompletionRequest) -> CompletionStream {
         let system = request.messages[0].content.clone();
+
         if let Some(prompt) = request.messages.get(1) {
             self.prompts
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .push(prompt.content.clone());
         }
+
         let reply = self
             .rules
             .iter()

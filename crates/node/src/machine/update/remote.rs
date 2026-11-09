@@ -72,6 +72,7 @@ async fn serve(
     let Some(update::Request::Update { now }) = rx.recv::<update::Request>().await? else {
         return Ok(());
     };
+
     if UPDATING.swap(true, AtomicOrdering::SeqCst) {
         tx.send(&update::Event::Failed {
             reason: "An update is already running on this machine.".into(),
@@ -79,6 +80,7 @@ async fn serve(
         .await?;
         return tx.finish().await;
     }
+
     let (event, restart) = match remote(&agents, now).await {
         Ok(Remote { event, restart }) => (event, restart),
         Err(e) => {
@@ -99,9 +101,11 @@ async fn serve(
         tx.send(&event).await?;
         tx.finish().await
     };
+
     if let Err(e) = answered.await {
         log::debug!("the server did not read the update's answer: {e:#}");
     }
+
     let limit = Duration::from_secs(if now { 0 } else { WAIT_MINUTES * 60 });
     let restart = tokio::spawn(async move {
         let restarted = agents
@@ -124,6 +128,7 @@ async fn serve(
             Ok(Err(e)) => log::warn!("the service did not restart: {e:#}"),
             Err(e) => log::warn!("the restart failed: {e}"),
         }
+
         UPDATING.store(false, AtomicOrdering::SeqCst);
     });
     *lock(&waiting) = Some(AbortOnDropHandle::new(restart));
@@ -163,6 +168,7 @@ async fn remote(agents: &Agents, now: bool) -> Result<Remote, Error> {
     let base = base();
     let client = client()?;
     let Newest { current, latest } = newest(&client, &base).await?;
+
     if current >= latest {
         return Ok(Remote {
             event: update::Event::Newest {
@@ -171,6 +177,7 @@ async fn remote(agents: &Agents, now: bool) -> Result<Remote, Error> {
             restart: None,
         });
     }
+
     log::info!("updating beep-node {current} to {latest}");
     let exe = download(&client, &base, &latest).await?.install().await?;
     let plan = {

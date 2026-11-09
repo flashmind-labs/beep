@@ -32,11 +32,13 @@ impl RepoWatch {
         let entry = self.entry(user.id(), project.id);
         entry.runs.ask(Instant::now(), false);
         let mut copy = entry.runs.copy.lock().await;
+
         if copy.slot_of(host).is_none() {
             // Not read yet, or a host found since: look again.
             self.find_hosts(app, user, project, &entry, &mut copy)
                 .await?;
         }
+
         let Some(at) = copy.slot_of(host) else {
             return Err(match host {
                 None => NO_HOST.to_owned(),
@@ -148,6 +150,7 @@ impl RepoWatch {
                                 if logs.len() >= MAX_LOGS {
                                     logs.pop_front();
                                 }
+
                                 logs.push_back(KeptLog {
                                     host: host.clone(),
                                     job: job.id,

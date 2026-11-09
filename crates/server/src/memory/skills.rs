@@ -41,16 +41,19 @@ const REVIEW_SYSTEM: &str = include_str!("../../prompts/skill_review.md");
 pub fn index(header: &str, skills: &[SkillRow]) -> Option<String> {
     let mut text = String::from(header);
     let mut any = false;
+
     for skill in skills.iter().filter(|skill| skill.enabled).take(INDEX_MAX) {
         let _ = write!(text, "\n- {}: {}", skill.name, skill.description);
         any = true;
     }
+
     any.then_some(text)
 }
 
 /// The turns a review reads, written out; keeps the end when long.
 pub fn transcript<'a>(entries: impl IntoIterator<Item = &'a ConversationEntry>) -> String {
     let mut text = String::new();
+
     for entry in entries {
         match &entry.kind {
             EntryKind::User { content, .. } => {
@@ -64,6 +67,7 @@ pub fn transcript<'a>(entries: impl IntoIterator<Item = &'a ConversationEntry>) 
                 if !content.is_empty() {
                     let _ = write!(text, "\n\nBeep: {content}");
                 }
+
                 for call in tool_calls.iter().flatten() {
                     let arguments = clip(&call.arguments.to_string(), TOOL_CLIP);
                     let _ = write!(text, "\n[call {} {arguments}]", call.name);
@@ -75,6 +79,7 @@ pub fn transcript<'a>(entries: impl IntoIterator<Item = &'a ConversationEntry>) 
             EntryKind::SystemPrompt(_) | EntryKind::Developer { .. } => {}
         }
     }
+
     tail(text.trim(), TRANSCRIPT_MAX)
 }
 
@@ -83,10 +88,13 @@ fn tail(text: &str, max: usize) -> String {
     if text.len() <= max {
         return text.to_owned();
     }
+
     let mut start = text.len() - max;
+
     while !text.is_char_boundary(start) {
         start += 1;
     }
+
     format!("[earlier turns left out]\n{}", &text[start..])
 }
 
@@ -112,16 +120,19 @@ pub enum Audience {
 
 fn review_prompt(audience: Audience, skills: &[SkillRow], transcript: &str) -> String {
     let mut text = String::new();
+
     if audience == Audience::Group {
         text.push_str(
             "This is a group chat. Skills belong to the whole group: never put one member's \
              private details in one.\n\n",
         );
     }
+
     if skills.is_empty() {
         text.push_str("Existing skills: none.\n");
     } else {
         text.push_str("Existing skills:\n");
+
         for skill in skills {
             let paused = if skill.enabled { "" } else { " (paused)" };
             let _ = write!(
@@ -131,6 +142,7 @@ fn review_prompt(audience: Audience, skills: &[SkillRow], transcript: &str) -> S
             );
         }
     }
+
     let _ = write!(text, "\nConversation:\n{transcript}\n");
     text
 }
@@ -199,6 +211,7 @@ pub async fn review(
     if transcript.is_empty() {
         return Ok(Reviewed::default());
     }
+
     let skills = store.owned_skills(owner).await?;
     let answer = generator
         .text_up_to(
@@ -208,6 +221,7 @@ pub async fn review(
         )
         .await?;
     let mut reviewed = Reviewed::default();
+
     for op in parse_ops(&answer)?.into_iter().take(2) {
         match op {
             SkillOp::Create {
@@ -218,6 +232,7 @@ pub async fn review(
                 if !valid(&name, &description, &body) {
                     continue;
                 }
+
                 let skill = NewSkill {
                     name: name.trim(),
                     description: description.trim(),
@@ -251,6 +266,7 @@ pub async fn review(
                     body: Some(body.trim()),
                     ..SkillPatch::default()
                 };
+
                 if store
                     .learn_skill_change(owner, skill.id, patch)
                     .await?
@@ -261,6 +277,7 @@ pub async fn review(
             }
         }
     }
+
     Ok(reviewed)
 }
 

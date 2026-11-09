@@ -155,6 +155,7 @@ impl<T: Clone + Send + 'static> Held<T> {
         tauri::async_runtime::spawn(async move {
             let _refresh = refresh;
             let listed = ask.await;
+
             if held.finish(listed, same)
                 && let Err(e) = app.emit(HOME_CHANGED, ())
             {
@@ -192,6 +193,7 @@ impl<T: Clone + Send + 'static> Held<T> {
         if due {
             self.refresh_with(app, ask, same);
         }
+
         self.last()
     }
 
@@ -215,9 +217,11 @@ impl<T: Clone + Send + 'static> Held<T> {
         R: Call<Reply = Vec<T>> + Sync,
     {
         let beep = app.state::<Arc<Beep>>().inner().clone();
+
         if !beep.has_server() {
             return mesh;
         }
+
         self.refresh_with(app, async move { beep.call(request).await }, same);
         outside(mesh, &self.last(), id)
     }
@@ -280,11 +284,13 @@ impl FoundOn {
 pub(crate) fn machines(app: &AppHandle, fleet: &Fleet, held: &Outside) -> Vec<Machine> {
     let mut mesh = fleet.status().machines();
     let server = held.machines.last();
+
     for machine in mesh.iter_mut().filter(|m| m.version.is_empty()) {
         if let Some(listed) = server.iter().find(|s| s.id == machine.id) {
             machine.version.clone_from(&listed.version);
         }
     }
+
     held.machines.merged(
         app,
         mesh,
@@ -408,9 +414,11 @@ pub async fn remove_machine(
         && fleet.machines().iter().any(|m| m.device.id == machine)
     {
         fleet.remove(machine).await?;
+
         if !beep.linked() {
             return Ok(());
         }
+
         beep.owe_unlink(&id);
         return unlink(&beep, &id).await.map_err(|e| {
             log::warn!("the server still lists a removed machine: {e}");
@@ -421,9 +429,11 @@ pub async fn remove_machine(
             )
         });
     }
+
     if !beep.has_server() {
         return Err(DesktopError::BadRequest("that is not a machine".into()));
     }
+
     match beep.call(RemoveMachine { machine_id: id }).await {
         Err(e) if unknown_op(&e) => Err(DesktopError::BadRequest(
             "The server needs an update before machines can be removed here.".into(),
@@ -444,6 +454,7 @@ async fn unlink(beep: &Beep, id: &str) -> Result<()> {
         beep.settle_unlink(id);
         return Ok(());
     }
+
     done
 }
 
@@ -465,6 +476,7 @@ pub(crate) async fn retry_unlinks(beep: Arc<Beep>) {
     if !beep.linked() {
         return;
     }
+
     for id in beep.owed_unlinks() {
         if let Err(e) = unlink(&beep, &id).await {
             log::warn!("the server still lists a removed machine: {e}");
@@ -506,10 +518,12 @@ pub async fn machine_log(beep: Service<'_>, fleet: Machines<'_>, id: String) -> 
     if let Some(machine) = fleet.member(&id) {
         return direct::machine_log(&fleet, machine, MAX_LINES).await;
     }
+
     let request = GetMachineLog {
         machine_id: id,
         lines: MAX_LINES,
     };
+
     match beep.call_within(request, LOG_TIMEOUT).await {
         Err(e) if unknown_op(&e) => Err(DesktopError::BadRequest(
             "The server needs an update before logs can be read here.".into(),
@@ -540,10 +554,12 @@ pub async fn update_machine(
     if let Some(machine) = fleet.member(&id) {
         return direct::update_machine(&fleet, machine, false).await;
     }
+
     let request = UpdateMachine {
         machine_id: id,
         stop_sessions: false,
     };
+
     match beep.call_within(request, UPDATE_TIMEOUT).await {
         Err(e) if unknown_op(&e) => Err(DesktopError::BadRequest(
             "The server needs an update before machines can be updated here.".into(),

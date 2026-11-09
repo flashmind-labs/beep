@@ -43,14 +43,17 @@ pub enum IssueError {
 pub fn issue(manifest: &Manifest, reference: &str) -> Result<Issue, RedactError> {
     let text = quote_mentions(&redact(&manifest.text)?);
     let mut body = String::new();
+
     for line in text.lines() {
         body.push_str("> ");
         body.push_str(line);
         body.push('\n');
     }
+
     if body.is_empty() {
         body.push_str(">\n");
     }
+
     let sender = manifest.sender.to_string();
     let short: String = sender.chars().take(SHORT_ID).collect();
     let _ = writeln!(body, "\nReference: {reference}");
@@ -61,12 +64,15 @@ pub fn issue(manifest: &Manifest, reference: &str) -> Result<Issue, RedactError>
         plain(&manifest.app),
         or_unknown(&plain(&manifest.app_version))
     );
+
     if !manifest.machines.is_empty() {
         body.push_str("\nMachines:\n");
+
         for machine in &manifest.machines {
             let _ = writeln!(body, "- {}", machine_line(machine));
         }
     }
+
     Ok(Issue {
         title: format!("Problem report {reference}"),
         body,
@@ -78,6 +84,7 @@ fn quote_mentions(text: &str) -> String {
     let word = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '/');
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
+
     while let Some(at) = rest.find('@') {
         out.push_str(&rest[..at]);
         let tail = &rest[at + 1..];
@@ -94,6 +101,7 @@ fn quote_mentions(text: &str) -> String {
         }
         rest = &tail[len..];
     }
+
     out.push_str(rest);
     out
 }
@@ -185,6 +193,7 @@ async fn create(gh: &Path, issue: &Issue, label: bool) -> Result<String, IssueEr
     if label {
         command.args(["--label", LABEL]);
     }
+
     let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -195,12 +204,15 @@ async fn create(gh: &Path, issue: &Issue, label: bool) -> Result<String, IssueEr
         // A gh that exits early closes the pipe; its exit status says why.
         let _ = stdin.write_all(issue.body.as_bytes()).await;
     }
+
     let output = child.wait_with_output().await?;
+
     if !output.status.success() {
         return Err(IssueError::Failed(
             String::from_utf8_lossy(&output.stderr).trim().to_string(),
         ));
     }
+
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .rev()

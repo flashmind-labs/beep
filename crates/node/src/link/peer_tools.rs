@@ -87,6 +87,7 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
             },
         };
     }
+
     if matches!(
         request.tool,
         Tool::StartAgent
@@ -112,6 +113,7 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
             Err(text) => Reply::Done { text, failed: true },
         };
     }
+
     let outcome = match serde_json::from_str::<Value>(&request.args) {
         Err(e) => Err(format!("The arguments are not JSON: {e}")),
         Ok(args) => match request.tool {
@@ -133,6 +135,7 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
             other => Err(format!("A node does not serve {other} for another node.")),
         },
     };
+
     match outcome {
         Ok(text) => Reply::Done {
             text,
@@ -152,9 +155,11 @@ async fn agent_call(request: Request, caller: &Caller) -> Reply {
     let (Table::Peer(peer), Some(agents)) = (caller.table, &caller.agents) else {
         return failed("Agents are started through the node's own Beep MCP server.");
     };
+
     if request.tool == Tool::StartAgent && caller.desktop_here {
         return failed("This device is a desktop: another node may not start agents on it.");
     }
+
     children::answer_peer(agents, peer, request).await
 }
 
@@ -179,10 +184,12 @@ async fn run_on(args: RunOn, table: Table) -> Outcome {
     if args.prompt.is_some() || args.agent.is_some() {
         return Err("remote_run runs commands only. Start an agent with start_agent.".into());
     }
+
     let command = match args.command {
         Some(command) if !command.trim().is_empty() => command,
         _ => return Err("Give `command`.".into()),
     };
+
     if args.background {
         return match tasks::answer(
             table,
@@ -200,6 +207,7 @@ async fn run_on(args: RunOn, table: Table) -> Outcome {
             other => Err(task_error(other)),
         };
     }
+
     let secs = args
         .timeout_secs
         .unwrap_or(DEFAULT_RUN_SECS)
@@ -261,16 +269,20 @@ async fn sync_project(args: Value, caller: &Caller) -> Outcome {
     let status = syncs.rescan(&project).await.map_err(|e| format!("{e:#}"))?;
     let deadline = Instant::now() + SYNC_WAIT;
     let mut status = status;
+
     while !settled(&status) && Instant::now() < deadline {
         sleep(SYNC_POLL).await;
+
         match syncs.status_for(&project) {
             Some(now) => status = now,
             None => return Err(format!("{project} stopped syncing here.")),
         }
     }
+
     if status.git_only && status.state != SyncState::Idle {
         return Err(sync_line(&status));
     }
+
     Ok(sync_line(&status))
 }
 
@@ -301,10 +313,12 @@ fn sync_line(status: &ProjectStatus) -> String {
             None => format!("syncing, {} files pending", status.pending),
         },
     };
+
     if !status.conflicts.is_empty() {
         // Writing to a string cannot fail.
         let _ = write!(line, "; {} conflict copies", status.conflicts.len());
     }
+
     line
 }
 
@@ -339,12 +353,15 @@ fn status_text(reply: TaskReply) -> Outcome {
         return Err(task_error(reply));
     };
     let mut text = format!("{}: {}", task.command, task.state);
+
     if earlier {
         text.push_str("\n(earlier output left out)");
     }
+
     for line in lines {
         write!(text, "\n{line}").map_err(|e| e.to_string())?;
     }
+
     Ok(text)
 }
 

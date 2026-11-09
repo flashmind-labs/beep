@@ -59,20 +59,25 @@ pub fn choose(candidates: &[Candidate<'_>], wanted: Option<&str>) -> Result<usiz
             .position(|c| c.id == id)
             .ok_or(ImportError::NoSuchMachine)?;
         let found = &candidates[at];
+
         if !found.online {
             return Err(ImportError::Offline(found.name.to_owned()));
         }
+
         if !found.shell {
             return Err(ImportError::NoShell(found.name.to_owned()));
         }
+
         return Ok(at);
     }
+
     let able: Vec<usize> = (0..candidates.len())
         .filter(|&at| candidates[at].shell)
         .collect();
     if let Some(&at) = able.iter().find(|&&at| candidates[at].workspace) {
         return Ok(at);
     }
+
     match able[..] {
         [] => Err(ImportError::NoneOnline),
         [only] => Ok(only),

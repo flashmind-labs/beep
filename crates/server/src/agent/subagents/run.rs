@@ -108,18 +108,23 @@ impl Subagents {
         } = spec;
         let slot: Slot<D> = Arc::new(Mutex::new(None));
         let mut registry = ToolRegistry::new();
+
         for tool in tools {
             registry.register(tool);
         }
+
         let names: Vec<&'static str> = decisions.iter().map(|d| d.name).collect();
+
         for decision in decisions {
             registry.register(Arc::new(DecisionTool {
                 decision,
                 slot: slot.clone(),
             }));
         }
+
         let refusals = repeat::guard_tool_calls(&mut registry);
         crate::agent::tool_cost::log(kind.name, &registry);
+
         if let Some(gate) = gate {
             registry.set_gate(gate);
         }
@@ -192,6 +197,7 @@ impl Subagents {
                 _ = watch.cancel.cancelled() => break Err(Failure::Cancelled),
                 event = received.recv() => {
                     let Some(AgentEvent::SpawnedEvent { event, .. }) = event else { continue };
+
                     match *event {
                         AgentEvent::Usage(usage) => {
                             // Summed per report; a provider that reports more
@@ -211,6 +217,7 @@ impl Subagents {
                                 handle.cancel();
                                 continue;
                             }
+
                             if refusals.exhausted() {
                                 break Err(Failure::Repeating);
                             }
@@ -228,6 +235,7 @@ impl Subagents {
                 },
             }
         };
+
         if ended.is_err() {
             handle.cancel();
         }

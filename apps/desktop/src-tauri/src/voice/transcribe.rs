@@ -107,14 +107,18 @@ impl Voice {
         };
         let up = tauri::async_runtime::spawn(async move {
             let mut sent = 0usize;
+
             while let Some(pcm) = sound.recv().await {
                 sent += pcm.len();
+
                 if let Err(e) = uplink.send(&ByteBuf::from(pcm)).await {
                     log::debug!("live audio stopped going up: {e}");
                     return;
                 }
             }
+
             log::info!("live transcription {run}: {sent} bytes of audio sent");
+
             if let Err(e) = uplink.finish() {
                 log::debug!("ending live audio: {e}");
             }
@@ -126,6 +130,7 @@ impl Voice {
                     if !self.is_run(id, run) {
                         break SttEnd::Stale;
                     }
+
                     if let Some(s) = self.state().live.as_mut().filter(|s| s.id == id) {
                         s.stt_failures = 0;
                         s.stt_busy = 0;
@@ -172,11 +177,14 @@ impl Voice {
             {
                 self.input(id, Input::Words(tail.clone()));
             }
+
             if let SttEnd::Failed { message, .. } = &end {
                 log::warn!("live transcription, finishing: {message}");
             }
+
             return self.finish_hold(id, run);
         }
+
         let listening = self
             .state()
             .live
@@ -185,6 +193,7 @@ impl Voice {
         if !listening {
             return;
         }
+
         match end {
             SttEnd::Stale => {}
             // The server ended it, such as at its length limit.
@@ -219,6 +228,7 @@ impl Voice {
             if tries > BUSY_TRIES {
                 return self.fail(id, BUSY, message);
             }
+
             STT_RETRY
                 .saturating_mul(1u32 << (tries - 1).min(4))
                 .min(BUSY_WAIT)
@@ -226,11 +236,13 @@ impl Voice {
             if tries >= STT_TRIES {
                 return self.fail(id, UNAVAILABLE, message);
             }
+
             STT_RETRY
         };
         let me = self.clone();
         tauri::async_runtime::spawn(async move {
             sleep(wait).await;
+
             if me.is_run(id, run) {
                 me.transcribe(id);
             }

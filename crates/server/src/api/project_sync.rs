@@ -19,11 +19,13 @@ pub(crate) const MAX_NAME: usize = 200;
 /// `name` trimmed, once it is a name a project may have.
 pub(crate) fn project_name(name: &str) -> Result<&str, ApiError> {
     let name = name.trim();
+
     if name.is_empty() || name.len() > MAX_NAME || name.chars().any(char::is_control) {
         return Err(ApiError::bad_request(format!(
             "A project needs a name of 1 to {MAX_NAME} characters."
         )));
     }
+
     Ok(name)
 }
 
@@ -53,15 +55,18 @@ async fn projects(cx: &Cx, only: Option<&str>) -> Result<Vec<ProjectSync>, ApiEr
         .collect();
     let paused: HashSet<String> = cx.user.paused_syncs().await?.into_iter().collect();
     let mut out: BTreeMap<String, ProjectSync> = BTreeMap::new();
+
     for project in cx.user.pinned_projects().await? {
         if only.is_none_or(|only| project == only) {
             out.insert(project.clone(), empty(project, true));
         }
     }
+
     if let Some(only) = only {
         out.entry(only.to_owned())
             .or_insert_with(|| empty(only.to_owned(), false));
     }
+
     for row in rows {
         let name = machines
             .get(&row.endpoint)
@@ -73,6 +78,7 @@ async fn projects(cx: &Cx, only: Option<&str>) -> Result<Vec<ProjectSync>, ApiEr
             .machines
             .push(machine);
     }
+
     Ok(out.into_values().collect())
 }
 
@@ -106,6 +112,7 @@ fn machine_sync(
         hint: None,
         error: None,
     };
+
     match status {
         None => {}
         Some(None) if paused => machine.status = SyncStatus::InSync {},
@@ -130,6 +137,7 @@ fn machine_sync(
             machine.error = status.error.clone();
         }
     }
+
     machine
 }
 
@@ -209,6 +217,7 @@ pub(super) async fn pause_project_sync(
     request: PauseProjectSync,
 ) -> Reply<ProjectSyncDetail> {
     let name = project_name(&request.project)?;
+
     if request.paused
         && cx
             .user
@@ -221,6 +230,7 @@ pub(super) async fn pause_project_sync(
             "{name} is pinned to the machines it is on, so it does not sync."
         )));
     }
+
     cx.user.pause_sync(name, request.paused).await?;
     detail(&cx, name).await
 }
@@ -238,12 +248,15 @@ async fn project(cx: &Cx, name: &str) -> Reply<ProjectSync> {
 /// server does not reach.
 pub(super) async fn set_project_sync(cx: Cx, request: SetProjectSync) -> Reply<ProjectSync> {
     let name = project_name(&request.project)?;
+
     if !machines(&cx).await?.contains_key(&request.machine_id) {
         return Err(ApiError::NotFound {});
     }
+
     if request.on {
         return refused();
     }
+
     cx.user
         .remove_project_sync(name, &request.machine_id)
         .await?;
@@ -280,6 +293,7 @@ fn syncthing_places(
         .filter(|row| row.project == project)
         .map(|row| (&row.endpoint, &row.folder));
     let mut out: Vec<SyncthingPlace> = Vec::new();
+
     for (endpoint, folder) in imported.chain(synced) {
         let Some(env) = machines.get(endpoint).and_then(|node| node.env.as_ref()) else {
             continue;
@@ -287,18 +301,21 @@ fn syncthing_places(
         let Some(synced) = env.syncthing_folder(folder) else {
             continue;
         };
+
         if out
             .iter()
             .any(|place| &place.machine_id == endpoint && &place.folder == folder)
         {
             continue;
         }
+
         out.push(SyncthingPlace {
             machine_id: endpoint.clone(),
             folder: folder.clone(),
             label: synced.name().to_owned(),
         });
     }
+
     out
 }
 

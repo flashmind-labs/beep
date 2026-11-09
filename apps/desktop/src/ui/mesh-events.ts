@@ -76,6 +76,7 @@ export function refreshTopicSubscriptions() {
       schedule(subscriber);
     }
   }
+
   if (queued) return;
   queued = true;
   queueMicrotask(() => { queued = false; void flush(); });
@@ -95,12 +96,15 @@ async function flush() {
       void invoke("mesh_topics", { id: current.id, topics: null }).catch(() => {});
       return;
     }
+
     if (first) { first = false; current.sent = null; refreshTopicSubscriptions(); }
     installViews(event.data);
+
     for (const subscriber of subscribers) {
       if (!active(subscriber) || !subscriber.interests.some(interest => (interest.machine === null || interest.machine === event.machine_id)
         && matchesTopic(interest.topic, event.topic))) continue;
       if (subscriber.coalesce && event.initial && event.query != null) continue;
+
       if (!subscriber.coalesce) {
         try { void Promise.resolve(subscriber.receive(event)).catch(report); } catch (error) { report(error); }
       } else {
@@ -122,8 +126,10 @@ async function flush() {
 async function sendTopics(current: Reader) {
   if (current.updating) return;
   current.updating = true;
+
   try {
     const { invoke } = await import("./tauri.ts");
+
     while (reader === current && pageShown()) {
       const wanted = current.wanted, key = JSON.stringify(wanted);
       if (current.sent === key) break;
@@ -132,6 +138,7 @@ async function sendTopics(current: Reader) {
     }
   } catch (error) {
     console.warn("mesh topics:", error);
+
     if (reader === current) {
       clearTimeout(retry);
       retry = setTimeout(refreshTopicSubscriptions, 5000);
@@ -159,6 +166,7 @@ function markDirty(subscriber: Subscriber, event: MeshEvent) {
   const bytes = new TextEncoder().encode(JSON.stringify(event)).byteLength;
   subscriber.pending.set(key, { event, bytes });
   subscriber.pendingBytes += bytes;
+
   while (subscriber.pending.size > MAX_PENDING || subscriber.pendingBytes > MAX_PENDING_BYTES) {
     const oldest = [...subscriber.pending].find(([, update]) => !failed(update.event))
       ?? subscriber.pending.entries().next().value;
@@ -185,6 +193,7 @@ async function read(subscriber: Subscriber) {
   subscriber.pending.delete(key);
   subscriber.pendingBytes -= pending.bytes;
   subscriber.running = true;
+
   try {
     await subscriber.receive(event);
     subscriber.failures = 0;
@@ -195,6 +204,7 @@ async function read(subscriber: Subscriber) {
   } finally {
     subscriber.running = false;
   }
+
   if (subscriber.pending.size) schedule(subscriber, subscriber.failures ? Math.min(1000 * 2 ** Math.min(subscriber.failures - 1, 5), 30000) : 100);
 }
 

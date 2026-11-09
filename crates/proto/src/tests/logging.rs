@@ -16,6 +16,7 @@ fn a_file_from_an_earlier_day_is_moved_aside_and_old_ones_pruned() {
     fs::create_dir_all(&dir).unwrap();
     let current = dir.join("beep.log");
     let two_days_ago = SystemTime::now() - Duration::from_secs(2 * 86_400);
+
     for n in 0..3 {
         let old = dir.join(format!("beep.2020-01-0{}.log", n + 1));
         fs::write(&old, "old\n").unwrap();
@@ -26,6 +27,7 @@ fn a_file_from_an_earlier_day_is_moved_aside_and_old_ones_pruned() {
             .set_modified(two_days_ago - Duration::from_secs(60 * (3 - n)))
             .unwrap();
     }
+
     fs::write(&current, "yesterday\n").unwrap();
     File::options()
         .write(true)

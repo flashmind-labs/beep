@@ -43,9 +43,11 @@ impl UsageHub {
     pub(crate) fn record(&self, turn: TurnUsage) {
         let mut turns = lock(&self.turns);
         turns.push_back(turn);
+
         while turns.len() > MAX_UNSENT {
             turns.pop_front();
         }
+
         drop(turns);
         self.arrived.notify_one();
         crate::events::system().changed(beep_proto::node::events::Topic::new("usage"));
@@ -55,9 +57,11 @@ impl UsageHub {
     pub(crate) async fn next_turn(&self) -> TurnUsage {
         loop {
             let arrived = self.arrived.notified();
+
             if let Some(turn) = lock(&self.turns).pop_front() {
                 return turn;
             }
+
             arrived.await;
         }
     }
@@ -74,6 +78,7 @@ impl UsageHub {
             plans.insert(plan.agent.clone(), plan);
             changed
         });
+
         if changed {
             crate::events::system().changed(beep_proto::node::events::Topic::new("usage"));
         }
@@ -105,18 +110,21 @@ impl UsageHub {
         if windows.is_empty() {
             return;
         }
+
         let changed = self.plans.send_if_modified(|plans| {
             let plan = plans.entry(agent.clone()).or_insert_with(|| PlanUsage {
                 agent: agent.clone(),
                 ..PlanUsage::default()
             });
             let before = plan.clone();
+
             for window in windows {
                 match plan.windows.iter_mut().find(|kept| kept.same(&window)) {
                     Some(kept) => *kept = window,
                     None => plan.windows.push(window),
                 }
             }
+
             plan.windows.sort_by_key(|window| window.minutes);
             let changed = *plan != before;
             if changed {
@@ -124,6 +132,7 @@ impl UsageHub {
             }
             changed
         });
+
         if changed {
             crate::events::system().changed(beep_proto::node::events::Topic::new("usage"));
         }
@@ -134,9 +143,11 @@ impl UsageHub {
 /// Reject malformed amounts while preserving unknown amounts and exact precision.
 pub(crate) fn flsh_credits(info: &Value) -> Option<ProviderCredits> {
     let provider = info.get("provider")?.as_str()?;
+
     if provider.is_empty() || provider.len() > 100 {
         return None;
     }
+
     let balance = info.get("balance")?;
     let text = |key: &str| -> Option<Option<String>> {
         match balance.get(key) {
@@ -147,12 +158,15 @@ pub(crate) fn flsh_credits(info: &Value) -> Option<ProviderCredits> {
     };
     let amount = |key| -> Option<Option<String>> {
         let value = text(key)?;
+
         if let Some(value) = &value {
             let number: f64 = value.parse().ok()?;
+
             if !number.is_finite() {
                 return None;
             }
         }
+
         Some(value)
     };
     Some(ProviderCredits {
@@ -181,12 +195,14 @@ pub(crate) fn claude_rate_limit(info: &Value) -> Vec<LimitWindow> {
             scope: minutes.1.map(str::to_owned),
         })
     };
+
     if let Some(windows) = info.get("unifiedWindows").and_then(Value::as_object) {
         return windows
             .iter()
             .filter_map(|(kind, value)| window(kind, value))
             .collect();
     }
+
     info.get("rateLimitType")
         .and_then(Value::as_str)
         .and_then(|kind| window(kind, info))

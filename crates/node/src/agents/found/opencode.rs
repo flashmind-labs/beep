@@ -79,6 +79,7 @@ pub(crate) fn databases_at(root: &Path) -> Vec<PathBuf> {
 pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
     let databases = databases_at(root);
     let mut seen = Vec::new();
+
     for database in databases {
         match memos
             .databases
@@ -90,10 +91,12 @@ pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
                 database.display()
             ),
         }
+
         if seen.len() >= MAX_FILES {
             break;
         }
     }
+
     seen
 }
 

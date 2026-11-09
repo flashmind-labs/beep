@@ -87,9 +87,11 @@ pub fn choose_machine<'a>(
 /// `<parent>/<org>/<repo>`; blank when `parent` is, so the machine's projects folder is used.
 fn under_parent(parent: &str, repo: &RepoRef) -> String {
     let parent = parent.trim().trim_end_matches('/');
+
     if parent.is_empty() {
         return String::new();
     }
+
     format!("{parent}/{}/{}", repo.org(), repo.name())
 }
 
@@ -150,9 +152,11 @@ pub async fn import(env: &Env<'_>, job: Import<'_>) -> Result<ImportedProject, I
             (folder, cloned)
         }
     };
+
     if !cloned && let Some(fork) = &fork {
         link_fork(machine, &repo, fork, &folder, token).await;
     }
+
     let saved = env
         .store
         .save_import(NewImport {
@@ -183,25 +187,33 @@ pub async fn create_project(
     request: &CreateProject,
 ) -> Result<CreatedProject, ImportError> {
     let name = request.name.trim();
+
     if !valid_part(name) || name.ends_with(".git") {
         return Err(ImportError::BadName);
     }
+
     let mut ids: Vec<&str> = Vec::new();
+
     for id in request.machine_ids.iter().map(|id| id.trim()) {
         if !id.is_empty() && !ids.contains(&id) {
             ids.push(id);
         }
     }
+
     if ids.is_empty() {
         return Err(ImportError::NoMachine);
     }
+
     if request.repository.is_none() && ids.len() > 1 {
         return Err(ImportError::LocalOnOne);
     }
+
     let mut chosen = Vec::with_capacity(ids.len());
+
     for id in ids {
         chosen.push(choose_machine(env.machines, Some(id))?);
     }
+
     match &request.repository {
         Some(new) => {
             let repo = create_repository(env.hosts, env.credentials, new, name).await?;
@@ -241,6 +253,7 @@ pub async fn clone_onto(
         .await;
     let mut imported = Vec::new();
     let mut failed = Vec::new();
+
     for (machine, answer) in machines.iter().zip(answers) {
         match answer {
             Ok(landed) => imported.push(landed),
@@ -258,6 +271,7 @@ pub async fn clone_onto(
             }
         }
     }
+
     if let Err(e) = env.effects.join_sync(&imported, &mut failed).await {
         log::warn!(
             "new project not synced; project={} error={e:#}",
@@ -282,6 +296,7 @@ async fn create_local(
         return Err(ImportError::NoMachine);
     };
     let project_name = format!("{LOCAL_OWNER}/{name}");
+
     if env
         .store
         .imports()
@@ -291,6 +306,7 @@ async fn create_local(
     {
         return Err(ImportError::ProjectExists(name.to_owned()));
     }
+
     let folder = project_folder(machine.folders(), &[name])
         .ok_or_else(|| ImportError::NoHome(machine.name.clone()))?;
     super::init::init(machine.shell()?, &machine.name, &folder).await?;

@@ -29,6 +29,7 @@ fn every_command_is_grouped_once() {
     // A command named by its parent lists every visible child.
     for parent in names.iter().filter_map(|name| name.split_once(' ')) {
         let sub = cmd.find_subcommand(parent.0).expect("a command");
+
         for child in sub.get_subcommands().filter(|c| !c.is_hide_set()) {
             let full = format!("{} {}", parent.0, child.get_name());
             assert!(unique.contains(full.as_str()), "in no group: {full}");

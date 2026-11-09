@@ -80,6 +80,7 @@ pub(super) async fn read_mail(
         .read_before
         .unwrap_or_else(Utc::now);
     let mut empty = 0;
+
     while empty < EMPTY_YEARS && before.year() > OLDEST_YEAR {
         let after = before - Days::days(365);
         let window = Window {
@@ -104,6 +105,7 @@ pub(super) async fn read_mail(
         );
         before = after;
     }
+
     Ok(())
 }
 
@@ -122,6 +124,7 @@ async fn read_year(
     let mut emails: Vec<Email> = Vec::new();
     let mut ids = HashSet::new();
     let mut pages = source.history(window).boxed();
+
     while let Some(page) = pages.try_next().await? {
         for mut email in page {
             let inside = email.received >= window.after
@@ -135,20 +138,25 @@ async fn read_year(
             emails.push(email);
         }
     }
+
     drop(pages);
     let count = emails.len();
+
     if count == 0 {
         return Ok(Year {
             emails: 0,
             notes: Vec::new(),
         });
     }
+
     let year = window.after.date_naive();
     let mut notes = vec![counts_note(year, &emails)];
     emails.retain(|email| !email.bulk && !skipped(&email.from));
+
     if let Some(decision) = decision {
         emails = screen(decision, emails).await;
     }
+
     let mut groups = group_mail(emails);
     fill_bodies(source, &mut groups).await;
     let texts: Vec<String> = groups.iter().map(Group::render).collect();
@@ -181,6 +189,7 @@ async fn screen(decision: &DecisionTool, emails: Vec<Email>) -> Vec<Email> {
                 if mine {
                     return Some(email);
                 }
+
                 match worth_reading(decision, today, &email).await {
                     Ok(probability) if !worth_learning(probability) => None,
                     Ok(_) => Some(email),
@@ -239,9 +248,11 @@ impl Group {
 
     fn render(&self) -> String {
         let mut text = String::new();
+
         match self {
             Group::Thread(emails) => {
                 let _ = writeln!(text, "Thread of {} emails:", emails.len());
+
                 for email in emails {
                     let _ = writeln!(text, "---\n{}", email.render(body_chars(email)));
                 }
@@ -254,10 +265,13 @@ impl Group {
                 subjects,
             } => {
                 let _ = writeln!(text, "{count} emails from {sender}. A few of them:");
+
                 for email in samples {
                     let _ = writeln!(text, "---\n{}", email.render(SAMPLE_CHARS));
                 }
+
                 let _ = writeln!(text, "---\nAll their subjects:");
+
                 for (day, subject) in subjects {
                     let _ = writeln!(text, "{day} {}", clip(subject, 120));
                 }
@@ -266,6 +280,7 @@ impl Group {
                 let _ = writeln!(text, "Email:\n{}", email.render(body_chars(email)));
             }
         }
+
         text
     }
 }
@@ -282,14 +297,17 @@ fn body_chars(email: &Email) -> usize {
 fn group_mail(emails: Vec<Email>) -> Vec<Group> {
     let mut threads: HashMap<String, Vec<Email>> = HashMap::new();
     let mut loose = Vec::new();
+
     for email in emails {
         match email.thread.clone() {
             Some(thread) => threads.entry(thread).or_default().push(email),
             None => loose.push(email),
         }
     }
+
     let mut groups = Vec::new();
     let mut written: Vec<Vec<Email>> = Vec::new();
+
     for (_, mut thread) in threads {
         if thread.iter().any(|email| email.sent) {
             thread.sort_by_key(|email| email.received);
@@ -303,16 +321,20 @@ fn group_mail(emails: Vec<Email>) -> Vec<Group> {
     groups.extend(written.into_iter().map(Group::Thread));
 
     let mut senders: BTreeMap<String, Vec<Email>> = BTreeMap::new();
+
     for email in loose {
         senders.entry(address(&email.from)).or_default().push(email);
     }
+
     let mut digests = Vec::new();
     let mut singles = Vec::new();
+
     for (sender, mut emails) in senders {
         if emails.len() <= DIGEST_AFTER {
             singles.extend(emails.into_iter().map(Group::Single));
             continue;
         }
+
         emails.sort_by_key(|email| email.received);
         let count = emails.len();
         let subjects = emails
@@ -370,11 +392,14 @@ fn counts_note(year: NaiveDate, emails: &[Email]) -> ProfileNote {
     let mut from: HashMap<String, usize> = HashMap::new();
     let mut bulk: HashMap<String, usize> = HashMap::new();
     let mut sent = 0;
+
     for email in emails {
         if email.sent {
             sent += 1;
+
             for recipient in email.to.split(',') {
                 let recipient = recipient.trim();
+
                 if !recipient.is_empty() {
                     *to.entry(recipient.to_owned()).or_default() += 1;
                 }
@@ -385,6 +410,7 @@ fn counts_note(year: NaiveDate, emails: &[Email]) -> ProfileNote {
             *from.entry(email.from.trim().to_owned()).or_default() += 1;
         }
     }
+
     let mut text = format!(
         "Mail in the year from {year}: {} emails, {sent} sent by the user.",
         emails.len()

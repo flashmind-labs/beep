@@ -44,6 +44,7 @@ pub fn remotes_script(folders: &[String]) -> String {
 
 pub fn parse_remotes(out: &str) -> Vec<FolderRemotes> {
     let mut found: Vec<FolderRemotes> = Vec::new();
+
     for line in out.lines() {
         if let Some(folder) = line.strip_prefix("@@dir ") {
             found.push(FolderRemotes {
@@ -59,6 +60,7 @@ pub fn parse_remotes(out: &str) -> Vec<FolderRemotes> {
             last.remotes.push((name.to_owned(), url.trim().to_owned()));
         }
     }
+
     found
 }
 
@@ -94,6 +96,7 @@ async fn candidates_on(
 ) -> Vec<FolderRemotes> {
     let mut candidates: Vec<String> = imported.to_vec();
     candidates.extend(place::checkout_folder(machine.folders(), repo));
+
     if let Some(sessions) = &machine.sessions {
         match timeout(FOUND_LIMIT, sessions.found(FOUND_FOLDERS)).await {
             Ok(Ok(found)) => {
@@ -116,12 +119,14 @@ async fn candidates_on(
             Err(_) => log::info!("preview: found folders not in time on {}", machine.name),
         }
     }
+
     let mut seen = HashSet::new();
     candidates.retain(|folder| seen.insert(folder.clone()));
     candidates.truncate(MAX_CANDIDATES);
     let Ok(shell) = machine.shell() else {
         return Vec::new();
     };
+
     match run_script(shell, &remotes_script(&candidates), READ_LIMIT).await {
         Ok(out) => parse_remotes(&out),
         Err(e) => {
@@ -191,9 +196,11 @@ pub async fn preview(
 ) -> Result<ImportPreview, ImportError> {
     let repo = RepoRef::parse(input, servers)?;
     let project = repo.project();
+
     if machines.is_empty() {
         return Err(ImportError::NoneOnline);
     }
+
     let looks = machines.iter().map(|machine| {
         let imported: Vec<String> = imports
             .iter()
@@ -209,6 +216,7 @@ pub async fn preview(
     let mut notes = Vec::new();
     let mut default_branch = String::new();
     let mut branches = Vec::new();
+
     if let Some(first) = checkouts.first()
         && let Some(machine) = machines
             .iter()
@@ -226,6 +234,7 @@ pub async fn preview(
             )),
         }
     }
+
     let prs = if repo.host == Host::GitHub {
         let at = checkouts
             .first()
@@ -272,12 +281,14 @@ pub async fn checkout_for_worktree(
     let repo = RepoRef::parse(input, servers)?;
     let project = repo.project();
     let imports = store.imports().await?;
+
     if let Some(row) = imports
         .iter()
         .find(|row| row.endpoint == endpoint && row.project.eq_ignore_ascii_case(&project))
     {
         return Ok(Some(row.folder.clone()));
     }
+
     let Some(machine) = machines.iter().find(|machine| machine.id == endpoint) else {
         return Ok(None);
     };

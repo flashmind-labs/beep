@@ -72,5 +72,6 @@ export function needsLine(n:
     const action = a.action ? a.action[0].toUpperCase() + a.action.slice(1) : "Allow this";
     return { title: `${action}?`, sub: [a.app, n.session_title].filter(Boolean).join(" · "), button: "Allow" };
   }
+
   return { title: n.question.text, sub: [agentName(n.agent), n.title || n.machine_name].filter(Boolean).join(" · "), button: "Answer" };
 }

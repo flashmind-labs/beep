@@ -79,6 +79,7 @@ export function registerProviders(deps: ProvidersDeps) {
       st.machines = null;
       st.note = fail(e);
     }
+
     deps.redrawTop();
     draw();
     if (st.machine) void load(false);
@@ -89,6 +90,7 @@ export function registerProviders(deps: ProvidersDeps) {
     if (!machine) return;
     st.loading = true;
     draw();
+
     try {
       const got = await invoke<HarnessesView | null>("agent_harnesses", { machineId: machine, refresh });
       st.views.set(machine, got ?? false);
@@ -99,6 +101,7 @@ export function registerProviders(deps: ProvidersDeps) {
     } finally {
       st.loading = false;
     }
+
     deps.redrawTop();
     draw();
   }
@@ -122,6 +125,7 @@ export function registerProviders(deps: ProvidersDeps) {
     if (!machine) return;
     st.updating.add(`${machine} ${agent}`);
     draw();
+
     try {
       await invoke("agent_adapters_install", { machineId: machine });
       // The node reads them as installing at once; its report follows.
@@ -132,6 +136,7 @@ export function registerProviders(deps: ProvidersDeps) {
     } finally {
       st.updating.delete(`${machine} ${agent}`);
     }
+
     draw();
   }
 
@@ -141,6 +146,7 @@ export function registerProviders(deps: ProvidersDeps) {
     for (const agent of agents) st.updating.add(`${machine} ${agent}`);
     deps.redrawTop();
     draw();
+
     for (const agent of agents) {
       try {
         st.views.set(machine, await invoke<HarnessesView>("agent_harness_update", { machineId: machine, agent }));
@@ -167,6 +173,7 @@ export function registerProviders(deps: ProvidersDeps) {
     if (!machine || st.saving) return;
     st.saving = true;
     draw();
+
     try {
       await invoke("harness_settings_save", { machineId: machine, agent: hv.agent, settings: input });
       await saveCompact(hv, compact);
@@ -181,6 +188,7 @@ export function registerProviders(deps: ProvidersDeps) {
     } finally {
       st.saving = false;
     }
+
     draw();
   }
 
@@ -188,6 +196,7 @@ export function registerProviders(deps: ProvidersDeps) {
   async function loadOthers(agent: string) {
     if (reading.has(agent) || st.others.has(agent)) return;
     reading.add(agent);
+
     try {
       st.others.set(agent, (await invoke<MachineSettings[] | null>("harness_settings_all", { agent })) ?? false);
     } catch (e) {
@@ -197,6 +206,7 @@ export function registerProviders(deps: ProvidersDeps) {
     } finally {
       reading.delete(agent);
     }
+
     draw();
   }
 
@@ -204,6 +214,7 @@ export function registerProviders(deps: ProvidersDeps) {
   async function loadCompact(agent: string) {
     if (readingCompact.has(agent) || st.compacts.has(agent)) return;
     readingCompact.add(agent);
+
     try {
       st.compacts.set(agent, await invoke<Compact>("harness_compact", { agent }));
     } catch (e) {
@@ -212,6 +223,7 @@ export function registerProviders(deps: ProvidersDeps) {
     } finally {
       readingCompact.delete(agent);
     }
+
     draw();
   }
 
@@ -221,6 +233,7 @@ export function registerProviders(deps: ProvidersDeps) {
     if (!machine || st.saving) return;
     st.saving = true;
     draw();
+
     try {
       const n = await invoke<number>("harness_settings_save_all", { fromMachine: machine, agent: hv.agent, settings: input, includeProgram: st.includeProgram });
       await saveCompact(hv, compact);
@@ -237,6 +250,7 @@ export function registerProviders(deps: ProvidersDeps) {
     } finally {
       st.saving = false;
     }
+
     draw();
   }
 
@@ -333,8 +347,10 @@ export function registerProviders(deps: ProvidersDeps) {
     const nodes = (out: (Node | null)[]) => out.filter((n): n is Node => n !== null);
     const acts = (...kids: Node[]) => h("div", "hv-acts", ...kids);
     const busy = st.updating.has(key(hv.agent));
+
     if (!hv.installed) {
       const out: (Node | null)[] = [row(`Not installed on ${m}.`)];
+
       if (hv.install) {
         const install = button(busy ? "Installing…" : `Install on ${m}`, "pri", () => update([hv.agent]));
         install.disabled = busy;
@@ -343,10 +359,13 @@ export function registerProviders(deps: ProvidersDeps) {
       } else {
         out.push(h("div", "hv-note", "Install it on the machine, then check again."));
       }
+
       return nodes(out);
     }
+
     const out: (Node | null)[] = [];
     const s = hv.sign_in;
+
     if (s.state === "signed_in") {
       out.push(row(h("span", "ddot"), `Signed in${s.account ? ` as ${s.account}` : ""}${planOf(s)}`));
     } else if (s.state === "beep_token") {
@@ -362,22 +381,27 @@ export function registerProviders(deps: ProvidersDeps) {
       const why = `${name} does not say whether it is signed in. Run it on ${m} to sign in.`;
       out.push(inSettings ? h("div", "hv-note", why) : row(why));
     }
+
     const pending = adapter(hv.agent);
+
     if (pending) {
       // In Settings the summary box already says it is installing.
       if (!inSettings || pending.failed !== null) out.push(h("div", `hv-note${pending.failed === null ? "" : " bad"}`, adapterLine(pending)));
+
       if (pending.failed !== null) {
         const again = button(busy ? "Trying again…" : "Try again", "", () => retryAdapters(hv.agent));
         again.disabled = busy;
         out.push(acts(again));
       }
     } else if (!hv.runnable) out.push(h("div", "hv-note", "Restart beep-node to use it."));
+
     if (hasUpdate(hv)) {
       const up = button(busy ? "Updating…" : `Update to v${hv.latest}`, "", () => update([hv.agent]));
       up.disabled = busy || !hv.install;
       if (!hv.install) up.title = "Beep knows no way to update it here";
       out.push(acts(up));
     }
+
     return nodes(out);
   }
 
@@ -498,12 +522,14 @@ export function registerProviders(deps: ProvidersDeps) {
     if (v === undefined) return [emptyPanel(h("b", "", `Asking ${machineName()}…`))];
     if (v === false) return [h("div", "cc-err", "The server needs an update before it shows coding agents here.")];
     if (v === null) return [errEl ?? h("div", "cc-err", "Could not read the coding agents.")];
+
     if (inSettings) {
       // Settings' left pane picks the agent; the page shows that one only.
       const hv = v.harnesses.find(x => x.agent === st.picked);
       const page = hv ? [summary(hv), detail(hv)] : [emptyPanel(h("b", "", `${machineName()} does not report ${harnessName(st.picked ?? "")}`))];
       return errEl ? [errEl, ...page] : page;
     }
+
     const rows = listRows(v);
     if (!st.picked || !rows.some(r => r.agent === st.picked)) st.picked = rows.find(r => r.on)?.agent ?? rows[0]?.agent ?? null;
     const hv = v.harnesses.find(x => x.agent === st.picked);
@@ -521,6 +547,7 @@ export function registerProviders(deps: ProvidersDeps) {
       : h("div", "cc-view hv-view", ...body());
     const old = el.querySelector(":scope > .cc-view");
     if (old) old.replaceWith(viewEl); else el.append(viewEl);
+
     if (label) {
       const again = viewEl.querySelector<HTMLInputElement>(`input[aria-label="${CSS.escape(label)}"]`);
       again?.focus();

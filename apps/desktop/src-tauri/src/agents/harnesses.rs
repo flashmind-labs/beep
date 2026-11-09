@@ -145,6 +145,7 @@ impl From<HarnessSignIn> for SignInView {
             plan: None,
             last4: None,
         };
+
         match sign_in {
             HarnessSignIn::Unknown {} => none("unknown"),
             HarnessSignIn::SignedOut {} => none("signed_out"),
@@ -207,6 +208,7 @@ pub async fn agent_harnesses(
         Some(machine) => direct::harnesses(&fleet, machine, refresh).await,
         None => beep.call_within(request, LIST_LIMIT).await,
     };
+
     match asked {
         Ok(list) => Ok(Some(list.into())),
         Err(e) if unknown_op(&e) => Ok(None),

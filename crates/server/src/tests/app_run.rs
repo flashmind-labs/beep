@@ -70,12 +70,14 @@ impl LlmProvider for Searcher {
 async fn firecrawl(listener: TcpListener) {
     let (mut stream, _) = listener.accept().await.expect("the search connects");
     let mut data = Vec::new();
+
     while !data.ends_with(b"}") {
         let mut buf = [0u8; 4096];
         let n = stream.read(&mut buf).await.expect("the request reads");
         assert!(n > 0, "the request ended early");
         data.extend_from_slice(&buf[..n]);
     }
+
     let body = json!({"success": true, "data": {"web": [
         {"url": "https://www.tokyocheapo.com/events/halloween/", "title": "Halloween in Tokyo"},
         {"url": "https://www.gaijinpot.com/halloween", "title": "Shibuya Halloween"},
@@ -133,6 +135,7 @@ impl LlmProvider for MemoryObserver {
     }
     fn complete(&self, request: CompletionRequest) -> CompletionStream {
         let main = request.tools.iter().any(|tool| tool.name == "memory");
+
         if main {
             let count = request
                 .messages
@@ -147,6 +150,7 @@ impl LlmProvider for MemoryObserver {
                 .expect("the observer is available")
                 .push(count);
         }
+
         let go = self.go.clone();
         Box::pin(async_stream::stream! {
             if main {
@@ -192,10 +196,12 @@ async fn repeated_prompts_do_not_duplicate_recalled_memories() {
         .await
         .expect("memory saved");
     let chat = Uuid::new_v4();
+
     for turn in 0..3 {
         if turn == 2 {
             assert!(user.forget(&id).await.expect("memory forgotten"));
         }
+
         let mut prompt = message(chat);
         prompt.message = "alpha bravo echo foxtrot".into();
         let crate::store::CreateRun::Created(run) =
@@ -211,11 +217,13 @@ async fn repeated_prompts_do_not_duplicate_recalled_memories() {
         go.add_permits(1);
         timeout(Duration::from_secs(30), async {
             let mut backlog = std::mem::take(&mut events.backlog).into_iter();
+
             loop {
                 let event = match backlog.next() {
                     Some(event) => event,
                     None => events.live.recv().await.expect("the run streams"),
                 };
+
                 if matches!(event.event, RunEvent::RunFinished { .. }) {
                     break;
                 }
@@ -224,6 +232,7 @@ async fn repeated_prompts_do_not_duplicate_recalled_memories() {
         .await
         .expect("the run finishes");
     }
+
     assert_eq!(
         *provider.counts.lock().expect("the observer is available"),
         vec![1, 1, 0]
@@ -272,11 +281,13 @@ async fn a_reply_keeps_the_sources_of_its_web_searches() {
     let streamed = timeout(Duration::from_secs(30), async {
         let mut streamed = None;
         let mut backlog = std::mem::take(&mut events.backlog).into_iter();
+
         loop {
             let event = match backlog.next() {
                 Some(event) => event,
                 None => events.live.recv().await.expect("the run streams"),
             };
+
             match event.event {
                 RunEvent::Sources { sources } => streamed = Some(sources),
                 RunEvent::RunFinished { .. } => return streamed,
@@ -404,6 +415,7 @@ impl LlmProvider for Stalls {
                 yield Ok(StreamEvent::ContentDelta("That disk scan will take".into()));
                 std::future::pending::<()>().await;
             }
+
             if main {
                 let _permit = go.acquire().await;
             }
@@ -445,11 +457,13 @@ async fn a_stopped_turn_keeps_what_it_said() {
     let mut events = live.subscribe(0);
     timeout(Duration::from_secs(30), async {
         let mut backlog = std::mem::take(&mut events.backlog).into_iter();
+
         loop {
             let event = match backlog.next() {
                 Some(event) => event,
                 None => events.live.recv().await.expect("the run streams"),
             };
+
             if matches!(event.event, RunEvent::TextDelta { .. }) {
                 break;
             }

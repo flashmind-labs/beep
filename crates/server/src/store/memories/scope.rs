@@ -54,6 +54,7 @@ impl From<Option<&str>> for Scope {
         let Some((kind, name)) = text.and_then(|text| text.split_once(':')) else {
             return Self::User;
         };
+
         match kind {
             "machine" => name.parse().map_or(Self::User, Self::Machine),
             "project" => Self::Project(name.to_owned()),

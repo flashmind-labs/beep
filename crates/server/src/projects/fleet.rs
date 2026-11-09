@@ -129,6 +129,7 @@ impl Fleet for RecordedFleet {
     async fn machines(&self) -> Result<Vec<Machine>> {
         let rows = self.user.nodes().await?;
         let mut machines = Vec::with_capacity(rows.len());
+
         for row in rows {
             let Ok(id) = row.endpoint.parse::<EndpointId>() else {
                 log::warn!("projects: a stored node key does not parse; skipped");
@@ -152,6 +153,7 @@ impl Fleet for RecordedFleet {
                 hostname: row.env.map(|env| env.hostname),
             });
         }
+
         Ok(machines)
     }
 
@@ -243,6 +245,7 @@ pub(crate) async fn project_public_text(
             paths.extend(roots);
         }
     }
+
     Ok(public_text(machines).with_paths(&paths))
 }
 

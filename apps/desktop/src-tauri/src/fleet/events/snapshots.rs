@@ -52,6 +52,7 @@ impl Snapshots {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         let mut changed = held.machines.len() != wanted.len();
         held.machines.retain(|id, _| wanted.contains_key(id));
+
         for (id, topics) in wanted {
             let machine = held.machines.entry(*id).or_insert_with(|| Machine {
                 topics: Vec::new(),
@@ -59,10 +60,12 @@ impl Snapshots {
                 ready: false,
                 entries: BTreeMap::new(),
             });
+
             if machine.topics != *topics {
                 changed = true;
                 machine.topics.clone_from(topics);
             }
+
             let before = machine.entries.len();
             machine.entries.retain(|_, entry| {
                 // Keep concrete owners while a broader subscription covers them.
@@ -74,11 +77,14 @@ impl Snapshots {
                         entry.owners.push(topic.clone());
                     }
                 }
+
                 !entry.owners.is_empty()
             });
             changed |= before != machine.entries.len();
         }
+
         drop(held);
+
         if changed {
             self.changed.send_replace(());
         }
@@ -86,9 +92,11 @@ impl Snapshots {
 
     pub(super) fn begin(&self, id: EndpointId, generation: Uuid) {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+
         if let Some(machine) = held.machines.get_mut(&id) {
             machine.generation = Some(generation);
             machine.ready = false;
+
             for entry in machine.entries.values() {
                 entry.current.send_replace(None);
             }
@@ -97,17 +105,20 @@ impl Snapshots {
 
     pub(super) fn ready(&self, id: EndpointId, generation: Uuid) -> bool {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+
         if let Some(machine) = held.machines.get_mut(&id)
             && machine.generation == Some(generation)
         {
             machine.ready = true;
             return true;
         }
+
         false
     }
 
     pub(super) fn end(&self, id: EndpointId, generation: Uuid) {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+
         if let Some(machine) = held.machines.get_mut(&id)
             && machine.generation == Some(generation)
         {
@@ -153,6 +164,7 @@ impl Snapshots {
         let Some(query) = snapshot.query else {
             return Some(false);
         };
+
         if let Some(entry) = machine.entries.get(&query)
             && entry.query.topic == snapshot.topic
         {
@@ -160,6 +172,7 @@ impl Snapshots {
             entry.current.send_replace(Some(Ok(snapshot.value.clone())));
             return Some(initial);
         }
+
         None
     }
 
@@ -171,6 +184,7 @@ impl Snapshots {
         reason: String,
     ) -> bool {
         let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+
         if let Some(machine) = held.machines.get(&id)
             && machine.generation == Some(generation)
             && machine.ready
@@ -179,6 +193,7 @@ impl Snapshots {
             entry.current.send_replace(Some(Err(reason)));
             return true;
         }
+
         false
     }
 
@@ -197,9 +212,11 @@ impl Snapshots {
         let topic = read.topic()?;
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         let machine = held.machines.get(&id)?;
+
         if !machine.ready {
             return None;
         }
+
         let owners: Vec<_> = machine
             .topics
             .iter()
@@ -209,12 +226,14 @@ impl Snapshots {
         if owners.is_empty() {
             return None;
         }
+
         let next = match held.next.checked_add(1) {
             Some(next) => next,
             None => return Some(Err(error("subscription query sequence exhausted"))),
         };
         held.next = next;
         let machine = held.machines.get_mut(&id)?;
+
         if let Some((existing, failed)) = machine
             .entries
             .iter()
@@ -225,14 +244,17 @@ impl Snapshots {
                 machine.entries.remove(&existing);
             } else if let Some(entry) = machine.entries.get_mut(&existing) {
                 entry.used = next;
+
                 for owner in owners {
                     if !entry.owners.contains(&owner) {
                         entry.owners.push(owner);
                     }
                 }
+
                 return Some(Ok(entry.current.subscribe()));
             }
         }
+
         if machine.entries.len() >= events::MAX_QUERIES
             && let Some(oldest) = machine
                 .entries
@@ -243,9 +265,11 @@ impl Snapshots {
         {
             machine.entries.remove(&oldest);
         }
+
         if machine.entries.len() >= events::MAX_QUERIES {
             return Some(Err(error("too many snapshot reads are waiting")));
         }
+
         let (current, receiver) = watch::channel(None);
         machine.entries.insert(
             next,

@@ -20,14 +20,18 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
     const parent = parentSession(s);
     if (parent) items.push({ label: "Open parent", on: () => open(parent) });
     if (offers.stop) items.push({ label: "Stop turn", on: () => void invoke("agent_steer", { ...at, steer: "cancel" }).catch(err => console.warn("stop turn:", err)) });
+
     if (offers.resume) {
       items.push({ label: "Resume", on: () => void invoke<Started>("agent_resume", at).then(started => open(started.session), err => console.warn("resume:", err)) });
     }
+
     if (folder && !onPhone()) {
       items.push({ label: "Open in editor", on: () => void openInEditor(folder) });
       items.push({ label: "Open folder", on: () => void invoke("open_folder", { path: folder }).catch(err => console.warn("open folder:", err)) });
     }
+
     items.push({ label: "Copy id", on: () => void writeClipboard(s.id) });
+
     if (offers.close) {
       items.push({
         label: "Close session",
@@ -35,6 +39,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
         on: () => void closeSession(s),
       });
     }
+
     if (offers.delete) {
       items.push({
         label: "Delete…",
@@ -50,6 +55,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
         }),
       });
     }
+
     return items;
   };
   // Only a folder this Mac has can be opened here.

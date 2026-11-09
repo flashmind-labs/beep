@@ -186,6 +186,7 @@ fn choose(os: &'static str, linux: impl FnOnce() -> Linux) -> Result<Manager, Un
             let Err(why) = user else {
                 return Ok(Manager::Systemd);
             };
+
             match init {
                 Some(init) if root => Ok(init),
                 Some(init) => Err(Unusable::NotRoot { init, why }),
@@ -219,12 +220,15 @@ fn running_init(container: bool, exists: impl Fn(&str) -> bool) -> Option<Manage
     if exists("/run/systemd/system") {
         return Some(Manager::SystemdSystem);
     }
+
     if exists("/run/openrc") || (!container && exists("/sbin/openrc-run")) {
         return Some(Manager::OpenRc);
     }
+
     if !container && exists("/etc/init.d") {
         return Some(Manager::SysVInit);
     }
+
     None
 }
 
@@ -246,12 +250,15 @@ fn present() -> Result<Option<Manager>> {
     if env::consts::OS != "linux" {
         return Ok(manager().ok());
     }
+
     if systemd::Scope::User.unit_path()?.exists() {
         return Ok(Some(Manager::Systemd));
     }
+
     if systemd::Scope::System.unit_path()?.exists() {
         return Ok(Some(Manager::SystemdSystem));
     }
+
     Ok(initd::installed()?.map(|init| match init {
         initd::Init::OpenRc => Manager::OpenRc,
         initd::Init::SysV => Manager::SysVInit,
@@ -411,6 +418,7 @@ pub fn restart_plan(exe: &Path) -> Result<Plan> {
         restart,
         reload: false,
     };
+
     match present()? {
         Some(Manager::Systemd) => systemd::plan(exe, systemd::Scope::User).map(plain),
         Some(Manager::SystemdSystem) => systemd::plan(exe, systemd::Scope::System).map(plain),
@@ -452,6 +460,7 @@ impl Plan {
             Restart::Restarted(Manager::TaskScheduler) => windows::restart()?,
             _ => {}
         }
+
         Ok(self.restart)
     }
 }
@@ -525,6 +534,7 @@ fn run(program: &str, args: &[&str]) -> Result<()> {
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
+
     Ok(())
 }
 

@@ -44,9 +44,11 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
     let mut conflicts = Conflicts::default();
     let mut moves = HashSet::new();
     let mut tick: u32 = 0;
+
     loop {
         machines(&app, &fleet, &mut away);
         temporaries(&app, &fleet, &mut leftovers).await;
+
         if tick.is_multiple_of(SLOW) {
             match session.desk().await {
                 Ok(desk) => {
@@ -121,6 +123,7 @@ async fn temporaries(app: &AppHandle, fleet: &Fleet, leftovers: &mut Leftovers<E
             return;
         }
     };
+
     for device in removed {
         let note = Note::new(
             NoteKind::Removed,
@@ -143,6 +146,7 @@ async fn sync(app: &AppHandle, desk: &Desk, conflicts: &mut Conflicts) {
             if machine.status == (SyncStatus::Offline {}) {
                 continue;
             }
+
             let id = format!("conflict:{}:{}", project.project, machine.machine_id);
             let paths: BTreeSet<String> = machine.conflicts.into_iter().collect();
             let kept = || {
@@ -151,6 +155,7 @@ async fn sync(app: &AppHandle, desk: &Desk, conflicts: &mut Conflicts) {
                     .map(|note| note.text.lines().map(str::to_owned).collect())
                     .unwrap_or_default()
             };
+
             match conflicts.step(&id, &paths, kept) {
                 Settle::Same => {}
                 Settle::Settled => history::finish(app, |note| note.id == id),
@@ -200,6 +205,7 @@ async fn skill_conflicts(app: &AppHandle, fleet: &Fleet, conflicts: &mut Conflic
             .into_iter()
             .map(|note| note.id),
     );
+
     for id in ids {
         let conflict = now.iter().find(|c| skill_note(&c.name) == id);
         let copies: BTreeSet<String> = conflict
@@ -211,6 +217,7 @@ async fn skill_conflicts(app: &AppHandle, fleet: &Fleet, conflicts: &mut Conflic
                 .map(|note| note.text.lines().map(str::to_owned).collect())
                 .unwrap_or_default()
         };
+
         match conflicts.step(&id, &copies, kept) {
             Settle::Same => {}
             Settle::Settled => history::finish(app, |note| note.id == id),
@@ -240,14 +247,18 @@ fn skill_note(name: &str) -> String {
 
 async fn failed_moves(app: &AppHandle, fleet: &Fleet, desk: &Desk, told: &mut HashSet<String>) {
     let now = now_ms();
+
     for record in desk.moves() {
         if now.saturating_sub(record.at) > MOVES_FOR_MS {
             continue;
         }
+
         let id = format!("move:{}:{}", record.id, record.at);
+
         if told.contains(&id) || history::get(app, &id).is_some() {
             continue;
         }
+
         let progress = match desk.move_state(&record.id).await {
             Ok(MoveState::Known(progress)) => progress,
             Ok(MoveState::NeedsUpdate) => {
@@ -257,6 +268,7 @@ async fn failed_moves(app: &AppHandle, fleet: &Fleet, desk: &Desk, told: &mut Ha
             // Not heard of yet, or the target is away: asked again later.
             Ok(MoveState::Unknown) | Err(_) => continue,
         };
+
         match progress.phase {
             MovePhase::Failed => {
                 let note = Note {
@@ -330,6 +342,7 @@ impl<K: Eq + Hash + Copy> Away<K> {
         self.since.retain(|id, _| online.contains_key(id));
         self.told.retain(|id| online.contains_key(id));
         let mut changes = Vec::new();
+
         for (&id, &on) in online {
             if on {
                 self.seen.insert(id);
@@ -344,6 +357,7 @@ impl<K: Eq + Hash + Copy> Away<K> {
                 }
             }
         }
+
         changes
     }
 }

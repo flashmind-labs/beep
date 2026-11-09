@@ -35,6 +35,7 @@ async fn read_gpus() -> Vec<GpuInfo> {
             return found;
         }
     }
+
     match env::consts::OS {
         "macos" => output("system_profiler", &["SPDisplaysDataType", "-json"])
             .await
@@ -123,6 +124,7 @@ fn parse_displays_json(json: &str) -> Vec<GpuInfo> {
 fn vram_mb(size: &str) -> Option<u64> {
     let mut parts = size.split_whitespace();
     let amount: u64 = parts.next()?.parse().ok()?;
+
     match parts.next()? {
         "GB" => amount.checked_mul(1024),
         "MB" => Some(amount),
@@ -141,9 +143,11 @@ fn parse_lspci(text: &str) -> Vec<GpuInfo> {
         .filter_map(|line| {
             let (_, rest) = line.split_once(' ')?;
             let (class, name) = rest.split_once(": ")?;
+
             if !CLASSES.contains(&class) {
                 return None;
             }
+
             let name = match name.rfind(" (rev ") {
                 Some(at) => &name[..at],
                 None => name,

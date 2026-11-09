@@ -103,14 +103,17 @@ impl HostCalls {
         if let Some(etag) = &etag {
             request = request.header(header::IF_NONE_MATCH, etag);
         }
+
         let reply = request.send().await.map_err(|e| send_error(&host, &e))?;
         let status = reply.status();
         let now = SystemTime::now();
         self.note_limit(who, reply.headers(), now);
+
         if status == StatusCode::NOT_MODIFIED {
             let mut kept = self.kept();
             kept.uses += 1;
             let uses = kept.uses;
+
             if let Some(tagged) = kept.tagged.get_mut(&key) {
                 tagged.used = uses;
                 return Ok(tagged.body.clone());
@@ -118,6 +121,7 @@ impl HostCalls {
             // Dropped since it was asked for: the host's 304 says nothing.
             return Err(HostError::BadReply(host));
         }
+
         if !status.is_success() {
             if matches!(
                 status,
@@ -127,15 +131,18 @@ impl HostCalls {
             }
             return Err(status_error(host, status, reply.headers()));
         }
+
         let etag = reply
             .headers()
             .get(header::ETAG)
             .and_then(|tag| tag.to_str().ok())
             .map(str::to_owned);
         let body = reply.bytes().await.map_err(|e| send_error(&host, &e))?;
+
         if let Some(etag) = etag {
             self.keep(key, etag, body.clone());
         }
+
         Ok(body)
     }
 
@@ -151,6 +158,7 @@ impl HostCalls {
         if !out && retry.is_none() {
             return;
         }
+
         let reset = limit_of(headers, now)
             .map(|limit| limit.reset)
             .or_else(|| retry.map(|wait| now + wait))
@@ -168,6 +176,7 @@ impl HostCalls {
         let mut kept = self.kept();
         kept.uses += 1;
         let used = kept.uses;
+
         if kept.tagged.len() >= MAX_TAGGED && !kept.tagged.contains_key(&key) {
             let oldest = kept
                 .tagged
@@ -178,6 +187,7 @@ impl HostCalls {
                 kept.tagged.remove(&oldest);
             }
         }
+
         kept.tagged.insert(key, Tagged { etag, body, used });
     }
 
@@ -222,24 +232,30 @@ impl HostCalls {
             first
         };
         let status = reply.status();
+
         if !status.is_success() {
             return Err(status_error(host, status, reply.headers()));
         }
+
         let mut kept: Vec<u8> = Vec::new();
         let mut read = 0usize;
         let mut cut = false;
+
         while let Some(chunk) = reply.chunk().await.map_err(|e| send_error(&host, &e))? {
             read += chunk.len();
             kept.extend_from_slice(&chunk);
+
             if kept.len() > limits.keep {
                 let drop = kept.len() - limits.keep;
                 kept.drain(..drop);
                 cut = true;
             }
+
             if read >= limits.max {
                 break;
             }
         }
+
         Ok(Tail {
             text: String::from_utf8_lossy(&kept).into_owned(),
             cut,

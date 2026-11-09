@@ -155,6 +155,7 @@ async fn leak_evals() {
         });
     let verdicts = join_all(checks).await;
     let mut failed = 0;
+
     for (case, verdict) in cases.iter().zip(&verdicts) {
         let pass = verdict.is_some() == case.leaks;
         println!(
@@ -164,5 +165,6 @@ async fn leak_evals() {
         );
         failed += usize::from(!pass);
     }
+
     assert_eq!(failed, 0, "{failed} of {} leak evals failed", cases.len());
 }

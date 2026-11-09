@@ -156,10 +156,12 @@ function draw(q: string) {
   let group: string | null = null;
   hits.forEach((hit, i) => {
     const next = hit.top ? "top" : GROUPS[hit.kind];
+
     if (next !== group) {
       group = next;
       rows.push(el("h5", "", hit.top ? "Top hit" : hit.kind === "chat" && !q ? "Recent chats" : group));
     }
+
     rows.push(row(hit, i, q));
   });
   if (!hits.length) rows.push(noHits(q));
@@ -191,12 +193,14 @@ function row(hit: Hit, i: number, q: string) {
 
 function noHits(q: string) {
   const none = el("div", "none", `Nothing matches “${q}”.`);
+
   if (q && state.subscribed) {
     const ask = el("button", "dbtn", `Ask Beep “${q}”`, el("kbd", "", "⌘↵"));
     ask.type = "button";
     ask.addEventListener("click", () => ask_(q));
     none.append(el("br"), ask);
   }
+
   return none;
 }
 
@@ -219,6 +223,7 @@ function ask_(q: string) {
 function pick(hit: Hit) {
   close();
   const { go, jump, settings, project, branches, addProject } = deps!;
+
   switch (hit.kind) {
     case "action":
       if (hit.id === "new_chat") return go("pane", { chat: { session: null } });
@@ -253,6 +258,7 @@ window.addEventListener("keydown", e => {
   if (e.isComposing) return;
   if (e.key === "Enter") { stop(); if (hits[sel]) pick(hits[sel]); return; }
   if (e.key === "Tab") { stop(); return input!.focus(); }
+
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     stop();
     if (!hits.length) return;
@@ -260,6 +266,7 @@ window.addEventListener("keydown", e => {
     mark();
     return;
   }
+
   // Other window shortcuts do nothing under the overlay.
   if (commandKey(e) && !["a", "c", "v", "x", "z"].includes(e.key.toLowerCase())) stop();
 }, true);

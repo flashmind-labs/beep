@@ -515,23 +515,28 @@ pub fn check_agent(agent: &str) -> Result<(), ApiError> {
 pub fn check_settings(settings: HarnessSettings) -> Result<HarnessSettings, ApiError> {
     let line = |what: &str, text: &str, max: usize| -> Result<String, ApiError> {
         let text = text.trim();
+
         if text.len() > max {
             return Err(ApiError::bad_request(format!("The {what} is too long.")));
         }
+
         if text.chars().any(char::is_control) {
             return Err(ApiError::bad_request(format!(
                 "The {what} cannot hold a line break or control character."
             )));
         }
+
         Ok(text.to_owned())
     };
     let program = line("binary path", &settings.program, MAX_PATH)?;
     let home = line("home folder", &settings.home, MAX_PATH)?;
+
     if settings.args.len() > MAX_ARGS {
         return Err(ApiError::bad_request(format!(
             "At most {MAX_ARGS} launch arguments."
         )));
     }
+
     let args = settings
         .args
         .iter()
@@ -543,13 +548,17 @@ pub fn check_settings(settings: HarnessSettings) -> Result<HarnessSettings, ApiE
             "At most {MAX_ENV} environment variables."
         )));
     }
+
     let mut seen = HashSet::new();
     let mut env = Vec::new();
+
     for var in settings.env {
         let name = var.name.trim().to_owned();
+
         if name.is_empty() && var.value.is_none() {
             continue;
         }
+
         let valid = name.len() <= MAX_ENV_NAME
             && name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
             && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
@@ -558,9 +567,11 @@ pub fn check_settings(settings: HarnessSettings) -> Result<HarnessSettings, ApiE
                 "{name:?} is not an environment variable name."
             )));
         }
+
         if !seen.insert(name.clone()) {
             return Err(ApiError::bad_request(format!("{name} is set twice.")));
         }
+
         if let Some(value) = &var.value
             && (value.expose().len() > MAX_ENV_VALUE || value.expose().contains('\0'))
         {
@@ -568,11 +579,13 @@ pub fn check_settings(settings: HarnessSettings) -> Result<HarnessSettings, ApiE
                 "The value of {name} is too long or not text."
             )));
         }
+
         env.push(HarnessEnv {
             name,
             value: var.value,
         });
     }
+
     Ok(HarnessSettings {
         enabled: settings.enabled,
         program,

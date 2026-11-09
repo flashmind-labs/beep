@@ -82,6 +82,7 @@ impl Made {
     /// The first line of the session's transcript, saying where it runs.
     pub(super) fn note(&self) -> String {
         let (branch, base, folder) = (&self.branch, &self.base, self.folder.display());
+
         match self.start {
             Start::NewBranch => format!("Started on a new branch {branch} from {base}."),
             Start::NewWorktree => {
@@ -100,6 +101,7 @@ impl Made {
     /// in the checkout itself, that it makes no worktree.
     pub(super) fn brief(&self) -> String {
         let (branch, folder) = (&self.branch, self.folder.display());
+
         match self.start {
             Start::NewBranch => format!(
                 "Beep: Beep made the branch {branch} for this session in this checkout. Commit on it here \
@@ -211,10 +213,13 @@ impl Checkout {
 pub(super) fn make(dir: &Path, plan: &CheckoutPlan, prompt: &str) -> Result<Made> {
     let base = plan.base().unwrap_or("HEAD");
     ensure!(valid_ref(base), "{base:?} is not a branch or commit name");
+
     if let Some(branch) = plan.branch() {
         ensure!(valid_branch(branch), "{branch:?} is not a branch name");
     }
+
     let at = Checkout::of(dir)?;
+
     match plan {
         CheckoutPlan::NewBranch { .. } => {
             let start = start_point(&at.top, base)?;
@@ -271,6 +276,7 @@ fn branch_worktree(at: &Checkout, branch: &str) -> Result<Made> {
         base: branch.to_owned(),
         start,
     };
+
     if let Some(tree) = worktree_of(&at.top, branch)? {
         return Ok(made(at.inside(tree), Start::OwnWorktree));
     }
@@ -307,6 +313,7 @@ fn branch_worktree(at: &Checkout, branch: &str) -> Result<Made> {
             at.top.display()
         );
     }
+
     exclude_worktrees(&at.root)?;
     Ok(made(at.inside(tree), Start::AddedWorktree))
 }
@@ -325,6 +332,7 @@ fn worktree_of(top: &Path, branch: &str) -> Result<Option<PathBuf>> {
         let Some(path) = lines.next().and_then(|line| line.strip_prefix("worktree ")) else {
             continue;
         };
+
         if lines.any(|line| line == want) {
             return Ok(Some(PathBuf::from(path)));
         }
@@ -340,13 +348,16 @@ fn start_point(top: &Path, base: &str) -> Result<String> {
     }
     for candidate in candidates {
         let commit = format!("{candidate}^{{commit}}");
+
         if let Ok(sha) = git(top, &["rev-parse", "--verify", "--quiet", &commit]) {
             return Ok(sha.trim().to_owned());
         }
     }
+
     if base == "HEAD" {
         bail!("the checkout at {} has no commits yet", top.display());
     }
+
     bail!("there is no {base} in the checkout at {}", top.display())
 }
 
@@ -362,10 +373,12 @@ fn free_branch(top: &Path, root: Option<&Path>, first: &str) -> Result<String> {
         let head = format!("refs/heads/{name}");
         let branch = git(top, &["show-ref", "--verify", "--quiet", &head]).is_ok();
         let folder = root.is_some_and(|root| root.join(worktree_path(&name)).exists());
+
         if !branch && !folder {
             return Ok(name);
         }
     }
+
     bail!(
         "{first} and the next {} names after it are taken",
         MAX_NAMES - 1
@@ -380,11 +393,14 @@ fn exclude_worktrees(root: &Path) -> Result<()> {
     if git(root, &["check-ignore", "--quiet", ".worktrees"]).is_ok() {
         return Ok(());
     }
+
     let path = git(root, &["rev-parse", "--git-path", "info/exclude"])?;
     let path = root.join(path.trim());
+
     if let Some(info) = path.parent() {
         fs::create_dir_all(info).with_context(|| format!("making {}", info.display()))?;
     }
+
     let had = fs::read_to_string(&path).unwrap_or_default();
     let line = if had.is_empty() || had.ends_with('\n') {
         ".worktrees/\n"
@@ -416,6 +432,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
             said.trim()
         );
     }
+
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 

@@ -96,11 +96,13 @@ impl Devices {
             .find(|op| matches!(op.body, OpBody::Genesis(_)))
             .ok_or(MeshError::NoGenesis)?;
         genesis.verify(genesis.author)?;
+
         if let OpBody::Genesis(device) = &genesis.body
             && (device.id != genesis.author || device.kind != DeviceKind::Desktop)
         {
             return Err(MeshError::NotDesktop(genesis.author));
         }
+
         let mut list = Self::empty(genesis.author);
         let merged = list.merge(ops);
         Ok((list, merged))
@@ -136,9 +138,11 @@ impl Devices {
         let Some(entry) = self.added.get(id) else {
             return WriteLimit::Refused;
         };
+
         if entry.device.kind != DeviceKind::Desktop {
             return WriteLimit::Refused;
         }
+
         match self.removed.get(id) {
             None => WriteLimit::Always,
             Some(at_ms) => WriteLimit::Until(*at_ms),
@@ -156,9 +160,11 @@ impl Devices {
     /// Signs an `Add` as `key`, which must be a member desktop, and applies it.
     pub fn add(&mut self, key: &SecretKey, device: Device) -> Result<DeviceOp, MeshError> {
         self.gate(key.public())?;
+
         if self.removed.contains_key(&device.id) {
             return Err(MeshError::Removed(device.id));
         }
+
         self.author(key, OpBody::Add(device))
     }
 
@@ -198,9 +204,11 @@ impl Devices {
                 Err(e) => merged.rejected.push(e),
             }
         }
+
         loop {
             let mut progress = false;
             let mut left = Vec::new();
+
             for (op, fresh) in items {
                 match self.apply(&op) {
                     Ok(true) => progress = true,
@@ -211,22 +219,27 @@ impl Devices {
                 }
             }
             items = left;
+
             if !progress || items.is_empty() {
                 break;
             }
         }
+
         for (op, fresh) in items {
             if self.pending.iter().any(|held| held.sig == op.sig) {
                 continue;
             }
+
             if fresh {
                 merged.held += 1;
             }
             if self.pending.len() >= MAX_PENDING {
                 self.pending.remove(0);
             }
+
             self.pending.push(op);
         }
+
         let after = self.member_ids();
         merged.added = after.difference(&before).copied().collect();
         merged.removed = before.difference(&after).copied().collect();
@@ -242,6 +255,7 @@ impl Devices {
         if self.removed.contains_key(&author) {
             return Err(MeshError::Removed(author));
         }
+
         match self.added.get(&author) {
             None => Err(MeshError::Stranger(author)),
             Some(e) if e.device.kind != DeviceKind::Desktop => Err(MeshError::NotDesktop(author)),
@@ -254,17 +268,20 @@ impl Devices {
         if self.ops.iter().any(|o| o.sig == op.sig) {
             return Ok(false);
         }
+
         match &op.body {
             OpBody::Genesis(device) => {
                 if op.author != self.mesh {
                     return Err(MeshError::OtherMesh);
                 }
+
                 if device.id != op.author || device.kind != DeviceKind::Desktop {
                     return Err(MeshError::NotDesktop(op.author));
                 }
             }
             OpBody::Add(_) | OpBody::Remove { .. } => self.gate(op.author)?,
         }
+
         self.insert(op.clone());
         Ok(true)
     }
@@ -289,6 +306,7 @@ impl Devices {
                 *first = (*first).min(*at_ms);
             }
         }
+
         self.ops.push(op);
     }
 }

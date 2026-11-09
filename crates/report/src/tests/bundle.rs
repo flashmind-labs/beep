@@ -27,10 +27,12 @@ fn share(name: &str, log: String, status: &str) -> Share {
 fn big_log(n: usize) -> String {
     let mut log = String::new();
     let mut line = 0;
+
     while log.len() < 1024 * 1024 {
         log.push_str(&format!("log {n} line {line} with some words in it\n"));
         line += 1;
     }
+
     log
 }
 
@@ -51,10 +53,12 @@ fn a_draft_redacts_logs_status_and_text() {
     .expect("a draft of plain text builds");
     assert_eq!(d.manifest.text, "my key is [redacted]");
     assert_eq!(d.files.len(), 2);
+
     for file in &d.files {
         assert!(file.text.contains("[redacted]"), "{}", file.text);
         assert!(!file.text.contains("abc"), "{}", file.text);
     }
+
     assert!(d.files[0].path.starts_with("build-box-"));
     assert!(d.files[0].path.ends_with("/log.txt"));
     assert_eq!(d.manifest.files[0].bytes, d.files[0].text.len() as u64);
@@ -82,6 +86,7 @@ fn a_draft_stays_under_the_bundle_cap() {
     assert!(total <= MAX_BODY - MANIFEST_RESERVE, "{total}");
     assert!(total > MAX_BODY - MANIFEST_RESERVE - 6 * 64, "{total}");
     assert_eq!(d.files.len(), 6);
+
     for (n, file) in d.files.iter().enumerate() {
         let original = big_log(n);
         let last = original.lines().last().expect("the log has lines");

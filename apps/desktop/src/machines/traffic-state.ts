@@ -24,6 +24,7 @@ const LABELS: Record<string, string> = {
 /// row), the ones without a name by their ALPN last.
 export function trafficRows(t: MachineTraffic | undefined): TrafficRow[] {
   const by = new Map<string, TrafficRow>();
+
   for (const { key, bytes: n } of t?.counters ?? []) {
     const m = /^alpn\.(.+)\.(tx|rx)$/.exec(key);
     if (!m) continue;
@@ -32,6 +33,7 @@ export function trafficRows(t: MachineTraffic | undefined): TrafficRow[] {
     if (!row) by.set(name, row = { label: LABELS[name] ?? name, sent: 0, received: 0 });
     if (m[2] === "tx") row.sent += n; else row.received += n;
   }
+
   const order = Object.values(LABELS);
   const rank = (r: TrafficRow) => (order.indexOf(r.label) + order.length + 1) % (order.length + 1);
   return [...by.values()].sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label));

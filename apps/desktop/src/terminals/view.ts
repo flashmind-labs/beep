@@ -18,6 +18,7 @@ export const allTerms = makeTerminals({
   redraw: () => {
     if (currentLocation()?.view === "terminals") { drawTerminals(); drawTop(); }
     else if (currentLocation()?.view === "home") draw();
+
     drawSide();
   },
 });

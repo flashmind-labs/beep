@@ -33,6 +33,7 @@ export function keepCopiesFresh(isOpen: () => boolean) {
 export async function loadCopies() {
   try { const rows = await invoke<CopyRow[]>("session_copies"); CP.rows = Array.isArray(rows) ? rows : []; }
   catch (e) { console.warn("copies not read", e); CP.rows = []; }
+
   changed();
 }
 
@@ -59,12 +60,14 @@ export function copiesClick(target: HTMLElement): boolean {
   if (!button || !c) return false;
   const command = button.dataset.cpact === "discard" ? "session_discard_copy" : "session_continue_copy";
   if (button.hasAttribute("disabled")) return true;
+
   // Discarding a version is for good: the first click asks, in the row.
   if (button.dataset.cpact === "discard" && CP.armed !== key) {
     CP.armed = key ?? "";
     changed();
     return true;
   }
+
   CP.armed = "";
   // One click is one request: a second would run the same copy again.
   button.setAttribute("disabled", "");

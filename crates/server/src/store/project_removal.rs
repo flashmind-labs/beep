@@ -78,11 +78,13 @@ pub(super) async fn remove_project_rows(
     .bind(&ids)
     .fetch_all(&mut *tx)
     .await?;
+
     for chat in chats {
         let deleted = delete_chat(&mut *tx, chat).await?;
         gone.files.extend(deleted.files);
         gone.bumped.extend(deleted.bumped);
     }
+
     sqlx::query("DELETE FROM projects WHERE id = ANY($1)")
         .bind(&ids)
         .execute(&mut *tx)
@@ -110,6 +112,7 @@ pub(super) async fn remove_project_rows(
         .execute(&mut *tx)
         .await?;
     }
+
     let terminals = sqlx::query(&format!(
         "DELETE FROM terminals WHERE user_id=$1 AND lower(project)=lower($2)
          RETURNING {}",
@@ -151,6 +154,7 @@ pub(super) async fn remove_project_rows(
     if ids.is_empty() && imports == 0 && synced == 0 && terminals.is_empty() && reviews == 0 {
         return Ok(false);
     }
+
     let removed = &mut gone.removed;
     removed.projects.extend(ids.into_iter().map(ProjectId));
     removed.workers.extend(workers);
@@ -169,9 +173,11 @@ impl Store {
     ) -> Result<Option<RemovedProject>> {
         let mut tx = self.pool.begin().await?;
         let mut gone = Gone::default();
+
         if !remove_project_rows(&mut tx, user, name, &mut gone).await? {
             return Ok(None);
         }
+
         tx.commit().await?;
         self.announce(&gone.bumped);
         self.blobs.delete(&gone.files).await?;

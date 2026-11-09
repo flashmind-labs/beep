@@ -93,6 +93,7 @@ impl Tool for ProjectsTool {
                          with import_project.",
                     ));
                 }
+
                 let live = live(&self.app, &self.user).await;
                 render_list(&projects, &live)
             }
@@ -117,15 +118,18 @@ pub(crate) fn context_block(names: &[RepoName]) -> Option<String> {
     if names.is_empty() {
         return None;
     }
+
     let shown: Vec<String> = names
         .iter()
         .take(MAX_PROJECTS)
         .map(ToString::to_string)
         .collect();
     let mut block = format!("{HEADER} {}", shown.join(", "));
+
     if names.len() > MAX_PROJECTS {
         let _ = write!(block, ", and {} more", names.len() - MAX_PROJECTS);
     }
+
     block.push('.');
     Some(block)
 }
@@ -144,12 +148,14 @@ fn find<'a>(projects: &'a [Project], wanted: &str) -> Result<&'a Project, String
             format!("Projects: {}.", names.join(", "))
         }
     };
+
     if let Some(project) = projects
         .iter()
         .find(|project| project.name.to_string().eq_ignore_ascii_case(wanted))
     {
         return Ok(project);
     }
+
     let by_repo: Vec<&Project> = projects
         .iter()
         .filter(|project| {

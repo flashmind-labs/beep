@@ -51,11 +51,14 @@ impl Drop for Published {
 fn locator_path() -> Result<PathBuf> {
     if let Some(path) = std::env::var_os("BEEP_PRESENCE_FILE") {
         let path = PathBuf::from(path);
+
         if !path.is_absolute() {
             bail!("BEEP_PRESENCE_FILE must be absolute");
         }
+
         return Ok(path);
     }
+
     Ok(crate::link::state::default_dir()?.join("presence.json"))
 }
 
@@ -85,9 +88,11 @@ fn publish(path: &Path, address: &str) -> Result<Published> {
         fs::rename(&partial, path)?;
         Ok(())
     })();
+
     if written.is_err() {
         let _ = fs::remove_file(&partial);
     }
+
     written?;
     Ok(Published {
         path: path.to_owned(),
@@ -116,6 +121,7 @@ pub async fn listen(agents: Arc<Agents>, dir: &Path) -> Result<()> {
 
 async fn serve(listener: &mut Listener, agents: Arc<Agents>) -> Result<()> {
     let mut connections = JoinSet::new();
+
     loop {
         tokio::select! {
             accepted = listener.accept(), if connections.len() < MAX_CONNECTIONS => {
@@ -150,12 +156,15 @@ impl Drop for Open<'_> {
 
 async fn read(reader: &mut BufReader<Stream>) -> Result<Option<Registration>> {
     let mut line = String::new();
+
     if (&mut *reader).take(MAX_LINE).read_line(&mut line).await? == 0 {
         return Ok(None);
     }
+
     if !line.ends_with('\n') {
         bail!("session presence line exceeds the limit or is incomplete");
     }
+
     Ok(Some(serde_json::from_str(&line)?))
 }
 
@@ -178,8 +187,10 @@ async fn connection(stream: Stream, agents: &Agents) -> Result<()> {
         if registration.session_id != open.id {
             bail!("a presence connection belongs to one session");
         }
+
         agents.presence.register(registration, open.connection)?;
     }
+
     Ok(())
 }
 

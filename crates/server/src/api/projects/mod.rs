@@ -160,9 +160,11 @@ async fn track_issue(
 /// Older apps' Not now. Hides nothing: the issue list follows the host.
 async fn dismiss_issue(user: &User, id: ProjectId, number: u64) -> Reply<()> {
     let project = project_of(user, id).await?;
+
     if i64::try_from(number).is_err() {
         return Err(ApiError::bad_request("No issue has that number."));
     }
+
     issues::dismiss(user, &project).await.map_err(issue_refusal)
 }
 
@@ -178,9 +180,11 @@ async fn project_agent(user: &User, name: &str) -> Reply<ProjectAgent> {
 /// Every project agent. A project whose chat was deleted gets a new one.
 async fn projects(user: &User) -> Reply<Vec<ProjectAgent>> {
     let mut agents = Vec::new();
+
     for project in user.projects().await? {
         agents.push(agent_of(user, &project).await?);
     }
+
     Ok(agents)
 }
 
@@ -264,6 +268,7 @@ async fn update_task(
     let task = user.project_task(id).await?.ok_or(ApiError::NotFound {})?;
     let project = project_of(user, task.project).await?;
     let fleet = RecordedFleet::new(app, user);
+
     match to {
         TaskState::Dropped if task.state.is_open() => {
             let said = drop_task(&fleet, user, &project, &task).await?;
@@ -286,6 +291,7 @@ async fn update_task(
             )));
         }
     }
+
     let task = user.project_task(id).await?.ok_or(ApiError::NotFound {})?;
     Ok(task_view(task))
 }

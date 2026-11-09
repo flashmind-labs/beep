@@ -18,6 +18,7 @@ impl Shared {
         if self.copies_git() {
             return Ok(Alignment::default());
         }
+
         let own = self.head().await?;
         let catalogs: HashMap<_, _> = crate::lock(&self.peer_branches)
             .iter()
@@ -34,6 +35,7 @@ impl Shared {
         if catalogs.is_empty() && legacy.is_empty() {
             return Ok(Alignment::default());
         }
+
         let Some(repo) = Repo::open(self.root()) else {
             // Ignored-folder datasets and non-Git projects have no branch histories.
             return Ok(Alignment::default());
@@ -45,22 +47,27 @@ impl Shared {
         let root = self.root().to_owned();
         let (repo, branch, target, warning) = spawn_blocking(move || -> Result<_> {
             repo.check_recovery()?;
+
             if gitdir::is_busy(&root) {
                 bail!("{}", gitdir::busy_reason(&root));
             }
+
             let branch = repo.head_ref();
             let mut candidates = BTreeMap::new();
             let mut warning = None;
             let mut blocked = None;
             let mut ahead = false;
+
             for BranchTip { name, commit } in catalogs.into_values().flatten() {
                 candidates.entry(name).or_insert_with(Vec::new).push(commit);
             }
+
             for (checkout, peer_branch) in legacy {
                 if peer_branch != branch {
                     blocked.get_or_insert_with(|| anyhow!("Git commits differ between branches"));
                     continue;
                 }
+
                 if let (Some(branch), Some(commit)) = (&branch, checkout.commit) {
                     candidates
                         .entry(branch.clone())
@@ -68,10 +75,13 @@ impl Shared {
                         .push(commit);
                 }
             }
+
             let mut target = None;
+
             if own.commit.is_none() && branch.as_ref().is_some_and(|name| candidates.contains_key(name)) {
                 warning = Some(anyhow!("Git commits differ; checkout has no commit; pull through Git to create its working tree"));
             }
+
             for local in repo.branches()? {
                 let Some(commits) = candidates.get(&local.name) else {
                     continue;
@@ -96,13 +106,17 @@ impl Shared {
                     blocked.get_or_insert(e);
                 }
             }
+
             let warning = warning.or(blocked).or_else(|| ahead.then(|| anyhow!("Git commits differ; this checkout is ahead of the peers")));
+
             if target.is_some() {
                 repo.check_recovery()?;
+
                 if !can_recover {
                     repo.require_clean()?;
                 }
             }
+
             Ok((repo, branch, target, warning))
         })
         .await??;
@@ -137,9 +151,11 @@ impl Shared {
             (state.saved.clone(), self.file.clone())
         };
         let policy = self.recovery.clone();
+
         if dirty {
             *crate::write_lock(&self.bootstrap_paths) = Some(HashSet::new());
         }
+
         spawn_blocking(move || {
             // Cancellation must not release the session hold during stash/restore.
             let _hold = hold;

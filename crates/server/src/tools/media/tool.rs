@@ -43,9 +43,11 @@ impl MediaTool {
     /// The tool for `kind`, or `None` when no key the user has makes it.
     pub(crate) fn new(kind: MediaKind, media: Arc<Media>) -> Option<Self> {
         let providers = media.keys.providers(kind);
+
         if providers.is_empty() {
             return None;
         }
+
         Some(Self {
             kind,
             description: description(kind, &providers),

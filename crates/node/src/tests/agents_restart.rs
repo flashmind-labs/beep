@@ -284,6 +284,7 @@ async fn note_with(dir: &Path, ready: impl Fn(&OpenSession) -> bool) -> OpenSess
             if let Some(open) = Reopen::read(dir).sessions.into_iter().find(&ready) {
                 break open;
             }
+
             tokio::task::yield_now().await;
         }
     })
@@ -353,9 +354,11 @@ async fn a_session_comes_back_after_a_crash() {
     let noted = timeout(Duration::from_secs(20), async {
         loop {
             let note = Reopen::read(dir.path());
+
             if !note.sessions.is_empty() {
                 break note;
             }
+
             tokio::task::yield_now().await;
         }
     })

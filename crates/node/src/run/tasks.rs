@@ -68,6 +68,7 @@ impl Table {
 /// as the Mac app: a process exit drops nothing, so its tasks would outlive it.
 pub fn kill_all() {
     TASKS.kill_all();
+
     for tasks in lock(&PEER_TASKS).values() {
         tasks.kill_all();
     }
@@ -79,6 +80,7 @@ pub async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
         let reply = TASKS.answer(request).await;
         tx.send(&reply).await?;
     }
+
     Ok(())
 }
 
@@ -110,6 +112,7 @@ pub(crate) async fn run_for(
     {
         return tasks.stop(id).await;
     }
+
     tasks.status(id)
 }
 
@@ -181,6 +184,7 @@ impl Tasks {
 
     fn start(&self, command: String, cwd: Option<String>) -> Reply {
         let mut inner = lock(&self.inner);
+
         if inner.jobs.len() >= MAX_TASKS {
             // Room comes from the oldest finished task.
             match inner.jobs.iter().position(|job| *job.done.borrow()) {
@@ -196,6 +200,7 @@ impl Tasks {
                 }
             }
         }
+
         let cwd = cwd.map(PathBuf::from).or_else(dirs::home_dir);
         let (leader, stdout) = match spawn(&command, cwd) {
             Ok(started) => started,
@@ -231,6 +236,7 @@ impl Tasks {
 
     fn status(&self, id: TaskId) -> Reply {
         let inner = lock(&self.inner);
+
         match inner.jobs.iter().find(|job| job.id == id) {
             Some(job) => job.status(),
             None => unknown(id),
@@ -253,18 +259,22 @@ impl Tasks {
             let Some(job) = inner.jobs.iter_mut().find(|job| job.id == id) else {
                 return unknown(id);
             };
+
             if let Some(stop) = job.stop.take() {
                 // A task that already ended dropped its receiver.
                 let _ = stop.send(());
             }
+
             job.done.clone()
         };
+
         if timeout(STOP_GRACE + STOP_WAIT, done.wait_for(|done| *done))
             .await
             .is_err()
         {
             log::warn!("background task {id} did not stop in time");
         }
+
         self.status(id)
     }
 }
@@ -307,9 +317,11 @@ fn spawn(command: &str, cwd: Option<PathBuf>) -> Result<(GroupLeader, ChildStdou
         .stderr(Stdio::null())
         .kill_on_drop(true);
     own_group(&mut child);
+
     if let Some(cwd) = cwd {
         child.current_dir(cwd);
     }
+
     spawn_env::apply(&mut child, Scope::Shell);
     let mut child = child
         .spawn()
@@ -333,6 +345,7 @@ async fn follow(
     let mut cut = false;
     // A dropped sender counts as a stop too: the job is gone.
     let mut stopped = false;
+
     loop {
         line.clear();
         tokio::select! {
@@ -355,6 +368,7 @@ async fn follow(
             },
         }
     }
+
     let state = if stopped {
         leader.stop(STOP_GRACE).await;
         TaskState::Stopped
@@ -382,9 +396,11 @@ fn keep(shared: &Mutex<Shared>, line: &[u8]) {
     let text = String::from_utf8_lossy(line);
     let text = text.trim_end_matches(['\n', '\r']);
     let mut end = text.len().min(MAX_LINE_BYTES);
+
     while !text.is_char_boundary(end) {
         end -= 1;
     }
+
     let mut shared = lock(shared);
     if shared.lines.len() == MAX_LINES {
         shared.lines.pop_front();

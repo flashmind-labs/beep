@@ -57,6 +57,7 @@ pub fn normalize(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
     let mut last = None;
+
     while let Some(c) = chars.next() {
         let inner = matches!(c, '·' | '\'' | '’')
             && last.is_some_and(char::is_alphanumeric)
@@ -69,15 +70,18 @@ pub fn normalize(text: &str) -> String {
         }
         last = Some(c);
     }
+
     out.trim_end().to_owned()
 }
 
 /// The command `phrase` is when it is one, whole.
 pub fn phrase_command(phrase: &str) -> Option<Command> {
     let phrase = normalize(phrase);
+
     if phrase.is_empty() {
         return None;
     }
+
     PHRASES
         .iter()
         .find(|(_, words)| words.contains(&phrase.as_str()))
@@ -108,6 +112,7 @@ pub fn strip_send(text: &str) -> &str {
 pub fn sentences(text: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut start = 0;
+
     for (i, c) in text.char_indices() {
         if matches!(c, '.' | '?' | '!' | '。' | '¿' | '¡') {
             // Opening marks start a sentence; closing ones end it.
@@ -122,6 +127,7 @@ pub fn sentences(text: &str) -> Vec<&str> {
             }
         }
     }
+
     if !text[start..].trim().is_empty() {
         out.push(&text[start..]);
     }

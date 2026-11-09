@@ -11,8 +11,10 @@ test("start composers consume Enter once and preserve Shift+Enter and compositio
     if (this.tagName === "textarea" && name === "keydown") key = listener;
   };
   let composer: ReturnType<typeof makeStartComposer>;
+
   try { composer = makeStartComposer(); }
   finally { proto.addEventListener = listen; }
+
   let submitted = 0, consumed = 0;
   composer.form.requestSubmit = () => { submitted++; };
   composer.input.value = "Sample task";

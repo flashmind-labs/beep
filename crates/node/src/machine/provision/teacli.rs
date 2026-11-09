@@ -80,10 +80,13 @@ fn parse(text: &str) -> (Vec<Section>, Option<String>) {
     let mut sections: Vec<Section> = Vec::new();
     let mut default = None;
     let mut in_global = false;
+
     for line in text.lines() {
         let trimmed = line.trim();
+
         if let Some(name) = trimmed.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
             in_global = name.trim() == "global";
+
             if !in_global {
                 sections.push(Section {
                     name: name.trim().to_owned(),
@@ -93,6 +96,7 @@ fn parse(text: &str) -> (Vec<Section>, Option<String>) {
             }
             continue;
         }
+
         let value = |key: &str| {
             let (k, v) = trimmed.split_once('=')?;
             (k.trim() == key).then(|| v.trim().to_owned())
@@ -117,6 +121,7 @@ fn render(logins: &[ForgejoLogin], user_ini: Option<&str>) -> String {
     let (mut theirs, default) = user_ini.map(parse).unwrap_or_default();
     let mut names: Vec<String> = Vec::new();
     let mut out = String::new();
+
     for login in logins {
         let url = login.url.trim_end_matches('/');
         let same = theirs
@@ -126,23 +131,29 @@ fn render(logins: &[ForgejoLogin], user_ini: Option<&str>) -> String {
             Some(at) => theirs.remove(at).name,
             None => host_of(url),
         };
+
         while names.contains(&name) || theirs.iter().any(|s| s.name == name) {
             name.push_str("-beep");
         }
+
         out.push_str(&format!(
             "\n[{name}]\nurl = {url}\ntoken = {}\n",
             login.token.expose()
         ));
         names.push(name);
     }
+
     for section in &theirs {
         out.push_str(&format!("\n[{}]\n", section.name));
+
         for line in &section.lines {
             out.push_str(line);
             out.push('\n');
         }
+
         names.push(section.name.clone());
     }
+
     let default = default
         .filter(|name| names.contains(name))
         .or_else(|| names.first().cloned());
@@ -150,6 +161,7 @@ fn render(logins: &[ForgejoLogin], user_ini: Option<&str>) -> String {
         "# Written by beep-node from the Forgejo servers in Beep's settings and\n\
          # ~/.config/teacli/teacli.ini. It is rewritten when either changes.\n",
     );
+
     if let Some(default) = default {
         head.push_str(&format!("[global]\ndefault_server = {default}\n"));
     }

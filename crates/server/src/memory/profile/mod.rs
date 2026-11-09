@@ -87,6 +87,7 @@ pub fn spawn(app: &Arc<App>, user: &Arc<User>, slugs: &[String]) {
 /// Rereads each source behind `slugs` from the start, dropping its notes; returns the sources started.
 pub async fn reread(app: &Arc<App>, user: &Arc<User>, slugs: &[String]) -> Result<Vec<Source>> {
     let mut started = Vec::new();
+
     for source in sources(slugs) {
         let Some(claim) = Claim::take(user, source) else {
             continue;
@@ -95,6 +96,7 @@ pub async fn reread(app: &Arc<App>, user: &Arc<User>, slugs: &[String]) -> Resul
         tokio::spawn(read(app.clone(), user.clone(), source, claim));
         started.push(source);
     }
+
     Ok(started)
 }
 
@@ -107,6 +109,7 @@ async fn read(app: Arc<App>, user: Arc<User>, source: Source, claim: Claim) {
             return;
         }
     }
+
     log::info!("profile: reading {source}; user={user}");
     let generator = app.generator(user.id());
     let mut summary = Summary::default();
@@ -116,27 +119,34 @@ async fn read(app: Arc<App>, user: Arc<User>, source: Source, claim: Claim) {
         }
         Source::Calendar(calendar) => read_calendar(generator, &user, calendar, &mut summary).await,
     };
+
     if let Err(error) = read {
         // Not finished, so the next listing of apps resumes it. What it noted
         // so far is condensed now, or it would wait for a read that may keep
         // stopping.
         log::warn!("profile: read of {source} stopped: {error:#}; user={user} {summary}");
+
         if claim.release_last() {
             match condense(generator, &user, source).await {
                 Ok(learned) => log::info!("profile: condensed; user={user} learned={learned}"),
                 Err(error) => log::warn!("profile: condensing stopped: {error:#}; user={user}"),
             }
         }
+
         return;
     }
+
     if let Err(error) = user.finish_profile_read(source.key()).await {
         log::warn!("profile: unable to save state: {error:#}; user={user}");
         return;
     }
+
     log::info!("profile: read {source}; user={user} {summary}");
+
     if !claim.release_last() {
         return;
     }
+
     match condense(generator, &user, source).await {
         Ok(learned) => notify(&user, source, &summary, learned),
         Err(error) => log::warn!("profile: condensing stopped: {error:#}; user={user}"),
@@ -220,6 +230,7 @@ fn read_reference(source: Source, finished: DateTime<Utc>) -> String {
 /// The reads that added or confirmed `rows`, newest first.
 pub fn memory_reads(rows: &[MemoryRow]) -> Vec<MemoryRead> {
     let mut reads: Vec<MemoryRead> = Vec::new();
+
     for row in rows {
         let Some(reference) = row.origin.as_ref().map(|origin| &origin.reference) else {
             continue;
@@ -233,6 +244,7 @@ pub fn memory_reads(rows: &[MemoryRow]) -> Vec<MemoryRead> {
         let Some(source) = Source::ALL.into_iter().find(|source| source.key() == key) else {
             continue;
         };
+
         match reads.iter_mut().find(|read| &read.id == reference) {
             Some(read) => read.memories.push(row.id.clone()),
             None => reads.push(MemoryRead {

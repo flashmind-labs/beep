@@ -44,11 +44,13 @@ impl HostCopy {
             .iter()
             .map(|listed| {
                 let mut run = listed.run.clone();
+
                 if run.state.going()
                     && let Some(Some(jobs)) = self.jobs.get(&run.id)
                 {
                     run.progress = progress(jobs);
                 }
+
                 run
             })
             .collect()
@@ -145,10 +147,12 @@ impl RunsCopy {
         let mut runs = Vec::new();
         let mut checks = Vec::new();
         let mut primary_checks = Vec::new();
+
         if let Some(slot) = self.primary() {
             let shown = slot.copy.shown();
             primary_checks = pr_checks(&shown, &head_refs(heads));
         }
+
         let sha_of = |run_id: u64| {
             self.primary()
                 .and_then(|slot| slot.copy.runs.iter().find(|l| l.run.id == run_id))
@@ -194,6 +198,7 @@ impl RunsCopy {
                 run,
             }));
         }
+
         newest_first(&mut runs);
         HostedRuns {
             runs,

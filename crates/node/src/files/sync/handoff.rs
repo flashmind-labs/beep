@@ -26,6 +26,7 @@ fn snapshot(root: &Path) -> Result<HandoffSnapshot> {
         "Resolve Git conflicts before handing off work."
     );
     let status = repo.run(&["status", "--porcelain=v2", "-z", "--ignore-submodules=none"])?;
+
     for entry in status.stdout.split(|byte| *byte == 0) {
         if matches!(entry.first(), Some(b'1' | b'2')) {
             let submodule = entry.split(|byte| *byte == b' ').nth(2).unwrap_or_default();
@@ -40,9 +41,11 @@ fn snapshot(root: &Path) -> Result<HandoffSnapshot> {
     let index = temp.path().join("index");
     // Start from the real index so force-added ignored files are included too.
     let source_index = root.join(".git/index");
+
     if source_index.exists() {
         fs::copy(source_index, &index)?;
     }
+
     if !index.exists() {
         let output = repo
             .git()
@@ -54,6 +57,7 @@ fn snapshot(root: &Path) -> Result<HandoffSnapshot> {
             "Git could not capture uncommitted work."
         );
     }
+
     let output = repo
         .git()
         .env("GIT_INDEX_FILE", &index)
@@ -92,6 +96,7 @@ fn snapshot(root: &Path) -> Result<HandoffSnapshot> {
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
+
     let patch = temp.path().join("changes.patch");
     let result = repo
         .git()
@@ -155,9 +160,11 @@ fn apply(root: &Path, snapshot: HandoffSnapshot) -> Result<()> {
         .is_empty(),
         "Commit or stash destination changes before handing off work."
     );
+
     if snapshot.patch.is_empty() {
         return Ok(());
     }
+
     let patch = tempfile::NamedTempFile::new()?;
     fs::write(patch.path(), snapshot.patch)?;
     let path = patch
@@ -200,6 +207,7 @@ impl Syncs {
         if !shared.status().git_only {
             return Ok(());
         }
+
         let peer = shared
             .watch_peers()
             .borrow()
@@ -216,6 +224,7 @@ impl Syncs {
             if snapshot(&root)? == incoming {
                 return Ok(());
             }
+
             apply(&root, incoming)
         })
         .await?

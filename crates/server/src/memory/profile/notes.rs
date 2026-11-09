@@ -74,6 +74,7 @@ pub(super) async fn extract(
         .await;
     let mut notes = Vec::new();
     let mut failed = 0;
+
     for result in results {
         match result {
             Ok(found) => notes.extend(found),
@@ -87,6 +88,7 @@ pub(super) async fn extract(
     if failed > 0 && notes.is_empty() {
         bail!("every batch of notes failed");
     }
+
     Ok(notes)
 }
 
@@ -94,6 +96,7 @@ pub(super) async fn extract(
 pub(super) fn pack(texts: &[String], chars: usize) -> Vec<String> {
     let mut batches = Vec::new();
     let mut batch = String::new();
+
     for text in texts {
         let text = clip(text, chars);
         if !batch.is_empty() && batch.len() + text.len() > chars {
@@ -102,6 +105,7 @@ pub(super) fn pack(texts: &[String], chars: usize) -> Vec<String> {
         batch.push_str(&text);
         batch.push_str("\n\n");
     }
+
     if !batch.trim().is_empty() {
         batches.push(batch);
     }
@@ -133,12 +137,16 @@ pub(super) fn complete_notes(answer: &str) -> Option<Vec<RawNote>> {
     let mut rest = &answer[start..];
     rest = &rest[rest.find('[')? + 1..];
     let mut notes = Vec::new();
+
     loop {
         rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == ',');
+
         if !rest.starts_with('{') {
             break;
         }
+
         let mut values = serde_json::Deserializer::from_str(rest).into_iter::<RawNote>();
+
         match values.next() {
             Some(Ok(note)) => {
                 notes.push(note);
@@ -147,6 +155,7 @@ pub(super) fn complete_notes(answer: &str) -> Option<Vec<RawNote>> {
             _ => break,
         }
     }
+
     Some(notes)
 }
 

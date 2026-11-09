@@ -45,6 +45,7 @@ export function parseAgentReport(text: string | null | undefined): AgentReport |
   const status = said.startsWith("ended") ? "ended" : said.startsWith("lost track") ? "unknown" : said.trim();
   const report: AgentReport = { agent, id, cwd, status, title: null, doing: null, plan: [], files: [], question: null };
   let inPlan = false;
+
   for (const line of lines.slice(1)) {
     const step = inPlan ? /^\s+\[(done|now|todo)\] (.*)$/.exec(line) : null;
     if (step) { report.plan.push({ content: step[2], status: MARKS[step[1]] }); continue; }
@@ -56,6 +57,7 @@ export function parseAgentReport(text: string | null | undefined): AgentReport |
     // The agent's last message and what follows are the model's to read.
     else if (line.startsWith("Last turn ")) break;
   }
+
   return report;
 }
 

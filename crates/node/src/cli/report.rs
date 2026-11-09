@@ -67,10 +67,12 @@ pub(crate) async fn run(dir: &Path, period: Period, yes: bool, text: Option<Stri
     // Redaction runs regexes over every share's log: off the async workers.
     let draft = spawn_blocking(move || draft(&text, period, since, sender, shares)).await??;
     print!("{}", listing(&draft));
+
     if !yes && !confirm(&mut input, "Send this to Beep? [y/N]").await? {
         println!("Nothing was sent.");
         return Ok(());
     }
+
     let (draft, body) = spawn_blocking(move || {
         let body = zip(&draft);
         (draft, body)
@@ -87,9 +89,11 @@ pub(crate) async fn run(dir: &Path, period: Period, yes: bool, text: Option<Stri
     if yes {
         return Ok(());
     }
+
     let Some(gh) = find_gh() else {
         return Ok(());
     };
+
     if !gh_signed_in(&gh).await {
         return Ok(());
     }
@@ -102,13 +106,16 @@ pub(crate) async fn run(dir: &Path, period: Period, yes: bool, text: Option<Stri
         }
     };
     print!("{}", issue_text(&issue));
+
     if !confirm(&mut input, "Report it on GitHub too? [y/N]").await? {
         return Ok(());
     }
+
     match open_issue(&gh, &issue).await {
         Ok(url) => println!("{url}"),
         Err(e) => eprintln!("the report was sent, but the GitHub issue did not open: {e}"),
     }
+
     Ok(())
 }
 
@@ -154,13 +161,17 @@ async fn own_share(id: EndpointId, name: &str, since: i64, answer: Answer, statu
 /// Each file with its size, then how each machine answered.
 fn listing(draft: &Draft) -> String {
     let mut out = String::from("Files:\n");
+
     for file in &draft.manifest.files {
         out.push_str(&format!("  {}  {}\n", file.path, size(file.bytes)));
     }
+
     out.push_str("Machines:\n");
+
     for machine in &draft.manifest.machines {
         out.push_str(&format!("  {}  {}\n", machine.name, machine.answer.label()));
     }
+
     out
 }
 

@@ -34,6 +34,7 @@ let searchInput: HTMLInputElement | null = null;
 onShownChange(visible => {
   clearInterval(ticker);
   ticker = undefined;
+
   if (visible && root) {
     update({ type: "tick", now: Date.now() });
     ticker = setInterval(() => update({ type: "tick", now: Date.now() }), TICK_MS);
@@ -101,6 +102,7 @@ async function start() {
   update({ type: "renew" });
   poller?.();
   poller = undefined;
+
   try {
     const made = await invoke<NodeToken>("mesh_invite", inviteArgs(kind));
     if (!root || requested !== creation) return;
@@ -116,13 +118,16 @@ async function start() {
 async function poll() {
   if (state.step !== "waiting") return;
   const token = state.token;
+
   try {
     const id = await invoke<string | null>("node_token_machine", { token });
     if (!id) return;
+
     if (kind === "phone") {
       if (state.step === "waiting" && state.token === token) update({ type: "paired" });
       return;
     }
+
     // Matched by id, so a machine set up again is found too.
     const machine = machineById(await invoke<MachineView[]>("list_machines"), id);
     if (machine && state.step === "waiting" && state.token === token) update({ type: "found", machine });
@@ -141,17 +146,20 @@ async function loadMac() {
     console.warn("this computer's state:", e);
     return;
   }
+
   drawMac();
 }
 
 /// Turns on Let Beep use this Mac.
 async function useThisMac() {
   macAsked = true;
+
   try {
     mac = await invoke<MacControl>("set_mac_control", { enabled: true });
   } catch (e) {
     mac = { ...mac, enabled: true, status: "failed", error: String(e) };
   }
+
   if (root) drawMac();
 }
 
@@ -192,10 +200,12 @@ function macBlock() {
 function update(event: AddEvent) {
   const was = state;
   state = next(state, event);
+
   if (state.step !== "waiting") {
     poller?.();
     poller = undefined;
   }
+
   if (!root) return;
   // A tick only moves the countdown.
   if (state === was && event.type === "tick") return tickOnly();
@@ -248,6 +258,7 @@ function body() {
             el("div", "am-os", "In Beep on your phone, open Linked devices, tap Link workspace, then scan this code. It works once and expires in 5 minutes."),
             manual, statusLine()]);
         }
+
         return present([
           el("div", "am-label", "Ticket"),
           codeLine(state.command),
@@ -257,6 +268,7 @@ function body() {
           statusLine(),
         ]);
       }
+
       return present([
         el("div", "am-line", el("span", "am-label am-search-label", "Search for projects in"), searchInput),
         el("div", "am-label", "1. Install beep-node on the machine"),

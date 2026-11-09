@@ -162,10 +162,12 @@ impl Store {
         .execute(&mut *tx)
         .await?
         .rows_affected();
+
         if created == 0 {
             tx.rollback().await?;
             return Ok(false);
         }
+
         sqlx::query("INSERT INTO group_invites (chat_id, invite) VALUES ($1, $2)")
             .bind(id)
             .bind(new_token())
@@ -207,12 +209,14 @@ impl Store {
         .bind(&ids)
         .fetch_all(&self.pool)
         .await?;
+
         for row in &rows {
             members
                 .entry(row.try_get("chat_id")?)
                 .or_default()
                 .push(member(row)?);
         }
+
         let mut last: HashMap<Uuid, MessageRow> = HashMap::new();
         let rows = sqlx::query(&format!(
             "SELECT DISTINCT ON (chat_id) {MESSAGE_COLUMNS}, chat_id FROM messages
@@ -221,9 +225,11 @@ impl Store {
         .bind(&ids)
         .fetch_all(&self.pool)
         .await?;
+
         for row in &rows {
             last.insert(row.try_get("chat_id")?, message(row)?);
         }
+
         Ok(groups
             .into_iter()
             .map(|group| JoinedGroup {
@@ -239,6 +245,7 @@ impl Store {
         if !self.is_member(user, id).await? {
             return Ok(None);
         }
+
         self.joined_group(id).await
     }
 
@@ -401,6 +408,7 @@ impl Store {
         if !self.is_member(user, id).await? {
             return Ok(None);
         }
+
         let query = if reset {
             sqlx::query_scalar(
                 "UPDATE group_invites SET invite = $2 WHERE chat_id = $1 RETURNING invite",
@@ -509,10 +517,12 @@ impl Store {
         .execute(&mut *tx)
         .await?
         .rows_affected();
+
         if changed == 0 {
             tx.rollback().await?;
             return Ok(false);
         }
+
         let bumped = log_chat(&mut tx, id, UpdateOp::Chat, Readers::User(user.as_ref())).await?;
         tx.commit().await?;
         self.announce(&bumped);
@@ -522,10 +532,12 @@ impl Store {
     /// Removes `user` from group `id`, deleting it when empty; false when not a member.
     pub(crate) async fn leave_group(&self, user: &UserKey, id: Uuid) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
+
         if !member_of(&mut tx, user.as_ref(), id).await? {
             tx.rollback().await?;
             return Ok(false);
         }
+
         let mut bumped = log_chat(
             &mut tx,
             id,
@@ -550,6 +562,7 @@ impl Store {
             let deleted: DeletedChat = delete_chat(&mut tx, id).await?;
             files = deleted.files;
         }
+
         tx.commit().await?;
         self.announce(&bumped);
         self.blobs.delete(&files).await?;

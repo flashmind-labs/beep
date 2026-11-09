@@ -12,6 +12,7 @@ fn the_rate_follows_the_last_ten_seconds() {
     for s in 21..=40 {
         meter.done(100_000, start + Duration::from_secs(s));
     }
+
     let rate = meter.rate();
     assert!((100_000..=200_000).contains(&rate), "rate {rate}");
 }

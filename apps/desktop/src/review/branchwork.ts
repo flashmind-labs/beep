@@ -79,10 +79,12 @@ export function defaultPlaces(preview: Preview | null | undefined) {
   const out: BranchPicks = {};
   if (!preview) return out;
   const home = preview.checkouts?.[0]?.machine_id ?? "";
+
   for (const b of preview.branches || []) {
     if (b.name === preview.default_branch || b.worktree) continue;
     if (b.pr != null || b.ahead > 0) out[b.name] = home;
   }
+
   return out;
 }
 
@@ -124,6 +126,7 @@ export function outsideThreads<T extends Pick<GitItemRow, "host" | "repo" | "upd
 ) {
   const known = new Set((projects || []).map(p => String(p.name).toLowerCase()));
   const rows = new Map<string, OutsideRow<T>>();
+
   for (const item of view?.items || []) {
     if (known.has(item.repo.toLowerCase())) continue;
     const key = `${item.host} ${item.repo}`;
@@ -132,6 +135,7 @@ export function outsideThreads<T extends Pick<GitItemRow, "host" | "repo" | "upd
     row.items.push(item);
     row.last = Math.max(row.last, item.updated_at);
   }
+
   for (const row of rows.values()) row.items.sort((a, b) => b.updated_at - a.updated_at);
   return [...rows.values()].sort((a, b) => b.last - a.last);
 }

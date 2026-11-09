@@ -55,6 +55,7 @@ impl Searches {
             Request::Rescan {} => self.rescan().await,
             _ => return failed("Update beep-node on this machine first.".into()),
         };
+
         match done {
             Ok(search) => Reply::Folder {
                 folder: search.to_string(),
@@ -84,7 +85,9 @@ impl Searches {
             if let Some(Err(e)) = OptionFuture::from(before).await {
                 log::debug!("the last walk ended: {e}");
             }
+
             let forget = dir.clone();
+
             match blocking(move || found::forget_checkouts(&forget)).await {
                 Ok(()) => agents.warm(Some(root), dir).await,
                 Err(e) => log::warn!("not looking for checkouts again: {e:#}"),

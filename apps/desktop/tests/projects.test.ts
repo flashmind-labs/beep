@@ -30,6 +30,7 @@ test("the field takes org/repo and URLs, nothing else", () => {
   for (const ok of ["n0-computer/iroh", " org/repo ", "https://github.com/org/repo", "https://git.example.com/team/app.git", "git@github.com:org/repo.git", "github.com/org/repo"]) {
     assert.ok(looksLikeRepo(ok), ok);
   }
+
   for (const bad of ["", "iroh", "a/b/c", "https://github.com/org", "org/re po"]) {
     assert.ok(!looksLikeRepo(bad), bad);
   }
@@ -152,6 +153,7 @@ test("group folders leave out the home folder and a leading Projects", () => {
     "/home/user/Projects/work", "/Users/someone/Projects/work", "C:\\Users\\someone\\Projects\\work", "  ~/work  "]) {
     assert.equal(groupPath(path), "work", path);
   }
+
   assert.equal(groupPath("~/Projects/acme/widget"), "acme/widget");
   assert.equal(groupPath("~/work/Projects/x"), "work/Projects/x");
   for (const path of ["~", "~/", "/home/user", "/Users/someone/", "~/Projects", "", null]) assert.equal(groupPath(path), "", String(path));
@@ -300,6 +302,7 @@ test("overview cards keep local groups, pins and live agents without task summar
     { name: "acme/pines", machines: [], agents: 0 },
     { name: "notes", machines: [], agents: 0 },
   ];
+
   for (const summaries of [undefined, null, []]) {
     const groups = overviewGroups(rows, summaries, ["acme/pines"], [field]);
     assert.deepEqual(groups.map(g => [g.group?.name ?? g.org, g.cards.map(c => c.name)]), [

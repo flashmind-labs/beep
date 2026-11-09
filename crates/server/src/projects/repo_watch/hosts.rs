@@ -106,13 +106,17 @@ pub(crate) fn collect(sources: &Sources<'_>, tokens: &Tokens<'_>) -> Vec<RepoOnH
             });
         }
     };
+
     if let Some(host) = &sources.primary {
         add(host.clone(), name.clone(), true);
     }
+
     let roles = &sources.project.roles;
+
     for host in [&roles.issues, &roles.prs].into_iter().flatten() {
         add(host.clone(), name.clone(), false);
     }
+
     for (host, repo) in sources
         .import_urls
         .iter()
@@ -122,6 +126,7 @@ pub(crate) fn collect(sources: &Sources<'_>, tokens: &Tokens<'_>) -> Vec<RepoOnH
             add(host, repo, false);
         }
     }
+
     let remotes: Vec<(IssueHost, RepoName)> = sources
         .remotes
         .iter()
@@ -129,15 +134,18 @@ pub(crate) fn collect(sources: &Sources<'_>, tokens: &Tokens<'_>) -> Vec<RepoOnH
         .filter(|(host, _)| tokens.has(host))
         .collect();
     let same = |repo: &RepoName| repo.to_string().eq_ignore_ascii_case(&name.to_string());
+
     for (host, repo) in remotes.iter().filter(|(_, repo)| same(repo)) {
         add(host.clone(), repo.clone(), false);
     }
+
     for (host, repo) in remotes
         .iter()
         .filter(|(_, repo)| repo.repo().eq_ignore_ascii_case(name.repo()))
     {
         add(host.clone(), repo.clone(), false);
     }
+
     found
 }
 
@@ -166,10 +174,12 @@ async fn places(user: &User, project: &ProjectRow) -> anyhow::Result<Vec<Place>>
         })
         .collect();
     let name = project.name.to_string();
+
     for import in user.imports().await? {
         if !import.project.eq_ignore_ascii_case(&name) {
             continue;
         }
+
         if let (Ok(machine), Ok(path)) = (
             import.endpoint.parse::<EndpointId>(),
             import.folder.parse::<MachinePath>(),
@@ -180,6 +190,7 @@ async fn places(user: &User, project: &ProjectRow) -> anyhow::Result<Vec<Place>>
             });
         }
     }
+
     Ok(places)
 }
 
@@ -202,17 +213,20 @@ async fn read_remotes(
             .collect();
         return Ok(Some(urls));
     }
+
     Ok(None)
 }
 
 /// The project's remotes: read in the last half hour, else reread from an online checkout, else the last read.
 async fn remotes(fleet: &RecordedFleet, project: &ProjectRow, entry: &Entry) -> Vec<String> {
     let kept = entry.remotes();
+
     if let Some(kept) = &kept
         && kept.at.elapsed() < REMOTES_FOR
     {
         return kept.urls.clone();
     }
+
     match read_remotes(fleet, &fleet.user, project).await {
         Ok(Some(urls)) => {
             entry.set_remotes(RemotesRead {

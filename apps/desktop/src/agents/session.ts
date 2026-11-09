@@ -68,6 +68,7 @@ function finishFirstRead(open: OpenAgent, outcome: "ok" | "error") {
 export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: { why?: string; back?: AgentReturn; adopt?: boolean } = {}) {
   conversationHistory.visit(s);
   traceSession("opening", { machine_id: s.machine_id, agent: s.agent, session: s.id }, { status: s.status, adopt });
+
   // Already open: keep its log, draft, queue and scroll, and only ask for news.
   if (!why && sameSession(AG.open, s) && AG.page?.session.id === s.id) {
     if (AG.open) firstRead = { open: AG.open, at: performance.now() };
@@ -76,10 +77,12 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     // to the top: it goes back to its end, or where the reader left it,
     // before its scroll handler takes that for the reader's move.
     const shown = $<ChatBody>("#agbody");
+
     if (S.view === "agent" && shown) {
       shown.scrollTop = returnScroll(shown, shown.top ?? 0);
       return void pollAgent(true);
     }
+
     if (from === undefined) AG.back = S.view === "agents" ? "agents" : "chat";
     S.view = "agent";
     Object.assign(AG, { sig: "", rest: "" });
@@ -88,6 +91,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     watchRead(AG.open!);
     return void pollAgent(true);
   }
+
   if (from === undefined) from = S.view === "agents" ? "agents" : "chat";
   const inPlace = adopt && !!AG.draft && S.view === "agent" && !!$("#agshell");
   if (AG.open) steerQueues.set(transcriptKey(AG.open), AG.queue);
@@ -160,11 +164,13 @@ const feed = new AgentFeed<OpenAgent, FeedUpdate>({
   receive: (o, update) => {
     if (!isOpen(o) || !agentOnScreen()) { feed.stop(); return; }
     const page = transcripts.receive(transcriptKey(o), update);
+
     if (!page) {
       feed.stop();
       void pollAgent(true);
       return;
     }
+
     AG.modes = update.modes;
     AG.tasks = update.tasks;
     // Normal updates only compare and redraw their changed suffix.
@@ -190,10 +196,12 @@ changeListeners.push(() => { if (S.view !== "agent") stopAgentFollow(); });
 
 function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, replace = false) {
   if (AG.page) page.session = nativeUpdate(AG.page.session, page.session);
+
   if (isNativeSession(page.session.id)) {
     const row = sessions.find(s => s.machine_id === page.session.machine_id && s.id === page.session.id);
     if (row) keepNativeSession({ ...row, ...page.session });
   }
+
   const sig = JSON.stringify(page);
   const moved = sig !== AG.sig;
   if (moved) { AG.sig = sig; AG.changed = Date.now(); }
@@ -252,11 +260,13 @@ export async function pollAgent(readNow = false) {
   if (!o) { feed.stop(); return; }
   const trace = readNow || !AG.sig;
   const skip = !isOpen(o) ? "different-view" : AG.inflight === o ? "in-flight" : !readNow && !agentOnScreen() ? "hidden" : null;
+
   if (skip) {
     if (skip !== "in-flight") feed.stop();
     if (trace) traceSession("read-skipped", o, { reason: skip, readNow });
     return;
   }
+
   if (agentOnScreen()) feed.follow(o);
   else feed.stop();
   if (feed.live(o)) return;
@@ -272,8 +282,10 @@ export async function pollAgent(readNow = false) {
     current.pending.delete(name);
     if (trace) traceSession("read-settled", o, { part: name, ms: Date.now() - current.at, pending: [...current.pending] });
   });
+
   try {
     const [page, modes, tasks] = await Promise.all([tracked("view", invoke<AgentPage>("agent_view", { ...where(o), last: newestRead(AG.page, AGENT_LAST) }, AGENT_READ_WAIT_MS)), tracked("modes", readModes(o)), tracked("tasks", readTasks(o)), tracked("processes", readRunning())]);
+
     if (isOpen(o) && feed.version(o) === version) {
       AG.modes = modes;
       AG.tasks = tasks;
@@ -283,6 +295,7 @@ export async function pollAgent(readNow = false) {
     }
   } catch (e) {
     if (trace) traceSession("read-failed", o, { pending: [...current.pending], ms: Date.now() - current.at });
+
     if (isOpen(o) && feed.version(o) === version) {
       // A dropped link is read again with backoff; a session its machine
       // came back without has ended, and no turn runs on.
@@ -297,12 +310,15 @@ export async function pollAgent(readNow = false) {
     if (AG.inflight === o) AG.inflight = null;
     if (reading === current) reading = null;
   }
+
   // Another session opened while this one was asked: follow that one.
   if (AG.open !== o) { if (isOpen(AG.open) && !AG.inflight) pollAgent(); return; }
+
   if (!isOpen(o) || !agentOnScreen()) {
     if (trace) traceSession("polling-stopped", o, { reason: !isOpen(o) ? "different-view" : "hidden" });
     return;
   }
+
   const delay = AG.link.lost ? retryDelay(AG.link.lost) : agentDelay();
   if (!feed.live(o)) AG.timer = setTimeout(pollAgent, delay);
 }
@@ -330,6 +346,7 @@ window.addEventListener("agent-pane-shown", () => {
 
 onShownChange(shown => {
   if (AG.open && S.view === "agent") traceSession("visibility-changed", AG.open, { shown });
+
   if (!shown) { clearTimeout(AG.timer); feed.stop(); }
   else if (S.view === "agent") {
     restoreAgentScroll();
@@ -340,6 +357,7 @@ listen("agent-title-changed", () => {
   if (S.view === "agent") void pollAgent(true);
   void loadSessions().then(() => { if (S.view === "agents") drawAgents(false); }).catch(e => console.warn("session titles:", e));
 });
+
 // A notice about a session that asks may mean it was answered elsewhere.
 for (const name of ["sessions-changed", "work-resolved"]) {
   listen(name, () => { if (AG.page?.session.status === "asking" && S.view === "agent") pollAgent(); });
@@ -384,11 +402,13 @@ export function agentHints() {
   if (s && isNativeSession(s.id)) return slim([["esc", "parent session"]]);
   if (s && followsOnly(s)) return slim([["esc", "back"]]);
   if (s?.status === "ended") return slim([[ICON.ret, "continue"], ["esc", "back"]]);
+
   if (turnRuns()) {
     const keys: Parameters<typeof hints>[0] = [];
     if (stoppingNow()) return slim(keys);
     return slim([...keys, ...mode, ["⌘.", "stop"], ["esc", "back"]]);
   }
+
   return slim([...mode, ["⌘U", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]);
 }
 
@@ -425,6 +445,7 @@ async function readUsage(o: OpenAgent, page: AgentPage) {
   const s = page.session, of = usageKey(s);
   if (s.external || (usage.of === of && usage.turns === page.turns)) return;
   usage = { of, turns: page.turns, text: usage.of === of ? usage.text : "" };
+
   try {
     const u = await invoke<AgentUsage | null>("agent_usage", where(o));
     if (usage.of !== of || usage.turns !== page.turns || !u) return;
@@ -493,6 +514,7 @@ export async function closeOpenSession() {
   const closing = closeSession(s);
   // Leave before the machine acknowledges the close.
   agentBack(true);
+
   try {
     await closing;
   } catch (e) {
@@ -556,6 +578,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   if (inPlace) rebindPane(place); else startPane(place);
   void refreshMoves().then(drawMove);
   const msg = $<HTMLTextAreaElement>("#agmsg");
+
   if (msg) {
     const picker = filePicker(agentDrop);
     msg.before(picker.button, picker.input);
@@ -563,10 +586,12 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     bindMentionMenu(msg);
     bindSessionStash(msg);
   }
+
   drawAgentAttached();
   drawModelPill();
   const b = kept ?? $$<ChatBody>("#agbody");
   left = { key: sessionKey(s), body: b };
+
   if (kept) {
     $$("#agbody").replaceWith(kept);
     kept.scrollTop = returnScroll(kept, keptTop);
@@ -588,6 +613,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     };
     b.addEventListener("wheel", () => { b.wheel = performance.now(); }, { passive: true });
   }
+
   b.oncontextmenu = e => fileLinkMenu(e, { machineId: s.machine_id, root: s.cwd }, openLinked);
   drawAgentBody();
   $("#agmsg")?.focus();
@@ -612,6 +638,7 @@ async function stopKid(x: HTMLElement) {
   const kid = x.closest<HTMLElement>("[data-kid]");
   const row = kid && await kidSession(kid.dataset.kid!, kid.dataset.key);
   if (!row) return;
+
   try {
     await invoke("agent_steer", { machineId: row.machine_id, agent: row.agent, session: row.id, steer: "cancel" });
   } catch (e) {
@@ -637,14 +664,17 @@ function agentClick(e: MouseEvent) {
   const stopping = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-kidstop]");
   if (stopping) return void stopKid(stopping);
   const prompt = target.closest<HTMLElement>("#agbody [data-prompt]");
+
   if (prompt) {
     const at = Number(prompt.dataset.prompt);
     AG.steps.set(at, prompt.getAttribute("aria-expanded") !== "true");
     return drawAgentBody(clickedRow(prompt));
   }
+
   const summary = target.closest<HTMLElement>("[data-subsummary]");
   if (summary) { const at = Number(summary.dataset.subsummary); AG.steps.set(at, !AG.steps.get(at)); drawAgentBody(); return; }
   const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-native]");
+
   if (sub && AG.page && AG.log) {
     const entry = AG.page.entries[Number(sub.dataset.native) - AG.page.earlier];
     if (!entry) return;
@@ -654,6 +684,7 @@ function agentClick(e: MouseEvent) {
     if (row) { keepNativeSession(row, AG.page.session); openAgent(row, { back: AG.back }); }
     return;
   }
+
   // An agent another agent started opens as its own session.
   const kid = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-kid]");
   if (kid) { void openKid(kid.dataset.kid!, kid.dataset.key); return; }
@@ -661,14 +692,17 @@ function agentClick(e: MouseEvent) {
   if (up) { const row = AG.open && AG.page && parentSession(AG.page.session); if (row) openAgent(row, { back: AG.back }); return; }
   // "Show all N lines" opens the whole output in a box that scrolls.
   const all = target.closest<HTMLElement>("#agbody [data-all]");
+
   if (all) {
     const at = Number(all.dataset.all);
     if (!AG.all.delete(at)) AG.all.add(at);
     return drawAgentBody(clickedRow(all));
   }
+
   if (target.closest("#agbody pre.out.all")) return;
   // A run of calls opens and folds in place, like a thought.
   const runBtn = target.closest<HTMLElement>("#agbody [data-run]");
+
   if (runBtn && AG.open) {
     const opened = turnsOf(AG.open.session).runs, at = Number(runBtn.dataset.run);
     const open = !opened.delete(at);
@@ -677,8 +711,10 @@ function agentClick(e: MouseEvent) {
     runBtn.setAttribute("aria-expanded", String(open));
     return;
   }
+
   // The files a turn made fold and open in place, like a run of calls.
   const madeHead = target.closest<HTMLElement>("#agbody [data-madeat]");
+
   if (madeHead && AG.open) {
     const opened = turnsOf(AG.open.session).made, at = Number(madeHead.dataset.madeat);
     const open = !opened.delete(at);
@@ -687,25 +723,31 @@ function agentClick(e: MouseEvent) {
     madeHead.setAttribute("aria-expanded", String(open));
     return;
   }
+
   // A file a turn made opens in the Artifacts tab, or else in its own tab.
   const madeFile = target.closest<HTMLElement>("#agbody [data-made]");
+
   if (madeFile) {
     if (!showArtifact(madeFile.dataset.made!)) openLinked(madeFile.dataset.made!);
     return;
   }
+
   const copy = target.closest<HTMLElement>("#agbody [data-copy]");
   if (copy) return copyCode(copy);
   if (target.closest("#agjump")) { jumpToLatest(); return; }
   // A thought opens and folds in place, so only it animates.
   const thought = target.closest<HTMLElement>("#agbody [data-thought]");
+
   if (thought && AG.open) {
     const m = turnsOf(AG.open.session), at = Number(thought.dataset.thought);
     if (toggleThought(thought)) m.thoughts.add(at);
     else m.thoughts.delete(at);
     return;
   }
+
   // The heading toggles the steps; the bottom chevron returns to it.
   const turn = target.closest<HTMLElement>("#agbody [data-turn]");
+
   if (turn && AG.open) {
     const opened = turnsOf(AG.open.session).opened, key = Number(turn.dataset.turn);
     const collapse = turn.hasAttribute("data-collapse");
@@ -714,13 +756,16 @@ function agentClick(e: MouseEvent) {
     if (collapse) $(heading)?.scrollIntoView({ block: "nearest" });
     if (!opened.delete(key) && !collapse) opened.add(key);
     drawAgentBody(clickedRow(turn));
+
     if (collapse) {
       const head = $<HTMLButtonElement>(heading);
       head?.focus({ preventScroll: true });
       head?.scrollIntoView({ block: "nearest" });
     }
+
     return;
   }
+
   // A file a step names opens in the media pane.
   const step = target.closest<HTMLElement>("#agbody [data-media]");
   if (step) { openPath(step.dataset.media!); return; }
@@ -737,15 +782,18 @@ function agentClick(e: MouseEvent) {
   // One still loading opens once it is here. The tile may be a thumbnail, so
   // what opens is read whole.
   const pic = linked ?? target.closest<HTMLImageElement>("#agbody img.pic");
+
   if (pic) {
     const o = AG.open;
     if (!o || !pic.getAttribute("src")) return;
     const name = (link ? link.textContent : null) || pic.dataset.name || pic.alt;
     const unread = () => { AG.note = "Could not read the whole picture."; drawAgentBody(); };
+
     if (!pic.closest(".dcoderen.user")) {
       fullPic(o, pic).then(url => { if (isOpen(o)) url ? openPicture(url, name) : unread(); });
       return;
     }
+
     const all = [...pic.parentElement!.querySelectorAll<HTMLImageElement>("img.pic[src]")];
     Promise.all(all.map(i => fullPic(o, i))).then(urls => {
       if (!isOpen(o)) return;
@@ -757,17 +805,21 @@ function agentClick(e: MouseEvent) {
     });
     return;
   }
+
   // An Artifact call opens what it published in the Artifacts tab.
   const art = target.closest<HTMLElement>("#agbody [data-artifact]");
   if (art && !getSelection()!.toString() && showArtifact(art.dataset.artifact!)) return;
   const tool = target.closest<HTMLElement>("#agbody .dcoderen.tool[data-at]");
+
   if (tool && !getSelection()!.toString() && !target.closest(".out, .ddiff, .cmd, .call-details")) {
     const at = Number(tool.dataset.at);
     AG.steps.set(at, !tool.classList.contains("open"));
     return drawAgentBody(clickedRow(tool));
   }
+
   // A pasted block opens by itself; remember it so a redraw keeps it open.
   const paste = target.closest<HTMLElement>("#agbody .dcoderen.user[data-at] details.paste > summary");
+
   if (paste) {
     const key = `${paste.closest<HTMLElement>("[data-at]")!.dataset.at}:${paste.parentElement!.dataset.paste}`;
     if (!AG.opened.delete(key)) AG.opened.add(key);
@@ -775,8 +827,10 @@ function agentClick(e: MouseEvent) {
     requestAnimationFrame(() => { const b = $<ChatBody>("#agbody"); if (b) b.stuck = atBottom(b); });
     return;
   }
+
   if (target.closest("#agresume")) return resumeAgent();
   if (target.closest("#agstop")) return void interruptAgent();
+
   if (target.closest("#agsend")) {
     const input = $<HTMLTextAreaElement>("#agmsg");
     if (input) submitAgentMessage(input);

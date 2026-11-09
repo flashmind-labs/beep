@@ -79,6 +79,7 @@ fn main_folder(dir: &Path, top: &Path, common: &Path) -> PathBuf {
             Err(_) => return top.to_owned(),
         }
     };
+
     match common.file_name() {
         Some(name) if name == ".git" => common
             .parent()
@@ -113,6 +114,7 @@ pub(super) mod tests {
             eprintln!("skipped: no git");
             return;
         }
+
         let root = tempfile::tempdir().expect("a temp folder");
         fs::create_dir_all(root.path().join("proj")).expect("a folder");
         let repo = paths::canonicalize(root.path().join("proj")).expect("a real path");

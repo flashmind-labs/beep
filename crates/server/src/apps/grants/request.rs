@@ -123,6 +123,7 @@ impl Tool for RequestGrantTool {
             Ok(asked) => asked,
             Err(reason) => return Ok(ToolResult::failure(id, format!("Not asked: {reason}"))),
         };
+
         if self.approved.as_deref() != Some(id) {
             return Ok(ToolResult::interrupt(
                 id,
@@ -131,6 +132,7 @@ impl Tool for RequestGrantTool {
                 }),
             ));
         }
+
         self.user
             .create_grant(NewGrant {
                 routine: asked.routine,
@@ -169,17 +171,23 @@ pub(super) async fn prepare(user: &User, request: &Request) -> Result<Result<Ask
     let Some(job) = user.cron_job(routine).await? else {
         return Ok(Err("The user has no routine with that id.".to_owned()));
     };
+
     if digest::is_digest(&job) {
         return Ok(Err("The digest cannot be given a grant.".to_owned()));
     }
+
     let per_run = request.per_run.unwrap_or(1);
+
     if !(1..=MAX_PER_RUN).contains(&per_run) {
         return Ok(Err(format!("per_run must be 1 to {MAX_PER_RUN}.")));
     }
+
     let hours = request.hours.unwrap_or(DEFAULT_HOURS);
+
     if !(1..=MAX_HOURS).contains(&hours) {
         return Ok(Err(format!("hours must be 1 to {MAX_HOURS}.")));
     }
+
     let constraints = match Constraints::new(spec, &request.recipients, &request.exact) {
         Ok(constraints) => constraints,
         Err(reason) => return Ok(Err(reason)),
@@ -262,6 +270,7 @@ pub(super) async fn card(
             ),
         },
     ];
+
     for (key, value) in &constraints.pinned {
         let label = permissions::field_label(key);
         fields.push(if permissions::is_id(key) {
@@ -282,6 +291,7 @@ pub(super) async fn card(
             }
         });
     }
+
     if !constraints.pinned.is_empty() {
         let named = ToolCall {
             id: String::new(),
@@ -296,6 +306,7 @@ pub(super) async fn card(
         };
         fields.extend(permissions::read_back(user, &named).await);
     }
+
     fields.push(ApprovalField {
         label: "Ends".to_owned(),
         value: format!("When the routine ends, or in {}", span(about.hours)),
@@ -316,6 +327,7 @@ pub(super) fn span(hours: u32) -> String {
             format!("{n} {one}s")
         }
     };
+
     match (hours / 24, hours % 24) {
         (0, h) => unit(h, "hour"),
         (d, 0) => unit(d, "day"),

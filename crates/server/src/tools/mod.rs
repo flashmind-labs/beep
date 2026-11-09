@@ -75,6 +75,7 @@ pub fn registry(
         writes: true,
     }));
     registry.register(Arc::new(TimeTool));
+
     if let Ok(chat) = run.session_id.parse() {
         registry.register(Arc::new(chat::ChatSearchTool {
             user: user.clone(),
@@ -85,6 +86,7 @@ pub fn registry(
             chat,
         }));
     }
+
     crate::routines::cron::register_tools(
         &mut registry,
         app.store.clone(),
@@ -94,10 +96,13 @@ pub fn registry(
     );
     registry.register(Arc::new(location::GetLocationTool { user: user.clone() }));
     registry.register(Arc::new(products::ShowProductsTool));
+
     if draws.cards {
         registry.register(Arc::new(cards::ShowCardsTool { user: user.clone() }));
     }
+
     registry.register(Arc::new(habits::HabitTool { user: user.clone() }));
+
     for kind in places::PlaceToolKind::ALL {
         registry.register(Arc::new(places::PlaceTool {
             user: user.clone(),
@@ -105,11 +110,13 @@ pub fn registry(
             chat: run.session_id.parse().ok(),
         }));
     }
+
     registry.register(Arc::new(progress::TaskProgressTool));
     registry.register(Arc::new(projects::ProjectsTool {
         app: app.clone(),
         user: user.clone(),
     }));
+
     if draws.charts {
         registry.register(Arc::new(charts::ShowChartTool));
         registry.register(Arc::new(charts::ShowStockChartTool));
@@ -124,5 +131,6 @@ pub fn registry(
             run_id: run_id.to_owned(),
         }));
     }
+
     registry
 }

@@ -67,21 +67,25 @@ impl Tool for SendImageTool {
                 format!("Send between 1 and {MAX_IMAGES} images."),
             ));
         }
+
         let checks = requested.iter().map(|image| self.send_one(image));
         let mut images = Vec::new();
         let mut failed = Vec::new();
+
         for result in futures::future::join_all(checks).await {
             match result {
                 Ok(image) => images.push(image),
                 Err(reason) => failed.push(reason),
             }
         }
+
         if images.is_empty() {
             return Ok(ToolResult::failure(
                 ctx.tool_call_id,
                 format!("No image could be sent. {}", failed.join("; ")),
             ));
         }
+
         let output = json!({ "action": "send_image", "images": images, "failed": failed });
         Ok(ToolResult::success(ctx.tool_call_id, output.to_string()))
     }
@@ -93,6 +97,7 @@ impl SendImageTool {
         let field = |key| text(image, key);
         let caption: String = field("caption").unwrap_or("").chars().take(200).collect();
         let url = field("url").ok_or("give each image a url")?;
+
         match check(url).await {
             Ok(()) => Ok(json!({ "url": url, "caption": caption })),
             Err(reason) => Err(format!("{url}: {reason}")),
@@ -114,6 +119,7 @@ pub(super) fn image_mime(data: &[u8]) -> Option<&'static str> {
 /// Checks that `url` is a public https address serving an image.
 pub(super) async fn check(url: &str) -> Result<(), &'static str> {
     let parsed = Url::parse(url).map_err(|_| "not a valid URL")?;
+
     if parsed.scheme() != "https" || url.len() > 2048 {
         return Err("only https URLs up to 2048 bytes are allowed");
     }
@@ -133,10 +139,13 @@ pub(super) async fn check(url: &str) -> Result<(), &'static str> {
     if !response.status().is_success() {
         return Err("the server did not return it");
     }
+
     let is_image = content_type(&response).is_some_and(|v| v.trim_start().starts_with("image/"));
+
     if !is_image {
         return Err("it is not an image");
     }
+
     Ok(())
 }
 
@@ -156,19 +165,24 @@ pub(super) async fn page_image(page: &str) -> Option<String> {
 async fn read_head(page: &str) -> Option<String> {
     let mut response = follow_public(page).await.ok()?.response;
     let is_html = content_type(&response).is_some_and(|v| v.contains("html"));
+
     if !response.status().is_success() || !is_html {
         return None;
     }
+
     let mut head = Vec::new();
+
     while head.len() < MAX_HEAD {
         let Ok(Some(chunk)) = response.chunk().await else {
             break;
         };
         head.extend_from_slice(&chunk);
+
         if head.windows(7).any(|w| w.eq_ignore_ascii_case(b"</head>")) {
             break;
         }
     }
+
     Some(String::from_utf8_lossy(&head).into_owned())
 }
 
@@ -195,24 +209,30 @@ fn preview_image(html: &str) -> Option<String> {
 /// The value of attribute `key` in one tag, quoted with `"` or `'`.
 fn attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
     let mut rest = tag;
+
     while let Some(at) = rest.find(key) {
         let before = rest[..at].chars().next_back();
         let after = rest[at + key.len()..].trim_start();
         rest = &rest[at + key.len()..];
+
         if !before.is_some_and(char::is_whitespace) {
             continue;
         }
+
         let Some(value) = after.strip_prefix('=') else {
             continue;
         };
         let value = value.trim_start();
         let quote = value.chars().next()?;
+
         if quote != '"' && quote != '\'' {
             continue;
         }
+
         let value = &value[1..];
         return value.find(quote).map(|end| value[..end].trim());
     }
+
     None
 }
 

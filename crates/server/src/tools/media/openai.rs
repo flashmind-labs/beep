@@ -43,9 +43,11 @@ impl ImageBody {
 fn size_for(ratio: &str) -> Option<String> {
     let (w, h) = ratio.split_once(':')?;
     let (w, h): (f64, f64) = (w.trim().parse().ok()?, h.trim().parse().ok()?);
+
     if w <= 0.0 || h <= 0.0 {
         return None;
     }
+
     let size = match w / h {
         r if r > 1.2 => "1536x1024",
         r if r < 1.0 / 1.2 => "1024x1536",
@@ -120,6 +122,7 @@ async fn request(url: &str, key: &SecretString, body: &ImageBody) -> Result<Prod
     if !status.is_success() {
         return Err(refused(status.as_u16(), &bytes));
     }
+
     parse(&bytes)
 }
 

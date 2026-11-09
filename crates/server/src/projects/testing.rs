@@ -96,6 +96,7 @@ impl Shell for FakeShell {
         if fails.is_some_and(|holds| command.contains(&holds)) {
             bail!("the machine dropped");
         }
+
         let block = self
             .blocks
             .lock()
@@ -107,6 +108,7 @@ impl Shell for FakeShell {
             self.blocked.notify_one();
             signal.notified().await;
         }
+
         let rules = self.rules.lock().unwrap_or_else(PoisonError::into_inner);
         Ok(rules
             .iter()

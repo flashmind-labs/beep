@@ -20,10 +20,12 @@ const KEEP: usize = 200;
 /// A stable 64-bit digest of the `parts` that make one version of a notification.
 pub fn digest(parts: &[&str]) -> u64 {
     let mut hash = blake3::Hasher::new();
+
     for part in parts {
         hash.update(&(part.len() as u64).to_le_bytes());
         hash.update(part.as_bytes());
     }
+
     let first = hash.finalize();
     let mut eight = [0; 8];
     eight.copy_from_slice(&first.as_bytes()[..8]);
@@ -53,20 +55,24 @@ impl StateValue for Marks {}
 /// Every notification read on any app that is a member.
 pub fn read_marks(mesh: &Mesh) -> HashSet<Read> {
     let mut reads = HashSet::new();
+
     for (key, bytes) in mesh.scan("notice-read/") {
         let Key::NoticeRead(app) = &key else { continue };
+
         if !app
             .parse::<EndpointId>()
             .is_ok_and(|app| mesh.is_member(app))
         {
             continue;
         }
+
         let Ok(held) = Marks::from_bytes(&bytes) else {
             log::warn!("ignored {key} in the mesh: it does not read");
             continue;
         };
         reads.extend(held.marks.into_iter().map(|mark| (mark.id, mark.digest)));
     }
+
     reads
 }
 

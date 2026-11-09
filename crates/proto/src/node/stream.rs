@@ -169,6 +169,7 @@ impl LinkTx {
             }
             Out::Local(mut pipe) => pipe.shutdown().await?,
         }
+
         Ok(())
     }
 }

@@ -111,14 +111,17 @@ impl Serving {
             late: &self.late,
             peers,
         };
+
         if folders.is_empty() {
             return;
         }
+
         match Transfers::start_shared(endpoint, &dir.join("blobs"), folders).await {
             Ok((transfers, served)) => {
                 let stopped = {
                     let mut services = self.services();
                     let stopped = matches!(*services, Services::Stopped);
+
                     if !stopped {
                         self.late.serve(served);
                         peers.offer(Arc::new(transfers.syncs()));
@@ -128,8 +131,10 @@ impl Serving {
                         peers.serve_transfers(transfers.clone());
                         *services = Services::Running(transfers.clone());
                     }
+
                     stopped
                 };
+
                 if stopped {
                     // Stopped while starting: these never run.
                     if let Err(e) = transfers.shutdown().await {

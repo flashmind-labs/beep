@@ -152,12 +152,14 @@ fn normalize(model: &str) -> String {
     let model = model.rsplit('/').next().unwrap_or(model);
     let model = model.split('[').next().unwrap_or(model);
     let mut name = model.trim().to_ascii_lowercase().replace('.', "-");
+
     if let Some((rest, date)) = name.rsplit_once('-')
         && date.len() == 8
         && date.bytes().all(|b| b.is_ascii_digit())
     {
         name.truncate(rest.len());
     }
+
     name
 }
 

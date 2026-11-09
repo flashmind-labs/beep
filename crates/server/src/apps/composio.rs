@@ -116,9 +116,11 @@ impl Composio {
     /// Logo URLs by slug, refreshed at most hourly; failures leave logos out.
     pub(crate) async fn logos(&self) -> HashMap<String, String> {
         let mut cache = self.logos.lock().await;
+
         if let Some(cached) = cache.as_ref().filter(|c| c.fetched.elapsed() < LOGO_TTL) {
             return cached.logos.clone();
         }
+
         let slugs = CATALOG
             .iter()
             .filter(|app| app.kind == (AppKind::Composio {}))
@@ -130,6 +132,7 @@ impl Composio {
         .await;
         let mut logos = HashMap::new();
         let mut failures = 0;
+
         for (slug, logo) in fetched {
             match logo {
                 Ok(Some(url)) => {
@@ -142,6 +145,7 @@ impl Composio {
                 }
             }
         }
+
         if failures > 0 {
             log::warn!("toolkit metadata unavailable for {failures} apps");
         }
@@ -153,6 +157,7 @@ impl Composio {
                 logos: logos.clone(),
             });
         }
+
         logos
     }
 
@@ -161,6 +166,7 @@ impl Composio {
         if slugs.is_empty() {
             return Ok(Vec::new());
         }
+
         let response = self
             .http
             .get(format!("{COMPOSIO_URL}/tools"))
@@ -174,9 +180,11 @@ impl Composio {
             .await
             .context("request failed")?;
         let status = response.status();
+
         if !status.is_success() {
             bail!("Composio returned {status}");
         }
+
         let page: ToolList = response.json().await.context("invalid tool list")?;
         Ok(page.items.into_iter().map(ComposioToolDef::from).collect())
     }
@@ -191,10 +199,12 @@ impl Composio {
             .await
             .context("request failed")?;
         let status = response.status();
+
         if !status.is_success() {
             // The body is not read: it is the provider's and stays out of logs.
             bail!("Composio returned {status}");
         }
+
         let details: ToolkitDetails = response.json().await.context("invalid toolkit")?;
         Ok(details
             .meta

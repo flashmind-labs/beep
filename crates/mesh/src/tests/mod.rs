@@ -169,6 +169,7 @@ async fn a_node_peer_cannot_forge_an_add_or_an_entry() {
             if seen {
                 return;
             }
+
             updates.changed().await.expect("alive");
         }
     })
@@ -183,12 +184,14 @@ async fn a_node_peer_cannot_forge_an_add_or_an_entry() {
 async fn a_removed_peer_that_stops_reading_is_closed() {
     let a = create().await;
     let b = member_key(&a, DeviceKind::Desktop).await;
+
     for i in 0..4 {
         a.mesh
             .set(Key::Project(format!("p{i}")), Some(vec![7u8; 1024 * 1024]))
             .await
             .expect("write");
     }
+
     let mut raw = raw(&a, &b).await;
     // The peer never reads, so the writer is stuck mid-send. Wait until it is
     // registered, then remove it.
@@ -196,9 +199,11 @@ async fn a_removed_peer_that_stops_reading_is_closed() {
     timeout(LIMIT, async {
         loop {
             updates.borrow_and_update();
+
             if a.mesh.peer(b.public()).is_some() {
                 return;
             }
+
             updates.changed().await.expect("alive");
         }
     })
@@ -217,6 +222,7 @@ async fn a_removed_peer_that_stops_reading_is_closed() {
             break;
         }
     }
+
     a.mesh.remove(b.public()).await.expect("removes");
     let why = timeout(LIMIT, raw.conn.closed())
         .await
@@ -241,9 +247,11 @@ async fn until_addr(mesh: &Mesh, id: iroh::EndpointId, want: &EndpointAddr) {
     timeout(LIMIT, async {
         loop {
             updates.borrow_and_update();
+
             if known_addr(mesh, id).as_ref() == Some(want) {
                 return;
             }
+
             updates.changed().await.expect("alive");
         }
     })
@@ -300,6 +308,7 @@ async fn a_node_flooding_forged_entries_is_closed() {
     let n = member_key(&a, DeviceKind::Node).await;
     let mut raw = raw(&a, &n).await;
     let mesh = a.key.public();
+
     for seq in 1..=20 {
         let mut forged = Entry::sign(&n, mesh, Key::Flsh, Some(vec![1]), 5, seq).expect("signs");
         forged.origin = a.key.public();
@@ -307,6 +316,7 @@ async fn a_node_flooding_forged_entries_is_closed() {
             .await
             .expect("send");
     }
+
     timeout(LIMIT, raw.conn.closed())
         .await
         .expect("the flooding peer was dropped");
@@ -333,9 +343,11 @@ async fn open_bi_goes_on_to_the_link_that_replaced_a_closed_one() {
     let stale = timeout(LIMIT, async {
         loop {
             updates.borrow_and_update();
+
             if let Some(conn) = live(&a.mesh) {
                 return conn;
             }
+
             updates.changed().await.expect("alive");
         }
     })
@@ -346,9 +358,11 @@ async fn open_bi_goes_on_to_the_link_that_replaced_a_closed_one() {
     timeout(LIMIT, async {
         loop {
             updates.borrow_and_update();
+
             if live(&a.mesh).is_some_and(|c| c.stable_id() != stale.stable_id()) {
                 return;
             }
+
             updates.changed().await.expect("alive");
         }
     })
@@ -370,6 +384,7 @@ async fn a_stream_open_on_the_connection_that_loses_the_tie_survives() {
     // connection always takes over.
     let key = loop {
         let key = SecretKey::generate();
+
         if key.public() < a.key.public() {
             break key;
         }
@@ -388,6 +403,7 @@ async fn a_stream_open_on_the_connection_that_loses_the_tie_survives() {
     peer.on_stream(Arc::new(|mut stream: PeerStream| {
         Box::pin(async move {
             let mut byte = [0u8; 1];
+
             while stream.recv.read_exact(&mut byte).await.is_ok() {
                 if stream.send.write_all(&byte).await.is_err() {
                     return;
@@ -403,9 +419,11 @@ async fn a_stream_open_on_the_connection_that_loses_the_tie_survives() {
     let first = timeout(LIMIT, async {
         loop {
             updates.borrow_and_update();
+
             if let Some(conn) = a.mesh.peer(key.public()) {
                 return conn;
             }
+
             updates.changed().await.expect("alive");
         }
     })
@@ -423,12 +441,14 @@ async fn a_stream_open_on_the_connection_that_loses_the_tie_survives() {
     timeout(LIMIT, async {
         loop {
             updates.borrow_and_update();
+
             if a.mesh
                 .peer(key.public())
                 .is_some_and(|c| c.stable_id() != first.stable_id())
             {
                 return;
             }
+
             updates.changed().await.expect("alive");
         }
     })

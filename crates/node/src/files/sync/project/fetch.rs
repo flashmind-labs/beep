@@ -104,9 +104,11 @@ impl Fetcher {
     /// Makes sure the store holds `file`'s blob.
     async fn get(&self, path: &str, file: &FileMeta) -> Got {
         let hash = Hash::from_bytes(file.hash);
+
         if self.parts.store.blobs().has(hash).await? {
             return Ok(None);
         }
+
         self.fetch(path, file).await.map(Some)
     }
 
@@ -115,6 +117,7 @@ impl Fetcher {
         if file.size > MAX_BYTES {
             bail!("the file is larger than {} GiB", MAX_BYTES >> 30);
         }
+
         let room = {
             let (store_dir, root, room) = (
                 self.parts.store_dir.clone(),
@@ -128,15 +131,18 @@ impl Fetcher {
             .await??
         };
         let content = HashAndFormat::raw(Hash::from_bytes(file.hash));
+
         if !lock(&self.unfinished).contains_key(&content.hash) {
             let tag = self.parts.store.tags().temp_tag(content).await?;
             lock(&self.unfinished).insert(content.hash, tag);
         }
+
         let peers = {
             let down = lock(&self.down);
             peers_to_ask(&self.shared.peers.borrow(), &down, Instant::now())
         };
         let mut last = None;
+
         for peer in peers {
             let connection = match self.blobs_to(&peer).await {
                 Ok(connection) => connection,
@@ -153,6 +159,7 @@ impl Fetcher {
                 &self.shared.stop,
             )
             .await;
+
             match fetched {
                 Ok(()) if self.parts.store.blobs().has(content.hash).await? => {
                     let tag = lock(&self.unfinished).remove(&content.hash);
@@ -166,11 +173,13 @@ impl Fetcher {
                     if self.shared.stop.is_cancelled() {
                         return Err(e);
                     }
+
                     self.drop_connection(&peer.id, &connection).await;
                     last = Some(e.context(peer.id.to_string()));
                 }
             }
         }
+
         Err(match last {
             Some(e) => e.context(format!("no machine that syncs it could send {path} now")),
             None => anyhow!("no other machine that syncs {path} can be reached now"),
@@ -182,6 +191,7 @@ impl Fetcher {
     pub(super) async fn copy_from_peers(&self, hash: Hash, out: &mut AsyncFile) -> Result<()> {
         let peers = self.shared.peers.borrow().clone();
         let mut last = anyhow!("no other machine syncs it");
+
         for peer in peers {
             out.set_len(0).await?;
             out.seek(SeekFrom::Start(0)).await?;
@@ -189,6 +199,7 @@ impl Fetcher {
                 Ok(connection) => copy_blob(connection, hash, out, &self.shared.stop).await,
                 Err(e) => Err(e),
             };
+
             match copied {
                 Ok(copied) if copied == *hash.as_bytes() => return Ok(()),
                 Ok(_) => last = anyhow!("{} sent other content", peer.id),
@@ -198,28 +209,33 @@ impl Fetcher {
                 }
             }
         }
+
         Err(last.context("no machine could send it again"))
     }
 
     /// Stops using `connection`, and closes it for the fetches still on it.
     async fn drop_connection(&self, peer: &EndpointId, connection: &Connection) {
         let mut blobs = self.blobs.lock().await;
+
         if blobs
             .get(peer)
             .is_some_and(|open| open.stable_id() == connection.stable_id())
         {
             blobs.remove(peer);
         }
+
         connection.close(0u32.into(), b"fetch failed");
     }
 
     async fn blobs_to(&self, peer: &EndpointAddr) -> Result<Connection> {
         let mut blobs = self.blobs.lock().await;
+
         if let Some(connection) = blobs.get(&peer.id)
             && connection.close_reason().is_none()
         {
             return Ok(connection.clone());
         }
+
         let dialled = timeout(
             CONNECT_TIMEOUT,
             self.parts.endpoint.connect(peer.clone(), iroh_blobs::ALPN),
@@ -274,9 +290,11 @@ impl Ahead {
                 return;
             };
             let hash = Hash::from_bytes(next.file.hash);
+
             if !self.started.insert(hash) {
                 continue;
             }
+
             let fetcher = self.fetcher.clone();
             self.running
                 .spawn(async move { (hash, fetcher.get(&next.path, &next.file).await) });
@@ -288,6 +306,7 @@ impl Ahead {
     /// path finds it in the store, or else `copy_out` asks a peer for it.
     pub(super) fn take(&mut self, hash: &Hash) -> Option<Got> {
         self.fill();
+
         match self.done.remove(hash) {
             Some(got) => Some(got),
             None if self.running.is_empty() => Some(Ok(None)),
@@ -329,6 +348,7 @@ pub(super) async fn copy_out(
         Err(_) if stop.is_cancelled() => bail!("stopped"),
         Err(e) => log::debug!("reading {hash} from the store: {e:#}"),
     }
+
     refetch(out).await
 }
 
@@ -344,10 +364,12 @@ pub(super) async fn copy_store(
     let mut reader = store.blobs().reader(hash);
     let mut buffer = vec![0; CHUNK];
     let mut hasher = blake3::Hasher::new();
+
     loop {
         if stop.is_cancelled() {
             bail!("stopped");
         }
+
         let read = reader
             .read(&mut buffer)
             .await
@@ -355,9 +377,11 @@ pub(super) async fn copy_store(
         if read == 0 {
             break;
         }
+
         hasher.update(&buffer[..read]);
         out.write_all(&buffer[..read]).await?;
     }
+
     Ok(*hasher.finalize().as_bytes())
 }
 
@@ -374,9 +398,11 @@ pub(super) async fn read_store(store: &Store, hash: Hash, limit: u64) -> Result<
     if raw.len() as u64 > limit {
         bail!("the file is larger than {limit} bytes");
     }
+
     if *blake3::hash(&raw).as_bytes() != *hash.as_bytes() {
         bail!("the copy in the store changed");
     }
+
     Ok(raw)
 }
 
@@ -393,12 +419,14 @@ pub(super) async fn fetch_within(
 ) -> Result<()> {
     let items = store.remote().fetch(connection, content).stream();
     let mut items = std::pin::pin!(items);
+
     loop {
         let item = tokio::select! {
             item = timeout(stall, items.next()) => item
                 .map_err(|_| anyhow!("no data came for {} s", stall.as_secs_f32()))?,
             () = stop.cancelled() => bail!("stopped"),
         };
+
         match item {
             Some(GetProgressItem::Progress(_)) => {}
             Some(GetProgressItem::Done(_)) => return Ok(()),
@@ -417,17 +445,20 @@ async fn copy_blob(
     let mut items = get_blob(connection, hash);
     let mut hasher = blake3::Hasher::new();
     let mut at = 0u64;
+
     loop {
         let item = tokio::select! {
             item = timeout(STALL, items.next()) => item
                 .map_err(|_| anyhow!("no data came for {} s", STALL.as_secs()))?,
             () = stop.cancelled() => bail!("stopped"),
         };
+
         match item {
             Some(GetBlobItem::Item(BaoContentItem::Leaf(leaf))) => {
                 if leaf.offset != at {
                     bail!("the blob came out of order");
                 }
+
                 hasher.update(&leaf.data);
                 out.write_all(&leaf.data).await?;
                 at += leaf.data.len() as u64;

@@ -22,6 +22,7 @@ use windows_sys::Win32::{
 fn open(pid: u32, access: u32) -> io::Result<OwnedHandle> {
     // SAFETY: takes plain integers and returns a new handle or null.
     let handle = unsafe { OpenProcess(access, 0, pid) };
+
     if handle.is_null() {
         return Err(io::Error::last_os_error());
     }
@@ -53,6 +54,7 @@ fn birth(handle: &OwnedHandle) -> io::Result<u64> {
             "the process has exited",
         ));
     }
+
     Ok((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))
 }
 
@@ -60,6 +62,7 @@ pub(super) async fn snapshot() -> anyhow::Result<HashMap<u32, Process>> {
     tokio::task::spawn_blocking(|| {
         // SAFETY: plain integers; returns a new handle or INVALID_HANDLE_VALUE.
         let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+
         if snapshot == INVALID_HANDLE_VALUE {
             return Err(io::Error::last_os_error().into());
         }
@@ -72,8 +75,10 @@ pub(super) async fn snapshot() -> anyhow::Result<HashMap<u32, Process>> {
         let mut all = HashMap::new();
         // SAFETY: the snapshot is open and entry carries the expected size.
         let mut found = unsafe { Process32FirstW(snapshot.as_raw_handle(), &mut entry) };
+
         while found != 0 {
             let pid = entry.th32ProcessID;
+
             if let Ok(handle) = open(pid, PROCESS_QUERY_LIMITED_INFORMATION)
                 && let Ok(birth) = birth(&handle)
             {
@@ -97,6 +102,7 @@ pub(super) async fn snapshot() -> anyhow::Result<HashMap<u32, Process>> {
             // SAFETY: as above, the snapshot and buffer remain valid.
             found = unsafe { Process32NextW(snapshot.as_raw_handle(), &mut entry) };
         }
+
         Ok(all)
     })
     .await?
@@ -112,6 +118,7 @@ pub(super) fn signal(p: &Process, _kill: bool) -> io::Result<()> {
     let Ok(handle) = open(p.pid, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE) else {
         return Ok(());
     };
+
     if birth(&handle)? != p.birth {
         return Ok(());
     }
@@ -119,6 +126,7 @@ pub(super) fn signal(p: &Process, _kill: bool) -> io::Result<()> {
     if unsafe { TerminateProcess(handle.as_raw_handle(), 1) } == 0 {
         return Err(io::Error::last_os_error());
     }
+
     Ok(())
 }
 

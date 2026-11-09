@@ -25,6 +25,7 @@ impl Mesh {
             })
             .await?
         };
+
         match loaded {
             None => Ok(None),
             Some((core, addrs)) => Ok(Some(Self::run(endpoint, core, addrs)?)),
@@ -41,6 +42,7 @@ impl Mesh {
                 if Core::exists(&dir) {
                     return Err(MeshError::AlreadyMember);
                 }
+
                 let devices = crate::Devices::genesis(&key, &name, DeviceKind::Desktop);
                 Core::start(&dir, key, devices)
             })
@@ -58,9 +60,11 @@ impl Mesh {
         name: &str,
     ) -> Result<Mesh, MeshError> {
         let dir = dir.to_owned();
+
         if Core::exists(&dir) {
             return Err(MeshError::AlreadyMember);
         }
+
         let welcome = crate::join::redeem(&endpoint, ticket, name).await?;
         let key = endpoint.secret_key().clone();
         let mut addrs = welcome.addrs;
@@ -94,6 +98,7 @@ impl Mesh {
         if Arc::strong_count(&self._guard) > 1 {
             return Err(InUse(self));
         }
+
         let inner = self.inner.clone();
         drop(self);
         inner.store.close().await;
@@ -120,6 +125,7 @@ impl Mesh {
             let dir = dir.clone();
             blocking(move || {
                 Core::recover(&dir)?;
+
                 match Core::load(&dir)? {
                     // A device that was removed has nothing to keep.
                     Some(devices)

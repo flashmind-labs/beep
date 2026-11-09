@@ -53,6 +53,7 @@ export function lastMachine(project: string | null | undefined) {
 
 export function keepMachine(project: string | null | undefined, machine: string) {
   if (!machine) return;
+
   try {
     localStorage.setItem(LAST_MACHINE, JSON.stringify({ ...lastMachines(), [project ?? ""]: machine }));
   } catch {
@@ -187,12 +188,14 @@ function drawParts() {
   const f = AG.form, hosts = AG.hosts ?? [];
   const stashKeys = bar.querySelector(".prompt-stash-bar");
   if (stashKeys) stashKeys.outerHTML = stashBar(f.project ?? null);
+
   // With no machine picked, or one that no longer runs agents: the project's
   // first machine with a checkout and an agent, else the first with an agent.
   if (AG.hosts && !formHost()) {
     f.machine = (f.places && barPlace(f.places, AG.hosts, "")?.machine_id) || addHosts(AG.hosts)[0]?.machine_id || "";
     if (f.machine) f.cwd = folderOn(f.cwd, f.machine, f.places);
   }
+
   f.agent = harnessFor(f.agent, formAgents(), AGENT_ORDER);
   f.effort = keepEffort(f.agent, f.effort);
   syncModel();
@@ -331,6 +334,7 @@ function setProject(name: string | null) {
   const f = AG.form, p = name ? PROJECTS?.find(x => x.name === name) : null;
   f.checkout = DEFAULT_CHECKOUT;
   f.base = null;
+
   if (!p) {
     f.project = null;
     f.places = undefined;
@@ -338,6 +342,7 @@ function setProject(name: string | null) {
     f.machine = lastMachine(null) || f.machine;
     return;
   }
+
   const last = lastMachine(p.name);
   if (last && p.places.some(x => x.machine === last)) f.machine = last;
   else if (f.machine && !p.places.some(x => x.machine === f.machine)) f.machine = "";
@@ -352,6 +357,7 @@ function setProject(name: string | null) {
 function projectForFolder() {
   const f = AG.form, machine = f.machine || null;
   const p = PROJECTS ? projectAt(PROJECTS, machine, f.cwd) : null;
+
   if (p) {
     f.project = p.name;
     f.places = p.places;
@@ -366,9 +372,11 @@ function projectForFolder() {
 /// project's default branch, else the checkout's HEAD.
 function baseButton() {
   const f = AG.form, base = baseFor(f.base, formBranches());
+
   if (f.baseTyping) {
     return `<span class="agc-type base"><input id="agbase" spellcheck="false" autocomplete="off" aria-label="Base branch" placeholder="${esc(base || "HEAD")}" value="${esc(f.base ?? "")}"></span>`;
   }
+
   return `<button type="button" class="pill" id="agbaseb" aria-expanded="${f.open === "base"}" title="The branch the new one starts from">${BRANCH}<small>from</small> <span class="mono">${esc(base || "HEAD")}</span>${CARET}</button>`;
 }
 
@@ -414,6 +422,7 @@ function folderMenu(checkout: boolean) {
   const f = AG.form;
   if (f.open !== "folder") return "";
   const machine = f.machine || null, host = formHost();
+
   if (!f.project) {
     // Outside a project: the workspace, then the projects checked out on
     // the machine; picking one sets the Project pill.
@@ -425,6 +434,7 @@ function folderMenu(checkout: boolean) {
     });
     return `<div class="agc-menu folder" role="menu">${rows.join("")}</div>`;
   }
+
   const places = [...new Set((f.places ?? []).filter(p => !machine || p.machine === machine).map(p => machine ? p.cwd : folderOn(p.cwd, null, null)))];
   const pick = f.checkout ?? DEFAULT_CHECKOUT;
   const same = (p: CheckoutPick) => JSON.stringify(p) === JSON.stringify(pick);
@@ -464,16 +474,19 @@ function onClick(e: MouseEvent) {
   if (project) { setProject(project.dataset.agp || null); f.open = null; return drawParts(); }
   if (at("#aghostb")) { f.open = f.open === "host" ? null : "host"; return drawParts(); }
   if (at("#agfoldb")) { f.open = f.open === "folder" ? null : "folder"; return drawParts(); }
+
   if (at("#agbaseb")) {
     // Without the project's branches, the ref is typed.
     if (formBranches() === null) return typeBase();
     f.open = f.open === "base" ? null : "base";
     return drawParts();
   }
+
   const base = at("[data-agb]");
   if (base) { f.base = base.dataset.agb!; f.open = null; return drawParts(); }
   if (at("[data-agbtype]")) return typeBase();
   const machine = at("[data-agm]");
+
   if (machine) {
     f.machine = machine.dataset.agm!;
     keepMachine(f.project, f.machine);
@@ -481,18 +494,21 @@ function onClick(e: MouseEvent) {
     f.open = null;
     return drawParts();
   }
+
   const folder = at("[data-agf]");
   if (folder) { f.cwd = folder.dataset.agf!; f.checkout = DEFAULT_CHECKOUT; f.open = null; projectForFolder(); return drawParts(); }
   const checkout = at("[data-agk]");
   if (checkout) { f.checkout = checkout.dataset.agk as CheckoutPick; f.open = null; return drawParts(); }
   const tree = at("[data-agw]");
   if (tree) { f.checkout = { worktree: tree.dataset.agw! }; f.open = null; return drawParts(); }
+
   if (at("[data-agtype]")) {
     f.typing = true;
     f.open = null;
     drawParts();
     return focusEnd("#agcwd");
   }
+
   // A click anywhere else closes what is open.
   if (f.open && !at(".agc-pick, .agc-menu")) { f.open = null; drawParts(); }
 }
@@ -543,12 +559,15 @@ function bindFolderField() {
   input.addEventListener("input", () => { f.cwd = input.value; f.checkout = DEFAULT_CHECKOUT; lookFolders(input); });
   input.addEventListener("keydown", e => {
     const act = menuKey(menu, e.key, e.shiftKey || e.altKey || e.ctrlKey || e.metaKey);
+
     if (act.type === "none") {
       if (e.key === "Enter" && !e.metaKey) { e.preventDefault(); doneTyping(); }
       return;
     }
+
     e.preventDefault();
     e.stopPropagation();
+
     if (act.type === "move") showMenu(input, { ...menu, index: act.index });
     else if (act.type === "close") showMenu(input, NO_MENU);
     else { f.cwd = input.value = act.text; lookFolders(input); }
@@ -631,6 +650,7 @@ export async function startAgent() {
   AG.error = "";
   f.open = null;
   drawParts();
+
   try {
     const model = f.model?.trim() && f.modelFor ? f.model.trim() : null;
     keepMachine(f.project, f.machine);

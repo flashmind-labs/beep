@@ -68,8 +68,10 @@ fn killpg(group: libc::pid_t, signal: libc::c_int) {
     // SAFETY: killpg takes two integers and only sends a signal; it reads
     // and writes no memory of this process.
     let result = unsafe { libc::killpg(group, signal) };
+
     if result != 0 {
         let error = io::Error::last_os_error();
+
         if error.raw_os_error() != Some(libc::ESRCH) {
             log::warn!("could not signal process group {group}: {error}");
         }

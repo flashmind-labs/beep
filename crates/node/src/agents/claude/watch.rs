@@ -61,8 +61,10 @@ impl Hub {
 pub(crate) async fn listen(socket: &Path, hub: &Hub, live: &Live) -> Result<()> {
     let mut listener = Listener::bind(socket)?;
     log::info!("taking Claude Code hooks on {}", socket::shown(socket));
+
     loop {
         let stream = listener.accept().await?;
+
         match timeout(HOOK_READ, read_hook(stream, live)).await {
             Ok(Ok(Some(activity))) => {
                 log::debug!(
@@ -92,6 +94,7 @@ async fn read_hook(mut stream: Stream, live: &Live) -> Result<Option<Activity>> 
         .await?;
     let message: HookMessage = serde_json::from_str(&line).context("not a hook message")?;
     let answer = live.hear(&message);
+
     if let Some(answer) = &answer {
         stream.write_all(answer.to_string().as_bytes()).await?;
         stream.shutdown().await?;
@@ -100,6 +103,7 @@ async fn read_hook(mut stream: Stream, live: &Live) -> Result<Option<Activity>> 
     if message.event == HookEvent::Stop && answer.is_some() {
         return Ok(None);
     }
+
     Ok(message.activity())
 }
 
@@ -135,24 +139,30 @@ impl Tracker {
         if self.hooked {
             return Vec::new();
         }
+
         let due: Vec<Activity> = self.pending.take().into_iter().collect();
+
         if let Err(e) = self.read_growth() {
             log::debug!("could not read session {}: {e}", self.session);
         }
+
         due
     }
 
     fn read_growth(&mut self) -> std::io::Result<()> {
         let mut file = File::open(&self.path)?;
         let len = file.metadata()?.len();
+
         if len < self.offset {
             // Rewritten: start over from its end.
             self.offset = len;
             return Ok(());
         }
+
         if len == self.offset {
             return Ok(());
         }
+
         let start = self.offset.max(len.saturating_sub(MAX_GROWTH));
         let tail = read_from(&mut file, start, len)?;
         self.offset = tail.end.max(self.offset);
@@ -168,6 +178,7 @@ impl Tracker {
                 from_hook: false,
             });
         }
+
         Ok(())
     }
 
@@ -191,6 +202,7 @@ pub(crate) async fn serve(
     let (mut trackers, unknown) = spawn_blocking(move || {
         let mut trackers = Vec::new();
         let mut unknown = Vec::new();
+
         for session in sessions.into_iter().take(MAX_WATCHED) {
             match store.as_ref().and_then(|store| store.find(&session)) {
                 Some(path) => trackers.push(Tracker::new(session, path)),
@@ -203,6 +215,7 @@ pub(crate) async fn serve(
     tx.send(&SessionsReply::Watching { unknown }).await?;
     let mut tick = interval(POLL);
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
     loop {
         // Once hooks report for every session, no transcript is read.
         let polling = trackers.iter().any(|tracker| !tracker.hooked);
@@ -225,6 +238,7 @@ pub(crate) async fn serve(
                 })
                 .await?;
                 trackers = back;
+
                 for activity in due {
                     tx.send(&SessionsReply::Activity { activity }).await?;
                 }

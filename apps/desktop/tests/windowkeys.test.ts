@@ -38,6 +38,7 @@ test("window history and closing retain priority and modifier behavior", () => {
 test("subscription filtering leaves the palette available", () => {
   const unsubscribed = { ...at, subscribed: false };
   assert.deepEqual(windowCommand(key("k"), unsubscribed, false), { kind: "palette" });
+
   for (const command of ["m", "j", "l", "r", "g"]) {
     assert.deepEqual(windowCommand(key(command), unsubscribed, false), { kind: "blocked" });
   }
@@ -59,9 +60,11 @@ test("project window command requires the main window's selected project", () =>
 
 test("terminal creation requires an unhandled shortcut with no extra modifiers", () => {
   assert.deepEqual(windowCommand(key("t"), at, false), { kind: "project-terminal" });
+
   for (const extra of [{ shiftKey: true }, { altKey: true }, { ctrlKey: true }, { defaultPrevented: true }]) {
     assert.equal(windowCommand(key("t", extra), at, false), null);
   }
+
   assert.deepEqual(windowCommand(key("t", { metaKey: false, ctrlKey: true }), at, true), { kind: "project-terminal" });
 });
 

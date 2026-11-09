@@ -75,9 +75,11 @@ impl Gate<'_> {
         if self.secrets.is_empty() {
             return None;
         }
+
         if quotes(self.secrets, self.chat, reply) {
             return Some(Leak::Quoted);
         }
+
         match self
             .decision
             .probability_with(&self.state(reply), QUESTION, &CRITERIA)
@@ -100,9 +102,11 @@ impl Gate<'_> {
         let Some(leak) = self.check(&draft).await else {
             return draft;
         };
+
         if leak == Leak::Unchecked {
             return REFUSAL.to_owned();
         }
+
         let rewritten = match generator.text(REWRITE_SYSTEM, self.rewrite(&draft)).await {
             Ok(text) if !text.trim().is_empty() => text.trim().to_owned(),
             Ok(_) => return REFUSAL.to_owned(),
@@ -111,6 +115,7 @@ impl Gate<'_> {
                 return REFUSAL.to_owned();
             }
         };
+
         match self.check(&rewritten).await {
             None => rewritten,
             Some(_) => REFUSAL.to_owned(),
@@ -119,18 +124,22 @@ impl Gate<'_> {
 
     fn memories(&self) -> String {
         let mut text = String::new();
+
         for secret in self.secrets {
             let _ = writeln!(text, "- [{}] {}", secret.owner, secret.content);
         }
+
         text
     }
 
     /// The chat, one quoted message per line.
     fn transcript(&self) -> String {
         let mut text = String::new();
+
         for said in self.chat {
             let _ = writeln!(text, "{}: {:?}", said.author, said.text);
         }
+
         text
     }
 
@@ -178,12 +187,14 @@ fn quotes(secrets: &[Secret], chat: &[Said], reply: &str) -> bool {
         let said = shingles(&chat);
         let in_chat = format!(" {} ", chat.join(" "));
         let secret = words(&secret.content);
+
         if secret.len() < SHINGLE {
             // A two or three word memory, such as "is vegetarian", is only
             // caught whole.
             let whole = format!(" {} ", secret.join(" "));
             return secret.len() > 1 && joined.contains(&whole) && !in_chat.contains(&whole);
         }
+
         shingles(&secret)
             .iter()
             .any(|shingle| written.contains(shingle) && !said.contains(shingle))

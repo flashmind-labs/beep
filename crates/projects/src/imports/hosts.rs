@@ -141,6 +141,7 @@ pub async fn project_forges(
         if github.is_empty() {
             return None;
         }
+
         let kind = GitHostKind::GitHub {};
         Some(forge_row(hosts, &client, GITHUB.to_owned(), kind, &github).await)
     };
@@ -187,6 +188,7 @@ async fn forge_row(
     .await;
     let mut owners: Vec<String> = Vec::new();
     let mut error = None;
+
     for answer in asked {
         match answer {
             Ok(found) => {

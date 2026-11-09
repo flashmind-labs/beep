@@ -13,6 +13,7 @@ expect() {
         *"$want_text"*) text_ok=1 ;;
         *) text_ok=0 ;;
     esac
+
     if [ "$status" != "$want_status" ] || [ "$text_ok" != 1 ]; then
         echo "FAIL limit='$limit': status $status, output: $got"
         failed=1

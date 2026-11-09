@@ -108,6 +108,7 @@ impl Card {
         if let Some(m) = self.place.as_ref().and_then(|p| p.distance_m) {
             facts.push(distance(m));
         }
+
         let facts = if facts.is_empty() {
             String::new()
         } else {
@@ -116,6 +117,7 @@ impl Card {
         };
         let status = self.status(when.as_ref());
         let mut meta = Vec::new();
+
         if let Some(rating) = self.rating {
             let reviews = self
                 .reviews
@@ -123,9 +125,11 @@ impl Card {
                 .unwrap_or_default();
             meta.push(format!("{rating:.1} &#9733;{reviews}"));
         }
+
         if let Some(note) = self.note.as_deref().filter(|n| !n.trim().is_empty()) {
             meta.push(escape(note));
         }
+
         let meta = if meta.is_empty() {
             String::new()
         } else {
@@ -207,9 +211,11 @@ impl Card {
                 .collect();
             return (!parts.is_empty()).then(|| parts.join(" · "));
         }
+
         if let Some(event) = &self.event {
             return event.venue.clone();
         }
+
         self.place.as_ref().and_then(|p| p.address.clone())
     }
 
@@ -221,6 +227,7 @@ impl Card {
                 w.weekday, w.day, w.month, w.time
             );
         }
+
         let Some(place) = &self.place else {
             return String::new();
         };
@@ -263,9 +270,11 @@ impl When {
         ];
         const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
         let month_name = MONTHS.get(month.checked_sub(1)? as usize)?;
+
         if !(1..=31).contains(&day) {
             return None;
         }
+
         Some(Self {
             weekday: DAYS[weekday(year, month, day)],
             day,
@@ -298,12 +307,14 @@ fn distance(meters: u32) -> String {
 fn grouped(n: u64) -> String {
     let digits = n.to_string();
     let mut out = String::new();
+
     for (i, c) in digits.chars().enumerate() {
         if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
     }
+
     out
 }
 
@@ -313,6 +324,7 @@ fn web_link(url: &str) -> bool {
 
 fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
+
     for c in text.chars() {
         match c {
             '&' => out.push_str("&amp;"),
@@ -323,6 +335,7 @@ fn escape(text: &str) -> String {
             _ => out.push(c),
         }
     }
+
     out
 }
 

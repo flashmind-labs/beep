@@ -23,6 +23,7 @@ impl Mesh {
         if self.inner.view().held.contains(&key) {
             return Ok(false);
         }
+
         self.set(key, Some(value)).await?;
         Ok(true)
     }

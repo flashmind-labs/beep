@@ -58,6 +58,7 @@ fn split(path: &str) -> (&Path, &OsStr) {
 /// The folder `path` names under `dir`, if it is there.
 fn open_dirs(dir: &Dir, path: &Path) -> io::Result<Option<Dir>> {
     let mut current = dir.try_clone()?;
+
     for part in path.components() {
         current = match current.open_dir(part.as_os_str()) {
             Ok(dir) => dir,
@@ -65,6 +66,7 @@ fn open_dirs(dir: &Dir, path: &Path) -> io::Result<Option<Dir>> {
             Err(e) => return Err(e),
         };
     }
+
     Ok(Some(current))
 }
 
@@ -81,6 +83,7 @@ fn found_at(dir: &Dir, name: &OsStr) -> io::Result<Found> {
 /// What is at `path` in the project folder.
 pub(super) fn look(root: &Folder, path: &str) -> io::Result<Found> {
     let (parent, name) = split(path);
+
     match open_dirs(root.dir(), parent) {
         Ok(Some(dir)) => found_at(&dir, name),
         Ok(None) => Ok(Found::Missing),
@@ -100,6 +103,7 @@ pub(super) fn seal(file: File, mtime_ms: i64, path: &str) -> Result<()> {
         file.sync_data()
             .with_context(|| format!("writing {path}"))?;
     }
+
     Ok(())
 }
 
@@ -119,19 +123,23 @@ pub(super) fn place(
     let dir =
         make_dirs_at(root.dir(), parent).with_context(|| format!("making the folder of {path}"))?;
     let now = found_at(&dir, name)?;
+
     if !now.is(expected) {
         // Ours to remove; the file there is left alone.
         let _ = from.remove_file(temp);
         bail!("{path} changed on this machine; it is merged on the next scan");
     }
+
     let moved = match expected {
         None => fsat::rename_new(from, temp, &dir, name, false),
         Some(_) => fsat::rename(from, temp, &dir, name),
     };
+
     if let Err(e) = moved {
         let _ = from.remove_file(temp);
         return Err(e).with_context(|| format!("moving {path} into place"));
     }
+
     match found_at(&dir, name)? {
         Found::File(stat) => Ok(stat),
         _ => bail!("{path} changed while it was put in place"),
@@ -145,11 +153,13 @@ pub(super) fn remove(root: &Folder, path: &str, expected: &Stat) -> Result<bool>
     let Some(dir) = open_dirs(root.dir(), parent)? else {
         return Ok(true);
     };
+
     match found_at(&dir, name)? {
         Found::Missing => return Ok(true),
         found if !found.is(Some(expected)) => return Ok(false),
         _ => {}
     }
+
     dir.remove_file(name)
         .with_context(|| format!("removing {path}"))?;
     remove_empty(root, parent);
@@ -162,6 +172,7 @@ fn remove_empty(root: &Folder, mut folder: &Path) {
         let Ok(Some(dir)) = open_dirs(root.dir(), parent) else {
             return;
         };
+
         if dir.remove_dir(name).is_err() {
             return;
         }
@@ -176,9 +187,11 @@ pub(super) fn rename(root: &Folder, from: &str, to: &str, expected: &Stat) -> Re
     let Some(from_dir) = open_dirs(root.dir(), from_parent)? else {
         return Ok(None);
     };
+
     if !found_at(&from_dir, from_name)?.is(Some(expected)) {
         return Ok(None);
     }
+
     let (to_parent, to_name) = split(to);
     let to_dir = make_dirs_at(root.dir(), to_parent)
         .with_context(|| format!("making the folder of {to}"))?;

@@ -84,6 +84,7 @@ impl CronStore for SchedulerStore {
                 job.id
             );
         }
+
         Ok(())
     }
 
@@ -164,6 +165,7 @@ pub fn legacy_scheduled_label(content: &str) -> Option<&str> {
     if content.starts_with("[Scheduled] ") {
         return Some("");
     }
+
     let rest = content.strip_prefix("[Scheduled: ")?;
     let (label, _) = rest.split_once("] ")?;
     Some(label)
@@ -191,6 +193,7 @@ pub async fn run_job(
     if digest::is_digest(job) {
         return digest::run(app, user, job, busy).await;
     }
+
     submit(app, user, job, &job.task, busy).await
 }
 
@@ -220,9 +223,11 @@ pub(crate) async fn submit(
         Some(id) => Some(id),
         None => {
             let claimed = app.store.claim_cron_session(job.id, Uuid::new_v4()).await?;
+
             if claimed.is_some() {
                 app.store.notify_crons_changed();
             }
+
             claimed
         }
     };
@@ -258,6 +263,7 @@ pub(crate) async fn submit(
     {
         result = app.submit(user, msg()).await;
     }
+
     match result {
         Ok(CreateRun::Created(run)) => Ok(Some(run)),
         Ok(_) => {
@@ -344,6 +350,7 @@ impl CronHandler for BeepCronHandler {
             log::warn!("cron job for an unknown user; job_id={}", job.id);
             return Ok(None);
         };
+
         if let Some(group_id) = job
             .metadata
             .get("group_id")
@@ -355,6 +362,7 @@ impl CronHandler for BeepCronHandler {
                 .await?;
             return Ok(None);
         }
+
         let run = run_job(&self.app, &user, job, WhenBusy::Wait).await?;
         Ok(run.map(|run| run.id))
     }

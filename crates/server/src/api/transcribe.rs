@@ -28,6 +28,7 @@ pub(super) async fn transcribe(
             "audio must be at {TRANSCRIBE_RATE} Hz"
         )));
     }
+
     let live = match cx.app.transcribe_live(cx.user.id()).await {
         Ok(live) => live,
         Err(SttError::Unavailable) => {
@@ -42,6 +43,7 @@ pub(super) async fn transcribe(
         }
         Err(SttError::Provider) => return Err(ApiError::Internal {}),
     };
+
     match timeout(MAX_LENGTH, relay(live.session, &mut uplink, &sink, IDLE)).await {
         Ok(relayed) => relayed,
         Err(_) => Err(ApiError::bad_request("the transcription ran too long")),
@@ -82,6 +84,7 @@ pub(super) async fn relay(
     let mut total = 0usize;
     // The loudest sample, to tell silence from speech nobody understood.
     let mut peak = 0u16;
+
     loop {
         let event = match audio.as_ref() {
             Some(to) => tokio::select! {
@@ -89,6 +92,7 @@ pub(super) async fn relay(
                     let Ok(chunk) = chunk else {
                         return Err(ApiError::bad_request("no audio came for too long"));
                     };
+
                     match chunk? {
                         Some(chunk) => {
                             total += chunk.len();
@@ -101,6 +105,7 @@ pub(super) async fn relay(
                             if total > MAX_TRANSCRIBE_BYTES {
                                 return Err(ApiError::bad_request("too much audio"));
                             }
+
                             if to.send(chunk.into_vec()).await.is_err() {
                                 // The provider stopped; its reason comes through `heard`.
                                 audio = None;
@@ -121,6 +126,7 @@ pub(super) async fn relay(
                 }
             },
         };
+
         match event {
             Some(Ok(Heard::Delta(text))) => words.say(Transcription::Delta { text }).await?,
             Some(Ok(Heard::Done(text))) => {

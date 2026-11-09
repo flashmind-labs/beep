@@ -61,6 +61,7 @@ pub(crate) async fn startup(app: &Arc<App>) -> Result<()> {
         else {
             continue;
         };
+
         if task.state.is_open() && task.state != TaskState::Review {
             user.set_task_state(task.id, TaskState::Blocked).await?;
             relabel(
@@ -73,6 +74,7 @@ pub(crate) async fn startup(app: &Arc<App>) -> Result<()> {
             )
             .await;
         }
+
         fleet.post(
             chat,
             REPLAN_LABEL,
@@ -83,16 +85,20 @@ pub(crate) async fn startup(app: &Arc<App>) -> Result<()> {
             ),
         );
     }
+
     let now = Utc::now();
+
     for project in app.store.projects_wanting_checks().await? {
         app.projects
             .arm(Due::Check(project), after(now, CHECK_EVERY));
     }
+
     for worker in app.store.waiting_workers().await? {
         let last = worker.last_turn_at.unwrap_or(now);
         app.projects
             .arm(Due::Idle(worker.id), after(last, IDLE_CLOSE));
     }
+
     Ok(())
 }
 

@@ -81,6 +81,7 @@ fn parse(payload: &str, store: &Store) -> Option<Heard> {
     let mut parts = payload.splitn(3, ' ');
     let (kind, number, name) = (parts.next()?, parts.next()?, parts.next()?);
     let number: i64 = number.parse().ok()?;
+
     match kind {
         "n" => Some(Heard::Notice {
             user: name.to_owned(),

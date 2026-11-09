@@ -158,17 +158,22 @@ impl LogFile {
                     if self.recent.contains(&key) {
                         return None;
                     }
+
                     self.recent.push_back(key);
+
                     while self.recent.len() > RECENT_KEYS {
                         self.recent.pop_front();
                     }
                 }
+
                 if let Some(total) = request.total {
                     if self.total == Some(total) {
                         return None;
                     }
+
                     self.total = Some(total);
                 }
+
                 let session = request.session.or_else(|| self.session.clone())?;
                 let model = request
                     .model
@@ -183,6 +188,7 @@ impl LogFile {
                 if part.cwd.is_empty() {
                     part.cwd = cwd.unwrap_or_default();
                 }
+
                 let hour = request.at - request.at % 3600;
                 part.buckets
                     .entry(BucketKey {
@@ -244,6 +250,7 @@ impl Ledger {
                         path.display()
                     );
                 }
+
                 Self::default()
             }
         }
@@ -254,9 +261,11 @@ impl Ledger {
         if !self.changed {
             return Ok(());
         }
+
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;
         }
+
         self.version = VERSION;
         let bytes = serde_json::to_vec(self).map_err(io::Error::other)?;
         let partial = path.with_extension("json.partial");
@@ -283,15 +292,19 @@ impl Ledger {
         let mut cwd = String::new();
         let mut buckets: BTreeMap<&BucketKey, Bucket> = BTreeMap::new();
         let mut any = false;
+
         for part in parts {
             any = true;
+
             if cwd.is_empty() {
                 cwd.clone_from(&part.cwd);
             }
+
             for (bucket, spent) in &part.buckets {
                 buckets.entry(bucket).or_default().merge(spent);
             }
         }
+
         if !any {
             return None;
         }

@@ -16,6 +16,7 @@ fn append(path: &Path, text: &str) {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).expect("folders");
     }
+
     fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -134,9 +135,11 @@ fn a_new_stream_hears_every_session_and_takes_none_from_an_older_one() {
     let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
     let reports = spend.pass(NOW);
     assert!(!reports.is_empty());
+
     for report in &reports {
         spend.sent(report);
     }
+
     assert!(spend.pass(NOW).is_empty(), "an older stream heard them all");
     assert_eq!(spend.pass_all(NOW).len(), reports.len());
 
@@ -156,9 +159,11 @@ fn a_new_stream_hears_every_session_and_takes_none_from_an_older_one() {
 fn only_changed_sessions_go_again_and_a_restart_reads_nothing_twice() {
     let fixture = fixture();
     let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
+
     for report in spend.pass(NOW) {
         spend.sent(&report);
     }
+
     assert!(spend.pass(NOW).is_empty(), "nothing changed");
 
     append(
@@ -169,9 +174,11 @@ fn only_changed_sessions_go_again_and_a_restart_reads_nothing_twice() {
     assert_eq!(reports.len(), 1);
     // The whole session, not just the new line: 1M + 0.2M + 1M at $5.
     assert!((cost(&reports[0]) - 11.0).abs() < 1e-9);
+
     for report in &reports {
         spend.sent(report);
     }
+
     assert!(spend.pass(NOW).is_empty());
 
     // A restart keeps what was read.
@@ -191,9 +198,11 @@ fn only_changed_sessions_go_again_and_a_restart_reads_nothing_twice() {
 fn a_line_still_being_written_waits() {
     let fixture = fixture();
     let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
+
     for report in spend.pass(NOW) {
         spend.sent(&report);
     }
+
     let line = claude_line("s1", "m5", "2026-11-03T08:50:00.000Z", 1_000_000);
     let (head, tail) = line.split_at(40);
     append(&fixture.claude_main, head);

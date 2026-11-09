@@ -32,9 +32,11 @@ impl FromStr for RepoName {
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let (owner, repo) = text.split_once('/').ok_or(RepoNameError::Shape)?;
+
         if repo.contains('/') {
             return Err(RepoNameError::Shape);
         }
+
         let valid = |part: &str| {
             (1..=MAX_REPO_PART).contains(&part.len())
                 && part != "."
@@ -43,9 +45,11 @@ impl FromStr for RepoName {
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
         };
+
         if !valid(owner) || !valid(repo) {
             return Err(RepoNameError::Part);
         }
+
         Ok(Self {
             name: text.to_owned(),
             slash: owner.len(),
@@ -89,12 +93,15 @@ impl FromStr for MachinePath {
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let rest = text.strip_prefix('/').ok_or(PathError::Relative)?;
+
         if rest.ends_with('/') || rest.is_empty() {
             return Err(PathError::TrailingSlash);
         }
+
         if rest.split('/').any(|part| matches!(part, "" | "." | "..")) {
             return Err(PathError::Segment);
         }
+
         Ok(Self(text.to_owned()))
     }
 }
@@ -103,6 +110,7 @@ impl MachinePath {
     /// `rel` under this path; empty, `.` and `..` parts are dropped so it stays inside.
     pub fn join(&self, rel: &str) -> MachinePath {
         let mut joined = self.0.clone();
+
         for part in rel
             .split('/')
             .filter(|part| !matches!(*part, "" | "." | ".."))
@@ -110,6 +118,7 @@ impl MachinePath {
             joined.push('/');
             joined.push_str(part);
         }
+
         MachinePath(joined)
     }
 
@@ -270,6 +279,7 @@ impl ForgejoUrl {
     /// Its host, with the port when it has one, such as `git.example.com`.
     pub fn host(&self) -> String {
         let host = self.0.host_str().unwrap_or_default();
+
         match self.0.port() {
             Some(port) => format!("{host}:{port}"),
             None => host.to_owned(),
@@ -285,16 +295,19 @@ impl FromStr for ForgejoUrl {
         let mut url = Url::parse(text).map_err(|_| {
             ForgejoUrlError("The server URL is not a URL, such as https://git.example.com.")
         })?;
+
         if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
             return Err(ForgejoUrlError(
                 "The server URL must start with https:// or http://.",
             ));
         }
+
         if !url.username().is_empty() || url.password().is_some() {
             return Err(ForgejoUrlError(
                 "Put the token in its own field, not in the URL.",
             ));
         }
+
         url.set_query(None);
         url.set_fragment(None);
         // Pasted from the browser: the API sits at the server's root or
@@ -333,9 +346,11 @@ impl IssueHost {
     /// GitHub for `github.com` or `www.github.com`, else Forgejo.
     pub fn of_hostname(hostname: &str) -> Option<IssueHost> {
         let hostname = hostname.to_ascii_lowercase();
+
         if is_github(&hostname) {
             return Some(Self::Github);
         }
+
         hostname.parse().ok().map(Self::Forgejo)
     }
 }
@@ -351,6 +366,7 @@ impl FromStr for IssueHost {
         if text == "github" {
             return Ok(Self::Github);
         }
+
         let host = text.strip_prefix("forgejo:").ok_or(IssueHostError)?;
         host.parse().map(Self::Forgejo).map_err(|_| IssueHostError)
     }

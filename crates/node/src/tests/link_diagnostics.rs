@@ -18,6 +18,7 @@ async fn metrics_snapshots_include_transport_and_application_values() {
             {
                 break text;
             }
+
             tokio::task::yield_now().await;
         }
     })

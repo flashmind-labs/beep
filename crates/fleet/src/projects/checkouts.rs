@@ -30,9 +30,11 @@ const LAST_MACHINE: &str = "A project stays on at least one machine.";
 /// the sh of Git for Windows says `/c/Users/me`, and the node reads `C:\Users\me`.
 async fn look_at(seen: &Seen, folder: &str) -> Result<(FolderPath, MachineFolder)> {
     let name = &seen.machine.name;
+
     if !seen.machine.online {
         return Err(ImportError::Offline(name.clone()).into());
     }
+
     let asked = FolderPath::parse(folder)?.ok_or(ImportError::BadFolder)?;
     let mut there = folder::look(seen.machine.shell()?, name, &asked).await?;
     let windows = seen.machine.os.as_deref().is_some_and(is_windows);
@@ -58,11 +60,13 @@ async fn refuse_syncthing(desk: &Desk, seen: &Seen, there: MachineFolder) -> Res
         {
             return Ok(there.path);
         }
+
         return Err(FleetError::refused(format!(
             "Syncthing keeps {} in step on {}. Choose another folder.",
             there.path, seen.machine.name
         )));
     }
+
     Ok(there.path)
 }
 
@@ -71,13 +75,16 @@ impl Desk {
     pub async fn branches(&self, project: &str) -> Result<ProjectBranches> {
         let mut places = crate::places(&self.mesh, project);
         crate::nearest_first(&self.mesh, &mut places, |(machine, _)| *machine);
+
         for (id, folder) in places {
             let Some(seen) = self.seen_one(id).await else {
                 continue;
             };
+
             if !seen.machine.online {
                 continue;
             }
+
             let (default_branch, branches) = beep_projects::branches::read_branches(
                 seen.machine.shell()?,
                 &folder,
@@ -91,6 +98,7 @@ impl Desk {
                 branches,
             });
         }
+
         Err(FleetError::refused(
             "No machine with a checkout of the project is online.",
         ))
@@ -108,6 +116,7 @@ impl Desk {
         let id: EndpointId = machine.parse().map_err(|_| ImportError::NoSuchMachine)?;
         let seen = self.seen_one(id).await.ok_or(ImportError::NoSuchMachine)?;
         let name = &seen.machine.name;
+
         if let Some(place) = stored.places.get(&id) {
             return Err(FleetError::refused(format!(
                 "{} is already on {name}, in {}.",
@@ -116,6 +125,7 @@ impl Desk {
         }
         // A record with no machines, or one this build cannot read, stays as it is.
         let sync = Key::Sync(stored.name.clone());
+
         if self.mesh.get(&sync).is_some()
             && read::<SyncSpec>(&self.mesh, &sync).is_none_or(|spec| spec.folders.is_empty())
         {
@@ -124,13 +134,16 @@ impl Desk {
                 stored.name
             )));
         }
+
         let (asked, there) = look_at(&seen, folder).await?;
+
         if there.exists && !there.empty {
             return Err(FleetError::refused(format!(
                 "{} has other files. Choose another folder.",
                 there.path
             )));
         }
+
         let path = refuse_syncthing(self, &seen, there).await?;
         folder::make(seen.machine.shell()?, name, &asked).await?;
 
@@ -170,6 +183,7 @@ impl Desk {
             )));
         };
         let (asked, there) = look_at(&seen, folder).await?;
+
         if plain_path(&there.path) == plain_path(&old.folder) {
             return Err(FleetError::refused(format!(
                 "{} is already in {} on {name}.",
@@ -177,9 +191,11 @@ impl Desk {
                 plain_path(&old.folder)
             )));
         }
+
         let checkout = there.origin.as_deref().is_some_and(|origin| {
             same_repo(&stored.record.url, origin, &forgejo_of(&self.opened()))
         });
+
         if there.exists && !there.empty && !checkout {
             return Err(FleetError::refused(format!(
                 "{} has other files. Choose an empty folder or a checkout of {}.",
@@ -196,8 +212,10 @@ impl Desk {
                 stored.name
             )));
         }
+
         let exists = there.exists;
         let path = refuse_syncthing(self, &seen, there).await?;
+
         if !exists {
             folder::make(seen.machine.shell()?, name, &asked).await?;
         }
@@ -230,9 +248,11 @@ impl Desk {
     ) -> Result<Option<String>> {
         let id: EndpointId = machine.parse().map_err(|_| ImportError::NoSuchMachine)?;
         let (name, left) = self.leave(project, id).await?;
+
         if !delete_folder {
             return Ok(None);
         }
+
         Ok(Some(self.delete_left_folder(&name, id, &left).await))
     }
 
@@ -257,7 +277,9 @@ impl Desk {
         if self.mesh.is_member(id) && members < 2 {
             return Err(FleetError::refused(LAST_MACHINE));
         }
+
         let key = Key::Sync(stored.name.clone());
+
         if self.mesh.get(&key).is_some() {
             let Some(mut spec) = read::<SyncSpec>(&self.mesh, &key) else {
                 return Err(FleetError::refused(
@@ -270,6 +292,7 @@ impl Desk {
                 write(&self.mesh, key, left).await?;
             }
         }
+
         write::<Place>(&self.mesh, place_key(&stored.name, id), None).await?;
         Ok((stored.name, folder))
     }
@@ -278,9 +301,11 @@ impl Desk {
     /// before that was the rule.
     pub(crate) async fn sync_all_checkouts(&self) -> Result<()> {
         let _write = WRITES.lock().await;
+
         for stored in projects(&self.mesh) {
             sync_checkouts(&self.mesh, &stored).await?;
         }
+
         Ok(())
     }
 
@@ -289,17 +314,20 @@ impl Desk {
         let _write = WRITES.lock().await;
         let name = name.trim();
         let stored = find_project(&self.mesh, name).ok_or(FleetError::NotFound)?;
+
         for machine in stored.places.keys() {
             self.mesh
                 .set(place_key(&stored.name, *machine), None)
                 .await?;
         }
         write::<ProjectRecord>(&self.mesh, project_key(&stored.name), None).await?;
+
         for key in [Key::Sync(stored.name.clone()), Key::Pin(stored.name)] {
             if self.mesh.get(&key).is_some() {
                 self.mesh.set(key, None).await?;
             }
         }
+
         Ok(())
     }
 

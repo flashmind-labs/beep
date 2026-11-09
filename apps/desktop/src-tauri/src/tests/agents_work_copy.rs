@@ -141,6 +141,7 @@ fn a_session_in_a_subfolder_or_worktree_reads_under_the_projects_folder() {
         import("box", "acme/widget", "/srv/widget"),
         import("mac", "acme/widget", "/mac/widget"),
     ];
+
     for dir in ["/srv/widget/assets", "/srv/widget/.worktrees/fix/assets"] {
         assert_eq!(
             found(dir, &imported, &[], &["/mac/widget"]),
@@ -148,6 +149,7 @@ fn a_session_in_a_subfolder_or_worktree_reads_under_the_projects_folder() {
             "{dir}"
         );
     }
+
     assert_eq!(
         under("/srv/widget/.worktrees/fix/a.glb", "/srv/widget"),
         Some(".worktrees/fix/a.glb")

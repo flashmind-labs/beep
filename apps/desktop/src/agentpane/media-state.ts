@@ -44,6 +44,7 @@ export function mediaKind(path: string): MediaKind | null {
 export function linkedPath(href: string) {
   if (!href || href.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(href)) return null;
   const path = href.replace(/[?#].*$/, "").replace(/:\d+(:\d+)?$/, "");
+
   try {
     return decodeURI(path);
   } catch {
@@ -66,11 +67,13 @@ export function resolvePath(cwd: string, path: string) {
 function normalize(path: string) {
   const home = path.startsWith("~");
   const parts: string[] = [];
+
   for (const part of path.split("/").slice(home ? 1 : 0)) {
     if (!part || part === ".") continue;
     if (part === "..") parts.pop();
     else parts.push(part);
   }
+
   return (home ? "~/" : "/") + parts.join("/");
 }
 
@@ -121,9 +124,11 @@ export function readLayout(raw: string | null): PaneLayout {
   const size = (x: unknown) => typeof x === "number" && Number.isFinite(x) && x > 0 ? Math.round(x) : null;
   const folded = o.hidden && typeof o.hidden === "object" ? o.hidden as Record<string, unknown> : null;
   const tabs: Record<string, Dock> = {};
+
   if (o.tabs && typeof o.tabs === "object" && !Array.isArray(o.tabs)) {
     for (const [id, d] of Object.entries(o.tabs).slice(-KEPT_TABS)) if (isDock(d) && keepable(id)) tabs[id] = d;
   }
+
   return {
     dock: o.dock === "bottom" ? "bottom" : "right",
     right: size(o.right),

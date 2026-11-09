@@ -118,6 +118,7 @@ impl Turn {
     fn read(events: Vec<RunEvent>) -> Self {
         let mut turn = Turn::default();
         let mut running = Vec::new();
+
         for event in events {
             match event {
                 RunEvent::TextDelta { delta } => turn.reply.push_str(&delta),
@@ -150,12 +151,14 @@ impl Turn {
                 _ => {}
             }
         }
+
         turn
     }
 
     /// Why `check` failed, or `None` when it passed.
     fn failure(&self, check: &Check) -> Option<String> {
         let called = |tool: &str| self.tools.iter().filter(|t| *t == tool).count();
+
         match *check {
             Check::Calls(tool) => (called(tool) == 0).then(|| format!("never called {tool}")),
             Check::Skips(tool) => (called(tool) > 0).then(|| format!("called {tool}")),
@@ -261,14 +264,18 @@ impl Server {
         let read = async {
             let mut run_id = None;
             let mut after = 0;
+
             loop {
                 while let Some(event) = replies.next().await.expect("the stream reads") {
                     after = event.seq;
+
                     if let RunEvent::RunStarted { run_id: id, .. } = &event.event {
                         run_id = Some(id.clone());
                     }
+
                     events.push(event.event);
                 }
+
                 let finished = events
                     .iter()
                     .any(|e| matches!(e, RunEvent::RunFinished { .. }));
@@ -281,11 +288,13 @@ impl Server {
                     .expect("the events resume");
             }
         };
+
         if timeout(TURN_TIMEOUT, read).await.is_err() {
             events.push(RunEvent::Error {
                 message: "timed out".into(),
             });
         }
+
         Turn::read(events)
     }
 }
@@ -327,9 +336,11 @@ async fn run_cases(config: &Config, cases: &[&Case]) -> Vec<Outcome> {
         .map(|case| only.as_deref().is_none_or(|only| case.name.contains(only)))
         .collect();
     let mut outcomes: Vec<Outcome> = cases.iter().map(|_| Outcome::default()).collect();
+
     if !picked.contains(&true) {
         return outcomes;
     }
+
     let server = Server::start(config).await;
     let turns: Vec<Turn> = stream::iter(
         cases
@@ -358,6 +369,7 @@ async fn run_cases(config: &Config, cases: &[&Case]) -> Vec<Outcome> {
         println!("  follow-ups: {:?}", turn.follow_ups);
         let reply: String = turn.reply.chars().take(160).collect();
         println!("  reply: {}", reply.replace('\n', " "));
+
         for failure in &failures {
             println!("  - {failure}");
         }
@@ -366,6 +378,7 @@ async fn run_cases(config: &Config, cases: &[&Case]) -> Vec<Outcome> {
             passed: failures.is_empty(),
         };
     }
+
     outcomes
 }
 
@@ -551,9 +564,11 @@ impl Server {
             .expect("a new key is not revoked")
             .user;
         let today = Local::now().date_naive();
+
         for memory in case.memories {
             seed(&user, memory, today).await;
         }
+
         let (before, now) = (case.from.location(3), case.to.location(0));
         user.update_location(&now)
             .await
@@ -572,6 +587,7 @@ impl Server {
             };
             let mut feed = live.subscribe(0);
             events.extend(feed.backlog.into_iter().map(|e| e.event));
+
             while !events
                 .iter()
                 .any(|e| matches!(e, RunEvent::RunFinished { .. }))
@@ -586,11 +602,13 @@ impl Server {
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
         };
+
         if timeout(TURN_TIMEOUT, read).await.is_err() {
             events.push(RunEvent::Error {
                 message: "timed out".into(),
             });
         }
+
         let turn = Turn::read(events);
         let session = user
             .sessions()
@@ -660,6 +678,7 @@ async fn wake_evals() {
     if cases.is_empty() {
         return;
     }
+
     let server = Server::start(&config).await;
     let key = config
         .provider_key
@@ -676,6 +695,7 @@ async fn wake_evals() {
 
     let runs = join_all(cases.iter().map(|case| server.wake(case))).await;
     let mut failed = 0;
+
     for (case, woken) in cases.iter().zip(&runs) {
         let mut failures: Vec<String> = woken
             .turn
@@ -688,12 +708,14 @@ async fn wake_evals() {
         {
             failures.push(format!("notified={}, wanted {wanted}", woken.notified));
         }
+
         if woken.kept != woken.notified {
             failures.push(format!(
                 "chat kept={} but notified={}",
                 woken.kept, woken.notified
             ));
         }
+
         let report = wake_report(case, woken);
         let verdict = judge
             .text(WAKE_JUDGE, report)
@@ -708,14 +730,18 @@ async fn wake_evals() {
         println!("{result} {}", case.name);
         println!("  tools: {:?}", woken.turn.tools);
         println!("  notified: {} title: {:?}", woken.notified, woken.title);
+
         for recalled in &woken.turn.recalled {
             println!("  recalled: {}", recalled.replace('\n', " | "));
         }
+
         println!("  reply: {}", woken.turn.reply.trim().replace('\n', " "));
+
         for failure in &failures {
             println!("  - {failure}");
         }
         failed += usize::from(!failures.is_empty());
     }
+
     assert_eq!(failed, 0, "{failed} of {} wake evals failed", cases.len());
 }

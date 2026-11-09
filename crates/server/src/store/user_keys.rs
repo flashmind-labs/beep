@@ -98,14 +98,18 @@ impl Store {
             if let Some(row) = self.key_account(&id).await? {
                 return Ok(signed_in(row));
             }
+
             let user = Uuid::new_v4().simple().to_string();
             let mut tx = self.pool.begin().await?;
+
             if insert_account(&mut tx, &user, endpoint).await? {
                 tx.commit().await?;
                 return Ok(new_account(&user));
             }
+
             tx.rollback().await?;
         }
+
         bail!("signing in {id} kept racing another connection")
     }
 
@@ -185,10 +189,12 @@ impl Store {
         .execute(&mut *tx)
         .await?
         .rows_affected();
+
         if revoked == 0 {
             tx.rollback().await?;
             return Ok(None);
         }
+
         sqlx::query("DELETE FROM devices WHERE user_id=$1 AND endpoint_id=$2")
             .bind(user.as_ref())
             .bind(endpoint_id)
@@ -208,6 +214,7 @@ impl Store {
         if let Err(e) = self.blobs.delete(&gone.files).await {
             log::warn!("files of a removed machine not deleted: {e:#}");
         }
+
         Ok(Some(gone.removed))
     }
 
@@ -279,6 +286,7 @@ fn signed_in((user, external_id, kind, primary, revoked): SignInRow) -> SignIn {
     if revoked {
         return SignIn::Revoked;
     }
+
     SignIn::Account {
         account: Account {
             id: user,

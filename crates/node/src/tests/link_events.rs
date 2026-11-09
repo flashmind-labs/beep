@@ -38,6 +38,7 @@ async fn watch(tx: &mut LinkTx, rx: &mut LinkRx, id: u64, topics: Vec<Topic>, qu
     })
     .await
     .unwrap();
+
     loop {
         if matches!(next(rx).await, Reply::Watching { id: ack } if ack == id) {
             break;
@@ -77,6 +78,7 @@ async fn snapshots_and_correlated_commands_share_one_connection() {
     .unwrap();
     tx.send(&Request::Ping { id: 3 }).await.unwrap();
     let (mut snapshot, mut call, mut pong) = (false, false, false);
+
     while !(snapshot && call && pong) {
         match next(&mut rx).await {
             Reply::Snapshot(s) if s.topic == topic => {
@@ -197,6 +199,7 @@ async fn adding_queries_preserves_default_snapshots_and_rejects_mutations() {
     })
     .await
     .unwrap();
+
     loop {
         match next(&mut rx).await {
             Reply::Error { id: 3, .. } => break,
@@ -206,6 +209,7 @@ async fn adding_queries_preserves_default_snapshots_and_rejects_mutations() {
     }
     // The rejected Watch leaves the previous subscription live.
     tx.send(&Request::Ping { id: 4 }).await.unwrap();
+
     loop {
         match next(&mut rx).await {
             Reply::Pong { id: 4 } => break,

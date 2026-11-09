@@ -115,12 +115,14 @@ fn grouped(digits: &str) -> String {
         None => ("", digits),
     };
     let mut out = String::from(sign);
+
     for (i, c) in digits.chars().enumerate() {
         if i > 0 && (digits.len() - i) % 3 == 0 {
             out.push(',');
         }
         out.push(c);
     }
+
     out
 }
 
@@ -173,6 +175,7 @@ impl Product {
             None => r#"<span class="dprod-meta">See price on the site</span>"#.to_owned(),
         };
         let mut meta = Vec::new();
+
         if let Some(rating) = self.rating.as_ref().map(Number::rating) {
             let reviews = self
                 .reviews
@@ -181,9 +184,11 @@ impl Product {
                 .unwrap_or_default();
             meta.push(format!("{rating} &#9733;{reviews}"));
         }
+
         if let Some(note) = self.note.as_deref().filter(|n| !n.trim().is_empty()) {
             meta.push(escape(note));
         }
+
         let meta = if meta.is_empty() {
             String::new()
         } else {
@@ -254,6 +259,7 @@ fn host(url: &str) -> &str {
 
 pub(super) fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
+
     for c in text.chars() {
         match c {
             '&' => out.push_str("&amp;"),
@@ -264,6 +270,7 @@ pub(super) fn escape(text: &str) -> String {
             _ => out.push(c),
         }
     }
+
     out
 }
 

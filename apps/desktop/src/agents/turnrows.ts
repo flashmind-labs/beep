@@ -67,6 +67,7 @@ export function tickTurns() {
   turnTick = setInterval(() => {
     const els = document.querySelectorAll<HTMLElement>("[data-since]");
     if (!els.length || !pageShown()) { clearInterval(turnTick); turnTick = undefined; return; }
+
     for (const el of els) {
       const text = duration(Date.now() - Number(el.dataset.since));
       if (el.textContent !== text) el.textContent = text;

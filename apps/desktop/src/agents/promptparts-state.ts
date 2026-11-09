@@ -23,6 +23,7 @@ export function promptParts(text: string): PromptPart[] {
   const parts: PromptPart[] = [];
   const user = (s: string) => { const t = s.trim(); if (t) parts.push({ kind: "user", text: t }); };
   let rest = text;
+
   for (;;) {
     OPEN.lastIndex = 0;
     const m = OPEN.exec(rest);

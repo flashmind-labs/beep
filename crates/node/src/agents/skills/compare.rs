@@ -80,6 +80,7 @@ fn clash(x: &Listed, y: &Listed) -> bool {
 /// machine lacks a name and may take it.
 pub(super) fn compare(holders: &[Holder<'_>], lacks: impl Fn(&str) -> bool) -> Outcome {
     let mut by_name: BTreeMap<&str, Vec<Copy<'_>>> = BTreeMap::new();
+
     for holder in holders {
         for listed in holder.listed {
             by_name.entry(&listed.name).or_default().push(Copy {
@@ -90,7 +91,9 @@ pub(super) fn compare(holders: &[Holder<'_>], lacks: impl Fn(&str) -> bool) -> O
             });
         }
     }
+
     let mut outcome = Outcome::default();
+
     for (name, copies) in by_name {
         // Copies from before the latest pick take it, whatever they are.
         let picked = copies
@@ -110,6 +113,7 @@ pub(super) fn compare(holders: &[Holder<'_>], lacks: impl Fn(&str) -> bool) -> O
             outcome.conflicts.push(conflict(name, &copies));
             continue;
         }
+
         let Some(winner) = live.iter().max_by_key(|copy| copy.edits()) else {
             continue;
         };
@@ -149,6 +153,7 @@ pub(super) fn compare(holders: &[Holder<'_>], lacks: impl Fn(&str) -> bool) -> O
             });
         }
     }
+
     outcome
 }
 
@@ -156,8 +161,10 @@ pub(super) fn compare(holders: &[Holder<'_>], lacks: impl Fn(&str) -> bool) -> O
 fn conflict(name: &str, copies: &[Copy<'_>]) -> Conflict {
     let mut contents: BTreeMap<&str, Vec<(&str, &str)>> = BTreeMap::new();
     let mut here = Vec::new();
+
     for copy in copies {
         let at = contents.entry(&copy.listed.hash).or_default();
+
         for folder in &copy.listed.folders {
             at.push((copy.machine, folder));
             if copy.here {
@@ -167,11 +174,13 @@ fn conflict(name: &str, copies: &[Copy<'_>]) -> Conflict {
     }
     // A machine that holds two contents is named with its folder.
     let mut machines_of: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+
     for (hash, list) in &contents {
         for (machine, _) in list {
             machines_of.entry(machine).or_default().insert(hash);
         }
     }
+
     let place = |machine: &str, folder: &str| {
         if machines_of
             .get(machine)
@@ -184,6 +193,7 @@ fn conflict(name: &str, copies: &[Copy<'_>]) -> Conflict {
     };
     let mut places = Vec::new();
     let mut lines = Vec::new();
+
     for list in contents.values() {
         if let Some((machine, folder)) = list.first() {
             places.push(place(machine, folder));
@@ -193,6 +203,7 @@ fn conflict(name: &str, copies: &[Copy<'_>]) -> Conflict {
                 .map(|(machine, folder)| format!("{machine} {folder}")),
         );
     }
+
     places.sort();
     places.dedup();
     lines.sort();

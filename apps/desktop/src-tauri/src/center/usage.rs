@@ -226,12 +226,14 @@ impl From<UsageReport> for UsageRow {
 impl From<UsageView> for UsageRow {
     fn from(v: UsageView) -> Self {
         let mut unpriced: Vec<AgentTokens> = Vec::new();
+
         for tokens in v.today.iter().flat_map(|s| &s.unpriced) {
             match unpriced.iter_mut().find(|t| t.agent == tokens.agent) {
                 Some(t) => t.tokens += tokens.tokens,
                 None => unpriced.push(tokens.clone()),
             }
         }
+
         let today = PeriodSpend {
             total: ProjectSpend {
                 project: String::new(),

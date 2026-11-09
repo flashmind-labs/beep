@@ -133,6 +133,7 @@ pub(super) async fn fetch(cx: Fetcher<'_>, job: Job, tx: &mut Out<'_>) -> Result
             if let Err(left) = partial.remove() {
                 log::warn!("a partial transfer stays until the next start: {left:#}");
             }
+
             Err(e)
         }
     })
@@ -161,21 +162,27 @@ async fn transfer(
     let mut plan = cancellable(cx, probe(cx, job, connection)).await?;
     let room = reserve_space(cx, job, plan.total).await?;
     download(cx, job, connection, &plan, tx).await?;
+
     if let Some(manifest) = plan.manifest {
         apply_manifest(cx.store, manifest, job, &mut plan).await?;
     }
+
     let partial = {
         let (journal, folder) = (cx.journal.clone(), job.folder.clone());
         spawn_blocking(move || journal.start(folder)).await??
     };
+
     if let Err(e) = write_out(cx, job, &plan, &partial, tx).await {
         // Removed before the reply, so nothing is left when it goes out.
         let removed = spawn_blocking(move || partial.remove()).await?;
+
         if let Err(left) = removed {
             log::warn!("a partial transfer stays until the next start: {left:#}");
         }
+
         return Err(e);
     }
+
     Ok(Written {
         plan,
         partial,
@@ -196,6 +203,7 @@ async fn probe(cx: &Fetcher<'_>, job: &Job, connection: &Connection) -> Result<P
     let hash = job.content.hash;
     let probe_failed = |e| anyhow!("asking the source machine what it sends failed: {e}");
     let too_large = || anyhow!("the transfer is larger than {} GiB", MAX_BYTES >> 30);
+
     if job.kind == ContentKind::File {
         let (size, _) = get_verified_size(connection, &hash)
             .await
@@ -245,12 +253,14 @@ async fn probe(cx: &Fetcher<'_>, job: &Job, connection: &Connection) -> Result<P
             .saturating_add(names_size)
             .saturating_add(file_sizes.iter().sum()),
     };
+
     for (at, ((name, hash), &size)) in collection.iter().zip(file_sizes).enumerate() {
         if at == 0 && name == MANIFEST_NAME {
             ensure!(size <= MAX_MANIFEST, "the folder's manifest is too large");
             plan.manifest = Some(*hash);
             continue;
         }
+
         plan.items.push(Item {
             path: Path::new(&job.name).join(relative_path(name)?),
             blob: Some(*hash),
@@ -258,6 +268,7 @@ async fn probe(cx: &Fetcher<'_>, job: &Job, connection: &Connection) -> Result<P
         });
         plan.total = plan.total.saturating_add(size);
     }
+
     ensure!(
         plan.items.len() as u64 <= MAX_FILES,
         "the folder holds more than {MAX_FILES} files"
@@ -289,11 +300,13 @@ async fn download(
     let progress = cx.store.remote().fetch(connection.clone(), job.content);
     let mut progress = pin!(progress.stream());
     let mut ticker = Ticker::new(Stage::Downloading, plan.total);
+
     loop {
         let item = tokio::select! {
             () = cx.cancel.cancelled() => bail!(CANCELLED),
             item = progress.next() => item,
         };
+
         match item {
             Some(GetProgressItem::Progress(done)) => {
                 ensure!(
@@ -310,6 +323,7 @@ async fn download(
             None => bail!("the download ended without a result"),
         }
     }
+
     ticker.finish(tx, plan.total).await
 }
 
@@ -332,6 +346,7 @@ async fn apply_manifest(store: &Store, hash: Hash, job: &Job, plan: &mut Plan) -
     for item in &mut plan.items {
         item.executable = executable.contains(&item.path);
     }
+
     add_empty_folders(plan, root, &manifest.empty_folders)
 }
 
@@ -342,6 +357,7 @@ fn add_empty_folders(plan: &mut Plan, root: &Path, folders: &[String]) -> Result
         (plan.items.len() as u64).saturating_add(folders.len() as u64) <= MAX_FILES,
         "the folder holds more than {MAX_FILES} files and folders"
     );
+
     for folder in folders {
         plan.items.push(Item {
             path: root.join(relative_path(folder)?),
@@ -349,6 +365,7 @@ fn add_empty_folders(plan: &mut Plan, root: &Path, folders: &[String]) -> Result
             executable: false,
         });
     }
+
     Ok(())
 }
 
@@ -361,6 +378,7 @@ async fn write_out(
     tx: &mut Out<'_>,
 ) -> Result<()> {
     let mut ticker = Ticker::new(Stage::Writing, plan.total);
+
     if job.kind == ContentKind::Folder {
         let dir = partial.dir().try_clone()?;
         let name = PathBuf::from(&job.name);
@@ -368,6 +386,7 @@ async fn write_out(
             .await?
             .with_context(|| format!("making {}", job.name))?;
     }
+
     for item in &plan.items {
         let dir = partial.dir().try_clone()?;
         let (path, executable, blob) = (item.path.clone(), item.executable, item.blob);
@@ -376,6 +395,7 @@ async fn write_out(
                 make_dirs_at(&dir, &path)?;
                 return Ok(None);
             }
+
             let parent = make_dirs_at(&dir, path.parent().unwrap_or(Path::new("")))?;
             let name = path.file_name().ok_or(ErrorKind::InvalidInput)?;
             parent.create_file(name, executable).map(Some)
@@ -388,6 +408,7 @@ async fn write_out(
         let file = File::from_std(file);
         export(cx, &item.path, blob, file, &mut ticker, tx).await?;
     }
+
     ticker.finish(tx, ticker.done()).await
 }
 
@@ -402,6 +423,7 @@ async fn export(
 ) -> Result<()> {
     let mut reader = cx.store.blobs().reader(blob);
     let mut buffer = vec![0; CHUNK];
+
     loop {
         ensure!(!cx.cancel.is_cancelled(), CANCELLED);
         let read = reader
@@ -411,6 +433,7 @@ async fn export(
         if read == 0 {
             break;
         }
+
         file.write_all(&buffer[..read])
             .await
             .with_context(|| format!("writing {}", path.display()))?;
@@ -418,6 +441,7 @@ async fn export(
             .tick(tx, ticker.done().saturating_add(read as u64))
             .await?;
     }
+
     file.flush().await?;
     Ok(())
 }

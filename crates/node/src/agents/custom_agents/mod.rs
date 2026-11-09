@@ -139,18 +139,22 @@ pub(super) fn list(folder: &Path, home: Option<&Path>) -> Result<Vec<CustomAgent
     if !root.is_dir() {
         bail!("{} is not a folder", folder.display());
     }
+
     let mut reader = Reader::default();
     let project = Base {
         root,
         scope: CustomAgentScope::Project {},
         shown: String::new(),
     };
+
     for place in PROJECT {
         reader.read(&project, place);
     }
+
     let Some(home) = home.and_then(|home| paths::canonicalize(home).ok()) else {
         return Ok(reader.agents);
     };
+
     for at in USER {
         let Ok(root) = paths::canonicalize(home.join(at.folder)) else {
             continue;
@@ -160,6 +164,7 @@ pub(super) fn list(folder: &Path, home: Option<&Path>) -> Result<Vec<CustomAgent
             log::debug!("custom agents: ~/{} leads outside the home", at.folder);
             continue;
         }
+
         let base = Base {
             root,
             scope: CustomAgentScope::User {},
@@ -167,6 +172,7 @@ pub(super) fn list(folder: &Path, home: Option<&Path>) -> Result<Vec<CustomAgent
         };
         reader.read(&base, &at.place);
     }
+
     Ok(reader.agents)
 }
 
@@ -226,6 +232,7 @@ impl Reader {
 
     fn read(&mut self, base: &Base, place: &Place) {
         let at = base.root.join(place.rel);
+
         match place.format {
             Format::Markdown => self.read_folder(base, place, &at, "md"),
             Format::CodexRoles => self.read_folder(base, place, &at, "toml"),
@@ -257,6 +264,7 @@ impl Reader {
                 return;
             }
         }
+
         let entries = match fs::read_dir(folder) {
             Ok(entries) => entries,
             Err(e) if e.kind() == ErrorKind::NotFound => return,
@@ -271,6 +279,7 @@ impl Reader {
             .collect();
         files.sort();
         files.truncate(MAX_FOLDER_FILES);
+
         for file in files {
             self.read_file(base, place, &file);
         }
@@ -280,6 +289,7 @@ impl Reader {
         if self.full() {
             return;
         }
+
         let source = Source {
             base,
             harness: place.harness,
@@ -294,12 +304,14 @@ impl Reader {
                 if !self.seen.insert(real) {
                     return;
                 }
+
                 text
             }
             // A folder named like a definition.
             Ok(None) => return,
             Err(e) => return self.push(source.error(format!("{e:#}"))),
         };
+
         match place.format {
             // `.agents` is shared, so its `AGENTS.md` and notes are no definitions.
             Format::Markdown if place.harness == FLSH && !parse::has_frontmatter(&text) => {}
@@ -345,6 +357,7 @@ fn codex_declared(root: &Path, config: &Path, declared: parse::CodexDeclared) ->
         Some(inside) => parse::codex_role(&inside.text),
         None => bail!("{rel} is not a file"),
     });
+
     match role {
         Ok(role) => {
             found.model = role.model;
@@ -356,6 +369,7 @@ fn codex_declared(root: &Path, config: &Path, declared: parse::CodexDeclared) ->
         }
         Err(e) => found.error = Some(format!("its config_file {rel}: {e:#}")),
     }
+
     found
 }
 
@@ -370,16 +384,21 @@ struct Inside {
 /// is not UTF-8.
 fn read_inside(root: &Path, file: &Path) -> Result<Option<Inside>> {
     let real = paths::canonicalize(file).context("it cannot be opened")?;
+
     if !real.starts_with(root) {
         bail!("it leads outside its folder, so it is not read");
     }
+
     let meta = fs::metadata(&real).context("it cannot be opened")?;
+
     if !meta.is_file() {
         return Ok(None);
     }
+
     if meta.len() > MAX_FILE {
         bail!("it is larger than {} KB", MAX_FILE / 1024);
     }
+
     let bytes = fs::read(&real).context("it cannot be read")?;
     let text = String::from_utf8(bytes).context("it is not UTF-8 text")?;
     Ok(Some(Inside { real, text }))
@@ -391,10 +410,13 @@ fn cap(mut prompt: String) -> (String, bool) {
     if prompt.len() <= MAX_CUSTOM_AGENT_PROMPT {
         return (prompt, false);
     }
+
     let mut end = MAX_CUSTOM_AGENT_PROMPT;
+
     while !prompt.is_char_boundary(end) {
         end -= 1;
     }
+
     prompt.truncate(end);
     (prompt, true)
 }

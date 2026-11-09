@@ -61,6 +61,7 @@ impl Symbol {
         if !valid {
             return Err(StockError::BadSymbol(text.chars().take(40).collect()));
         }
+
         Ok(Self(text.to_ascii_uppercase()))
     }
 }
@@ -139,12 +140,15 @@ async fn fetch_one(
     .map_err(|_| StockError::BadSymbol(symbol.0.clone()))?;
     let response = client.get(url).send().await?;
     let status = response.status();
+
     if status == StatusCode::NOT_FOUND {
         return Err(StockError::NotFound(symbol.clone()));
     }
+
     if !status.is_success() {
         return Err(StockError::Status(status));
     }
+
     let body = response.bytes().await?;
     parse(symbol, range, &body)
 }
@@ -259,6 +263,7 @@ fn parse(symbol: &Symbol, range: ChartRange, body: &[u8]) -> Result<History, Sto
 /// The chart of `histories`: one price as an area, or several as percent-change lines.
 pub(crate) fn chart(range: ChartRange, histories: &[History]) -> Chart {
     let stock = histories.first().map(|first| first.info.clone());
+
     match histories {
         [one] => Chart {
             title: title(&one.info),

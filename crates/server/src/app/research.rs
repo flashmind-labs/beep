@@ -112,6 +112,7 @@ pub(super) fn register_lead(
         member: Member::Lead,
     };
     let TeamTools(tools) = team_tools(seat);
+
     for tool in tools {
         registry.register(tool);
     }
@@ -127,19 +128,24 @@ impl App {
         let mut ctx = String::from("## Research\n");
         let _ = writeln!(ctx, "Topic: {}", research.topic);
         let _ = writeln!(ctx, "Status: {}", research.status.as_ref());
+
         if let Some(plan) = &research.plan {
             let _ = writeln!(ctx, "Round: {}", plan.round());
         }
+
         let model = |model: &RoleModel| {
             let id = model.model.to_string();
+
             match self.models.name_of(&model.model) {
                 Some(name) => format!("{name} ({id})"),
                 None => id,
             }
         };
+
         match &research.plan {
             Some(plan) => {
                 let _ = writeln!(ctx, "The team:");
+
                 for seat in plan.team(&config.lead) {
                     let round = match seat.round {
                         0 => String::new(),
@@ -153,8 +159,10 @@ impl App {
                         model(seat.model)
                     );
                 }
+
                 let _ = writeln!(ctx, "Scout models for a follow-up:");
                 let _ = writeln!(ctx, "- {} (default)", model(&config.scout));
+
                 for other in &config.scout_choices {
                     let other = RoleModel {
                         model: other.clone(),
@@ -165,6 +173,7 @@ impl App {
             }
             None => {
                 let _ = writeln!(ctx, "Default scout model: {}", model(&config.scout));
+
                 for other in &config.scout_choices {
                     let other = RoleModel {
                         model: other.clone(),
@@ -172,14 +181,17 @@ impl App {
                     };
                     let _ = writeln!(ctx, "Other scout model: {}", model(&other));
                 }
+
                 let _ = writeln!(ctx, "Critic: {}", model(&config.critic));
                 let _ = writeln!(ctx, "Writer: {}", model(&config.writer));
             }
         }
+
         if research.status == Status::Done {
             let sources = self.store.research_sources(research.id).await?.len();
             let _ = writeln!(ctx, "The paper is written, citing {sources} sources.");
         }
+
         Ok(ctx)
     }
 
@@ -193,12 +205,15 @@ impl App {
         let cancel = CancellationToken::new();
         {
             let mut teams = self.teams.lock().await;
+
             if teams.len() >= MAX_TEAMS && !teams.contains_key(&id) {
                 anyhow::bail!("too many researches are running; try again later");
             }
+
             if teams.contains_key(&id) || !self.store.approve_research(id, &plan).await? {
                 return Ok(false);
             }
+
             teams.insert(id, cancel.clone());
         }
         let (app, user) = (self.clone(), user.clone());
@@ -217,9 +232,11 @@ impl App {
     /// Stops a research's team. Says whether it was working.
     pub async fn stop_team(&self, id: Uuid) -> Result<bool> {
         let stopped = self.store.stop_research(id).await?;
+
         if let Some(cancel) = self.teams.lock().await.get(&id) {
             cancel.cancel();
         }
+
         Ok(stopped)
     }
 
@@ -269,6 +286,7 @@ impl App {
             )
         });
         let mut scouts: HashMap<Member, Conversation> = HashMap::new();
+
         for ((member, _), ran) in asked.iter().zip(join_all(scouting).await) {
             match ran {
                 Ok(conversation) => {
@@ -277,12 +295,15 @@ impl App {
                 Err(error) => log::warn!("research: {member} failed: {error:#}"),
             }
         }
+
         if cancel.is_cancelled() {
             return Ok(Status::Stopped);
         }
+
         if scouts.is_empty() {
             anyhow::bail!("every scout failed");
         }
+
         if !self
             .store
             .move_research(id, Status::Researching, Status::Reviewing)
@@ -328,11 +349,13 @@ impl App {
                 cancel,
             ))
         });
+
         for answered in join_all(answering.collect::<Vec<_>>()).await {
             if let Err(error) = answered {
                 log::warn!("research: a scout's answer failed: {error:#}");
             }
         }
+
         if cancel.is_cancelled() {
             return Ok(Status::Stopped);
         }
@@ -344,6 +367,7 @@ impl App {
         let added = Arc::new(Mutex::new(Vec::new()));
         let room = MAX_TEAM_SCOUTS.saturating_sub(plan.scouts.len());
         let mut extra: Vec<Arc<dyn Tool>> = Vec::new();
+
         if room > 0 {
             extra.push(Arc::new(AddScoutsTool {
                 app: self.clone(),
@@ -352,6 +376,7 @@ impl App {
                 added: added.clone(),
             }));
         }
+
         let questions: String = asked
             .iter()
             .map(|(member, scout)| format!("- {member}: {}\n", scout.question))
@@ -375,6 +400,7 @@ impl App {
             Ok(mut added) => std::mem::take(&mut *added),
             Err(_) => anyhow::bail!("the added scouts are poisoned"),
         };
+
         if !added.is_empty() {
             let first = plan.scouts.len();
             plan.scouts.extend(added);
@@ -388,12 +414,14 @@ impl App {
                     cancel,
                 )
             });
+
             for filled in join_all(filling.collect::<Vec<_>>()).await {
                 if let Err(error) = filled {
                     log::warn!("research: a scout on a gap failed: {error:#}");
                 }
             }
         }
+
         if cancel.is_cancelled()
             || !self
                 .store
@@ -444,6 +472,7 @@ impl App {
             cancel,
         )
         .await?;
+
         if let Some(fixes) = self.challenges(id, since).await?.get(&Member::Writer) {
             self.run_member(
                 user,
@@ -464,13 +493,17 @@ impl App {
             )
             .await?;
         }
+
         if cancel.is_cancelled() {
             return Ok(Status::Stopped);
         }
+
         let written = self.store.research(id).await?;
+
         if written.is_none_or(|row| row.draft.trim().is_empty()) {
             anyhow::bail!("the writer saved no paper");
         }
+
         if !self
             .store
             .move_research(id, Status::Writing, Status::Done)
@@ -478,6 +511,7 @@ impl App {
         {
             return Ok(Status::Stopped);
         }
+
         Ok(Status::Done)
     }
 
@@ -490,6 +524,7 @@ impl App {
     /// What the critic said to each member since entry `since`, one message per line.
     async fn challenges(&self, id: Uuid, since: i64) -> Result<HashMap<Member, String>> {
         let mut out: HashMap<Member, String> = HashMap::new();
+
         for row in self.store.research_entries(id, since).await? {
             if row.member == Member::Critic
                 && let Entry::Said {
@@ -501,6 +536,7 @@ impl App {
                 let _ = writeln!(said, "- {content}");
             }
         }
+
         Ok(out)
     }
 
@@ -527,20 +563,25 @@ impl App {
         };
         let mut registry = ToolRegistry::new();
         let TeamTools(tools) = team_tools(seat);
+
         for tool in tools {
             registry.register(tool);
         }
+
         if let Member::Scout(_) = member {
             if let Some(search) = &self.tools.search {
                 registry.register(search.clone());
             }
+
             if let Some(key) = &self.tools.firecrawl_key {
                 register_web_tools(&mut registry, key.expose_secret());
             }
         }
+
         for tool in extra {
             registry.register(tool);
         }
+
         let refusals = repeat::guard_tool_calls(&mut registry);
         crate::agent::tool_cost::log("research team", &registry);
 
@@ -552,6 +593,7 @@ impl App {
         if let Some(routing) = self.models.routing(&model.model) {
             llm.provider_preferences = Some(routing.clone());
         }
+
         let mut agent = Agent::builder(self.provider.clone())
             .llm(llm)
             .tools(registry)
@@ -579,6 +621,7 @@ impl App {
             tokio::pin!(stream);
             let deadline = sleep(MEMBER_RUN);
             tokio::pin!(deadline);
+
             loop {
                 let event = tokio::select! {
                     _ = &mut deadline => {
@@ -594,6 +637,7 @@ impl App {
                         }
                     },
                 };
+
                 match event {
                     Some(AgentEvent::TextDelta(delta)) => reply.push_str(&delta),
                     Some(AgentEvent::ToolStart {
@@ -617,6 +661,7 @@ impl App {
                                 .add_research_entry(research.id, member, &step)
                                 .await?;
                         }
+
                         if refusals.exhausted() {
                             cancel.cancel();
                             anyhow::bail!("{member} kept repeating a call");
@@ -632,7 +677,9 @@ impl App {
         if cancel.is_cancelled() {
             return Ok(conversation);
         }
+
         let said = reply.trim();
+
         if !said.is_empty() {
             let content: String = said.chars().take(MAX_SAID).collect();
             let entry = Entry::Said { to: None, content };
@@ -640,6 +687,7 @@ impl App {
                 .add_research_entry(research.id, member, &entry)
                 .await?;
         }
+
         Ok(conversation)
     }
 
@@ -650,11 +698,13 @@ impl App {
         let _ = writeln!(ctx, "Research topic: {}", research.topic);
         let _ = writeln!(ctx, "You are {} ({member}).", member.name());
         let _ = writeln!(ctx, "The team:");
+
         if let Some(config) = self.models.research() {
             for seat in plan.team(&config.lead) {
                 let _ = writeln!(ctx, "- {}: {}", seat.member, seat.role);
             }
         }
+
         ctx
     }
 
@@ -663,10 +713,12 @@ impl App {
         if self.shutting_down.load(Ordering::Relaxed) {
             return;
         }
+
         let status = match ended {
             Ok(status) => status,
             Err(error) => {
                 log::warn!("research failed: {error:#}; research={id}");
+
                 for from in [Status::Researching, Status::Reviewing, Status::Writing] {
                     match self.store.move_research(id, from, Status::Failed).await {
                         Ok(true) => break,
@@ -674,12 +726,15 @@ impl App {
                         Err(error) => log::warn!("research: unable to mark failed: {error:#}"),
                     }
                 }
+
                 Status::Failed
             }
         };
+
         if status == Status::Stopped {
             return;
         }
+
         let research = match self.store.research(id).await {
             Ok(Some(research)) => research,
             Ok(None) => return,
@@ -744,6 +799,7 @@ impl App {
                 }
             }
         }
+
         log::warn!("research: the chat stayed busy; result not posted; research={id}");
     }
 }

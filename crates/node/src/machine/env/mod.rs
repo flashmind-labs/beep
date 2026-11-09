@@ -56,6 +56,7 @@ pub async fn probe() -> EnvReport {
             .map(|(_, program)| program.clone())
     };
     let mut logins = Vec::new();
+
     if let Some(program) = at("claude") {
         let mut claude = login(
             "claude",
@@ -68,6 +69,7 @@ pub async fn probe() -> EnvReport {
         claude.signed_in = claude.signed_in || claude_in_keychain().await;
         logins.push(claude);
     }
+
     if let Some(program) = at("codex") {
         logins.push(login("codex", &program, &["login", "status"], |_| None, |_| None).await);
     }
@@ -91,6 +93,7 @@ pub async fn probe() -> EnvReport {
         let file = has_file(home.as_deref(), ".gemini/oauth_creds.json").await;
         logins.push(stored("gemini", key || file));
     }
+
     if at("pi").is_some() {
         let file = has_file(home.as_deref(), ".pi/agent/auth.json").await;
         logins.push(stored("pi", file));
@@ -138,6 +141,7 @@ pub(crate) async fn probe_tools(scope: ToolScope) -> (Vec<ToolInfo>, Vec<(&'stat
     let path = spawn_env::search_path();
     let home = dirs::home_dir();
     let mut found: Vec<(&str, PathBuf)> = Vec::new();
+
     for (name, args) in KNOWN_TOOLS {
         if matches!(scope, ToolScope::Updatable) && !matches!(*name, "gh" | "teacli" | "flsh") {
             continue;
@@ -195,6 +199,7 @@ pub(crate) fn beside(command: &mut tokio::process::Command, program: &Path) {
     };
     let inherited = spawn_env::search_path().unwrap_or_default();
     let dirs = std::iter::once(dir.to_owned()).chain(env::split_paths(&inherited));
+
     if let Ok(path) = env::join_paths(dirs) {
         command.env("PATH", path);
     }
@@ -286,6 +291,7 @@ pub(crate) async fn claude_in_keychain() -> bool {
     if env::consts::OS != "macos" {
         return false;
     }
+
     let found = crate::run::process::command("/usr/bin/security")
         .args(["find-generic-password", "-s", CLAUDE_KEYCHAIN])
         .stdin(Stdio::null())

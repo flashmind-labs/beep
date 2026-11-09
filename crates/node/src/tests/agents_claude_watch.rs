@@ -69,11 +69,14 @@ async fn a_hook_reaches_the_hub_over_the_socket() {
                 todos: None,
                 error: None,
             };
+
             if send(&socket, &message).await.is_ok() {
                 return events.recv().await.unwrap();
             }
+
             tokio::task::yield_now().await;
         }
+
         panic!("the socket never opened");
     };
     let activity = tokio::select! {

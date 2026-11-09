@@ -55,15 +55,18 @@ export function openSignIn(machine: { id: string; name: string }, tool: string, 
   async function read(s: Step) {
     try {
       const next = await ask(machine.id, tool, s);
+
       if (!active) {
         if (s.step === "start" && stillRunning(next)) await ask(machine.id, tool, { step: "cancel" }).catch(console.warn);
         return;
       }
+
       error = "";
       take(next);
     } catch (e) {
       error = reason(e);
     }
+
     draw();
   }
   async function send() {

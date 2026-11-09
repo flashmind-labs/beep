@@ -65,6 +65,7 @@ export function makeProjectLive(deps: LiveDeps) {
       for (const was of owned) if (was !== id) await detach(was);
       if (!id || owned.has(id)) return;
       owned.add(id);
+
       try {
         await invoke("follow_project", { projectId: id });
       } catch (error) {

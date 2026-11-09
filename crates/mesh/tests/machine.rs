@@ -188,6 +188,7 @@ mod listing {
             id: "m".into(),
             name: "build-box".into(),
         };
+
         for agent in ["claude", "codex"] {
             for presence in [Presence::Working, Presence::Waiting, Presence::Running] {
                 let session = ExternalSession {

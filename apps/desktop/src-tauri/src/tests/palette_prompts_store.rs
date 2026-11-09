@@ -67,9 +67,11 @@ fn literal_punctuation_unicode_and_replacements() -> Result<()> {
         &["Find \"quoted\" text with 100% and __ plus café 東京".into()],
         true,
     )?;
+
     for query in ["\"quoted\"", "100%", "__", "café", "東京", "text with"] {
         assert_eq!(store.find(query, None)?.len(), 1, "{query}");
     }
+
     assert!(store.find("' OR 1=1", None)?.is_empty());
     assert!(store.current(&identity(&session), &stamp(&session)?)?);
     store.replace(&session, &["A different prompt".into()], true)?;
@@ -162,9 +164,11 @@ fn project_deletion_cascades_and_stale_scans_cannot_restore_it() -> Result<()> {
     store.append(&build, "retry button")?;
     store.append(&gpu, "retry upload")?;
     store.remove_project("acme/widget", &projects)?;
+
     for table in ["projects", "places", "sessions", "prompt_texts"] {
         assert_eq!(count(&store, table)?, 0, "{table}");
     }
+
     assert!(
         store.find("retry", None)?.is_empty(),
         "FTS entries are deleted too"

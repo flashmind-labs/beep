@@ -45,6 +45,7 @@ fn reads_commits_uncommitted_and_untracked_changes() {
     if !has_git() {
         return;
     }
+
     let (_dir, root) = checkout();
     run_git(&root, &["checkout", "-q", "-b", "work"]);
     fs::write(root.join("keep.txt"), "one\n2\nthree\n").unwrap();
@@ -83,6 +84,7 @@ fn base_at_gives_only_what_is_uncommitted_even_with_an_origin_head() {
     if !has_git() {
         return;
     }
+
     let (_dir, root) = checkout();
     run_git(&root, &["update-ref", "refs/remotes/origin/main", "main"]);
     run_git(
@@ -110,6 +112,7 @@ fn a_branch_with_a_worktree_inside_gives_its_working_tree() {
     if !has_git() {
         return;
     }
+
     let (_dir, root) = checkout();
     run_git(
         &root,
@@ -129,6 +132,7 @@ fn the_default_base_is_found_and_a_subfolder_stays_inside() {
     if !has_git() {
         return;
     }
+
     let (_dir, root) = checkout();
     fs::create_dir(root.join("sub")).unwrap();
     fs::write(root.join("sub/in.txt"), "x\n").unwrap();
@@ -144,11 +148,14 @@ fn refuses_bad_names_and_folders_outside_a_checkout() {
     if !has_git() {
         return;
     }
+
     let (_dir, root) = checkout();
+
     for bad in ["--output=/tmp/x", "a..b", "a b"] {
         let e = read(&root, &ask(bad, "")).unwrap_err();
         assert!(e.to_string().contains("not a branch name"), "{bad}: {e:#}");
     }
+
     assert!(read(&root, &ask("nope", "")).is_err());
     let plain = TempDir::new().unwrap();
     let e = read(plain.path(), &ask("", "")).unwrap_err();
@@ -160,6 +167,7 @@ fn a_checkout_with_no_commits_shows_its_files() {
     if !has_git() {
         return;
     }
+
     let dir = TempDir::new().unwrap();
     let root = paths::canonicalize(dir.path()).unwrap();
     run_git(&root, &["init", "-q", "-b", "main"]);

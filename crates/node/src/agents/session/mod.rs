@@ -323,6 +323,7 @@ impl Session {
         if let Some(name) = cleared {
             process.env_remove(name);
         }
+
         if let Some(wrapper) = sccache::wrapper(cwd, &kind.env) {
             process.env("RUSTC_WRAPPER", wrapper);
         }

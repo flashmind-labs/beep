@@ -128,17 +128,21 @@ function claudeHtml(state: AgentAccountsState, data: AgentAccounts, esc: Esc, ag
   const on = (data.machines ?? []).filter(m => m.claude);
   const head = (sub: string) => `<div class="dline">${harnessTile("claude")}<span class="dstack"><b class="dtitle">Claude Code</b>${sub ? `<span class="dsub">${sub}</span>` : ""}</span>`;
   const err = state.claudeError ? `<div class="derr dmt6">${esc(state.claudeError)}</div>` : "";
+
   if (state.claudeFlow) {
     return box(`${head("")}<span class="dpush"><button class="dbtn quiet small" data-ag-claude-cancel>Cancel</button></span></div>
       <div class="dfine dline dmt6"><span class="dspin"></span>Approve in your browser. Beep saves the token once you do.</div>`);
   }
+
   const edit = form(state, esc, "claude");
+
   if (!token || token.unreadable) {
     const why = token?.unreadable ? "Beep can no longer read the saved token. Sign in again." : "Sign in for all to give every machine one token. Beep keeps it encrypted and never writes it to their disks.";
     const rows = on.map(m => row(esc(m.name), !m.online, esc(ownLogin(data.claude_logins?.get(m.id))))).join("");
     return box(`${head(on.length ? "signs in on each machine" : "")}<span class="dacts"><button class="dbtn${on.length ? "" : " pri"}" data-ag-claude-sign>${on.length ? "Sign in for all" : "Sign in"}</button>${edit ? "" : `<button class="dbtn quiet" data-ag-edit="claude">Paste a token</button>`}</span></div>
       ${rows ? `<div class="dmt6">${rows}</div>` : ""}<div class="dfine dmt6">${why}</div>${edit}${err}`);
   }
+
   const sub = `signed in ${esc(ago(token.created_at))} · <code>…${esc(token.last4)}</code>`;
   const used = on.length
     ? on.map(m => row(esc(m.name), !m.online, esc(usedOn(m)))).join("")
@@ -152,12 +156,14 @@ function claudeHtml(state: AgentAccountsState, data: AgentAccounts, esc: Esc, ag
 /// it failed.
 function codexRow(state: AgentAccountsState, esc: Esc, m: AgentMachine, now: number) {
   const flow = state.codex?.[m.id];
+
   if (flow?.code) {
     return `<div class="dflow">
       <span>${esc(m.name)}: open <b>${esc(flow.url.replace(/^https:\/\//, ""))}</b> and enter</span>
       <span class="dflowcode">${esc(flow.code)}</span>
       <span class="dmuted"><span class="dspin"></span>Waiting for you to approve · ${esc(timeLeft(flow.expires_at, now))}<span class="dacts"><button class="dbtn small" data-ag-copy="${esc(flow.code)}">${flow.copied ? "Copied" : "Copy code"}</button><button class="dbtn quiet small" data-ag-open="${esc(flow.url)}">Open page</button><button class="dbtn quiet small" data-ag-codex-cancel="${esc(m.id)}">Cancel</button></span></span></div>`;
   }
+
   const err = flow?.error ? `<div class="derr dind">${esc(flow.error)}</div>` : "";
   if (!m.online) return row(esc(m.name), true, "offline") + err;
   if (flow?.starting) return row(esc(m.name), false, `<span class="dspin"></span>starting sign-in`);

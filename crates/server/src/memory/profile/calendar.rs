@@ -53,9 +53,11 @@ pub(super) async fn read_calendar(
     };
     let key = Source::Calendar(calendar).key();
     summary.items = events.len();
+
     if events.is_empty() {
         return Ok(());
     }
+
     let mut notes = vec![calendar_counts(&events)];
     let texts = render_events(events);
     let header = format!(
@@ -73,12 +75,14 @@ pub(super) async fn read_calendar(
 /// Each title once, with how often and when it happened, where and with whom.
 fn render_events(events: Vec<Event>) -> Vec<String> {
     let mut by_title: BTreeMap<String, Vec<Event>> = BTreeMap::new();
+
     for event in events {
         by_title
             .entry(event.title.trim().to_lowercase())
             .or_default()
             .push(event);
     }
+
     let mut lines: Vec<(NaiveDate, String)> = by_title
         .into_values()
         .map(|mut events| {
@@ -105,6 +109,7 @@ fn render_events(events: Vec<Event>) -> Vec<String> {
                 let places: Vec<&str> = places.into_iter().take(3).collect();
                 let _ = write!(line, "; at {}", places.join(" / "));
             }
+
             let people: HashSet<&str> = events
                 .iter()
                 .flat_map(|event| event.people.iter().map(String::as_str))
@@ -124,18 +129,23 @@ fn render_events(events: Vec<Event>) -> Vec<String> {
 fn calendar_counts(events: &[Event]) -> ProfileNote {
     let mut people: HashMap<String, usize> = HashMap::new();
     let mut places: HashMap<String, usize> = HashMap::new();
+
     for event in events {
         for person in &event.people {
             *people.entry(person.clone()).or_default() += 1;
         }
+
         if !event.location.is_empty() {
             *places.entry(event.location.clone()).or_default() += 1;
         }
     }
+
     let mut text = format!("Calendar: {} events.", events.len());
+
     if !people.is_empty() {
         let _ = write!(text, " Meets most with: {}.", top(people));
     }
+
     if !places.is_empty() {
         let _ = write!(text, " Most frequent places: {}.", top(places));
     }
@@ -148,6 +158,7 @@ async fn google_events(user: &User, window: Window) -> Result<Vec<Event>> {
         .context("Composio is not configured")?;
     let mut events = Vec::new();
     let mut token: Option<String> = None;
+
     for _ in 0..CALENDAR_PAGES {
         let mut arguments = json!({
             "calendarId": "primary",
@@ -156,21 +167,26 @@ async fn google_events(user: &User, window: Window) -> Result<Vec<Event>> {
             "maxResults": 250,
             "singleEvents": true,
         });
+
         if let Some(token) = &token {
             arguments["pageToken"] = json!(token);
         }
+
         let response = client
             .execute_tool("GOOGLECALENDAR_EVENTS_LIST", arguments)
             .await?;
         if response.successful == Some(false) {
             bail!("Google Calendar listing failed");
         }
+
         events.extend(event_list(&response.data).iter().filter_map(parse_event));
         token = find_string(&response.data, "nextPageToken");
+
         if token.is_none() {
             break;
         }
     }
+
     Ok(events)
 }
 
@@ -180,6 +196,7 @@ async fn outlook_events(user: &User, window: Window) -> Result<Vec<Event>> {
         .composio_client()
         .context("Composio is not configured")?;
     let mut events = Vec::new();
+
     for span in spans(window, OUTLOOK_SPAN_DAYS) {
         for page in 0..CALENDAR_PAGES {
             // The calendar view expands repeating events into each time they happen.
@@ -199,13 +216,16 @@ async fn outlook_events(user: &User, window: Window) -> Result<Vec<Event>> {
                     response.error.as_deref().unwrap_or("no error given")
                 );
             }
+
             let listed = event_list(&response.data);
             events.extend(listed.iter().filter_map(parse_event));
+
             if listed.len() < TOP {
                 break;
             }
         }
     }
+
     Ok(events)
 }
 
@@ -215,17 +235,21 @@ async fn fastmail_events(user: &User, window: Window) -> Result<Vec<Event>> {
     // The profile reads the first account, as the mail feed does.
     let server = user.fastmail_server(None).await?;
     let mut schema = user.mcp_tool_schema(&server, TOOL).await;
+
     if schema.is_none() {
         // Any call connects the server, which lists its tools.
         let _ = user.call_mcp(&server, "list_calendars", json!({})).await;
         schema = user.mcp_tool_schema(&server, TOOL).await;
     }
+
     let schema = schema.context("Fastmail has no search_events tool")?;
     let arguments = EventArguments::try_from(&schema)?;
     let mut events = Vec::new();
+
     for span in spans(window, FASTMAIL_SPAN_DAYS) {
         events.extend(fastmail_span(user, &arguments, span).await?);
     }
+
     Ok(events)
 }
 
@@ -237,6 +261,7 @@ fn spans(window: Window, days: i64) -> impl Iterator<Item = Window> {
         if after >= end {
             return None;
         }
+
         let before = (after + Days::days(days)).min(end);
         let span = Window {
             after,
@@ -258,6 +283,7 @@ async fn fastmail_span(
     let mut events = Vec::new();
     let mut cursor: Option<String> = None;
     let mut offset = 0;
+
     for _ in 0..CALENDAR_PAGES {
         let call = arguments.build(window, LIMIT, cursor.as_deref(), offset);
         let value = user.call_fastmail(None, TOOL, call).await?;
@@ -272,10 +298,12 @@ async fn fastmail_span(
             (None, Some(_)) => listed.len() >= LIMIT,
             (None, None) => false,
         };
+
         if !more || listed.is_empty() {
             break;
         }
     }
+
     Ok(events)
 }
 
@@ -304,6 +332,7 @@ impl TryFrom<&Value> for EventArguments {
             bail!("search_events has no properties");
         };
         let mut found = EventArguments::default();
+
         for (name, property) in properties {
             let lower = name.to_lowercase();
             let date_only = property["format"].as_str() == Some("date");
@@ -331,10 +360,12 @@ impl TryFrom<&Value> for EventArguments {
                 found.before.get_or_insert_with(argument);
             }
         }
+
         if found.after.is_none() {
             let names: Vec<&String> = properties.keys().collect();
             bail!("no start argument among {names:?}");
         }
+
         Ok(found)
     }
 }
@@ -349,21 +380,27 @@ impl EventArguments {
             }
         };
         let mut arguments = json!({});
+
         if let Some(after) = &self.after {
             arguments[&after.name] = json!(time(after, window.after));
         }
+
         if let (Some(before), Some(end)) = (&self.before, window.before) {
             arguments[&before.name] = json!(time(before, end));
         }
+
         if let Some(name) = &self.limit {
             arguments[name] = json!(limit);
         }
+
         if let (Some(name), Some(cursor)) = (&self.cursor, cursor) {
             arguments[name] = json!(cursor);
         }
+
         if let Some(name) = &self.offset {
             arguments[name] = json!(offset);
         }
+
         arguments
     }
 }
@@ -374,6 +411,7 @@ fn event_list(value: &Value) -> Vec<Value> {
         if let Some(list) = value.as_array() {
             return Some(list);
         }
+
         let object = value.as_object()?;
         for key in [
             "items",
@@ -403,12 +441,15 @@ fn event_list(value: &Value) -> Vec<Value> {
 fn find_string(value: &Value, key: &str) -> Option<String> {
     fn find(value: &Value, key: &str, depth: usize) -> Option<String> {
         let object = value.as_object()?;
+
         if let Some(found) = object.get(key).and_then(Value::as_str) {
             return Some(found.to_owned()).filter(|found| !found.is_empty());
         }
+
         if depth == 0 {
             return None;
         }
+
         object
             .values()
             .filter(|value| value.is_object())
@@ -424,6 +465,7 @@ fn parse_event(value: &Value) -> Option<Event> {
     if cancelled {
         return None;
     }
+
     let title = ["summary", "subject", "title"]
         .iter()
         .find_map(|key| value[key].as_str())
@@ -433,6 +475,7 @@ fn parse_event(value: &Value) -> Option<Event> {
     if title.is_empty() {
         return None;
     }
+
     let start = &value["start"];
     let start = start["dateTime"]
         .as_str()

@@ -74,20 +74,25 @@ async function submit() {
   draw();
   const mine = opening, then = opts.onDone;
   const repository = form.host === null ? null : { host: form.host, owner: form.owner, private: form.isPrivate };
+
   try {
     const made = await invoke<Created>("create_project", { name: form.name.trim(), repository, machineIds: form.machines });
+
     if (mine !== opening || !root) {
       if (made.imported[0]) then?.(made.imported[0]);
       return;
     }
+
     created = made;
   } catch (e) {
     if (mine !== opening || !root) {
       console.warn("creating a project:", e);
       return;
     }
+
     error = cleanError(String(e));
   }
+
   creating = false;
   if (root) draw();
 }

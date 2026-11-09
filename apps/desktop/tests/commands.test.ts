@@ -30,22 +30,28 @@ function registered() {
 /// A call with a variable or ternary name is covered by `quoted` below.
 function calls() {
   const found: { file: string; line: number; name: string | null }[] = [];
+
   for (const file of sources("src")) {
     const text = readFileSync(file, "utf8");
+
     for (const m of text.matchAll(/\binvoke\b/g)) {
       let i = m.index! + m[0].length;
+
       if (text[i] === "<") {
         let depth = 0;
+
         for (; i < text.length; i++) {
           if (text[i] === "<") depth++;
           else if (text[i] === ">" && text[i - 1] !== "=" && --depth === 0) { i++; break; }
         }
       }
+
       if (text[i] !== "(") continue;
       const name = /^\(\s*"([a-z0-9_]+)"/.exec(text.slice(i, i + 80))?.[1] ?? null;
       found.push({ file, line: text.slice(0, m.index).split("\n").length, name });
     }
   }
+
   return found;
 }
 

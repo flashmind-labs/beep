@@ -39,9 +39,11 @@ pub fn mcp_callback(url: &str) -> Option<McpCallback> {
         .or_else(|| url.strip_prefix("beep://oauth"))?;
     let query = query.strip_prefix('/').unwrap_or(query).strip_prefix('?')?;
     let (mut code, mut state, mut issuer) = (None, None, None);
+
     for pair in query.split('&') {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
         let value = percent_decode(value)?;
+
         match key {
             "code" => code = Some(value),
             "state" => state = Some(value),
@@ -49,6 +51,7 @@ pub fn mcp_callback(url: &str) -> Option<McpCallback> {
             _ => {}
         }
     }
+
     Some(McpCallback {
         code: code.filter(|code| !code.is_empty())?,
         state: state.filter(|state| !state.is_empty())?,
@@ -73,6 +76,7 @@ fn percent_decode(value: &str) -> Option<String> {
     let bytes = value.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
+
     while i < bytes.len() {
         match bytes[i] {
             b'+' => out.push(b' '),
@@ -85,6 +89,7 @@ fn percent_decode(value: &str) -> Option<String> {
         }
         i += 1;
     }
+
     String::from_utf8(out).ok()
 }
 

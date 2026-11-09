@@ -301,6 +301,7 @@ async fn a_machine_whose_cli_fails_gives_way_to_the_next() {
         (b, a)
     };
     let ((old_box, old), (new_box, new)) = (a, b);
+
     for machine in [old_box, new_box] {
         user.save_import(NewImport {
             project: "acme/widget",
@@ -311,6 +312,7 @@ async fn a_machine_whose_cli_fails_gives_way_to_the_next() {
         .await
         .unwrap();
     }
+
     let project = user
         .ensure_project(&"acme/widget".parse::<RepoName>().unwrap())
         .await
@@ -355,6 +357,7 @@ async fn a_machine_whose_cli_fails_gives_way_to_the_next() {
 
     // When every machine fails, the error names the ones that have the host set up.
     new.answer("issue list", 1, "Error: not logged in");
+
     match list_open(&StoredProject::new(&user, &project), &fleet).await {
         Err(SourceError::Refused(why)) => {
             assert!(why.contains("not logged in"), "{why}");

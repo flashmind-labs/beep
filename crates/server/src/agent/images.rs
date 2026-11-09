@@ -29,9 +29,11 @@ pub fn parse_data_uri(uri: &str) -> Option<ContentPart> {
     let rest = uri.strip_prefix("data:")?;
     let (header, data) = rest.split_once(',')?;
     let media_type = header.strip_suffix(";base64")?;
+
     if !media_type.starts_with("image/") {
         return None;
     }
+
     Some(ContentPart::Image {
         media_type: media_type.to_owned(),
         data: data.to_owned(),
@@ -70,6 +72,7 @@ pub fn labelled(images: &[ContentPart]) -> Vec<ContentPart> {
     if images.len() < 2 {
         return images.to_vec();
     }
+
     images
         .iter()
         .enumerate()
@@ -114,6 +117,7 @@ impl Describer {
                 "The user sent this image with the message: {message}\n\
                  Describe the whole image, not only what the message asks about."
             );
+
             match self.describe(image, prompt).await {
                 Ok(text) => Some(text),
                 Err(error) => {
@@ -145,6 +149,7 @@ impl Describer {
         };
         let mut stream = self.provider.complete(request);
         let mut text = String::new();
+
         while let Some(event) = stream.next().await {
             match event {
                 Ok(StreamEvent::ContentDelta(delta)) => text.push_str(&delta),
@@ -154,10 +159,13 @@ impl Describer {
                 Err(_) => bail!("provider error"),
             }
         }
+
         let text = text.trim();
+
         if text.is_empty() {
             bail!("the vision model wrote nothing");
         }
+
         Ok(text.to_owned())
     }
 }
@@ -186,6 +194,7 @@ pub fn replace_with_descriptions(
         .filter(|part| matches!(part, ContentPart::Image { .. }) || attachments::is_file(part))
         .partition(|part| matches!(part, ContentPart::Image { .. }));
     let several = images.len() > 1;
+
     for (index, image) in images.into_iter().enumerate() {
         match descriptions.get(index) {
             Some(Some(text)) => parts.push(ContentPart::Text {
@@ -197,10 +206,12 @@ pub fn replace_with_descriptions(
                         text: format!("Image {}:", index + 1),
                     });
                 }
+
                 parts.push(image);
             }
         }
     }
+
     parts.extend(files);
 }
 

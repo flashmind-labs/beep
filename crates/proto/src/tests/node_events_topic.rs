@@ -9,10 +9,12 @@ fn topic_strings_preserve_hierarchy_and_literal_resource_identity() {
     assert_eq!(topic.to_string(), "files.org.repo");
     assert_ne!(topic, Topic::keyed("files", "org.repo"));
     assert!(!topic.matches(&Topic::keyed("files", "org.repo")));
+
     for key in ["/srv/a.b", "literal.*", "a%b", "workspace/café", "a\\b"] {
         let topic = Topic::keyed("files", key);
         assert_eq!(Topic::parse(&topic.to_string()).unwrap(), topic);
     }
+
     assert_eq!(
         Topic::keyed("files", "/srv/a.b").to_string(),
         "files.%2Fsrv%2Fa%2Eb"
@@ -30,14 +32,17 @@ fn topic_strings_preserve_hierarchy_and_literal_resource_identity() {
 #[test]
 fn wildcard_subscriptions_and_broad_invalidations_match_at_component_boundaries() {
     let repo = Topic::parse("files.org.repo").unwrap();
+
     for pattern in ["*", "files", "files.*", "files.org.*", "files.org.repo"] {
         let subscription = Topic::parse(pattern).unwrap();
         assert!(subscription.matches(&repo), "{pattern}");
         assert!(repo.matches(&subscription), "broad invalidation: {pattern}");
     }
+
     for pattern in ["files.other.*", "files.org.other", "files.org", "reviews.*"] {
         assert!(!Topic::parse(pattern).unwrap().matches(&repo), "{pattern}");
     }
+
     assert!(Topic::parse("files.org.*").unwrap().covers(&repo));
     assert!(!repo.covers(&Topic::parse("files.org.*").unwrap()));
     assert!(Topic::keyed("files", "*").matches(&Topic::keyed("files", "*")));

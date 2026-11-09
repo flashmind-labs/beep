@@ -361,6 +361,7 @@ impl Store {
             .fetch_all(&self.pool)
             .await?;
         let mut topics = HashMap::new();
+
         for row in rows {
             let topic: String = row.try_get("topic")?;
             // A topic a later version dropped is ignored.
@@ -368,6 +369,7 @@ impl Store {
                 topics.insert(topic, row.try_get("enabled")?);
             }
         }
+
         Ok(topics)
     }
 

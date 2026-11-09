@@ -129,6 +129,7 @@ async fn receive(
     body: Result<Bytes, BytesRejection>,
 ) -> Response {
     let peer = peer.map(|Extension(ConnectInfo(addr))| addr.ip());
+
     match take(&reports.inner, peer, &headers, body).await {
         Ok(Ok(receipt)) => reply(StatusCode::OK, &receipt),
         Ok(Err(refused)) => reply(
@@ -160,21 +161,27 @@ async fn take(
         }
         Err(_) => return Ok(Err(Refused::Body)),
     };
+
     if client_ip(headers, peer).is_some_and(|ip| reports.blocked_ips.contains(&ip)) {
         return Ok(Err(Refused::Blocked));
     }
+
     let now_ms = now_ms();
     let manifest = match check(headers, &body, now_ms) {
         Ok(manifest) => manifest,
         Err(refused) => return Ok(Err(refused)),
     };
+
     if reports.blocked_keys.contains(&manifest.sender) {
         return Ok(Err(Refused::Blocked));
     }
+
     let day = day(now_ms);
+
     if !reports.limit.take(manifest.sender, day).await? {
         return Ok(Err(Refused::OverLimit));
     }
+
     match keep(store, &manifest, body).await {
         Ok(id) => Ok(Ok(Receipt {
             reference: format!("R-{}", id.to_uppercase()),
@@ -211,6 +218,7 @@ fn client_ip(headers: &HeaderMap, peer: Option<IpAddr>) -> Option<IpAddr> {
     if !peer.is_some_and(from_cloudflare) {
         return peer;
     }
+
     headers
         .get(CLIENT_IP_HEADER)
         .and_then(|value| value.to_str().ok())

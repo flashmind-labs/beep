@@ -219,6 +219,7 @@ struct StandIn {
 /// An answer to a check with `status` and `headers`.
 fn answer(status: u16, headers: &[(&'static str, String)]) -> Answer {
     let mut map = HeaderMap::new();
+
     for (name, value) in headers {
         map.insert(
             HeaderName::from_static(name),
@@ -267,6 +268,7 @@ impl Forge for Arc<StandIn> {
 
     async fn one(&self, _: &Target, id: u64) -> Result<WorkflowRun> {
         let runs = self.runs.lock().unwrap_or_else(PoisonError::into_inner);
+
         match runs.iter().find(|run| run.id == id) {
             Some(run) => Ok(run.clone()),
             None => bail!("no run {id}"),

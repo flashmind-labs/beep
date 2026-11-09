@@ -57,6 +57,7 @@ pub(crate) fn went_through(output: &str) -> bool {
     if output == DENIED || output == SKIPPED || output.starts_with(READ_ONLY) {
         return false;
     }
+
     let failed = parse_output(output).is_some_and(|result| {
         result.get("successful") == Some(&Value::Bool(false))
             || result.get("error").is_some_and(|error| !error.is_null())

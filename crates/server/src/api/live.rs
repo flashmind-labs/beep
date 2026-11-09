@@ -23,6 +23,7 @@ pub(super) async fn say(cx: Cx, Say { text }: Say) -> Reply<VoiceNote> {
             "at most {MAX_SAY_CHARS} characters at a time"
         )));
     }
+
     cx.app.say(&cx.user, &text).await
 }
 
@@ -30,6 +31,7 @@ pub(super) async fn filler(cx: Cx, Filler { step, said, still }: Filler) -> Repl
     if step.len() > MAX_FILLER_INPUT || said.len() > MAX_FILLER_INPUT {
         return Err(ApiError::bad_request("too long"));
     }
+
     cx.app
         .say(&cx.user, &filler::line(&step, &said, still))
         .await

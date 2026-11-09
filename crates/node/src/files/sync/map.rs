@@ -31,6 +31,7 @@ pub(super) enum Order {
 impl Version {
     pub(super) fn compare(&self, other: &Self) -> Order {
         let (mut ahead, mut behind) = (false, false);
+
         for replica in self.0.keys().chain(other.0.keys()) {
             match self.get(*replica).cmp(&other.get(*replica)) {
                 Ordering::Greater => ahead = true,
@@ -38,6 +39,7 @@ impl Version {
                 Ordering::Equal => {}
             }
         }
+
         match (ahead, behind) {
             (false, false) => Order::Same,
             (true, false) => Order::Newer,
@@ -53,10 +55,12 @@ impl Version {
     /// Every edit either has seen.
     fn max(&self, other: &Self) -> Self {
         let mut out = self.clone();
+
         for (&replica, &count) in &other.0 {
             let mine = out.0.entry(replica).or_default();
             *mine = (*mine).max(count);
         }
+
         out
     }
 
@@ -115,9 +119,11 @@ fn rank(entry: &Entry) -> (bool, i64, [u8; 32], bool) {
 /// ref (`gitdir::conflict_ref`), and the rest of `.git` keeps no loser.
 pub(super) fn conflict_path(path: &str, hash: &[u8; 32]) -> Option<String> {
     let tag = hash_tag(hash);
+
     if gitdir::in_git(path) {
         return gitdir::conflict_ref(path, &tag);
     }
+
     let name_at = path.rfind('/').map_or(0, |at| at + 1);
     Some(match path[name_at..].rfind('.').filter(|&at| at > 0) {
         Some(dot) => {
@@ -130,10 +136,12 @@ pub(super) fn conflict_path(path: &str, hash: &[u8; 32]) -> Option<String> {
 
 fn hash_tag(hash: &[u8; 32]) -> String {
     let mut tag = String::with_capacity(8);
+
     for byte in &hash[..4] {
         // Writing to a string cannot fail.
         let _ = write!(tag, "{byte:02x}");
     }
+
     tag
 }
 
@@ -151,6 +159,7 @@ pub(super) fn valid_path(path: &str) -> bool {
             })
             && gitdir::kind(path).is_some();
     }
+
     !path.is_empty()
         && path.len() <= MAX_PATH
         && path.split('/').all(|part| {
@@ -169,6 +178,7 @@ pub(super) fn is_conflict(path: &str) -> bool {
     if gitdir::in_git(path) {
         return gitdir::original_ref(path).is_some();
     }
+
     let name = path.rsplit('/').next().unwrap_or(path);
     name.contains(" (conflict ")
 }
@@ -184,9 +194,11 @@ pub(super) fn original_of(path: &str) -> Option<String> {
     let at = name_at + path[name_at..].rfind(MARK)?;
     let tag_at = at + MARK.len();
     let tag = path.get(tag_at..tag_at + 8)?;
+
     if !tag.bytes().all(|b| b.is_ascii_hexdigit()) || path.get(tag_at + 8..tag_at + 9)? != ")" {
         return None;
     }
+
     let original = format!("{}{}", &path[..at], &path[tag_at + 9..]);
     (original.len() > name_at).then_some(original)
 }
@@ -204,6 +216,7 @@ pub(super) fn merge(local: Option<&Entry>, incoming: &Entry) -> Merge {
             copy: None,
         };
     };
+
     match local.version.compare(&incoming.version) {
         Order::Newer => return Merge::default(),
         Order::Same if local == incoming => return Merge::default(),
@@ -217,6 +230,7 @@ pub(super) fn merge(local: Option<&Entry>, incoming: &Entry) -> Merge {
         // a broken peer sends: settled the same way on every node.
         _ => {}
     }
+
     let (winner, loser) = if rank(incoming) > rank(local) {
         (incoming, local)
     } else {
@@ -318,9 +332,11 @@ impl Map {
         self.seq += 1;
         let seq = self.seq;
         let path = entry.path.clone();
+
         if let Some(old) = self.entries.insert(path.clone(), Stored { entry, seq }) {
             self.by_seq.remove(&old.seq);
         }
+
         self.by_seq.insert(seq, path);
     }
 
@@ -352,6 +368,7 @@ impl Map {
         if let Some(copy) = merged.copy {
             changed.extend(self.merge(&copy));
         }
+
         if let Some(entry) = merged.entry {
             changed.push(entry.path.clone());
             self.put(entry);
@@ -385,12 +402,14 @@ impl Map {
             entries: Vec::new(),
             upto: seq,
         };
+
         for (&at, path) in self.by_seq.range(seq + 1..).take(limit) {
             if let Some(stored) = self.entries.get(path) {
                 changes.entries.push(stored.entry.clone());
             }
             changes.upto = at;
         }
+
         changes
     }
 }

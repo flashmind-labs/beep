@@ -33,9 +33,11 @@ impl Window {
         {
             self.0.pop_front();
         }
+
         if self.0.len() >= max {
             return false;
         }
+
         self.0.push_back(now);
         true
     }

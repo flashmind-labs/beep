@@ -30,11 +30,13 @@ pub async fn save(
     title: &str,
 ) -> Result<()> {
     let title = title.trim();
+
     if title.chars().count() > 200 || title.chars().any(char::is_control) {
         return Err(FleetError::refused(
             "Use a single line of at most 200 characters.",
         ));
     }
+
     if machine.is_empty()
         || machine.contains('/')
         || agent.is_empty()
@@ -43,6 +45,7 @@ pub async fn save(
     {
         return Err(FleetError::refused("The session identity is invalid."));
     }
+
     let value = (!title.is_empty()).then(|| Title(title.to_owned()));
     write(mesh, key(machine, agent, session), value.as_ref()).await
 }

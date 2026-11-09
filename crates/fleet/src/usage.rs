@@ -59,8 +59,10 @@ impl PlanFollow {
                 let Some(Ok(reply)) = self.replies.next().await else {
                     return;
                 };
+
                 if let SessionsReply::PlanUsage { usage } = reply {
                     self.waiting.remove(&usage.agent);
+
                     if let Some(limits) = plan_limits(&self.name, &usage) {
                         heard(limits);
                     }
@@ -68,6 +70,7 @@ impl PlanFollow {
             }
         })
         .await;
+
         if listened.is_err() {
             log::debug!("{} sent no plan for {:?}", self.name, self.waiting);
         }
@@ -134,6 +137,7 @@ impl Desk {
                     // Quiet: what it had is said.
                     Err(_) => return,
                 };
+
                 match reply {
                     SessionsReply::PlanUsage { usage } => {
                         heard.insert(usage.agent.clone());
@@ -156,6 +160,7 @@ impl Desk {
             }
         })
         .await;
+
         if listened.is_err() || !open {
             return;
         }
@@ -192,11 +197,13 @@ impl Desk {
                 said
             });
         let mut all = Said::default();
+
         for said in join_all(listens).await {
             all.plans.extend(said.plans);
             all.sessions.extend(said.sessions);
             all.follows.extend(said.follows);
         }
+
         all
     }
 
@@ -254,6 +261,7 @@ impl Desk {
 /// A report replaces the session's hours from `since` on.
 fn absorb(session: &mut Session, usage: SessionSpend) {
     session.hours.retain(|(hour, _), _| *hour < usage.since);
+
     for hour in usage.hours {
         session.hours.insert((hour.hour, hour.model.clone()), hour);
     }
@@ -309,6 +317,7 @@ fn limits(said: &Said) -> Vec<PlanLimits> {
 /// The freshest report of each agent: Claude Code, then Codex, then the others.
 pub(crate) fn freshest(plans: impl IntoIterator<Item = PlanLimits>) -> Vec<PlanLimits> {
     let mut by_agent: BTreeMap<AgentSlug, PlanLimits> = BTreeMap::new();
+
     for plan in plans {
         if by_agent
             .get(&plan.agent)
@@ -317,6 +326,7 @@ pub(crate) fn freshest(plans: impl IntoIterator<Item = PlanLimits>) -> Vec<PlanL
             by_agent.insert(plan.agent.clone(), plan);
         }
     }
+
     let rank = |agent: &AgentSlug| match agent {
         a if *a == AgentSlug::CLAUDE => 0,
         a if *a == AgentSlug::CODEX => 1,
@@ -336,6 +346,7 @@ fn plan_limits(machine: &str, plan: &PlanUsage) -> Option<PlanLimits> {
     if plan.windows.is_empty() && plan.credits.is_empty() {
         return None;
     }
+
     let mut windows: Vec<PlanWindow> = plan
         .windows
         .iter()
@@ -366,8 +377,10 @@ fn cmp_cost(a: f64, b: f64) -> Ordering {
 fn total<'r>(rows: impl Iterator<Item = &'r Row<'r>>, project: &str) -> ProjectSpend {
     let mut cost_usd = 0.0;
     let mut unpriced: BTreeMap<&AgentSlug, u64> = BTreeMap::new();
+
     for row in rows {
         cost_usd += row.hour.cost_usd;
+
         if row.hour.unpriced_tokens > 0 {
             *unpriced.entry(row.agent).or_default() += row.hour.unpriced_tokens;
         }
@@ -388,9 +401,11 @@ fn total<'r>(rows: impl Iterator<Item = &'r Row<'r>>, project: &str) -> ProjectS
 /// Tokens by model of `agent`'s rows, the most first.
 fn models<'r>(rows: impl Iterator<Item = &'r Row<'r>>) -> Vec<ModelSpend> {
     let mut by_model: BTreeMap<&ModelId, u64> = BTreeMap::new();
+
     for row in rows {
         *by_model.entry(&row.hour.model).or_default() += row.hour.tokens();
     }
+
     let mut out: Vec<ModelSpend> = by_model
         .into_iter()
         .map(|(model, tokens)| ModelSpend {
@@ -410,14 +425,17 @@ fn by_project<'r>(rows: &'r Rows<'_>) -> BTreeMap<&'r str, Vec<&'r Row<'r>>> {
             by.entry(project.as_str()).or_default().push(row);
         }
     }
+
     by
 }
 
 fn by_agent<'r>(rows: &'r Rows<'_>) -> BTreeMap<&'r AgentSlug, Vec<&'r Row<'r>>> {
     let mut by: BTreeMap<&AgentSlug, Vec<&Row<'_>>> = BTreeMap::new();
+
     for row in &rows.0 {
         by.entry(row.agent).or_default().push(row);
     }
+
     by
 }
 
@@ -474,6 +492,7 @@ fn bill(rows: &Rows<'_>) -> SpendPeriod {
         .into_iter()
         .map(|(name, rows)| {
             let mut subscription: BTreeMap<&AgentSlug, u64> = BTreeMap::new();
+
             for row in rows.iter().filter(|row| !metered(row)) {
                 *subscription.entry(row.agent).or_default() += row.hour.tokens();
             }
@@ -498,6 +517,7 @@ fn bill(rows: &Rows<'_>) -> SpendPeriod {
         cmp_cost(a.cost_usd, b.cost_usd).then(b.metered_tokens.cmp(&a.metered_tokens))
     });
     let mut harnesses = Vec::new();
+
     for (agent, rows) in by_agent(rows) {
         for subscription in [false, true] {
             let part: Vec<&Row<'_>> = rows
@@ -506,6 +526,7 @@ fn bill(rows: &Rows<'_>) -> SpendPeriod {
                 .filter(|row| metered(row) != subscription)
                 .collect();
             let spent: u64 = part.iter().map(|row| row.hour.tokens()).sum();
+
             if spent == 0 {
                 continue;
             }
@@ -522,6 +543,7 @@ fn bill(rows: &Rows<'_>) -> SpendPeriod {
             });
         }
     }
+
     let spent = |h: &HarnessBill| {
         if h.subscription {
             0.0

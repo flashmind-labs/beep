@@ -119,6 +119,7 @@ impl Desk {
                         settings.env.push(HarnessEnv { name, value: None });
                     }
                 }
+
                 settings.program = own
                     .as_ref()
                     .and_then(|own| own.program.clone())
@@ -162,12 +163,14 @@ impl Desk {
         model: Option<ModelId>,
     ) -> Result<()> {
         check_agent(agent)?;
+
         if model
             .as_ref()
             .is_some_and(|model| !valid_model(model.as_ref()))
         {
             return Err(FleetError::refused("Enter a valid model id."));
         }
+
         let key = Self::harness_key(agent);
         let config = HarnessConfig {
             default_model: model,
@@ -189,14 +192,17 @@ impl Desk {
         compact: Option<AutoCompact>,
     ) -> Result<()> {
         check_agent(agent)?;
+
         if let Some(percent) = compact.and_then(|compact| compact.percent)
             && !AutoCompact::valid_percent(percent)
         {
             return Err(FleetError::refused("The percent is 1 to 100."));
         }
+
         if compact.is_some_and(|compact| compact.tokens == Some(0)) {
             return Err(FleetError::refused("The token count is above 0."));
         }
+
         let key = Self::harness_key(agent);
         let config = HarnessConfig {
             compact,
@@ -220,19 +226,24 @@ impl Desk {
         rules: Vec<ModelCompact>,
     ) -> Result<()> {
         check_agent(agent)?;
+
         if !matches!(agent, "codex" | "claude" | "pi") {
             return Err(FleetError::refused(
                 "This harness manages its own model rules.",
             ));
         }
+
         if rules.len() > 64 {
             return Err(FleetError::refused("At most 64 model overrides."));
         }
+
         let mut seen = HashSet::new();
+
         for rule in &rules {
             if !valid_model(rule.model.as_ref()) || !seen.insert(&rule.model) {
                 return Err(FleetError::refused("Give each override a unique model id."));
             }
+
             if rule.compact.tokens == Some(0)
                 || rule
                     .compact
@@ -244,6 +255,7 @@ impl Desk {
                 ));
             }
         }
+
         let key = Self::harness_key(agent);
         let config = HarnessConfig {
             compact_models: rules,
@@ -324,11 +336,14 @@ impl Desk {
         // with no value stays, for Settings to ask again.
         for name in self.unmoved_env(agent) {
             let entered = config.env.iter().any(|var| var.name == name);
+
             if entered || !submitted.contains(&name) {
                 self.mesh.set(unmoved_env(agent, &name), None).await?;
             }
         }
+
         let blank = |text: String| Some(text).filter(|text| !text.is_empty());
+
         for (machine, program, home) in paths {
             let own = HarnessConfig {
                 program: blank(program),
@@ -336,6 +351,7 @@ impl Desk {
                 ..HarnessConfig::new(agent)
             };
             let key = Self::harness_device_key(agent, machine);
+
             match (&own.program, &own.home) {
                 (None, None) => {
                     if self.mesh.get(&key).is_some() {
@@ -345,6 +361,7 @@ impl Desk {
                 _ => write(&self.mesh, key, Some(&own)).await?,
             }
         }
+
         Ok(())
     }
 
@@ -397,21 +414,26 @@ impl Desk {
         if text.len() > MAX_TEXT {
             return Err(FleetError::refused("Instructions can be at most 16 KB."));
         }
+
         let note = note.trim();
+
         if note.len() > MAX_NOTE || note.chars().any(char::is_control) {
             return Err(FleetError::refused(format!(
                 "A note can be at most {MAX_NOTE} characters on one line."
             )));
         }
+
         let _write = WRITES.lock().await;
         let held = self.saved_versions().len();
         let newest = u32::try_from(held).unwrap_or(u32::MAX);
+
         if base.unwrap_or(0) != newest {
             return Err(ApiError::Conflict {
                 message: format!("Version {newest} was saved since. Load it, then edit again."),
             }
             .into());
         }
+
         let saved = SavedVersion {
             text: text.to_owned(),
             note: note.to_owned(),

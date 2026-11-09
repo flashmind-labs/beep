@@ -11,9 +11,11 @@ const code = buildSync({
 const css = readFileSync(new URL("../../dist/diff.css", import.meta.url), "utf8");
 const arg = process.argv.indexOf("--browser");
 const kinds = arg < 0 ? ["webkit", "chromium"] : [process.argv[arg + 1]];
+
 for (const kind of kinds) {
   const executablePath = (kind === "webkit" ? process.env.WEBKIT_BIN : process.env.CHROMIUM_BIN) || undefined;
   const browser = await playwright()[kind].launch({ executablePath });
+
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
     const errors = [];
@@ -103,6 +105,7 @@ for (const kind of kinds) {
         get() { return scroll.get.call(this); },
         set(value) { writes++; scroll.set.call(this, value); },
       });
+
       for (const top of [600, 1200, 1800, 2400, 2000, 1200, 600]) {
         scroll.set.call(b, top);
         const start = performance.now();
@@ -111,6 +114,7 @@ for (const kind of kinds) {
         ms += performance.now() - start;
         if (b.scrollTop !== top) throw new Error(`Scroll moved from ${top} to ${b.scrollTop}`);
       }
+
       Element.prototype.getBoundingClientRect = rect;
       Element.prototype.getClientRects = rects;
       return { reads, writes, ms: Math.round(ms), rows: b.querySelectorAll(".dv-l").length };

@@ -9,9 +9,11 @@ const CAPS: Caps = Caps {
 
 fn parse_with(text: &str, caps: Caps, keep: Keep) -> Parsed {
     let mut parser = DiffParser::new(caps, keep);
+
     for line in text.split('\n') {
         parser.line(line);
     }
+
     parser.finish()
 }
 
@@ -190,6 +192,7 @@ fn many_lines(path: &str, n: u32) -> String {
     for i in 0..n {
         out.push_str(&format!("+line {i}\n"));
     }
+
     out
 }
 

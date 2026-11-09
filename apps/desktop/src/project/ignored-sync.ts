@@ -21,6 +21,7 @@ export function chooseIgnoredFolders(project: string, initial: IgnoredSync, onCh
   error.hidden = true;
   const save = dbtn("Save", "pri", async () => {
     if (busy) return;
+
     try {
       const settings = ignoredSelection(enabled.checked, paths.value);
       busy = true;

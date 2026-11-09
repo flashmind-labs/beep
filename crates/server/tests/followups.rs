@@ -135,6 +135,7 @@ async fn follow_up_evals() {
 
     let mut failed = 0;
     let mut ran = 0;
+
     for case in CASES
         .iter()
         .filter(|case| only.as_deref().is_none_or(|only| case.name.contains(only)))
@@ -174,6 +175,7 @@ async fn follow_up_evals() {
                 .map(|chip| format!("over {MAX_CHARS} chars: {chip}")),
         );
         let lower: Vec<String> = chips.iter().map(|c| c.to_lowercase()).collect();
+
         if !case.wants_any.is_empty()
             && !lower
                 .iter()
@@ -181,6 +183,7 @@ async fn follow_up_evals() {
         {
             failures.push(format!("no chip mentions any of {:?}", case.wants_any));
         }
+
         if case.ascii {
             failures.extend(
                 chips
@@ -189,6 +192,7 @@ async fn follow_up_evals() {
                     .map(|chip| format!("not in the chat's language: {chip}")),
             );
         }
+
         if !chips.is_empty() {
             let listed: String = chips.iter().map(|chip| format!("\n- {chip}")).collect();
             let verdicts = generator
@@ -208,10 +212,12 @@ async fn follow_up_evals() {
         println!("{verdict} {}", case.name);
         println!("  score: {score:?}");
         println!("  chips: {chips:?}");
+
         for failure in &failures {
             println!("  - {failure}");
         }
         failed += usize::from(!failures.is_empty());
     }
+
     assert_eq!(failed, 0, "{failed} of {ran} follow-up evals failed");
 }

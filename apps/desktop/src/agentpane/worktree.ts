@@ -56,6 +56,11 @@ const W = {
   changed: (_root: boolean) => {},
 };
 
+let firstRead: Promise<void> = Promise.resolve();
+
+/// Initial reads wait until a removed worktree has resolved to its checkout.
+export function worktreesReady(): Promise<void> { return firstRead; }
+
 const bare = (dir: string) => dir.replace(/\/+$/, "") || "/";
 
 /// Starts on session `place`; `changed` hears that the root moved (true)
@@ -65,7 +70,7 @@ export function startWorktrees(place: Place, changed: (root: boolean) => void) {
     place, trees: [], reading: false, again: false, follow: true, placed: null, pick: null, seen: null, cwd: bare(place.cwd), last: bare(place.cwd), next: 0, child: null, handled: false,
     log: { entries: [], earlier: 0 }, asked: new Set(), shown: bare(place.cwd), open: false, changed,
   });
-  readTrees();
+  firstRead = readTrees();
   report();
 }
 
@@ -109,10 +114,12 @@ async function readTrees() {
   if (W.reading) { W.again = true; return; }
   W.reading = true;
   let listed = false;
+
   try {
     const asked = await invoke<Tree[] | null>("agent_worktrees", { machineId: p.machine_id, folder: p.cwd });
     const got = asked ?? [];
     if (W.place?.id !== p.id) return;
+
     if (JSON.stringify(got) !== JSON.stringify(W.trees)) {
       W.trees = got;
       listed = true;
@@ -128,6 +135,7 @@ async function readTrees() {
   } finally {
     if (W.place?.id === p.id) W.reading = false;
   }
+
   if (W.place?.id !== p.id) return;
   scan();
   apply(true);
@@ -195,11 +203,13 @@ export function followAgent(entries: Entry[], earlier: number, steps: string[] |
   W.log = { entries, earlier };
   if (!steps) W.handled = false;
   W.child = null;
+
   if (steps && !W.handled) {
     const got = followSteps(steps, W.trees, W.cwd);
     if (got.hit) W.child = got.last;
     ask(got.unknown);
   }
+
   scan();
   apply(true);
   report();

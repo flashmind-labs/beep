@@ -26,9 +26,11 @@ impl TryFrom<&Request> for Args {
         let mut args: Self = serde_json::from_str(&request.args)
             .map_err(|e| format!("The arguments do not fit: {e}"))?;
         args.harness = args.harness.trim().to_owned();
+
         if args.harness.is_empty() {
             return Err("Give a `harness`, as list_machines names it.".to_owned());
         }
+
         Ok(args)
     }
 }
@@ -81,9 +83,11 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
             "No machine called {name}. Use list_machines for the names."
         ));
     };
+
     if target.id == mesh.me() {
         return answer(&offers.agents, request).await;
     }
+
     match over_the_mesh(&mesh, target.id, request).await {
         Ok(reply) => reply,
         Err(e) => failed(format!("Could not query {}: {e:#}", target.name)),
@@ -106,6 +110,7 @@ pub(crate) async fn answer(agents: &Agents, request: &Request) -> Reply {
             names.join(", ")
         ));
     };
+
     match serde_json::to_string(&HarnessInfo::new(args.harness, models)) {
         Ok(text) => Reply::Done {
             text,

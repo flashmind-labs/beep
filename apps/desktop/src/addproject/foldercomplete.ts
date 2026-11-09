@@ -76,6 +76,7 @@ export function menuKey(menu: FolderMenu, key: string, modified = false): MenuAc
   const n = menu.items.length;
   if (!n || modified) return { type: "none" };
   const at = Math.min(Math.max(menu.index, 0), n - 1);
+
   switch (key) {
     case "ArrowDown": return { type: "move", index: (at + 1) % n };
     case "ArrowUp": return { type: "move", index: (at - 1 + n) % n };

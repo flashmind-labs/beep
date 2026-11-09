@@ -49,9 +49,11 @@ impl Schedule {
             .map(|(due, at)| (*at, *due))
             .collect();
         due.sort_by_key(|(at, _)| *at);
+
         for (_, taken) in &due {
             self.armed.remove(taken);
         }
+
         due.into_iter().map(|(_, due)| due).collect()
     }
 
@@ -71,6 +73,7 @@ pub(crate) async fn run(app: Weak<App>, armed: Arc<Notify>) {
             let Some(app) = app.upgrade() else { return };
             app.projects.next_due()
         };
+
         match next {
             Some(at) => {
                 let wait = (at - Utc::now()).to_std().unwrap_or_default();
@@ -81,8 +84,10 @@ pub(crate) async fn run(app: Weak<App>, armed: Arc<Notify>) {
             }
             None => notified.await,
         }
+
         let Some(app) = app.upgrade() else { return };
         let now = Utc::now();
+
         for due in app.projects.take_due(now) {
             app.projects.run_due(&app, due, now);
         }

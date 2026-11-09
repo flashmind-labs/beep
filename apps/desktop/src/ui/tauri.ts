@@ -106,10 +106,12 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>,
   })]);
   return limited.then(value => {
     if (measure !== null) recordTiming("command", cmd, performance.now() - measure);
+
     if (lifecycle) {
       const started = value as { session?: { id?: string; machine_id?: string; status?: string } } | null;
       logInfo(`agent command: ${JSON.stringify({ command: cmd, stage: "returned", ms: Date.now() - at, session: started?.session?.id, machine: started?.session?.machine_id, status: started?.session?.status })}`);
     }
+
     return value;
   }).finally(() => {
     if (timer !== null) clearTimeout(timer);

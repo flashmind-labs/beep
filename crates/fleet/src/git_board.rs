@@ -81,11 +81,13 @@ impl GitKept {
         now.projects = kept.projects;
         now.projects.retain(|name, _| names.contains(name));
         now.access.writable = kept.access.writable;
+
         for (host, accounts) in kept.access.accounts {
             for login in accounts {
                 now.access.note_account(&host, &login);
             }
         }
+
         now
     }
 
@@ -151,9 +153,11 @@ impl GitKept {
     fn saved(&self) -> Self {
         let mut saved = self.clone();
         saved.failed.clear();
+
         for read in saved.hosts.iter_mut().flatten() {
             read.host.error = None;
         }
+
         saved
     }
 }
@@ -248,8 +252,10 @@ impl Desk {
         if let Some(update) = fresh(&key) {
             return Ok(update);
         }
+
         let mut sources = GitKept::resumed(kept, digest(&key), &logins, &names);
         let mut shown = None;
+
         if !sources.is_empty() {
             show(progress, &mut shown, sources.items()).await;
         }
@@ -262,6 +268,7 @@ impl Desk {
         let mut queue: VecDeque<String> = names.into();
         let mut reading = 0;
         let mut steps: FuturesUnordered<BoxFuture<'_, Step>> = FuturesUnordered::new();
+
         for (index, login) in logins.iter().enumerate() {
             steps.push(
                 async move {
@@ -271,6 +278,7 @@ impl Desk {
                 .boxed(),
             );
         }
+
         loop {
             while reading < AT_ONCE
                 && let Some(name) = queue.pop_front()
@@ -278,9 +286,11 @@ impl Desk {
                 reading += 1;
                 steps.push(self.read_project(name).map(Step::Project).boxed());
             }
+
             let Some(step) = steps.next().await else {
                 break;
             };
+
             match step {
                 Step::Host { index, answer } => sources.take_host(index, answer),
                 Step::Project(read) => {
@@ -288,6 +298,7 @@ impl Desk {
                     let repos = repos_of(std::slice::from_ref(&read));
                     let name = read.name.clone();
                     sources.take_project(read);
+
                     if !repos.is_empty() {
                         steps.push(
                             async move {
@@ -300,6 +311,7 @@ impl Desk {
                 }
                 Step::Access(learned) => sources.access.learn(learned),
             }
+
             show(progress, &mut shown, sources.items()).await;
         }
 
@@ -326,6 +338,7 @@ async fn show(
     if shown.as_ref() == Some(&items) {
         return;
     }
+
     if let Some(progress) = progress {
         let _ = progress.send(items.clone()).await;
     }

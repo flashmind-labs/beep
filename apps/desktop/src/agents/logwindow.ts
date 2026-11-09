@@ -1,3 +1,5 @@
+import { frameResize } from "../ui/dom.ts";
+
 // A session's log in the page: only the turns near the view are drawn, in
 // a `.agturn` each; spacers above and below stand for the rest, as tall as
 // those turns were measured. A redraw patches the drawn turns row by row;
@@ -55,6 +57,7 @@ export function setUnits(log: HTMLElement, units: readonly Unit[], held: readonl
   const keys = new Set(units.map(u => u.key));
   const plans: { d: Drawn; html: readonly string[]; reuse: number[] }[] = [];
   const going: Element[] = [];
+
   for (const u of units) {
     const d = w.drawn.get(u.key);
     if (!d) continue;
@@ -63,6 +66,7 @@ export function setUnits(log: HTMLElement, units: readonly Unit[], held: readonl
     d.nodes.forEach((n, i) => { if (!keep.has(i)) going.push(...n); });
     plans.push({ d, html, reuse });
   }
+
   for (const [key, d] of w.drawn) if (!keys.has(key)) going.push(d.el);
   if (going.some(el => held.some(n => el.contains(n)))) return false;
   for (const [key, d] of w.drawn) if (!keys.has(key)) undraw(w, key, d);
@@ -94,6 +98,7 @@ export function fillLog(b: ChatBody, follow: boolean) {
   // Turns measured at another width are guessed again.
   if (log.clientWidth !== w.width) { w.width = log.clientWidth; w.sizes.clear(); }
   let changed = false;
+
   // Measuring what was guessed moves the window; it settles in a few rounds.
   for (let round = 0; round < 4; round++) {
     const bTop = b.getBoundingClientRect().top, y = bTop - log.getBoundingClientRect().top;
@@ -103,26 +108,32 @@ export function fillLog(b: ChatBody, follow: boolean) {
     // The first turn in view that stays, and where it is on screen.
     const anchor = pin ? undefined : shown.map(u => w.drawn.get(u.key)?.el).find(el => el && el.getBoundingClientRect().bottom > bTop);
     const before = anchor?.getBoundingClientRect().top;
+
     if (!same) {
       changed = true;
       for (const [key, d] of w.drawn) if (!want.has(key)) undraw(w, key, d);
       let cursor: Element | null = w.top.nextElementSibling;
+
       for (const u of shown) {
         const d = w.drawn.get(u.key) ?? draw(w, u);
         if (d.el === cursor) cursor = cursor.nextElementSibling;
         else log.insertBefore(d.el, cursor);
       }
     }
+
     measure(w);
     space(w, from, to);
+
     if (pin) b.scrollTop = b.scrollHeight;
     else if (anchor && before != null) {
       const top = keptScrollTop(b.scrollTop, before, anchor.getBoundingClientRect().top);
       // Even writing the current position interrupts WebKit's wheel glide.
       if (top !== b.scrollTop) b.scrollTop = top;
     }
+
     if (same) break;
   }
+
   return changed;
 }
 
@@ -134,14 +145,17 @@ const pinning = new WeakSet<ChatBody>();
 /// holds back the next scroll.
 export function pinEnd(b: ChatBody) {
   const wait = pinWait(performance.now(), b.wheel);
+
   if (wait <= 0) {
     b.scrollTop = b.scrollHeight;
     return true;
   }
+
   if (!pinning.has(b)) {
     pinning.add(b);
     setTimeout(() => { pinning.delete(b); if (b.isConnected && b.stuck !== false) pinEnd(b); }, wait);
   }
+
   return false;
 }
 
@@ -153,7 +167,7 @@ function start(log: HTMLElement): LogWindow {
   const w: LogWindow = {
     units: [], drawn: new Map(), sizes: new Map(), width: 0,
     gap: parseFloat(getComputedStyle(log).rowGap) || 0, top, bottom,
-    watch: new ResizeObserver(() => resized(log, w)),
+    watch: frameResize(() => resized(log, w)),
   };
   windows.set(log, w);
   return w;
@@ -166,12 +180,14 @@ function resized(log: HTMLElement, w: LogWindow) {
   const b = log.closest<ChatBody>(".dbody");
   if (!b || !log.isConnected) return;
   const bTop = b.getBoundingClientRect().top, moved: Resized[] = [];
+
   for (const [key, d] of w.drawn) {
     const was = w.sizes.get(key), now = sizeOf(w, d);
     if (was == null || was === now) continue;
     moved.push({ top: d.el.getBoundingClientRect().top - bTop, was, now });
     w.sizes.set(key, now);
   }
+
   if (!moved.length) return;
   const keys = w.units.map(u => u.key);
   const drawn = keys.filter(k => w.drawn.has(k));
@@ -179,6 +195,7 @@ function resized(log: HTMLElement, w: LogWindow) {
   const anchor = drawn.map(k => w.drawn.get(k)!.el).find(el => el.getBoundingClientRect().bottom > bTop);
   const before = anchor?.getBoundingClientRect().top;
   space(w, keys.indexOf(drawn[0]), keys.indexOf(drawn[drawn.length - 1]) + 1);
+
   if (b.stuck !== false) pinEnd(b);
   else if (anchor && before != null) {
     const top = keptScrollTop(b.scrollTop, before - shiftAbove(moved), anchor.getBoundingClientRect().top);
@@ -201,6 +218,7 @@ function sizesOf(w: LogWindow) {
 /// Sets the spacers for the turns before `from` and from `to` on.
 function space(w: LogWindow, from: number, to: number) {
   const sizes = sizesOf(w);
+
   for (const [el, h] of [[w.top, spacer(sizes, 0, from, w.gap)], [w.bottom, spacer(sizes, to, sizes.length, w.gap)]] as const) {
     el.hidden = h == null;
     el.style.height = `${h ?? 0}px`;
@@ -235,10 +253,12 @@ function patch(d: Drawn, html: readonly string[], reuse: readonly number[]) {
     return [...t.content.children];
   });
   let cursor: Element | null = d.el.firstElementChild;
+
   for (const el of nodes.flat()) {
     if (el === cursor) cursor = cursor.nextElementSibling;
     else d.el.insertBefore(el, cursor);
   }
+
   d.el.hidden = !d.el.firstElementChild;
   d.html = html;
   d.nodes = nodes;

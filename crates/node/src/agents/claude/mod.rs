@@ -121,6 +121,7 @@ impl External {
         if let Some(store) = self.store.get() {
             return Some(store.clone());
         }
+
         let found = discover::Store::in_root(self.root.as_deref()?)?;
         Some(self.store.get_or_init(|| found).clone())
     }
@@ -193,9 +194,11 @@ impl External {
         let Some(store) = self.store() else {
             return Ok(Vec::new());
         };
+
         if ids.is_empty() {
             return Ok(Vec::new());
         }
+
         let processes = procs::claude_processes().await;
         let mut sessions = spawn_blocking(move || {
             let snapshot = discover::Snapshot {
@@ -208,11 +211,13 @@ impl External {
         })
         .await?
         .context("reading Claude Code's sessions")?;
+
         for session in &mut sessions {
             if session.title.is_none() && !session.last_prompt.is_empty() {
                 session.title = Some(session.last_prompt.clone());
             }
         }
+
         Ok(sessions)
     }
 
@@ -257,9 +262,11 @@ impl External {
             };
             let projects = store.projects();
             crate::agents::found::remove_file_in(&projects, &file)?;
+
             if let Some(side) = file.parent().map(|folder| folder.join(&id)) {
                 crate::agents::found::remove_dir_in(&projects, &side)?;
             }
+
             Ok(true)
         })
         .await?
@@ -287,12 +294,15 @@ impl External {
             },
             None => bail!("there is no Claude Code session {id} here"),
         };
+
         if let Some(taken) = &found.taken_over {
             bail!("session {id} runs here as session {taken}, so steer it as that session");
         }
+
         if let Some(steer) = steer {
             self.live.steer(id, steer).map_err(anyhow::Error::msg)?;
         }
+
         Ok(self.live.status(found))
     }
 
@@ -319,12 +329,14 @@ pub(crate) fn refuse_takeover(found: &ExternalSession) -> Option<String> {
             found.id
         ));
     }
+
     if found.cwd.is_empty() || !Path::new(&found.cwd).is_dir() {
         return Some(format!(
             "session {} ran in a folder that is not here any more",
             found.id
         ));
     }
+
     None
 }
 

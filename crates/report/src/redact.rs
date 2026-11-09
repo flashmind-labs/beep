@@ -122,6 +122,7 @@ impl Compiled {
         };
         let val = val.as_str();
         let numeric = val.chars().all(|c| c.is_ascii_digit() || c == '.');
+
         match self.skip {
             Skip::Never => false,
             Skip::CounterOrOrdinary => {
@@ -189,6 +190,7 @@ pub fn redact(text: &str) -> Result<String, RedactError> {
         .as_ref()
         .map_err(|e| RedactError::Rule(e.clone()))?;
     let mut out = text.to_string();
+
     for rule in compiled {
         let next = rule
             .regex
@@ -196,6 +198,7 @@ pub fn redact(text: &str) -> Result<String, RedactError> {
                 if rule.skips(caps, &out) {
                     return caps[0].to_string();
                 }
+
                 let mut replaced = String::new();
                 caps.expand(&rule.replacement, &mut replaced);
                 replaced
@@ -203,6 +206,7 @@ pub fn redact(text: &str) -> Result<String, RedactError> {
             .into_owned();
         out = next;
     }
+
     Ok(out)
 }
 

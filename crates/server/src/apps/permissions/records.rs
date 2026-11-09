@@ -44,9 +44,11 @@ pub(super) const RECORD_KEYS: &[(&str, &str)] = &[
 
 pub(super) fn records(call: &ToolCall, conversation: &Conversation) -> Vec<ApprovalField> {
     let ids = record_ids(&call.arguments);
+
     if ids.is_empty() {
         return Vec::new();
     }
+
     let results: Vec<Value> = conversation
         .entries()
         .iter()
@@ -156,9 +158,11 @@ pub(crate) async fn describe_call(
     conversation: &Conversation,
 ) -> Vec<ApprovalField> {
     let shown = describe_records(call_id, conversation);
+
     if !shown.is_empty() {
         return shown;
     }
+
     match find_call(call_id, conversation) {
         Some(call) => read_back(user, call).await,
         None => Vec::new(),
@@ -177,6 +181,7 @@ pub(crate) async fn read_back(user: &User, call: &ToolCall) -> Vec<ApprovalField
     // A Fastmail call reads back from the account it acts in.
     let account = call.arguments.get("account").and_then(Value::as_str);
     let mut shown = Vec::new();
+
     for args in read_args(lookup, &call.arguments) {
         match read_record(user, lookup.read, account, args.clone()).await {
             Ok(found) => {
@@ -191,6 +196,7 @@ pub(crate) async fn read_back(user: &User, call: &ToolCall) -> Vec<ApprovalField
             Err(error) => log::debug!("approval: unable to read {}: {error:#}", lookup.read),
         }
     }
+
     shown
 }
 
@@ -198,6 +204,7 @@ pub(crate) async fn read_back(user: &User, call: &ToolCall) -> Vec<ApprovalField
 pub(super) fn read_args(lookup: &Lookup, args: &Value) -> Vec<Map<String, Value>> {
     let mut shared = Map::new();
     let mut listed: Option<(&str, &Vec<Value>)> = None;
+
     for &(from, to) in lookup.args {
         match args.get(from) {
             None | Some(Value::Null) => {}
@@ -207,6 +214,7 @@ pub(super) fn read_args(lookup: &Lookup, args: &Value) -> Vec<Map<String, Value>
             }
         }
     }
+
     let Some((to, items)) = listed else {
         return if shared.is_empty() {
             Vec::new()
@@ -236,13 +244,16 @@ pub(super) async fn read_record(
     if read.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
         return user.call_fastmail(account, read, Value::Object(args)).await;
     }
+
     let client = user
         .composio_client()
         .ok_or_else(|| anyhow::anyhow!("Composio is not configured"))?;
     let response = client.execute_tool(read, Value::Object(args)).await?;
+
     if response.successful == Some(false) {
         anyhow::bail!("{read} failed");
     }
+
     Ok(response.data)
 }
 
@@ -303,6 +314,7 @@ pub(super) fn record_fields(record: &Value, call: &ToolCall) -> Vec<ApprovalFiel
             },
         );
     }
+
     shown
 }
 
@@ -335,6 +347,7 @@ pub(super) fn find_record<'a>(value: &'a Value, id: &str) -> Option<&'a Value> {
             if map.values().any(|v| v.as_str() == Some(id)) {
                 return Some(value);
             }
+
             map.values().find_map(|v| find_record(v, id))
         }
         Value::Array(items) => items.iter().find_map(|v| find_record(v, id)),
@@ -388,9 +401,11 @@ pub(super) fn fields(args: &Value) -> Vec<ApprovalField> {
                     .join(", "),
                 other => other.to_string(),
             };
+
             if value.is_empty() || value == "[]" || value == "{}" {
                 return None;
             }
+
             Some(ApprovalField {
                 label: field_label(key),
                 value: shorten(&value, MAX_VALUE_CHARS),
@@ -423,6 +438,7 @@ pub(super) fn address(item: &Value) -> Option<String> {
 /// An argument's name as the user reads it: `addLabelIds` becomes "Add labels".
 pub(crate) fn field_label(key: &str) -> String {
     let mut words = String::new();
+
     for c in key.chars() {
         if c == '_' {
             words.push(' ');
@@ -433,6 +449,7 @@ pub(crate) fn field_label(key: &str) -> String {
             words.push(c);
         }
     }
+
     let words = words.trim();
     let words = match words.strip_suffix(" ids") {
         Some(listed) => format!("{listed}s"),
@@ -447,6 +464,7 @@ pub(crate) fn is_id(key: &str) -> bool {
     if key.to_ascii_lowercase().contains("label") {
         return false;
     }
+
     let camel = key.ends_with("Id") || key.ends_with("Ids");
     let key = key.to_ascii_lowercase();
     camel || ["id", "ids"].contains(&key.as_str()) || key.ends_with("_id") || key.ends_with("_ids")

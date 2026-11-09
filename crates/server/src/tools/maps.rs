@@ -138,6 +138,7 @@ impl Tool for OpenMapsTool {
                         "query is required for search action",
                     ));
                 }
+
                 match near {
                     Some(p) => format!("geo:{},{}?q={encoded_query}", p.latitude, p.longitude),
                     None => format!("geo:0,0?q={encoded_query}"),

@@ -50,6 +50,7 @@ fn made_media_shows_like_sent_media() {
     assert_eq!(images.len(), 1);
     assert!(matches!(&images[0].source, ImageSource::File(file) if file.id == "f3"));
     let model = r#"{"action":"send_file","file":{"id":"f4","name":"cat.glb","mime":"model/gltf-binary","size":4000},"provider":"Meshy","model":"latest","path":"cat.glb"}"#;
+
     for tool in ["video_gen", "3d_gen"] {
         let file = sent_file(tool, model).expect("a made file is named like a sent one");
         assert_eq!(file.id, "f4");

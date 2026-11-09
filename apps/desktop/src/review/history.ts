@@ -87,6 +87,7 @@ export function makeGitHistory(deps: HistoryDeps) {
     await new Promise<void>(resolve => {
       if (active < 4) { ++active; resolve(); } else waiting.push(resolve);
     });
+
     try { return await deps.invoke<T>(command, args); }
     finally { const next = waiting.shift(); if (next) next(); else --active; }
   }
@@ -94,10 +95,12 @@ export function makeGitHistory(deps: HistoryDeps) {
   function list(p: ProjectHistory, revision: string | null = null, search = "") {
     const key = `${revision || "all"}\0${search}`;
     let found = p.lists.get(key);
+
     if (!found) {
       found = { revision, search, rows: [], next: null, loading: false, loaded: false, error: "", version: 0 };
       p.lists.set(key, found);
     }
+
     return found;
   }
 
@@ -142,6 +145,7 @@ export function makeGitHistory(deps: HistoryDeps) {
     target.loading = true;
     target.error = "";
     renderTree(p);
+
     try {
       const data = await read<HistoryPage>("project_git_history", {
         project: p.name, machineId: p.data?.machine_id ?? null, revision: target.revision,
@@ -154,11 +158,13 @@ export function makeGitHistory(deps: HistoryDeps) {
       target.next = data.next;
       target.loaded = true;
       for (const c of data.commits) p.commits.set(c.id, c);
+
       if (!p.selected && data.commits.length) {
         p.open.add(`commit:${data.commits[0].id}`);
         p.open.add(`changes:${data.commits[0].id}`);
         select(p, { kind: "commit", commit: data.commits[0], origin: "All history" });
       }
+
       if (target.search) for (const [day] of dayGroups(target.rows)) p.open.add(`day:${target.search}:${day}`);
     } catch (e) {
       if (version === target.version) target.error = reason(e);
@@ -196,6 +202,7 @@ export function makeGitHistory(deps: HistoryDeps) {
     const result = fileRead(p, selected);
     if (result.loaded || result.loading || !p.data) return;
     result.loading = true;
+
     try {
       if (selected.kind === "commit") {
         result.rows = await read<ChangedFile[]>("project_git_files", { project: p.name, machineId: p.data.machine_id, commit: selected.commit.id });
@@ -204,6 +211,7 @@ export function makeGitHistory(deps: HistoryDeps) {
         result.rows = diff.files;
         if (diff.more) result.error = `${diff.more} more files are beyond the diff limit.`;
       }
+
       result.loaded = true;
     } catch (e) { result.error = reason(e); }
     finally { result.loading = false; renderTree(p); if (p.selected && selectionKey(p.selected) === selectionKey(selected)) renderDetail(p); }
@@ -289,11 +297,13 @@ export function makeGitHistory(deps: HistoryDeps) {
     const focusedPath = focused?.dataset.path;
     const focusedSelection = focused?.dataset.selection;
     p.tree.replaceChildren(history, branches, worktrees);
+
     if (focusedPath && focusedSelection) {
       [...p.tree.querySelectorAll<HTMLElement>(".gh-file")].find(b => b.dataset.path === focusedPath && b.dataset.selection === focusedSelection)?.focus({ preventScroll: true });
     } else if (focusKey) {
       [...p.tree.querySelectorAll<HTMLDetailsElement>("details[data-key]")].find(d => d.dataset.key === focusKey)?.querySelector<HTMLElement>("summary")?.focus({ preventScroll: true });
     }
+
     p.tree.scrollTop = scroll;
     p.foot.textContent = p.data ? `All branches · ${p.data.machine_name}` : "";
   }
@@ -323,11 +333,13 @@ export function makeGitHistory(deps: HistoryDeps) {
   function renderDetail(p: ProjectHistory) {
     if (following === p) follow(p);
     const selected = p.selected;
+
     if (!selected || !p.data) {
       const found = list(p, null, p.query);
       p.detail.replaceChildren(el("p", "gh-empty", found.loading ? "Reading Git history…" : "Select a commit or worktree to see its changes."));
       return;
     }
+
     const c = selected.kind === "commit" ? selected.commit : null;
     const w = selected.kind === "working" ? selected.worktree : null;
     const head = el("header", "gh-detail-head", el("div", "gh-breadcrumb", c ? `${selected.kind === "commit" ? selected.origin : ""} / ${c.id.slice(0, 7)}` : `Worktrees / ${w!.branch || "Detached HEAD"}`));
@@ -338,17 +350,22 @@ export function makeGitHistory(deps: HistoryDeps) {
     titleRow.append(copy);
     head.append(titleRow, el("p", "", c ? `${c.author} · ${new Date(c.committed_at).toLocaleString()}` : `${w!.path} · ${p.data.machine_name}`));
     const tabs = el("nav", "gh-tabs"); tabs.setAttribute("aria-label", "Git views");
+
     for (const [key, label] of [["changes", "Changes"], ["details", "Details"], ["sessions", "Sessions"]] as const) {
       const b = button(label, "", () => { p.tab = key; renderDetail(p); });
       b.setAttribute("aria-current", String(p.tab === key)); tabs.append(b);
     }
+
     const body = el("div", "gh-detail-body");
+
     if (p.tab === "details") {
       const facts = el("div", "gh-facts", el("span", "", c ? "Commit" : "Worktree"), el("code", "", c?.id || w!.path));
+
       if (c) {
         facts.append(el("span", "", "Author"), el("span", "", c.author), el("span", "", "Parents"));
         facts.append(c.parents.length ? el("span", "", ...c.parents.map(id => button(id.slice(0, 7), "gh-parent", () => void parent(p, id)))) : el("span", "", "Initial commit"));
       }
+
       body.append(facts);
     } else if (p.tab === "sessions") {
       const currentTree = w || (ref && p.data.worktrees.find(w => w.branch === ref.name));
@@ -356,6 +373,7 @@ export function makeGitHistory(deps: HistoryDeps) {
     } else {
       const path = p.path;
       const key = `${selectionKey(selected)}\0${path || ""}`;
+
       if (p.viewKey !== key || !p.view) {
         p.viewKey = key;
         const location = p.data;
@@ -371,9 +389,11 @@ export function makeGitHistory(deps: HistoryDeps) {
           review: { key: `history:${p.name}:${key}`, heading: () => c?.subject || "Worktree changes", send: async () => "Open a session to send a review." },
         });
       }
+
       if (path) body.append(el("div", "gh-diff-toolbar", el("code", "", path), button("Show all files", "", () => { p.path = null; renderDetail(p); })));
       body.append(p.view.el);
     }
+
     p.detail.replaceChildren(head, tabs, body);
   }
 

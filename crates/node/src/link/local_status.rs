@@ -80,15 +80,18 @@ pub fn render(status: &LocalStatus, now: u64) -> String {
         span(now.saturating_sub(status.started)),
         status.version
     );
+
     if status.version != VERSION {
         node.push_str(" (restart it to run this version)");
     }
+
     line(&mut out, "Node", &node);
     line(
         &mut out,
         "Machine",
         &format!("{} ({})", status.name, status.id),
     );
+
     match status.mesh {
         Some(mesh) => {
             let online = status.devices.iter().filter(|d| d.online).count();
@@ -161,6 +164,7 @@ pub fn render(status: &LocalStatus, now: u64) -> String {
             ));
         }
     }
+
     out
 }
 
@@ -177,12 +181,15 @@ fn agent_state(state: &AgentState) -> String {
 /// How a project's sync stands, in a few words.
 fn sync_state(project: &Project) -> String {
     let status = &project.status;
+
     if project.missing {
         return "folder missing".to_owned();
     }
+
     if project.held {
         return "waiting for Syncthing to let go of the folder".to_owned();
     }
+
     let to_bring = status.pending.max(status.waiting.len() as u64);
     let mut text = match status.state {
         State::Failed => format!(
@@ -206,11 +213,13 @@ fn sync_state(project: &Project) -> String {
         },
         State::Other => "in a state this version does not know".to_owned(),
     };
+
     match status.conflicts.len() {
         0 => {}
         1 => text.push_str(", 1 conflict"),
         n => text.push_str(&format!(", {n} conflicts")),
     }
+
     text
 }
 

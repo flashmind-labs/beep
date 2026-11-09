@@ -143,10 +143,12 @@ export function renderLive() {
 export function openLive(id: string | null) {
   const same = S.view === "chat" && !!$("#ask") && (S.session ?? null) === id;
   LV.chat = id;
+
   if (!same) {
     if (id) openSession(id);
     else { S.session = null; renderChat(); }
   }
+
   mountDock();
 }
 /// Puts the dock over the chat. The field stays, out of sight, for after.
@@ -186,26 +188,31 @@ export function drawDock(v: LiveView | null) {
 /// reply there, like one typed in the field.
 export function liveTurn(id: string, text: string, runId: string) {
   if (S.view !== "chat" || !$("#ldock")) return live.delete(id);
+
   if (LV.chat !== id) {
     // A new chat. An empty bar becomes it; "new chat" said in another one
     // starts it afresh.
     const fresh = LV.chat === null;
     LV.chat = id;
     S.session = id;
+
     if (!fresh) {
       renderChat();
       mountDock();
       drawDock(LV.view);
     }
   }
+
   // Already followed: the chat was redrawn from the server as it changed.
   if (live.get(id)?.run) return;
   const e = entry(id);
+
   // A new message leaves an earlier question unanswered on the server.
   if (e.approval) {
     e.approval.card.replaceWith(h('<div class="dmuted">Not answered</div>'));
     e.approval = null;
   }
+
   const b = body()!;
   b.querySelectorAll(".dreplies").forEach(r => r.remove());
   // The server's copy may have drawn the message already.
@@ -224,6 +231,7 @@ export function renderLeft() {
   bar.querySelector(".lsheet")?.remove();
   const chat = LV.chat;
   LV.chat = null;
+
   if (S.view === "chat" && $("#ldock") && chat === (S.session ?? null)) {
     $$("#ldock").remove();
     $(".dinput.dgrow")?.classList.remove("lhid");
@@ -232,6 +240,7 @@ export function renderLeft() {
     focusAsk();
     return;
   }
+
   if (S.session) openSession(S.session);
   else renderChat();
 }
@@ -242,16 +251,19 @@ export function takeDraft(ask: HTMLTextAreaElement | null) {
   const key = S.session ?? "";
   const text = VN.drafts.get(key);
   if (!ask) return;
+
   if (text) {
     VN.drafts.delete(key);
     ask.value = ask.value.trim() ? `${ask.value.trimEnd()} ${text}` : text;
   }
+
   if (VN.typed) {
     // No space before punctuation typed right after the words.
     const glue = !ask.value || /^[\s.,;:!?)]/.test(VN.typed) ? "" : " ";
     ask.value = `${ask.value.trimEnd()}${glue}${VN.typed}`;
     VN.typed = "";
   }
+
   if (text || VN.note) ask.dispatchEvent(new Event("input"));
   if (VN.note) { notice(VN.note); VN.note = ""; }
 }
@@ -266,18 +278,21 @@ export function heard(turn: Turn, text: string) {
 // Live mode stays in the bar and the orb.
 if (!PANE) listen<LiveEvent>("live", e => {
   const v = e.payload;
+
   switch (v.kind) {
     case "view":
       if (!LV.on) {
         forgetHeight();
         // What was typed in the prompt comes back when live mode ends.
         const ask = S.view === "chat" ? $<HTMLTextAreaElement>("#ask") : null, typed = ask?.value.trim();
+
         if (typed) {
           const key = S.session ?? "", kept = VN.drafts.get(key);
           VN.drafts.set(key, kept ? `${typed} ${kept}` : typed);
           ask!.value = "";
         }
       }
+
       LV.on = true;
       LV.view = v;
       return redrawLive();

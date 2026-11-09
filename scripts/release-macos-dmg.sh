@@ -24,6 +24,7 @@ if ! jq -e '.status == "Accepted"' "$result" >/dev/null; then
   echo 'DMG notarization was not accepted.' >&2
   exit 1
 fi
+
 xcrun stapler staple "$dmg"
 xcrun stapler validate "$dmg"
 codesign --verify --strict "$dmg"

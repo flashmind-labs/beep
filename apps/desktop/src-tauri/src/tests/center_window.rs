@@ -10,6 +10,7 @@ fn a_project_label_reads_back_as_its_name() {
         assert!(hex.bytes().all(|b| b.is_ascii_hexdigit()), "{label}");
         assert_eq!(label_project(&label).as_deref(), Some(name));
     }
+
     assert_eq!(label_project(LABEL), None);
     assert_eq!(label_project("research-1"), None);
     assert_eq!(label_project("project-"), None);

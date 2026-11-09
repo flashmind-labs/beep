@@ -30,18 +30,21 @@ function scrollParent(el: Element) {
   for (let p = el.parentElement; p; p = p.parentElement) {
     if (/(auto|scroll)/.test(getComputedStyle(p).overflowY)) return p;
   }
+
   return null;
 }
 
 function watch(end: Element) {
   const root = scrollParent(end);
   let observer = watchers.get(root);
+
   if (!observer) {
     observer = new IntersectionObserver(entries => {
       for (const e of entries) steps.get(e.target)?.(e.isIntersecting);
     }, { root, rootMargin: AHEAD });
     watchers.set(root, observer);
   }
+
   return observer;
 }
 

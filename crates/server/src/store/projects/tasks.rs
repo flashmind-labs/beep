@@ -32,17 +32,21 @@ pub(super) async fn tasks_in(
             .into_iter()
             .collect();
     let mut made = Vec::with_capacity(tasks.len());
+
     for task in tasks {
         let base = TaskSlug::from_title(&task.title);
         let mut slug = base.clone();
         let mut n = 1;
+
         while taken.contains(slug.as_ref()) {
             n += 1;
+
             if n > MAX_SLUG_SUFFIX {
                 bail!("no free slug for {base}");
             }
             slug = base.suffixed(n);
         }
+
         taken.insert(slug.as_ref().to_owned());
         let depends_on = match task.depends_on {
             None => None,
@@ -71,6 +75,7 @@ pub(super) async fn tasks_in(
         .await?;
         made.push(task_from(&row)?);
     }
+
     Ok(made)
 }
 
@@ -100,9 +105,11 @@ pub(super) async fn track_in(
     .bind(number)
     .fetch_optional(&mut *tx)
     .await?;
+
     if let Some(row) = tracked {
         return Ok(TrackedIssue::Already(task_from(&row)?));
     }
+
     let made = tasks_in(tx, project, std::slice::from_ref(task)).await?;
     let made = made.first().context("no task was made")?;
     let row = sqlx::query(&format!(

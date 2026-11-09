@@ -422,10 +422,12 @@ async fn a_declining_answer_waits_only_where_there_is_room() {
     let session = Session::start(start_on(&script("pi", ASKING_ADAPTER, &log), dir, None)).unwrap();
     settle(&session).await;
     let question = session.info().question.expect("a question").id;
+
     for n in 0..MAX_QUEUED {
         let prompt = Command::Prompt(format!("later {n}").into());
         session.order(prompt).await.unwrap();
     }
+
     let answer = Command::Answer {
         question,
         reply: "neither, look in docs".into(),
@@ -1105,6 +1107,7 @@ read -r line; log "$1"
 reply '{"sessionId":"s","models":{"availableModels":[{"modelId":"model-small"}],"currentModelId":"model-small"}}'
 "#;
     let adapter = COMPACTING_ADAPTER.replacen("handshake \"$1\"", handshake, 1);
+
     for enabled in [true, false] {
         let temp = tempfile::tempdir().unwrap();
         let log = temp.path().join("sent.jsonl");
@@ -1839,6 +1842,7 @@ cat >/dev/null
             {
                 break row;
             }
+
             tokio::task::yield_now().await;
         }
     })
@@ -1879,11 +1883,13 @@ cat >/dev/null
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let stat = std::fs::read_to_string(format!("/proc/{}/stat", escaped.pid));
+
             if stat.is_err()
                 || stat.is_ok_and(|s| s.rsplit_once(") ").is_some_and(|(_, f)| f.starts_with('Z')))
             {
                 break;
             }
+
             tokio::task::yield_now().await;
         }
     })
@@ -2007,6 +2013,7 @@ async fn an_idle_injection_is_sent_once_as_a_prompt_in_either_reply_order() {
             .await
             .unwrap();
         release(&fifo).await;
+
         if outcome == "idle-last" {
             until(&session, |live| {
                 live.info.title.as_deref() == Some("Settling")
@@ -2016,6 +2023,7 @@ async fn an_idle_injection_is_sent_once_as_a_prompt_in_either_reply_order() {
             assert_eq!(sent(&log).len(), 4, "wait for the original prompt to end");
             release(&fifo).await;
         }
+
         until(&session, |live| live.info.turns >= 3).await;
         assert_eq!(prompts(&log), ["go", "correction", "later"], "{outcome}");
         let requests = sent(&log);

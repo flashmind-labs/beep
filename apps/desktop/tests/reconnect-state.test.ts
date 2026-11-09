@@ -20,12 +20,14 @@ test("a rejected read is told apart by its kind; a plain string is a failure", (
 test("a lost link says so and reads again from 1 s, doubling to 15 s", () => {
   let link = LINKED;
   const waits: number[] = [];
+
   for (let i = 0; i < 6; i++) {
     const failed = readFailed(link, { kind: "lost" }, "build-box");
     assert.equal(failed.note, "Lost the connection to build-box. Reconnecting...");
     link = failed.link;
     waits.push(retryDelay(link.lost));
   }
+
   assert.deepEqual(waits, [1000, 2000, 4000, 8000, 15000, 15000]);
 });
 

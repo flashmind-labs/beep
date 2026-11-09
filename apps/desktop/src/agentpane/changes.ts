@@ -32,11 +32,13 @@ export function changesView() {
   C.el?.remove();
   C.key = key;
   const el = h('<div class="agpview changes"></div>');
+
   // A session with no folder yet has no changes to read.
   if (!s?.cwd) {
     Object.assign(C, { el, view: null });
     return el;
   }
+
   C.note = h('<div class="dv-note" hidden></div>');
   const view = diffView({
     uncommitted: true,

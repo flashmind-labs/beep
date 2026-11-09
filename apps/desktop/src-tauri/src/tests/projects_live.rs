@@ -137,10 +137,12 @@ async fn one_windows_limit_cannot_stop_another_windows_source() {
     let (stop, _stopped) = oneshot::channel();
     followed.add("one", shared, || true, || source(stop));
     followed.add("two", shared, || true, || panic!("duplicate source"));
+
     for _ in 0..MAX_FOLLOWED {
         let (stop, _stopped) = oneshot::channel();
         followed.add("one", Uuid::new_v4(), || true, || source(stop));
     }
+
     let tasks = followed.tasks.lock().unwrap();
     let shared = tasks.iter().find(|task| task.project_id == shared).unwrap();
     assert_eq!(shared.windows, HashSet::from(["two".to_owned()]));

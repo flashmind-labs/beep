@@ -41,6 +41,7 @@ export async function openDesktop(page: Page, streaming = false): Promise<void> 
     const path = resolve(dist, decodeURIComponent(new URL(route.request().url()).pathname).replace(/^\/+/, ""));
     const within = relative(dist, path);
     if (within.startsWith("..") || isAbsolute(within)) return route.fulfill({ status: 403 });
+
     try { await route.fulfill({ body: await readFile(path), contentType: contentTypes.get(extname(path)) ?? "application/octet-stream" }); }
     catch { await route.fulfill({ status: 404 }); }
   });
@@ -75,23 +76,29 @@ function installNativeBoundary(data: Fixture): void {
     core: {
       async invoke(command, args = {}) {
         if (command === "center_pending") { pendingReads++; const target = pending; pending = null; return target; }
+
         if (command === "mesh_watch") {
           if (typeof args.id === "string" && channel(args.onEvent)) readers.set(args.id, { channel: args.onEvent, topics: interests(args.topics) });
           return new Promise<never>(() => {});
         }
+
         if (command === "mesh_topics" && typeof args.id === "string") {
           const reader = readers.get(args.id);
           if (reader) reader.topics = interests(args.topics);
           return null;
         }
+
         if (command === "agent_follow" && data.streaming && channel(args.onEvent)) {
           args.onEvent.onmessage({ kind: "snapshot", resumed: false, cursor: { start: 0, next: 0, fingerprint: "empty" }, page: agentPage(args.session), modes: null, tasks: [] });
           return new Promise<never>(() => {});
         }
+
         if (command === "agent_processes") { return { processes: structuredClone(processes), local: false }; }
+
         if (command === "agent_view") {
           return agentPage(args.session);
         }
+
         return structuredClone(answers[command] ?? null);
       },
       Channel: class<T> { onmessage(_message: T): void {} },

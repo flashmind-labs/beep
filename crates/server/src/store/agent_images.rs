@@ -41,6 +41,7 @@ impl Store {
         if part.size != u64::try_from(size)? || part.data.len() != usize::try_from(size)? {
             return Ok(None);
         }
+
         Ok(Some(AgentImageBytes {
             mime: row.try_get("mime")?,
             data: part.data,

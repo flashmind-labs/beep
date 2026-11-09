@@ -23,6 +23,7 @@ fn allowed(url: &Url) -> bool {
     {
         return true;
     }
+
     let app_origin = if cfg!(target_os = "windows") {
         url.scheme() == "http" && url.host_str() == Some("tauri.localhost")
     } else {

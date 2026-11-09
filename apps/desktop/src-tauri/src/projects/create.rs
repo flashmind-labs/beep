@@ -75,8 +75,10 @@ pub async fn create_project(
         machine_ids,
     };
     let created = desk(&fleet).await?.create(&request).await?;
+
     for landed in &created.imported {
         mirror_import(&beep, landed).await;
     }
+
     Ok(created.into())
 }
