@@ -1,24 +1,26 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { MachineList } from "./list-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // machines/: the Machines list, Home's machine table (table.ts) and the
 // Add a machine sheet. Entry: this file.
 import { openAddMachine } from "./addmachine.ts";
 import { openJoinTicket } from "./jointicket.ts";
-import { harnessTile } from "../ui/harnessicon.ts";
-import { bareVersion, coderColumns, coders, errorText, isCoder, machineTag, nodeBehind, offeredNode, type NodeUpdate, shownVersion, specLine, toolChips, updatedNotes, updatedTo, updateOffered } from "./machines-state.ts";
+import { coders, errorText, isCoder, machineTag, nodeBehind, offeredNode, type NodeUpdate, shownVersion, updatedNotes, updatedTo, updateOffered } from "./machines-state.ts";
 import { bar, S } from "../bar/core.ts";
 import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
 import { hints } from "../bar/hints.ts";
 import { copy } from "../ui/parts.ts";
 import { notice } from "../chat/media.ts";
-import { emptyPage, errLine } from "../lists/memories.ts";
+import { errLine } from "../lists/memories.ts";
 import { span } from "../lists/routines.ts";
 import { bytes, esc } from "../ui/format.ts";
-import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
-import { clockWarning, loadClocks } from "./clock.ts";
+import { loadClocks } from "./clock.ts";
 import { openSignIn } from "./signin.ts";
 import { signInOffer } from "./signin-state.ts";
-import { type AdapterInstall, adapterLine } from "./adapters-state.ts";
+import { type AdapterInstall } from "./adapters-state.ts";
 
 // ---------- Machines ----------
 
@@ -98,7 +100,6 @@ interface ToolUpdate {
   version: string;
   latest: string;
 }
-const SERVER_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>';
 
 // ---------- Where Machines draws ----------
 
@@ -121,6 +122,7 @@ export function machinesIn(root: HTMLElement, opened: MachinesHost["opened"], ch
   host = { root, machine: null, opened, changed };
 }
 export function machinesOut() {
+  if (listRoot?.host === host?.root) clearList();
   host = null;
 }
 const hosted = () => (host?.root.isConnected ? host : null);
@@ -330,18 +332,6 @@ async function retryAdapters(id: string) {
   if (shown()) drawMachines();
 }
 
-/// A line per agent whose adapter the machine installs, with Try again on
-/// a failed one.
-function adapterLines(m: Machine) {
-  if (!m.online) return "";
-  const tried = MC.adapterTries.get(m.id);
-  return (m.adapters ?? []).map(a => {
-    const text = adapterLine(a);
-    const again = a.failed === null ? "" : `<button class="dbtn small" data-adapters="${esc(m.id)}"${tried?.busy ? " disabled" : ""}>${tried?.busy ? "Trying again…" : "Try again"}</button>`;
-    return `<span class="dmad${a.failed === null ? "" : " bad"}"><span title="${esc(text)}">${esc(text)}</span>${again}</span>`;
-  }).join("") + (tried?.error ? `<span class="dmad bad"><span>${esc(tried.error)}</span></span>` : "");
-}
-
 /// Unlinks the machine Remove asked about, online or not.
 async function removeMachine() {
   const asking = MC.asking;
@@ -487,48 +477,6 @@ const nodeVersion = (m: Machine) => /^\d/.test(m.version) ? `beep-node ${m.versi
 // whatever version the app was built with, which may never have been released.
 const newest = () => offeredNode(MC.released, (MC.list ?? []).filter(m => MC.updatable.has(m.id)).map(m => m.version));
 
-/// The beep-node chip, marked when an update is out.
-function nodeChip(m: Machine) {
-  const behind = m.id !== MC.mac && nodeBehind(m.version, newest());
-  const title = behind ? `beep-node ${m.version}; ${newest()} is out` : nodeVersion(m);
-  return `<span class="dmnv" title="${esc(title)}">${esc(nodeVersion(m))}${behind ? '<span class="up">update</span>' : ""}</span>`;
-}
-
-/// A coding agent's chip in its column: mark, bare version, and a dot for
-/// its sign-in, green when signed in and red when not.
-function agentChip(env: MachineEnv, t: MachineEnv["tools"][number], column: number) {
-  const version = bareVersion(t.name, t.version) ?? "";
-  const login = env.logins.find(l => l.tool === t.name);
-  const dot = !login ? "" : `<span class="${login.signed_in ? "in" : "out"}"></span>`;
-  const title = `${t.name} ${version}${!login ? "" : login.signed_in ? ", signed in" : ", not signed in"}`;
-  return `<span class="dmag" style="grid-column:${column}" title="${esc(title)}">${harnessTile(t.name, "dmag-ic")}<span class="v">${esc(version)}</span>${dot}</span>`;
-}
-
-/// A machine in the list: name, status, spec and beep-node on the first line, a
-/// column per coding agent on the second, the other tools on the third.
-function machineCard(m: Machine, columns: string[]) {
-  const env = m.env;
-  const opens = !!hosted();
-  const { button, ask } = opens ? { button: "", ask: "" } : removeParts(m);
-  const open = opens ? ` data-machine="${esc(m.id)}" role="button" tabindex="0" aria-label="${esc(m.name)}"` : "";
-  const seen = m.online ? "" : `<span class="seen">Seen ${span(Date.now() - m.seen_at)} ago</span>`;
-  const spec = m.can_host === false ? "Phone · Controller" : env ? specLine(env) : "No report yet";
-  const clock = clockWarning(m.id, env?.os ?? null);
-  const off = clock ? `<span class="clockoff" title="${esc(clock.title)}">${esc(clock.text)}</span>` : "";
-  const line1 = `<span class="l1"><span class="ddot${m.online ? "" : " off"}" title="${m.online ? "Online" : "Offline"}"></span><b>${esc(m.name)}</b>${tagChip(m)}${seen}${off}<span class="spec" title="${esc(spec)}">${esc(spec)}</span>${m.can_host === false ? "" : nodeChip(m)}${button}</span>`;
-  const chev = opens ? `<span class="ch">${ICON.chev}</span>` : "";
-  if (!env || m.can_host === false) return `<div class="dmach"${open}>${line1}${chev}${ask}</div>`;
-  const agents = coders(env.tools);
-  const line2 = agents.length
-    ? agents.map(t => agentChip(env, t, columns.indexOf(t.name) + 1)).join("")
-    : '<span class="none">No coding agents</span>';
-  const { shown, more } = toolChips(env.tools);
-  const line3 = shown.length
-    ? `<span class="l3">${shown.map(n => `<span class="dmt-t">${esc(n)}</span>`).join("")}${more.length ? `<span class="dmt-t" title="${esc(more.join(", "))}">+${more.length}</span>` : ""}</span>`
-    : "";
-  return `<div class="dmach"${open}>${line1}${chev}${line2}${line3}${adapterLines(m)}${ask}</div>`;
-}
-
 /// One machine on its own page in Settings: what it reported, its
 /// sign-ins, every tool with its version, and Remove.
 function machinePage(m: Machine) {
@@ -588,8 +536,36 @@ function toolNotes(m: Machine, tools: MachineEnv["tools"]) {
   return done.join("") + failed.join("");
 }
 
-/// Machine actions; the list loads again once either sheet closes.
-const machineActions = '<span class="dline"><button class="dbtn quiet" id="mcLinkDesktop">Link another desktop</button><button class="dbtn" id="mcAdd">Add a machine</button></span>';
+let listRoot: { host: HTMLElement; mount: HTMLElement; root: Root } | null = null;
+
+function clearList() {
+  if (!listRoot) return;
+  listRoot.root.unmount();
+  listRoot.mount.remove();
+  listRoot = null;
+}
+
+function drawList(el: HTMLElement, at: MachinesHost | null) {
+  if (listRoot && (listRoot.host !== el || listRoot.mount.parentElement !== el)) clearList();
+  if (!listRoot) {
+    const mount = document.createElement("div");
+    mount.style.display = "contents";
+    el.replaceChildren(mount);
+    listRoot = { host: el, mount, root: createRoot(mount) };
+  }
+  const refreshAfterSheet = () => { if (shown()) void renderMachines(hosted()?.machine ?? null).then(() => hosted()?.changed()); };
+  flushSync(() => listRoot?.root.render(createElement(MachineList, {
+    list: MC.list, error: MC.error, hosted: !!at, mac: MC.mac, newest: newest(), asking: MC.asking,
+    adapterTries: MC.adapterTries, hints: at ? "" : hints([["esc", "back"]]), age: span,
+    open: (id: string) => { if (at) { at.opened(id); void renderMachines(id); } },
+    add: () => openAddMachine({ onClose: refreshAfterSheet }),
+    link: () => openJoinTicket({ onClose: refreshAfterSheet }),
+    askRemove: (id: string) => { MC.asking = { id, busy: false, error: "" }; drawMachines(); el.querySelector<HTMLElement>("#rmNo")?.focus(); },
+    cancelRemove: () => { MC.asking = null; drawMachines(); },
+    remove: () => { void removeMachine(); },
+    retryAdapter: (id: string) => { void retryAdapters(id); },
+  })));
+}
 
 function drawMachines() {
   const at = hosted(), el = root();
@@ -601,22 +577,16 @@ function drawMachines() {
     at.opened(null);
   }
 
+  if (!open && !at?.machine) {
+    drawList(el, at);
+    return;
+  }
+
+  clearList();
   if (open) {
     el.innerHTML = errLine(MC.error) + machinePage(open);
-  } else if (at?.machine) {
-    // Rows that stand in for the machine until the list comes.
-    el.innerHTML = `<div class="dskel-rows">${[78, 56, 68].map(w => `<div class="dskel" style="width:${w}%"></div>`).join("")}</div>`;
   } else {
-    const list = MC.list ?? [], on = list.filter(m => m.online).length;
-    const sum = !MC.list ? "" : [on && `${on} online`, list.length - on && `${list.length - on} offline`].filter(Boolean).join(", ");
-    const say = esc(sum || "Where Beep runs commands and coding agents");
-    // In Settings the breadcrumb names the page; the sum goes under it.
-    const head = at ? `<div class="dmc-head"><span class="dmuted">${say}</span>${machineActions}</div>` : `<div class="dhead"><span class="tt"><b>Machines</b><small>${say}</small></span>${machineActions}</div>`;
-    const columns = coderColumns(list.map(m => m.env?.tools ?? []));
-    el.innerHTML = head + errLine(MC.error) + (MC.list && !list.length
-      ? emptyPage(SERVER_ICON, "No machines yet.", "Add one to run commands and coding agents on it.")
-      : `<div class="dlist${at ? " dset-box" : ""}"><div class="dmt" style="--ag:${columns.length}">${list.map(m => machineCard(m, columns)).join("")}</div></div>`)
-      + (at ? "" : hints([["esc", "back"]]));
+    el.innerHTML = `<div class="dskel-rows">${[78, 56, 68].map(w => `<div class="dskel" style="width:${w}%"></div>`).join("")}</div>`;
   }
 
   for (const b of el.querySelectorAll<HTMLElement>("[data-machine]")) {
