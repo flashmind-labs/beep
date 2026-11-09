@@ -119,3 +119,16 @@ test("sidebar toggle preserves width and stays available across navigation", asy
   await expect(toggle).toBeFocused();
   expect(await page.locator("#side").evaluate(side => side.getBoundingClientRect().width)).toBe(width);
 });
+
+test("project header actions retain focus during refresh", async ({ page }) => {
+  await openProject(page);
+  const more = page.locator("#tools").getByRole("button", { name: "More" });
+  await expect(more).toBeVisible();
+  await more.focus();
+  await more.evaluate(element => { (window as any).__headerMore = element; });
+  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_home").length);
+  await page.evaluate(() => window.__navigation.notify("home"));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_home").length)).toBeGreaterThan(reads);
+  await expect(more).toBeFocused();
+  expect(await more.evaluate(element => element === (window as any).__headerMore)).toBe(true);
+});
