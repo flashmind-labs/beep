@@ -715,15 +715,19 @@
     document.head.append(st);
   }
   const IC_CHAT = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>';
-  const pb = (l, cls = "") => `<button class="dbtn${cls ? " " + cls : ""}" data-toast="${l}">${l}</button>`;
+  const pb = (l, cls = "") => desktopButton(l, cls, { "data-toast": l });
   // Pull and Push under "Where it lives": a button with nothing to do is disabled, a running one says so.
-  const gb = (l, cls, off) => `<button class="dbtn ${cls}"${off ? " disabled" : ` data-toast="${l}"`}>${l}</button>`;
+  const gb = (l, cls, off) => desktopButton(l, cls, { disabled: off, "data-toast": off ? null : l });
   // Pull and Push as icons, as VS Code's status bar: a down arrow with the commits behind, an up
   // arrow with those ahead. The tooltip says what a click moves; nothing to move dims it; a running
   // one turns its arrow into a spinner.
   const ARROW = { pull: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>', push: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>' };
   const gtip = (dir, n) => (dir === "pull" ? "Pull" : "Push") + (n ? ` ${n} commit${n === 1 ? "" : "s"}` : "");
-  const gi = (dir, n, off, busy) => `<button class="dbtn quiet small gi" title="${busy ? (dir === "pull" ? "Pulling…" : "Pushing…") : gtip(dir, n)}" aria-label="${gtip(dir, n)}"${off || busy ? " disabled" : ` data-toast="${gtip(dir, n)}"`}>${busy ? '<span class="dspin"></span>' : ARROW[dir]}${n}</button>`;
+  const gi = (dir, n, off, busy) => desktopButton(gtip(dir, n), "quiet small gi", {
+    title: busy ? (dir === "pull" ? "Pulling…" : "Pushing…") : gtip(dir, n),
+    "aria-label": gtip(dir, n), disabled: off || busy,
+    "data-toast": off || busy ? null : gtip(dir, n),
+  }, (busy ? '<span class="dspin"></span>' : ARROW[dir]) + n);
   const gpair = (behind, ahead, pull, push, busy = "") => gi("pull", behind, !pull, busy === "pull") + gi("push", ahead, !push, busy === "push");
   // The branch only: the counts are on the icons. "not pushed" stays, as no icon says it.
   const gnote = (branch, text, err) => `<span class="gs" style="display:block;font-size:12.5px;margin-top:2px;color:var(${err ? "--d-err" : "--d-muted"})"><code>${branch}</code>${text ? " " + text : ""}</span>`;
@@ -748,8 +752,7 @@
       { id: "run1", open: "dAgentSession", lead: hc("codex"), t: "Fix the device build script", sub: "studio · main", r: "3m ago" }] },
     { title: "Project", items: [
       { id: "actions", t: "Actions", sub: "1 failed" },
-      { id: "machines", t: "Machines", sub: "2/3 · 1 terminal" },
-      { id: "sync", t: "File sync", sub: "in sync" },
+      { id: "machines", t: "Machines", sub: "Folders, sync and terminals" },
       { id: "issues", t: "Issues", sub: `${PJ_ISSUES.length} open` }] },
     { title: "Work", items: [
       { id: "tasks", t: "Tasks", sub: "2 running" },
@@ -766,6 +769,36 @@
   const prHead = (title, n, by, when, tags, extra, acts) => `<div class="pj-dh"><h3>${title}</h3><div class="meta">${chip("running", "open")}<span>#${n} opened by <b>${by}</b> ${when}</span>${tags.map(l => `<i class="pj-tag">${l}</i>`).join("")}${extra}</div><div class="acts">${acts}</div></div>`;
   // Plan and Discuss need a server, so the issue details hide them without one.
   const foot = forgejo => `<div class="pj-cbox"><textarea class="field" rows="3" aria-label="Comment" placeholder="Comment"></textarea><div class="row"><button class="dbtn pri" data-toast="Comment posted to ${hostName(forgejo)}">Comment</button></div></div>`;
+  // One machine owns its folder, sync details and terminals.
+  const projectMachines = () => {
+    const back = S.screen === "dWinProjectWindow" ? "dWinProjectWindow" : "dWinProject";
+    const paused = S.d.pmsPaused === "yes";
+    const healthy = S.d.fss === "healthy";
+    const single = S.d.pwr === "one";
+    const act = (label, key, value, cls = "small", attributes = {}) => desktopButton(label, cls, {
+      "data-dact": `dset:${key}:${value}`, "data-dgo": back, ...attributes,
+    });
+    const machine = (name, folder, status, offline = false) => {
+      const blocked = single || name === "build-box";
+      const actions = `<div class="pm-actions">${act("Folder…", "fss", "change", "small", {
+        "aria-label": `Change folder on ${name}`, onclick: `S.d.pmmachine='${name}'`,
+      })}${act("Remove", "pwr", "confirm", "small warn", {
+        "aria-label": `Remove from ${name}`, disabled: blocked,
+        title: blocked ? single ? "A project stays on at least one machine." : "Stop the agent working here first." : null,
+        onclick: `S.d.pmremove='${name}'`,
+      })}</div>`;
+      const state = paused ? "Paused" : status;
+      const warning = name === "studio" && !healthy && !paused;
+      const sync = `<div class="pm-sync"><span class="pm-child-label">Git sync</span><span class="${warning ? "pm-warning" : "pm-status"}">${state}</span><code>main</code><span class="pm-sync-actions">${!offline && !paused ? gpair(warning ? 1 : 0, name === "build-box" && !healthy ? 2 : 0, true, true) : ""}${warning ? act("Fix with an agent", "pmnotice", "Repair draft opened for studio", "small") : ""}</span></div>${warning ? '<p class="pm-sync-note">Commit or stash local changes before syncing.</p>' : ""}`;
+      const files = S.d.igs ? `<div class="pm-sync"><span class="pm-child-label">Ignored folders</span><span>assets/models · data/captures</span></div>` : "";
+      const term = `<div class="pm-terminals"><div class="pm-terminal-heading"><span>Terminals</span><small>${name === "build-box" ? "1 running" : offline ? "Machine offline" : "None running"}</small></div>${name === "build-box" ? `<button class="pm-terminal" data-dact="dset:ags:drafterm" data-dgo="dAgentSession"><span class="ddot"></span><b>cargo watch</b><code>/srv/project/widget</code><span>3 h</span></button>` : ""}</div>`;
+      return `<article class="pm-machine" aria-label="${name}"><div class="pm-machine-head"><span class="ddot${offline ? " off" : ""}"></span><b>${name}</b><code>${folder}</code>${actions}</div><div class="pm-body">${sync}${files}<hr>${term}</div></article>`;
+    };
+    return `<div class="cc-sec"><h4>Machines</h4><span class="fs-tools"><small>${single ? "1 copy" : "3 copies"} · ${paused ? "sync paused" : healthy ? "2 in sync · 1 offline" : "1 needs attention · 1 offline"}</small>${act(paused ? "Resume sync" : "Pause sync", "pmsPaused", paused ? "" : "yes")}</span></div>
+      <div class="pm-list">${machine("build-box", "/srv/project/widget", healthy ? "In sync" : "2 commits ahead")}${single ? "" : machine("studio", "/srv/widget", healthy ? "In sync" : "Local edits block sync") + machine("mini-box", "/srv/project/widget", "Waiting for machine", true)}
+      <div class="pm-add"><span class="ddot"></span><span class="pm-identity"><b>laptop</b><small>Project is not on this machine</small></span>${desktopButton("Add project", "small", { "data-dact": "dset:pa:form", "data-dgo": "dAddToMachine" })}</div></div>
+${S.d.pmnotice ? `<p class="pm-footnote" role="status">${S.d.pmnotice}</p>` : ""}`;
+  };
   const details = {
     pr41: () => prHead("Cut the cache warm-up in half", 41, "sam", "5 days ago", ["perf", "cache"], chip("blocked", "changes requested") + chip("blocked", "checks failing"),
         `<span class="acts">${pb("Let the agent reply", "pri")}${pb("Continue")}${openReview("Review")}</span>${pb("Open on GitHub")}`)
@@ -801,38 +834,8 @@
         <div class="pv-row" style="cursor:pointer" data-dgo="dAgentSession"><span class="t">Retry uploads when the token expires</span><span class="m" style="align-items:center">${pvMark("claude")}<span>ended</span><span>build-box</span><span>widget</span><span>2 h</span></span></div>
         <div class="pv-row" style="cursor:pointer" data-dgo="dAgentSession"><span class="t">Bump the toolchain</span><span class="m" style="align-items:center">${pvMark("codex")}<span>ended</span><span>studio</span><span>widget</span><span>1 d</span></span></div></div>`),
     branches: () => window.gitTreeMock(),
-    machines: () => S.d.pwr === "one" ? csec("Where it lives", "", `<div class="cc-mt cc-pt pj-where" style="grid-template-columns:fit-content(40%) minmax(0,1fr) auto"><span class="th">Machine</span><span class="th">Folder</span><span class="th"></span>
-        <span class="nm"><b>build-box</b></span><span class="nm"><span class="os">/srv/project/widget</span>${gnote("main", "")}</span><span class="acts">${gpair(0, 0, false, false)}${pb("Copy path", "quiet small")}${pb("Start an agent here", "small")}${rmb("build-box", "A project stays on at least one machine.")}</span>
-        <span class="nm"><b>laptop</b></span><span class="nm"><span class="os">Not on laptop</span></span><span class="acts"><button class="dbtn small" data-dact="dset:pa:form" data-dgo="dAddToMachine">Add</button></span>
-        <span class="nm"><b>studio</b></span><span class="nm"><span class="os">Not on studio</span></span><span class="acts"><button class="dbtn small" data-dact="dset:pa:form" data-dgo="dAddToMachine">Add</button></span></div>`).replace("</h4>", "<small>on 1 of 3</small></h4>")
-      : csec("Where it lives", "", `<div class="cc-mt cc-pt pj-where" style="grid-template-columns:fit-content(40%) minmax(0,1fr) auto"><span class="th">Machine</span><span class="th">Folder</span><span class="th"></span>
-        <span class="nm"><b>build-box</b></span><span class="nm"><span class="os">/srv/project/widget</span>${gnote("main", "")}</span><span class="acts">${gpair(1, 2, true, true)}${pb("Copy path", "quiet small")}${pb("Start an agent here", "small")}${rmb("build-box", "An agent is working in acme/widget on build-box. Stop it first.")}</span>
-        <span class="nm"><b>studio</b></span><span class="nm"><span class="os">/srv/widget</span> <small>Synced by Syncthing</small>${gnote("main", "")}</span><span class="acts">${gpair(0, 0, false, false)}${pb("Open in Finder", "quiet small")}${pb("Copy path", "quiet small")}${pb("Start an agent here", "small")}${rmb("studio")}</span>
-        <span class="nm"><b>laptop</b></span><span class="nm"><span class="os">Not on laptop</span></span><span class="acts"><button class="dbtn small" data-dact="dset:pa:form" data-dgo="dAddToMachine">Add</button></span>
-        <span class="nm"><b>mini-box</b></span><span class="nm"><span class="os">/srv/project/widget</span> <small>Syncing 42%</small>${gnote("fix-approval", "not pushed")}</span><span class="acts">${gpair(0, 0, false, true)}${pb("Copy path", "quiet small")}${pb("Start an agent here", "small")}${rmb("mini-box")}</span>
-        <span class="nm"><b>old-box</b></span><span class="nm"><span class="os">/path/to/code/widget</span> <small>Already here</small>${gnote("main", "")}</span><span class="acts">${gpair(3, 0, true, false, "pull")}${pb("Copy path", "quiet small")}${pb("Start an agent here", "small")}${rmb("old-box")}</span>
-        <span class="nm"><b>dev-vm</b></span><span class="nm"><span class="os">/path/to/widget</span>${gnote("main", "")}<span class="gs" style="display:block;font-size:12.5px;margin-top:2px;color:var(--d-err)">dev-vm: fatal: Not possible to fast-forward, aborting.</span></span><span class="acts">${gpair(2, 1, true, true)}${gb("Fix with an agent", "small", false)}${pb("Copy path", "quiet small")}${pb("Start an agent here", "small")}${rmb("dev-vm")}</span>
-        <span class="nm"><b>nas</b></span><span class="nm"><span class="os">/srv/widget</span><span class="gs" style="display:block;font-size:12.5px;margin-top:2px;color:var(--d-muted)">Detached HEAD, nothing to pull or push</span></span><span class="acts">${pb("Copy path", "quiet small")}${pb("Start an agent here", "small")}${rmb("nas")}</span>
-        <span class="nm"><b>win-box</b></span><span class="nm"><span class="os">C:\\Users\\user\\code\\widget</span><br><small class="gs err" title="The folder is gone. Beep makes it again and fills it from the other machines.">Folder missing: filling it again from the other machines</small></span><span class="acts">${pb("Copy path", "quiet small")}${pb("Start an agent here", "small")}${rmb("win-box")}</span>
-        <span class="nm"><b>gpu-box</b></span><span class="nm"><span class="os">gpu-box shares no folders</span></span><span class="acts">${pb("Clone here", "small")}</span></div>`).replace("</h4>", "<small>on 7 of 9</small></h4>"),
-
-    sync: () => S.d.fss === "stuck" ? `<div class="cc-sec"><h4>Machines</h4><span class="fs-tools"><small>1 of 5 in sync · 3 not syncing · 1 offline</small>${pb("Pause")}</span></div>
-      <div class="cc-panel fs-list">
-        <div class="fs-row" title="Right-click: Change folder…"><div class="fs-h"><span class="ddot"></span><b>studio</b><span class="pb-chip wait" title="/srv/share/.stignore has rules Beep cannot follow, so it does not take over from Syncthing: the directive #include">not syncing</span></div><div class="fs-m"><span>0 files</span><code>/srv/widget</code></div><div class="cc-err">/srv/share/.stignore has rules Beep cannot follow, so it does not take over from Syncthing: the directive #include</div></div>
-        <div class="fs-row"><div class="fs-h"><span class="ddot"></span><b>build-box</b><span class="pb-chip wait">Git sync needs review</span></div><div class="fs-m"><span>Git sync</span><code>/srv/project/widget</code></div><div class="cc-err">Git histories diverged. Review both sides before merging.</div><div class="fs-m">${pb("Fix with an agent", "small")}</div><div class="fs-m">Opens a draft with both checkouts and recent session references. The agent can read transcripts from either machine.</div></div>
-        <div class="fs-row"><div class="fs-h"><span class="ddot"></span><b>mini-box</b><span class="pb-chip wait">Local edits block Git sync</span></div><div class="cc-err">The checkout has staged, unstaged or untracked changes. Review them before updating.</div><div class="fs-m">${pb("Fix with an agent", "small")}</div></div>
-        <div class="fs-row"><div class="fs-h"><span class="ddot"></span><b>win-box</b><span class="pb-chip wait">folder missing</span></div><div class="fs-m"><span>0 files</span><code>C:\\Users\\user\\code\\widget</code></div><div class="cc-err">The folder is gone. Beep makes it again and fills it from the other machines.</div></div>
-        <div class="fs-row"><div class="fs-h"><span class="ddot"></span><b>nas</b><span class="pb-chip wait">disk missing</span></div><div class="fs-m"><span>0 files</span><code>/mnt/disk/widget</code></div><div class="cc-err">The folder above it is gone too, so nothing is made. Is its disk mounted?</div></div>
-        <div class="fs-row"><div class="fs-h"><span class="ddot off"></span><b>laptop</b><span class="pb-chip">offline</span></div><div class="fs-m"></div></div></div>
-      <div class="dmuted fs-note">Builds, ignored files and links stay on each machine. Right-click a machine to change its folder.</div>`
-    : `<div class="cc-sec"><h4>Machines</h4><span class="fs-tools"><small>in sync</small>${pb("Pause")}</span></div>
-      <div class="cc-panel fs-list">
-        <div class="fs-row"><div class="fs-h"><span class="ddot"></span><b>build-box</b><span class="pb-chip">in sync</span></div><div class="fs-m"><span>1,880 files</span><span>284 MB</span><code>/srv/project/widget</code></div></div>
-        <div class="fs-row"><div class="fs-h"><span class="ddot"></span><b>studio</b><span class="pb-chip">in sync</span></div><div class="fs-m"><span>1,880 files</span><span>284 MB</span><code>/srv/widget</code></div><div class="fs-m"><span class="clockoff" title="Sync keeps the newer file when two machines edit one at once, so turn on automatic time sync in Date and Time settings.">Clock is 2 min behind</span></div></div>
-        <div class="fs-row"><div class="fs-h"><span class="ddot off"></span><b>laptop</b><span class="pb-chip">offline</span></div><div class="fs-m"></div></div></div>
-      <div class="cc-sec"><h4>Conflicts</h4><small>edited on two machines at once</small></div>
-      <div class="cc-panel fs-list">${fsConflict("notes (conflict 1a2b3c4d).txt", "Another copy of notes.txt · on build-box, studio")}${fsConflict(".git/refs/beep-conflicts/heads/main-5e6f7a8b", "Another commit of main · on build-box")}</div>
-      <div class="dmuted fs-note">Builds, ignored files and links stay on each machine.</div>`,
+    machines: () => projectMachines(),
+    sync: () => projectMachines(),
   };
   const CHECK_MARK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
   const FAIL_MARK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>';
@@ -882,16 +885,7 @@ Error: Process completed with exit code 101.</pre></span>
   // Which row a detail keeps lit.
   const LIT = { ci351: "actions", ci349: "actions", review: "branches", is92: "issues", is53: "issues", terminals: "machines" };
   // Machines and their terminals are one pane, as on Home.
-  const details_terminals = () => {
-    // Terminals keep running on their machines; a row opens the agent view with it in a pane tab.
-    const none = S.d.ptm === "none", open = 'data-dact="dset:ags:drafterm" data-dgo="dAgentSession"';
-    const row = (dotOff, name, sub, right) => `<div class="cc-row cc-line" ${open}><span class="ddot${dotOff ? " off" : ""}"></span><button class="t" title="${name}"><b>${name}</b><span>${sub}</span></button><span class="r">${right}</span></div>`;
-    const rows = none ? "" : row(false, "cargo watch", "build-box · ~/code/widget", "running · 3 h") + row(false, "widget 1", "build-box · ~/code/widget", "running · 2 min") + row(true, "shell", "studio · ~/code/widget", "studio is offline, it may still run");
-    return `<div class="cc-sec"><h4>Terminals${none ? "" : ' <span style="color:var(--d-muted);font-weight:500;letter-spacing:0">3</span>'}</h4><small>Cmd T opens a new one</small></div>`
-      + (none ? '<div class="cc-panel cc-empty"><b>No terminals</b><span>Press Cmd T to open one in the project.</span></div>' : `<div class="cc-panel">${rows}</div>`);
-  };
-  const whereOnly = details.machines;
-  details.machines = details.terminals = () => whereOnly() + details_terminals();
+  details.terminals = details.machines;
   details.review = () => window.__rvPane();
   window.__pjReviewPage = () => { const keep = S.d.psel; S.d.psel = "review"; try { return D.dWinProject(); } finally { S.d.psel = keep; } };
   const openDiff = (cls = "") => `<button class="dbtn${cls ? " " + cls : ""}" data-dact="dset:ags:diffzoom" data-dgo="dAgentSession">View diff</button>`;
@@ -922,7 +916,7 @@ Error: Process completed with exit code 101.</pre></span>
     pill.textContent = S.d.pjmachine;
   });
   D.dWinProject = () => {
-    const sel = S.d.psel || "overview", lit = LIT[sel] || sel;
+    const sel = S.d.psel === "sync" || S.d.psel === "terminals" ? "machines" : S.d.psel || "overview", lit = LIT[sel] || sel;
     const list = LIST.map(g => (g.title ? `<h4>${g.title}<span class="n">${g.items.length}</span></h4>` : "")
       + (g.title === "Pull requests" ? __listCtl("pjp") : "")
       + (g.labels ? `<div class="pj-labels">${g.labels.map(l => `<button class="pj-tag lab" data-toast="Filter: ${l}">${l}</button>`).join("")}</div>` : "")
@@ -939,25 +933,26 @@ Error: Process completed with exit code 101.</pre></span>
 data/captures</textarea>
       <div class="am-sub">Each folder must be wholly ignored by Git and contain no tracked or staged files. These folders use file sync, including conflict copies. Other uncommitted edits stay local. Build output, linked repositories and paths excluded in .beepignore stay local.</div>
       <div class="am-line ip-acts"><button class="dbtn quiet" data-dact="dset:igsform:" data-dgo="dWinProject">Cancel</button><button class="dbtn pri" data-dact="dset:igs:1" data-dgo="dWinProject" data-toast="Ignored-folder sync saved for all machines" onclick="S.d.igsform=''">Save</button></div>`);
-    if (sel === "sync" && S.d.fss === "change") {
-      // Change folder…, from a machine's row menu: another folder there, nothing moved.
-      return ccSheetOver(page, `<div class="am-head"><b>Change the folder of widget on win-box</b><kbd>esc</kbd></div>
-        <div class="am-sub">Now in <code>C:\\Users\\user\\code\\widget</code></div>
-        <div class="am-label">Folder on win-box</div>
-        <div class="am-line"><div class="ip-folder"><input class="ip-path ip-dir" value="/d/work/widget"></div><button class="dbtn quiet">Choose…</button></div>
-        <div class="am-sub">Pick an empty folder, which the other machines fill, or a checkout of the same repository, which joins the sync. The folder it is in now stays on disk as it is.</div>
-        <div class="am-line ip-acts"><button class="dbtn quiet" data-dact="dset:fss:stuck" data-dgo="dWinProject">Cancel</button><button class="dbtn pri ip-go" data-dact="dset:fss:stuck" data-dgo="dWinProject" data-toast="widget on win-box now in D:\\work\\widget">Change</button></div>`);
+    if (sel === "machines" && S.d.fss === "change") {
+      const machine = S.d.pmmachine || "studio";
+      return ccSheetOver(page, `<div class="am-head"><b>Change folder on ${machine}</b><kbd>esc</kbd></div>
+        <div class="am-sub">Choose another folder for this project's copy on ${machine}.</div>
+        <label class="am-label" for="pm-folder">Folder on ${machine}</label>
+        <input id="pm-folder" class="ip-path" value="/srv/project/widget">
+        <div class="am-sub">Choose an empty folder or a checkout of the same repository. The current folder stays on disk.</div>
+        <div class="am-line ip-acts"><button class="dbtn quiet" data-dact="dset:fss:stuck" data-dgo="dWinProject">Cancel</button><button class="dbtn pri" data-dact="dset:fss:stuck" data-dgo="dWinProject" data-toast="Project folder changed">Change folder</button></div>`);
     }
     if (sel !== "machines" || (S.d.pwr !== "confirm" && S.d.pwr !== "refused" && S.d.pwr !== "delete")) return page;
     // Remove from this machine asks first. The node there stops syncing; its folder stays as it is.
     const back = S.screen === "dWinProjectWindow" ? "dWinProjectWindow" : "dWinProject";
     const err = S.d.pwr === "refused" ? `<div class="am-msg bad">An agent is working in acme/widget on mini-box. Stop it first.</div>` : "";
     const del = S.d.pwr === "delete";
-    return ccSheetOver(page, `<div class="am-head"><b>Remove acme/widget from mini-box?</b><kbd>esc</kbd></div>
-      <div class="am-msg">It stops syncing to mini-box and leaves the project's machines.</div>
-      <label class="am-sub" style="display:flex;gap:8px;align-items:center"><input type="checkbox"${del ? " checked" : ""} data-dact="dset:pwr:${del ? "confirm" : "delete"}" data-dgo="${back}">Also delete the folder on mini-box</label>
-      <div class="am-sub"><code>/srv/project/widget</code> ${del ? "is deleted on mini-box once it stops syncing there. The other machines keep their copies." : "stays on disk as it is."}</div>${err}
-      <div class="gp-foot"><button class="dbtn quiet" data-dact="dset:pwr:" data-dgo="${back}">Cancel</button><button class="dbtn warn" data-dact="dset:pwr:" data-dgo="${back}" data-toast="${del ? "acme/widget removed from mini-box. Deleted /srv/project/widget there" : "acme/widget removed from mini-box. Its folder stays"}">${del ? "Remove and delete" : "Remove"}</button></div>`);
+    const target = S.d.pmremove || "mini-box";
+    return ccSheetOver(page, `<div class="am-head"><b>Remove acme/widget from ${target}?</b><kbd>esc</kbd></div>
+      <div class="am-msg">It stops syncing to ${target} and leaves the project's machines.</div>
+      <label class="am-sub" style="display:flex;gap:8px;align-items:center"><input type="checkbox"${del ? " checked" : ""} data-dact="dset:pwr:${del ? "confirm" : "delete"}" data-dgo="${back}">Also delete the folder on ${target}</label>
+      <div class="am-sub"><code>${target === "studio" ? "/srv/widget" : "/srv/project/widget"}</code> ${del ? "is deleted on ${target} once it stops syncing there. The other machines keep their copies." : "stays on disk as it is."}</div>${err}
+      <div class="gp-foot"><button class="dbtn quiet" data-dact="dset:pwr:" data-dgo="${back}">Cancel</button><button class="dbtn warn" data-dact="dset:pwr:" data-dgo="${back}" data-toast="${del ? `Project removed from ${target}. Folder deleted there.` : `Project removed from ${target}. Its folder stays.`}">${del ? "Remove and delete" : "Remove"}</button></div>`);
   };
   VARIANTS.dWinProject = [
     ["Overview", () => { S.d.psel = "overview"; S.d.pmenu = ""; S.d.pjadd = ""; S.d.pjimg = false; S.d.pjfile = false; render(); }, () => (S.d.psel || "overview") === "overview" && !S.d.pmenu && !S.d.pjadd && !S.d.pjimg && !S.d.pjfile],
@@ -981,12 +976,18 @@ data/captures</textarea>
     ["Machines: remove and delete the folder", () => { S.d.psel = "machines"; S.d.pwr = "delete"; render(); }, () => S.d.psel === "machines" && S.d.pwr === "delete"],
     ["Machines: on one machine", () => { S.d.psel = "machines"; S.d.pwr = "one"; render(); }, () => S.d.psel === "machines" && S.d.pwr === "one"],
     ["Terminals", () => { S.d.psel = "terminals"; S.d.ptm = ""; render(); }, () => S.d.psel === "terminals"],
-    ["File sync", () => { S.d.psel = "sync"; S.d.fss = ""; render(); }, () => S.d.psel === "sync" && !S.d.fss],
-    ["File sync: not syncing, folder missing", () => { S.d.psel = "sync"; S.d.fss = "stuck"; render(); }, () => S.d.psel === "sync" && S.d.fss === "stuck"],
-    ["File sync: Change folder", () => { S.d.psel = "sync"; S.d.fss = "change"; render(); }, () => S.d.psel === "sync" && S.d.fss === "change"],
+    ["Machines: sync details", () => { S.d.psel = "sync"; S.d.fss = ""; render(); }, () => S.d.psel === "sync" && !S.d.fss],
+    ["Machines: sync needs attention", () => { S.d.psel = "sync"; S.d.fss = "stuck"; render(); }, () => S.d.psel === "sync" && S.d.fss === "stuck"],
+    ["Machines: change folder", () => { S.d.psel = "sync"; S.d.fss = "change"; render(); }, () => S.d.psel === "sync" && S.d.fss === "change"],
 
     ["Project menu", () => { S.d.psel = "overview"; S.d.pmenu = "1"; render(); }, () => !!S.d.pmenu],
     ...skinVariants].map(([l, f, on]) => l === "Project menu" ? [l, f, on] : [l, () => { S.d.pmenu = ""; f(); }, on]);
+  D.dProjectMachines = () => {
+    S.d.psel = "machines";
+    return D.dWinProject();
+  };
+  DESK_SCREENS.find(g => g.group === "Command center").items.push(["dProjectMachines", "Project: machines and sync", "ProjectMachines"]);
+  if (location.hash === "#dProjectMachines") { S.screen = "dProjectMachines"; render(); }
   // A project with no project agent: its sessions, where it lives, what runs there.
   window.__pjOne = () => `<div class="pj-cols pj-half">${csec("Past sessions", 2, `<div class="cc-panel"><div class="pv-row" style="cursor:pointer" data-dgo="dAgentSession"><span class="t">Retry uploads when the token expires</span><span class="m" style="align-items:center">${pvMark("claude")}<span>ended</span><span>build-box</span><span>widget</span><span>2 h</span></span></div><div class="pv-row" style="cursor:pointer" data-dgo="dAgentSession"><span class="t">Bump the toolchain</span><span class="m" style="align-items:center">${pvMark("codex")}<span>ended</span><span>studio</span><span>widget</span><span>1 d</span></span></div></div>`)}<div class="ca-col">${details.machines()}${csec("Agents", "", '<div class="cc-panel cc-empty"><span>No agent is working in this project right now.</span></div>')}${csec("Custom agents", "", '<div class="cc-panel cc-empty"><span>No custom agents in .claude/agents, .opencode/agent, .codex/agents, .pi/agents or .agents yet.</span></div>', pb("Reload", "quiet small"))}</div></div>`;
 

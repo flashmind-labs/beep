@@ -265,7 +265,7 @@ function moveButton(p: Project, m: WhereRow, row: GitRow, move: GitMove, on: boo
 
 /// Under a checkout's folder: its branch, and the reason a move was refused;
 /// and the Pull and Push icons.
-function gitCells(p: Project, m: WhereRow): { note: HTMLElement | null; buttons: HTMLElement[] } {
+export function gitCells(p: Project, m: WhereRow): { note: HTMLElement | null; buttons: HTMLElement[] } {
   const row = state.gitsync.get(p.name)?.find(r => r.machine_id === m.id);
   if (!row) return { note: null, buttons: [] };
   const line = gitLine(row);
@@ -304,6 +304,15 @@ export async function openSyncRepair(project: string, machine: string, error: st
   go("pane", { agentnew: { prompt, at: { machine, cwd: place.folder, places: projectPlaces(p), project } } });
 }
 
+/// Actions shared by a checkout's machine header and table row.
+export function checkoutItems(p: Project, m: WhereRow, path: string): MenuItem[] {
+  return [
+    { label: "Start an agent here", on: () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: path, places: projectPlaces(p), project: p.name } } }) },
+    ...(m.mac ? [{ label: "Open in Finder", on: () => void invoke("open_folder", { path }).catch(e => console.warn("open folder:", e)) }] : []),
+    { label: "Copy path", on: () => void copy(path) },
+  ];
+}
+
 /// One machine's row under "Where it lives": its folder and what to do
 /// there, or why there is none.
 export function whereRow(p: Project, m: WhereRow) {
@@ -312,11 +321,7 @@ export function whereRow(p: Project, m: WhereRow) {
   if (m.kind === "here") {
     const path = m.folder!;
     // One menu instead of a row of buttons; what needs fixing keeps its button.
-    const items: MenuItem[] = [
-      { label: "Start an agent here", on: () => go("pane", { agentnew: { prompt: "", at: { machine: m.id, cwd: path, places: projectPlaces(p), project: p.name } } }) },
-      ...(m.mac ? [{ label: "Open in Finder", on: () => void invoke("open_folder", { path }).catch(e => console.warn("open folder:", e)) }] : []),
-      { label: "Copy path", on: () => void copy(path) },
-    ];
+    const items = checkoutItems(p, m, path);
     const more = button("⋯", "quiet small", e => openMenu(e, m.name, items));
     more.title = "More";
     more.setAttribute("aria-label", `More for ${m.name}`);
