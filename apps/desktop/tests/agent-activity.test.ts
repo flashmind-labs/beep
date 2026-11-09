@@ -74,3 +74,22 @@ test("grouped tools retain their controls while the group changes", () => {
   assert.ok(group.querySelector('.pics img[alt="example"]'));
   disposeLog(log);
 });
+
+test("subagent activity retains its action while status changes", () => {
+  bar.innerHTML = '<div id="agbody"><div class="dcoderlog"></div></div>';
+  const body = bar.querySelector<ChatBody>("#agbody"); assert.ok(body);
+  Object.defineProperty(body, "clientHeight", { configurable: true, value: 800 });
+  const log = body.querySelector<HTMLElement>(".dcoderlog"); assert.ok(log);
+  const row = (meta: string): ActivityRow => ({ kind: "subagents", id: "1", at: 1, html: meta, heading: null, counts: "", rows: [{ at: 1, title: "Inspect", agent: "Explorer", meta, mark: "", target: { kind: "child", id: "child", key: "key" }, dismiss: false, stoppable: true, result: null, prompt: { text: "Read the file", open: true } }] });
+  const units = (meta: string) => [{ key: "turn", rows: () => [row(meta)] }];
+  setUnits(log, units("working"), []); fillLog(body, false);
+  const button = log.querySelector<HTMLButtonElement>("[data-kid]"); assert.ok(button);
+  button.focus();
+  setUnits(log, units("working · 1s"), []);
+  assert.equal(log.querySelector("[data-kid]"), button);
+  assert.equal(document.activeElement, button);
+  assert.equal(button.dataset.key, "key");
+  assert.equal(log.querySelector("[data-prompt]")?.getAttribute("aria-expanded"), "true");
+  assert.equal(log.querySelector(".dsubprompt pre")?.textContent, "Read the file");
+  disposeLog(log);
+});

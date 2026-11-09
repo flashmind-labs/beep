@@ -9,7 +9,7 @@ import { cachedCommandHtml } from "./command-state.ts";
 import { $, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media.ts";
 import type { SubagentRow } from "../agentpane/subagents-view.tsx";
-import type { ActivityRow } from "./activity-view.tsx";
+import { SUB_ICON, type ActivityRow } from "./activity-view.tsx";
 import { followAgent } from "../agentpane/worktree.ts";
 import { collectArtifacts, type MadeFile, type MadeFiles, madeFiles, toolArtifacts } from "../agentpane/artifacts-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
@@ -137,7 +137,6 @@ function mediaButtons(title: string) {
   return paths.length ? `<span class="dmedia">${paths.map(p => `<button data-media="${esc(p)}" title="Open ${esc(p)}">${ICON.image}${esc(p.slice(p.lastIndexOf("/") + 1))}</button>`).join("")}</span>` : "";
 }
 
-const SUB_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5V13a5 5 0 0 0 5 5h4.5"/></svg>';
 
 /// What the window saw of each subagent: when it started and ended, by
 /// session and the call's place. Calls carry no times.
@@ -188,19 +187,22 @@ const closedSubs = new Set<string>();
 try { for (const key of JSON.parse(localStorage.getItem(CLOSED_SUBS_KEY) ?? "[]")) closedSubs.add(key); } catch { /* none kept */ }
 
 /// The pane's list: the subagents shown in the log, less those closed.
-function paneSubs(p: AgentPage) {
-  const open = subagentsShown(p).filter(at => !closedSubs.has(`${AG.open?.session}
-${at}`));
-  const rows: SubagentRow[] = open.map(at => {
+function subData(at: number, inPane: boolean): SubagentRow {
     const x = subOf(at), kid = x.sub.child;
     const st = kid ? kidState(kid.state) : x.working ? "working" : x.failed ? "failed" : "done";
     const spent = kid?.tokens ? [`${tokenCount(kid.tokens)} tokens`, kid.cost != null ? money(kid.cost) : ""] : [];
     const meta = [st, x.ms != null ? duration(x.ms) : "", kid ? "" : x.sub.count === 1 ? "1 step" : `${x.sub.count} steps`, ...spent].filter(Boolean).join(" · ");
     return { at, title: x.title, agent: x.agent, meta, mark: stepMark(x.working ? "in_progress" : x.status, x.working),
       target: kid ? { kind: "child", id: kid.id, key: kid.key } : x.sub.session ? { kind: "native" } : { kind: "summary" },
-      dismiss: st !== "working" && st !== "needs you", stoppable: !!kid && (st === "working" || st === "needs you"),
-      result: !kid && !x.sub.session && AG.steps.get(at) ? x.sub.result || "The agent has not provided a readable conversation yet." : null };
-  });
+      dismiss: inPane && st !== "working" && st !== "needs you", stoppable: !!kid && (st === "working" || st === "needs you"),
+      result: !kid && !x.sub.session && AG.steps.get(at) ? x.sub.result || "The agent has not provided a readable conversation yet." : null,
+      prompt: !inPane && x.prompt ? { text: x.prompt, open: AG.steps.get(at) ?? false } : null };
+}
+
+function paneSubs(p: AgentPage) {
+  const open = subagentsShown(p).filter(at => !closedSubs.has(`${AG.open?.session}
+${at}`));
+  const rows = open.map(at => subData(at, true));
   return { rows, count: rows.length };
 }
 
@@ -224,6 +226,14 @@ function subCard(ats: number[]) {
   const counts = [working && `${working} working`, done && `${done} done`, failed && `${failed} failed`].filter(Boolean).join(" · ");
   const head = ats.length > 1 ? `<div class="h">${SUB_ICON}<b>${ats.length} ${all.every(x => x.sub.child) ? "agents started" : "subagents"}</b><span>${esc(counts)}</span></div>` : "";
   return `<div class="dsubgrp" data-row="${ats[0]}">${head}${ats.map(at => subRow(at)).join("")}</div>`;
+}
+
+function subActivity(ats: number[]): ActivityRow {
+  const all = ats.map(subOf), working = all.filter(x => x.working).length, failed = all.filter(x => x.failed).length;
+  const done = all.length - working - failed;
+  const counts = [working && `${working} working`, done && `${done} done`, failed && `${failed} failed`].filter(Boolean).join(" · ");
+  const heading = ats.length > 1 ? `${ats.length} ${all.every(x => x.sub.child) ? "agents started" : "subagents"}` : null;
+  return { kind: "subagents", id: String(ats[0]), at: ats[0], html: subCard(ats), heading, counts, rows: ats.map(at => subData(at, false)) };
 }
 
 /// The places of the subagents' calls among the entries shown.
@@ -393,7 +403,7 @@ function rowsOf(p: AgentPage, ats: number[]) {
     const en = p.entries[at - p.earlier];
     return en.kind === "tool" && !!AG.log?.subagent(AG.log.parseTool(en.text).output);
   };
-  const flush = () => { if (run.length) out.push(subCard(run)); run = []; };
+  const flush = () => { if (run.length) out.push(subActivity(run)); run = []; };
   const groups = AG.log ? toolRuns(p.entries, ats, p.earlier, openedSteps()) : ats.map(at => [at]);
 
   for (const group of groupThoughts(p.entries, groups, p.earlier)) {
