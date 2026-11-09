@@ -326,3 +326,26 @@ export function parseDraft(raw: string | null): ReviewComment[] {
     return [];
   }
 }
+
+/// Select surrounding lines from a wider patch without changing line numbers.
+export function contextFile(original: DiffFile, full: DiffFile, above: number, below: number): DiffFile {
+  const hunks: DiffHunk[] = [];
+  for (const h of full.hunks) {
+    let old = h.old_start, now = h.new_start;
+    let kept: DiffHunk | null = null;
+    for (const line of h.lines) {
+      const visible = original.hunks.some(base => line.k === "-"
+        ? old >= base.old_start - above && old < base.old_start + base.old_lines + below
+        : now >= base.new_start - above && now < base.new_start + base.new_lines + below);
+      if (visible) {
+        if (!kept) { kept = { old_start: old, new_start: now, old_lines: 0, new_lines: 0, section: h.section, lines: [] }; hunks.push(kept); }
+        kept.lines.push(line);
+        if (line.k !== "+") kept.old_lines++;
+        if (line.k !== "-") kept.new_lines++;
+      } else kept = null;
+      if (line.k !== "+") old++;
+      if (line.k !== "-") now++;
+    }
+  }
+  return { ...full, hunks };
+}

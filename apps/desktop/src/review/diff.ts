@@ -1,9 +1,10 @@
+import { readView, writeView } from "../agentpane/view-memory.ts";
 // The diff viewer: a one-line header with the counts, a filter, icon toggles
 // and the review buttons; a list of the files at wide widths; each file folding under
 // its sticky header, its lines in a unified view that scrolls sideways on its
 // own.
 import {
-  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitCell, type SplitRow, STATUS_LETTER, allFolded, baseTitle, changedLabel, currentFile, diffRows, isFolded, leftOutNote,
+  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitCell, type SplitRow, STATUS_LETTER, allFolded, baseTitle, changedLabel, currentFile, contextFile, diffRows, isFolded, leftOutNote,
   inView, lineKey, lineLabel, matchesFilter, numberWidth, placeComments, reviewText, splitHeight, splitPath, splitRows, stepFile, withLoaded,
 } from "./diff-state.ts";
 import { initTreeResize } from "./treewidth.ts";
@@ -20,7 +21,7 @@ export interface DiffSource {
   /// History views show immutable patches without session review controls.
   readOnly?: boolean;
   /// Reads the diff; with `only`, just those files in full.
-  load: (only: string[], lockfiles: boolean, uncommitted: boolean) => Promise<DiffView>;
+  load: (only: string[], lockfiles: boolean, uncommitted: boolean, context?: number) => Promise<DiffView>;
   /// Offers the Uncommitted only toggle, off to begin with.
   uncommitted?: boolean;
   /// Opens a file of the diff, when something can show it.
@@ -228,6 +229,20 @@ export function diffView(src: DiffSource): DiffViewHandle {
   const treeFiles = new Map<string, HTMLButtonElement>();
   const treeFolders = new Map<string, { group: HTMLDetailsElement; children: HTMLElement }>();
   const files = el("div", "dv-files");
+  const memoryKey = `${src.review.key}:diff`;
+  let memory = readView(memoryKey);
+  let restoredScroll = 0;
+  if (memory && typeof memory === "object") {
+    if ("scroll" in memory && typeof memory.scroll === "number") restoredScroll = memory.scroll;
+    if ("filter" in memory && typeof memory.filter === "string") { st.filter = memory.filter; find.value = st.filter; }
+    if ("folded" in memory && Array.isArray(memory.folded)) for (const pair of memory.folded) {
+      if (Array.isArray(pair) && typeof pair[0] === "string" && typeof pair[1] === "boolean") st.folded.set(pair[0], pair[1]);
+    }
+  }
+  const remember = () => writeView(memoryKey, { scroll: files.scrollTop, filter: st.filter, folded: [...st.folded], context: [...context].map(([path, value]) => [path, value.above, value.below]) });
+  files.addEventListener("scroll", remember);
+  find.addEventListener("input", remember);
+
   files.style.position = "relative";
   const fileObserver = new IntersectionObserver(entries => {
     const near: string[] = [];
@@ -460,6 +475,27 @@ export function diffView(src: DiffSource): DiffViewHandle {
     return section;
   }
 
+  const context = new Map<string, { original: DiffFile; above: number; below: number }>();
+  async function expandContext(f: DiffFile, direction: "above" | "below") {
+    if (!st.view || st.pending.has(f.path)) return;
+    const seq = st.seq;
+    const kept = context.get(f.path) ?? { original: f, above: 0, below: 0 };
+    const next = { ...kept, [direction]: kept[direction] + 10 };
+    st.pending.add(f.path);
+    try {
+      const got = await src.load([f.path], true, st.uncommitted, Math.max(next.above, next.below) + 3);
+      if (seq !== st.seq || !st.view) return;
+      const full = got.files.find(file => file.path === f.path);
+      if (!full || full.left_out) throw new Error("Could not load surrounding lines");
+      context.set(f.path, next);
+      st.view = withLoaded(st.view, [contextFile(kept.original, full, next.above, next.below)]);
+      placedCache = null;
+      redrawFile(f.path);
+      remember();
+    } catch (error) { say(`Could not expand context: ${reasonOf(error)}`); }
+    finally { st.pending.delete(f.path); }
+  }
+
   function fileBody(f: DiffFile): HTMLElement {
     bodyModes.set(f.path, st.split && !st.narrow);
     const note = leftOutNote(f);
@@ -504,6 +540,14 @@ export function diffView(src: DiffSource): DiffViewHandle {
       chunkObserver.observe(box);
       lines.append(box);
     }
+    const more = (direction: "above" | "below") => {
+      const label = `Show 10 lines ${direction}`;
+      const control = btn(el("span", "dv-context-g", icon(SVG.to)), `dv-context ${direction}`, label, () => expandContext(f, direction));
+      control.setAttribute("aria-label", label);
+      return control;
+    };
+    lines.prepend(more("above"));
+    lines.append(more("below"));
     return el("div", "dv-scroll", lines);
   }
 
@@ -689,6 +733,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
 
   function setFolded(path: string, folded: boolean) {
     st.folded.set(path, folded);
+    remember();
     const section = sections.get(path);
     const f = st.view?.files.find(x => x.path === path);
     if (!section || !f) return;
@@ -813,7 +858,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
   }
 
   async function load() {
+    if (st.view) { remember(); memory = readView(memoryKey); }
     const seq = ++st.seq;
+    context.clear();
     st.loading = true;
     st.error = "";
     drawHead();
@@ -822,12 +869,28 @@ export function diffView(src: DiffSource): DiffViewHandle {
       const view = await src.load([], false, st.uncommitted);
       if (seq !== st.seq) return;
       st.view = view;
+      if (memory && typeof memory === "object" && "context" in memory && Array.isArray(memory.context)) {
+        for (const item of memory.context) {
+          if (!Array.isArray(item) || typeof item[0] !== "string" || typeof item[1] !== "number" || typeof item[2] !== "number") continue;
+          const original = view.files.find(file => file.path === item[0]);
+          if (!original) continue;
+          const above = Math.max(0, Math.min(49_990, item[1])), below = Math.max(0, Math.min(49_990, item[2]));
+          const expanded = await src.load([original.path], true, st.uncommitted, Math.max(above, below) + 3);
+          if (seq !== st.seq || !st.view) return;
+          const full = expanded.files.find(file => file.path === original.path);
+          if (full && !full.left_out) {
+            context.set(original.path, { original, above, below });
+            st.view = withLoaded(st.view, [contextFile(original, full, above, below)]);
+          }
+        }
+      }
     } catch (e) {
       if (seq !== st.seq) return;
       st.error = reasonOf(e);
     }
     st.loading = false;
-    const keep = files.scrollTop;
+    const keep = restoredScroll || files.scrollTop;
+    restoredScroll = 0;
     drawHead();
     drawFiles();
     files.scrollTop = keep;

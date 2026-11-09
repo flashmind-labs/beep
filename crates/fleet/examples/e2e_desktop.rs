@@ -263,6 +263,7 @@ impl Driver {
                     head: String::new(),
                     only: Vec::new(),
                     lockfiles: false,
+                    context: 3,
                 };
                 match sessions::diff(&client, ask).await? {
                     NodeWork::Done(diff) => {

@@ -268,6 +268,7 @@ async fn a_files_diff_tree_and_edits_work_with_no_server() {
             head: String::new(),
             only: Vec::new(),
             lockfiles: false,
+            context: 3,
         },
     )
     .await
