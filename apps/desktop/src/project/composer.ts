@@ -1,4 +1,4 @@
-import { stashBar } from "../chat/stash.ts";
+import { StashBar } from "../chat/stash-hints.tsx";
 import { createElement } from "react";
 import { ComposerChoices, type ComposerChoicesState } from "./composer-choices.tsx";
 import { composeField, composeMessage } from "../chat/compose.ts";
@@ -174,8 +174,7 @@ function loadProjectBar(name: string) {
 /// Points the bar at project `name`: its field, machine, folder and harness.
 export function drawProjectComp(name: string) {
   const c = projectComp;
-  c.form.querySelector(".prompt-stash-bar")?.remove();
-  if (!document.querySelector("#agconv")) c.form.insertAdjacentHTML("beforeend", stashBar(name));
+  c.setFooter(document.querySelector("#agconv") ? null : createElement(StashBar, { project: name }));
   c.setPresentation(currentLocation()?.view === "pane" && S.view === "agent" && AG.draft === name ? "centered" : "compact");
 
   if (pc.project !== name) {

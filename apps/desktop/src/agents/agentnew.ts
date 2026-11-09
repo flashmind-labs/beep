@@ -2,7 +2,6 @@ import { createElement, Fragment } from "react";
 import { flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
 import { AgentNewShell } from "./agentnew-shell.tsx";
-import { stashBar } from "../chat/stash.ts";
 import { startAttachments } from "./start-attachments.ts";
 import { makeStartComposer } from "./start-composer.ts";
 import { FolderChoice, NewAgentNotes, ProjectChoice } from "./start-composer-view.tsx";
@@ -71,6 +70,7 @@ export function keepMachine(project: string | null | undefined, machine: string)
 /// until read.
 let KNOWN: Machine[] | null = null;
 let composer: ReturnType<typeof makeStartComposer>;
+let shellRoot: ReturnType<typeof openBarPage>["root"] | null = null;
 let attachments: ReturnType<typeof startAttachments>;
 let fixedProject = false;
 
@@ -164,8 +164,9 @@ function drawFrame() {
   c.send.id = "aggo";
   c.pick.id = "agpick";
   c.err.id = "agerr";
-  const { root } = openBarPage(() => { closedPicker(c.pick); c.dispose(); });
-  flushSync(() => root.render(createElement(AgentNewShell, { pane: PANE, composer: c.form, stash: stashBar(f.project ?? null) })));
+  const { root } = openBarPage(() => { shellRoot = null; closedPicker(c.pick); c.dispose(); });
+  shellRoot = root;
+  flushSync(() => root.render(createElement(AgentNewShell, { pane: PANE, composer: c.form, project: f.project ?? null })));
   c.form.addEventListener("submit", e => { e.preventDefault(); void startAgent(); });
   c.input.addEventListener("input", () => {
     f.prompt = c.input.value;
@@ -182,8 +183,8 @@ function drawFrame() {
 function drawParts() {
   if (S.view !== "agentnew" || !$("#agbox")) return;
   const f = AG.form, hosts = AG.hosts ?? [];
-  const stashKeys = bar.querySelector(".prompt-stash-bar");
-  if (stashKeys) stashKeys.outerHTML = stashBar(f.project ?? null);
+  const root = shellRoot;
+  if (root) flushSync(() => root.render(createElement(AgentNewShell, { pane: PANE, composer: composer.form, project: f.project ?? null })));
 
   // With no machine picked, or one that no longer runs agents: the project's
   // first machine with a checkout and an agent, else the first with an agent.

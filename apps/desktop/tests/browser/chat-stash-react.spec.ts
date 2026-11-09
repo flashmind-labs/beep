@@ -7,7 +7,9 @@ test("stash panel retains row focus and scroll on refresh and pops a draft", asy
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   const field = page.getByRole('textbox', { name: 'Task for a coding agent' });
   await field.fill('Current draft');
-  await page.getByRole('button', { name: 'Stash 12' }).click();
+  const stash = page.getByRole('button', { name: 'Stash 12' });
+  await stash.evaluate(el => Reflect.set(window, 'stashButton', el));
+  await stash.click();
   const panel = page.getByRole('dialog', { name: 'Project stash' });
   const items = panel.locator('.prompt-stash-items');
   await expect(panel).toBeVisible();
@@ -21,6 +23,7 @@ test("stash panel retains row focus and scroll on refresh and pops a draft", asy
   await page.evaluate(project => window.__navigation.emit('prompt-stash-changed', project), projectName);
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'prompt_stash_list').length)).toBeGreaterThan(reads);
   await expect(remove).toHaveAttribute('data-identity', 'kept');
+  expect(await stash.evaluate(el => el === Reflect.get(window, 'stashButton'))).toBe(true);
   await expect(remove).toBeFocused();
   await expect(items).toHaveJSProperty('scrollTop', top);
   await article.getByRole('button', { name: 'Stash draft & pop' }).click();
