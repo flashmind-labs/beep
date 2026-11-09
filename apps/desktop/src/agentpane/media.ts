@@ -631,7 +631,7 @@ function tabMenu(e: MouseEvent) {
   const items: MenuItem[] = [];
   const note = (text: string) => { const m = t.el?.querySelector(".agpacts .meta"); if (m) m.textContent = text; };
   const path = t.kind === "text" ? t.rel : t.path;
-  if (t.kind === "text" && t.rel && isHtmlFile(t.rel) && !t.text?.binary) items.push({ label: "Preview", on: () => { focusTab(t.id); previewTab(t); } });
+  if (t.kind === "text" && t.rel && isHtmlFile(t.rel) && !t.text?.binary) items.push({ label: t.preview?.active ? "Source" : "Preview", on: () => { focusTab(t.id); if (t.preview?.active) t.el?.querySelector<HTMLButtonElement>("[data-preview]")?.click(); else previewTab(t); } });
   if (path) items.push({ label: "Copy path", on: () => void writeClipboard(path) });
 
   if (t.kind === "text" && t.rel) {
