@@ -1,5 +1,5 @@
 import { createElement, type ReactNode } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { showWindowParts } from "../center/window-root.ts";
 import { HistoryFacts } from "./history-facts.tsx";
 import { HistoryHeader } from "./history-header.tsx";
 import { HistoryNavigation } from "./history-navigation.tsx";
@@ -48,15 +48,14 @@ interface ProjectHistory {
   tab: "changes" | "details" | "sessions";
   query: string;
   nav: HTMLElement;
-  navigationRoot: Root;
+  chrome: HTMLElement;
   tree: HTMLElement;
-  treeRoot: Root;
   detail: HTMLElement;
-  header: { element: HTMLElement; root: Root };
-  sessionsView: { element: HTMLElement; root: Root } | null;
-  pathView: { element: HTMLElement; root: Root } | null;
+  header: { element: HTMLElement };
+  sessionsView: { element: HTMLElement } | null;
+  pathView: { element: HTMLElement } | null;
   foot: HTMLElement;
-  facts: { element: HTMLElement; root: Root } | null;
+  facts: { element: HTMLElement } | null;
   view: DiffViewHandle | null;
   viewKey: string;
   timer?: ReturnType<typeof setTimeout>;
@@ -127,14 +126,18 @@ export function makeGitHistory(deps: HistoryDeps) {
     const headerElement = el("div");
     headerElement.style.display = "contents";
     p = { name, lists: new Map(), files: new Map(), commits: new Map(), open: new Set(["history"]), selected: null,
-      path: null, tab: "changes", query: "", nav, navigationRoot: createRoot(chrome), tree, treeRoot: createRoot(tree), detail, header: { element: headerElement, root: createRoot(headerElement) }, sessionsView: null, pathView: null, foot, facts: null, view: null, viewKey: "" };
+      path: null, tab: "changes", query: "", nav, chrome, tree, detail, header: { element: headerElement }, sessionsView: null, pathView: null, foot, facts: null, view: null, viewKey: "" };
     projects.set(name, p);
     drawNavigation(p);
     return p;
   }
 
+  function renderHistory(p: ProjectHistory, slot: string, host: HTMLElement, content: ReactNode) {
+    showWindowParts([{ part: `git-history:${p.name}:${slot}`, host, content }]);
+  }
+
   function drawNavigation(p: ProjectHistory) {
-    p.navigationRoot.render(createElement(HistoryNavigation, {
+    renderHistory(p, "navigation", p.chrome, createElement(HistoryNavigation, {
       footer: p.foot, machine: p.data?.machine_name ?? null, query: p.query, back: deps.back,
       refresh: () => void refresh(p.name), collapse: () => { p.open.clear(); renderTree(p); },
       search: (query: string) => {
@@ -292,7 +295,7 @@ export function makeGitHistory(deps: HistoryDeps) {
       ]);
     }));
     drawNavigation(p);
-    p.treeRoot.render([history, branches, worktrees]);
+    renderHistory(p, "tree", p.tree, [history, branches, worktrees]);
   }
 
   function select(p: ProjectHistory, selected: GitSelection) {
@@ -320,7 +323,7 @@ export function makeGitHistory(deps: HistoryDeps) {
     const c = selected.kind === "commit" ? selected.commit : null;
     const w = selected.kind === "working" ? selected.worktree : null;
     const ref = c && p.data.refs.find(r => r.kind === "local" && r.head === c.id);
-    p.header.root.render(createElement(HistoryHeader, {
+    renderHistory(p, "header", p.header.element, createElement(HistoryHeader, {
       key: selectionKey(selected), breadcrumb: c ? `${selected.kind === "commit" ? selected.origin : ""} / ${c.id.slice(0, 7)}` : `Worktrees / ${w!.branch || "Detached HEAD"}`,
       title: c ? c.subject || "Untitled commit" : `Uncommitted changes in ${w!.branch || "checkout"}`,
       metadata: c ? `${c.author} · ${new Date(c.committed_at).toLocaleString()}` : `${w!.path} · ${p.data.machine_name}`,
@@ -332,9 +335,9 @@ export function makeGitHistory(deps: HistoryDeps) {
     const drawFacts = () => {
       if (!p.facts) {
         const element = el("div", "gh-facts-root");
-        p.facts = { element, root: createRoot(element) };
+        p.facts = { element };
       }
-      p.facts.root.render(createElement(HistoryFacts, {
+      renderHistory(p, "facts", p.facts.element, createElement(HistoryFacts, {
         id: c?.id || w!.path, author: c?.author ?? null, parents: c?.parents ?? [], onParent: id => void parent(p, id),
       }));
       return p.facts.element;
@@ -352,12 +355,12 @@ export function makeGitHistory(deps: HistoryDeps) {
     if (p.tab === "sessions") {
       if (!p.sessionsView) {
         const element = el("div", "gh-detail-body");
-        p.sessionsView = { element, root: createRoot(element) };
+        p.sessionsView = { element };
       }
       const currentTree = w || (ref && p.data.worktrees.find(tree => tree.branch === ref.name));
       const all = deps.sessions(p.name);
       const sessions = currentTree ? branchSessions(all || [], p.data.machine_id, currentTree.path, p.data.worktrees.map(tree => tree.path)) : [];
-      p.sessionsView.root.render(createElement(HistorySessions, { linked: !!currentTree, loading: all === undefined, sessions, open: deps.openSession }));
+      renderHistory(p, "sessions", p.sessionsView.element, createElement(HistorySessions, { linked: !!currentTree, loading: all === undefined, sessions, open: deps.openSession }));
       if (existingBody === p.sessionsView.element) return;
       if (p.header.element.parentElement === p.detail && existingBody) existingBody.replaceWith(p.sessionsView.element);
       else p.detail.replaceChildren(p.header.element, p.sessionsView.element);
@@ -391,9 +394,9 @@ export function makeGitHistory(deps: HistoryDeps) {
       if (path) {
         if (!p.pathView) {
           const element = el("div"); element.style.display = "contents";
-          p.pathView = { element, root: createRoot(element) };
+          p.pathView = { element };
         }
-        p.pathView.root.render(createElement(HistoryPath, { path, showAll: () => { p.path = null; renderDetail(p); } }));
+        renderHistory(p, "path", p.pathView.element, createElement(HistoryPath, { path, showAll: () => { p.path = null; renderDetail(p); } }));
         body.append(p.pathView.element);
       }
       body.append(p.view.el);
