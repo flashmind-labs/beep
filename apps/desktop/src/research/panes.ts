@@ -3,7 +3,7 @@
 import { answerHtml, userRowHtml } from "../agents/turnrows.ts";
 import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
-import { type Agent, type Entry, type Note, type Open, type Said, RUNNING, agentOf, count, doing, host, kind, look, progress, round, shownTab } from "./research-state.ts";
+import { type Agent, type Entry, type Note, type Open, type Said, RUNNING, agentOf, count, doing, kind, look, progress, round, shownTab } from "./research-state.ts";
 import type { Doing } from "./research-state.ts";
 
 const rav = (id: string) => { const l = look(id); return `<span class="rav" style="--c:${l.c}">${l.ini}</span>`; };
@@ -56,7 +56,6 @@ export function paneHtml(o: Open) {
   const tab = shownTab(o);
   if (tab === "draft") return draftHtml(o);
   if (tab === "notes") return notesHtml(o);
-  if (tab === "sources") return sourcesHtml(o);
   if (tab === "room") return roomHtml(o);
   if (tab === "agents") return agentsHtml(o);
   return threadHtml(o, agentOf(o, tab));
@@ -110,13 +109,6 @@ function noteHtml(o: Open, n: Entry & Note, title: string) {
 function notesHtml(o: Open) {
   const notes = o.entries.filter((e): e is Entry & Note => e.kind === "note");
   return `<div class="rpane">${notes.length ? `<div class="rbox">${notes.map(n => noteHtml(o, n, esc(agentOf(o, n.agent).name))).join("")}</div>` : empty("No notes yet.")}</div>`;
-}
-
-function sourcesHtml(o: Open) {
-  const sources = o.research?.sources ?? [];
-  if (!sources.length) return `<div class="rpane">${empty("No sources yet.")}</div>`;
-  return `<div class="rpane"><div class="rtbl" role="table"><span class="th">#</span><span class="th">Source</span><span class="th">Kept by</span>${sources.map(s =>
-    `<span class="n">${s.number}</span><span class="src"><a href="${esc(s.url)}">${esc(s.title)}</a><small>${esc(host(s.url))}</small><q>${esc(s.quote)}</q></span><span class="by">${rav(s.agent)}${esc(agentOf(o, s.agent).name)}</span>`).join("")}</div></div>`;
 }
 
 function msgHtml(o: Open, e: Entry & Said) {
