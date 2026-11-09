@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { CustomAgentPrompt, CustomAgentsView } from "./customagents-view.tsx";
 // The Custom agents list of a project page: the named agents the coding agent
 // harnesses define in the project's folder on one machine, and the user's own
@@ -54,7 +55,7 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
     return s;
   }
 
-  let mounted: { host: HTMLElement; root: Root } | null = null;
+  let mounted: { host: HTMLElement } | null = null;
 
   function count(place: AgentsPlace | null) { return place ? listed(place)?.rows?.length ?? 0 : 0; }
 
@@ -67,19 +68,19 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
     if (!mounted) {
       const host = el("div");
       host.id = "sec-custom-agents";
-      mounted = { host, root: createRoot(host) };
+      mounted = { host };
     }
     const current = mounted;
-    flushSync(() => current.root.render(createElement(CustomAgentsView, {
+    showWindowParts([{ part: "project-custom-agents", host: current.host, content: createElement(CustomAgentsView, {
       rows, message, error: !!s?.error && !rows,
       reload: place ? () => void load(place) : null,
       open: (a: CustomAgentRow) => { if (place) openPrompt(a, place); },
       start: (a: CustomAgentRow) => { if (place) deps.start(a, place); },
-    })));
+    }) }]);
     return deps.slot(current.host);
   }
 
-  function dispose() { mounted?.root.unmount(); mounted = null; }
+  function dispose() { if (mounted) removeWindowPart("project-custom-agents"); mounted = null; }
 
   /// The agent's prompt, read-only, over the window.
   function openPrompt(a: CustomAgentRow, place: AgentsPlace) {

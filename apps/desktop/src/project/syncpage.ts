@@ -12,8 +12,7 @@ import { line, rowButton } from "../ui/pieces.ts";
 import { IC } from "../ui/icons.ts";
 import { fsync } from "./sections.ts";
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { showWindowParts } from "../center/window-root.ts";
 import { SyncProject } from "./syncpage-view.tsx";
 
 /// How old a project's sync may get while the page shows.
@@ -53,18 +52,15 @@ export function redrawSync() {
   drawTop();
 }
 
-let page: { host: HTMLElement; root: Root } | null = null;
 function drawSync() {
   const el = views.get("sync")?.el;
   if (!el) return;
   const count = (p: string) => conflictList(fsync.detail(p)).length;
   const projects = syncProjects().sort((a, b) => count(b) - count(a) || a.localeCompare(b));
-  if (!page || page.host !== el) { page?.root.unmount(); page = { host: el, root: createRoot(el) }; }
-  const root = page.root;
   const models = projects.map(project => ({ project, model: fsync.page(project) }));
-  flushSync(() => root.render(createElement("div", { className: "cc-view" }, projects.length
+  showWindowParts([{ part: "sync-page", host: el, content: createElement("div", { className: "cc-view" }, projects.length
     ? models.map(({ project, model }) => createElement(SyncProject, { key: project, sync: fsync, project, model }))
-    : createElement("div", { className: "cc-panel cc-empty" }, createElement("b", null, "No project syncs yet")))));
+    : createElement("div", { className: "cc-panel cc-empty" }, createElement("b", null, "No project syncs yet"))) }]);
 }
 
 registerView("sync", {
