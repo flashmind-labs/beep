@@ -13,13 +13,13 @@ import type { RunningAgent } from "../agents/running-state.ts";
 import { plainPath, type WhereRow } from "./projects-state.ts";
 
 /// Why `m` cannot leave `project` now, or null.
-function blocked(project: string, rows: readonly WhereRow[], m: WhereRow) {
+export function blocked(project: string, rows: readonly WhereRow[], m: WhereRow) {
   const running = (state.home?.running || []).filter((r): r is RunningAgent => r.kind === "agent");
   return removeBlock(project, rows, m, m.folder ? workingIn(running, m.id, m.folder) : 0);
 }
 
 /// Asks, then takes `project` off `m`, and deletes its folder there when ticked.
-function confirmRemove(project: string, m: WhereRow) {
+export function confirmRemove(project: string, m: WhereRow) {
   const folder = m.folder ? plainPath(m.folder) : "The folder";
   confirmSheet({
     title: `Remove ${project} from ${m.name}?`,
