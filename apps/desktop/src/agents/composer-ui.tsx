@@ -5,7 +5,7 @@ import { AgentQueue } from "./queue-view.tsx";
 import type { Waiting } from "./agentqueue.ts";
 import type { Row } from "./mention-state.ts";
 
-interface Owner { field: HTMLElement; root: DocumentView; queue: HTMLElement | null; attachments: HTMLElement | null; menu: HTMLElement | null; queueView: ReactElement | null; attachmentView: ReactElement | null; menuView: ReactElement | null; controls: Map<HTMLElement, { key: number; node: ReactElement | null }>; next: number; observer: MutationObserver }
+interface Owner { field: HTMLElement; root: DocumentView; queue: HTMLElement | null; queueSignature: string | null; attachments: HTMLElement | null; menu: HTMLElement | null; queueView: ReactElement | null; attachmentView: ReactElement | null; menuView: ReactElement | null; controls: Map<HTMLElement, { key: number; node: ReactElement | null }>; next: number; observer: MutationObserver }
 // One owner keeps all session composer portals alive until the field leaves.
 // Queue, attachment and menu hosts can come and go without replacing controls.
 let current: Owner | null = null;
@@ -18,7 +18,7 @@ function ownerOf(field: HTMLElement): Owner {
   const root = createDocumentView(document.createElement("div"));
   const observer = new MutationObserver(() => { if (current?.field === field && !field.isConnected) disposeComposerUi(); });
   observer.observe(document.body, { childList: true, subtree: true });
-  current = { field, root, queue: null, attachments: null, menu: null, queueView: null, attachmentView: null, menuView: null, controls: new Map(), next: 0, observer };
+  current = { field, root, queue: null, queueSignature: null, attachments: null, menu: null, queueView: null, attachmentView: null, menuView: null, controls: new Map(), next: 0, observer };
   return current;
 }
 export function disposeComposerUi() {
@@ -39,11 +39,14 @@ export function showAgentAttachments(field: HTMLElement, view: ReactElement | nu
 export function showAgentQueue(field: HTMLElement, items: readonly Waiting[]) {
   if (!items.length) {
     if (!current || current.field !== field || !current.queue) return;
-    const owner = current, old = owner.queue; owner.queue = null; owner.queueView = null; draw(owner); old?.remove();
+    const owner = current, old = owner.queue; owner.queue = null; owner.queueSignature = null; owner.queueView = null; draw(owner); old?.remove();
     return;
   }
   const owner = ownerOf(field);
+  const signature = JSON.stringify(items.map(item => [item.typed, item.text, item.images.map(image => image.name), item.paths, item.state]));
+  if (owner.queue && owner.queueSignature === signature) return;
   if (!owner.queue) { owner.queue = document.createElement("div"); owner.queue.className = "ag-queue"; owner.queue.id = "agqueue"; (document.getElementById("agatt") ?? field).before(owner.queue); }
+  owner.queueSignature = signature;
   owner.queueView = createElement(AgentQueue, { items }); draw(owner);
 }
 function Menu({ rows, index, pick }: { rows: Row[]; index: number; pick(index: number): void }) {

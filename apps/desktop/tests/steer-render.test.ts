@@ -246,6 +246,23 @@ test("stream updates keep queued message controls and focus", t => {
   assert.equal(document.activeElement, edit);
 });
 
+test("unchanged queue snapshots keep focused controls, then show changed content", t => {
+  setup();
+  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  const item = { how: "steer" as const, typed: "First", text: "First", paths: [], images: [], state: "sent" as const, after: 0 };
+  AG.queue = [item];
+  drawQueue();
+  const edit = bar.querySelector<HTMLButtonElement>('[data-agq="0"][data-act="edit"]'); assert.ok(edit);
+  edit.focus();
+  AG.queue = [{ ...item }];
+  drawQueue();
+  assert.equal(bar.querySelector('[data-agq="0"][data-act="edit"]'), edit);
+  assert.equal(document.activeElement, edit);
+  AG.queue = [{ ...item, typed: "Updated", text: "Updated" }];
+  drawQueue();
+  assert.match(bar.querySelector("#agqueue")?.textContent ?? "", /Updated/);
+});
+
 
 test("leaving the agent disposes its queue view but keeps pending messages", async t => {
   setup();
