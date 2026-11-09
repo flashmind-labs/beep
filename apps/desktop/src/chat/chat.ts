@@ -17,13 +17,13 @@ import { composeField } from "./compose.ts";
 import { $, $$, bar, changed, entry, here, live, newId, PANE, queued, S, stopping } from "../bar/core.ts";
 import { renderAgentNew } from "../agents/agentnew.ts";
 import { AnsweredIds } from "./approvals.ts";
-import { appTile, fillAppTiles } from "./applogo.ts";
+import { fillAppTiles } from "./applogo.ts";
 import type { LiveEntry, PendingApproval } from "../bar/core.ts";
 import { currentChatHints, refreshHints } from "../bar/hints.ts";
 import { drawThrough, earlierPrompts, loadTurnAgent, sourceRow } from "./history.ts";
 import type { WebSource } from "./history.ts";
 import { heard, takeDraft } from "../bar/live.ts";
-import { fillPics, picRow, productRow, replyPic, sentFile } from "./media.ts";
+import { productRow, replyPic, sentFile } from "./media.ts";
 import type { PicRef, SentFile, SentImage } from "./media.ts";
 import { canPickModel, modelName, MODELS } from "../settings/model.ts";
 import { replyActs, stoppedRow } from "./rerun.ts";
@@ -32,8 +32,8 @@ import { DESCRIBED, doneLabel, QUIET_TOOLS, toolLabel } from "./tools.ts";
 import { attachLive, endLive, trackLive } from "../agents/thoughtlive.ts";
 import { followsAfterScroll, returnScroll } from "../agents/logscroll.ts";
 import { followEnd, unfollowEnd } from "../ui/followend.ts";
-import { answerHtml, errorCardHtml, tickTurns, toggleThought, turnHeadHtml, userRowHtml } from "../agents/turnrows.ts";
-import { esc, linkified, plural } from "../ui/format.ts";
+import { answerHtml, tickTurns, toggleThought, turnHeadHtml } from "../agents/turnrows.ts";
+import { linkified, plural } from "../ui/format.ts";
 import type { ToolKind } from "../agents/agentturns.ts";
 import { refreshStatus } from "../bar/views.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
@@ -283,16 +283,15 @@ export function newTurn(question: string, images?: PicRef[], files?: AskFile[]) 
 /// A turn for `question`, not yet in any chat.
 export function makeTurn(question: string, images?: PicRef[], files?: AskFile[], prepared: Turn | null = null) {
   const owner = body();
-  const turn = owner ? prepared ?? createChatTurn(owner, { prompt: !!question, pictures: !!images?.length })
-    : h<Turn>(`<div class="turn dcoderlog">${question ? userRowHtml(linkified(question)) : ""}${picRow(images)}</div>`);
+  if (!owner) throw new Error("Cannot create a chat turn without a body");
+  const turn = prepared ?? createChatTurn(owner, { prompt: !!question, pictures: !!images?.length });
   turnState(turn).question = question;
   const prompt = turn.querySelector<HTMLElement>(".dcoderen.user");
-  if (owner && prompt) renderChatPrompt(owner, turn, prompt, linkified(question));
+  if (prompt) renderChatPrompt(owner, turn, prompt, linkified(question));
   const pictures = turn.querySelector<HTMLElement>(".dpics");
-  if (owner && pictures && images) renderChatPictures(owner, turn, pictures, images);
-  else fillPics(turn);
+  if (pictures && images) renderChatPictures(owner, turn, pictures, images);
   if (files?.length) turn.append(askFiles(files, owner, turn));
-  if (owner) turnBodies.set(turn, owner);
+  turnBodies.set(turn, owner);
   return turn;
 }
 
@@ -312,7 +311,7 @@ export function ranOn(turn: Turn, model: string, thinking: string) {
     box.className = "drerunof dranon";
     renderChatNotice(owner, turn, box, { kind: "label", message: line });
     prompt.after(box);
-  } else prompt.after(h(`<div class="drerunof dranon">${esc(line)}</div>`));
+  }
 }
 
 /// The user's prompt in a turn, and the answer.
@@ -453,11 +452,8 @@ export function approvalCard(id: string | null, turn: Turn, { query_id, app, act
   const card = document.createElement("div");
   card.className = "dcard";
   const owner = owningChatBody(turn);
-  if (owner) renderChatApproval(owner, turn, card, { app, action, fields, grant, answer: decision => void answer(decision) });
-  else {
-    card.innerHTML = `<div class="head">${appTile(app)}<div class="dcol"><b>${esc(action)}?</b><small>${esc(app)} asks first</small></div></div>${fields.length ? `<div class="kv">${fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}<div class="acts"><button class="dbtn pri" data-d="allow">Allow<kbd>⌘${ICON.ret}</kbd></button>${grant ? "" : `<button class="dbtn" data-d="session" title="Allow this action without asking until this chat ends">Allow for this session<kbd>⇧⌘${ICON.ret}</kbd></button><button class="dbtn" data-d="always" title="Allow this action without asking until this chat ends">Always<kbd>⌥⌘${ICON.ret}</kbd></button>`}<button class="dbtn warn" data-d="deny">Deny<kbd>⌘D</kbd></button></div>`;
-    card.querySelectorAll<HTMLElement>("[data-d]").forEach(b => b.addEventListener("click", () => answer(b.dataset.d as Decision)));
-  }
+  if (!owner) return;
+  renderChatApproval(owner, turn, card, { app, action, fields, grant, answer: decision => void answer(decision) });
   fillAppTiles(card);
   turn.append(card);
   const e = entry(id);
@@ -468,17 +464,11 @@ export function approvalCard(id: string | null, turn: Turn, { query_id, app, act
 
 /// Follow-ups under the reply; picking one sends it.
 export function suggestions(turn: Turn, replies: string[]) {
+  const owner = owningChatBody(turn);
+  if (!owner) return;
   let row = turn.querySelector<HTMLElement>(".dreplies");
   if (!row) { row = document.createElement("div"); row.className = "dreplies"; turn.append(row); }
-  const owner = owningChatBody(turn);
-  if (owner) renderChatSuggestions(owner, turn, row, replies, reply => void send(reply));
-  else {
-    row.replaceChildren(...replies.map(reply => {
-      const button = h<HTMLButtonElement>(`<button class="dbtn">${esc(reply)}</button>`);
-      button.addEventListener("click", () => void send(reply));
-      return button;
-    }));
-  }
+  renderChatSuggestions(owner, turn, row, replies, reply => void send(reply));
 }
 
 export function removeChatSuggestions(owner: ChatBody) {
@@ -497,7 +487,7 @@ export function failed(turn: Turn, message: string) {
     box.className = "derrcard";
     renderChatNotice(owner, turn, box, { kind: "error", message });
     turn.append(box);
-  } else turn.append(h(errorCardHtml(message)));
+  }
   if (/removed|not linked/i.test(message)) refreshStatus();
 }
 
@@ -787,7 +777,7 @@ export function settle(id: string | null, e: LiveEntry, pending: PendingApproval
     box.className = "dmuted";
     renderChatNotice(owner, turn, box, { kind: "label", message: String(said) });
     pending.card.replaceWith(box);
-  } else pending.card.replaceWith(h(`<div class="dmuted">${said}</div>`));
+  }
   turnState(turn).done = false;
   turnState(turn).ended = null;
   e.run = { id: null, turn };

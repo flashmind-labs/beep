@@ -34,7 +34,8 @@ export async function research(topic: string) {
     if (ask && ask.value.trim() === topic) { ask.value = ""; grow(ask); refreshHints(); }
   } catch (err) {
     if (S.view === "research") { RL.error = String(err); return drawResearches(); }
-    failed(newTurn(""), String(err));
+    if (S.view === "chat") failed(newTurn(""), String(err));
+    else notice(`Could not start research: ${String(err)}`, { bad: true });
   }
 }
 
