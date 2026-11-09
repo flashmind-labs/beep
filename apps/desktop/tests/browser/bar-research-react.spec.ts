@@ -38,15 +38,15 @@ test("research keyboard selection and export target the chosen row", async ({ pa
 test("shared bar pages size the window from their visible contents", async ({ page }) => {
   await openResearch(page);
   const measured = () => page.evaluate(() => {
-    const host = document.querySelector<HTMLElement>("#bar > [data-bar-page]");
-    if (!host) return 0;
-    return 2 + [...host.children].reduce((height, element) => {
-      if (!(element instanceof HTMLElement)) return height;
-      return height + (element.matches(".dbody, .dlist, .dkeys, .agc-wrap") ? element.scrollHeight : element.offsetHeight);
-    }, 0);
+    const bar = document.querySelector<HTMLElement>("#bar");
+    if (!bar) return 0;
+    const boxes = (parent: Element): HTMLElement[] => [...parent.children].flatMap(element => element instanceof HTMLElement ? getComputedStyle(element).display === "contents" ? boxes(element) : [element] : []);
+    return 2 + boxes(bar).filter(element => !["latest", "map", "keys", "viewer", "saved"].includes(element.id)).reduce((height, element) => height + (element.matches(".dbody, .dlist, .dkeys, .agc-wrap") ? element.scrollHeight : element.offsetHeight), 0);
   });
   const lastHeight = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "resize_bar").map(call => Number(call.args.height)).at(-1) ?? 0);
   await expect.poll(measured).toBeGreaterThan(100);
+  await expect(page.locator("#bar .dhints")).toBeVisible();
+  expect(await page.locator("#bar .dhints").evaluate(el => (el as HTMLElement).offsetHeight)).toBeGreaterThan(0);
   await expect.poll(async () => (await lastHeight()) === (await measured())).toBe(true);
   await page.evaluate(() => window.__navigation.emit("bar-shown", "chats"));
   await expect(page.getByRole("listbox", { name: "Chats" })).toBeVisible();
