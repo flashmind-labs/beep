@@ -1,4 +1,4 @@
-import { discardChatWork } from "./work-view.tsx";
+import { discardChatWork, transferChatPrompt } from "./work-view.tsx";
 import { askFiles } from "./attach.ts";
 import { ANSWER, answeredTurns, approvalCard, appendChatReply, ASK, askText, body, chatReplyHtml, drawLatest, drawWork, failed, makeTurn, moveChatReply, newTurn, ranOn, renderChat, setChatReply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
 import type { Asking, ToolOutput } from "./chat.ts";
@@ -290,6 +290,7 @@ function mergeTurn(old: Turn, fresh: Turn) {
       if (prev) prev.after(el);
       else old.prepend(el);
       if (el.className === "dcoderen agent md") moveChatReply(fresh, old);
+      if (el.className === "dcoderen user") transferChatPrompt(fresh, old);
     } else if (STABLE.has(el.className)) {
       now = was;
     } else if (el.className === "dcoderen agent md") {
