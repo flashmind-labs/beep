@@ -949,7 +949,9 @@ data/captures</textarea>
         <div class="am-line ip-acts"><button class="dbtn quiet" data-dact="dset:fss:stuck" data-dgo="dWinProject">Cancel</button><button class="dbtn pri ip-go" data-dact="dset:fss:stuck" data-dgo="dWinProject" data-toast="widget on win-box now in D:\\work\\widget">Change</button></div>`);
     }
     if (sel !== "machines" || (S.d.pwr !== "confirm" && S.d.pwr !== "refused" && S.d.pwr !== "delete")) return page;
-    // Remove from this machine asks first. The node there stops syncing; its folder stays as it is.
+    // Remove asks first, then closes when removal completes without waiting for a list refresh.
+    // Escape and Cancel can dismiss pending removal; the operation continues.
+    // The node stops syncing; its folder stays unless deletion was selected.
     const back = S.screen === "dWinProjectWindow" ? "dWinProjectWindow" : "dWinProject";
     const err = S.d.pwr === "refused" ? `<div class="am-msg bad">An agent is working in acme/widget on mini-box. Stop it first.</div>` : "";
     const del = S.d.pwr === "delete";
