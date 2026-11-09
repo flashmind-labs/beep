@@ -96,6 +96,7 @@
         </path>
        </svg>
       </div>
+      <blockquote><p>Run the login tests before pushing the fix.</p></blockquote><button type="button" aria-label="Copy quote" onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(() => { this.setAttribute('aria-label', 'Copied'); this.innerHTML = '&#10003;'; }).catch(() => { this.textContent = 'Copy failed'; })"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="8" width="13" height="13"/><path d="M8 8V3h13v13h-5"/></svg></button>
       <p>
        The upload gives up after one failure. I will wrap it in a retry with backoff in
        <code>

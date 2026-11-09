@@ -58,7 +58,7 @@ Object.assign(D, {
       <div class="dups" style="padding:10px 12px 0"><button class="dbtn" data-dgo="dAgents">Open</button></div>
       <div style="height:12px"></div></div>`;
     const steps = [["Checking build-box"], ["Starting claude on build-box"], ...(done ? [["Answering claude on build-box"], ["Checking claude on build-box"]] : [["Checking claude on build-box", ask ? "" : "run"]])];
-    const reply = done ? `<div class="dcoderen agent md">Fixed. The session cookie expired a minute before the token did, so the login test failed on slow runs. <b>All 48 auth tests pass</b>, and the fix is pushed on ${dCode("fix-login")}.</div>
+    const reply = done ? `<div class="dcoderen agent md"><blockquote><p>Run the login tests before pushing the fix.</p></blockquote><button class="dcopy" data-toast="Copied" aria-label="Copy quote">${D_COPY}</button>Fixed. The session cookie expired a minute before the token did, so the login test failed on slow runs. <b>All 48 auth tests pass</b>, and the fix is pushed on ${dCode("fix-login")}.</div>
       <div class="dups"><button class="dbtn" data-toast="Sent: Open a pull request">Open a pull request</button><button class="dbtn" data-toast="Sent: Close the session">Close the session</button></div>`
       : ask ? `<div class="dcoderen agent md">It found the bug and the tests pass. Should it push the branch?</div>` : "";
     return deskScene(dBar((done ? D_ASK : dAskF(`<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--d-emerald);flex:none"><span class="dspin"></span>${ask ? "Waiting" : "Working"}</span>`)) + `<div class="dbody">${dLog(`${dYou("Fix the failing login test in atlas on build-box")}

@@ -132,3 +132,12 @@
 .dmenu .think { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 9px 4px; border-top: 1px solid var(--d-border); margin-top: 4px; font-size: 11.5px; color: var(--d-muted) }
 .dmenu .think .dchip { min-height: 22px; padding: 0 8px; font-size: 11.5px }
 .drerunof { align-self: flex-end; font-size: 11px; color: var(--d-muted); margin-top: -4px }
+
+.mac blockquote + .dcopy { background: transparent; border: 0; box-shadow: none; display: flex; margin: 8px 0 16px; padding: 8px; cursor: pointer }
+
+.mac .quote-copy-example { margin: 12px 0; padding-left: 12px; border-left: 2px solid var(--d-border); color: var(--d-muted); display: flow-root }
+.mac .quote-copy-example p { margin: 0 0 16px }
+.mac .quote-copy-example + .dcopy { cursor: pointer }
+.mac .quote-copy-example + .dcopy:focus-visible { outline: 2px solid currentColor; outline-offset: 2px }
+
+.mac blockquote + .dcopy:hover, .mac blockquote + .dcopy:active { background: transparent; box-shadow: none }

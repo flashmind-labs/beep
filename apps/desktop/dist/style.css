@@ -1461,3 +1461,9 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 .dcheck:indeterminate::after { content: ""; width: 6px; height: 2px; background: currentColor; transform: none; border: 0 }
 .dcheck:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 .dcheck:disabled { opacity: .45; cursor: default }
+
+.md blockquote + .dquote-copy { background: transparent; border: 0; box-shadow: none; display: flex; margin: 8px 0 16px; padding: 8px; cursor: pointer }
+.md blockquote + .dquote-copy:focus-visible { outline: 2px solid currentColor; outline-offset: 2px }
+.md blockquote + .dquote-copy:active { transform: scale(.98) }
+
+.md blockquote + .dquote-copy:hover, .md blockquote + .dquote-copy:active { background: transparent; box-shadow: none }
