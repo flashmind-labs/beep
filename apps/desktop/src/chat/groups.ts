@@ -1,6 +1,7 @@
 import { createElement, type MouseEvent } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { GroupInviteView, type GroupInvite, type InviteState } from "./group-invite-view.tsx";
 import { GroupInfoView } from "./group-info-view.tsx";
 import { GroupMessages } from "./group-view.tsx";
 import type { ApprovalField } from "./chat.ts";
@@ -439,31 +440,40 @@ async function changeGroupInfo(owner: NonNullable<typeof infoRoot>, action: stri
 
 // ---------- Invite ----------
 
-/// A group's invite: the code to read out, its link and QR (InviteView).
-interface GroupInvite {
-  code: string;
-  url: string;
-  qr_svg: string;
+let inviteRoot: { host: HTMLElement; root: Root; observer: MutationObserver; id: string; title: string; revision: number } | null = null;
+function disposeInvite() {
+  const current = inviteRoot;
+  inviteRoot = null;
+  if (current) { current.observer.disconnect(); current.root.unmount(); }
 }
 
 export async function renderInvite(id: string, name?: string | null, reset = false) {
+  disposeInvite();
   S.view = "invite";
   setGroup(id);
   const title = name ?? G.chat?.group.name ?? "the group";
-  bar.innerHTML = `<div class="dwin"><h4>Invite people</h4><p>They scan it with Beep on their phone, or enter the code under New group, Join with a code.</p><div class="dmuted"><span class="dspin"></span>Making a code…</div></div>`;
+  const host = document.createElement("div");
+  host.style.display = "contents";
+  bar.replaceChildren(host);
+  const root = createRoot(host);
+  const observer = new MutationObserver(() => { if (inviteRoot?.host === host && !host.isConnected) disposeInvite(); });
+  observer.observe(document.body, { childList: true, subtree: true });
+  const owner = { host, root, observer, id, title, revision: 0 };
+  inviteRoot = owner;
+  await loadInvite(owner, reset);
+}
 
+async function loadInvite(owner: NonNullable<typeof inviteRoot>, reset: boolean) {
+  const revision = ++owner.revision;
+  const draw = (state: InviteState) => flushSync(() => owner.root.render(createElement(GroupInviteView, {
+    title: owner.title, state, copy, reset: () => { void loadInvite(owner, true); },
+  })));
+  draw({ kind: "loading" });
   try {
-    const link = await invoke<GroupInvite>("group_invite", { id, reset });
-    if (S.view !== "invite" || G.id !== id) return;
-    bar.innerHTML = `<div class="dwin"><h4>Invite to ${esc(title)}</h4><p>They scan it with Beep on their phone, or enter the code under New group, Join with a code.</p>
-      <div class="qr">${link.qr_svg}</div><div class="code big">${esc(link.code)}</div>
-      <div class="dline wrap dcenter"><button class="dbtn pri" id="icode">Copy code</button><button class="dbtn" id="ilink">Copy link</button><button class="dbtn warn" id="ireset">Reset code</button></div>
-      <p class="dfine">${reset ? "New code made. The old one no longer works. " : ""}Everyone who joins sees the whole chat. Beep never shows one person's memories to the others.</p></div>`;
-    $$("#icode").addEventListener("click", e => copy(link.code, e.currentTarget as HTMLElement));
-    $$("#ilink").addEventListener("click", e => copy(link.url, e.currentTarget as HTMLElement));
-    $$("#ireset").addEventListener("click", () => renderInvite(id, title, true));
-  } catch (e) {
-    if (S.view === "invite") bar.innerHTML = `<div class="dwin"><h4>Invite people</h4><p class="derr">${esc(e)}</p></div>`;
+    const invite = await invoke<GroupInvite>("group_invite", { id: owner.id, reset });
+    if (inviteRoot === owner && owner.revision === revision && S.view === "invite" && G.id === owner.id) draw({ kind: "ready", invite, reset });
+  } catch (error) {
+    if (inviteRoot === owner && owner.revision === revision && S.view === "invite" && G.id === owner.id) draw({ kind: "error", message: String(error) });
   }
 }
 
