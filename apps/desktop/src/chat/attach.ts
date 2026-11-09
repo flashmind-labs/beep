@@ -4,7 +4,7 @@ import { PATH_TYPE } from "../agentpane/files.ts";
 import { addMention, uploadDropped } from "../agents/workdrop.ts";
 import { renderChatFiles } from "./work-view.tsx";
 import type { ChatBody, Turn } from "../ui/turn.ts";
-import { focusAsk } from "./chat.ts";
+import { drawQueue, focusAsk } from "./chat.ts";
 import { $, bar, S } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
 import { VOICE_ICON } from "../bar/live.ts";
@@ -83,14 +83,10 @@ export function askFiles(files: AskFile[], body: ChatBody | null = null, turn: T
 /// The strip of attached pictures and files above the prompt, or the error
 /// from the last paste, with the placeholder and hints to match.
 export function drawAttached() {
-  const old = $("#thumbs"), ask = $<HTMLTextAreaElement>("#ask"), input = ask?.closest(".dinput");
+  const ask = $<HTMLTextAreaElement>("#ask"), input = ask?.closest(".dinput");
   if (!ask || !input) return;
-  const pics = attached.pics.length, n = attachedCount();
-  const el = n || attached.error ? h(`<div class="dthumbs" id="thumbs">${attached.pics.map((url, i) =>
-    `<span class="dthumb"><img src="${esc(url)}" alt="Image ${i + 1}"><button aria-label="Remove image ${i + 1}" data-i="${i}">${ICON.x}</button></span>`).join("")}${attached.files.map((f, i) => fileChip(f, pics + i)).join("")}${attached.error ? `<span class="derr">${esc(attached.error)}</span>` : ""}</div>`) : null;
-  el?.querySelectorAll<HTMLElement>("button").forEach(b => b.addEventListener("click", () => { unattach(+b.dataset.i!); focusAsk(); }));
-  if (old) el ? old.replaceWith(el) : old.remove();
-  else if (el) input.before(el);
+  const n = attachedCount();
+  drawQueue();
 
   if (n) {
     ask.dataset.ph ??= ask.placeholder;

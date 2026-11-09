@@ -6,7 +6,7 @@ import { openBarPage } from "../bar/page-root.ts";
 import { ChatShell } from "./chat-shell.tsx";
 import { discardChatApproval, discardChatNotice, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatNotice, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
 import { drawAgentButton } from "../agents/agents.ts";
-import { askFiles, attach, attached, attachError, drawAttached } from "./attach.ts";
+import { askFiles, attach, attached, attachError, drawAttached, unattach } from "./attach.ts";
 import type { AskFile } from "./attach.ts";
 import { type Chart, chartRow } from "./charts.ts";
 import { drawChats, loadChats, touch } from "./chats.ts";
@@ -579,7 +579,8 @@ export function drawQueue() {
     focusAsk();
   };
   flushSync(() => shell.root.render(createElement(ChatShell, {
-    body: shell.body, hints: shell.hints, queue: q ?? null,
+    body: shell.body, hints: shell.hints, queue: q ?? null, attachments: attached,
+    unattach: (index: number) => { unattach(index); focusAsk(); },
     edit: (index: number) => update(index, true), remove: (index: number) => update(index, false), send: () => sendQueued(S.session),
   })));
 }
