@@ -4,14 +4,15 @@ import { createPortal, flushSync } from "react-dom";
 import { DiffToolbar } from "./diff-toolbar.tsx";
 import { DiffTree } from "./diff-tree.tsx";
 import { DiffFileHeader } from "./diff-file-header.tsx";
+import { DiffChunk } from "./diff-chunk.tsx";
 import { readView, writeView } from "../agentpane/view-memory.ts";
 // The diff viewer: a one-line header with the counts, a filter, icon toggles
 // and the review buttons; a list of the files at wide widths; each file folding under
 // its sticky header, its lines in a unified view that scrolls sideways on its
 // own.
 import {
-  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitCell, type SplitRow, allFolded, currentFile, contextFile, diffRows, isFolded, leftOutNote,
-  inView, lineKey, lineLabel, matchesFilter, numberWidth, placeComments, reviewText, splitHeight, splitRows, stepFile, withLoaded,
+  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitRow, allFolded, currentFile, contextFile, diffRows, isFolded, leftOutNote,
+  inView, lineLabel, matchesFilter, numberWidth, placeComments, reviewText, splitHeight, splitRows, stepFile, withLoaded,
 } from "./diff-state.ts";
 import { initTreeResize } from "./treewidth.ts";
 import { loadDraft, saveDraft } from "./draftstore.ts";
@@ -64,7 +65,10 @@ const CH = 7.2;
 /// A run of rows, drawn only while it is near the viewport.
 interface Chunk {
   box: HTMLElement;
-  draw: () => HTMLElement[];
+  id: number;
+  path: string;
+  rows: (DiffRow | SplitRow)[];
+  comments: ReadonlyMap<string, readonly ReviewComment[]>;
   live: boolean;
 }
 
@@ -98,35 +102,6 @@ function btn(label: Kid, cls: string, title: string, run: () => void) {
   return b;
 }
 
-function hunkRow(text: string) {
-  return el("div", "dv-l hunk", el("span", "dv-g", el("span"), el("span")), el("span", "dv-c", text));
-}
-
-function gapRow(n: number) {
-  return el("div", "dv-l gap", el("span", "dv-g", el("span"), el("span")),
-    el("span", "dv-c", `${n.toLocaleString("en-US")} unchanged ${n === 1 ? "line" : "lines"}`));
-}
-
-function textCell(text: string, eol: boolean) {
-  const mark = eol ? el("span", "dv-eol", "no newline at end") : null;
-  if (mark) mark.title = "No newline at end of file";
-  return el("span", "dv-c", text, mark);
-}
-
-function lineRow(k: "+" | "-" | " ", old: number | null, now: number | null, text: string, eol: boolean) {
-  const cls = k === "+" ? " add" : k === "-" ? " del" : "";
-  return el("div", `dv-l${cls}`, el("span", "dv-g", el("span", "", old == null ? "" : String(old)), el("span", "", now == null ? "" : String(now))),
-    textCell(text, eol));
-}
-
-/// One side of a side by side row, empty where that side has no line.
-function cell(c: SplitCell | null) {
-  if (!c) return el("div", "dv-l none", el("span", "dv-g", el("span")), el("span", "dv-c"));
-  const cls = c.k === "+" ? " add" : c.k === "-" ? " del" : "";
-  return el("div", `dv-l${cls}`, el("span", "dv-g", el("span", "", String(c.num))), textCell(c.text, c.eol));
-}
-
-
 export function diffView(src: DiffSource): DiffViewHandle {
   const root = el("div", "dv");
   root.tabIndex = -1;
@@ -159,6 +134,11 @@ export function diffView(src: DiffSource): DiffViewHandle {
   let sections = new Map<string, HTMLElement>();
   /// The chunks of rows of every open file.
   const chunks = new Map<Element, Chunk>();
+  const liveChunks = new Set<Chunk>();
+  const chunkRoot = createRoot(document.createElement("div"));
+  const noComments = new Map<string, readonly ReviewComment[]>();
+  let nextChunk = 0;
+  const createLineComment = (comment: ReviewComment) => commentEl(comment, "");
   const headers = new Map<string, { host: HTMLElement; file: DiffFile; comments: HTMLElement }>();
   const headerRoot = createRoot(document.createElement("div"));
   const bodyModes = new Map<string, boolean>();
@@ -233,11 +213,15 @@ export function diffView(src: DiffSource): DiffViewHandle {
     // Read all old heights before changing the DOM, then measure the new ones
     // together. Scrolling itself never walks the offscreen chunks.
     for (const { c, want, rect } of changes) {
-      c.box.replaceChildren(...(want ? c.draw() : []));
       c.box.style.height = want ? "" : `${rect.height}px`;
       c.live = want;
+      if (want) { c.comments = placed().files.get(c.path)?.lines ?? noComments; liveChunks.add(c); }
+      else liveChunks.delete(c);
     }
 
+    if (changes.length) drawChunks();
+    // Inline editors are still mounted imperatively and are not React children.
+    for (const { c, want } of changes) if (!want) c.box.replaceChildren();
     let shift = 0;
 
     for (const { c, want, rect } of changes) {
@@ -297,6 +281,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
     chunkObserver.disconnect();
     fileObserver.disconnect();
     chunks.clear();
+    liveChunks.clear();
+    drawChunks();
     bodyModes.clear();
     visibleFiles.clear();
     markedPath = null;
@@ -461,20 +447,6 @@ export function diffView(src: DiffSource): DiffViewHandle {
     // The widest line is known up front, so the sideways scroll does not
     // change as rows come and go.
     lines.style.setProperty("--len", String(rows.reduce((m, r) => (r.kind === "line" ? Math.max(m, r.text.length) : m), 0)));
-    // Line comments are looked up as a chunk draws, so they follow the draft.
-    const nodes = (r: DiffRow | SplitRow): HTMLElement[] => {
-      if (r.kind === "hunk") return [hunkRow(r.text)];
-      if (r.kind === "gap") return [gapRow(r.lines)];
-      const lc = placed().files.get(f.path)?.lines;
-      const saved = (...keys: (string | null)[]) => (lc?.size ? keys.flatMap(k => (k && lc.get(k)) || []).map(c => commentEl(c, "")) : []);
-
-      if (r.kind === "pair") {
-        return [el("div", "dv-pair", cell(r.left), cell(r.right)),
-          ...saved(r.left?.k === "-" ? lineKey("old", r.left.num) : null, r.right ? lineKey("new", r.right.num) : null)];
-      }
-
-      return [lineRow(r.k, r.old, r.new, r.text, r.eol), ...saved(r.k === "-" ? lineKey("old", r.old!) : lineKey("new", r.new!))];
-    };
     // Rows are drawn in chunks, only while they are near the viewport; a
     // chunk off screen is an empty box as tall as it last was.
     const cols = Math.floor(((files.clientWidth || 900) / 2 - Math.max(2, numberWidth(f)) * CH - 50) / CH);
@@ -484,7 +456,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
       const slice = items.slice(i, i + CHUNK);
       const box = el("div", "dv-chunk");
       box.style.height = `${split ? splitHeight(slice as SplitRow[], cols) : slice.reduce((h, r) => h + (r.kind === "gap" ? 22 : 19), 0)}px`;
-      chunks.set(box, { box, draw: () => slice.flatMap(nodes), live: false });
+      chunks.set(box, { box, id: ++nextChunk, path: f.path, rows: slice, comments: noComments, live: false });
       chunkObserver.observe(box);
       lines.append(box);
     }
@@ -501,13 +473,24 @@ export function diffView(src: DiffSource): DiffViewHandle {
     return el("div", "dv-scroll", lines);
   }
 
+  function drawChunks() {
+    const portals = [...liveChunks].map(chunk => createPortal(createElement(DiffChunk, {
+      rows: chunk.rows, comments: chunk.comments, createComment: createLineComment,
+    }), chunk.box, String(chunk.id)));
+    flushSync(() => chunkRoot.render(portals));
+  }
+
   /// Stop observing chunks removed by a file or mode change.
   function pruneChunks() {
+    let removed = false;
     for (const [box] of chunks) {
       if (root.contains(box)) continue;
       chunkObserver.unobserve(box);
+      const chunk = chunks.get(box);
+      if (chunk && liveChunks.delete(chunk)) removed = true;
       chunks.delete(box);
     }
+    if (removed) drawChunks();
   }
 
   /// Whether the user's selection reaches into `box`: emptying it would lose the text.
@@ -634,7 +617,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     const line = Number((del ? nums[0] : nums[nums.length - 1]).textContent);
     if (!line) return;
     let at: Element = pair ?? row;
-    while (at.nextElementSibling?.classList.contains("dv-cmt")) at = at.nextElementSibling;
+    while (at.nextElementSibling?.matches(".dv-cmt, .dv-comment-slot")) at = at.nextElementSibling;
     addBox({ path, side: del ? "old" : "new", line, text: "" }, "", "Comment on this line", box => at.after(box));
   }
 
