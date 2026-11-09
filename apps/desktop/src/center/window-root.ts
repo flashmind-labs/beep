@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { RouterContextProvider, RouterProvider } from "@tanstack/react-router";
 import { windowHistory } from "./window-router.ts";
 
-type Part = "home" | "sidebar" | "header-scope" | "header-tools" | "project-shell";
+type Part = "home" | "sidebar" | "header-scope" | "header-tools" | "project-shell" | "project-where" | "project-running" | `project-overview:${string}` | `project-sessions:${"all" | "recent"}`;
 const parts = new Map<Part, { host: HTMLElement | null; content: ReactNode; identity: string }>();
 let root: Root | null = null;
 
@@ -15,7 +15,13 @@ export function showWindowParts(updates: readonly { part: Part; host: HTMLElemen
 }
 
 export function removeWindowPart(part: Part) {
-  if (parts.delete(part)) render();
+  removeWindowParts([part]);
+}
+
+export function removeWindowParts(removed: readonly Part[]) {
+  let changed = false;
+  for (const part of removed) changed = parts.delete(part) || changed;
+  if (changed) render();
 }
 
 function render() {
