@@ -1,10 +1,13 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { ChatsView } from "./chats-view.tsx";
 import { openInWindow } from "./chat.ts";
 import { copy } from "../ui/parts.ts";
 import { $, $$, bar, type ChatRow, type ChatsMode, G, live, PANE, S } from "../bar/core.ts";
 import { authorName, type GroupSummary, renderGroup, renderInvite } from "./groups.ts";
 import { hints } from "../bar/hints.ts";
 import { openSession } from "./history.ts";
-import { LIVE_CHATS, VOICE_ICON } from "../bar/live.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { dayDiff } from "../lists/memories.ts";
 import { withoutResearch } from "../research/research-list.ts";
@@ -68,7 +71,17 @@ export function touch(id: string, message?: string) {
   S.cache = [c, ...S.cache.filter(x => x.id !== id)].sort(byRecent);
 }
 
+let listRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+let listError = "", lastSelected = "", loadVersion = 0;
+function disposeChats() {
+  const current = listRoot; listRoot = null;
+  if (!current) return;
+  current.observer.disconnect(); current.root.unmount();
+}
+
 export function renderChats() {
+  disposeChats();
+  listError = ""; lastSelected = ""; loadVersion++;
   const back = S.view === "group" ? G.id : null;
   S.view = "chats";
   invoke("close_group").catch(() => {});
@@ -76,6 +89,10 @@ export function renderChats() {
   bar.innerHTML = `<div class="dinput"><input id="find" placeholder="Search chats and groups" autocomplete="off" spellcheck="false"><kbd>⌘K</kbd></div>
     <div class="dsec" id="sec">Recent</div><div class="dlist" id="list" role="listbox" aria-label="Chats"></div>
     ${hints([[ICON.ret, "open"], ["tab", "actions"], ["⌘N", "new agent"], ["⌘G", "new group"], ["esc", "back"]])}`;
+  const host = $$("#list"), root = createRoot(host);
+  const observer = new MutationObserver(() => { if (listRoot?.host === host && !host.isConnected) disposeChats(); });
+  observer.observe(document.body, { childList: true, subtree: true });
+  listRoot = { host, root, observer };
   const find = $$<HTMLInputElement>("#find");
   find.focus();
   let pending = 0;
@@ -88,11 +105,13 @@ export function renderChats() {
 }
 
 export async function loadChats(query: string) {
+  const version = ++loadVersion;
   try {
     const [sessions, groups] = await Promise.all([
       query ? invoke<SessionMatch[]>("search_sessions", { query }).then(ms => ms.map(m => ({ ...m.session, snippet: m.snippet }))) : invoke<SessionSummary[]>("list_sessions"),
       invoke<GroupSummary[]>("list_groups"),
     ]);
+    if (version !== loadVersion) return;
     const q = query.toLowerCase();
     // The window lists researches under Research; the bar marks them here.
     const chats = PANE ? withoutResearch(sessions, RESEARCHES) : sessions;
@@ -102,10 +121,13 @@ export async function loadChats(query: string) {
     // An older search can finish after a newer one: keep only the box's.
     if (($<HTMLInputElement>("#find")?.value.trim() ?? "") !== query) return;
     const same = query === S.chats.query;
-    S.chats = { ...S.chats, list, query, sel: same ? Math.min(S.chats.sel, Math.max(0, list.length - 1)) : 0, mode: same ? S.chats.mode : "list" };
-    drawChats();
+    const previous = same ? S.chats.list[S.chats.sel] : null;
+    const kept = previous ? list.findIndex(row => row.kind === previous.kind && row.id === previous.id) : -1;
+    const sel = same ? kept >= 0 ? kept : Math.min(S.chats.sel, Math.max(0, list.length - 1)) : 0;
+    S.chats = { ...S.chats, list, query, sel, mode: same ? S.chats.mode : "list" };
+    listError = ""; drawChats();
   } catch (e) {
-    if (S.view === "chats") $$("#list").innerHTML = `<div class="derr dpad">${esc(e)}</div>`;
+    if (version === loadVersion && S.view === "chats" && ($<HTMLInputElement>("#find")?.value.trim() ?? "") === query) { listError = String(e); drawChats(); }
   }
 }
 
@@ -118,54 +140,18 @@ export function mark(text: string, query: string | null | undefined) {
   return text.split(re).map((part, i) => i % 2 ? `<mark>${esc(part)}</mark>` : esc(part)).join("");
 }
 
-function rowActions(c: ChatRow) {
-  const pin = `<button class="dbtn" data-a="pin">${c.pinned ? "Unpin" : "Pin"}<kbd>⌘P</kbd></button>`;
-  return c.kind === "group"
-    ? `<span class="acts">${pin}<button class="dbtn" data-a="invite">Invite</button><button class="dbtn" data-a="info">Info</button><button class="dbtn warn" data-a="leave">Leave</button></span>`
-    : `<span class="acts">${PANE ? "" : '<button class="dbtn" data-a="window">Open in window<kbd>⌘O</kbd></button>'}<button class="dbtn" data-a="rename">Rename<kbd>⌘R</kbd></button>${pin}<button class="dbtn" data-a="share">Share</button><button class="dbtn warn" data-a="delete">Delete<kbd>⌘⌫</kbd></button></span>`;
-}
-
-function chatRow(c: ChatRow, i: number) {
-  const { sel, query, mode } = S.chats, on = i === sel;
-  if (on && mode === "rename") return `<div class="dchat" aria-selected="true"><input id="rename" value="${esc(c.title)}" maxlength="200" spellcheck="false"></div>`;
-  if (on && mode === "delete") return `<div class="dchat" aria-selected="true"><span class="t"><span>Delete <b>${esc(c.title)}</b>?</span></span><span class="acts"><button class="dbtn warn" data-a="delete-yes">Delete<kbd>${ICON.ret}</kbd></button><button class="dbtn quiet" data-a="cancel">Cancel</button></span></div>`;
-  const open = on && mode === "actions";
-  const tail = open ? rowActions(c)
-    : live.get(c.id)?.run || c.typing ? `<span class="run"><span class="dspin"></span>${c.typing ? "Beep is typing" : "Answering"}</span>`
-    : `<span class="w">${when(c.updated_at)}</span>`;
-  // A button cannot hold the action buttons, so the open row is a div.
-  const tag = open ? "div" : "button";
-  return `<${tag} class="dchat" role="option" aria-selected="${on}" data-i="${i}">
-      ${c.pinned ? `<span class="pin" aria-label="Pinned">${ICON.pin}</span>` : ""}${c.kind === "group" ? `<span class="grp" aria-label="Group">${ICON.group}</span>` : ""}${RESEARCHES.has(c.id) ? `<span class="grp" aria-label="Research">${ICON.doc}</span>` : ""}${LIVE_CHATS.has(c.id) ? `<span class="grp vmic" aria-label="Spoken">${VOICE_ICON.mic}</span>` : ""}
-      <span class="t"><span>${mark(c.title, query)}</span>${c.snippet ? `<small>${mark(c.snippet, query)}</small>` : ""}</span>${tail}</${tag}>`;
-}
-
-function shareCard() {
-  const sh = S.chats.share;
-  if (!sh || S.chats.mode !== "share") return "";
-  const body = sh.error ? `<div class="derr">${esc(sh.error)}</div>`
-    : !sh.url ? '<div class="dmuted"><span class="dspin"></span>Making a link…</div>'
-    : `<div class="code">${esc(sh.url)}</div><div class="dline"><button class="dbtn pri" data-a="copy-share">Copy link</button><button class="dbtn warn" data-a="unshare">Stop sharing</button></div>`;
-  return `<div class="dcard dshare">${body}<div class="dmuted dblock">A copy of the chat as it is now. Only your messages and Beep's replies are shared, not tool results, thoughts or your location. Anyone with Beep can open the link.</div></div>`;
-}
-
 export function drawChats() {
+  const current = listRoot;
+  if (!current?.host.isConnected || S.view !== "chats") return;
   const { list, sel, query } = S.chats;
-  const box = $$("#list");
+  const selected = list[sel], identity = selected ? `${selected.kind}:${selected.id}` : "";
   $$("#sec").textContent = query ? `${list.length} result${list.length === 1 ? "" : "s"}` : "Recent";
-  box.innerHTML = list.map((c, i) => chatRow(c, i) + (i === sel ? shareCard() : "")).join("") || '<div class="dmuted dpad">No chats</div>';
-  box.querySelectorAll<HTMLElement>(".dchat[data-i]").forEach(b => b.addEventListener("click", e => {
-    const act = (e.target as HTMLElement).closest<HTMLElement>("[data-a]");
-    S.chats.sel = +b.dataset.i!;
-    if (act) { e.stopPropagation(); return chatAction(act.dataset.a as ChatAction); }
-    openRow(list[+b.dataset.i!]);
-  }));
-  box.querySelectorAll<HTMLElement>("[data-a]").forEach(b => {
-    if (!b.closest(".dchat[data-i]")) b.addEventListener("click", () => chatAction(b.dataset.a as ChatAction));
-  });
-  const rename = $<HTMLInputElement>("#rename");
-  if (rename) { rename.focus(); rename.select(); }
-  $(`[data-i="${sel}"]`)?.scrollIntoView({ block: "nearest" });
+  flushSync(() => current.root.render(createElement(ChatsView, {
+    state: S.chats, error: listError, pane: PANE, running: new Set([...live].flatMap(([id, value]) => id !== null && value.run ? [id] : [])),
+    select: (index: number) => { S.chats.sel = index; }, open: openRow, action: (action: ChatAction) => void chatAction(action),
+  })));
+  if (identity && identity !== lastSelected) current.host.querySelector<HTMLElement>(`[data-i="${sel}"]`)?.scrollIntoView({ block: "nearest" });
+  lastSelected = identity;
 }
 
 export function openRow(c: ChatRow | undefined) {
@@ -232,7 +218,7 @@ export async function chatAction(a: ChatAction) {
       case "leave": await renderGroup(c.id, "leave"); break;
     }
   } catch (e) {
-    $$("#list").insertAdjacentHTML("afterbegin", `<div class="derr dpad">${esc(e)}</div>`);
+    if (S.view === "chats") { listError = String(e); drawChats(); }
   }
 }
 
