@@ -9,3 +9,8 @@ export function ArtifactsList({ artifacts, cwd, picked, gone, when }: { artifact
       <span className={`k ${artifact.kind}`}>{KIND_NAMES[artifact.kind]}</span><span className="t"><b>{artifact.name}</b><small>{relativeTo(cwd, artifact.path) ?? artifact.path}</small></span><span className="r">{artifact.url && <span className="pub">claude.ai</span>}<span>{removed ? "Removed" : meta}</span>{!removed && (artifact.versions > 1 ? <small>{artifact.versions} versions</small> : artifact.made ? <small>Made by a command</small> : null)}</span></button>;
   })}</>;
 }
+
+export function ArtifactActions({ folded, note, url, inside }: { folded: boolean; note: string; url: string | null; inside: boolean }) {
+  return <><button type="button" className="dbtn" data-aact="fold" title="Fold or show the preview" aria-expanded={!folded}>{folded ? "Show" : "Fold"}</button><span className="meta mono">{note}</span><span className="sp" />
+    <button type="button" className="dbtn" data-aact="claude" hidden={!url} title={url ?? ""}>Open on claude.ai</button><button type="button" className="dbtn" data-aact="file" disabled={!inside} title={inside ? "Show it in the Files tab" : "It is outside the session's folder"}>Open file</button><button type="button" className="dbtn" data-aact="copy">Copy path</button></>;
+}
