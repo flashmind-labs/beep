@@ -1,9 +1,10 @@
 import { createElement, Fragment } from "react";
 import { createPortal, flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { AgentTurnHeading, type TurnHeading } from "./turn-heading-view.tsx";
 import { AgentContext, AgentPrompt, AgentReply, contextHtml, promptHtml, replyHtml, replyRow, type ContextRow, type PromptRow, type ReplyRow } from "./reply-view.tsx";
 import { frameResize } from "../ui/dom.ts";
+import { ActivityView, type ActivityRow } from "./activity-view.tsx";
 
 // A session's log in the page: only the turns near the view are drawn, in
 // a `.agturn` each; spacers above and below stand for the rest, as tall as
@@ -17,7 +18,7 @@ import type { ChatBody } from "../ui/turn.ts";
 
 /// One turn of the log: a key that stays while the turn does, and its
 /// rows as html, worked out only when it is drawn.
-export type TranscriptRow = string | TurnHeading | ReplyRow | PromptRow | ContextRow;
+export type TranscriptRow = string | TurnHeading | ReplyRow | PromptRow | ContextRow | ActivityRow;
 const rowHtml = (row: TranscriptRow) => typeof row === "string" ? row : row.kind === "reply" ? replyHtml(row) : row.kind === "prompt" ? promptHtml(row) : row.kind === "context" ? contextHtml(row) : row.html;
 const asReply = (row: TranscriptRow) => typeof row === "string" ? replyRow(row) : row.kind === "reply" ? row : null;
 
@@ -48,8 +49,9 @@ interface LogWindow {
   watch: ResizeObserver;
   replies: Map<HTMLElement, { key: number; reply: ReplyRow | PromptRow | ContextRow }>;
   headings: Map<HTMLElement, { key: number; value: TurnHeading }>;
+  activities: Map<HTMLElement, { key: number; value: ActivityRow }>;
   nextReplyKey: number;
-  replyRoot: Root | null;
+  replyRoot: DocumentView | null;
 }
 
 const windows = new WeakMap<Element, LogWindow>();
@@ -89,6 +91,7 @@ export function setUnits(log: HTMLElement, units: readonly Unit[], held: readonl
     reuseHeadings(d.rows, rows, reuse);
     reusePrompts(d.rows, rows, reuse);
     reuseContexts(d.rows, rows, reuse);
+    reuseActivities(d.rows, rows, reuse);
     const keep = new Set(reuse.filter(i => i >= 0));
     const changed = new Set(reuse.filter((old, next) => old >= 0 && d.html[old] !== html[next]));
     d.nodes.forEach((nodes, i) => { if (!keep.has(i) || changed.has(i)) going.push(...nodes); });
@@ -198,7 +201,7 @@ function start(log: HTMLElement): LogWindow {
   const w: LogWindow = {
     units: [], drawn: new Map(), sizes: new Map(), width: 0,
     gap: parseFloat(getComputedStyle(log).rowGap) || 0, top, bottom,
-    watch: frameResize(() => resized(log, w)), replies: new Map(), headings: new Map(), nextReplyKey: 0, replyRoot: null,
+    watch: frameResize(() => resized(log, w)), replies: new Map(), headings: new Map(), activities: new Map(), nextReplyKey: 0, replyRoot: null,
   };
   const body = log.closest<ChatBody>(".dbody");
   if (body) w.watch.observe(body);
@@ -275,7 +278,7 @@ function draw(w: LogWindow, u: Unit): Drawn {
 
 function undraw(w: LogWindow, key: string, d: Drawn) {
   w.watch.unobserve(d.el);
-  for (const nodes of d.nodes) for (const node of nodes) if (node instanceof HTMLElement) { w.replies.delete(node); w.headings.delete(node); }
+  for (const nodes of d.nodes) for (const node of nodes) if (node instanceof HTMLElement) { w.replies.delete(node); w.headings.delete(node); w.activities.delete(node); }
   d.el.remove();
   w.drawn.delete(key);
 }
@@ -284,11 +287,12 @@ function undraw(w: LogWindow, key: string, d: Drawn) {
 function patch(w: LogWindow, d: Drawn, rows: readonly TranscriptRow[], reuse: readonly number[]) {
   const html = rows.map(rowHtml);
   const keep = new Set(reuse.filter(i => i >= 0));
-  d.nodes.forEach((n, i) => { if (!keep.has(i)) for (const el of n) { if (el instanceof HTMLElement) { w.replies.delete(el); w.headings.delete(el); } el.remove(); } });
+  d.nodes.forEach((n, i) => { if (!keep.has(i)) for (const el of n) { if (el instanceof HTMLElement) { w.replies.delete(el); w.headings.delete(el); w.activities.delete(el); } el.remove(); } });
   const nodes = html.map((row, i) => {
     if (reuse[i] >= 0 && d.html[reuse[i]] === row) return d.nodes[reuse[i]];
     const typed = rows[i];
     const heading = typeof typed !== "string" && typed.kind === "heading" ? typed : null;
+    const activity = typeof typed !== "string" && (typed.kind === "thought" || typed.kind === "live") ? typed : null;
     const reply = typeof typed !== "string" && (typed.kind === "prompt" || typed.kind === "context") ? typed : asReply(typed);
     if (reuse[i] >= 0) {
       const nodes = d.nodes[reuse[i]];
@@ -296,7 +300,15 @@ function patch(w: LogWindow, d: Drawn, rows: readonly TranscriptRow[], reuse: re
       if (reply && existing && nodes[0] instanceof HTMLElement) w.replies.set(nodes[0], { ...existing, reply });
       const current = nodes[0] instanceof HTMLElement ? w.headings.get(nodes[0]) : null;
       if (heading && current && nodes[0] instanceof HTMLElement) w.headings.set(nodes[0], { ...current, value: heading });
+      const previous = nodes[0] instanceof HTMLElement ? w.activities.get(nodes[0]) : null;
+      if (activity && previous && nodes[0] instanceof HTMLElement) w.activities.set(nodes[0], { ...previous, value: activity });
       return nodes;
+    }
+    if (activity) {
+      const host = document.createElement("div");
+      host.style.display = "contents";
+      w.activities.set(host, { key: ++w.nextReplyKey, value: activity });
+      return [host];
     }
     if (heading) {
       const host = document.createElement("div");
@@ -329,7 +341,7 @@ function patch(w: LogWindow, d: Drawn, rows: readonly TranscriptRow[], reuse: re
 
 /// Preserve a reply's host while its streamed content changes.
 function reuseReplyRows(before: readonly TranscriptRow[], next: readonly TranscriptRow[]) {
-  const signature = (row: TranscriptRow) => typeof row === "string" ? `s${row}` : row.kind === "heading" ? `h${JSON.stringify([row.id, row.html])}` : row.kind === "prompt" ? `p${JSON.stringify([row.row, row.html, row.pictures])}` : row.kind === "context" ? `c${JSON.stringify([row.id, contextHtml(row)])}` : `r${JSON.stringify([row.row, row.markdown, row.html])}`;
+  const signature = (row: TranscriptRow) => typeof row === "string" ? `s${row}` : row.kind === "heading" || row.kind === "thought" || row.kind === "live" ? `${row.kind}:${JSON.stringify([row.id, row.html])}` : row.kind === "prompt" ? `p${JSON.stringify([row.row, row.html, row.pictures])}` : row.kind === "context" ? `c${JSON.stringify([row.id, contextHtml(row)])}` : `r${JSON.stringify([row.row, row.markdown, row.html])}`;
   const reuse = reuseRows(before.map(signature), next.map(signature));
   if (!reuse.includes(-1)) return reuse;
   const used = new Set(reuse.filter(index => index >= 0));
@@ -401,14 +413,30 @@ function reuseHeadings(before: readonly TranscriptRow[], next: readonly Transcri
   });
 }
 
+function reuseActivities(before: readonly TranscriptRow[], next: readonly TranscriptRow[], reuse: number[]) {
+  const used = new Set(reuse.filter(index => index >= 0));
+  const available = new Map<string, { indices: number[]; next: number }>();
+  before.forEach((row, index) => {
+    if (typeof row === "string" || (row.kind !== "thought" && row.kind !== "live") || used.has(index)) return;
+    const key = `${row.kind}:${row.id}`, matches = available.get(key) ?? { indices: [], next: 0 };
+    matches.indices.push(index); available.set(key, matches);
+  });
+  next.forEach((row, index) => {
+    if (reuse[index] >= 0 || typeof row === "string" || (row.kind !== "thought" && row.kind !== "live")) return;
+    const matches = available.get(`${row.kind}:${row.id}`);
+    if (matches && matches.next < matches.indices.length) reuse[index] = matches.indices[matches.next++];
+  });
+}
+
 function renderReplies(w: LogWindow) {
   // One root owns all visible reply and heading portals; virtualized turns
   // release their hosts as they leave the window.
-  if (!w.replyRoot && !w.replies.size && !w.headings.size) return;
-  w.replyRoot ??= createRoot(document.createElement("div"));
+  if (!w.replyRoot && !w.replies.size && !w.headings.size && !w.activities.size) return;
+  w.replyRoot ??= createDocumentView(document.createElement("div"));
   flushSync(() => w.replyRoot?.render(createElement(Fragment, null,
     ...[...w.replies].map(([host, mounted]) => createPortal(mounted.reply.kind === "prompt" ? createElement(AgentPrompt, { prompt: mounted.reply }) : mounted.reply.kind === "context" ? createElement(AgentContext, { row: mounted.reply }) : createElement(AgentReply, { reply: mounted.reply }), host, mounted.key)),
-    ...[...w.headings].map(([host, mounted]) => createPortal(createElement(AgentTurnHeading, { value: mounted.value }), host, mounted.key)))));
+    ...[...w.headings].map(([host, mounted]) => createPortal(createElement(AgentTurnHeading, { value: mounted.value }), host, mounted.key)),
+    ...[...w.activities].map(([host, mounted]) => createPortal(createElement(ActivityView, { row: mounted.value }), host, mounted.key)))));
 }
 
 /// Search all held turns without mounting the entire conversation.
