@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { createElement, type ReactElement } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { FeedbackControl, FeedbackNote, type FeedbackState } from "./feedback-view.tsx";
@@ -211,6 +211,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   const viewRoot = createRoot(document.createElement("div"));
   let button: HTMLButtonElement | null = null;
   let slot: HTMLDivElement | null = null;
+  let pickerView: ReactElement | null = null;
   const setButton = (value: HTMLButtonElement | null) => { button = value; };
   const setSlot = (value: HTMLDivElement | null) => { slot = value; };
   let open = false;
@@ -252,6 +253,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     flushSync(() => viewRoot.render([
       createPortal(createElement(FeedbackControl, { state, setButton, setSlot, onClick: () => void onButton() }), box, "control"),
       createPortal(text ? createElement(FeedbackNote, { text, onDismiss: () => { notes.delete(o.key); drawButton(); } }) : null, note, "note"),
+      slot && createPortal(pickerView, slot, "picker"),
     ]));
   }
 
@@ -262,7 +264,6 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     if (slot) {
       const closing = slot;
       closePickerView?.(closing);
-      closing.replaceChildren();
     }
     document.removeEventListener("pointerdown", outside, true);
     document.removeEventListener("keydown", onEsc, true);
@@ -289,6 +290,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     const currentSlot = slot, currentButton = button;
     const focused = currentSlot.contains(document.activeElement);
     drawPicker(currentSlot, {
+      render: view => { pickerView = view; drawButton(); },
       picked,
       offered: h.agents,
       everywhere: [...new Set((hosts ?? []).flatMap(m => m.agents))],

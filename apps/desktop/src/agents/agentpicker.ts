@@ -1,6 +1,4 @@
 import { createElement, type ReactElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
 import { AgentPicker } from "./agentpicker-view.tsx";
 // The harness, model and thinking picker, as the start form and a project's
 // agent bar both show it: the pill that opens it, the popover with its rail,
@@ -107,7 +105,7 @@ export interface Picked {
 }
 
 export interface PickerOpts {
-  render?: (view: ReactElement | null) => void;
+  render: (view: ReactElement | null) => void;
   picked: Picked;
   /// The harnesses the machine has, and those any machine has.
   offered: readonly string[];
@@ -135,7 +133,6 @@ let shown: { el: HTMLElement; o: PickerOpts } | null = null;
 let attachmentWatch: MutationObserver | null = null;
 let watchedElement: HTMLElement | null = null;
 
-const roots = new WeakMap<HTMLElement, Root>();
 const renderers = new WeakMap<HTMLElement, (view: ReactElement | null) => void>();
 
 /// Draws the picker into `el` and places it by its pill.
@@ -148,8 +145,7 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   }
   shown = { el, o };
   const p = o.picked;
-  if (o.render) renderers.set(el, o.render);
-  else if (!roots.has(el)) roots.set(el, createRoot(el));
+  renderers.set(el, o.render);
   const agent = p.agent;
   const list = o.machine ? modelsOn(o.machine.id, agent, () => {
     if (shown?.el !== el || !el.isConnected || shown.o.picked.agent !== agent) return;
@@ -166,8 +162,7 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
     onModel: (next: string) => { p.model = next; p.query = ""; o.changed("model"); },
     onEffort: (next: string | null) => { p.effort = next; o.changed("effort"); },
   });
-  if (o.render) o.render(view);
-  else flushSync(() => roots.get(el)?.render(view));
+  o.render(view);
   placeOpen();
 }
 
@@ -186,10 +181,6 @@ export function closedPicker(el: HTMLElement) {
   }
   const render = renderers.get(el);
   if (render) { renderers.delete(el); render(null); }
-  const root = roots.get(el);
-  if (!root) return;
-  root.unmount();
-  roots.delete(el);
 }
 
 /// Puts the open picker above its pill, right edges lined up, whole and
