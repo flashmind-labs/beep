@@ -50,6 +50,7 @@ interface LogWindow {
   replies: Map<HTMLElement, { key: number; reply: ReplyRow | PromptRow | ContextRow }>;
   headings: Map<HTMLElement, { key: number; value: TurnHeading }>;
   activities: Map<HTMLElement, { key: number; value: ActivityRow }>;
+  renderDirty: boolean;
   nextReplyKey: number;
   replyRoot: DocumentView | null;
 }
@@ -202,7 +203,7 @@ function start(log: HTMLElement): LogWindow {
   const w: LogWindow = {
     units: [], drawn: new Map(), sizes: new Map(), width: 0,
     gap: parseFloat(getComputedStyle(log).rowGap) || 0, top, bottom,
-    watch: frameResize(() => resized(log, w)), replies: new Map(), headings: new Map(), activities: new Map(), nextReplyKey: 0, replyRoot: null,
+    watch: frameResize(() => resized(log, w)), replies: new Map(), headings: new Map(), activities: new Map(), renderDirty: false, nextReplyKey: 0, replyRoot: null,
   };
   const body = log.closest<ChatBody>(".dbody");
   if (body) w.watch.observe(body);
@@ -279,16 +280,21 @@ function draw(w: LogWindow, u: Unit): Drawn {
 
 function undraw(w: LogWindow, key: string, d: Drawn) {
   w.watch.unobserve(d.el);
-  for (const nodes of d.nodes) for (const node of nodes) if (node instanceof HTMLElement) { w.replies.delete(node); w.headings.delete(node); w.activities.delete(node); }
+  for (const nodes of d.nodes) for (const node of nodes) if (node instanceof HTMLElement) forgetRendered(w, node);
   d.el.remove();
   w.drawn.delete(key);
+}
+
+function forgetRendered(w: LogWindow, node: HTMLElement) {
+  const reply = w.replies.delete(node), heading = w.headings.delete(node), activity = w.activities.delete(node);
+  if (reply || heading || activity) w.renderDirty = true;
 }
 
 /// Makes a drawn turn's rows `html`, reusing the rows `reuse` names.
 function patch(w: LogWindow, d: Drawn, rows: readonly TranscriptRow[], reuse: readonly number[]) {
   const html = rows.map(rowHtml);
   const keep = new Set(reuse.filter(i => i >= 0));
-  d.nodes.forEach((n, i) => { if (!keep.has(i)) for (const el of n) { if (el instanceof HTMLElement) { w.replies.delete(el); w.headings.delete(el); w.activities.delete(el); } el.remove(); } });
+  d.nodes.forEach((n, i) => { if (!keep.has(i)) for (const el of n) { if (el instanceof HTMLElement) forgetRendered(w, el); el.remove(); } });
   const nodes = html.map((row, i) => {
     if (reuse[i] >= 0 && d.html[reuse[i]] === row) return d.nodes[reuse[i]];
     const typed = rows[i];
@@ -298,29 +304,32 @@ function patch(w: LogWindow, d: Drawn, rows: readonly TranscriptRow[], reuse: re
     if (reuse[i] >= 0) {
       const nodes = d.nodes[reuse[i]];
       const existing = nodes[0] instanceof HTMLElement ? w.replies.get(nodes[0]) : null;
-      if (reply && existing && nodes[0] instanceof HTMLElement) w.replies.set(nodes[0], { ...existing, reply });
+      if (reply && existing && nodes[0] instanceof HTMLElement) { w.replies.set(nodes[0], { ...existing, reply }); w.renderDirty = true; }
       const current = nodes[0] instanceof HTMLElement ? w.headings.get(nodes[0]) : null;
-      if (heading && current && nodes[0] instanceof HTMLElement) w.headings.set(nodes[0], { ...current, value: heading });
+      if (heading && current && nodes[0] instanceof HTMLElement) { w.headings.set(nodes[0], { ...current, value: heading }); w.renderDirty = true; }
       const previous = nodes[0] instanceof HTMLElement ? w.activities.get(nodes[0]) : null;
-      if (activity && previous && nodes[0] instanceof HTMLElement) w.activities.set(nodes[0], { ...previous, value: activity });
+      if (activity && previous && nodes[0] instanceof HTMLElement) { w.activities.set(nodes[0], { ...previous, value: activity }); w.renderDirty = true; }
       return nodes;
     }
     if (activity) {
       const host = document.createElement("div");
       host.style.display = "contents";
       w.activities.set(host, { key: ++w.nextReplyKey, value: activity });
+      w.renderDirty = true;
       return [host];
     }
     if (heading) {
       const host = document.createElement("div");
       host.style.display = "contents";
       w.headings.set(host, { key: ++w.nextReplyKey, value: heading });
+      w.renderDirty = true;
       return [host];
     }
     if (reply) {
       const host = document.createElement("div");
       host.style.display = "contents";
       w.replies.set(host, { key: ++w.nextReplyKey, reply });
+      w.renderDirty = true;
       return [host];
     }
     const t = document.createElement("template");
@@ -432,6 +441,8 @@ function reuseActivities(before: readonly TranscriptRow[], next: readonly Transc
 function renderReplies(w: LogWindow) {
   // One root owns all visible reply and heading portals; virtualized turns
   // release their hosts as they leave the window.
+  if (!w.renderDirty) return;
+  w.renderDirty = false;
   if (!w.replyRoot && !w.replies.size && !w.headings.size && !w.activities.size) return;
   w.replyRoot ??= createDocumentView(document.createElement("div"));
   flushSync(() => w.replyRoot?.render(createElement(Fragment, null,
