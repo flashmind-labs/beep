@@ -19,3 +19,19 @@ test("chat work keeps its heading and fold state on history refresh", async ({ p
   await expect(heading).toHaveAttribute('aria-expanded', 'true');
   await expect(heading).toBeFocused();
 });
+
+
+test("prompt files keep their controls through history updates", async ({ page }) => {
+  const history = [{ role: "user", text: "Review this", at: 1, images: [], model: "", thinking: "" }];
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, session_agents: [], session_files: [{ message: 1, files: [{ id: "file-1", name: "example.txt", mime: "text/plain", size: 6 }] }], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const chip = page.locator(".dachips button");
+  await expect(chip).toContainText("example.txt");
+  await chip.focus();
+  await chip.evaluate(el => Reflect.set(window, "fileChip", el));
+  await page.evaluate(() => window.__navigation.emit("sessions-changed", "chat-example"));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_session").length)).toBeGreaterThan(1);
+  expect(await chip.evaluate(el => el === Reflect.get(window, "fileChip") && document.activeElement === el)).toBe(true);
+  await chip.click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "open_file" && call.args.id === "file-1"))).toBe(true);
+});

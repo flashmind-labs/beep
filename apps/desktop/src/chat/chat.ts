@@ -273,7 +273,7 @@ export function makeTurn(question: string, images?: PicRef[], files?: AskFile[])
   const prompt = turn.querySelector<HTMLElement>(".dcoderen.user");
   if (owner && prompt) renderChatPrompt(owner, turn, prompt, linkified(question));
   fillPics(turn);
-  if (files?.length) turn.append(askFiles(files));
+  if (files?.length) turn.append(askFiles(files, owner, turn));
   if (owner) turnBodies.set(turn, owner);
   turn.steps = [];
   turn.folded = true;

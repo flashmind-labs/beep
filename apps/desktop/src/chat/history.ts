@@ -1,4 +1,4 @@
-import { discardChatApproval, discardChatSources, discardChatSuggestions, discardChatWork, renderChatSources, transferChatApproval, transferChatPrompt, transferChatSuggestions } from "./work-view.tsx";
+import { discardChatApproval, discardChatSources, discardChatSuggestions, discardChatWork, renderChatSources, transferChatApproval, transferChatFiles, transferChatPrompt, transferChatSuggestions } from "./work-view.tsx";
 import { askFiles } from "./attach.ts";
 import { ANSWER, answeredTurns, approvalCard, appendChatReply, ASK, askText, body, chatReplyHtml, drawLatest, drawWork, failed, makeTurn, moveChatReply, newTurn, owningChatBody, ranOn, renderChat, setChatReply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
 import type { Asking, ToolOutput } from "./chat.ts";
@@ -291,6 +291,7 @@ function mergeTurn(old: Turn, fresh: Turn) {
       else old.prepend(el);
       if (el.className === "dcoderen agent md") moveChatReply(fresh, old);
       if (el.className === "dcoderen user") transferChatPrompt(fresh, old);
+      if (el.className === "dachips") transferChatFiles(fresh, old);
       if (el.className === "dreplies") transferChatSuggestions(fresh, old);
       if (el.className === "dcard") transferChatApproval(fresh, old);
     } else if (STABLE.has(el.className)) {
@@ -353,7 +354,7 @@ async function eachTurn<T extends { message: number }>(id: string, b: ChatBody, 
 export function loadAskFiles(id: string, b: ChatBody) {
   return eachTurn(id, b, invoke<{ message: number; files: SentFile[] }[]>("session_files", { id }), (turn, { files }) => {
     if (turn.querySelector(".dachips")) return;
-    (turn.querySelector(".dpics") ?? turn.querySelector(ASK))?.after(askFiles(files));
+    (turn.querySelector(".dpics") ?? turn.querySelector(ASK))?.after(askFiles(files, b, turn));
   });
 }
 

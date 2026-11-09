@@ -2,6 +2,8 @@ import { AGENT_IMAGE_TYPES } from "../agents/agents.ts";
 import { agentAttach } from "../agents/images.ts";
 import { PATH_TYPE } from "../agentpane/files.ts";
 import { addMention, uploadDropped } from "../agents/workdrop.ts";
+import { renderChatFiles } from "./work-view.tsx";
+import type { ChatBody, Turn } from "../ui/turn.ts";
 import { focusAsk } from "./chat.ts";
 import { $, bar, S } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
@@ -54,7 +56,13 @@ export function fileChip(f: AskFile, i?: number) {
 }
 
 /// The files a prompt carried, under it. A kept one opens like a file Beep sent.
-export function askFiles(files: AskFile[]) {
+export function askFiles(files: AskFile[], body: ChatBody | null = null, turn: Turn | null = null) {
+  if (body && turn) {
+    const row = document.createElement("div");
+    row.className = "dachips";
+    renderChatFiles(body, turn, row, files);
+    return row;
+  }
   const row = h(`<div class="dachips">${files.map(f => fileChip(f)).join("")}</div>`);
   [...row.children].forEach((chip, i) => {
     const file = files[i];
