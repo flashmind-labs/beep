@@ -156,3 +156,17 @@ test("new agent draft and caret survive machine discovery", async ({ page }, inf
   await expect(page.locator("#agpillb")).toBeEnabled();
   expect(await input.evaluate(el => el === Reflect.get(window, "startComposerInput") && document.activeElement === el && el instanceof HTMLTextAreaElement && el.value === "Keep this draft" && el.selectionStart === 2 && el.selectionEnd === 5)).toBe(true);
 });
+
+test("new-agent project, machine and folder menus keep their choices", async ({ page }, info) => {
+  await openDesktop(page, false, { agent_hosts: hosts, agent_models: models });
+  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  await expect(page.locator("#aghostb")).toContainText("build-box");
+  await page.locator("#aghostb").click();
+  await expect(page.locator('#agunder [data-agm="build-box"]')).toBeVisible();
+  await page.locator('#agunder [data-agm="build-box"]').click();
+  await page.locator("#agfoldb").click();
+  await expect(page.locator('#agunder [data-agtype="1"]')).toBeVisible();
+  await expect(page.locator('#agunder [data-agf=""]')).toContainText("Workspace");
+  await page.locator("#agprojb").click();
+  await expect(page.locator('#agunder [data-agp=""]')).toContainText("No project");
+});
