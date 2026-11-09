@@ -1,13 +1,12 @@
 import { attachedCount } from "../chat/attach.ts";
-import { focusAsk, forRoutine, stop } from "../chat/chat.ts";
+import { drawQueue, forRoutine } from "../chat/chat.ts";
 import { $, bar, here, PANE, queued, S } from "./core.ts";
 import { linkChip } from "../settings/server-state.ts";
 import { liveParts, LV } from "./live.ts";
-import { modelChip } from "../settings/model.ts";
+import { modelChipLabel } from "../settings/model.ts";
 import { waitingQuestion } from "./work.ts";
-import { stopFace } from "../agents/turnrows.ts";
-import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
+import type { HintViewModel } from "./hints-view.tsx";
 
 // ---------- Hints ----------
 
@@ -32,45 +31,37 @@ export function forPane(items: readonly Hint[]) {
 }
 export function chatHints() {
   const e = here();
-  const chip = modelChip();
+  const chip = modelChipLabel();
+  const make = (items: readonly Hint[]): HintViewModel => ({ items: forPane(items), window: !PANE && S.view === "chat", model: chip, link: linkChip(S.server, S.link, S.signedOut) });
   const approval = e?.approval, question = !approval && !e?.run && waitingQuestion(S.session);
 
   if (approval || question) {
     const grant = question ? forRoutine(question.action) : approval?.grant;
-    return hints([[`⌘${ICON.ret}`, "allow"], ...(grant ? [] : [[`⇧⌘${ICON.ret}`, "this session"], [`⌥⌘${ICON.ret}`, "always"]]), ["⌘D", "deny"], ["esc", "to hide"]], chip);
+    return make([[`⌘${ICON.ret}`, "allow"], ...(grant ? [] : [[`⇧⌘${ICON.ret}`, "this session"], [`⌥⌘${ICON.ret}`, "always"]]), ["⌘D", "deny"], ["esc", "to hide"]]);
   }
 
   const editQueued: Hint[] = queued.get(S.session)?.list.length ? [["↑", "edit queued"]] : [];
-  if (e?.run) return hints([[ICON.ret, "queue"], ...editQueued, ["⌘.", "stop"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
-  if (queued.get(S.session)?.held) return hints([[`⌘${ICON.ret}`, "send queued"], ...editQueued, ["⌘N", "new agent"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
-  if (attachedCount()) return hints([[ICON.ret, "send"], ["⌘V", "paste"], ["⌫", "remove last"], ["esc", "to hide"]], chip);
+  if (e?.run) return make([[ICON.ret, "queue"], ...editQueued, ["⌘.", "stop"], ["⌘K", "chats"], ["esc", "to hide"]]);
+  if (queued.get(S.session)?.held) return make([[`⌘${ICON.ret}`, "send queued"], ...editQueued, ["⌘N", "new agent"], ["⌘K", "chats"], ["esc", "to hide"]]);
+  if (attachedCount()) return make([[ICON.ret, "send"], ["⌘V", "paste"], ["⌫", "remove last"], ["esc", "to hide"]]);
   const typed = $<HTMLTextAreaElement>("#ask")?.value;
-  if (typed?.includes("\n")) return hints([[ICON.ret, "send"], [`⇧${ICON.ret}`, "new line"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
-  if (typed?.trim()) return hints([[ICON.ret, "ask"], ...(S.link === "linked" ? [["⌘R", "research"] as Hint] : []), ["esc", "to hide"]], chip);
-  if (PANE) return hints([["⌘K", "search"], ["⌘N", "new agent"], [`⇧${ICON.ret}`, "new line"], ["⌥ ⌥", "quick chat"]], chip);
-  if (!knowsHotkey()) return hints([["⌥ ⌥", "open from anywhere"], ["⌘N", "new agent"], ["⌘K", "chats"], ["esc", "to hide"]], chip);
-  return hints([["⌘N", "new agent"], ["⌘K", "chats"], ...(S.live ? [["tap ⌥", "live"], ["hold ⌥", "talk"]] as Hint[] : []), ["⌘/", "shortcuts"], ["esc", "to hide"]], chip);
+  if (typed?.includes("\n")) return make([[ICON.ret, "send"], [`⇧${ICON.ret}`, "new line"], ["⌘K", "chats"], ["esc", "to hide"]]);
+  if (typed?.trim()) return make([[ICON.ret, "ask"], ...(S.link === "linked" ? [["⌘R", "research"] as Hint] : []), ["esc", "to hide"]]);
+  if (PANE) return make([["⌘K", "search"], ["⌘N", "new agent"], [`⇧${ICON.ret}`, "new line"], ["⌥ ⌥", "quick chat"]]);
+  if (!knowsHotkey()) return make([["⌥ ⌥", "open from anywhere"], ["⌘N", "new agent"], ["⌘K", "chats"], ["esc", "to hide"]]);
+  return make([["⌘N", "new agent"], ["⌘K", "chats"], ...(S.live ? [["tap ⌥", "live"], ["hold ⌥", "talk"]] as Hint[] : []), ["⌘/", "shortcuts"], ["esc", "to hide"]]);
 }
 // Shown from first launch until the bar is first opened with a double tap of Option.
 export const KNOWS_HOTKEY = "beep.knowsHotkey";
 export function knowsHotkey() { try { return localStorage.getItem(KNOWS_HOTKEY) === "1"; } catch { return false; } }
 export function learnedHotkey() { try { localStorage.setItem(KNOWS_HOTKEY, "1"); } catch {} }
 export function refreshHints() {
-  const old = bar.querySelector(".dhints");
-  if (!old || S.view !== "chat") return;
-  const next = h(LV.on && LV.view && $("#ldock") ? hints(liveParts(LV.view).keys) : chatHints());
-  old.replaceChildren(...next.childNodes);
-  drawStop();
+  if (S.view === "chat" && bar.querySelector(".dhints")) drawQueue();
 }
-/// The Stop button beside the prompt while a reply runs, as ⌘. does.
-export function drawStop() {
-  const row = bar.querySelector(".dinput.dgrow"), btn = $("#stopRun");
-  const running = S.view === "chat" && !!here()?.run;
-  if (!row || running === !!btn) return;
-  if (!running) return btn?.remove();
-  const stopBtn = h(`<button class="dbtn" id="stopRun" aria-label="Stop the reply">${stopFace()}</button>`);
-  stopBtn.onclick = () => { stop(); focusAsk(); };
-  row.insertBefore(stopBtn, $("#grip"));
+
+export function currentChatHints(): HintViewModel {
+  if (LV.on && LV.view && $("#ldock")) return { items: forPane(liveParts(LV.view).keys), window: !PANE, model: null, link: linkChip(S.server, S.link, S.signedOut) };
+  return chatHints();
 }
 
 // ---------- Live mode keys ----------

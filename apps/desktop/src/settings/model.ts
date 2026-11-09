@@ -6,7 +6,6 @@ import { ModelView } from "./model-view.tsx";
 import { bar, S } from "../bar/core.ts";
 import { hints, refreshHints } from "../bar/hints.ts";
 import { cap } from "../chat/tools.ts";
-import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -77,11 +76,10 @@ export function modelPrice(c: ModelChoice) {
   return c.sees_images ? price : price + ", text only";
 }
 /// The hint row's chip: the model and thinking every turn uses, or Auto.
-export function modelChip() {
+export function modelChipLabel(): string | null {
   const m = MODELS.info;
-  if (!m?.choices.length) return "";
-  const label = m.auto ? "Auto" : `${modelName(m.selected)} · ${cap(m.thinking)}`;
-  return `<button class="dmodel" data-act="model">${esc(label)}<kbd>⌘E</kbd></button>`;
+  if (!m?.choices.length) return null;
+  return m.auto ? "Auto" : `${modelName(m.selected)} · ${cap(m.thinking)}`;
 }
 
 export function renderModel() {

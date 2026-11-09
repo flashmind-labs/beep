@@ -19,7 +19,7 @@ import { renderAgentNew } from "../agents/agentnew.ts";
 import { AnsweredIds } from "./approvals.ts";
 import { appTile, fillAppTiles } from "./applogo.ts";
 import type { LiveEntry, PendingApproval } from "../bar/core.ts";
-import { chatHints, drawStop, refreshHints } from "../bar/hints.ts";
+import { currentChatHints, refreshHints } from "../bar/hints.ts";
 import { drawThrough, earlierPrompts, loadTurnAgent, sourceRow } from "./history.ts";
 import type { WebSource } from "./history.ts";
 import { heard, takeDraft } from "../bar/live.ts";
@@ -125,7 +125,7 @@ export function forgetChat(id: string | null) {
   else if (!cached.isConnected && ![...live.values()].some(entry => entry.body === cached)) evictBody(cached);
 }
 
-let chatShell: { host: HTMLElement; root: import("react-dom/client").Root; body: ChatBody; hints: string; dock: import("../bar/live.ts").LiveView | null } | null = null;
+let chatShell: { host: HTMLElement; root: import("react-dom/client").Root; body: ChatBody; dock: import("../bar/live.ts").LiveView | null } | null = null;
 
 export function renderChat() {
   // The chat needs the server: without it every way here lands on the agent's start form.
@@ -133,9 +133,6 @@ export function renderChat() {
   S.view = "chat";
   const kept = here()?.body;
   const chatBody = kept ?? createChatBody();
-  const hint = document.createElement("template");
-  hint.innerHTML = chatHints();
-  const hintContents = hint.content.firstElementChild?.innerHTML ?? "";
   let host: HTMLElement | null = null;
   const page = openBarPage(() => {
     chatShell = null;
@@ -145,7 +142,7 @@ export function renderChat() {
     for (const child of [...bar.children]) if (child !== host) child.remove();
   });
   host = page.host;
-  chatShell = { host: page.host, root: page.root, body: chatBody, hints: hintContents, dock: null };
+  chatShell = { host: page.host, root: page.root, body: chatBody, dock: null };
   drawQueue();
   const b = body()!;
   // A chat put back goes where the reader left it if they had scrolled up, else to its end.
@@ -166,7 +163,6 @@ export function renderChat() {
   dragGrip(ask);
   composeField(ask, { images: attach });
   takeDraft(ask);
-  drawStop();
   drawAgentButton();
   focusAsk();
 }
@@ -611,7 +607,7 @@ export function drawQueue() {
     focusAsk();
   };
   flushSync(() => shell.root.render(createElement(ChatShell, {
-    body: shell.body, hints: shell.hints, dock: shell.dock, queue: q ?? null, attachments: attached,
+    body: shell.body, hints: currentChatHints(), running: !!here()?.run, dock: shell.dock, queue: q ?? null, attachments: attached,
     unattach: (index: number) => { unattach(index); focusAsk(); },
     edit: (index: number) => update(index, true), remove: (index: number) => update(index, false), send: () => sendQueued(S.session),
   })));
