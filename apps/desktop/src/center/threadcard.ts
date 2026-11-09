@@ -1,5 +1,9 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { ThreadCardContent } from "./threadcard-view.tsx";
 // Chats about one pull request or issue: the card at the top of the chat.
-import { plural, reason, since } from "../ui/format.ts";
+import { reason } from "../ui/format.ts";
 import { dbtn as button, stateChip } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { pane } from "../bar/pane.ts";
@@ -43,7 +47,7 @@ export function loadThreadChats() {
 }
 
 /// A thread as `center_thread_view` reads it from its host (ThreadCardRow).
-interface ThreadCardView {
+export interface ThreadCardView {
   kind: string;
   number: number;
   title: string;
@@ -60,6 +64,7 @@ interface ThreadCardView {
 /// a server too old to read one), when, and its error.
 interface ThreadCard {
   el: HTMLElement;
+  root: Root;
   view: ThreadCardView | null | undefined;
   at: number;
   error: string;
@@ -69,17 +74,14 @@ interface ThreadCard {
 const threadCards = new Map<string, ThreadCard>();
 /// How long a thread card's read serves before the chat reads it again.
 const THREAD_FRESH_MS = 60000;
-/// The comments a thread card shows before "Show all".
-const THREAD_COMMENTS = 3;
-/// The most of one post a card shows before "Show all".
-const THREAD_TEXT = 600;
 
 /// The card atop thread chat `t`, read again when it is stale.
 export function threadCard(t: ThreadChatEntry) {
   let card = threadCards.get(t.chat_id);
 
   if (!card) {
-    card = { el: h("div", "th-card"), view: undefined, at: 0, error: "", loading: false, all: false };
+    const el = h("div", "th-card");
+    card = { el, root: createRoot(el), view: undefined, at: 0, error: "", loading: false, all: false };
     threadCards.set(t.chat_id, card);
   }
 
@@ -106,31 +108,11 @@ async function readThreadCard(t: ThreadChatEntry, card: ThreadCard) {
   if (on.view === "chat" && on.session === t.chat_id) drawTop();
 }
 
-const clip = (text: string, all: boolean) => all || text.length <= THREAD_TEXT ? text : text.slice(0, THREAD_TEXT).trimEnd() + "...";
-
 function drawThreadCard(t: ThreadChatEntry, card: ThreadCard) {
-  const v = card.view, label = threadLabel(t.kind, t.number);
-  card.el.hidden = v === null;
-  if (v === undefined) return card.el.replaceChildren(card.error ? h("span", "who", card.error) : h("span", "who", h("span", "dspin"), ` Reading ${label}…`));
-  if (!v) return card.el.replaceChildren();
-  const total = v.earlier + v.comments.length;
-  const where = openLabel(v.url) === "Open on GitHub" ? "On GitHub" : "On its host";
-  const head = h("span", "who", `${where} · ${plural(total, "comment", "comments")}${v.needs_reply ? " · waits on your reply" : ""}`);
-  const post = (author: string, at: number | null, body: string) => {
-    const c = h("div", "c", h("b", "", author), " ", h("span", "who", at ? since(at) : "opened it"));
-    if (body.trim()) c.append(h("div", "tx", clip(body, card.all)));
-    return c;
-  };
-  const shown = card.all ? v.comments : v.comments.slice(-THREAD_COMMENTS);
-  const hidden = v.comments.length - shown.length;
-  const rows = [post(v.author, null, v.body), ...shown.map(c => post(c.author, c.at, c.body))];
-  const long = [v.body, ...shown.map(c => c.body)].some(b => b.length > THREAD_TEXT);
-  const more: Node[] = hidden > 0 || (long && !card.all)
-    ? [button(hidden > 0 ? `Show ${plural(hidden, "earlier comment", "earlier comments")}` : "Show all", "quiet small", () => { card.all = true; drawThreadCard(t, card); })]
-    : [];
-  if (card.all && v.earlier) more.push(h("span", "who", `${plural(v.earlier, "older comment", "older comments")} on the host`));
-  if (card.error) more.push(h("span", "who", card.error));
-  card.el.replaceChildren(head, ...rows, ...more);
+  card.el.hidden = card.view === null;
+  const where = card.view && openLabel(card.view.url) === "Open on GitHub" ? "On GitHub" : "On its host";
+  flushSync(() => card.root.render(createElement(ThreadCardContent, { view: card.view, label: threadLabel(t.kind, t.number), where, error: card.error, all: card.all,
+    expand: () => { card.all = true; drawThreadCard(t, card); } })));
 }
 
 /// A thread chat's header: its title, its project to go back to, whether
