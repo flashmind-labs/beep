@@ -2,34 +2,17 @@
 // the sidebar, and long-press for the menus the desktop opens on right-click. The CSS is
 // mobile.css, scoped to `body.mobile`; this file sets the class and draws the bars.
 import { isMobile } from "../ui/platform.ts";
-import { el as h } from "../ui/dom.ts";
+import { createElement } from "react";
+import { MobileTabs, MobileBack, HideKeyboard } from "./mobile-view.tsx";
+import { removeWindowPart, showWindowParts } from "./window-root.ts";
 import { allTerms } from "../terminals/view.ts";
 import { openTile } from "../project/split.ts";
 import { pa } from "../project/sections.ts";
 import { HOME_TAB_EVENT, homeTab, jump } from "./home.ts";
 import { currentLocation, go, goHistory } from "./views.ts";
 import { openProjects, paneOn } from "./sidebar.ts";
-import { activeTab, backTo, fullScreen, TABS, type MobileAt, type MobileTab } from "./mobile-state.ts";
+import { activeTab, backTo, fullScreen, type MobileAt, type MobileTab } from "./mobile-state.ts";
 import { $, state } from "./state.ts";
-
-/// Tab icons, as in the phone mocks.
-const PATHS: Record<MobileTab, string> = {
-  home: "M3 11l9-7 9 7v9h-6v-6H9v6H3z",
-  projects: "M3 7h7l2 2h9v11H3z",
-  agents: "M4 5h16v11H9l-5 4z M8 9h8M8 12.5h5",
-  terminals: "M4 5h16v14H4z M7 9l3 3-3 3M12 15h5",
-  machines: "M3 4h18v6H3z M3 14h18v6H3z M7 7h.1M7 17h.1",
-};
-const BACK = "M15 5l-7 7 7 7";
-
-function svg(path: string, size: number) {
-  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  for (const [k, v] of Object.entries({ width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 1.7, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) s.setAttribute(k, String(v));
-  const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  p.setAttribute("d", path);
-  s.append(p);
-  return s;
-}
 
 const OPEN: Record<MobileTab, () => void> = {
   home: () => jump(),
@@ -62,45 +45,31 @@ function back() {
   }
 }
 
-let backBtn: HTMLButtonElement | null = null;
-let tabBtns: Map<MobileTab, HTMLButtonElement> | null = null;
+let mounted: { tabs: HTMLElement; top: HTMLElement } | null = null;
 
 function build() {
-  const nav = $("#mb-tabs");
-  tabBtns = new Map();
-
-  for (const t of TABS) {
-    const b = h("button", "", h("span", "ic", svg(PATHS[t.id], 21)), t.label);
-    b.type = "button";
-    b.addEventListener("click", OPEN[t.id]);
-    nav.append(b);
-    tabBtns.set(t.id, b);
-  }
-
-  backBtn = h("button", "mb-back");
-  backBtn.type = "button";
-  backBtn.setAttribute("aria-label", "Back");
-  backBtn.append(svg(BACK, 22));
-  backBtn.addEventListener("click", back);
-  $(".cc-top").prepend(backBtn);
+  const tabs = $("#mb-tabs"), top = $(".cc-top");
+  mounted = { tabs, top };
+  drawMobile(at());
+  // Keep Back before the heading without changing the portal's parent.
+  const back = top.querySelector(".mb-back");
+  if (back) top.prepend(back);
 }
 
-/// Lights the tab, shows Back and hides the tab bar where the page fills the screen.
-/// Called whenever the window draws its top bar.
+function drawMobile(now: MobileAt) {
+  if (!mounted) return;
+  showWindowParts([
+    { part: "mobile-tabs", host: mounted.tabs, content: createElement(MobileTabs, { active: activeTab(now), needsReply: !!state.home?.needs_you.length, open: tab => OPEN[tab]() }) },
+    { part: "mobile-back", host: mounted.top, content: createElement(MobileBack, { hidden: backTo(now) === null, back }) },
+  ]);
+}
+
+/// Updates the phone controls without replacing their buttons or scroll hosts.
 export function syncMobile() {
-  if (!document.body.classList.contains("mobile") || !tabBtns || !backBtn) return;
-  const now = at(), tab = activeTab(now);
-
-  for (const [id, b] of tabBtns) {
-    if (id === tab) b.setAttribute("aria-current", "true");
-    else b.removeAttribute("aria-current");
-  }
-
-  // A dot on Home while something needs an answer.
-  tabBtns.get("home")!.classList.toggle("dot", !!state.home?.needs_you.length && tab !== "home");
-  backBtn.hidden = backTo(now) === null;
+  if (!document.body.classList.contains("mobile") || !mounted) return;
+  const now = at();
+  drawMobile(now);
   document.body.classList.toggle("mb-full", fullScreen(now));
-  // The plans' usage shows on Home only.
   document.body.classList.toggle("mb-home", now.page === "home");
 }
 
@@ -139,9 +108,6 @@ function longPress() {
   }, true);
 }
 
-/// Tabler's keyboard-hide icon (MIT).
-const HIDE_KEYBOARD = "M2 5a2 2 0 0 1 2 -2h16a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-16a2 2 0 0 1 -2 -2l0 -8 M6 7l0 .01 M10 7l0 .01 M14 7l0 .01 M18 7l0 .01 M6 11l0 .01 M18 11l0 .01 M10 11l4 0 M10 21l2 -2l2 2";
-
 const TEXT_FIELD = "textarea, input:not([type]), input[type=text], input[type=search], input[type=url], input[type=email], [contenteditable=true]";
 
 /// The soft keyboard takes the tab bar's place instead of squeezing the page, and the window
@@ -166,16 +132,16 @@ function keyboard() {
   document.addEventListener("focusout", () => requestAnimationFrame(check));
   const dismiss = () => (document.activeElement as HTMLElement | null)?.blur();
 
-  const hide = h("button", "mb-kbdhide", svg(HIDE_KEYBOARD, 20));
-  hide.type = "button";
-  hide.setAttribute("aria-label", "Hide the keyboard");
-  // Pressing it must not take the focus first, or the field loses it before the tap lands.
-  hide.addEventListener("pointerdown", e => e.preventDefault());
-  hide.addEventListener("click", dismiss);
+  let keyboardHost: Element | null = null;
   document.addEventListener("focusin", e => {
-    const field = e.target instanceof Element ? e.target.closest(".dinput") : null;
-    if (field && hide.parentElement !== field) field.append(hide);
+    const field = e.target instanceof Element ? e.target.closest<HTMLElement>(".dinput") : null;
+    if (!field || keyboardHost === field) return;
+    keyboardHost = field;
+    showWindowParts([{ part: "mobile-keyboard", host: field, content: createElement(HideKeyboard, { dismiss }) }]);
   });
+  new MutationObserver(() => {
+    if (keyboardHost && !keyboardHost.isConnected) { keyboardHost = null; removeWindowPart("mobile-keyboard"); }
+  }).observe(document.body, { childList: true, subtree: true });
 
   // A downward drag outside the field, as when scrolling back through the log.
   let startY: number | null = null;
