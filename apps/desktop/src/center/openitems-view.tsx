@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { ago } from "../ui/format.ts";
 import { IC } from "../ui/icons.ts";
-import { Legacy, LabelGroup } from "../project/split-view.tsx";
-import { arranged, issueSelection, listControls, setIssueSelection, startBar } from "../project/openlist.ts";
+import { LabelGroup } from "../project/split-view.tsx";
+import { arranged, issueSelection, setIssueSelection } from "../project/openlist.ts";
+import { OpenListControls, OpenListStart } from "../project/openlist-view.tsx";
 import { labelFilter, type LabelFilter } from "../project/split.ts";
 import { reviewStart, itemChips, newestFirst, projectsWithOpen, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
 import { draw } from "./home.ts";
@@ -44,7 +45,7 @@ function Column({ kind, title, none, view }: { kind: GitItemRow["kind"]; title: 
   const shown = arranged(key, items, item => item.opened_at);
   const repos = new Map(projectsWithOpen({ items }, projectRows() || []).map(repo => [repo.key, repo]));
   const entries = shown.map(item => ({ key: item.url, project: repos.get(`${item.host} ${item.repo}`)?.project?.name ?? null, number: item.number, title: item.title, url: item.url }));
-  return <div><div className="cc-sec"><h4>{title}{!!shown.length && <span className="n">{shown.length}</span>}</h4></div><div className="cc-panel cc-open"><Legacy node={listControls(key, draw, issues)} />{!!labels.all.length && <LabelGroup filter={labels} />}{shown.length ? <LazyItems items={shown} repos={repos} filter={labels} list={key} /> : <div className="cc-empty"><span>{none}</span></div>}{issues && <Legacy node={startBar(key, entries, draw)} />}</div></div>;
+  return <div><div className="cc-sec"><h4>{title}{!!shown.length && <span className="n">{shown.length}</span>}</h4></div><div className="cc-panel cc-open"><OpenListControls list={key} redraw={draw} issues={issues} />{!!labels.all.length && <LabelGroup filter={labels} />}{shown.length ? <LazyItems items={shown} repos={repos} filter={labels} list={key} /> : <div className="cc-empty"><span>{none}</span></div>}{issues && <OpenListStart list={key} shown={entries} redraw={draw} />}</div></div>;
 }
 export function HomeGit({ view }: { view: GitItemsView }) {
   return <div className="cc-git" id="sec-git">{[state.gitError, ...view.hosts.map(host => host.error)].filter(Boolean).map((error, index) => <div className="cc-note" key={index}><span className="ddot bad" /><span>{error}</span></div>)}<div className="cc-cols"><Column kind="pull_request" title="Pull requests" none="No open pull requests." view={view} /><Column kind="issue" title="Issues" none="No open issues." view={view} /></div></div>;

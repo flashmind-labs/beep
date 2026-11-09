@@ -64,3 +64,20 @@ test("Git issue list loads more rows while scrolling", async ({ page }) => {
     return page.getByRole("button", { name: /Issue 40(?:\s|$)/ }).count();
   }).toBe(1);
 });
+
+test("Git issue filters and selection keep their controls and choices", async ({ page }) => {
+  const item = (number: number, label: string) => ({ host: "example.test", repo: "org/repo", number, title: `Issue ${number}`, kind: "issue", url: `https://example.test/org/repo/issues/${number}`, updated_at: 1, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: [label] });
+  await openDesktop(page, false, { git_items: { hosts: [{ host: "example.test", forgejo: false, account: null, error: null }], items: [item(1, "bug"), item(2, "feature")] }, agent_hosts: [] });
+  await page.getByRole("tab", { name: "PRs and issues" }).click();
+  const issues = page.locator("#sec-git .cc-cols > div").nth(1);
+  await issues.getByRole("button", { name: "bug", exact: true }).click();
+  await expect(issues.getByRole("button", { name: /Issue 1/ })).toBeVisible();
+  await expect(issues.getByRole("button", { name: /Issue 2/ })).toHaveCount(0);
+  await issues.getByRole("button", { name: "Select", exact: true }).click();
+  await issues.getByRole("checkbox", { name: "Pick this issue" }).check();
+  await expect(issues.getByText("1 picked")).toBeVisible();
+  await expect(issues.getByRole("button", { name: /Start 1/ })).toBeEnabled();
+  await issues.getByRole("button", { name: "bug", exact: true }).click();
+  await expect(issues.getByRole("checkbox", { name: "Pick this issue" })).toHaveCount(2);
+  await expect(issues.getByText("1 picked")).toBeVisible();
+});
