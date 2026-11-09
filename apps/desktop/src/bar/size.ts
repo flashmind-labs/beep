@@ -14,6 +14,13 @@ export const scrolls = (el: Element) => el.classList.contains("dbody") || el.cla
 const tall = (el: HTMLElement) => scrolls(el) ? el.scrollHeight : el.offsetHeight;
 export const natural = (el: Element) => ([...el.children] as HTMLElement[]).reduce((n, c) => n + tall(c), 0);
 let fitFrame = 0, barHeight = 0;
+/// Display-contents wrappers have no box; their children contribute instead.
+function boxes(parent: Element): HTMLElement[] {
+  return [...parent.children].flatMap(child => {
+    if (!(child instanceof HTMLElement)) return [];
+    return getComputedStyle(child).display === "contents" ? boxes(child) : [child];
+  });
+}
 /// Makes the next fit resize the bar even to the height it had.
 export function forgetHeight() { barHeight = 0; }
 /// Sizes the bar to its content once per frame, so a streaming reply does
@@ -22,10 +29,7 @@ export function fit() {
   fitFrame ||= requestAnimationFrame(() => {
     fitFrame = 0;
     let height = 2;
-    for (const child of bar.children as HTMLCollectionOf<HTMLElement>) {
-      const elements = child.hasAttribute("data-bar-page") ? [...child.children] as HTMLElement[] : [child];
-      for (const el of elements) if (!FLOATING.has(el.id)) height += tall(el);
-    }
+    for (const el of boxes(bar)) if (!FLOATING.has(el.id)) height += tall(el);
     if ($("#viewer")) height = Math.max(height, VIEWER_HEIGHT);
     const keys = $("#keys");
     if (keys) height = Math.max(height, natural(keys) + 2);
@@ -44,7 +48,7 @@ export const sizer = new ResizeObserver(fit);
 window.addEventListener(ZOOMED, () => { forgetHeight(); fit(); });
 new MutationObserver(() => {
   sizer.disconnect();
-  for (const el of bar.querySelectorAll(":scope > *, :scope > [data-bar-page] > *, .dbody > *")) sizer.observe(el);
+  for (const el of [...boxes(bar), ...bar.querySelectorAll(".dbody > *")]) sizer.observe(el);
   fit();
 }).observe(bar, { childList: true, subtree: true, characterData: true });
 
