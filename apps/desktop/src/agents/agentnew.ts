@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { openBarPage } from "../bar/page-root.ts";
+import { AgentNewShell } from "./agentnew-shell.tsx";
 import { stashBar } from "../chat/stash.ts";
 import { startAttachments } from "./start-attachments.ts";
 import { makeStartComposer } from "./start-composer.ts";
@@ -163,11 +167,8 @@ function drawFrame() {
   c.send.id = "aggo";
   c.pick.id = "agpick";
   c.err.id = "agerr";
-  const head = PANE ? "" : `<div class="dhead"><span class="tt"><b>Start a coding agent</b><small>It runs on your machine; follow it and answer it here</small></span>
-      <button class="dbtn quiet" id="agList">All sessions</button></div>`;
-  bar.innerHTML = `${head}<div class="agc-wrap" id="agcomposer"></div>
-      ${stashBar(f.project ?? null)}`;
-  $$("#agcomposer").append(c.form);
+  const { root } = openBarPage(() => { closedPicker(c.pick); c.dispose(); });
+  flushSync(() => root.render(createElement(AgentNewShell, { pane: PANE, composer: c.form, stash: stashBar(f.project ?? null) })));
   c.box.insertAdjacentHTML("beforeend", '<div id="agunder"></div>');
   c.form.insertAdjacentHTML("beforeend", '<div class="agnew-notes"><div class="agc-why" id="agwhy" hidden></div><div id="aghelp"></div></div>');
   c.form.addEventListener("submit", e => { e.preventDefault(); void startAgent(); });

@@ -1,7 +1,5 @@
 import { stashBar } from "../chat/stash.ts";
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot } from "react-dom/client";
 import { ComposerChoices, type ComposerChoicesState } from "./composer-choices.tsx";
 import { composeField, composeMessage } from "../chat/compose.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
@@ -42,17 +40,16 @@ import { startAttachments } from "../agents/start-attachments.ts";
 let finishCopy: (() => void) | undefined;
 
 export const projectComp = (() => {
-  const composer = makeStartComposer({ presentation: "compact" });
+  const composer = makeStartComposer({ presentation: "compact", externalChoices: true });
   const { form, input, choices, harness, pick } = composer;
   input.title += ", Shift+Tab switches machines";
-  const choicesRoot = createRoot(choices);
   const actions = {
     machine: openMachineMenu,
     folder: openFolderMenu,
     branch: (value: string) => { if (pc.target?.kind === "issue") pc.target.branch = value; },
     clear: () => { pc.target = null; input.value = ""; redrawProjects(); },
   };
-  const renderChoices = (value: ComposerChoicesState) => flushSync(() => choicesRoot.render(createElement(ComposerChoices, { value, actions })));
+  const renderChoices = (value: ComposerChoicesState) => composer.setChoices(createElement(ComposerChoices, { value, actions }));
   renderChoices({ machine: "Machine", adding: false, machineDisabled: true, folder: "Current checkout", folderSub: "as it is", folderDisabled: true, branch: "", showBranch: false, showClear: false });
   const machine = choices.querySelector<HTMLButtonElement>('[data-composer="machine"]');
   const folder = choices.querySelector<HTMLButtonElement>('[data-composer="folder"]');
