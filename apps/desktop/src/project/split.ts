@@ -5,6 +5,7 @@ import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ProjectNavigation, ProjectStatus } from "./split-view.tsx";
 import { ProjectTasks } from "./tasks-view.tsx";
 import { ProjectIssues } from "./issues-view.tsx";
+import { OpenListControls, OpenListStart } from "./openlist-view.tsx";
 // A project page's split: the list of tasks, PRs, issues and machines on
 // the left, the picked row's view on the right.
 import { sessionVisible } from "../agents/closing.ts";
@@ -18,7 +19,7 @@ import { terminalTile, type TerminalRow } from "../terminals/terminals.ts";
 import { fileSyncTile } from "./filesync.ts";
 import { taskTile, machineTile, askingSessions } from "./board.ts";
 import { issueMeta, prChip, prMeta } from "./threads.ts";
-import { arranged, issueSelection, listControls, setIssueSelection, startBar } from "./openlist.ts";
+import { arranged, issueSelection, setIssueSelection } from "./openlist.ts";
 import type { StartEntry } from "./openlist-state.ts";
 import { pages, state } from "../center/state.ts";
 import { projectBranch } from "./projectlist-state.ts";
@@ -137,7 +138,7 @@ export interface SplitItem {
 export type LabelFilter = { all: string[]; on?: string; pick: (label: string) => void };
 /// A group of the list: its title, rows, and a note in place of rows.
 /// A group without a title is set off from the one above it by a rule.
-export type SplitGroup = { title: string; items: SplitItem[]; note?: string; labels?: LabelFilter; controls?: HTMLElement };
+export type SplitGroup = { title: string; items: SplitItem[]; note?: string; labels?: LabelFilter; controls?: ReactNode };
 
 /// The label each list is filtered to, by list key.
 const listLabel = new Map<string, string>();
@@ -237,7 +238,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   });
   const prKey = `${p.name}:prs`;
   const prFilter = labelFilter(prKey, prItems, i => i.tags, redrawProjects);
-  groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), controls: listControls(prKey, redrawProjects, false), labels: prFilter.labels, items: arranged(prKey, prFilter.items, i => i.opened) });
+  groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), controls: createElement(OpenListControls, { list: prKey, redraw: redrawProjects, issues: false }), labels: prFilter.labels, items: arranged(prKey, prFilter.items, i => i.opened) });
   const issueItems: SplitItem[] = thr.issueLines(agent, acts).map(l => ({
     key: `issue:${l.number}`, opened: l.issue?.opened_at, start: l.issue ? { key: `issue:${l.number}`, project: p.name, number: l.number, title: l.title, url: l.url } : undefined,
     lead: num(l.number), title: l.title,
@@ -272,8 +273,8 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const showReview = pa.tile === "review";
   if (showIssues) currentShell.issuesView = createElement(ProjectIssues, {
     error: error ?? null, items: issueShown, filter: issueFilter.labels,
-    controls: listControls(issueKey, redrawProjects, true),
-    start: startBar(issueKey, issueShown.flatMap(item => item.start ?? []), redrawProjects),
+    controls: createElement(OpenListControls, { list: issueKey, redraw: redrawProjects, issues: true, flexItem: true }),
+    start: createElement(OpenListStart, { list: issueKey, shown: issueShown.flatMap(item => item.start ?? []), redraw: redrawProjects, flexItem: true }),
     selection: (id: string) => issueSelection(issueKey, id),
     pick: (id: string, checked: boolean) => setIssueSelection(issueKey, id, checked, redrawProjects),
     openTile,

@@ -15,7 +15,7 @@ test("issue selection, controls and scroll survive project redraws", async ({ pa
     const empty = slots.at(-1);
     return { slots: slots.length, controlsFlex: controls && getComputedStyle(controls).flex, emptyChildren: empty?.childElementCount, emptyHeight: empty?.getBoundingClientRect().height };
   });
-  expect(layout).toEqual({ slots: 2, controlsFlex: "0 0 auto", emptyChildren: 0, emptyHeight: 0 });
+  expect(layout).toEqual({ slots: 0, controlsFlex: "0 0 auto", emptyChildren: undefined, emptyHeight: undefined });
   await detail.getByRole("button", { name: "Select", exact: true }).click();
   const row = detail.locator(".pj-prow").filter({ has: page.locator('.pj-li[title="Issue 1"]') });
   const box = row.getByRole("checkbox", { name: "Pick this issue" });
@@ -25,6 +25,10 @@ test("issue selection, controls and scroll survive project redraws", async ({ pa
   await expect(box).toBeFocused();
   await expect(detail).toContainText("1 picked");
   await expect(detail.getByRole("button", { name: "Start 1 agent" })).toBeEnabled();
+  await detail.getByRole("button", { name: "Start 1 agent" }).click();
+  await expect(detail.locator(".pj-start.ask")).toContainText("Issue 1");
+  await detail.locator(".pj-start.ask").getByRole("button", { name: "Cancel" }).click();
+  await expect(box).toBeChecked();
   await expect(detail.locator('.pj-li[title="Issue 1"]')).toBeVisible();
   await detail.evaluate(el => { el.style.maxHeight = "200px"; el.scrollTop = 100; el.dataset.identity = "kept"; });
   const before = await detail.evaluate(el => el.scrollTop);
