@@ -11,7 +11,7 @@ import { openJoinTicket } from "./jointicket.ts";
 import { errorText, offeredNode, type NodeUpdate, updatedTo } from "./machines-state.ts";
 import { bar, S } from "../bar/core.ts";
 import type { MachineTraffic } from "./traffic-state.ts";
-import { hints } from "../bar/hints.ts";
+import { hintModel } from "../bar/hints.ts";
 import { notice } from "../chat/media.ts";
 import { span } from "../lists/routines.ts";
 import { invoke, listen } from "../ui/tauri.ts";
@@ -436,7 +436,7 @@ function drawList(el: HTMLElement, at: MachinesHost | null) {
   const refreshAfterSheet = () => { if (shown()) void renderMachines(hosted()?.machine ?? null).then(() => hosted()?.changed()); };
   flushSync(() => screen.render(createElement(MachineList, {
     list: MC.list, error: MC.error, hosted: !!at, mac: MC.mac, newest: newest(), asking: MC.asking,
-    adapterTries: MC.adapterTries, hints: at ? "" : hints([["esc", "back"]]), age: span,
+    adapterTries: MC.adapterTries, hints: at ? null : hintModel([["esc", "back"]]), age: span,
     open: (id: string) => { if (at) { at.opened(id); void renderMachines(id); } },
     add: () => openAddMachine({ onClose: refreshAfterSheet }),
     link: () => openJoinTicket({ onClose: refreshAfterSheet }),

@@ -12,7 +12,8 @@ import { grow } from "./chat.ts";
 import { renderChats } from "./chats.ts";
 import { copy } from "../ui/parts.ts";
 import { $, $$, changed, G, GROUP_VIEWS, S } from "../bar/core.ts";
-import { hints } from "../bar/hints.ts";
+import { hintModel } from "../bar/hints.ts";
+import { HintView } from "../bar/hints-view.tsx";
 import { dayDiff } from "../lists/memories.ts";
 import { esc } from "../ui/format.ts";
 import { BEEP_MARK, ICON } from "../ui/icons.ts";
@@ -149,8 +150,8 @@ function dayLabel(ms: number) {
 function mentions(text: string) { return esc(text).replace(/@beep\b/gi, m => `<span class="dmention">${m}</span>`); }
 
 function groupHints() {
-  if (G.mention) return hints([["↑↓", "pick"], [ICON.ret, "insert"], ["esc", "close"]]);
-  return hints([[ICON.ret, "send"], ["⌘I", "info"], ["⌘K", "chats"], ["esc", "to hide"]]);
+  if (G.mention) return hintModel([["↑↓", "pick"], [ICON.ret, "insert"], ["esc", "close"]]);
+  return hintModel([[ICON.ret, "send"], ["⌘I", "info"], ["⌘K", "chats"], ["esc", "to hide"]]);
 }
 
 /// Makes `id` the group on screen, starting empty when it is another one.
@@ -412,7 +413,7 @@ function drawGroupInfo() {
       if (G.id === group.id) { G.id = null; G.chat = null; renderChats(); }
     }); },
   });
-  flushSync(() => current.root.render(createElement(Fragment, null, header, createElement("div", { className: "dbody pt dgroupbody", id: "ginfobody" }, content), createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: hints([["esc", "back to the chat"], ["⌘K", "chats"]]) } }))));
+  flushSync(() => current.root.render(createElement(Fragment, null, header, createElement("div", { className: "dbody pt dgroupbody", id: "ginfobody" }, content), createElement(HintView, { value: hintModel([["esc", "back to the chat"], ["⌘K", "chats"]]) }))));
 }
 async function changeGroupInfo(owner: NonNullable<typeof infoRoot>, action: string, run: () => Promise<void>) {
   const key = `${owner.id}\0${action}`;
@@ -492,7 +493,7 @@ export function renderGroupNew(mode: GroupFormMode = "new") {
   const help = mode === "new" ? [[ICON.ret, "create"], ["tab", "next field"], ["esc", "back"]] : [[ICON.ret, mode === "code" ? "find" : "join"], ["esc", "back"]];
   flushSync(() => root.render(createElement(GroupFormView, {
     mode, name: J.name, member: memberName(), error: J.error, preview: J.found?.preview ?? null,
-    avatars: members.slice(0, 3).map(n => av(n)).join("") + av("Beep"), hints: hints(help),
+    avatars: members.slice(0, 3).map(n => av(n)).join("") + av("Beep"), hints: hintModel(help),
     changeMode: renderGroupNew, cancel: renderChats, go: () => void groupFormGo(),
   })));
 }

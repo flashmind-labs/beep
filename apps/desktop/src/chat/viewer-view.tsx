@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { commandKey } from "../ui/platform.ts";
 import { hostOf } from "../settings/apps.ts";
-import { hints } from "../bar/hints.ts";
+import { hintModel } from "../bar/hints.ts";
+import { HintView } from "../bar/hints-view.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { COPY_ICON, ICON } from "../ui/icons.ts";
 import { fileKind, fileSize, GONE_PIC, loadPic, viewerAct, viewerKeys, type ViewerPic } from "./media.ts";
@@ -36,7 +37,7 @@ export function Viewer({ pictures, at }: { pictures: ViewerPic[]; at: number }) 
   }}>
     <div className="vt"><span className="tt"><b>{name}</b><small>{about}</small></span>{keeps ? <><button className="dbtn" data-v="copy" onClick={() => viewerAct("copy")}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: COPY_ICON }} />Copy<kbd>⌘C</kbd></button><button className="dbtn pri" data-v="save" onClick={() => viewerAct("save")}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: ICON.save }} />Save<kbd>⌘S</kbd></button></> : !picture.url.startsWith("data:") && <button className="dbtn" data-v="open" onClick={() => viewerAct("open")}>Open in browser</button>}<button ref={close} className="dbtn" data-v="close" aria-label="Close" onClick={() => viewerAct("close")} dangerouslySetInnerHTML={{ __html: ICON.x }} /></div>
     <div className="vi">{many && <button className="nav prev" data-v="prev" aria-label="Previous" disabled={at === 0} onClick={() => viewerAct("prev")} dangerouslySetInnerHTML={{ __html: ICON.chev }} />}<ViewerImage key={at} picture={picture} />{many && <button className="nav" data-v="next" aria-label="Next" disabled={at === pictures.length - 1} onClick={() => viewerAct("next")} dangerouslySetInnerHTML={{ __html: ICON.chev }} />}</div>
-    <div className="cap">{picture.caption}</div><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: hints(keys) }} />
+    <div className="cap">{picture.caption}</div><HintView value={hintModel(keys)} />
   </div>;
 }
 

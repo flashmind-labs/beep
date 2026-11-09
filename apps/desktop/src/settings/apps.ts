@@ -6,7 +6,7 @@ import { AppPermissionsView } from "./app-permissions-view.tsx";
 import { McpView } from "./mcp-view.tsx";
 import type { SettingsContentOwner } from "./settings.ts";
 import { bar, S } from "../bar/core.ts";
-import { hints } from "../bar/hints.ts";
+import { hintModel } from "../bar/hints.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 
 // ---------- Apps ----------
@@ -144,7 +144,7 @@ function showView(view: AppsView, id: string | null) {
   at.opened(view, id);
 }
 /// Settings has its own back link and Esc.
-const backHint = () => (hosted() ? "" : hints([["esc", "back"]]));
+const backHint = () => (hosted() ? null : hintModel([["esc", "back"]]));
 
 interface AppMount {
   host: HTMLElement;

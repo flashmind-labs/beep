@@ -13,7 +13,7 @@ test("model settings preserve focused options during updates and handle each act
   }
   const { render, fireEvent, cleanup } = await import("@testing-library/react");
   const calls: string[] = [];
-  const props: ComponentProps<typeof ModelView> = { model: { choices: [{ id: "a", name: "Example A", input_price: null, output_price: null, sees_images: true, default: true }, { id: "b", name: "Example B", input_price: null, output_price: null, sees_images: false, default: false }], selected: "a", thinking: "medium", auto: false, auto_available: true }, selected: 0, agents: true, agentNames: ["Example"], error: "", hints: "", thinkingLevels: ["off", "low", "medium", "high"], price: () => "No price listed", capitalize: value => value,
+  const props: ComponentProps<typeof ModelView> = { model: { choices: [{ id: "a", name: "Example A", input_price: null, output_price: null, sees_images: true, default: true }, { id: "b", name: "Example B", input_price: null, output_price: null, sees_images: false, default: false }], selected: "a", thinking: "medium", auto: false, auto_available: true }, selected: 0, agents: true, agentNames: ["Example"], error: "", hints: { items: [], window: false, model: null, link: null }, thinkingLevels: ["off", "low", "medium", "high"], price: () => "No price listed", capitalize: value => value,
     pick: index => { calls.push(`pick:${index}`); }, setThinking: level => { calls.push(`level:${level}`); }, setAuto: () => { calls.push("auto"); }, setAgents: () => { calls.push("agents"); } };
   try {
     const view = render(createElement(ModelView, props));

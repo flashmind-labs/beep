@@ -8,7 +8,11 @@ test("mention picker preserves composer focus and inserts with keyboard or point
   await page.evaluate(() => window.__navigation.open({ group: { id: "group" } }));
   const ask = page.locator("#gask");
   await expect(ask).toHaveAttribute("placeholder", /Example group/);
+  const hints = page.locator("#bar .dhints");
+  await hints.evaluate(el => Reflect.set(window, "groupHints", el));
   await ask.fill("Hello @");
+  await expect(hints).toContainText("insert");
+  expect(await hints.evaluate(el => el === Reflect.get(window, "groupHints"))).toBe(true);
   const picker = page.getByRole("listbox", { name: "Mention" });
   await expect(picker.getByRole("option")).toHaveCount(2);
   const composing = await ask.evaluate(el => el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true, isComposing: true })));
