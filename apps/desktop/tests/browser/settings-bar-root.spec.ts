@@ -13,6 +13,8 @@ test("bar Settings shares its page root and preserves controls on refresh", asyn
   await page.keyboard.press(`${info.project.name === "Windows" ? "Control" : "Meta"}+,`);
   const general = page.locator("#set-general");
   await expect(general).toBeVisible();
+  const hint = page.locator("#bar .dhints");
+  await hint.evaluate(node => Reflect.set(window, "settingsHints", node));
   const control = general.getByRole("switch").first();
   await control.focus();
   await control.evaluate(node => Reflect.set(window, "settingsControl", node));
@@ -20,6 +22,7 @@ test("bar Settings shares its page root and preserves controls on refresh", asyn
   await page.evaluate(() => window.__navigation.emit("link-state", "unlinked"));
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length)).toBeGreaterThan(reads);
   expect(await control.evaluate(node => node === Reflect.get(window, "settingsControl") && node === document.activeElement)).toBe(true);
+  expect(await hint.evaluate(node => node === Reflect.get(window, "settingsHints"))).toBe(true);
   await expect(page.locator("#bar > [data-bar-page]")).toHaveCount(1);
 });
 
