@@ -2,7 +2,7 @@ import { onPhone } from "../ui/platform.ts";
 import type { PanePage } from "../bar/pane.ts";
 // settings/: the Settings pages (apps, accounts, credentials, coding agents,
 // instructions, model) and the window's sheet (sheet.ts). Entry: this file.
-import { bindAgents, disposeAgents, preserveAgents, bindCreds, CRED, loadAgentAccounts, loadCreds, setAgentsHtml, setCredsHtml } from "./accounts.ts";
+import { bindAgents, disposeAgents, preserveAgents, bindCreds, disposeCreds, preserveCreds, renderCreds, CRED, loadAgentAccounts, loadCreds, setAgentsHtml, setCredsHtml } from "./accounts.ts";
 import { A, type App, appsIn, appsOut, type AppsView, loadApps, type McpServer, renderAppPermissions, renderApps, renderMcpServer } from "./apps.ts";
 import { toWindow } from "../chat/chat.ts";
 import { bar, type LinkState, S, windowHooks } from "../bar/core.ts";
@@ -542,11 +542,11 @@ function drawSheet() {
   // The page's sections are drawn from where the sub stands now.
   const page = settingsSections(local.set, local.mac, local.linked, true).find(([id]) => id === path.page)?.[1] ?? "";
   const focus = focusKey(el);
-  const restoreAgents = preserveAgents();
+  const restoreAgents = preserveAgents(), restoreCreds = preserveCreds();
   el.innerHTML = `<nav class="dset-nav" aria-label="Settings pages"><b>Settings</b><div class="dset-pages">${navHtml(shown, path)}</div><small class="dset-ver">Beep desktop ${esc(local.set.version)}</small></nav>
     <div class="dset-body"><div class="dset-top"><span class="dset-crumbs">${crumbsHtml(path)}</span><kbd>esc</kbd></div>
     <div class="dset-page dform">${page}</div></div>`;
-  restoreAgents(el);
+  restoreAgents(el); restoreCreds(el);
   bindNav(el);
   bindSettings(el.querySelector(".dset-page")!);
   mountPage(path);
@@ -688,7 +688,7 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
   const el = setRoot();
 
   if (got instanceof Error || typeof got !== "object") {
-    disposeAgents();
+    disposeAgents(); disposeCreds();
     el.innerHTML = `<div class="dwin"><h4>Settings</h4><p class="derr">${esc(got)}</p></div>`;
     return;
   }
@@ -702,10 +702,10 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
     drawSheet();
   } else {
     const sections = settingsSections(set, mac, linked, false).map(([, html]) => html).join("");
-    const restoreAgents = preserveAgents();
+    const restoreAgents = preserveAgents(), restoreCreds = preserveCreds();
     el.innerHTML = `<div class="dhead"><span class="tt"><b>Settings</b><small>Beep desktop ${esc(set.version)}</small></span></div>
       <div class="dform dformcol">${sections}</div>${hints([["esc", "close"]])}`;
-    restoreAgents(el);
+    restoreAgents(el); restoreCreds(el);
     bindSettings(el);
   }
 
@@ -716,7 +716,7 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
       if (!alive()) return;
       if (SET.root) drawChrome(); else fillSection("machines", setMachinesHtml());
       // The git hosts say which machines have gh and teacli.
-      if (CRED.list) fillSection("creds", setCredsHtml());
+      if (CRED.list) renderCreds();
     });
   loadCreds();
   if (linked) loadAgentAccounts();

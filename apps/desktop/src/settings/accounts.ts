@@ -1,3 +1,4 @@
+import { CredentialsView, type CredentialActions } from "./credentials-view.tsx";
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -10,34 +11,16 @@ import type { CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount
 import { when } from "../chat/chats.ts";
 import { copy } from "../ui/parts.ts";
 import type { Machine } from "../machines/machines.ts";
-import { fillSection, SET, setRoot, setShown, setSkeleton } from "./settings.ts";
+import { SET, setShown } from "./settings.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
-import { esc } from "../ui/format.ts";
 
 /// Settings, Credentials (`credentials.ts` draws it, loaded on first use into
 /// `mod`).
 export const CRED: CredState & { mod: typeof CredentialsModule | null } = { mod: null, list: undefined, github: undefined, edit: null, busy: false, error: "", cli: undefined, cliBusy: "", cliError: null, ghFlow: null, ghAdd: false, checks: {} };
 const credModule = () => import("./credentials.ts").then(m => (CRED.mod = m));
 
-/// Finds a control inside `el`, the section or page being bound.
-type Find = <T extends Element = HTMLElement>(sel: string) => T | null;
-const finder = (el: Element): Find => sel => el.querySelector(sel);
-/// Runs `fn` on each element inside `el` that has the attribute `attr`.
-const eachIn = (el: Element) => <T extends HTMLElement = HTMLButtonElement>(attr: string, fn: (b: T) => void) =>
-  el.querySelectorAll<T>(`[${attr}]`).forEach(fn);
-/// The value typed in the input `sel` names on the Settings page, if any.
-const typed = (sel: string) => setRoot().querySelector<HTMLInputElement>(sel)?.value;
-/// Redraws Credentials once listed, unless a token is being typed: the
-/// redraw would drop it.
-const redrawCreds = () => { if (setShown() && CRED.list && !typed("#credSecret")) fillSection("creds", setCredsHtml()); };
-
-export function setCredsHtml() {
-  if (CRED.list === undefined || !CRED.mod) return setSkeleton(2);
-  if (CRED.list === null) return `<div class="dmuted">Could not load your credentials.</div>`;
-  // Which machines have gh and teacli, when the machines are known.
-  const machines = Array.isArray(SET.machines) ? SET.machines : null;
-  return CRED.mod.credentialsHtml(CRED, machines, esc);
-}
+const redrawCreds = () => { if (setShown()) renderCreds(); };
+export function setCredsHtml() { return ""; }
 
 /// Asks gh and teacli on this Mac what they are signed in to, then redraws.
 async function loadCliLogins() {
@@ -83,9 +66,7 @@ export async function loadCreds() {
     CRED.list ??= null;
   }
 
-  if (setShown()) {
-    fillSection("creds", setCredsHtml());
-  }
+  redrawCreds();
 }
 
 /// Runs gh's browser sign-in: Beep shows the code gh prints (and copies
@@ -120,114 +101,86 @@ async function signInGh(redraw: () => void) {
   await loadCreds();
 }
 
-/// Runs `act` for a row's button: the button stays disabled until the
-/// section redraws, and a failure only goes to the console.
-const settle = (b: HTMLButtonElement, act: () => Promise<unknown>, after: () => Promise<unknown>) => async () => {
-  b.disabled = true;
-
-  try {
-    await act();
-  } catch (e) {
-    console.warn(e);
-  }
-
-  await after();
-};
-
-/// Binds the Credentials controls inside `el`.
-export function bindCreds(el: Element) {
-  const $in = finder(el);
-  const each = eachIn(el);
-  const redraw = () => { if (setShown()) fillSection("creds", setCredsHtml()); };
-  each("data-cred-edit", b => b.addEventListener("click", () => {
-    CRED.edit = CRED.mod?.editFor(b.dataset.credEdit!, CRED.list) ?? null;
-    CRED.error = "";
-    redraw();
-    setRoot().querySelector<HTMLElement>(CRED.edit?.kind === "forgejo" && !CRED.edit.id ? "#credUrl" : "#credSecret")?.focus();
-  }));
-  each("data-cred-remove", b => b.addEventListener("click", settle(b, () => invoke("remove_credential", { id: b.dataset.credRemove }), loadCreds)));
-  // Saves the sign-in gh or teacli here holds, under `busy`; the token
-  // never reaches the page.
-  const useLogin = async (busy: string, errorKey: string, act: () => Promise<unknown>) => {
-    CRED.cliBusy = busy;
-    CRED.cliError = null;
-    redraw();
-
-    try {
-      await act();
-    } catch (e) {
-      CRED.cliError = { key: errorKey, message: String(e) };
+let credsRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+let credEditVersion = 0;
+export function preserveCreds() {
+  const host = credsRoot?.host;
+  if (!host?.isConnected) return () => {};
+  const active = host.contains(document.activeElement) ? document.activeElement : null;
+  const input = active instanceof HTMLInputElement ? active : null;
+  const start = input?.selectionStart ?? null, end = input?.selectionEnd ?? null;
+  host.remove();
+  return (container?: Element) => {
+    const replacement = container?.querySelector("#set-creds");
+    if (!replacement) { disposeCreds(); return; }
+    replacement.replaceWith(host);
+    if (active instanceof HTMLElement) {
+      active.focus({ preventScroll: true });
+      if (input && start !== null && end !== null) input.setSelectionRange(start, end);
     }
-
-    CRED.cliBusy = "";
-    await loadCreds();
   };
-  each("data-cred-cli", b => b.addEventListener("click", async () => {
-    const key = b.dataset.credCli!;
-    const host = CRED.mod?.cliHost(key);
-    if (!host || CRED.cliBusy) return;
-    await useLogin(key, key, () => invoke("use_cli_login", { host }));
-  }));
-  each("data-cred-gh", b => b.addEventListener("click", () => signInGh(redraw)));
-  // Opens or closes "Add another GitHub account".
-  each("data-cred-gh-add", b => b.addEventListener("click", () => {
-    CRED.ghAdd = !!b.dataset.credGhAdd;
-    CRED.cliError = null;
-    redraw();
-  }));
-  // Saves the token gh here holds for one of its accounts.
-  each("data-cred-gh-use", b => b.addEventListener("click", async () => {
-    const login = b.dataset.credGhUse;
-    if (!login || CRED.cliBusy) return;
-    await useLogin(`gh:${login}`, "github", async () => {
-      await invoke("use_gh_account", { login });
-      CRED.ghAdd = false;
-    });
-  }));
-  each("data-cred-gh-default", b => b.addEventListener("click", settle(b, () => invoke("set_default_github_account", { id: b.dataset.credGhDefault }), loadCreds)));
-  each("data-cred-gh-cancel", b => b.addEventListener("click", () => {
-    b.disabled = true;
-    invoke("cancel_gh_sign_in").catch(console.warn);
-  }));
-  each<HTMLAnchorElement>("data-cred-open", a => a.addEventListener("click", e => {
-    e.preventDefault();
-    e.stopPropagation();
-    invoke("open_url", { url: a.dataset.credOpen }).catch(console.warn);
-  }));
-  $in("#credCancel")?.addEventListener("click", () => { CRED.edit = null; CRED.error = ""; redraw(); });
-  const save = async () => {
-    if (CRED.busy || !CRED.mod) return;
-    // The URL shows only in a new server's form.
-    const url = $in<HTMLInputElement>("#credUrl")?.value;
-    if (CRED.edit?.kind === "forgejo" && url !== undefined) CRED.edit.url = url;
-    const d = CRED.mod.draft(CRED.edit, url, $in<HTMLInputElement>("#credSecret")?.value);
-
-    if (d.error) {
-      CRED.error = d.error;
-      const err = $in("#credErr");
-      if (err) err.textContent = d.error;
-      return;
-    }
-
-    CRED.busy = true;
-    CRED.error = "";
-    redraw();
-
-    try {
-      await invoke("save_credential", { credential: d.credential });
-      if (CRED.edit?.kind === "github") CRED.ghAdd = false;
-      CRED.edit = null;
-    } catch (e) {
-      CRED.error = String(e);
-    }
-
-    CRED.busy = false;
-    // The typed token is gone from the page either way.
-    await loadCreds();
-  };
-  $in("#credSave")?.addEventListener("click", save);
-  $in("#credSecret")?.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save(); } });
 }
+export function disposeCreds() {
+  const current = credsRoot;
+  credsRoot = null;
+  if (!current) return;
+  credEditVersion++;
+  current.observer.disconnect();
+  current.root.unmount();
+}
+export function renderCreds() {
+  if (!credsRoot?.host.isConnected) return;
+  const root = credsRoot.root, machines = Array.isArray(SET.machines) ? SET.machines : null;
+  flushSync(() => root.render(createElement(CredentialsView, { state: CRED, machines, actions: credActions })));
+}
+export function bindCreds(el: Element) {
+  const host = el.matches("#set-creds") ? el : el.querySelector("#set-creds");
+  if (!(host instanceof HTMLElement)) return;
+  if (credsRoot?.host === host) { renderCreds(); return; }
+  disposeCreds();
+  const root = createRoot(host);
+  const observer = new MutationObserver(() => { if (credsRoot?.host === host && !host.isConnected) disposeCreds(); });
+  observer.observe(document.body, { childList: true, subtree: true });
+  credsRoot = { host, root, observer };
+  renderCreds();
+}
+async function useLogin(busy: string, errorKey: string, act: () => Promise<unknown>) {
+  if (CRED.cliBusy) return;
+  CRED.cliBusy = busy; CRED.cliError = null; redrawCreds();
+  try { await act(); } catch (error) { CRED.cliError = { key: errorKey, message: String(error) }; }
+  CRED.cliBusy = ""; await loadCreds();
+}
+async function credentialCommand(command: string, args: Record<string, unknown>) {
+  try { await invoke(command, args); } catch (error) { console.warn(error); }
+  await loadCreds();
+}
+const credActions: CredentialActions = {
+  edit(key) { credEditVersion++; CRED.edit = CRED.mod?.editFor(key, CRED.list) ?? null; CRED.error = ""; redrawCreds(); },
+  cancel() { credEditVersion++; CRED.edit = null; CRED.error = ""; redrawCreds(); },
+  async save(url, secret) {
+    if (CRED.busy || !CRED.mod) return;
+    if (CRED.edit?.kind === "forgejo" && !CRED.edit.id) CRED.edit.url = url;
+    const draft = CRED.mod.draft(CRED.edit, url, secret);
+    if (draft.error) { CRED.error = draft.error; redrawCreds(); return; }
+    const version = credEditVersion, kind = CRED.edit?.kind;
+    CRED.busy = true; CRED.error = ""; redrawCreds();
+    try {
+      await invoke("save_credential", { credential: draft.credential });
+      if (version === credEditVersion) { if (kind === "github") CRED.ghAdd = false; CRED.edit = null; }
+    } catch (error) { if (version === credEditVersion) CRED.error = String(error); }
+    CRED.busy = false;
+    if (version === credEditVersion) { const input = credsRoot?.host.querySelector<HTMLInputElement>("#credSecret"); if (input) input.value = ""; }
+    await loadCreds();
+  },
+  remove(id) { return credentialCommand("remove_credential", { id }); },
+  useCli(key) { const host = CRED.mod?.cliHost(key); if (host) void useLogin(key, key, () => invoke("use_cli_login", { host })); },
+  signIn() { void signInGh(redrawCreds); },
+  cancelSignIn() { invoke("cancel_gh_sign_in").catch(console.warn); },
+  addAccount(open) { CRED.ghAdd = open; CRED.cliError = null; redrawCreds(); },
+  useAccount(login) { void useLogin(`gh:${login}`, "github", async () => { await invoke("use_gh_account", { login }); CRED.ghAdd = false; }); },
+  defaultAccount(id) { return credentialCommand("set_default_github_account", { id }); },
+  open(url) { invoke("open_url", { url }).catch(console.warn); },
+};
 
 /// Settings, Agent accounts (`agentaccounts.ts` draws it, loaded on first use
 /// into `mod`).
