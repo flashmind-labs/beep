@@ -41,6 +41,9 @@ test("machines contain their sync state and only their own terminals", async ({ 
   const studio = page.getByRole("article", { name: "studio", exact: true });
   await expect(build).toContainText("in sync");
   await expect(build).toContainText("cargo watch");
+  const terminalRow = build.locator(".pm-body > .cc-row").filter({ hasText: "cargo watch" });
+  await expect(terminalRow).toHaveCSS("padding-left", "0px");
+  await expect(terminalRow).toHaveCSS("padding-right", "0px");
   await expect(studio).toContainText("Local edits block Git sync");
   await expect(studio).not.toContainText("cargo watch");
   await expect(studio.getByRole("button", { name: "Fix with an agent" })).toBeVisible();
@@ -75,6 +78,12 @@ test("sync and terminal events refresh the combined machine sections", async ({ 
   await openMachines(page);
   const studio = page.getByRole("article", { name: "studio", exact: true });
   await expect(studio).toContainText("Local edits block Git sync");
+  const folder = studio.getByRole("button", { name: "Change folder on studio" });
+  await folder.focus();
+  await folder.evaluate(element => { element.dataset.identity = "kept"; });
+  const detailPane = page.locator(".pj-split > .pj-det");
+  await detailPane.evaluate(element => { element.style.maxHeight = "180px"; element.scrollTop = 70; });
+  const top = await detailPane.evaluate(element => element.scrollTop);
   await page.evaluate(({ sync, terminal }) => {
     window.__navigation.respond("project_sync_detail", sync);
     window.__navigation.respond("terminals_list", [terminal]);
@@ -84,6 +93,9 @@ test("sync and terminal events refresh the combined machine sections", async ({ 
   await expect(studio).toContainText("in sync");
   await expect(studio).not.toContainText("Local edits block Git sync");
   await expect(studio).toContainText("cargo watch");
+  await expect(folder).toHaveAttribute("data-identity", "kept");
+  await expect(folder).toBeFocused();
+  await expect(detailPane).toHaveJSProperty("scrollTop", top);
   await expect(page.getByRole("article", { name: "build-box", exact: true })).not.toContainText("cargo watch");
 });
 
