@@ -1846,7 +1846,9 @@ async fn a_projects_runs_read_with_the_hosts_token() {
 
 /// GitHub at the root and a Forgejo server under `/forge`, on one port: GitHub has run 77,
 /// started first, and Forgejo run 88, started later.
-async fn two_forges() -> String {
+async fn two_forges() -> (String, Arc<AtomicBool>) {
+    let unreachable = Arc::new(AtomicBool::new(false));
+    let control = unreachable.clone();
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");
     let base = format!("http://{}", listener.local_addr().expect("an address"));
     tokio::spawn(async move {
@@ -1854,6 +1856,10 @@ async fn two_forges() -> String {
             let mut head = vec![0; 2048];
             let read = socket.read(&mut head).await.unwrap_or(0);
             let head = String::from_utf8_lossy(&head[..read]);
+            if control.load(Ordering::SeqCst) && head.starts_with("GET /forge/") {
+                continue;
+            }
+
             let run = |id: u64, at: &str| {
                 format!(
                     r#"{{"id":{id},"name":"CI","run_number":{id},"event":"push","status":"completed","conclusion":"success","head_branch":"main","run_started_at":"{at}","actor":{{"login":"octo"}}}}"#
@@ -1881,13 +1887,13 @@ async fn two_forges() -> String {
             socket.write_all(reply.as_bytes()).await.ok();
         }
     });
-    base
+    (base, unreachable)
 }
 
 #[tokio::test]
 async fn a_repository_on_github_and_forgejo_lists_both_hosts_runs_as_one() {
     let f = fleet().await;
-    let api = two_forges().await;
+    let (api, unreachable) = two_forges().await;
     let forge = format!("{api}/forge");
     let port = api.rsplit(':').next().expect("a port").to_owned();
     // The checkout reaches the Forgejo server twice, over http and over ssh.
@@ -1898,7 +1904,13 @@ async fn a_repository_on_github_and_forgejo_lists_both_hosts_runs_as_one() {
         .into_boxed_str(),
     );
     let node = Arc::new(FakeNode {
-        prints: vec![("get-regexp", remotes)],
+        prints: vec![
+            ("get-regexp", remotes),
+            (
+                "teacli api",
+                r#"{"workflow_runs":[{"id":88,"name":"CI","status":"completed","conclusion":"success"}]}"#,
+            ),
+        ],
         ..FakeNode::default()
     });
     let studio = desk(&f.studio, &[(&f.build, &node)]).await.github_api(&api);
@@ -1950,11 +1962,43 @@ async fn a_repository_on_github_and_forgejo_lists_both_hosts_runs_as_one() {
         [(88, forge_host.as_str()), (77, "github.com")],
         "newest first, each naming its host"
     );
+    assert!(
+        !node
+            .ran
+            .lock()
+            .expect("commands")
+            .iter()
+            .any(|command| command.contains("teacli api"))
+    );
+    unreachable.store(true, Ordering::SeqCst);
+    let fallback = studio
+        .runs("acme/widget")
+        .await
+        .expect("one host falls back");
+    assert_eq!(fallback.runs.len(), 2);
+    assert!(fallback.hosts.iter().all(|host| host.error.is_none()));
+    let commands = node.ran.lock().expect("commands");
+    assert!(
+        commands
+            .iter()
+            .any(|command| command.contains("teacli api") && command.contains(&forge))
+    );
+    assert!(
+        !commands.iter().any(|command| command.contains("gh api")),
+        "GitHub remains local"
+    );
 }
 
 /// A GitHub with five running runs and failed run 90, whose failed job 9 has a log. It answers
 /// each request and keeps the repository paths it was asked for.
 async fn actions_host() -> (String, Arc<Mutex<Vec<String>>>) {
+    let (base, asked, _) = actions_host_controlled().await;
+    (base, asked)
+}
+
+async fn actions_host_controlled() -> (String, Arc<Mutex<Vec<String>>>, Arc<AtomicBool>) {
+    let failing = Arc::new(AtomicBool::new(false));
+    let control = failing.clone();
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");
     let base = format!("http://{}", listener.local_addr().expect("an address"));
     let asked = Arc::new(Mutex::new(Vec::new()));
@@ -1962,6 +2006,7 @@ async fn actions_host() -> (String, Arc<Mutex<Vec<String>>>) {
     tokio::spawn(async move {
         while let Ok((mut socket, _)) = listener.accept().await {
             let log = log.clone();
+            let failing = control.clone();
             tokio::spawn(async move {
                 let mut head = vec![0; 2048];
                 let read = socket.read(&mut head).await.unwrap_or(0);
@@ -1971,16 +2016,22 @@ async fn actions_host() -> (String, Arc<Mutex<Vec<String>>>) {
                     log.lock().expect("log").push(path.clone());
                 }
 
+                let failed = failing.load(Ordering::SeqCst) && path.contains("/actions/runs?");
+                let status = if failed {
+                    "503 Service Unavailable"
+                } else {
+                    "200 OK"
+                };
                 let body = actions_reply(&path);
                 let reply = format!(
-                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 socket.write_all(reply.as_bytes()).await.ok();
             });
         }
     });
-    (base, asked)
+    (base, asked, failing)
 }
 
 fn actions_reply(path: &str) -> String {
@@ -1999,6 +2050,8 @@ fn actions_reply(path: &str) -> String {
         .and_then(|id| id.parse::<u64>().ok());
     if path.starts_with("/user/orgs") {
         r#"[{"login":"acme"}]"#.to_owned()
+    } else if path.starts_with("/repos/acme/widget/pulls?") {
+        "[]".to_owned()
     } else if path == "/repos/acme/widget/actions/jobs/9/logs" {
         "##[group]Run tests\nok\n##[error]boom\n".to_owned()
     } else if let Some(id) = id {
@@ -2058,8 +2111,8 @@ async fn a_finished_run_opened_again_asks_the_host_nothing() {
     let taken = || std::mem::take(&mut *asked.lock().expect("log"));
     let runs = session.runs("acme/widget", false).await.expect("the runs");
     assert_eq!(runs.runs.len(), 6);
-    // The list, and the jobs of the five running runs for their progress.
-    assert_eq!(taken().len(), 6);
+    // The run list, pull request heads, and five running runs' jobs.
+    assert_eq!(taken().len(), 7);
     let first = session
         .run("acme/widget", None, 90, false)
         .await
@@ -3143,4 +3196,99 @@ async fn ignored_folder_selection_reaches_later_machines_and_preserves_pause_and
         })
     })
     .await;
+}
+
+#[tokio::test]
+async fn concurrent_actions_loads_share_one_local_read() {
+    let f = fleet().await;
+    let (api, asked) = actions_host().await;
+    let session = session_on_actions(&f, &api).await;
+    asked.lock().expect("requests").clear();
+    let (first, second) = tokio::join!(
+        session.runs("acme/widget", false),
+        session.runs("acme/widget", true)
+    );
+    assert_eq!(first.expect("first read"), second.expect("shared read"));
+    let paths = asked.lock().expect("requests");
+    assert_eq!(
+        paths
+            .iter()
+            .filter(|path| path.starts_with("/repos/acme/widget/actions/runs?"))
+            .count(),
+        1
+    );
+    assert!(
+        paths
+            .iter()
+            .any(|path| path.starts_with("/repos/acme/widget/pulls?"))
+    );
+}
+
+#[tokio::test]
+async fn unreachable_local_actions_use_a_node() {
+    let f = fleet().await;
+    let (api, _) = actions_host().await;
+    let node = Arc::new(FakeNode {
+        prints: vec![(
+            "gh api",
+            r#"{"workflow_runs":[{"id":77,"name":"CI","status":"completed","conclusion":"success"}]}"#,
+        )],
+        ..FakeNode::default()
+    });
+    let studio = desk(&f.studio, &[(&f.build, &node)]).await.github_api(&api);
+    studio
+        .save_credential(&CredentialKind::GitHub {}, &SecretText::new(SECRET))
+        .await
+        .expect("token");
+    studio
+        .import(ImportJob {
+            repo: "acme/widget",
+            machine_id: Some(&f.build.id.to_string()),
+            folder: None,
+            parent: None,
+            worktrees: &[],
+        })
+        .await
+        .expect("import");
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("unused port");
+    let unreachable = format!("http://{}", listener.local_addr().expect("address"));
+    drop(listener);
+    let studio = studio.github_api(&unreachable);
+    let runs = studio.runs("acme/widget").await.expect("fallback");
+    assert_eq!(runs.runs.len(), 1);
+    assert_eq!(runs.runs[0].run.id, 77);
+    assert!(runs.hosts[0].error.is_none());
+    assert!(
+        node.ran
+            .lock()
+            .expect("commands")
+            .iter()
+            .any(|command| command.contains("gh api"))
+    );
+}
+
+#[tokio::test]
+async fn failed_actions_refresh_keeps_previously_loaded_runs() {
+    let f = fleet().await;
+    let (api, _, failing) = actions_host_controlled().await;
+    let session = session_on_actions(&f, &api).await;
+    let first = session
+        .runs("acme/widget", false)
+        .await
+        .expect("initial runs");
+    failing.store(true, Ordering::SeqCst);
+    let failed = session
+        .runs("acme/widget", true)
+        .await
+        .expect("host failure is reported");
+    assert_eq!(failed.runs, first.runs);
+    assert_eq!(failed.hosts[0].synced_at, first.hosts[0].synced_at);
+    assert!(failed.hosts[0].error.is_some());
+    failing.store(false, Ordering::SeqCst);
+    let recovered = session
+        .runs("acme/widget", true)
+        .await
+        .expect("recovered host");
+    assert_eq!(recovered.runs.len(), first.runs.len());
+    assert!(recovered.hosts[0].error.is_none());
 }

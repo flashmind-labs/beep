@@ -185,6 +185,7 @@ pub(crate) struct DesktopHosts {
 impl DesktopHosts {
     pub(crate) fn new() -> Result<Self> {
         let client = beep_proto::https::client()
+            .connect_timeout(Duration::from_secs(3))
             .timeout(HOST_TIMEOUT)
             .user_agent("beep-desktop")
             // A redirect could send the token anywhere.
