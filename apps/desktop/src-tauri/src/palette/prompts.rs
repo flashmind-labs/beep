@@ -310,7 +310,20 @@ pub async fn center_find_prompts(
             .into_iter()
             .map(|found| {
                 let mut entry = session_entry(&found.session, &projects);
-                entry.snippet = Some(format!("Prompt: {}", excerpt(&found.text, &query)));
+                let mut snippets = Vec::new();
+                for term in query.split_whitespace() {
+                    if let Some(text) = found
+                        .texts
+                        .iter()
+                        .find(|text| text.to_lowercase().contains(&term.to_lowercase()))
+                    {
+                        let snippet = excerpt(text, term);
+                        if !snippets.contains(&snippet) {
+                            snippets.push(snippet);
+                        }
+                    }
+                }
+                entry.snippet = Some(format!("Prompt: {}", snippets.join(" · ")));
                 Ok(entry)
             })
             .collect()

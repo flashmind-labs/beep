@@ -275,12 +275,13 @@ VARIANTS.dWinChats = [["List", "list"], ["Search", "search"]].map(([l, k]) => [l
 D.dWinPalette = () => {
   const v = S.d.pal || "empty";
   const old = v === "old";
-  const it = (ic, t, sm, w, on) => `<button class="it" role="option" aria-selected="${!!on}" data-toast="Opens ${t.replace(/<[^>]+>/g, "")}">${ic}<span class="t"><span>${t}</span>${sm ? `<small>${sm}</small>` : ""}</span>${w ? `<span class="w">${w}</span>` : ""}</button>`;
+  const it = (ic, t, sm, w, on) => `<button class="it" role="option" aria-selected="${!!on}" data-toast="Opens ${t.replace(/<[^>]+>/g, "")}">${ic}<span class="t"><span>${t}</span>${sm ? `<small style="white-space:${v === "worktree bar" ? "normal" : "nowrap"}">${sm}</small>` : ""}</span>${w ? `<span class="w">${w}</span>` : ""}</button>`;
   let res;
   const PR_IC = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M6 8v8M18 16V9a2 2 0 00-2-2h-4"/></svg>';
   if (v === "empty") res = `<h5>Actions</h5>${it(CC_IC.plus, "New chat", "", "", true)}${["Home", "All chats", "Memories", "Routines", "Skills", "Apps", "Settings", "Coding agents"].map(t => it(CC_IC.plus, t)).join("")}
       <h5>Recent chats</h5>${CC_CHATS.slice(0, 5).map(([t]) => it(CC_IC.chat, t)).join("")}`;
   // One ranked list, grouped by kind: the top hit first, then each group's best.
+  else if (v === "worktree bar") res = `<h5>Coding agents</h5>${it(CC_IC.chat, "Improve session search", "Prompt: Improve the <mark>worktree</mark> search <mark>bar</mark> · Add <mark>worktree</mark> support · Update the search <mark>bar</mark>")}`;
   else if (v === "mac") res = `<h5>Top hit</h5>${it(CC_IC.gear, "Let Beep use this <mark>Mac</mark>", "Settings · This Mac", "", true)}
       <h5>Settings</h5>${it(CC_IC.gear, "Unlink this <mark>Mac</mark>", "Settings · Account")}
       <h5>Projects and code</h5>${it(PR_IC, "acme/widget · PR #45 Swipeable approvals on i<mark>Mac</mark>", "PR · yours · github.com")}${it(PR_IC, "acme/widget · beep/<mark>mac</mark>-approvals", "Branch · 2 ahead · Swipeable approvals")}
@@ -294,14 +295,14 @@ D.dWinPalette = () => {
       <h5>Chats</h5>${it(CC_IC.chat, "Saturday plan", "…before the <mark>flat</mark> viewing on Thursday at 10:00…")}
       <h5>Memories</h5>${it(CC_IC.mem, "Looking for a two-bedroom <mark>flat</mark> near the station", "", "home")}
       <h5>Routines</h5>${it(CC_IC.loop, "Check new <mark>flat</mark> listings", "Weekdays at 08:00")}`;
-  const q = v === "empty" ? `<span class="ph">Search anything: chats, projects, coding agents, machines, settings, PRs…</span>` : v === "none" ? "quinoa" : v === "mac" ? "mac" : v === "key" ? "github" : "flat";
+  const q = v === "empty" ? `<span class="ph">Search anything: chats, projects, coding agents, machines, settings, PRs…</span>` : v === "none" ? "quinoa" : v === "mac" ? "mac" : v === "key" ? "github" : v === "worktree bar" ? "worktree bar" : "flat";
   const pal = `<div class="cc-scrim" data-toast="Closes"><div class="cc-pal" role="dialog" aria-label="Search" onclick="event.stopPropagation()">
       <div class="q">${CC_IC.search}<span style="flex:1">${q}<span class="caret" style="height:17px"></span></span></div>
       <div class="res" role="listbox">${res}</div>
       <div class="foot"><span><kbd>↑↓</kbd>move</span><span><kbd>↵</kbd>open</span><span><kbd>⌘↵</kbd>ask Beep</span><span><kbd>esc</kbd>close</span></div></div></div>`;
   return D.dHome().replace(/<\/div>$/, pal + "</div>");
 };
-VARIANTS.dWinPalette = [["Empty", "empty"], ["Query", "query"], ["Anything: “mac”", "mac"], ["A setting: “github”", "key"], ["No results", "none"], ["Old server", "old"]].map(([l, k]) => [l, () => { S.d.pal = k; render(); }, () => (S.d.pal || "empty") === k]);
+VARIANTS.dWinPalette = [["Empty", "empty"], ["Query", "query"], ["Multiple terms", "worktree bar"], ["Anything: “mac”", "mac"], ["A setting: “github”", "key"], ["No results", "none"], ["Old server", "old"]].map(([l, k]) => [l, () => { S.d.pal = k; render(); }, () => (S.d.pal || "empty") === k]);
 
 // The bar hands a chat to the window: a chip under the reply, and a row action in the chat list.
 D.dWinHandoff = () => {

@@ -181,6 +181,7 @@ export interface WindowHooks {
   /// issue it is about; null for nothing.
   chatTop?(session: string): HTMLElement | null;
   /// The project a coding session runs in, and how to open it.
+  sessionDestinations?(s: { machine_id: string; cwd: string }): { name: string; folder: string }[];
   sessionProject?(s: { machine_id: string; cwd: string }): { label: string; name: string; open(): void } | null;
 }
 

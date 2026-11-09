@@ -107,6 +107,9 @@ ffi_structs! {
         /// Text of messages waiting to be delivered.
         #[serde(default)]
         pub queued_messages: Vec<String>,
+        /// The model reported by the session.
+        #[serde(default)]
+        pub model: Option<String>,
     }
 
     /// What a session Beep runs has used, as `GetAgentSessionUsage` gives it.

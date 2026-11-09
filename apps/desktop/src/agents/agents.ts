@@ -119,6 +119,7 @@ export interface AgentToolCall {
 
 /// One session in full, as `agent_view` returns it.
 export interface AgentPage {
+  model?: string | null;
   session: AgentRow;
   plan: { content: string; status: string }[];
   files: string[];

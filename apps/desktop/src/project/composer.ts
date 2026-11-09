@@ -1,5 +1,5 @@
 import { stashBar } from "../chat/stash.ts";
-import { composeField } from "../chat/compose.ts";
+import { composeField, composeMessage } from "../chat/compose.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // The bar under a project page: its prompt, harness picker and checkout, and
 // starting or resuming a coding agent from it.
@@ -378,7 +378,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
 /// Starts a coding agent on the bar's task in the project's checkout, then
 /// opens its session; Esc there comes back to the project.
 async function startFromBar() {
-  const c = projectComp, p = barProject(), text = c.input.value.trim();
+  const c = projectComp, p = barProject(), text = composeMessage(c.input.value);
   const place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
   if (!p || !place || (!text && !barAttachments.count) || barAttachments.reading || pc.starting || pc.adding) return;
   const t = pc.target;

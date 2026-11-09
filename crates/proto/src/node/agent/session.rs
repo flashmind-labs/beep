@@ -153,6 +153,9 @@ pub struct SessionInfo {
     /// Provider balances as this session last reported them.
     #[serde(default)]
     pub credits: Vec<ProviderCredits>,
+    /// The model this session reports, when known.
+    #[serde(default)]
+    pub model: Option<ModelId>,
 }
 
 /// Who started a session and how deep the chain goes, as the node that

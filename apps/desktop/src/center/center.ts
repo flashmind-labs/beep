@@ -186,6 +186,13 @@ pane.connect({
     const t = threadChats?.get(session);
     return t ? threadCard(t) : null;
   },
+  sessionDestinations(s) {
+    const projects = state.home?.projects ?? [];
+    const current = projectOf(s, projects);
+    return projects
+      .filter(p => p.machine_id === s.machine_id && p.name !== current?.name && p.folder !== s.cwd)
+      .map(p => ({ name: p.name, folder: p.folder }));
+  },
   sessionProject(s) {
     const projects = state.home?.projects ?? [], p = projectOf(s, projects);
     return p ? { label: repoOf(s, projects) || p.name, name: p.name, open: () => void openProjects(p.name) } : null;
