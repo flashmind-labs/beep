@@ -1,0 +1,7 @@
+{
+  "name": "beep-mockups",
+  "private": true,
+  "type": "module",
+  "scripts": { "check": "node tests/browser.mjs" },
+  "devDependencies": { "playwright": "1.65.0" }
+}

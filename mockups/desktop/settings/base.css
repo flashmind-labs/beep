@@ -1,0 +1,252 @@
+.mac .cc-set-scrim { position: fixed; inset: 0; z-index: 30; background: color-mix(in srgb, #000 45%, transparent); display: flex; align-items: center; justify-content: center }
+.mac .cc-set { width: min(1040px, 92%); height: min(720px, 88%); display: grid; grid-template-columns: 218px minmax(0, 1fr); border-radius: var(--radius); border: 1px solid var(--d-border); background: var(--d-surface); box-shadow: 0 20px 60px color-mix(in srgb, #000 50%, transparent); overflow: hidden; outline: 0 }
+.mac .cc-set .dset-nav { padding: 14px 8px; border-right: 1px solid var(--d-border); display: flex; flex-direction: column; gap: 2px; overflow-y: auto; background: color-mix(in srgb, var(--d-fg) 1.2%, transparent); scrollbar-width: thin }
+.mac .cc-set .dset-nav > b { padding: 0 10px; font-size: 15px; font-weight: 600 }
+.mac .cc-set .dset-nav > b { margin-bottom: 10px }
+.mac .cc-set .dset-nav > small.dset-ver { margin-top: auto; padding: 10px 10px 0; font-size: 11.5px; color: var(--d-muted) }
+.mac .cc-set .dset-pages { display: flex; flex-direction: column; gap: 2px }
+.mac .cc-set .dset-pages .cc-si { padding: 6px 10px }
+.mac .cc-set .dset-pages .cc-si.sub { padding: 4px 10px 4px 24px; font-size: 12.5px; color: var(--d-muted) }
+.mac .cc-set .dset-pages .cc-si.sub[aria-current="true"] { color: var(--d-fg) }
+.mac .cc-set .dset-body { display: flex; flex-direction: column; min-width: 0; min-height: 0 }
+.mac .cc-set .dset-body > .cc-skel { margin: 14px 24px }
+.mac .cc-set .dset-top { flex: none; display: flex; align-items: center; gap: 10px; padding: 14px 24px 12px; border-bottom: 1px solid var(--d-border) }
+.mac .cc-set .dset-top .tt { display: grid }
+.mac .cc-set .dset-top b { font-size: 15px; font-weight: 600 }
+.mac .cc-set .dset-top small { font-size: 12px; color: var(--d-muted) }
+.mac .cc-set .dset-top kbd { font: inherit; font-size: 11px; opacity: .7 }
+.mac .cc-set .dset-crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap }
+.mac .cc-set .dset-crumbs > svg { flex: none; color: var(--d-dim) }
+.mac .cc-set .dset-crumb { all: unset; cursor: pointer; font-size: 15px; color: var(--d-muted) }
+.mac .cc-set .dset-crumb:hover, .mac .cc-set .dset-crumb:focus-visible { color: var(--d-fg) }
+.mac .cc-set .dset-back { all: unset; cursor: pointer; flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); color: var(--d-muted) }
+.mac .cc-set .dset-back:hover, .mac .cc-set .dset-back:focus-visible { color: var(--d-fg) }
+.mac .cc-set .dset-top kbd { margin-left: auto; flex: none }
+.mac .cc-set .dset-crumbs b { overflow: hidden; text-overflow: ellipsis }
+.mac .cc-set .dset-page { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px 24px; scrollbar-width: thin; display: flex; flex-direction: column }
+.mac .cc-set .dset-page > section { max-width: 780px }
+.mac .cc-set .dset-page > section > .dsec.flat:first-child { display: none }
+.mac .cc-set .dset-host > .cc-view { padding: 0; overflow: visible }
+.mac .cc-set .dset-host > .dhead { padding: 0 0 12px; border-bottom: 0 }
+.mac .cc-set .dset-host > .dlist { padding: 0; overflow: visible }
+.mac .cc-set .dset-h { font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--d-dim); margin: 16px 0 6px }
+.mac .cc-set .dset-box { border: 1px solid var(--d-border); border-radius: var(--radius); overflow: hidden; margin: 0 0 14px }
+.mac .cc-set .dset-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--d-border); cursor: pointer; outline: none }
+.mac .cc-set .dset-row:last-child { border-bottom: 0 }
+.mac .cc-set .dset-row:hover { background: color-mix(in srgb, var(--d-fg) 2.5%, transparent) }
+.mac .cc-set .dset-row:focus-visible { box-shadow: inset 0 0 0 2px var(--d-emerald) }
+.mac .cc-set .dset-row .tt { display: grid; min-width: 0 }
+.mac .cc-set .dset-row b { font-weight: 500; font-size: 13.5px }
+.mac .cc-set .dset-row small { font-size: 12px; color: var(--d-muted); line-height: 17px }
+.mac .cc-set .dset-row > svg { color: var(--d-muted) }
+.mac .cc-set .dset-box .dmach { padding: 10px 14px }
+.mac .cc-set .dmach[data-machine] { cursor: pointer; outline: none }
+.mac .cc-set .dmach[data-machine]:hover { background: color-mix(in srgb, var(--d-fg) 2.5%, transparent) }
+.mac .cc-set .dmach[data-machine]:focus-visible { box-shadow: inset 0 0 0 2px var(--d-emerald) }
+.mac .cc-set .dmach[data-machine] .nm > svg { margin-left: auto; color: var(--d-muted) }
+.mac .cc-set .dset-kv { display: grid; grid-template-columns: 170px minmax(0, 1fr); font-size: 13px }
+.mac .cc-set .dset-kv > span { padding: 8px 14px; border-bottom: 1px solid var(--d-border); min-width: 0; overflow-wrap: anywhere }
+.mac .cc-set .dset-kv > span:nth-child(odd) { color: var(--d-muted) }
+.mac .cc-set .dset-kv > span:nth-last-child(-n+2) { border-bottom: 0 }
+.mac .cc-set .dset-tbl { display: table; width: 100%; border-collapse: collapse; font-size: 13px }
+.mac .cc-set .dset-tbl th { text-align: left; font-weight: 500; font-size: 11.5px; color: var(--d-muted); padding: 8px 14px; border-bottom: 1px solid var(--d-border) }
+.mac .cc-set .dset-tbl td { padding: 7px 14px; border-bottom: 1px solid var(--d-border) }
+.mac .cc-set .dset-tbl tr:last-child td { border-bottom: 0 }
+.mac .cc-set .dset-rm { padding: 0 }
+.mac .dset-rm-row { display: flex; align-items: center; gap: 12px; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--d-border) }
+.mac .dset-rm-row .t { flex: 1; min-width: 0; display: grid; gap: 2px }
+.mac .dset-rm-row b { font-size: 13px; font-weight: 500 }
+.mac .dset-rm-row small { font-size: 12px; color: var(--d-muted) }
+.mac .agproj { padding: 0; border: 0; background: none; color: var(--d-fg); font: inherit; cursor: pointer }
+.mac .cc-set section { scroll-margin-top: 4px }
+.mac .in-view { display: grid; gap: 14px; align-content: start }
+.mac .in-tabs { display: flex; gap: 6px; flex-wrap: wrap }
+.mac .in-tabs .tm-tab { padding: 5px 11px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: transparent; color: var(--d-muted); font: inherit; font-size: 12.5px }
+.mac .in-tabs .tm-tab[aria-current="true"] { background: color-mix(in srgb, var(--d-fg) 8%, transparent); color: var(--d-fg) }
+.mac .in-cols { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr); gap: 14px; align-items: start }
+.mac .in-ed { display: grid; gap: 10px; padding: 10px 12px }
+.mac .in-ver { display: flex; justify-content: space-between; font-size: 12px; color: var(--d-muted) }
+.mac .in-ver b { color: var(--d-fg); font-weight: 600 }
+.mac .in-ed textarea { min-height: 300px; resize: vertical; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: color-mix(in srgb, #000 25%, transparent); color: var(--d-fg); font: 12.5px/1.55 var(--mono, ui-monospace, monospace); outline: 0; user-select: text }
+.mac .in-ed textarea:focus { border-color: color-mix(in srgb, var(--d-emerald) 60%, transparent) }
+.mac .in-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
+.mac .in-acts small { margin-left: auto; color: var(--d-muted); font-size: 11.5px }
+.mac .in-side { grid-template-columns: minmax(0, 1fr) auto }
+.mac .in-sidecol { display: grid; gap: 14px }
+.mac .in-layers { margin: 0; padding: 6px 0; list-style: none; counter-reset: l }
+.mac .in-layers li { counter-increment: l; display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 8px; padding: 6px 10px; font-size: 12.5px; line-height: 17px }
+.mac .in-layers li::before { content: counter(l); font-size: 11px; color: var(--d-dim); text-align: right; font-variant-numeric: tabular-nums }
+.mac .in-layers li small { grid-column: 2; font-size: 11.5px; color: var(--d-muted) }
+.mac .in-layers li.me { background: color-mix(in srgb, var(--d-emerald) 14%, transparent) }
+.mac .in-layers b { font-weight: 500; color: var(--d-fg) }
+.mac .in-mach { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; padding: 10px 12px; border-bottom: 1px solid var(--d-border) }
+.mac .in-mach:last-child { border-bottom: 0 }
+.mac .in-mach > b { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600 }
+.mac .in-files { grid-column: 1 / -1; display: grid; gap: 2px }
+.mac .in-file { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 4px 0; font-size: 12.5px }
+.mac .in-file.miss { color: var(--d-muted) }
+.mac .in-file .ag { color: var(--d-muted) }
+.mac .in-file code { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.mac .in-file .r { display: flex; align-items: center; gap: 6px; color: var(--d-muted) }
+.mac .in-ok { color: var(--d-emerald) }
+.mac .in-warn { color: #f2c94c }
+.mac .in-pre { margin: 4px 0 6px; padding: 8px 12px; border-radius: var(--radius-sm); background: color-mix(in srgb, #000 25%, transparent); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; max-height: 260px; overflow: auto; user-select: text }
+.mac .in-hist { padding: 10px 12px; border-bottom: 1px solid var(--d-border) }
+.mac .in-hist:last-child { border-bottom: 0 }
+.mac .in-hist .h { display: flex; align-items: center; gap: 10px; font-size: 12.5px }
+.mac .in-hist .h small { color: var(--d-muted) }
+.mac .in-hist .acts { margin-left: auto; display: flex; gap: 6px }
+.mac .hv-view { display: grid; gap: 12px; align-content: start }
+.mac .hv { display: grid; grid-template-columns: 300px minmax(0, 1fr); border: 1px solid var(--d-border); border-radius: var(--radius); overflow: hidden; min-height: 0 }
+.mac .hv-list { border-right: 1px solid var(--d-border); display: grid; align-content: start; background: color-mix(in srgb, var(--d-fg) 1.5%, transparent) }
+.mac .hv-it { cursor: pointer; display: grid; grid-template-columns: 28px minmax(0, 1fr) 36px; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--d-border); outline: none }
+.mac .hv-it:focus-visible { box-shadow: inset 0 0 0 2px var(--d-emerald) }
+.mac .hv-it[aria-current="true"] { background: color-mix(in srgb, #4cb782 7%, transparent) }
+.mac .hv-it .dswitch, .mac .hv-sum .dswitch { justify-self: end }
+.mac .hv-it b { font-weight: 500; font-size: 13.5px }
+.mac .hv-it.off b, .mac .hv-it.off .cc-ag, .mac .hv-sum.off b, .mac .hv-sum.off .cc-ag { opacity: .45 }
+.mac .hv-name { min-width: 0 }
+.mac .hv-name small { display: block; margin-top: 2px; font-size: 12px; line-height: 17px; color: var(--d-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mac .hv-name small.bad { color: #f2994a }
+.mac .hv-nm { display: flex; align-items: baseline; gap: 6px; min-width: 0; white-space: nowrap }
+.mac .hv-nm b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis }
+.mac .hv-nm .ver { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: 11.5px; color: var(--d-muted) }
+.mac .hv-up { flex: none; align-self: center; font-size: 10.5px; line-height: 15px; padding: 0 6px; border-radius: 999px; color: #f2c94c; border: 1px solid color-mix(in srgb, #f2c94c 45%, transparent); background: color-mix(in srgb, #f2c94c 8%, transparent) }
+.mac .hv-d { padding: 16px 20px; overflow-y: auto; scrollbar-width: thin; min-width: 0;  }
+.mac .hv-d h3 { margin: 0; display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600 }
+.mac .hv-d h3 .ver { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--d-muted); font-weight: 400 }
+.mac .hv-d h4 { margin: 20px 0 4px; font-size: 13.5px; font-weight: 600 }
+.mac .hv-f { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px; align-items: start; padding: 11px 0; border-bottom: 1px solid var(--d-border) }
+.mac .hv-f > :last-child { min-width: 0; align-self: center }
+.mac .hv-f b { font-weight: 500; font-size: 13px; overflow-wrap: anywhere }
+.mac .hv-f small { display: block; margin-top: 2px; font-size: 12px; line-height: 17px; color: var(--d-muted) }
+.mac .hv-in { height: 32px; padding: 0 11px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: var(--d-ink); font-family: var(--mono); font-size: 12.5px; color: var(--d-fg); min-width: 0; width: 100%; box-sizing: border-box; user-select: text }
+.mac .hv-in::placeholder { color: var(--d-dim) }
+.mac .hv-envs { display: grid; gap: 6px }
+.mac .hv-env { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 24px; gap: 8px; align-items: center }
+.mac .hv-env .dbtn { padding: 0; min-width: 24px; color: var(--d-muted) }
+.mac .hv-stat { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--d-muted); padding: 6px 0 }
+.mac .hv-acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px }
+.mac .hv-note { font-size: 12px; line-height: 17px; color: var(--d-muted); margin-top: 8px }
+.mac .hv-note.bad { color: var(--d-err) }
+.mac .hv-diff { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--d-border); font-size: 10.5px; line-height: 15px; font-weight: 400; color: var(--d-muted); cursor: help; vertical-align: 1px }
+.mac .hv-save { margin-top: 12px }
+.mac .hv-incl { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--d-muted); white-space: nowrap }
+.mac .hv-ok { font-size: 12px; color: var(--d-emerald) }
+.mac .hv-acts [hidden] { display: none }
+.mac .hv-pick { display: inline-flex; min-width: 0 }
+.mac .hv-seg { display: inline-flex; flex-wrap: nowrap; gap: 2px; padding: 2px; min-width: 0; border: 1px solid var(--d-border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--d-fg) 2%, transparent) }
+.mac .hv-seg button { all: unset; cursor: pointer; height: 24px; line-height: 24px; padding: 0 10px; border-radius: var(--radius-sm); font-size: 12.5px; color: var(--d-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; min-width: 0 }
+.mac .hv-seg button:hover:not(:disabled) { color: var(--d-fg) }
+.mac .hv-seg button[aria-pressed="true"] { background: color-mix(in srgb, var(--d-emerald) 28%, transparent); color: var(--d-fg) }
+.mac .hv-seg button:disabled { opacity: .45; cursor: default }
+.mac .hv-seg button:focus-visible { box-shadow: inset 0 0 0 2px var(--d-emerald) }
+.mac .hv-sel { display: none; height: 28px; max-width: 220px; min-width: 0; padding: 0 8px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: var(--d-surface); color: var(--d-fg); font: inherit; font-size: 12.5px }
+.mac .hv-pick.crowded .hv-seg { display: none }
+.mac .hv-pick.crowded .hv-sel { display: block }
+.mac .hv-bar {  display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--d-border); min-width: 0 }
+.mac .hv-bar .lbl { flex: none; font-size: 12px; color: var(--d-muted) }
+.mac .hv-bar .sp { flex: 1 }
+.mac .hv-bar .dbtn { flex: none; white-space: nowrap }
+.mac .hv-sum { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto 36px; gap: 12px; align-items: center; padding: 12px 14px; border: 1px solid var(--d-border); border-radius: var(--radius) }
+.mac .hv-sum b { font-size: 15px; font-weight: 600 }
+.mac .hv-sum .on { font-size: 12px; color: var(--d-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px }
+.mac .hv-view.in-set {  }
+.mac .hv-view.in-set > .hv-d > .hv-acts:first-child, .mac .hv-view.in-set > .hv-d > .hv-note:first-child { margin-top: 0 }
+.mac .fl-seg, .mac .fl-chips { display: flex; flex-wrap: wrap; gap: 4px }
+.mac .fl-chips .dchip { font-family: var(--mono); font-size: 11.5px }
+.mac .fl-row { display: flex; gap: 8px; align-items: center }
+.mac .fl-tbl { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 10px; border: 1px solid var(--d-border); border-radius: var(--radius) }
+.mac .fl-tbl th { text-align: left; font-size: 12px; font-weight: 500; color: var(--d-muted); padding: 8px 10px; border-bottom: 1px solid var(--d-border) }
+.mac .fl-tbl td { padding: 6px 10px; border-bottom: 1px solid var(--d-border); vertical-align: middle }
+.mac .fl-tbl th:nth-child(2) { width: 52px }
+.mac .fl-tbl th:nth-child(3) { width: 32% }
+.mac .fl-tbl th:nth-child(4) { width: 96px }
+.mac .fl-tbl th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mac .fl-tbl td:last-child { text-align: right; white-space: nowrap }
+.mac .model-context-scroll { overflow-x: auto }
+.mac .model-context { min-width: 560px }
+.mac .model-context th:nth-child(2), .mac .model-context th:nth-child(3) { width: 120px }
+.mac .model-context th:nth-child(4) { width: 144px }
+.mac .model-context td { font-variant-numeric: tabular-nums; overflow-wrap: anywhere }
+.mac .model-context td small { display: block; color: var(--d-muted); font-size: 12px }
+.mac .model-context td:last-child { text-align: left }
+
+.mac button.cc-note.in-go { width: 100%; text-align: left; font: inherit; font-size: 12.5px; cursor: pointer }
+.mac button.cc-note.in-go:hover { border-color: var(--d-border-hi) }
+.mac .cc-note.in-go .go { margin-left: auto; color: var(--d-emerald); white-space: nowrap }
+.mac .dtag { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: var(--radius-sm); background: var(--d-elev); color: var(--d-muted) }
+.mac .dswitch { width: 30px; height: 18px; border-radius: var(--radius-sm); background: var(--d-border); position: relative; border: 0; padding: 0; flex: none }
+.mac .dswitch::after { content: ""; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--d-fg); transition: transform .2s var(--ease) }
+.mac .dswitch[aria-checked="true"] { background: var(--d-emerald) }
+.mac .dswitch[aria-checked="true"]::after { transform: translateX(12px) }
+.mac .dtoggle { display: flex; gap: 12px; align-items: center }
+.mac .dtoggle span { flex: 1; display: grid; line-height: 19px }
+.mac .dtoggle b { font-weight: 500; font-size: 13.5px }
+.mac .dtoggle small { font-size: 12px; color: var(--d-muted) }
+.mac .dtoggle + .dtoggle { margin-top: 10px }
+.mac .dsec.flat { padding: 0; border: 0 }
+.mac .dchip { min-height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--d-border); background: var(--d-surface); color: var(--d-fg); font-size: 12.5px }
+.mac .dchip[aria-pressed="true"] { background: color-mix(in srgb, var(--d-emerald) 28%, transparent); border-color: var(--d-emerald) }
+.mac .dchip.day { min-width: 34px; padding: 0 8px }
+.mac .dchip:disabled { opacity: .5 }
+.mac .dapps { padding-top: 4px }
+.mac .dapps .dsec { border: 0; padding-left: 10px }
+.mac .dalogo { width: 28px; height: 28px; border-radius: var(--radius-sm); flex: none; object-fit: contain; background: var(--d-elev); display: grid; place-items: center; font-weight: 600; font-size: 13px; color: var(--d-muted) }
+.mac .dappr, .mac .dlevel, .mac .daction { display: flex; gap: 10px; align-items: center; padding: 6px 10px; border-radius: var(--radius-sm); min-height: 42px }
+.mac .dappr .tt, .mac .dlevel .tt { flex: 1; min-width: 0; display: grid; line-height: 18px }
+.mac .dappr .tt b, .mac .dlevel .tt b { font-size: 13.5px; font-weight: 500 }
+.mac .dappr .tt small, .mac .dlevel .tt small { font-size: 12px; color: var(--d-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mac .dappr.on { cursor: pointer }
+.mac .dappr.on:hover, .mac .dlevel:hover { background: var(--d-elev) }
+.mac .dappr .dmuted { display: inline-flex; gap: 6px; align-items: center; font-size: 12px }
+.mac .dlevel { width: 100%; border: 0; background: none; color: inherit; text-align: left; font: inherit; cursor: pointer }
+.mac .daction span:first-child { flex: 1; font-size: 13.5px }
+.mac .daction span:first-child small { display: block; font-size: 12px; color: var(--d-muted) }
+.mac .daction.off span:first-child { color: var(--d-muted) }
+.mac .dsplit { display: flex; justify-content: space-between }
+.mac .dsplit .over { color: var(--d-err) }
+.mac .dtag.ok { color: var(--d-emerald) }
+.mac .dtag.ask { color: #f2994a; align-self: auto; max-width: none; padding: 1px 6px; border-radius: var(--radius-sm); background: var(--d-elev); white-space: nowrap }
+.mac .dappr .dtag, .mac .dappr .dbtn { flex: none; white-space: nowrap }
+.mac .dskel-rows { display: grid; gap: 12px; padding: 10px 0 12px }
+.mac .dskel { height: 10px; border-radius: 5px; background: var(--d-elev) }
+.mac .dgit { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 8px; row-gap: 6px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--d-border); font-size: 13px }
+.mac .dgit > :not(.ic) { grid-column: 2 }
+.mac .dgit .ic { display: grid; place-items: center; color: var(--d-fg) }
+.mac .dgit.off .ic { opacity: .45 }
+.mac .dgit .l1 { display: flex; align-items: center; gap: 8px; min-width: 0 }
+.mac .dgit .l1 b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mac .dgit .acct { color: var(--d-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mac .dgit .acts { margin-left: auto; display: flex; gap: 4px; align-items: center; flex: none }
+.mac .dgit .l2 { display: flex; flex-wrap: wrap; gap: 4px }
+.mac .dgchip { font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--d-border); color: var(--d-muted); white-space: nowrap; flex: none }
+.mac .dgchip.warn { color: #f2c94c; border-color: color-mix(in srgb, #f2c94c 40%, transparent) }
+.mac .dgchip.err { color: var(--d-err); border-color: color-mix(in srgb, var(--d-err) 45%, transparent) }
+.mac .dbtn.dico { width: 26px; min-height: 24px; padding: 0; justify-content: center }
+.mac .dskins { display: grid; gap: 6px; margin-bottom: 12px }
+.mac .dskins small { font-size: 12px; color: var(--d-muted) }
+.mac .dskins > div { display: flex; flex-wrap: wrap; gap: 6px }
+.mac .dskin { display: inline-flex; align-items: center; gap: 8px; padding: 5px 11px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: transparent; color: var(--d-muted); font-size: 13px; cursor: pointer }
+.mac .dskin i { width: 12px; height: 12px; border-radius: 3px; border: 1px solid color-mix(in srgb, var(--d-muted) 50%, transparent) }
+.mac .dskin:hover { color: var(--d-fg) }
+.mac .dskin[aria-pressed="true"] { background: var(--d-elev); color: var(--d-fg); border-color: var(--d-emerald) }
+.mac .dskin:focus-visible { outline: 2px solid var(--d-emerald); outline-offset: 2px }
+.mac .cc-set-scrim { position: absolute }
+.mac .cc-set .dset-nav .cc-si .n { margin-left: auto; font-size: 11px; color: var(--d-dim) }
+.mac .dlradio { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--d-border); flex: none }
+.mac .dlevel[aria-checked="true"] .dlradio { border-color: var(--d-emerald); box-shadow: inset 0 0 0 3px var(--d-surface), inset 0 0 0 7px var(--d-emerald) }
+.mac .dset-page select, .mac .dform .dtoggle select { min-height: 28px; padding: 0 8px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: var(--d-surface); color: var(--d-fg); font: inherit; font-size: 13px }
+.mac .dset-page input:not([type="checkbox"]), .mac .dsetcol input:not([type="checkbox"]) { min-height: 30px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: var(--d-surface); color: var(--d-fg); font: inherit; font-size: 13px; outline: 0; min-width: 0 }
+.mac .dset-page input.hv-in, .mac .hv-view input.hv-in { height: 32px; min-height: 0; padding: 0 11px; background: var(--d-ink); font-family: var(--mono); font-size: 12.5px; width: 100%; box-sizing: border-box }
+.mac .dsetcol { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; scrollbar-width: thin }
+.mac .in-ed textarea { width: 100%; box-sizing: border-box }
+.mac .in-hist { display: block }
+.mac .in-hist + .in-hist { border-top: 0 }
+.mac .hv-view { padding: 16px 18px; overflow: auto; min-height: 0 }
+.mac .cc-set .hv-view, .mac .cc-set .in-view { padding: 0; overflow: visible }`;
+  st.textContent += `.mac .hv-scope { padding: 16px; border: 1px solid var(--d-border); border-radius: 8px; min-width: 0 }
+.mac .hv-scope > h3 { margin: 0 0 12px; font-size: 16px; font-weight: 600 }
+.mac .hv-scope > .hv-d { padding: 0; overflow: visible }
+.mac .hv-machine-menu { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--d-muted) }
+.mac .hv-machine-menu select { max-width: 240px; padding: 8px 12px; border: 1px solid var(--d-border); border-radius: 8px; background: #181818; color: var(--d-fg) }

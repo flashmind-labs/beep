@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+ <head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width,initial-scale=1" name="viewport"/>
+  <title>
+   Machines
+  </title>
+  <link href="../../ios/styles/shell.css" rel="stylesheet"/>
+  <link href="../../ios/styles/pairing.css" rel="stylesheet"/>
+  <link href="../../ios/styles/session.css" rel="stylesheet"/>
+  <link href="../../ios/styles/keyboards.css" rel="stylesheet"/>
+  <link href="../../ios/styles/terminal.css" rel="stylesheet"/>
+  <link href="../../ios/styles/machines-projects.css" rel="stylesheet"/>
+ </head>
+ <body class="ios screen">
+  <figure>
+   <div class="ph">
+    <div class="sb">
+     <span>
+      9:41
+     </span>
+     <span class="isl">
+     </span>
+     <span>
+      5G 82%
+     </span>
+    </div>
+    <div class="cwin">
+     <div class="top">
+      <h2>
+       Home
+      </h2>
+      <span class="pill">
+       <i>
+       </i>
+       62% · 3h
+      </span>
+     </div>
+     <div class="view">
+      <div class="mstrip">
+       <div class="m">
+        <span class="dd">
+        </span>
+        <b>
+         build-box
+        </b>
+        <span>
+         2 agents · 41% disk
+        </span>
+       </div>
+       <div class="m">
+        <span class="dd">
+        </span>
+        <b>
+         laptop
+        </b>
+        <span>
+         1 agent · 63% disk
+        </span>
+       </div>
+       <div class="m off">
+        <span class="dd off">
+        </span>
+        <b>
+         gpu-box
+        </b>
+        <span>
+         offline
+        </span>
+       </div>
+       <div class="add">
+        Add
+       </div>
+      </div>
+      <div class="ctabs">
+       <div class="">
+        Overview
+       </div>
+       <div class="">
+        PRs and issues
+        <small>
+         4
+        </small>
+       </div>
+       <div class="on">
+        Machines
+       </div>
+      </div>
+      <div aria-label="Machines, scroll horizontally for more columns" class="machine-scroll" tabindex="0">
+       <table class="machine-table">
+        <thead>
+         <tr>
+          <th>
+           Machine
+          </th>
+          <th>
+           Agents
+          </th>
+          <th>
+           Disk
+          </th>
+          <th>
+           Memory
+          </th>
+          <th>
+           Sent / received
+          </th>
+          <th>
+           Can run
+          </th>
+          <th>
+           Now
+          </th>
+          <th>
+          </th>
+         </tr>
+        </thead>
+        <tbody>
+         <tr>
+          <td>
+           <b>
+            <span class="dd">
+            </span>
+            build-box
+           </b>
+           <small>
+            Linux
+           </small>
+          </td>
+          <td>
+           2
+          </td>
+          <td>
+           590 GB free
+          </td>
+          <td>
+           18 / 64 GB
+          </td>
+          <td>
+           42 MB / 16 MB
+          </td>
+          <td>
+           Docker · Node · Rust
+          </td>
+          <td>
+           Online
+          </td>
+          <td>
+           <button class="btn">
+            New terminal
+           </button>
+          </td>
+         </tr>
+         <tr class="project-row">
+          <td colspan="8">
+           acme/app · In sync
+          </td>
+         </tr>
+         <tr>
+          <td>
+           <b>
+            <span class="dd">
+            </span>
+            laptop
+           </b>
+           <small>
+            macOS
+           </small>
+          </td>
+          <td>
+           1
+          </td>
+          <td>
+           185 GB free
+          </td>
+          <td>
+           9 / 24 GB
+          </td>
+          <td>
+           16 MB / 42 MB
+          </td>
+          <td>
+           Xcode · Node · Rust
+          </td>
+          <td>
+           Online
+          </td>
+          <td>
+           <button class="btn">
+            New terminal
+           </button>
+          </td>
+         </tr>
+         <tr class="offline">
+          <td>
+           <b>
+            <span class="dd off">
+            </span>
+            gpu-box
+           </b>
+           <small>
+            Linux
+           </small>
+          </td>
+          <td>
+           -
+          </td>
+          <td>
+           1.76 TB free
+          </td>
+          <td>
+           -
+          </td>
+          <td>
+           -
+          </td>
+          <td>
+           GPU · Docker
+          </td>
+          <td>
+           Offline 2h
+          </td>
+          <td>
+           <button class="btn" disabled="">
+            New terminal
+           </button>
+          </td>
+         </tr>
+        </tbody>
+       </table>
+      </div>
+     </div>
+     <div class="tabs">
+      <a class="" href="../index.html#home" target="_top">
+       <svg fill="none" height="21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="21">
+        <path d="M3 11l9-7 9 7v9h-6v-6H9v6H3z">
+        </path>
+       </svg>
+       Home
+      </a>
+      <a class="" href="../index.html#projects" target="_top">
+       <svg fill="none" height="21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="21">
+        <path d="M3 7h7l2 2h9v11H3z">
+        </path>
+       </svg>
+       Projects
+      </a>
+      <a class="" href="../index.html#agents" target="_top">
+       <svg fill="none" height="21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="21">
+        <path d="M4 5h16v11H9l-5 4z">
+        </path>
+        <path d="M8 9h8M8 12.5h5">
+        </path>
+       </svg>
+       Agents
+      </a>
+      <a class="" href="../index.html#terminals" target="_top">
+       <svg fill="none" height="21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="21">
+        <path d="M4 5h16v14H4z">
+        </path>
+        <path d="M7 9l3 3-3 3M12 15h5">
+        </path>
+       </svg>
+       Terminals
+      </a>
+      <a aria-current="page" class="on" href="../index.html#machines" target="_top">
+       <svg fill="none" height="21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="21">
+        <path d="M3 4h18v6H3z">
+        </path>
+        <path d="M3 14h18v6H3z">
+        </path>
+        <path d="M7 7h.1M7 17h.1">
+        </path>
+       </svg>
+       Machines
+      </a>
+     </div>
+    </div>
+    <div class="hp">
+     <span>
+     </span>
+    </div>
+   </div>
+   <figcaption>
+    Machines. The app keeps its table on phones; scroll sideways for memory, traffic, capabilities and terminal actions.
+   </figcaption>
+  </figure>
+ </body>
+</html>

@@ -83,8 +83,8 @@ document.getElementById("desk").addEventListener("click", e => {
   if (!e.target.closest("[data-uspop]")) return;
   S.d.uspop = !S.d.uspop; render();
 });
-// Every page's header gets it at the right end.
-const usInject = html => html.replace(/(<div class="cc-top">[\s\S]*?)(<\/div>)/, (m, a, b) => a + usPill() + b);
+// The current app only shows plan usage on Home.
+const usInject = html => !/<h2>Home<\/h2>/.test(html) ? html : html.replace(/(<div class="cc-top">[\s\S]*?)(<\/div>)/, (m, a, b) => a + usPill() + b);
 {
   const baseWin = ccWin;
   ccWin = (side, main) => usInject(baseWin(side, main));
