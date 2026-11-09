@@ -37,6 +37,18 @@ function setup() {
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
+test("streaming agent replies keep their element across updates", t => {
+  const { page } = setup();
+  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  page.entries = [{ kind: "user", text: "Explain" }, { kind: "agent", text: "First", html: "<p>First</p>" }];
+  drawAgentBody();
+  const reply = bar.querySelector<HTMLElement>(".dcoderen.agent"); assert.ok(reply);
+  page.entries[1] = { kind: "agent", text: "First update", html: "<p>First update</p>" };
+  drawAgentBody(undefined, true);
+  assert.equal(bar.querySelector(".dcoderen.agent"), reply);
+  assert.match(reply.textContent ?? "", /First update/);
+});
+
 test("attachment updates preserve chips and upload choices", async t => {
   const { input } = setup();
   MN.redraw = drawAgentAttached;

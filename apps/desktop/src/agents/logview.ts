@@ -33,6 +33,7 @@ import { olderNote } from "./older-state.ts";
 import { holdNote } from "./reconnect-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { ICON } from "../ui/icons.ts";
+import { replyHtml, type ReplyRow } from "./reply-view.tsx";
 
 // Elapsed clocks use when this window first saw the call running.
 const toolStarts = new Map<string, number>();
@@ -269,14 +270,12 @@ export function entryRow(en: AgentEntry, at: number) {
     return others + userRowHtml(said, ` data-at="${at}"`, names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "", true);
   }
 
+  if (en.kind === "agent") return replyHtml(agentReply(en, at));
+
   // The pictures the agent or a tool showed go after the text, as a
   // user's do. The HTML is already without their lines.
   const { text: said, names } = AG.log ? AG.log.imageLines(en.text) : { text: en.text, names: [] };
   const pics = names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "";
-  // The HTML is the desktop's own Markdown render, cleaned of anything that runs.
-  // Image files the reply names link to its pictures, shown in a strip.
-  const linked = (html: string) => AG.log ? AG.log.markWarnings(AG.log.linkImagePaths(html).html) : html;
-  if (en.kind === "agent") return en.html ? `<div class="dcoderen agent md" data-row="${at}">${answerHtml(linked(en.html))}${pics}</div>` : `<div class="dcoderen agent" data-row="${at}">${linked(esc(said))}${pics}</div>`;
   if (en.kind === "tool") return AG.log ? toolRow({ ...en, text: said }, at, pics) : `<div class="dcoderen tool">${text}</div>`;
   if (en.kind === "other" && en.text.trim() === "[conversation compacted]") return `<div class="dcoderen compacted" data-row="${at}"><span>Conversation compacted</span></div>`;
   const made = AG.page ? madeFiles(en.text, AG.page.session.cwd) : null;
@@ -351,7 +350,7 @@ const turnStarts = new Map<number, number>();
 /// card, and finished calls of one kind in a row as one line that opens
 /// to them ("Read 6 files"). Adjacent thoughts share one expandable row.
 function rowsOf(p: AgentPage, ats: number[]) {
-  const out: string[] = [];
+  const out: TranscriptRow[] = [];
   let run: number[] = [];
   const isSub = (at: number) => {
     const en = p.entries[at - p.earlier];
@@ -372,11 +371,20 @@ function rowsOf(p: AgentPage, ats: number[]) {
     if (group.length > 1) { flush(); out.push(runRow(p, group)); continue; }
     if (isSub(at)) { run.push(at); continue; }
     flush();
-    out.push(entryRow(p.entries[at - p.earlier], at));
+    const en = p.entries[at - p.earlier];
+    if (en.kind === "agent") out.push(agentReply(en, at));
+    else out.push(entryRow(en, at));
   }
 
   flush();
   return out;
+}
+
+function agentReply(en: AgentEntry, at: number): ReplyRow {
+  const { text, names } = AG.log ? AG.log.imageLines(en.text) : { text: en.text, names: [] };
+  const pics = names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "";
+  const linked = (html: string) => AG.log ? AG.log.markWarnings(AG.log.linkImagePaths(html).html) : html;
+  return { kind: "reply", row: String(at), markdown: !!en.html, html: (en.html ? answerHtml(linked(en.html)) : linked(esc(text))) + pics };
 }
 
 /// Calls of one kind in a row as one line, the first few targets beside
@@ -633,7 +641,7 @@ function showLog(b: HTMLElement, html: string, units: Unit[] | null, polled: boo
     if (sel.focusNode) held.push(sel.focusNode);
   }
 
-  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row) })) ?? null;
+  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row) })) ?? null;
   return patchRows(main, next.content, prepared, held);
 }
 
