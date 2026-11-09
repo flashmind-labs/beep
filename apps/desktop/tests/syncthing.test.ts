@@ -14,7 +14,7 @@ test("import preserves existing Syncthing rules and ignores stale folder lookups
   const reads: { args: Record<string, unknown>; reply: (files: unknown) => void }[] = [];
   Object.defineProperty(globalThis, "window", { configurable: true, value: {
     __TAURI__: { core: { Channel: class {}, invoke: (cmd: string, args: Record<string, unknown>) =>
-      cmd === "log_webview" ? Promise.resolve(null) : new Promise(reply => reads.push({ args, reply })) }, event: { listen: async () => () => {} } },
+      cmd === "log_webview" || cmd === "desktop_trace_enabled" ? Promise.resolve(null) : new Promise(reply => reads.push({ args, reply })) }, event: { listen: async () => () => {} } },
     addEventListener: () => {},
   } });
   Object.defineProperty(globalThis, "document", { configurable: true, value: {

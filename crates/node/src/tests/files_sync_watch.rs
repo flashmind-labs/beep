@@ -33,6 +33,7 @@ fn dropped_events_wake_every_project() {
                 root: PathBuf::from(root),
                 rules,
                 wake,
+                changes: Changes::default(),
             },
         );
         woken.push(rx);
@@ -44,6 +45,51 @@ fn dropped_events_wake_every_project() {
     for rx in &mut woken {
         assert_eq!(rx.try_recv(), Ok(()));
     }
+    assert!(lock(&routes).values().all(|route| route.changes.full));
+}
+
+#[test]
+fn event_paths_survive_a_full_wake_channel_and_directory_changes_coalesce() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let rules = Arc::new(RwLock::new(Rules::load(dir.path()).unwrap()));
+    let (wake, mut woken) = mpsc::channel(1);
+    let routes = Mutex::new(HashMap::from([(
+        1,
+        Route {
+            root: dir.path().to_owned(),
+            rules,
+            wake,
+            changes: Changes::default(),
+        },
+    )]));
+    for path in ["one.txt", "sub/two.txt", "sub"] {
+        route(
+            &routes,
+            &Event::new(EventKind::Any).add_path(dir.path().join(path)),
+        );
+    }
+    assert_eq!(woken.try_recv(), Ok(()));
+    assert_eq!(
+        lock(&routes)[&1].changes.paths,
+        BTreeSet::from([PathBuf::from("one.txt"), PathBuf::from("sub")])
+    );
+    assert!(!lock(&routes)[&1].changes.full);
+}
+
+#[test]
+fn changing_ignore_rules_and_overflow_require_reconciliation() {
+    let mut changes = Changes::default();
+    changes.insert(PathBuf::from("file.txt"));
+    changes.insert(PathBuf::new());
+    assert!(changes.full);
+    assert!(changes.paths.is_empty());
+    assert!(super::super::rules::changes_rules(Path::new(".stignore")));
+    assert!(super::super::rules::changes_rules(Path::new(
+        "sub/package.json"
+    )));
+    assert!(!super::super::rules::changes_rules(Path::new(
+        "src/file.rs"
+    )));
 }
 
 #[tokio::test]

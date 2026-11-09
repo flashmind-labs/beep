@@ -22,7 +22,7 @@ import { switchHtml, esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { toggleShortcuts } from "../ui/shortcutsheet.ts";
-import { mountSkillSync } from "./skill-sync.ts";
+import { mountProjectSync, mountSkillSync } from "./skill-sync.ts";
 
 /// What a new notice does while you are at this Mac (NoticeVoice).
 type NoticeVoice = "ask" | "aloud" | "off";
@@ -260,6 +260,8 @@ async function thenRedraw(change: Promise<unknown>) {
 function bindSettings(el: Element) {
   const skillSync = el.querySelector<HTMLElement>("#skillSyncSetting");
   if (skillSync) mountSkillSync(skillSync);
+  const projectSync = el.querySelector<HTMLElement>("#projectSyncSetting");
+  if (projectSync) mountProjectSync(projectSync);
   const $in = <T extends Element = HTMLElement>(sel: string) => el.querySelector<T>(sel);
   const each = (attr: string, fn: (b: HTMLButtonElement) => void) => el.querySelectorAll<HTMLButtonElement>(`[${attr}]`).forEach(fn);
   /// A switch that waits, disabled, for `command` to flip it, then redraws.
@@ -428,6 +430,7 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
         ${switchHtml(set.autostart, "Launch at login", `id="autostart"`)}</div>`}
       ${S.server ? voiceNotesRow(set.notice_voice) + sendRow(set.send_on_pause) : ""}${agentNoticesRow(set.agent_notices)}
       <div id="skillSyncSetting"></div>
+      <div id="projectSyncSetting"></div>
       <div class="dtoggle"><span><b>Keyboard shortcuts</b><small>Every shortcut, by where it works</small></span><button class="dbtn" id="openShortcuts">Show…</button></div>
       <div class="dtoggle"><span><b>Report a problem</b><small>Collect logs from your machines and send them to us</small></span><button class="dbtn" id="openReport">Report…</button></div></section>`]];
   out.push(["appearance", sec("appearance", "Appearance", skinsHtml())]);

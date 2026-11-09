@@ -29,7 +29,7 @@ impl Drop for Sampling {
 }
 
 pub(crate) fn start(app: AppHandle) -> Option<Sampling> {
-    if std::env::var_os("BEEP_DESKTOP_RESOURCE_METRICS").is_some_and(|value| value == "0") {
+    if std::env::var_os("BEEP_DESKTOP_RESOURCE_METRICS").is_none_or(|value| value != "1") {
         return None;
     }
 

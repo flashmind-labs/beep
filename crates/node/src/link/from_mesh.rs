@@ -7,7 +7,6 @@
 //! `follow` runs while the node is in the mesh. Each change to the state or
 //! the device list applies what differs from what was applied before.
 
-use std::time::Duration;
 use crate::{
     link::Offers,
     link::watchdog::{self, Step},
@@ -18,11 +17,15 @@ use beep_proto::{
     node::{
         MachineCredentials,
         harness::{AgentSettings, HarnessConfig},
-        mesh_state::{Credential, Place, ProjectRecord, SavedVersion, StateValue, SyncSpec},
+        mesh_state::{
+            Credential, Place, ProjectRecord, ProjectSyncSettings, SavedVersion, StateValue,
+            SyncSpec,
+        },
         sync::{Project, ignored_project},
     },
 };
 use iroh::{EndpointAddr, EndpointId};
+use std::time::Duration;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -356,6 +359,11 @@ fn projects(
     specs: &mut BTreeMap<Key, SyncSpec>,
 ) -> (Vec<Project>, BTreeSet<String>) {
     let devices = mesh.code_hosts();
+    let sync_enabled = mesh
+        .get(&Key::ProjectSync)
+        .and_then(|bytes| ProjectSyncSettings::from_bytes(&bytes).ok())
+        .unwrap_or_default()
+        .enabled;
     let mut now = BTreeMap::new();
 
     for (key, bytes) in mesh.scan("sync/") {
@@ -410,7 +418,7 @@ fn projects(
                 name: name.clone(),
                 folder,
                 peers,
-                paused: spec.paused,
+                paused: spec.paused || !sync_enabled,
             };
             let mut all = vec![main.clone()];
 

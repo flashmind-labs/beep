@@ -1,7 +1,6 @@
 //! Watches project folders for changes with one `Watcher` per node. A
-//! folder it cannot watch is rescanned every `RESCAN`; a watched one is
-//! rescanned too, far less often (`rescan_every`), for a change the
-//! watcher missed.
+//! folder it cannot watch is rescanned every `RESCAN`. Healthy watchers
+//! retain changed paths; overflow and errors request reconciliation.
 
 use super::{gitdir, rules::Rules};
 use crate::{lock, read_lock};
@@ -10,7 +9,7 @@ use notify::{
     event::{AccessKind, AccessMode},
 };
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock},
     time::Duration,
@@ -19,10 +18,6 @@ use tokio::{sync::mpsc, task::spawn_blocking};
 
 /// How often a project the watcher cannot follow is rescanned.
 pub(super) const RESCAN: Duration = Duration::from_secs(5 * 60);
-/// How often a watched project is rescanned at least, for a change the
-/// watcher missed. Each project adds its own share of it again, so the
-/// projects of one node do not all walk their trees at once.
-const SAFETY_RESCAN: Duration = Duration::from_secs(30 * 60);
 /// The share of the watch limit left to other programs, in percent, and
 /// at least `MIN_RESERVE` watches.
 const RESERVE_PERCENT: u64 = 10;
@@ -47,14 +42,6 @@ pub(super) enum Mode {
     Rescan {
         hint: &'static str,
     },
-}
-
-/// How long project `key` goes without a scan when nothing changed.
-pub(super) fn rescan_every(mode: &Mode, key: Key) -> Duration {
-    match mode {
-        Mode::Rescan { .. } => RESCAN,
-        Mode::Watching => SAFETY_RESCAN + Duration::from_secs(key % SAFETY_RESCAN.as_secs()),
-    }
 }
 
 /// The watches one node may still add. On Linux each watched folder costs
@@ -173,6 +160,37 @@ struct Route {
     root: PathBuf,
     rules: Arc<RwLock<Rules>>,
     wake: mpsc::Sender<()>,
+    changes: Changes,
+}
+
+/// Paths are retained even when the wake channel is already full.
+#[derive(Debug, Default)]
+pub(super) struct Changes {
+    pub(super) paths: BTreeSet<PathBuf>,
+    pub(super) full: bool,
+}
+
+impl Changes {
+    fn insert(&mut self, path: PathBuf) {
+        if self.full {
+            return;
+        }
+
+        if path.as_os_str().is_empty() || self.paths.len() >= 4096 {
+            self.invalidate();
+            return;
+        }
+
+        if !self.paths.iter().any(|parent| path.starts_with(parent)) {
+            self.paths.retain(|child| !child.starts_with(&path));
+            self.paths.insert(path);
+        }
+    }
+
+    fn invalidate(&mut self) {
+        self.full = true;
+        self.paths.clear();
+    }
 }
 
 /// One project's watches.
@@ -213,11 +231,12 @@ fn is_change(kind: &EventKind) -> bool {
 }
 
 fn route(routes: &Mutex<HashMap<Key, Route>>, event: &Event) {
-    let routes = lock(routes);
+    let mut routes = lock(routes);
     // The system dropped events (a full inotify queue, an FSEvents
     // overflow): any folder may have changed, so every project scans.
     if event.need_rescan() {
-        for route in routes.values() {
+        for route in routes.values_mut() {
+            route.changes.invalidate();
             let _ = route.wake.try_send(());
             crate::events::system().changed(beep_proto::node::events::Topic::keyed(
                 "files",
@@ -234,7 +253,7 @@ fn route(routes: &Mutex<HashMap<Key, Route>>, event: &Event) {
 
     for path in &event.paths {
         let Some(route) = routes
-            .values()
+            .values_mut()
             .filter(|route| path.starts_with(&route.root))
             .max_by_key(|route| route.root.as_os_str().len())
         else {
@@ -248,7 +267,14 @@ fn route(routes: &Mutex<HashMap<Key, Route>>, event: &Event) {
         let git_says = gitdir::wakes(relative);
         let skipped = read_lock(&route.rules).skips_any(relative, path.is_dir());
 
-        if git_says || (!skipped && !gitdir::is_quiet(&relative.to_string_lossy())) {
+        let rules_changed = super::rules::changes_rules(relative);
+        if rules_changed {
+            route.changes.invalidate();
+        }
+
+        if git_says || rules_changed || (!skipped && !gitdir::is_quiet(&relative.to_string_lossy()))
+        {
+            route.changes.insert(relative.to_owned());
             // Full means a scan is due already.
             let _ = route.wake.try_send(());
             crate::events::system().changed(beep_proto::node::events::Topic::keyed(
@@ -271,7 +297,13 @@ impl Watcher {
         let watcher =
             notify::recommended_watcher(move |event: notify::Result<Event>| match event {
                 Ok(event) => route(&events, &event),
-                Err(e) => log::debug!("watch error: {e}"),
+                Err(e) => {
+                    log::debug!("watch error: {e}");
+                    route(
+                        &events,
+                        &Event::new(EventKind::Other).set_flag(notify::event::Flag::Rescan),
+                    );
+                }
             });
         let watcher = match watcher {
             Ok(watcher) => Some(watcher),
@@ -307,6 +339,7 @@ impl Watcher {
                 root: root.to_owned(),
                 rules,
                 wake,
+                changes: Changes::default(),
             },
         );
         lock(&self.inner).projects.insert(
@@ -317,6 +350,23 @@ impl Watcher {
                 mode: Mode::Watching,
             },
         );
+    }
+
+    /// Takes the accumulated paths. Events arriving during processing form the next batch.
+    pub(super) fn take_changes(&self, key: Key) -> Changes {
+        lock(&self.routes)
+            .get_mut(&key)
+            .map(|route| std::mem::take(&mut route.changes))
+            .unwrap_or_default()
+    }
+
+    pub(super) fn recheck(&self, key: Key, paths: impl IntoIterator<Item = PathBuf>) {
+        if let Some(route) = lock(&self.routes).get_mut(&key) {
+            for path in paths {
+                route.changes.insert(path);
+            }
+            let _ = route.wake.try_send(());
+        }
     }
 
     /// Stops watching the project, off the async workers.
@@ -471,8 +521,10 @@ fn watch_dirs(inner: &mut Inner, key: Key, watched: &mut Watched, dirs: &[PathBu
             Err(e) if matches!(e.kind, notify::ErrorKind::MaxFilesWatch) => {
                 return fall_back(inner, key, watched, WATCHES_HINT);
             }
-            // It went away since the scan; the next scan sees that.
-            Err(e) => log::debug!("could not watch {}: {e}", dir.display()),
+            Err(e) => {
+                log::debug!("could not watch {}: {e}", dir.display());
+                return fall_back(inner, key, watched, WATCHES_HINT);
+            }
         }
     }
 

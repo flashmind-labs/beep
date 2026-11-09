@@ -7,7 +7,7 @@ use crate::AsyncMutex;
 use crate::error::Result;
 use beep_mesh::{Key, Mesh};
 pub(crate) use beep_proto::node::mesh_state::Place;
-use beep_proto::node::mesh_state::{StateValue, SyncSpec};
+use beep_proto::node::mesh_state::{ProjectSyncSettings, StateValue, SyncSpec};
 use chrono::{DateTime, Utc};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
@@ -140,6 +140,13 @@ pub(crate) async fn sync_checkouts(mesh: &Mesh, stored: &Stored) -> Result<()> {
 
     for (machine, place) in places {
         spec.folders.insert(*machine, place.folder.clone());
+    }
+
+    if !read::<ProjectSyncSettings>(mesh, &Key::ProjectSync)
+        .unwrap_or_default()
+        .enabled
+    {
+        spec.paused = true;
     }
 
     if spec != before {
