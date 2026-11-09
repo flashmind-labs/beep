@@ -13,6 +13,7 @@ test("Enter revokes the grant whose confirm row shows, not one clicked after", a
   Object.assign(GR, { list: [grant("a"), grant("b")], sel: 0, mode: "confirm", error: "", loaded: true });
   clickRow(1);
   grantKeys({ key: "Enter", preventDefault() {} } as KeyboardEvent, false);
+  S.view = "chat";
   await new Promise(r => setImmediate(r));
   assert.deepEqual(calls.filter(c => c.cmd === "revoke_grant").map(c => c.args), [{ id: "a" }]);
 });
