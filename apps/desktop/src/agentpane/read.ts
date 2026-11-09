@@ -1,9 +1,10 @@
 import { takeQueuedPreview } from "./html-preview-state.ts";
 // Reading a tab's file from the session's machine, a part at a time, and
 // starting a terminal tab.
+import { viewKey } from "./view-memory.ts";
 import { fileSize } from "../chat/media.ts";
 import { dropTerm, followTerm, forgetTerm, killTerm, openTerm, termStatus } from "./terminal.ts";
-import { type FilePart, type TreeText, type MediaTab, P, draw, closeTab, leavePane } from "./media.ts";
+import { type FilePart, type TreeText, type MediaTab, P, draw, closeTab, leavePane, rememberTerminal } from "./media.ts";
 import { invoke } from "../ui/tauri.ts";
 
 /// The most the pane reads of one file, as the node allows.
@@ -78,11 +79,13 @@ function redraw(t: MediaTab) {
 
 /// Starts a terminal tab's shell; when it exits the tab goes.
 export async function startTerminal(t: MediaTab) {
+  const session = P.session;
+  const key = session ? viewKey(session.machine_id, session.id) : null;
   const hooks = {
     onEnd: () => {
       if (t.term) forgetTerm(t.term);
       t.term = undefined;
-      closeTab(t.id);
+      if (P.tabs.includes(t)) closeTab(t.id);
     },
     onLink: () => drawTermStatus(t),
     onEscape: leavePane,
@@ -92,8 +95,10 @@ export async function startTerminal(t: MediaTab) {
     // One that runs already is followed; a new one starts where the tab was opened.
     const term = await (t.existing ? followTerm(t.existing, hooks) : openTerm({ ...t.at!, name: t.name }, hooks));
 
+    if (key) rememberTerminal(key, t, term.row);
+
     if (!P.tabs.includes(t)) {
-      // Its tab or session was closed while it started.
+      // Only an explicit tab close stops a shell that was still starting.
       if (t.closed) {
         dropTerm(term);
         return killTerm(term).catch(e => console.warn("stopping a terminal whose tab closed:", e));

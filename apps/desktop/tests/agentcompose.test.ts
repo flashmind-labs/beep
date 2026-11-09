@@ -510,3 +510,26 @@ test("session usage shows cumulative tokens and spend apart from the remaining k
   assert.equal(usageLine({ ...usage, credits: [{ ...credit, remaining: "0" }] }), "42%/1.05M · 182k tokens · $1.27 / $0.00");
   assert.equal(usageLine({ context: null, tokens: 0, cost_usd: null }), "");
 });
+
+test("session model choices survive a window reload", async t => {
+  const saved = new Map<string, string>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
+    get length() { return saved.size; },
+    clear: () => saved.clear(),
+    key: (index: number) => [...saved.keys()][index] ?? null,
+    removeItem: (key: string) => { saved.delete(key); },
+    getItem: (key: string) => saved.get(key) ?? null,
+    setItem: (key: string, value: string) => { saved.set(key, value); },
+  } });
+  const { SessionPicks } = await import("../src/agents/agentmodels.ts");
+  const choices = new SessionPicks();
+  choices.set("saved-model-session", { model: "model-sol", effort: "high" });
+  assert.deepEqual(new SessionPicks().get("saved-model-session"), { model: "model-sol", effort: "high" });
+  choices.delete("saved-model-session");
+  assert.equal(new SessionPicks().has("saved-model-session"), false);
+});

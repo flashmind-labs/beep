@@ -131,3 +131,27 @@ fn a_program_path_reaches_only_the_device_it_is_for() {
     )];
     assert_eq!(harnesses_for("linux", stray)[0].program, None);
 }
+
+#[tokio::test]
+async fn instructions_use_the_latest_saved_version_including_an_empty_one() {
+    let (mesh, _dir) = lone_mesh().await;
+    assert_eq!(instructions(&mesh), None);
+    for (key, saved_ms, text) in [
+        ("1.a", 1, "Old text"),
+        ("2.a", 2, "New text"),
+        ("2.b", 2, ""),
+    ] {
+        let saved = SavedVersion {
+            text: text.into(),
+            note: String::new(),
+            saved_ms,
+        };
+        mesh.set(
+            Key::InstructionVersion(key.into()),
+            Some(saved.to_bytes().unwrap()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(instructions(&mesh).as_deref(), Some(text));
+    }
+}

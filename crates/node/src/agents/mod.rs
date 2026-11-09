@@ -172,6 +172,8 @@ pub use follow::serve_follow;
         models: ModelCache,
         /// The user's settings for each agent, applied when one starts.
         settings: harnesses::Settings,
+        /// Saved Beep instructions, supplied to sessions without editing agent files.
+        instructions: Mutex<Option<String>>,
         /// The newest versions of the agents, found lately.
         latest: harnesses::Latest,
         /// The workspace and the folders shared in `node.toml`, which file
@@ -231,6 +233,7 @@ pub use follow::serve_follow;
                 moves: moving::Moves::default(),
                 models: ModelCache::default(),
                 settings: harnesses::Settings::default(),
+                instructions: Mutex::default(),
                 latest: harnesses::Latest::default(),
                 folders: OnceLock::new(),
                 family: family::Family::default(),

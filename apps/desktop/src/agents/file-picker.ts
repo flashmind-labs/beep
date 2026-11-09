@@ -11,6 +11,9 @@ export function filePicker(attach: (files: File[]) => unknown) {
   button.title = "Attach files";
   button.setAttribute("aria-label", "Attach files");
   button.innerHTML = IC.plus;
+  // Pressing it must not take the focus from the field: on a phone the composer hides its
+  // controls when the field loses focus, and the tap would land on nothing.
+  button.addEventListener("pointerdown", e => e.preventDefault());
   button.addEventListener("click", () => input.click());
   input.addEventListener("change", () => {
     const files = [...(input.files ?? [])];

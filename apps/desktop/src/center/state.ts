@@ -34,7 +34,7 @@ export interface ViewArgs {
 }
 
 export interface ProvidersArg { agent: string | null; settings: boolean }
-export type InstructionsTab = "editor" | "import" | "sync" | "history";
+export type InstructionsTab = "editor" | "history";
 export interface InstructionsArg { tab: InstructionsTab | null }
 /// The names of the views the window can show, one per `registerView`.
 export type ViewName = keyof ViewArgs;

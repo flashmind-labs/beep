@@ -159,7 +159,6 @@ const SETV = (() => {
 .mac .hv-sum b { font-size: 15px; font-weight: 600 }
 .mac .hv-sum .on { font-size: 12px; color: var(--d-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px }
 .mac .hv-view.in-set {  }
-.mac .hv-view.in-set > .hv-d { padding: 0; overflow: visible }
 .mac .hv-view.in-set > .hv-d > .hv-acts:first-child, .mac .hv-view.in-set > .hv-d > .hv-note:first-child { margin-top: 0 }
 .mac .fl-seg, .mac .fl-chips { display: flex; flex-wrap: wrap; gap: 4px }
 .mac .fl-chips .dchip { font-family: var(--mono); font-size: 11.5px }
@@ -253,6 +252,11 @@ const SETV = (() => {
 .mac .in-hist + .in-hist { border-top: 0 }
 .mac .hv-view { padding: 16px 18px; overflow: auto; min-height: 0 }
 .mac .cc-set .hv-view, .mac .cc-set .in-view { padding: 0; overflow: visible }`;
+  st.textContent += `.mac .hv-scope { padding: 16px; border: 1px solid var(--d-border); border-radius: 8px; min-width: 0 }
+.mac .hv-scope > h3 { margin: 0 0 12px; font-size: 16px; font-weight: 600 }
+.mac .hv-scope > .hv-d { padding: 0; overflow: visible }
+.mac .hv-machine-menu { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--d-muted) }
+.mac .hv-machine-menu select { max-width: 240px; padding: 8px 12px; border: 1px solid var(--d-border); border-radius: 8px; background: #181818; color: var(--d-fg) }`;
   document.head.append(st);
 
   const chev = DI.chevR;
@@ -492,51 +496,27 @@ const SETV = (() => {
   // Instructions: instructions.ts.
   const insTab = (k, label, cur) => `<button class="dbtn tm-tab"${cur === k ? ' aria-current="true"' : ""} data-dact="dset:ins:${k}">${label}</button>`;
   const insSec = (title, small, body) => `<div><div class="cc-sec"><h4>${title}</h4>${small ? `<small>${small}</small>` : ""}</div>${body}</div>`;
-  const inFile = (ag, path, r, miss) => `<div class="in-file${miss ? " miss" : ""}"><span class="ag">${ag}</span><code>${path}</code><span class="r">${r}</span></div>`;
-  const inMach = (name, right, rows, bad) => `<div class="in-mach"><b><span class="ddot${bad ? " bad" : ""}"></span>${name}</b>${right || "<span></span>"}<div class="in-files">${rows.join("")}</div></div>`;
   const insBody = () => {
     const v = S.d.ins || "editor";
-    const cur = v.startsWith("import") || v === "reading" || v === "nomachine" ? "import" : v.startsWith("sync") ? "sync" : v.startsWith("history") ? "history" : "editor";
-    const tabs = `<div class="in-tabs">${insTab("editor", "Editor", cur)}${insTab("import", "Import", cur)}${insTab("sync", "Sync", cur)}${insTab("history", "History", cur)}</div>`;
+    const cur = v.startsWith("history") ? "history" : "editor";
+    const tabs = `<div class="in-tabs">${insTab("editor", "Editor", cur)}${insTab("history", "History", cur)}</div>`;
     const empty = (b, s) => `<div class="cc-panel cc-empty"><b>${b}</b>${s ? `<span>${s}</span>` : ""}</div>`;
     let body;
     if (v === "loading") body = empty("Loading your instructions…");
     else if (cur === "editor") {
       const dirty = v === "editor-dirty", first = v === "editor-first";
-      const layers = insSec("How agents see it", "first to last", `<div class="cc-panel"><ol class="in-layers">
+      const layers = insSec("How agents see it", "instruction sources", `<div class="cc-panel"><ol class="in-layers">
         <li><b>The agent's own rules</b><small>Built into Claude Code, Codex, Gemini CLI or pi</small></li>
-        <li><b>Your text in its file</b><small>The rest of ~/.claude/CLAUDE.md and the like</small></li>
-        <li class="me"><b>Your instructions</b><small>${first ? "Nothing saved yet, so agents get only the other layers" : "Version 7, between Beep's markers in each agent's file. Sync shows which machines have it"}</small></li>
+        <li><b>Your text in its file</b><small>Your local CLAUDE.md or AGENTS.md, kept as is</small></li>
+        <li class="me"><b>Your instructions</b><small>${first ? "Nothing saved yet, so agents get only the other layers" : "Version 7, supplied when Beep starts or resumes a session"}</small></li>
+        <li><b>Beep's rules</b><small>Session setup and tool instructions supplied by Beep</small></li>
         <li><b>Project</b><small>The repository's CLAUDE.md or AGENTS.md</small></li>
         <li><b>Task</b><small>The prompt Beep starts the agent with</small></li></ol></div>`);
-      const files = insSec("Agent files", "", `<div class="cc-panel cc-row in-side"><span class="t"><b>Agent files</b><span>Write your rules into each agent's own file</span></span><button class="dbtn" data-dact="dset:ins:sync">Sync</button></div>`);
       body = `<div class="in-cols">${insSec("For all agents", first ? "Markdown · 0.0 of 16 KB" : "Markdown · 0.6 of 16 KB", `<div class="cc-panel in-ed">
         <div class="in-ver"><span><b>${first ? "Not saved yet" : "Version 7"}</b>${first ? "" : " · 2 days ago"}</span><span class="sp">${dirty ? "Not saved" : first ? "" : "Saved"}</span></div>
         <textarea aria-label="Your instructions" spellcheck="false" placeholder="# How I work&#10;&#10;- Write plainly.&#10;- Ask before deploying anything.">${first ? "" : IN_RULES}${dirty ? "\n- One more rule." : ""}</textarea>
-        <div class="in-acts"><button class="dbtn pri"${dirty ? ' data-toast="Saved as version 8"' : " disabled"}>Save</button>${dirty ? '<button class="dbtn" data-dact="dset:ins:editor">Discard</button>' : ""}<button class="dbtn" data-dact="dset:ins:history">History</button><button class="dbtn" data-dact="dset:ins:import">Import from machines</button></div></div>`)}
-        <div class="in-sidecol">${layers}${files}</div></div>`;
-    } else if (v === "reading") body = empty("Reading the agent files on your machines…");
-    else if (v === "nomachine") body = insSec("Found on your machines", "read just now", `<div class="cc-panel"><div class="cc-empty">No machine online</div></div>`) + `<div class="in-acts"><button class="dbtn" data-toast="Read again">Read again</button></div>`;
-    else if (cur === "import") {
-      const small = t => `<button class="dbtn small" data-toast="${t}">${t}</button>`;
-      const has = (lines, show) => `${lines}<button class="dbtn small" data-dact="dset:ins:${show ? "import" : "import-show"}">Show</button><button class="dbtn small" data-dact="dset:ins:editor-dirty">Add to mine</button><button class="dbtn small quiet" data-dact="dset:ins:editor-dirty">Use instead</button>`;
-      const open = v === "import-show";
-      const machines = inMach("build-box", "", [inFile("Claude Code", "~/.claude/CLAUDE.md", has("241 lines", open)), inFile("Codex", "~/.codex/AGENTS.md", "only Beep's text"), inFile("Gemini CLI", "~/.gemini/GEMINI.md", "none", true), ...(open ? [`<pre class="in-pre"># How I work\n\n- Write plainly.\n- Never push to main.</pre>`] : [])])
-        + inMach("mac-box", "", [inFile("Claude Code", "~/.claude/CLAUDE.md", has("198 lines")), inFile("pi", "~/.pi/agent/AGENTS.md", has("30 lines"))])
-        + inMach("win-box", "", [`<div class="in-file miss"><span>No coding agent here</span></div>`])
-        + inMach("gpu-box", "", [`<div class="in-file miss"><span>gpu-box is offline</span></div>`], true);
-      body = insSec("Found on your machines", "read just now", `<div class="cc-panel">${machines}</div>`) + `<div class="in-acts"><button class="dbtn" data-toast="Read again">Read again</button></div>`;
-    } else if (cur === "sync") {
-      const none = v === "sync-none";
-      const st = (t, cls) => cls ? `<span class="in-${cls}">${t}</span>` : `<span>${t}</span>`;
-      const write = (off, t = "Write to agent files") => none ? "" : `<button class="dbtn small"${off ? " disabled" : ` data-toast="Wrote version 7"`}>${t}</button>`;
-      const f = (ag, p, s, c) => inFile(ag, p, st(s, c));
-      const machines = inMach("build-box", write(false), [f("Claude Code", "~/.claude/CLAUDE.md", none ? "Has its own text" : "Synced", none ? "" : "ok"), f("Codex", "~/.codex/AGENTS.md", none ? "Has its own text" : "Not synced", none ? "" : "warn"), f("Gemini CLI", "~/.gemini/GEMINI.md", "Not written yet")])
-        + inMach("mac-box", write(true), [f("Claude Code", "~/.claude/CLAUDE.md", none ? "Has its own text" : "Synced", none ? "" : "ok")])
-        + inMach("win-box", write(true), [`<div class="in-file miss"><span>No coding agent here</span></div>`]);
-      const lead = none ? `<button class="cc-note in-go" data-dact="dset:ins:editor-first"><span class="ddot off"></span><span><b>Nothing saved yet.</b> Save your rules in Editor, then write them here.</span><span class="go">Open Editor</span></button>`
-        : `<div class="cc-note"><span class="ddot"></span><span>Written between <code>&lt;!-- beep:start --&gt;</code> and <code>&lt;!-- beep:end --&gt;</code> in each agent's file. Text outside them is never touched.</span></div>`;
-      body = lead + insSec("Machines", none ? "nothing saved yet" : "version 7", `<div class="cc-panel">${machines}</div>`) + `<div class="in-acts">${none ? "" : '<button class="dbtn" data-toast="Wrote version 7 to the machines behind">Write to all machines</button>'}<button class="dbtn" data-toast="Read again">Read again</button></div>`;
+        <div class="in-acts"><button class="dbtn pri"${dirty ? ' data-toast="Saved as version 8"' : " disabled"}>Save</button>${dirty ? '<button class="dbtn" data-dact="dset:ins:editor">Discard</button>' : ""}<button class="dbtn" data-dact="dset:ins:history">History</button></div></div>`)}
+        <div class="in-sidecol">${layers}</div></div>`;
     } else if (v === "history-none") body = empty("No versions yet", "Each save makes one.");
     else if (v === "history-load") body = empty("Loading the versions…");
     else {
@@ -585,12 +565,12 @@ const SETV = (() => {
   const hvSwitch = (a, on) => swi(on, `${HV[a].name} on build-box`, `data-toast="${on ? "Turned off on build-box" : "Turned on on build-box"}"`);
   const nameLine = (name, ver, latest) => `<span class="hv-nm"><b>${name}</b>${ver ? `<span class="ver">v${ver}</span>` : ""}${latest ? `<span class="hv-up" title="v${latest} is out">update</span>` : ""}</span>`;
   const statusSmall = (t, bad) => `<small${bad ? ' class="bad"' : ""} title="${t}">${t}</small>`;
-  const hvPicker = () => `<span class="hv-pick"><span class="hv-seg" role="group" aria-label="Machine">${[["build-box", 1], ["mac-box", 1], ["win-box", 0]].map(([n, on]) => `<button type="button" title="${on ? n : `${n} (offline)`}" aria-pressed="${n === "build-box"}"${on ? "" : " disabled"} data-toast="Showing ${n}">${n}</button>`).join("")}</span></span>`;
+  const hvPicker = () => `<label class="hv-machine-menu"><select aria-label="Machine runtime settings"><option>build-box</option><option>mac-box</option><option disabled>win-box (offline)</option></select></label>`;
   const hvIn = (val, ph, label) => `<input class="hv-in" value="${val}" placeholder="${ph}" spellcheck="false" autocomplete="off" aria-label="${label}">`;
   const hvField = (label, help, ctl, names = []) => `<div class="hv-f"><span><b>${label}</b>${names.length ? `<span class="hv-diff" title="Not the same on ${names.join(", ")}">differs on ${names.length} machine${names.length === 1 ? "" : "s"}</span>` : ""}<small>${help}</small></span>${ctl}</div>`;
   const hvEnv = () => `<div class="hv-envs"><div class="hv-env">${hvIn("HTTPS_PROXY", "NAME", "Variable name")}<input class="hv-in" type="password" placeholder="saved; type to replace" aria-label="Value"><button class="dbtn quiet small" aria-label="Remove HTTPS_PROXY" data-toast="Removed">&#215;</button></div><div class="hv-env">${hvIn("", "NAME", "Variable name")}<input class="hv-in" type="password" placeholder="value" aria-label="Value"><span></span></div></div>`;
-  const hvRuntime = (a, h, saved) => `<h4>Runtime</h4>${hvField("Binary path", `The command Beep starts for ${h.name} on build-box.`, hvIn("", h.prog, "Binary path"), h.diffs?.program)}${hvField(h.home, "Its home and config folder.", hvIn("", h.hdef, h.home))}${hvField("Launch arguments", "Added to every session it starts.", hvIn("", "none", "Launch arguments"), h.diffs?.args)}${a === "flsh" || a === "gemini" || a === "hermes" ? "" : hvField("Auto-compact", a === "opencode" ? "Compact when the conversation nears the window." : "Compact at this share of the window, or this many tokens.", `<span class="fl-row">${swi(true, `Auto-compact for ${h.name}`)}${a === "opencode" ? "" : hvIn("", "80% or 350000", "Auto-compact threshold")}</span>`)}${hvField("Environment", "Encrypted, never shown again. Put keys in Credentials.", hvEnv())}
-    <div class="hv-acts hv-save"><button class="dbtn pri" title="Save for build-box only"${saved === "dirty" ? ' data-toast="Saved for build-box"' : " disabled"}>Save</button><button class="dbtn" title="Save these settings on every machine; offline ones get them when they next connect" data-toast="Saved to 3 machines">Save to all hosts</button><label class="hv-incl" title="Binary paths usually differ between machines"><input type="checkbox"> Include binary path</label>${saved === "dirty" ? '<button class="dbtn quiet">Discard</button>' : ""}<span class="hv-ok">${saved === "all" ? "Saved to 3 machines" : ""}</span></div>${hvModels(a)}`;
+  const hvRuntime = (a, h, saved) => `<h4>Runtime</h4>${hvField("Binary path", `The command Beep starts for ${h.name} on build-box.`, hvIn("", h.prog, "Binary path"), h.diffs?.program)}${hvField(h.home, "Its home and config folder.", hvIn("", h.hdef, h.home))}${hvField("Launch arguments", "Added to every session it starts.", hvIn("", "none", "Launch arguments"), h.diffs?.args)}${hvField("Environment", "Encrypted, never shown again. Put keys in Credentials.", hvEnv())}
+    <div class="hv-acts hv-save"><button class="dbtn pri" title="Save for build-box only"${saved === "dirty" ? ' data-toast="Saved for build-box"' : " disabled"}>Save</button><button class="dbtn" title="Save these settings on every machine; offline ones get them when they next connect" data-toast="Saved to 3 machines">Save to all hosts</button><label class="hv-incl" title="Binary paths usually differ between machines"><input type="checkbox"> Include binary path</label>${saved === "dirty" ? '<button class="dbtn quiet">Discard</button>' : ""}<span class="hv-ok">${saved === "all" ? "Saved to 3 machines" : ""}</span></div>`;
   const hvModelChoices = a => a === "claude"
     ? [{ id: "opus", name: "Opus 5.5" }, { id: "sonnet", name: "Sonnet 5.5" }]
     : [{ id: a === "flsh" ? "openrouter:vendor/model-large" : "model-large", name: "Large model" }, { id: a === "flsh" ? "openrouter:vendor/model-fast" : "model-fast", name: "Fast model" }];
@@ -667,9 +647,9 @@ const SETV = (() => {
   // A coding agent's page in Settings. `k` is the agent, then its state: acct-claude, acct-claude-off.
   const harnessPage = v => {
     const [, a, st = ""] = v.split("-");
-    const bar = `<div class="hv-bar"><span class="lbl">Machine</span>${hvPicker()}<span class="sp"></span><button class="dbtn quiet" title="Check the versions again" data-toast="Checked build-box again">Checked just now</button><button class="dbtn"${a === "claude" ? ' data-toast="Updating 1"' : ' disabled title="Everything is up to date"'}>Update all</button></div>`;
-    const wrap = inner => `<div class="cc-view hv-view in-set">${bar}${inner}</div>`;
-    if (st === "none") return `<div class="cc-view hv-view in-set"><div class="hv-bar"><span class="lbl">Machine</span>${hvPicker().replace(/aria-pressed="true"/, 'aria-pressed="false"')}<span class="sp"></span></div><div class="cc-panel cc-empty"><b>No machine online</b><span>Coding agents show here for machines that are online.</span></div></div>`;
+    const bar = `<div class="hv-bar">${hvPicker()}<span class="sp"></span><button class="dbtn quiet" title="Check the versions again" data-toast="Checked build-box again">Checked just now</button><button class="dbtn"${a === "claude" ? ' data-toast="Updating 1"' : ' disabled title="Everything is up to date"'}>Update all</button></div>`;
+    const wrap = inner => `<div class="cc-view hv-view in-set">${inner}</div>`;
+    if (st === "none") return `<div class="cc-view hv-view in-set"><div class="hv-bar">${hvPicker().replace(/aria-pressed="true"/, 'aria-pressed="false"')}<span class="sp"></span></div><div class="cc-panel cc-empty"><b>No machine online</b><span>Coding agents show here for machines that are online.</span></div></div>`;
     if (st === "asking") return wrap(`<div class="cc-panel cc-empty"><b>Asking build-box…</b></div>`);
     if (st === "old") return wrap(`<div class="cc-err">The server needs an update before it shows coding agents here.</div>`);
     if (st === "gone") return wrap(`<div class="cc-panel cc-empty"><b>build-box does not report ${HV[a].name}</b></div>`);
@@ -685,8 +665,9 @@ const SETV = (() => {
     const end = h.missing ? "<span></span><span></span>" : `<span class="on">${on ? "On" : "Off"} for build-box</span>${hvSwitch(a, on)}`;
     const summary = `<div class="hv-sum${!h.missing && !on ? " off" : ""}">${tile(a)}<span class="hv-name">${nameLine(h.name, h.ver, h.latest)}${statusSmall(status, bad)}</span>${end}</div>`;
     const banner = st === "fail" ? failLine("Could not update Claude Code on build-box: npm exited with code 1", "$ npm i -g @anthropic-ai/claude-code\nnpm ERR! code EACCES") : "";
-    const detail = `<div class="hv-d">${hvStatusBlock(a, h, true, st)}${h.missing ? "" : hvRuntime(a, h, st === "dirty" ? "dirty" : st === "saved" ? "all" : "")}${a === "flsh" ? flshOwn() : ""}</div>`;
-    return wrap(banner + summary + detail);
+    const detail = `<div class="hv-d">${hvStatusBlock(a, h, true, st)}${h.missing ? "" : hvRuntime(a, h, st === "dirty" ? "dirty" : st === "saved" ? "all" : "")}</div>`;
+    const shared = `<section class="hv-scope hv-d"><h3>All machines</h3><div class="hv-note">These settings apply on every machine.</div>${a === "flsh" || a === "gemini" || a === "hermes" ? "" : hvField("Auto-compact", a === "opencode" ? "Compact when the conversation nears the window." : "Compact at this share of the window, or this many tokens.", `<span class="fl-row">${swi(true, `Auto-compact for ${h.name}`)}${a === "opencode" ? "" : hvIn("", "80% or 350000", "Auto-compact threshold")}</span>`)}<div class="hv-acts"><button class="dbtn pri" disabled>Save auto-compact</button></div>${a === "flsh" ? flshOwn() : ""}<div class="hv-note">Model choices and reported limits come from build-box.</div>${hvModels(a)}</section>`;
+    return wrap(shared + `<section class="hv-scope">${bar}${banner}${summary}${detail}</section>`);
   };
   // The window's own Coding agents view: the list on the left, the picked agent's page on the right.
   const providers = (v, failBanner) => {
@@ -809,12 +790,12 @@ VARIANTS.dMcp.push(["Remove, asking", () => { S.d.mcpRm = "1"; render(); }, () =
     ["Agent accounts > Claude Code", "acct-claude"], ["Agent accounts > Claude Code, Beep's token", "acct-claude-token"], ["Agent accounts > Claude Code, not signed in", "acct-claude-out"], ["Agent accounts > Claude Code, turned off", "acct-claude-off"], ["Agent accounts > Claude Code, updating", "acct-claude-updating"], ["Agent accounts > Claude Code, update failed", "acct-claude-fail"], ["Agent accounts > Claude Code, edited", "acct-claude-dirty"], ["Agent accounts > Claude Code, saved to all", "acct-claude-saved"], ["Agent accounts > Claude Code, restart node", "acct-claude-stale"], ["Agent accounts > Codex, installing its adapter", "acct-codex-adapting"], ["Agent accounts > Codex, adapter failed", "acct-codex-adapter"], ["Agent accounts > Claude Code, no machine", "acct-claude-none"], ["Agent accounts > Claude Code, asking", "acct-claude-asking"], ["Agent accounts > Claude Code, server too old", "acct-claude-old"],
     ["Agent accounts > Codex", "acct-codex"], ["Agent accounts > Gemini CLI, not installed", "acct-gemini"], ["Agent accounts > pi", "acct-pi"], ["Agent accounts > OpenCode, not signed in", "acct-opencode"], ["Agent accounts > OpenCode, not reported", "acct-opencode-gone"], ["Agent accounts > flsh", "acct-flsh"],
     ["Credentials", "keys"], ["Credentials, adding Forgejo", "keys-gh"], ["Credentials, Forgejo checks", "keys-fjstates"], ["Credentials, replacing Forgejo token", "keys-fjreplace"], ["Credentials, replacing GitHub token", "keys-replace"], ["Credentials, token unreadable", "keys-unread"], ["Credentials, gh signed in", "keys-cli-in"], ["Credentials, gh signed out", "keys-cli-out"], ["Credentials, GitHub code", "keys-cli-code"], ["Credentials, no gh", "keys-cli-none"], ["Credentials, gh has two accounts", "keys-cli-many"], ["Credentials, pasting a GitHub token", "keys-cli-paste"], ["Credentials, two GitHub accounts", "keys-gh2"], ["Credentials, adding a GitHub account", "keys-gh-add"], ["Credentials, adding one: code", "keys-gh-code"], ["Credentials, loading", "keys-load"], ["Credentials, could not load", "keys-fail"],
-    ["Instructions", "instr"], ["Instructions, Import", "instr", { ins: "import" }], ["Instructions, Sync", "instr", { ins: "sync" }], ["Instructions, History", "instr", { ins: "history" }],
+    ["Instructions", "instr"], ["Instructions, History", "instr", { ins: "history" }],
     ["Beep server", "account"], ["Beep server, signing out", "account-signout"], ["Beep server, signed out", "account-out"], ["Beep server, not reachable", "account-down"], ["Beep server, linked", "account-member"], ["Beep server, unlinking", "account-unlink"], ["Beep server, loading", "account-load"], ["Beep server, no account", "account-none"]];
   VARIANTS.dWinSettings = rows.map(([l, k, x]) => [l, () => { Object.assign(S.d, set0, { set: k }, x); render(); }, () => (S.d.set || "general") === k && Object.entries(x || {}).every(([a, b]) => S.d[a] === b)]);
   // These two jump to a Settings page.
   VARIANTS.dAgentAccounts = [["Signed in", "acct"], ["Claude not signed in", "acct-none"], ["Codex device code", "acct-code"]].map(([l, k]) => [l, () => { S.d.acc = k; render(); }, () => (S.d.acc || "acct") === k]);
-  VARIANTS.dWinInstructions = [["Editor", "editor"], ["Editor, not saved", "editor-dirty"], ["Editor, nothing saved", "editor-first"], ["Loading", "loading"], ["Import", "import"], ["Import, a file shown", "import-show"], ["Import, reading", "reading"], ["Import, no machine", "nomachine"], ["Sync", "sync"], ["Sync, nothing saved", "sync-none"], ["History", "history"], ["History, a version shown", "history-open"], ["History, loading", "history-load"], ["History, none", "history-none"]]
+  VARIANTS.dWinInstructions = [["Editor", "editor"], ["Editor, not saved", "editor-dirty"], ["Editor, nothing saved", "editor-first"], ["Loading", "loading"], ["History", "history"], ["History, a version shown", "history-open"], ["History, loading", "history-load"], ["History, none", "history-none"]]
     .map(([l, k]) => [l, () => { S.d.ins = k; render(); }, () => (S.d.ins || "editor") === k]);
   VARIANTS.dProviders = [["Codex", "codex"], ["Hermes", "hermes"], ["Claude Code", "claude"], ["Claude not signed in", "signin"], ["Beep's token", "token"], ["Gemini not installed", "missing"], ["pi turned off", "off"], ["OpenCode", "opencode"], ["flsh", "flsh"], ["Updating", "update"], ["Update failed", "fail"], ["No machine online", "none"]]
     .map(([l, k]) => [l, () => { S.d.pv = k; render(); }, () => (S.d.pv || "codex") === k]);

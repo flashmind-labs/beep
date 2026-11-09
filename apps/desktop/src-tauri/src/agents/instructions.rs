@@ -1,17 +1,12 @@
 //! The user's instructions for every agent Beep runs, for the window's
-//! Instructions view: the saved versions, and the agent files on the
-//! machines to import from and write into.
+//! Instructions view: the editor and saved versions.
 
 use crate::{
-    beep::{Service, epoch_ms},
-    error::{DesktopError, Result},
-    fleet::{
-        Machines, extra, files as direct,
-        projects::{FleetState, desk},
-    },
-    projects::needs_update,
+    beep::epoch_ms,
+    error::Result,
+    fleet::projects::{FleetState, desk},
 };
-use beep_proto::{InstructionsVersion, MachineAgentFiles, ReadAgentFiles, SyncAgentFiles};
+use beep_proto::InstructionsVersion;
 use serde::Serialize;
 
 /// One saved version as the view shows it.
@@ -33,11 +28,6 @@ impl From<InstructionsVersion> for VersionRow {
             saved_at: epoch_ms(v.saved_at),
         }
     }
-}
-
-/// A server from before instructions answers with an unknown op.
-fn outdated(e: DesktopError) -> DesktopError {
-    needs_update(e, "before it keeps instructions")
 }
 
 /// The newest version, or `None` before the first save.
@@ -66,48 +56,6 @@ pub async fn instructions_save(
 pub async fn instructions_versions(fleet: FleetState<'_>) -> Result<Vec<VersionRow>> {
     let versions = desk(&fleet).await?.instructions_versions();
     Ok(versions.into_iter().map(Into::into).collect())
-}
-
-/// The agent files on every online machine: those of the mesh read directly,
-/// then the server's other machines.
-#[tauri::command]
-pub async fn agent_files_read(
-    beep: Service<'_>,
-    fleet: FleetState<'_>,
-    machines: Machines<'_>,
-) -> Result<Vec<MachineAgentFiles>> {
-    let newest = desk(&fleet).await.ok().and_then(|desk| desk.instructions());
-    let text = newest.as_ref().map(|version| version.text.as_str());
-    let mut files = direct::agent_files(&machines, text).await;
-    let others = extra(beep.call(ReadAgentFiles {}).await);
-    files.extend(
-        others
-            .into_iter()
-            .filter(|machine| machines.member(&machine.machine_id).is_none()),
-    );
-    Ok(files)
-}
-
-/// Writes the newest version into the agent files on `machine_id`.
-#[tauri::command]
-pub async fn agent_files_sync(
-    beep: Service<'_>,
-    fleet: FleetState<'_>,
-    machines: Machines<'_>,
-    machine_id: String,
-) -> Result<MachineAgentFiles> {
-    let Some(machine) = machines.member(&machine_id) else {
-        return beep
-            .call(SyncAgentFiles { machine_id })
-            .await
-            .map_err(outdated);
-    };
-    let newest = desk(&fleet).await?.instructions().ok_or_else(|| {
-        DesktopError::BadRequest(
-            "Save your instructions before writing them to agent files.".into(),
-        )
-    })?;
-    direct::sync_agent_files(&machines, machine, &newest.text).await
 }
 
 #[cfg(test)]
