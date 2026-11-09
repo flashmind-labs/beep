@@ -1,10 +1,13 @@
+import { createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { DiffSummary } from "./diff-summary.tsx";
 import { readView, writeView } from "../agentpane/view-memory.ts";
 // The diff viewer: a one-line header with the counts, a filter, icon toggles
 // and the review buttons; a list of the files at wide widths; each file folding under
 // its sticky header, its lines in a unified view that scrolls sideways on its
 // own.
 import {
-  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitCell, type SplitRow, STATUS_LETTER, allFolded, baseTitle, changedLabel, currentFile, contextFile, diffRows, isFolded, leftOutNote,
+  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitCell, type SplitRow, STATUS_LETTER, allFolded, baseTitle, currentFile, contextFile, diffRows, isFolded, leftOutNote,
   inView, lineKey, lineLabel, matchesFilter, numberWidth, placeComments, reviewText, splitHeight, splitPath, splitRows, stepFile, withLoaded,
 } from "./diff-state.ts";
 import { initTreeResize } from "./treewidth.ts";
@@ -169,6 +172,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
   const matchNote = el("div", "dv-more");
   find.addEventListener("input", () => { st.filter = find.value; applyFilter(); files.scrollTop = 0; });
   const sum = el("span", "dv-sum");
+  const summaryRoot = createRoot(sum);
   const splitBtn = btn(icon(SVG.split), "icon dv-splitbtn", "", () => {
     st.split = !st.split;
     saveSplit(st.split);
@@ -313,17 +317,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
   }
 
   function drawHead() {
-    sum.replaceChildren();
-    sum.title = "";
     const v = st.view;
-
-    if (!v) {
-      sum.append(el("b", "", st.loading ? "Reading the changes…" : "Changes"));
-    } else {
-      const base = el("span", "base", "vs ", el("code", "", st.uncommitted ? "HEAD" : v.base));
-      sum.title = baseTitle(v, st.uncommitted);
-      sum.append(el("b", "", changedLabel(v)), ...counts(v.additions, v.deletions).filter(x => x != null), base);
-    }
+    sum.title = v ? baseTitle(v, st.uncommitted) : "";
+    summaryRoot.render(createElement(DiffSummary, { view: v, loading: st.loading, uncommitted: st.uncommitted }));
 
     const none = !v?.files.length;
     foldBtn.disabled = none;

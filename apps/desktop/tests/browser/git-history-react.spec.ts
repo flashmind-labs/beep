@@ -186,3 +186,31 @@ test("Git history retries a failed read and loads older commits", async ({ page 
   await expect(tree).toContainText("Commit older");
   await expect(tree.getByRole("button", { name: "Load older commits" })).toHaveCount(0);
 });
+
+test("diff summary updates without replacing the filter or scrolling the diff", async ({ page }) => {
+  const lines = Array.from({ length: 150 }, (_, i) => ({ k: " ", t: `const value${i} = ${i};` }));
+  const diff = { root: "/srv/project", base: "base-branch", merge_base: "", working_tree: false, additions: 3, deletions: 2, more: 0, files: [{ path: "sample.ts", old_path: null, status: "modified", additions: 3, deletions: 2, left_out: null, hunks: [{ old_start: 1, new_start: 1, old_lines: 150, new_lines: 150, section: "", lines }] }] };
+  await openDesktop(page, false, {
+    project_git_history: { machine_id: "build-box", machine_name: "build-box", root: "/srv/project", refs: [], worktrees: [], commits: [{ id: "abc123", parents: [], author: "Example", committed_at: 1, subject: "Commit" }], next: null },
+    project_git_files: [{ path: "sample.ts", old_path: null, status: "modified" }], project_git_diff: diff,
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
+  const summary = page.locator(".dv-sum");
+  await expect(summary).toContainText("+3");
+  await expect(summary).toContainText("-2");
+  await expect(summary).toContainText("base-branch");
+  const filter = page.getByRole("textbox", { name: "Filter files" });
+  await filter.focus();
+  await filter.evaluate(element => { element.dataset.testIdentity = "same"; });
+  const files = page.locator(".dv-files");
+  const before = await files.evaluate(element => { element.scrollTop = 500; return element.scrollTop; });
+  expect(before).toBeGreaterThan(0);
+  await page.evaluate(value => window.__navigation.respond("project_git_diff", value), { ...diff, additions: 8, deletions: 4 });
+  await page.getByRole("button", { name: "Refresh", exact: true }).last().evaluate(button => { if (button instanceof HTMLElement) button.click(); });
+  await expect(summary).toContainText("+8");
+  await expect(summary).toContainText("-4");
+  await expect(filter).toHaveAttribute("data-test-identity", "same");
+  await expect(filter).toBeFocused();
+  await expect(files).toHaveJSProperty("scrollTop", before);
+});
