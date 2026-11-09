@@ -4,6 +4,52 @@ use iroh::{Endpoint, SecretKey, endpoint::presets};
 use tempfile::TempDir;
 
 #[tokio::test]
+async fn the_master_pause_applies_to_all_projects_and_ignored_datasets() {
+    use beep_proto::node::sync::IgnoredSync;
+    let (mesh, _dir) = lone_mesh().await;
+    let me = mesh.me();
+    let spec = SyncSpec {
+        folders: [(me, "/srv/project".into())].into(),
+        ignored: IgnoredSync {
+            enabled: true,
+            folders: vec!["assets".into()],
+        },
+        ..SyncSpec::default()
+    };
+    mesh.set(
+        Key::Sync("acme/widget".into()),
+        Some(spec.to_bytes().unwrap()),
+    )
+    .await
+    .unwrap();
+    let mut specs = BTreeMap::new();
+    assert!(projects(&mesh, me, &mut specs).0.iter().all(|p| !p.paused));
+    mesh.set(
+        Key::ProjectSync,
+        Some(
+            ProjectSyncSettings {
+                enabled: false,
+                ..ProjectSyncSettings::default()
+            }
+            .to_bytes()
+            .unwrap(),
+        ),
+    )
+    .await
+    .unwrap();
+    let configured = projects(&mesh, me, &mut specs).0;
+    assert_eq!(configured.len(), 2);
+    assert!(configured.iter().all(|p| p.paused));
+    mesh.set(
+        Key::ProjectSync,
+        Some(ProjectSyncSettings::default().to_bytes().unwrap()),
+    )
+    .await
+    .unwrap();
+    assert!(projects(&mesh, me, &mut specs).0.iter().all(|p| !p.paused));
+}
+
+#[tokio::test]
 async fn selected_ignored_folders_are_independent_datasets_with_the_same_peers_and_pause() {
     use beep_proto::node::sync::IgnoredSync;
     let (mesh, _dir) = lone_mesh().await;

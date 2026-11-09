@@ -4,7 +4,7 @@ use super::{
     scanning::has_baseline,
     shared::{Shared, Start},
     state::{Saved, Seen, State},
-    task::{DELETE_SETTLE, DeleteTimer, Task},
+    task::{ChangeTimer, DELETE_SETTLE, DeleteTimer, MAX_SETTLE, SETTLE, Task},
 };
 use crate::files::paths;
 use crate::files::sync::{
@@ -20,7 +20,7 @@ use crate::{
 };
 use anyhow::Result;
 use beep_proto::node::sync::{Keep, State as SyncState};
-use futures::{FutureExt as _, StreamExt as _};
+use futures::StreamExt as _;
 use iroh::endpoint::Connection;
 use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
 use iroh_blobs::store::fs::FsStore;
@@ -120,6 +120,76 @@ impl Project {
 }
 
 const COPY: &str = "docs/notes (conflict 1a2b3c4d).txt";
+
+#[test]
+fn watcher_batches_wait_for_quiet_but_cannot_starve() {
+    let start = Instant::now();
+    let mut timer = ChangeTimer::default();
+    timer.changed(start);
+    assert_eq!(timer.due, Some(start + SETTLE));
+    timer.changed(start + Duration::from_secs(5));
+    assert_eq!(timer.due, Some(start + Duration::from_secs(5) + SETTLE));
+    timer.changed(start + Duration::from_secs(29));
+    assert_eq!(timer.due, Some(start + MAX_SETTLE));
+}
+
+#[tokio::test]
+async fn watcher_updates_inspect_only_reported_paths() {
+    let mut project = Project::new(&["one.txt", "other.txt"]).await;
+    let original = project.task.shared.lock().saved.seen["other.txt"].hash;
+    fs::write(project.path("one.txt"), "changed one").unwrap();
+    fs::write(project.path("other.txt"), "not reported by the watcher yet").unwrap();
+    project
+        .task
+        .scan_changes([PathBuf::from("one.txt")].into())
+        .await;
+    assert_eq!(project.task.error, None);
+    {
+        let state = project.task.shared.lock();
+        assert_eq!(state.saved.seen["other.txt"].hash, original);
+        assert_eq!(
+            state.saved.seen["one.txt"].hash,
+            *blake3::hash(b"changed one").as_bytes()
+        );
+    }
+    project.stop().await;
+}
+
+#[tokio::test]
+async fn watcher_directory_rename_reconciles_only_the_old_and_new_subtrees() {
+    let mut project = Project::new(&["old/deep/file.txt", "other.txt"]).await;
+    fs::rename(project.path("old"), project.path("new")).unwrap();
+    project
+        .task
+        .scan_changes([PathBuf::from("old"), PathBuf::from("new")].into())
+        .await;
+    assert_eq!(project.task.error, None);
+    assert_eq!(project.held(), ["old/deep/file.txt"]);
+    // Delete confirmation must retain missing paths even with no new watcher events.
+    project.task.scan_changes(Default::default()).await;
+    project.task.send_deletes().await;
+    assert_eq!(project.task.error, None);
+    assert_eq!(project.deleted(), ["old/deep/file.txt"]);
+    assert!(
+        project
+            .task
+            .shared
+            .lock()
+            .saved
+            .seen
+            .contains_key("new/deep/file.txt")
+    );
+    assert!(
+        project
+            .task
+            .shared
+            .lock()
+            .saved
+            .seen
+            .contains_key("other.txt")
+    );
+    project.stop().await;
+}
 
 #[tokio::test]
 async fn an_idle_round_clears_a_resolved_git_error() {
@@ -301,20 +371,38 @@ async fn only_an_unchanged_conflict_copy_is_settled() {
 }
 
 #[tokio::test]
-async fn a_scan_that_finds_a_new_folder_asks_for_another() {
-    fn asked(project: &Project) -> bool {
-        let touched = project.task.shared.touched.notified();
-        touched.now_or_never().is_some()
-    }
+async fn a_new_folder_is_rechecked_without_rewalking_the_project() {
     let mut project = Project::new(&["a.txt"]).await;
-    assert!(asked(&project));
+    let (wake, _woken) = tokio::sync::mpsc::channel(1);
+    project.task.watcher.add(
+        project.task.shared.key,
+        &project.folder,
+        project.task.shared.rules.clone(),
+        wake,
+    );
     project.task.scan().await;
-    assert!(!asked(&project));
+    assert!(
+        project
+            .task
+            .watcher
+            .take_changes(project.task.shared.key)
+            .paths
+            .is_empty()
+    );
     fs::create_dir(project.path("new")).unwrap();
     project.task.scan().await;
-    assert!(asked(&project));
+    let changes = project.task.watcher.take_changes(project.task.shared.key);
+    assert!(!changes.full);
+    assert_eq!(changes.paths, [PathBuf::from("new")].into());
     project.task.scan().await;
-    assert!(!asked(&project));
+    assert!(
+        project
+            .task
+            .watcher
+            .take_changes(project.task.shared.key)
+            .paths
+            .is_empty()
+    );
     project.stop().await;
 }
 

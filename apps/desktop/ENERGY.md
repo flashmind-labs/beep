@@ -1,54 +1,40 @@
-# Desktop battery profiling
+# Desktop resource profiling
 
-Resource samples go to the existing `node/metrics.log` in the app data directory.
-Snapshots are written once a minute and retained for seven days. Phones do not
-run the collector. No network listener or telemetry upload is added.
-
-Metrics use the `beep_desktop_` prefix:
-
-- `cpu_milliseconds_total`: cumulative sampled CPU time. Divide the delta by
-  elapsed milliseconds for average CPU cores used (1.0 means one busy core).
-- `memory_bytes`, `processes`: current resident memory and process count.
-- `disk_read_bytes_total`, `disk_written_bytes_total`: cumulative sampled I/O.
-  Windows counts all process I/O, not just disk I/O.
-- `device_battery_discharge_watts`, `device_battery_energy_joules`: whole-device
-  battery measurements, never app-attributed power. Charging discharge is zero.
-  Use only when `battery_available` is 1; otherwise old battery gauges are stale.
-- `resource_sample_seconds`: collector wall time, to watch its own overhead.
-
-Process roles are `native` (including the embedded node), `webview` (recognized
-webview descendants), and `workload` (other descendants, including agents).
-Counters use bounded `context` labels (`foreground`, `visible`, `hidden`) and
-`power` labels (`battery`, `external`, `unknown`). Context is sampled, not a
-continuous activity trace. Intervals whose endpoint labels differ are skipped.
-No process IDs, names, arguments, paths, or battery identities are recorded.
-
-The first sample is a baseline. New processes start a baseline; exited processes
-and processes that live entirely between samples are missed. PID reuse is
-checked against process start time. Gaps over two minutes start a new baseline.
-OS-owned or reparented webviews (particularly macOS WebKit XPC services) and
-reparented agents can fall outside the process tree. A zero webview count means
-no descendants were observed, not zero webview energy. This collector does not
-measure GPU power, hardware energy per app, or timer wakeups. Existing transport
-metrics cover mesh traffic, not all process network traffic.
-
-## Compare a change
-
-Use the same laptop, brightness, power mode, network, app version, project, and
-workload. Let startup finish, then record at least ten minutes per condition:
-visible and idle, hidden or minimized and idle, terminal streaming, agent
-streaming. Keep other applications quiet. Repeat before and after the change.
-Compare CPU and I/O counter deltas, memory, transport traffic, and whole-device
-battery discharge. Battery readings alone cannot attribute an improvement to
-this app. Use the OS profiler for wakeups, GPU, and missing webview processes.
-Record suspend, power-source changes, and sampling gaps; exclude those intervals.
-Do not set regression budgets until repeated baselines establish normal variance.
-
-From `apps/desktop/src-tauri`, measure the collector itself with:
+Use the macOS sidecar while diagnosing a problem. It does not restart the app,
+install a service, open a listener, or upload results. It exits after the capture.
 
 ```sh
-cargo test -p beep-desktop platform::energy::tests::sampling_cost -- --ignored --nocapture
+python3 scripts/profile-desktop.py --duration 90 --label home-idle
+python3 scripts/profile-desktop.py --duration 90 --label agent-streaming --sample-above 50
 ```
 
-This reports wall time, not energy. Compare idle behavior with the collector
-enabled and with `BEEP_DESKTOP_RESOURCE_METRICS=0` at app startup to check its CPU/wakeup cost.
+JSON lines contain per-process CPU, memory footprint, wakeups, disk I/O,
+QoS CPU time, instructions and cycles. `100%` CPU means one busy core.
+WebKit renderers, GPU and networking services are matched to the app's resource
+coalition, including services reparented to launchd. Unrelated browsers are
+excluded. Descendant agents are reported as workloads. PID reuse starts a fresh
+baseline. New processes are discovered every ten seconds; short-lived processes
+and final work between observations can be missed.
+
+Stack sampling is opt-in: at most two three-second samples, on one worker.
+`--sample-count` changes the cap. Top stack counts include sleeping threads;
+they are not CPU percentages. Stripped native binaries cannot identify Rust
+functions. Use a symbol-bearing build and Instruments for exact call stacks.
+The profiler reports its own CPU cost and subprocess CPU cost separately.
+
+Battery readings describe the whole device. GPU service CPU is not GPU hardware
+utilization. Process CPU cannot establish the energy cost of an individual page.
+Use `--label` for controlled page comparisons, keeping workload, brightness and
+power mode fixed. Do not compare charging power with discharge power.
+
+The sidecar reads bounded tails of the existing local log and `node/metrics.log`.
+App metric deltas cover their snapshot timestamps, which can extend before the
+capture. Command wait time includes I/O and scheduling; it is not CPU time.
+Results stay local and may contain diagnostic symbols; keep captures private.
+
+The in-app process collector is off by default. Set
+`BEEP_DESKTOP_RESOURCE_METRICS=1` at startup to enable the legacy minute sampler.
+Lightweight page and command timings remain batched in `node/metrics.log`.
+Per-command log traces are off by default; set `BEEP_DESKTOP_TRACE_COMMANDS=1`
+at startup for receipt/completion traces. The sidecar can summarize these on
+older builds too. Routine profiling should use the batched metrics.

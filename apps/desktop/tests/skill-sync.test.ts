@@ -2,7 +2,7 @@ import { answers, calls } from "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { setImmediate } from "node:timers/promises";
-import { mountSkillSync } from "../src/settings/skill-sync.ts";
+import { mountProjectSync, mountSkillSync } from "../src/settings/skill-sync.ts";
 
 const handlers = new WeakMap<Element, Map<string, () => void>>();
 Object.defineProperty(HTMLElement.prototype, "addEventListener", {
@@ -66,4 +66,23 @@ test("skill sync can retry a failed read without allowing a write before it load
   await setImmediate();
   assert.equal(host.querySelector<HTMLButtonElement>('[role="switch"]')?.disabled, false);
   assert.equal(host.querySelector('[role="alert"]'), null);
+});
+
+test("project sync has one master switch and resumes through the saved setting", async () => {
+  answers.project_sync_get = true;
+  answers.project_sync_set = null;
+  const host = document.createElement("div");
+  mountProjectSync(host);
+  await setImmediate();
+  const button = () => host.querySelector<HTMLButtonElement>('[role="switch"]')!;
+  assert.equal(button().getAttribute("aria-label"), "Project sync");
+  click(button());
+  await setImmediate();
+  assert.deepEqual(calls.findLast(call => call.cmd === "project_sync_set"), { cmd: "project_sync_set", args: { enabled: false } });
+  assert.equal(button().getAttribute("aria-checked"), "false");
+  assert.match(host.textContent!, /Paused for every project/);
+  click(button());
+  await setImmediate();
+  assert.deepEqual(calls.findLast(call => call.cmd === "project_sync_set"), { cmd: "project_sync_set", args: { enabled: true } });
+  assert.equal(button().getAttribute("aria-checked"), "true");
 });

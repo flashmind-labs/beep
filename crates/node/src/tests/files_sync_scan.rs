@@ -3,6 +3,29 @@ use std::os::unix::fs::symlink;
 use tempfile::TempDir;
 
 #[test]
+fn changed_paths_do_not_follow_links_or_visit_unrelated_subtrees() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    fs::write(outside.path().join("private.txt"), "private").unwrap();
+    fs::write(dir.path().join("one.txt"), "one").unwrap();
+    fs::create_dir(dir.path().join("unrelated")).unwrap();
+    fs::write(dir.path().join("unrelated/two.txt"), "two").unwrap();
+    symlink(outside.path(), dir.path().join("link")).unwrap();
+    let rules = Rules::load(dir.path()).unwrap();
+    let selected = [PathBuf::from("one.txt"), PathBuf::from("link/private.txt")].into();
+    let walked = walk_changed(dir.path(), &rules, &selected, false, false).unwrap();
+    assert_eq!(
+        walked
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>(),
+        ["one.txt"]
+    );
+    assert!(walked.dirs.is_empty());
+}
+
+#[test]
 fn a_walk_keeps_files_lists_folders_and_says_what_it_left_out() {
     let dir = TempDir::new().unwrap();
     let root = dir.path();
