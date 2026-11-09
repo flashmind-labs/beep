@@ -10,7 +10,7 @@ import { homeForDisplay, type HomeView, type NeedsYou, type UpdateRow } from "./
 import { el as h } from "../ui/dom.ts";
 import { type Outcome, $, CONNECT_STUCK_MS, state } from "./state.ts";
 import { failure, conflict, section, tag, line } from "../ui/pieces.ts";
-import { useThisMac, showMachineMenu, machinesSection, offlineNote } from "../machines/table.ts";
+import { useThisMac, showMachineMenu, readSyncDetails, offlineNote } from "../machines/table.ts";
 import { refreshGit } from "./openitems.ts";
 import { currentLocation, registerView, go, openResearch } from "./views.ts";
 import { openAddMachine, projectRows } from "./sidebar.ts";
@@ -28,6 +28,7 @@ import { ConnectingView } from "./connecting-view.tsx";
 import { HomeShell, type HomeTab } from "./home-shell.tsx";
 import { HomeOverview } from "./home-overview.tsx";
 import { HomeGit } from "./openitems-view.tsx";
+import { HomeMachines } from "../machines/home-machines-view.tsx";
 
 export function runningStatus(r: RunningRow) {
   const moving = r.kind === "agent" ? moveLabel(r) : null;
@@ -183,9 +184,10 @@ function page(home: HomeView) {
   const tabs: { key: HomeTab; label: string; count: number | null; on: boolean; make: () => HTMLElement[] }[] = [
     { key: "overview", label: "Overview", count: null, on: true, make: () => [] },
     { key: "git", label: "PRs and issues", count: git?.items.length ?? 0, on: !!git?.hosts?.length || projects.length > 0 || !!state.gitError, make: () => [] },
-    { key: "machines", label: "Machines", count: null, on: !!machines, make: () => machinesSection(machines!) },
+    { key: "machines", label: "Machines", count: null, on: !!machines, make: () => [] },
   ];
   const shownTabs = tabs.filter(t => t.on);
+  if (homeTab === "machines" && machines) readSyncDetails();
   const tab = shownTabs.find(t => t.key === homeTab) || shownTabs[0];
   const notices: HTMLElement[] = [];
   if (state.error) notices.push(errorNote(`Could not refresh: ${state.error}`));
@@ -199,7 +201,7 @@ function page(home: HomeView) {
 
   return { machines, mac: machines ? thisMacRow(state.mac, machines) : null, jump,
     menu: (machine: NonNullable<typeof machines>[number], event: MouseEvent) => showMachineMenu(machine, () => [], event),
-    addMachine: openAddMachine, useMac: () => { void useThisMac(); }, notices, content: tab.make(), overview: tab.key === "overview" ? createElement(HomeOverview, { home }) : tab.key === "git" ? createElement(HomeGit, { view: git || { items: [], hosts: [] } }) : null,
+    addMachine: openAddMachine, useMac: () => { void useThisMac(); }, notices, content: tab.make(), overview: tab.key === "overview" ? createElement(HomeOverview, { home }) : tab.key === "git" ? createElement(HomeGit, { view: git || { items: [], hosts: [] } }) : machines ? createElement(HomeMachines, { machines }) : null,
     tabs: shownTabs, selected: tab.key, open: openHomeTab };
 }
 
