@@ -206,7 +206,7 @@ test("the model pill does not display the harness default for an unknown session
   const page = openSession("idle");
   sessionPicks.delete(page.session.id);
   const pill = modelPill(t);
-  show({ "#agmodel": pill });
+  show({ "#agmodel": pill, "#agfield": pill.parentElement });
   drawModelPill();
   assert.match(pill.innerHTML, /Model unknown/);
   sessionPicks.set(page.session.id, { model: "selected-model", effort: null });
@@ -218,7 +218,7 @@ test("the model pill does not display the harness default for an unknown session
 test("the model pill uses the model reported by the session", t => {
   const page = openSession("idle");
   const pill = modelPill(t);
-  show({ "#agmodel": pill });
+  show({ "#agmodel": pill, "#agfield": pill.parentElement });
   sessionPicks.set(page.session.id, { model: "previous-model", effort: null });
   page.model = "current-model";
   drawModelPill();
@@ -230,7 +230,7 @@ test("the model pill uses the model reported by the session", t => {
 test("a session refresh updates the model pill", async t => {
   const page = openSession("idle");
   const pill = modelPill(t);
-  show({ "#agmodel": pill });
+  show({ "#agmodel": pill, "#agfield": pill.parentElement });
   await read({ ...page, model: "reported-model" });
   assert.match(pill.innerHTML, /reported-model/);
 });
@@ -238,7 +238,7 @@ test("a session refresh updates the model pill", async t => {
 test("the model pill keeps the model that runs", async t => {
   const page = openSession("idle");
   const pill = modelPill(t);
-  show({ "#agmodel": pill });
+  show({ "#agmodel": pill, "#agfield": pill.parentElement });
   const s = page.session;
 
   await switchSessionModel(s, { model: "opus-x", effort: null }, "model");
@@ -262,7 +262,7 @@ test("flsh can switch its model and thinking from a working session", async t =>
   page.session.agent = "flsh";
   AG.open!.agent = "flsh";
   const pill = modelPill(t);
-  show({ "#agmodel": pill });
+  show({ "#agmodel": pill, "#agfield": pill.parentElement });
   drawModelPill();
   assert.equal(pill.querySelector("button")?.disabled, false);
   await switchSessionModel(page.session, { model: "ollama:example", effort: null }, "model");
