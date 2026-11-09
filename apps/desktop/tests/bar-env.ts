@@ -21,7 +21,7 @@ const nativeListeners = new Map<string, Set<(event: { payload: unknown }) => voi
 export const nativeEvent = (name: string, payload?: unknown) => {
   for (const receive of nativeListeners.get(name) ?? []) receive({ payload });
 };
-g.ResizeObserver = class { observe() {} unobserve() {} };
+g.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 g.MutationObserver = class { observe() {} };
 g.HTMLTextAreaElement = class { get value() { return ""; } set value(_v: string) {} };
 g.__TAURI__ = {

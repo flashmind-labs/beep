@@ -250,7 +250,7 @@ export function runFrames() {
   for (const cb of due) cb();
 }
 g.addEventListener = () => {};
-g.ResizeObserver = class { observe() {} unobserve() {} };
+g.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 g.MutationObserver = class { observe() {} };
 g.HTMLTextAreaElement = FakeElement;
 g.__TAURI__ = {
