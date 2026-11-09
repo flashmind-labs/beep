@@ -1,6 +1,5 @@
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot } from "react-dom/client";
+import { showWindowParts } from "./window-root.ts";
 import { NoticesView } from "./notices-view.tsx";
 // The bell at the right end of every command center header, beside the usage
 // pill, and the notifications pane it opens: what the assistant told the user
@@ -41,7 +40,6 @@ export function mountNotices(host: HTMLElement) {
   /// Skill conflicts with a copy being kept, by id: the copy's hash and the note as it was.
   const keeping = new Map<string, { hash: string; was: string }>();
   host.classList.add("nt");
-  const view = createRoot(host);
   /// What a note says, read or not.
   const told = (i: Item | null) => JSON.stringify(i && { ...i, read: true });
 
@@ -103,10 +101,10 @@ export function mountNotices(host: HTMLElement) {
     const index = focused ? [...host.querySelectorAll(".nt-row")].indexOf(focused) : -1;
     const action = focused ? [...focused.querySelectorAll("button")].indexOf(active as HTMLButtonElement) : -1;
     const all = items(), shown = opened ? find(all, opened) : null;
-    flushSync(() => view.render(createElement(NoticesView, {
+    showWindowParts([{ part: "notices", host, content: createElement(NoticesView, {
       items: all, open, shown, answering, failed, keeping, toggle: () => toggle(!open), back: backToList,
       dismiss, openItem, answer, keep: keepCopy, reply,
-    })));
+    }) }]);
     if (focused && !focused.isConnected && open) {
       const rows = [...host.querySelectorAll<HTMLElement>(".nt-row")];
       const row = rows.find(r => r.dataset.id === focused.dataset.id) ?? rows[Math.min(index, rows.length - 1)];

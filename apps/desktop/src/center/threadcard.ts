@@ -1,6 +1,5 @@
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { showWindowParts } from "./window-root.ts";
 import { ThreadCardContent } from "./threadcard-view.tsx";
 // Chats about one pull request or issue: the card at the top of the chat.
 import { reason } from "../ui/format.ts";
@@ -63,7 +62,6 @@ export interface ThreadCardView {
 /// a server too old to read one), when, and its error.
 interface ThreadCard {
   el: HTMLElement;
-  root: Root;
   view: ThreadCardView | null | undefined;
   at: number;
   error: string;
@@ -80,7 +78,7 @@ export function threadCard(t: ThreadChatEntry) {
 
   if (!card) {
     const el = h("div", "th-card");
-    card = { el, root: createRoot(el), view: undefined, at: 0, error: "", loading: false, all: false };
+    card = { el, view: undefined, at: 0, error: "", loading: false, all: false };
     threadCards.set(t.chat_id, card);
   }
 
@@ -110,8 +108,8 @@ async function readThreadCard(t: ThreadChatEntry, card: ThreadCard) {
 function drawThreadCard(t: ThreadChatEntry, card: ThreadCard) {
   card.el.hidden = card.view === null;
   const where = card.view && openLabel(card.view.url) === "Open on GitHub" ? "On GitHub" : "On its host";
-  flushSync(() => card.root.render(createElement(ThreadCardContent, { view: card.view, label: threadLabel(t.kind, t.number), where, error: card.error, all: card.all,
-    expand: () => { card.all = true; drawThreadCard(t, card); } })));
+  showWindowParts([{ part: `thread-card:${t.chat_id}`, host: card.el, content: createElement(ThreadCardContent, { view: card.view, label: threadLabel(t.kind, t.number), where, error: card.error, all: card.all,
+    expand: () => { card.all = true; drawThreadCard(t, card); } }) }]);
 }
 
 /// A thread chat's header: its title, its project to go back to, whether
