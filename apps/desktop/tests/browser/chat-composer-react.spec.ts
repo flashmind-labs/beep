@@ -18,3 +18,41 @@ test("chat updates keep the composer, draft, caret and scroll", async ({ page })
   await expect(body).toHaveJSProperty("scrollTop", top);
   await expect(page.getByRole("separator", { name: "Resize the prompt" })).toBeVisible();
 });
+
+test("chat shell keeps the shared bar root through navigation", async ({ page }) => {
+  const history = [{ role: "user", text: "Explain", at: 1, images: [], model: "", thinking: "" }, { role: "assistant", html: "<p>Answer</p>", tools: [], replies: [], model: "" }];
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, session_agents: [], session_files: [], session_sources: [], list_questions: [], list_researches: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  await expect(page.locator("#ask")).toBeVisible();
+  await page.locator("#bar > [data-bar-page]").evaluate(el => Reflect.set(window, "chatPageHost", el));
+  await page.locator("#ask").fill("A draft");
+  await expect(page.locator("#bar .dhints")).toContainText("ask");
+  await page.evaluate(() => window.__navigation.open("research"));
+  await expect(page.getByPlaceholder("What should the team research?")).toBeVisible();
+  expect(await page.locator("#bar > [data-bar-page]").evaluate(el => el === Reflect.get(window, "chatPageHost"))).toBe(true);
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  await expect(page.locator("#ask")).toBeVisible();
+  expect(await page.locator("#bar > [data-bar-page]").evaluate(el => el === Reflect.get(window, "chatPageHost"))).toBe(true);
+  await expect(page.locator("#body")).toContainText("Answer");
+});
+
+test("bar chat keeps hints and measures its shared shell", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.goto("https://app.test/index.html");
+  const ask = page.locator("#ask");
+  await expect(ask).toBeVisible();
+  await ask.fill("A question");
+  await expect(page.locator("#bar .dhints")).toContainText("ask");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "resize_bar").map(call => Number(call.args.height)).at(-1) ?? 0)).toBeGreaterThan(50);
+});
+
+test("leaving live chat removes its dock when switching pages", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: true, session: null }, open_session: [], session_agents: [], session_files: [], session_sources: [], list_questions: [], list_researches: [] });
+  await page.goto("https://app.test/index.html");
+  await expect(page.locator("#ask")).toBeVisible();
+  await page.evaluate(() => window.__navigation.emit("live", { kind: "view", phase: "listening", words: "", line: null, prev: null, step: null, speaking: false, pause_sends: false, session: null, title: null, hold_only: false, finishing: false, sheet: false }));
+  await expect(page.locator("#ldock")).toBeVisible();
+  await page.evaluate(() => window.__navigation.emit("bar-shown", "research"));
+  await expect(page.getByPlaceholder("What should the team research?")).toBeVisible();
+  await expect(page.locator("#ldock")).toHaveCount(0);
+});
