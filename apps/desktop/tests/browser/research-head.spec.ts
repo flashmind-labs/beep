@@ -38,7 +38,9 @@ test("research tabs preserve their elements and delegated open and close actions
   await notes.evaluate(el => { el.setAttribute("data-test-identity", "kept"); });
   await notes.click();
   await expect(notes).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".rs .agpviews .rpane:visible")).toHaveCount(1);
   await agents.click();
+  await expect(page.locator(".rs .agpviews .rpane:visible")).toHaveCount(1);
   await expect(notes).toHaveAttribute("data-test-identity", "kept");
   await page.locator('.rs [data-act="room"]:visible').click();
   const room = tabs.getByRole("tab", { name: "Room Close Room" });
