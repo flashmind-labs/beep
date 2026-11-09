@@ -1,7 +1,8 @@
-import { createElement } from "react";
-import { flushSync } from "react-dom";
+import { createElement, Fragment, type ReactElement } from "react";
+import { createPortal, flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { FilesTree } from "./files-tree.tsx";
+import { FilesMenu, type FilesMenuProps } from "./files-menu.tsx";
 import { isHtmlFile } from "./html-preview-state.ts";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // The Files tab of a coding agent session's pane: the session's working folder
@@ -17,7 +18,7 @@ import { openWorkFile, previewWorkFile, paneSession, saveWorkFile, showFiles } f
 import { localFileItems } from "./localfile.ts";
 import { addMention, askUpload } from "../agents/workdrop.ts";
 import { selectFile, selectionRoots, fileNameError, canPasteFiles, type FileClipboard } from "./file-actions-state.ts";
-import { confirmSheet, renameSheet, arrowFocus } from "../ui/menu.ts";
+import { confirmSheet, renameSheet } from "../ui/menu.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -59,6 +60,15 @@ const F = {
 
 let treeRoot: Root | null = null;
 let showingRows = false;
+let treeView: ReactElement | null = null;
+let menuView: FilesMenuProps | null = null;
+
+// The tree and its menu share one owner so folder refreshes keep an open menu.
+function renderViews() {
+  const host = F.el;
+  if (!treeRoot || !host) return;
+  flushSync(() => treeRoot?.render(createElement(Fragment, null, treeView, menuView && createPortal(createElement(FilesMenu, menuView), host, "menu"))));
+}
 
 /// Folder reads run at once, and the entries a filter stops at.
 const WALK_AT_ONCE = 8;
@@ -69,7 +79,7 @@ export function filesView() {
   const s = paneSession();
   const key = s ? `${s.machine_id}\n${paneRoot()}` : "";
   if (F.el && F.key === key) return F.el;
-  treeRoot?.unmount(); treeRoot = null; showingRows = false;
+  treeRoot?.unmount(); treeRoot = null; treeView = null; menuView = null; showingRows = false;
   F.el?.remove();
   F.unfollow?.();
   Object.assign(F, {
@@ -93,7 +103,7 @@ export function filesView() {
 export function closeFilesMenu() {
   const m = F.el?.querySelector(".agctx");
   const focused = !!m && m.contains(document.activeElement);
-  m?.remove();
+  if (menuView) { menuView = null; renderViews(); }
   if (focused) F.el?.querySelector<HTMLElement>(".agtree")?.focus({ preventScroll: true });
   return !!m;
 }
@@ -249,7 +259,7 @@ async function readFolder(dir: string, deep: boolean) {
 function draw() {
   const tree = F.el?.querySelector<HTMLElement>(".agtree");
   if (!tree || !treeRoot) return;
-  if (!paneSession()?.cwd) { flushSync(() => treeRoot?.render(null)); showingRows = false; return; }
+  if (!paneSession()?.cwd) { treeView = null; renderViews(); showingRows = false; return; }
   const top = F.listings.get("");
   const rows = treeRows(F.listings, F.open, F.filter);
   const visible = new Set(rows.map(row => row.path));
@@ -269,11 +279,12 @@ function draw() {
   else if (!rows.length && !F.capped) message = F.filter ? "No files match." : "This folder is empty.";
   const searching = !!F.filter.trim() && !!top?.entries && !top.error;
   showingRows = message === null;
-  flushSync(() => treeRoot?.render(createElement(FilesTree, {
+  treeView = createElement(FilesTree, {
     rows, selected: F.selected, message, error, more: message === null ? top?.more ?? 0 : 0,
     walking: message !== null ? loading : searching && F.walking && !!rows.length,
     capped: message === null && searching && !F.walking && F.capped, limit: WALK_ENTRIES,
-  })));
+  });
+  renderViews();
   const shown = F.reveal ? tree.querySelector<HTMLElement>(`[data-fpath="${CSS.escape(F.reveal)}"]`) : null;
   if (shown) { shown.scrollIntoView({ block: "center" }); F.reveal = null; }
 }
@@ -409,33 +420,7 @@ function menu(path: string, folder: boolean, x: number, y: number) {
     ["-", ""], ["newfile", "New file..."], ["newfolder", "New folder..."], ["refresh", "Refresh"],
     ...(n ? [["-", ""], ["save", `Save ${n > 1 ? `${n} items ` : ""}to this computer`], ["delete", `Delete ${n > 1 ? `${n} items ` : ""}permanently...`]] as [string, string][] : []),
   ];
-  const m = h(`<div class="agctx" role="menu" aria-label="File actions">${items.map(([k, t]) => k === "-" ? "<hr>" : `<button role="menuitem" data-fact="${k}"${k === "delete" ? ' class="warn"' : ""}>${esc(t)}</button>`).join("")}</div>`);
-  F.el.append(m);
-  m.style.maxHeight = `${F.el.clientHeight}px`;
-  m.style.overflowY = "auto";
-  const box = F.el.getBoundingClientRect();
-  m.style.left = `${Math.max(0, Math.min(x - box.left, box.width - m.offsetWidth - 4))}px`;
-  m.style.top = `${Math.max(0, Math.min(y - box.top, box.height - m.offsetHeight - 4))}px`;
-  m.querySelector<HTMLElement>("button")?.focus();
-
-  // A file this Mac has can be opened here, in another app, or shown in Finder.
-  if (n === 1 && F.selected.size === 1 && !folder) {
-    void localFileItems({ machineId: s.machine_id, root: paneRoot(), path }, { x, y }).then(more => {
-      if (!more.length || !m.isConnected) return;
-      m.append(document.createElement("hr"));
-
-      for (const item of more) {
-        const b = h(`<button role="menuitem">${esc(item.label)}</button>`);
-        b.addEventListener("click", e => { e.stopPropagation(); closeFilesMenu(); item.on(); });
-        m.append(b);
-      }
-    });
-  }
-
-  m.addEventListener("click", e => {
-    const act = (e.target as HTMLElement).closest<HTMLElement>("[data-fact]")?.dataset.fact;
-    if (!act) return;
-    e.stopPropagation();
+  const selected: FilesMenuProps = { items, local: [], x, y, close: closeFilesMenu, action: act => {
     closeFilesMenu();
 
     if (act === "open") openPicked();
@@ -451,14 +436,18 @@ function menu(path: string, folder: boolean, x: number, y: number) {
     else if (act === "refresh") void refresh().catch(e => console.warn("files:", e));
     else if (act === "delete") deleteItems();
     else if (act === "save") void saveItems();
-  });
-  m.addEventListener("keydown", e => {
-    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeFilesMenu(); F.el?.querySelector<HTMLElement>(".agtree")?.focus(); return; }
-    if (arrowFocus(m, e.key)) e.preventDefault();
-  });
-  setTimeout(() => document.addEventListener("pointerdown", function away(ev) {
-    if (!m.isConnected || !m.contains(ev.target as Node)) { m.remove(); document.removeEventListener("pointerdown", away); }
-  }), 0);
+  } };
+  menuView = selected;
+  renderViews();
+
+  // A file this Mac has can be opened here, in another app, or shown in Finder.
+  if (n === 1 && F.selected.size === 1 && !folder) {
+    void localFileItems({ machineId: s.machine_id, root: paneRoot(), path }, { x, y }).then(more => {
+      if (!more.length || menuView !== selected || !F.el?.isConnected) return;
+      selected.local = more;
+      renderViews();
+    });
+  }
 }
 
 const rowsNow = () => treeRows(F.listings, F.open, F.filter);
