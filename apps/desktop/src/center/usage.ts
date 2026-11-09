@@ -1,6 +1,5 @@
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot } from "react-dom/client";
+import { showWindowParts } from "./window-root.ts";
 import { UsageWidget } from "./usage-view.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 import type { ProviderCredits } from "../ui/credits.ts";
@@ -212,14 +211,13 @@ export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promis
   let open = false;
   let period: PeriodKey = "today";
   host.classList.add("us");
-  const root = createRoot(host);
   const pick = (key: PeriodKey) => { period = key; draw(); };
   const draw = () => {
     host.hidden = !hasUsage(view);
-    if (!hasUsage(view)) { flushSync(() => root.render(null)); return; }
+    if (!hasUsage(view)) { showWindowParts([{ part: "usage", host, content: null }]); return; }
     const current = view;
-    flushSync(() => root.render(createElement(UsageWidget, { view: current, open, period, allProjects,
-      toggle: () => toggle(!open), pick, more: () => { allProjects = !allProjects; draw(); }, position: keepInWindow })));
+    showWindowParts([{ part: "usage", host, content: createElement(UsageWidget, { view: current, open, period, allProjects,
+      toggle: () => toggle(!open), pick, more: () => { allProjects = !allProjects; draw(); }, position: keepInWindow }) }]);
   };
 
   const load = async (refresh: boolean) => {

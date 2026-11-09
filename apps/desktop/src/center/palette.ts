@@ -1,6 +1,5 @@
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { removeWindowPart, showWindowParts } from "./window-root.ts";
 import { PaletteView } from "./palette-view.tsx";
 import type { NavigationArgs } from "./state.ts";
 import { commandKey } from "../ui/platform.ts";
@@ -61,7 +60,7 @@ const ICON_OF: Partial<Record<HitKind | "research", keyof typeof ICONS | keyof t
 const ACTION_VIEWS: Record<string, PaneTarget> = { all_chats: "chats", memories: "memories", routines: "routines", skills: "skills", apps: "apps", settings: "settings" };
 
 let deps: PaletteDeps | null = null;
-let root: HTMLDivElement | null = null, input: HTMLInputElement | null = null, view: Root | null = null;
+let root: HTMLDivElement | null = null, input: HTMLInputElement | null = null;
 let hits: Hit[] = [], sel = 0, drawnQuery = "";
 let searching: PaletteSearch<Entry<AgentRow>> | null = null, back: HTMLElement | null = null;
 /// What the palette finds, as of the app's last word. Empty until the first
@@ -94,7 +93,6 @@ export function openPalette() {
   const scrim = root = el("div", "cc-scrim");
   scrim.addEventListener("mousedown", e => { if (e.target === scrim) { e.preventDefault(); close(); } });
   document.querySelector(".cwin")!.append(scrim);
-  view = createRoot(scrim);
   drawnQuery = "";
   searching = new PaletteSearch<Entry<AgentRow>>(
     [
@@ -120,7 +118,7 @@ function close() {
   if (!root) return;
   searching?.stop();
   searching = null;
-  view?.unmount(); view = null;
+  removeWindowPart("palette");
   root.remove();
   root = input = null;
   const to = back;
@@ -130,9 +128,8 @@ function close() {
 }
 
 function draw(q: string) {
-  if (!view || !root) return;
-  const current = view;
-  flushSync(() => current.render(createElement(PaletteView, {
+  if (!root) return;
+  showWindowParts([{ part: "palette", host: root, content: createElement(PaletteView, {
     hits, selected: sel, query: q, subscribed: state.subscribed, searchIcon: IC.find,
     group: (hit: Hit, query: string) => hit.top ? "Top hit" : hit.kind === "chat" && !query ? "Recent chats" : GROUPS[hit.kind],
     icon: (hit: Hit) => {
@@ -141,7 +138,7 @@ function draw(q: string) {
     },
     search: (value: string) => searching?.type(value), choose: pick,
     hover: (index: number) => { if (sel !== index) { sel = index; mark(); } }, ask: ask_,
-  })));
+  }) }]);
   input = root.querySelector<HTMLInputElement>("input");
 }
 
