@@ -1,0 +1,45 @@
+import { JSDOM } from "jsdom";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
+import test from "node:test";
+import assert from "node:assert/strict";
+import { ModelControls } from "../src/agentpane/model-controls.tsx";
+import type { Animation } from "../src/agentpane/model3d.ts";
+
+test("model animation controls preserve focus while playback advances and clean up", () => {
+  const dom = new JSDOM("<body><div id='root'></div></body>");
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, matchMedia: () => ({ matches: true }) });
+  let time = 0;
+  const animation: Animation = { clips: [{ name: "First", duration: 10 }, { name: "Second", duration: 20 }], clip: 0, playing: false, loop: false, time: () => time,
+    select(index) { this.clip = index; this.onchange(); }, play(on) { this.playing = on; this.onchange(); }, seek(value) { time = value; this.onchange(); }, setLoop(on) { this.loop = on; this.onchange(); }, onchange() {} };
+  const host = dom.window.document.getElementById("root"); assert.ok(host);
+  const root = createRoot(host);
+  flushSync(() => root.render(createElement(ModelControls, { animation })));
+  const play = host.querySelector<HTMLButtonElement>("[data-play]"); assert.ok(play);
+  play.focus();
+  flushSync(() => { time = 2; animation.onchange(); });
+  assert.equal(host.querySelector("[data-play]"), play);
+  assert.equal(dom.window.document.activeElement, play);
+  assert.match(host.querySelector(".time")?.textContent ?? "", /0:02/);
+  flushSync(() => play.click());
+  assert.equal(animation.playing, true);
+  assert.equal(play.getAttribute("aria-label"), "Pause");
+  const loop = host.querySelector<HTMLButtonElement>("[data-loop]"); assert.ok(loop);
+  flushSync(() => loop.click());
+  assert.equal(animation.loop, true);
+  assert.equal(loop.getAttribute("aria-pressed"), "true");
+  const pick = host.querySelector<HTMLSelectElement>("select"); assert.ok(pick);
+  pick.value = "1";
+  flushSync(() => pick.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
+  assert.equal(animation.clip, 1);
+  const scrub = host.querySelector<HTMLInputElement>('input[type="range"]'); assert.ok(scrub);
+  scrub.value = "7";
+  flushSync(() => scrub.dispatchEvent(new dom.window.Event("input", { bubbles: true })));
+  assert.equal(animation.playing, false);
+  assert.equal(time, 7);
+  const previous = animation.onchange;
+  root.unmount();
+  assert.notEqual(animation.onchange, previous);
+  dom.window.close();
+});
