@@ -269,9 +269,8 @@ export function newTurn(question: string, images?: PicRef[], files?: AskFile[]) 
 /// A turn for `question`, not yet in any chat.
 export function makeTurn(question: string, images?: PicRef[], files?: AskFile[], prepared: Turn | null = null) {
   const owner = body();
-  const contents = `${question ? owner ? '<div class="dcoderen user"></div>' : userRowHtml(linkified(question)) : ""}${owner && images?.length ? '<div class="dpics"></div>' : picRow(images)}`;
-  const turn = owner ? prepared ?? createChatTurn(owner) : h<Turn>(`<div class="turn dcoderlog">${contents}</div>`);
-  if (owner) turn.innerHTML = contents;
+  const turn = owner ? prepared ?? createChatTurn(owner, { prompt: !!question, pictures: !!images?.length })
+    : h<Turn>(`<div class="turn dcoderlog">${question ? userRowHtml(linkified(question)) : ""}${picRow(images)}</div>`);
   turnState(turn).question = question;
   const prompt = turn.querySelector<HTMLElement>(".dcoderen.user");
   if (owner && prompt) renderChatPrompt(owner, turn, prompt, linkified(question));

@@ -273,3 +273,24 @@ test("streamed thought updates keep the thought body mounted", async ({ page }) 
   await expect(thought).toContainText("First thought continues");
   expect(await thought.evaluate(el => el === Reflect.get(window, "thoughtBody"))).toBe(true);
 });
+
+test("history can add prompt pictures to an existing React turn", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+  const user = { role: "user", text: "See this", at: 1, images: [], model: "", thinking: "" };
+  const answer = { role: "assistant", html: "<p>Done.</p>", tools: [], replies: [], model: "" };
+  const picture = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==";
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [user, answer], picture, session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const turn = page.locator(".turn");
+  await turn.evaluate(el => Reflect.set(window, "keptTurnWithPicture", el));
+  const updated = [{ ...user, images: [{ id: "image-1", mime: "image/png" }] }, answer];
+  await page.evaluate(data => { window.__navigation.respond("open_session", data); window.__navigation.emit("sessions-changed", "chat-example"); }, updated);
+  await expect(turn.locator(".dpics img")).toHaveAttribute("src", picture);
+  expect(await turn.evaluate(el => el === Reflect.get(window, "keptTurnWithPicture"))).toBe(true);
+  await page.evaluate(data => { window.__navigation.respond("open_session", data); window.__navigation.emit("sessions-changed", "chat-example"); }, [updated[0], { ...answer, html: "<p>Updated.</p>" }]);
+  await expect(turn.locator(".dcoderen.agent")).toContainText("Updated.");
+  await expect(turn.locator(".dpics img")).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
