@@ -26,6 +26,7 @@ const stubs = new Map(Object.entries({
   "settings/subscription.ts": "export const viewHidden = () => false;",
   "bar/core.ts": "export const S = { server: false, view: null, session: null }; export const G = { id: null };",
   "center/mobile.ts": "export const syncMobile = () => {};",
+  "center/window-root.ts": "export const showWindowParts = () => {};",
 }).map(([path, source]) => [new URL(`../src/${path}`, import.meta.url).href, source]));
 const hooks = registerHooks({
   load(url, context, next) {

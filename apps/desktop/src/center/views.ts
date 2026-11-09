@@ -9,7 +9,7 @@ import { type Location, type NavigationArgs, type ViewHead, type CenterView, typ
 import { drawSide, projectRows } from "./sidebar.ts";
 import { openSettings } from "../settings/sheet.ts";
 import { threadChats } from "./threadcard.ts";
-import { PageHistory } from "./pagehistory.ts";
+import { windowHistory } from "./window-router.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
 import { viewHidden } from "../settings/subscription.ts";
 import { G, S } from "../bar/core.ts";
@@ -65,7 +65,7 @@ export function toMain(target: CenterTarget) {
   invoke("center_open", { target }).catch(e => console.warn("opening in the main window:", e));
 }
 
-const pages = new PageHistory<Location>();
+const pages = windowHistory;
 /// Set while ⌘[ or ⌘] moves, so the move is not a new visit.
 let moving = false;
 const pageTiming = new PageTiming(() => performance.now(), callback => { requestAnimationFrame(callback); }, () => !document.hidden, (page, ms) => recordTiming("page", page, ms));
@@ -146,7 +146,7 @@ export function goTo(target: Location): boolean {
     && name === "pane" && !!arg && typeof arg === "object" && "agent" in arg && arg.adopt === true;
   const previous = currentLocation();
   const next: Location = page.view === "projects" ? { view: "projects", arg: { project: page.arg?.project ?? null, tile: page.arg?.tile ?? null } } : page;
-  if (previous && !moving) pages.visit(previous, next, replaceDraft);
+  if (!moving) { if (previous) pages.visit(previous, next, replaceDraft); else pages.start(next); }
   if (previous && previous.view !== name) views.get(previous.view)?.unmount?.();
   currentPage = page;
   for (const [n, v] of views) v.el.hidden = n !== name;
