@@ -1,6 +1,6 @@
 import { SessionPicks } from "./agentmodels.ts";
 import { createElement } from "react";
-import { SessionField, SessionHead, showSessionFrame, updateSessionHints } from "./session-frame.tsx";
+import { SessionField, SessionHead, showSessionFrame, updateSessionHints, updateSessionTitle } from "./session-frame.tsx";
 import { disposeLog } from "./logwindow.ts";
 import { bindSessionStash } from "./stash.ts";
 import { AgentFeed } from "./agentfeed-state.ts";
@@ -8,13 +8,12 @@ import { TranscriptCache, transcriptKey, type TranscriptUpdate } from "./transcr
 import { agentDrop } from "../chat/attach.ts";
 import { filePicker } from "./file-picker.ts";
 import { fileLinkMenu } from "./filelinks.ts";
-import { bindTitleEdit } from "./titleedit.ts";
 import { conversationHistory } from "./conversation-state.ts";
 // One coding agent session in the bar: opening it, following it while it
 // shows, its frame, and what a click in it does.
 import { syncSteers, stopPending, type Waiting } from "./agentqueue.ts";
 import { composeField } from "../chat/compose.ts";
-import { $, $$, type AgentReturn, bar, S, windowHooks, changeListeners } from "../bar/core.ts";
+import { $, type AgentReturn, bar, S, windowHooks, changeListeners } from "../bar/core.ts";
 import { failBanner } from "../ui/failbanner.ts";
 import { hintModel, type Hint } from "../bar/hints.ts";
 import { openViewer } from "../chat/media.ts";
@@ -496,12 +495,8 @@ export async function drawEditors(machine: string, cwd: string, current: () => b
 function drawAgentHeading() {
   const s = AG.page?.session;
   if (!s) return;
-  const title = $("#agtitle");
-  if (!title) return;
-  if (!title.querySelector("input")) {
-    title.textContent = s.title || agentKind(s.agent).name;
-    title.title = `${title.textContent}\nDouble-click to rename (Enter)`;
-  }
+  if (!$("#agtitle")) return;
+  updateSessionTitle(s.title || agentKind(s.agent).name);
   const project = windowHooks?.sessionProject?.(s), place = placeOf(s);
   const folder = $("#agproj"), branch = $("#agbranch");
   if (folder) folder.textContent = project?.label || (place ? placeRepo(place) : shortCwd(s.cwd)) || agentKind(s.agent).name;
@@ -556,24 +551,21 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   if (!kept) { b.className = "dbody"; b.id = "agbody"; }
   const mode = isNativeSession(s.id) ? "native" : followsOnly(s) ? "readonly" : "writable";
   const banner = canTakeOver(s.agent) ? "Running outside Beep. Beep follows it here. Close it there to continue here." : "Started outside Beep. Beep follows it here.";
-  showSessionFrame({ head: createElement(SessionHead, { agent: s.agent, title: s.title || k.name, folder: project?.label || shortCwd(s.cwd) || k.name, project: !!project, cwd: s.cwd, machine: s.machine_name, usage: usage.of === usageKey(s) ? usage.text : "" }), field: createElement(SessionField, { mode, name: k.name, banner }), body: b, hints: agentHints() }, inPlace, disposeQueue);
+  const open = AG.open;
+  const saveTitle = async (title: string) => {
+    await invoke("agent_title_save", { machineId: s.machine_id, agent: s.agent, session: s.id, title });
+    if (AG.open !== open) return;
+    if (AG.page) AG.page.session.title = title || null;
+    await pollAgent(true);
+    void loadSessions().catch(e => console.warn("session titles:", e));
+  };
+  showSessionFrame({ head: createElement(SessionHead, { agent: s.agent, title: s.title || k.name, folder: project?.label || shortCwd(s.cwd) || k.name, project: !!project, cwd: s.cwd, machine: s.machine_name, usage: usage.of === usageKey(s) ? usage.text : "", saveTitle }), field: createElement(SessionField, { mode, name: k.name, banner }), body: b, hints: agentHints() }, inPlace, disposeQueue);
   if (left && left.body !== b) {
     const old = left.body.querySelector<HTMLElement>(".dcoderlog");
     if (old) disposeLog(old);
   }
   if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
   if (project) $("#agproj")?.addEventListener("click", project.open);
-  const open = AG.open;
-  bindTitleEdit($$("#agtitle"), {
-    value: () => AG.page?.session.title || agentKind(s.agent).name,
-    save: async title => {
-      await invoke("agent_title_save", { machineId: s.machine_id, agent: s.agent, session: s.id, title });
-      if (AG.open !== open) return;
-      if (AG.page) AG.page.session.title = title || null;
-      await pollAgent(true);
-      void loadSessions().catch(e => console.warn("session titles:", e));
-    },
-  });
   drawAgentHeading();
   MN.redraw = drawAgentAttached;
   MN.error = agentAttachError;

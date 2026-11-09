@@ -1,7 +1,8 @@
 import { StashActions, StashIndicator } from "../chat/stash-hints.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { SHORTCUTS } from "../ui/shortcuts.ts";
-import { Fragment, useLayoutEffect, useRef, type ReactNode } from "react";
+import { cloneElement, Fragment, isValidElement, useLayoutEffect, useRef, type ReactNode } from "react";
+import { SessionTitle } from "./title-view.tsx";
 import { createPortal, flushSync } from "react-dom";
 import type { Root } from "react-dom/client";
 import { openBarPage } from "../bar/page-root.ts";
@@ -46,9 +47,16 @@ export function DraftHead({ project }: { project: string }) {
   return <><span className="tt"><b><button className="agproj" id="agproj">{project}</button></b><small id="aghere" /></span><span id="agedit" className="agedit" /></>;
 }
 
-export function SessionHead({ agent, title, folder, project, cwd, machine, usage }: { agent: string; title: string; folder: string; project: boolean; cwd: string; machine: string; usage: string }) {
+export function SessionHead({ agent, title, folder, project, cwd, machine, usage, saveTitle }: { agent: string; title: string; folder: string; project: boolean; cwd: string; machine: string; usage: string; saveTitle(value: string): Promise<void> }) {
   const safe = /^[a-z0-9-]+$/.test(agent) ? ` ${agent}` : "";
-  return <><span className={`dapp dcoderav${safe}${harnessMark(agent) ? " mark" : ""}`} dangerouslySetInnerHTML={{ __html: harnessInner(agent) }} /><span className="tt"><b id="agtitle" title={title}>{title}</b><small className="aglocation" title={cwd}><span className="agfolder">{project ? <button className="agproj" id="agproj">{folder}</button> : <span id="agproj">{folder}</span>}<span id="agbranch" /></span><span>@</span><span id="aghere">{machine}</span></small></span><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage}</small><span id="agstate" /><span id="agedit" className="agedit" /></>;
+  return <><span className={`dapp dcoderav${safe}${harnessMark(agent) ? " mark" : ""}`} dangerouslySetInnerHTML={{ __html: harnessInner(agent) }} /><span className="tt"><SessionTitle title={title} save={saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{project ? <button className="agproj" id="agproj">{folder}</button> : <span id="agproj">{folder}</span>}<span id="agbranch" /></span><span>@</span><span id="aghere">{machine}</span></small></span><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage}</small><span id="agstate" /><span id="agedit" className="agedit" /></>;
+}
+
+export function updateSessionTitle(title: string) {
+  const owner = current, head = owner?.frame.head;
+  if (!owner || !isValidElement<{ title: string }>(head) || head.type !== SessionHead || head.props.title === title) return;
+  owner.frame = { ...owner.frame, head: cloneElement(head, { title }) };
+  draw(owner);
 }
 
 export function SessionField({ mode, name, banner }: { mode: "native" | "readonly" | "writable"; name: string; banner: string }) {
