@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { ReviewFindings } from "./review-findings.tsx";
 import { ReviewActions, ReviewHeading } from "./review-controls.tsx";
+import { ReviewStatus } from "./review-status.tsx";
 import { patchChildren } from "../ui/patch.ts";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // review/: a project's branches and reviews. Entry:
@@ -329,6 +330,7 @@ export function makeReviews(deps: ReviewDeps) {
   let unfollow: (() => void) | undefined;
   let polling: string | null = null;
   let findingsView: { project: string; host: HTMLElement; root: Root } | null = null;
+  let statusView: { project: string; host: HTMLElement; root: Root } | null = null;
   let controls: { project: string; head: HTMLElement; headRoot: Root; actions: HTMLElement; actionsRoot: Root } | null = null;
   let detailView: { project: string; host: HTMLElement; error: HTMLElement; before: HTMLElement; after: HTMLElement } | null = null;
 
@@ -601,25 +603,22 @@ export function makeReviews(deps: ReviewDeps) {
     const t = of(name);
     const out: HTMLElement[] = [];
 
-    if (t.starting) {
-      out.push(emptyPanel(h("span", "dspin"), h("b", "", `Starting the review of ${t.starting}`)));
-      watch(null);
-      return out;
+    if (!statusView || statusView.project !== name) {
+      statusView?.root.unmount();
+      const host = h("div"); host.style.display = "contents";
+      statusView = { project: name, host, root: createRoot(host) };
     }
-
+    const currentStatus = statusView;
     const r = t.review;
-
-    if (!r) {
-      if (t.error) out.push(errorNote(t.error));
-      out.push(emptyPanel(h("b", "", "No review open"), button("Branches", "", () => openTile("branches"))));
-      watch(null);
-      return out;
-    }
+    const now = r && t.now?.id === r.id ? t.now : null;
+    const stale = r ? staleText(r, now) : "";
+    flushSync(() => currentStatus.root.render(createElement(ReviewStatus, {
+      starting: t.starting, review: r, error: t.error, note: t.note, stale,
+      branches: () => openTile("branches"), again: () => { if (r) void openBranch(name, r.branch, true); },
+    })));
+    if (t.starting || !r) { watch(null); return [currentStatus.host]; }
 
     checkHead(name, r);
-    const now = t.now?.id === r.id ? t.now : null;
-    const stale = staleText(r, now);
-    const pr = r.pr;
     if (!controls || controls.project !== name) {
       controls?.headRoot.unmount(); controls?.actionsRoot.unmount();
       const head = h("div"), actions = h("div");
@@ -631,24 +630,7 @@ export function makeReviews(deps: ReviewDeps) {
       review: r, now, ago, diff: deps.diff?.(name, r.branch) ?? null, openPr: (url: string) => void openUrl(url), again: () => void openBranch(name, r.branch, true),
     })));
     out.push(currentControls.head);
-    if (t.error) out.push(errorNote(t.error));
-    if (t.note) out.push(note("", t.note));
-
-    if (stale) {
-      out.push(h("div", "cc-note", h("span", "ddot warn"),
-        h("span", "", h("b", "", stale), ` The findings are for ${r.head.slice(0, 7)}; Merge is off until the new head is reviewed.`),
-        button("Review again", "pri", () => openBranch(name, r.branch, true))));
-    }
-
-    const blocked: (Node | string)[] = [];
-
-    if (r.merge === "conflicts") {
-      blocked.push(h("b", "", `Conflicts with ${r.base} in ${plural(r.conflicts.length, "file", "files")}`),
-        h("span", "", ...r.conflicts.slice(0, 6).flatMap((f, i) => [i ? ", " : "", h("code", "", f)]), r.conflicts.length > 6 ? ` and ${r.conflicts.length - 6} more` : ""));
-    }
-
-    if (pr?.checks === "failing") blocked.push(h("b", "", "CI failing"), h("span", "", `Checks fail on PR #${pr.number}. The review still ran.`));
-    if (blocked.length) out.push(h("div", "cc-note rv-cfl", h("span", "ddot bad"), h("span", "rv-cfl-t", ...blocked)));
+    out.push(currentStatus.host);
 
     if (!findingsView || findingsView.project !== name) {
       findingsView?.root.unmount();
@@ -699,6 +681,6 @@ export function makeReviews(deps: ReviewDeps) {
     branchesPanel,
     reviewPanel,
     reviewDetail,
-    stop: () => { watch(null); findingsView?.root.unmount(); findingsView = null; controls?.headRoot.unmount(); controls?.actionsRoot.unmount(); controls = null; detailView = null; },
+    stop: () => { watch(null); findingsView?.root.unmount(); findingsView = null; statusView?.root.unmount(); statusView = null; controls?.headRoot.unmount(); controls?.actionsRoot.unmount(); controls = null; detailView = null; },
   };
 }
