@@ -8,7 +8,7 @@ import { MV } from "../agents/move-store.ts";
 // project, and a picked project's detail sections.
 import { sessionVisible } from "../agents/closing.ts";
 import { ago, plural } from "../ui/format.ts";
-import { dbtn as button, emptyPanel, errorNote, freshNote } from "../ui/parts.ts";
+import { dbtn as button, emptyPanel, errorNote } from "../ui/parts.ts";
 import { CI_TITLES, ciState, filterByName, listGroups, machineChips, projectBranch, splitName } from "./projectlist-state.ts";
 import type { GitRow } from "./gitsync-state.ts";
 import type { RunsRow } from "./runs.ts";
@@ -23,14 +23,14 @@ import { pages, state, warm, pageFresh } from "../center/state.ts";
 import { plusLabel } from "../ui/pieces.ts";
 import { showMachineMenu } from "../machines/table.ts";
 import { MachinesSection, type ProjectMachineItem } from "./machines-section-view.tsx";
-import { removeButton, removeMenuItems } from "./removemachine.ts";
+import { blocked, confirmRemove, removeMenuItems } from "./removemachine.ts";
 import { changeFolder, changeFolderItems } from "./changefolder.ts";
 import { single } from "../center/openitems.ts";
 import { newWindowOn, openProjects, addProject } from "../center/sidebar.ts";
 import { splitOn, projectSplit, panelSlot, projectPanel } from "./split.ts";
 import { redrawProjects, redrawProjectsPage, pc, terms, fsync } from "./sections.ts";
 import { drawProjectComp, fillBar } from "./composer.ts";
-import { whereRow, gitCells, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsSection } from "./loads.ts";
+import { missingMachine, gitControls, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsSection } from "./loads.ts";
 import { terminalNote, terminalWhere } from "../terminals/terminals.ts";
 import { go } from "../center/views.ts";
 import { lazyRows } from "../ui/lazyrows.ts";
@@ -196,29 +196,18 @@ export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
     if (host?.can_host === false && !m.folder) continue;
     const detail = model?.detail?.machines.find(s => s.machine_id === m.id);
     const online = host?.online ?? (detail ? detail.status !== "offline" : m.kind !== "offline");
-    const actions: HTMLElement[] = [], missing: HTMLElement[] = [], git: HTMLElement[] = [];
-    let menu: ((event: MouseEvent) => void) | null = null;
-    const terminals = m.folder ? all?.filter(t => t.machine_id === m.id) ?? [] : [];
-    if (m.folder) {
+    const change = m.folder && p.imported && online ? () => changeFolder(p.name, m, m.folder ?? "") : null;
+    const remove = m.folder && p.imported ? { why: blocked(p.name, rows, m), run: () => confirmRemove(p.name, m) } : null;
+    const missing = m.folder ? null : missingMachine(p, m), git = m.folder ? gitControls(p, m, online) : null;
+    const menu = m.folder ? (event: MouseEvent) => {
       const from = m.folder;
-      if (p.imported && online) {
-        const change = button("Folder…", "small", () => changeFolder(p.name, m, from));
-        change.setAttribute("aria-label", `Change folder on ${m.name}`);
-        actions.push(change);
-      }
-      if (p.imported) actions.push(removeButton(p.name, rows, m));
-      const cells = gitCells(p, m);
-      if (!online) cells.buttons.forEach(b => { if (b instanceof HTMLButtonElement) b.disabled = true; });
-      if (cells.note || cells.buttons.length) git.push(h("span", "pm-git", cells.note, h("span", "pm-actions", ...cells.buttons)));
-      menu = event => showMachineMenu({ id: m.id, name: m.name, online, can_host: host?.can_host }, () => [
+      if (!from) return;
+      showMachineMenu({ id: m.id, name: m.name, online, can_host: host?.can_host }, () => [
         ...checkoutItems(p, m, from), ...(p.imported ? [...changeFolderItems(p.name, m), ...removeMenuItems(p.name, rows, m)] : []),
       ], event);
-    } else {
-      const cells = whereRow(p, m);
-      if (cells[1]) missing.push(cells[1]);
-      if (cells[2]) actions.push(cells[2]);
-    }
-    items.push({ id: m.id, name: m.name, online, folder: m.folder ? plainPath(m.folder) : null, actions, missing, git, menu,
+    } : null;
+    const terminals = m.folder ? all?.filter(t => t.machine_id === m.id) ?? [] : [];
+    items.push({ id: m.id, name: m.name, online, folder: m.folder ? plainPath(m.folder) : null, change, remove, missing, git, menu,
       terminals: terminals.map(t => ({ id: t.id, name: t.name, title: `${t.machine_name}: ${t.command} in ${t.cwd}`, sub: `${t.machine_name} · ${terminalWhere(t)}`, note: terminalNote(t, ago), running: t.state === "running", open: () => { go("pane", { draft: { project: p.name, machine: t.machine_id, terminal: t } }); } })),
       terminalSummary: all === undefined ? "Reading…" : all === null ? "Unavailable" : !online ? "Machine offline" : terminals.length ? plural(terminals.length, "terminal", "terminals") : "None running" });
   }
@@ -227,9 +216,9 @@ export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
     const host = h("section", "pm-section");
     whereView = { project: p.name, host, root: createRoot(host) };
   }
-  const view = whereView, note = freshNote(pageFresh("where", p.name, readingWhere.has(p.name)));
+  const view = whereView, note = pageFresh("where", p.name, readingWhere.has(p.name));
   flushSync(() => view.root.render(createElement(MachinesSection, { sync: fsync, project: p.name, items, model, imported: p.imported, known,
-    count: whereCount(rows, false), fresh: note ? [note] : [] })));
+    count: whereCount(rows, false), fresh: note })));
   return panelSlot(view.host);
 }
 

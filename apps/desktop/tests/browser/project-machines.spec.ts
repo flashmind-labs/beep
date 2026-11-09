@@ -74,6 +74,21 @@ test("pause operates on the combined view and offline checkouts hide folder chan
   await expect(page.getByRole("article", { name: "offline-box", exact: true }).getByRole("button", { name: "Change folder on offline-box" })).toHaveCount(0);
 });
 
+test("Git controls retain their state and send one pull", async ({ page }) => {
+  const git = { machine_id: "studio", branch: "main", upstream: "origin/main", ahead: 1, behind: 2, error: null };
+  await openDesktop(page, false, { ...responses, project_git_state: [git] });
+  await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projectName);
+  await page.locator('.pj-li[title="Machines"]').click();
+  const studio = page.getByRole("article", { name: "studio", exact: true });
+  const pull = studio.getByRole("button", { name: "Pull 2 commits" });
+  await expect(pull).toBeEnabled();
+  await page.evaluate(() => window.__navigation.hold("project_git_move"));
+  await pull.click();
+  await expect(pull).toBeDisabled();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_git_move").map(call => call.args.direction))).toEqual(["pull"]);
+  await page.evaluate(() => window.__navigation.release("project_git_move"));
+});
+
 test("sync and terminal events refresh the combined machine sections", async ({ page }) => {
   await openMachines(page);
   const studio = page.getByRole("article", { name: "studio", exact: true });

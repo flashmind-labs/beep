@@ -264,6 +264,31 @@ function moveButton(p: Project, m: WhereRow, row: GitRow, move: GitMove, on: boo
   return b;
 }
 
+export function gitControls(p: Project, m: WhereRow, online: boolean) {
+  const row = state.gitsync.get(p.name)?.find(r => r.machine_id === m.id);
+  if (!row) return null;
+  const line = gitLine(row), move = moves.get(moveKey(p.name, m.id)), failed = move?.failed ?? null;
+  const buttons = line.buttons ? (["pull", "push"] as const).map(direction => {
+    const n = direction === "pull" ? row.behind : row.ahead, active = direction === "pull" ? line.pull : line.push;
+    return { direction, count: n, moving: move?.moving === direction, title: move?.moving === direction ? movingLabel(direction) : moveTitle(direction, n), label: moveTitle(direction, n), disabled: !online || !!move?.moving || !active, run: () => void gitMove(p, m, row, direction) };
+  }) : [];
+  return { line, buttons, failed: line.buttons ? failed : null,
+    handoff: line.buttons && p.machines.length > 1 && !m.syncthing ? () => openHandoff(p, m.id, () => { loadGit(p.name); refresh(); }) : null,
+    fix: line.buttons && failed && agentCanFix(failed) ? () => void openSyncRepair(p.name, m.id, failed) : null };
+}
+
+export function missingMachine(p: Project, m: WhereRow) {
+  const key = `${p.name}\n${m.id}`, copied = copies.get(key);
+  const text = copied?.text || m.text || "", title = m.kind === "none" && m.checked_at ? `Checked ${since(m.checked_at)}` : "";
+  let action: { label: string; disabled: boolean; run(): void } | null = null;
+  if (!state.home?.machines?.some(x => x.id === m.id && x.can_host === false)) {
+    if (m.kind === "none" && m.add) action = { label: "Add", disabled: false, run: () => openAddToMachine({ project: p.name, machine: m, os: state.home?.machines?.find(x => x.id === m.id)?.env?.os, macId: state.mac?.id || null, added: () => { refresh(); loadWhere(p.name); } }) };
+    else if (m.kind === "none" && m.copy && copied?.state !== "failed") action = { label: copied ? "Copying…" : "Copy here", disabled: !!copied, run: () => void copyHere(p, m, key) };
+    else if (m.kind === "none" && p.url) { const url = p.url; action = { label: "Clone here", disabled: false, run: () => importSheet(repoFromRemote(url), m.id) }; }
+  }
+  return { text, title, syncthing: m.kind === "none" ? m.syncthing ?? null : null, action };
+}
+
 /// Under a checkout's folder: its branch, and the reason a move was refused;
 /// and the Pull and Push icons.
 export function gitCells(p: Project, m: WhereRow): { note: HTMLElement | null; buttons: HTMLElement[] } {
