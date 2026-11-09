@@ -12,15 +12,15 @@ use crate::{
 use beep_projects::{
     branches::{READ_LIMIT, run_script},
     credentials::{Opened, Slot},
+    git_items::HostError,
     imports::{
         hosts::{credential_of, forgejo_of},
         preview::{parse_remotes, remotes_script},
         repo::{Host, RepoRef},
     },
-    issues::list_open_prs,
     model::RepoName,
     repo_watch::{
-        actions::{PrHeadRef, pr_checks, progress},
+        actions::{PrHeadRef, RunsReply, pr_checks, progress},
         runs::{self as host_runs, Target},
     },
 };
@@ -204,7 +204,7 @@ impl Desk {
         // The hosts and the open pull requests are asked at once.
         let (read, heads) = join(
             join_all(places.iter().map(|place| self.host_runs(place))),
-            self.open_heads(project),
+            self.open_heads(&places[0]),
         )
         .await;
         let refs: Vec<PrHeadRef<'_>> = heads
@@ -240,6 +240,34 @@ impl Desk {
         Ok(all)
     }
 
+    async fn fallback_runs(&self, host: &RunsHost) -> Option<Vec<WorkflowRun>> {
+        let script = fallback_script(host)?;
+        let mut machines: Vec<_> = self
+            .mesh
+            .code_hosts()
+            .into_iter()
+            .filter(|status| status.online && status.device.id != self.local)
+            .map(|status| status.device.id)
+            .collect();
+        crate::nearest_first(&self.mesh, &mut machines, |id| *id);
+
+        for id in machines.into_iter().take(2) {
+            let Some(seen) = self.seen_one(id).await else {
+                continue;
+            };
+            let Ok(shell) = seen.machine.shell() else {
+                continue;
+            };
+            if let Ok(output) = run_script(shell, &script, READ_LIMIT).await
+                && let Ok(reply) = serde_json::from_str::<RunsReply>(&output)
+            {
+                return Some(reply.runs().into_iter().map(|listed| listed.run).collect());
+            }
+        }
+
+        None
+    }
+
     /// One host's newest runs, with the progress of those running, and how its read went.
     async fn host_runs(&self, place: &Place) -> (Vec<WorkflowRun>, RunsHost) {
         let calls = self.hosts.host_calls();
@@ -264,6 +292,12 @@ impl Desk {
         let mut shown = match host_runs::list(calls, &caller, &place.target).await {
             Ok(listed) => listed,
             Err(e) => {
+                if matches!(e, HostError::Timeout(_) | HostError::Unreachable(_))
+                    && let Some(runs) = self.fallback_runs(&host).await
+                {
+                    return (runs, host);
+                }
+
                 host.error = Some(e.to_string());
                 Vec::new()
             }
@@ -294,18 +328,13 @@ impl Desk {
 
     /// The open pull requests' numbers and head branches; none when they cannot be read, as the
     /// checks then only go unmatched.
-    async fn open_heads(&self, project: &str) -> Vec<(u64, String)> {
-        let Ok((store, machines)) = self.host_reads(project, true).await else {
+    async fn open_heads(&self, place: &Place) -> Vec<(u64, String)> {
+        let Ok(client) = self.hosts.reqwest() else {
             return Vec::new();
         };
-        list_open_prs(&store, &machines)
+        let caller = place.target.caller(self.hosts.semaphore(), &client);
+        host_runs::heads(self.hosts.host_calls(), &caller, &place.target)
             .await
-            .map(|listed| {
-                listed
-                    .into_iter()
-                    .map(|one| (one.pr.number, one.pr.head))
-                    .collect()
-            })
             .unwrap_or_default()
     }
 
@@ -389,4 +418,28 @@ fn newest_first(runs: &mut [HostedRun]) {
         };
         key(b).cmp(&key(a))
     });
+}
+
+/// Node CLIs use credentials provisioned from the mesh; no token enters the script.
+fn fallback_script(host: &RunsHost) -> Option<String> {
+    let path = format!(
+        "repos/{}/actions/runs?per_page=20&limit=20&page=1",
+        host.repo
+    );
+    let path = beep_projects::quote(&path);
+    match host.kind {
+        GitHostKind::GitHub {} => Some(format!(
+            "{}gh api {path}",
+            beep_projects::commands::gh_account(&host.repo)
+        )),
+        GitHostKind::Forgejo {} => {
+            let web = host.url.as_ref()?;
+            let suffix = format!("/{}", host.repo);
+            let base = web.strip_suffix(&suffix)?;
+            Some(format!(
+                "teacli api {path} --host {}",
+                beep_projects::quote(base)
+            ))
+        }
+    }
 }

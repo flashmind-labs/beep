@@ -102,6 +102,35 @@ pub async fn list(
     Ok(reply.runs())
 }
 
+/// Open pull request heads, read through the same local HTTP client as runs.
+pub async fn heads(
+    calls: &HostCalls,
+    caller: &Caller<'_>,
+    target: &Target,
+) -> Result<Vec<(u64, String)>, HostError> {
+    #[derive(serde::Deserialize)]
+    struct Head {
+        #[serde(rename = "ref")]
+        branch: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct Pull {
+        number: u64,
+        head: Head,
+    }
+
+    let url = format!(
+        "{}/pulls?state=open&{}",
+        target.repo_url(),
+        target.page(100)
+    );
+    let pulls: Vec<Pull> = calls.get_json(caller, &target.who, &url).await?;
+    Ok(pulls
+        .into_iter()
+        .map(|pull| (pull.number, pull.head.branch))
+        .collect())
+}
+
 /// The run `id`.
 pub async fn one(
     calls: &HostCalls,
