@@ -3,15 +3,18 @@ import { liveText } from "./karaoke.ts";
 import { ICON } from "../ui/icons.ts";
 import { esc } from "../ui/format.ts";
 import { KIND_ICONS } from "./turnrows.ts";
+import { SubagentsView, type SubagentRow } from "../agentpane/subagents-view.tsx";
 
 export type ToolActivity = { kind: "tool"; id: string; html: string; at: number; failed: boolean; open: boolean; artifact: string | null; toggle: boolean; keyboard: boolean; mark: string; after: string; layout: { kind: "beep"; head: string } | { kind: "standard"; parts: RowParts; tip: string; since: number | null } };
 export type ActivityRow =
   | { kind: "thought"; id: string; html: string; key: string; at: number; text: string; content: string | null; ms: number | null; live: boolean; open: boolean }
   | { kind: "live"; id: string; html: string; state: TurnState; thinking: boolean; start: number | null; doing: string }
   | ToolActivity
-  | { kind: "run"; id: string; html: string; at: number; toolKind: ToolKind; label: string; summary: string; open: boolean; tools: ToolActivity[] };
+  | { kind: "run"; id: string; html: string; at: number; toolKind: ToolKind; label: string; summary: string; open: boolean; tools: ToolActivity[] }
+  | { kind: "subagents"; id: string; html: string; at: number; heading: string | null; counts: string; rows: SubagentRow[] };
 
 export function ActivityView({ row }: { row: ActivityRow }) {
+  if (row.kind === "subagents") return <div className="dsubgrp" data-row={row.at}>{row.heading !== null && <div className="h"><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: SUB_ICON }} /><b>{row.heading}</b><span>{row.counts}</span></div>}<SubagentsView rows={row.rows} /></div>;
   if (row.kind === "run") return <div className={`dtrun${row.open ? " open" : ""}`} data-row={row.at}><button data-run={row.at} aria-expanded={row.open}><span className="ki" dangerouslySetInnerHTML={{ __html: KIND_ICONS[row.toolKind] }} /><span className="vb">{row.label}</span><span className="sm">{row.summary}</span><span className="cv" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></button><div className="bd"><div><div className="in">{row.tools.map(tool => <ActivityView key={tool.id} row={tool} />)}</div></div></div></div>;
   if (row.kind === "tool") {
     const cls = `dcoderen tool ${row.layout.kind === "beep" ? "beep" : "row"}${row.failed ? " failed" : ""}${row.open ? " open" : ""}${row.artifact ? " artifact" : ""}`;
@@ -24,6 +27,8 @@ export function ActivityView({ row }: { row: ActivityRow }) {
   }
   return <div className={`dthink${row.live ? " live" : ""}${row.open ? " open" : ""}`} data-row={row.at}><button data-thought={row.at} aria-expanded={row.open}><span className="lb">{thoughtLabel(row.ms)}</span><span className="cv" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></button><div className="bd"><div>{row.live ? <div className="tx"><div className="kk" data-kk={row.key}>{liveText(row.text)}</div></div> : <div className="tx md" dangerouslySetInnerHTML={{ __html: row.content ?? esc(row.text).replaceAll("\n", "<br>") }} />}</div></div></div>;
 }
+
+export const SUB_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5V13a5 5 0 0 0 5 5h4.5"/></svg>';
 
 function ToolHead({ parts, tip, since, mark }: { parts: RowParts; tip: string; since: number | null; mark: React.ReactNode }) {
   const counts = /^\+(\d+) -(\d+)$/.exec(parts.detail);

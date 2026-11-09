@@ -22,3 +22,22 @@ test("subagent pane shows native child actions and keeps rows on redraw", async 
   await page.getByRole("tab", { name: /Subagents/ }).click();
   await expect(row).toBeVisible();
 });
+
+test("transcript groups child agents and keeps their actions", async ({ page }) => {
+  await openDesktop(page);
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      const value = await invoke<T>(command, args);
+      if (command !== "agent_view" || !value || typeof value !== "object") return value;
+      return { ...value, entries: [{ kind: "user", text: "Check" }, { kind: "tool", text: "Inspect first [completed]\n[steps] 0\n[child] first@build-box working key-1" }, { kind: "tool", text: "Inspect second [completed]\n[steps] 0\n[child] second@build-box idle key-2" }] } as T;
+    };
+  });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  const group = page.locator(".dsubgrp");
+  await expect(group).toContainText("2 agents started");
+  const first = group.locator('[data-kid="first@build-box"]');
+  await expect(first).toContainText("Inspect first");
+  await expect(first.locator("[data-kidstop]")).toHaveCount(1);
+  await expect(group.locator('[data-kid="second@build-box"]')).toContainText("Inspect second");
+});
