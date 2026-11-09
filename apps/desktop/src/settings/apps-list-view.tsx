@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ICON } from "../ui/icons.ts";
 import { plural } from "../ui/format.ts";
@@ -47,4 +48,8 @@ export function AppsListView(p: Props) {
     {!!more.length && <><div className="dsec">{connected.length ? "More apps" : "Available"}</div>{more.map(app => <AppRow key={app.slug} app={app} p={p} />)}</>}
     {p.servers && <><div className="dsec">Your MCP servers</div>{p.servers.map(server => <ServerRow key={server.id} server={server} p={p} />)}{p.adding ? <AddServer p={p} /> : <div className="dpad"><button className="dbtn" onClick={p.startAdd}>Add MCP server</button></div>}<div className="dmuted dpad dblock">Beep asks before every tool on a server you add.</div></>}
   </div>;
+}
+
+export function AppBarFrame({ section, hints, children }: { section: "apps" | "mcp" | "appperms"; hints: string; children: ReactNode }) {
+  return <>{section === "apps" && <div className="dhead"><span className="tt"><b>Apps</b><small>Connect once, then just ask from any chat</small></span></div>}{children}<span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: hints }} /></>;
 }

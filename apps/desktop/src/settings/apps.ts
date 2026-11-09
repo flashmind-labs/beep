@@ -1,7 +1,7 @@
 import { createElement, type ReactElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot } from "react-dom/client";
-import { AppsListView } from "./apps-list-view.tsx";
+import { openBarPage } from "../bar/page-root.ts";
+import { AppBarFrame, AppsListView } from "./apps-list-view.tsx";
 import { AppPermissionsView } from "./app-permissions-view.tsx";
 import { McpView } from "./mcp-view.tsx";
 import type { SettingsContentOwner } from "./settings.ts";
@@ -112,7 +112,7 @@ export type AppsView = "apps" | "appperms" | "mcp";
 /// server, by `id`) so its breadcrumb follows.
 interface AppsHost {
   root: HTMLElement;
-  owner: SettingsContentOwner | null;
+  owner: SettingsContentOwner;
   view: AppsView | null;
   opened(view: AppsView, id: string | null): void;
 }
@@ -120,7 +120,7 @@ let host: AppsHost | null = null;
 
 /// Draws Apps into `root` from now on, until `appsOut` or until `root`
 /// leaves the page. The page's own view (`S.view`) is left alone.
-export function appsIn(root: HTMLElement, opened: AppsHost["opened"], owner: SettingsContentOwner | null = null) {
+export function appsIn(root: HTMLElement, opened: AppsHost["opened"], owner: SettingsContentOwner) {
   host = { root, owner, view: null, opened };
 }
 export function appsOut() {
@@ -152,14 +152,27 @@ interface AppMount {
   unmount(): void;
   observer: MutationObserver;
 }
-function mountView(section: AppsView, element: HTMLElement, detached: () => void): AppMount {
-  const owner = hosted()?.owner ?? null, root = owner ? null : createRoot(element);
+function mountView(section: AppsView, detached: () => void): AppMount {
+  const embedded = hosted();
+  const page = embedded ? null : openBarPage(() => { disposeApps(); disposeMcp(); disposePerms(); });
+  const element = page?.host ?? document.createElement("div");
+  if (embedded) {
+    element.style.display = "contents";
+    element.id = section === "apps" ? "apps-react" : section === "mcp" ? "mcp-react" : "app-permissions-react";
+    embedded.root.replaceChildren(element);
+  }
   const observer = new MutationObserver(() => { if (!element.isConnected) detached(); });
   observer.observe(document.body, { childList: true, subtree: true });
   return {
     host: element, observer,
-    render(content) { if (owner) owner.show(section, element, content); else flushSync(() => root?.render(content)); },
-    unmount() { if (owner) owner.remove(section); else root?.unmount(); },
+    render(content) {
+      if (embedded) embedded.owner.show(section, element, content);
+      else if (page) flushSync(() => page.root.render(createElement(AppBarFrame, { section, hints: backHint(), children: content })));
+    },
+    unmount() {
+      if (embedded) embedded.owner.remove(section);
+      else if (page) flushSync(() => page.root.render(null));
+    },
   };
 }
 
@@ -175,11 +188,7 @@ export function renderApps() {
   disposeMcp(); disposePerms(); disposeApps();
   showView("apps", null);
   A.open = null;
-  const head = hosted() ? "" : `<div class="dhead"><span class="tt"><b>Apps</b><small>Connect once, then just ask from any chat</small></span></div>`;
-  root().innerHTML = `${head}<div id="apps-react" style="display:contents"></div>${backHint()}`;
-  const element = q<HTMLElement>("#apps-react");
-  if (!element) return;
-  appsRoot = mountView("apps", element, () => { if (appsRoot?.host === element) disposeApps(); });
+  appsRoot = mountView("apps", () => { disposeApps(); });
   drawApps();
   void loadApps();
 }
@@ -350,10 +359,7 @@ export async function renderMcpServer(server: McpServer | undefined) {
   showView("mcp", server.id);
   Object.assign(A, { server, tools: null, asking: null, unadd: false, error: "" });
   mcpBusy = false;
-  root().innerHTML = `<div id="mcp-react" style="display:contents"></div>${backHint()}`;
-  const element = q<HTMLElement>("#mcp-react");
-  if (!element) return;
-  mcpRoot = mountView("mcp", element, () => { if (mcpRoot?.host === element) disposeMcp(); });
+  mcpRoot = mountView("mcp", () => { disposeMcp(); });
   const owner = mcpRoot;
   drawMcpTools();
   try {
@@ -425,10 +431,7 @@ export async function renderAppPermissions(app: App | undefined) {
   showView("appperms", app.slug);
   Object.assign(A, { open: app, perms: null, removing: null, error: "", accountsError: "" });
   permsBusy = false;
-  root().innerHTML = `<div id="app-permissions-react" style="display:contents"></div>${backHint()}`;
-  const element = q<HTMLElement>("#app-permissions-react");
-  if (!element) return;
-  permsRoot = mountView("appperms", element, () => { if (permsRoot?.host === element) disposePerms(); });
+  permsRoot = mountView("appperms", () => { disposePerms(); });
   const owner = permsRoot, version = permsVersions.get(app.slug) ?? 0;
   drawPerms();
   if (app.kind === "fastmail") void loadPageAccounts(app, owner);
