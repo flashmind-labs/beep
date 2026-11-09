@@ -1,5 +1,6 @@
 // The command center's Terminals page, and the terminals Home lists.
 import { ago } from "../ui/format.ts";
+import { createElement } from "react";
 import { dbtn as button } from "../ui/parts.ts";
 import { invoke, Channel } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
@@ -76,9 +77,8 @@ registerView("terminals", {
   title() {
     const list = allTerms.list(ALL);
     const sub = list ? terminalsCount(byMachine(termMachines(), list)) : "";
-    const add = button("New terminal", "pri small", () => allTerms.newOn(termMachines().find(m => m.online)?.id || null));
-    add.disabled = !termMachines().some(m => m.online);
-    return { title: "Terminals", sub, tools: list === null ? [] : [add] };
+    const add = createElement("button", { type: "button", className: "dbtn pri small", disabled: !termMachines().some(m => m.online), onClick: () => allTerms.newOn(termMachines().find(m => m.online)?.id || null) }, "New terminal");
+    return { title: "Terminals", sub, reactTools: list === null ? null : add };
   },
   mount() {
     drawTerminals();

@@ -4,7 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { ThreadCardContent } from "./threadcard-view.tsx";
 // Chats about one pull request or issue: the card at the top of the chat.
 import { reason } from "../ui/format.ts";
-import { dbtn as button, stateChip } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { pane } from "../bar/pane.ts";
 import type { PaneNow } from "../bar/core.ts";
@@ -119,17 +118,16 @@ function drawThreadCard(t: ThreadChatEntry, card: ThreadCard) {
 /// it waits on a reply, and a link to the thread.
 export function threadHead(t: ThreadChatEntry, c: ChatItem | undefined): ViewHead {
   const view = threadCards.get(t.chat_id)?.view;
-  const scope = h("span", "th-scope", scopeTag(t.chat_id));
-  if (view?.needs_reply) scope.append(stateChip("blocked", "needs reply"));
-  const tools: Node[] = [];
-  if (view?.url) tools.push(button(openLabel(view.url), "", () => openUrl(view.url)));
+  const scope = createElement("span", { className: "th-scope" }, scopeTag(t.chat_id), view?.needs_reply ? createElement("span", { className: "chip blocked" }, "needs reply") : null);
+  const tools = [];
+  if (view?.url) { const url = view.url; tools.push(createElement("button", { type: "button", className: "dbtn", key: "link", onClick: () => openUrl(url) }, openLabel(url))); }
   if (c) tools.push(pinButton(c));
   const title = view ? `${threadLabel(view.kind, view.number)} ${view.title}`.trim() : (c?.title || t.title || threadLabel(t.kind, t.number));
-  return { title, tools, scope };
+  return { title, reactTools: tools, reactScope: scope };
 }
 
 export function pinButton(c: ChatItem) {
-  return button(c.pinned ? "Unpin" : "Pin", "", () => setPinned(c, !c.pinned));
+  return createElement("button", { type: "button", className: "dbtn", key: "pin", onClick: () => { void setPinned(c, !c.pinned); } }, c.pinned ? "Unpin" : "Pin");
 }
 
 registerView("pane", {

@@ -131,4 +131,8 @@ test("project header actions retain focus during refresh", async ({ page }) => {
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_home").length)).toBeGreaterThan(reads);
   await expect(more).toBeFocused();
   expect(await more.evaluate(element => element === (window as any).__headerMore)).toBe(true);
+  await page.evaluate(() => window.__navigation.respond("project_ignored_sync", { enabled: false, folders: [] }));
+  await more.click();
+  await page.getByRole("menuitem", { name: "Pin", exact: true }).click();
+  await expect.poll(() => page.evaluate(project => window.__navigation.calls().some(call => call.command === "pin_project_to_top" && call.args.project === project), projectName)).toBe(true);
 });
