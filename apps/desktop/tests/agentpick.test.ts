@@ -91,3 +91,17 @@ test("the pill resolves the default model when the machine reports it", async ()
   assert.equal(modelLabel({ pick: "listed", current: "default", models: [{ id: "default", name: "Default", description: "Opus 4.6 · Most capable" }] }, ""), "Opus 4.6");
   assert.equal(modelLabel(null, ""), "Default");
 });
+
+test("model titles resolve to IDs while labels stay readable", async () => {
+  const { modelId, modelLabel } = await import("../src/agents/agentpick.ts");
+  const list: AgentModels = { pick: "listed", current: "model-sol", models: [
+    { id: "model-sol", name: "Sol", description: null },
+  ] };
+  assert.equal(modelId(list, " Sol "), "model-sol");
+  assert.equal(modelId(list, "sol"), "model-sol");
+  assert.equal(modelId(list, "model-sol"), "model-sol");
+  assert.equal(modelId(null, "custom-model"), "custom-model");
+  assert.equal(modelLabel(list, modelId(list, "Sol")), "Sol");
+  list.models.push({ id: "another-sol", name: "Sol", description: null });
+  assert.equal(modelId(list, "Sol"), "Sol");
+});

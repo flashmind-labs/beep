@@ -4,8 +4,8 @@ import { makeStartComposer } from "./start-composer.ts";
 import { AG, AGENT_ORDER, agentKind, byPreference, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
 import { loadSessions, sessions } from "./sessions.ts";
 import { openAgent, sessionPicks } from "./session.ts";
-import { closedPicker, drawPicker as drawPickerIn, focusSearch, modelsOn, type Picked, pillInner } from "./agentpicker.ts";
-import { type BaseBranches, baseFor, baseRows, type CheckoutPick, DEFAULT_CHECKOUT, folderPill, folderRows, type FormProject, formProjects, harnessFor, keepEffort, knownWorktrees, machineRows, placeMenuAt, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
+import { closedPicker, drawPicker as drawPickerIn, focusSearch, knownModels, modelsOn, type Picked, pillInner } from "./agentpicker.ts";
+import { type BaseBranches, baseFor, baseRows, type CheckoutPick, DEFAULT_CHECKOUT, folderPill, folderRows, type FormProject, formProjects, modelId, harnessFor, keepEffort, knownWorktrees, machineRows, placeMenuAt, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
 import { $, $$, type AgentReturn, bar, PANE, S } from "../bar/core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../addproject/foldercomplete.ts";
 import { folderOn, type MachineFolder, type ProjectRow } from "../project/projects-state.ts";
@@ -652,7 +652,8 @@ export async function startAgent() {
   drawParts();
 
   try {
-    const model = f.model?.trim() && f.modelFor ? f.model.trim() : null;
+    const models = knownModels(f.machine, f.agent);
+    const model = f.model?.trim() && f.modelFor ? modelId(models, f.model) : null;
     const effort = f.effort || null;
     keepMachine(f.project, f.machine);
     // In a project's checkout, an existing worktree is a folder to start
@@ -674,7 +675,8 @@ export async function startAgent() {
       effort,
       checkout,
     });
-    if (model || effort) sessionPicks.set(started.session.id, { model: model ?? "", effort });
+    const resolved = model ?? models?.current ?? "";
+    sessionPicks.set(started.session.id, { model: resolved.toLowerCase() === "default" ? "" : resolved, effort });
     AG.busy = false;
     if (S.view !== "agentnew") return;
     // Back from the session goes where the form came from.
