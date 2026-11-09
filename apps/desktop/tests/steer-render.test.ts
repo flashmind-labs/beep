@@ -49,6 +49,17 @@ test("agent prompt keeps context before the user and retains its element", t => 
   drawAgentBody(undefined, true); assert.equal(bar.querySelector(".dcoderen.user.md"), prompt);
 });
 
+test("child replies keep their action and message during refresh", t => {
+  const { page } = setup();
+  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  page.entries = [{ kind: "user", text: '<beep-child id="child@box" name="Helper" state="asking">\nPlease check this\n</beep-child>\nContinue' }, { kind: "agent", text: "Reply" }];
+  drawAgentBody();
+  const card = bar.querySelector<HTMLElement>(".kidreply"), action = card?.querySelector<HTMLButtonElement>('[data-kid="child@box"]');
+  assert.ok(card && action); assert.match(card.textContent ?? "", /Helper.*Waiting on you.*Please check this/);
+  action.focus(); drawAgentBody(undefined, true);
+  assert.equal(bar.querySelector(".kidreply"), card); assert.equal(document.activeElement, action);
+});
+
 test("session status updates preserve the status element for writable and read-only sessions", t => {
   const { page } = setup();
   t.after(() => { disposeQueue(); stopAgentFollow(); });
