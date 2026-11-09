@@ -120,7 +120,7 @@ export function overviewSection(rows: Project[]) {
       return { id, group, host: entry.host };
     });
     if (visible.length) showWindowParts(visible.map(({ id, group, host }) => ({ part: `project-overview:${id}` as const, host,
-      content: createElement(OverviewGroupView, { group, sync: (name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name)) }) })));
+      content: createElement(OverviewGroupView, { group, editing: group.group && state.renaming?.id === group.group.id ? state.renaming : null, sync: (name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name)) }) })));
     return visible.map(({ host }) => drawing ? panelSlot(host) : host);
   }, 0, 1, row => projectPanel(row) ?? row);
   drawing = false;
