@@ -31,10 +31,11 @@ function confirmRemove(project: string, m: WhereRow) {
       note: `${folder} is deleted on ${m.name} once it stops syncing there. The other machines keep their copies.`,
     },
     action: "Remove",
+    dismissWhileBusy: true,
     run: async deleteFolder => {
       const said = await invoke<string | null>("project_remove_from_machine", { project, machineId: m.id, deleteFolder });
       refresh();
-      await loadWhere(project);
+      void loadWhere(project);
       return said;
     },
   });
