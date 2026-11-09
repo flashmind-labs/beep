@@ -20,6 +20,17 @@ test("past sessions retain focused rows and scroll on refresh", async ({ page })
   await row.click({ button: 'right' });
   await expect(page.getByRole('menuitem', { name: 'Copy id' })).toBeVisible();
   await page.keyboard.press('Escape');
+  const tab = page.getByRole('tab', { name: /Sessions/ });
+  await tab.focus();
+  await tab.evaluate(el => { (el as HTMLElement).dataset.identity = 'kept'; (el as HTMLElement).click(); });
+  await expect(tab).toHaveAttribute('data-identity', 'kept');
+  await expect(tab).toBeFocused();
+  await expect(row).toHaveAttribute('data-identity', 'kept');
+  await row.scrollIntoViewIfNeeded();
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await row.click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: 'Copy id' })).toBeVisible();
+  await page.keyboard.press('Escape');
   await row.press('Enter');
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === 'agent_view' && call.args.session === 'past-10'))).toBe(true);
 });

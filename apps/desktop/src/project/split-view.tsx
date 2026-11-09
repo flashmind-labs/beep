@@ -56,3 +56,8 @@ export function Legacy({ node, flexItem = false }: { node: Kid; flexItem?: boole
 export function ProjectStatus({ cells, openTile }: { cells: readonly { label: string; text: string; key: string; bad?: boolean }[]; openTile: (key: string) => void }) {
   return <>{cells.filter(cell => cell.label && cell.text).map(cell => <button type="button" className="m" key={cell.key} onClick={() => openTile(cell.key)}><b>{cell.label}</b><span className={cell.bad ? "bad" : ""}>{cell.text}</span></button>)}</>;
 }
+
+export function SessionTabs({ selected, sessions, agents, select }: { selected: "sessions" | "agents"; sessions: number; agents: number; select: (tab: "sessions" | "agents") => void }) {
+  return <>{([["sessions", "Sessions", sessions], ["agents", "Agents", agents]] as const).map(([key, label, count]) =>
+    <button key={key} type="button" role="tab" aria-selected={key === selected} onClick={() => select(key)}>{label}{count ? <span className="n">{count}</span> : null}</button>)}</>;
+}

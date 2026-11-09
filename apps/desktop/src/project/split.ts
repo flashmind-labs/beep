@@ -2,7 +2,7 @@ import { MV } from "../agents/move-store.ts";
 import { createElement, Fragment, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
-import { ProjectNavigation, ProjectStatus } from "./split-view.tsx";
+import { ProjectNavigation, ProjectStatus, SessionTabs } from "./split-view.tsx";
 import { ProjectTasks } from "./tasks-view.tsx";
 import { ProjectIssues } from "./issues-view.tsx";
 import { OpenListControls, OpenListStart } from "./openlist-view.tsx";
@@ -53,10 +53,12 @@ interface ProjectShell {
   strip: HTMLElement;
   issues: HTMLElement;
   tasks: HTMLElement;
+  sessionTabs: HTMLElement;
   navView: ReactNode;
   stripView: ReactNode;
   issuesView: ReactNode;
   tasksView: ReactNode;
+  sessionTabsView: ReactNode;
 }
 let shell: ProjectShell | null = null;
 
@@ -64,7 +66,8 @@ function renderProjectShell(current: ProjectShell) {
   // Project panels remain in their existing slots while their shared owner updates.
   showWindowParts([{ part: "project-shell", host: null, identity: current.project, content: createElement(Fragment, null,
     createPortal(current.navView, current.navigation, "navigation"), createPortal(current.stripView, current.strip, "strip"),
-    createPortal(current.issuesView, current.issues, "issues"), createPortal(current.tasksView, current.tasks, "tasks")) }]);
+    createPortal(current.issuesView, current.issues, "issues"), createPortal(current.tasksView, current.tasks, "tasks"),
+    createPortal(current.sessionTabsView, current.sessionTabs, "session-tabs")) }]);
 }
 function disposeProjectShell() {
   if (!shell) return;
@@ -75,7 +78,9 @@ function projectShell(project: string) {
   if (shell?.project === project) return shell;
   disposeProjectShell();
   shell = { project, navigation: h("div", "pj-list"), strip: h("div", "cc-mstrip pj-strip"),
-    issues: h("div", "pj-det"), tasks: h("div", "pj-cols"), navView: null, stripView: null, issuesView: null, tasksView: null };
+    issues: h("div", "pj-det"), tasks: h("div", "pj-cols"), sessionTabs: h("div", "cc-tabs pj-tabs"),
+    navView: null, stripView: null, issuesView: null, tasksView: null, sessionTabsView: null };
+  shell.sessionTabs.setAttribute("role", "tablist");
   return shell;
 }
 function taskPanel(project: string, view: Parameters<typeof ProjectTasks>[0]["view"]) {
@@ -300,19 +305,11 @@ let sessionTab: "sessions" | "agents" = "sessions";
 /// Past sessions and custom agents in two tabs, so each gets the whole height.
 function sessionTabs(p: Project, running: RunningAgent[], rows: WhereRow[]): Node[] {
   const list = sessionsList(p, running, true);
-  const bar = h("div", "cc-tabs pj-tabs");
-  bar.setAttribute("role", "tablist");
+  const current = projectShell(p.name);
+  current.sessionTabsView = createElement(SessionTabs, { selected: sessionTab, sessions: list.count, agents: customAgentsCount(rows),
+    select: tab => { sessionTab = tab; redrawProjects(); } });
 
-  for (const [key, label, n] of [["sessions", "Sessions", list.count], ["agents", "Agents", customAgentsCount(rows)]] as const) {
-    const b = h("button", "", label, n ? h("span", "n", String(n)) : null);
-    b.type = "button";
-    b.setAttribute("role", "tab");
-    b.setAttribute("aria-selected", String(key === sessionTab));
-    b.addEventListener("click", () => { sessionTab = key; redrawProjects(); });
-    bar.append(b);
-  }
-
-  return sessionTab === "sessions" ? [bar, list.body, ...(list.note ? [list.note] : [])] : [bar, customAgentsSection(rows)];
+  return sessionTab === "sessions" ? [panelSlot(current.sessionTabs), list.body, ...(list.note ? [list.note] : [])] : [panelSlot(current.sessionTabs), customAgentsSection(rows)];
 }
 
 /// The agent view with terminal `t`, one of project `name`, in a pane tab with the keys.
