@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 // The command center window's shared state: what Home and the projects
 // last read, and the page cache kept between launches.
 import { PageCache, freshness, type PageSection, type SectionStore } from "../ui/pagecache.ts";
@@ -188,6 +189,8 @@ export interface SidebarGroup<T> {
   title?: string;
   load(): Promise<T[] | null>;
   row(item: T): HTMLElement;
+  key?(item: T): string;
+  render?(item: T): ReactNode;
   onPick?(item: T): void;
   onTitle?(): void;
   action?(): HTMLElement;

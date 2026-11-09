@@ -52,6 +52,7 @@ async function readHome(): Promise<void> {
         state.error = null;
         const live = new Set(home.needs_you.map(cardKey));
         for (const key of state.outcomes.keys()) if (!live.has(key)) state.outcomes.delete(key);
+        for (const name of ["machines", "projects", "pinned"]) void reloadGroup(name);
       } catch (e) {
         state.error = String(e);
         throw e;

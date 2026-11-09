@@ -1,3 +1,5 @@
+import { createElement } from "react";
+import { SidebarMachine } from "../machines/sidebar-machine-view.tsx";
 // Project groups in the sidebar: heading, menu, rename and remove.
 import { plural } from "../ui/format.ts";
 import { svgEl as icon } from "../ui/parts.ts";
@@ -104,6 +106,8 @@ registerSidebarGroup<MachineCard | { thisMac: MacRow }>("machines", {
     const mac = thisMacRow(state.mac, machines);
     return mac ? [...machines, { thisMac: mac }] : machines;
   },
+  key: m => "thisMac" in m ? "this-mac" : m.id,
+  render: m => createElement(SidebarMachine, { machine: m }),
   row(m) {
     if ("thisMac" in m) return thisMacItem(m.thisMac);
     const b = sideItem(null, m.name, m.agents || 0);
