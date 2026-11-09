@@ -1,12 +1,16 @@
+import { routerWindowGlobals } from "./start-react-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import type { CenterView } from "../src/center/state.ts";
 
+// Exercise Router-backed views as client code in jsdom.
+process.env.NODE_ENV = "test";
+
 test("provider save retains edits made while the command is in flight", async () => {
   const dom = new JSDOM("<!doctype html><body><div id='host'></div></body>", { url: "https://app.test" });
   const previous = new Map<string, PropertyDescriptor | undefined>();
-  for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement, IS_REACT_ACT_ENVIRONMENT: true })) {
+  for (const [key, value] of Object.entries({ ...routerWindowGlobals(dom.window), window: dom.window, document: dom.window.document, navigator: dom.window.navigator, HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement, IS_REACT_ACT_ENVIRONMENT: true })) {
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   }

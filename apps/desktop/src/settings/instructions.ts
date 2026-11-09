@@ -1,8 +1,7 @@
 // The Instructions view: the user's rules for every agent Beep runs.
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
 import { MAX_BYTES, bytes } from "./instructions-state.ts";
 import type { VersionRow } from "./instructions-state.ts";
@@ -22,7 +21,7 @@ interface InstructionsDeps {
 export function registerInstructions(deps: InstructionsDeps) {
   const { registerView, invoke, ago } = deps;
   const st: InstructionsState = { tab: "editor", newest: undefined, draft: null, note: "", saving: false, error: "", versions: undefined, shown: null };
-  let root: Root | null = null;
+  let host: HTMLElement | null = null;
 
   const fail = (e: unknown) => String(e).replace(/^(bad request|conflict|error):\s*/i, "");
   const text = () => st.draft ?? st.newest?.text ?? "";
@@ -77,26 +76,25 @@ export function registerInstructions(deps: InstructionsDeps) {
   }
 
   function draw() {
-    if (!root) return;
-    flushSync(() => root?.render(createElement(InstructionsView, {
+    if (!host) return;
+    showWindowParts([{ part: "settings-page:instructions", host, content: createElement(InstructionsView, {
       state: st, ago, setTab,
       setDraft: value => { st.draft = value; draw(); },
       save: () => { void save(); },
       discard: () => { st.draft = null; st.note = ""; draw(); },
       showVersion: version => { st.shown = st.shown === `v${version}` ? null : `v${version}`; draw(); },
       restoreVersion: version => { st.draft = version.text; void save(`Restored version ${version.version}`).then(() => setTab("editor")); },
-    })));
+    }) }]);
   }
 
-  function unmount() { root?.unmount(); root = null; }
-  function reactRoot(host: HTMLElement) { root = createRoot(host); }
+  function unmount() { removeWindowPart("settings-page:instructions"); host = null; }
 
   registerView("instructions", {
     title: () => ({ title: "Instructions", sub: "Your rules for every agent Beep runs", reactTools: createElement("button", { type: "button", className: "dbtn quiet small", onClick: () => deps.openSettings() }, "Settings") }),
-    mount(root, arg) {
+    mount(container, arg) {
       unmount();
-      root.replaceChildren();
-      reactRoot(root);
+      container.replaceChildren();
+      host = container;
       if (arg?.tab) st.tab = arg.tab;
       st.error = "";
       draw();
