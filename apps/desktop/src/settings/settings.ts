@@ -129,16 +129,15 @@ function setAway(view: PanePage, inBar: () => unknown) {
 type LocalView = "general" | "appearance" | "mac" | "devices" | "models" | "apps" | "machines" | "instr" | "agent-overview" | "agent-bar";
 const generalPending = new Set<string>();
 let macControlBusy = false;
-// Sheet controls share the shell root; only the legacy bar layout needs a standalone root.
-const localViews = new Map<LocalView, { host: HTMLElement; root: Root | null; node: ReactNode; observer: MutationObserver }>();
+// Local controls share the active sheet or bar owner while their hosts stay mounted.
+const localViews = new Map<LocalView, { host: HTMLElement; node: ReactNode; observer: MutationObserver }>();
 function disposeLocalView(kind: LocalView) {
   const current = localViews.get(kind);
   localViews.delete(kind);
   if (kind === "models") modelSettingsError = "";
   if (!current) return;
   current.observer.disconnect();
-  current.root?.unmount();
-  if (!current.root) { if (SET.root) drawChrome(); else drawBarSettings(); }
+  drawSettingsOwner();
 }
 function preserveLocalViews(container: HTMLElement) {
   const saved = [...localViews.entries()].filter(([, view]) => container.contains(view.host)).map(([kind, view]) => {
@@ -165,7 +164,7 @@ function mountLocalViews(el: Element) {
       disposeLocalView(kind);
       const observer = new MutationObserver(() => { if (localViews.get(kind)?.host === host && !host.isConnected) disposeLocalView(kind); });
       observer.observe(document.body, { childList: true, subtree: true });
-      view = { host, root: shell?.sheet.contains(host) || barSettings?.host.contains(host) ? null : createRoot(host), node: null, observer };
+      view = { host, node: null, observer };
       localViews.set(kind, view);
     }
     const local = SET.local, current = view;
@@ -196,8 +195,7 @@ function mountLocalViews(el: Element) {
       setEnabled: (enabled: boolean) => void setMacEnabled(enabled),
       allow: (permission: "ScreenRecording" | "Accessibility") => { invoke("allow_mac_permission", { permission }).catch(console.warn); },
     }) : null;
-    if (current.root) flushSync(() => current.root?.render(current.node));
-    else shared = true;
+    shared = true;
   }
   if (shared) { if (SET.root) drawChrome(); else drawBarSettings(); }
 }
@@ -374,7 +372,7 @@ function renderShell(sheet: HTMLElement, pages: SettingsPage[], path: SettingsPa
   flushSync(() => current.root.render(createElement(Fragment, null, createElement(SettingsShell, {
     navigation: createElement(SettingsNavigation, { pages, path, version, subs: subEntries, pageName: settingsPageLabel, subName: subLabel, count: navCount, openPage, openSub: (sub: SettingsSub) => goTo(openSub(sub)) }),
     breadcrumb: createElement(SettingsBreadcrumb, { path, page: settingsPageLabel(path.page), sub: path.sub ? subLabel(path.sub) : null, openPage }),
-  }), ...[...localViews].filter(([, view]) => !view.root).map(([kind, view]) => createPortal(view.node, view.host, kind)), ...sectionPortals())));
+  }), ...[...localViews].map(([kind, view]) => createPortal(view.node, view.host, kind)), ...sectionPortals())));
   current.navigation = sheet.querySelector<HTMLElement>(".dset-nav");
 }
 /// Draws the sheet's current page while keeping its navigation mounted.
@@ -514,7 +512,7 @@ function drawBarSettings() {
   if (!current || !current.host.isConnected) return;
   flushSync(() => current.root.render(createElement(Fragment, null,
     createElement(SettingsBarShell, { version: current.version, sections: current.sections, hints: hints([["esc", "close"]]) }),
-    ...[...localViews].filter(([, view]) => !view.root).map(([kind, view]) => createPortal(view.node, view.host, kind)), ...sectionPortals())));
+    ...[...localViews].map(([kind, view]) => createPortal(view.node, view.host, kind)), ...sectionPortals())));
 }
 
 /// Draws Settings into `root` (the window's sheet), or the bar when none.
