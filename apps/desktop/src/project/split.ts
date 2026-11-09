@@ -1,4 +1,8 @@
 import { MV } from "../agents/move-store.ts";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { ProjectNavigation, ProjectStatus } from "./split-view.tsx";
 // A project page's split: the list of tasks, PRs, issues and machines on
 // the left, the picked row's view on the right.
 import { sessionVisible } from "../agents/closing.ts";
@@ -29,16 +33,34 @@ import { BEEP_MARK} from "../ui/icons.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
 import { runningLineAt } from "../agents/place.ts";
 
-const gitPanelSlots = new WeakMap<Element, HTMLElement>();
+const panelSlots = new WeakMap<Element, HTMLElement>();
 
-export function gitPanel(slot: Element): HTMLElement | null {
-  return gitPanelSlots.get(slot) ?? null;
+export function projectPanel(slot: Element): HTMLElement | null {
+  return panelSlots.get(slot) ?? null;
 }
 
-function gitPanelSlot(panel: HTMLElement): HTMLElement {
+function panelSlot(panel: HTMLElement): HTMLElement {
   const slot = h("div");
-  gitPanelSlots.set(slot, panel);
+  panelSlots.set(slot, panel);
   return slot;
+}
+
+interface ProjectShell {
+  project: string;
+  navigation: HTMLElement;
+  navRoot: Root;
+  strip: HTMLElement;
+  stripRoot: Root;
+}
+let shell: ProjectShell | null = null;
+
+function projectShell(project: string) {
+  if (shell?.project === project) return shell;
+  if (shell) { shell.navRoot.unmount(); shell.stripRoot.unmount(); }
+  const navigation = h("div", "pj-list");
+  const strip = h("div", "cc-mstrip pj-strip");
+  shell = { project, navigation, strip, navRoot: createRoot(navigation), stripRoot: createRoot(strip) };
+  return shell;
 }
 
 /// The split shows for an imported project whose agent's view has loaded, and with no
@@ -64,7 +86,7 @@ export function openTile(key: string | null, draw = true) {
 
 /// One row of the split's list: it shows its detail at the right, or with
 /// `open` goes somewhere else (a running agent opens in the pane).
-interface SplitItem {
+export interface SplitItem {
   key: string;
   lead?: Kid;
   title: string;
@@ -87,7 +109,7 @@ interface SplitItem {
 export type LabelFilter = { all: string[]; on?: string; pick: (label: string) => void };
 /// A group of the list: its title, rows, and a note in place of rows.
 /// A group without a title is set off from the one above it by a rule.
-type SplitGroup = { title: string; items: SplitItem[]; note?: string; labels?: LabelFilter; controls?: HTMLElement };
+export type SplitGroup = { title: string; items: SplitItem[]; note?: string; labels?: LabelFilter; controls?: HTMLElement };
 
 /// The label each list is filtered to, by list key.
 const listLabel = new Map<string, string>();
@@ -230,45 +252,23 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     ? { key: "branches", detail: () => revs.reviewPanel(p.name) }
     : issue ? { key: "issues", detail: () => [button("All issues", "quiet small pj-back", () => openTile("issues")), ...issue.detail!()] }
     : all.find(i => i.key === pa.tile && i.detail) || all[0];
-  const list = h("div", "pj-list");
-
-  for (const [n, g] of groups.entries()) {
-    if (!g.title && n) list.append(h("hr"));
-    if (g.title) list.append(h("h4", "", g.title, g.items.length ? h("span", "n", String(g.items.length)) : null));
-    if (g.note) list.append(h("div", "note", g.note));
-    if (g.controls) list.append(g.controls);
-    const f = g.labels;
-    if (f?.all.length) list.append(h("div", "pj-labels", ...f.all.map(l => labelChip(l, f, "button"))));
-
-    for (const i of g.items) {
-      list.append(splitRow(i, picked.key, f, null, !g.title));
-    }
-  }
+  const currentShell = projectShell(p.name);
+  flushSync(() => currentShell.navRoot.render(createElement(ProjectNavigation, { groups, picked: picked.key, openTile })));
 
   const error = state.pview.get(p.name)?.error;
   const history = pa.tile === "branches" ? gitHistory.panels(p.name) : null;
   const det = history?.detail || h("div", "pj-det", error ? errorNote(`Could not refresh the project: ${error}`) : null, ...picked.detail!());
   const waiting = threads?.filter(t => t.needs_reply).length ?? 0;
-  const strip = statusStrip([
+  const cells = [
     { label: projectBranch(state.gitsync.get(p.name) ?? pages.get<GitRow[]>("gitsync", p.name), state.mac?.id || null) || "", text: "branch", key: "branches" },
     { label: "Actions", text: runs.tile(pid).count || "", key: "actions", bad: runs.tile(pid).rows[0]?.chip?.text === "failed" },
     { label: plural(running.length, "agent", "agents"), text: "running", key: "running" },
     { label: "Machines", text: machineTile(rows, sync).count || "", key: "machines" },
     { label: plural(prItems.length, "PR", "PRs"), text: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : "open", key: "overview" },
     { label: plural(issueItems.length, "issue", "issues"), text: "open", key: "issues" },
-  ]);
-  return [strip, h("div", `${history ? "pj-split gh-layout" : "pj-split"}${pa.tile ? " picked" : ""}`, history ? gitPanelSlot(history.navigation) : list, history ? gitPanelSlot(det) : det)];
-}
-
-/// The strip under the project's title: its branch, Actions, agents, machines,
-/// PRs and issues, each opening its row of the list. A cell with nothing to say is left out.
-function statusStrip(cells: { label: string; text: string; key: string; bad?: boolean }[]) {
-  return h("div", "cc-mstrip pj-strip", ...cells.filter(c => c.label && c.text).map(c => {
-    const b = h("button", "m", h("b", "", c.label), h("span", c.bad ? "bad" : "", c.text));
-    b.type = "button";
-    b.addEventListener("click", () => openTile(c.key));
-    return b;
-  }));
+  ];
+  flushSync(() => currentShell.stripRoot.render(createElement(ProjectStatus, { cells, openTile })));
+  return [panelSlot(currentShell.strip), h("div", `${history ? "pj-split gh-layout" : "pj-split"}${pa.tile ? " picked" : ""}`, panelSlot(history ? history.navigation : currentShell.navigation), history ? panelSlot(det) : det)];
 }
 
 /// The Sessions row's tab on screen.
