@@ -186,6 +186,11 @@ test("terminal tab menu and dragging preserve the running screen", async ({ page
   await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
   await page.mouse.down();
   await page.mouse.move(target.x, target.y, { steps: 12 });
+  const dropIcon = page.locator("#agdropzone svg");
+  await expect(dropIcon).toBeVisible();
+  await dropIcon.evaluate(element => { (element as SVGElement).dataset.identity = "kept"; });
+  await page.mouse.move(target.x - 1, target.y - 1);
+  await expect(dropIcon).toHaveAttribute("data-identity", "kept");
   await page.mouse.up();
   await expect.poll(() => tab.evaluate(element => element.closest<HTMLElement>(".agpane")?.dataset.dock)).not.toBe(from);
   await expect(screen).toHaveAttribute("data-identity", "kept");
