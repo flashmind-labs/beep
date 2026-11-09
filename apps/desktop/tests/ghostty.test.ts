@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import zlib from "node:zlib";
 import { Attr, Ghostty, loadGhostty, RenderState, RowCells, Terminal, trampoline, type TerminalEffects } from "../src/terminals/ghostty.ts";
 
 const WASM = new URL("../ghostty/ghostty-vt.wasm", import.meta.url);
@@ -183,6 +184,59 @@ test("resizing and scrolling move what is shown", async () => {
 
   term.resize(30, 6, CELL);
   assert.deepEqual(term.size(), { cols: 30, rows: 6 });
+  term.free();
+  state.free();
+});
+
+/// A width by height PNG of one RGBA colour, built with Node's zlib.
+function png(width: number, height: number, rgba: [number, number, number, number]): Buffer {
+  const chunk = (type: string, data: Buffer) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 6, 0, 0, 0], 8);
+  const row = Buffer.from([0, ...Array.from({ length: width }, () => rgba).flat()]);
+  const raw = Buffer.concat(Array.from({ length: height }, () => row));
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", header),
+    chunk("IDAT", zlib.deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+test("kitty images, PNG included, are placed and read back", async () => {
+  const { term, state, heard } = await open();
+  const data = png(4, 2, [255, 0, 0, 255]).toString("base64");
+  // As yazi sends one: PNG, placed over 2 by 1 cells at the cursor.
+  write(term, `\x1b[2;3H\x1b_Ga=T,f=100,i=31,c=2,r=1,q=2;${data}\x1b\\`);
+  assert.deepEqual(heard.replies, []);
+
+  state.update(term);
+  const placements = state.placements();
+  assert.equal(placements.length, 1);
+  const [p] = placements;
+  assert.equal(p.id, 31);
+  assert.deepEqual([p.col, p.row, p.width, p.height], [2, 1, 2 * CELL.width, CELL.height]);
+  assert.deepEqual(p.source, { x: 0, y: 0, width: 4, height: 2 });
+  assert.equal(p.layer, "above-text");
+
+  const pixels = term.imagePixels(31);
+  assert.ok(pixels);
+  assert.deepEqual([pixels.width, pixels.height], [4, 2]);
+  assert.deepEqual([...pixels.rgba.subarray(0, 4)], [255, 0, 0, 255]);
+  assert.equal(term.imagePixels(99), null);
+
+  // Programs ask whether images work before sending them.
+  write(term, "\x1b_Gi=1,a=q,s=1,v=1,f=24;AAAA\x1b\\");
+  assert.match(heard.replies[0] ?? "", /^\x1b_Gi=1;OK\x1b\\$/);
   term.free();
   state.free();
 });
