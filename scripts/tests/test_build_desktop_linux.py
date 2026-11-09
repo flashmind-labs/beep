@@ -26,6 +26,10 @@ echo "$count" > "$ATTEMPT_FILE"
 printf '%s\\n' "$@" > "$ARG_FILE"
 case "$RESPONSES:$count" in
   retry:1|always:*) echo 'Error failed to bundle project: `http status: 504`' >&2; exit 1 ;;
+  runtime:1|runtime_always:*) echo '[appimage/stderr] Failed to download runtime: server returned status code 504' >&2
+    echo 'Error failed to bundle project: `failed to run linuxdeploy`' >&2; exit 1 ;;
+  runtime_missing:*) echo '[appimage/stderr] Failed to download runtime: server returned status code 404' >&2; exit 1 ;;
+  packaging:*) echo 'Error failed to bundle project: `failed to run linuxdeploy`' >&2; exit 1 ;;
   compile:*) echo 'error: could not compile package' >&2; exit 1 ;;
 esac
 """)
@@ -41,11 +45,31 @@ esac
         result, count, args = self.run_build("retry")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(count, 2)
-        self.assertEqual(args, ["build", "--ci", "--bundles", "deb,appimage", "--config",
+        self.assertEqual(args, ["build", "--ci", "--verbose", "--bundles", "deb,appimage", "--config",
                                 '{"bundle":{"createUpdaterArtifacts":true}}', "--", "--locked"])
 
     def test_does_not_retry_compilation_errors(self):
         result, count, _ = self.run_build("compile")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(count, 1)
+
+    def test_retries_runtime_server_error(self):
+        result, count, _ = self.run_build("runtime")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(count, 2)
+
+    def test_stops_after_three_runtime_server_errors(self):
+        result, count, _ = self.run_build("runtime_always")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(count, 3)
+
+    def test_does_not_retry_missing_runtime(self):
+        result, count, _ = self.run_build("runtime_missing")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(count, 1)
+
+    def test_does_not_retry_other_packaging_errors(self):
+        result, count, _ = self.run_build("packaging")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(count, 1)
 
