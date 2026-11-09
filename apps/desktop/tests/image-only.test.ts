@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { AG, type AgentPage, type AgentRow } from "../src/agents/agents.ts";
 import { S } from "../src/bar/core.ts";
 import { sendAgentMessage } from "../src/agents/messages.ts";
+import { pollAgent, stopAgentFollow } from "../src/agents/session.ts";
 import { MN } from "../src/agents/workdrop.ts";
 
 const png = { name: "shot.png", mime: "image/png", size: 8, data: "iVBORw0KGgo=", url: "data:image/png;base64,iVBORw0KGgo=" };
@@ -13,9 +14,10 @@ function openSession(status: string): AgentPage {
   const page: AgentPage = { session, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 };
   S.view = "agent";
   Object.assign(document, { visibilityState: "hidden" });
-  Object.assign(AG, { open: { machine_id: "m1", agent: "claude", session: "s1" }, page, queue: [], note: "", att: [], flushing: false, inflight: null, stopping: null });
+  Object.assign(AG, { open: { machine_id: "m1", agent: "claude", session: "s1" }, page, queue: [], note: "", att: [], flushing: false, inflight: null, stopping: null, tasks: [] });
   Object.assign(MN, { paths: [], uploads: [], ask: null });
   answers.agent_view = { ...page, session: { ...session, status: "idle" } };
+  answers.agent_tasks = [];
   calls.length = 0;
   delete answers.agent_steer;
   bar.innerHTML = '<div id="agbody"></div><textarea id="agmsg"></textarea>';
@@ -40,6 +42,19 @@ test("an image continues an ended session without a prompt", async () => {
   clearTimeout(AG.timer);
 });
 
+test("an image continues a session that was external before resume", async () => {
+  const page = openSession("ended");
+  page.session.external = true;
+  field().value = "Look at this";
+  AG.att = [png];
+  answers.agent_resume = { session: { ...page.session, external: false, status: "starting" }, why: "" };
+  answers.agent_steer = ["picture-key"];
+  assert.equal(await sendAgentMessage(), true);
+  assert.deepEqual(steers(), [{ steer: { text: "Look at this", images: [{ name: png.name, mime: png.mime, data: png.data }] } }]);
+  assert.equal(AG.page?.session.external, false);
+  clearTimeout(AG.timer);
+});
+
 test("a refused image remains attached when continuing an ended session", async () => {
   const page = openSession("ended");
   const input = field();
@@ -50,4 +65,20 @@ test("a refused image remains attached when continuing an ended session", async 
   assert.deepEqual(AG.att, [png]);
   assert.equal(input.disabled, false);
   clearTimeout(AG.timer);
+});
+
+
+test("resuming reconnects a stream that closed before its first snapshot", async t => {
+  const page = openSession("ended");
+  Object.assign(document, { visibilityState: "visible" });
+  answers.agent_follow = null;
+  await pollAgent(true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls.filter(c => c.cmd === "agent_follow").length, 1);
+  answers.agent_resume = { session: { ...page.session, status: "starting" }, why: "" };
+  answers.agent_follow = new Promise<void>(() => {});
+  t.after(() => { stopAgentFollow(); clearTimeout(AG.timer); delete answers.agent_follow; });
+  field().value = "continue";
+  await sendAgentMessage();
+  assert.equal(calls.filter(c => c.cmd === "agent_follow").length, 2);
 });

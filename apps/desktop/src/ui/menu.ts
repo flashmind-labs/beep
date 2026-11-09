@@ -92,6 +92,8 @@ export interface ConfirmOptions {
   note?: string;
   /// The button that does it, such as "Remove".
   action: string;
+  /// Allow dismissal while the operation continues in the background.
+  dismissWhileBusy?: boolean;
   /// An unticked box under the text, with `note` in place of the sheet's
   /// note while it is ticked.
   tick?: { label: string; note: string };
@@ -107,7 +109,7 @@ export function confirmSheet(options: ConfirmOptions) {
   closeMenu();
   let busy = false;
   const { sheet, close: shut } = openSheet(options.title, "am-sheet", {
-    canClose: () => !busy,
+    canClose: () => !busy || options.dismissWhileBusy === true,
     // A modal: no key reaches the page behind it.
     onKey: e => {
       if (e.key === "Escape") { e.preventDefault(); close(); }
@@ -117,7 +119,7 @@ export function confirmSheet(options: ConfirmOptions) {
   });
   const error = el("div", "am-msg bad");
   error.hidden = true;
-  const close = () => { if (!busy) shut(); };
+  const close = () => { if (!busy || options.dismissWhileBusy) shut(); };
   const go = async () => {
     if (busy) return;
     busy = true;

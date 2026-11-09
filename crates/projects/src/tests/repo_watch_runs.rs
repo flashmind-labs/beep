@@ -108,3 +108,27 @@ async fn a_forgejo_without_a_jobs_api_gives_no_jobs_not_an_error() {
     let github = test_target(Api::GitHub, &host.base);
     assert!(jobs(&calls, &caller, &github, 12).await.is_err());
 }
+
+#[tokio::test]
+async fn pull_request_heads_use_the_local_host_api() {
+    let host = TestHost::start(|seen| match seen.path.as_str() {
+        "/repos/acme/widget/pulls?state=open&per_page=100"
+        | "/repos/acme/widget/pulls?state=open&limit=100&page=1" => {
+            Reply::ok(r#"[{"number":42,"head":{"ref":"fix-ci"}}]"#)
+        }
+        _ => Reply::status("404 Not Found"),
+    })
+    .await;
+    let client = beep_proto::https::client().build().expect("client");
+    let limit = Arc::new(Semaphore::new(2));
+    let calls = HostCalls::default();
+
+    for api in [Api::GitHub, Api::Forgejo] {
+        let target = test_target(api, &host.base);
+        let caller = target.caller(&limit, &client);
+        assert_eq!(
+            heads(&calls, &caller, &target).await.expect("heads"),
+            vec![(42, "fix-ci".to_owned())]
+        );
+    }
+}

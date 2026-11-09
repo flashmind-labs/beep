@@ -5,6 +5,7 @@
 
 use crate::usage::{PlanFollow, freshest};
 use crate::{
+    AsyncMutex,
     desk::{Desk, DesktopHosts},
     error::{FleetError, Result},
     peer::Peers,
@@ -200,6 +201,7 @@ pub struct Session {
     changed: Arc<dyn Fn(Changed) + Send + Sync>,
     lists: Cache<String, LabeledProjectLists>,
     runs: Cache<String, HostedRuns>,
+    run_reads: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
     /// Runs opened, by project and run id.
     /// By project, host and run id.
     run_details: Cache<(String, Option<String>, u64), ProjectRunDetail>,
@@ -244,6 +246,7 @@ impl Session {
             changed: Arc::new(changed),
             lists: Cache::default(),
             runs: Cache::default(),
+            run_reads: Mutex::default(),
             run_details: Cache::default(),
             spend,
             plans: watch::Sender::new(plans.unwrap_or_default()),
@@ -359,8 +362,21 @@ impl Session {
             return Ok(held);
         }
 
+        let gate = self.run_gate(project);
+        let (_reading, waited) = match gate.try_lock() {
+            Ok(guard) => (guard, false),
+            Err(_) => (gate.lock().await, true),
+        };
+
+        if (!refresh || waited)
+            && let Some((held, false)) = self.runs.get_by(&key, fresh)
+        {
+            return Ok(held);
+        }
+
         let started = self.epoch.load(Ordering::Relaxed);
-        let read = self.desk().await?.runs(project).await?;
+        let mut read = self.desk().await?.runs(project).await?;
+        self.preserve_runs(&key, &mut read);
 
         if started == self.epoch.load(Ordering::Relaxed) {
             self.runs.put(key, read.clone());
@@ -398,6 +414,43 @@ impl Session {
         Ok(read)
     }
 
+    fn run_gate(&self, project: &str) -> Arc<AsyncMutex<()>> {
+        self.run_reads
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(project.to_owned())
+            .or_default()
+            .clone()
+    }
+
+    fn preserve_runs(&self, key: &String, read: &mut HostedRuns) {
+        if let Some((previous, _)) = self.runs.get(key, FRESH) {
+            for host in &mut read.hosts {
+                if host.error.is_some() {
+                    host.synced_at = previous
+                        .hosts
+                        .iter()
+                        .find(|old| old.host == host.host)
+                        .and_then(|old| old.synced_at);
+                    read.runs.extend(
+                        previous
+                            .runs
+                            .iter()
+                            .filter(|run| run.host == host.host)
+                            .cloned(),
+                    );
+                    read.checks.extend(
+                        previous
+                            .checks
+                            .iter()
+                            .filter(|checks| checks.host == host.host)
+                            .cloned(),
+                    );
+                }
+            }
+        }
+    }
+
     fn read_runs_later(self: &Arc<Self>, key: String) {
         if !self.runs.begin(&key) {
             return;
@@ -407,10 +460,22 @@ impl Session {
         self.spawn(async move {
             let _slot = this.limit.acquire().await;
             let started = this.epoch.load(Ordering::Relaxed);
+            let gate = this.run_gate(&key);
+            let _reading = gate.lock().await;
+            if let Some((_, false)) = this.runs.get_by(&key, |runs| {
+                runs_fresh(runs, this.options.fresh, SystemTime::now())
+            }) {
+                this.runs.end(&key);
+                return;
+            }
+
             let read = async { this.desk().await?.runs(&key).await }.await;
             let kept = started == this.epoch.load(Ordering::Relaxed);
             let read = match read {
-                Ok(read) => Some(read),
+                Ok(mut read) => {
+                    this.preserve_runs(&key, &mut read);
+                    Some(read)
+                }
                 Err(e) => {
                     log::info!("a project's runs did not read again: {e}");
                     this.runs.touch(&key);
