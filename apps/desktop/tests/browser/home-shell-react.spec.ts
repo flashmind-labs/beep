@@ -23,3 +23,17 @@ test("Home refresh retains its tab, focus, content and scroll", async ({ page })
   await page.getByRole("tab", { name: "Machines" }).click();
   await expect(page.locator("#sec-machines")).toBeVisible();
 });
+
+test("Overview keeps unchanged update rows and focus when another update changes", async ({ page }) => {
+  const home = { machines: [], projects: [], running: [], needs_you: [], coming_up: null,
+    updates: [{ id: 1, summary: "First update", app: "app", app_name: "App", at: 1 }, { id: 2, summary: "Second update", app: "app", app_name: "App", at: 1 }] };
+  await openDesktop(page, false, { center_home: home });
+  const second = page.getByRole("button", { name: "Second update" });
+  await expect(second).toBeVisible();
+  await second.focus();
+  await second.evaluate(element => { (window as any).__homeRow = element; });
+  await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, { ...home, updates: [{ ...home.updates[0], summary: "Changed update" }, home.updates[1]] });
+  await expect(page.getByRole("button", { name: "Changed update" })).toBeVisible();
+  await expect(second).toBeFocused();
+  expect(await second.evaluate(element => element === (window as any).__homeRow)).toBe(true);
+});

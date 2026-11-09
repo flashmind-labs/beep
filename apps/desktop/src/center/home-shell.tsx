@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { patchChildren } from "../ui/patch.ts";
 import { plural } from "../ui/format.ts";
 import { IC } from "../ui/icons.ts";
@@ -15,6 +15,7 @@ export interface HomeShellProps {
   useMac(): void;
   notices: HTMLElement[];
   content: HTMLElement[];
+  overview: ReactNode;
   tabs: { key: HomeTab; label: string; count: number | null }[];
   selected: HomeTab;
   open(tab: HomeTab): void;
@@ -29,7 +30,7 @@ function ExistingSection({ nodes }: { nodes: HTMLElement[] }) {
   return <div ref={host} className="home-sections" style={{ display: "contents" }} />;
 }
 
-export function HomeShell({ machines, mac, jump, menu, addMachine, useMac, notices, content, tabs, selected, open }: HomeShellProps) {
+export function HomeShell({ machines, mac, jump, menu, addMachine, useMac, notices, content, overview, tabs, selected, open }: HomeShellProps) {
   return <>
     {machines && <div className="cc-mstrip">{machines.map(machine => {
       const disk = machineDisk(machine).text;
@@ -43,6 +44,6 @@ export function HomeShell({ machines, mac, jump, menu, addMachine, useMac, notic
         {tab.label}{!!tab.count && <span className="n">{tab.count}</span>}
       </button>)}</div>
     <ExistingSection nodes={notices} />
-    <ExistingSection nodes={content} />
+    {overview ?? <ExistingSection nodes={content} />}
   </>;
 }
