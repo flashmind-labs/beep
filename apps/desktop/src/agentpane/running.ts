@@ -1,6 +1,5 @@
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
 import { RunningView } from "./running-view.tsx";
 // Commands the session left running, following changes while its pane shows.
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
@@ -19,7 +18,6 @@ let unfollow: (() => void) | undefined;
 let list: RunningProcess[] = [];
 let local = false;
 let el: HTMLElement | null = null;
-let root: Root | null = null;
 let error = "";
 const stopping = new Set<number>();
 /// Rows whose whole command shows, by pid.
@@ -35,7 +33,7 @@ function syncSession() {
   list = [];
   local = false;
   error = "";
-  root?.unmount(); root = null;
+  if (el) removeSessionPortal(el);
   stopping.clear();
   el?.remove();
   el = null;
@@ -76,7 +74,6 @@ export function runningView() {
 
   if (!el) {
     el = h('<div class="agpview running"></div>');
-    root = createRoot(el);
     el.addEventListener("click", e => {
       const target = e.target as HTMLElement;
       const link = target.closest<HTMLAnchorElement>("a[data-port]");
@@ -107,11 +104,11 @@ export function runningView() {
 }
 
 function render() {
-  if (!el || !root) return;
-  const current = root;
-  flushSync(() => current.render(createElement(RunningView, {
+  const session = paneSession();
+  if (!el || !session || key !== `${session.machine_id}\n${session.id}`) return;
+  setSessionPortal(el, createElement(RunningView, {
     processes: list, local, stopping, whole, machine: paneSession()?.machine_name ?? "The machine", error,
-  })));
+  }));
 }
 
 async function stop(pids: number[]) {
