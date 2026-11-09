@@ -1,4 +1,7 @@
 // The model and thinking pill by a session's field, and switching them.
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
 import { modelId } from "./agentpick.ts";
 import { closedPicker, knownModels, modelsOn, drawPicker, type Picked, pillInner } from "./agentpicker.ts";
 import { $, bar } from "../bar/core.ts";
@@ -6,7 +9,13 @@ import { type AgentRow, AG, agentKind } from "./agents.ts";
 import { SWITCHES, sessionPicks } from "./session.ts";
 import { drawAgentBody } from "./logview.ts";
 import { steerAgent } from "./messages.ts";
-import { esc } from "../ui/format.ts";
+
+let pillRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+function disposePill() {
+  const current = pillRoot;
+  pillRoot = null;
+  if (current) { current.observer.disconnect(); current.root.unmount(); }
+}
 
 /// The pill by the field: the harness, the model and thinking switched to.
 /// A harness that cannot switch in a running session shows it disabled.
@@ -18,7 +27,15 @@ export function drawModelPill() {
   const model = AG.page?.model || p.model;
   if (model) modelsOn(s.machine_id, s.agent, () => { if (AG.page?.session.id === s.id) drawModelPill(); });
   const why = can ? "Switch the model or thinking; applies from the next turn" : `${agentKind(s.agent).name} cannot switch models in a running session`;
-  el.innerHTML = `<button class="agc-pill agm" id="agmodelb" aria-expanded="${AG.modelOpen}" title="${esc(why)}"${can ? "" : " disabled"}>${pillInner(s.agent, model || "Model unknown", p.effort, s.machine_id)}</button>`;
+  if (pillRoot?.host !== el) {
+    disposePill();
+    const root = createRoot(el);
+    const observer = new MutationObserver(() => { if (pillRoot?.host === el && !el.isConnected) disposePill(); });
+    observer.observe(document.body, { childList: true, subtree: true });
+    pillRoot = { host: el, root, observer };
+  }
+  const root = pillRoot.root;
+  flushSync(() => root.render(createElement("button", { className: "agc-pill agm", id: "agmodelb", "aria-expanded": AG.modelOpen, title: why, disabled: !can, dangerouslySetInnerHTML: { __html: pillInner(s.agent, model || "Model unknown", p.effort, s.machine_id) } })));
 }
 
 export function toggleModelPicker() {
