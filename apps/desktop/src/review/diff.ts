@@ -729,7 +729,15 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (markedPath === st.cur) return;
     markedPath = st.cur;
     for (const [p, s] of sections) s.classList.toggle("cur", p === st.cur);
-    for (const row of tree.querySelectorAll<HTMLElement>(".dv-tr")) row.classList.toggle("on", row.dataset.path === st.cur);
+    for (const row of treeFiles.values()) row.classList.toggle("on", row.dataset.path === st.cur);
+    const row = st.cur ? treeFiles.get(st.cur) : null;
+    if (!row || !tree.clientHeight) return;
+    for (const [folder, { group }] of treeFolders) {
+      if (st.cur?.startsWith(folder)) { st.closedFolders.delete(folder); group.open = true; }
+    }
+    const bounds = tree.getBoundingClientRect(), item = row.getBoundingClientRect();
+    if (item.top < bounds.top) tree.scrollTop += item.top - bounds.top;
+    else if (item.bottom > bounds.bottom) tree.scrollTop += item.bottom - bounds.bottom;
   }
 
   function jump(path: string) {
