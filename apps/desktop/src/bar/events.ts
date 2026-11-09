@@ -1,3 +1,4 @@
+import { discardChatApproval } from "../chat/work-view.tsx";
 import "./keys.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
 import { chartClick } from "../chat/charts.ts";
@@ -133,6 +134,7 @@ listen<{ session: string; query_id: string } | null>("approval-answered", e => {
   const en = live.get(session!), pending = en?.approval;
   if (!en || !pending || pending.queryId !== query_id) return;
   en.approval = null;
+  discardChatApproval(pending.turn);
   pending.card.replaceWith(h('<div class="dmuted">Answered</div>'));
   pending.turn.done = false;
   if (!en.run) live.delete(session!);

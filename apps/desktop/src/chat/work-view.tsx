@@ -1,13 +1,17 @@
 import { createElement, Fragment, memo } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { ICON } from "../ui/icons.ts";
+import type { ApprovalField, Decision } from "./chat.ts";
 import { AgentTurnHeading, type TurnHeading } from "../agents/turn-heading-view.tsx";
 import type { ChatBody, Turn } from "../ui/turn.ts";
 
 interface Part { key: string; html: string }
 export interface WorkView { heading: TurnHeading | null; thought: string; steps: Part[]; live: string }
-interface Owner { root: Root; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
+interface ApprovalView { app: string; action: string; fields: ApprovalField[]; grant: boolean; answer: (decision: Decision) => void }
+interface Owner { root: Root; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
 const owners = new WeakMap<ChatBody, Owner>();
+const approvalTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
 const suggestionTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
 const promptTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
 const turns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
@@ -22,6 +26,11 @@ const Html = memo(function Html({ html }: { html: string }) {
 const Prompt = memo(function Prompt({ html }: { html: string }) {
   return <><b>You</b><span dangerouslySetInnerHTML={{ __html: html }} /></>;
 });
+const Approval = memo(function Approval({ value }: { value: ApprovalView }) {
+  return <><div className="head"><span className="dapp" data-app={value.app} /><div className="dcol"><b>{value.action}?</b><small>{value.app} asks first</small></div></div>
+    {!!value.fields.length && <div className="kv">{value.fields.map((field, i) => <Fragment key={i}><span>{field.label}</span><span>{field.value}</span></Fragment>)}</div>}
+    <div className="acts"><button className="dbtn pri" data-d="allow" onClick={() => value.answer("allow")}>Allow<kbd>⌘<span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: ICON.ret }} /></kbd></button>{!value.grant && <><button className="dbtn" data-d="session" title="Allow this action without asking until this chat ends" onClick={() => value.answer("session")}>Allow for this session<kbd>⇧⌘<span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: ICON.ret }} /></kbd></button><button className="dbtn" data-d="always" title="Allow this action without asking until this chat ends" onClick={() => value.answer("always")}>Always<kbd>⌥⌘<span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: ICON.ret }} /></kbd></button></>}<button className="dbtn warn" data-d="deny" onClick={() => value.answer("deny")}>Deny<kbd>⌘D</kbd></button></div></>;
+});
 const Suggestions = memo(function Suggestions({ replies, send }: { replies: string[]; send: (text: string) => void }) {
   return <>{replies.map((reply, i) => <button className="dbtn" key={`${i}:${reply}`} onClick={() => send(reply)}>{reply}</button>)}</>;
 });
@@ -30,6 +39,7 @@ const Work = memo(function Work({ value }: { value: WorkView }) {
 });
 function draw(owner: Owner) {
   flushSync(() => owner.root.render(createElement(Fragment, null,
+    ...[...owner.approvals].map(([host, row]) => createPortal(createElement(Approval, { value: row.value }), host, row.key)),
     ...[...owner.suggestions].map(([host, row]) => createPortal(createElement(Suggestions, { replies: row.replies, send: row.send }), host, row.key)),
     ...[...owner.prompts].map(([host, row]) => createPortal(createElement(Prompt, { html: row.html }), host, row.key)),
     ...[...owner.rows].map(([host, row]) => createPortal(createElement(Work, { value: row.value }), host, row.key)),
@@ -37,8 +47,28 @@ function draw(owner: Owner) {
 }
 function ownerOf(body: ChatBody) {
   let owner = owners.get(body);
-  if (!owner) { owner = { root: createRoot(document.createElement("div")), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 }; owners.set(body, owner); }
+  if (!owner) { owner = { root: createRoot(document.createElement("div")), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 }; owners.set(body, owner); }
   return owner;
+}
+export function renderChatApproval(body: ChatBody, turn: Turn, box: HTMLElement, value: ApprovalView) {
+  const owner = ownerOf(body), prior = owner.approvals.get(box);
+  approvalTurns.set(turn, { owner, box });
+  owner.approvals.set(box, { key: prior?.key ?? ++owner.next, value });
+  draw(owner);
+}
+export function discardChatApproval(turn: Turn) {
+  const entry = approvalTurns.get(turn);
+  approvalTurns.delete(turn);
+  if (entry) { entry.owner.approvals.delete(entry.box); draw(entry.owner); }
+}
+export function transferChatApproval(from: Turn, to: Turn) {
+  const next = approvalTurns.get(from), prior = approvalTurns.get(to);
+  approvalTurns.delete(from);
+  if (prior) prior.owner.approvals.delete(prior.box);
+  if (next) approvalTurns.set(to, next); else approvalTurns.delete(to);
+  if (prior && prior.owner !== next?.owner) draw(prior.owner);
+  const current = next ?? prior;
+  if (current) draw(current.owner);
 }
 export function renderChatSuggestions(body: ChatBody, turn: Turn, box: HTMLElement, replies: string[], send: (text: string) => void) {
   const owner = ownerOf(body), prior = owner.suggestions.get(box);
@@ -152,8 +182,9 @@ export function transferChatReply(from: Turn, to: Turn) {
   replyTurns.delete(from); replyTurns.set(to, entry);
 }
 export function discardChatWork(turn: Turn) {
-  const suggestion = suggestionTurns.get(turn), prompt = promptTurns.get(turn), work = turns.get(turn), reply = replyTurns.get(turn);
-  suggestionTurns.delete(turn); promptTurns.delete(turn); turns.delete(turn); replyTurns.delete(turn);
+  const approval = approvalTurns.get(turn), suggestion = suggestionTurns.get(turn), prompt = promptTurns.get(turn), work = turns.get(turn), reply = replyTurns.get(turn);
+  approvalTurns.delete(turn); suggestionTurns.delete(turn); promptTurns.delete(turn); turns.delete(turn); replyTurns.delete(turn);
+  if (approval) approval.owner.approvals.delete(approval.box);
   if (suggestion) suggestion.owner.suggestions.delete(suggestion.box);
   if (prompt) {
     const waiting = promptPending.get(prompt.box);
@@ -170,8 +201,6 @@ export function discardChatWork(turn: Turn) {
     if (waiting) { document.removeEventListener("selectionchange", waiting.resume); replyPending.delete(reply.box); }
     reply.owner.replies.delete(reply.box);
   }
-  if (suggestion) draw(suggestion.owner);
-  if (prompt && prompt.owner !== suggestion?.owner) draw(prompt.owner);
-  if (work && work.owner !== prompt?.owner && work.owner !== suggestion?.owner) draw(work.owner);
-  if (reply && reply.owner !== work?.owner && reply.owner !== prompt?.owner && reply.owner !== suggestion?.owner) draw(reply.owner);
+  const owners = new Set([approval?.owner, suggestion?.owner, prompt?.owner, work?.owner, reply?.owner]);
+  for (const owner of owners) if (owner) draw(owner);
 }
