@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createDocumentView } from "../ui/document-root.tsx";
+import { FindView } from "./find-view.tsx";
 import { el } from "../ui/dom.ts";
 import { nextMatch, searchPattern, textMatches } from "./find-state.ts";
 
@@ -31,45 +35,18 @@ export function openChatFind(chat: ChatSearch) {
   active?.close(false);
   const { body } = chat;
   const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  const bar = el("div", "chat-find");
-  bar.setAttribute("role", "search");
-  bar.setAttribute("aria-label", "Search conversation");
-  const input = el("input");
-  input.placeholder = "Find in chat";
-  input.setAttribute("aria-label", "Find in chat");
-  input.setAttribute("aria-describedby", "chat-find-status");
-  input.autocomplete = "off";
-  input.spellcheck = false;
-  const status = el("output");
-  status.id = "chat-find-status";
-  status.setAttribute("aria-live", "polite");
-  const button = (label: string, path: string, run: () => void) => {
-    const b = el("button");
-    b.type = "button";
-    b.setAttribute("aria-label", label);
-    b.title = label;
-    b.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${path}"/></svg>`;
-    b.onclick = run;
-    return b;
-  };
-  const prev = button("Previous match (Shift+Enter)", "m18 15-6-6-6 6", () => move(-1));
-  const next = button("Next match (Enter)", "m6 9 6 6 6-6", () => move(1));
-  const exit = button("Close search (Esc)", "m6 6 12 12M6 18 18 6", () => close());
-  const regex = el("button", "chat-find-regex", ".*");
-  regex.type = "button";
-  regex.title = "Use regular expression";
-  regex.setAttribute("aria-label", "Use regular expression");
-  regex.setAttribute("aria-pressed", "false");
-  regex.onclick = () => {
-    regex.setAttribute("aria-pressed", String(regex.getAttribute("aria-pressed") !== "true"));
-    clearTimeout(timer); timer = 0;
-    refresh(true);
-    input.focus({ preventScroll: true });
-  };
-  bar.append(input, regex, status, prev, next, exit);
   const layer = el("div", "chat-find-layer");
-  layer.append(bar);
   body.before(layer);
+  const root = createDocumentView(layer);
+  let useRegex = false, statusText = "";
+  const draw = () => flushSync(() => root.render(createElement(FindView, {
+    error, status: statusText, regex: useRegex, disabled: !matches.length,
+    input: () => { clearTimeout(timer); timer = window.setTimeout(() => { timer = 0; refresh(true); }, 100); },
+    enter: reverse => move(reverse ? -1 : 1),
+    toggleRegex: () => { useRegex = !useRegex; clearTimeout(timer); timer = 0; refresh(true); input.focus({ preventScroll: true }); },
+    move, close: () => close(),
+  })));
+  let input: HTMLInputElement;
   let matches: Match[] = [], current = -1, timer = 0, updateTimer = 0, loading = !!chat.prepare, closed = false;
   let pattern: RegExp | null = null, error = "";
   let marks: HTMLElement[] = [];
@@ -79,7 +56,7 @@ export function openChatFind(chat: ChatSearch) {
   };
   const observer = new MutationObserver(changed);
   const unwatch = chat.watch?.(changed);
-  const navigation = new MutationObserver(() => { if (!bar.isConnected || !body.isConnected) close(false); });
+  const navigation = new MutationObserver(() => { if (!layer.isConnected || !body.isConnected) close(false); });
   navigation.observe(document.body, { childList: true, subtree: true });
 
   function clearMarks() {
@@ -118,25 +95,20 @@ export function openChatFind(chat: ChatSearch) {
     return selected;
   }
   function count() {
-    status.textContent = error ? "Invalid regex" : loading ? "Loading history..." : !input.value ? "" : matches.length ? `${current + 1} of ${matches.length}` : "No matches";
-    prev.disabled = next.disabled = !matches.length;
+    statusText = error ? "Invalid regex" : loading ? "Loading history..." : !input.value ? "" : matches.length ? `${current + 1} of ${matches.length}` : "No matches";
+    draw();
   }
   function refresh(jump: boolean) {
     if (closed) return;
     const chosen = matches[current];
 
     try {
-      pattern = searchPattern(input.value, regex.getAttribute("aria-pressed") === "true");
+      pattern = searchPattern(input.value, useRegex);
       error = "";
     } catch (e) {
       pattern = null;
       error = e instanceof Error ? e.message : String(e);
     }
-
-    bar.classList.toggle("invalid", !!error);
-
-    if (error) { input.setAttribute("aria-invalid", "true"); status.title = error; }
-    else { input.removeAttribute("aria-invalid"); status.removeAttribute("title"); }
 
     matches = pattern ? chat.sources().flatMap(({ key, root }) => matchingRanges(root, pattern).map((_, at) => ({ key, at }))) : [];
     const kept = chosen ? matches.findIndex(m => m.key === chosen.key && m.at === chosen.at) : -1;
@@ -182,19 +154,18 @@ export function openChatFind(chat: ChatSearch) {
     clearTimeout(timer); clearTimeout(updateTimer);
     observer.disconnect(); navigation.disconnect();
     unwatch?.();
-    clearMarks(); layer.remove();
+    clearMarks(); root.unmount(); layer.remove();
     if (active?.close === close) active = null;
     if (focus && previous?.isConnected) previous.focus({ preventScroll: true });
   }
-  input.addEventListener("input", () => { clearTimeout(timer); timer = window.setTimeout(() => { timer = 0; refresh(true); }, 100); });
-  bar.addEventListener("keydown", e => {
-    if (e.isComposing) return;
-    if (e.key === "Enter" && e.target === input) { e.preventDefault(); e.stopPropagation(); move(e.shiftKey ? -1 : 1); }
-  });
+  draw();
+  const field = layer.querySelector<HTMLInputElement>("input");
+  if (!field) { root.unmount(); layer.remove(); return; }
+  input = field;
   active = { close, move, focus: () => { input.focus(); input.select(); } };
   active.focus();
   observe(); count();
-  if (chat.prepare) void chat.prepare().then(() => { if (!closed) { loading = false; refresh(true); } }, () => { if (!closed) { loading = false; refresh(false); status.textContent = "Could not load older messages"; } });
+  if (chat.prepare) void chat.prepare().then(() => { if (!closed) { loading = false; refresh(true); } }, () => { if (!closed) { loading = false; refresh(false); statusText = "Could not load older messages"; draw(); } });
 }
 
 const BLOCK = "p,pre,li,h1,h2,h3,h4,h5,h6,td,th,blockquote,summary,.dcoderen,.duser,.danswer,.dask,.dmsg";
