@@ -86,3 +86,15 @@ test("the fold toggle offers expand only when every shown file is folded", () =>
   assert.equal(allFolded(files, new Map([["a", true], ["gone", false]])), false);
   assert.equal(allFolded([], new Map()), false);
 });
+
+test("expanded context keeps line numbers and review placement", async () => {
+  const { contextFile, placeComments } = await import("../src/review/diff-state.ts");
+  const full = file("sample.ts", { hunks: [{ old_start: 1, new_start: 1, old_lines: 30, new_lines: 30, section: "", lines: Array.from({ length: 30 }, (_, i) => ({ k: " " as const, t: String(i + 1) })) }] });
+  const original = file("sample.ts", { hunks: [{ ...full.hunks[0], old_start: 14, new_start: 14, old_lines: 3, new_lines: 3, lines: full.hunks[0].lines.slice(13, 16) }] });
+  const expanded = contextFile(original, full, 10, 0);
+  assert.equal(expanded.hunks[0].new_start, 4);
+  assert.equal(expanded.hunks[0].new_lines, 13);
+  const comment = { path: "sample.ts", side: "new" as const, line: 4, text: "Check this" };
+  assert.equal(placeComments([expanded], [comment]).files.get("sample.ts")?.lines.size, 1);
+  assert.equal(contextFile(original, full, 0, 10).hunks[0].new_start, 14);
+});

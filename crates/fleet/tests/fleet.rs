@@ -2438,6 +2438,7 @@ async fn a_branch_diff_of_a_mesh_project_is_read_from_its_checkout_with_no_serve
         head: "feature/login".into(),
         only: Vec::new(),
         lockfiles: false,
+        context: 3,
     };
     let beep_mesh::machine::sessions::NodeWork::Done(diff) =
         beep_mesh::machine::sessions::diff(&client, ask)
