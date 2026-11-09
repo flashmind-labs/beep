@@ -45,6 +45,9 @@ pub(crate) async fn serve(
     offers: Offers,
     caller: iroh::EndpointId,
 ) -> Result<()> {
+    let mut snapshots = Snapshots::new();
+    let stream = snapshots.stream();
+    tracing::info!(%stream, "subscription stream opened");
     static READERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(32);
     let _reader = READERS.try_acquire().context("too many topic readers")?;
     let mut membership = offers.mesh.subscribe();
@@ -57,7 +60,6 @@ pub(crate) async fn serve(
     let mut queries = Vec::new();
     let mut subscriptions = Subscriptions::new();
     let mut roots = BTreeMap::new();
-    let mut snapshots = Snapshots::new();
     let mut calls = JoinSet::new();
     let mut pending = HashSet::new();
     let mut heartbeat = interval_at(
@@ -80,6 +82,12 @@ pub(crate) async fn serve(
             request = rx.recv::<Request>() => match request? {
                 None => return Ok(()),
                 Some(Request::Watch { id, topics: wanted, queries: wanted_queries }) => {
+                    let started = Instant::now();
+                    tracing::info!(%stream, watch = id, topics = wanted.len(), queries = wanted_queries.len(), "subscription watch received");
+                    for query in &wanted_queries {
+                        tracing::info!(%stream, watch = id, query = query.id, topic = query.topic.name(), "subscription query received");
+                    }
+
                     let valid = if wanted.len() > events::MAX_TOPICS {
                         Err(anyhow::anyhow!("too many subscription topics"))
                     } else if wanted.iter().any(|topic| !topic.valid()) {
@@ -99,8 +107,12 @@ pub(crate) async fn serve(
                             queries = wanted_queries;
                             snapshots.replace(&offers, &topics, &queries, &roots);
                             send(&mut tx, &Reply::Watching { id }).await?;
+                            tracing::info!(%stream, watch = id, elapsed_ms = started.elapsed().as_millis() as u64, "subscription watch acknowledged");
                         }
-                        Err(error) => send(&mut tx, &Reply::Error { id, reason: format!("{error:#}") }).await?,
+                        Err(error) => {
+                            tracing::warn!(%stream, watch = id, elapsed_ms = started.elapsed().as_millis() as u64, "subscription watch rejected");
+                            send(&mut tx, &Reply::Error { id, reason: format!("{error:#}") }).await?;
+                        },
                     }
                 }
                 Some(Request::Refresh { id }) => {
@@ -127,7 +139,17 @@ pub(crate) async fn serve(
                 };
                 send(&mut tx, &reply).await?;
             },
-            snapshot = snapshots.next() => if let Some(snapshot) = snapshot? { send(&mut tx, &snapshot).await?; },
+            snapshot = snapshots.next() => if let Some(snapshot) = snapshot? {
+                let started = Instant::now();
+                let (topic, query, success) = match &snapshot {
+                    Reply::Snapshot(value) => (value.topic.name(), value.query, true),
+                    Reply::SnapshotError { topic, query, .. } => (topic.name(), *query, false),
+                    _ => unreachable!("snapshot queue only returns snapshots"),
+                };
+                tracing::info!(%stream, topic, query, success, "subscription snapshot sending");
+                send(&mut tx, &snapshot).await?;
+                tracing::info!(%stream, topic, query, success, elapsed_ms = started.elapsed().as_millis() as u64, "subscription snapshot sent");
+            },
             Some((_, event)) = subscriptions.next(), if !subscriptions.is_empty() => {
                 // Overlapping keys can receive the same broad invalidation.
                 // Drain a bounded ready batch before reconciling its sources.

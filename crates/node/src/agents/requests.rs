@@ -174,6 +174,8 @@ pub async fn serve_sessions(
     let Some(request) = rx.recv::<SessionsRequest>().await? else {
         return Ok(());
     };
+    let mut trace = beep_proto::logging::RequestTrace::new(<&'static str>::from(&request));
+    trace.phase("handling");
     let operation = match &request {
         SessionsRequest::List {} | SessionsRequest::ListAll {} => Some("list"),
         SessionsRequest::Transcript { .. } => Some("transcript"),
@@ -506,7 +508,9 @@ pub async fn serve_sessions(
     }
 
     let computed = started.elapsed();
+    trace.phase("sending");
     let result = tx.send(&reply).await;
+    trace.finish(result.is_ok() && !matches!(reply, SessionsReply::Error { .. }));
 
     if let Some(operation) = operation {
         let elapsed = started.elapsed();
