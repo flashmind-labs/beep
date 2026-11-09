@@ -63,3 +63,33 @@ test("Git panels stay visible across unchanged project redraws", async ({ page }
     await expect(page.locator(".gh-tree")).toContainText("No commits yet.");
   }
 });
+
+test("sidebar toggle preserves width and stays available across navigation", async ({ page }) => {
+  const grip = page.getByRole("separator", { name: "Resize the sidebar" });
+  await grip.focus();
+  await page.keyboard.press("ArrowRight");
+  const width = await page.locator("#side").evaluate(side => side.getBoundingClientRect().width);
+  const toggle = page.getByRole("button", { name: "Collapse sidebar", exact: true });
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  const expand = page.getByRole("button", { name: "Expand sidebar", exact: true });
+  await expect(expand).toBeFocused();
+  await expect(expand).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(".cc-side-list")).toBeVisible();
+  const home = page.locator("#side").getByRole("button", { name: "Home", exact: true });
+  await expect(home).toBeVisible();
+  await expect(home.locator(".tt")).toBeHidden();
+  await expect(home).toHaveAttribute("title", "Home");
+  await home.click();
+  await expect(home).toHaveAttribute("aria-current", "true");
+  await expect(page.locator("#side").getByRole("button", { name: "Settings", exact: true })).toBeVisible();
+  await expect(grip).toBeHidden();
+  await openProject(page);
+  await expect(expand).toBeVisible();
+  await expand.focus();
+  await page.keyboard.press("Space");
+  await expect(page.locator(".cc-side-list")).toBeVisible();
+  await expect(grip).toBeVisible();
+  await expect(toggle).toBeFocused();
+  expect(await page.locator("#side").evaluate(side => side.getBoundingClientRect().width)).toBe(width);
+});
