@@ -68,7 +68,7 @@ export function registerProviders(deps: ProvidersDeps) {
   /// Drawn in Settings, which lists the agents in its own left pane: the
   /// page shows the one agent it was opened at, under a toolbar of its own.
   let inSettings = false;
-  const contexts = modelContextPanel({ invoke, h, button, redraw: () => draw() });
+  const contexts = modelContextPanel(invoke);
   const flsh = flshPanel(invoke);
 
   const fail = (e: unknown) => String(e).replace(/^(bad request|not found|error):\s*/i, "");
@@ -346,7 +346,7 @@ export function registerProviders(deps: ProvidersDeps) {
     const after = h("div");
     after.style.display = "contents";
     if (st.machine) {
-      after.append(h("div", "hv-note", `Model choices and reported limits come from ${machineName()}.`), ...contexts.render(st.machine, agent));
+      after.append(h("div", "hv-note", `Model choices and reported limits come from ${machineName()}.`));
     }
     return { before: box, after, agent };
   }
@@ -374,7 +374,7 @@ export function registerProviders(deps: ProvidersDeps) {
       draft, others: hv ? st.others.get(hv.agent) : undefined, saving: st.saving,
       updating: hv ? st.updating.has(key(hv.agent)) : false, adapter: hv ? adapter(hv.agent) : null,
       error: st.machines === null ? st.note : machine ? st.errors.get(machine) ?? "" : st.note, inSettings, savedAll: st.savedAll.get(draftKey) ?? "",
-      includeProgram: st.includeProgram, shared: cachedShared?.node ?? null, flsh,
+      includeProgram: st.includeProgram, shared: cachedShared?.node ?? null, flsh, contexts,
       loading: isLoading(), checked: checkedLabel(current ? current.checked_at : null, Date.now()), updateCount, canUpdate: !!behind.length,
       pick: (agent: string) => { st.picked = agent; draw(); },
       toggle: (item: HarnessView, on: boolean) => { void save(item, toggledInput(item, on)); },
