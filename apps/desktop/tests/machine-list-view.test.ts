@@ -17,7 +17,7 @@ test("machine list retains focused rows through live updates and routes actions"
   let selected = "", added = 0, linked = 0, remove = "", retried = "";
   const noOp = () => {};
   const machine: Machine = { id: "one", name: "build-box", online: true, can_host: true, seen_at: 0, version: "1.0", env: null };
-  const props = { list: [machine], error: "", hosted: true, mac: null, newest: null, asking: null, adapterTries: new Map(), hints: "", age: () => "1m",
+  const props = { list: [machine], error: "", hosted: true, mac: null, newest: null, asking: null, adapterTries: new Map(), hints: null, age: () => "1m",
     open: (id: string) => { selected = id; }, add: () => { added++; }, link: () => { linked++; }, askRemove: (id: string) => { remove = id; }, cancelRemove: noOp, remove: noOp, retryAdapter: (id: string) => { retried = id; } };
   try {
     const view = render(createElement(MachineList, props));

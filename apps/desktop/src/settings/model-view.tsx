@@ -1,3 +1,4 @@
+import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import type { ModelChoice, Models, Thinking } from "./model.ts";
 
 interface ModelViewProps {
@@ -6,7 +7,7 @@ interface ModelViewProps {
   agents: boolean;
   agentNames: readonly string[];
   error: string;
-  hints: string;
+  hints: HintViewModel;
   thinkingLevels: readonly Thinking[];
   price: (choice: ModelChoice) => string;
   capitalize: (value: string) => string;
@@ -29,6 +30,6 @@ export function ModelView(p: ModelViewProps) {
       {!!p.agentNames.length && <><div className="dsec flat dagents">Agents <span className="dtag">Admin</span></div><div className="dtoggle"><span><b>Agents</b><small>{p.agents ? "On for everyone" : "Off for everyone"}</small></span><button type="button" className="dswitch" role="switch" aria-checked={p.agents} aria-label="Agents" onClick={e => { e.stopPropagation(); p.setAgents(); }} /></div><div className="dmuted dagentlist" style={p.agents ? undefined : { opacity: 0.6 }}>{p.agentNames.join(", ")}</div></>}
       <div className="derr" id="modelErr">{p.error}</div>
     </div>
-    <div style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: p.hints }} />
+    <HintView value={p.hints} />
   </>;
 }

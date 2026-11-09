@@ -1,3 +1,4 @@
+import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { useLayoutEffect, useRef } from "react";
 import { ICON } from "../ui/icons.ts";
 import type { GroupFormMode } from "./groups.ts";
@@ -5,7 +6,7 @@ import type { GroupFormMode } from "./groups.ts";
 interface Props {
   mode: GroupFormMode; name: string; member: string; error: string;
   preview: { name: string; members: string[] } | null;
-  avatars: string; hints: string; changeMode(mode: GroupFormMode): void; cancel(): void; go(): void;
+  avatars: string; hints: HintViewModel; changeMode(mode: GroupFormMode): void; cancel(): void; go(): void;
 }
 export function GroupFormView(p: Props) {
   const first = useRef<HTMLInputElement>(null);
@@ -27,5 +28,5 @@ export function GroupFormView(p: Props) {
       <div className="dinfo dmut"><div>Beep can use your memories to help the group. It never shows or quotes them to others.</div><div>When Beep answers you, it runs with your apps and your account, never someone else's.</div><div>You get a notification for each new message.</div></div>
       <label className={`dfield${p.error ? " err" : ""}`}>Your name in the group<input ref={first} id="jme" maxLength={40} autoComplete="off" spellCheck={false} defaultValue={p.member} /><span className="note">{p.error || "The others see this name next to your messages"}</span></label>
       <div className="row"><button className="dbtn" id="jcancel" onClick={p.cancel}>Not now</button><button className="dbtn pri" id="jgo" onClick={p.go}>Join group<kbd dangerouslySetInnerHTML={{ __html: ICON.ret }} /></button></div>
-    </>}</div><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: p.hints }} /></>;
+    </>}</div><HintView value={p.hints} /></>;
 }

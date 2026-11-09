@@ -1,3 +1,4 @@
+import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import type { CSSProperties } from "react";
 import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
 import { ICON } from "../ui/icons.ts";
@@ -15,7 +16,7 @@ interface ListProps {
   newest: string | null;
   asking: Asking | null;
   adapterTries: Map<string, { busy: boolean; error: string }>;
-  hints: string;
+  hints: HintViewModel | null;
   age: (milliseconds: number) => string;
   open: (id: string) => void;
   add: () => void;
@@ -39,7 +40,7 @@ export function MachineList(p: ListProps) {
     {p.hosted ? <div className="dmc-head"><span className="dmuted">{say}</span>{actions}</div> : <div className="dhead"><span className="tt"><b>Machines</b><small>{say}</small></span>{actions}</div>}
     {p.error && <div className="derr dpadx">{p.error}</div>}
     {p.list && !list.length ? <div className="dempty"><span className="dicon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="7" rx="2" /><rect x="3" y="13" width="18" height="7" rx="2" /><path d="M7 7.5h.01M7 16.5h.01" /></svg></span><b className="dbig">No machines yet.</b><span className="dmuted dblock">Add one to run commands and coding agents on it.</span></div> : <div className={`dlist${p.hosted ? " dset-box" : ""}`}><div className="dmt" style={style}>{list.map(m => <MachineCard key={m.id} machine={m} columns={columns} props={p} />)}</div></div>}
-    {!p.hosted && <div style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: p.hints }} />}
+    {!p.hosted && p.hints && <HintView value={p.hints} />}
   </>;
 }
 

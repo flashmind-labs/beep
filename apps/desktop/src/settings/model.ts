@@ -4,7 +4,7 @@ import type { Root } from "react-dom/client";
 import { openBarPage } from "../bar/page-root.ts";
 import { ModelView } from "./model-view.tsx";
 import { bar, S } from "../bar/core.ts";
-import { hints, refreshHints } from "../bar/hints.ts";
+import { hintModel, refreshHints } from "../bar/hints.ts";
 import { cap } from "../chat/tools.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -99,7 +99,7 @@ function drawModel() {
   if (!modelRoot || modelRoot.host.parentElement !== bar) modelRoot = openBarPage(() => { modelRoot = null; });
   flushSync(() => modelRoot?.root.render(createElement(ModelView, {
     model: m, selected: MODELS.sel, agents: MODELS.agents, agentNames: MODELS.list,
-    error: modelError, hints: hints([["↑↓", "move"], [ICON.ret, "use"], ["esc", "back"]]), thinkingLevels: THINKING, price: modelPrice, capitalize: cap,
+    error: modelError, hints: hintModel([["↑↓", "move"], [ICON.ret, "use"], ["esc", "back"]]), thinkingLevels: THINKING, price: modelPrice, capitalize: cap,
     pick: (index: number) => { MODELS.sel = index; void pickModel(); },
     setThinking: (level: Thinking) => { void changeModel("set_thinking", { level }); },
     setAuto: () => { void changeModel("set_auto_model", { enabled: !m.auto }); },

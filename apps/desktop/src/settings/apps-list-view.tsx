@@ -1,3 +1,4 @@
+import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import type { ReactNode } from "react";
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ICON } from "../ui/icons.ts";
@@ -50,6 +51,6 @@ export function AppsListView(p: Props) {
   </div>;
 }
 
-export function AppBarFrame({ section, hints, children }: { section: "apps" | "mcp" | "appperms"; hints: string; children: ReactNode }) {
-  return <>{section === "apps" && <div className="dhead"><span className="tt"><b>Apps</b><small>Connect once, then just ask from any chat</small></span></div>}{children}<span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: hints }} /></>;
+export function AppBarFrame({ section, hints, children }: { section: "apps" | "mcp" | "appperms"; hints: HintViewModel | null; children: ReactNode }) {
+  return <>{section === "apps" && <div className="dhead"><span className="tt"><b>Apps</b><small>Connect once, then just ask from any chat</small></span></div>}{children}{hints && <HintView value={hints} />}</>;
 }
