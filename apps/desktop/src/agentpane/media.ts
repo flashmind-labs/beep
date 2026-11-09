@@ -1,6 +1,5 @@
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { setSessionPortal } from "../agents/session-frame.tsx";
 import { PaneTabs, PhonePaneTabs, type PaneTabItem } from "./tabs-view.tsx";
 import { readView, writeView, viewKey, rememberScroll } from "./view-memory.ts";
 import { isHtmlFile, queuePreview } from "./html-preview-state.ts";
@@ -529,32 +528,15 @@ function phoneTabs() {
   const on = el.classList.contains("mb-log") ? "log" : P.on.bottom;
   const tabs = [...(paneOf("bottom")?.querySelectorAll<HTMLElement>(".agtabs > [data-mtab]") ?? [])]
     .map(t => ({ id: t.dataset.mtab!, name: t.querySelector("span")?.textContent ?? "" }));
-  flushSync(() => tabRoot(nav).render(createElement(PhonePaneTabs, { tabs: [{ id: "log", name: "Log" }, ...tabs], selected: on, select: (id: string) => {
+  setSessionPortal(nav, createElement(PhonePaneTabs, { tabs: [{ id: "log", name: "Log" }, ...tabs], selected: on, select: (id: string) => {
     el.classList.toggle("mb-log", id === "log");
     if (id !== "log") P.on.bottom = id;
     draw();
-  } })));
+  } }));
 }
 
 /// Draws dock `d` with tabs `ids`, moving into it the views of tabs that
 /// came from the other.
-const tabRoots = new WeakMap<HTMLElement, Root>();
-
-function tabRoot(tabs: HTMLElement) {
-  const existing = tabRoots.get(tabs);
-  if (existing) return existing;
-  const root = createRoot(tabs);
-  tabRoots.set(tabs, root);
-  const observer = new MutationObserver(() => {
-    if (tabs.isConnected) return;
-    observer.disconnect();
-    root.unmount();
-    tabRoots.delete(tabs);
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
-  return root;
-}
-
 function drawDock(d: Dock, ids: string[]) {
   const pane = paneOf(d);
   const tabs = pane?.querySelector<HTMLElement>(".agtabs"), views = pane?.querySelector<HTMLElement>(".agpviews");
@@ -571,7 +553,7 @@ function drawDock(d: Dock, ids: string[]) {
     const item = P.tabs.find(tab => tab.id === id)!;
     return { id, name: item.name, icon: ICONS[item.kind], count: null, closeIcon: ICON.x };
   });
-  flushSync(() => tabRoot(tabs).render(createElement(PaneTabs, { tabs: items, selected: on })));
+  setSessionPortal(tabs, createElement(PaneTabs, { tabs: items, selected: on }));
   const bottom = d === "bottom";
   const dock = pane.querySelector<HTMLElement>('[data-pact="dock"]')!;
   dock.innerHTML = bottom ? DOCK_RIGHT : DOCK_BOTTOM;
