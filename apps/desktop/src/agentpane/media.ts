@@ -1,5 +1,6 @@
-import { createElement } from "react";
-import { removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
+import { createElement, Fragment } from "react";
+import { createPortal } from "react-dom";
+import { removeSessionPortal, setSessionChild, setSessionPortal } from "../agents/session-frame.tsx";
 import { SubagentsView, type SubagentRow } from "./subagents-view.tsx";
 import { PaneTabs, PhonePaneTabs, type PaneTabItem } from "./tabs-view.tsx";
 import { readView, writeView, viewKey, rememberScroll } from "./view-memory.ts";
@@ -25,7 +26,6 @@ import { newTermLike } from "../terminals/newkey-state.ts";
 import { drag, tabDown } from "./drag.ts";
 import { readError, loadText, startTerminal, load } from "./read.ts";
 import { viewOf } from "./views.ts";
-import { esc } from "../ui/format.ts";
 import { frameResize, h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -557,14 +557,17 @@ function drawDock(d: Dock, ids: string[]) {
   setSessionPortal(tabs, createElement(PaneTabs, { tabs: items, selected: on }));
   const bottom = d === "bottom";
   const dock = pane.querySelector<HTMLElement>('[data-pact="dock"]')!;
-  dock.innerHTML = bottom ? DOCK_RIGHT : DOCK_BOTTOM;
   dock.title = bottom ? "Dock these tabs on the right" : "Dock these tabs at the bottom";
-  pane.querySelector('[data-pact="fold"]')!.innerHTML = bottom ? FOLD_DOWN : FOLD_RIGHT;
+  const fold = pane.querySelector<HTMLElement>('[data-pact="fold"]')!;
   const strip = document.getElementById(`agpstrip-${d}`)!;
   const shown = P.tabs.find(t => t.id === on);
   const fixed = on === RUNNING ? RUNNING : on === SUBS ? SUBS : on === ARTS ? ARTS : on === CHANGES ? CHANGES : FILES;
   const label = shown ? shown.name : { [RUNNING]: "Running", [SUBS]: "Subagents", [ARTS]: "Artifacts", [CHANGES]: "Changes", [FILES]: "Files" }[fixed];
-  strip.innerHTML = `${ICONS[shown?.kind ?? fixed]}<span>${esc(label)}</span><small>${ids.length}</small>`;
+  const icon = (html: string) => createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: html } });
+  setSessionChild(`dock-controls:${d}`, createElement(Fragment, null,
+    createPortal(icon(bottom ? DOCK_RIGHT : DOCK_BOTTOM), dock, "dock"),
+    createPortal(icon(bottom ? FOLD_DOWN : FOLD_RIGHT), fold, "fold"),
+    createPortal(createElement(Fragment, null, icon(ICONS[shown?.kind ?? fixed]), createElement("span", null, label), createElement("small", null, ids.length)), strip, "strip")));
   // The Files view is made once per session, wherever it sits.
   const made = filesView();
   let filesEl = document.querySelector<HTMLElement>(".agpviews > .agpview.files");
