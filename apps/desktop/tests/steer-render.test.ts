@@ -5,6 +5,7 @@ import { S } from "../src/bar/core.ts";
 import { AG, type AgentPage } from "../src/agents/agents.ts";
 import * as agentlog from "../src/agents/agentlog.ts";
 import { drawAgentBody } from "../src/agents/logview.ts";
+import { disposeLogShell } from "../src/agents/log-shell.tsx";
 import { disposeQueue, drawQueue, editQueued, steerMessage } from "../src/agents/messages.ts";
 import { pollAgent, stopAgentFollow } from "../src/agents/session.ts";
 import { askUpload, MN } from "../src/agents/workdrop.ts";
@@ -14,6 +15,8 @@ import { createElement } from "react";
 import { showAgentControl } from "../src/agents/composer-ui.tsx";
 
 function setup() {
+  const previous = bar.querySelector<HTMLElement>("#agbody");
+  if (previous) disposeLogShell(previous);
   globalThis.getSelection = () => null;
   globalThis.getComputedStyle = () => ({ rowGap: "0" }) as CSSStyleDeclaration;
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
@@ -354,4 +357,41 @@ test("mode and plan controls share the queue owner without losing focus", async 
   assert.equal(bar.querySelector('[data-agopt="0"]'), approve);
   assert.equal(approve.disabled, true);
   AG.answering = null;
+});
+
+test("log shell retains the transcript and defers a focused approval update", t => {
+  const { page } = setup();
+  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  page.session.question = { id: 1, text: "Run this?", detail: "command", options: [{ id: "yes", name: "Allow", allow: true }, { id: "no", name: "Deny", allow: false }] };
+  drawAgentBody();
+  const body = bar.querySelector<HTMLElement>("#agbody"), log = bar.querySelector(".dcoderlog");
+  const button = bar.querySelector<HTMLButtonElement>("[data-agopt='0']");
+  assert.ok(body && log && button); button.focus();
+  page.session.question.text = "Run the updated command?";
+  page.error = "A separate error";
+  drawAgentBody(undefined, true);
+  assert.match(bar.querySelector(".q")?.textContent ?? "", /Run this\?/);
+  assert.equal(document.activeElement, button);
+  assert.match(bar.querySelector(".derrcard")?.textContent ?? "", /A separate error/);
+  button.blur(); drawAgentBody(undefined, true);
+  assert.match(bar.querySelector(".q")?.textContent ?? "", /Run the updated command\?/);
+  assert.equal(bar.querySelector(".dcoderlog"), log);
+  body.remove(); bar.prepend(body); drawAgentBody(undefined, true);
+  assert.equal(bar.querySelector(".dcoderlog"), log);
+  disposeLogShell(body);
+  assert.equal(body.querySelector(".dagmain"), null);
+});
+
+test("replacing a transcript with a starting state clears virtualized rows", t => {
+  const { page } = setup();
+  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  drawAgentBody();
+  assert.ok(bar.querySelector(".dcoderen"));
+  page.entries = []; page.session.status = "starting";
+  drawAgentBody();
+  assert.equal(bar.querySelector(".dcoderlog"), null);
+  assert.equal(bar.querySelector(".dcoderen"), null);
+  assert.match(bar.querySelector(".dagmain")?.textContent ?? "", /Starting the agent/);
+  page.entries = [{ kind: "user", text: "New" }]; drawAgentBody();
+  assert.match(bar.querySelector(".dcoderlog")?.textContent ?? "", /New/);
 });
