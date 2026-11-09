@@ -1472,6 +1472,7 @@ mod agent {
             }
             let session = SessionInfo {
                 reviewer: true,
+                model: Some("example-model".into()),
                 credits: vec![beep_proto::ProviderCredits {
                     provider: "openrouter".into(),
                     scope: beep_proto::CreditScope::Account,
@@ -1493,6 +1494,7 @@ mod agent {
             let read: SessionInfo = beep_proto::lenient::from_slice(&older).unwrap();
             assert!(read.reviewer);
             assert!(read.credits.is_empty());
+            assert_eq!(read.model, None);
         }
 
         #[test]

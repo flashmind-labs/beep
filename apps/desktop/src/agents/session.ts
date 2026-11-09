@@ -222,6 +222,7 @@ function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, replace = f
   const news = hasNews(AG.page, page);
   // The older entries held stay while the newest are read again.
   AG.page = replace ? page : joinRuns(AG.page, page);
+  drawModelPill();
   drawAgentHeading();
   // The frame around the log is drawn again; the log itself stays.
   if (placed) drawAgentFrame(false, $<ChatBody>("#agbody"));

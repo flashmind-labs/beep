@@ -197,6 +197,26 @@ test("the model pill does not display the harness default for an unknown session
   sessionPicks.delete(page.session.id);
 });
 
+test("the model pill uses the model reported by the session", () => {
+  const page = openSession("idle");
+  const pill = { innerHTML: "" };
+  show({ "#agmodel": pill });
+  sessionPicks.set(page.session.id, { model: "previous-model", effort: null });
+  page.model = "current-model";
+  drawModelPill();
+  assert.match(pill.innerHTML, /current-model/);
+  assert.doesNotMatch(pill.innerHTML, /previous-model/);
+  sessionPicks.delete(page.session.id);
+});
+
+test("a session refresh updates the model pill", async () => {
+  const page = openSession("idle");
+  const pill = { innerHTML: "" };
+  show({ "#agmodel": pill });
+  await read({ ...page, model: "reported-model" });
+  assert.match(pill.innerHTML, /reported-model/);
+});
+
 test("the model pill keeps the model that runs", async () => {
   const page = openSession("idle");
   const pill = { innerHTML: "" };
