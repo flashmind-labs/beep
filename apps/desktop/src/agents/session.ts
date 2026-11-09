@@ -19,7 +19,7 @@ import { SHORTCUTS } from "../ui/shortcuts.ts";
 import { openViewer } from "../chat/media.ts";
 import { readRunning } from "../agentpane/running.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
-import { openLinked, openPath, openPicture, paneFrame, rebindPane, showArtifact, startPane } from "../agentpane/media.ts";
+import { openLinked, openPath, openPicture, paneFrame, rebindPane, restorePane, showArtifact, startPane } from "../agentpane/media.ts";
 import { atBottom, followsAfterScroll, returnScroll } from "./logscroll.ts";
 import { copyCode, stopFace, toggleThought } from "./turnrows.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
@@ -88,6 +88,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     const shown = $<ChatBody>("#agbody");
 
     if (S.view === "agent" && shown) {
+      restorePane();
       shown.scrollTop = returnScroll(shown, shown.top ?? 0);
       return void pollAgent(true);
     }
