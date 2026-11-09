@@ -63,3 +63,21 @@ test("reply files stay mounted during refresh and open on request", async ({ pag
   await card.click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "open_file" && call.args.id === "result-1"))).toBe(true);
 });
+
+test("reply pictures keep their viewer actions after a history refresh", async ({ page }) => {
+  const image = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==";
+  const history = [{ role: "user", text: "Show an image", at: 1, images: [], model: "", thinking: "" }, { role: "assistant", html: "<p>Here.</p>", tools: [{ name: "send_image", label: "Show image", success: true, route: null, file: null, images: [{ url: image, caption: "Example" }], products: null, cards: null, chart: null }], replies: [], model: "" }];
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const picture = page.locator(".drpics button.pic");
+  await expect(picture).toBeVisible();
+  await expect(page.locator(".drpic")).not.toHaveClass(/wait/);
+  await picture.focus();
+  await picture.evaluate(el => Reflect.set(window, "replyPicture", el));
+  await page.evaluate(() => window.__navigation.emit("sessions-changed", "chat-example"));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_session").length)).toBeGreaterThan(1);
+  expect(await picture.evaluate(el => el === Reflect.get(window, "replyPicture") && document.activeElement === el)).toBe(true);
+  await picture.click();
+  await expect(page.locator("#viewer")).toBeVisible();
+  await expect(page.locator("#viewer .cap")).toHaveText("Example");
+});

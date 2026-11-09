@@ -7,7 +7,7 @@ import type { ApprovalField, Decision } from "./chat.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { WebSource } from "./history.ts";
 import { AgentTurnHeading, type TurnHeading } from "../agents/turn-heading-view.tsx";
-import { fileKind, fileSize, GONE, GONE_PIC, loadPic, pictures, type PicRef, type SentFile } from "./media.ts";
+import { fileKind, fileSize, GONE, GONE_PIC, loadPic, openViewer, pictures, savePic, type PicRef, type SentFile, type SentImage } from "./media.ts";
 import { VOICE_ICON } from "../bar/live.ts";
 import type { AskFile } from "./attach.ts";
 import type { ChatBody, Turn } from "../ui/turn.ts";
@@ -17,8 +17,9 @@ export interface WorkView { heading: TurnHeading | null; thought: string; steps:
 type Source = WebSource & { site: string };
 interface ReplyActions { copy: boolean; rerun: boolean; agent: string | null }
 interface ApprovalView { app: string; action: string; fields: ApprovalField[]; grant: boolean; answer: (decision: Decision) => void }
-interface Owner { sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
+interface Owner { replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
 const owners = new WeakMap<ChatBody, Owner>();
+const replyPictureTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
 const sentFileTurns = new WeakMap<Turn, { owner: Owner; boxes: HTMLElement[] }>();
 const pictureTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
 const fileTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
@@ -38,6 +39,23 @@ const Html = memo(function Html({ html }: { html: string }) {
 });
 const Prompt = memo(function Prompt({ html }: { html: string }) {
   return <><b>You</b><span dangerouslySetInnerHTML={{ __html: html }} /></>;
+});
+function ReplyPicture({ image, images, index }: { image: SentImage; images: SentImage[]; index: number }) {
+  const file = image.file;
+  const [src, setSrc] = useState<string | null>(file ? null : image.url);
+  const [gone, setGone] = useState(false), [waiting, setWaiting] = useState(true);
+  useEffect(() => {
+    if (!file) return;
+    let active = true;
+    void loadPic(file.id, file.mime).then(url => { if (active) { if (url) setSrc(url); else setGone(true); } });
+    return () => { active = false; };
+  }, [file?.id, file?.mime]);
+  if (gone) return <span className="drpic gone">{GONE_PIC}</span>;
+  const name = file?.name ?? "";
+  return <span className={`drpic${waiting ? " wait" : ""}`}><button className="pic" aria-label={image.caption || name || "Picture"} onClick={() => openViewer(images, index)}>{src && <img alt="" src={src} onLoad={() => setWaiting(false)} onError={() => setGone(true)} />}</button>{file && <button className="save" aria-label={`Save ${name}`} title="Save to Downloads" onClick={() => void savePic(file)} dangerouslySetInnerHTML={{ __html: ICON.save }} />}</span>;
+}
+const ReplyPictures = memo(function ReplyPictures({ images }: { images: SentImage[] }) {
+  return <>{images.map((image, index) => <ReplyPicture key={index} image={image} images={images} index={index} />)}</>;
 });
 function SentFileCard({ file }: { file: SentFile }) {
   const busy = useRef(false);
@@ -103,6 +121,7 @@ const Work = memo(function Work({ value }: { value: WorkView }) {
 });
 function draw(owner: Owner) {
   flushSync(() => owner.root.render(createElement(Fragment, null,
+    ...[...owner.replyPictures].map(([host, row]) => createPortal(createElement(ReplyPictures, { images: row.images }), host, row.key)),
     ...[...owner.sentFiles].map(([host, row]) => createPortal(createElement(SentFileCard, { file: row.file }), host, row.key)),
     ...[...owner.pictures].map(([host, row]) => createPortal(createElement(PromptPictures, { images: row.images }), host, row.key)),
     ...[...owner.files].map(([host, row]) => createPortal(createElement(Files, { files: row.files }), host, row.key)),
@@ -116,8 +135,14 @@ function draw(owner: Owner) {
 }
 function ownerOf(body: ChatBody) {
   let owner = owners.get(body);
-  if (!owner) { owner = { sentFiles: new Map(), pictures: new Map(), files: new Map(), root: createRoot(document.createElement("div")), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 }; owners.set(body, owner); }
+  if (!owner) { owner = { replyPictures: new Map(), sentFiles: new Map(), pictures: new Map(), files: new Map(), root: createRoot(document.createElement("div")), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 }; owners.set(body, owner); }
   return owner;
+}
+export function renderChatReplyPictures(body: ChatBody, turn: Turn, box: HTMLElement, images: SentImage[]) {
+  const owner = ownerOf(body), prior = owner.replyPictures.get(box);
+  replyPictureTurns.set(turn, { owner, box });
+  owner.replyPictures.set(box, { key: prior?.key ?? ++owner.next, images: images.slice() });
+  draw(owner);
 }
 export function renderChatSentFile(body: ChatBody, turn: Turn, box: HTMLElement, file: SentFile) {
   const owner = ownerOf(body), entry = sentFileTurns.get(turn);
@@ -126,12 +151,17 @@ export function renderChatSentFile(body: ChatBody, turn: Turn, box: HTMLElement,
   draw(owner);
 }
 export function transferChatSentFiles(from: Turn, to: Turn) {
+  const nextPictures = replyPictureTurns.get(from), priorPictures = replyPictureTurns.get(to);
+  replyPictureTurns.delete(from);
+  if (priorPictures) priorPictures.owner.replyPictures.delete(priorPictures.box);
+  if (nextPictures) replyPictureTurns.set(to, nextPictures); else replyPictureTurns.delete(to);
+  if (priorPictures && priorPictures.owner !== nextPictures?.owner) draw(priorPictures.owner);
   const next = sentFileTurns.get(from), prior = sentFileTurns.get(to);
   sentFileTurns.delete(from);
   if (prior) for (const box of prior.boxes) prior.owner.sentFiles.delete(box);
   if (next) sentFileTurns.set(to, next); else sentFileTurns.delete(to);
   if (prior && prior.owner !== next?.owner) draw(prior.owner);
-  const owner = next?.owner ?? prior?.owner;
+  const owner = next?.owner ?? prior?.owner ?? nextPictures?.owner ?? priorPictures?.owner;
   if (owner) draw(owner);
 }
 export function renderChatPictures(body: ChatBody, turn: Turn, box: HTMLElement, images: PicRef[]) {
@@ -310,8 +340,9 @@ export function transferChatReply(from: Turn, to: Turn) {
   replyTurns.delete(from); replyTurns.set(to, entry);
 }
 export function discardChatWork(turn: Turn) {
-  const sentFiles = sentFileTurns.get(turn), pictures = pictureTurns.get(turn), files = fileTurns.get(turn), sources = sourceTurns.get(turn), actions = actionTurns.get(turn), approval = approvalTurns.get(turn), suggestion = suggestionTurns.get(turn), prompt = promptTurns.get(turn), work = turns.get(turn), reply = replyTurns.get(turn);
-  sentFileTurns.delete(turn); pictureTurns.delete(turn); fileTurns.delete(turn); sourceTurns.delete(turn); actionTurns.delete(turn); approvalTurns.delete(turn); suggestionTurns.delete(turn); promptTurns.delete(turn); turns.delete(turn); replyTurns.delete(turn);
+  const replyPictures = replyPictureTurns.get(turn), sentFiles = sentFileTurns.get(turn), pictures = pictureTurns.get(turn), files = fileTurns.get(turn), sources = sourceTurns.get(turn), actions = actionTurns.get(turn), approval = approvalTurns.get(turn), suggestion = suggestionTurns.get(turn), prompt = promptTurns.get(turn), work = turns.get(turn), reply = replyTurns.get(turn);
+  replyPictureTurns.delete(turn); sentFileTurns.delete(turn); pictureTurns.delete(turn); fileTurns.delete(turn); sourceTurns.delete(turn); actionTurns.delete(turn); approvalTurns.delete(turn); suggestionTurns.delete(turn); promptTurns.delete(turn); turns.delete(turn); replyTurns.delete(turn);
+  if (replyPictures) replyPictures.owner.replyPictures.delete(replyPictures.box);
   if (sentFiles) for (const box of sentFiles.boxes) sentFiles.owner.sentFiles.delete(box);
   if (pictures) pictures.owner.pictures.delete(pictures.box);
   if (files) files.owner.files.delete(files.box);
@@ -334,6 +365,6 @@ export function discardChatWork(turn: Turn) {
     if (waiting) { document.removeEventListener("selectionchange", waiting.resume); replyPending.delete(reply.box); }
     reply.owner.replies.delete(reply.box);
   }
-  const owners = new Set([sentFiles?.owner, pictures?.owner, files?.owner, sources?.owner, actions?.owner, approval?.owner, suggestion?.owner, prompt?.owner, work?.owner, reply?.owner]);
+  const owners = new Set([replyPictures?.owner, sentFiles?.owner, pictures?.owner, files?.owner, sources?.owner, actions?.owner, approval?.owner, suggestion?.owner, prompt?.owner, work?.owner, reply?.owner]);
   for (const owner of owners) if (owner) draw(owner);
 }
