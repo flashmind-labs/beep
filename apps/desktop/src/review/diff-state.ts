@@ -240,6 +240,41 @@ export function splitPath(path: string) {
   return { dir: path.slice(0, cut + 1), name: path.slice(cut + 1) };
 }
 
+/// Keep each folder's files together in the tree's first-seen order.
+export function filesInTreeOrder(files: readonly DiffFile[]): DiffFile[] {
+  type Entry = { kind: "file"; file: DiffFile } | { kind: "folder"; children: Map<string, Entry> };
+  const root = new Map<string, Entry>();
+
+  for (const file of files) {
+    const parts = file.path.split("/");
+    let children = root;
+
+    for (const part of parts.slice(0, -1)) {
+      const key = `${part}/`;
+      let folder = children.get(key);
+
+      if (!folder) {
+        folder = { kind: "folder", children: new Map() };
+        children.set(key, folder);
+      }
+
+      if (folder.kind === "folder") children = folder.children;
+    }
+
+    children.set(file.path, { kind: "file", file });
+  }
+
+  const ordered: DiffFile[] = [];
+  const visit = (children: ReadonlyMap<string, Entry>) => {
+    for (const entry of children.values()) {
+      if (entry.kind === "file") ordered.push(entry.file);
+      else visit(entry.children);
+    }
+  };
+  visit(root);
+  return ordered;
+}
+
 /// Visible folders in the changed-file tree, keyed by their full path.
 export function compactFolders(paths: readonly string[]) {
   const children = new Map<string, Set<string>>();

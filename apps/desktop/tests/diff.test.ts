@@ -1,11 +1,42 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  type DiffFile, type DiffView, allFolded, baseTitle, changedLabel, compactFolders, diffRows, splitHeight, splitRows, withLoaded,
+  type DiffFile, type DiffView, allFolded, baseTitle, changedLabel, compactFolders, diffRows, filesInTreeOrder, splitHeight, splitRows, withLoaded,
 } from "../src/review/diff-state.ts";
 
 const file = (path: string, o: Partial<DiffFile> = {}): DiffFile => ({
   path, old_path: null, status: "modified", additions: 1, deletions: 1, hunks: [], left_out: null, ...o,
+});
+
+test("diff order follows tree folders when added files arrive after modified files", () => {
+  const paths = [
+    "src/link/events.rs",
+    "src/link/events/snapshots.rs",
+    "src/link/mod.rs",
+    "tests/link.rs",
+    "src/link/channels.rs",
+    "src/link/commands.rs",
+    "src/link/events/subscriptions.rs",
+    "src/link/subscriptions.rs",
+    "README.md",
+  ];
+  const files = paths.map(path => file(path));
+  const ordered = filesInTreeOrder(files);
+  assert.deepEqual(ordered.map(f => f.path), [
+    "src/link/events.rs",
+    "src/link/events/snapshots.rs",
+    "src/link/events/subscriptions.rs",
+    "src/link/mod.rs",
+    "src/link/channels.rs",
+    "src/link/commands.rs",
+    "src/link/subscriptions.rs",
+    "tests/link.rs",
+    "README.md",
+  ]);
+  assert.deepEqual(files.map(f => f.path), paths);
+  assert.equal(ordered[0], files[0]);
+  assert.deepEqual(filesInTreeOrder(ordered), ordered);
+  assert.deepEqual(filesInTreeOrder([]), []);
 });
 
 test("rows number both sides and count the lines between hunks", () => {
