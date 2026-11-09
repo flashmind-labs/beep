@@ -5,6 +5,10 @@ import { switchHtml, esc, plural } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { SkillEditor } from "./skill-editor.tsx";
 
 // ---------- Skills ----------
 
@@ -43,6 +47,12 @@ const MODES = new Set<string>(["list", "actions", "delete", "view", "edit", "vde
 const ONE = new Set<string>(["view", "edit", "vdelete"]);
 
 export const K: ListState<Skill> & { mode: SkillMode } = { list: [], sel: 0, mode: "list", error: "", loaded: false };
+let editor: { host: HTMLElement; root: Root; observer: MutationObserver; id: string } | null = null;
+function disposeEditor() {
+  const current = editor;
+  editor = null;
+  if (current) { current.observer.disconnect(); current.root.unmount(); }
+}
 export const SKILL_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19l9-9"/><path d="M14 4l1.2 2.8L18 8l-2.8 1.2L14 12l-1.2-2.8L10 8l2.8-1.2z"/><path d="M19 13l.6 1.4L21 15l-1.4.6L19 17l-.6-1.4L17 15l1.4-.6z"/></svg>';
 
 /// "Used today", "Used yesterday" or "Used 8 Oct".
@@ -84,6 +94,7 @@ function skillRow(k: Skill, i: number) {
 export function drawSkills(): void {
   clampSel(K);
   if (ONE.has(K.mode)) return drawSkill();
+  disposeEditor();
   const paused = K.list.filter(k => !k.enabled).length;
   const sum = !K.loaded ? "" : !K.list.length ? "None yet" : [plural(K.list.length, "skill", "skills"), paused && `${paused} paused`].filter(Boolean).join(", ");
   const head = `<div class="dhead"><span class="tt"><b>Skills</b><small>${sum}</small></span></div>`;
@@ -119,15 +130,22 @@ export function drawSkill(): void {
   bar.onclick = skillClick;
 
   if (K.mode === "edit") {
-    bar.innerHTML = `<div class="dhead"><span class="tt"><b>Edit skill</b><small>Beep keeps the old version, so you can undo</small></span></div>${err}
-      <div class="dform dscroll">
-        <label class="dfield"><span>Name</span><input id="kname" maxlength="60" value="${esc(k.name)}" spellcheck="false"></label>
-        <label class="dfield"><span>When it applies</span><input id="kdesc" maxlength="200" value="${esc(k.description)}"></label>
-        <label class="dfield"><span>Instructions</span><textarea id="kbody" rows="12">${esc(k.body)}</textarea></label>
-        <div class="dline"><button class="dbtn pri" data-k="save">Save<kbd>⌘${ICON.ret}</kbd></button><button class="dbtn quiet" data-k="view">Cancel</button></div>
-      </div>${hints([["tab", "next field"], [`⌘${ICON.ret}`, "save"], ["esc", "cancel"]])}`;
-    return $$("#kbody").focus();
+    if (!editor || editor.id !== k.id || editor.host.parentElement !== bar) {
+      disposeEditor();
+      const host = document.createElement("div");
+      host.style.display = "contents";
+      bar.replaceChildren(host);
+      const root = createRoot(host);
+      const observer = new MutationObserver(() => { if (editor?.host === host && !host.isConnected) disposeEditor(); });
+      observer.observe(document.body, { childList: true, subtree: true });
+      editor = { host, root, observer, id: k.id };
+    }
+    const root = editor.root;
+    flushSync(() => root.render(createElement(SkillEditor, { skill: k, error: K.error, hints: hints([["tab", "next field"], [`⌘${ICON.ret}`, "save"], ["esc", "cancel"]]), save: () => { void skillAction("save"); }, cancel: () => { void skillAction("view"); } })));
+    return;
   }
+
+  disposeEditor();
 
   const confirm = K.mode === "vdelete" ? confirmCard("Delete this skill?", `Beep forgets how you like "${esc(k.name)}" done. It may learn it again if you keep asking for it.`, `<button class="dbtn warn" data-k="delete-yes">Delete<kbd>${ICON.ret}</kbd></button><button class="dbtn quiet" data-k="view">Cancel</button>`, "dcardm") : "";
   const undo = k.can_undo ? `<div class="dmuted dtop dpt"><span class="dfill">${k.edited ? "You changed this last." : "Beep changed this last."}</span><button class="dbtn" data-k="undo">Undo<kbd>⌘Z</kbd></button></div>` : "";
