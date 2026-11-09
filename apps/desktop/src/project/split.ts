@@ -29,6 +29,18 @@ import { BEEP_MARK} from "../ui/icons.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
 import { runningLineAt } from "../agents/place.ts";
 
+const gitPanelSlots = new WeakMap<Element, HTMLElement>();
+
+export function gitPanel(slot: Element): HTMLElement | null {
+  return gitPanelSlots.get(slot) ?? null;
+}
+
+function gitPanelSlot(panel: HTMLElement): HTMLElement {
+  const slot = h("div");
+  gitPanelSlots.set(slot, panel);
+  return slot;
+}
+
 /// The split shows for an imported project whose agent's view has loaded, and with no
 /// subscription for every imported project: it has no agent to wait for.
 export function splitOn(p: Project) {
@@ -245,7 +257,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     { label: plural(prItems.length, "PR", "PRs"), text: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : "open", key: "overview" },
     { label: plural(issueItems.length, "issue", "issues"), text: "open", key: "issues" },
   ]);
-  return [strip, h("div", `${history ? "pj-split gh-layout" : "pj-split"}${pa.tile ? " picked" : ""}`, history?.navigation || list, det)];
+  return [strip, h("div", `${history ? "pj-split gh-layout" : "pj-split"}${pa.tile ? " picked" : ""}`, history ? gitPanelSlot(history.navigation) : list, history ? gitPanelSlot(det) : det)];
 }
 
 /// The strip under the project's title: its branch, Actions, agents, machines,

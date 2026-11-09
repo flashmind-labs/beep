@@ -16,7 +16,7 @@ import { registerView, windowProject } from "../center/views.ts";
 import { setProjectOnTop, openProjectWindow, removeProject, projectRows, openProjects, loadFound } from "../center/sidebar.ts";
 import { editGroup } from "./groups.ts";
 import { importButton, overviewSection, loadOverview, projectDetail } from "./projects.ts";
-import { splitOn, openTile } from "./split.ts";
+import { splitOn, openTile, gitPanel } from "./split.ts";
 import { liveMode, pa, redrawProjectsPage, runs, terms } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
 import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, elsewhereSection } from "./loads.ts";
@@ -32,7 +32,12 @@ const layouts = ".pj-split, .pj-list, .pj-det, .pj-ov, .pj-ov > div, .pj-cols, .
 function patchProjectView(current: Element, next: Element) {
   const children = [...next.children].map((child, i) => {
     const old = current.children[i];
-    if (!old || old.tagName !== child.tagName || old.className !== child.className || !old.matches(layouts)) return child;
+    const panel = gitPanel(child);
+    if (panel) return panel;
+    if (!old || old.tagName !== child.tagName || old.className !== child.className || !old.matches(layouts)) {
+      if (child.matches(layouts)) patchProjectView(child, child);
+      return child;
+    }
     patchProjectView(old, child);
     return old;
   });

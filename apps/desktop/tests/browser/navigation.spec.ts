@@ -63,3 +63,29 @@ test("Git panels stay visible across unchanged project redraws", async ({ page }
     await expect(page.locator(".gh-tree")).toContainText("No commits yet.");
   }
 });
+
+test("project redraw keeps Git panels attached and preserves history scroll", async ({ page }) => {
+  await page.evaluate(() => window.__navigation.respond("project_git_history", {
+    machine_id: "build-box", machine_name: "build-box", root: "/srv/project", refs: [], worktrees: [], next: null,
+    commits: Array.from({ length: 50 }, (_, i) => ({ id: `commit-${i}`, parents: [], author: "Example", committed_at: 1, subject: `Commit ${i}` })),
+  }));
+  await page.evaluate(() => window.__navigation.respond("project_git_files", []));
+  await page.evaluate(() => window.__navigation.respond("project_git_diff", { root: "/srv/project", base: "", merge_base: "", working_tree: false, files: [], additions: 0, deletions: 0, more: 0 }));
+  await openProject(page);
+  const branch = page.locator(".pj-strip button").filter({ hasText: "branch" });
+  await branch.click();
+  const tree = page.locator(".gh-tree");
+  await expect(tree).toContainText("Commit 49");
+  const before = await tree.evaluate(el => { el.scrollTop = el.scrollHeight; return el.scrollTop; });
+  expect(before).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    const nav = document.querySelector(".gh-nav");
+    const detail = document.querySelector(".gh-detail");
+    new MutationObserver(records => {
+      if (records.some(record => [...record.removedNodes].some(node => node === nav || node === detail || node.contains(nav) || node.contains(detail)))) document.body.dataset.gitDetached = "true";
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  await branch.click();
+  await expect(tree).toHaveJSProperty("scrollTop", before);
+  await expect(page.locator("body")).not.toHaveAttribute("data-git-detached", "true");
+});
