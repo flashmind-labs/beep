@@ -3,6 +3,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
+import { conversation } from "./conversation.ts";
 import { ChatShell } from "./chat-shell.tsx";
 import { discardChatApproval, discardChatNotice, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatNotice, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
 import { drawAgentButton } from "../agents/agents.ts";
@@ -263,7 +264,7 @@ export function markMap() {
 
 export function newTurn(question: string, images?: PicRef[], files?: AskFile[]) {
   const turn = makeTurn(question, images, files);
-  body()!.append(turn);
+  conversation(body()!).append(turn);
   return turn;
 }
 /// A turn for `question`, not yet in any chat.
@@ -730,7 +731,7 @@ export async function watchRun(id: string | null) {
     const runId = await invoke<string | null>("active_run", { session: id }).catch(() => null);
     if (!runId || live.has(id) || S.session !== id || S.view !== "chat") return;
     // The prompt or a turn's line is already drawn from the server's copy, waiting for its reply.
-    const last = [...body()!.querySelectorAll<Turn>(".turn")].at(-1);
+    const last = conversation(body()!).turns.at(-1);
     const turn = last && !last.done && (last.user || last.querySelector(":scope > .dsystem")) ? last : newTurn("");
     turn.steps ??= [];
     startRun(id, turn, runId);

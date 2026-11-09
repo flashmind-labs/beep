@@ -1,3 +1,4 @@
+import { conversation } from "./conversation.ts";
 import { discardChatApproval, discardChatNotice, discardChatSources, discardChatSuggestions, discardChatWork, renderChatNotice, renderChatSources, transferChatApproval, transferChatFiles, transferChatNotice, transferChatPictures, transferChatPrompt, transferChatSentFiles, transferChatSuggestions } from "./work-view.tsx";
 import { askFiles } from "./attach.ts";
 import { ANSWER, answeredTurns, approvalCard, appendChatReply, ASK, askText, body, chatReplyHtml, drawLatest, drawWork, failed, makeTurn, moveChatReply, newTurn, owningChatBody, ranOn, renderChat, setChatReply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
@@ -95,7 +96,7 @@ export function drawHistory(id: string, turns: HistoryTurn[]) {
   turns = turns.filter(t => t.role !== "approval" || asking.has(t.query_id));
   const b = body()!;
   // From the oldest prompt already shown, else the newest few.
-  const shown = b.querySelector<Turn>(":scope > .turn[data-at]")?.dataset.at;
+  const shown = conversation(b).turns.find(turn => turn.dataset.at)?.dataset.at;
   const kept = turns.findIndex(t => t.role === "user" && String(t.at) === shown);
   const start = kept >= 0 ? kept : windowStart(turns.map(t => t.role), HISTORY_CHUNK);
   undrawn.set(b, turns.slice(0, start));
@@ -132,9 +133,7 @@ function drawEarlier(b: ChatBody) {
   undrawn.set(b, old.slice(0, start));
   const { drawn } = buildTurns(id, old.slice(start));
   const fromBottom = b.scrollHeight - b.scrollTop;
-  const first = b.querySelector(":scope > .turn");
-  if (first) first.before(...drawn);
-  else b.append(...drawn);
+  conversation(b).prepend(drawn);
   b.scrollTop = b.scrollHeight - fromBottom;
   loadSides(id, b);
   return true;
@@ -208,43 +207,33 @@ function buildTurns(id: string, turns: HistoryTurn[]) {
 /// without drawing again what it shows: a turn already there stays the same
 /// element and takes the server's copy in place.
 function mergeTurns(b: ChatBody, drawn: Turn[]) {
-  const shown = [...b.children].filter(el => el.classList.contains("turn")) as Turn[];
-  const kept = new Map<Turn, Turn>(), order: Turn[] = [];
-  let next = 0;
+  const shown = conversation(b).turns;
+  const kept = new Map<Turn, Turn>(), order: Turn[] = [], used = new Set<Turn>();
+  const byTime = new Map<string, Turn[]>();
+  for (const turn of shown) {
+    const at = turn.dataset.at;
+    if (at) { const group = byTime.get(at) ?? []; group.push(turn); byTime.set(at, group); }
+  }
 
+  const unkeyed = shown.filter(turn => !turn.dataset.at);
   for (const fresh of drawn) {
-    const old = shown[next];
+    const at = fresh.dataset.at;
+    const old = (at ? byTime.get(at)?.find(turn => !used.has(turn)) : null)
+      ?? (at ? unkeyed : shown).find(turn => !used.has(turn) && sameTurn(turn, fresh));
 
-    if (old && sameTurn(old, fresh)) {
+    if (old) {
+      used.add(old);
       mergeTurn(old, fresh);
       discardChatWork(fresh);
       kept.set(fresh, old);
       order.push(old);
-      next++;
-    } else {
-      order.push(fresh);
-    }
+    } else order.push(fresh);
   }
 
-  // A turn the server's copy no longer lists goes, unless it was drawn live
-  // and the copy has not caught up with it.
-  for (const t of shown.slice(next)) {
-    if (t.dataset.at) { discardChatWork(t); t.remove(); }
-    else order.push(t);
-  }
+  // Keep a live turn until the server includes it in its history.
+  for (const turn of shown) if (!used.has(turn) && !turn.dataset.at) order.push(turn);
 
-  let prev: Element | null = null;
-
-  for (const t of order) {
-    if (t.parentElement !== b) {
-      const first = b.querySelector(":scope > .turn");
-      if (prev) prev.after(t);
-      else if (first) first.before(t);
-      else b.append(t);
-    }
-
-    prev = t;
-  }
+  conversation(b).replace(order);
 
   return kept;
 }
@@ -449,7 +438,7 @@ type TurnAgent = { message: number; agent: string | null };
 export async function loadTurnAgent(id: string | null, turn: Turn) {
   const agents = await invoke<TurnAgent[]>("session_agents", { id }).catch(() => []);
   const agent = agents.at(-1)?.agent;
-  if (!agent || !turn.isConnected || turn !== [...body()!.querySelectorAll<Turn>(".turn")].findLast(t => t.user)) return;
+  if (!agent || !turn.isConnected || turn !== conversation(body()!).turns.findLast(t => t.user)) return;
   turn.agent = agent;
   replyActs(turn);
 }

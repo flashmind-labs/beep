@@ -1,5 +1,6 @@
+import { conversation } from "./conversation.ts";
 import { ANSWER, askText, body, owningChatBody, follow, keepDown, newTurn, runTurn, scrollDown, startRun } from "./chat.ts";
-import { discardChatActions, discardChatNotice, discardChatWork, renderChatActions, renderChatNotice } from "./work-view.tsx";
+import { discardChatActions, discardChatNotice, renderChatActions, renderChatNotice } from "./work-view.tsx";
 import { $, here, S, stopping } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
 import { PLAY_ICON } from "../lists/memories.ts";
@@ -95,11 +96,11 @@ export function rerunClick(e: MouseEvent) {
 export async function rerun(turn: Turn, model: string | null, thinking: string | null) {
   const id = S.session, busy = here();
   if (!id || busy?.run || busy?.approval) return;
-  const turns = [...body()!.querySelectorAll<Turn>(".turn")];
+  const current = conversation(body()!), turns = current.turns;
   const index = turns.filter(t => t.user).indexOf(turn);
   if (index < 0) return;
   const question = askText(turn);
-  for (const t of turns.slice(turns.indexOf(turn))) { discardChatWork(t); t.remove(); }
+  current.dropFrom(turn);
   const fresh = newTurn(question);
   fresh.user = true;
 
