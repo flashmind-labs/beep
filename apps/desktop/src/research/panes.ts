@@ -51,17 +51,6 @@ export function placeholder(o: Open) {
 
 // ---------- Side pane ----------
 
-/// The tab strip: the workspace, the team, then the threads and the room opened.
-export function tabsHtml(o: Open) {
-  const on = shownTab(o);
-  const notes = o.entries.filter(e => e.kind === "note").length;
-  const tab = (id: string, label: string, n = 0, close = false) =>
-    `<button class="agtab${on === id ? " on" : ""}" role="tab" aria-selected="${on === id}" data-act="tab:${esc(id)}" title="${esc(label)}"><span>${esc(label)}</span>${n ? `<small>${n}</small>` : ""}`
-    + (close ? `<em role="button" data-act="close:${esc(id)}" aria-label="Close ${esc(label)}" title="Close">${ICON.x}</em>` : "") + "</button>";
-  return tab("draft", "Draft") + tab("notes", "Notes", notes) + tab("sources", "Sources", o.research?.sources.length) + tab("agents", "Agents")
-    + o.tabs.map(id => id === "room" ? tab(id, "Room", 0, true) : tab(id, agentOf(o, id).name, 0, true)).join("");
-}
-
 /// The tab on screen, with what sits under the strip.
 export function paneHtml(o: Open) {
   const tab = shownTab(o);
