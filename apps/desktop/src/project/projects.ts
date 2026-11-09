@@ -23,7 +23,7 @@ import { runningRow } from "../center/home.ts";
 import { single } from "../center/openitems.ts";
 import { setProjectOnTop, newWindowOn, openProjects, addProject } from "../center/sidebar.ts";
 import { groupMenu, editGroup, startRename, renameGroup, removeGroup } from "./groups.ts";
-import { splitOn, projectSplit } from "./split.ts";
+import { splitOn, projectSplit, panelSlot } from "./split.ts";
 import { redrawProjects, redrawProjectsPage, pc, terms, fsync } from "./sections.ts";
 import { drawProjectComp, fillBar } from "./composer.ts";
 import { whereRow, gitCells, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsSection } from "./loads.ts";
@@ -228,18 +228,14 @@ export function projectDetail(p: Project) {
 
 /// The project's custom agents: the named agents its folder defines for
 /// each harness on one machine, and the user's own there.
-const cags = makeCustomAgents({ redraw: () => redrawProjects(), start: startWithAgent });
+const cags = makeCustomAgents({ redraw: () => redrawProjects(), start: startWithAgent, slot: panelSlot });
 
 /// "Custom agents", read on this Mac's checkout or else the first machine
 /// with one. Named apart from "Agents", the ones running now.
 /// How many custom agents the project has, as far as read.
-export function customAgentsCount(rows: WhereRow[]) { return cags.view(agentsPlace(rows)).count; }
-
-export function customAgentsSection(rows: WhereRow[]) {
-  const place = agentsPlace(rows);
-  const { body, count } = cags.view(place);
-  return section("sec-custom-agents", "Custom agents", count || "", place ? button("Reload", "quiet small", () => cags.reload(place)) : null, body);
-}
+export function customAgentsCount(rows: WhereRow[]) { return cags.count(agentsPlace(rows)); }
+export function customAgentsSection(rows: WhereRow[]) { return cags.section(agentsPlace(rows)); }
+export function disposeCustomAgents() { cags.dispose(); }
 
 /// Start on a custom agent: the bar on the machine it was read on, with
 /// its harness picked and "Use the <name> agent to " to finish.
