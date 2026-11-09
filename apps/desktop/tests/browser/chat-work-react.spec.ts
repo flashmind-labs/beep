@@ -158,3 +158,32 @@ test("live approval shows its answer after the card is removed", async ({ page }
   await expect(page.locator(".turn .dmuted")).toContainText("Allowed for the rest of this chat");
   await expect(page.locator(".dcard")).toHaveCount(0);
 });
+
+test("chart controls keep selection and focus during history refresh", async ({ page }) => {
+  const chart = { title: "Example chart", kind: "line", x: "category", categories: ["One", "Two"], unit: "%", series: [{ name: "First", points: [{ x: 0, y: 1 }, { x: 1, y: 2 }] }, { name: "Second", points: [{ x: 0, y: 2 }, { x: 1, y: 3 }] }], stock: null, source: "Example" };
+  const history = [{ role: "user", text: "Show a chart", at: 1, images: [], model: "", thinking: "" }, { role: "assistant", html: "<p>Here.</p>", tools: [{ name: "show_chart", label: "Show chart", success: true, route: null, file: null, images: [], products: null, cards: null, chart }], replies: [], model: "" }];
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const button = page.locator(".dchart [data-series='0']");
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+  await button.click();
+  await expect(button).toHaveAttribute("aria-pressed", "false");
+  await button.evaluate(el => Reflect.set(window, "chartLegend", el));
+  await page.evaluate(() => window.__navigation.emit("sessions-changed", "chat-example"));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_session").length)).toBeGreaterThan(1);
+  expect(await button.evaluate(el => el === Reflect.get(window, "chartLegend") && document.activeElement === el)).toBe(true);
+  await expect(button).toHaveAttribute("aria-pressed", "false");
+});
+
+test("stock chart changes range without replacing controls", async ({ page }) => {
+  const stock = { symbol: "TEST", name: "Example", exchange: "EX", currency: "USD", range: "1d", last: 2, previous: 1 };
+  const chart = { title: "Example chart", kind: "line", x: "category", categories: ["One", "Two"], unit: "USD", series: [{ name: "First", points: [{ x: 0, y: 1 }, { x: 1, y: 2 }] }], stock, source: "Example" };
+  const history = [{ role: "user", text: "Show a chart", at: 1, images: [], model: "", thinking: "" }, { role: "assistant", html: "<p>Here.</p>", tools: [{ name: "show_chart", label: "Show chart", success: true, route: null, file: null, images: [], products: null, cards: null, chart }], replies: [], model: "" }];
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, stock_chart: { ...chart, stock: { ...stock, range: "5d" } }, session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const button = page.locator(".dchart [data-range='5d']");
+  await button.click();
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "stock_chart").map(call => call.args.range))).toEqual(["5d"]);
+  await expect(button).toBeFocused();
+});
