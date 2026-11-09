@@ -96,3 +96,20 @@ test("machine actions and terminals remain available without detailed sync suppo
   await expect(page.getByRole("button", { name: "Remove from studio", exact: true })).toBeEnabled();
   await expect(page.locator(".pm-section")).toContainText("The server needs an update before it shows file sync in detail.");
 });
+
+
+test("the project composer offers hosts that reconnect while it stays open", async ({ page }) => {
+  const host = (id: string) => ({ machine_id: id, machine_name: id, agents: ["codex"], workspace: null, home: null, capabilities: [] });
+  const projects = ["build-box", "studio"].map(id => ({ name: projectName, url: "https://example.test/example/widget", machine_id: id, machine_name: id, folder: "/srv/project", cloned: true, imported_at: 1 }));
+  await openDesktop(page, false, { ...responses, agent_hosts: [host("build-box")], center_home: { machines: [], projects, running: [], needs_you: [], coming_up: null, updates: null } });
+  await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projectName);
+  const picker = page.locator(".cc-pjc").getByRole("button", { name: /build-box/ });
+  await expect(picker).toBeVisible();
+  await page.evaluate(hosts => {
+    window.__navigation.respond("agent_hosts", hosts);
+    window.__navigation.notify("machines");
+  }, [host("build-box"), host("studio")]);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_hosts").length)).toBeGreaterThan(1);
+  await picker.click();
+  await expect(page.getByRole("menuitem", { name: "studio", exact: true })).toBeVisible();
+});

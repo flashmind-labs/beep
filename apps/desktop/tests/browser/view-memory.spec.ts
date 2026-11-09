@@ -89,6 +89,12 @@ test("returning and reloading reconnects the same terminal without stopping it",
   await open("notice-one");
   await expect(tab).toHaveAttribute("aria-selected", "true");
   await expect.poll(attaches).toBeGreaterThan(1);
+  const beforeHome = await attaches();
+  await page.evaluate(() => window.__navigation.open("home"));
+  await expect(page.locator("#agshell")).toBeHidden();
+  await open("notice-one");
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+  await expect.poll(attaches).toBeGreaterThan(beforeHome);
   const calls = await page.evaluate(() => window.__navigation.calls());
   expect(calls.filter(c => c.command === "terminal_open")).toHaveLength(1);
   expect(calls.filter(c => c.command === "terminal_close")).toHaveLength(0);

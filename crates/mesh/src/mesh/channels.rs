@@ -7,7 +7,20 @@ use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex, PoisonError},
 };
-use tokio::{sync::Mutex as AsyncMutex, time::timeout};
+use tokio::{
+    sync::Mutex as AsyncMutex,
+    time::{Duration, Instant, timeout},
+};
+
+const FIRST_RETRY: Duration = Duration::from_secs(1);
+const MAX_RETRY: Duration = Duration::from_secs(30);
+
+struct FailedDial {
+    peer_session: Option<u64>,
+    retry_at: Instant,
+    pause: Duration,
+    reason: String,
+}
 
 struct CachedConnection {
     connection: Connection,
@@ -17,7 +30,7 @@ struct CachedConnection {
 #[derive(Default)]
 pub(super) struct ChannelConnection {
     connection: Mutex<Option<CachedConnection>>,
-    dialing: AsyncMutex<()>,
+    dialing: AsyncMutex<Option<FailedDial>>,
     incoming: Mutex<Vec<CachedConnection>>,
 }
 
@@ -173,13 +186,20 @@ impl Mesh {
             return Ok(connection);
         }
 
-        let _dialing = slot.dialing.lock().await;
+        let mut failed = slot.dialing.lock().await;
         if let Some(connection) = slot.live(self.inner.conns().get(&peer).map(|live| live.session))
         {
             return Ok(connection);
         }
 
         let opening_session = self.inner.conns().get(&peer).map(|live| live.session);
+        if let Some(previous) = failed.as_ref()
+            && previous.peer_session == opening_session
+            && Instant::now() < previous.retry_at
+        {
+            return Err(wire::net(&previous.reason));
+        }
+
         let active = self.inner.live(peer);
         let paths = active
             .as_ref()
@@ -200,12 +220,29 @@ impl Mesh {
         } else {
             EndpointAddr::new(peer).with_addrs(paths)
         };
-        let connection = match timeout(OPEN_TIMEOUT, self.inner.endpoint.connect(addr, alpn)).await
-        {
-            Ok(Ok(connection)) => connection,
-            Ok(Err(error)) => return Err(wire::net(error)),
-            Err(_) => return Err(wire::net("opening the peer protocol timed out")),
+        let result = timeout(OPEN_TIMEOUT, self.inner.endpoint.connect(addr, alpn))
+            .await
+            .map_err(|_| "opening the peer protocol timed out".to_owned())
+            .and_then(|result| result.map_err(|error| error.to_string()));
+        let connection = match result {
+            Ok(connection) => connection,
+            Err(reason) => {
+                let pause = failed
+                    .as_ref()
+                    .filter(|previous| previous.peer_session == opening_session)
+                    .map_or(FIRST_RETRY, |previous| (previous.pause * 2).min(MAX_RETRY));
+                tracing::warn!(?peer, protocol = %String::from_utf8_lossy(alpn), retry_ms = pause.as_millis(), %reason, "peer protocol connection failed; backing off");
+                *failed = Some(FailedDial {
+                    peer_session: opening_session,
+                    retry_at: Instant::now() + pause,
+                    pause,
+                    reason: reason.clone(),
+                });
+
+                return Err(wire::net(reason));
+            }
         };
+        *failed = None;
 
         // Serialize the final membership check with pruning, so a removal
         // cannot miss a connection that has just finished dialing.

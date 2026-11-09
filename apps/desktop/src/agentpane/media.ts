@@ -317,6 +317,11 @@ export function rememberTerminal(key: string, tab: MediaTab, row: TerminalRow) {
 
 window.addEventListener("pagehide", rememberPane);
 
+/// Reusing a conversation frame also restores views released when leaving it.
+export function restorePane() {
+  if (paneReleased && P.session) startPane(P.session);
+}
+
 export function closePaneTabs() {
   rememberPane();
   paneReleased = true;
