@@ -247,3 +247,53 @@ test("diff toolbar keeps filtering, keyboard focus, split and folding controls w
   await filter.fill("");
   await expect(diff.locator('.dv-file[data-path="beta.ts"]')).toBeVisible();
 });
+
+test("diff tree preserves focused files and scroll when refreshed", async ({ page }) => {
+  await page.setViewportSize({ width: 1800, height: 900 });
+  const file = (path: string) => ({ path, old_path: null, status: "modified", additions: 1, deletions: 0, left_out: null, hunks: [] });
+  const files = Array.from({ length: 80 }, (_, i) => file(`src/file-${i}.ts`));
+  const diff = { root: "/srv/project", base: "main", merge_base: "", working_tree: false, additions: 80, deletions: 0, more: 0, files };
+  await openDesktop(page, false, {
+    project_git_history: { machine_id: "build-box", machine_name: "build-box", root: "/srv/project", refs: [], worktrees: [], commits: [{ id: "abc123", parents: [], author: "Example", committed_at: 1, subject: "Commit" }], next: null },
+    project_git_files: files.map(({ path }) => ({ path, old_path: null, status: "modified" })), project_git_diff: diff,
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
+  const tree = page.locator(".gh-detail .dv-tree");
+  const row = tree.locator('.dv-tr[data-path="src/file-70.ts"]');
+  await expect(row).toBeVisible();
+  await row.focus();
+  await row.evaluate(element => { element.dataset.testIdentity = "same"; });
+  const before = await tree.evaluate(element => { element.scrollTop = element.scrollHeight; return element.scrollTop; });
+  expect(before).toBeGreaterThan(0);
+  await page.evaluate(value => window.__navigation.respond("project_git_diff", value), { ...diff, files: [...files, file("src/new.ts")] });
+  await page.locator('.gh-detail .dv-btn[aria-label="Refresh"]').evaluate(button => { if (button instanceof HTMLElement) button.click(); });
+  await expect(tree.locator('.dv-tr[data-path="src/new.ts"]')).toBeVisible();
+  await expect(row).toHaveAttribute("data-test-identity", "same");
+  await expect(row).toBeFocused();
+  await expect(tree).toHaveJSProperty("scrollTop", before);
+  await row.click({ button: "right" });
+  await expect(page.getByRole("menu", { name: "src/file-70.ts" }).getByRole("menuitem", { name: "Copy path" })).toBeVisible();
+});
+
+test("diff keyboard navigation reveals a filtered closed folder", async ({ page }) => {
+  await page.setViewportSize({ width: 1800, height: 900 });
+  const file = (path: string) => ({ path, old_path: null, status: "modified", additions: 1, deletions: 0, left_out: null, hunks: [] });
+  const files = [file("src/first.ts"), file("src/second.ts")];
+  await openDesktop(page, false, {
+    project_git_history: { machine_id: "build-box", machine_name: "build-box", root: "/srv/project", refs: [], worktrees: [], commits: [{ id: "abc123", parents: [], author: "Example", committed_at: 1, subject: "Commit" }], next: null },
+    project_git_files: files.map(({ path }) => ({ path, old_path: null, status: "modified" })),
+    project_git_diff: { root: "/srv/project", base: "main", merge_base: "", working_tree: false, additions: 2, deletions: 0, more: 0, files },
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
+  const diff = page.locator(".gh-detail .dv");
+  await diff.getByRole("textbox", { name: "Filter files" }).fill("src");
+  const folder = diff.locator('.dv-dir[data-folder="src/"]');
+  await folder.locator(":scope > summary").click();
+  await expect(folder).not.toHaveAttribute("open", "");
+  await diff.focus();
+  await page.keyboard.press("j");
+  await expect(folder).toHaveAttribute("open", "");
+  await expect(folder.locator(".dv-tr.on")).toBeVisible();
+});
