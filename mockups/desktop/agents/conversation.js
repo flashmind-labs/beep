@@ -1,7 +1,7 @@
 (() => {
   const { AGK, AG_ICON, HARNESS, av, tag, pick, variants, hint, HOSTS, SG, step, SUBS, SUBS_DISK, subRow, KIDS, kidRow } = AGENT_MOCK;
   D.dAgentSession = () => {
-    const variant = pick("ags", ["nochange", "held", "fromsession", "warning", "working", "asks", "idle", "stepsopen", "failed", "failedopen", "subagents", "subchild", "agentkids", "agentchild", "agentstopped", "answered", "model", "flshmodel", "flshusage", "flshunknown", "ended", "outside", "disksubs", "image", "shots", "shotpanel", "paneright", "panegone", "panebottom", "panepdf", "panecollapsed", "files", "filemulti", "filedelete", "filemenu", "filemenuwith", "filetext", "filefilter", "dragpath", "dropchoice", "term", "termsplit", "dragtab", "pasted", "pastepreview", "artifacts", "running", "runstop", "thinking", "thoughts", "thoughtopen", "steer", "steered", "stopping", "rich", "richopen", "richcmd", "richgroup", "richdone", "richerror", "richjump", "richthink", "richthought"], "nochange");
+    const variant = pick("ags", ["nochange", "held", "fromsession", "warning", "working", "asks", "idle", "stepsopen", "failed", "failedopen", "subagents", "subchild", "agentkids", "agentchild", "agentstopped", "answered", "model", "flshmodel", "flshusage", "flshunknown", "ended", "outside", "disksubs", "image", "shots", "shotgone", "shotpanel", "paneright", "panegone", "panebottom", "panepdf", "panecollapsed", "files", "filemulti", "filedelete", "filemenu", "filemenuwith", "filetext", "filefilter", "dragpath", "dropchoice", "term", "termsplit", "dragtab", "pasted", "pastepreview", "artifacts", "running", "runstop", "thinking", "thoughts", "thoughtopen", "steer", "steered", "stopping", "rich", "richopen", "richcmd", "richgroup", "richdone", "richerror", "richjump", "richthink", "richthought"], "nochange");
     const v = variant === "flshusage" || variant === "flshunknown" ? "idle" : variant;
     // Enter while a turn runs shows the message in the chat immediately.
     // It stays pending until the agent receives it after its current step.
@@ -43,7 +43,7 @@ note: return type of find is Option&lt;User&gt;</pre></div>` : "";
     // A reply that names image files links them and shows each as a
     // thumbnail; a click opens it in the side panel. Images the agent only
     // looked at stay small and dim inside the folded work.
-    const shots = v === "shots" || v === "shotpanel";
+    const shots = v === "shots" || v === "shotpanel" || v === "shotgone";
     // Pages and documents the agent published (an Artifact call), or wrote
     // outside its checkout (.html, .md, .svg, images): the Artifacts tab
     // lists them and shows one. Repo files it edits stay in Files.
@@ -51,7 +51,7 @@ note: return type of find is Option&lt;User&gt;</pre></div>` : "";
     const disk = v === "disksubs";
     const image = v === "image", asks = v === "asks", ended = v === "ended", outside = v === "outside" || disk;
     const kids = v === "agentkids", subs = v === "subagents" || disk || kids, child = v === "subchild" || v === "agentchild" || v === "agentstopped", modelOpen = v === "model" || v === "flshmodel";
-    const done = ["nochange", "held", "fromsession", "idle", "stepsopen", "failed", "failedopen", "answered", "ended", "outside", "disksubs", "image", "shots", "shotpanel", "beeptools", "richdone", "richerror", "running", "runstop"].includes(v) || media || fpane || arts;
+    const done = ["nochange", "held", "fromsession", "idle", "stepsopen", "failed", "failedopen", "answered", "ended", "outside", "disksubs", "image", "shots", "shotgone", "shotpanel", "beeptools", "richdone", "richerror", "running", "runstop"].includes(v) || media || fpane || arts;
     const state = asks ? tag("ask", "Waiting for you") : ended ? tag("", "Ended") : done ? tag("", "Idle") : stopping ? tag("run", "Stopping") : tag("run", "Working");
     const you = `<div class="dcoderen user"><b>You</b><span>Fix the failing login test<br>Keep the other tests passing<details style="margin:4px 0;border:1px solid var(--d-border);border-radius:6px"><summary style="cursor:pointer;padding:3px 8px;font-size:12px;color:var(--d-muted)">Pasted text · 8 lines</summary><pre style="margin:0;padding:6px 8px;font:11.5px/16px var(--mono,monospace);white-space:pre-wrap;border-top:1px solid var(--d-border)">FAIL auth.spec.ts:42
 expected 200, got 401</pre></details></span></div>`;
@@ -93,6 +93,8 @@ expected 200, got 401</pre></details></span></div>`;
     const mlink = (f, tab) => `<a class="imgl" data-dact="dset:ags:${tab}">${f}</a>`;
     const answer = media
       ? `<div class="dcoderen agent md">The turntable renders cleanly now. The model is ${mlink("out/turntable.glb", "paneright")}, the render ${mlink("out/walkcycle.mp4", "panebottom")} and the contact sheet ${mlink("out/contact-sheet.pdf", "panepdf")}.<div class="shots"><i class="img big b2" data-dact="dset:ags:shotpanel"></i></div></div>`
+      : v === "shotgone"
+      ? `<div class="dcoderen agent md"><p>Latest screenshot:</p><span class="agwarn" title="Sign-in screen">The file is no longer on disk. Unable to load image.</span></div>`
       : shots
       ? `<div class="dcoderen agent md">The button no longer overlaps the label. Before and after are in <a class="imgl" data-dact="dset:ags:shotpanel">shots/login-before.png</a> and <a class="imgl" data-dact="dset:ags:shotpanel">shots/login-after.png</a>.<p>Latest screenshot:</p><p><img class="img big" src="assets/inline-image.svg" alt="Sign-in screen" data-dact="dset:ags:shotpanel" width="240" height="160"></p></div>`
       : v === "beeptools"
