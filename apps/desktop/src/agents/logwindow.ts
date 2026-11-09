@@ -169,6 +169,8 @@ function start(log: HTMLElement): LogWindow {
     gap: parseFloat(getComputedStyle(log).rowGap) || 0, top, bottom,
     watch: frameResize(() => resized(log, w)),
   };
+  const body = log.closest<ChatBody>(".dbody");
+  if (body) w.watch.observe(body);
   windows.set(log, w);
   return w;
 }
@@ -188,7 +190,11 @@ function resized(log: HTMLElement, w: LogWindow) {
     w.sizes.set(key, now);
   }
 
-  if (!moved.length) return;
+  // The composer can resize the viewport without changing any turn.
+  if (!moved.length) {
+    if (b.stuck !== false) pinEnd(b);
+    return;
+  }
   const keys = w.units.map(u => u.key);
   const drawn = keys.filter(k => w.drawn.has(k));
   // The guess for turns not drawn moved with these, and the spacers with it.
