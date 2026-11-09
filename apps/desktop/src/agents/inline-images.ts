@@ -26,7 +26,7 @@ export function prepareInlineImages(html: string) {
 
 const MAX_IMAGE = 16 * 1024 * 1024;
 const MAX_CACHE = 32 * 1024 * 1024;
-type Cached = { url?: string | null; fails: number; until: number };
+type Cached = { url?: string | null; fails: number; until: number; missing: boolean };
 const cache = new Map<string, Cached>();
 const pending = new Set<string>();
 let cachedBytes = 0;
@@ -98,18 +98,23 @@ export function fillInlineImages(root: HTMLElement, session: { machine_id: strin
     const key = JSON.stringify([session.machine_id, path]);
     const got = cache.get(key);
     if (got?.url) { keep(key, got); img.src = got.url; continue; }
-    if (got?.url === null) { img.replaceWith(h(gonePic(img.alt || baseName(path)))); continue; }
+    if (got?.url === null) {
+      const label = img.alt || baseName(path);
+      const message = got.missing ? "The file is no longer on disk. Unable to load image." : label;
+      img.replaceWith(h(gonePic(label, message)));
+      continue;
+    }
     if (got && got.until > Date.now()) { wait = Math.min(wait, got.until - Date.now()); continue; }
     if (pending.has(key) || pending.size >= 3) continue;
     pending.add(key);
     const active = () => root.isConnected && current();
     void readImage(session.machine_id, path, active).then(url => {
-      if (url !== undefined) keep(key, { url, fails: 0, until: 0 });
+      if (url !== undefined) keep(key, { url, missing: false, fails: 0, until: 0 });
     }, e => {
       if (!active()) return;
       const fails = (got?.fails ?? 0) + 1;
       const gone = /no such file|os error 2|file not found|no longer available/i.test(String(e));
-      keep(key, { url: gone ? null : undefined, fails, until: Date.now() + retryIn(fails) });
+      keep(key, { url: gone ? null : undefined, missing: gone, fails, until: Date.now() + retryIn(fails) });
     }).finally(() => { pending.delete(key); refill(); });
   }
 
