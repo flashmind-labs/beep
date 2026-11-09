@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { PaletteView } from "./palette-view.tsx";
 import type { NavigationArgs } from "./state.ts";
 import { commandKey } from "../ui/platform.ts";
 // The Cmd+K palette: one search over actions, settings, projects, pull
@@ -6,8 +10,7 @@ import { commandKey } from "../ui/platform.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import type { PaneTarget } from "../bar/pane.ts";
 import type { AgentRow } from "../agents/agents.ts";
-import { el, type Kid } from "../ui/dom.ts";
-import { svgEl as svg } from "../ui/parts.ts";
+import { el } from "../ui/dom.ts";
 import { rank, type Entry, type Hit as FoundHit, type HitKind, type PaletteIndex } from "./palette-rank.ts";
 import { PaletteSearch } from "./palette-search.ts";
 import { projectFirst } from "../project/projectwindow.ts";
@@ -16,7 +19,7 @@ import { IC } from "../ui/icons.ts";
 
 /// One search result. A branch's id is its project and the branch, split by
 /// a space.
-type Hit = FoundHit<AgentRow>;
+export type Hit = FoundHit<AgentRow>;
 type Index = PaletteIndex<AgentRow>;
 
 type PaletteNavigation = Extract<NavigationArgs, [view: "home" | "pane", ...rest: unknown[]]>;
@@ -58,7 +61,7 @@ const ICON_OF: Partial<Record<HitKind | "research", keyof typeof ICONS | keyof t
 const ACTION_VIEWS: Record<string, PaneTarget> = { all_chats: "chats", memories: "memories", routines: "routines", skills: "skills", apps: "apps", settings: "settings" };
 
 let deps: PaletteDeps | null = null;
-let root: HTMLDivElement | null = null, input: HTMLInputElement | null = null, list: HTMLDivElement | null = null;
+let root: HTMLDivElement | null = null, input: HTMLInputElement | null = null, view: Root | null = null;
 let hits: Hit[] = [], sel = 0, drawnQuery = "";
 let searching: PaletteSearch<Entry<AgentRow>> | null = null, back: HTMLElement | null = null;
 /// What the palette finds, as of the app's last word. Empty until the first
@@ -82,53 +85,16 @@ export function initPalette(window_: PaletteDeps) {
   listen("palette-text-changed", () => searching?.requery());
 }
 
-/// Highlight every search term, keeping message text as plain text.
-function marked(text: string, q: string): Kid[] {
-  const terms = q.trim().split(/\s+/u).filter(Boolean);
-  if (!terms.length) return [text];
-  const pattern = terms.map(term => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-  const matches = text.matchAll(new RegExp(pattern, "giu"));
-  const result: Kid[] = [];
-  let end = 0;
-
-  for (const match of matches) {
-    result.push(text.slice(end, match.index), el("mark", "", match[0]));
-    end = match.index + match[0].length;
-  }
-
-  result.push(text.slice(end));
-  return result;
-}
-
 export function openPalette() {
   if (!deps) return;
   if (root) return input!.focus();
   back = document.activeElement as HTMLElement | null;
   hits = [];
   sel = 0;
-  input = el("input");
-  input.type = "text";
-  input.placeholder = `Search anything: ${state.subscribed ? "chats, " : ""}projects, coding agents, machines, settings, PRs…`;
-  input.autocomplete = "off";
-  input.spellcheck = false;
-  input.setAttribute("aria-label", "Search");
-  input.setAttribute("role", "combobox");
-  input.setAttribute("aria-controls", "pal-list");
-  input.setAttribute("aria-expanded", "true");
-  input.addEventListener("input", () => searching?.type(input!.value));
-  list = el("div", "res");
-  list.setAttribute("role", "listbox");
-  list.id = "pal-list";
-  const foot = el("div", "foot");
-  // Asking Beep is the assistant's: without a subscription there is nothing to ask.
-  for (const [k, t] of [["↑↓", "move"], ["↵", "open"], ...(state.subscribed ? [["⌘↵", "ask Beep"]] : []), ["esc", "close"]]) foot.append(el("span", "", el("kbd", "", k), t));
-  const box = el("div", "cc-pal", el("div", "q", svg(IC.find), input), list, foot);
-  box.setAttribute("role", "dialog");
-  box.setAttribute("aria-label", "Search");
-  const scrim = root = el("div", "cc-scrim", box);
+  const scrim = root = el("div", "cc-scrim");
   scrim.addEventListener("mousedown", e => { if (e.target === scrim) { e.preventDefault(); close(); } });
   document.querySelector(".cwin")!.append(scrim);
-  input.focus();
+  view = createRoot(scrim);
   drawnQuery = "";
   searching = new PaletteSearch<Entry<AgentRow>>(
     [
@@ -154,8 +120,9 @@ function close() {
   if (!root) return;
   searching?.stop();
   searching = null;
+  view?.unmount(); view = null;
   root.remove();
-  root = input = list = null;
+  root = input = null;
   const to = back;
   back = null;
   // The sidebar is redrawn now and then, so its Search row may be a new element.
@@ -163,71 +130,23 @@ function close() {
 }
 
 function draw(q: string) {
-  const rows: HTMLElement[] = [];
-  let group: string | null = null;
-  hits.forEach((hit, i) => {
-    const next = hit.top ? "top" : GROUPS[hit.kind];
-
-    if (next !== group) {
-      group = next;
-      rows.push(el("h5", "", hit.top ? "Top hit" : hit.kind === "chat" && !q ? "Recent chats" : group));
-    }
-
-    rows.push(row(hit, i, q));
-  });
-  if (!hits.length) rows.push(noHits(q));
-  list!.replaceChildren(...rows);
-  mark();
-}
-
-function row(hit: Hit, i: number, q: string) {
-  const note = hit.detail && ["chat", "routine", "setting", "project", "project_chat", "folder", "agent_session", "code", "branch"].includes(hit.kind) ? el("small", "", ...marked(hit.detail, q)) : null;
-  const snippet = hit.snippet ? el("small", "", ...marked(hit.snippet, q)) : null;
-  if (q.trim().split(/\s+/u).length > 1) {
-    if (note) note.style.whiteSpace = "normal";
-    if (snippet) snippet.style.whiteSpace = "normal";
-  }
-
-  const side = hit.detail && (hit.kind === "memory" || hit.kind === "machine") ? el("span", "w", hit.detail) : null;
-  // A research is a chat; it keeps its paper's icon here.
-  const name = ICON_OF[hit.kind === "chat" && deps!.research(hit.id) ? "research" : hit.kind] ?? hit.kind;
-  const markup = name in ICONS ? ICONS[name as keyof typeof ICONS] : IC[name as keyof typeof IC];
-  const lead = hit.kind === "machine" ? el("span", `ddot${hit.detail === "online" ? "" : " off"}`) : svg(markup);
-  const b = el("button", "it", lead, el("span", "t", el("span", "", ...marked(hit.title, q)), note, snippet), side);
-  b.type = "button";
-  b.tabIndex = -1;
-  b.setAttribute("role", "option");
-  b.id = `pal-opt-${i}`;
-  b.addEventListener("mousemove", e => {
-    // Scrolling rows beneath a stationary pointer can also emit mousemove.
-    if (e.movementX === 0 && e.movementY === 0) return;
-    if (sel !== i) { sel = i; mark(); }
-  });
-  b.addEventListener("click", () => pick(hit));
-  return b;
-}
-
-function noHits(q: string) {
-  const none = el("div", "none", `Nothing matches “${q}”.`);
-
-  if (q && state.subscribed) {
-    const ask = el("button", "dbtn", `Ask Beep “${q}”`, el("kbd", "", "⌘↵"));
-    ask.type = "button";
-    ask.addEventListener("click", () => ask_(q));
-    none.append(el("br"), ask);
-  }
-
-  return none;
+  if (!view || !root) return;
+  const current = view;
+  flushSync(() => current.render(createElement(PaletteView, {
+    hits, selected: sel, query: q, subscribed: state.subscribed, searchIcon: IC.find,
+    group: (hit: Hit, query: string) => hit.top ? "Top hit" : hit.kind === "chat" && !query ? "Recent chats" : GROUPS[hit.kind],
+    icon: (hit: Hit) => {
+      const name = ICON_OF[hit.kind === "chat" && deps?.research(hit.id) ? "research" : hit.kind] ?? hit.kind;
+      return name in ICONS ? ICONS[name as keyof typeof ICONS] : IC[name as keyof typeof IC];
+    },
+    search: (value: string) => searching?.type(value), choose: pick,
+    hover: (index: number) => { if (sel !== index) { sel = index; mark(); } }, ask: ask_,
+  })));
+  input = root.querySelector<HTMLInputElement>("input");
 }
 
 /// Highlights the selected row and keeps it in view.
-function mark() {
-  const items = list!.querySelectorAll(".it");
-  items.forEach((b, i) => b.setAttribute("aria-selected", String(i === sel)));
-  if (items[sel]) input!.setAttribute("aria-activedescendant", items[sel].id);
-  else input!.removeAttribute("aria-activedescendant");
-  items[sel]?.scrollIntoView({ block: "nearest" });
-}
+function mark() { draw(drawnQuery.trim()); }
 
 function ask_(q: string) {
   const text = q.trim();
