@@ -2,24 +2,21 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { MachineList } from "./list-view.tsx";
+import { MachineDetail, type MachineLog } from "./detail-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // machines/: the Machines list, Home's machine table (table.ts) and the
 // Add a machine sheet. Entry: this file.
 import { openAddMachine } from "./addmachine.ts";
 import { openJoinTicket } from "./jointicket.ts";
-import { coders, errorText, isCoder, machineTag, nodeBehind, offeredNode, type NodeUpdate, shownVersion, updatedNotes, updatedTo, updateOffered } from "./machines-state.ts";
+import { errorText, offeredNode, type NodeUpdate, updatedTo } from "./machines-state.ts";
 import { bar, S } from "../bar/core.ts";
-import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
+import type { MachineTraffic } from "./traffic-state.ts";
 import { hints } from "../bar/hints.ts";
-import { copy } from "../ui/parts.ts";
 import { notice } from "../chat/media.ts";
-import { errLine } from "../lists/memories.ts";
 import { span } from "../lists/routines.ts";
-import { bytes, esc } from "../ui/format.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { loadClocks } from "./clock.ts";
 import { openSignIn } from "./signin.ts";
-import { signInOffer } from "./signin-state.ts";
 import { type AdapterInstall } from "./adapters-state.ts";
 
 // ---------- Machines ----------
@@ -88,9 +85,9 @@ export const MC: {
 /// read, or when its beep-node cannot say; `draft` is the field while
 /// changing it.
 let search: { id: string; folder: string | null; draft: string | null; busy: boolean; error: string } | null = null;
+let searchEditGeneration = 0;
 
 /// The open machine's log (GetMachineLog): `text` is null until read.
-interface MachineLog { id: string; text: string | null; busy: boolean; error: string }
 let log: MachineLog | null = null;
 
 /// A tool on a machine with a newer release (ToolUpdate).
@@ -122,7 +119,7 @@ export function machinesIn(root: HTMLElement, opened: MachinesHost["opened"], ch
   host = { root, machine: null, opened, changed };
 }
 export function machinesOut() {
-  if (listRoot?.host === host?.root) clearList();
+  if (screenRoot?.host === host?.root) clearScreen();
   host = null;
 }
 const hosted = () => (host?.root.isConnected ? host : null);
@@ -229,6 +226,7 @@ async function loadSearch(id: string) {
 async function saveSearch(folder: string) {
   const at = search;
   if (!at || at.busy) return;
+  const generation = searchEditGeneration;
   at.busy = true;
   at.draft = folder;
   at.error = "";
@@ -236,24 +234,13 @@ async function saveSearch(folder: string) {
 
   try {
     at.folder = await invoke<string>("set_machine_search", { machineId: at.id, search: folder });
-    at.draft = null;
+    if (generation === searchEditGeneration) at.draft = null;
   } catch (e) {
-    at.error = errorText(e);
+    if (generation === searchEditGeneration) at.error = errorText(e);
   }
 
   at.busy = false;
   if (shown()) drawMachines();
-}
-
-/// The "Projects in" row: the folder and Change, or the field to change it.
-function searchRow(m: Machine) {
-  if (m.can_host === false) return "";
-  const at = search?.id === m.id ? search : null;
-  if (!at || at.folder === null) return "";
-  const value = at.draft === null
-    ? `<span class="dmono">${esc(at.folder)}</span>${m.online ? ' <button class="dbtn" id="mcSearchEdit">Change</button>' : ""}`
-    : `<span class="dfield dline tight"><input class="dmono" id="mcSearch" value="${esc(at.draft)}" aria-label="Search for projects in" spellcheck="false"${at.busy ? " disabled" : ""}><button class="dbtn pri" id="mcSearchSave"${at.busy ? " disabled" : ""}>Save</button><button class="dbtn quiet" id="mcSearchNo">Cancel</button></span>`;
-  return `<span>Projects in</span><span>${value}</span>`;
 }
 
 /// Reads machine `id`'s log.
@@ -278,19 +265,6 @@ async function saveLog(m: Machine) {
   } catch (e) {
     notice(`Could not save it. ${e}`, { bad: true });
   }
-}
-
-/// The Log section: Show, then the lines with Refresh, Copy and Save.
-function logSection(m: Machine) {
-  const at = log?.id === m.id ? log : null;
-  if (!at && !m.online) return "";
-  const read = (label: string) => `<button class="dbtn" id="mcLog"${at?.busy ? " disabled" : ""}>${label}</button>`;
-  let body = at ? "" : read("Show");
-  if (at?.busy && at.text === null) body = '<div class="dmuted">Reading…</div>';
-  else if (at?.error) body = errLine(at.error) + read("Try again");
-  else if (at?.text === "") body = `<div class="dmuted">Nothing logged lately.</div>${read("Refresh")}`;
-  else if (at?.text) body = `<pre class="dlog dmono">${esc(at.text)}</pre><div class="dlog-acts">${read("Refresh")}<button class="dbtn" id="mcLogCopy">Copy</button><button class="dbtn" id="mcLogSave">Save</button></div>`;
-  return `<div class="dset-h">Log</div>${body}`;
 }
 
 /// Installs the newest release of `tool` on machine `id`.
@@ -426,135 +400,36 @@ async function waitForNode(id: string, to: string, polls: number) {
   });
 }
 
-/// The beep-node row's end on a machine's page: Update, its progress, or
-/// how to update from the machine.
-function updateControl(m: Machine) {
-  const up = MC.updates.get(m.id);
-  if (up?.step === "updating") return ' <span class="dtag ask">Updating…</span>';
-  if (up?.step === "restarting") return ` <span class="dtag ask">Restarting on ${esc(up.to)}…</span>`;
-  if (!m.online || !nodeBehind(m.version, newest())) return "";
-  if (MC.updatable.has(m.id)) return ` <button class="dbtn" data-nodeup="${esc(m.id)}">${up?.step === "failed" ? "Try again" : "Update"}</button>`;
-  if (m.id === MC.mac) return "";
-  return ' <span class="dmuted">Run <span class="dmono">beep-node update</span> on the machine</span>';
-}
-
-/// Under the facts: Update's error or its note.
-function updateLine(m: Machine) {
-  const up = MC.updates.get(m.id);
-  if (up?.step === "failed") return errLine(up.error);
-  if (up?.step === "note" || (up?.step === "restarting" && up.note)) return `<div class="dmuted">${esc(up.step === "note" ? up.text : up.note)}</div>`;
-  return "";
-}
-
-const removeNote = (m: Machine) => m.can_host === false ? "It disconnects from your mesh." : m.online ? "It stops taking work; its sessions and projects go with it." : "Its sessions and projects go with it. If it comes back online, it is turned away.";
-
-/// Remove on every machine but this Mac, and the question it asks.
-function removeParts(m: Machine) {
-  if (m.id === MC.mac) return { button: "", ask: "" };
-  const button = `<button class="dbtn warn" data-rm="${esc(m.id)}" aria-label="Remove ${esc(m.name)}">Remove…</button>`;
-  const asking = MC.asking?.id === m.id ? MC.asking : null;
-  if (!asking) return { button, ask: "" };
-  const what = removeNote(m);
-  return {
-    button: "",
-    ask: `<div class="ask"><span>Remove ${esc(m.name)} from your account? ${what} ${m.can_host === false ? "To reconnect, pair it again." : "To use it again, add it with a new setup command."}</span>
-      ${asking.error ? `<span class="derr">${esc(asking.error)}</span>` : ""}
-      <span class="acts"><button class="dbtn warn" id="rmYes"${asking.busy ? " disabled" : ""}>Remove</button><button class="dbtn quiet" id="rmNo">Cancel</button></span></div>`,
-  };
-}
-
-/// "container" after the name of a machine removed after a day offline.
-function tagChip(m: Machine) {
-  const tag = machineTag(m);
-  return tag ? `<span class="dtag" title="Removed after a day offline">${esc(tag)}</span>` : "";
-}
-
-const statusTag = (m: Machine) => m.online ? '<span class="dtag ok">Online</span>' : `<span class="dtag">Seen ${span(Date.now() - m.seen_at)} ago</span>`;
-const nodeVersion = (m: Machine) => /^\d/.test(m.version) ? `beep-node ${m.version}` : m.version;
 /// The newest beep-node released or on the account's machines, which the
 /// others are behind.
 // Only nodes that update themselves count: the Mac app's built-in node is
 // whatever version the app was built with, which may never have been released.
 const newest = () => offeredNode(MC.released, (MC.list ?? []).filter(m => MC.updatable.has(m.id)).map(m => m.version));
 
-/// One machine on its own page in Settings: what it reported, its
-/// sign-ins, every tool with its version, and Remove.
-function machinePage(m: Machine) {
-  const env = m.env, { button, ask } = removeParts(m);
-  const kv = (k: string, v: string) => `<span>${k}</span><span>${v}</span>`;
-  const behind = m.id !== MC.mac && nodeBehind(m.version, newest()) ? ` <span class="dtag ask">${esc(newest() ?? "")} is out</span>` : "";
-  const facts = kv("Status", statusTag(m) + (machineTag(m) ? ` ${tagChip(m)}` : "")) + (m.can_host === false ? kv("Device", "Phone") + kv("Role", "Controller") : kv("beep-node", esc(nodeVersion(m)) + behind + updateControl(m)))
-    + (env ? kv("System", esc(`${env.os_version}, ${env.arch}`)) + kv("Hardware", esc(`${env.cpus} CPUs, ${Math.round(env.memory_mb / 1024)} GB`))
-      + kv("Host name", `<span class="dmono">${esc(env.hostname)}</span>`) + kv("Home", `<span class="dmono">${esc(env.home)}</span>`) + searchRow(m)
-      + (env.avds.length ? kv("Android emulators", esc(env.avds.join(", "))) : "")
-      : m.can_host === false ? "" : kv("Report", "None yet"));
-  let html = `<div class="dset-box"><div class="dset-kv">${facts}</div></div>` + updateLine(m) + (search?.id === m.id ? errLine(search.error) : "");
+let screenRoot: { host: HTMLElement; mount: HTMLElement; root: Root } | null = null;
 
-  if (m.can_host !== false && env?.logins.length) {
-    const rows = env.logins.map(l => {
-      const who = l.signed_in ? esc(l.account ?? "Signed in") : '<span class="dtag ask">Not signed in</span>';
-      const offer = l.signed_in ? null : signInOffer(l.tool, m.name, m.online, m.id === MC.mac);
-      const act = !offer ? "" : "how" in offer ? `<small class="dmuted">${esc(offer.how)}</small>`
-        : `<button class="dbtn small" data-signin="${esc(l.tool)}">Sign in</button>`;
-      return `<tr><td class="dmono">${esc(l.tool)}</td><td>${who}</td><td style="text-align:right">${act}</td></tr>`;
-    }).join("");
-    html += `<div class="dset-h">Sign-ins</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Account</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
-  }
-
-  if (m.can_host !== false && env?.tools.length) {
-    const tools = [...coders(env.tools), ...env.tools.filter(t => !isCoder(t.name))];
-    const rows = tools.map(t => `<tr><td class="dmono">${esc(t.name)}</td><td class="dmono">${esc(shownVersion(MC.installed, `${m.id} ${t.name}`, t.name, t.version) ?? "")}</td><td>${isCoder(t.name) ? "Coding agent" : "Tool"}</td></tr>`).join("");
-    html += `<div class="dset-hrow"><div class="dset-h">Tools</div>${tools.map(t => toolUpdate(m, t)).join("")}${toolNotes(m, env.tools)}</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Version</th><th>Kind</th></tr></thead><tbody>${rows}</tbody></table>`;
-  }
-
-  html += trafficTable(m) + (m.can_host === false ? "" : logSection(m));
-  return html + `<div class="dmach dset-rm">${button ? `<div class="dset-rm-row"><span class="t"><b>Remove this machine</b><small>${removeNote(m)}</small></span>${button}</div>` : ""}${ask}</div>`;
+function clearScreen() {
+  if (!screenRoot) return;
+  screenRoot.root.unmount();
+  screenRoot.mount.remove();
+  screenRoot = null;
 }
 
-/// What the machine moved per protocol, once it has reported.
-function trafficTable(m: Machine) {
-  const traffic = MC.traffic.find(t => t.id === m.id), rows = trafficRows(traffic);
-  if (!rows.length) return "";
-  const body = rows.map(r => `<tr><td>${esc(r.label)}</td><td class="dmono">${bytes(r.sent)}</td><td class="dmono">${bytes(r.received)}</td></tr>`).join("");
-  const relay = relayLine(traffic);
-  return `<div class="dset-h">Traffic</div><table class="dset-box dset-tbl"><thead><tr><th>Protocol</th><th>Sent</th><th>Received</th></tr></thead><tbody>${body}</tbody></table>`
-    + (relay ? `<div class="dmuted">Through a relay: ${relay}.</div>` : "");
-}
-
-/// Update above a machine's Tools table, when a newer release of `t` is out.
-function toolUpdate(m: Machine, t: MachineEnv["tools"][number]) {
-  const up = MC.tools.find(u => u.machine_id === m.id && u.tool === t.name);
-  if (!up || !m.online || !updateOffered(MC.installed, `${m.id} ${t.name}`, up.latest)) return "";
-  const busy = MC.toolUps.get(`${m.id} ${t.name}`)?.busy;
-  return `<button class="dbtn small" data-toolup="${esc(t.name)}" data-id="${esc(m.id)}"${busy ? " disabled" : ""}>${busy ? `Updating ${esc(t.name)}…` : `Update ${esc(t.name)} to ${esc(up.latest)}`}</button>`;
-}
-
-/// In the Tools row: what Update installed this session, and why one failed.
-function toolNotes(m: Machine, tools: MachineEnv["tools"]) {
-  const done = updatedNotes(MC.installed, m.id, tools).map(n => `<small class="dmuted">${esc(n)}</small>`);
-  const failed = [...MC.toolUps].filter(([k, up]) => k.startsWith(`${m.id} `) && up.error).map(([k, up]) => `<small class="derr">${esc(`${k.slice(m.id.length + 1)}: ${up.error}`)}</small>`);
-  return done.join("") + failed.join("");
-}
-
-let listRoot: { host: HTMLElement; mount: HTMLElement; root: Root } | null = null;
-
-function clearList() {
-  if (!listRoot) return;
-  listRoot.root.unmount();
-  listRoot.mount.remove();
-  listRoot = null;
-}
-
-function drawList(el: HTMLElement, at: MachinesHost | null) {
-  if (listRoot && (listRoot.host !== el || listRoot.mount.parentElement !== el)) clearList();
-  if (!listRoot) {
+function ensureScreen(el: HTMLElement) {
+  if (screenRoot && (screenRoot.host !== el || screenRoot.mount.parentElement !== el)) clearScreen();
+  if (!screenRoot) {
     const mount = document.createElement("div");
     mount.style.display = "contents";
     el.replaceChildren(mount);
-    listRoot = { host: el, mount, root: createRoot(mount) };
+    screenRoot = { host: el, mount, root: createRoot(mount) };
   }
+  return screenRoot.root;
+}
+
+function drawList(el: HTMLElement, at: MachinesHost | null) {
+  const screen = ensureScreen(el);
   const refreshAfterSheet = () => { if (shown()) void renderMachines(hosted()?.machine ?? null).then(() => hosted()?.changed()); };
-  flushSync(() => listRoot?.root.render(createElement(MachineList, {
+  flushSync(() => screen.render(createElement(MachineList, {
     list: MC.list, error: MC.error, hosted: !!at, mac: MC.mac, newest: newest(), asking: MC.asking,
     adapterTries: MC.adapterTries, hints: at ? "" : hints([["esc", "back"]]), age: span,
     open: (id: string) => { if (at) { at.opened(id); void renderMachines(id); } },
@@ -564,6 +439,22 @@ function drawList(el: HTMLElement, at: MachinesHost | null) {
     cancelRemove: () => { MC.asking = null; drawMachines(); },
     remove: () => { void removeMachine(); },
     retryAdapter: (id: string) => { void retryAdapters(id); },
+  })));
+}
+
+function drawDetail(el: HTMLElement, machine: Machine) {
+  const screen = ensureScreen(el);
+  flushSync(() => screen.render(createElement(MachineDetail, {
+    machine, error: MC.error, mac: MC.mac, newest: newest(), updatable: MC.updatable.has(machine.id),
+    nodeUpdate: MC.updates.get(machine.id) ?? null, search, log, tools: MC.tools, toolUps: MC.toolUps,
+    installed: MC.installed, traffic: MC.traffic.find(t => t.id === machine.id), asking: MC.asking, age: span,
+    searchEdit: () => { if (search) { search.draft = search.folder; drawMachines(); } },
+    searchSave: (folder: string) => { void saveSearch(folder); }, searchCancel: stopEditing,
+    signIn: (tool: string) => openSignIn(machine, tool, () => { if (shown()) void renderMachines(machine.id).then(() => hosted()?.changed()); }),
+    updateNode: () => { void runUpdate(machine.id); }, updateTool: (tool: string) => { void updateTool(machine.id, tool); },
+    logRead: () => { void readLog(machine.id); }, logSave: () => { void saveLog(machine); },
+    askRemove: () => { MC.asking = { id: machine.id, busy: false, error: "" }; drawMachines(); el.querySelector<HTMLElement>(".ask .quiet")?.focus(); },
+    remove: () => { void removeMachine(); }, cancelRemove: () => { MC.asking = null; drawMachines(); },
   })));
 }
 
@@ -582,66 +473,18 @@ function drawMachines() {
     return;
   }
 
-  clearList();
   if (open) {
-    el.innerHTML = errLine(MC.error) + machinePage(open);
+    drawDetail(el, open);
   } else {
+    clearScreen();
     el.innerHTML = `<div class="dskel-rows">${[78, 56, 68].map(w => `<div class="dskel" style="width:${w}%"></div>`).join("")}</div>`;
   }
 
-  for (const b of el.querySelectorAll<HTMLElement>("[data-machine]")) {
-    const go = () => {
-      at!.opened(b.dataset.machine!);
-      renderMachines(b.dataset.machine!);
-    };
-    b.addEventListener("click", go);
-    b.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
-  }
-
-  for (const b of el.querySelectorAll<HTMLElement>("[data-rm]")) {
-    b.addEventListener("click", () => {
-      MC.asking = { id: b.dataset.rm!, busy: false, error: "" };
-      drawMachines();
-      el.querySelector<HTMLElement>("#rmNo")?.focus();
-    });
-  }
-
-  el.querySelector("#mcLinkDesktop")?.addEventListener("click", () => openJoinTicket({ onClose: () => { if (shown()) void renderMachines(hosted()?.machine ?? null).then(() => hosted()?.changed()); } }));
-  el.querySelector("#mcAdd")?.addEventListener("click", () => openAddMachine({ onClose: () => { if (shown()) void renderMachines(hosted()?.machine ?? null).then(() => hosted()?.changed()); } }));
-  el.querySelector("#rmYes")?.addEventListener("click", removeMachine);
-
-  if (open) {
-    for (const b of el.querySelectorAll<HTMLElement>("[data-signin]")) b.addEventListener("click", () => openSignIn(open, b.dataset.signin!, () => {
-      if (shown()) void renderMachines(open.id).then(() => hosted()?.changed());
-    }));
-    el.querySelector("#mcLog")?.addEventListener("click", () => { void readLog(open.id); });
-    el.querySelector<HTMLElement>("#mcLogCopy")?.addEventListener("click", e => { void copy(log?.text ?? "", e.currentTarget as HTMLElement); });
-    el.querySelector("#mcLogSave")?.addEventListener("click", () => { void saveLog(open); });
-    const lines = el.querySelector(".dlog");
-    if (lines) lines.scrollTop = lines.scrollHeight;
-  }
-
-  for (const b of el.querySelectorAll<HTMLElement>("[data-nodeup]")) b.addEventListener("click", () => { void runUpdate(b.dataset.nodeup!); });
-  for (const b of el.querySelectorAll<HTMLElement>("[data-toolup]")) b.addEventListener("click", () => { void updateTool(b.dataset.id!, b.dataset.toolup!); });
-  for (const b of el.querySelectorAll<HTMLElement>("[data-adapters]")) b.addEventListener("click", e => { e.stopPropagation(); void retryAdapters(b.dataset.adapters!); });
-  el.querySelector("#rmNo")?.addEventListener("click", () => { MC.asking = null; drawMachines(); });
-  el.querySelector("#mcSearchEdit")?.addEventListener("click", () => {
-    if (!search) return;
-    search.draft = search.folder;
-    drawMachines();
-    el.querySelector<HTMLInputElement>("#mcSearch")?.focus();
-  });
-  const field = el.querySelector<HTMLInputElement>("#mcSearch");
-  field?.addEventListener("keydown", e => {
-    if (e.key === "Enter") void saveSearch(field.value);
-    if (e.key === "Escape") { e.stopPropagation(); stopEditing(); }
-  });
-  el.querySelector("#mcSearchSave")?.addEventListener("click", () => { if (field) void saveSearch(field.value); });
-  el.querySelector("#mcSearchNo")?.addEventListener("click", stopEditing);
 }
 
 function stopEditing() {
   if (!search) return;
+  searchEditGeneration++;
   search.draft = null;
   search.error = "";
   drawMachines();
