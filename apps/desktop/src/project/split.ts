@@ -1,7 +1,7 @@
 import { MV } from "../agents/move-store.ts";
-import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createElement, Fragment, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ProjectNavigation, ProjectStatus } from "./split-view.tsx";
 import { ProjectTasks } from "./tasks-view.tsx";
 import { ProjectIssues } from "./issues-view.tsx";
@@ -49,30 +49,38 @@ export function panelSlot(panel: HTMLElement): HTMLElement {
 interface ProjectShell {
   project: string;
   navigation: HTMLElement;
-  navRoot: Root;
   strip: HTMLElement;
-  stripRoot: Root;
   issues: HTMLElement;
-  issuesRoot: Root;
   tasks: HTMLElement;
-  tasksRoot: Root;
+  navView: ReactNode;
+  stripView: ReactNode;
+  issuesView: ReactNode;
+  tasksView: ReactNode;
 }
 let shell: ProjectShell | null = null;
 
+function renderProjectShell(current: ProjectShell) {
+  // Project panels remain in their existing slots while their shared owner updates.
+  showWindowParts([{ part: "project-shell", host: null, identity: current.project, content: createElement(Fragment, null,
+    createPortal(current.navView, current.navigation, "navigation"), createPortal(current.stripView, current.strip, "strip"),
+    createPortal(current.issuesView, current.issues, "issues"), createPortal(current.tasksView, current.tasks, "tasks")) }]);
+}
+function disposeProjectShell() {
+  if (!shell) return;
+  removeWindowPart("project-shell");
+  shell = null;
+}
 function projectShell(project: string) {
   if (shell?.project === project) return shell;
-  if (shell) { shell.navRoot.unmount(); shell.stripRoot.unmount(); shell.issuesRoot.unmount(); shell.tasksRoot.unmount(); }
-  const navigation = h("div", "pj-list");
-  const strip = h("div", "cc-mstrip pj-strip");
-  const issues = h("div", "pj-det");
-  const tasks = h("div", "pj-cols");
-  shell = { project, navigation, strip, issues, tasks, navRoot: createRoot(navigation), stripRoot: createRoot(strip), issuesRoot: createRoot(issues), tasksRoot: createRoot(tasks) };
+  disposeProjectShell();
+  shell = { project, navigation: h("div", "pj-list"), strip: h("div", "cc-mstrip pj-strip"),
+    issues: h("div", "pj-det"), tasks: h("div", "pj-cols"), navView: null, stripView: null, issuesView: null, tasksView: null };
   return shell;
 }
-
 function taskPanel(project: string, view: Parameters<typeof ProjectTasks>[0]["view"]) {
   const shell = projectShell(project);
-  flushSync(() => shell.tasksRoot.render(createElement(ProjectTasks, { view, act: agentActs })));
+  shell.tasksView = createElement(ProjectTasks, { view, act: agentActs });
+  renderProjectShell(shell);
   return panelSlot(shell.tasks);
 }
 
@@ -91,7 +99,7 @@ export function openTile(key: string | null, draw = true) {
     disposeCustomAgents();
     disposeOverview();
     disposeRunningAgents();
-    if (shell) { shell.navRoot.unmount(); shell.stripRoot.unmount(); shell.issuesRoot.unmount(); shell.tasksRoot.unmount(); shell = null; }
+    disposeProjectShell();
   }
   pa.tile = key === "sync" || key === "terminals" ? "machines" : key;
   if (key !== "actions") runs.stop();
@@ -255,20 +263,20 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     : issue ? { key: "issues", detail: () => [button("All issues", "quiet small pj-back", () => openTile("issues")), ...issue.detail!()] }
     : all.find(i => i.key === pa.tile && i.detail) || all[0];
   const currentShell = projectShell(p.name);
-  flushSync(() => currentShell.navRoot.render(createElement(ProjectNavigation, { groups, picked: picked.key, openTile })));
+  currentShell.navView = createElement(ProjectNavigation, { groups, picked: picked.key, openTile });
 
   const error = state.pview.get(p.name)?.error;
   const history = pa.tile === "branches" ? gitHistory.panels(p.name) : null;
   const showIssues = pa.tile === "issues";
   const showReview = pa.tile === "review";
-  if (showIssues) flushSync(() => currentShell.issuesRoot.render(createElement(ProjectIssues, {
+  if (showIssues) currentShell.issuesView = createElement(ProjectIssues, {
     error: error ?? null, items: issueShown, filter: issueFilter.labels,
     controls: listControls(issueKey, redrawProjects, true),
     start: startBar(issueKey, issueShown.flatMap(item => item.start ?? []), redrawProjects),
     selection: (id: string) => issueSelection(issueKey, id),
     pick: (id: string, checked: boolean) => setIssueSelection(issueKey, id, checked, redrawProjects),
     openTile,
-  })));
+  });
   const det = history?.detail || (showIssues ? currentShell.issues : showReview ? revs.reviewDetail(p.name, error ?? null) : h("div", "pj-det", error ? errorNote(`Could not refresh the project: ${error}`) : null, ...picked.detail!()));
   const waiting = threads?.filter(t => t.needs_reply).length ?? 0;
   const cells = [
@@ -279,7 +287,8 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     { label: plural(prItems.length, "PR", "PRs"), text: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : "open", key: "overview" },
     { label: plural(issueItems.length, "issue", "issues"), text: "open", key: "issues" },
   ];
-  flushSync(() => currentShell.stripRoot.render(createElement(ProjectStatus, { cells, openTile })));
+  currentShell.stripView = createElement(ProjectStatus, { cells, openTile });
+  renderProjectShell(currentShell);
   return [panelSlot(currentShell.strip), h("div", `${history ? "pj-split gh-layout" : "pj-split"}${pa.tile ? " picked" : ""}`, panelSlot(history ? history.navigation : currentShell.navigation), history || showIssues || showReview ? panelSlot(det) : det)];
 }
 

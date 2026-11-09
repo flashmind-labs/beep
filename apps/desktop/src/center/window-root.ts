@@ -4,17 +4,27 @@ import { createRoot, type Root } from "react-dom/client";
 import { RouterContextProvider, RouterProvider } from "@tanstack/react-router";
 import { windowHistory } from "./window-router.ts";
 
-type Part = "home" | "sidebar" | "header-scope" | "header-tools";
-const parts = new Map<Part, { host: HTMLElement; content: ReactNode; identity: string }>();
+type Part = "home" | "sidebar" | "header-scope" | "header-tools" | "project-shell";
+const parts = new Map<Part, { host: HTMLElement | null; content: ReactNode; identity: string }>();
 let root: Root | null = null;
 
 /// A window owns one tree. Stable portal hosts keep their DOM through unrelated updates.
-export function showWindowParts(updates: readonly { part: Part; host: HTMLElement; content: ReactNode; identity?: string }[]) {
+export function showWindowParts(updates: readonly { part: Part; host: HTMLElement | null; content: ReactNode; identity?: string }[]) {
   for (const update of updates) parts.set(update.part, { host: update.host, content: update.content, identity: update.identity ?? update.part });
+  render();
+}
+
+export function removeWindowPart(part: Part) {
+  if (parts.delete(part)) render();
+}
+
+function render() {
   root ??= createRoot(document.createElement("div"));
   const owner = root;
   const children = createElement(Fragment, null,
     createElement(RouterProvider, { router: windowHistory.router, key: "router" }),
-    ...[...parts].map(([part, value]) => createPortal(value.content, value.host, `${part}:${value.identity}`)));
+    ...[...parts].map(([part, value]) => value.host
+      ? createPortal(value.content, value.host, `${part}:${value.identity}`)
+      : createElement(Fragment, { key: `${part}:${value.identity}` }, value.content)));
   flushSync(() => owner.render(createElement(RouterContextProvider, { router: windowHistory.router, children })));
 }
