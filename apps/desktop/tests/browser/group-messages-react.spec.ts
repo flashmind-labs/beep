@@ -42,3 +42,22 @@ test("group approval sends the selected decision once", async ({ page }) => {
   await expect(page.getByText('Allowed', { exact: true })).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'answer_group_approval').map(call => call.args))).toEqual([{ queryId: 'approval', allow: true }]);
 });
+
+test("opening mentions does not disturb selected messages or scroll", async ({ page }) => {
+  const messages = Array.from({ length: 25 }, (_, index) => message(index + 1));
+  await openDesktop(page, false, { status: { link: 'linked', signed_out: false, server: true, live: false, session: null }, open_group: { group, messages }, group_typing: false });
+  await page.evaluate(() => window.__navigation.open({ group: { id: 'group' } }));
+  const body = page.locator('#gbody'), prompt = page.locator('#gask');
+  const row = body.locator('.dg').filter({ hasText: 'Message 1' }).first();
+  await expect(row).toBeVisible();
+  await body.evaluate(el => { el.style.height = '150px'; el.style.overflow = 'auto'; el.scrollTop = 40; });
+  await prompt.fill("@");
+  await expect(page.getByRole("listbox", { name: "Mention" })).toBeVisible();
+  await row.evaluate(el => { el.dataset.identity = 'kept'; const text = el.querySelector('.b'); if (!text) return; const range = document.createRange(); range.selectNodeContents(text); window.getSelection()?.removeAllRanges(); window.getSelection()?.addRange(range); });
+  const top = await body.evaluate(el => el.scrollTop);
+  await prompt.evaluate(el => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })));
+  await expect(page.getByRole('listbox', { name: 'Mention' })).toBeVisible();
+  await expect(row).toHaveAttribute('data-identity', 'kept');
+  expect(await page.evaluate(() => String(window.getSelection()))).toBe('Message 1');
+  await expect(body).toHaveJSProperty('scrollTop', top);
+});
