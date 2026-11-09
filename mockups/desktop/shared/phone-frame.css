@@ -27,7 +27,7 @@ nav.index .pick button:disabled { opacity: .35 }
 .mac .dcoderen.md :is(ul, ol) { display: block; min-width: 0; padding-left: 20px }
 .mac .dcoderen.md li { min-width: 0; white-space: normal; overflow-wrap: anywhere }
 
-.ag-wtsearch { box-sizing: border-box; width: 100%; padding: 8px; color: var(--d-fg); background: transparent; border: 1px solid var(--d-border); border-radius: 4px }
+.ag-wtsearch { box-sizing: border-box; width: 100%; padding: 5px 8px; color: var(--d-fg); background: transparent; border: 1px solid var(--d-border); border-radius: 4px; font: inherit; font-size: 12.5px; line-height: 18px }
 .mac .ag-wtm [hidden] { display: none }
 
 .mac .ag-wtm { max-height: min(70vh, 560px); overflow-y: auto }
