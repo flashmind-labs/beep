@@ -17,10 +17,27 @@ export function SettingsBreadcrumb({ path, page, sub, openPage }: { path: Settin
 }
 
 // Page contents retain their existing feature owner while the shell stays mounted.
-export function SettingsShell({ navigation, breadcrumb }: { navigation: ReactNode; breadcrumb: ReactNode }) {
-  return <><nav className="dset-nav" aria-label="Settings pages">{navigation}</nav><div className="dset-body"><div className="dset-top"><span className="dset-crumbs">{breadcrumb}</span><kbd>esc</kbd></div><div className="dset-page dform" /></div></>;
+export function SettingsShell({ navigation, breadcrumb, children }: { navigation: ReactNode; breadcrumb: ReactNode; children: ReactNode }) {
+  return <><nav className="dset-nav" aria-label="Settings pages">{navigation}</nav><div className="dset-body"><div className="dset-top"><span className="dset-crumbs">{breadcrumb}</span><kbd>esc</kbd></div><div className="dset-page dform">{children}</div></div></>;
 }
 
-export function SettingsBarShell({ version, sections, hints }: { version: string; sections: string; hints: string }) {
-  return <><div className="dhead"><span className="tt"><b>Settings</b><small>Beep desktop {version}</small></span></div><div className="dform dformcol" dangerouslySetInnerHTML={{ __html: sections }} /><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: hints }} /></>;
+export function SettingsBarShell({ version, sections, hints }: { version: string; sections: ReactNode; hints: string }) {
+  return <><div className="dhead"><span className="tt"><b>Settings</b><small>Beep desktop {version}</small></span></div><div className="dform dformcol">{sections}</div><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: hints }} /></>;
+}
+
+
+export function SettingsSection({ page, title }: { page: SettingsPage; title: string }) {
+  return <section id={`set-${page}-sec`} data-sec={page}><div className="dsec flat top">{title}</div><div id={`set-${page}`} style={page === "general" || page === "mac" ? { display: "contents" } : {}} /></section>;
+}
+
+export function SettingsHost({ page }: { page: SettingsPage }) {
+  return <section id={`set-${page}-sec`} data-sec={page}><div className="dset-host" id={`set-${page}-host`} /></section>;
+}
+
+export function AgentSettingsSection({ linked, sheet }: { linked: boolean; sheet: boolean }) {
+  return <section id="set-agents-sec" data-sec="agents"><div className="dsec flat top">{linked ? "Agent accounts" : "Coding agents"}</div>
+    {!sheet && <div id="set-agent-bar" style={{ display: "contents" }} />}
+    {linked && <div id="set-agents" />}
+    {sheet && <div id="set-agent-overview" style={{ display: "contents" }} />}
+  </section>;
 }
