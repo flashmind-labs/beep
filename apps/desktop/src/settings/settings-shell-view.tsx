@@ -25,13 +25,12 @@ export function SettingsBarShell({ version, sections, hints }: { version: string
   return <><div className="dhead"><span className="tt"><b>Settings</b><small>Beep desktop {version}</small></span></div><div className="dform dformcol">{sections}</div><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: hints }} /></>;
 }
 
-
 export function SettingsSection({ page, title }: { page: SettingsPage; title: string }) {
   return <section id={`set-${page}-sec`} data-sec={page}><div className="dsec flat top">{title}</div><div id={`set-${page}`} style={page === "general" || page === "mac" ? { display: "contents" } : {}} /></section>;
 }
 
-export function SettingsHost({ page }: { page: SettingsPage }) {
-  return <section id={`set-${page}-sec`} data-sec={page}><div className="dset-host" id={`set-${page}-host`} /></section>;
+export function SettingsHost({ page, loading }: { page: SettingsPage; loading: boolean }) {
+  return <section id={`set-${page}-sec`} data-sec={page}><div className="dset-host" id={`set-${page}-host`}>{loading && <div className="dskel-rows">{[78, 56, 68].map(width => <div key={width} className="dskel" style={{ width: `${width}%` }} />)}</div>}</div></section>;
 }
 
 export function AgentSettingsSection({ linked, sheet }: { linked: boolean; sheet: boolean }) {
@@ -40,4 +39,9 @@ export function AgentSettingsSection({ linked, sheet }: { linked: boolean; sheet
     {linked && <div id="set-agents" />}
     {sheet && <div id="set-agent-overview" style={{ display: "contents" }} />}
   </section>;
+}
+
+
+export function SettingsFailure({ error }: { error: string }) {
+  return <div className="dwin"><h4>Settings</h4><p className="derr">{error}</p></div>;
 }
