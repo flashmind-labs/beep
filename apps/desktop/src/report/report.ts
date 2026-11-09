@@ -3,13 +3,13 @@
 import { invoke } from "../ui/tauri.ts";
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { openSheet } from "../ui/parts.ts";
 import { ReportBody } from "./report-view.tsx";
 import { START, next, type Draft, type ReportEvent, type Sent } from "./report-state.ts";
 
 let state = START, sheet: HTMLDivElement | null = null, close: (() => void) | null = null;
-let reactRoot: Root | null = null;
+let reactRoot: DocumentView | null = null;
 /// The file whose text shows under the list, and the issue body before Yes.
 let opened: string | null = null, issueText: string | null = null;
 /// Which opening of the sheet an answer belongs to; one that arrives after
@@ -31,7 +31,7 @@ export function openReport(host: HTMLElement, onDebug?: (text: string) => void) 
   let root: HTMLDivElement;
   ({ root, sheet, close } = openSheet("Report a problem", "am-sheet ip-sheet", { canClose: () => !busy(), onClose: closed }));
   host.append(root);
-  reactRoot = createRoot(sheet);
+  reactRoot = createDocumentView(sheet);
   draw();
   sheet.querySelector("textarea")?.focus();
 }

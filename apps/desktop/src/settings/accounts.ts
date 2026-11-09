@@ -102,23 +102,6 @@ async function signInGh(redraw: () => void) {
 
 let credsRoot: AccountMount | null = null;
 let credEditVersion = 0;
-export function preserveCreds() {
-  const host = credsRoot?.host;
-  if (!host?.isConnected) return () => {};
-  const active = host.contains(document.activeElement) ? document.activeElement : null;
-  const input = active instanceof HTMLInputElement ? active : null;
-  const start = input?.selectionStart ?? null, end = input?.selectionEnd ?? null;
-  host.remove();
-  return (container?: Element) => {
-    const replacement = container?.querySelector("#set-creds");
-    if (!replacement) { disposeCreds(); return; }
-    replacement.replaceWith(host);
-    if (active instanceof HTMLElement) {
-      active.focus({ preventScroll: true });
-      if (input && start !== null && end !== null) input.setSelectionRange(start, end);
-    }
-  };
-}
 export function disposeCreds() {
   const current = credsRoot;
   credsRoot = null;
@@ -259,23 +242,6 @@ function pollCodex() {
 
 let agentsRoot: AccountMount | null = null;
 let agentEditVersion = 0;
-export function preserveAgents() {
-  const host = agentsRoot?.host;
-  if (!host?.isConnected) return () => {};
-  const active = host.contains(document.activeElement) ? document.activeElement : null;
-  const input = active instanceof HTMLInputElement ? active : null;
-  const start = input?.selectionStart ?? null, end = input?.selectionEnd ?? null;
-  host.remove();
-  return (container?: Element) => {
-    const replacement = container?.querySelector("#set-agents");
-    if (!replacement) { disposeAgents(); return; }
-    replacement.replaceWith(host);
-    if (active instanceof HTMLElement) {
-      active.focus({ preventScroll: true });
-      if (input && start !== null && end !== null) input.setSelectionRange(start, end);
-    }
-  };
-}
 export function disposeAgents() {
   const current = agentsRoot;
   agentsRoot = null;

@@ -6,7 +6,7 @@ import { START, next, machineById, inviteArgs } from "./addmachine-state.ts";
 import type { AddEvent, MacSeen, TicketKind } from "./addmachine-state.ts";
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { openSheet } from "../ui/parts.ts";
 import { AddMachineBody } from "./addmachine-view.tsx";
 import type { MacControl, MachineView } from "./machine-state.ts";
@@ -31,7 +31,7 @@ let creation = 0;
 let ticker: Timer, poller: (() => void) | undefined, close: (() => void) | null = null, onClose: (() => void) | null = null;
 // This Mac's mac_control view, and whether the sheet turned it on.
 let mac: MacSeen | null = null, macAsked = false, macPoller: (() => void) | undefined;
-let reactRoot: Root | null = null;
+let reactRoot: DocumentView | null = null;
 let opening = 0;
 
 onShownChange(visible => {
@@ -52,7 +52,7 @@ export function openAddMachine(options: { onClose?: () => void } = {}) {
   opening++;
   kind = "node";
   ({ root, sheet, close } = openSheet("Add a machine", "am-sheet", { onClose: closed }));
-  reactRoot = createRoot(sheet);
+  reactRoot = createDocumentView(sheet);
   ticker = setInterval(() => update({ type: "tick", now: Date.now() }), TICK_MS);
   mac = null;
   macAsked = false;
