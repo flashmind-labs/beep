@@ -1,6 +1,8 @@
 //! The desktop app: its log, login `PATH`, installed editors and updates.
 
 pub(crate) mod editors;
+#[cfg(desktop)]
+pub(crate) mod energy;
 
 #[cfg(target_os = "ios")]
 pub mod ios_keyboard;

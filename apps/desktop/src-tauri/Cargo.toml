@@ -65,6 +65,8 @@ tokio = { version = "1", features = ["test-util"] }
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 beep-node = { path = "../../../crates/node", default-features = false, features = ["host"] }
 arboard = "3.7"
+sysinfo = { version = "0.37", default-features = false, features = ["system"] }
+battery = "0.7"
 # Brotli for the bundled pages. A phone skips it: the IPA is zipped anyway.
 # macos-private-api is repeated here because the Tauri CLI checks this entry.
 tauri = { version = "2", features = ["macos-private-api", "compression", "common-controls-v6", "x11", "dbus"] }

@@ -568,6 +568,11 @@ fn hide_windows(app: &AppHandle) {
 
 /// Everything quitting does, within `QUIT_LIMIT` unless an update installs.
 fn quit(app: &AppHandle) {
+    #[cfg(desktop)]
+    if let Some(sampling) = app.try_state::<platform::energy::Sampling>() {
+        sampling.stop();
+    }
+
     hide_windows(app);
     app.state::<agents::accounts::ClaudeSignIn>().stop();
     let gh = app.state::<settings::gh_sign_in::GhSignIn>().stop_on_quit();
@@ -660,6 +665,10 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     }) {
         Ok(task) => {
             app.manage(task);
+
+            if let Some(sampling) = platform::energy::start(handle.clone()) {
+                app.manage(sampling);
+            }
         }
         Err(e) => log::warn!("metrics unavailable: {e:#}"),
     }
