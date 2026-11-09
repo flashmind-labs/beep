@@ -268,3 +268,129 @@ async fn sessions_kept_in_a_database_are_refused() {
         .unwrap_err();
     assert!(err.to_string().contains("no agent"), "{err}");
 }
+
+#[tokio::test]
+async fn a_closed_codex_session_moves_without_changing_the_conversation() {
+    let m = Machine::new();
+    let destination = m.dir.path().join("destination");
+    fs::create_dir(&destination).expect("destination");
+    m.agents
+        .relocate_session("codex", CODEX_ID, destination.to_str().expect("UTF-8 path"))
+        .await
+        .expect("move");
+    let moved = m
+        .agents
+        .stores
+        .find(Agent::Codex, CODEX_ID)
+        .expect("moved session");
+    assert_eq!(Path::new(&moved.cwd), destination);
+    assert!(m.codex(CODEX_OTHER));
+    assert!(
+        m.agents
+            .relocate_session("codex", "../outside", "/srv/project")
+            .await
+            .is_err()
+    );
+    assert!(
+        m.agents
+            .relocate_session("codex", CODEX_OTHER, "/missing/destination")
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn an_ended_owned_session_keeps_its_identity_after_moving() {
+    let m = Machine::new();
+    let destination = m.dir.path().join("destination");
+    fs::create_dir(&destination).expect("destination");
+    let session = m
+        .agents
+        .start(
+            &kind("codex"),
+            Some("/"),
+            Begin {
+                resume: Some(CODEX_ID.to_owned()),
+                ..Begin::default()
+            },
+        )
+        .expect("session");
+    assert!(
+        m.agents
+            .relocate_session("codex", &session.id, destination.to_str().unwrap())
+            .await
+            .is_err()
+    );
+    session.close().await;
+    m.agents
+        .relocate_session("codex", &session.id, destination.to_str().unwrap())
+        .await
+        .expect("move");
+    let listed = m.agents.list();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, session.info().id);
+    assert_eq!(Path::new(&listed[0].cwd), destination);
+}
+
+#[tokio::test]
+async fn a_pi_session_moves_to_its_new_store_folder() {
+    let m = Machine::new();
+    let destination = m.dir.path().join("destination");
+    fs::create_dir(&destination).expect("destination");
+    m.agents
+        .relocate_session("pi", "p1", destination.to_str().unwrap())
+        .await
+        .expect("move");
+    let found = m
+        .agents
+        .stores
+        .find(Agent::Pi, "p1")
+        .expect("moved session");
+    assert_eq!(Path::new(&found.cwd), destination);
+    assert!(!m.pi("p1"));
+    assert!(m.pi("p2"));
+}
+
+#[tokio::test]
+async fn a_claude_session_moves_with_its_subagents() {
+    let m = Machine::new();
+    let destination = m.dir.path().join("destination");
+    fs::create_dir(&destination).expect("destination");
+    let transcript = m
+        .dir
+        .path()
+        .join(format!("claude/projects/-srv-project/{CLAUDE_ID}.jsonl"));
+    write(
+        &transcript,
+        &format!(
+            concat!(
+                r#"{{"type":"user","sessionId":"{CLAUDE_ID}","cwd":"/srv/project","timestamp":"2026-10-29T08:00:00.000Z","message":{{"role":"user","content":"hi"}}}}"#,
+                "\n"
+            ),
+            CLAUDE_ID = CLAUDE_ID
+        ),
+    );
+    m.agents
+        .relocate_session("claude", CLAUDE_ID, destination.to_str().unwrap())
+        .await
+        .expect("move");
+    let found = m
+        .agents
+        .external
+        .list(1, Some(CLAUDE_ID.to_owned()), Default::default())
+        .await
+        .unwrap()
+        .pop()
+        .expect("session");
+    assert_eq!(Path::new(&found.cwd), destination);
+    let moved = m
+        .agents
+        .external
+        .file(CLAUDE_ID)
+        .await
+        .unwrap()
+        .expect("transcript");
+    assert!(moved.with_extension("").join("subagents/a.jsonl").exists());
+    assert!(!transcript.exists());
+    assert!(m.claude(CLAUDE_OTHER));
+}

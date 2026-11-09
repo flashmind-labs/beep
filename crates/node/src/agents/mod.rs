@@ -148,6 +148,8 @@ pub use follow::serve_follow;
         /// The adapters the node installs itself.
         adapters: adapters::Installs,
         sessions: Mutex<HashMap<String, Arc<Session>>>,
+        /// Serializes changes to stored sessions against resuming them.
+        session_store: AsyncMutex<()>,
         /// Claude Code sessions started outside Beep.
         external: External,
         /// Sessions held open by a local CLI, including idle prompts.
@@ -221,6 +223,7 @@ pub use follow::serve_follow;
                 kinds: watch::Sender::new(Arc::new(kinds)),
                 adapters: adapters::Installs::default(),
                 sessions: Mutex::default(),
+                session_store: AsyncMutex::default(),
                 external: External::locate(),
                 presence: presence::Registry::default(),
                 stores: Stores::locate(),

@@ -310,6 +310,12 @@ pub enum SessionsRequest {
     /// `List` with the running reviewers that have a parent, marked by
     /// `SessionInfo::reviewer`. A node from before it answers `Error`.
     ListAll {},
+    /// Moves a closed session to a working folder, answered with `Deleted` or `Error`.
+    RelocateSession {
+        agent: String,
+        session: String,
+        folder: String,
+    },
 }
 
 /// File browser operations. Destinations must not already exist.
@@ -368,6 +374,7 @@ impl SessionsRequest {
             | Self::EditFiles { .. }
             | Self::WriteFile { .. }
             | Self::UploadFile { .. }
+            | Self::RelocateSession { .. }
             | Self::DeleteSession { .. }
             | Self::ContinueCopy { .. }
             | Self::DiscardCopy { .. }

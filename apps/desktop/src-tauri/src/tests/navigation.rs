@@ -12,6 +12,7 @@ fn bundled_pages_can_load_reload_and_use_fragments() {
         "/index.html",
         "/center.html?project=example#chat",
         "/orb.html",
+        "/diagrams/index.html",
     ] {
         assert!(allowed(&Url::parse(&format!("{origin}{path}")).unwrap()));
     }
@@ -28,6 +29,7 @@ fn links_cannot_replace_the_ui() {
         "tauri://localhost:8080/center.html",
         "tauri://user@localhost/center.html",
         "tauri://localhost/other.html",
+        "tauri://localhost/diagrams/other.html",
         "file:///index.html",
         "data:text/html,hello",
         "javascript:alert(1)",
