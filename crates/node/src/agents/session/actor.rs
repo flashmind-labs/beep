@@ -902,6 +902,17 @@ impl Actor {
 
     /// A model switch while idle can make the existing context due for compaction.
     fn model_is(&mut self, model: Option<&str>) {
+        if let Some(model) = model {
+            let model = ModelId::new(model);
+            self.live.send_if_modified(|live| {
+                if live.info.model.as_ref() == Some(&model) {
+                    return false;
+                }
+                live.info.model = Some(model);
+                true
+            });
+        }
+
         if self.compactor.set_model(model) {
             let live = self.live.borrow();
 
