@@ -1,3 +1,4 @@
+import { readView, writeView, viewKey, rememberScroll } from "./view-memory.ts";
 import { isHtmlFile, queuePreview } from "./html-preview-state.ts";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 // agentpane/: a coding agent session's side pane and its tabs (media,
@@ -187,6 +188,7 @@ export function paneFrame(conv: string) {
 export function startPane(s: PaneSession) {
   closePaneTabs();
   P.session = s;
+  paneReleased = false;
   P.on = { right: FILES, bottom: FILES };
   readWorktrees(s);
   P.subs = "";
@@ -210,7 +212,18 @@ export function startPane(s: PaneSession) {
     pane.querySelector(".agtabs")!.addEventListener("pointerdown", e => tabDown(e as PointerEvent));
     document.getElementById(`agpstrip-${d}`)!.addEventListener("click", () => { P.layout.hidden[d] = false; saveLayout(); draw(); });
   }
+  const saved = readView(viewKey(s.machine_id, s.id));
+  if (saved && typeof saved === "object" && "tabs" in saved && Array.isArray(saved.tabs)) {
+    for (const tab of saved.tabs) if (tab && typeof tab === "object" && typeof tab.root === "string" && typeof tab.rel === "string") openIn(tab.root, tab.rel);
+    if ("on" in saved && saved.on && typeof saved.on === "object") {
+      for (const dock of DOCKS) if (dock in saved.on) {
+        const id: unknown = Reflect.get(saved.on, dock);
+        if (typeof id === "string" && tabIds().includes(id)) P.on[dock] = id;
+      }
+    }
+  }
 }
+
 
 /// Files and Changes read the folder of session `s`.
 function readWorktrees(s: PaneSession) {
@@ -233,7 +246,16 @@ export function rebindPane(s: PaneSession) {
 }
 
 /// Stops the pane's terminals and releases every tab, including shells still starting.
+let paneReleased = false;
+function rememberPane() {
+  if (paneReleased || !P.session) return;
+  writeView(viewKey(P.session.machine_id, P.session.id), { on: P.on, tabs: P.tabs.filter(t => t.rel && t.root).map(t => ({ root: t.root, rel: t.rel })) });
+}
+window.addEventListener("pagehide", rememberPane);
+
 export function closePaneTabs() {
+  rememberPane();
+  paneReleased = true;
   for (const t of P.tabs) {
     const closing = t.closed;
     t.closed = true;
@@ -546,7 +568,10 @@ function drawDock(d: Dock, ids: string[]) {
 
   for (const t of P.tabs) {
     if (!ids.includes(t.id)) continue;
-    if (!t.el) t.el = viewOf(t);
+    if (!t.el) {
+      t.el = viewOf(t);
+      if (P.session && t.text) rememberScroll(t.el, `${viewKey(P.session.machine_id, P.session.id)}:file:${t.id}`);
+    }
     if (t.el.parentElement !== views) views.append(t.el);
     const hide = t.id !== on || P.layout.hidden[d];
     if (hide && !t.el.hidden) stopPlaying(t);
@@ -592,6 +617,7 @@ function showTab(d: Dock, id: string) {
   // Shown again, the changes are read again.
   if (id === CHANGES && P.on[d] !== CHANGES && madeChangesView()) reloadChanges();
   P.on[d] = id;
+  rememberPane();
   draw();
   paneOf(d)?.focus({ preventScroll: true });
 }
@@ -685,6 +711,7 @@ export function closeTab(id: string) {
     P.on[d] = P.tabs.slice(i).find(t => left.includes(t.id))?.id ?? left.at(-1) ?? FILES;
   }
 
+  rememberPane();
   draw();
 }
 
@@ -761,6 +788,7 @@ function focusTab(id: string) {
   P.layout.hidden[d] = false;
   saveLayout();
   P.on[d] = id;
+  rememberPane();
   draw();
   paneOf(d)?.focus({ preventScroll: true });
 }

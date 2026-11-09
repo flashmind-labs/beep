@@ -64,6 +64,13 @@
 .mac .dv-l.hunk { background: var(--dv-hunk-bg); color: var(--dv-hunk-fg) } .mac .dv-l.hunk .dv-g { background: var(--dv-hunk-bg) } .mac .dv-l.hunk .dv-c { font-size: 11.5px } .mac .dv-l.hunk .dv-c::before { content: none }
 .mac .dv-l.gap { color: var(--muted); font: 11.5px/22px var(--body) } .mac .dv-l.gap .dv-c::before { content: none }
 .mac .dv-eol { margin-left: 8px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); font: 10.5px/15px var(--body) }
+.mac .dv-context { display: flex; align-items: center; width: 100%; height: 22px; padding: 0; border: 0; border-block: 1px solid var(--border); border-radius: 0; background: var(--dv-gut-bg); color: var(--muted); font: inherit; cursor: pointer }
+.mac .dv-context-g { position: sticky; left: 0; display: grid; place-items: center; flex: none; width: calc(var(--nw, 3) * 2ch + 28px); height: 100%; border-right: 1px solid var(--border); background: inherit }
+.mac .dv-context svg { width: 14px; height: 14px }
+.mac .dv-context.above svg { transform: rotate(-90deg) }
+.mac .dv-context.below svg { transform: rotate(90deg) }
+.mac .dv-context:hover { background: var(--dv-hunk-bg); color: var(--dv-hunk-fg) }
+.mac .dv-context:focus-visible { outline: 2px solid var(--dv-hunk-fg); outline-offset: -2px }
 .mac .dv-note { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; color: var(--muted); font-size: 12px } .mac .dv-note .dv-btn { height: 24px }
 .mac .dv-empty { margin: auto; padding: 24px; display: grid; justify-items: center; gap: 6px; text-align: center; color: var(--muted); font-size: 13px } .mac .dv-empty b { color: var(--fg); font-weight: 500 }
 .mac .dv-keys { flex: none; display: flex; gap: 12px; padding: 5px 12px; border-top: 1px solid var(--border); color: var(--dim); font-size: 11px }
@@ -140,7 +147,8 @@
       rows += `<div class="dv-l${cls}"><span class="dv-g"><span>${on}</span><span>${nn}</span></span><span class="dv-c">${esc(l[1])}${l[2] ? '<span class="dv-eol" title="No newline at end of file">no newline at end</span>' : ""}</span></div>`;
       prevEnd = o;
     }
-    return `<div class="dv-scroll"><div class="dv-lines" style="--nw:2">${rows}</div></div>`;
+    const expand = direction => `<button class="dv-context ${direction}" title="Show 10 lines ${direction}" aria-label="Show 10 lines ${direction}" data-toast="Shows 10 lines ${direction}"><span class="dv-context-g">${TO}</span></button>`;
+    return `<div class="dv-scroll"><div class="dv-lines" style="--nw:2">${expand("above")}${rows}${expand("below")}</div></div>`;
   };
   const fileBox = (f, closed, cur, pane) => {
     const path = f.old ? `<span class="old" title="${f.old}">${f.old}</span><span class="to" title="renamed to">${TO}</span><span title="${f.path}">${f.path}</span>` : `<span title="${f.path}">${f.path}</span>`;

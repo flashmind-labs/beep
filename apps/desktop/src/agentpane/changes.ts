@@ -42,10 +42,10 @@ export function changesView() {
   C.note = h('<div class="dv-note" hidden></div>');
   const view = diffView({
     uncommitted: true,
-    load: (only, lockfiles, uncommitted) => {
+    load: (only, lockfiles, uncommitted, context) => {
       // A refresh reads the worktrees again too.
       if (!only.length) refreshWorktrees();
-      return invoke<DiffView>("work_diff", { machineId: s.machine_id, root: paneRoot(), only, lockfiles, uncommitted });
+      return invoke<DiffView>("work_diff", { machineId: s.machine_id, root: paneRoot(), only, lockfiles, uncommitted, context });
     },
     open: { label: "Open in a tab", run: openWorkFile },
     menu: (path, at) => localFileItems({ machineId: s.machine_id, root: paneRoot(), path }, at),
