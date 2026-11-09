@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { createRoot } from "react-dom/client";
+import { createDocumentView } from "../ui/document-root.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
 import { reason } from "../ui/format.ts";
@@ -9,7 +9,7 @@ import type { Project } from "./projects-state.ts";
 export function openHandoff(project: Project, to: string, changed: () => void) {
   let closed = false;
   const { sheet } = openSheet("Bring uncommitted work", "am-sheet ip-sheet", { onClose: () => { closed = true; view.unmount(); } });
-  const view = createRoot(sheet);
+  const view = createDocumentView(sheet);
   flushSync(() => view.render(<Handoff project={project} to={to} closed={() => closed} changed={changed} />));
 }
 

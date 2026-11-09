@@ -1,6 +1,6 @@
 import { createElement, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { ImportProjectView } from "./importproject-view.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
 // The "Import a project" sheet: one field for org/repo or a URL, a chip per
@@ -78,7 +78,7 @@ let lookup = 0;
 let lookupTimer: ReturnType<typeof setTimeout> | undefined;
 /// The folders read while the sheet is open, by machine and folder.
 const listed = new Map<string, readonly string[]>();
-let view: Root | null = null, opening = 0;
+let view: DocumentView | null = null, opening = 0;
 
 /// Opens the sheet. Choose… opens the folder picker, never the sheet itself.
 export function openImportProject(options: ImportProjectOptions = {}) {
@@ -98,7 +98,7 @@ export function openImportProject(options: ImportProjectOptions = {}) {
     onKey,
     onClose: closed,
   }));
-  view = createRoot(sheet);
+  view = createDocumentView(sheet);
   preview = undefined;
   fork = undefined;
   previewFor = "";

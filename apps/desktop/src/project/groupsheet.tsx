@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { flushSync } from "react-dom";
-import { createRoot } from "react-dom/client";
+import { createDocumentView } from "../ui/document-root.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
 import { addGroupFolder, groupPath, type ProjectGroup } from "./projects-state.ts";
@@ -22,7 +22,7 @@ export function openGroupSheet(options: GroupSheetOptions) {
     onClose: () => { root = null; view.unmount(); },
   });
   root = shell.root;
-  const view = createRoot(shell.sheet);
+  const view = createDocumentView(shell.sheet);
   const field = () => shell.sheet.querySelector<HTMLInputElement>(".gp-field");
   const close = () => { if (!saving) shell.close(); };
   const add = () => {

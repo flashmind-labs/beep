@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { AddProjectView } from "./addproject-view.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
 // addproject/: the Add a project, Add a folder, Import a project and New
@@ -107,7 +107,7 @@ const looking = new Map<string, string>();
 const unread = new Map<string, string>();
 /// Counts the opens, so an answer for a sheet since closed is dropped.
 let opened = 0;
-let view: Root | null = null;
+let view: DocumentView | null = null;
 /// The row being imported by its own button, by name, and why one failed.
 let importing: string | null = null;
 const failed = new Map<string, string>();
@@ -152,7 +152,7 @@ export function openAddProject(options: AddProjectOptions = {}) {
   status.clear();
   batch = false;
   ({ root, sheet, close } = openSheet("Add a project", "am-sheet ap-sheet", { canClose: () => !busy(), onKey, onClose: closed }));
-  view = createRoot(sheet);
+  view = createDocumentView(sheet);
   draw();
   looking.clear();
   unread.clear();

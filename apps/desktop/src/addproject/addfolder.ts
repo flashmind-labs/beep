@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { AddFolderView } from "./addfolder-view.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
 // The "Add a folder" sheet: a machine (this Mac first), a folder on it, what
@@ -32,7 +32,7 @@ let opts: AddFolderOptions = {};
 let state: FolderState = startOn([], null);
 /// A folder is being read, so the folder buttons wait.
 let reading = false;
-let view: Root | null = null, opening = 0, branchRequest = 0;
+let view: DocumentView | null = null, opening = 0, branchRequest = 0;
 
 /// Opens the sheet on this Mac. Nothing opens the folder picker until Choose….
 export function openAddFolder(options: AddFolderOptions = {}) {
@@ -46,7 +46,7 @@ export function openAddFolder(options: AddFolderOptions = {}) {
     canClose: () => state.step !== "adding",
     onClose: closed,
   }));
-  view = createRoot(sheet);
+  view = createDocumentView(sheet);
   draw();
 }
 

@@ -2,10 +2,6 @@ import { chooseIgnoredFolders } from "./ignored-sync.tsx";
 import type { IgnoredSync } from "./ignored-sync-state.ts";
 // A project-wide Syncthing preference, applied by each machine.
 import { invoke } from "../ui/tauri.ts";
-import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
-import { SyncthingChoice } from "./syncthing-choice.tsx";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { reason } from "../ui/format.ts";
 import type { Project } from "./projects-state.ts";
@@ -21,20 +17,14 @@ export function syncthingImportChoice() {
   let value: boolean | null = null;
   let snapshot = { checked: true, disabled: false, indeterminate: true };
   const listeners = new Set<() => void>();
-  let lookup = 0, lastTarget = "", root: Root | null = null;
-  let node: HTMLDivElement | null = null;
+  let lookup = 0, lastTarget = "";
   const publish = (next: typeof snapshot) => { snapshot = next; listeners.forEach(listener => listener()); };
   const choice = {
     value: () => value,
     snapshot: () => snapshot,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     change: (checked: boolean) => { value = checked; publish({ checked, disabled: false, indeterminate: false }); },
-    mount: (className = "") => {
-      if (!node) { node = document.createElement("div"); node.style.display = "contents"; }
-      if (!root) { root = createRoot(node); flushSync(() => root?.render(createElement(SyncthingChoice, { choice, className }))); }
-      return node;
-    },
-    dispose: () => { lookup++; root?.unmount(); root = null; },
+    dispose: () => { lookup++; },
     follow: async (machine: string | null, folder: string | null) => {
       const target = `${machine ?? ""}\0${folder ?? ""}`;
       if (target === lastTarget) return;
