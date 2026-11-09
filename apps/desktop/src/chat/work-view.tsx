@@ -26,7 +26,8 @@ type Source = WebSource & { site: string };
 interface ReplyActions { copy: boolean; rerun: boolean; agent: string | null }
 interface ApprovalView { app: string; action: string; fields: ApprovalField[]; grant: boolean; answer: (decision: Decision) => void }
 type StatusNotice = { kind: "label"; message: string } | { kind: "error"; message: string } | { kind: "stopped"; message: string; retry: boolean };
-interface Owner { frames: Map<HTMLElement, { key: number; setTurn(element: HTMLDivElement | null): void }>; host: HTMLElement | null; body: ChatBody | null; setBody(element: HTMLDivElement | null): void; charts: Map<ChartCard, { key: number; chart: Chart }>; notices: Map<HTMLElement, { key: number; value: StatusNotice }>; products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
+interface TurnFrame { prompt: boolean; pictures: boolean }
+interface Owner { frames: Map<HTMLElement, { key: number; value: TurnFrame; setTurn(element: HTMLDivElement | null): void }>; host: HTMLElement | null; body: ChatBody | null; setBody(element: HTMLDivElement | null): void; charts: Map<ChartCard, { key: number; chart: Chart }>; notices: Map<HTMLElement, { key: number; value: StatusNotice }>; products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
 // A retained chat body owns all its portals, including detached turns while
 // history is merged. Transfer moved hosts before discarding the fresh turn.
 const owners = new WeakMap<ChatBody, Owner>();
@@ -153,7 +154,7 @@ const Work = memo(function Work({ value }: { value: WorkView }) {
 function draw(owner: Owner) {
   flushSync(() => owner.root.render(createElement(Fragment, null,
     owner.host ? createElement("div", { key: "body", className: "dbody", id: "body", ref: owner.setBody }) : null,
-    ...[...owner.frames].map(([host, row]) => createPortal(createElement("div", { className: "turn dcoderlog", ref: row.setTurn }), host, row.key)),
+    ...[...owner.frames].map(([host, row]) => createPortal(createElement("div", { className: "turn dcoderlog", ref: row.setTurn }, row.value.prompt ? createElement("div", { className: "dcoderen user", key: "prompt" }) : null, row.value.pictures ? createElement("div", { className: "dpics", key: "pictures" }) : null), host, row.key)),
     ...[...owner.charts].map(([host, row]) => createPortal(createElement(ChartView, { card: host, initial: row.chart }), host, row.key)),
     ...[...owner.notices].map(([host, row]) => createPortal(createElement(Notice, { value: row.value }), host, row.key)),
     ...[...owner.products].map(([host, row]) => createPortal(createElement(Html, { html: row.html }), host, row.key)),
@@ -194,14 +195,14 @@ export function chatBodyHost(body: ChatBody): HTMLElement {
 
 // History creates frames in one render; their content portals can then update
 // independently while the conversation moves the display-contents hosts.
-export function createChatTurns(body: ChatBody, count: number): Turn[] {
-  if (!count) return [];
+export function createChatTurns(body: ChatBody, values: readonly TurnFrame[]): Turn[] {
+  if (!values.length) return [];
   const owner = ownerOf(body);
-  const frames = Array.from({ length: count }, () => {
+  const frames = values.map(value => {
     const host = document.createElement("div");
     host.style.display = "contents";
     const frame: { host: HTMLElement; turn: Turn | null } = { host, turn: null };
-    owner.frames.set(host, { key: ++owner.next, setTurn: element => { frame.turn = element; } });
+    owner.frames.set(host, { key: ++owner.next, value, setTurn: element => { frame.turn = element; } });
     return frame;
   });
   draw(owner);
@@ -211,8 +212,8 @@ export function createChatTurns(body: ChatBody, count: number): Turn[] {
     return frame.turn;
   });
 }
-export function createChatTurn(body: ChatBody): Turn {
-  const turn = createChatTurns(body, 1)[0];
+export function createChatTurn(body: ChatBody, value: TurnFrame): Turn {
+  const turn = createChatTurns(body, [value])[0];
   if (!turn) throw new Error("Chat turn did not mount");
   return turn;
 }

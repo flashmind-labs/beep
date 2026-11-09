@@ -164,9 +164,10 @@ const loadSides = (id: string, b: ChatBody) => { loadAskFiles(id, b); loadAgents
 /// The turns for the server's messages `turns`, built apart from the page,
 /// and the reply whose follow-ups show.
 function buildTurns(id: string, turns: HistoryTurn[]) {
-  const count = turns.filter(turn => turn.role === "user" || turn.role === "scheduled").length
-    + (turns.length && turns[0].role !== "user" && turns[0].role !== "scheduled" ? 1 : 0);
-  const prepared = createChatTurns(body()!, count);
+  const frames = turns.flatMap(turn => turn.role === "user" ? [{ prompt: !!turn.text, pictures: !!turn.images.length }]
+    : turn.role === "scheduled" ? [{ prompt: false, pictures: false }] : []);
+  if (turns.length && turns[0].role !== "user" && turns[0].role !== "scheduled") frames.unshift({ prompt: false, pictures: false });
+  const prepared = createChatTurns(body()!, frames);
   const drawn: Turn[] = [];
   const drawTurn = (question: string, images?: ImageRef[]) => {
     const turn = makeTurn(question, images, undefined, prepared[drawn.length] ?? null);
