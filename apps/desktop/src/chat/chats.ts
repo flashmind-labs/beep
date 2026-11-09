@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { ChatsView } from "./chats-view.tsx";
+import { ChatsShell } from "./chats-view.tsx";
 import { openInWindow } from "./chat.ts";
 import { copy } from "../ui/parts.ts";
 import { $, $$, bar, type ChatRow, type ChatsMode, G, live, PANE, S } from "../bar/core.ts";
@@ -73,8 +73,10 @@ export function touch(id: string, message?: string) {
 
 let listRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
 let listError = "", lastSelected = "", loadVersion = 0;
+let searchTimer: ReturnType<typeof setTimeout> | null = null;
 function disposeChats() {
   const current = listRoot; listRoot = null;
+  if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
   if (!current) return;
   current.observer.disconnect(); current.root.unmount();
 }
@@ -86,20 +88,13 @@ export function renderChats() {
   S.view = "chats";
   invoke("close_group").catch(() => {});
   S.chats = { list: S.cache, sel: 0, query: "", mode: "list", back, share: null };
-  bar.innerHTML = `<div class="dinput"><input id="find" placeholder="Search chats and groups" autocomplete="off" spellcheck="false"><kbd>⌘K</kbd></div>
-    <div class="dsec" id="sec">Recent</div><div class="dlist" id="list" role="listbox" aria-label="Chats"></div>
-    ${hints([[ICON.ret, "open"], ["tab", "actions"], ["⌘N", "new agent"], ["⌘G", "new group"], ["esc", "back"]])}`;
-  const host = $$("#list"), root = createRoot(host);
+  const host = document.createElement("div");
+  host.style.display = "contents";
+  bar.replaceChildren(host);
+  const root = createRoot(host);
   const observer = new MutationObserver(() => { if (listRoot?.host === host && !host.isConnected) disposeChats(); });
   observer.observe(document.body, { childList: true, subtree: true });
   listRoot = { host, root, observer };
-  const find = $$<HTMLInputElement>("#find");
-  find.focus();
-  let pending = 0;
-  find.addEventListener("input", () => {
-    const q = find.value.trim(), mine = ++pending;
-    setTimeout(() => { if (mine === pending) loadChats(q); }, 180);
-  });
   drawChats();
   loadChats("");
 }
@@ -143,11 +138,13 @@ export function mark(text: string, query: string | null | undefined) {
 export function drawChats() {
   const current = listRoot;
   if (!current?.host.isConnected || S.view !== "chats") return;
-  const { list, sel, query } = S.chats;
+  const { list, sel } = S.chats;
   const selected = list[sel], identity = selected ? `${selected.kind}:${selected.id}` : "";
-  $$("#sec").textContent = query ? `${list.length} result${list.length === 1 ? "" : "s"}` : "Recent";
-  flushSync(() => current.root.render(createElement(ChatsView, {
-    state: S.chats, error: listError, pane: PANE, running: new Set([...live].flatMap(([id, value]) => id !== null && value.run ? [id] : [])),
+  flushSync(() => current.root.render(createElement(ChatsShell, {
+    state: S.chats, error: listError, pane: PANE,
+    hints: hints([[ICON.ret, "open"], ["tab", "actions"], ["⌘N", "new agent"], ["⌘G", "new group"], ["esc", "back"]]),
+    search: (value: string) => { if (searchTimer) clearTimeout(searchTimer); searchTimer = setTimeout(() => { searchTimer = null; void loadChats(value.trim()); }, 180); },
+    running: new Set([...live].flatMap(([id, value]) => id !== null && value.run ? [id] : [])),
     select: (index: number) => { S.chats.sel = index; }, open: openRow, action: (action: ChatAction) => void chatAction(action),
   })));
   if (identity && identity !== lastSelected) current.host.querySelector<HTMLElement>(`[data-i="${sel}"]`)?.scrollIntoView({ block: "nearest" });
