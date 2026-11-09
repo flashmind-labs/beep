@@ -30,6 +30,7 @@ export function setSessionPortal(host: HTMLElement, view: ReactNode) {
   owner.portals.set(host, { key: prior?.key ?? ++owner.next, view });
   draw(owner);
 }
+export function hasSessionPortal(host: HTMLElement) { return current?.portals.has(host) ?? false; }
 
 export function removeSessionPortal(host: HTMLElement) {
   const owner = current;
