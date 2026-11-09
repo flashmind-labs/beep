@@ -3,7 +3,7 @@ import { createDocumentScope } from "../ui/document-root.tsx";
 import { RouterContextProvider, RouterProvider } from "@tanstack/react-router";
 import { windowHistory } from "./window-router.ts";
 
-type Part = "home" | "sidebar" | "header-scope" | "header-tools" | "notices" | "usage" | "palette" | "terminal-page" | "project-shell" | "project-where" | "project-running" | "project-custom-agents" | "project-runs" | "project-thread" | "sync-page" | "research-list" | "research-open" | "review-status" | "review-heading" | "review-findings" | "review-actions" | `settings-page:${"instructions" | "providers"}` | `project-overview:${string}` | `project-sessions:${"all" | "recent"}` | `git-history:${string}` | `thread-card:${string}` | `diff:${string}`;
+type Part = "home" | "sidebar" | "header-scope" | "header-tools" | "notices" | "usage" | "palette" | "terminal-page" | "project-shell" | "project-where" | "project-running" | "project-custom-agents" | "project-runs" | "project-thread" | "sync-page" | "research-list" | "research-open" | "review-detail" | `settings-page:${"instructions" | "providers"}` | `project-overview:${string}` | `project-sessions:${"all" | "recent"}` | `git-history:${string}` | `thread-card:${string}` | `diff:${string}`;
 const scope = createDocumentScope<Part>(children => createElement(RouterContextProvider, { router: windowHistory.router,
   children: createElement(Fragment, null, createElement(RouterProvider, { router: windowHistory.router }), children) }));
 

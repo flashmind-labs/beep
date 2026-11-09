@@ -260,7 +260,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const all = groups.flatMap(g => g.items);
   const issue = issueItems.find(i => i.key === pa.tile);
   const picked = pa.tile === "review"
-    ? { key: "branches", detail: () => revs.reviewPanel(p.name) }
+    ? { key: "branches", detail: () => [] }
     : issue ? { key: "issues", detail: () => [button("All issues", "quiet small pj-back", () => openTile("issues")), ...issue.detail!()] }
     : all.find(i => i.key === pa.tile && i.detail) || all[0];
   const currentShell = projectShell(p.name);
