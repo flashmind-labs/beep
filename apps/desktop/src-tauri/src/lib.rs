@@ -213,8 +213,6 @@ pub fn run() {
             agents::harnesses::harness_default_model_save,
             agents::harnesses::harness_model_compacts,
             agents::harnesses::harness_model_compacts_save,
-            agents::instructions::agent_files_read,
-            agents::instructions::agent_files_sync,
             agents::instructions::instructions_get,
             agents::instructions::instructions_save,
             agents::instructions::instructions_versions,

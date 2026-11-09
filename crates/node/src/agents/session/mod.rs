@@ -43,6 +43,8 @@ mod turns;
 
 use actor::Actor;
 
+pub(super) use actor::joined as standing;
+
 /// The most prompts waiting behind a running turn.
 const MAX_QUEUED: usize = 8;
 /// The most bytes, text and images, waiting behind a running turn.
@@ -199,9 +201,8 @@ pub(super) struct Start<'a> {
     /// Beep's word to the agent, kept out of the transcript: in its system
     /// prompt when it takes one, else ahead of the first prompt.
     pub(super) brief: Option<Cow<'static, str>>,
-    /// Beep's git rule for its folder (`checkout::rule`), which holds for
-    /// the whole session.
-    pub(super) rule: Option<&'static str>,
+    /// Saved user instructions and Beep's checkout rule for the whole session.
+    pub(super) rule: Option<String>,
     /// The Beep MCP server for the agent, passed in `session/new` and
     /// `session/load`. With it the brief also says what its tools are.
     pub(super) mcp: Option<McpServer>,
@@ -374,7 +375,7 @@ impl Session {
             running: HashSet::new(),
             brief: brief.map(Cow::into_owned),
             standing: actor::joined(
-                rule.map(str::to_owned),
+                rule,
                 mcp.is_some().then_some(super::mcp::BRIEF),
             ),
             mcp_servers: mcp.into_iter().collect(),

@@ -1,7 +1,6 @@
 // The fake agents are sh scripts, so most tests run on Unix only.
 #![cfg_attr(windows, allow(dead_code, unused_imports))]
 
-use std::time::Duration;
 use super::*;
 use super::{
     orders::{choose, queue_room},
@@ -18,6 +17,7 @@ use beep_proto::node::{
 use beep_proto::{MAX_AGENT_IMAGES, Upload};
 use serde_json::Value;
 use std::path::PathBuf;
+use std::time::Duration;
 
 fn options() -> Vec<AnswerOption> {
     let option = |id: &str, name: &str, kind| AnswerOption {
@@ -1154,7 +1154,7 @@ async fn an_agent_without_a_system_prompt_hears_the_rule_again_after_compacting(
     let log = dir.join("sent.jsonl");
     let kind = script("pi", COMPACTING_ADAPTER, &log);
     let session = Session::start(Start {
-        rule: Some("Worktree first."),
+        rule: Some("Worktree first.".into()),
         ..start_on(&kind, dir, None)
     })
     .unwrap();
@@ -1193,7 +1193,7 @@ async fn a_resumed_session_keeps_the_rule_in_its_system_prompt() {
     let kind = script("codex", SYSTEM_PROMPT_ADAPTER, &log);
     let session = Session::start(Start {
         resume: Some("s".into()),
-        rule: Some("Worktree first."),
+        rule: Some("Worktree first.".into()),
         mcp: Some(beep_server()),
         ..start_on(&kind, dir, None)
     })
@@ -1736,7 +1736,9 @@ fn printed(set: [Option<&str>; 4]) -> String {
     let line = VARS
         .iter()
         .zip(set)
-        .map(|(name, set)| set.map_or_else(|| std::env::var(name).unwrap_or_default(), str::to_owned))
+        .map(|(name, set)| {
+            set.map_or_else(|| std::env::var(name).unwrap_or_default(), str::to_owned)
+        })
         .collect::<Vec<_>>()
         .join("|");
     line.trim().to_owned()
@@ -2091,5 +2093,52 @@ async fn a_harness_default_model_is_used_unless_the_session_picks_one() {
             .iter()
             .find(|message| message["method"] == "session/set_model");
         assert_eq!(switched.unwrap()["params"]["modelId"], expected);
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn saved_instructions_reach_new_and_resumed_sessions_without_editing_files() {
+    use crate::agents::{Agents, running::Begin};
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let local = dir.join("CLAUDE.md");
+    std::fs::write(&local, "Local instructions.\n").unwrap();
+    let agents = Agents::default();
+
+    for (index, resume, text) in [
+        (0, None, "Use short sentences."),
+        (1, Some("s".to_owned()), "Use plain words."),
+    ] {
+        agents.set_instructions(Some(text.to_owned()));
+        let log = dir.join(format!("sent-{index}.jsonl"));
+        let kind = script("codex", SYSTEM_PROMPT_ADAPTER, &log);
+        let session = agents
+            .start(
+                &kind,
+                dir.to_str(),
+                Begin {
+                    prompt: Some("go".into()),
+                    resume,
+                    ..Begin::default()
+                },
+            )
+            .unwrap();
+        settle(&session).await;
+        let sent = sent(&log);
+        assert_eq!(
+            sent[1]["params"]["systemPrompt"]["content"][0]["text"],
+            text
+        );
+        assert_eq!(
+            std::fs::read_to_string(&local).unwrap(),
+            "Local instructions.\n"
+        );
+        assert!(!dir.join("AGENTS.md").exists());
+        session
+            .order(Command::Close { by_user: true })
+            .await
+            .unwrap();
+        until(&session, |live| live.status() == Status::Ended).await;
     }
 }

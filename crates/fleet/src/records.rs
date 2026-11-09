@@ -39,18 +39,10 @@ pub struct PinRecord {
     pub at_ms: u64,
 }
 
-/// One saved version of the user's instructions. Each is its own key, `instructions/<ms>.<id>`, so
-/// two desktops saving at once keep both.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SavedVersion {
-    pub text: String,
-    pub note: String,
-    pub saved_ms: u64,
-}
+pub use beep_proto::node::mesh_state::SavedVersion;
 
 impl StateValue for GroupRecord {}
 impl StateValue for PinRecord {}
-impl StateValue for SavedVersion {}
 
 /// A project as the mesh holds it.
 pub(crate) struct Stored {
