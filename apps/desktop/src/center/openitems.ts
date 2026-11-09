@@ -1,6 +1,6 @@
 // Home's Open PRs and issues tab, and importing a repo from it.
 import { ago, reason } from "../ui/format.ts";
-import { note, svgEl as icon } from "../ui/parts.ts";
+import { svgEl as icon } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { pane } from "../bar/pane.ts";
 import { keepLastImport, lastImport, openImportProject } from "../addproject/importproject.ts";
@@ -8,18 +8,15 @@ import { folderUnder } from "../addproject/importproject-state.ts";
 import { el as h, type Kid } from "../ui/dom.ts";
 import { foundFor, type ProjectRow } from "../project/projects-state.ts";
 import { importFound } from "../addproject/addproject.ts";
-import { itemChips, projectsWithOpen, reviewStart, newestFirst, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
-import { arranged, listControls, pickBox, startBar } from "../project/openlist.ts";
-import type { StartEntry } from "../project/openlist-state.ts";
+import { itemChips, projectsWithOpen, reviewStart, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
 import { state } from "./state.ts";
-import { projectDot, section, tag, rowButton, line } from "../ui/pieces.ts";
+import { projectDot, tag, rowButton, line } from "../ui/pieces.ts";
 import { draw } from "./home.ts";
 import { currentLocation, go } from "./views.ts";
-import { reloadChats, projectRows, loadFound } from "./sidebar.ts";
-import { type LabelFilter, labelFilter, labelChip } from "../project/split.ts";
+import { reloadChats, loadFound } from "./sidebar.ts";
+import { type LabelFilter, labelChip } from "../project/split.ts";
 import { refresh } from "./refresh.ts";
 import { IC } from "../ui/icons.ts";
-import { lazyRows } from "../ui/lazyrows.ts";
 
 export function openUrl(url: string) {
   invoke("open_url", { url }).catch(e => console.warn("opening a link:", e));
@@ -30,7 +27,7 @@ type ReviewProject = Parameters<typeof reviewStart>[1];
 
 /// Reply opens a new chat with Beep that asks for help with the item; Beep
 /// reads it with its GitHub tools, and posting asks first.
-async function replyItem(item: GitItemRow) {
+export async function replyItem(item: GitItemRow) {
   go("pane", { chat: { session: null } });
 
   try {
@@ -68,31 +65,15 @@ export function repoLine(i: number | undefined, repo: string, sub: string, right
   return head;
 }
 
-type OpenRepo = ReturnType<typeof projectsWithOpen>[number];
+export type OpenRepo = ReturnType<typeof projectsWithOpen>[number];
 
 /// Repositories being imported from their row, by key, and why one failed.
-const rowImports = new Map<string, "busy" | { error: string }>();
+export const rowImports = new Map<string, "busy" | { error: string }>();
 
 /// What `import_project` takes for an open-items repository: `org/repo`
 /// on GitHub, its URL elsewhere.
 function importRepo(p: OpenRepo) {
   return p.host === "github.com" ? p.repo : p.url;
-}
-
-/// The row's Import button, or how its import stands.
-function rowImportButton(p: OpenRepo): HTMLElement {
-  const now = rowImports.get(p.key);
-  if (now === "busy") return h("span", "age", h("span", "dspin"), " Importing…");
-  const b = rowButton("Import", "small", () => quickImport(p));
-  b.title = importTitle(p);
-
-  if (now) {
-    const failed = tag("bad", "Import failed");
-    failed.title = now.error;
-    return h("span", "", failed, " ", b);
-  }
-
-  return b;
 }
 
 /// Where Import puts it: the last machine and folder used, else the server's
@@ -105,7 +86,7 @@ function importPlace(p: OpenRepo) {
   return { machine, folder };
 }
 
-function importTitle(p: OpenRepo) {
+export function importTitle(p: OpenRepo) {
   const { machine, folder } = importPlace(p);
   if (!machine) return "No machine is online; Import opens the sheet";
   return `Imports on ${machine.name}${folder ? `, into ${folder}` : ""}. Right-click for Import with settings…`;
@@ -113,7 +94,7 @@ function importTitle(p: OpenRepo) {
 
 /// Imports from the row with the last machine and folder; the row turns
 /// into the project once it is in. With no machine online, the sheet.
-async function quickImport(p: OpenRepo) {
+export async function quickImport(p: OpenRepo) {
   if (rowImports.get(p.key) === "busy") return;
   const { machine, folder } = importPlace(p);
   if (!machine) return importWithSettings(p);
@@ -149,32 +130,6 @@ function importWithSettings(p: OpenRepo) {
     folder,
     onDone: () => refresh(),
   });
-}
-
-/// Open PRs beside open issues on the user's git hosts, each a row per
-/// project with its items under it. A host that failed says why above.
-export function gitSection(view: GitItemsView) {
-  const all = projectRows() || [];
-  const column = (kind: GitItemRow["kind"], title: string, none: string) => {
-    const key = `home:${kind}`;
-    const { items, labels: f } = labelFilter(key, view.items.filter(i => i.kind === kind).sort(newestFirst), i => i.labels, draw);
-    const shown = arranged(key, items, i => i.opened_at);
-    const repos = new Map(projectsWithOpen({ items }, all).map(p => [p.key, p]));
-    const issues = kind === "issue";
-    const entries = shown.map((i): StartEntry => ({ key: i.url, project: repos.get(`${i.host} ${i.repo}`)?.project?.name ?? null, number: i.number, title: i.title, url: i.url }));
-    const chips = f.all.length ? h("div", "pj-labels", ...f.all.map(l => labelChip(l, f, "button"))) : null;
-    // Hundreds of items draw a screenful at a time.
-    const rows = lazyRows(key, "", shown.length, (from, to) => shown.slice(from, to).map(i => {
-      const p = repos.get(`${i.host} ${i.repo}`);
-      return openItemRow(i, p?.project ?? null, f, { pick: issues ? pickBox(key, i.url, draw) : null, action: p && !p.project ? rowImportButton(p) : null });
-    }), 0, 12);
-    const body = rows.length ? rows : [h("div", "cc-empty", h("span", "", none))];
-    return section("", title, shown.length, null, h("div", "cc-panel cc-open", listControls(key, draw, issues), chips, ...body, issues ? startBar(key, entries, draw) : null));
-  };
-  const el = h("div", "cc-git", state.gitError ? note("bad", state.gitError) : null, ...view.hosts.filter(x => x.error).map(x => note("bad", x.error)),
-    h("div", "cc-cols", column("pull_request", "Pull requests", "No open pull requests."), column("issue", "Issues", "No open issues.")));
-  el.id = "sec-git";
-  return el;
 }
 
 /// An open PR or issue in an Overview box: number and title, with its first

@@ -37,3 +37,30 @@ test("Overview keeps unchanged update rows and focus when another update changes
   await expect(second).toBeFocused();
   expect(await second.evaluate(element => element === (window as any).__homeRow)).toBe(true);
 });
+
+test("Git items retain a focused row during a Home refresh", async ({ page }) => {
+  const item = (number: number, title: string) => ({ host: "example.test", repo: "org/repo", number, title, kind: "issue", url: `https://example.test/org/repo/issues/${number}`, updated_at: 1, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: [] });
+  const git = { hosts: [{ host: "example.test", forgejo: false, account: null, error: null }], items: [item(1, "First issue"), item(2, "Second issue")] };
+  await openDesktop(page, false, { git_items: git });
+  await page.getByRole("tab", { name: "PRs and issues" }).click();
+  const second = page.getByRole("button", { name: /Second issue/ });
+  await expect(second).toBeVisible();
+  await second.focus();
+  await second.evaluate(element => { (window as any).__gitRow = element; });
+  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_home").length);
+  await page.evaluate(() => window.__navigation.notify("home"));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_home").length)).toBeGreaterThan(reads);
+  await expect(second).toBeFocused();
+  expect(await second.evaluate(element => element === (window as any).__gitRow)).toBe(true);
+});
+
+test("Git issue list loads more rows while scrolling", async ({ page }) => {
+  const items = Array.from({ length: 40 }, (_, index) => ({ host: "example.test", repo: "org/repo", number: index + 1, title: `Issue ${index + 1}`, kind: "issue", url: `https://example.test/org/repo/issues/${index + 1}`, updated_at: 100 - index, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: [] }));
+  await openDesktop(page, false, { git_items: { hosts: [{ host: "example.test", forgejo: false, account: null, error: null }], items } });
+  await page.getByRole("tab", { name: "PRs and issues" }).click();
+  await expect(page.getByRole("button", { name: /Issue 1(?:\s|$)/ })).toBeVisible();
+  await expect.poll(async () => {
+    await page.locator("#view").evaluate(element => { element.scrollTop = element.scrollHeight; });
+    return page.getByRole("button", { name: /Issue 40(?:\s|$)/ }).count();
+  }).toBe(1);
+});
