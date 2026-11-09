@@ -148,3 +148,36 @@ test("changed follow-ups replace old actions and send the new choice", async ({ 
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "send_prompt" && call.args.message === "New suggestion"))).toBe(true);
   await expect.poll(() => page.evaluate(() => { const node = Reflect.get(window, "retiredSuggestions"); return node instanceof HTMLElement ? node.childElementCount : -1; })).toBe(0);
 });
+
+test("approval cards remain stable during refresh and clean up on answer", async ({ page }) => {
+  const user = { role: "user", text: "Please proceed", at: 1, images: [], model: "", thinking: "" };
+  const approval = { role: "approval", query_id: "query-1", app: "Example app", action: "Update item", fields: [{ label: "Item", value: "Example" }] };
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [user, approval], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const card = page.locator(".dcard");
+  await expect(card).toContainText("Update item?");
+  await expect(card).toContainText("Example");
+  await card.evaluate(el => Reflect.set(window, "oldApproval", el));
+  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_session").length);
+  await page.evaluate(() => window.__navigation.emit("sessions-changed", "chat-example"));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_session").length)).toBeGreaterThan(reads);
+  expect(await card.evaluate(el => el === Reflect.get(window, "oldApproval"))).toBe(true);
+  const current = page.locator(".dcard");
+  await current.evaluate(el => Reflect.set(window, "answeredApproval", el));
+  await current.getByRole("button", { name: /^Allow for this session/ }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "answer_approval").map(call => [call.args.queryId, call.args.decision]))).toEqual([["query-1", "session"]]);
+  await expect.poll(() => page.evaluate(() => { const old = Reflect.get(window, "answeredApproval"); return old instanceof HTMLElement && !old.isConnected && old.childElementCount === 0; })).toBe(true);
+});
+
+test("an approval answered elsewhere releases its card", async ({ page }) => {
+  const user = { role: "user", text: "Please proceed", at: 1, images: [], model: "", thinking: "" };
+  const approval = { role: "approval", query_id: "query-2", app: "Example app", action: "Update item", fields: [] };
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [user, approval], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const card = page.locator(".dcard");
+  await expect(card).toBeVisible();
+  await card.evaluate(el => Reflect.set(window, "remoteApproval", el));
+  await page.evaluate(() => window.__navigation.emit("approval-answered", { session: "chat-example", query_id: "query-2" }));
+  await expect(page.locator("#body")).toContainText("Answered");
+  await expect.poll(() => page.evaluate(() => { const old = Reflect.get(window, "remoteApproval"); return old instanceof HTMLElement && !old.isConnected && old.childElementCount === 0; })).toBe(true);
+});

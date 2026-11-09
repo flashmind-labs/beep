@@ -1,3 +1,4 @@
+import { discardChatApproval } from "../chat/work-view.tsx";
 import { renderChatPrompt, updateChatPrompt } from "../chat/work-view.tsx";
 import { ASK, askText, body, owningChatBody, type Decision, focusAsk, followAnswered, forRoutine, newTurn, removeChatSuggestions, renderChat, scrollDown, settle, startRun } from "../chat/chat.ts";
 import { touch } from "../chat/chats.ts";
@@ -210,6 +211,7 @@ export function liveTurn(id: string, text: string, runId: string) {
 
   // A new message leaves an earlier question unanswered on the server.
   if (e.approval) {
+    discardChatApproval(e.approval.turn);
     e.approval.card.replaceWith(h('<div class="dmuted">Not answered</div>'));
     e.approval = null;
   }

@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
 import { ChatShell } from "./chat-shell.tsx";
-import { discardChatSuggestions, renderChatPrompt, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
+import { discardChatApproval, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
 import { drawAgentButton } from "../agents/agents.ts";
 import { askFiles, attach, attached, attachError, drawAttached } from "./attach.ts";
 import type { AskFile } from "./attach.ts";
@@ -421,12 +421,14 @@ export const answeredTurns = new AnsweredIds();
 export function approvalCard(id: string | null, turn: Turn, { query_id, app, action, fields }: Asking) {
   if (answeredTurns.has(query_id)) return;
   const grant = forRoutine(action);
-  const card = h(`<div class="dcard">
-    <div class="head">${appTile(app)}<div class="dcol"><b>${esc(action)}?</b><small>${esc(app)} asks first</small></div></div>
-    ${fields.length ? `<div class="kv">${fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
-    <div class="acts"><button class="dbtn pri" data-d="allow">Allow<kbd>⌘${ICON.ret}</kbd></button>${grant ? "" : `<button class="dbtn" data-d="session" title="Allow this action without asking until this chat ends">Allow for this session<kbd>⇧⌘${ICON.ret}</kbd></button><button class="dbtn" data-d="always">Always<kbd>⌥⌘${ICON.ret}</kbd></button>`}<button class="dbtn warn" data-d="deny">Deny<kbd>⌘D</kbd></button></div>
-  </div>`);
-  card.querySelectorAll<HTMLElement>("[data-d]").forEach(b => b.addEventListener("click", () => answer(b.dataset.d as Decision)));
+  const card = document.createElement("div");
+  card.className = "dcard";
+  const owner = owningChatBody(turn);
+  if (owner) renderChatApproval(owner, turn, card, { app, action, fields, grant, answer: decision => void answer(decision) });
+  else {
+    card.innerHTML = `<div class="head">${appTile(app)}<div class="dcol"><b>${esc(action)}?</b><small>${esc(app)} asks first</small></div></div>${fields.length ? `<div class="kv">${fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}<div class="acts"><button class="dbtn pri" data-d="allow">Allow<kbd>⌘${ICON.ret}</kbd></button>${grant ? "" : `<button class="dbtn" data-d="session" title="Allow this action without asking until this chat ends">Allow for this session<kbd>⇧⌘${ICON.ret}</kbd></button><button class="dbtn" data-d="always" title="Allow this action without asking until this chat ends">Always<kbd>⌥⌘${ICON.ret}</kbd></button>`}<button class="dbtn warn" data-d="deny">Deny<kbd>⌘D</kbd></button></div>`;
+    card.querySelectorAll<HTMLElement>("[data-d]").forEach(b => b.addEventListener("click", () => answer(b.dataset.d as Decision)));
+  }
   fillAppTiles(card);
   turn.append(card);
   const e = entry(id);
@@ -727,6 +729,7 @@ export function settle(id: string | null, e: LiveEntry, pending: PendingApproval
   const said = pending.grant
     ? { allow: "Allowed for this routine", deny: "Denied" }[decision as "allow" | "deny"]
     : { allow: "Allowed once", session: "Allowed for the rest of this chat", always: "Allowed, and always allowed from now on", deny: "Denied" }[decision];
+  discardChatApproval(pending.turn);
   pending.card.replaceWith(h(`<div class="dmuted">${said}</div>`));
   const turn = pending.turn;
   turn.done = false;
