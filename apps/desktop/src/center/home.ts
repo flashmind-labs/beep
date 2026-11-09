@@ -1,8 +1,6 @@
 // Home: its tabs, the Needs you, Updates, Running and Coming up sections, and the Connecting page before Home first loads.
 import { sessionMenu } from "../agents/sessionmenu.ts";
-import { patchChildren } from "../ui/patch.ts";
 import { harnessEl } from "../ui/harnessicon.ts";
-import { plural } from "../ui/format.ts";
 import { dbtn as button, emptyPanel, errorNote, note, svgEl as icon } from "../ui/parts.ts";
 import { invoke, Channel } from "../ui/tauri.ts";
 import { connectProblem } from "./connect.ts";
@@ -12,16 +10,16 @@ import { homeForDisplay, needsLine, type HomeView, type NeedsYou, type UpdateRow
 import { el as h } from "../ui/dom.ts";
 import { itemChips, newestFirst, waitsOnYou, type GitItemRow } from "./openitems-state.ts";
 import { type Outcome, $, CONNECT_STUCK_MS, state } from "./state.ts";
-import { failure, conflict, dot, section, avatar, tag, rowButton, line } from "../ui/pieces.ts";
-import { addMachineButton, useThisMac, machineMenu, machinesSection, offlineNote } from "../machines/table.ts";
+import { failure, conflict, section, avatar, tag, rowButton, line } from "../ui/pieces.ts";
+import { useThisMac, showMachineMenu, machinesSection, offlineNote } from "../machines/table.ts";
 import { conflictLines } from "../project/syncpage.ts";
 import { gitSection, openUrl, refreshGit } from "./openitems.ts";
 import { currentLocation, registerView, go, openResearch } from "./views.ts";
-import { projectRows } from "./sidebar.ts";
+import { openAddMachine, projectRows } from "./sidebar.ts";
 import { loading, refresh, fresh } from "./refresh.ts";
 import { BEEP_MARK, IC } from "../ui/icons.ts";
 import { resetRows } from "../ui/lazyrows.ts";
-import { type MachineCard, machineDisk, thisMacRow } from "../machines/machine-state.ts";
+import { thisMacRow } from "../machines/machine-state.ts";
 import { byRecent, type RunningAgent, runningKey, runningLine, type RunningRow, runningWhen } from "../agents/running-state.ts";
 import { onPlaces, runningLineAt } from "../agents/place.ts";
 import { moveLabel, onMoves } from "../agents/move-store.ts";
@@ -30,6 +28,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { ConnectingView } from "./connecting-view.tsx";
+import { HomeShell, type HomeTab } from "./home-shell.tsx";
 
 export function runningStatus(r: RunningRow) {
   const moving = r.kind === "agent" ? moveLabel(r) : null;
@@ -199,7 +198,6 @@ function updatesSection(updates: UpdateRow[]) {
 
 // ---------- Home ----------
 
-type HomeTab = "overview" | "git" | "machines";
 /// The Home tab on screen.
 export let homeTab: HomeTab = "overview";
 /// The tab each section Home can jump to sits on.
@@ -222,30 +220,6 @@ function openHomeTab(tab: HomeTab) {
   $("#view").scrollTop = 0;
 }
 
-/// Every machine across the top of Home: what it is doing and its free
-/// disk, opening its row in Machines.
-function machineStrip(machines: MachineCard[]) {
-  const cells: HTMLElement[] = machines.map(m => {
-    const disk = machineDisk(m).text;
-    const now = m.online ? (m.can_host === false ? "controller" : m.agents ? plural(m.agents, "agent", "agents") : "idle") : "offline";
-    const cell = h("button", `m${m.online ? "" : " off"}`, dot(m), h("b", "", m.name), h("span", "", disk === "–" ? now : `${now} · ${disk}`));
-    cell.type = "button";
-    cell.addEventListener("click", () => jump(`m-${m.id}`));
-    machineMenu(m, cell);
-    return cell;
-  });
-  const mac = thisMacRow(state.mac, machines);
-
-  if (mac) {
-    const cell = h("div", "m off", h("span", "ddot off"), h("b", "", mac.name), h("span", `${mac.bad ? "bad" : ""}`, mac.state));
-    if (mac.action) cell.append(rowButton(mac.action, "quiet small", useThisMac));
-    cell.title = `This computer: ${mac.title}`;
-    cells.push(cell);
-  }
-
-  return h("div", "cc-mstrip", ...cells, addMachineButton("quiet small"));
-}
-
 /// Home: the machines strip, then one tab at a time. A tab with nothing in
 /// it is left out; Overview and Machines stay.
 function page(home: HomeView) {
@@ -258,32 +232,20 @@ function page(home: HomeView) {
   ];
   const shownTabs = tabs.filter(t => t.on);
   const tab = shownTabs.find(t => t.key === homeTab) || shownTabs[0];
-  const bar = h("div", "cc-tabs");
-  bar.setAttribute("role", "tablist");
-
-  for (const t of shownTabs) {
-    const b = h("button", "", t.label, t.count ? h("span", "n", String(t.count)) : null);
-    b.type = "button";
-    b.setAttribute("role", "tab");
-    b.setAttribute("aria-selected", String(t === tab));
-    b.addEventListener("click", () => openHomeTab(t.key));
-    bar.append(b);
-  }
-
-  const out: HTMLElement[] = [];
-  if (machines) out.push(machineStrip(machines));
-  out.push(bar);
-  if (state.error) out.push(errorNote(`Could not refresh: ${state.error}`));
+  const notices: HTMLElement[] = [];
+  if (state.error) notices.push(errorNote(`Could not refresh: ${state.error}`));
 
   if (!machines && !running) {
-    out.push(note("off", "Machines and running sessions aren't available for this account or server."));
+    notices.push(note("off", "Machines and running sessions aren't available for this account or server."));
   } else if (machines) {
     const off = offlineNote(machines);
-    if (off) out.push(off);
+    if (off) notices.push(off);
   }
 
-  out.push(...tab.make());
-  return out;
+  return { machines, mac: machines ? thisMacRow(state.mac, machines) : null, jump,
+    menu: (machine: NonNullable<typeof machines>[number], event: MouseEvent) => showMachineMenu(machine, () => [], event),
+    addMachine: openAddMachine, useMac: () => { void useThisMac(); }, notices, content: tab.make(),
+    tabs: shownTabs, selected: tab.key, open: openHomeTab };
 }
 
 /// An Overview box: its title opens the full list, then its first rows.
@@ -357,9 +319,10 @@ export function draw() {
   if (currentLocation()?.view && currentLocation()?.view !== "home") return;
   const home = homeForDisplay(state.home, S.server), view = $("#view");
   if (!home || S.server && problem()) return drawConnecting(view);
-  if (connectingRoot) { connectingRoot.root.unmount(); connectingRoot = null; }
+  if (!connectingRoot || connectingRoot.host !== view) { connectingRoot?.root.unmount(); connectingRoot = { host: view, root: createRoot(view) }; }
   const top = view.scrollTop;
-  patchChildren(view, page(home));
+  const root = connectingRoot.root;
+  flushSync(() => root.render(createElement(HomeShell, page(home))));
   view.scrollTop = top;
   applyScroll();
   scrollTarget = null;
