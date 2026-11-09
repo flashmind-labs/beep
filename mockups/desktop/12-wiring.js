@@ -19,17 +19,8 @@ function go(screen) {
   S.screen = screen;
   render();
 }
-function renderIndex() {
-  const groups = DESK_SCREENS;
-  const ids = groups.flatMap(g => g.items.map(([id]) => id)), at = ids.indexOf(S.screen);
-  const step = (to, label, glyph) => `<button ${to ? `data-screen="${to}"` : "disabled"} aria-label="${label}">${glyph}</button>`;
-  document.getElementById("index").innerHTML = `<div class="pick">${step(ids[at - 1], "Previous screen", "&lsaquo;")}
-    <select aria-label="Screen">${groups.map(g => `<option disabled>${g.group.toUpperCase()}</option>${g.items.map(([id, name]) =>
-      `<option value="${id}"${S.screen === id ? " selected" : ""}>&nbsp;&nbsp;&nbsp;${name}</option>`).join("")}`).join("")}</select>
-    ${step(ids[at + 1], "Next screen", "&rsaquo;")}</div>` + groups.map(g =>
-    `<div class="group"><h2>${g.group}</h2>${g.items.map(([id, name]) =>
-      `<button data-screen="${id}" aria-current="${S.screen === id}">${name}</button>`).join("")}</div>`).join("");
-}
+// The hierarchical menu installs its renderer after all screens register.
+function renderIndex() {}
 function renderVariants() {
   const v = VARIANTS[S.screen] || [];
   document.getElementById("variants").innerHTML = v.map(([n, , on], i) =>

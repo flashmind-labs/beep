@@ -89,6 +89,8 @@ interface SideOpts {
 export function sideItem(svg: string | null, label: string, count: number | undefined, opts: SideOpts = {}) {
   const b = h("button", `cc-si${opts.cls ? " " + opts.cls : ""}`, svg ? icon(svg) : null, h("span", "tt", label));
   b.type = "button";
+  b.title = label;
+  b.setAttribute("aria-label", label);
   if (opts.current) b.setAttribute("aria-current", "true");
   if (count) b.append(h("span", `n${opts.hot ? " hot" : ""}`, String(count)));
   if (opts.kbd) b.append(h("kbd", "", opts.kbd));
@@ -105,7 +107,7 @@ export function drawSide() {
   const home = state.home;
   const head = h("div", "cc-head", "");
   head.setAttribute("data-tauri-drag-region", "");
-  const top = h("div", "cc-grp",
+  const top = h("div", "cc-grp cc-nav",
     sideItem(IC.find, "Search", 0, { cls: "cc-search", on: openPalette, kbd: WINDOWS ? "Ctrl+K" : "⌘K" }),
     sideItem(IC.home, "Home", home?.needs_you.length, { current: currentLocation()?.view === "home", hot: true, on: () => go("home") }));
   // Running opens the coding agents' list, the full view of Home's section.
@@ -116,13 +118,13 @@ export function drawSide() {
   // Sync, once a project syncs: the conflicts waiting across them.
   if (syncProjects().length) top.append(sideItem(IC.sync, "Sync", syncConflicts(), { current: currentLocation()?.view === "sync", hot: true, on: () => go("sync") }));
   if (home?.coming_up) top.append(sideItem(IC.cal, "Coming up", home.coming_up.length, { on: () => jump("sec-coming") }));
-  const side = [h("div", "cc-brand", h("b", "", "Beep")), top];
+  const side = [top];
 
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
     // Rows that fill in once the server answers, never an empty sidebar.
     if (name === "chats" && g.items == null && !home && groupShown("chats", state.subscribed)) side.push(h("div", "cc-grp", h("h3", "", "Chats"), ...skeleton([70, 55, 62])));
     if (g.items == null) continue;
-    const grp = h("div", `cc-grp ${name}`);
+    const grp = h("div", `cc-grp ${name}${name === "views" ? " cc-nav" : ""}`);
 
     if (g.title) {
       const h3 = h("h3", "", g.onTitle ? button(g.title, "cc-gt", g.onTitle) : g.title);
@@ -165,7 +167,26 @@ export function drawSide() {
 
   if (!list) {
     list = h("div", "cc-side-list");
-    el.replaceChildren(head, list);
+    const brand = h("div", "cc-brand", h("b", "", "Beep"));
+
+    if (!onPhone()) {
+      const toggle = button(h("span", "", icon('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>')), "cc-side-toggle", () => {
+        const win = el.closest(".cwin");
+        if (!win) return;
+        const collapsed = win.classList.toggle("side-collapsed");
+        toggle.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
+        toggle.setAttribute("aria-label", toggle.title);
+        toggle.setAttribute("aria-expanded", String(!collapsed));
+      });
+      toggle.title = "Collapse sidebar";
+      toggle.setAttribute("aria-label", toggle.title);
+      toggle.setAttribute("aria-expanded", "true");
+      toggle.setAttribute("aria-controls", "side-content");
+      brand.append(toggle);
+    }
+
+    list.id = "side-content";
+    el.replaceChildren(head, brand, list);
   }
 
   patchChildren(list, side);
