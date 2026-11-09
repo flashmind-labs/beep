@@ -350,13 +350,17 @@ test("virtualized diff keeps inline comments editable after refresh", async ({ p
   await row.locator(".dv-g").click();
   const editor = section.locator(".dv-cmt.open");
   await editor.getByRole("textbox", { name: "Comment on this line" }).fill("Review this line.");
-  await editor.getByRole("button", { name: "Add" }).click();
+  await editor.getByRole("textbox", { name: "Comment on this line" }).press("Control+Enter");
   await expect(section.locator(".dv-cmt")).toContainText("Review this line.");
   await page.locator('.dv-head .dv-btn[aria-label="Refresh"]').click();
   const saved = section.locator(".dv-cmt").filter({ hasText: "Review this line." });
   await expect(saved).toBeVisible();
   await saved.getByRole("button", { name: "Edit" }).click();
   const editing = section.locator(".dv-cmt.open");
+  await editing.getByRole("textbox", { name: "Comment on this line" }).fill("Discarded edit.");
+  await editing.getByRole("textbox", { name: "Comment on this line" }).press("Escape");
+  await expect(section.locator(".dv-cmt")).toContainText("Review this line.");
+  await section.locator(".dv-cmt").getByRole("button", { name: "Edit" }).click();
   await editing.getByRole("textbox", { name: "Comment on this line" }).fill("Updated line review.");
   await editing.getByRole("button", { name: "Add" }).click();
   await expect(section.locator(".dv-cmt")).toContainText("Updated line review.");
@@ -365,6 +369,8 @@ test("virtualized diff keeps inline comments editable after refresh", async ({ p
 });
 
 test("virtualized diff evicts and restores saved inline comments", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
   await openDesktop(page, true);
   await page.evaluate(() => {
     const invoke = window.__TAURI__.core.invoke;
@@ -397,4 +403,59 @@ test("virtualized diff evicts and restores saved inline comments", async ({ page
   await scroll.evaluate(element => { element.scrollTop = 0; });
   await expect(firstChunk.locator(".dv-cmt")).toHaveCount(1);
   await expect(firstChunk.locator(".dv-cmt")).toContainText("Saved comment.");
+  await firstChunk.getByRole("button", { name: "Remove the comment" }).click();
+  await scroll.evaluate(element => { element.scrollTop = element.scrollHeight; });
+  await expect(firstChunk.locator(".dv-l")).toHaveCount(0);
+  await scroll.evaluate(element => { element.scrollTop = 0; });
+  await expect(firstChunk.locator(".dv-l").first()).toBeVisible();
+  await expect(firstChunk.locator(".dv-cmt")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("lost diff comments remain editable without duplicate hosts on refresh", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("beep.diffReview.build-box\nnotice-one", JSON.stringify([
+    { path: "removed.ts", side: "new", line: 4, text: "Review a removed file." },
+  ])));
+  await openDesktop(page, true);
+  await page.evaluate(() => window.__navigation.open({ agent: {
+    kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session",
+    cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false,
+  } }));
+  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  const lost = page.locator(".dv-lost");
+  await expect(lost.locator(".dv-cmt")).toHaveCount(1);
+  await page.locator('.dv-head .dv-btn[aria-label="Refresh"]').click();
+  await expect(lost.locator(".dv-cmt")).toHaveCount(1);
+  await expect(lost.locator(".dv-comment-slot")).toHaveCount(1);
+  await lost.getByRole("button", { name: "Edit" }).click();
+  await lost.getByRole("textbox", { name: "Comment on this line" }).fill("Updated removed file review.");
+  await lost.getByRole("button", { name: "Add" }).click();
+  await expect(lost.locator(".dv-cmt")).toContainText("Updated removed file review.");
+  await lost.getByRole("button", { name: "Remove the comment" }).click();
+  await expect(lost.locator(".dv-cmt")).toHaveCount(0);
+});
+
+test("diff comment drafts survive a session reload", async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on("console", message => { if (message.type() === "error") consoleErrors.push(message.text()); });
+  await openDesktop(page, true);
+  const open = async () => page.evaluate(() => window.__navigation.open({ agent: {
+    kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session",
+    cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false,
+  } }));
+  await open();
+  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  const section = page.locator('.dv-file[data-path="sample.ts"]');
+  await section.locator(".dv-l").filter({ hasText: "const value20 = 20;" }).locator(".dv-g").click();
+  const editor = section.locator(".dv-cmt.open");
+  await editor.getByRole("textbox", { name: "Comment on this line" }).fill("Keep this review draft.");
+  await editor.getByRole("button", { name: "Add" }).click();
+  await expect(section.locator(".dv-cmt")).toContainText("Keep this review draft.");
+  await page.reload();
+  await page.waitForFunction(() => window.__navigation.ready());
+  await open();
+  const tab = page.getByRole("tab", { name: "Changes", exact: true });
+  if (await tab.getAttribute("aria-selected") !== "true") await tab.click();
+  await expect(section.locator(".dv-cmt")).toContainText("Keep this review draft.");
+  expect(consoleErrors.filter(message => message.includes("flushSync") || message.includes("Cannot update"))).toEqual([]);
 });
