@@ -127,8 +127,7 @@ export const P = {
   watch: null as ResizeObserver | null,
   /// A tab drag just ended: the click that follows it does nothing.
   dragged: false,
-  /// The dock zoomed over the whole session by ⇧esc. Not kept: a new session or a
-  /// restart starts unzoomed.
+  /// The dock zoomed over the whole session by ⇧esc, remembered per session.
   zoom: null as Dock | null,
 };
 
@@ -138,6 +137,7 @@ function loadLayout(): PaneLayout {
 
 export function saveLayout() {
   try { localStorage.setItem(KEY, JSON.stringify(P.layout)); } catch { /* kept while the window is open */ }
+  rememberPane();
 }
 
 type Fixed = "subagents" | "files" | "changes" | "artifacts" | "running";
@@ -188,9 +188,11 @@ export function paneFrame(conv: string) {
 export function startPane(s: PaneSession) {
   closePaneTabs();
   P.session = s;
-  paneReleased = false;
+  paneReleased = true;
   P.on = { right: FILES, bottom: FILES };
-  readWorktrees(s);
+  const saved = readView(viewKey(s.machine_id, s.id));
+  P.layout = loadLayout();
+  if (saved && typeof saved === "object" && "layout" in saved) P.layout = readLayout(JSON.stringify(saved.layout));
   P.subs = "";
   P.subCount = 0;
   P.moved.clear();
@@ -212,16 +214,38 @@ export function startPane(s: PaneSession) {
     pane.querySelector(".agtabs")!.addEventListener("pointerdown", e => tabDown(e as PointerEvent));
     document.getElementById(`agpstrip-${d}`)!.addEventListener("click", () => { P.layout.hidden[d] = false; saveLayout(); draw(); });
   }
-  const saved = readView(viewKey(s.machine_id, s.id));
+  readWorktrees(s);
   if (saved && typeof saved === "object" && "tabs" in saved && Array.isArray(saved.tabs)) {
-    for (const tab of saved.tabs) if (tab && typeof tab === "object" && typeof tab.root === "string" && typeof tab.rel === "string") openIn(tab.root, tab.rel);
+    for (const tab of saved.tabs) {
+      if (!tab || typeof tab !== "object") continue;
+      if (typeof tab.root === "string" && typeof tab.rel === "string") {
+        openIn(tab.root, tab.rel);
+        if (tab.preview === true) {
+          const opened = P.tabs.at(-1);
+          if (opened) previewTab(opened);
+        }
+      } else if (typeof tab.id === "string" && "terminal" in tab) {
+        const row = readTerminal(tab.terminal);
+        if (row) open({ id: tab.id, kind: "term", name: typeof tab.name === "string" ? tab.name : row.name, path: null, url: null, existing: row });
+        else {
+          const pending = startingTerminals.get(viewKey(s.machine_id, s.id))?.find(t => t.id === tab.id);
+          if (pending) P.tabs.push(pending);
+        }
+      } else if (typeof tab.path === "string") openPath(tab.path);
+      else if (typeof tab.url === "string" && tab.url.startsWith("data:image/") && typeof tab.name === "string") openPicture(tab.url, tab.name);
+    }
     if ("on" in saved && saved.on && typeof saved.on === "object") {
       for (const dock of DOCKS) if (dock in saved.on) {
         const id: unknown = Reflect.get(saved.on, dock);
         if (typeof id === "string" && tabIds().includes(id)) P.on[dock] = id;
       }
     }
+    if ("layout" in saved) P.layout = readLayout(JSON.stringify(saved.layout));
+    if ("zoom" in saved && (saved.zoom === "right" || saved.zoom === "bottom")) P.zoom = saved.zoom;
   }
+  draw();
+  paneReleased = false;
+  rememberPane();
 }
 
 
@@ -245,24 +269,60 @@ export function rebindPane(s: PaneSession) {
   draw();
 }
 
-/// Stops the pane's terminals and releases every tab, including shells still starting.
+/// Remembers the pane before releasing its views. Terminals keep running.
 let paneReleased = false;
+const startingTerminals = new Map<string, MediaTab[]>();
 function rememberPane() {
   if (paneReleased || !P.session) return;
-  writeView(viewKey(P.session.machine_id, P.session.id), { on: P.on, tabs: P.tabs.filter(t => t.rel && t.root).map(t => ({ root: t.root, rel: t.rel })) });
+  const key = viewKey(P.session.machine_id, P.session.id);
+  const pending = P.tabs.filter(t => t.kind === "term" && !t.term && !t.existing && !t.closed);
+  if (pending.length) startingTerminals.set(key, pending); else startingTerminals.delete(key);
+  writeView(key, { on: P.on, layout: P.layout, zoom: P.zoom, tabs: P.tabs.filter(t => !t.closed).map(savedTab) });
 }
+
+function savedTab(t: MediaTab) {
+  if (t.kind === "term") return { id: t.id, name: t.name, terminal: t.term?.row ?? t.existing ?? null };
+  if (t.rel && t.root) return { root: t.root, rel: t.rel, preview: t.preview?.active === true };
+  return { path: t.path, url: t.path ? null : t.url, name: t.name };
+}
+
+function readTerminal(value: unknown): TerminalRow | null {
+  if (!value || typeof value !== "object") return null;
+  if (!("id" in value && typeof value.id === "string"
+    && "project" in value && typeof value.project === "string"
+    && "machine_id" in value && typeof value.machine_id === "string"
+    && "machine_name" in value && typeof value.machine_name === "string"
+    && "name" in value && typeof value.name === "string"
+    && "command" in value && typeof value.command === "string"
+    && "cwd" in value && typeof value.cwd === "string"
+    && "state" in value && typeof value.state === "string"
+    && "code" in value && (value.code === null || typeof value.code === "number")
+    && "started_at" in value && typeof value.started_at === "number")) return null;
+  return { id: value.id, project: value.project, machine_id: value.machine_id, machine_name: value.machine_name,
+    name: value.name, command: value.command, cwd: value.cwd, state: value.state, code: value.code, started_at: value.started_at };
+}
+
+/// A shell can finish starting after navigation released its tab.
+export function rememberTerminal(key: string, tab: MediaTab, row: TerminalRow) {
+  const pending = startingTerminals.get(key)?.filter(t => t !== tab) ?? [];
+  if (pending.length) startingTerminals.set(key, pending); else startingTerminals.delete(key);
+  tab.existing = row;
+  if (P.tabs.includes(tab)) { rememberPane(); return; }
+  if (tab.closed) return;
+  const saved = readView(key);
+  if (!saved || typeof saved !== "object" || !("tabs" in saved) || !Array.isArray(saved.tabs)) return;
+  saved.tabs = saved.tabs.map(item => item && typeof item === "object" && item.id === tab.id ? savedTab(tab) : item);
+  writeView(key, saved);
+}
+
 window.addEventListener("pagehide", rememberPane);
 
 export function closePaneTabs() {
   rememberPane();
   paneReleased = true;
   for (const t of P.tabs) {
-    const closing = t.closed;
-    t.closed = true;
     dropTab(t);
-    const id = t.term?.row.id ?? t.existing?.id;
     t.term = undefined;
-    if (id && !closing) invoke("terminal_close", { id }).catch(e => console.warn("stopping a terminal on leaving its session:", e));
   }
 
   P.tabs = [];
@@ -339,6 +399,7 @@ function toggleZoom() {
   }
 
   place();
+  rememberPane();
   // From the input, the zoomed tab takes the keys: a terminal fills the view and is typed in.
   const pane = P.zoom && paneOf(P.zoom);
 
@@ -360,6 +421,7 @@ export function showChanges() {
   P.zoom = d;
   place();
   focusChanges();
+  rememberPane();
 }
 
 /// Esc in the window with a zoomed or focused pane: the pane steps back and the
@@ -369,6 +431,7 @@ export function leavePane() {
   if (!P.zoom && !focus?.closest(".agpane")) return false;
   P.zoom = null;
   place();
+  rememberPane();
   const input = document.querySelector<HTMLElement>("#agmsg, #agdraft textarea");
   if (input) input.focus(); else (focus as HTMLElement).blur();
   return true;
