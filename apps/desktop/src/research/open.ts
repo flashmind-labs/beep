@@ -1,7 +1,6 @@
 import { commandKey } from "../ui/platform.ts";
 import { createElement, type ReactElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ResearchHead } from "./head-view.tsx";
 import { ResearchTabs } from "./tabs-view.tsx";
 import { ResearchLivePane } from "./live-pane-view.tsx";
@@ -62,7 +61,7 @@ const fresh = (session: string): Open => ({
 
 let R = fresh("");
 let page: Page | null = null;
-let shellRoot: Root | null = null;
+let shellHost: HTMLElement | null = null;
 let headNode: ReactElement | null = null, tabsNode: ReactElement | null = null, paneNode: ReactElement | null = null, chatNode: ReactElement | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let inflight = false;
@@ -95,13 +94,12 @@ registerView("researchopen", {
 
 function build(el: HTMLElement, session: string) {
   zoomed = false;
-  shellRoot?.unmount();
-  shellRoot = null;
+  if (shellHost) removeWindowPart("research-open");
   headNode = tabsNode = paneNode = chatNode = null;
   R = fresh(session);
   polls = 0;
-  shellRoot = createRoot(el);
-  flushSync(() => shellRoot?.render(createElement(ResearchShell, { head: null, chat: null, tabs: null, pane: null })));
+  shellHost = el;
+  showWindowParts([{ part: "research-open", host: el, content: createElement(ResearchShell, { head: null, chat: null, tabs: null, pane: null }) }]);
   const root = el.querySelector<HTMLElement>(".rs")!;
   const q = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
   page = { root, head: q(".dhead"), shell: q(".agshell"), log: q(".rs-log"), chat: q(".dcoderlog"), ask: q("textarea"), pane: q(".rs-pane"), tabs: q(".agtabs"), view: q(".agpviews") };
@@ -168,9 +166,8 @@ function wireDivider(p: Page) {
 // ---------- Drawing ----------
 
 function drawShell() {
-  const root = shellRoot, current = page;
-  if (!root || !current) return;
-  flushSync(() => root.render(createElement(ResearchShell, { head: headNode, chat: chatNode, tabs: tabsNode, pane: paneNode })));
+  if (!shellHost || !page) return;
+  showWindowParts([{ part: "research-open", host: shellHost, content: createElement(ResearchShell, { head: headNode, chat: chatNode, tabs: tabsNode, pane: paneNode }) }]);
 }
 
 function drawHead() {

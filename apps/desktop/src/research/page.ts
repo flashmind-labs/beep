@@ -6,8 +6,7 @@ import { state, views } from "../center/state.ts";
 import { groupShown } from "../settings/subscription.ts";
 import { failure } from "../ui/pieces.ts";
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { showWindowParts } from "../center/window-root.ts";
 import { ResearchPage } from "./page-view.tsx";
 import { currentLocation, registerView, go, drawTop, openResearch } from "../center/views.ts";
 import { registerSidebarGroup, reloadGroup, reloadChats } from "../center/sidebar.ts";
@@ -61,14 +60,11 @@ async function startResearch() {
   reloadGroup("research");
 }
 
-let root: Root | null = null;
-
 /// Updates the page without replacing the scroll container or input.
 function drawResearch(focus = false) {
   const el = views.get("research")?.el;
   if (!el) return;
-  root ??= createRoot(el);
-  flushSync(() => root?.render(createElement(ResearchPage, {
+  showWindowParts([{ part: "research-list", host: el, content: createElement(ResearchPage, {
     list: research.list,
     error: research.error,
     starting: research.starting,
@@ -76,7 +72,7 @@ function drawResearch(focus = false) {
     onDraft: (value: string) => { research.draft = value; },
     onStart: () => void startResearch(),
     onOpen: openResearch,
-  })));
+  }) }]);
   if (focus) el.querySelector<HTMLInputElement>(".cc-rnew input")?.focus();
 }
 
