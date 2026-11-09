@@ -1,13 +1,15 @@
 // The command center's Research page and its sidebar group.
-import { since } from "../ui/format.ts";
-import { dbtn as button, emptyPanel, errorNote, headedTable, svgEl as icon, secHead } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
-import { chipClass, newestFirst, phaseStep, PHASES, progressLine, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
+import { newestFirst, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
 import { RESEARCHES } from "./researches.ts";
 import { state, views } from "../center/state.ts";
 import { groupShown } from "../settings/subscription.ts";
-import { failure, tag, skeleton } from "../ui/pieces.ts";
+import { failure } from "../ui/pieces.ts";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { ResearchPage } from "./page-view.tsx";
 import { currentLocation, registerView, go, drawTop, openResearch } from "../center/views.ts";
 import { registerSidebarGroup, reloadGroup, sideItem, reloadChats, plusButton, emptyRow } from "../center/sidebar.ts";
 import { IC } from "../ui/icons.ts";
@@ -60,92 +62,23 @@ async function startResearch() {
   reloadGroup("research");
 }
 
-/// The page's field: what to research, and the button that starts it.
-function researchField() {
-  const input = h("input");
-  input.type = "text";
-  input.placeholder = "What should the team research?";
-  input.autocomplete = "off";
-  input.spellcheck = false;
-  input.setAttribute("aria-label", "What should the team research?");
-  input.value = research.draft;
-  input.disabled = research.starting;
-  const start = button(research.starting ? "Starting…" : "Research", "pri small", () => startResearch());
-  start.disabled = research.starting;
-  input.addEventListener("input", () => { research.draft = input.value; });
-  input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); startResearch(); } });
-  return h("div", "cc-rnew", icon(IC.doc), input, start);
-}
+let root: Root | null = null;
 
-/// A research's status chip.
-function researchTag(r: ResearchRow) {
-  const st = researchState(r.status);
-  return tag(chipClass(r.status), st === "running" ? h("span", "dspin") : null, STATE_LABEL[st]);
-}
-
-/// The Progress cell: the running round's steps as a bar, then its line.
-function researchProgress(r: ResearchRow) {
-  const cell = h("span", "");
-  const step = phaseStep(r.status);
-  if (step) cell.append(h("span", "cc-rsteps", ...PHASES.map((_, i) => h("i", i + 1 < step ? "done" : i + 1 === step ? "now" : ""))));
-  cell.append(h("span", "num", progressLine(r)));
-  return cell;
-}
-
-/// One research per row: its question, status, progress, sources and start.
-function researchTable(list: ResearchRow[]) {
-  const table = headedTable("cc-rt", "Research", "Status", "Progress", "Sources", "Started");
-  table.setAttribute("role", "table");
-
-  for (const r of list) {
-    const off = ["failed", "stopped"].includes(researchState(r.status)) ? " off" : "";
-    const open = h("button", "", h("span", "", r.topic));
-    open.type = "button";
-    open.title = r.topic;
-    const cells = [
-      h("span", `nm${off}`, h("b", "", open)),
-      h("span", off.trim(), researchTag(r)),
-      researchProgress(r),
-      h("span", `num${off}`, r.sources ? String(r.sources) : "–"),
-      h("span", `num${off}`, since(r.started_at)),
-    ];
-    if (off) cells[2].classList.add("off");
-    cells[4].title = new Date(r.started_at).toLocaleString();
-
-    for (const c of cells) {
-      c.classList.add("r");
-      c.addEventListener("click", () => openResearch(r.session));
-    }
-
-    table.append(...cells);
-  }
-
-  return table;
-}
-
-/// The Research page into its view, keeping its scroll and the field's
-/// focus; `focus` puts the caret in the field.
+/// Updates the page without replacing the scroll container or input.
 function drawResearch(focus = false) {
   const el = views.get("research")?.el;
   if (!el) return;
-  const old = el.querySelector<HTMLElement>(":scope > .cc-view");
-  const typing = !!old && old.querySelector(".cc-rnew input") === document.activeElement;
-  const field = researchField();
-  const kids: Node[] = [field];
-  if (research.error) kids.push(errorNote(research.error));
-  const list = research.list;
-
-  if (list == null) {
-    if (!research.error) kids.push(h("div", "cc-panel", ...skeleton([70, 55, 62])));
-  } else if (!list.length) {
-    kids.push(emptyPanel(h("b", "", "No research yet"), h("span", "", "Type a question above to start one.")));
-  } else {
-    kids.push(h("div", "", secHead("Research"), researchTable(list)));
-  }
-
-  const view = h("div", "cc-view", ...kids);
-  if (old) { const top = old.scrollTop; old.replaceWith(view); view.scrollTop = top; } else el.append(view);
-  if (focus || typing) field.querySelector("input")!.focus();
+  root ??= createRoot(el);
+  flushSync(() => root?.render(createElement(ResearchPage, {
+    list: research.list,
+    error: research.error,
+    starting: research.starting,
+    draft: research.draft,
+    onDraft: (value: string) => { research.draft = value; },
+    onStart: () => void startResearch(),
+    onOpen: openResearch,
+  })));
+  if (focus) el.querySelector<HTMLInputElement>(".cc-rnew input")?.focus();
 }
 
 registerView("research", {
