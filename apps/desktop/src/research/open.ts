@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { ResearchHead } from "./head-view.tsx";
+import { ResearchTabs } from "./tabs-view.tsx";
 // An opened research, as a page of the command center laid out like a coding
 // agent session: the lead's chat on the left, the paper, notes, sources and the
 // team as the tabs of a side pane on the right. The page is drawn once and
@@ -20,7 +21,7 @@ import { esc } from "../ui/format.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import { patchHtml } from "../ui/patch.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
-import { chatHtml, followsEnd, paneHtml, placeholder, tabsHtml } from "./panes.ts";
+import { chatHtml, followsEnd, paneHtml, placeholder } from "./panes.ts";
 import { type Open, type ResearchView, type Turn, RUNNING, closeTab, openTab, round, shownTab } from "./research-state.ts";
 import { dragHandle } from "../ui/drag.ts";
 
@@ -59,6 +60,7 @@ const fresh = (session: string): Open => ({
 let R = fresh("");
 let page: Page | null = null;
 let headRoot: Root | null = null;
+let tabsRoot: Root | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let inflight = false;
 let polls = 0;
@@ -91,7 +93,8 @@ registerView("researchopen", {
 function build(el: HTMLElement, session: string) {
   zoomed = false;
   headRoot?.unmount();
-  headRoot = null;
+  tabsRoot?.unmount();
+  headRoot = tabsRoot = null;
   R = fresh(session);
   polls = 0;
   const root = h(`<div class="rs"><div class="dhead"></div>
@@ -103,6 +106,7 @@ function build(el: HTMLElement, session: string) {
   const q = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
   page = { root, head: q(".dhead"), shell: q(".agshell"), log: q(".rs-log"), chat: q(".dcoderlog"), ask: q("textarea"), pane: q(".rs-pane"), tabs: q(".agtabs"), view: q(".agpviews") };
   headRoot = createRoot(page.head);
+  tabsRoot = createRoot(page.tabs);
   composeField(page.ask, { grow: 156 });
   root.addEventListener("click", onClick);
   page.ask.addEventListener("keydown", onAskKey);
@@ -181,7 +185,7 @@ function drawPane() {
   if (!page) return;
   const tab = shownTab(R), same = page.view.dataset.tab === tab;
   page.view.dataset.tab = tab;
-  patchHtml(page.tabs, tabsHtml(R));
+  if (tabsRoot) flushSync(() => tabsRoot?.render(createElement(ResearchTabs, { research: R })));
   const before = page.view.querySelector<HTMLElement>(".rpane");
   const stuck = !!before && atBottom(before);
   patchHtml(page.view, paneHtml(R));

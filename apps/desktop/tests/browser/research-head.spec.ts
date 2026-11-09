@@ -23,3 +23,27 @@ test("research Stop reaches the current session after navigation rebuilds the he
   await head.getByRole("button", { name: "Stop" }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "stop_research").map(call => call.args.session))).toContain("second");
 });
+
+test("research tabs preserve their elements and delegated open and close actions", async ({ page }) => {
+  await openDesktop(page, false, {
+    status: { link: "linked", signed_out: false, server: true, live: false, session: null },
+    cached_research: research("Example topic"), get_research: research("Example topic"), research_history: [], research_pending: null,
+    list_researches: [],
+  });
+  await page.evaluate(() => window.__navigation.open({ open_research: { session: "first" } }));
+  const tabs = page.locator(".rs .agtabs:visible");
+  const agents = tabs.getByRole("tab", { name: "Agents" });
+  const notes = tabs.getByRole("tab", { name: "Notes" });
+  await expect(agents).toHaveAttribute("aria-selected", "true");
+  await notes.evaluate(el => { el.setAttribute("data-test-identity", "kept"); });
+  await notes.click();
+  await expect(notes).toHaveAttribute("aria-selected", "true");
+  await agents.click();
+  await expect(notes).toHaveAttribute("data-test-identity", "kept");
+  await page.locator('.rs [data-act="room"]:visible').click();
+  const room = tabs.getByRole("tab", { name: "Room Close Room" });
+  await expect(room).toHaveAttribute("aria-selected", "true");
+  await tabs.locator('[data-act="close:room"]').click();
+  await expect(room).toHaveCount(0);
+  await expect(agents).toHaveAttribute("aria-selected", "true");
+});
