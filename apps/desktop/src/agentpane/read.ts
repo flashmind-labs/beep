@@ -1,3 +1,4 @@
+import { takeQueuedPreview } from "./html-preview-state.ts";
 // Reading a tab's file from the session's machine, a part at a time, and
 // starting a terminal tab.
 import { fileSize } from "../chat/media.ts";
@@ -55,7 +56,12 @@ export async function loadText(t: MediaTab) {
   } catch (e) {
     t.error = readError(e);
   }
-  if (P.tabs.includes(t)) redraw(t);
+  if (P.tabs.includes(t)) {
+    redraw(t);
+    if (takeQueuedPreview(t) && t.text && !t.text.binary) {
+      t.el?.querySelector<HTMLButtonElement>("[data-preview]")?.click();
+    }
+  }
 }
 
 /// Draws tab `t` again, from scratch.
