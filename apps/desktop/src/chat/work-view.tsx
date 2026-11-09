@@ -6,6 +6,8 @@ import { PLAY_ICON } from "../lists/memories.ts";
 import type { ApprovalField, Decision } from "./chat.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { WebSource } from "./history.ts";
+import { KIND_ICONS } from "../agents/turnrows.ts";
+import type { ToolKind } from "../agents/agentturns.ts";
 import { AgentTurnHeading, type TurnHeading } from "../agents/turn-heading-view.tsx";
 import { ChartView } from "./chart-view.tsx";
 import type { Chart, ChartCard } from "./charts.ts";
@@ -14,8 +16,8 @@ import { VOICE_ICON } from "../bar/live.ts";
 import type { AskFile } from "./attach.ts";
 import type { ChatBody, Turn } from "../ui/turn.ts";
 
-interface Part { key: string; html: string }
-export interface WorkView { heading: TurnHeading | null; thought: string; steps: Part[]; live: string }
+export interface WorkStep { key: string; kind: ToolKind; verb: string; target: string; label: string; state: "run" | "ok" | "bad" | "stop" }
+export interface WorkView { heading: TurnHeading | null; thought: string; steps: WorkStep[]; live: string }
 type Source = WebSource & { site: string };
 interface ReplyActions { copy: boolean; rerun: boolean; agent: string | null }
 interface ApprovalView { app: string; action: string; fields: ApprovalField[]; grant: boolean; answer: (decision: Decision) => void }
@@ -130,8 +132,11 @@ const Approval = memo(function Approval({ value }: { value: ApprovalView }) {
 const Suggestions = memo(function Suggestions({ replies, send }: { replies: string[]; send: (text: string) => void }) {
   return <>{replies.map((reply, i) => <button className="dbtn" key={`${i}:${reply}`} onClick={() => send(reply)}>{reply}</button>)}</>;
 });
+const WorkStepRow = memo(function WorkStepRow({ step }: { step: WorkStep }) {
+  return <div className="dcoderen tool row"><span className="ki" dangerouslySetInnerHTML={{ __html: KIND_ICONS[step.kind] }} /><span className="vb">{step.verb}</span><code className="tt" title={step.label}>{step.target}</code><span className={`rm${step.state === "bad" ? " bad" : ""}`}>{step.state === "bad" ? "failed" : ""}</span><span className="mk">{step.state === "run" ? <span className="dspin" title="Running" /> : step.state === "stop" ? <span className="ddot off" title="Did not finish" /> : <span className={step.state === "ok" ? "dok" : "dbad"} title={step.state === "ok" ? "Done" : "Failed"} dangerouslySetInnerHTML={{ __html: step.state === "ok" ? ICON.check : ICON.x }} />}</span></div>;
+});
 const Work = memo(function Work({ value }: { value: WorkView }) {
-  return <>{value.heading && <AgentTurnHeading value={value.heading} />}{value.thought && <Html html={value.thought} />}{value.steps.map(step => <Html key={step.key} html={step.html} />)}{value.live && <Html html={value.live} />}</>;
+  return <>{value.heading && <AgentTurnHeading value={value.heading} />}{value.thought && <Html html={value.thought} />}{value.steps.map(step => <WorkStepRow key={step.key} step={step} />)}{value.live && <Html html={value.live} />}</>;
 });
 function draw(owner: Owner) {
   flushSync(() => owner.root.render(createElement(Fragment, null,

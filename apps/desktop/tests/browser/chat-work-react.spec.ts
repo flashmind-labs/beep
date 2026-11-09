@@ -221,3 +221,29 @@ test("history removes obsolete turns without disturbing kept turns", async ({ pa
   await expect(page.locator('.turn[data-at="1"]')).toHaveCount(0);
   expect(await kept.evaluate(el => el === Reflect.get(window, "keptConversationTurn"))).toBe(true);
 });
+
+test("streamed tool status updates retain the same row", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command === "send_prompt" && args?.onEvent && typeof args.onEvent === "object" && "onmessage" in args.onEvent) {
+        const channel = args.onEvent;
+        Reflect.set(window, "toolEvent", (event: unknown) => { if (typeof channel.onmessage === "function") channel.onmessage(event); });
+        return new Promise<T>(() => {});
+      }
+      return invoke<T>(command, args);
+    };
+  });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "live-chat" } }));
+  await page.locator("#ask").fill("Search");
+  await page.locator("#ask").press("Enter");
+  await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, "toolEvent"))).toBe("function");
+  await page.evaluate(() => Reflect.get(window, "toolEvent")({ kind: "tool_started", call_id: "call-1", name: "web_search", description: "Search example" }));
+  const row = page.locator(".tools .tool.row");
+  await expect(row.locator(".dspin")).toBeVisible();
+  await row.evaluate(el => Reflect.set(window, "toolRow", el));
+  await page.evaluate(() => Reflect.get(window, "toolEvent")({ kind: "tool_result", call_id: "call-1", name: "web_search", success: true, file: null, images: [], products: null, cards: null, chart: null }));
+  await expect(row.locator(".dok")).toBeVisible();
+  expect(await row.evaluate(el => el === Reflect.get(window, "toolRow"))).toBe(true);
+});

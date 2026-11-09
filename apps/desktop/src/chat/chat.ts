@@ -6,7 +6,7 @@ import { flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
 import { conversation } from "./conversation.ts";
 import { ChatShell } from "./chat-shell.tsx";
-import { createChatBody, createChatTurn, discardChatApproval, discardChatNotice, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatNotice, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkView } from "./work-view.tsx";
+import { createChatBody, createChatTurn, discardChatApproval, discardChatNotice, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatNotice, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkStep, type WorkView } from "./work-view.tsx";
 import { drawAgentButton } from "../agents/agents.ts";
 import { askFiles, attach, attached, attachError, drawAttached, unattach } from "./attach.ts";
 import type { AskFile } from "./attach.ts";
@@ -32,7 +32,7 @@ import { DESCRIBED, doneLabel, QUIET_TOOLS, toolLabel } from "./tools.ts";
 import { attachLive } from "../agents/thoughtlive.ts";
 import { followsAfterScroll, returnScroll } from "../agents/logscroll.ts";
 import { followEnd } from "../ui/followend.ts";
-import { answerHtml, errorCardHtml, liveLineHtml, stepMark, thoughtHtml, tickTurns, toggleThought, toolRowHtml, turnHeadHtml, userRowHtml } from "../agents/turnrows.ts";
+import { answerHtml, errorCardHtml, liveLineHtml, thoughtHtml, tickTurns, toggleThought, turnHeadHtml, userRowHtml } from "../agents/turnrows.ts";
 import { esc, linkified, plural } from "../ui/format.ts";
 import type { ToolKind } from "../agents/agentturns.ts";
 import { refreshStatus } from "../bar/views.ts";
@@ -315,13 +315,11 @@ function stepKind(name: string): ToolKind {
   return name.startsWith("mcp") || (name && name === name.toUpperCase()) ? "mcp" : "other";
 }
 
-const STATUS: Record<Step["state"], string> = { run: "in_progress", ok: "completed", bad: "failed", stop: "pending" };
-
-/// A step as the coding agent's log draws a call: its verb, then what it acts on.
-function stepRow(t: Step) {
-  const label = t.state === "ok" || t.state === "bad" ? doneLabel(t.label) : t.label;
+/// A tool's stable, typed row; React updates its status in place.
+function stepRow(step: Step, index: number): WorkStep {
+  const label = step.state === "ok" || step.state === "bad" ? doneLabel(step.label) : step.label;
   const [, verb = label, target = ""] = /^(\S+)\s+([\s\S]*)$/.exec(label) ?? [];
-  return toolRowHtml({ kind: stepKind(t.name), verb, target, tip: label, detail: t.state === "bad" ? "failed" : "", bad: t.state === "bad", mark: stepMark(STATUS[t.state], t.state === "run") });
+  return { key: step.id || `step:${index}`, kind: stepKind(step.name), verb, target, label, state: step.state };
 }
 
 /// Turns drawn so far, so each thought has its own key.
@@ -372,7 +370,7 @@ export function drawWork(turn: Turn) {
   const html = turnHeadHtml(head);
   const value: WorkView = {
     heading: html ? { kind: "heading", id: turnKey ?? "turn", html, state, start: data.begun ?? null, ms, stats, turn: turnKey, opened } : null,
-    thought, steps: shown.map((step, i) => ({ key: step.id || `step:${i}`, html: stepRow(step) })),
+    thought, steps: shown.map(stepRow),
     live: live ? liveLineHtml({ state: "working", thinking, start: data.begun }) : "",
   };
   const owner = turnBodies.get(turn) ?? body();
