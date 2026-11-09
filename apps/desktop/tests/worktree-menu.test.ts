@@ -2,11 +2,12 @@ import { answers, calls } from "./dom-env.ts";
 import { JSDOM } from "jsdom";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { startWorktrees, drawWorktrees, followAgent, paneRoot } from "../src/agentpane/worktree.ts";
 import type { Tree, Entry } from "../src/agentpane/worktree-state.ts";
 
 const dom = new JSDOM("<body></body>");
+Object.assign(dom.window, { __TAURI__: window.__TAURI__ });
 Object.assign(globalThis, { document: dom.window.document, window: dom.window, Element: dom.window.Element });
+const { startWorktrees, drawWorktrees, followAgent, paneRoot, refreshWorktrees } = await import("../src/agentpane/worktree.ts");
 const main: Tree = {path: "/srv/app", branch: "main", head: "abc1234", own: true};
 const fix: Tree = {path: "/srv/app/.worktrees/fix", branch: "fix-login", head: "abc1234", own: false};
 const tool = (text: string): Entry => ({kind: "tool", text});
@@ -62,6 +63,22 @@ test("search filters by branch and path, keeps following available, and can be c
   input.value = "";
   input.dispatchEvent(new dom.window.Event("input", {bubbles: true}));
   assert.equal(host.querySelectorAll('[role="menuitemradio"]:not([hidden])').length, 2);
+});
+
+test("a worktree refresh keeps the search input mounted and focused", async () => {
+  const host = setup("refresh", [main, fix]);
+  await flush();
+  click(host, ".agwt");
+  const input = host.querySelector<HTMLInputElement>(".agwt-search");
+  assert.ok(input);
+  input.value = "fix";
+  input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  answers.agent_worktrees = [main, fix, { path: "/srv/other", branch: "other", head: "def", own: false }];
+  refreshWorktrees();
+  await flush();
+  assert.equal(host.querySelector(".agwt-search"), input);
+  assert.equal(document.activeElement, input);
+  assert.equal(input.value, "fix");
 });
 
 test("Git list changes reveal candidates, edits confirm usage, and main reads preserve it", async () => {

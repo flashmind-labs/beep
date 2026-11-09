@@ -9,7 +9,10 @@ import { type Entry, type Tree, finishedTools, follow, followSteps, matchesTree,
 import { onPlaces, placeOf } from "../agents/place.ts";
 import { type WorkPlace, placeName } from "../agents/place-state.ts";
 import { baseName } from "./media-state.ts";
-import { esc } from "../ui/format.ts";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { WorktreeMenu } from "./worktree-view.tsx";
 import { invoke } from "../ui/tauri.ts";
 
 /// The session the pane belongs to.
@@ -252,18 +255,7 @@ export function removedBranch() {
   return p && main && removed(p) && W.shown === W.cwd ? treeName(main) : null;
 }
 
-function menuHtml(p: Place) {
-  const main = W.trees.find(t => t.own);
-  const gone = removed(p);
-  const items = W.trees.map(t => {
-    const root = rootOf(t, W.cwd);
-    const sub = t.own ? (gone ? "main checkout" : "the session's folder")
-      : main && t.path.startsWith(`${bare(main.path)}/`) ? t.path.slice(bare(main.path).length + 1) : t.path;
-    const here = W.seen === root ? " · agent here" : "";
-    return `<button${matchesTree(t, W.search) ? "" : " hidden"} role="menuitemradio" aria-checked="${root === W.shown}" data-wt="${esc(root)}" title="${esc(t.path)}"><code>${esc(treeName(t))}</code><small>${esc(sub)}${here}</small></button>`;
-  }).join("");
-  return `<div class="agwtm" role="menu"><button role="menuitemcheckbox" aria-checked="${W.follow}" data-wt="follow"><b>Follow the agent</b></button><hr><input type="search" class="agwt-search" aria-label="Search worktrees" placeholder="Search worktrees" value="${esc(W.search)}">${items}<small class="agwt-empty"${W.trees.some(t => matchesTree(t, W.search)) ? " hidden" : ""}>No matching worktrees</small></div>`;
-}
+const roots = new WeakMap<HTMLElement, Root>();
 
 /// Draws the dropdown into `host`, in the header of a dock: only while the
 /// dock shows Files or Changes (`here`) and there is more than one worktree
@@ -275,36 +267,28 @@ export function drawWorktrees(host: HTMLElement, here: boolean) {
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
   host.hidden = !show;
-  if (!show || !p) return host.replaceChildren();
+  let root = roots.get(host);
+  if (!root) { root = createRoot(host); roots.set(host, root); }
+  if (!show || !p) { flushSync(() => root.render(null)); return; }
   const now = W.trees.find(t => rootOf(t, W.cwd) === W.shown);
   const label = now ? treeName(now) : W.placed && bare(W.placed.folder) === W.shown ? placeName(W.placed) : baseName(W.shown);
-  const searchFocused = host.querySelector(".agwt-search") === document.activeElement;
-  host.innerHTML = `<button class="agpbtn agwt" aria-haspopup="menu" aria-expanded="${W.open}" title="The worktree Files and Changes show"><code>${esc(label)}</code><span aria-hidden="true">&#9662;</span></button>${W.open ? menuHtml(p) : ""}`;
-  if (searchFocused) host.querySelector<HTMLInputElement>(".agwt-search")?.focus();
-  host.oninput = () => {
-    const input = host.querySelector<HTMLInputElement>(".agwt-search");
-    if (!input) return;
-    W.search = input.value;
-    for (const item of host.querySelectorAll<HTMLElement>('[role="menuitemradio"]')) {
-      const tree = W.trees.find(t => rootOf(t, W.cwd) === item.dataset.wt);
-      item.hidden = !tree || !matchesTree(tree, W.search);
-    }
-    const empty = host.querySelector<HTMLElement>(".agwt-empty");
-    if (empty) empty.hidden = W.trees.some(t => matchesTree(t, W.search));
-  };
-  host.onclick = e => {
-    const target = e.target;
-    if (!(target instanceof Element)) return;
-    const item = target.closest<HTMLElement>("[data-wt]");
-    const root = item?.dataset.wt ?? null;
-    if (root !== null) return pickRoot(root === "follow" ? null : root);
-    if (target.closest(".agwt")) {
+  const main = W.trees.find(t => t.own);
+  const items = W.trees.map(t => {
+    const path = rootOf(t, W.cwd);
+    const sub = t.own ? (removed(p) ? "main checkout" : "the session's folder")
+      : main && t.path.startsWith(`${bare(main.path)}/`) ? t.path.slice(bare(main.path).length + 1) : t.path;
+    return { path, title: t.path, name: treeName(t), sub: sub + (W.seen === path ? " · agent here" : ""), visible: matchesTree(t, W.search) };
+  });
+  flushSync(() => root.render(createElement(WorktreeMenu, {
+    label, items, shown: W.shown, follow: W.follow, open: W.open, search: W.search,
+    pick: pickRoot, searchChanged: (value: string) => { W.search = value; W.changed(false); },
+    toggle: () => {
       W.open = !W.open;
       W.search = "";
       W.changed(false);
       if (W.open) host.querySelector<HTMLInputElement>(".agwt-search")?.focus();
-    }
-  };
+    },
+  })));
 }
 
 /// Closes the menu; true when one was open.
