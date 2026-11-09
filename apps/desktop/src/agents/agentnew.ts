@@ -3,7 +3,7 @@ import { startAttachments } from "./start-attachments.ts";
 import { makeStartComposer } from "./start-composer.ts";
 import { AG, AGENT_ORDER, agentKind, byPreference, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
 import { loadSessions, sessions } from "./sessions.ts";
-import { openAgent } from "./session.ts";
+import { openAgent, sessionPicks } from "./session.ts";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, modelsOn, type Picked, pillInner } from "./agentpicker.ts";
 import { type BaseBranches, baseFor, baseRows, type CheckoutPick, DEFAULT_CHECKOUT, folderPill, folderRows, type FormProject, formProjects, harnessFor, keepEffort, knownWorktrees, machineRows, placeMenuAt, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
 import { $, $$, type AgentReturn, bar, PANE, S } from "../bar/core.ts";
@@ -653,6 +653,7 @@ export async function startAgent() {
 
   try {
     const model = f.model?.trim() && f.modelFor ? f.model.trim() : null;
+    const effort = f.effort || null;
     keepMachine(f.project, f.machine);
     // In a project's checkout, an existing worktree is a folder to start
     // in, and the node makes a new branch or worktree before it starts
@@ -670,9 +671,10 @@ export async function startAgent() {
       images,
       chat: f.chat,
       model,
-      effort: f.effort || null,
+      effort,
       checkout,
     });
+    if (model || effort) sessionPicks.set(started.session.id, { model: model ?? "", effort });
     AG.busy = false;
     if (S.view !== "agentnew") return;
     // Back from the session goes where the form came from.

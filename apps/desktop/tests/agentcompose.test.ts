@@ -5,7 +5,7 @@ import { S, connectWindow, windowHooks, type BackTo, type AgentReturn, type Wind
 import { AG, type AgentPage, type AgentRow, agentBack, agentKeys, drawAgents, usageLine } from "../src/agents/agents.ts";
 import { closeSession, visibleRunning } from "../src/agents/closing.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
-import { agentHints, closeOpenSession, pollAgent, stopAgentFollow } from "../src/agents/session.ts";
+import { agentHints, closeOpenSession, pollAgent, sessionPicks, stopAgentFollow } from "../src/agents/session.ts";
 import { interruptAgent, sendAgentMessage } from "../src/agents/messages.ts";
 import { drawModelPill, switchSessionModel } from "../src/agents/modelpill.ts";
 import type { Waiting } from "../src/agents/agentqueue.ts";
@@ -183,6 +183,19 @@ for (const status of ["idle", "working", "ended"]) {
     assert.deepEqual(AG.att, [png]);
   });
 }
+
+test("the model pill does not display the harness default for an unknown session model", () => {
+  const page = openSession("idle");
+  sessionPicks.delete(page.session.id);
+  const pill = { innerHTML: "" };
+  show({ "#agmodel": pill });
+  drawModelPill();
+  assert.match(pill.innerHTML, /Model unknown/);
+  sessionPicks.set(page.session.id, { model: "selected-model", effort: null });
+  drawModelPill();
+  assert.match(pill.innerHTML, /selected-model/);
+  sessionPicks.delete(page.session.id);
+});
 
 test("the model pill keeps the model that runs", async () => {
   const page = openSession("idle");
