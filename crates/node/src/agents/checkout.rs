@@ -17,9 +17,21 @@ use std::{
 use tokio::task::spawn_blocking;
 
 /// The rule for an agent in a git repository's main checkout.
-pub(super) const MAIN_CHECKOUT_RULE: &str = "Beep: this folder is a git repository's main checkout. Before you change any file, create a new branch and a git worktree for it under the repository's .worktrees/ folder, both named for the work, and make every change there. Work that changes nothing stays here. When merging back, use git merge --ff-only by default, preserving all commits without creating a merge commit. Once the branch is merged, remove the worktree, delete its folder with everything left in it (build output and other artifacts) and delete the branch.";
+pub(super) const MAIN_CHECKOUT_RULE: &str = "Beep: this folder is a git repository's main checkout. Before you change any file, \
+    create a new branch and a git worktree for it under the repository's .worktrees/ folder, \
+    both named for the work, and use that single worktree for all changes in this session. \
+    Do not create a new worktree for each change. Work that changes nothing stays here. When \
+    merging back, use git merge --ff-only by default, preserving all commits without \
+    creating a merge commit. Once the branch is merged, remove the worktree, delete its \
+    folder with everything left in it (build output and other artifacts) and delete the \
+    branch. You may then create a new worktree for further changes in this session.";
 /// The rule for an agent in a linked git worktree.
-pub(super) const WORKTREE_RULE: &str = "Beep: this folder is a git worktree. Make every change and commit here, not in the main checkout. When merging back, use git merge --ff-only by default, preserving all commits without creating a merge commit. Once its branch is merged, remove the worktree, delete its folder with everything left in it (build output and other artifacts) and delete the branch.";
+pub(super) const WORKTREE_RULE: &str = "Beep: this folder is a git worktree. Use this single worktree for all changes and \
+    commits in this session. Do not create a new worktree for each change. When merging \
+    back, use git merge --ff-only by default, preserving all commits without creating a \
+    merge commit. Once its branch is merged, remove the worktree, delete its folder with \
+    everything left in it (build output and other artifacts) and delete the branch. You may \
+    then create a new worktree for further changes in this session.";
 
 /// Beep's standing rule for an agent in `dir`, by the git checkout it is
 /// in: the nearest `.git` above it is a folder in a main checkout and a
@@ -90,13 +102,17 @@ impl Made {
         let (branch, folder) = (&self.branch, self.folder.display());
         match self.start {
             Start::NewBranch => format!(
-                "Beep: Beep made the branch {branch} for this session in this checkout. Commit on it here and make no worktree. When merging back, use git merge --ff-only by default, preserving all commits without creating a merge commit. Once it is merged, delete it."
+                "Beep: Beep made the branch {branch} for this session in this checkout. Commit on it here \
+                    and make no worktree. When merging back, use git merge --ff-only by default, preserving \
+                    all commits without creating a merge commit. Once it is merged, delete it."
             ),
             Start::NewWorktree | Start::AddedWorktree => format!(
-                "Beep: Beep made the worktree {folder} on the branch {branch} for this session. Work and commit there."
+                "Beep: Beep made the worktree {folder} on the branch {branch} for this session. \
+                Work and commit there."
             ),
             Start::OwnWorktree => format!(
-                "Beep: this session works on the branch {branch} in its worktree {folder}. Work and commit there."
+                "Beep: this session works on the branch {branch} in its worktree {folder}. \
+                Work and commit there."
             ),
         }
     }

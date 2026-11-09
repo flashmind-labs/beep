@@ -223,6 +223,15 @@ jobs:
           source-dir: ${{ steps.r2.outputs.manifest }}
           destination-dir: beep/macos
 
+      - name: Remove earlier versions from R2
+        if: steps.r2.outputs.files != ''
+        env:
+          ACCOUNT: ${{ steps.r2.outputs.account }}
+          CF_ACCESS_KEY_ID: ${{ secrets.CF_ACCESS_KEY_ID }}
+          CF_SECRET_ACCESS_KEY: ${{ secrets.CF_SECRET_ACCESS_KEY }}
+          CF_BUCKET: ${{ secrets.CF_BUCKET }}
+        run: python3 scripts/r2-prune.py beep/macos "$VERSION"
+
   linux:
     runs-on: host
     env:
@@ -371,3 +380,13 @@ jobs:
             -H "x-amz-content-sha256: $(sha256sum "$file" | cut -d ' ' -f 1)" \
             -H "Cache-Control: no-cache" -H "Content-Type: application/json" \
             -T "$file" "https://$ACCOUNT.r2.cloudflarestorage.com/$CF_BUCKET/beep/$PLATFORM/latest.json" > /dev/null
+
+      - name: Remove earlier versions from R2
+        if: steps.r2.outputs.account != ''
+        env:
+          ACCOUNT: ${{ steps.r2.outputs.account }}
+          PLATFORM: ${{ matrix.platform }}
+          CF_ACCESS_KEY_ID: ${{ secrets.CF_ACCESS_KEY_ID }}
+          CF_SECRET_ACCESS_KEY: ${{ secrets.CF_SECRET_ACCESS_KEY }}
+          CF_BUCKET: ${{ secrets.CF_BUCKET }}
+        run: python3 scripts/r2-prune.py "beep/$PLATFORM" "${GITHUB_REF_NAME#desktop-v}"
