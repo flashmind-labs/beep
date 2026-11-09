@@ -10,6 +10,8 @@ import { pollAgent, stopAgentFollow } from "../src/agents/session.ts";
 import { askUpload, MN } from "../src/agents/workdrop.ts";
 import { drawTasks } from "../src/agents/tasks.ts";
 import { drawAgentAttached } from "../src/agents/images.ts";
+import { createElement } from "react";
+import { showAgentControl } from "../src/agents/composer-ui.tsx";
 
 function setup() {
   globalThis.getSelection = () => null;
@@ -74,6 +76,27 @@ test("session status updates preserve the status element for writable and read-o
   page.session.external = true; drawAgentBody();
   const readonly = status(); assert.ok(readonly); drawAgentBody(undefined, true);
   assert.equal(status(), readonly);
+});
+
+test("unchanged primitive control props skip rendering without hiding later updates", t => {
+  setup();
+  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  const field = bar.querySelector<HTMLElement>("#agfield"); assert.ok(field);
+  const host = document.createElement("span"); field.append(host);
+  let renders = 0;
+  const Probe = ({ value }: { value: string }) => { renders++; return createElement("span", null, value); };
+  showAgentControl(field, host, createElement(Probe, { value: "same" }));
+  showAgentControl(field, host, createElement(Probe, { value: "same" }));
+  assert.equal(renders, 1);
+  showAgentControl(field, host, createElement(Probe, { value: "changed" }));
+  assert.equal(renders, 2);
+  assert.equal(host.textContent, "changed");
+  const data = { value: "before" };
+  const Mutable = ({ item }: { item: { value: string } }) => createElement("span", null, item.value);
+  showAgentControl(field, host, createElement(Mutable, { item: data }));
+  data.value = "after";
+  showAgentControl(field, host, createElement(Mutable, { item: data }));
+  assert.equal(host.textContent, "after");
 });
 
 test("streaming agent replies keep their element across updates", t => {

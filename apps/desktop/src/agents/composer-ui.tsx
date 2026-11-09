@@ -1,4 +1,4 @@
-import { createElement, Fragment, useLayoutEffect, useRef, type ReactElement } from "react";
+import { createElement, Fragment, isValidElement, useLayoutEffect, useRef, type ReactElement } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { AgentQueue } from "./queue-view.tsx";
@@ -65,7 +65,18 @@ export function showAgentMenu(field: HTMLElement, rows: Row[], index: number, pi
 
 export function showAgentControl(field: HTMLElement, host: HTMLElement, node: ReactElement | null) {
   const owner = ownerOf(field), prior = owner.controls.get(host);
+  if (prior && sameControl(prior.node, node)) return;
   if (!prior) host.replaceChildren();
   owner.controls.set(host, { key: prior?.key ?? ++owner.next, node });
   draw(owner);
+}
+
+function sameControl(a: ReactElement | null, b: ReactElement | null) {
+  if (a === b) return true;
+  if (!isValidElement<Record<string, unknown>>(a) || !isValidElement<Record<string, unknown>>(b) || a.type !== b.type || a.key !== b.key) return false;
+  const keys = Object.keys(a.props);
+  return keys.length === Object.keys(b.props).length && keys.every(key => {
+    const value = a.props[key];
+    return Object.hasOwn(b.props, key) && (value === null || !["object", "function"].includes(typeof value)) && Object.is(value, b.props[key]);
+  });
 }
