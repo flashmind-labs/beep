@@ -118,3 +118,9 @@ function Runtime({ hv, p }: { hv: HarnessView; p: ProviderProps }) {
 function TextInput({ value, label, placeholder, change, type = "text" }: { value: string; label: string; placeholder: string; change: (value: string) => void; type?: "text" | "password" }) {
   return <input type={type} className="hv-in" value={value} placeholder={placeholder} spellCheck={false} autoComplete="off" aria-label={label} onChange={e => change(e.currentTarget.value)} />;
 }
+
+export function ProviderHeader(p: Pick<ProviderProps, "machines" | "machine" | "loading" | "checked" | "updateCount" | "canUpdate" | "pickMachine" | "refresh" | "updateAll">) {
+  const machines = p.machines ?? [];
+  const crowded = machines.length > 4 || machines.reduce((sum, machine) => sum + machine.name.length, 0) > 48;
+  return <><span className={`hv-pick${crowded ? " crowded" : ""}`}><span className="hv-seg" role="group" aria-label="Machine">{machines.map(machine => <button type="button" key={machine.id} title={machine.online ? machine.name : `${machine.name} (offline)`} aria-pressed={machine.id === p.machine} disabled={!machine.online} onClick={() => p.pickMachine(machine.id)}>{machine.name}</button>)}</span><select className="hv-sel" value={p.machine ?? ""} aria-label="Machine" onChange={event => p.pickMachine(event.currentTarget.value)}>{machines.map(machine => <option key={machine.id} value={machine.id} disabled={!machine.online}>{machine.online ? machine.name : `${machine.name} (offline)`}</option>)}</select></span><button type="button" className="dbtn" disabled={!!p.updateCount || !p.canUpdate} title={!p.canUpdate && !p.updateCount ? "Everything is up to date" : undefined} onClick={p.updateAll}>{p.updateCount ? `Updating ${p.updateCount}…` : "Update all"}</button><button type="button" className="dbtn quiet" disabled={p.loading || !p.machine} title="Check the versions again" onClick={p.refresh}>{p.loading ? "Checking…" : p.checked}</button></>;
+}

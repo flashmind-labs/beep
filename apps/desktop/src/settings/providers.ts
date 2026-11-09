@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { ProvidersView } from "./providers-view.tsx";
+import { ProviderHeader, ProvidersView } from "./providers-view.tsx";
 // The Coding agents page: per machine, each harness (Claude Code, Codex, pi,
 // ...) with its version, sign-in and an on/off switch, and the picked one's
 // runtime settings.
@@ -390,53 +390,22 @@ export function registerProviders(deps: ProvidersDeps) {
     })));
   }
 
-  /// The machines as a segmented control whose names never wrap, and the
-  /// same as a select, which shows instead when the names do not fit: many
-  /// machines or long names here, a narrow toolbar in the CSS.
-  function machinePicker() {
-    const all = st.machines ?? [];
-    const seg = h("span", "hv-seg", ...all.map(m => {
-      const b = h("button", "", m.name);
-      b.type = "button";
-      b.title = m.online ? m.name : `${m.name} (offline)`;
-      b.setAttribute("aria-pressed", String(m.id === st.machine));
-      b.disabled = !m.online;
-      b.addEventListener("click", () => pickMachine(m.id));
-      return b;
-    }));
-    seg.setAttribute("role", "group");
-    seg.setAttribute("aria-label", "Machine");
-    const sel = h("select", "hv-sel", ...all.map(m => {
-      const o = h("option", "", m.online ? m.name : `${m.name} (offline)`);
-      o.value = m.id;
-      o.disabled = !m.online;
-      return o;
-    }));
-    sel.value = st.machine ?? "";
-    sel.setAttribute("aria-label", inSettings ? "Machine runtime settings" : "Machine");
-    sel.addEventListener("change", () => pickMachine(sel.value));
-    const letters = all.reduce((n, m) => n + m.name.length, 0);
-    return h("span", `hv-pick${all.length > 4 || letters > 48 ? " crowded" : ""}`, seg, sel);
-  }
-
-  /// The header buttons; in Settings (`bar`) a spacer puts the check and
-  /// Update all at the toolbar's end.
-  function tools(bar = false): Node[] {
-    const v = view();
-    const behind = updatable(v || null);
-    const running = [...st.updating].filter(k => k.startsWith(`${st.machine} `)).length;
-    const all = button(running ? `Updating ${running}…` : "Update all", "", () => update(behind));
-    all.disabled = !!running || !behind.length;
-    if (!behind.length && !running) all.title = "Everything is up to date";
-    const check = button(isLoading() ? "Checking…" : checkedLabel(v ? v.checked_at : null, Date.now()), "quiet", () => load(true));
-    check.disabled = isLoading() || !st.machine;
-    check.title = "Check the versions again";
-    return bar ? [machinePicker(), h("span", "sp"), check, all] : [machinePicker(), all, check];
-  }
-
   registerView("providers", {
     // In Settings (`arg.settings`) its buttons sit in the page's own toolbar.
-    title: () => ({ title: "Coding agents", sub: "What each machine can run", tools: inSettings ? [] : tools() }),
+    title: () => {
+      const current = view();
+      return {
+        title: "Coding agents", sub: "What each machine can run",
+        reactTools: inSettings ? null : createElement(ProviderHeader, {
+          machines: st.machines, machine: st.machine, loading: isLoading(),
+          checked: checkedLabel(current ? current.checked_at : null, Date.now()),
+          updateCount: [...st.updating].filter(key => key.startsWith(`${st.machine} `)).length,
+          canUpdate: !!updatable(current || null).length,
+          pickMachine, refresh: () => { void load(true); },
+          updateAll: () => { void update(updatable(view() || null)); },
+        }),
+      };
+    },
     // Settings opens it at one agent (`arg.agent`), which its left pane picks.
     mount(host, arg) {
       root?.unmount();
