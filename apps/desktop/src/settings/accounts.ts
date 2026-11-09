@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { AgentAccountsView, type AgentAccountActions } from "./agentaccounts-view.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 import type * as AgentAccountsModule from "./agentaccounts.ts";
 import type { AgentAccounts, AgentAccountsState, CodexFlow, CodexLogin } from "./agentaccounts.ts";
@@ -236,13 +240,12 @@ const ACC: AgentAccountsState & {
 const agModule = () => import("./agentaccounts.ts").then(m => (ACC.mod = m));
 
 export function setAgentsHtml() {
-  if (ACC.data === undefined || !ACC.mod) return setSkeleton(2);
-  return ACC.mod.agentAccountsHtml(ACC, esc, when);
+  return "";
 }
 
 /// Redraws Agent accounts, unless a token is being typed there.
 function redrawAgents() {
-  if (setShown() && !typed("#agSecret")) fillSection("agents", setAgentsHtml());
+  if (setShown()) renderAgents();
 }
 
 export async function loadAgentAccounts() {
@@ -289,11 +292,12 @@ function pollCodex() {
     for (const [id, f] of waiting) {
       try {
         const st = await invoke<CodexState>("codex_login_state", { machineId: id, task: f.task });
-        if (st.state === "waiting") continue;
+        if (ACC.codex[id] !== f || st.state === "waiting") continue;
         done = true;
         if (st.state === "failed") ACC.codex[id] = { error: st.message || "Codex could not sign in." };
         else delete ACC.codex[id];
       } catch (e) {
+        if (ACC.codex[id] !== f) continue;
         ACC.codex[id] = { error: String(e) };
         done = true;
       }
@@ -306,115 +310,95 @@ function pollCodex() {
   void check();
 }
 
-/// Binds the Agent accounts controls inside `el`.
-export function bindAgents(el: Element) {
-  const $in = finder(el);
-  const each = eachIn(el);
-  const draw = () => fillSection("agents", setAgentsHtml());
-  each("data-ag-edit", b => b.addEventListener("click", () => {
-    ACC.edit = b.dataset.agEdit;
-    ACC.error = "";
-    draw();
-    setRoot().querySelector<HTMLElement>("#agSecret")?.focus();
-  }));
-  $in("#agCancel")?.addEventListener("click", () => { ACC.edit = null; ACC.error = ""; draw(); });
-  const save = async () => {
-    if (ACC.busy || !ACC.mod) return;
-    const d = ACC.mod.tokenDraft(ACC.edit, $in<HTMLInputElement>("#agSecret")?.value);
-
-    // A draft names its agent unless it is an error.
-    if (!d.agent) {
-      ACC.error = d.error;
-      const err = $in("#agErr");
-      if (err) err.textContent = d.error;
-      return;
+let agentsRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+let agentEditVersion = 0;
+export function preserveAgents() {
+  const host = agentsRoot?.host;
+  if (!host?.isConnected) return () => {};
+  const active = host.contains(document.activeElement) ? document.activeElement : null;
+  const input = active instanceof HTMLInputElement ? active : null;
+  const start = input?.selectionStart ?? null, end = input?.selectionEnd ?? null;
+  host.remove();
+  return (container?: Element) => {
+    const replacement = container?.querySelector("#set-agents");
+    if (!replacement) { disposeAgents(); return; }
+    replacement.replaceWith(host);
+    if (active instanceof HTMLElement) {
+      active.focus({ preventScroll: true });
+      if (input && start !== null && end !== null) input.setSelectionRange(start, end);
     }
-
-    ACC.busy = d.agent;
-    ACC.error = "";
-
-    try {
-      await invoke("save_agent_token", { agentSlug: d.agent, secret: d.secret });
-      ACC.edit = null;
-    } catch (e) {
-      ACC.error = String(e);
-    }
-
-    ACC.busy = "";
-    // The typed token is gone from the page either way.
-    const input = setRoot().querySelector<HTMLInputElement>("#agSecret");
-    if (input) input.value = "";
-    await loadAgentAccounts();
   };
-  $in("#agSave")?.addEventListener("click", save);
-  $in("#agSecret")?.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save(); } });
-  each("data-ag-revoke", b => b.addEventListener("click", async () => {
-    const agent = b.dataset.agRevoke;
-    ACC.busy = `revoke:${agent}`;
-    b.disabled = true;
-
-    try {
-      await invoke("revoke_agent_token", { agentSlug: agent });
-    } catch (e) {
-      if (agent === "claude") ACC.claudeError = String(e);
-      else ACC.error = String(e);
-    }
-
+}
+export function disposeAgents() {
+  const current = agentsRoot;
+  agentsRoot = null;
+  if (!current) return;
+  agentEditVersion++;
+  current.observer.disconnect();
+  current.root.unmount();
+}
+function renderAgents() {
+  if (!agentsRoot?.host.isConnected) return;
+  const root = agentsRoot.root;
+  flushSync(() => root.render(createElement(AgentAccountsView, { state: ACC, ago: when, now: Date.now(), actions: agentActions })));
+}
+export function bindAgents(el: Element) {
+  const host = el.matches("#set-agents") ? el : el.querySelector("#set-agents");
+  if (!(host instanceof HTMLElement)) return;
+  if (agentsRoot?.host === host) { renderAgents(); return; }
+  disposeAgents();
+  const root = createRoot(host);
+  const observer = new MutationObserver(() => { if (agentsRoot?.host === host && !host.isConnected) disposeAgents(); });
+  observer.observe(document.body, { childList: true, subtree: true });
+  agentsRoot = { host, root, observer };
+  renderAgents();
+}
+const agentActions: AgentAccountActions = {
+  edit(agent) { agentEditVersion++; ACC.edit = agent; ACC.error = ""; renderAgents(); },
+  cancel() { agentEditVersion++; ACC.edit = null; ACC.error = ""; renderAgents(); },
+  async save(secret) {
+    if (ACC.busy || !ACC.mod) return;
+    const draft = ACC.mod.tokenDraft(ACC.edit, secret);
+    if (!draft.agent) { ACC.error = draft.error; renderAgents(); return; }
+    const version = agentEditVersion;
+    ACC.busy = draft.agent; ACC.error = ""; renderAgents();
+    try { await invoke("save_agent_token", { agentSlug: draft.agent, secret: draft.secret }); if (version === agentEditVersion) ACC.edit = null; }
+    catch (error) { if (version === agentEditVersion) ACC.error = String(error); }
     ACC.busy = "";
+    const input = agentsRoot?.host.querySelector<HTMLInputElement>("#agSecret");
+    if (input && version === agentEditVersion) input.value = "";
     await loadAgentAccounts();
-  }));
-  // Runs `claude setup-token` here; the token goes to the server, never the page.
-  each("data-ag-claude-sign", b => b.addEventListener("click", async () => {
+  },
+  async revoke(agent) {
+    ACC.busy = `revoke:${agent}`; renderAgents();
+    try { await invoke("revoke_agent_token", { agentSlug: agent }); }
+    catch (error) { if (agent === "claude") ACC.claudeError = String(error); else ACC.error = String(error); }
+    ACC.busy = ""; await loadAgentAccounts();
+  },
+  async claudeSign() {
     if (ACC.claudeFlow) return;
-    ACC.claudeFlow = true;
-    ACC.claudeError = "";
-    ACC.edit = null;
-    draw();
-
-    try {
-      await invoke("claude_sign_in");
-    } catch (e) {
-      ACC.claudeError = String(e);
-    }
-
-    ACC.claudeFlow = false;
-    await loadAgentAccounts();
-  }));
-  each("data-ag-claude-cancel", b => b.addEventListener("click", () => {
-    b.disabled = true;
-    invoke("cancel_claude_sign_in").catch(console.warn);
-  }));
-  // Starts Codex's device sign-in on that machine, copies the code and opens the page.
-  each("data-ag-codex-sign", b => b.addEventListener("click", async () => {
-    const id = b.dataset.agCodexSign!;
+    agentEditVersion++; ACC.claudeFlow = true; ACC.claudeError = ""; ACC.edit = null; renderAgents();
+    try { await invoke("claude_sign_in"); } catch (error) { ACC.claudeError = String(error); }
+    ACC.claudeFlow = false; await loadAgentAccounts();
+  },
+  claudeCancel() { invoke("cancel_claude_sign_in").catch(console.warn); },
+  async codexSign(id) {
     if (ACC.codex[id]?.starting || ACC.codex[id]?.task !== undefined) return;
-    ACC.codex[id] = { starting: true };
-    redrawAgents();
-
+    ACC.codex[id] = { starting: true }; redrawAgents();
     try {
       const flow = await invoke<CodexLogin>("codex_login_start", { machineId: id });
-      ACC.codex[id] = { ...flow, copied: false };
-      redrawAgents();
-      pollCodex();
+      ACC.codex[id] = { ...flow, copied: false }; redrawAgents(); pollCodex();
       await copy(flow.code);
       const now = ACC.codex[id];
-      if (now?.code === flow.code) now.copied = true;
-      invoke("open_url", { url: flow.url }).catch(console.warn);
-    } catch (e) {
-      ACC.codex[id] = { error: String(e) };
-    }
-
+      if (now?.task === flow.task) { now.copied = true; invoke("open_url", { url: flow.url }).catch(console.warn); }
+    } catch (error) { ACC.codex[id] = { error: String(error) }; }
     redrawAgents();
-  }));
-  each("data-ag-codex-cancel", b => b.addEventListener("click", async () => {
-    const id = b.dataset.agCodexCancel!;
-    const f = ACC.codex[id];
-    b.disabled = true;
-    if (f?.task !== undefined) await invoke("codex_login_cancel", { machineId: id, task: f.task }).catch(console.warn);
-    delete ACC.codex[id];
-    redrawAgents();
-  }));
-  each("data-ag-copy", b => b.addEventListener("click", () => copy(b.dataset.agCopy!, b)));
-  each("data-ag-open", b => b.addEventListener("click", () =>
-    invoke("open_url", { url: b.dataset.agOpen }).catch(console.warn)));
-}
+  },
+  async codexCancel(id) {
+    const flow = ACC.codex[id];
+    if (flow?.task !== undefined) await invoke("codex_login_cancel", { machineId: id, task: flow.task }).catch(console.warn);
+    delete ACC.codex[id]; redrawAgents();
+  },
+  copy(code, button) { void copy(code, button); },
+  open(url) { invoke("open_url", { url }).catch(console.warn); },
+};

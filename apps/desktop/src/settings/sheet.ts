@@ -44,9 +44,11 @@ export function openSettings(section?: string) {
     if (e.key === "Escape") { e.preventDefault(); if (!pane.settingsBack()) closeSettings(); }
     else if (commandKey(e) && e.key === ",") e.preventDefault();
     else if (e.key === "Tab") trapTab(e, sheet);
+    else if (e.target instanceof Node && sheet.contains(e.target)) return;
 
     e.stopImmediatePropagation();
   };
+  sheet.addEventListener("keydown", e => e.stopPropagation());
   window.addEventListener("keydown", keys, true);
   document.body.append(scrim);
   settingsOpen = { scrim, keys, back };
@@ -111,7 +113,7 @@ export function closeSettings() {
 
 /// Keeps Tab inside the sheet.
 function trapTab(e: KeyboardEvent, sheet: HTMLElement) {
-  const all = [...sheet.querySelectorAll<HTMLElement>("button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")];
+  const all = [...sheet.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")];
   if (!all.length) return;
   const first = all[0], last = all[all.length - 1];
   // Focus lost to the page (a redraw removed it): bring it back in.
