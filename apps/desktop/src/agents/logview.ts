@@ -20,7 +20,6 @@ import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agen
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { promptParts } from "./promptparts-state.ts";
 import { childRow } from "./nesting-state.ts";
-import { childReplyHtml } from "./childreply-state.ts";
 import { parentSession, sessions } from "./sessions.ts";
 import { fillAgentPics } from "./images.ts";
 import { prepareInlineImages } from "./inline-images.ts";
@@ -270,11 +269,11 @@ function userRows(en: AgentEntry, at: number): (string | PromptRow | ContextRow)
     : p.kind === "session"
       ? [{ kind: "context", id: `${at}:${index}`, type: "session", name: p.name, html: linkified(p.text) }]
       : p.kind === "child"
-        ? [(() => {
+        ? [((): ContextRow => {
           const row = childRow(sessions, p.id);
           const meta = [row?.machine_name ?? p.id.split("@").slice(1).join("@"), row ? agentKind(row.agent).name : ""].filter(Boolean).join(" · ");
           const body = en.child_html?.[child++];
-          return childReplyHtml(p, body != null ? answerHtml(body) : `<p>${linkified(p.text).replace(/\n/g, "<br>")}</p>`, row ? agentAvatar(row.agent) : SUB_ICON, meta);
+          return { kind: "context", id: `${at}:${index}`, type: "child", part: p, body: body != null ? answerHtml(body) : `<p>${linkified(p.text).replace(/\n/g, "<br>")}</p>`, icon: row ? agentAvatar(row.agent) : SUB_ICON, agent: row?.agent ?? null, meta };
         })()]
         : []);
   const own = parts.filter(p => p.kind === "user").map(p => p.text).join("\n");
@@ -652,7 +651,7 @@ function showLog(b: HTMLElement, html: string, units: Unit[] | null, polled: boo
     if (sel.focusNode) held.push(sel.focusNode);
   }
 
-  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row.kind === "prompt" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row) })) ?? null;
+  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row.kind === "prompt" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row.kind === "context" && row.type === "child" ? { ...row, body: prepareInlineImages(row.body) } : row) })) ?? null;
   return patchRows(main, next.content, prepared, held);
 }
 
