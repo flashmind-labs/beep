@@ -1,11 +1,13 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { GroupMessages } from "./group-view.tsx";
 import type { ApprovalField } from "./chat.ts";
 import { grow } from "./chat.ts";
 import { renderChats } from "./chats.ts";
 import { copy } from "../ui/parts.ts";
 import { $, $$, bar, changed, G, GROUP_VIEWS, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
-import { appTile, fillAppTiles } from "./applogo.ts";
-import { fillPics, picRow } from "./media.ts";
 import { dayDiff } from "../lists/memories.ts";
 import { switchHtml, esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
@@ -177,7 +179,13 @@ function setGroup(id: string) {
 }
 
 /// Opens a group in the bar. `then` opens its info, or info with Leave asked.
+let messageRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+const pendingKeys = new WeakMap<object, number>();
+let nextPending = 0, groupRevision = 0;
+function disposeMessages() { const current = messageRoot; messageRoot = null; if (current) { current.observer.disconnect(); current.root.unmount(); } }
+
 export async function renderGroup(id: string, then?: "info" | "leave") {
+  disposeMessages();
   // The view may stay "group", so a new group is a change of its own.
   if (setGroup(id)) changed();
   G.mention = null;
@@ -187,6 +195,10 @@ export async function renderGroup(id: string, then?: "info" | "leave") {
   bar.innerHTML = `${groupHead()}<div class="dbody pt dgroupbody" id="gbody"></div><div id="mention"></div>
     <div class="dinput small"><textarea id="gask" rows="1" placeholder="Message ${esc(name)}, @beep to ask Beep" autocomplete="off" spellcheck="true"></textarea></div>${groupHints()}`;
   wireHead();
+  const messageHost = $$("#gbody"), root = createRoot(messageHost);
+  const observer = new MutationObserver(() => { if (messageRoot?.host === messageHost && !messageHost.isConnected) disposeMessages(); });
+  observer.observe(document.body, { childList: true, subtree: true });
+  messageRoot = { host: messageHost, root, observer };
   const ask = $$<HTMLTextAreaElement>("#gask");
   ask.value = G.drafts.get(id) ?? "";
   grow(ask);
@@ -234,58 +246,24 @@ export async function loadGroup() {
 }
 
 export function drawGroup(jump = false) {
-  const b = $("#gbody");
-
-  if (!b || !G.chat) {
-    if (b && G.error) b.innerHTML = `<div class="derr">${esc(G.error)}</div>`;
-    return;
-  }
-
+  const current = messageRoot, b = $("#gbody");
+  if (!current || b !== current.host || !current.host.isConnected) return;
   const near = jump || b.scrollHeight - b.scrollTop - b.clientHeight < 40;
-  const msgs = G.chat.messages;
-  let html = "", day = "";
-
-  for (const m of msgs) {
-    const d = dayLabel(m.timestamp);
-    if (d !== day) { html += `<div class="dday">${esc(d)}</div>`; day = d; }
-    html += groupMessage(m);
-  }
-
-  for (const p of G.pending) html += `<div class="dg me pending"><div class="b">${mentions(p.text)}</div></div>`;
-  if (!msgs.length && !G.pending.length) html += '<div class="dmuted dblock dnomsg">No messages yet.\nSay hi. Beep joins in when it can help.</div>';
-  if (G.chat.group.beep_typing) html += '<div class="dmuted"><span class="dtyping"><i></i><i></i><i></i></span>Beep is typing</div>';
-  if (G.error) html += `<div class="derr">${esc(G.error)}</div>`;
-  b.innerHTML = html;
-  fillPics(b);
-  for (const a of G.approvals.get(G.id!)?.values() ?? []) b.append(groupApproval(a));
+  const pending = G.pending.map(item => {
+    let key = pendingKeys.get(item);
+    if (key === undefined) { key = ++nextPending; pendingKeys.set(item, key); }
+    return { key, text: item.text };
+  });
+  const approvals = G.id ? [...(G.approvals.get(G.id)?.values() ?? [])] : [];
+  flushSync(() => current.root.render(createElement(GroupMessages, {
+    chat: G.chat, error: G.error, revision: ++groupRevision, pending, approvals,
+    day: dayLabel, author: (m: GroupMessage) => authorName(m.author), color: avColor, mentions,
+    answer: (approval: GroupApproval, allow: boolean) => {
+      G.approvals.get(approval.group_id)?.delete(approval.query_id);
+      void invoke("answer_group_approval", { queryId: approval.query_id, allow }).catch(error => { G.error = String(error); drawGroup(); });
+    },
+  })));
   if (near) b.scrollTop = b.scrollHeight;
-}
-
-function groupMessage(m: GroupMessage) {
-  const a = m.author;
-  const pics = picRow(m.images);
-  // A message of pictures alone shows no empty bubble.
-  const bubble = (content: string) => m.text || !pics ? `<div class="b">${content}</div>` : "";
-  if (a.kind === "member" && a.you) return `<div class="dg me">${bubble(mentions(m.text))}${pics}</div>`;
-  const who = authorName(a);
-  const content = a.kind === "beep" ? m.html : mentions(m.text);
-  return `<div class="dg${a.kind === "beep" ? " beep" : ""}"><span class="who" style="color:${avColor(who)}">${esc(who)}</span>${bubble(content)}${pics}</div>`;
-}
-
-/// Beep asks the member whose apps it would use. The card waits on the group.
-function groupApproval(a: GroupApproval) {
-  const card = h(`<div class="dcard">
-    <div class="head">${appTile(a.app)}<div class="dcol"><b>${esc(a.action)}?</b><small>${esc(a.app)} asks you first</small></div></div>
-    ${a.fields.length ? `<div class="kv">${a.fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
-    <div class="acts"><button class="dbtn pri" data-allow="1">Allow</button><button class="dbtn warn" data-allow="">Deny</button></div></div>`);
-  fillAppTiles(card);
-  card.querySelectorAll<HTMLElement>("[data-allow]").forEach(btn => btn.addEventListener("click", async () => {
-    const allow = !!btn.dataset.allow;
-    G.approvals.get(a.group_id)?.delete(a.query_id);
-    card.replaceWith(h(`<div class="dmuted">${allow ? "Allowed" : "Denied"}</div>`));
-    try { await invoke("answer_group_approval", { queryId: a.query_id, allow }); } catch (e) { G.error = String(e); drawGroup(); }
-  }));
-  return card;
 }
 
 export async function sendGroup() {
