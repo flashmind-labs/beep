@@ -1,3 +1,4 @@
+import { BackgroundView, type BackgroundQuestions } from "./background-view.tsx";
 import { createElement, Fragment, memo, useEffect, useRef, useState, type ReactElement } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
@@ -30,7 +31,7 @@ interface ReplyActions { copy: boolean; rerun: boolean; agent: string | null }
 interface ApprovalView { app: string; action: string; fields: ApprovalField[]; grant: boolean; answer: (decision: Decision) => void }
 type StatusNotice = { kind: "label"; message: string } | { kind: "error"; message: string } | { kind: "stopped"; message: string; retry: boolean };
 interface TurnFrame { prompt: boolean; pictures: boolean }
-interface Owner { disposed: boolean; menus: Map<HTMLElement, { key: number; value: RerunView }>; coders: Map<HTMLElement, { key: number; view: ReactElement }>; routes: Map<HTMLElement, { key: number; callId: string }>; frames: Map<HTMLElement, { key: number; value: TurnFrame; setTurn(element: HTMLDivElement | null): void }>; host: HTMLElement | null; body: ChatBody | null; setBody(element: HTMLDivElement | null): void; charts: Map<ChartCard, { key: number; chart: Chart }>; notices: Map<HTMLElement, { key: number; value: StatusNotice }>; products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: DocumentView; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
+interface Owner { background: Map<HTMLElement, { key: number; value: BackgroundQuestions; signature: string }>; disposed: boolean; menus: Map<HTMLElement, { key: number; value: RerunView }>; coders: Map<HTMLElement, { key: number; view: ReactElement }>; routes: Map<HTMLElement, { key: number; callId: string }>; frames: Map<HTMLElement, { key: number; value: TurnFrame; setTurn(element: HTMLDivElement | null): void }>; host: HTMLElement | null; body: ChatBody | null; setBody(element: HTMLDivElement | null): void; charts: Map<ChartCard, { key: number; chart: Chart }>; notices: Map<HTMLElement, { key: number; value: StatusNotice }>; products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: DocumentView; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
 // A retained chat body owns all its portals, including detached turns while
 // history is merged. Transfer moved hosts before discarding the fresh turn.
 const owners = new WeakMap<ChatBody, Owner>();
@@ -165,6 +166,7 @@ function draw(owner: Owner) {
   flushSync(() => owner.root.render(createElement(Fragment, null,
     owner.host ? createElement("div", { key: "body", className: "dbody", id: "body", ref: owner.setBody }) : null,
     ...[...owner.frames].map(([host, row]) => createPortal(createElement("div", { className: "turn dcoderlog", ref: row.setTurn }, row.value.prompt ? createElement("div", { className: "dcoderen user", key: "prompt" }) : null, row.value.pictures ? createElement("div", { className: "dpics", key: "pictures" }) : null, createElement("template", { key: "anchor", "data-chat-anchor": "" })), host, row.key)),
+    ...[...owner.background].map(([host, row]) => createPortal(createElement(BackgroundView, { value: row.value }), host, row.key)),
     ...[...owner.menus].map(([host, row]) => createPortal(createElement(RerunMenu, { value: row.value }), host, row.key)),
     ...[...owner.coders].map(([host, row]) => createPortal(row.view, host, row.key)),
     ...[...owner.routes].map(([host, row]) => createPortal(createElement(RouteView, { callId: row.callId }), host, row.key)),
@@ -185,7 +187,7 @@ function draw(owner: Owner) {
 }
 function makeOwner(host: HTMLElement | null): Owner {
   const container = host ?? document.createElement("div");
-  const owner: Owner = { disposed: false, menus: new Map(), coders: new Map(), routes: new Map(), frames: new Map(), host, body: null, setBody: element => { owner.body = element; }, charts: new Map(), notices: new Map(), products: new Map(), replyPictures: new Map(), sentFiles: new Map(), pictures: new Map(), files: new Map(), root: createDocumentView(container), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 };
+  const owner: Owner = { background: new Map(), disposed: false, menus: new Map(), coders: new Map(), routes: new Map(), frames: new Map(), host, body: null, setBody: element => { owner.body = element; }, charts: new Map(), notices: new Map(), products: new Map(), replyPictures: new Map(), sentFiles: new Map(), pictures: new Map(), files: new Map(), root: createDocumentView(container), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 };
   return owner;
 }
 function ownerOf(body: ChatBody) {
@@ -211,9 +213,20 @@ export function disposeChatBody(body: ChatBody) {
     if (waiting) { document.removeEventListener("selectionchange", waiting.resume); pending.delete(box); }
   }
   owner.root.unmount();
-  owner.frames.clear(); owner.menus.clear(); owner.coders.clear(); owner.routes.clear(); owner.charts.clear(); owner.notices.clear();
+  owner.background.clear(); owner.frames.clear(); owner.menus.clear(); owner.coders.clear(); owner.routes.clear(); owner.charts.clear(); owner.notices.clear();
   owner.products.clear(); owner.replyPictures.clear(); owner.sentFiles.clear(); owner.pictures.clear(); owner.files.clear();
   owner.sources.clear(); owner.actions.clear(); owner.approvals.clear(); owner.prompts.clear(); owner.suggestions.clear(); owner.rows.clear(); owner.replies.clear();
+}
+export function renderChatBackground(body: ChatBody, box: HTMLElement, value: BackgroundQuestions) {
+  const owner = ownerOf(body), prior = owner.background.get(box), signature = JSON.stringify(value);
+  if (prior?.signature === signature) return false;
+  owner.background.set(box, { key: prior?.key ?? ++owner.next, value, signature });
+  draw(owner);
+  return true;
+}
+export function discardChatBackground(body: ChatBody, box: HTMLElement) {
+  const owner = owners.get(body);
+  if (owner?.background.delete(box)) draw(owner);
 }
 export function createChatBody(): ChatBody {
   const host = document.createElement("div");

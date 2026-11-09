@@ -3,10 +3,7 @@ import { here, S } from "./core.ts";
 import { refreshHints } from "./hints.ts";
 import { notice } from "../chat/media.ts";
 import { AnsweredIds } from "../chat/approvals.ts";
-import { appTile, fillAppTiles } from "../chat/applogo.ts";
-import { esc } from "../ui/format.ts";
-import { h } from "../ui/dom.ts";
-import { ICON } from "../ui/icons.ts";
+import { discardChatBackground, renderChatBackground } from "../chat/work-view.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
 
 /// Questions answered in this window. A list fetched before the answer
@@ -42,30 +39,32 @@ export const waitingQuestion = (id: string | null) => WORK.get(id)?.questions.fi
 /// Redraws the open chat's questions and the hints, when `id` is open.
 const redrawIfOpen = (id: string | null) => { if (id === S.session && S.view === "chat") { drawWorkQuestions(); refreshHints(); } };
 
-const SAID = { allow: "Allowed once. The work goes on.", session: "Allowed for the rest of this chat. The work goes on.", always: "Allowed, and always allowed from now on. The work goes on.", deny: "Denied. The work goes on without it.", grant: "Allowed for this routine. The work goes on." };
-const BUTTONS = [["allow", "Allow", "pri", `⌘${ICON.ret}`], ["session", "Allow for this session", "", `⇧⌘${ICON.ret}`], ["always", "Always", "", `⌥⌘${ICON.ret}`], ["deny", "Deny", "warn", "⌘D"]];
+const backgrounds = new WeakMap<HTMLElement, HTMLElement>();
 
-/// The open chat's questions from background work, at the end of its body.
+/// Keeps a chat's background questions mounted as their state changes.
 export function drawWorkQuestions() {
   const b = body();
   if (S.view !== "chat" || !b) return;
-  b.querySelector(".dworkq")?.remove();
-  const qs = WORK.get(S.session)?.questions ?? [];
-  if (!qs.length) return;
-  const first = waitingQuestion(S.session);
-  const card = (q: HeldQuestion) => q.withdrawn || q.answer
-    ? `<div class="dmuted">${esc(q.withdrawn ? `${q.action} with ${q.app}: no longer waiting` : SAID[forRoutine(q.action) && q.answer === "allow" ? "grant" : q.answer!])}</div>`
-    : `<div class="dcard" data-q="${esc(q.query_id)}">
-    <div class="head">${appTile(q.app)}<div class="dcol"><b>${esc(q.action)}?</b><small>Background work asks first</small></div></div>
-    ${q.fields.length ? `<div class="kv">${q.fields.map(f => `<span>${esc(f.label)}</span><span>${esc(f.value)}</span>`).join("")}</div>` : ""}
-    <div class="acts">${BUTTONS.filter(([d]) => (d !== "always" && d !== "session") || !forRoutine(q.action)).map(([d, t, cls, k]) =>
-      `<button class="dbtn ${cls}" data-d="${d}">${t}${q === first && !here()?.approval ? `<kbd>${k}</kbd>` : ""}</button>`).join("")}</div></div>`;
-  const box = h(`<div class="dworkq dgrid8"><div class="dmuted">${first ? "Background work is waiting for you" : "Background work"}</div>${qs.map(card).join("")}</div>`);
-  box.querySelectorAll<HTMLElement>(".dcard").forEach(c => c.querySelectorAll<HTMLElement>("[data-d]").forEach(btn => btn.addEventListener("click", () =>
-    answerWork(S.session, qs.find(q => q.query_id === c.dataset.q), btn.dataset.d as Decision))));
-  fillAppTiles(box);
-  b.append(box);
-  keepDown();
+  const questions = WORK.get(S.session)?.questions ?? [];
+  let box = backgrounds.get(b);
+  if (!questions.length) {
+    if (box) { discardChatBackground(b, box); box.remove(); backgrounds.delete(b); }
+    return;
+  }
+  if (!box) {
+    box = document.createElement("div");
+    box.className = "dworkq dgrid8";
+    backgrounds.set(b, box);
+    b.append(box);
+  }
+  const moved = b.lastElementChild !== box;
+  if (moved) b.append(box);
+  const changed = renderChatBackground(b, box, { session: S.session, questions, first: waitingQuestion(S.session)?.query_id ?? null, chatApproval: !!here()?.approval });
+  if (changed || moved) keepDown();
+}
+
+export function answerWorkById(id: string | null, queryId: string, decision: Decision) {
+  return answerWork(id, WORK.get(id)?.questions.find(question => question.query_id === queryId), decision);
 }
 
 export async function answerWork(id: string | null, q: HeldQuestion | undefined, decision: Decision) {
