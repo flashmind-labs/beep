@@ -31,3 +31,44 @@ test("partial selection survives filtering and sync options stay accessible", as
   await sheet.getByRole("searchbox").fill("app");
   await expect(sync.getByRole("checkbox")).not.toBeChecked();
 });
+
+test("refresh preserves search, selected row focus and list scroll", async ({ page }) => {
+  const rows = Array.from({ length: 35 }, (_, i) => ({ ...found[0], name: `example/repo-${i}` }));
+  await openDesktop(page, false, { found_projects: rows, found_machines: [{ id: "build-box", name: "Build box" }], rescan_found: { rows, problem: null }, host_repos: [] });
+  await page.evaluate(() => { window.__navigation.hold("rescan_found"); window.__navigation.open({ projects: { project: null } }); });
+  await page.locator("#tools").getByRole("button", { name: "Add a project", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: "Add a project" });
+  const row = sheet.locator('.ap-row[data-name="example/repo-12"]');
+  await row.focus();
+  await row.evaluate(el => { Reflect.set(window, "savedRow", el); const list = el.parentElement; if (list) { list.scrollTop = 300; Reflect.set(window, "savedScroll", list.scrollTop); } });
+  await page.evaluate(() => window.__navigation.release("rescan_found"));
+  await expect(row).toBeFocused();
+  expect(await row.evaluate(el => el === Reflect.get(window, "savedRow") && el.parentElement?.scrollTop === Reflect.get(window, "savedScroll"))).toBe(true);
+});
+
+test("late host response cannot replace a reopened sheet", async ({ page }) => {
+  await openDesktop(page, false, { found_projects: found, found_machines: [], host_repos: [] });
+  await page.evaluate(() => { window.__navigation.holdNext("host_repos"); window.__navigation.open({ projects: { project: null } }); });
+  const add = page.locator("#tools").getByRole("button", { name: "Add a project", exact: true });
+  await add.click();
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.__navigation.respond("host_repos", [{ host: "new-host", github: false, repos: [{ name: "new/repo", url: "https://example.test/new/repo", updated_at: 1 }], error: null }]));
+  await add.click();
+  const sheet = page.getByRole("dialog", { name: "Add a project" });
+  await expect(sheet.getByText("Browse repositories on connected hosts")).toBeVisible();
+  await page.evaluate(() => { window.__navigation.respond("host_repos", [{ host: "old-host", github: false, repos: [{ name: "old/repo", url: "https://example.test/old/repo", updated_at: 1 }], error: null }]); window.__navigation.release("host_repos"); });
+  await sheet.getByText("Browse repositories on connected hosts").click();
+  await expect(sheet.getByText("new/repo")).toBeVisible();
+  await expect(sheet.getByText("old/repo")).toHaveCount(0);
+});
+
+test("search regains focus when a refresh removes the focused row", async ({ page }) => {
+  await openDesktop(page, false, { found_projects: found, found_machines: [{ id: "build-box", name: "Build box" }], rescan_found: { rows: [found[1]], problem: null }, host_repos: [] });
+  await page.evaluate(() => { window.__navigation.hold("rescan_found"); window.__navigation.open({ projects: { project: null } }); });
+  await page.locator("#tools").getByRole("button", { name: "Add a project", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: "Add a project" });
+  await sheet.locator('.ap-row[data-name="example/app"]').focus();
+  await page.evaluate(() => window.__navigation.release("rescan_found"));
+  await expect(sheet.locator('.ap-row[data-name="example/app"]')).toHaveCount(0);
+  await expect(sheet.getByRole("searchbox")).toBeFocused();
+});
