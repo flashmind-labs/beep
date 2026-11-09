@@ -5,7 +5,7 @@ import { JSDOM } from "jsdom";
 test("model view sends one command per action and unmounts when the bar changes", async () => {
   const dom = new JSDOM("<!doctype html><body><div id='bar' data-mode='window'></div></body>", { url: "https://app.test" });
   const previous = new Map<string, PropertyDescriptor | undefined>();
-  for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, HTMLElement: dom.window.HTMLElement, HTMLTextAreaElement: dom.window.HTMLTextAreaElement, MutationObserver: dom.window.MutationObserver, ResizeObserver: class { observe() {} unobserve() {} disconnect() {} }, requestAnimationFrame: () => 0, addEventListener: dom.window.addEventListener.bind(dom.window), removeEventListener: dom.window.removeEventListener.bind(dom.window), localStorage: dom.window.localStorage, IS_REACT_ACT_ENVIRONMENT: true })) {
+  for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, HTMLElement: dom.window.HTMLElement, HTMLTextAreaElement: dom.window.HTMLTextAreaElement, MutationObserver: dom.window.MutationObserver, ResizeObserver: class { observe() {} unobserve() {} disconnect() {} }, getComputedStyle: dom.window.getComputedStyle.bind(dom.window), requestAnimationFrame: () => 0, addEventListener: dom.window.addEventListener.bind(dom.window), removeEventListener: dom.window.removeEventListener.bind(dom.window), localStorage: dom.window.localStorage, IS_REACT_ACT_ENVIRONMENT: true })) {
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   }
@@ -16,6 +16,8 @@ test("model view sends one command per action and unmounts when the bar changes"
   const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
   const { MODELS, renderModel, modelKeys } = await import("../src/settings/model.ts");
   const { S } = await import("../src/bar/core.ts");
+  const { openBarPage } = await import("../src/bar/page-root.ts");
+  const { createElement } = await import("react");
   const bar = dom.window.document.getElementById("bar");
   assert.ok(bar);
   MODELS.info = { ...models, thinking: "medium" };
@@ -27,6 +29,11 @@ test("model view sends one command per action and unmounts when the bar changes"
     assert.equal(screen.getByRole("option", { name: /Example B/ }).getAttribute("aria-selected"), "true");
     await act(async () => { await modelKeys(new dom.window.KeyboardEvent("keydown", { key: "Enter", cancelable: true })); });
     assert.equal(calls.filter(c => c === "set_model").length, 1);
+    const sharedHost = bar.firstElementChild;
+    act(() => { const next = openBarPage(() => {}); next.root.render(createElement("div", null, "Other page")); });
+    assert.equal(bar.firstElementChild, sharedHost);
+    act(() => renderModel());
+    assert.equal(bar.firstElementChild, sharedHost, "the model view reuses the shared bar root");
     holdAuto = true;
     fireEvent.click(screen.getByRole("switch", { name: "Auto" }));
     await waitFor(() => assert.equal(calls.filter(c => c === "set_auto_model").length, 2));
