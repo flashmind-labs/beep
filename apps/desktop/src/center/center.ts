@@ -1,3 +1,4 @@
+import { drawHomeComposer, initHomeComposer } from "./home-composer.tsx";
 import { onPhone, WINDOWS } from "../ui/platform.ts";
 import { initConversationSwitcher } from "../agents/conversation-switcher.ts";
 import "../ui/contextmenu.ts";
@@ -198,30 +199,20 @@ pane.connect({
   },
 });
 
-$<HTMLFormElement>("#home-comp").addEventListener("submit", async e => {
-  e.preventDefault();
-  const input = $<HTMLInputElement>("#home-ask"), note = $("#home-err"), prompt = input.value.trim();
-  if (!prompt) return;
-  note.textContent = "";
-  input.value = "";
-  go("pane", { chat: { session: null } });
-
-  try {
-    await pane.compose(prompt);
-  } catch (err) {
-    // Back on Home with the prompt as typed, where the error shows.
-    input.value = prompt;
-    go("home");
-    note.textContent = reason(err);
-  }
-
-  reloadChats();
-});
-
-$("#home-agent")?.addEventListener("click", () => {
-  const input = $<HTMLInputElement>("#home-ask"), prompt = input.value.trim();
-  input.value = "";
-  go("pane", { agentnew: { prompt } });
+initHomeComposer({
+  async send(prompt) {
+    go("pane", { chat: { session: null } });
+    try {
+      await pane.compose(prompt);
+      return { kind: "sent" };
+    } catch (error) {
+      go("home");
+      return { kind: "failed", error: reason(error) };
+    } finally {
+      reloadChats();
+    }
+  },
+  agent: prompt => { go("pane", { agentnew: { prompt } }); },
 });
 
 /// The first view.
@@ -256,7 +247,7 @@ async function showCached() {
   state.subscribed = link?.link === "linked";
   S.signedOut = link?.signed_out ?? false;
   S.server = link?.server ?? false;
-  $("#home-comp").style.display = state.subscribed ? "" : "none";
+  drawHomeComposer();
   const home = seed(state, cached, dismissedUpdates);
   state.mac ??= mac;
   keepPagesFile(cached?.pages);
