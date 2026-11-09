@@ -1,4 +1,4 @@
-import { bar } from "./dom-env.ts";
+import { bar } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { AG, type AgentPage } from "../src/agents/agents.ts";
@@ -19,7 +19,7 @@ test("grouped live thoughts stay folded beside progress and preserve the reader'
   };
   Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, log: agentlog, child: null });
   bar.innerHTML = '<div id="agbody"></div>';
-  Object.assign(bar.querySelector("#agbody")!, { clientHeight: 800 });
+  Object.defineProperty(bar.querySelector("#agbody")!, "clientHeight", { configurable: true, value: 800 });
   const rows = () => bar.querySelectorAll("[data-thought]");
   drawAgentBody();
   assert.equal(rows().length, 0, "thoughts start inside the collapsed progress group");
@@ -77,7 +77,7 @@ test("progress groups collect alternating thoughts and tools and split at visibl
   Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, log: agentlog, child: null });
   AG.steps.clear();
   bar.innerHTML = '<div id="agbody"></div>';
-  Object.assign(bar.querySelector("#agbody")!, { clientHeight: 800 });
+  Object.defineProperty(bar.querySelector("#agbody")!, "clientHeight", { configurable: true, value: 800 });
   drawAgentBody();
   const heads = () => bar.querySelectorAll(".hd[data-turn]");
   assert.equal(heads().length, 2);
@@ -85,14 +85,14 @@ test("progress groups collect alternating thoughts and tools and split at visibl
   assert.equal(heads()[1].getAttribute("data-turn"), "6");
   assert.ok(heads()[0].textContent.includes("Thought for 14s"));
   assert.equal(bar.querySelectorAll("[data-thought]").length, 0);
-  assert.equal(bar.querySelectorAll(".tool.row").length, 1);
+  assert.equal(bar.querySelectorAll<HTMLElement>(".tool.row").length, 1);
   assert.ok(bar.querySelector('.tool.row[data-row="7"]')?.textContent.includes("cargo build"));
   assert.ok(bar.textContent.includes("The version matches."));
 
   turnsOf(id).opened.add(1);
   drawAgentBody();
   assert.equal(bar.querySelectorAll("[data-thought]").length, 2);
-  assert.equal(bar.querySelectorAll(".tool.row").length, 3);
+  assert.equal(bar.querySelectorAll<HTMLElement>(".tool.row").length, 3);
   assert.equal(heads()[1].getAttribute("aria-expanded"), "false");
 
   page.entries[7].text = "cargo build [completed]";
@@ -123,8 +123,8 @@ test("the latest call stays visible until completion, while manual expansion sur
   Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, log: agentlog, child: null });
   AG.steps.clear();
   bar.innerHTML = '<div id="agbody"></div>';
-  Object.assign(bar.querySelector("#agbody")!, { clientHeight: 800 });
-  const rows = () => bar.querySelectorAll(".tool.row");
+  Object.defineProperty(bar.querySelector("#agbody")!, "clientHeight", { configurable: true, value: 800 });
+  const rows = () => bar.querySelectorAll<HTMLElement>(".tool.row");
   const head = () => bar.querySelector('.hd[data-turn="41"]')!;
   drawAgentBody();
   assert.equal(rows().length, 1);
@@ -174,4 +174,31 @@ test("the latest call stays visible until completion, while manual expansion sur
   drawAgentBody();
   assert.equal(rows().length, 1, "a failed final call remains visible");
   assert.equal(rows()[0].dataset.row, "45");
+});
+
+test("streaming waits while a reply control is focused, then updates the same reply", () => {
+  globalThis.getSelection = () => null;
+  globalThis.getComputedStyle = () => ({ rowGap: "0" }) as CSSStyleDeclaration;
+  const id = "reply-focus";
+  const page: AgentPage = {
+    session: { machine_id: "m1", machine_name: "build-box", id, agent: "codex", cwd: "/srv/project", status: "working", external: false, question: null },
+    entries: [{ kind: "user", text: "Question" }, { kind: "agent", text: "First", html: "<p>First</p><pre><code>one</code></pre>" }],
+    earlier: 0, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0,
+  };
+  Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, log: agentlog, child: null });
+  bar.innerHTML = '<div id="agbody"></div>';
+  Object.defineProperty(bar.querySelector("#agbody")!, "clientHeight", { configurable: true, value: 800 });
+  drawAgentBody();
+  const reply = bar.querySelector<HTMLElement>('.dcoderen.agent[data-row="1"]');
+  const copy = reply?.querySelector<HTMLButtonElement>("[data-copy]");
+  assert.ok(reply && copy);
+  copy.focus();
+  page.entries[1].html = "<p>Updated</p><pre><code>one</code></pre>";
+  drawAgentBody(undefined, true);
+  assert.equal(document.activeElement, copy);
+  assert.ok(reply.textContent?.includes("First"));
+  copy.blur();
+  drawAgentBody(undefined, true);
+  assert.equal(bar.querySelector('.dcoderen.agent[data-row="1"]'), reply);
+  assert.ok(reply.textContent?.includes("Updated"));
 });
