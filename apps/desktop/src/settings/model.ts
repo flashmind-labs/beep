@@ -1,7 +1,11 @@
-import { $, bar, S } from "../bar/core.ts";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { ModelView } from "./model-view.tsx";
+import { bar, S } from "../bar/core.ts";
 import { hints, refreshHints } from "../bar/hints.ts";
 import { cap } from "../chat/tools.ts";
-import { switchHtml, esc } from "../ui/format.ts";
+import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -84,27 +88,41 @@ export function renderModel() {
   if (!m?.choices.length) return;
   S.view = "model";
   MODELS.sel = Math.max(0, m.choices.findIndex(c => c.id === m.selected));
+  modelError = "";
   drawModel();
 }
+let modelRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+let modelError = "";
+
+function disposeModel() {
+  if (!modelRoot) return;
+  modelRoot.observer.disconnect();
+  modelRoot.root.unmount();
+  modelRoot = null;
+}
+
 function drawModel() {
-  const m = MODELS.info!, agents = MODELS.agents;
-  const autoSub = m.auto ? (agents ? "Jev picks an agent for each prompt" : "Jev picks the thinking for each prompt") : "Off";
-  const auto = m.auto_available
-    ? `<div class="dtoggle"><span><b>Auto</b><small>${autoSub}</small></span>${switchHtml(m.auto, "Auto", `data-act="auto"`)}</div>`
-    : "";
-  const rows = m.choices.map((c, i) => `<button class="drt dmrow" role="option" data-pick="${i}" aria-selected="${i === MODELS.sel}"><span class="tt"><b>${esc(c.name)}</b><span>${esc(modelPrice(c))}</span></span>${c.id === m.selected ? `<span class="dok">${ICON.check}</span>` : ""}</button>`).join("");
-  const picker = `<div class="dlist dflush" role="listbox" aria-label="Models">${rows}</div>
-      <div class="dfield"><span>Thinking</span><div class="dchips">${THINKING.map(l => `<button class="dchip" data-level="${l}" aria-pressed="${l === m.thinking}">${cap(l)}</button>`).join("")}</div></div>`;
-  // Agents apply to everyone, so they sit apart from the caller's own model.
-  const agentSec = MODELS.list.length ? `<div class="dsec flat dagents">Agents <span class="dtag">Admin</span></div>
-      <div class="dtoggle"><span><b>Agents</b><small>${agents ? "On for everyone" : "Off for everyone"}</small></span>${switchHtml(agents, "Agents", `data-act="agents"`)}</div>
-      <div class="dmuted dagentlist"${agents ? "" : ' style="opacity:.6"'}>${esc(MODELS.list.join(", "))}</div>` : "";
-  bar.innerHTML = `<div class="dhead"><span class="tt"><b>Model</b><small>Your own turns only</small></span></div>
-    <div class="dform dmodelform">${auto}
-      ${picker}
-      ${agentSec}
-      <div class="derr" id="modelErr"></div>
-    </div>${hints([["↑↓", "move"], [ICON.ret, "use"], ["esc", "back"]])}`;
+  const m = MODELS.info;
+  if (!m) return;
+  if (modelRoot && modelRoot.host.parentElement !== bar) disposeModel();
+  if (!modelRoot) {
+    const host = document.createElement("div");
+    host.style.display = "contents";
+    bar.replaceChildren(host);
+    const observer = new MutationObserver(() => {
+      if (modelRoot?.host === host && host.parentElement !== bar) disposeModel();
+    });
+    modelRoot = { host, root: createRoot(host), observer };
+    observer.observe(bar, { childList: true });
+  }
+  flushSync(() => modelRoot?.root.render(createElement(ModelView, {
+    model: m, selected: MODELS.sel, agents: MODELS.agents, agentNames: MODELS.list,
+    error: modelError, hints: hints([["↑↓", "move"], [ICON.ret, "use"], ["esc", "back"]]), thinkingLevels: THINKING, price: modelPrice, capitalize: cap,
+    pick: (index: number) => { MODELS.sel = index; void pickModel(); },
+    setThinking: (level: Thinking) => { void changeModel("set_thinking", { level }); },
+    setAuto: () => { void changeModel("set_auto_model", { enabled: !m.auto }); },
+    setAgents: () => { void change("set_agents", { enabled: !MODELS.agents }, takeAgents); },
+  })));
 }
 /// Runs a change the server answers with `T`, which `take` stores; an error
 /// shows under the form.
@@ -112,11 +130,12 @@ async function change<T>(command: string, args: Record<string, unknown>, take: (
   try {
     take(await invoke<T>(command, args));
   } catch (e) {
-    const err = $("#modelErr");
-    if (err) err.textContent = String(e);
+    modelError = String(e);
+    if (S.view === "model") drawModel();
     return;
   }
 
+  modelError = "";
   if (S.view === "model") drawModel();
 }
 function changeModel(command: string, args: Record<string, unknown>) {
@@ -140,6 +159,7 @@ export function modelKeys(e: KeyboardEvent) {
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();
     MODELS.sel = (MODELS.sel + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
+    modelError = "";
     return drawModel();
   }
 
