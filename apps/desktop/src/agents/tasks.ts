@@ -1,10 +1,10 @@
 // The commands the open session's agent runs in the background: a strip
 // above the field with each one's name and a Stop button.
+import { createElement, Fragment } from "react";
 import { $ } from "../bar/core.ts";
+import { showAgentControl } from "./composer-ui.tsx";
 import { type AgentTask, type OpenAgent, AG, AGENT_READ_WAIT_MS, where } from "./agents.ts";
 import { steerAgent } from "./messages.ts";
-import { esc } from "../ui/format.ts";
-import { showHtml } from "../ui/patch.ts";
 import { invoke } from "../ui/tauri.ts";
 
 /// The server did not know the request, so it is not asked again.
@@ -35,12 +35,16 @@ export const backgroundedEntry = (at: number) => AG.tasks.some(t => t.entry === 
 export function drawTasks() {
   const live = AG.tasks.filter(runs);
   for (const id of stopping) if (!live.some(t => t.id === id)) stopping.delete(id);
-  showHtml($("#agtasks"), live.map(t => {
+  const field = $("#agfield"), host = $("#agtasks");
+  if (!field || !host) return;
+  showAgentControl(field, host, createElement(Fragment, null, live.map(t => {
     const going = stopping.has(t.id);
     const what = t.description || t.name;
-    const button = t.can_stop ? `<button class="dbtn quiet small" data-agtask="${esc(t.id)}"${going ? " disabled" : ""}>${going ? "Stopping" : "Stop"}</button>` : "";
-    return `<div class="ag-task"><span class="dspin"></span><span class="nm" title="${esc(what)}">${esc(t.name || what)}</span>${button}</div>`;
-  }).join(""));
+    return createElement("div", { className: "ag-task", key: t.id },
+      createElement("span", { className: "dspin" }),
+      createElement("span", { className: "nm", title: what }, t.name || what),
+      t.can_stop && createElement("button", { className: "dbtn quiet small", "data-agtask": t.id, disabled: going }, going ? "Stopping" : "Stop"));
+  })));
 }
 
 /// Stop was clicked on task `id`.
