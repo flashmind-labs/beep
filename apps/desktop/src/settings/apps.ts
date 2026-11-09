@@ -1,10 +1,11 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { AppPermissionsView } from "./app-permissions-view.tsx";
 import { McpView } from "./mcp-view.tsx";
 import { bar, S } from "../bar/core.ts";
 import { hints } from "../bar/hints.ts";
-import { switchHtml, esc, plural } from "../ui/format.ts";
+import { esc, plural } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
@@ -26,7 +27,7 @@ export interface App {
 }
 
 /// One account of an app that connects several, such as Fastmail.
-interface AppAccount {
+export interface AppAccount {
   id: string;
   /// Its email address, once the server has read it.
   address: string | null;
@@ -49,10 +50,10 @@ export interface McpTools {
   limit: number;
 }
 
-type Level = "ask" | "allow" | "read";
+export type Level = "ask" | "allow" | "read";
 
 /// What Beep may do in one app.
-interface AppPermissions {
+export interface AppPermissions {
   level: Level;
   actions: { tool: string; label: string; allowed: boolean }[];
 }
@@ -95,12 +96,6 @@ export const A: AppsState = { apps: null, error: "", connecting: null, poll: und
   servers: null, adding: false, addError: "", waiting: null, busy: null,
   server: null, tools: null, asking: null, unadd: false,
   accounts: {}, removing: null, accountsError: "" };
-
-const APP_LEVELS: [Level, string, string][] = [
-  ["ask", "Ask first", "Beep shows what it is about to do and waits for you."],
-  ["allow", "Always allow", "Beep sends, changes and deletes without asking."],
-  ["read", "Read only", "Beep can search and read, never change anything."],
-];
 
 /// A logo of the first letter of `name`.
 const letterLogo = (name: string) => `<span class="dalogo">${esc(name.slice(0, 1).toUpperCase())}</span>`;
@@ -150,6 +145,7 @@ export function appsIn(root: HTMLElement, opened: AppsHost["opened"]) {
 }
 export function appsOut() {
   if (host && mcpRoot && host.root.contains(mcpRoot.host)) disposeMcp();
+  if (host && permsRoot && host.root.contains(permsRoot.host)) disposePerms();
   host = null;
 }
 const hosted = () => (host?.root.isConnected ? host : null);
@@ -171,6 +167,7 @@ const backHint = () => (hosted() ? "" : hints([["esc", "back"]]));
 
 export function renderApps() {
   disposeMcp();
+  disposePerms();
   showView("apps", null);
   A.open = null;
   // In Settings the breadcrumb names the page.
@@ -400,6 +397,7 @@ function disposeMcp() {
 export async function renderMcpServer(server: McpServer | undefined) {
   if (!server) return;
   disposeMcp();
+  disposePerms();
   showView("mcp", server.id);
   Object.assign(A, { server, tools: null, asking: null, unadd: false, error: "" });
   mcpBusy = false;
@@ -462,178 +460,118 @@ async function removeServer(server: McpServer) {
 
 // ---------- An app's permissions ----------
 
-/// The view is still on `app`'s permissions.
-const permsOn = (app: App) => viewIs("appperms") && A.open === app;
-
+let permsRoot: { host: HTMLElement; root: Root; observer: MutationObserver } | null = null;
+let permsBusy = false;
+const permsPending = new Set<string>();
+const permsVersions = new Map<string, number>();
+let accountSignInVersion = 0;
+function disposePerms() {
+  const current = permsRoot;
+  permsRoot = null;
+  if (!current) return;
+  current.observer.disconnect();
+  current.root.unmount();
+}
+const permsOn = (app: App, owner: typeof permsRoot) => !!owner && permsRoot === owner && viewIs("appperms") && A.open === app;
 export async function renderAppPermissions(app: App | undefined) {
-  disposeMcp();
   if (!app) return;
+  disposeMcp(); disposePerms();
   showView("appperms", app.slug);
-  A.open = app;
-  A.perms = null;
-  root().innerHTML = `<div class="dhead">${appLogo(app)}<span class="tt"><b>${esc(app.name)}</b><small>What Beep may do here</small></span></div>
-    <div class="dlist dapps" id="plist"></div>${backHint()}`;
-  logoFallbacks(root());
-  q("#plist")!.addEventListener("click", permsClick);
-  A.removing = null;
-  A.error = A.accountsError = "";
+  Object.assign(A, { open: app, perms: null, removing: null, error: "", accountsError: "" });
+  permsBusy = false;
+  root().innerHTML = `<div id="app-permissions-react" style="display:contents"></div>${backHint()}`;
+  const element = q<HTMLElement>("#app-permissions-react");
+  if (!element) return;
+  const reactRoot = createRoot(element);
+  const observer = new MutationObserver(() => { if (permsRoot?.host === element && !element.isConnected) disposePerms(); });
+  observer.observe(document.body, { childList: true, subtree: true });
+  permsRoot = { host: element, root: reactRoot, observer };
+  const owner = permsRoot, version = permsVersions.get(app.slug) ?? 0;
   drawPerms();
-  // Each part draws when it arrives, so a slow account list holds up nothing.
-  if (app.kind === "fastmail") loadPageAccounts(app);
-
+  if (app.kind === "fastmail") void loadPageAccounts(app, owner);
   try {
-    A.perms = await invoke<AppPermissions>("app_permissions", { slug: app.slug });
-  } catch (e) {
-    A.error = String(e);
-  }
-
-  if (permsOn(app)) drawPerms();
+    const permissions = await invoke<AppPermissions>("app_permissions", { slug: app.slug });
+    if (permsOn(app, owner) && (permsVersions.get(app.slug) ?? 0) === version) A.perms = permissions;
+  } catch (error) { if (permsOn(app, owner) && (permsVersions.get(app.slug) ?? 0) === version) A.error = String(error); }
+  if (permsOn(app, owner)) drawPerms();
 }
-
-/// The open app's accounts. Until they load the page shows the last ones
-/// listed; a failure shows with Retry.
-async function loadPageAccounts(app: App) {
+async function loadPageAccounts(app: App, owner: typeof permsRoot) {
   try {
-    A.accounts[app.slug] = await invoke<AppAccount[]>("list_app_accounts", { slug: app.slug });
-    A.accountsError = "";
-  } catch (e) {
-    A.accountsError = String(e);
-  }
-
-  if (permsOn(app)) drawPerms();
+    const accounts = await invoke<AppAccount[]>("list_app_accounts", { slug: app.slug });
+    if (permsOn(app, owner)) { A.accounts[app.slug] = accounts; A.accountsError = ""; }
+  } catch (error) { if (permsOn(app, owner)) A.accountsError = String(error); }
+  if (permsOn(app, owner)) drawPerms();
 }
-
-/// Each connected account with Remove, and a button that signs in another.
-function drawAccounts(app: App, accounts: AppAccount[]) {
-  let html = '<div class="dsec">Accounts</div>' + accounts.map((a, i) => {
-    const name = esc(a.address ?? `${app.name} account`);
-    const first = i === 0 && accounts.length > 1 ? ' <small class="dmuted dinline">Default</small>' : "";
-    const end = A.busy === "account:" + a.id ? SPIN
-      : A.removing === a.id ? `<span class="dmuted">${accounts.length === 1 ? `Disconnects ${esc(app.name)}` : "Beep stops using this account"}</span>`
-        + `<button class="dbtn quiet" data-unremove>Cancel</button><button class="dbtn warn" data-remove="${esc(a.id)}">Remove</button>`
-      : `<button class="dbtn quiet warn" data-removing="${esc(a.id)}">Remove</button>`;
-    return `<div class="daction"><span>${name}${first}</span>${end}</div>`;
-  }).join("");
-  html += A.connecting === app.slug
-    ? `<div class="dpad dline">${waitingFor("data-cancel")}</div>`
-    : '<div class="dpad"><button class="dbtn" data-addaccount>Add another account</button></div>';
-  return html + `<div class="dmuted dpad dblock">Beep uses the first account unless you name another, like "check my work inbox". To add a different account, sign out of ${esc(app.name)} in the browser first.</div>`;
-}
-
-async function addAccount(app: App) {
+async function addAccount(app: App, owner: typeof permsRoot) {
   if (A.connecting) return;
-  A.connecting = app.slug;
-  A.error = "";
-  drawPerms();
-  await signIn(app, true);
+  const version = ++accountSignInVersion;
+  A.connecting = app.slug; A.error = ""; drawPerms();
+  try { await invoke("connect_app", { slug: app.slug, kind: app.kind, add: true }); }
+  catch (error) { if (version === accountSignInVersion && permsOn(app, owner) && String(error) !== "cancelled") A.error = String(error); }
+  if (version !== accountSignInVersion) return;
   A.connecting = null;
-  await loadAccounts(app);
-  if (permsOn(app)) drawPerms();
+  if (permsOn(app, owner)) await loadPageAccounts(app, owner);
+  else await loadAccounts(app);
 }
-
-async function removeAccount(app: App, id: string) {
-  A.busy = "account:" + id;
-  A.removing = null;
-  drawPerms();
-
-  try {
-    await invoke("remove_app_account", { slug: app.slug, id });
-    A.error = "";
-  } catch (e) {
-    A.error = String(e);
-  }
-
+async function removeAccount(app: App, id: string, owner: typeof permsRoot) {
+  if (A.busy) return;
+  A.busy = `account:${id}`; A.removing = null; drawPerms();
+  let removed = false;
+  try { await invoke("remove_app_account", { slug: app.slug, id }); removed = true; if (permsOn(app, owner)) A.error = ""; }
+  catch (error) { if (permsOn(app, owner)) A.error = String(error); }
   A.busy = null;
-  await loadAccounts(app);
-  if (!permsOn(app)) return;
-  // The last account gone disconnects the app.
-  if (A.accounts[app.slug]?.length === 0) { A.apps = null; return renderApps(); }
-  drawPerms();
+  if (!permsOn(app, owner)) return;
+  await loadPageAccounts(app, owner);
+  if (!permsOn(app, owner)) return;
+  if (removed && A.accounts[app.slug]?.length === 0) { A.apps = null; renderApps(); }
+  else drawPerms();
 }
-
 function drawPerms() {
-  const list = q("#plist"), app = A.open, p = A.perms;
-  if (!list || !app) return;
-  const accounts = A.accounts[app.slug];
-  let html = listTop(p);
-  if (A.accountsError) html += `<div class="dsec">Accounts</div><div class="daction"><span class="derr">${esc(app.name)} accounts did not load: ${esc(A.accountsError)}</span></div>`;
-  if (A.error || A.accountsError) html += '<div class="dpad"><button class="dbtn" data-retry>Retry</button></div>';
-  if (accounts?.length) html += drawAccounts(app, accounts);
-
-  if (p) {
-    html += `<div class="dsec">When Beep acts in ${esc(app.name)}</div>` + APP_LEVELS.map(([level, title, detail]) =>
-      `<button class="dlevel" role="radio" aria-checked="${p.level === level}" data-level="${level}"><span class="dradio"></span>
-        <span class="tt"><b>${title}</b><small>${detail}</small></span></button>`).join("");
-    if (p.actions.length) {
-      html += '<div class="dsec">Actions</div>' + p.actions.map(a => {
-        const [tag, cls] = p.level === "read" ? ["Off", ""] : p.level === "allow" || a.allowed ? ["Allowed", " ok"] : ["Asks", " ask"];
-        const sw = p.level === "ask" ? switchHtml(a.allowed, `Always allow ${esc(a.label)}`, `data-tool="${esc(a.tool)}"`) : "";
-        return `<div class="daction"><span>${esc(a.label)}</span><span class="dtag${cls}">${tag}</span>${sw}</div>`;
-      }).join("");
-    }
-    html += '<div class="dmuted dpad dblock">Searching and reading is always allowed.</div>';
-  }
-
-  const all = (accounts?.length ?? 0) > 1 ? " (all accounts)" : "";
-  html += `<div class="dpad"><button class="dbtn warn" id="disconnect">Disconnect ${esc(app.name)}${all}</button></div>`;
-  list.innerHTML = html;
+  const app = A.open, owner = permsRoot;
+  if (!app || !owner?.host.isConnected || !permsOn(app, owner)) return;
+  flushSync(() => owner.root.render(createElement(AppPermissionsView, {
+    app, permissions: A.perms, error: A.error, accountsError: A.accountsError, accounts: A.accounts[app.slug] ?? null,
+    connecting: A.connecting === app.slug, busy: A.busy, removing: A.removing, saving: permsBusy || permsPending.has(app.slug),
+    retry: () => void renderAppPermissions(app), addAccount: () => void addAccount(app, owner),
+    cancelSignIn: () => { accountSignInVersion++; cancelSignIn(); A.connecting = null; drawPerms(); },
+    confirmAccount: (id: string) => { A.removing = id; drawPerms(); },
+    cancelAccount: () => { A.removing = null; drawPerms(); },
+    removeAccount: (id: string) => void removeAccount(app, id, owner),
+    disconnect: () => void disconnectApp(app, owner),
+    setLevel: (level: Level) => void savePermissions(app, owner, level, null),
+    toggleAction: (tool: string) => void savePermissions(app, owner, null, tool),
+  })));
 }
-
-async function permsClick(e: MouseEvent) {
-  const target = e.target as HTMLElement;
-  const app = A.open!, p = A.perms;
-
-  if (target.closest("[data-cancel]")) {
-    cancelSignIn();
-    A.connecting = null;
-    return drawPerms();
-  }
-
-  if (target.closest("[data-retry]")) return renderAppPermissions(app);
-  if (target.closest("[data-addaccount]")) return addAccount(app);
-  const account = target.closest<HTMLElement>("[data-removing],[data-unremove],[data-remove]")?.dataset;
-
-  if (account) {
-    if (account.remove) return removeAccount(app, account.remove);
-    A.removing = account.removing ?? null;
-    return drawPerms();
-  }
-
-  const disconnect = target.closest<HTMLButtonElement>("#disconnect");
-
-  if (disconnect) {
-    disconnect.disabled = true;
-
-    try {
-      await invoke("disconnect_app", { slug: app.slug });
-    } catch (err) {
-      A.error = String(err);
-      return drawPerms();
-    }
-
-    A.apps = null;
-    return renderApps();
-  }
-
-  if (!p) return;
-  const level = target.closest<HTMLElement>("[data-level]")?.dataset.level as Level | undefined;
-  const tool = target.closest<HTMLElement>("[data-tool]")?.dataset.tool;
-  if (!level && !tool) return;
-  const next: AppPermissions = {
-    level: level ?? p.level,
-    actions: p.actions.map(a => a.tool === tool ? { ...a, allowed: !a.allowed } : a),
-  };
-  if (next.level === p.level && !tool) return;
-  A.perms = next;
-  drawPerms();
-
+async function disconnectApp(app: App, owner: typeof permsRoot) {
+  if (permsBusy || permsPending.has(app.slug)) return;
+  permsBusy = true; drawPerms();
   try {
-    await invoke("set_app_permissions", { slug: app.slug, level: next.level, allowed: next.actions.filter(a => a.allowed).map(a => a.tool) });
-    A.error = "";
-  } catch (err) {
-    A.perms = p;
-    A.error = String(err);
+    await invoke("disconnect_app", { slug: app.slug });
+    if (permsOn(app, owner)) { A.apps = null; renderApps(); }
+  } catch (error) { if (permsOn(app, owner)) { A.error = String(error); permsBusy = false; drawPerms(); } }
+}
+async function savePermissions(app: App, owner: typeof permsRoot, level: Level | null, tool: string | null) {
+  const previous = A.perms;
+  if (!previous || permsBusy || permsPending.has(app.slug) || (level === previous.level && !tool)) return;
+  const next: AppPermissions = { level: level ?? previous.level, actions: previous.actions.map(action => action.tool === tool ? { ...action, allowed: !action.allowed } : action) };
+  permsPending.add(app.slug);
+  permsVersions.set(app.slug, (permsVersions.get(app.slug) ?? 0) + 1);
+  A.perms = next; drawPerms();
+  let failure: unknown = null;
+  try { await invoke("set_app_permissions", { slug: app.slug, level: next.level, allowed: next.actions.filter(action => action.allowed).map(action => action.tool) }); }
+  catch (error) { failure = error; }
+  permsVersions.set(app.slug, (permsVersions.get(app.slug) ?? 0) + 1);
+  if (permsOn(app, owner)) {
+    if (failure) { A.perms = previous; A.error = String(failure); } else A.error = "";
+  } else {
+    const current = permsRoot, open = A.open;
+    if (current && open?.slug === app.slug && permsOn(open, current)) {
+      try {
+        const permissions = await invoke<AppPermissions>("app_permissions", { slug: app.slug });
+        if (permsOn(open, current)) { A.perms = permissions; A.error = failure ? String(failure) : ""; }
+      } catch (error) { if (permsOn(open, current)) { A.perms = null; A.error = String(error); } }
+    }
   }
-
-  if (viewIs("appperms")) drawPerms();
+  permsPending.delete(app.slug);
+  if (A.open?.slug === app.slug && permsOn(A.open, permsRoot)) drawPerms();
 }
