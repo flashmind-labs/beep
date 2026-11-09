@@ -29,6 +29,8 @@ body.mobile .mb-tabs button.dot::after { content: ""; position: absolute; top: 7
 body.mobile.mb-full .mb-tabs, body.mobile.mb-kbd .mb-tabs { display: none }
 /* Without the tab bar, the page keeps clear of the home indicator (the keyboard covers it). */
 body.mobile.mb-full:not(.mb-kbd) .cwin { padding-bottom: env(safe-area-inset-bottom) }
+/* With the keyboard up, the window is the part the keyboard leaves visible. */
+body.mobile.mb-kbd .cwin { position: fixed; left: 0; right: 0; top: var(--mb-vv-top, 0); height: var(--mb-vv-height, 100dvh) }
 
 /* Touch targets: 44 px, and a 16 px field so iOS does not zoom in. */
 body.mobile :is(.dbtn, .cc-top button, .cc-menu button, .cc-tabs button, .cc-mstrip > button.m, .cc-si, .pj-li, .tl-it, .tl-m h5 .dbtn, .rp-row) { min-height: 44px }
@@ -119,8 +121,9 @@ body.mobile .dinput textarea { order: -1; flex: 1 1 100%; min-height: 38px; max-
 /* Its attach, mode and model controls show while typing, leaving the log the room. */
 body.mobile #agfield:not(:focus-within) > :not(textarea, #agstop, #agsend, #agnativeparent) { display: none }
 body.mobile #agfield:not(:focus-within) textarea { flex: 1 1 0 }
-/* Stop and Send are icons the height of the field; Return makes a new line. */
-body.mobile :is(#agstop, #agsend) { flex: none; width: 38px; min-height: 0; height: 38px; padding: 0; justify-content: center; font-size: 0; border-radius: var(--radius) }
+/* Stop and Send are icons the height of the field; Return makes a new line. No gap, or the
+   hidden label pushes the icon off center. */
+body.mobile :is(#agstop, #agsend) { flex: none; width: 38px; min-height: 0; height: 38px; padding: 0; gap: 0; justify-content: center; font-size: 0; border-radius: var(--radius) }
 body.mobile #agstop { order: 8 }
 body.mobile #agstop .dstopico { width: 11px; height: 11px }
 body.mobile #agsend { display: inline-flex; order: 10; border-color: transparent; background: var(--accent); color: var(--ink) }
