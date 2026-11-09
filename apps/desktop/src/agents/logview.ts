@@ -43,10 +43,10 @@ import { contextHtml, promptHtml, replyHtml, type ContextRow, type PromptRow, ty
 const toolStarts = new Map<string, number>();
 
 /// A tool entry as one line: its mark and a short label ("Ran cargo test").
-export function toolRow(en: AgentEntry, at: number, pics = "") {
+function toolData(en: AgentEntry, at: number, pics = ""): Extract<ActivityRow, { kind: "tool" }> | null {
   const log = AG.log!;
   const { title, status, output } = log.parseTool(log.imageLines(en.text).text);
-  if (log.subagent(output)) return subCard([at]) + (pics ? `<div class="dcoderen tool">${pics}</div>` : "");
+  if (log.subagent(output)) return null;
   const failed = status === "failed", open = stepOpen(failed, at === newestStep, AG.steps.get(at));
   // A command in the background runs on after its turn ended.
   const live = status === "in_progress" && (AGENT_ACTIVE.has(AG.page?.session.status) || backgroundedEntry(at));
@@ -74,22 +74,29 @@ export function toolRow(en: AgentEntry, at: number, pics = "") {
   const artifact = published ? ` data-artifact="${esc(published.path)}" title="Open in the Artifacts tab"` : "";
   const state = failed ? (exit != null ? `exit ${exit}` : "Failed") : status === "completed" ? "Done" : live ? "Running" : "";
 
+  const keyboard = opens && (inspected || parts.kind === "command");
+  const mark = stepMark(status, live);
+  const common = { kind: "tool" as const, id: String(at), at, failed, open, artifact: published?.path ?? null, toggle: opens, keyboard, mark };
   if (beep) {
-    return `<div class="dcoderen tool beep${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${toggleAttrs}${artifact}>`
-      + `<span class="mk">${stepMark(status, live)}</span>${beepHead(beep, title, state, live, open, since)}`
-      + mediaButtons(title) + body + pics + "</div>";
+    const head = beepHead(beep, title, state, live, open, since), after = mediaButtons(title) + body + pics;
+    const html = `<div class="dcoderen tool beep${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${toggleAttrs}${artifact}>`
+      + `<span class="mk">${mark}</span>${head}${after}</div>`;
+    return { ...common, html, after, layout: { kind: "beep", head } };
   }
 
-  // Opened, a command or a long title leaves the row's one line and shows whole under it.
   const wrapped = open && (parts.kind === "command" || long);
   const rowBody = !open ? "" : (wrapped ? `<pre class="cmd">${parts.kind === "command" ? cachedCommandHtml(parts.target) : esc(parts.target)}</pre>` : "") + toolBody(output);
-  return toolRowHtml({
-    ...parts,
-    since, target: inspected ? parts.target : wrapped ? "" : parts.target, tip: commandOf(title), mark: stepMark(status, live),
+  const shown = { ...parts, target: inspected ? parts.target : wrapped ? "" : parts.target };
+  const after = mediaButtons(title) + (inspected ? inspectedBody : rowBody) + pics, tip = commandOf(title);
+  const html = toolRowHtml({ ...shown, since, tip, mark,
     cls: `${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}`,
-    attrs: ` data-row="${at}"${toggleAttrs}${artifact}`,
-    after: mediaButtons(title) + (inspected ? inspectedBody : rowBody) + pics,
-  });
+    attrs: ` data-row="${at}"${toggleAttrs}${artifact}`, after });
+  return { ...common, html, after, layout: { kind: "standard", parts: shown, tip, since: since ?? null } };
+}
+
+export function toolRow(en: AgentEntry, at: number, pics = "") {
+  return toolData(en, at, pics)?.html ?? subCard([at]) + (pics ? `<div class="dcoderen tool">${pics}</div>` : "");
+
 }
 
 function commandClock(since: number) {
@@ -396,7 +403,11 @@ function rowsOf(p: AgentPage, ats: number[]) {
     flush();
     const en = p.entries[at - p.earlier];
     if (en.kind === "agent") out.push(agentReply(en, at));
-    else out.push(entryRow(en, at));
+    else if (en.kind === "tool" && AG.log) {
+      const { text, names } = AG.log.imageLines(en.text);
+      const pics = names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "";
+      out.push(toolData({ ...en, text }, at, pics) ?? entryRow(en, at));
+    } else out.push(entryRow(en, at));
   }
 
   flush();
@@ -669,7 +680,7 @@ function showLog(b: HTMLElement, html: string, units: Unit[] | null, polled: boo
     if (sel.focusNode) held.push(sel.focusNode);
   }
 
-  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row.kind === "prompt" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row.kind === "context" && row.type === "child" ? { ...row, body: prepareInlineImages(row.body) } : row.kind === "thought" ? { ...row, html: prepareInlineImages(row.html), content: row.content === null ? null : prepareInlineImages(row.content) } : row) })) ?? null;
+  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row.kind === "prompt" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row.kind === "context" && row.type === "child" ? { ...row, body: prepareInlineImages(row.body) } : row.kind === "thought" ? { ...row, html: prepareInlineImages(row.html), content: row.content === null ? null : prepareInlineImages(row.content) } : row.kind === "tool" ? { ...row, html: prepareInlineImages(row.html), after: prepareInlineImages(row.after) } : row) })) ?? null;
   return patchRows(main, next.content, prepared, held);
 }
 

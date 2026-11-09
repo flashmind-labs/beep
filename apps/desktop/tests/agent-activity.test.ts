@@ -33,3 +33,23 @@ test("streaming thoughts keep their element during refresh", () => {
   assert.equal(log.querySelector(".dthink[data-row]"), null);
 });
 
+
+test("tool row updates preserve its focused action and defer selected text", () => {
+  bar.innerHTML = '<div id="agbody"><div class="dcoderlog"></div></div>';
+  const body = bar.querySelector<ChatBody>("#agbody"); assert.ok(body);
+  Object.defineProperty(body, "clientHeight", { configurable: true, value: 800 });
+  const log = body.querySelector<HTMLElement>(".dcoderlog"); assert.ok(log);
+  const row = (target: string): ActivityRow => ({ kind: "tool", id: "2", html: target, at: 2, failed: false, open: false, artifact: null, toggle: true, keyboard: true, mark: "", after: "", layout: { kind: "standard", parts: { kind: "command", verb: "Running", target, detail: "", bad: false }, tip: target, since: null } });
+  const units = (target: string) => [{ key: "turn", rows: () => [row(target)] }];
+  setUnits(log, units("first"), []); fillLog(body, false);
+  const tool = log.querySelector<HTMLElement>('[data-row="2"]'); assert.ok(tool);
+  const text = tool.querySelector("code")?.firstChild; assert.ok(text);
+  tool.focus();
+  assert.equal(setUnits(log, units("second"), [text]), false);
+  assert.equal(text.textContent, "first");
+  assert.equal(setUnits(log, units("second"), []), true);
+  assert.equal(log.querySelector('[data-row="2"]'), tool);
+  assert.equal(document.activeElement, tool);
+  assert.equal(tool.querySelector("code")?.textContent, "second");
+  disposeLog(log);
+});
