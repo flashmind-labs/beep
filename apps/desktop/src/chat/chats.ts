@@ -7,7 +7,7 @@ import { openInWindow } from "./chat.ts";
 import { copy } from "../ui/parts.ts";
 import { $, $$, type ChatRow, type ChatsMode, G, live, PANE, S } from "../bar/core.ts";
 import { authorName, type GroupSummary, renderGroup, renderInvite } from "./groups.ts";
-import { hints } from "../bar/hints.ts";
+import { hintModel } from "../bar/hints.ts";
 import { openSession } from "./history.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { dayDiff } from "../lists/memories.ts";
@@ -134,7 +134,7 @@ export function drawChats() {
   const selected = list[sel], identity = selected ? `${selected.kind}:${selected.id}` : "";
   flushSync(() => current.root.render(createElement(ChatsShell, {
     state: S.chats, error: listError, pane: PANE,
-    hints: hints([[ICON.ret, "open"], ["tab", "actions"], ["⌘N", "new agent"], ["⌘G", "new group"], ["esc", "back"]]),
+    hints: hintModel([[ICON.ret, "open"], ["tab", "actions"], ["⌘N", "new agent"], ["⌘G", "new group"], ["esc", "back"]]),
     search: (value: string) => { if (searchTimer) clearTimeout(searchTimer); searchTimer = setTimeout(() => { searchTimer = null; void loadChats(value.trim()); }, 180); },
     running: new Set([...live].flatMap(([id, value]) => id !== null && value.run ? [id] : [])),
     select: (index: number) => { S.chats.sel = index; }, open: openRow, action: (action: ChatAction) => void chatAction(action),

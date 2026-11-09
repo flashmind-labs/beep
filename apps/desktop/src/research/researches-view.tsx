@@ -1,9 +1,10 @@
+import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { useLayoutEffect, useRef } from "react";
 import { chipClass, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
 import { researchLine } from "./researches.ts";
 import { ICON } from "../ui/icons.ts";
 
-export function ResearchesView(p: { list: ResearchRow[]; loaded: boolean; selected: number; mode: "list" | "actions"; error: string; initial: string; typed: boolean; hints: string; edit(): void; choose(index: number, action: "open" | "pdf"): void }) {
+export function ResearchesView(p: { list: ResearchRow[]; loaded: boolean; selected: number; mode: "list" | "actions"; error: string; initial: string; typed: boolean; hints: HintViewModel; edit(): void; choose(index: number, action: "open" | "pdf"): void }) {
   const input = useRef<HTMLInputElement>(null), list = useRef<HTMLDivElement>(null), last = useRef("");
   useLayoutEffect(() => { input.current?.focus(); }, []);
   const selected = !p.typed ? p.list[p.selected]?.session ?? "" : "";
@@ -18,6 +19,6 @@ export function ResearchesView(p: { list: ResearchRow[]; loaded: boolean; select
       const current = i === p.selected && !p.typed, state = researchState(row.status);
       return <div key={row.session} className={`drt${state === "failed" || state === "stopped" ? " off" : ""}`} role="option" aria-selected={current} data-i={i} onClick={() => p.choose(i, "open")}><span className="ic" dangerouslySetInnerHTML={{ __html: ICON.doc }} /><span className="tt"><b>{row.topic}</b><small>{researchLine(row)}</small></span>{current && p.mode === "actions" && !!row.sources ? <span className="acts"><button className="dbtn" data-rl="pdf" onClick={event => { event.stopPropagation(); p.choose(i, "pdf"); }}>Export PDF</button></span> : <span className={`chip ${chipClass(row.status)}`}>{state === "running" && <span className="dspin" />}{STATE_LABEL[state]}</span>}</div>;
     })}</div>}
-    <span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: p.hints }} />
+    <HintView value={p.hints} />
   </>;
 }

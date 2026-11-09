@@ -1,5 +1,5 @@
 import { $$, bar, S } from "../bar/core.ts";
-import { hints } from "../bar/hints.ts";
+import { hintModel } from "../bar/hints.ts";
 import { arrowKey, clampSel, confirmKey, dayDiff, type ListState, loadList, readDay } from "./memories.ts";
 import { plural } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
@@ -92,7 +92,7 @@ export function drawSkills(): void {
     ? [[ICON.ret, "open"], ["⌘Z", "undo"], ["⌘⌫", "delete"], ["tab", "hide actions"], ["esc", "back"]]
     : [["↑↓", "move"], [ICON.ret, "open"], ["space", "on or off"], ["tab", "actions"], ["esc", "back"]];
   const root = skillsRoot();
-  flushSync(() => root.render(createElement(SkillsList, { list: K.list, selected: K.sel, mode: K.mode as "list" | "actions" | "delete", loaded: K.loaded, error: K.error, summary: sum, hints: hints(keys) })));
+  flushSync(() => root.render(createElement(SkillsList, { list: K.list, selected: K.sel, mode: K.mode as "list" | "actions" | "delete", loaded: K.loaded, error: K.error, summary: sum, hints: hintModel(keys) })));
   bar.onclick = skillClick;
   bar.oncontextmenu = skillMenu;
 }
@@ -104,11 +104,11 @@ export function drawSkill(): void {
   const root = skillsRoot();
   bar.onclick = skillClick;
   if (K.mode === "edit") {
-    flushSync(() => root.render(createElement(SkillEditor, { key: k.id, skill: k, error: K.error, hints: hints([["tab", "next field"], [`⌘${ICON.ret}`, "save"], ["esc", "cancel"]]), save: () => { void skillAction("save"); }, cancel: () => { void skillAction("view"); } })));
+    flushSync(() => root.render(createElement(SkillEditor, { key: k.id, skill: k, error: K.error, hints: hintModel([["tab", "next field"], [`⌘${ICON.ret}`, "save"], ["esc", "cancel"]]), save: () => { void skillAction("save"); }, cancel: () => { void skillAction("view"); } })));
     return;
   }
   const keys = K.mode === "vdelete" ? [[ICON.ret, "delete"], ["esc", "cancel"]] : [["space", "on or off"], [`⌘${ICON.ret}`, "edit"], ...(k.can_undo ? [["⌘Z", "undo"]] : []), ["esc", "back"]];
-  flushSync(() => root.render(createElement(SkillDetail, { skill: k, mode: K.mode as "view" | "vdelete", error: K.error, hints: hints(keys) })));
+  flushSync(() => root.render(createElement(SkillDetail, { skill: k, mode: K.mode as "view" | "vdelete", error: K.error, hints: hintModel(keys) })));
 }
 
 /// A skill row's right-click menu: what its buttons do. Delete asks first.

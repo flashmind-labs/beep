@@ -6,7 +6,7 @@ import { ResearchesView } from "./researches-view.tsx";
 import { failed, grow, newTurn } from "../chat/chat.ts";
 import { when } from "../chat/chats.ts";
 import { $, S } from "../bar/core.ts";
-import { hints, refreshHints } from "../bar/hints.ts";
+import { hintModel, refreshHints } from "../bar/hints.ts";
 import { notice } from "../chat/media.ts";
 import { progressLine, type ResearchRow } from "./research-list.ts";
 import { plural } from "../ui/format.ts";
@@ -89,7 +89,7 @@ export function drawResearches() {
     : RL.mode === "actions" ? [["tab", "hide actions"], ["esc", "back"]]
     : [["↑↓", "move"], [ICON.ret, "open"], ["tab", "actions"], ["esc", "back"]];
   flushSync(() => current.root.render(createElement(ResearchesView, {
-    list: RL.list, loaded: RL.loaded, selected: RL.sel, mode: RL.mode, error: RL.error, initial, typed: !!typed, hints: hints(keys),
+    list: RL.list, loaded: RL.loaded, selected: RL.sel, mode: RL.mode, error: RL.error, initial, typed: !!typed, hints: hintModel(keys),
     edit: drawResearches, choose: (index: number, action: "open" | "pdf") => { RL.sel = index; void researchListAction(action); },
   })));
 }

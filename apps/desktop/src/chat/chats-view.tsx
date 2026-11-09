@@ -1,3 +1,4 @@
+import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { useLayoutEffect, useRef } from "react";
 import { type ChatRow, type ChatsState } from "../bar/core.ts";
 import { ICON } from "../ui/icons.ts";
@@ -36,12 +37,12 @@ export function ChatsView(p: Props) {
   return <>{p.error && <div className="derr dpad">{p.error}</div>}{p.state.list.length ? p.state.list.map((row, index) => <div key={`${row.kind}:${row.id}`} style={{ display: "contents" }}><Row row={row} index={index} p={p} />{index === p.state.sel && <Share p={p} />}</div>) : <div className="dmuted dpad">No chats</div>}</>;
 }
 
-export function ChatsShell(p: Props & { hints: string; search(value: string): void }) {
+export function ChatsShell(p: Props & { hints: HintViewModel; search(value: string): void }) {
   const input = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => { input.current?.focus(); }, []);
   const { list, query } = p.state;
   return <><div className="dinput"><input ref={input} id="find" placeholder="Search chats and groups" autoComplete="off" spellCheck={false} onChange={event => p.search(event.currentTarget.value)} /><kbd>⌘K</kbd></div>
     <div className="dsec" id="sec">{query ? `${list.length} result${list.length === 1 ? "" : "s"}` : "Recent"}</div><div className="dlist" id="list" role="listbox" aria-label="Chats"><ChatsView {...p} /></div>
-    <span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: p.hints }} />
+    <HintView value={p.hints} />
   </>;
 }

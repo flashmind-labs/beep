@@ -10,7 +10,9 @@ test("skills retain list position and editor drafts through updates", async ({ p
   const list = page.locator("#klist");
   await list.evaluate(element => { element.style.height = "120px"; element.style.overflow = "auto"; element.scrollTop = 150; });
   const top = await list.evaluate(element => element.scrollTop);
+  await page.locator("#bar .dhints").evaluate(element => Reflect.set(window, "skillsHints", element));
   await page.keyboard.press("Tab");
+  expect(await page.locator("#bar .dhints").evaluate(element => element === Reflect.get(window, "skillsHints"))).toBe(true);
   await expect(list).toHaveJSProperty("scrollTop", top);
   await page.keyboard.press("Tab");
   await row.click();
