@@ -1,4 +1,4 @@
-import "./dom-env.ts";
+import "./chat-dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { makeRuns } from "../src/project/runs.ts";
@@ -14,12 +14,7 @@ test("reopening Actions restores the selected workflow detail subscription", asy
       ? { runs: [], checks: [], synced_at: null, error: null, rate_limited_until: null }
       : null;
   }) as never;
-  const h: typeof el = (tag, cls, ...kids) => {
-    const node = el(tag, cls, ...kids);
-    Object.defineProperty(node, "id", { value: "", writable: true });
-    return node;
-  };
-  const runs = makeRuns({ invoke, h, button, redraw() {}, openUrl() {}, fix() {} });
+  const runs = makeRuns({ invoke, h: el, button, redraw() {}, openUrl() {}, fix() {} });
 
   try {
     runs.section({ project_id: "example", name: "example" });
