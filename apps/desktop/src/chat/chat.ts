@@ -6,7 +6,7 @@ import { askFiles, attach, attached, attachError, drawAttached } from "./attach.
 import type { AskFile } from "./attach.ts";
 import { type Chart, chartRow } from "./charts.ts";
 import { drawChats, loadChats, touch } from "./chats.ts";
-import { coderCard } from "./codercard.ts";
+import { coderCard, resumeCoderCards } from "./codercard.ts";
 import { composeField } from "./compose.ts";
 import { $, $$, bar, changed, entry, here, live, newId, PANE, queued, S, stopping } from "../bar/core.ts";
 import { renderAgentNew } from "../agents/agentnew.ts";
@@ -110,7 +110,7 @@ export function renderChat() {
   if (kept) $$("#body").replaceWith(kept);
   const b = body()!;
   // A chat put back goes where the reader left it if they had scrolled up, else to its end.
-  if (kept) b.scrollTop = returnScroll(b, b.top ?? 0);
+  if (kept) { b.scrollTop = returnScroll(b, b.top ?? 0); resumeCoderCards(b); }
   let top = b.scrollTop;
   b.onscroll = () => { b.stuck = followsAfterScroll(b.stuck !== false, top, b); top = b.top = b.scrollTop; drawLatest(); markMap(); };
   followEnd(b);
@@ -294,6 +294,7 @@ function stepRow(t: Step) {
 /// Turns drawn so far, so each thought has its own key.
 let turnCount = 0;
 const turnBodies = new WeakMap<Turn, ChatBody>();
+export const owningChatBody = (turn: Turn) => turnBodies.get(turn) ?? null;
 
 /// Draws what the turn did before its answer, as a coding agent's turn shows
 /// it: the heading with how long it worked, the thought, and the steps. A
