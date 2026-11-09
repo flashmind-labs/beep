@@ -70,9 +70,9 @@ try {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     // Await an observable navigation change, so the refresh has actually drawn.
-    const before = await page.locator('.pj-li[title="File sync"]').textContent();
+    const before = await page.locator('.pj-li[title="Machines"]').textContent();
     await page.evaluate(() => window.__sync());
-    await page.waitForFunction(before => document.querySelector('.pj-li[title="File sync"]')?.textContent !== before, before);
+    await page.waitForFunction(before => document.querySelector('.pj-li[title="Machines"]')?.textContent !== before, before);
     await page.mouse.up();
     await page.waitForFunction(title => document.getElementById("agtitle")?.textContent === title, title);
     assert.equal(await page.evaluate(() => window.__pressed.isConnected), true);

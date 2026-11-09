@@ -3,14 +3,14 @@ import { MV } from "../agents/move-store.ts";
 // project, and a picked project's detail sections.
 import { sessionVisible } from "../agents/closing.ts";
 import { ago, plural, since } from "../ui/format.ts";
-import { dbtn as button, emptyPanel, errorNote, headedTable, freshNote, svgEl as icon } from "../ui/parts.ts";
+import { dbtn as button, emptyPanel, errorNote, freshNote, svgEl as icon } from "../ui/parts.ts";
 import { CI_TITLES, ciState, filterByName, listGroups, machineChips, projectBranch, splitName } from "./projectlist-state.ts";
 import type { GitRow } from "./gitsync-state.ts";
 import type { RunsRow } from "./runs.ts";
-import type { SyncDetail } from "./filesync.ts";
+import type { MachineDetail, SyncDetail } from "./filesync.ts";
 import { pageAgent } from "./agent.ts";
 import { invoke } from "../ui/tauri.ts";
-import { awaitsView, projectRunning, whereRows, whereCount, overviewGroups, barSegments, countsLine, latestLine, syncedBy, workersLabel, type OverviewCard, type OverviewCardRow, type OverviewGroup, type Project, type ProjectGroup, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
+import { awaitsView, projectRunning, whereRows, whereCount, overviewGroups, barSegments, countsLine, latestLine, syncedBy, workersLabel, type OverviewCard, type OverviewCardRow, type OverviewGroup, type Project, type ProjectGroup, plainPath, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { makeCustomAgents } from "./customagents.ts";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
@@ -18,15 +18,17 @@ import { pages, state, warm, pageFresh } from "../center/state.ts";
 import { projectDot, section, plusLabel } from "../ui/pieces.ts";
 import { machineMenuWith } from "../machines/table.ts";
 import { removeButton, removeMenuItems } from "./removemachine.ts";
-import { changeFolderItems } from "./changefolder.ts";
+import { changeFolder, changeFolderItems } from "./changefolder.ts";
 import { runningRow } from "../center/home.ts";
 import { single } from "../center/openitems.ts";
 import { setProjectOnTop, newWindowOn, openProjects, addProject } from "../center/sidebar.ts";
 import { groupMenu, editGroup, startRename, renameGroup, removeGroup } from "./groups.ts";
 import { splitOn, projectSplit } from "./split.ts";
-import { redrawProjects, redrawProjectsPage, pc } from "./sections.ts";
+import { redrawProjects, redrawProjectsPage, pc, terms, fsync } from "./sections.ts";
 import { drawProjectComp, fillBar } from "./composer.ts";
-import { whereRow, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsSection } from "./loads.ts";
+import { whereRow, gitCells, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsSection } from "./loads.ts";
+import { terminalLine } from "../terminals/view.ts";
+import { go } from "../center/views.ts";
 import { IC } from "../ui/icons.ts";
 import { lazyRows } from "../ui/lazyrows.ts";
 import { byRecent, type RunningAgent } from "../agents/running-state.ts";
@@ -250,23 +252,73 @@ function startWithAgent(a: CustomAgentRow, place: AgentsPlace) {
   fillBar(name, agentPrompt(a.name), null);
 }
 
-/// "Where it lives": every machine with the project's folder there, or why
-/// there is none.
+/// Each machine's checkout, sync state and terminals in one flat section.
 export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
-  const where = headedTable("cc-pt pj-where", "Machine", "Folder", "");
-  where.style.gridTemplateColumns = "fit-content(40%) minmax(0,1fr) auto";
+  if (terms.list(p.name) === undefined) void terms.load(p.name);
+  terms.follow(p.name);
 
-  for (const m of rows) {
-    const cells = whereRow(p, m);
-    if (m.kind === "here" && p.imported) cells[2]?.append(removeButton(p.name, rows, m));
-    where.append(...cells);
-    const canHost = state.home?.machines?.find(x => x.id === m.id)?.can_host;
-    if (m.id) machineMenuWith({ id: m.id, name: m.name, online: m.kind !== "offline", can_host: canHost }, () => p.imported && canHost !== false ? [...changeFolderItems(p.name, m), ...removeMenuItems(p.name, rows, m)] : [], ...cells);
-  }
+  const machines = (sync: MachineDetail[], syncRow: (m: MachineDetail) => HTMLElement) => {
+    const all = terms.list(p.name);
+    const list = h("div", "pm-list");
 
-  // Once every machine answered, the note says the count instead.
-  return section("sec-where", "Where it lives", known ? "" : rows.filter(m => m.kind === "here").length, null, where,
-    known && h("small", "", `on ${whereCount(rows, true)}`), freshNote(pageFresh("where", p.name, readingWhere.has(p.name))));
+    for (const m of rows) {
+      const host = state.home?.machines?.find(x => x.id === m.id);
+      if (host?.can_host === false && !m.folder) continue;
+
+      const detail = sync.find(s => s.machine_id === m.id);
+      const online = host?.online ?? (detail ? detail.status !== "offline" : m.kind !== "offline");
+      const actions = h("span", "pm-actions");
+      const head = h("div", "pm-head", h("span", `ddot${online ? "" : " off"}`), h("b", "", m.name));
+      const machine = h("article", "pm-machine", head);
+      machine.setAttribute("aria-label", m.name);
+
+      if (m.folder) {
+        const from = m.folder;
+        const folder = h("code", "pm-folder", plainPath(from));
+        folder.title = plainPath(from);
+        head.append(folder);
+
+        if (p.imported && online) {
+          const change = button("Folder…", "small", () => changeFolder(p.name, m, from));
+          change.setAttribute("aria-label", `Change folder on ${m.name}`);
+          actions.append(change);
+        }
+
+        if (p.imported) actions.append(removeButton(p.name, rows, m));
+
+        const git = gitCells(p, m);
+        const status = detail ? syncRow(detail) : h("div", "fs-row pm-sync", h("div", "fs-m", online ? (fsync.detail(p.name) === null ? "Sync details unavailable" : "Reading sync state…") : "Machine offline"));
+        if (!online) git.buttons.forEach(b => { if (b instanceof HTMLButtonElement) b.disabled = true; });
+
+        const syncHead = status.querySelector(".fs-h");
+        const gitDetail = h("span", "pm-git", git.note, h("span", "pm-actions", ...git.buttons));
+        if (git.note || git.buttons.length) (syncHead ?? status).append(gitDetail);
+
+        const terminals = all?.filter(t => t.machine_id === m.id) ?? [];
+        const terminalHead = h("div", "pm-terminal-head", h("span", "", "Terminals"), h("small", "", all === undefined ? "Reading…" : all === null ? "Unavailable" : !online ? "Machine offline" : terminals.length ? plural(terminals.length, "terminal", "terminals") : "None running"));
+        machine.append(h("div", "pm-body", status, h("hr"), terminalHead,
+          ...terminals.map(t => terminalLine(t, () => go("pane", { draft: { project: p.name, machine: t.machine_id, terminal: t } })))));
+        machineMenuWith({ id: m.id, name: m.name, online, can_host: host?.can_host }, () => [
+          ...checkoutItems(p, m, from),
+          ...(p.imported ? [...changeFolderItems(p.name, m), ...removeMenuItems(p.name, rows, m)] : []),
+        ], head);
+      } else {
+        const cells = whereRow(p, m);
+        head.append(...cells.slice(1, 2));
+        if (cells[2]) actions.append(cells[2]);
+      }
+
+      head.append(actions);
+      list.append(machine);
+    }
+
+    if (!list.childElementCount) list.append(emptyPanel(h("span", "", "No machines have this project.")));
+    return list;
+  };
+
+  const contents = p.imported ? fsync.panel(p.name, undefined, machines) : [machines([], () => h("div"))];
+  return h("section", "pm-section", ...contents,
+    known ? null : h("small", "", `on ${whereCount(rows, false)}`), freshNote(pageFresh("where", p.name, readingWhere.has(p.name))));
 }
 
 /// The coding agents running in the project's folders now.
