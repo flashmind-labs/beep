@@ -1,4 +1,8 @@
 import { stashBar } from "../chat/stash.ts";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
+import { ComposerChoices, type ComposerChoicesState } from "./composer-choices.tsx";
 import { composeField, composeMessage } from "../chat/compose.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // The bar under a project page: its prompt, harness picker and checkout, and
@@ -8,7 +12,6 @@ import { sessionPicks } from "../agents/session.ts";
 import { reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 import { filterProjects } from "./projects-state.ts";
-import { el as h } from "../ui/dom.ts";
 import { openMenu } from "../ui/menu.ts";
 import { pageAgent } from "./agent.ts";
 import { addHosts, type BarTarget, barCheckout, barPlace, barPrompt, forgeOf, nextBarMachine, reviewKey, reviewPrompt, type ReviewSession, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
@@ -40,23 +43,21 @@ let finishCopy: (() => void) | undefined;
 
 export const projectComp = (() => {
   const composer = makeStartComposer({ presentation: "compact" });
-  const { form, input, choices, machine, folder, harness, pick } = composer;
+  const { form, input, choices, harness, pick } = composer;
   input.title += ", Shift+Tab switches machines";
-  machine.title += " (Shift+Tab in the task field)";
-  // Work on it's branch, editable, and Clear for what Work on it or
-  // Continue put in the bar.
-  const branch = h("input", "branch");
-  branch.type = "text";
-  branch.spellcheck = false;
-  branch.autocomplete = "off";
-  branch.setAttribute("aria-label", "Branch name");
-  branch.title = "The new branch, in a new worktree";
-  branch.addEventListener("input", () => { if (pc.target?.kind === "issue") pc.target.branch = branch.value; });
-  const clear = h("button", "dbtn quiet small", "Clear");
-  clear.type = "button";
-  clear.title = "Back to a plain start";
-  clear.addEventListener("click", () => { pc.target = null; input.value = ""; redrawProjects(); });
-  choices.append(branch, clear);
+  const choicesRoot = createRoot(choices);
+  const actions = {
+    machine: openMachineMenu,
+    folder: openFolderMenu,
+    branch: (value: string) => { if (pc.target?.kind === "issue") pc.target.branch = value; },
+    clear: () => { pc.target = null; input.value = ""; redrawProjects(); },
+  };
+  const renderChoices = (value: ComposerChoicesState) => flushSync(() => choicesRoot.render(createElement(ComposerChoices, { value, actions })));
+  renderChoices({ machine: "Machine", adding: false, machineDisabled: true, folder: "Current checkout", folderSub: "as it is", folderDisabled: true, branch: "", showBranch: false, showClear: false });
+  const machine = choices.querySelector<HTMLButtonElement>('[data-composer="machine"]');
+  const folder = choices.querySelector<HTMLButtonElement>('[data-composer="folder"]');
+  const extra = choices.querySelector<HTMLSpanElement>('[data-composer="extra"]');
+  if (!machine || !folder || !extra) throw new Error("Project composer choices did not mount");
   form.addEventListener("submit", e => { e.preventDefault(); startFromBar(); });
   input.addEventListener("keydown", e => {
     if (e.key === "Tab" && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.isComposing && !pc.adding && !pc.starting) {
@@ -74,30 +75,6 @@ export const projectComp = (() => {
 
       return;
     }
-  });
-  machine.addEventListener("click", e => {
-    const p = barProject(), hosts = pc.hosts ?? [];
-    if (!p || pc.adding) return;
-
-    if (!barPlace(p.places, hosts, pc.machine)) {
-      openMenu(e, "Add to a machine", addHosts(hosts).map(m => ({ label: m.machine_name, on: () => addToMachine(p.name, m) })));
-      return;
-    }
-
-    const able = addHosts(hosts).filter(m => p.places.some(x => x.machine === m.machine_id));
-    openMenu(e, "Machine", able.map(m => ({ label: m.machine_name, on: () => { pc.machine = m.machine_id; keepMachine(p.name, m.machine_id); redrawProjects(); } })));
-  });
-  folder.addEventListener("click", e => {
-    const p = barProject(), place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
-    if (!place) return;
-    const trees = knownWorktrees(sessions, place.machine_id, place.cwd);
-    const pick = (to: CheckoutPick) => () => { pc.checkout = to; pc.target = null; redrawProjects(); };
-    openMenu(e, "Folder", [
-      { label: `Current checkout (${place.cwd.split("/").pop()})`, on: pick("current") },
-      { label: "New worktree", on: pick("new") },
-      { label: "New branch in the checkout", on: pick("branch") },
-      ...trees.map(t => ({ label: `Worktree ${t.split("/").pop()}`, on: pick({ worktree: t }) })),
-    ]);
   });
   // The start form's picker, here above the bar.
   harness.addEventListener("click", () => {
@@ -117,8 +94,32 @@ export const projectComp = (() => {
   addEventListener("mousedown", e => {
     if (pc.open && !pick.contains(e.target as Node) && !harness.contains(e.target as Node)) closeBarPicker();
   }, true);
-  return { ...composer, branch, clear };
+  return { ...composer, machine, folder, extra, renderChoices };
 })();
+
+function openMachineMenu(e: MouseEvent) {
+  const p = barProject(), hosts = pc.hosts ?? [];
+  if (!p || pc.adding) return;
+  if (!barPlace(p.places, hosts, pc.machine)) {
+    openMenu(e, "Add to a machine", addHosts(hosts).map(m => ({ label: m.machine_name, on: () => addToMachine(p.name, m) })));
+    return;
+  }
+  const able = addHosts(hosts).filter(m => p.places.some(x => x.machine === m.machine_id));
+  openMenu(e, "Machine", able.map(m => ({ label: m.machine_name, on: () => { pc.machine = m.machine_id; keepMachine(p.name, m.machine_id); redrawProjects(); } })));
+}
+
+function openFolderMenu(e: MouseEvent) {
+  const p = barProject(), place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
+  if (!place) return;
+  const trees = knownWorktrees(sessions, place.machine_id, place.cwd);
+  const pick = (to: CheckoutPick) => () => { pc.checkout = to; pc.target = null; redrawProjects(); };
+  openMenu(e, "Folder", [
+    { label: `Current checkout (${place.cwd.split("/").pop()})`, on: pick("current") },
+    { label: "New worktree", on: pick("new") },
+    { label: "New branch in the checkout", on: pick("branch") },
+    ...trees.map(t => ({ label: `Worktree ${t.split("/").pop()}`, on: pick({ worktree: t }) })),
+  ]);
+}
 
 const barAttachments = startAttachments(projectComp, text => { projectComp.err.textContent = text; }, () => {
   const p = barProject();
@@ -198,16 +199,15 @@ export function drawProjectComp(name: string) {
   c.input.placeholder = c.centered() ? "Describe the task." : barPrompt(name, (!!place && !pc.adding) || pc.hosts === null);
   // Text set or cleared from code (Work on it, a start) fits once drawn.
   requestAnimationFrame(c.grow);
-  c.machine.replaceChildren(...(pc.adding ? [pc.adding.machine_name, " ", h("small", "", "adding")]
-    : [place ? place.machine_name : pc.hosts ? "Add to a machine" : "Machine"]));
-  c.machine.disabled = !!pc.adding || pc.starting;
   const t = pc.target;
   const co = t ? targetCheckout(t) : barCheckout(pc.checkout, baseFor(null, pc.branches.get(name)));
-  c.folder.replaceChildren(co.label, " ", h("small", "", co.sub));
-  c.folder.disabled = !place || pc.starting;
-  c.branch.hidden = t?.kind !== "issue" || !!t.review?.earlier;
-  if (t?.kind === "issue" && document.activeElement !== c.branch) c.branch.value = t.branch;
-  c.clear.hidden = !t;
+  c.renderChoices({
+    machine: pc.adding?.machine_name ?? (place ? place.machine_name : pc.hosts ? "Add to a machine" : "Machine"),
+    adding: !!pc.adding, machineDisabled: !!pc.adding || pc.starting,
+    folder: co.label, folderSub: co.sub, folderDisabled: !place || pc.starting,
+    branch: t?.kind === "issue" ? t.branch : "", showBranch: t?.kind === "issue" && !t.review?.earlier,
+    showClear: !!t,
+  });
   const { host, offered, agent } = barHarness(pc.adding ?? place ?? addHosts(pc.hosts ?? [])[0] ?? null);
 
   if (agent && host) {
@@ -354,7 +354,7 @@ export function fixConflict(name: string, c: Conflict) {
 /// The picker above the bar, when open.
 function drawBarPicker(host: AgentHost | null, offered: string[]) {
   const el = projectComp.pick, p = pc.picked;
-  if (!pc.open || !host || !p.agent) { el.innerHTML = ""; closedPicker(el); return; }
+  if (!pc.open || !host || !p.agent) { closedPicker(el); el.innerHTML = ""; return; }
   const focused = el.contains(document.activeElement);
   drawPicker(el, {
     picked: p,
