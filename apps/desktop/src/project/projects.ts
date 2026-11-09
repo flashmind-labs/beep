@@ -1,6 +1,5 @@
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { removeWindowPart, removeWindowParts, showWindowParts } from "../center/window-root.ts";
 import { ProjectRunning } from "./running-view.tsx";
 import { OverviewGroupView } from "./overview-view.tsx";
 import { MV } from "../agents/move-store.ts";
@@ -94,10 +93,10 @@ function projectListRow(p: Project, online: ReadonlyMap<string, boolean>) {
 
 /// Every project as a card, grouped by org: its tasks per state, its
 /// workers, what changed last and where it lives.
-const overviewRoots = new Map<string, { host: HTMLElement; root: Root }>();
+const overviewRoots = new Map<string, { host: HTMLElement }>();
 
 export function disposeOverview() {
-  for (const entry of overviewRoots.values()) entry.root.unmount();
+  removeWindowParts([...overviewRoots.keys()].map(id => `project-overview:${id}` as const));
   overviewRoots.clear();
 }
 
@@ -105,18 +104,20 @@ export function overviewSection(rows: Project[]) {
   const groups = overviewGroups(rows, state.overview, state.top, state.groups);
   const key = (g: typeof groups[number]) => g.group ? `group:${g.group.id}` : `org:${g.org ?? ""}`;
   const valid = new Set(groups.map(key));
-  for (const [id, entry] of overviewRoots) if (!valid.has(id)) { entry.root.unmount(); overviewRoots.delete(id); }
+  const removed = [...overviewRoots.keys()].filter(id => !valid.has(id));
+  removeWindowParts(removed.map(id => `project-overview:${id}` as const));
+  for (const id of removed) overviewRoots.delete(id);
   let drawing = true;
   const out = lazyRows("projects-overview", "", groups.length, (from, to) => groups.slice(from, to).map(group => {
     const id = key(group);
     let entry = overviewRoots.get(id);
     if (!entry) {
       const host = h("section", "pj-org");
-      entry = { host, root: createRoot(host) };
+      entry = { host };
       overviewRoots.set(id, entry);
     }
     const current = entry;
-    flushSync(() => current.root.render(createElement(OverviewGroupView, { group, sync: (name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name)) })));
+    showWindowParts([{ part: `project-overview:${id}`, host: current.host, content: createElement(OverviewGroupView, { group, sync: (name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name)) }) }]);
     return drawing ? panelSlot(current.host) : current.host;
   }), 0, 1, row => projectPanel(row) ?? row);
   drawing = false;
@@ -180,7 +181,7 @@ function startWithAgent(a: CustomAgentRow, place: AgentsPlace) {
   fillBar(name, agentPrompt(a.name), null);
 }
 
-let whereView: { project: string; host: HTMLElement; root: Root } | null = null;
+let whereView: { project: string; host: HTMLElement } | null = null;
 
 /// Each machine's checkout, sync state and terminals in one flat section.
 export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
@@ -212,28 +213,28 @@ export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
       terminalSummary: all === undefined ? "Reading…" : all === null ? "Unavailable" : !online ? "Machine offline" : terminals.length ? plural(terminals.length, "terminal", "terminals") : "None running" });
   }
   if (!whereView || whereView.project !== p.name) {
-    whereView?.root.unmount();
+    if (whereView) removeWindowPart("project-where");
     const host = h("section", "pm-section");
-    whereView = { project: p.name, host, root: createRoot(host) };
+    whereView = { project: p.name, host };
   }
   const view = whereView, note = pageFresh("where", p.name, readingWhere.has(p.name));
-  flushSync(() => view.root.render(createElement(MachinesSection, { sync: fsync, project: p.name, items, model, imported: p.imported, known,
-    count: whereCount(rows, false), fresh: note })));
+  showWindowParts([{ part: "project-where", host: view.host, identity: p.name, content: createElement(MachinesSection, { sync: fsync, project: p.name, items, model, imported: p.imported, known,
+    count: whereCount(rows, false), fresh: note }) }]);
   return panelSlot(view.host);
 }
 
 /// The coding agents running in the project's folders now.
-let runningView: { host: HTMLElement; root: Root } | null = null;
+let runningView: { host: HTMLElement } | null = null;
 
-export function disposeRunningAgents() { runningView?.root.unmount(); runningView = null; }
+export function disposeRunningAgents() { if (runningView) removeWindowPart("project-running"); runningView = null; }
 
 export function agentsSection(running: RunningAgent[]) {
   if (!runningView) {
     const host = h("div");
     host.id = "sec-project-agents";
-    runningView = { host, root: createRoot(host) };
+    runningView = { host };
   }
   const current = runningView;
-  flushSync(() => current.root.render(createElement(ProjectRunning, { running })));
+  showWindowParts([{ part: "project-running", host: current.host, content: createElement(ProjectRunning, { running }) }]);
   return panelSlot(current.host);
 }

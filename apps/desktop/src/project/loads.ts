@@ -1,6 +1,5 @@
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { removeWindowPart, removeWindowParts, showWindowParts } from "../center/window-root.ts";
 import { ProjectSessions } from "./sessions-view.tsx";
 import { refreshMoves, MV } from "../agents/move-store.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
@@ -484,24 +483,25 @@ async function readWhere(name: string) {
 
 /// Ended sessions in the project's folders, newest first; each opens.
 const sessionSlots = new WeakMap<Element, HTMLElement>();
-const sessionLists = new Map<boolean, { project: string; host: HTMLElement; root: Root }>();
+const sessionLists = new Map<boolean, { project: string; host: HTMLElement }>();
+const sessionPart = (all: boolean) => `project-sessions:${all ? "all" : "recent"}` as const;
 
 export function sessionPanel(slot: Element) { return sessionSlots.get(slot) ?? null; }
-export function disposeSessionPanel() { for (const list of sessionLists.values()) list.root.unmount(); sessionLists.clear(); }
+export function disposeSessionPanel() { removeWindowParts([...sessionLists.keys()].map(sessionPart)); sessionLists.clear(); }
 
 function sessionListSlot(project: string, rows: SessionRow[], all: boolean) {
   let current = sessionLists.get(all);
-  if (current && current.project !== project) { current.root.unmount(); sessionLists.delete(all); current = undefined; }
+  if (current && current.project !== project) { removeWindowPart(sessionPart(all)); sessionLists.delete(all); current = undefined; }
   if (!current) {
     const host = h("div", "cc-panel");
-    current = { project, host, root: createRoot(host) };
+    current = { project, host };
     sessionLists.set(all, current);
   }
   const list = current;
-  flushSync(() => list.root.render(createElement(ProjectSessions, {
+  showWindowParts([{ part: sessionPart(all), host: list.host, identity: project, content: createElement(ProjectSessions, {
     rows, all, open: openAgentRow,
     menu: (event: MouseEvent, row: SessionRow) => void sessionMenu(event, row, selected => go("pane", { agent: selected })),
-  })));
+  }) }]);
   const slot = h("div");
   sessionSlots.set(slot, list.host);
   return slot;
