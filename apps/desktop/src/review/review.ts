@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { ReviewFindings } from "./review-findings.tsx";
+import { ReviewActions, ReviewHeading } from "./review-controls.tsx";
 import { patchChildren } from "../ui/patch.ts";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // review/: a project's branches and reviews. Entry:
@@ -328,6 +329,7 @@ export function makeReviews(deps: ReviewDeps) {
   let unfollow: (() => void) | undefined;
   let polling: string | null = null;
   let findingsView: { project: string; host: HTMLElement; root: Root } | null = null;
+  let controls: { project: string; head: HTMLElement; headRoot: Root; actions: HTMLElement; actionsRoot: Root } | null = null;
   let detailView: { project: string; host: HTMLElement; error: HTMLElement; before: HTMLElement; after: HTMLElement } | null = null;
 
   /// A project's branches and reviews, from the cache until they are read.
@@ -595,17 +597,6 @@ export function makeReviews(deps: ReviewDeps) {
 
   // ---------- Review ----------
 
-  function fact(f: ReviewFact) {
-    const box = h("span", `rv-fact${f.bad ? " bad" : ""}`);
-    if (f.spin) box.append(h("span", "dspin"));
-    else if (f.dot != null) box.append(h("span", `ddot${f.dot ? " " + f.dot : ""}`));
-    if (f.pre) box.append(f.pre);
-    if (f.bold) box.append(h("b", "", f.bold));
-    if (f.code) box.append(h("code", "", f.code));
-    box.append(f.text);
-    return box;
-  }
-
   function reviewPanel(name: string) {
     const t = of(name);
     const out: HTMLElement[] = [];
@@ -625,26 +616,21 @@ export function makeReviews(deps: ReviewDeps) {
       return out;
     }
 
-    const st = reviewState(r);
-    const running = st === "running";
     checkHead(name, r);
     const now = t.now?.id === r.id ? t.now : null;
     const stale = staleText(r, now);
-    const pill = h("span", `rv-pill ${stale ? "changes" : st}`, running ? h("span", "dspin") : null, stale ? "Stale" : STATE_LABEL[st]);
-    const tools = h("span", "rv-tools");
     const pr = r.pr;
-    const diff = deps.diff?.(name, r.branch);
-    if (diff) tools.append(button("View diff", "", diff));
-    if (pr) tools.append(button(`PR #${pr.number}`, "", () => openUrl(pr.url)));
-
-    if (!running) {
-      const again = button("Run again", "", () => openBranch(name, r.branch, true));
-      again.title = "Reviews the branch head again";
-      tools.append(again);
+    if (!controls || controls.project !== name) {
+      controls?.headRoot.unmount(); controls?.actionsRoot.unmount();
+      const head = h("div"), actions = h("div");
+      head.style.display = actions.style.display = "contents";
+      controls = { project: name, head, actions, headRoot: createRoot(head), actionsRoot: createRoot(actions) };
     }
-
-    out.push(h("div", "rv-head", h("h3", "", `Review ${r.branch} into ${r.base}`), pill));
-    out.push(h("div", "rv-facts", ...reviewFacts(r, ago).map(fact), tools));
+    const currentControls = controls;
+    flushSync(() => currentControls.headRoot.render(createElement(ReviewHeading, {
+      review: r, now, ago, diff: deps.diff?.(name, r.branch) ?? null, openPr: (url: string) => void openUrl(url), again: () => void openBranch(name, r.branch, true),
+    })));
+    out.push(currentControls.head);
     if (t.error) out.push(errorNote(t.error));
     if (t.note) out.push(note("", t.note));
 
@@ -673,18 +659,10 @@ export function makeReviews(deps: ReviewDeps) {
     flushSync(() => current.root.render(createElement(ReviewFindings, { review: r, busy: t.busy, dismiss: (finding: FindingView) => void dismiss(name, r, finding) })));
     out.push(current.host);
 
-    const open = openFindings(r).length;
-    const why = mergeBlock(r, now);
-    const fixB = button(t.busy === "fix" ? "Starting…" : "Fix with worker", open && !running ? "pri" : "", () => fix(name, r));
-    fixB.disabled = running || !open || !!t.busy;
-    fixB.title = open ? `Starts a task on ${r.branch} with ${plural(open, "finding", "findings")}` : "";
-    const postB = button(t.busy === "post" ? "Asking…" : "Post review…", "", () => post(name, r));
-    postB.disabled = running || !pr || !!t.busy;
-    postB.title = pr ? "The project agent posts it; its card asks you first" : "The branch has no pull request";
-    const mergeOk = !running && why.startsWith("Merge always");
-    const mergeB = button(t.busy === "merge" ? "Asking…" : "Merge…", mergeOk ? "pri" : "", () => merge(name, r));
-    mergeB.disabled = !mergeOk || !!t.busy;
-    out.push(h("div", "rv-bar", fixB, postB, mergeB, h("small", "", why)));
+    flushSync(() => currentControls.actionsRoot.render(createElement(ReviewActions, {
+      review: r, now, busy: t.busy, fix: () => void fix(name, r), post: () => void post(name, r), merge: () => void merge(name, r),
+    })));
+    out.push(currentControls.actions);
     watch(name);
     return out;
   }
@@ -721,6 +699,6 @@ export function makeReviews(deps: ReviewDeps) {
     branchesPanel,
     reviewPanel,
     reviewDetail,
-    stop: () => { watch(null); findingsView?.root.unmount(); findingsView = null; detailView = null; },
+    stop: () => { watch(null); findingsView?.root.unmount(); findingsView = null; controls?.headRoot.unmount(); controls?.actionsRoot.unmount(); controls = null; detailView = null; },
   };
 }
