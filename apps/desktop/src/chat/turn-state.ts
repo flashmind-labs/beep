@@ -2,6 +2,8 @@ import type { Step, Turn, TurnThought } from "../ui/turn.ts";
 
 // Runtime state follows the conversation turn rather than the mounted view.
 export interface TurnState {
+  question: string | null;
+  reply: string;
   steps: Step[];
   folded: boolean;
   done: boolean;
@@ -21,7 +23,7 @@ const states = new WeakMap<Turn, TurnState>();
 export function turnState(turn: Turn): TurnState {
   let current = states.get(turn);
   if (!current) {
-    current = { steps: [], folded: true, done: false, user: null, failed: false, stopped: false, started: null, agent: null, model: null, status: null, begun: null, ended: null, thought: null };
+    current = { question: null, reply: "", steps: [], folded: true, done: false, user: null, failed: false, stopped: false, started: null, agent: null, model: null, status: null, begun: null, ended: null, thought: null };
     states.set(turn, current);
   }
   return current;

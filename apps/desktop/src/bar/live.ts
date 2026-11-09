@@ -272,6 +272,7 @@ export function takeDraft(ask: HTMLTextAreaElement | null) {
 }
 /// Shows what the user said in place of the waiting prompt.
 export function heard(turn: Turn, text: string) {
+  turnState(turn).question = text;
   let ask = turn.querySelector<HTMLElement>(ASK);
   if (!ask) turn.prepend(ask = h(userRowHtml("")));
   if (!updateChatPrompt(turn, esc(text))) {
