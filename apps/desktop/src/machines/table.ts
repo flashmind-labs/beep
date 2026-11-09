@@ -126,7 +126,7 @@ export async function useThisMac() {
 
 /// A machine the window can offer to remove: any but this Mac, which
 /// unlinks from Settings.
-interface Removable {
+export interface Removable {
   id: string;
   name: string;
   online?: boolean;
@@ -141,13 +141,15 @@ export function machineMenu(m: Removable, ...els: Element[]) {
 
 /// `machineMenu` with the lines `first` gives on top, read when the menu opens.
 export function machineMenuWith(m: Removable, first: () => MenuItem[], ...els: Element[]) {
-  for (const el of els) el.addEventListener("contextmenu", e => {
-    if (!m.id) return;
-    const items: MenuItem[] = [...first()];
-    if (m.online !== false && m.can_host !== false) items.push({ label: "New terminal", on: () => openTerminals({ newOn: m.id }) });
-    if (m.id !== state.mac?.id) items.push({ label: "Remove…", warn: true, on: () => removeMachine(m) });
-    if (items.length) openMenu(e as MouseEvent, m.name, items);
-  });
+  for (const el of els) el.addEventListener("contextmenu", e => showMachineMenu(m, first, e as MouseEvent));
+}
+
+export function showMachineMenu(m: Removable, first: () => MenuItem[], e: MouseEvent) {
+  if (!m.id) return;
+  const items: MenuItem[] = [...first()];
+  if (m.online !== false && m.can_host !== false) items.push({ label: "New terminal", on: () => openTerminals({ newOn: m.id }) });
+  if (m.id !== state.mac?.id) items.push({ label: "Remove…", warn: true, on: () => removeMachine(m) });
+  if (items.length) openMenu(e, m.name, items);
 }
 
 /// Asks, then unlinks `m` from the account.
