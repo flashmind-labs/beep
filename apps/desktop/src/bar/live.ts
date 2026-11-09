@@ -1,6 +1,6 @@
 import { turnState } from "../chat/turn-state.ts";
 import { discardChatApproval } from "../chat/work-view.tsx";
-import { renderChatPrompt, updateChatPrompt } from "../chat/work-view.tsx";
+import { ensureChatPrompt, renderChatPrompt, updateChatPrompt } from "../chat/work-view.tsx";
 import { ASK, askText, body, owningChatBody, type Decision, focusAsk, followAnswered, forRoutine, newTurn, removeChatSuggestions, renderChat, scrollDown, settle, startRun } from "../chat/chat.ts";
 import { touch } from "../chat/chats.ts";
 import { $, $$, bar, entry, here, live, PANE, S } from "./core.ts";
@@ -274,7 +274,10 @@ export function takeDraft(ask: HTMLTextAreaElement | null) {
 export function heard(turn: Turn, text: string) {
   turnState(turn).question = text;
   let ask = turn.querySelector<HTMLElement>(ASK);
-  if (!ask) turn.prepend(ask = h(userRowHtml("")));
+  if (!ask) {
+    ask = ensureChatPrompt(turn);
+    if (!ask) turn.prepend(ask = h(userRowHtml("")));
+  }
   if (!updateChatPrompt(turn, esc(text))) {
     const owner = owningChatBody(turn);
     if (owner) { ask.replaceChildren(); renderChatPrompt(owner, turn, ask, esc(text)); }

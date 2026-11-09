@@ -308,12 +308,12 @@ function mergeTurn(old: Turn, fresh: Turn) {
     seen.set(el.className, n + 1);
     return `${el.className}#${n}`;
   };
-  const before = new Map([...old.children].map(el => [keyOf(el), el]));
+  const before = new Map([...old.children].filter(el => !el.hasAttribute("data-chat-anchor")).map(el => [keyOf(el), el]));
   seen.clear();
   const matched = new Set<Element>();
   let prev: Element | null = null;
 
-  for (const el of [...fresh.children]) {
+  for (const el of [...fresh.children].filter(el => !el.hasAttribute("data-chat-anchor"))) {
     const was = before.get(keyOf(el));
     if (was) matched.add(was);
 

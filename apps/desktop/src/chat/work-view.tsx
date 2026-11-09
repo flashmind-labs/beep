@@ -154,7 +154,7 @@ const Work = memo(function Work({ value }: { value: WorkView }) {
 function draw(owner: Owner) {
   flushSync(() => owner.root.render(createElement(Fragment, null,
     owner.host ? createElement("div", { key: "body", className: "dbody", id: "body", ref: owner.setBody }) : null,
-    ...[...owner.frames].map(([host, row]) => createPortal(createElement("div", { className: "turn dcoderlog", ref: row.setTurn }, row.value.prompt ? createElement("div", { className: "dcoderen user", key: "prompt" }) : null, row.value.pictures ? createElement("div", { className: "dpics", key: "pictures" }) : null), host, row.key)),
+    ...[...owner.frames].map(([host, row]) => createPortal(createElement("div", { className: "turn dcoderlog", ref: row.setTurn }, row.value.prompt ? createElement("div", { className: "dcoderen user", key: "prompt" }) : null, row.value.pictures ? createElement("div", { className: "dpics", key: "pictures" }) : null, createElement("template", { key: "anchor", "data-chat-anchor": "" })), host, row.key)),
     ...[...owner.charts].map(([host, row]) => createPortal(createElement(ChartView, { card: host, initial: row.chart }), host, row.key)),
     ...[...owner.notices].map(([host, row]) => createPortal(createElement(Notice, { value: row.value }), host, row.key)),
     ...[...owner.products].map(([host, row]) => createPortal(createElement(Html, { html: row.html }), host, row.key)),
@@ -218,6 +218,15 @@ export function createChatTurn(body: ChatBody, value: TurnFrame): Turn {
   return turn;
 }
 
+export function ensureChatPrompt(turn: Turn): HTMLElement | null {
+  const entry = turnHosts.get(turn), frame = entry?.owner.frames.get(entry.host);
+  if (!entry || !frame) return null;
+  if (!frame.value.prompt) {
+    frame.value = { ...frame.value, prompt: true };
+    draw(entry.owner);
+  }
+  return turn.querySelector<HTMLElement>(":scope > .dcoderen.user");
+}
 export function chatTurnHost(turn: Turn): HTMLElement {
   return turnHosts.get(turn)?.host ?? turn;
 }

@@ -5,6 +5,7 @@ import { turnState } from "../src/chat/turn-state.ts";
 import { askText, body, chatReplyHtml, follow, newTurn, setChatReply, startRun } from "../src/chat/chat.ts";
 import type { BarEvent } from "../src/chat/chat.ts";
 import { S } from "../src/bar/core.ts";
+import { heard } from "../src/bar/live.ts";
 import { refreshSession } from "../src/chat/history.ts";
 import type { HistoryTurn } from "../src/chat/history.ts";
 
@@ -136,4 +137,18 @@ test("an unchanged history snapshot does not rebuild turn markup", async t => {
   events.onmessage({ kind: "finished", status: "completed" });
   await refreshSession(SESSION);
   assert.equal(body()!.querySelector(".dcoderen.agent p")?.textContent, "Changed.");
+});
+
+
+test("a live transcription creates its prompt before existing work", () => {
+  S.view = "chat";
+  S.session = SESSION;
+  bar.innerHTML = '<div class="dbody" id="body"></div><div class="dhints"></div>';
+  const turn = newTurn("");
+  startRun(SESSION, turn, null);
+  heard(turn, "Spoken prompt");
+  assert.equal(askText(turn), "Spoken prompt");
+  const prompt = turn.querySelector(".dcoderen.user");
+  assert.equal(prompt?.textContent, "YouSpoken prompt");
+  assert.ok(prompt && turn.querySelector(".tools") && !!(prompt.compareDocumentPosition(turn.querySelector(".tools")!) & Node.DOCUMENT_POSITION_FOLLOWING));
 });
