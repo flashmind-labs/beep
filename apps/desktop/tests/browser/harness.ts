@@ -21,6 +21,9 @@ interface NavigationHarness {
   calls(): NativeCall[];
   respond(command: string, value: unknown): void;
   notify(topic: string): void;
+  emit(name: string, payload: unknown): void;
+  hold(command: string): void;
+  release(command: string): void;
 }
 type NativeHandler = (event: { payload: unknown }) => void;
 interface NativeBoundary {
@@ -63,6 +66,8 @@ export async function openDesktop(page: Page, streaming = false, responses: Reco
 function installNativeBoundary(data: Fixture & { responses: Record<string, unknown> }): void {
   interface EventChannel { onmessage(event: unknown): void }
   const channel = (value: unknown): value is EventChannel => value !== null && typeof value === "object" && "onmessage" in value && typeof value.onmessage === "function";
+  const held = new Set<string>();
+  const releases = new Map<string, () => void>();
   const readers = new Map<string, { channel: EventChannel; topics: { machine: string | null; topic: string }[] }>();
   let processes: RunningProcess[] = [];
   let revision = 0;
@@ -89,6 +94,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
     core: {
       async invoke(command, args = {}) {
         calls.push({ command, args });
+        if (held.has(command)) await new Promise<void>(resolve => { releases.set(command, resolve); });
         if (command === "center_pending") { pendingReads++; const target = pending; pending = null; return target; }
 
         if (command === "mesh_watch") {
@@ -147,6 +153,9 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
       for (const reader of readers.values()) if (reader.topics.some(interest => interest.topic === event.topic || interest.topic === "processes.*")) reader.channel.onmessage(event);
     },
     worktrees(rows) { answers.agent_worktrees = rows; },
+    emit(name, payload) { for (const handler of handlers.get(name) ?? []) handler({ payload }); },
+    hold(command) { held.add(command); },
+    release(command) { held.delete(command); releases.get(command)?.(); releases.delete(command); },
     calls: () => calls,
     respond(command, value) { answers[command] = value; },
     notify(topic) {
