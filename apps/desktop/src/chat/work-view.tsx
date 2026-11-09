@@ -24,15 +24,18 @@ export interface WorkThought { key: string; text: string; ms: number | null; liv
 export interface WorkLive { thinking: boolean; start: number | null }
 export interface WorkView { heading: TurnHeading | null; thought: WorkThought | null; steps: WorkStep[]; live: WorkLive | null }
 type Source = WebSource & { site: string };
+interface RerunChoice { id: string; name: string; detail: string; used: boolean }
+interface RerunView { choices: RerunChoice[]; levels: { id: string; label: string }[]; run(model: string, thinking: string | null): void }
 interface ReplyActions { copy: boolean; rerun: boolean; agent: string | null }
 interface ApprovalView { app: string; action: string; fields: ApprovalField[]; grant: boolean; answer: (decision: Decision) => void }
 type StatusNotice = { kind: "label"; message: string } | { kind: "error"; message: string } | { kind: "stopped"; message: string; retry: boolean };
 interface TurnFrame { prompt: boolean; pictures: boolean }
-interface Owner { coders: Map<HTMLElement, { key: number; view: ReactElement }>; routes: Map<HTMLElement, { key: number; callId: string }>; frames: Map<HTMLElement, { key: number; value: TurnFrame; setTurn(element: HTMLDivElement | null): void }>; host: HTMLElement | null; body: ChatBody | null; setBody(element: HTMLDivElement | null): void; charts: Map<ChartCard, { key: number; chart: Chart }>; notices: Map<HTMLElement, { key: number; value: StatusNotice }>; products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
+interface Owner { menus: Map<HTMLElement, { key: number; value: RerunView }>; coders: Map<HTMLElement, { key: number; view: ReactElement }>; routes: Map<HTMLElement, { key: number; callId: string }>; frames: Map<HTMLElement, { key: number; value: TurnFrame; setTurn(element: HTMLDivElement | null): void }>; host: HTMLElement | null; body: ChatBody | null; setBody(element: HTMLDivElement | null): void; charts: Map<ChartCard, { key: number; chart: Chart }>; notices: Map<HTMLElement, { key: number; value: StatusNotice }>; products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: Root; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; value: WorkView }>; replies: Map<HTMLElement, { key: number; html: string }>; next: number }
 // A retained chat body owns all its portals, including detached turns while
 // history is merged. Transfer moved hosts before discarding the fresh turn.
 const owners = new WeakMap<ChatBody, Owner>();
 const turnHosts = new WeakMap<Turn, { host: HTMLElement; owner: Owner }>();
+const menuTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
 const routeTurns = new WeakMap<Turn, { owner: Owner; boxes: HTMLElement[] }>();
 const chartTurns = new WeakMap<Turn, { owner: Owner; boxes: ChartCard[] }>();
 const noticeTurns = new WeakMap<Turn, { owner: Owner; boxes: HTMLElement[] }>();
@@ -128,6 +131,10 @@ const Sources = memo(function Sources({ items }: { items: Source[] }) {
   const shown = open ? items : items.slice(0, 3), more = items.length - shown.length;
   return <>{shown.map((source, i) => <button key={`${source.url}:${i}`} className="dsrc" data-i={i} title={source.title || source.url} onClick={() => void invoke("open_url", { url: source.url }).catch(() => {})}><i>{source.site[0].toUpperCase()}</i><span>{source.site}</span></button>)}{more > 0 && <button className="dsrc more" aria-label={`Show ${more} more sources`} onClick={() => setOpen(true)}>+{more}</button>}</>;
 });
+function RerunMenu({ value }: { value: RerunView }) {
+  const [thinking, setThinking] = useState("default");
+  return <>{value.choices.map(choice => <button key={choice.id} className="mi" role="menuitem" data-rerun={choice.id} aria-current={choice.used ? "true" : undefined} onClick={event => { event.stopPropagation(); value.run(choice.id, thinking === "default" ? null : thinking); }}><b>{choice.name}</b>{choice.used && <span className="ok" dangerouslySetInnerHTML={{ __html: ICON.check }} />}<small>{choice.detail}</small></button>)}<div className="think">Thinking<span className="dchips">{value.levels.map(level => <button key={level.id} className="dchip" data-rthink={level.id} aria-pressed={level.id === thinking} onClick={event => { event.stopPropagation(); setThinking(level.id); }}>{level.label}</button>)}</span></div></>;
+}
 const ReplyActionsView = memo(function ReplyActionsView({ value }: { value: ReplyActions }) {
   return <>{value.copy && <button className="dcopy" data-act="copyReply"><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: COPY_ICON }} />Copy</button>}{value.rerun && <span className="drerun"><button className="dcopy" data-act="rerunMenu" aria-haspopup="menu" aria-expanded={false}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: PLAY_ICON }} />Rerun<span className="dchev" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></button></span>}{value.agent && <span className="dagent" title="The agent that answered">{value.agent}</span>}</>;
 });
@@ -157,6 +164,7 @@ function draw(owner: Owner) {
   flushSync(() => owner.root.render(createElement(Fragment, null,
     owner.host ? createElement("div", { key: "body", className: "dbody", id: "body", ref: owner.setBody }) : null,
     ...[...owner.frames].map(([host, row]) => createPortal(createElement("div", { className: "turn dcoderlog", ref: row.setTurn }, row.value.prompt ? createElement("div", { className: "dcoderen user", key: "prompt" }) : null, row.value.pictures ? createElement("div", { className: "dpics", key: "pictures" }) : null, createElement("template", { key: "anchor", "data-chat-anchor": "" })), host, row.key)),
+    ...[...owner.menus].map(([host, row]) => createPortal(createElement(RerunMenu, { value: row.value }), host, row.key)),
     ...[...owner.coders].map(([host, row]) => createPortal(row.view, host, row.key)),
     ...[...owner.routes].map(([host, row]) => createPortal(createElement(RouteView, { callId: row.callId }), host, row.key)),
     ...[...owner.charts].map(([host, row]) => createPortal(createElement(ChartView, { card: host, initial: row.chart }), host, row.key)),
@@ -176,7 +184,7 @@ function draw(owner: Owner) {
 }
 function makeOwner(host: HTMLElement | null): Owner {
   const container = host ?? document.createElement("div");
-  const owner: Owner = { coders: new Map(), routes: new Map(), frames: new Map(), host, body: null, setBody: element => { owner.body = element; }, charts: new Map(), notices: new Map(), products: new Map(), replyPictures: new Map(), sentFiles: new Map(), pictures: new Map(), files: new Map(), root: createRoot(container), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 };
+  const owner: Owner = { menus: new Map(), coders: new Map(), routes: new Map(), frames: new Map(), host, body: null, setBody: element => { owner.body = element; }, charts: new Map(), notices: new Map(), products: new Map(), replyPictures: new Map(), sentFiles: new Map(), pictures: new Map(), files: new Map(), root: createRoot(container), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 };
   return owner;
 }
 function ownerOf(body: ChatBody) {
@@ -233,6 +241,17 @@ export function ensureChatPrompt(turn: Turn): HTMLElement | null {
 }
 export function chatTurnHost(turn: Turn): HTMLElement {
   return turnHosts.get(turn)?.host ?? turn;
+}
+export function renderChatRerunMenu(body: ChatBody, turn: Turn, box: HTMLElement, value: RerunView) {
+  const owner = ownerOf(body);
+  menuTurns.set(turn, { owner, box });
+  owner.menus.set(box, { key: ++owner.next, value });
+  draw(owner);
+}
+export function discardChatRerunMenu(turn: Turn) {
+  const entry = menuTurns.get(turn);
+  menuTurns.delete(turn);
+  if (entry) { entry.owner.menus.delete(entry.box); draw(entry.owner); }
 }
 export function renderChatCoderCards(body: ChatBody, cards: readonly { host: HTMLElement; view: ReactElement }[]) {
   const owner = ownerOf(body), next = new Map<HTMLElement, { key: number; view: ReactElement }>();
@@ -500,8 +519,9 @@ export function discardChatWork(turn: Turn) {
   const frame = turnHosts.get(turn);
   turnHosts.delete(turn);
   if (frame) frame.owner.frames.delete(frame.host);
-  const routes = routeTurns.get(turn), charts = chartTurns.get(turn), notices = noticeTurns.get(turn), products = productTurns.get(turn), replyPictures = replyPictureTurns.get(turn), sentFiles = sentFileTurns.get(turn), pictures = pictureTurns.get(turn), files = fileTurns.get(turn), sources = sourceTurns.get(turn), actions = actionTurns.get(turn), approval = approvalTurns.get(turn), suggestion = suggestionTurns.get(turn), prompt = promptTurns.get(turn), work = turns.get(turn), reply = replyTurns.get(turn);
-  routeTurns.delete(turn); chartTurns.delete(turn); noticeTurns.delete(turn); productTurns.delete(turn); replyPictureTurns.delete(turn); sentFileTurns.delete(turn); pictureTurns.delete(turn); fileTurns.delete(turn); sourceTurns.delete(turn); actionTurns.delete(turn); approvalTurns.delete(turn); suggestionTurns.delete(turn); promptTurns.delete(turn); turns.delete(turn); replyTurns.delete(turn);
+  const menu = menuTurns.get(turn), routes = routeTurns.get(turn), charts = chartTurns.get(turn), notices = noticeTurns.get(turn), products = productTurns.get(turn), replyPictures = replyPictureTurns.get(turn), sentFiles = sentFileTurns.get(turn), pictures = pictureTurns.get(turn), files = fileTurns.get(turn), sources = sourceTurns.get(turn), actions = actionTurns.get(turn), approval = approvalTurns.get(turn), suggestion = suggestionTurns.get(turn), prompt = promptTurns.get(turn), work = turns.get(turn), reply = replyTurns.get(turn);
+  menuTurns.delete(turn); routeTurns.delete(turn); chartTurns.delete(turn); noticeTurns.delete(turn); productTurns.delete(turn); replyPictureTurns.delete(turn); sentFileTurns.delete(turn); pictureTurns.delete(turn); fileTurns.delete(turn); sourceTurns.delete(turn); actionTurns.delete(turn); approvalTurns.delete(turn); suggestionTurns.delete(turn); promptTurns.delete(turn); turns.delete(turn); replyTurns.delete(turn);
+  if (menu) menu.owner.menus.delete(menu.box);
   if (routes) for (const box of routes.boxes) routes.owner.routes.delete(box);
   if (charts) for (const box of charts.boxes) charts.owner.charts.delete(box);
   if (notices) for (const box of notices.boxes) notices.owner.notices.delete(box);
@@ -529,6 +549,6 @@ export function discardChatWork(turn: Turn) {
     if (waiting) { document.removeEventListener("selectionchange", waiting.resume); replyPending.delete(reply.box); }
     reply.owner.replies.delete(reply.box);
   }
-  const owners = new Set([frame?.owner, routes?.owner, charts?.owner, notices?.owner, products?.owner, replyPictures?.owner, sentFiles?.owner, pictures?.owner, files?.owner, sources?.owner, actions?.owner, approval?.owner, suggestion?.owner, prompt?.owner, work?.owner, reply?.owner]);
+  const owners = new Set([frame?.owner, menu?.owner, routes?.owner, charts?.owner, notices?.owner, products?.owner, replyPictures?.owner, sentFiles?.owner, pictures?.owner, files?.owner, sources?.owner, actions?.owner, approval?.owner, suggestion?.owner, prompt?.owner, work?.owner, reply?.owner]);
   for (const owner of owners) if (owner) draw(owner);
 }

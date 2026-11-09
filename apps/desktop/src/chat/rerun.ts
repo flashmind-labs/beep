@@ -1,7 +1,7 @@
 import { turnState } from "./turn-state.ts";
 import { conversation } from "./conversation.ts";
 import { ANSWER, askText, body, owningChatBody, follow, keepDown, newTurn, runTurn, scrollDown, startRun } from "./chat.ts";
-import { discardChatActions, discardChatNotice, renderChatActions, renderChatNotice } from "./work-view.tsx";
+import { discardChatActions, discardChatNotice, discardChatRerunMenu, renderChatActions, renderChatNotice, renderChatRerunMenu } from "./work-view.tsx";
 import { $, here, S, stopping } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
 import { PLAY_ICON } from "../lists/memories.ts";
@@ -58,12 +58,28 @@ export function closeRerunMenu() {
   const menu = $(".dmenu");
   if (!menu) return false;
   $('[data-act="rerunMenu"][aria-expanded="true"]')?.setAttribute("aria-expanded", "false");
+  const turn = menu.closest<Turn>(".turn");
+  if (turn) discardChatRerunMenu(turn);
   menu.remove();
   return true;
 }
 export function rerunMenu(button: HTMLElement) {
   if (closeRerunMenu()) return;
   const turn = button.closest<Turn>(".turn")!, m = MODELS.info as ModelChoices | null;
+  const owner = owningChatBody(turn);
+  if (owner && m) {
+    const menu = document.createElement("div");
+    menu.className = "dmenu"; menu.setAttribute("role", "menu"); menu.setAttribute("aria-label", "Rerun on");
+    button.setAttribute("aria-expanded", "true");
+    button.closest(".dreplyacts")?.after(menu);
+    renderChatRerunMenu(owner, turn, menu, {
+      choices: m.choices.map(choice => ({ id: choice.id, name: choice.name, used: choice.id === turnState(turn).model, detail: choice.id === turnState(turn).model ? "Used for this reply" : modelPrice(choice) })),
+      levels: ["default", ...THINKING].map(id => ({ id, label: cap(id) })),
+      run: (model, thinking) => { closeRerunMenu(); void rerun(turn, model, thinking); },
+    });
+    keepDown();
+    return;
+  }
   const rows = m!.choices.map(c => {
     const used = c.id === turnState(turn).model;
     return `<button class="mi" role="menuitem" data-rerun="${esc(c.id)}"${used ? ' aria-current="true"' : ""}><b>${esc(c.name)}</b>${used ? `<span class="ok">${ICON.check}</span>` : ""}<small>${used ? "Used for this reply" : esc(modelPrice(c))}</small></button>`;
