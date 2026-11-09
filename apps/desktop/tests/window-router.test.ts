@@ -43,3 +43,13 @@ test("reopening the same page adds no step and old history is bounded", () => {
   while ((prior = h.back(current))) { current = prior; count++; }
   assert.equal(count, 100);
 });
+
+test("router resolves the active typed screen path", async () => {
+  const h = new WindowHistory();
+  h.start(home);
+  h.visit(home, project);
+  await h.router.load();
+  assert.equal(h.router.state.location.pathname, "/projects");
+  assert.equal(h.router.state.matches.at(-1)?.routeId, "/projects");
+  assert.deepEqual(h.history.location.state.page, project);
+});
