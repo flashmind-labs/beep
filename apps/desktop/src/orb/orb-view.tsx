@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { OrbAsks } from "../chat/approvals.ts";
-import { fillAppTiles } from "../chat/applogo.ts";
+import { AppLogo } from "../chat/applogo-view.tsx";
 import { invoke, Channel, listen } from "../ui/tauri.ts";
 import { ZOOMED } from "../ui/zoom-state.ts";
 
@@ -75,11 +75,6 @@ export function Orb() {
   };
   useLayoutEffect(() => { fit(); }, [fit, notice, waiting, noteText, failure, asks.current.count]);
   useEffect(() => {
-    let active = true;
-    if (card.current && waiting) void fillAppTiles(card.current).then(() => { if (active) fit(); });
-    return () => { active = false; };
-  }, [waiting, fit]);
-  useEffect(() => {
     let closed = false;
     const stops: (() => void)[] = [];
     const register = (promise: Promise<() => void>) => { void promise.then(stop => { if (closed) stop(); else stops.push(stop); }).catch(ignore); };
@@ -121,7 +116,7 @@ export function Orb() {
     </div></div>
     <div className={`otoast${toast !== null && /could not|not available|busy|failed/i.test(toast) ? " bad" : ""}`} id="toast" ref={note} role="status" hidden={!noteText}>{noteText}</div>
     <div className="dcard oask" id="ask" ref={card} role="button" aria-label="Open the chat to see the whole request" hidden={!waiting} onClick={() => { const item = asks.current.shown; if (item) void invoke("open_approval", { session: item.session }).catch(ignore); }}>
-      {waiting && <><div className="head"><span key={waiting.approval.query_id} className="dapp" data-app={waiting.approval.app}/><div className="tt"><b title={`${waiting.approval.action}?`}>{waiting.approval.action}?</b><small>{waiting.work ? "Background work asks first" : `${waiting.approval.app} asks first`}</small></div></div>
+      {waiting && <><div className="head"><AppLogo key={waiting.approval.query_id} app={waiting.approval.app} onReady={fit} /><div className="tt"><b title={`${waiting.approval.action}?`}>{waiting.approval.action}?</b><small>{waiting.work ? "Background work asks first" : `${waiting.approval.app} asks first`}</small></div></div>
       {fields.length > 0 && <div className="kv">{fields.map((f, i) => <Fragment key={i}><span>{clip(f.label, 24)}</span><span title={f.value}>{clip(f.value.replace(/\s+/g, " "), 120)}</span></Fragment>)}</div>}
       {more > 0 && <div className="more">{more} more in the chat</div>}{behind > 0 && <div className="more">{behind} more waiting after this</div>}{failure && <div className="err">{failure}</div>}
       <div className="acts">{([["allow", "Allow", "dbtn pri"], ...(!grant ? [["always", "Always", "dbtn"]] as const : []), ["deny", "Deny", "dbtn warn"], ...(!grant ? [["session", "Allow for this session", "dbtn wide"]] as const : [])] as const).map(([decision, label, cls]) => <button key={decision} className={cls} onClick={e => { e.stopPropagation(); void answer(decision); }}>{label}</button>)}</div></>}

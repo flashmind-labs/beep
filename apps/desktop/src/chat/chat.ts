@@ -18,7 +18,6 @@ import { composeField } from "./compose.ts";
 import { $, $$, bar, changed, entry, here, live, newId, PANE, queued, S, stopping } from "../bar/core.ts";
 import { renderAgentNew } from "../agents/agentnew.ts";
 import { AnsweredIds } from "./approvals.ts";
-import { fillAppTiles } from "./applogo.ts";
 import type { LiveEntry, PendingApproval } from "../bar/core.ts";
 import { currentChatHints, refreshHints } from "../bar/hints.ts";
 import { loadTurnAgent, sourceRow } from "./history.ts";
@@ -388,7 +387,6 @@ export function approvalCard(id: string | null, turn: Turn, { query_id, app, act
   const owner = owningChatBody(turn);
   if (!owner) return;
   renderChatApproval(owner, turn, card, { app, action, fields, grant, answer: decision => void answer(decision) });
-  fillAppTiles(card);
   turn.append(card);
   const e = entry(id);
   e.approval = { queryId: query_id, turn, card, grant };

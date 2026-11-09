@@ -1,7 +1,7 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { Fragment, useLayoutEffect, useRef } from "react";
 import { ICON } from "../ui/icons.ts";
-import { fillAppTiles } from "../chat/applogo.ts";
+import { AppLogo } from "../chat/applogo-view.tsx";
 import { CLOCK_ICON, PLAY_ICON, PLUS_ICON } from "./memories.ts";
 import { describeDay, routineWhen, SHIELD_ICON, span, type Cron, type Grant } from "./routines.ts";
 
@@ -24,15 +24,14 @@ export function RoutinesList(p: { list: Cron[]; selected: number; mode: "list" |
     <HintView value={p.hints} /></>;
 }
 export function GrantsList(p: { list: Grant[]; selected: number; mode: "list" | "confirm"; loaded: boolean; error: string; hints: HintViewModel }) {
-  const selected = useSelected(p.selected), host = useRef<HTMLDivElement>(null), now = Date.now();
-  useLayoutEffect(() => { if (host.current) void fillAppTiles(host.current); });
+  const selected = useSelected(p.selected), now = Date.now();
   return <><div className="dhead"><span className="tt"><b>Routine grants</b><small>{p.loaded && !p.list.length ? "Nothing granted" : "What routines may do without asking"}</small></span></div>
     {p.error && <div className="derr dpadx">{p.error}</div>}
-    {p.loaded && !p.list.length ? <div className="dempty"><span className="dicon"><Markup html={SHIELD_ICON} /></span><b className="dbig">No routine grants.</b><span className="dmuted dblock">Beep asks in a chat when a routine needs one.</span></div> : <div ref={host} className="dlist top" id="glist" role="listbox" aria-label="Routine grants">{p.list.map((grant, index) => {
+    {p.loaded && !p.list.length ? <div className="dempty"><span className="dicon"><Markup html={SHIELD_ICON} /></span><b className="dbig">No routine grants.</b><span className="dmuted dblock">Beep asks in a chat when a routine needs one.</span></div> : <div className="dlist top" id="glist" role="listbox" aria-label="Routine grants">{p.list.map((grant, index) => {
       const on = index === p.selected, action = grant.action.replace(/ for a routine$/, "");
       if (on && p.mode === "confirm") return <div key={grant.id} ref={selected} className="drt" aria-selected="true" data-i={index}><span className="tt"><b>Revoke? <b>{grant.routine}</b> will ask before each {action} again.</b></span><span className="acts"><button className="dbtn warn" data-g="revoke-yes">Revoke</button><button className="dbtn quiet" data-g="list">Cancel</button></span></div>;
       const per = grant.per_run === 1 ? "1 each run" : `up to ${grant.per_run} each run`, ends = grant.expires_at > now ? `Ends in ${span(grant.expires_at - now)}` : "Ended", used = grant.last_used_at ? `Last used ${span(now - grant.last_used_at)} ago` : "Not used yet";
-      return <div key={grant.id} ref={on ? selected : null} className="drt dalignt" role="option" aria-selected={on} data-i={index}><span className="dapp" data-app={grant.app} style={{ marginTop: "2px" }} /><span className="tt"><b>{grant.routine}</b><span>{grant.app}: {action}, {per}</span><small>{ends} · {used}</small>{on && !!grant.fields.length && <span className="dgkv">{grant.fields.map((field, i) => <Fragment key={i}><span>{field.label}</span><span>{field.value}</span></Fragment>)}</span>}</span>{on && <span className="acts"><button className="dbtn warn" data-g="revoke">Revoke<kbd>⌘⌫</kbd></button></span>}</div>;
+      return <div key={grant.id} ref={on ? selected : null} className="drt dalignt" role="option" aria-selected={on} data-i={index}><AppLogo app={grant.app} style={{ marginTop: "2px" }} /><span className="tt"><b>{grant.routine}</b><span>{grant.app}: {action}, {per}</span><small>{ends} · {used}</small>{on && !!grant.fields.length && <span className="dgkv">{grant.fields.map((field, i) => <Fragment key={i}><span>{field.label}</span><span>{field.value}</span></Fragment>)}</span>}</span>{on && <span className="acts"><button className="dbtn warn" data-g="revoke">Revoke<kbd>⌘⌫</kbd></button></span>}</div>;
     })}</div>}
     <HintView value={p.hints} /></>;
 }
