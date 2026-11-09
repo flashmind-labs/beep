@@ -12,7 +12,6 @@ use crate::{
     machines::list::Outside,
     projects::{needs_update, unknown_op},
 };
-use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_mesh::machine::terminals::{Heard, heard};
 use beep_proto::{
     AttachTerminal, CloseTerminal, GetTerminal, ListAllTerminals, MAX_TERMINAL_INPUT, OpenTerminal,
@@ -26,7 +25,10 @@ use std::{
     collections::HashMap,
     sync::{Mutex, MutexGuard, PoisonError},
 };
-use tauri::{AppHandle, Manager, State, WebviewWindow, ipc::Channel};
+use tauri::{
+    AppHandle, Manager, State, WebviewWindow,
+    ipc::{Channel, InvokeResponseBody},
+};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -268,14 +270,15 @@ pub async fn terminal_close(beep: Service<'_>, fleet: Machines<'_>, id: Uuid) ->
     beep.call(CloseTerminal { id }).await.map_err(outdated)
 }
 
-/// What an attached terminal tells the window.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+/// What an attached terminal tells the window. Output goes as raw bytes,
+/// the offset `at` first as eight little-endian bytes, so it is neither
+/// base64 nor JSON; the rest goes as JSON tagged by `kind`.
+#[derive(Debug, Clone, PartialEq)]
 pub enum TermEvent {
     /// The stream is open: keys typed from now on go to the terminal.
     Attached,
-    /// Output from byte `at`, base64.
-    Output { at: u64, data: String },
+    /// Output from byte `at`.
+    Output { at: u64, data: Vec<u8> },
     /// It stopped, or its machine went offline: `state` as `TerminalRow`'s.
     Ended {
         state: &'static str,
@@ -285,12 +288,44 @@ pub enum TermEvent {
     ViewOnly,
 }
 
+/// The events other than output, as the window reads them in JSON.
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum TermNotice {
+    Attached,
+    Ended {
+        state: &'static str,
+        code: Option<i32>,
+    },
+    ViewOnly,
+}
+
+impl TermEvent {
+    /// The message the window's channel gets.
+    pub fn body(self) -> Result<InvokeResponseBody> {
+        let notice = match self {
+            Self::Output { at, data } => {
+                let mut bytes = Vec::with_capacity(8 + data.len());
+                bytes.extend_from_slice(&at.to_le_bytes());
+                bytes.extend_from_slice(&data);
+                return Ok(InvokeResponseBody::Raw(bytes));
+            }
+            Self::Attached => TermNotice::Attached,
+            Self::Ended { state, code } => TermNotice::Ended { state, code },
+            Self::ViewOnly => TermNotice::ViewOnly,
+        };
+
+        let json = serde_json::to_string(&notice).map_err(anyhow::Error::from)?;
+        Ok(InvokeResponseBody::Json(json))
+    }
+}
+
 impl From<TerminalEvent> for TermEvent {
     fn from(event: TerminalEvent) -> Self {
         match event {
             TerminalEvent::Output { at, data } => Self::Output {
                 at,
-                data: STANDARD.encode(data),
+                data: data.into_vec(),
             },
             TerminalEvent::Ended { state } => Self::Ended {
                 code: match state {
@@ -412,13 +447,13 @@ pub async fn terminal_attach(
     from: u64,
     cols: u32,
     rows: u32,
-    on_event: Channel<TermEvent>,
+    on_event: Channel<InvokeResponseBody>,
 ) -> Result<()> {
     if !SERVER_ENABLED || direct::has(&fleet, id) {
         let (mut tx, mut rx) = match direct::attach(&fleet, id, from, cols, rows).await? {
             Opened::Live { tx, rx } => (tx, rx),
             Opened::Over(event) => {
-                on_event.send(event.into())?;
+                on_event.send(TermEvent::from(event).body()?)?;
                 return Ok(());
             }
         };
@@ -440,22 +475,22 @@ pub async fn terminal_attach(
             return Ok(());
         }
 
-        on_event.send(TermEvent::Attached)?;
+        on_event.send(TermEvent::Attached.body()?)?;
         let ended = |state| TermEvent::from(TerminalEvent::Ended { state });
 
         loop {
             tokio::select! {
                 heard_from_node = rx.recv::<PtyReply>() => match heard_from_node {
                     Ok(Some(reply)) => match heard(reply) {
-                        Heard::Show(event) => on_event.send(event.into())?,
+                        Heard::Show(event) => on_event.send(TermEvent::from(event).body()?)?,
                         Heard::End(state) => {
-                            on_event.send(ended(state))?;
+                            on_event.send(ended(state).body()?)?;
                             return Ok(());
                         }
                         Heard::Ignore => {}
                     },
                     Ok(None) | Err(_) => {
-                        on_event.send(ended(TerminalState::Offline {}))?;
+                        on_event.send(ended(TerminalState::Offline {}).body()?)?;
                         return Ok(());
                     }
                 },
@@ -470,7 +505,7 @@ pub async fn terminal_attach(
                     };
 
                     if tx.send(&request).await.is_err() {
-                        on_event.send(ended(TerminalState::Offline {}))?;
+                        on_event.send(ended(TerminalState::Offline {}).body()?)?;
                         return Ok(());
                     }
                 }
@@ -495,14 +530,14 @@ pub async fn terminal_attach(
         viewer,
         serial,
     };
-    on_event.send(TermEvent::Attached)?;
+    on_event.send(TermEvent::Attached.body()?)?;
 
     loop {
         tokio::select! {
             reply = replies.next() => match reply.map_err(DesktopError::from).map_err(outdated)? {
                 Some(event) => {
                     let last = !matches!(event, TerminalEvent::Output { .. });
-                    on_event.send(event.into())?;
+                    on_event.send(TermEvent::from(event).body()?)?;
 
                     if last {
                         return Ok(());

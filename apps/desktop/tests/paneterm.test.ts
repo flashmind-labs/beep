@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { attach, dropTerm, paneTerm, termStatus } from "../src/agentpane/terminal.ts";
 import { P, closeTab, closePaneTabs, type MediaTab } from "../src/agentpane/media.ts";
-import { makeTerminals, ALL, type Screen, type TermEvent, type TerminalRow } from "../src/terminals/terminals.ts";
+import { makeTerminals, ALL, type Screen, type TermMessage, type TerminalRow } from "../src/terminals/terminals.ts";
 
 const ROW: TerminalRow = {
   id: "t1", project: "", machine_id: "m1", machine_name: "build-box", name: "shell",
@@ -25,6 +25,7 @@ function fakeScreen(cols = 100, rows = 30) {
     focus() {},
     focused: () => false,
     onData() {},
+    onReply() {},
     onResize: cb => { resized = cb; },
     onEscape: cb => { escaped = cb; },
     pressEsc: () => escaped(),
@@ -35,6 +36,15 @@ function fakeScreen(cols = 100, rows = 30) {
   return screen;
 }
 
+/// Output as the channel carries it: the offset, then the bytes.
+function output(at: number, text: string): ArrayBuffer {
+  const data = new TextEncoder().encode(text);
+  const message = new Uint8Array(8 + data.length);
+  new DataView(message.buffer).setBigUint64(0, BigInt(at), true);
+  message.set(data, 8);
+  return message.buffer;
+}
+
 /// The attach the next `terminal_attach` starts: its event channel, and
 /// how to end its stream.
 function nextAttach() {
@@ -42,9 +52,9 @@ function nextAttach() {
   answers.terminal_attach = new Promise<null>(resolve => { end = () => resolve(null); });
   return {
     end,
-    send(ev: TermEvent) {
+    send(ev: TermMessage) {
       const call = calls.findLast(c => c.cmd === "terminal_attach")!;
-      (call.args as { onEvent: { onmessage(ev: TermEvent): void } }).onEvent.onmessage(ev);
+      (call.args as { onEvent: { onmessage(ev: TermMessage): void } }).onEvent.onmessage(ev);
     },
   };
 }
@@ -60,7 +70,7 @@ test("a dropped stream reconnects in the footer, not on the screen", async t => 
   const first = nextAttach();
   attach(term);
   first.send({ kind: "attached" });
-  first.send({ kind: "output", at: 0, data: btoa("% ") });
+  first.send(output(0, "% "));
   const second = nextAttach();
   first.end();
   await settle();
@@ -71,7 +81,7 @@ test("a dropped stream reconnects in the footer, not on the screen", async t => 
   assert.equal((calls.at(-1)!.args as { from: number }).from, 2, "it picks up after what the screen shows");
   // The node resends from where the screen got to; nothing shows twice.
   second.send({ kind: "attached" });
-  second.send({ kind: "output", at: 0, data: btoa("% ls\r\n") });
+  second.send(output(0, "% ls\r\n"));
   assert.deepEqual(screen.shown, ["% ", "ls\r\n"]);
   assert.equal(termStatus(term, "build-box"), "build-box · what you type goes there");
 });
@@ -292,9 +302,9 @@ test("a stop refused after leaving cannot reconnect the disposed terminal", asyn
 });
 
 /// Sends `ev` down the latest stream of view `view`.
-function sendTo(view: string, ev: TermEvent) {
+function sendTo(view: string, ev: TermMessage) {
   const call = calls.findLast(c => c.cmd === "terminal_attach" && (c.args as { view: string }).view === view)!;
-  (call.args as { onEvent: { onmessage(ev: TermEvent): void } }).onEvent.onmessage(ev);
+  (call.args as { onEvent: { onmessage(ev: TermMessage): void } }).onEvent.onmessage(ev);
 }
 
 test("a terminal hidden then shown again shows the output from meanwhile, in order", () => {
@@ -306,18 +316,18 @@ test("a terminal hidden then shown again shows the output from meanwhile, in ord
   const mine = (cmd: string) => calls.filter(c => c.cmd === cmd && (c.args as { view: string }).view === term.view);
   attach(term);
   sendTo(term.view, { kind: "attached" });
-  sendTo(term.view, { kind: "output", at: 0, data: btoa("one\r\n") });
+  sendTo(term.view, output(0, "one\r\n"));
 
   nativeEvent("bar-hidden");
   assert.equal(mine("terminal_detach").length, 1, "a hidden pane lets go of the stream");
-  sendTo(term.view, { kind: "output", at: 5, data: btoa("two\r\n") });
+  sendTo(term.view, output(5, "two\r\n"));
   assert.deepEqual(screen.shown, ["one\r\n"], "nothing is drawn while hidden");
 
   nativeEvent("bar-shown");
   assert.equal(mine("terminal_attach").length, 2);
   assert.equal((mine("terminal_attach").at(-1)!.args as { from: number }).from, 5, "it picks up after what the screen shows");
   sendTo(term.view, { kind: "attached" });
-  sendTo(term.view, { kind: "output", at: 0, data: btoa("one\r\ntwo\r\nthree\r\n") });
+  sendTo(term.view, output(0, "one\r\ntwo\r\nthree\r\n"));
   assert.deepEqual(screen.shown, ["one\r\n", "two\r\nthree\r\n"]);
   assert.equal(term.link, "attached");
   dropTerm(term);
@@ -343,14 +353,14 @@ test("the Terminals page lets go while the window is hidden and picks up after",
   terms.show("t1");
   const view = (calls.findLast(c => c.cmd === "terminal_attach")!.args as { view: string }).view;
   sendTo(view, { kind: "attached" });
-  sendTo(view, { kind: "output", at: 0, data: btoa("a") });
+  sendTo(view, output(0, "a"));
 
   nativeEvent("center-hidden");
   const mine = (cmd: string) => calls.filter(c => c.cmd === cmd && (c.args as { view: string }).view === view);
   assert.equal(mine("terminal_detach").length, 1);
   nativeEvent("center-shown");
   assert.equal((mine("terminal_attach").at(-1)!.args as { from: number }).from, 1);
-  sendTo(view, { kind: "output", at: 0, data: btoa("ab") });
+  sendTo(view, output(0, "ab"));
   assert.deepEqual(screen.shown, ["a", "b"]);
   terms.stop();
 });

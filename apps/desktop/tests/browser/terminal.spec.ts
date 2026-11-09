@@ -1,0 +1,171 @@
+import { expect, test, type Page } from "@playwright/test";
+import { build } from "esbuild";
+import { readFile } from "node:fs/promises";
+import { extname, isAbsolute, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import zlib from "node:zlib";
+
+// A terminal screen (termview.ts) on its own page: Ghostty's engine from
+// dist/, the GPU renderer, keys and images, as the app's windows run them.
+const desktop = fileURLToPath(new URL("../../", import.meta.url));
+const dist = resolve(desktop, "dist");
+
+/// The screen bundled as a page script, with hooks for the test.
+const ENTRY = `
+import { makeScreen } from "./src/terminals/termview.ts";
+const typed = [];
+const replies = [];
+const screen = makeScreen();
+screen.el.style.height = "400px";
+screen.el.style.width = "800px";
+document.body.append(screen.el);
+screen.onData(data => typed.push(data));
+screen.onReply(data => replies.push(data));
+screen.setInput(true);
+screen.fit();
+window.term = {
+  screen,
+  typed,
+  replies,
+  write: text => screen.write(new TextEncoder().encode(text)),
+  // Pixels of a PNG screenshot of the screen, counted by colour. A WebGL
+  // canvas cannot be read back once shown, so the test takes the picture.
+  async count(png, rgb) {
+    const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(png), c => c.charCodeAt(0))], { type: "image/png" }));
+    const copy = document.createElement("canvas");
+    copy.width = bitmap.width;
+    copy.height = bitmap.height;
+    const ctx = copy.getContext("2d");
+    ctx.drawImage(bitmap, 0, 0);
+    const data = ctx.getImageData(0, 0, copy.width, copy.height).data;
+    let n = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (Math.abs(data[i] - rgb[0]) < 8 && Math.abs(data[i + 1] - rgb[1]) < 8 && Math.abs(data[i + 2] - rgb[2]) < 8) n++;
+    }
+    return n;
+  },
+};
+`;
+
+declare global {
+  interface Window {
+    term: {
+      screen: { size(): { cols: number; rows: number }; focus(): void };
+      typed: string[];
+      replies: string[];
+      write(text: string): void;
+      count(png: string, rgb: [number, number, number]): Promise<number>;
+    };
+  }
+}
+
+async function open(page: Page) {
+  const bundle = await build({
+    stdin: { contents: ENTRY, resolveDir: desktop, loader: "ts" },
+    bundle: true, format: "esm", write: false, target: "safari16",
+  });
+  const script = bundle.outputFiles[0].text;
+  const types = new Map([[".css", "text/css"], [".wasm", "application/wasm"], [".woff2", "font/woff2"]]);
+
+  await page.route("https://app.test/**", async route => {
+    const path = decodeURIComponent(new URL(route.request().url()).pathname).replace(/^\/+/, "");
+    if (path === "term.html") {
+      return route.fulfill({
+        contentType: "text/html",
+        body: `<!doctype html><link rel="stylesheet" href="fonts.css"><link rel="stylesheet" href="style.css"><body><script type="module" src="term.js"></script></body>`,
+      });
+    }
+    if (path === "term.js") return route.fulfill({ contentType: "text/javascript", body: script });
+
+    const file = resolve(dist, path);
+    const within = relative(dist, file);
+    if (within.startsWith("..") || isAbsolute(within)) return route.fulfill({ status: 403 });
+    try { await route.fulfill({ body: await readFile(file), contentType: types.get(extname(file)) ?? "application/octet-stream" }); }
+    catch { await route.fulfill({ status: 404 }); }
+  });
+
+  await page.goto("https://app.test/term.html");
+  await page.waitForFunction(() => window.term !== undefined);
+  // The engine loads, then the grid fits the element.
+  await page.waitForFunction(() => window.term.screen.size().cols !== 80);
+}
+
+/// Pixels of `rgb` on the screen as it shows now.
+async function pixels(page: Page, rgb: [number, number, number]): Promise<number> {
+  const png = (await page.locator("canvas").screenshot()).toString("base64");
+  return page.evaluate(({ png, rgb }) => window.term.count(png, rgb), { png, rgb });
+}
+
+/// A PNG of one colour, as yazi would send a picture.
+function png(width: number, height: number, rgb: [number, number, number]): string {
+  const chunk = (type: string, data: Buffer) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 2, 0, 0, 0], 8);
+  const row = Buffer.from([0, ...Array.from({ length: width }, () => rgb).flat()]);
+  const raw = Buffer.concat(Array.from({ length: height }, () => row));
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0)),
+  ]).toString("base64");
+}
+
+test("the screen fits its element and draws text, colours and images", async ({ page }) => {
+  await open(page);
+  const size = await page.evaluate(() => window.term.screen.size());
+  expect(size.cols).toBeGreaterThan(40);
+  expect(size.rows).toBeGreaterThan(10);
+
+  const blue: [number, number, number] = [20, 60, 230];
+  const image = png(64, 64, blue);
+  await page.evaluate(image => {
+    window.term.write("\x1b[48;2;200;30;30m          \x1b[0m hello\r\n");
+    window.term.write(`\x1b_Ga=T,f=100,i=7,c=4,r=2,q=2;${image}\x1b\\`);
+  }, image);
+
+  await expect.poll(() => pixels(page, [200, 30, 30])).toBeGreaterThan(500);
+  await expect.poll(() => pixels(page, blue)).toBeGreaterThan(500);
+  // The theme's foreground draws the text.
+  await expect.poll(() => pixels(page, [0xcf, 0xe3, 0xd8])).toBeGreaterThan(20);
+});
+
+test("keys go out encoded, apart from the terminal's replies", async ({ page }) => {
+  await open(page);
+  await page.evaluate(() => window.term.screen.focus());
+  await page.keyboard.type("ls");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("ArrowUp");
+  await expect.poll(() => page.evaluate(() => window.term.typed.join(""))).toBe("ls\r\x1b[A");
+
+  await page.evaluate(() => window.term.write("\x1b[?1h\x1b[6n"));
+  await expect.poll(() => page.evaluate(() => window.term.replies.join(""))).toMatch(/^\x1b\[\d+;\d+R$/);
+  await page.keyboard.press("ArrowUp");
+  await expect.poll(() => page.evaluate(() => window.term.typed.at(-1))).toBe("\x1bOA");
+});
+
+test("a flood of output stays responsive and lands whole", async ({ page }) => {
+  await open(page);
+  const lines = 20000;
+  const started = Date.now();
+  await page.evaluate(lines => {
+    let text = "";
+    for (let i = 0; i < lines; i++) text += `\x1b[3${i % 8}mline ${i} ${"x".repeat(60)}\x1b[0m\r\n`;
+    window.term.write(text + "\x1b[42mdone\x1b[0m");
+  }, lines);
+
+  // The page answers while the output is parsed in frames.
+  const answered = await page.evaluate(() => new Promise<number>(resolve => {
+    const t = performance.now();
+    setTimeout(() => resolve(performance.now() - t), 0);
+  }));
+  expect(answered).toBeLessThan(250);
+  await expect.poll(() => pixels(page, [0x6f, 0xcf, 0x97]), { timeout: 30_000 }).toBeGreaterThan(50);
+  expect(Date.now() - started).toBeLessThan(30_000);
+});

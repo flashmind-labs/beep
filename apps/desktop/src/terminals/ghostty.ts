@@ -412,6 +412,27 @@ export class Terminal {
     check(this.g.x.ghostty_terminal_resize(this.handle, cols, rows, cell.width, cell.height), "ghostty_terminal_resize");
   }
 
+  /// Sets the default colours programs see and draw with, as 0xRRGGBB.
+  /// `palette` replaces some of the 256 palette entries by index.
+  setColors(colors: { foreground: number; background: number; cursor: number; palette: ReadonlyMap<number, number> }) {
+    const g = this.g;
+    const x = g.x;
+    const one = (option: GhosttyTerminalOption, color: number) => {
+      const out = g.out(3);
+      g.bytes(out, 3).set([(color >> 16) & 0xff, (color >> 8) & 0xff, color & 0xff]);
+      check(x.ghostty_terminal_set(this.handle, option, out), "setting a colour");
+    };
+    one(GhosttyTerminalOption.COLOR_FOREGROUND, colors.foreground);
+    one(GhosttyTerminalOption.COLOR_BACKGROUND, colors.background);
+    one(GhosttyTerminalOption.COLOR_CURSOR, colors.cursor);
+
+    const palette = g.out(256 * 3);
+    check(x.ghostty_terminal_get(this.handle, GhosttyTerminalData.COLOR_PALETTE_DEFAULT, palette), "reading the palette");
+    const bytes = g.bytes(palette, 256 * 3);
+    for (const [index, color] of colors.palette) bytes.set([(color >> 16) & 0xff, (color >> 8) & 0xff, color & 0xff], index * 3);
+    check(x.ghostty_terminal_set(this.handle, GhosttyTerminalOption.COLOR_PALETTE, palette), "setting the palette");
+  }
+
   /// Scrolls the view by `rows`, up when negative.
   scrollBy(rows: number) {
     this.scroll(GhosttyTerminalScrollViewportTag.DELTA, rows);

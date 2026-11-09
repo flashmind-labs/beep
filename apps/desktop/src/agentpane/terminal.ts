@@ -2,7 +2,7 @@
 // in its folder, kept running by the node like any terminal (Home lists it
 // under the machine).
 
-import { endsForGood, fromBase64, newView, retryDelay, sizeChanged, splice, type Screen, type TermEvent, type TerminalRow, type TermSize } from "../terminals/terminals.ts";
+import { endsForGood, newView, readTermMessage, retryDelay, sizeChanged, splice, type Screen, type TermMessage, type TerminalRow, type TermSize } from "../terminals/terminals.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
 import { onShownChange } from "../ui/active.ts";
 
@@ -73,9 +73,12 @@ export async function followTerm(row: TerminalRow, hooks: TermHooks): Promise<Pa
 /// attached yet.
 export function paneTerm(row: TerminalRow, screen: Screen, hooks: TermHooks): PaneTerm {
   const t: PaneTerm = { row, screen, link: "attaching", next: 0, tries: 0, view: newView(), attaches: 0, sent: null, ...hooks };
-  screen.onData(data => {
+  const input = (data: string) => {
     if (t.link === "attached") invoke("terminal_input", { id: row.id, view: t.view, data }).catch(() => {});
-  });
+  };
+  screen.onData(input);
+  // The node does not answer queries yet: the screen's answers go as input.
+  screen.onReply(input);
   screen.onResize(() => { if (t.link === "attached") sendSize(t); });
   screen.onEscape(() => t.onEscape());
   follow(t);
@@ -128,9 +131,10 @@ export function attach(t: PaneTerm) {
   const attempt = ++t.attaches;
   // Whether this is still the tab's stream: one it replaced says nothing.
   const current = () => t.attaches === attempt;
-  const channel = new Channel<TermEvent>();
-  channel.onmessage = ev => {
+  const channel = new Channel<TermMessage>();
+  channel.onmessage = message => {
     if (t.link === "detached" || !current()) return;
+    const ev = readTermMessage(message);
 
     if (ev.kind === "attached") {
       t.link = "attached";
@@ -139,7 +143,7 @@ export function attach(t: PaneTerm) {
       // The screen may have been fitted while it attached.
       sendSize(t);
     } else if (ev.kind === "output") {
-      const bytes = fromBase64(ev.data);
+      const bytes = ev.data;
       const { skip, gap } = splice(t.next, ev.at, bytes.length);
       if (gap) t.screen.note("… earlier output was not kept");
       t.screen.write(bytes.subarray(skip));

@@ -11,9 +11,18 @@ fn events_read_as_the_window_wants_them() {
         output,
         TermEvent::Output {
             at: 7,
-            data: "aGk=".into()
+            data: b"hi".to_vec()
         }
     );
+    // Output reaches the window as raw bytes: the offset, then the data.
+    let InvokeResponseBody::Raw(raw) = output.body().unwrap() else {
+        panic!("output went as JSON");
+    };
+    assert_eq!(raw, [&7u64.to_le_bytes()[..], b"hi"].concat());
+    let InvokeResponseBody::Json(json) = TermEvent::Attached.body().unwrap() else {
+        panic!("a notice went as bytes");
+    };
+    assert_eq!(json, r#"{"kind":"attached"}"#);
     let ended = TermEvent::from(TerminalEvent::Ended {
         state: TerminalState::Exited { code: Some(1) },
     });

@@ -240,3 +240,18 @@ test("kitty images, PNG included, are placed and read back", async () => {
   term.free();
   state.free();
 });
+
+test("theme colours become the terminal's defaults", async () => {
+  const { term, state } = await open();
+  term.setColors({ foreground: 0xcfe3d8, background: 0x0b0f0d, cursor: 0x6fcf97, palette: new Map([[2, 0x6fcf97]]) });
+  write(term, "a\x1b[32mb");
+
+  const { cells } = rows(state, term);
+  const colors = state.currentColors();
+  assert.equal(colors.background, 0x0b0f0d);
+  assert.equal(colors.cursor, 0x6fcf97);
+  assert.equal(cells[0].fg[0], 0xcfe3d8);
+  assert.equal(cells[0].fg[1], 0x6fcf97);
+  term.free();
+  state.free();
+});
