@@ -750,8 +750,13 @@ export function settle(id: string | null, e: LiveEntry, pending: PendingApproval
     ? { allow: "Allowed for this routine", deny: "Denied" }[decision as "allow" | "deny"]
     : { allow: "Allowed once", session: "Allowed for the rest of this chat", always: "Allowed, and always allowed from now on", deny: "Denied" }[decision];
   discardChatApproval(pending.turn);
-  pending.card.replaceWith(h(`<div class="dmuted">${said}</div>`));
-  const turn = pending.turn;
+  const turn = pending.turn, owner = owningChatBody(turn);
+  if (owner) {
+    const box = document.createElement("div");
+    box.className = "dmuted";
+    renderChatNotice(owner, turn, box, { kind: "label", message: String(said) });
+    pending.card.replaceWith(box);
+  } else pending.card.replaceWith(h(`<div class="dmuted">${said}</div>`));
   turn.done = false;
   turn.ended = undefined;
   e.run = { id: null, turn };
