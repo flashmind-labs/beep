@@ -1,23 +1,25 @@
+import { createElement, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { ImportProjectView } from "./importproject-view.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
 // The "Import a project" sheet: one field for org/repo or a URL, a chip per
 // online machine (Auto lets the server pick), the parent folder a clone goes
 // under as <parent>/<org>/<repo> (the last one used there), then Import.
 import { invoke } from "../ui/tauri.ts";
-import { openSheet, segmented } from "../ui/parts.ts";
-import { START, defaultParent as parentOn, importRoot, next, looksLikeRepo, machineChips, progressText, doneText, folderUnder, folderNote, folderHelp, type LastImport } from "./importproject-state.ts";
-import { folderBrowser } from "./folderbrowser.ts";
-import { button, el, present, press } from "../ui/dom.ts";
+import { openSheet } from "../ui/parts.ts";
+import { START, defaultParent as parentOn, importRoot, next, looksLikeRepo, folderUnder, type LastImport } from "./importproject-state.ts";
 import type { ImportEvent } from "./importproject-state.ts";
 import type { MachineFolder, ProjectRow } from "../project/projects-state.ts";
-import { checkoutNote, defaultPlaces, forkNote, placeChoices, previewLine, worktreesToAsk } from "../review/branchwork.ts";
+import { defaultPlaces, worktreesToAsk } from "../review/branchwork.ts";
 import type { BranchPicks, ImportFork, PreviewView } from "../review/branchwork.ts";
-import { NO_MENU, completed, isOpen, menuKey, menuOf, splitTyped, suggest } from "./foldercomplete.ts";
+import { NO_MENU, isOpen, menuKey, menuOf, splitTyped, suggest } from "./foldercomplete.ts";
 import type { FolderMenu } from "./foldercomplete.ts";
 import { reason } from "../ui/format.ts";
 import type { MachineCard } from "../machines/machine-state.ts";
 
 /// A machine the sheet offers, as Home lists it.
-type Machine = Pick<MachineCard, "id" | "name" | "online" | "env" | "can_host">;
+export type Machine = Pick<MachineCard, "id" | "name" | "online" | "env" | "can_host">;
 
 /// What the window hands the sheet.
 export interface ImportProjectOptions {
@@ -76,10 +78,12 @@ let lookup = 0;
 let lookupTimer: ReturnType<typeof setTimeout> | undefined;
 /// The folders read while the sheet is open, by machine and folder.
 const listed = new Map<string, readonly string[]>();
+let view: Root | null = null, opening = 0;
 
 /// Opens the sheet. Choose… opens the folder picker, never the sheet itself.
 export function openImportProject(options: ImportProjectOptions = {}) {
   if (root) return;
+  opening++; reading = false;
   syncthing = syncthingImportChoice();
   machines = (options.machines || []).filter(m => m.can_host !== false);
   macId = options.macId || null;
@@ -94,6 +98,7 @@ export function openImportProject(options: ImportProjectOptions = {}) {
     onKey,
     onClose: closed,
   }));
+  view = createRoot(sheet);
   preview = undefined;
   fork = undefined;
   previewFor = "";
@@ -110,7 +115,7 @@ export function openImportProject(options: ImportProjectOptions = {}) {
 /// Reads the preview for the repository typed, once typing pauses.
 function schedulePreview() {
   clearTimeout(previewTimer);
-  const repo = state.repo.trim();
+  const repo = state.repo.trim(), mine = opening;
   if (!looksLikeRepo(repo) || repo === previewFor) return;
   previewTimer = setTimeout(async () => {
     previewFor = repo;
@@ -120,23 +125,23 @@ function schedulePreview() {
     fork = undefined;
     if (root) draw();
     invoke<ImportFork | null>("find_import_fork", { repo }).then(got => got, () => null).then(got => {
-      if (previewFor !== repo) return;
+      if (mine !== opening || !root || previewFor !== repo) return;
       fork = got;
       if (root && state.step === "form") draw();
     });
 
     try {
       const got = await invoke<PreviewView | null>("preview_import", { repo });
-      if (previewFor !== repo) return;
+      if (mine !== opening || !root || previewFor !== repo) return;
       preview = got;
       picks = defaultPlaces(got);
     } catch (e) {
-      if (previewFor !== repo) return;
+      if (mine !== opening || !root || previewFor !== repo) return;
       preview = null;
       previewError = reason(e);
     }
 
-    if (root && state.step !== "cloning" && state.step !== "done") draw();
+    if (mine === opening && root && state.step !== "cloning" && state.step !== "done") draw();
   }, 700);
 }
 
@@ -145,6 +150,7 @@ export function closeImportProject() {
 }
 
 function closed() {
+  view?.unmount(); view = null;
   root = sheet = close = null;
   const done = state.step === "done" ? state.project : null;
   state = START;
@@ -173,8 +179,7 @@ function update(event: ImportEvent) {
   if (event.type === "pick" || event.type === "choose" || event.type === "unchoose") resetFolder();
   state = next(state, event);
   void syncthing.follow(state.machine, state.chosen?.path ?? null);
-  if (root && event.type !== "edit") draw();
-  else if (root) syncForm();
+  if (root) draw();
 }
 
 /// The parent a clone goes under: the one typed, else the default; null on
@@ -190,67 +195,60 @@ async function submit() {
   if (state === was) return;
   // The branches picked go with it only when they were read for this repo.
   const worktrees = preview && previewFor === state.repo.trim() ? worktreesToAsk(preview, picks) : [];
+  const mine = opening, then = onDone;
 
   try {
     const project = await invoke<ProjectRow>("import_project", { repo: state.repo, machineId: state.machine, folder: state.chosen?.path ?? null, worktrees, parent: parentFolder(), syncthingFiles: syncthing.value() });
     keepLastImport(project);
+    if (mine !== opening || !root) { then?.(project); return; }
     update({ type: "done", project });
-    // The sheet may have closed while cloning: the project still lands.
-    if (!root && onDone) { const then = onDone; onDone = null; then(project); }
   } catch (e) {
-    update({ type: "failed", message: String(e) });
+    if (mine === opening && root) update({ type: "failed", message: String(e) });
+    else console.warn("importing a project:", e);
   }
 }
 
-/// Keeps the typed text and focus, only enabling Import and clearing an error.
-function syncForm() {
-  const go = sheet!.querySelector<HTMLButtonElement>(".ip-go");
-  if (go) go.disabled = !looksLikeRepo(state.repo);
-  if (!state.error) sheet!.querySelector(".am-msg.bad")?.remove();
-  // Where it goes follows the repository typed.
-  const to = sheet!.querySelector(".ip-to");
-  if (to) to.textContent = goesIn();
-}
-
 function draw() {
-  const box = sheet!;
-  // A redraw while typing a folder keeps the caret there.
-  const was = document.activeElement;
-  const typing = was instanceof HTMLInputElement && was.classList.contains("ip-dir") ? was.selectionStart ?? was.value.length : null;
-  const keep = menu;
-  box.replaceChildren(el("div", "am-head", el("b", "", "Import a project"), el("kbd", "", "esc")), ...present(body()));
-  const field = box.querySelector("input");
-  const pick = box.querySelector<HTMLElement>(".ip-browse .dirs button");
-  const dir = box.querySelector<HTMLInputElement>(".ip-dir");
-
-  if (typing != null && dir && !dir.disabled) { dir.focus(); dir.setSelectionRange(typing, typing); }
-  else if (state.browsing && pick) pick.focus();
-  else if (field && !state.browsing) { field.focus(); field.setSelectionRange(field.value.length, field.value.length); }
-  else box.querySelector<HTMLElement>(".dbtn.pri")?.focus();
-
-  // The menu is drawn again when the field kept focus, else dropped. The
-  // old field's blur may have dropped it and a lookup on its way: ask again.
-  setMenu(keep);
-  if (typing != null && !isOpen(keep) && folderText != null) lookFolders();
+  if (!view) return;
+  const current = view;
+  const folder = state.machine ? folderText ?? state.chosen?.path ?? defaultParent() ?? "" : "";
+  flushSync(() => current.render(createElement(ImportProjectView, {
+    state, machines, preview, previewFor, previewError, fork, picks, reading, folder, goes: goesIn(), menu, syncNode: syncthing.node,
+    edit: (repo: string) => { update({ type: "edit", repo }); schedulePreview(); },
+    pick: (machine: string | null) => { update({ type: "pick", machine }); learnBase(); },
+    submit: () => void submit(), close: closeImportProject, choose: () => void choose(), unchoose: () => update({ type: "unchoose" }),
+    folderInput: (value: string) => {
+      if (state.chosen) { resetFolder(); state = next(state, { type: "unchoose" }); void syncthing.follow(state.machine, null); }
+      folderText = value; draw(); lookFolders();
+    },
+    folderKey: (event: ReactKeyboardEvent<HTMLInputElement>) => onFolderKey(event, event.currentTarget),
+    folderBlur: () => { lookup++; clearTimeout(lookupTimer); setMenu(NO_MENU); },
+    acceptFolder: (text: string) => { const field = sheet?.querySelector<HTMLInputElement>(".ip-dir"); if (field) acceptFolder(field, text); },
+    browse: browseTo, cancelBrowse: () => update({ type: "browse", listing: null }), useFolder: (listing: MachineFolder) => update({ type: "choose", listing }),
+    pickBranch: (branch: string, machine: string | null) => { if (machine === null) delete picks[branch]; else picks[branch] = machine; draw(); },
+  })));
 }
 
 /// Reads a folder on the picked machine (`path` null for where it starts),
 /// then hands it to `then`; a failure shows as the sheet's error.
 async function read(path: string | null, then: (listing: MachineFolder) => void) {
-  const machine = state.machine;
+  const machine = state.machine, mine = opening;
   if (!machine || reading) return;
   reading = true;
   if (root) draw();
 
   try {
     const listing = await invoke<MachineFolder>("list_machine_folder", { machineId: machine, path });
+    if (mine !== opening || !root) return;
     if (!path && !bases.has(machine)) bases.set(machine, listing.path);
     if (state.machine === machine) then(listing);
   } catch (e) {
-    if (state.machine === machine) update({ type: "oops", message: String(e) });
+    if (mine === opening && root && state.machine === machine) update({ type: "oops", message: String(e) });
   } finally {
-    reading = false;
-    if (root) draw();
+    if (mine === opening && root) {
+      reading = false; draw();
+      if (state.machine !== machine) learnBase();
+    }
   }
 }
 
@@ -279,105 +277,15 @@ async function choose() {
   }
 
   let path = null;
+  const mine = opening, machine = state.machine;
 
   try {
     path = await invoke<string | null>("pick_folder", { start: state.chosen?.path ?? bases.get(state.machine!) ?? null });
   } catch (e) {
-    update({ type: "oops", message: String(e) });
+    if (mine === opening && root && machine === state.machine) update({ type: "oops", message: String(e) });
   }
 
-  if (path) read(path, listing => update({ type: "choose", listing }));
-}
-
-function body() {
-  switch (state.step) {
-    case "cloning":
-      return [
-        el("div", "am-wait", el("span", "dspin"), progressText(state, machines)),
-        el("div", "am-sub", "A large repository takes a few minutes. You can close this; the project shows up once it is in."),
-        el("div", "am-line", el("span", "end"), button("Close", "dbtn quiet", closeImportProject)),
-      ];
-    case "done": {
-      const project = state.project!;
-      return [
-        el("div", "am-done", el("span", "ddot"), el("b", "", `${project.name} imported`)),
-        el("div", "am-sub", doneText(project)),
-        button("Open project", "dbtn pri", closeImportProject),
-      ];
-    }
-    default:
-      return form();
-  }
-}
-
-function form() {
-  const input = el("input", "ip-field");
-  input.type = "text";
-  input.placeholder = "org/repo or https://github.com/org/repo";
-  input.spellcheck = false;
-  input.autocapitalize = "off";
-  input.setAttribute("autocorrect", "off");
-  input.setAttribute("aria-label", "Repository");
-  input.value = state.repo;
-  input.addEventListener("input", () => { update({ type: "edit", repo: input.value }); schedulePreview(); });
-  input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
-  const chips = el("div", "dchips", ...machineChips(machines).map(c =>
-    press(button(c.label, "dchip", () => { update({ type: "pick", machine: c.id }); learnBase(); }), c.id === state.machine)));
-  const go = button("Import", "dbtn pri ip-go", submit);
-  go.disabled = !looksLikeRepo(state.repo);
-  return [
-    el("div", "am-label", "Repository"),
-    el("div", "am-line", input),
-    el("div", "am-label", "Machine"),
-    el("div", "am-line", chips),
-    el("div", "am-label", state.chosen ? "Folder" : "Clone into"),
-    state.browsing ? browser(state.browsing) : folderLine(),
-    state.chosen && !state.browsing ? el("div", "ip-found", state.chosen.origin != null && el("span", "ddot"), folderNote(state.chosen, state.repo)) : null,
-    state.chosen || state.browsing ? null : el("div", "am-sub ip-to", goesIn()),
-    forkLine(),
-    el("div", "am-sub", folderHelp(state, machines)),
-    ...branchesBlock(),
-    syncthing.node,
-    state.error ? el("div", "am-msg bad", state.error) : null,
-    el("div", "am-line ip-foot", go, button("Cancel", "dbtn quiet", closeImportProject)),
-  ];
-}
-
-/// "Your fork login/repo will be cloned, upstream added", once read for
-/// the repository typed and when no checkout was picked.
-function forkLine() {
-  if (previewFor !== state.repo.trim() || state.chosen?.origin != null) return null;
-  const note = forkNote(fork);
-  return note ? el("div", "ip-found ip-fork", el("span", "ddot"), note) : null;
-}
-
-/// The checkouts found and the branches with work, each with where its worktree
-/// goes or Skip.
-function branchesBlock() {
-  if (!previewFor || previewFor !== state.repo.trim()) return [];
-  const label = el("div", "am-label", "Branches");
-  if (preview === undefined) return [label, el("div", "am-wait", el("span", "dspin"), "Looking for checkouts and branches…")];
-  if (preview === null) return previewError ? [label, el("div", "am-sub", previewError)] : [];
-  const { default_branch } = preview;
-  const choices = placeChoices(preview, machines);
-  const rows = preview.branches.map(b => {
-    const meta = previewLine(b, default_branch);
-    const line = el("div", "ip-branch", el("code", "", b.name), el("span", "m", meta));
-    line.title = `${b.name}  ${meta}`;
-
-    if (b.name !== default_branch && !b.worktree) {
-      const places = [...choices.map(c => ({ label: c.name, value: c.id as string | null })), { label: "Skip", value: null }];
-      const choose = (id: string | null) => { if (id == null) delete picks[b.name]; else picks[b.name] = id; draw(); };
-      line.append(el("span", "lbl", "Worktree"), segmented(places, picks[b.name] ?? null, choose));
-    }
-
-    return line;
-  });
-  return [
-    label,
-    el("div", "am-sub", [checkoutNote(preview), preview.note].filter(Boolean).join(" ")),
-    rows.length ? el("div", "ip-branches", ...rows) : el("div", "am-sub", "No branches with work."),
-  ];
+  if (path && mine === opening && root && machine === state.machine) read(path, listing => update({ type: "choose", listing }));
 }
 
 /// The parent a clone goes under before anything is typed.
@@ -393,37 +301,6 @@ function goesIn() {
   return `Goes in ${folderUnder(parent, state.repo) ?? `${parent.replace(/\/+$/, "")}/<org>/<repo>`}.`;
 }
 
-/// Where it goes, the default or the folder chosen or typed, and Choose….
-function folderLine() {
-  const path = el("input", "ip-path ip-dir");
-  path.type = "text";
-  path.spellcheck = false;
-  path.autocapitalize = "off";
-  path.setAttribute("autocorrect", "off");
-  path.setAttribute("aria-label", state.chosen ? "Folder" : "Clone into");
-  path.setAttribute("role", "combobox");
-  path.setAttribute("aria-autocomplete", "list");
-  path.setAttribute("aria-controls", "ip-menu");
-  path.setAttribute("aria-expanded", "false");
-  path.placeholder = state.machine ? "The machine's projects folder" : "The default folder on the machine Beep picks";
-  // On Auto there is no machine to name a folder on.
-  path.disabled = !state.machine;
-  path.value = path.title = state.machine ? folderText ?? state.chosen?.path ?? defaultParent() ?? "" : "";
-  path.addEventListener("input", () => {
-    // Typing over a chosen folder makes it a parent again.
-    if (state.chosen) { const text = path.value; update({ type: "unchoose" }); folderText = text; draw(); return; }
-    folderText = path.title = path.value;
-    syncForm();
-    lookFolders();
-  });
-  path.addEventListener("keydown", e => onFolderKey(e, path));
-  path.addEventListener("blur", () => { lookup++; clearTimeout(lookupTimer); setMenu(NO_MENU); });
-  const pick = button(reading ? "Reading…" : "Choose…", "dbtn quiet", choose);
-  pick.disabled = !machines.length || reading;
-  const reset = state.chosen ? button("Default", "dbtn quiet", () => update({ type: "unchoose" })) : null;
-  return el("div", "am-line", el("div", "ip-folder", path), pick, reset);
-}
-
 /// Forgets the folder typed and its menu.
 function resetFolder() {
   folderText = null;
@@ -434,7 +311,7 @@ function resetFolder() {
 
 /// Up, Down, Tab and Enter in the Folder field (Esc reaches `onKey`
 /// first). Enter with no menu imports.
-function onFolderKey(e: KeyboardEvent, field: HTMLInputElement) {
+function onFolderKey(e: ReactKeyboardEvent<HTMLInputElement>, field: HTMLInputElement) {
   const act = menuKey(menu, e.key, e.shiftKey || e.altKey || e.ctrlKey || e.metaKey);
 
   if (act.type === "none") {
@@ -450,7 +327,8 @@ function onFolderKey(e: KeyboardEvent, field: HTMLInputElement) {
 
 /// Puts a folder picked from the menu in the field, then offers its folders.
 function acceptFolder(field: HTMLInputElement, text: string) {
-  folderText = field.value = field.title = text;
+  folderText = text;
+  draw();
   field.setSelectionRange(text.length, text.length);
   lookFolders();
 }
@@ -459,7 +337,7 @@ function acceptFolder(field: HTMLInputElement, text: string) {
 /// a folder read before answers at once.
 function lookFolders() {
   clearTimeout(lookupTimer);
-  const ask = ++lookup;
+  const ask = ++lookup, mine = opening;
   const machine = state.machine;
   const typed = folderText == null ? null : splitTyped(folderText);
   if (!machine || !typed) { setMenu(NO_MENU); return; }
@@ -473,51 +351,19 @@ function lookFolders() {
   lookupTimer = setTimeout(async () => {
     try {
       const listing = await invoke<MachineFolder>("list_machine_folder", { machineId: machine, path: typed.dir });
+      if (mine !== opening || !root) return;
       listed.set(key, listing.folders);
       offer(listing.folders);
     } catch {
       // Nothing to offer: typing goes on as without the menu.
-      if (ask === lookup) setMenu(NO_MENU);
+      if (mine === opening && root && ask === lookup) setMenu(NO_MENU);
     }
   }, 150);
 }
 
-/// Shows `next` under the Folder field, in place, while the field has focus.
+/// Shows the folder suggestions while their field owns focus.
 function setMenu(next: FolderMenu) {
   const field = sheet?.querySelector<HTMLInputElement>(".ip-dir");
   menu = field && document.activeElement === field ? next : NO_MENU;
-  if (!field) return;
-  const box = field.parentElement!;
-  box.querySelector(".ip-menu")?.remove();
-  field.setAttribute("aria-expanded", String(isOpen(menu)));
-  field.removeAttribute("aria-activedescendant");
-  if (!isOpen(menu)) return;
-  const { dir, index } = menu;
-  const list = el("div", "ip-menu", ...menu.items.map((name, i) => {
-    const row = el("div", i === index ? "on" : "", name);
-    row.id = `ip-menu-${i}`;
-    row.setAttribute("role", "option");
-    row.setAttribute("aria-selected", String(i === index));
-    // The field keeps focus, so typing goes on after a click.
-    row.addEventListener("mousedown", e => e.preventDefault());
-    row.addEventListener("click", () => acceptFolder(field, completed(dir, name)));
-    return row;
-  }));
-  list.id = "ip-menu";
-  list.setAttribute("role", "listbox");
-  field.setAttribute("aria-activedescendant", `ip-menu-${index}`);
-  box.append(list);
-  list.children[index]?.scrollIntoView({ block: "nearest" });
-}
-
-/// The folder browser for another machine: the folder, its folders, and
-/// what importing there does.
-function browser(listing: MachineFolder) {
-  return folderBrowser(listing, {
-    reading,
-    note: folderNote(listing, state.repo),
-    go: browseTo,
-    cancel: () => update({ type: "browse", listing: null }),
-    use: () => update({ type: "choose", listing }),
-  });
+  if (root) draw();
 }
