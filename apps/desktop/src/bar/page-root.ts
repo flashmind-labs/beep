@@ -25,6 +25,7 @@ export function openBarPage(release: () => void): { host: HTMLElement; root: Roo
   }
   const host = document.createElement("div");
   host.style.display = "contents";
+  host.dataset.barPage = "";
   bar.replaceChildren(host);
   const root = createRoot(host);
   const observer = new MutationObserver(() => { if (current?.host === host && !host.isConnected) dispose(); });

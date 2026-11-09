@@ -22,7 +22,10 @@ export function fit() {
   fitFrame ||= requestAnimationFrame(() => {
     fitFrame = 0;
     let height = 2;
-    for (const el of bar.children as HTMLCollectionOf<HTMLElement>) if (!FLOATING.has(el.id)) height += tall(el);
+    for (const child of bar.children as HTMLCollectionOf<HTMLElement>) {
+      const elements = child.hasAttribute("data-bar-page") ? [...child.children] as HTMLElement[] : [child];
+      for (const el of elements) if (!FLOATING.has(el.id)) height += tall(el);
+    }
     if ($("#viewer")) height = Math.max(height, VIEWER_HEIGHT);
     const keys = $("#keys");
     if (keys) height = Math.max(height, natural(keys) + 2);
@@ -41,7 +44,7 @@ export const sizer = new ResizeObserver(fit);
 window.addEventListener(ZOOMED, () => { forgetHeight(); fit(); });
 new MutationObserver(() => {
   sizer.disconnect();
-  for (const el of bar.querySelectorAll(":scope > *, .dbody > *")) sizer.observe(el);
+  for (const el of bar.querySelectorAll(":scope > *, :scope > [data-bar-page] > *, .dbody > *")) sizer.observe(el);
   fit();
 }).observe(bar, { childList: true, subtree: true, characterData: true });
 
