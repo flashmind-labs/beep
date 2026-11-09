@@ -59,9 +59,9 @@
 .mac .dv-lines.split { width: 100% } .mac .dv-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) } .mac .dv-pair .dv-l { min-width: 0 } .mac .dv-pair .dv-l + .dv-l { border-left: 1px solid var(--border) }
 .mac .dv-pair .dv-c { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere } .mac .dv-l.none { background: var(--dv-gut-bg) } .mac .dv-l.none .dv-c::before { content: none }
 .mac .dv-splitbtn[aria-pressed="true"] { background: var(--elev) } @container (max-width: 640px) { .mac .dv-splitbtn { display: none } }
-.mac .dv-l.add { background: var(--dv-add-bg) } .mac .dv-l.add .dv-g { background: var(--dv-add-gut); color: var(--dv-add-fg) } .mac .dv-l.add .dv-c::before { content: "+"; color: var(--dv-add-fg) }
-.mac .dv-l.del { background: var(--dv-del-bg) } .mac .dv-l.del .dv-g { background: var(--dv-del-gut); color: var(--dv-del-fg) } .mac .dv-l.del .dv-c::before { content: "-"; color: var(--dv-del-fg) }
-.mac .dv-l.hunk { background: var(--dv-hunk-bg); color: var(--dv-hunk-fg) } .mac .dv-l.hunk .dv-g { background: var(--dv-hunk-bg) } .mac .dv-l.hunk .dv-c { font-size: 11.5px } .mac .dv-l.hunk .dv-c::before { content: none }
+.mac .dv-l.add { background: var(--dv-add-bg) } .mac .dv-l.add .dv-g { background: linear-gradient(var(--dv-add-gut), var(--dv-add-gut)), var(--dv-gut-bg); color: var(--dv-add-fg) } .mac .dv-l.add .dv-c::before { content: "+"; color: var(--dv-add-fg) }
+.mac .dv-l.del { background: var(--dv-del-bg) } .mac .dv-l.del .dv-g { background: linear-gradient(var(--dv-del-gut), var(--dv-del-gut)), var(--dv-gut-bg); color: var(--dv-del-fg) } .mac .dv-l.del .dv-c::before { content: "-"; color: var(--dv-del-fg) }
+.mac .dv-l.hunk { background: var(--dv-hunk-bg); color: var(--dv-hunk-fg) } .mac .dv-l.hunk .dv-g { background: linear-gradient(var(--dv-hunk-bg), var(--dv-hunk-bg)), var(--dv-gut-bg) } .mac .dv-l.hunk .dv-c { font-size: 11.5px } .mac .dv-l.hunk .dv-c::before { content: none }
 .mac .dv-l.gap { color: var(--muted); font: 11.5px/22px var(--body) } .mac .dv-l.gap .dv-c::before { content: none }
 .mac .dv-eol { margin-left: 8px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); font: 10.5px/15px var(--body) }
 .mac .dv-context { display: flex; align-items: center; width: 100%; height: 22px; padding: 0; border: 0; border-block: 1px solid var(--border); border-radius: 0; background: var(--dv-gut-bg); color: var(--muted); font: inherit; cursor: pointer }
