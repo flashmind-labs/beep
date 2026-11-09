@@ -120,3 +120,22 @@ test("handoff retries errors and keeps its native request after closing", async 
   await expect(sheet).toHaveCount(0);
   await page.evaluate(() => window.__navigation.release("project_handoff_work"));
 });
+
+test("adding a machine keeps a typed folder across the initial lookup", async ({ page }) => {
+  await openMachines(page);
+  await page.evaluate(() => { window.__navigation.respond("list_machine_folder", { path: "/srv", parent: "/", exists: true, folders: ["projects"], more: 0, empty: true, origin: null }); window.__navigation.hold("list_machine_folder"); });
+  await page.getByRole("article", { name: "laptop", exact: true }).getByRole("button", { name: "Add", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: /Add widget to laptop/ });
+  const field = sheet.getByRole("textbox", { name: "Folder on laptop" });
+  await field.fill("/srv/custom");
+  await field.evaluate(el => { if (el instanceof HTMLInputElement) el.setSelectionRange(3, 6); Reflect.set(window, "folderField", el); });
+  await page.evaluate(() => window.__navigation.release("list_machine_folder"));
+  await expect(sheet.getByRole("button", { name: "Choose…" })).toBeEnabled();
+  expect(await field.evaluate(el => el === Reflect.get(window, "folderField") && document.activeElement === el && el instanceof HTMLInputElement && el.value === "/srv/custom" && el.selectionStart === 3 && el.selectionEnd === 6)).toBe(true);
+  await page.evaluate(() => window.__navigation.hold("project_add_to_machine"));
+  await sheet.getByRole("button", { name: "Add", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_add_to_machine").map(call => call.args))).toEqual([{ project: projectName, machineId: "laptop", folder: "/srv/custom" }]);
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.__navigation.release("project_add_to_machine"));
+  await expect(sheet).toHaveCount(0);
+});

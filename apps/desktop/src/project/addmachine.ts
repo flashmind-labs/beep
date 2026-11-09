@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
+import { AddMachineView } from "./addmachine-view.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // The "Add <project> to <machine>" sheet of a project's "Where it lives": the
 // folder there, then how far Beep's sync has brought the files. With `from`
@@ -6,9 +10,7 @@ import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts
 // and the folder it had stays on disk as it is.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
-import { button, el } from "../ui/dom.ts";
 import { reason } from "../ui/format.ts";
-import { folderBrowser } from "../addproject/folderbrowser.ts";
 import { lastImport } from "../addproject/importproject.ts";
 import { defaultParent } from "../addproject/importproject-state.ts";
 import { browseStart, copyLine, destination, shortName, type CopyLine } from "./addmachine-state.ts";
@@ -39,18 +41,19 @@ export function openAddToMachine(o: AddToMachine) {
   let adding = false, copying: CopyLine | null = null, open = true;
   let unfollow: (() => void) | undefined;
   const { sheet, close } = openSheet(title, "am-sheet ip-sheet ip-add", {
-    onClose: () => { open = false; unfollow?.(); },
+    onClose: () => { open = false; unfollow?.(); view.unmount(); },
   });
 
+  const view = createRoot(sheet);
   const draw = () => {
     if (!open) return;
-    sheet.replaceChildren(el("div", "am-head", el("b", "", title), el("kbd", "", "esc")), ...(copying ? copyBody(copying) : form()));
-
-    if (!copying && !browsing) {
-      const field = sheet.querySelector<HTMLInputElement>(".ip-dir");
-      field?.focus();
-      field?.setSelectionRange(field.value.length, field.value.length);
-    }
+    flushSync(() => view.render(createElement(AddMachineView, {
+      title, project, machine: machine.name, from: o.from == null ? null : plainPath(o.from), folder, browsing, reading, adding, error, copying,
+      edit: (value: string) => { folder = value; error = null; draw(); }, choose: () => void choose(), add: () => void add(), close,
+      browse: (path: string | null) => void read(path, next => { browsing = next; }),
+      cancelBrowse: () => { browsing = null; draw(); },
+      useFolder: (listing: MachineFolder) => { folder = destination(listing, project, change); browsing = null; draw(); },
+    })));
   };
 
   /// Reads a folder on the machine (`path` null for where it starts).
@@ -60,10 +63,10 @@ export function openAddToMachine(o: AddToMachine) {
     draw();
 
     try {
-      then(await invoke<MachineFolder>("list_machine_folder", { machineId: machine.id, path }));
-      error = null;
+      const listing = await invoke<MachineFolder>("list_machine_folder", { machineId: machine.id, path });
+      if (open) { then(listing); error = null; }
     } catch (e) {
-      error = reason(e);
+      if (open) error = reason(e);
     }
 
     reading = false;
@@ -78,7 +81,7 @@ export function openAddToMachine(o: AddToMachine) {
 
     try {
       const path = await invoke<string | null>("pick_folder", { start: browseStart(folder) });
-      if (path) read(path, listing => { folder = destination(listing, project, change); });
+      if (path && open) read(path, listing => { folder = destination(listing, project, change); });
     } catch (e) {
       error = reason(e);
       draw();
@@ -94,8 +97,7 @@ export function openAddToMachine(o: AddToMachine) {
     try {
       await invoke<string>(change ? "project_change_folder" : "project_add_to_machine", { project, machineId: machine.id, folder });
       o.added();
-      copying = copyLine(null, machine.id, machine.name);
-      poll();
+      if (open) { copying = copyLine(null, machine.id, machine.name); void poll(); }
     } catch (e) {
       error = reason(e);
     }
@@ -118,53 +120,6 @@ export function openAddToMachine(o: AddToMachine) {
     draw();
     unfollow ??= subscribeTopics(topic("sync"), () => poll(), machine.id, () => open);
   };
-
-  function form() {
-    const field = el("input", "ip-path ip-dir");
-    field.type = "text";
-    field.spellcheck = false;
-    field.autocapitalize = "off";
-    field.setAttribute("autocorrect", "off");
-    field.setAttribute("aria-label", `Folder on ${machine.name}`);
-    field.value = field.title = folder;
-    const go = button(adding ? (change ? "Changing…" : "Adding…") : change ? "Change" : "Add", "dbtn pri ip-go", add);
-    go.disabled = adding || !folder.trim();
-    field.addEventListener("input", () => {
-      folder = field.title = field.value;
-      go.disabled = adding || !folder.trim();
-      if (error) { error = null; sheet.querySelector(".am-msg.bad")?.remove(); }
-    });
-    field.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); add(); } });
-    const pick = button(reading ? "Reading…" : "Choose…", "dbtn quiet", choose);
-    pick.disabled = reading || adding;
-    return [
-      ...(change ? [el("div", "am-sub", "Now in ", el("code", "", plainPath(o.from!)))] : []),
-      el("div", "am-label", `Folder on ${machine.name}`),
-      el("div", "am-line", el("div", "ip-folder", field), pick),
-      ...(browsing ? [browser(browsing)] : []),
-      ...(error ? [el("div", "am-msg bad", error)] : []),
-      ...(change ? [el("div", "am-sub", "Pick an empty folder, which the other machines fill, or a checkout of the same repository, which joins the sync. The folder it is in now stays on disk as it is.")] : []),
-      el("div", "am-line ip-acts", button("Cancel", "dbtn quiet", close), go),
-    ];
-  }
-
-  function browser(listing: MachineFolder) {
-    return folderBrowser(listing, {
-      reading,
-      note: `It goes in ${destination(listing, project, change)}.`,
-      go: path => read(path, next => { browsing = next; }),
-      cancel: () => { browsing = null; draw(); },
-      use: () => { folder = destination(listing, project, change); browsing = null; draw(); },
-    });
-  }
-
-  function copyBody(line: CopyLine) {
-    return [
-      el("div", "am-wait", el("span", "dspin"), line.text),
-      ...(line.note ? [el("div", "am-sub", line.note)] : []),
-      el("div", "am-line ip-acts", button("Close", "dbtn quiet", close)),
-    ];
-  }
 
   draw();
 
