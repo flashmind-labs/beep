@@ -1,6 +1,5 @@
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { removeWindowPart, removeWindowParts, showWindowParts } from "../center/window-root.ts";
 import { ReviewFindings } from "./review-findings.tsx";
 import { ReviewActions, ReviewHeading } from "./review-controls.tsx";
 import { ReviewStatus } from "./review-status.tsx";
@@ -329,9 +328,9 @@ export function makeReviews(deps: ReviewDeps) {
   const all = new Map<string, ProjectReviews>();
   let unfollow: (() => void) | undefined;
   let polling: string | null = null;
-  let findingsView: { project: string; host: HTMLElement; root: Root } | null = null;
-  let statusView: { project: string; host: HTMLElement; root: Root } | null = null;
-  let controls: { project: string; head: HTMLElement; headRoot: Root; actions: HTMLElement; actionsRoot: Root } | null = null;
+  let findingsView: { project: string; host: HTMLElement } | null = null;
+  let statusView: { project: string; host: HTMLElement } | null = null;
+  let controls: { project: string; head: HTMLElement; actions: HTMLElement } | null = null;
   let detailView: { project: string; host: HTMLElement; error: HTMLElement; before: HTMLElement; after: HTMLElement } | null = null;
 
   /// A project's branches and reviews, from the cache until they are read.
@@ -604,46 +603,52 @@ export function makeReviews(deps: ReviewDeps) {
     const out: HTMLElement[] = [];
 
     if (!statusView || statusView.project !== name) {
-      statusView?.root.unmount();
+      if (statusView) removeWindowPart("review-status");
       const host = h("div"); host.style.display = "contents";
-      statusView = { project: name, host, root: createRoot(host) };
+      statusView = { project: name, host };
     }
     const currentStatus = statusView;
     const r = t.review;
     const now = r && t.now?.id === r.id ? t.now : null;
     const stale = r ? staleText(r, now) : "";
-    flushSync(() => currentStatus.root.render(createElement(ReviewStatus, {
+    const status = createElement(ReviewStatus, {
       starting: t.starting, review: r, error: t.error, note: t.note, stale,
       branches: () => openTile("branches"), again: () => { if (r) void openBranch(name, r.branch, true); },
-    })));
-    if (t.starting || !r) { watch(null); return [currentStatus.host]; }
+    });
+    if (t.starting || !r) { showWindowParts([{ part: "review-status", host: currentStatus.host, identity: name, content: status }]); watch(null); return [currentStatus.host]; }
 
     checkHead(name, r);
     if (!controls || controls.project !== name) {
-      controls?.headRoot.unmount(); controls?.actionsRoot.unmount();
+      if (controls) removeWindowParts(["review-heading", "review-actions"]);
       const head = h("div"), actions = h("div");
       head.style.display = actions.style.display = "contents";
-      controls = { project: name, head, actions, headRoot: createRoot(head), actionsRoot: createRoot(actions) };
+      controls = { project: name, head, actions };
     }
     const currentControls = controls;
-    flushSync(() => currentControls.headRoot.render(createElement(ReviewHeading, {
+    const heading = createElement(ReviewHeading, {
       review: r, now, ago, diff: deps.diff?.(name, r.branch) ?? null, openPr: (url: string) => void openUrl(url), again: () => void openBranch(name, r.branch, true),
-    })));
+    });
     out.push(currentControls.head);
     out.push(currentStatus.host);
 
     if (!findingsView || findingsView.project !== name) {
-      findingsView?.root.unmount();
+      if (findingsView) removeWindowPart("review-findings");
       const host = h("div", "pj-cols");
-      findingsView = { project: name, host, root: createRoot(host) };
+      findingsView = { project: name, host };
     }
     const current = findingsView;
-    flushSync(() => current.root.render(createElement(ReviewFindings, { review: r, busy: t.busy, dismiss: (finding: FindingView) => void dismiss(name, r, finding) })));
+    const findings = createElement(ReviewFindings, { review: r, busy: t.busy, dismiss: (finding: FindingView) => void dismiss(name, r, finding) });
     out.push(current.host);
 
-    flushSync(() => currentControls.actionsRoot.render(createElement(ReviewActions, {
+    const actions = createElement(ReviewActions, {
       review: r, now, busy: t.busy, fix: () => void fix(name, r), post: () => void post(name, r), merge: () => void merge(name, r),
-    })));
+    });
+    showWindowParts([
+      { part: "review-status", host: currentStatus.host, identity: name, content: status },
+      { part: "review-heading", host: currentControls.head, identity: name, content: heading },
+      { part: "review-findings", host: current.host, identity: name, content: findings },
+      { part: "review-actions", host: currentControls.actions, identity: name, content: actions },
+    ]);
     out.push(currentControls.actions);
     watch(name);
     return out;
@@ -681,6 +686,6 @@ export function makeReviews(deps: ReviewDeps) {
     branchesPanel,
     reviewPanel,
     reviewDetail,
-    stop: () => { watch(null); findingsView?.root.unmount(); findingsView = null; statusView?.root.unmount(); statusView = null; controls?.headRoot.unmount(); controls?.actionsRoot.unmount(); controls = null; detailView = null; },
+    stop: () => { watch(null); removeWindowParts(["review-status", "review-heading", "review-findings", "review-actions"]); findingsView = null; statusView = null; controls = null; detailView = null; },
   };
 }
