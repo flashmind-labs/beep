@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { RunsView } from "./runs-view.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 import { snapshotView } from "../ui/snapshot-state.ts";
 // A project's workflow runs (GitHub Actions or Forgejo Actions) on its page:
@@ -8,8 +12,7 @@ import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import type { ProjectAgent } from "./agent.ts";
 import type { BarTarget } from "./projectbar.ts";
-import { reason, since } from "../ui/format.ts";
-import { emptyPanel, note, secHead } from "../ui/parts.ts";
+import { reason } from "../ui/format.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import type { TileData } from "./board.ts";
 import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
@@ -270,6 +273,7 @@ export interface RunDeps {
   kept?: SectionStore<RunsRow | null>;
   /// Called when a read changes the hosts the runs come from.
   hostsChanged?: () => void;
+  slot?: (host: HTMLElement) => HTMLElement;
 }
 
 /// One project's runs: undefined while they load, null from a server too old to
@@ -287,13 +291,6 @@ interface ProjectRuns {
 
 type Agent = Pick<ProjectAgent, "project_id" | "name">;
 
-/// The mark at the start of a finished run's row, by its state.
-const RUN_MARKS: Record<string, string> = {
-  passed: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
-  failed: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>',
-  cancelled: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M7 12h10"/></svg>',
-};
-
 /// The latest a rate limit of any host the runs come from lifts.
 function limitOf(d: RunsRow | null | undefined) {
   const all = [d?.rate_limited_until ?? null, ...(d?.hosts ?? []).map(x => x.rate_limited_until)].filter((t): t is number => !!t);
@@ -301,7 +298,7 @@ function limitOf(d: RunsRow | null | undefined) {
 }
 
 export function makeRuns(deps: RunDeps) {
-  const { invoke, h, button, redraw, openUrl, fix } = deps;
+  const { invoke, h, redraw, openUrl, fix } = deps;
   const kept = deps.kept ?? new PageCache(null).section<RunsRow | null>("runs");
   const all = new Map<string, ProjectRuns>();
   /// When each project's runs were last asked for, so a draw asks again
@@ -474,183 +471,52 @@ export function makeRuns(deps: RunDeps) {
     if (s.openRun) readDetail(id, s.openRun);
   }
 
-  /// A job's or step's line: its dot, name and how long it took.
-  function stepLine(name: string, state: RunState, r: Pick<RunRow, "started_at" | "finished_at">) {
-    const cls = state === "failed" ? "bad" : going(state) ? "run" : state === "skipped" || state === "cancelled" ? "skip" : "ok";
-    const took = state === "skipped" ? "skipped" : runSpan(r);
-    return h("span", `pj-step ${cls}`, h("span", state === "failed" ? "ddot bad" : going(state) ? "ddot" : "ddot off"), h("span", "", name), h("small", "", took));
-  }
-
-  /// What was read last of the run opened: drawn at once, and read again
-  /// behind it when due.
   function openDetail(id: string) {
     const s = of(id);
     return s.openRun ? details.get(detailKey(id, s.openRun))?.data ?? null : null;
   }
 
-  /// The run opened: its jobs, the steps of the failing or running job,
-  /// the end of the failing step's log and Fix this.
-  function detailEl(id: string, run: Pick<RunRow, "id" | "host">) {
-    const box = h("span", "pj-run");
-    const key = detailKey(id, run);
-    const d = details.get(key)?.data;
-    const failed = detailErrors.get(key);
-    if (!d) { box.append(failed ? h("span", "cc-err", failed) : h("small", "dmuted", "Reading the run…")); return box; }
-    // The buttons act on what is read by the time they are pressed.
-    const now = () => openDetail(id) ?? d;
-    const error = [failed, d.error].filter(Boolean).join(" ");
-    if (error) box.append(h("span", "cc-err", error));
-    if (!d.jobs.length) box.append(h("small", "dmuted", "The host gives no jobs for this run."));
-    const jobs = h("span", "pj-jobs");
+  let view: { id: string; host: HTMLElement; root: Root } | null = null;
+  function disposeView() { view?.root.unmount(); view = null; }
 
-    for (const j of d.jobs) {
-      const chip = runChip(j.state);
-      const took = runSpan(j);
-      jobs.append(h("b", j.state === "failed" ? "bad" : "", j.name), h("small", "", [chip.text, took].filter(Boolean).join(", ")));
-    }
-
-    if (d.jobs.length) box.append(jobs);
-    const shown = d.jobs.find(j => j.state === "failed") || d.jobs.find(j => going(j.state));
-
-    if (shown?.steps.length) {
-      box.append(h("span", "pj-steps", ...shown.steps.map((st, i) => stepLine(`${i + 1}. ${st.name}`, st.state, st))));
-    }
-
-    if (d.log) {
-      const where = [d.log.job, d.log.step].filter(Boolean).join(", ");
-      box.append(h("span", "pj-log",
-        h("small", "", `End of the log of ${where}${d.log.truncated ? " (earlier lines left out)" : ""}`),
-        h("pre", "", d.log.text)));
-    }
-
-    const acts = h("span", "acts");
-
-    if (d.run.state === "failed") {
-      const b = button("Fix this", "pri", () => fix(now()));
-      b.title = "Start a coding agent on this run's branch with the failure in its prompt";
-      acts.append(b);
-    }
-
-    const job = d.jobs.find(j => j.state === "failed");
-    if (job?.url) acts.append(button("Full log", "", () => openUrl(now().jobs.find(j => j.state === "failed")?.url || job.url)));
-    if (acts.childNodes.length) box.append(acts);
-    return box;
-  }
-
-  function row(id: string, s: ProjectRuns, r: RunRow) {
-    const chip = runChip(r.state);
-    const meta: (HTMLElement | string)[] = [];
-    if (r.branch) meta.push(h("code", "br", r.branch));
-    // The event and who started it give way first on a narrow list.
-    if (r.event) meta.push(h("span", "ev", r.event));
-    if (r.actor) meta.push(h("span", "ev", r.actor));
-
-    if (going(r.state) && r.progress) {
-      meta.push(h("span", "", progressText(r.progress)));
-      if (r.progress.jobs > 1) meta.push(h("span", "", `${r.progress.jobs_done} of ${r.progress.jobs} jobs done`));
-    }
-
-    const opened = s.open === runKey(r);
-    const hosts = s.data?.hosts ?? [];
-    let badge: HTMLElement | null = null;
-    if (r.host && hosts.length > 1) {
-      badge = h("span", "pj-host", hostLabel(r.host, hosts));
-      badge.title = `${hostLabel(r.host, hosts)} Actions on ${r.host}`;
-    }
-    const mark = h("span", `rr-st ${chip.cls || "idle"}`);
-    if (chip.spin) mark.append(h("span", "dspin"));
-    else mark.innerHTML = RUN_MARKS[r.state] ?? "";
-    mark.title = chip.text;
-    const took = going(r.state) ? "" : runSpan(r);
-    const open = button("Open", "quiet small", e => { e.stopPropagation(); openUrl(r.url); });
-    open.title = `Open on ${hostLabel(r.host, hosts)}`;
-    const head = h("div", "rr-head",
-      mark,
-      h("div", "rr-body",
-        h("div", "rr-t", badge, h("b", "", `${r.workflow} #${r.number}`), h("span", "", r.title)),
-        h("div", "rr-m", ...meta)),
-      h("div", "rr-side",
-        h("span", "rr-when", r.finished_at ? since(r.finished_at) : chip.text),
-        h("span", "rr-took", took)),
-      h("span", "rr-acts", open),
-      h("span", `rr-chev${opened ? " on" : ""}`));
-    head.setAttribute("role", "button");
-    head.tabIndex = 0;
-    head.setAttribute("aria-expanded", String(opened));
-    head.addEventListener("click", () => toggle(id, r));
-    head.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(id, r); } });
-    head.addEventListener("mouseenter", () => hovered(id, r));
-    head.addEventListener("mouseleave", () => { if (hover) { clearTimeout(hover); hover = null; } });
-    head.addEventListener("contextmenu", e => {
-      const items: MenuItem[] = [{ label: `Open on ${hostLabel(r.host, hosts)}`, on: () => openUrl(r.url) }];
-      // What the opened run's buttons do, once its detail is read.
-      const d = s.open === runKey(r) ? openDetail(id) : null;
-      if (d?.run.state === "failed") items.push({ label: "Fix this", on: () => fix(d) });
-      const job = d?.jobs.find(j => j.state === "failed");
-      if (job?.url) items.push({ label: "Full log", on: () => openUrl(job.url!) });
-      openMenu(e, `${r.workflow} #${r.number}`, items);
-    });
-    const el = h("div", `pj-runrow ${chip.cls || "idle"}${opened ? " open" : ""}`, head);
-    if (opened) el.append(detailEl(id, r));
-    return el;
-  }
-
-  /// The Actions section of the project page.
+  /// The Actions section keeps its rows while live updates arrive.
   function section(agent: Agent) {
-    const id = agent.project_id;
-    const box = sectionEl(id);
-    schedule(id);
-    return box;
-  }
-
-  function sectionEl(id: string) {
-    const s = of(id);
+    const id = agent.project_id, s = of(id);
     ensure(id);
-    const d = s.data;
-    const box = h("div", "pj-actions");
-    box.id = "sec-actions";
-    const synced = d?.synced_at ? h("small", "sw-age", `synced ${since(d.synced_at)}`) : null;
-    const perHost = d ? hostCounts(d) : [];
-    const counts = perHost.length
-      ? perHost.map(c => h("small", c.error ? "hosterr" : "", c.text))
-      : [d?.runs.length ? h("small", "", runsCount(d.runs)) : null];
-    box.append(secHead("Actions", ...counts, synced, deps.mode?.(id) ?? null,
-      button("Refresh", "quiet small", () => load(id, true))));
-    if (d === undefined) { box.append(emptyPanel(h("span", "", "Reading the runs…"))); return box; }
-    if (d === null) { box.append(emptyPanel(h("span", "", "The server needs an update before it shows runs."))); return box; }
-    const why = s.error || d.error || "";
-
-    if (d.rate_limited_until && d.rate_limited_until > Date.now()) {
-      const at = new Date(d.rate_limited_until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      box.append(note("warn", `The host's rate limit for your token is low, so live progress waits until ${at}.`));
+    schedule(id);
+    if (!view || view.id !== id) {
+      disposeView();
+      const host = h("div", "pj-actions");
+      host.id = "sec-actions";
+      view = { id, host, root: createRoot(host) };
     }
-
-    if (!d.runs.length) {
-      box.append(emptyPanel(h("span", why ? "cc-err" : "", why || "No workflow runs yet.")));
-      return box;
-    }
-
-    if (why) box.append(h("div", "cc-err", why));
-    const current = d.runs.filter(r => going(r.state)), finished = d.runs.filter(r => !going(r.state));
-    const states = [...new Set(finished.map(r => r.state))].sort();
-    const only = s.only && states.includes(s.only) ? s.only : null;
-    const chip = (state: string) => button(`${runChip(state).text} ${finished.filter(r => r.state === state).length}`, `pj-tag lab${state === only ? " on" : ""}`, () => {
-      s.only = state === only ? null : state;
-      redraw();
-    });
-    const panel = (runs: RunRow[]) => h("div", "cc-panel pj-runbox", ...runs.map(r => row(id, s, r)));
-    box.append(secHead("Running", h("small", "", String(current.length))),
-      current.length ? panel(current) : emptyPanel(h("span", "", "Nothing running.")),
-      secHead("Finished", h("small", "", String(finished.length))));
-    if (states.length > 1) box.append(h("div", "pj-labels", ...states.map(chip)));
-    if (finished.length) box.append(panel(only ? finished.filter(r => r.state === only) : finished));
-    else box.append(emptyPanel(h("span", "", "No finished runs.")));
-    return box;
+    const current = view;
+    flushSync(() => current.root.render(createElement(RunsView, {
+      data: s.data, error: s.error, only: s.only ?? null, open: s.open, mode: deps.mode?.(id) ?? null,
+      refresh: () => { void load(id, true); },
+      filter: (state: string | null) => { s.only = state; redraw(); },
+      toggle: (run: RunRow) => toggle(id, run), hover: (run: RunRow) => hovered(id, run),
+      leave: () => { if (hover) { clearTimeout(hover); hover = null; } },
+      menu: (e: MouseEvent, run: RunRow) => {
+        const hosts = s.data?.hosts ?? [];
+        const items: MenuItem[] = [{ label: `Open on ${hostLabel(run.host, hosts)}`, on: () => openUrl(run.url) }];
+        const d = s.open === runKey(run) ? openDetail(id) : null;
+        if (d?.run.state === "failed") items.push({ label: "Fix this", on: () => fix(d) });
+        const job = d?.jobs.find(j => j.state === "failed");
+        if (job?.url) { const url = job.url; items.push({ label: "Full log", on: () => openUrl(url) }); }
+        openMenu(e, `${run.workflow} #${run.number}`, items);
+      },
+      detail: (run: RunRow) => ({ data: details.get(detailKey(id, run))?.data ?? null, error: detailErrors.get(detailKey(id, run)) ?? "" }),
+      fix: (detail: RunDetail) => fix(openDetail(id) ?? detail), openUrl,
+    })));
+    return deps.slot?.(current.host) ?? current.host;
   }
 
   return {
     load,
     stop: () => {
+      disposeView();
+      if (hover) { clearTimeout(hover); hover = null; }
       if (watching) watchDetail(watching, null);
       unfollow?.(); unfollow = undefined; watching = null;
     },
