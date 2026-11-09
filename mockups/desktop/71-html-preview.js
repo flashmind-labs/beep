@@ -15,7 +15,7 @@
     if (preview) {
       const frame = document.createElement('iframe');
       frame.title = 'Preview of report.html';
-      frame.setAttribute('sandbox', '');
+      frame.setAttribute('sandbox', 'allow-scripts');
       frame.style.cssText = 'width:100%;height:100%;border:0;background:white';
       frame.srcdoc = '<h1>Build report</h1><p>All checks passed.</p>';
       body.append(frame);
@@ -33,7 +33,7 @@
     menu.className = 'ag-ctx';
     menu.dataset.htmlMenu = '';
     menu.hidden = true;
-    menu.innerHTML = '<button data-html-preview>Preview</button>';
+    menu.innerHTML = `<button data-html-preview>${preview ? 'Source' : 'Preview'}</button>`;
     pane.append(menu);
     return template.innerHTML;
   };
@@ -45,7 +45,7 @@
   });
   document.addEventListener('click', event => {
     if (!event.target.closest('[data-html-preview]')) return;
-    preview = event.target.closest('[data-html-menu]') ? true : !preview;
+    preview = !preview;
     render();
   });
   DESK_SCREENS.find(g => g.group === 'Command center').items.push(['dHtmlPreview', 'Agent: HTML preview', 'HtmlPreview']);
