@@ -205,19 +205,32 @@ impl Store {
         listing: Listing,
     ) -> Result<Vec<FoundSession>> {
         let rows = sqlx::query(&format!(
-            "SELECT DISTINCT ON (c.updated_at, c.id) {}, msg.content, msg.role = 'user'
-             FROM chats c
-             JOIN chat_members m ON m.chat_id = c.id
-             JOIN messages msg ON msg.chat_id = c.id
-             WHERE m.user_id = $1 AND c.kind = 'session'
-               AND msg.role IN ('user', 'assistant') AND msg.content ILIKE $2 ESCAPE '\\'
-               AND {}
-             ORDER BY c.updated_at DESC, c.id, msg.id DESC LIMIT $3",
+            "SELECT {}, matched.content, matched.from_user
+             FROM chats c JOIN chat_members m ON m.chat_id = c.id
+             CROSS JOIN LATERAL (
+                 SELECT string_agg(hit.content, E'\\n' ORDER BY term.ordinality) AS content,
+                        bool_and(hit.role = 'user') AS from_user
+                 FROM unnest($2::text[]) WITH ORDINALITY AS term(pattern, ordinality)
+                 CROSS JOIN LATERAL (
+                     SELECT msg.content, msg.role FROM messages msg
+                     WHERE msg.chat_id = c.id AND msg.role IN ('user', 'assistant')
+                       AND msg.content ILIKE term.pattern ESCAPE '\\'
+                     ORDER BY msg.id DESC LIMIT 1
+                 ) hit
+                 HAVING count(*) = cardinality($2::text[])
+             ) matched
+             WHERE m.user_id = $1 AND c.kind = 'session' AND {}
+             ORDER BY c.updated_at DESC, c.id LIMIT $3",
             session_columns(),
             listing.condition()
         ))
         .bind(user.as_ref())
-        .bind(format!("%{}%", like_pattern(query)))
+        .bind(
+            query
+                .split_whitespace()
+                .map(|term| format!("%{}%", like_pattern(term)))
+                .collect::<Vec<_>>(),
+        )
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;
