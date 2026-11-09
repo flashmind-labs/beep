@@ -1,6 +1,35 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
+test("Git navigation keeps search focus and tree across refreshes", async ({ page }) => {
+  await openDesktop(page, false, {
+    project_git_history: { machine_id: "build-box", machine_name: "build-box", root: "/srv/project", refs: [], worktrees: [], commits: [{ id: "abc123", parents: [], author: "Example", committed_at: 1, subject: "Example commit" }], next: null },
+    project_git_files: [], project_git_diff: { root: "/srv/project", base: "", merge_base: "", working_tree: false, additions: 0, deletions: 0, more: 0, files: [] },
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
+  const input = page.getByRole("searchbox", { name: "Search commit messages" });
+  const tree = page.locator(".gh-tree");
+  await input.fill("example");
+  await input.evaluate(element => { if (element instanceof HTMLInputElement) { element.dataset.identity = "kept"; element.setSelectionRange(2, 2); } });
+  await tree.evaluate(element => { element.dataset.identity = "kept"; });
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "project_git_history" && call.args.search === "example"))).toBe(true);
+  await page.locator(".gh-nav-head button").filter({ hasText: "Refresh" }).evaluate(element => { if (element instanceof HTMLElement) element.click(); });
+  await expect(input).toHaveValue("example");
+  await expect(input).toHaveAttribute("data-identity", "kept");
+  await expect(input).toBeFocused();
+  await expect(input).toHaveJSProperty("selectionStart", 2);
+  await expect(tree).toHaveAttribute("data-identity", "kept");
+  await expect(page.locator(".gh-nav-foot")).toHaveText("All branches · build-box");
+  await page.evaluate(() => window.__navigation.open("home"));
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
+  await expect(input).toHaveValue("example");
+  await expect(input).toHaveAttribute("data-identity", "kept");
+  await expect(tree).toHaveAttribute("data-identity", "kept");
+  await expect(page.locator(".gh-nav-foot")).toHaveText("All branches · build-box");
+});
+
 test("Git details retain behavior and refresh preserves the mounted diff", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
