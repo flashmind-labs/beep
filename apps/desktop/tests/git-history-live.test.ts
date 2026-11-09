@@ -43,3 +43,36 @@ test("visible Git history follows its root and stops reading when closed", async
   await settle();
   assert.equal(reads, 2);
 });
+
+test("refresh keeps the selected commit diff mounted and preserves its scroll", async t => {
+  Object.defineProperty(globalThis, "IntersectionObserver", { configurable: true, value: class { observe() {} unobserve() {} disconnect() {} } });
+  t.after(() => Reflect.deleteProperty(globalThis, "IntersectionObserver"));
+  const page: HistoryPage = { machine_id: "machine-a", machine_name: "build-box", root: "/srv/project", refs: [], worktrees: [],
+    commits: [{ id: "abc123", parents: [], author: "Example", committed_at: 0, subject: "Change" }], next: null };
+  let diffs = 0;
+  const invoke = (async (command: string) => {
+    if (command === "project_git_history") return page;
+    if (command === "project_git_files") return [];
+    if (command === "project_git_diff") {
+      diffs++;
+      return { root: "/srv/project", base: "", merge_base: "", working_tree: false, files: [], additions: 0, deletions: 0, more: 0 };
+    }
+    throw new Error(`Unexpected command: ${command}`);
+  }) as Parameters<typeof makeGitHistory>[0]["invoke"];
+  const history = makeGitHistory({ invoke, back() {}, sessions: () => [], openSession() {}, reviewBranch() {}, canReview: () => false });
+  const panels = history.panels("example");
+  document.body.append(panels.navigation, panels.detail);
+  await settle();
+  await settle();
+  const files = panels.detail.querySelector<HTMLElement>(".dv-files");
+  assert.ok(files);
+  files.scrollTop = 200;
+  const tree = panels.navigation.querySelector(".gh-tree")?.firstElementChild;
+  await history.refresh("example");
+  assert.equal(panels.detail.querySelector(".dv-files"), files);
+  assert.equal(files.scrollTop, 200);
+  assert.equal(panels.navigation.querySelector(".gh-tree")?.firstElementChild, tree);
+  assert.equal(diffs, 1);
+  history.stop();
+  panels.navigation.remove(); panels.detail.remove();
+});
