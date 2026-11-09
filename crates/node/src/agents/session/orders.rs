@@ -88,7 +88,7 @@ impl Actor {
                 self.show_queued();
                 if self.live.borrow().status() == Status::Idle {
                     self.next_prompt(cx);
-                } else if self.takes_steering && self.running.is_empty() {
+                } else if self.takes_steering {
                     self.steer_now(cx)?;
                 }
 
