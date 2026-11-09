@@ -65,6 +65,7 @@ function installNativeBoundary(data: Fixture): void {
   const answers: Record<string, unknown> = {
     status: { link: "unlinked", signed_out: true, server: false, live: false, session: null },
     mac_control: { id: data.project.machine_id, name: data.project.machine_name, enabled: true, status: "connected", error: null, permissions: {} },
+    agent_tree_text: { size: 10000, text: Array.from({ length: 500 }, (_, i) => `const value${i} = ${i};`).join("\n"), cut: false, binary: false },
     center_home: data.home,
     project_git_state: [{ machine_id: data.project.machine_id, machine_name: data.project.machine_name, branch: "main", upstream: null, ahead: 0, behind: 0, error: null }],
     project_git_history: { machine_id: data.project.machine_id, machine_name: data.project.machine_name, root: data.project.folder, refs: [], worktrees: [], commits: [], next: null },
@@ -95,6 +96,12 @@ function installNativeBoundary(data: Fixture): void {
         }
 
         if (command === "agent_processes") { return { processes: structuredClone(processes), local: false }; }
+
+        if (command === "work_diff") {
+          const context = typeof args.context === "number" ? args.context : 3;
+          const start = Math.max(1, 20 - context), end = Math.min(100, 20 + context);
+          return { root: data.project.folder, base: "main", merge_base: "abc1234", working_tree: true, additions: 1, deletions: 0, more: 0, files: [{ path: "sample.ts", old_path: null, status: "modified", additions: 1, deletions: 0, left_out: null, hunks: [{ old_start: start, new_start: start, old_lines: end - start + 1, new_lines: end - start + 1, section: "", lines: Array.from({ length: end - start + 1 }, (_, i) => ({ k: " ", t: `const value${start + i} = ${start + i};` })) }] }] };
+        }
 
         if (command === "agent_view") {
           return agentPage(args.session);

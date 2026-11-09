@@ -111,6 +111,7 @@ pub async fn project_git_files(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri exposes each argument to the web view.
 pub async fn project_git_diff(
     beep: Service<'_>,
     fleet: Machines<'_>,
@@ -119,13 +120,18 @@ pub async fn project_git_diff(
     commit: String,
     only: Vec<String>,
     lockfiles: bool,
+    context: Option<u32>,
 ) -> Result<DiffView> {
     let place = location(&beep, &fleet, &project, Some(&machine_id)).await?;
     let shell = PeerShell::on(&fleet, place.machine)
         .await?
         .complete_output();
     let id = CommitId::from_str(&commit)?;
-    let mut parts = history::run(&shell, &history::patch_script(&place.folder, &id, &only)).await?;
+    let mut parts = history::run(
+        &shell,
+        &history::patch_context_script(&place.folder, &id, &only, context.unwrap_or(3)),
+    )
+    .await?;
     let patch = parts.remove("patch").ok_or_else(|| {
         DesktopError::BadRequest("Git did not return the commit diff.".to_owned())
     })?;
@@ -142,6 +148,7 @@ pub async fn project_git_diff(
         head: commit,
         only,
         lockfiles,
+        context: 3,
     };
     Ok(view(beep_node::agents::parse_git_patch(&ask, &patch)))
 }

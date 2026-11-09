@@ -68,11 +68,13 @@ pub(in crate::agents) fn read(root: &Path, ask: &DiffAsk) -> Result<WorkDiff> {
         lockfiles: ask.lockfiles || shown,
     };
     let mut parser = DiffParser::new(caps, keep);
+    let context = format!("--unified={}", ask.context.clamp(3, 50_000));
     let mut args = vec![
         "-c",
         "core.quotepath=off",
         "diff",
         "--no-color",
+        &context,
         "--no-ext-diff",
         "--no-textconv",
         "-M",
