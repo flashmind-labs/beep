@@ -2,7 +2,7 @@ import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { commandKey } from "../ui/platform.ts";
 // Settings as a sheet over the command center window.
 import { ago } from "../ui/format.ts";
-import { dbtn as button, sheetAbove } from "../ui/parts.ts";
+import { dbtn as button, mountSheetFrame, sheetAbove } from "../ui/parts.ts";
 import { invoke, recordTiming } from "../ui/tauri.ts";
 import { PageTiming } from "../center/page-timing.ts";
 import { pane } from "../bar/pane.ts";
@@ -10,12 +10,11 @@ import { el as h } from "../ui/dom.ts";
 import { registerInstructions } from "./instructions.ts";
 import { registerProviders } from "./providers.ts";
 import { type ViewArg, type ViewName, views } from "../center/state.ts";
-import { skeleton } from "../ui/pieces.ts";
 import { currentLocation, registerView, windowProject, toMain, drawTop } from "../center/views.ts";
 
 /// Settings as a sheet over the window: a dimmed backdrop and a centered sheet
 /// with its sections on the left.
-let settingsOpen: { scrim: HTMLElement; keys: (e: KeyboardEvent) => void; back: HTMLElement | null } | null = null;
+let settingsOpen: { scrim: HTMLElement; keys: (e: KeyboardEvent) => void; back: HTMLElement | null; dispose(): void } | null = null;
 const settingsTiming = new PageTiming(() => performance.now(), callback => { requestAnimationFrame(callback); }, () => !document.hidden, (page, ms) => { if (settingsOpen) recordTiming("page", page, ms); });
 
 export function openSettings(section?: string) {
@@ -24,17 +23,11 @@ export function openSettings(section?: string) {
   // Already open: show page `section`, such as "machines".
   if (settingsOpen) return section && settingsOpen.scrim.querySelector<HTMLElement>(`[data-goto="${section}"]`)?.click();
   const afterMount = settingsTiming.start("settings");
-  const sheet = h("div", "cc-set");
-  sheet.setAttribute("role", "dialog");
-  sheet.setAttribute("aria-modal", "true");
-  sheet.setAttribute("aria-label", "Settings");
+  const { root: scrim, sheet, dispose } = mountSheetFrame("Settings", "cc-set", {
+    host: document.body, scrimClass: "cc-set-scrim", onScrim: closeSettings,
+  });
   sheet.tabIndex = -1;
-  const nav = h("nav", "dset-nav", h("b", "", "Settings"));
-  const body = h("div", "dset-body", h("div", "dset-top", h("span", "tt", h("b", "", "Settings")), h("kbd", "", "esc")), ...skeleton([80, 60, 72, 50]));
-  sheet.append(nav, body);
-  const scrim = h("div", "cc-set-scrim", sheet);
   const back = document.activeElement as HTMLElement | null;
-  scrim.addEventListener("mousedown", e => { if (e.target === scrim) closeSettings(); });
   // While open, keys stay in the sheet: Esc closes it, and nothing reaches
   // the page behind.
   const keys = (e: KeyboardEvent) => {
@@ -50,8 +43,7 @@ export function openSettings(section?: string) {
   };
   sheet.addEventListener("keydown", e => e.stopPropagation());
   window.addEventListener("keydown", keys, true);
-  document.body.append(scrim);
-  settingsOpen = { scrim, keys, back };
+  settingsOpen = { scrim, keys, back, dispose };
   sheet.focus();
   pane.settings(sheet, section).then(() => { refreshTopicSubscriptions(); afterMount(); }).catch(e => console.warn("settings:", e));
 }
@@ -94,11 +86,11 @@ function unembed() {
 
 export function closeSettings() {
   if (!settingsOpen) return;
-  const { scrim, keys, back } = settingsOpen;
+  const { keys, back, dispose } = settingsOpen;
   settingsOpen = null;
   unembed();
   window.removeEventListener("keydown", keys, true);
-  scrim.remove();
+  dispose();
   refreshTopicSubscriptions();
   if (back?.isConnected) back.focus();
 }
