@@ -129,3 +129,14 @@ test("new terminal cannot submit after its machine goes offline", async ({ page 
   await form.dispatchEvent("submit", { bubbles: true, cancelable: true });
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminal_open").length)).toBe(0);
 });
+
+test("opening a new terminal again resets the previous form", async ({ page }) => {
+  const machine = { id: "build-box", name: "Build box", online: true, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null };
+  await openDesktop(page, false, { center_home: { machines: [machine], projects: [], running: [], needs_you: [], coming_up: null, updates: null }, terminals_all: [] });
+  await page.evaluate(() => window.__navigation.open("terminals"));
+  const create = page.getByRole("button", { name: "New terminal", exact: true }).first();
+  await create.click();
+  await page.getByRole("textbox", { name: "Command" }).fill("stale command");
+  await create.click();
+  await expect(page.getByRole("textbox", { name: "Command" })).toHaveValue("");
+});
