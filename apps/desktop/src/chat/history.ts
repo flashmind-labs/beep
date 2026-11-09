@@ -1,6 +1,6 @@
 import { turnState } from "./turn-state.ts";
 import { conversation } from "./conversation.ts";
-import { discardChatApproval, discardChatNotice, discardChatSources, discardChatSuggestions, discardChatWork, renderChatNotice, renderChatSources, transferChatApproval, transferChatFiles, transferChatNotice, transferChatPictures, transferChatPrompt, transferChatSentFiles, transferChatSuggestions } from "./work-view.tsx";
+import { createChatTurns, discardChatApproval, discardChatNotice, discardChatSources, discardChatSuggestions, discardChatWork, renderChatNotice, renderChatSources, transferChatApproval, transferChatFiles, transferChatNotice, transferChatPictures, transferChatPrompt, transferChatSentFiles, transferChatSuggestions } from "./work-view.tsx";
 import { askFiles } from "./attach.ts";
 import { ANSWER, answeredTurns, approvalCard, appendChatReply, ASK, askText, body, chatReplyHtml, drawLatest, drawWork, failed, makeTurn, moveChatReply, newTurn, owningChatBody, ranOn, renderChat, setChatReply, scrollDown, sendQueued, suggestions, toolOutput, watchRun } from "./chat.ts";
 import type { Asking, ToolOutput } from "./chat.ts";
@@ -164,9 +164,12 @@ const loadSides = (id: string, b: ChatBody) => { loadAskFiles(id, b); loadAgents
 /// The turns for the server's messages `turns`, built apart from the page,
 /// and the reply whose follow-ups show.
 function buildTurns(id: string, turns: HistoryTurn[]) {
+  const count = turns.filter(turn => turn.role === "user" || turn.role === "scheduled").length
+    + (turns.length && turns[0].role !== "user" && turns[0].role !== "scheduled" ? 1 : 0);
+  const prepared = createChatTurns(body()!, count);
   const drawn: Turn[] = [];
   const drawTurn = (question: string, images?: ImageRef[]) => {
-    const turn = makeTurn(question, images);
+    const turn = makeTurn(question, images, undefined, prepared[drawn.length] ?? null);
     drawn.push(turn);
     return turn;
   };

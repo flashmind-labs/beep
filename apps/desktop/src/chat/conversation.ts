@@ -1,4 +1,4 @@
-import { discardChatWork } from "./work-view.tsx";
+import { chatTurnHost, discardChatWork } from "./work-view.tsx";
 import type { ChatBody, Turn } from "../ui/turn.ts";
 
 // The order belongs to the conversation, even while its body is detached.
@@ -28,16 +28,20 @@ export class Conversation {
     if (turns.length === this.items.length && turns.every((turn, index) => turn === this.items[index])) return;
     this.version++;
     const keep = new Set(turns);
-    for (const turn of this.items) if (!keep.has(turn)) { discardChatWork(turn); turn.remove(); }
-    let previous: Turn | null = null;
+    for (const turn of this.items) if (!keep.has(turn)) {
+      const host = chatTurnHost(turn);
+      discardChatWork(turn); host.remove();
+    }
+    let previous: HTMLElement | null = null;
     for (const turn of turns) {
+      const host = chatTurnHost(turn);
       if (previous) {
-        if (previous.nextSibling !== turn) previous.after(turn);
+        if (previous.nextSibling !== host) previous.after(host);
       } else {
-        const first = [...this.body.children].find(element => element.classList.contains("turn"));
-        if (first !== turn) first ? first.before(turn) : this.body.append(turn);
+        const first = this.items.map(chatTurnHost).find(item => item.parentElement === this.body);
+        if (first !== host) first ? first.before(host) : this.body.append(host);
       }
-      previous = turn;
+      previous = host;
     }
     this.items = [...turns];
   }

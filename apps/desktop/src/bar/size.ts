@@ -48,7 +48,7 @@ export const sizer = new ResizeObserver(fit);
 window.addEventListener(ZOOMED, () => { forgetHeight(); fit(); });
 new MutationObserver(() => {
   sizer.disconnect();
-  for (const el of [...boxes(bar), ...bar.querySelectorAll(".dbody > *")]) sizer.observe(el);
+  for (const el of [...boxes(bar), ...[...bar.querySelectorAll(".dbody")].flatMap(boxes)]) sizer.observe(el);
   fit();
 }).observe(bar, { childList: true, subtree: true, characterData: true });
 
