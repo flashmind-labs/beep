@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { ServerView } from "./server-view.tsx";
 import { GeneralView } from "./general-view.tsx";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
 import { SettingsBreadcrumb, SettingsNavigation } from "./settings-shell-view.tsx";
@@ -21,8 +22,7 @@ import { back, CODING_AGENTS, fitPath, isPage, openSub, pageLabel, parseSub, rec
 import { canPickModel, type ModelChoice, type Models, modelPrice, MODELS, THINKING } from "./model.ts";
 import { cap } from "../chat/tools.ts";
 import { show } from "../bar/views.ts";
-import { ACTION_LABEL, type Reach, serverKind, serverView, SIGN_OUT_ASK } from "./server-state.ts";
-import { signInWay } from "./subscription.ts";
+import { type Reach } from "./server-state.ts";
 import { switchHtml, esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
@@ -57,7 +57,7 @@ export interface MacControl {
 }
 
 /// A device on the account (DeviceView).
-interface Device {
+export interface Device {
   id: string;
   name: string;
   kind: "phone" | "desktop";
@@ -120,46 +120,6 @@ window.addEventListener("focus", () => {
 /// Rows that stand in for a section until the server answers.
 export const setSkeleton = (n: number) => `<div class="dskel-rows">${[78, 56, 68, 48].slice(0, n).map(w => `<div class="dskel" style="width:${w}%"></div>`).join("")}</div>`;
 
-/// Settings, Beep server: where this Mac stands with the server and what it can do about it,
-/// then the account's devices while signed in.
-function setServerHtml(set: MacSettings) {
-  const kind = serverKind(S.link, S.signedOut, SET.reach);
-  const view = serverView(kind);
-  // A Mac with no account starts one in the browser or here; one signed out connects again.
-  const button = (a: (typeof view.actions)[number]) => {
-    const id = a === "sign-in" ? (kind === "no-account" ? "subscribe" : "signIn") : a === "sign-out" ? "signOut" : "serverRetry";
-    return `<button class="dbtn${a === "sign-in" ? " pri" : ""}" id="${id}">${ACTION_LABEL[a]}</button>`;
-  };
-  const asking = SET.confirm === "signout" && view.actions.includes("sign-out");
-  const head = `<div class="dtoggle"><span><b>${view.title}</b><small>${esc(view.note)}</small></span>${asking ? "" : view.actions.map(button).join("")}</div>`;
-  const ask = asking ? `<div class="dcard"><div class="dask">
-      <b class="dtitle">${SIGN_OUT_ASK.title}</b><div class="dmuted dblock">${SIGN_OUT_ASK.note}</div>
-      <div class="dline"><button class="dbtn warn" id="signOutYes">${SIGN_OUT_ASK.confirm}</button><button class="dbtn quiet" id="signOutNo">${SIGN_OUT_ASK.cancel}</button></div></div></div>` : "";
-  const tail = `<div id="subNote"></div><div class="derr" id="serverErr"></div>`;
-  return head + ask + tail + (view.devices ? setDevicesHtml(set) : "");
-}
-
-/// The account's devices, with the phone link and Unlink this Mac.
-function setDevicesHtml(set: MacSettings) {
-  if (SET.devices === null) return setSkeleton(2);
-  const devices = SET.devices;
-  // Whether this Mac made the account, and so links and removes devices.
-  const owner = devices.some(d => d.this_device && d.primary);
-  const row = (d: Device) => {
-    const tags = [d.this_device ? "This computer" : "", d.primary ? "Owner" : ""].filter(Boolean)
-      .map(t => `<span class="dtag">${t}</span>`).join("");
-    const remove = owner && !d.this_device ? `<button class="dbtn quiet" data-remove="${esc(d.id)}" aria-label="Remove ${esc(d.name)}">${ICON.x}</button>` : "";
-    return `<div class="dtoggle"><span><b class="dline tight">${esc(d.name)}${tags}</b><small>${d.kind === "phone" ? "Phone" : "Computer"}</small></span>${remove}</div>`;
-  };
-  const ask = SET.confirm === "unlink" ? `<div class="dcard"><div class="dask">
-      <b class="dtitle">Unlink this computer?</b><div class="dmuted dblock">This computer stops seeing your chats and memories. Your phone keeps them. To use Beep here again, start over and link it from the phone.</div>
-      <div class="dline"><button class="dbtn warn" id="unlinkYes">Unlink</button><button class="dbtn quiet" id="unlinkNo">Cancel</button></div>
-      <div class="derr" id="unlinkErr"></div></div></div>` : "";
-  const link = !owner && SET.confirm === "unlink" ? "" : '<button class="dbtn" id="invite">Link a phone…</button>';
-  const unlink = owner || SET.confirm === "unlink" ? "" : `<div class="dtoggle"><span><small>This computer: ${esc(set.name)}</small></span><button class="dbtn warn" id="unlink">Unlink this computer</button></div>`;
-  return `<div class="dsec flat dgroup">Devices${link}</div><div class="dcard ddevices">${devices.map(row).join("")}${unlink}</div>` + ask;
-}
-
 /// Settings, Models: the model every turn of yours uses, how long it thinks,
 /// and Auto.
 function setModelsHtml() {
@@ -200,19 +160,7 @@ function setAway(view: PanePage, inBar: () => unknown) {
   inBar();
 }
 
-/// Runs a change Settings asks this Mac or the server for, then draws
-/// Settings again from what is true now. A failure only goes to the console.
-async function thenRedraw(change: Promise<unknown>) {
-  try {
-    await change;
-  } catch (e) {
-    console.warn(e);
-  }
-
-  if (setShown()) renderSettings();
-}
-
-type LocalView = "general" | "appearance" | "mac";
+type LocalView = "general" | "appearance" | "mac" | "devices";
 const generalPending = new Set<string>();
 let macControlBusy = false;
 const localViews = new Map<LocalView, { host: HTMLElement; root: Root; observer: MutationObserver }>();
@@ -239,7 +187,7 @@ function preserveLocalViews(container: HTMLElement) {
   };
 }
 function mountLocalViews(el: Element) {
-  for (const kind of ["general", "appearance", "mac"] as const) {
+  for (const kind of ["general", "appearance", "mac", "devices"] as const) {
     const host = el.querySelector<HTMLElement>(`#set-${kind}`);
     if (!host) continue;
     let view = localViews.get(kind);
@@ -259,7 +207,11 @@ function mountLocalViews(el: Element) {
       notices: (enabled: boolean) => void changeGeneral("notices", "set_agent_notices", { enabled }),
       shortcuts: () => windowHooks ? windowHooks.openShortcuts() : toggleShortcuts(),
       report: () => windowHooks ? windowHooks.openReport() : toWindow("report"),
-    }) : kind === "appearance" ? createElement(AppearanceView) : local?.mac ? createElement(ComputerView, {
+    }) : kind === "appearance" ? createElement(AppearanceView) : kind === "devices" && local ? createElement(ServerView, {
+      settings: local.set, devices: SET.devices, link: S.link, signedOut: S.signedOut, reach: SET.reach,
+      refresh: () => void renderSettings(), invite: () => setAway("invite", renderInvitePhone),
+      away: () => { if (SET.root) windowHooks?.settingsAway(null); show(null); },
+    }) : kind === "mac" && local?.mac ? createElement(ComputerView, {
       mac: local.mac, busy: macControlBusy,
       setEnabled: (enabled: boolean) => void setMacEnabled(enabled),
       allow: (permission: "ScreenRecording" | "Accessibility") => { invoke("allow_mac_permission", { permission }).catch(console.warn); },
@@ -298,91 +250,18 @@ function bindSettings(el: Element) {
   mountLocalViews(el);
   const $in = <T extends Element = HTMLElement>(sel: string) => el.querySelector<T>(sel);
   const each = (attr: string, fn: (b: HTMLButtonElement) => void) => el.querySelectorAll<HTMLButtonElement>(`[${attr}]`).forEach(fn);
-  $in("#subscribe")?.addEventListener("click", e => signIn(el, e.currentTarget as HTMLButtonElement));
-  $in("#invite")?.addEventListener("click", () => setAway("invite", renderInvitePhone));
   $in("#apps")?.addEventListener("click", () => setAway("apps", renderApps));
   $in("#machines")?.addEventListener("click", () => setAway("machines", renderMachines));
   // Instructions is a view of the window: the sheet closes onto it, and
   // the bar hands it over.
   $in("#openInstr")?.addEventListener("click", () => (windowHooks ? windowHooks.openInstructions() : toWindow("instructions")));
   $in("#openProviders")?.addEventListener("click", () => (windowHooks ? windowHooks.openProviders() : toWindow("providers")));
-  each("data-remove", b => b.addEventListener("click", () => {
-    b.disabled = true;
-    thenRedraw(invoke("remove_device", { id: b.dataset.remove }));
-  }));
   $in("#setModel")?.addEventListener("change", e => setModelChange("set_model", { id: (e.target as HTMLSelectElement).value }));
   $in("#setAuto")?.addEventListener("click", () => setModelChange("set_auto_model", { enabled: !MODELS.info!.auto }));
   each("data-setlevel", b => b.addEventListener("click", () => setModelChange("set_thinking", { level: b.dataset.setlevel })));
-  $in("#unlink")?.addEventListener("click", () => renderSettings("unlink"));
-  $in("#signOut")?.addEventListener("click", () => renderSettings("signout"));
-  $in("#signOutNo")?.addEventListener("click", () => renderSettings());
-  $in("#signOutYes")?.addEventListener("click", async e => {
-    (e.currentTarget as HTMLButtonElement).disabled = true;
-
-    try {
-      await invoke("sign_out");
-      renderSettings();
-    } catch (err) {
-      (e.currentTarget as HTMLButtonElement).disabled = false;
-      const msg = setRoot().querySelector("#serverErr");
-      if (msg) msg.textContent = String(err);
-    }
-  });
-  $in("#signIn")?.addEventListener("click", async e => {
-    const button = e.currentTarget as HTMLButtonElement;
-    button.disabled = true;
-
-    try {
-      // The events that follow redraw Settings and bring the server's parts back.
-      await invoke("sign_in");
-    } catch (err) {
-      button.disabled = false;
-      const msg = setRoot().querySelector("#serverErr");
-      if (msg) msg.textContent = String(err);
-    }
-  });
-  $in("#serverRetry")?.addEventListener("click", () => renderSettings());
-  $in("#unlinkNo")?.addEventListener("click", () => renderSettings());
-  $in("#unlinkYes")?.addEventListener("click", async () => {
-    try {
-      await invoke("unlink");
-      if (SET.root) windowHooks?.settingsAway(null);
-      show(null);
-    } catch (e) {
-      // In the window it is the sheet, not the pane, that holds the error.
-      const err = setRoot().querySelector("#unlinkErr");
-      if (err) err.textContent = String(e);
-    }
-  });
   bindCreds(el);
   bindAgents(el);
 
-}
-
-/// Signs in to a subscription: in the browser on a hosted server, with a token to paste if the
-/// link did not open; else the account starts on this Mac. Settings redraws when the link comes.
-async function signIn(el: Element, button: HTMLButtonElement) {
-  const note = el.querySelector<HTMLElement>("#subNote");
-  button.disabled = true;
-
-  try {
-    if (signInWay(await invoke<boolean>("login_hosted")) === "here") return void await invoke("use_here");
-    await invoke("start_login");
-    if (!note) return;
-    note.innerHTML = `<label class="dfield">Finish in your browser, or paste the token<input id="subToken" class="mono" autocomplete="off" spellcheck="false" placeholder="Token"></label><div class="derr" id="subErr"></div>`;
-    const token = note.querySelector<HTMLInputElement>("#subToken")!;
-    token.addEventListener("input", () => {
-      const text = token.value.trim();
-      if (!/^[\w-]+\.[\w-]+$/.test(text)) return;
-      token.disabled = true;
-      invoke("complete_login", { token: text }).catch(err => { token.disabled = false; note.querySelector("#subErr")!.textContent = String(err); });
-    });
-    token.focus();
-  } catch (err) {
-    if (note) note.innerHTML = `<div class="derr">${esc(err)}</div>`;
-  } finally {
-    button.disabled = false;
-  }
 }
 
 /// Redraws one section in place, once its data came.
@@ -422,7 +301,7 @@ function refocus(box: HTMLElement, key: string) {
 }
 
 /// The sections of Settings, in order, each with the page it is.
-function settingsSections(set: MacSettings, mac: MacControl | null, linked: boolean, sheet: boolean): [SettingsPage, string][] {
+function settingsSections(_set: MacSettings, mac: MacControl | null, linked: boolean, sheet: boolean): [SettingsPage, string][] {
   const sec = (id: string, title: string, body: string) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dsec flat top">${title}</div><div id="set-${id}">${body}</div></section>`;
   // A page drawn by its own code, into this box.
   const host = (id: SettingsPage) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dset-host" id="set-${id}-host"></div></section>`;
@@ -436,14 +315,14 @@ function settingsSections(set: MacSettings, mac: MacControl | null, linked: bool
     : `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat top">${linked ? "Agent accounts" : "Coding agents"}</div>${sheet ? "" : `<div class="dtoggle"><span><b>Coding agents on each machine</b><small>Versions and updates, on or off, binary paths, launch arguments and env vars for Claude Code, Codex, pi and the rest</small></span><button class="dbtn" id="openProviders">Open…</button></div>`}${linked ? `<div id="set-agents">${setAgentsHtml()}</div>` : ""}${sheet ? codingAgentsHtml() : ""}</section>`];
   // These settings work over the mesh without the server.
   const thisMacSec: [SettingsPage, string][] = mac && !onPhone() ? [["mac", `<section id="set-mac-sec" data-sec="mac"><div class="dsec flat top">This computer</div><div id="set-mac" style="display:contents"></div></section>`]] : [];
-  if (!linked) return [...out, ...thisMacSec, machines, agents, creds, instr, ...(S.server ? [["devices", sec("devices", "Beep server", setServerHtml(set))] as [SettingsPage, string]] : [])];
+  if (!linked) return [...out, ...thisMacSec, machines, agents, creds, instr, ...(S.server ? [["devices", sec("devices", "Beep server", "")] as [SettingsPage, string]] : [])];
   if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models", setModelsHtml())]);
   out.push(["apps", sheet ? host("apps") : sec("apps", "Apps", setAppsHtml())]);
   out.push(...thisMacSec);
   out.push(machines);
   out.push(agents);
   out.push(creds, instr);
-  out.push(["devices", sec("devices", "Beep server", setServerHtml(set))]);
+  out.push(["devices", sec("devices", "Beep server", "")]);
   return out;
 }
 
@@ -727,7 +606,7 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
   }
 
   // The server's parts, side by side; each fills its section as it answers.
-  if (linked) loadServerParts(set, alive);
+  if (linked) loadServerParts(alive);
   invoke<Machine[]>("list_machines").then(m => { SET.machines = m; MC.list = m; }, () => { SET.machines = null; })
     .then(() => {
       if (!alive()) return;
@@ -740,9 +619,9 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
 }
 
 /// The subscription's parts of Settings, which fill their sections as each answers.
-function loadServerParts(set: MacSettings, alive: () => boolean) {
+function loadServerParts(alive: () => boolean) {
   invoke<DeviceList>("list_devices").then(d => { SET.devices = d.devices; SET.reach = d.server; }, e => { console.warn(e); SET.devices ??= []; SET.reach = "unreachable"; })
-    .then(() => { if (alive()) fillSection("devices", setServerHtml(set)); });
+    .then(() => { if (alive()) mountLocalViews(setRoot()); });
   invoke<Models>("get_models").then(m => { MODELS.info = m; SET.modelsError = false; }, e => { console.warn(e); SET.modelsError = !MODELS.info; })
     .then(() => {
       if (!alive()) return;
