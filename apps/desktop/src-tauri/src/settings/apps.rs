@@ -129,6 +129,7 @@ impl SignIn {
     /// Stops the sign-in under way, if any, and keeps `task` instead.
     fn replace(&self, task: Option<AbortHandle>) {
         let mut slot = self.0.lock().unwrap_or_else(|e| e.into_inner());
+
         if let Some(old) = slot.take() {
             old.abort();
         }
@@ -158,12 +159,14 @@ pub async fn connect_app(
         let ConnectLink { url } = beep.call(ConnectApp { slug }).await?;
         return open_url(url);
     }
+
     let task = tokio::spawn(sign_in_here(
         beep.inner().clone(),
         slug,
         add.unwrap_or(false),
     ));
     sign_in.replace(Some(task.abort_handle()));
+
     match task.await {
         Ok(done) => done,
         Err(e) if e.is_cancelled() => Err(DesktopError::BadRequest("cancelled".into())),
@@ -264,6 +267,7 @@ fn open_sign_in(connect: McpConnect) -> Result<McpServer> {
     if let Some(url) = connect.auth_url {
         open_url(url)?;
     }
+
     Ok(connect.server)
 }
 
@@ -274,9 +278,11 @@ pub fn open_link(app: &AppHandle, url: &str) {
     if url.starts_with("beep://login") {
         return crate::beep::login::open_link(app, url);
     }
+
     if !url.starts_with("beep://oauth") {
         return;
     }
+
     let Some(McpCallback {
         code,
         state,
@@ -346,6 +352,7 @@ async fn sign_in_here(beep: Arc<Beep>, slug: String, add: bool) -> Result<()> {
                 Ok(Some(target)) => redirect(&target),
                 _ => continue,
             };
+
             match redirect {
                 Redirect::Other => reply(&mut stream, 404, "Not found").await,
                 Redirect::Refused(why) => {
@@ -391,13 +398,17 @@ async fn sign_in_here(beep: Arc<Beep>, slug: String, add: bool) -> Result<()> {
 async fn read_target(stream: &mut TcpStream) -> Option<String> {
     let mut read = Vec::new();
     let mut buffer = [0; 2048];
+
     while !read.windows(4).any(|w| w == b"\r\n\r\n") {
         let n = stream.read(&mut buffer).await.ok()?;
+
         if n == 0 || read.len() + n > REQUEST_LIMIT {
             return None;
         }
+
         read.extend_from_slice(&buffer[..n]);
     }
+
     let line = String::from_utf8_lossy(&read).lines().next()?.to_owned();
     let mut parts = line.split(' ');
     (parts.next()? == "GET").then_some(())?;
@@ -408,14 +419,17 @@ fn redirect(target: &str) -> Redirect {
     let Ok(url) = Url::parse(&format!("http://localhost{target}")) else {
         return Redirect::Other;
     };
+
     if url.path() != "/callback" {
         return Redirect::Other;
     }
+
     let get = |name: &str| {
         url.query_pairs()
             .find(|(key, _)| key == name)
             .map(|(_, value)| value.into_owned())
     };
+
     match (get("code"), get("state")) {
         (Some(code), Some(state)) => Redirect::Code {
             code,

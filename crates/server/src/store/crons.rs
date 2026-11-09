@@ -20,6 +20,7 @@ fn check_label(label: &str) -> Result<()> {
     if !within(label, 200) {
         bail!("cron label must be 1-200 characters");
     }
+
     Ok(())
 }
 
@@ -27,6 +28,7 @@ fn check_prompt(prompt: &str) -> Result<()> {
     if !within(prompt, 4000) {
         bail!("cron prompt must be 1-4000 characters");
     }
+
     Ok(())
 }
 
@@ -34,6 +36,7 @@ fn check_schedule(schedule: &str) -> Result<()> {
     if !within(schedule, 100) {
         bail!("cron schedule must be 1-100 characters");
     }
+
     Ok(())
 }
 
@@ -112,11 +115,14 @@ impl Store {
         if let Some(label) = label {
             check_label(label)?;
         }
+
         let schedule = schedule.map(str::trim);
+
         if let Some(schedule) = schedule {
             check_schedule(schedule)?;
             self.check_place_schedule(user, schedule).await?;
         }
+
         let changed = sqlx::query(
             "UPDATE crons SET enabled=COALESCE($1, enabled), label=COALESCE($2, label),
                  schedule=COALESCE($3, schedule),

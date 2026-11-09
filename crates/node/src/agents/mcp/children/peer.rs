@@ -69,6 +69,7 @@ impl Call<'_> {
             Ok(Err(e)) => return Answer::Silent(format!("Could not reach {name}: {e:#}")),
             Err(_) => return Answer::Silent(format!("{name} did not answer in time.")),
         };
+
         match sent {
             Reply::Done {
                 text,
@@ -99,6 +100,7 @@ pub(crate) async fn stop_remote(
         text: None,
         turn_only
     });
+
     match call.ask(Tool::StopAgent, &args, REMOTE_LIMIT).await {
         Answer::Text(_) => Ok(()),
         Answer::Refused(why) if !turn_only && why.starts_with(NO_AGENT) => Ok(()),
@@ -127,15 +129,18 @@ where
     Fut: Future<Output = Result<(), String>>,
 {
     let mut last = Err("not tried".to_owned());
+
     for attempt in 0..tries {
         if attempt > 0 {
             sleep(pause * attempt).await;
         }
         last = once().await;
+
         if last.is_ok() {
             break;
         }
     }
+
     last
 }
 
@@ -167,6 +172,7 @@ pub(crate) async fn count_on(
         root_machine,
         root: root.to_owned()
     });
+
     match call.ask(Tool::AgentCount, &args, limit).await {
         Answer::Text(text) => text.trim().parse().unwrap_or(0),
         Answer::Refused(why) | Answer::Silent(why) => {
@@ -197,6 +203,7 @@ pub(crate) async fn ask_parent(
         text: Some(key.to_owned()),
         turn_only: false
     });
+
     match call.ask(Tool::AgentParent, &args, REMOTE_LIMIT).await {
         Answer::Text(text) if text == GONE => Parent::Gone,
         // Anything else that answers is not a no: a node that does not know
@@ -221,6 +228,7 @@ pub(crate) async fn note_parent(
         machine: peer,
         name: &name,
     };
+
     match call.ask(Tool::AgentNote, &json!(note), REMOTE_LIMIT).await {
         Answer::Text(_) => Ok(()),
         Answer::Refused(why) | Answer::Silent(why) => Err(why),
@@ -244,6 +252,7 @@ pub(super) async fn fetch_view(
         text: None,
         turn_only: false
     });
+
     match call.ask(Tool::AgentStatus, &args, REMOTE_LIMIT).await {
         Answer::Text(text) => serde_json::from_str(&text)
             .map_err(|e| format!("{} answered something unreadable: {e}", kid.name)),
@@ -283,8 +292,10 @@ impl Views {
             let (parent, kid) = (parent.to_owned(), kid.clone());
             entry.reading = Some(AbortOnDropHandle::new(tokio::spawn(async move {
                 let view = fetch_view(&mesh, &parent, &kid).await;
+
                 if let Some(entry) = crate::lock(&views.0).get_mut(&key) {
                     entry.at = Some(Instant::now());
+
                     match view {
                         Ok(view) => entry.view = Some(view),
                         Err(e) => log::debug!("child {} on {}: {e}", kid.id, kid.name),
@@ -292,6 +303,7 @@ impl Views {
                 }
             })));
         }
+
         entry.view.clone()
     }
 }

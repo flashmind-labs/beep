@@ -95,9 +95,11 @@ impl<T: Clone> AlertHub<T> {
         let number = held.next;
         held.next += 1;
         held.kept.push_back(Numbered { number, alert, at });
+
         while held.kept.len() > MAX_KEPT {
             held.kept.pop_front();
         }
+
         drop(held);
         self.arrived.notify_waiters();
     }
@@ -134,6 +136,7 @@ impl<T> Held<T> {
         if self.cursors.contains_key(&id) {
             return;
         }
+
         let from = self
             .kept
             .iter()
@@ -153,6 +156,7 @@ impl<T> Held<T> {
             next,
             seen: self.clock,
         };
+
         if self.cursors.len() >= MAX_FOLLOWERS && !self.cursors.contains_key(&id) {
             let oldest = self
                 .cursors
@@ -163,6 +167,7 @@ impl<T> Held<T> {
                 self.cursors.remove(&oldest);
             }
         }
+
         self.cursors.insert(id, cursor);
     }
 }
@@ -177,6 +182,7 @@ impl<T: Clone> Follow<'_, T> {
             {
                 let mut held = lock(&self.hub.held);
                 held.start(self.id, Instant::now());
+
                 if let Some(kept) = held.after(self.id) {
                     return kept.alert.clone();
                 }
@@ -188,6 +194,7 @@ impl<T: Clone> Follow<'_, T> {
     /// The alert `next` gave went out: the follower has had it.
     pub(crate) fn sent(&self) {
         let mut held = lock(&self.hub.held);
+
         if let Some(number) = held.after(self.id).map(|kept| kept.number) {
             held.had(self.id, number);
         }

@@ -88,6 +88,7 @@ export function mountNotices(host: HTMLElement) {
     draw();
     // Opening the pane reads what it shows; the rows keep their dots until it closes.
     if (to) read(unreadIds(items()), false);
+
     if (keyboard) {
       if (to) focusList();
       else (returnFocus?.isConnected ? returnFocus : host.querySelector<HTMLElement>(".nt-bell"))?.focus();
@@ -122,6 +123,7 @@ export function mountNotices(host: HTMLElement) {
     const bell = makeBell();
     const shown = opened && find(items(), opened);
     host.replaceChildren(bell, ...(open ? [shown ? (shown.server ? openedView(shown) : skillView(shown)) : listView(items())] : []));
+
     // Live updates and dismissals keep the same row focused, or its nearest neighbor.
     if (focused && open) {
       const rows = [...host.querySelectorAll<HTMLElement>(".nt-row")];
@@ -166,11 +168,13 @@ export function mountNotices(host: HTMLElement) {
   const openItem = (i: Item) => {
     const to = opens(i);
     read([i.id], to === "alert");
+
     if (to === "alert" || to === "skill") {
       opened = i.id;
       draw();
       return;
     }
+
     if (!to) return;
     if (i.kind === "run") dismiss([i.id]);
     toggle(false);
@@ -339,6 +343,7 @@ export function mountNotices(host: HTMLElement) {
       toggle(!open, true);
       return;
     }
+
     if (!open || e.key !== "Escape") return;
     e.preventDefault();
     // Esc goes back to the list first, then closes the pane.

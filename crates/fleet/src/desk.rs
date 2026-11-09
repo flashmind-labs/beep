@@ -129,9 +129,11 @@ impl Desk {
             shell: None,
             sessions: None,
         };
+
         if !status.online {
             return Seen { machine, env: None };
         }
+
         let ask = async {
             let client = self.peers.client(id).await?;
             probe(&client).await.map(|said| (client, said))
@@ -140,6 +142,7 @@ impl Desk {
             .await
             .unwrap_or_else(|_| Err(FleetError::Refused("no answer in time".to_owned())));
         let mut env = None;
+
         match said {
             Ok((client, said)) => {
                 if said.offers(shell::PROTOCOL) {

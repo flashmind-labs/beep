@@ -121,6 +121,7 @@ pub async fn host_and_machines(store: &dyn ProjectStore) -> Result<Option<HostAn
             home: true,
         }));
     }
+
     let imports = store.imports().await?;
     Ok(imports
         .iter()
@@ -180,6 +181,7 @@ pub async fn issue_sources(
             "No machine the project is on is online.".to_owned()
         }));
     }
+
     Ok(Some(sources))
 }
 
@@ -288,6 +290,7 @@ pub async fn list_open_prs(
             if none {
                 return Ok(Vec::new());
             }
+
             return Err(failed_everywhere(machines, &sources, &failures, &set_up).await);
         }
     };

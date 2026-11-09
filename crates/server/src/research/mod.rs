@@ -212,12 +212,14 @@ impl Plan {
             round: 0,
         };
         let mut team = vec![member(Member::Lead, "Plans and coordinates", lead)];
+
         for (i, scout) in self.scouts.iter().enumerate() {
             team.push(TeamMember {
                 round: scout.round,
                 ..member(Member::Scout(i + 1), scout.question.as_str(), &scout.model)
             });
         }
+
         team.push(member(
             Member::Critic,
             "Challenges weak claims",

@@ -45,6 +45,7 @@ impl Screen {
             if !open {
                 self.lines.push_back(Vec::new());
             }
+
             let Some(line) = self.lines.back_mut() else {
                 return;
             };
@@ -58,6 +59,7 @@ impl Screen {
             self.len += take;
             data = &data[take..];
         }
+
         while self.lines.len() > MAX_SCROLLBACK {
             if let Some(line) = self.lines.pop_front() {
                 self.start += line.len() as u64;
@@ -72,14 +74,17 @@ impl Screen {
         let at = from.clamp(self.start, self.end());
         let mut skip = usize::try_from(at - self.start).ok()?;
         let mut data = Vec::new();
+
         for line in &self.lines {
             if skip >= line.len() {
                 skip -= line.len();
                 continue;
             }
+
             let take = (line.len() - skip).min(MAX_OUTPUT - data.len());
             data.extend_from_slice(&line[skip..skip + take]);
             skip = 0;
+
             if data.len() == MAX_OUTPUT {
                 break;
             }

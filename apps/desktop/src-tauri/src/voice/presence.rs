@@ -81,9 +81,11 @@ mod mac {
         ) else {
             return false;
         };
+
         if device == 0 {
             return false;
         }
+
         property::<u32>(device, kAudioDevicePropertyDeviceIsRunningSomewhere)
             .is_some_and(|running| running != 0)
     }

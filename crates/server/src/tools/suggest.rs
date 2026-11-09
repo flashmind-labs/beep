@@ -36,6 +36,7 @@ fn fit(text: &str, max: usize) -> Option<String> {
 /// `replies` that fit, without duplicates, at most `max`.
 fn suggestions(replies: Vec<String>, kind: Kind, max: usize) -> Option<Suggestions> {
     let mut kept: Vec<String> = Vec::new();
+
     for reply in &replies {
         let Some(reply) = fit(reply, MAX_REPLY_CHARS) else {
             continue;
@@ -44,6 +45,7 @@ fn suggestions(replies: Vec<String>, kind: Kind, max: usize) -> Option<Suggestio
             kept.push(reply);
         }
     }
+
     kept.truncate(max);
     (kept.len() >= MIN_REPLIES).then_some(Suggestions {
         card: "suggestions",

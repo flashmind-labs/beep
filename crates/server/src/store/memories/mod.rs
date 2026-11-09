@@ -71,6 +71,7 @@ fn check_memory(content: &str) -> Result<()> {
     if content.trim().is_empty() || content.chars().count() > 4000 {
         bail!("memory content length out of range");
     }
+
     Ok(())
 }
 
@@ -95,6 +96,7 @@ pub struct WordEmbedder;
 impl EmbeddingProvider for WordEmbedder {
     async fn embed(&self, text: &str) -> flashmind::memory::Result<Vec<f32>> {
         let mut vector = vec![0.0f32; 64];
+
         for word in text
             .split(|c: char| !c.is_alphanumeric())
             .filter(|w| w.len() >= 3)
@@ -105,6 +107,7 @@ impl EmbeddingProvider for WordEmbedder {
                 .fold(5381u32, |h, b| h.wrapping_mul(33) ^ u32::from(b));
             vector[hash as usize % 64] += 1.0;
         }
+
         let norm = vector.iter().map(|x| x * x).sum::<f32>().sqrt().max(1.0);
         Ok(vector.into_iter().map(|x| x / norm).collect())
     }
@@ -143,6 +146,7 @@ impl Store {
         for (key, value) in meta.pairs() {
             builder = builder.meta(key, &value);
         }
+
         Ok(builder.await?)
     }
 
@@ -240,9 +244,11 @@ impl Store {
         let Some(before) = before else {
             return Ok(false);
         };
+
         if before.content != content {
             self.supersede(user, &before, id).await?;
         }
+
         Ok(true)
     }
 
@@ -288,9 +294,11 @@ impl Store {
         let mut row = MemoryRow::from(record);
         let (core, category) = (row.core, row.category.clone());
         change(&mut row);
+
         if row.core == core && row.category == category {
             return Ok(false);
         }
+
         let pairs = Meta::of(user, &row, &row.updated_at).pairs();
         let pairs: Vec<(&str, &str)> = pairs.iter().map(|(k, v)| (*k, v.as_str())).collect();
         self.memories

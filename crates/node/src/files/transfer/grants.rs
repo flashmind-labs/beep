@@ -100,12 +100,14 @@ impl Grants {
         if peer.is_some_and(|peer| !self.allows(&peer)) {
             return Err(AbortReason::Permission);
         }
+
         let synced = peer.is_some_and(|peer| {
             self.access
                 .get()
                 .is_some_and(|access| access.may_connect(&peer))
         });
         let mut inner = lock(&self.inner);
+
         match peer {
             Some(peer) if synced || inner.grants.values().any(|grant| grant.peer == peer) => {
                 inner.connections.insert(connection, peer);
@@ -134,6 +136,7 @@ impl Grants {
         if !self.allows(peer) {
             return Err(AbortReason::Permission);
         }
+
         let allowed = inner.grants.values().any(|grant| {
             grant.peer == *peer
                 && grant.content.hash == request.hash
@@ -173,9 +176,11 @@ pub(crate) fn events(grants: Arc<Grants>) -> (EventSender, AbortOnDropHandle<()>
             match event {
                 ProviderMessage::ClientConnected(msg) => {
                     let answer = grants.connect(msg.connection_id, msg.endpoint_id);
+
                     if answer.is_err() {
                         log::info!("refused a blobs connection from {:?}", msg.endpoint_id);
                     }
+
                     msg.tx.send(answer).await.ok();
                 }
                 ProviderMessage::ConnectionClosed(msg) => grants.closed(msg.connection_id),

@@ -254,9 +254,11 @@ pub struct ClaudeSignIn(Mutex<Option<oneshot::Sender<()>>>);
 impl ClaudeSignIn {
     fn start(&self) -> Result<oneshot::Receiver<()>> {
         let mut slot = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+
         if slot.as_ref().is_some_and(|cancel| !cancel.is_closed()) {
             return Err(refused("A Claude Code sign-in is already under way"));
         }
+
         let (cancel, cancelled) = oneshot::channel();
         *slot = Some(cancel);
         Ok(cancelled)
@@ -265,6 +267,7 @@ impl ClaudeSignIn {
     /// Stops the sign-in under way, which kills `claude`.
     pub fn stop(&self) {
         let cancel = self.0.lock().unwrap_or_else(PoisonError::into_inner).take();
+
         if let Some(cancel) = cancel
             && cancel.send(()).is_err()
         {
@@ -328,9 +331,11 @@ async fn setup_token(claude: &Path, cancelled: oneshot::Receiver<()>) -> Result<
         },
         _ = cancelled => "Sign-in cancelled",
     };
+
     if let Err(e) = child.kill().await {
         log::warn!("stopping claude setup-token: {e}");
     }
+
     Err(refused(stopped))
 }
 
@@ -347,6 +352,7 @@ async fn finish(child: &mut Child) {
 async fn read_token(mut stdout: ChildStdout) -> Result<SecretText> {
     let mut seen: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 4096];
+
     loop {
         let read = stdout
             .read(&mut chunk)
@@ -356,11 +362,14 @@ async fn read_token(mut stdout: ChildStdout) -> Result<SecretText> {
             let output = String::from_utf8_lossy(&seen);
             return Err(refused(&parse::ended_without_token(&output)));
         }
+
         seen.extend_from_slice(&chunk[..read]);
+
         if seen.len() > MAX_OUTPUT {
             let cut = seen.len() - MAX_OUTPUT;
             seen.drain(..cut);
         }
+
         if let Some(token) = parse::token(&String::from_utf8_lossy(&seen)) {
             return Ok(SecretText::new(token));
         }

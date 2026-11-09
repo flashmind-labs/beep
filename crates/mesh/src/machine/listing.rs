@@ -75,6 +75,7 @@ pub async fn linked_sessions<S: Sessions + ?Sized>(
             sessions::list(node).await
         }
     };
+
     match timeout(NODE_LIMIT, listed).await {
         Ok(Ok(listed)) => listed
             .into_iter()
@@ -157,6 +158,7 @@ pub async fn project_sessions<S: Sessions + ?Sized>(
             started.elapsed().as_millis()
         );
     }
+
     match listed {
         Ok(Ok(found)) => found
             .into_iter()
@@ -271,23 +273,30 @@ pub fn apply_presence(
                 && session.agent == native.agent
         });
         let shown = native.presence.is_live() && native.taken_over.is_none();
+
         if let Some(index) = index {
             let previous = &mut sessions[index];
+
             if !previous.external {
                 continue;
             }
+
             if !shown {
                 sessions.remove(index);
                 continue;
             }
+
             previous.status = presence_status(native.presence);
             previous.cwd.clone_from(&native.cwd);
+
             if native.title.is_some() {
                 previous.title.clone_from(&native.title);
             }
+
             previous.last_activity = previous.last_activity.max(unix(native.last_activity));
             continue;
         }
+
         if shown {
             sessions.push(external_session(host, native.clone()));
         }

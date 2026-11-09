@@ -45,20 +45,26 @@ impl Draft<'_> {
              such as a map, by calling tools.\n\nAsked:\n{}\n\nTool calls this turn:\n",
             self.asked.trim()
         );
+
         if self.calls.is_empty() {
             text.push_str("- none\n");
         }
+
         for call in self.calls {
             let outcome = if call.success { "succeeded" } else { "failed" };
             let _ = writeln!(text, "- {} ({outcome})", call.name);
         }
+
         text.push_str("\nAlready scheduled before this turn:\n");
+
         if self.scheduled.is_empty() {
             text.push_str("- nothing\n");
         }
+
         for task in self.scheduled {
             let _ = writeln!(text, "- {task}");
         }
+
         let _ = write!(text, "\nBeep's reply:\n{}", self.reply.trim());
         text
     }
@@ -170,6 +176,7 @@ pub async fn review(decision: &DecisionTool, draft: &Draft<'_>) -> Option<Verdic
     if draft.reply.trim().is_empty() {
         return None;
     }
+
     let open: Vec<&'static Check> = CHECKS
         .iter()
         .filter(|check| !(check.settled)(draft))
@@ -177,6 +184,7 @@ pub async fn review(decision: &DecisionTool, draft: &Draft<'_>) -> Option<Verdic
     if open.is_empty() {
         return None;
     }
+
     let questions: Vec<_> = open
         .iter()
         .map(|check| (check.key, check.question, &check.criteria))
@@ -195,6 +203,7 @@ pub async fn review(decision: &DecisionTool, draft: &Draft<'_>) -> Option<Verdic
     if failed.is_empty() {
         return None;
     }
+
     let keys: Vec<_> = failed.iter().map(|check| check.key).collect();
     log::info!("gates: sending the reply back; failed={}", keys.join(","));
     Some(Verdict {
@@ -205,9 +214,11 @@ pub async fn review(decision: &DecisionTool, draft: &Draft<'_>) -> Option<Verdic
 
 fn note(failed: &[&Check]) -> String {
     let mut text = PREFACE.to_owned();
+
     for check in failed {
         let _ = write!(text, "\n- {}", check.fix);
     }
+
     text
 }
 

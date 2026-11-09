@@ -41,6 +41,7 @@ async function readHome(): Promise<void> {
   homeRead = (async () => {
     do {
       again = false;
+
       try {
         const home = await invoke<HomeView>("center_home");
         if (home.updates) home.updates = withoutDismissed(home.updates, dismissedUpdates);
@@ -63,6 +64,7 @@ async function readHome(): Promise<void> {
       }
     } while (again && onScreen());
   })();
+
   try { await homeRead; }
   finally { homeRead = undefined; loading = false; }
 }
@@ -80,6 +82,7 @@ const refreshProjects = single(async () => {
   state.top = top || [];
   state.groups = groups;
   await Promise.all(["projects", "pinned"].map(name => reloadGroup(name, false)));
+
   if (onScreen()) {
     drawSide();
     if (currentLocation()?.view === "projects") { drawProjects(projectsEl()); drawTop(); }
@@ -94,6 +97,7 @@ const refreshMac = single(async () => {
 /// Explicit refresh and first load reconcile all Home domains.
 export async function refresh() {
   clearTimeout(retryTimer);
+
   try {
     await Promise.all([readHome(), refreshMac(), refreshSync(), refreshProjects(),
       ...["machines", "research"].map(name => reloadGroup(name, false))]);

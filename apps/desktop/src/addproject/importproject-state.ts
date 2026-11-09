@@ -74,10 +74,12 @@ export function defaultParent(machine: string, base: string | null | undefined, 
 /// What importing into the folder `listing` does, as the line under it says.
 export function folderNote(listing: MachineFolder | null | undefined, repo: string) {
   if (!listing) return null;
+
   if (listing.origin != null) {
     const what = listing.origin ? repoFromRemote(listing.origin) : "a repository with no origin remote";
     return `A checkout of ${what}, imported in place.`;
   }
+
   if (!listing.exists) return "Not there yet: the clone makes it.";
   if (listing.empty) return "Empty: the clone goes here.";
   const name = (orgAndName(repo) || [])[1] || "repo";

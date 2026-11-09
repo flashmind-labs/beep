@@ -32,14 +32,17 @@ impl Task {
         self.shared.publish(|s| s.state = SyncState::Scanning);
         let result = self.try_scan().await;
         self.scan_failed = result.is_err();
+
         if self.scan_failed {
             // Not trusted until a scan succeeds again.
             self.held.clear();
         }
+
         match result {
             Ok(()) => self.error = None,
             Err(e) => self.fail("scanning failed", &e),
         }
+
         self.publish_status(None);
     }
 
@@ -53,6 +56,7 @@ impl Task {
                 if gitdir::is_busy(&root) {
                     bail!("{}", gitdir::busy_reason(&root));
                 }
+
                 Ok(Checkout::read(&root))
             })
             .await??
@@ -75,11 +79,13 @@ impl Task {
                 state.unsaved = true;
             }
         }
+
         if checkout.present {
             let mut state = self.shared.lock();
             state.saved.git_only = true;
             state.unsaved = true;
         }
+
         let syncs_git = rules.syncs_git();
         *write_lock(&self.shared.rules) = rules;
         // Before the walk: git writes objects before the refs that name
@@ -122,11 +128,13 @@ impl Task {
                         .filter(|repo| protect_recovery || repo.has_recovery_backups());
                     let protected = repo.is_some();
                     let mut walked = scan::walk_git(&root, &rules, protected)?;
+
                     if let Some(repo) = repo {
                         walked
                             .files
                             .extend(repo.seed_objects(&cache, &repo.refs()?)?);
                     }
+
                     walked.check_limits()?;
                     Ok((walked, protected))
                 } else {
@@ -143,11 +151,13 @@ impl Task {
                 .map(|f| f.path.clone())
                 .collect()
         });
+
         if let Some(scope) = &self.shared.ignored {
             walked.dirs.extend(scope.watch_dirs());
             walked.dirs.sort();
             walked.dirs.dedup();
         }
+
         self.mode = self
             .watcher
             .set_dirs(self.shared.key, walked.dirs.clone())
@@ -157,6 +167,7 @@ impl Task {
         if walked.dirs.iter().any(|dir| !self.dirs.contains(dir)) {
             self.shared.touched.notify_one();
         }
+
         self.dirs = walked.dirs.iter().cloned().collect();
         let prior: Vec<Option<Seen>> = {
             let state = self.shared.lock();
@@ -170,6 +181,7 @@ impl Task {
         let mut tags = Vec::new();
         let mut hashed = Vec::new();
         let mut changed = Vec::new();
+
         for (found, prior) in walked.files.iter().zip(prior) {
             if let Some(prior) = &prior
                 && same(&found.stat, &prior.stat)
@@ -183,12 +195,15 @@ impl Task {
             {
                 continue;
             }
+
             changed.push((found, prior));
         }
+
         for batch in changed.chunks(MAX_IMPORTS) {
             if self.shared.stop.is_cancelled() {
                 bail!("stopped");
             }
+
             let cache = self.shared.file.with_extension("seed");
             let imports = batch.iter().map(|(found, _)| async {
                 if found.abs.starts_with(&cache) {
@@ -197,6 +212,7 @@ impl Task {
                     scan::import(&self.parts.store, found).await
                 }
             });
+
             for ((found, prior), imported) in batch.iter().zip(join_all(imports).await) {
                 match imported {
                     Ok(tag) => {
@@ -210,8 +226,10 @@ impl Task {
         }
         {
             let state = self.shared.lock();
+
             for now in &refs {
                 let prior = state.saved.seen.get(&now.found.path).cloned();
+
                 if prior
                     .as_ref()
                     .is_none_or(|prior| prior.hash != *now.oid.as_ref())
@@ -261,6 +279,7 @@ impl Task {
             })
             .await?
         };
+
         if let Checked::Unmarked(saved) = checked {
             // Files gone with the marker: the folder is being deleted.
             if deleted.iter().any(|(_, missing)| *missing) {
@@ -270,10 +289,13 @@ impl Task {
                     root.display()
                 );
             }
+
             let folder = self.shared.root.clone();
             spawn_blocking(move || root::restore(&folder, &saved)).await??;
         }
+
         let baseline = has_baseline(first, seen_count, &deleted);
+
         if !baseline {
             log::warn!(
                 "{}: none of the {seen_count} files synced before are in {}; they are \
@@ -282,6 +304,7 @@ impl Task {
                 self.shared.root().display()
             );
         }
+
         let mut held = BTreeSet::new();
         let git_advanced = self
             .shared
@@ -305,13 +328,16 @@ impl Task {
             spawn_blocking(move || !gitdir::is_busy(&root) && Checkout::read(&root) == checkout)
                 .await?
         };
+
         if !stable {
             bail!("the Git checkout changed during the scan; retrying sync");
         }
+
         let (before, seq, checkout_changed) = {
             let mut state = self.shared.lock();
             let before = state.saved.map.seq();
             let checkout_changed = state.saved.checkout != Some(checkout);
+
             for (found, hash, prior) in hashed {
                 record(
                     &mut state,
@@ -321,6 +347,7 @@ impl Task {
                     checkout_paths.clean.contains(&found.path),
                 );
             }
+
             for (path, missing) in deleted {
                 // Kept as seen, and sent by `send_deletes` once the
                 // folder settled and is still the one synced.
@@ -339,6 +366,7 @@ impl Task {
                     state.remove_seen(&path);
                 }
             }
+
             state.saved.checkout = Some(checkout);
             state.saved.fast_forward = None;
             state.unsaved = true;
@@ -346,9 +374,11 @@ impl Task {
         };
         self.held = held;
         self.first = false;
+
         if seq != before || checkout_changed {
             self.shared.seq.send_replace(seq);
         }
+
         self.protect().await?;
         drop(tags);
         Ok(())
@@ -360,9 +390,11 @@ impl Task {
     /// away or changed meanwhile sends none and stops syncing.
     pub(super) async fn send_deletes(&mut self) {
         let held = mem::take(&mut self.held);
+
         if held.is_empty() {
             return;
         }
+
         if let Err(e) = self.try_send_deletes(held).await {
             self.scan_failed = true;
             self.fail("not syncing", &e);
@@ -378,6 +410,7 @@ impl Task {
             let saved = saved.clone();
             spawn_blocking(move || root::check(&folder, saved.as_ref(), seen_any)).await??
         };
+
         match (checked, saved) {
             (Checked::Same(id), Some(saved)) if id == saved => {}
             _ => bail!(
@@ -386,6 +419,7 @@ impl Task {
                 self.shared.root().display()
             ),
         }
+
         let missing = {
             let root = self.shared.root.clone();
             spawn_blocking(move || {
@@ -401,6 +435,7 @@ impl Task {
         let (before, seq) = {
             let mut state = self.shared.lock();
             let before = state.saved.map.seq();
+
             for path in missing {
                 if let Some(old) = state.remove_seen(&path) {
                     state.saved.map.edit(&path, &old.version, None);
@@ -408,9 +443,11 @@ impl Task {
             }
             (before, state.saved.map.seq())
         };
+
         if seq != before {
             self.shared.seq.send_replace(seq);
         }
+
         self.protect().await
     }
 
@@ -435,6 +472,7 @@ impl Task {
                 state.unsaved = true;
             }
         }
+
         Ok(checked)
     }
 }

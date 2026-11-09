@@ -42,6 +42,7 @@ export async function renderLink() {
   if (S.view !== "login") return;
   if (hosted) return drawLogin();
   S.view = "link";
+
   try {
     const view = await invoke<LinkView>("link_offer");
     offer = Object.assign(view, { until: Date.now() + view.expires_in * 1000 });
@@ -49,6 +50,7 @@ export async function renderLink() {
     bar.innerHTML = `<div class="dwin"><h4>Link to your phone</h4><p class="derr">${esc(e)}</p></div>`;
     return;
   }
+
   // Another view, or a newer code, took over while this one loaded.
   if (S.view !== "link") return;
   clearInterval(S.timer);
@@ -127,6 +129,7 @@ function drawLogin() {
 
 async function openBrowser(e: Event) {
   (e.currentTarget as HTMLButtonElement).disabled = true;
+
   try {
     await invoke("start_login");
     login = "browser";
@@ -151,6 +154,7 @@ async function useHere(e: Event) {
   clearInterval(S.timer);
   // Not "link", so the link-state event does not show "Linked to your phone".
   S.view = "starting";
+
   try {
     await invoke("use_here");
     S.link = "linked";
@@ -178,6 +182,7 @@ function renderJoinCode(error = "", back: () => unknown = renderLink) {
     const code = input.value;
     $$<HTMLButtonElement>("#jjoin").disabled = true;
     S.view = "joining";
+
     try {
       const name = await invoke<string>("join_account", { code });
       S.link = "linked";
@@ -197,12 +202,14 @@ export async function renderInvitePhone() {
   S.view = "invite-phone";
   clearInterval(S.timer);
   let inv: PhoneInvite;
+
   try {
     inv = await invoke<PhoneInvite>("invite_phone");
   } catch (e) {
     bar.innerHTML = `<div class="dwin"><h4>Link a phone</h4><p class="derr">${esc(e)}</p></div>`;
     return;
   }
+
   if (S.view !== "invite-phone") return;
   const until = Date.now() + inv.expires_in * 1000;
   bar.innerHTML = `<div class="dwin"><h4>Link a phone</h4>

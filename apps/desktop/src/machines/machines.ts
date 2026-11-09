@@ -131,12 +131,14 @@ const shown = () => !!hosted() || S.view === "machines";
 /// The list, or in Settings machine `id` on its own page.
 export async function renderMachines(id: string | null = null) {
   const at = hosted();
+
   if (at) {
     at.machine = id;
   } else {
     S.view = "machines";
     invoke("close_group").catch(() => {});
   }
+
   MC.asking = null;
   if (log?.id !== id) log = null;
   drawMachines();
@@ -153,6 +155,7 @@ let toolUpdatesAgain = false;
 async function loadToolUpdates() {
   if (toolUpdatesLoading) { toolUpdatesAgain = true; return; }
   toolUpdatesLoading = true;
+
   try {
     const tools = await invoke<ToolUpdate[]>("tool_updates");
     // The page only changes when a newer release shows up.
@@ -163,6 +166,7 @@ async function loadToolUpdates() {
     console.warn("tool updates:", e);
   } finally {
     toolUpdatesLoading = false;
+
     if (toolUpdatesAgain) {
       toolUpdatesAgain = false;
       if (shown()) void loadToolUpdates();
@@ -188,6 +192,7 @@ async function readList() {
   } catch (e) {
     MC.error = String(e);
   }
+
   if (shown()) drawMachines();
 }
 
@@ -207,12 +212,14 @@ async function loadNodeRelease() {
 
 async function loadSearch(id: string) {
   search = { id, folder: null, draft: null, busy: false, error: "" };
+
   try {
     const folder = await invoke<string>("machine_search", { machineId: id });
     if (search?.id === id) search.folder = folder;
   } catch (e) {
     console.warn("search folder:", e);
   }
+
   if (shown()) drawMachines();
 }
 
@@ -224,12 +231,14 @@ async function saveSearch(folder: string) {
   at.draft = folder;
   at.error = "";
   drawMachines();
+
   try {
     at.folder = await invoke<string>("set_machine_search", { machineId: at.id, search: folder });
     at.draft = null;
   } catch (e) {
     at.error = errorText(e);
   }
+
   at.busy = false;
   if (shown()) drawMachines();
 }
@@ -249,11 +258,13 @@ function searchRow(m: Machine) {
 async function readLog(id: string) {
   const at: MachineLog = log = { id, text: log?.id === id ? log.text : null, busy: true, error: "" };
   drawMachines();
+
   try {
     at.text = await invoke<string>("machine_log", { id });
   } catch (e) {
     at.error = errorText(e);
   }
+
   at.busy = false;
   if (shown()) drawMachines();
 }
@@ -286,6 +297,7 @@ async function updateTool(id: string, tool: string) {
   if (MC.toolUps.get(key)?.busy) return;
   MC.toolUps.set(key, { busy: true, error: "" });
   if (shown()) drawMachines();
+
   try {
     const to = await invoke<string>("update_machine_tool", { machineId: id, tool });
     MC.toolUps.delete(key);
@@ -296,6 +308,7 @@ async function updateTool(id: string, tool: string) {
   } catch (e) {
     MC.toolUps.set(key, { busy: false, error: errorText(e) });
   }
+
   if (shown()) drawMachines();
 }
 
@@ -304,6 +317,7 @@ async function retryAdapters(id: string) {
   if (MC.adapterTries.get(id)?.busy) return;
   MC.adapterTries.set(id, { busy: true, error: "" });
   if (shown()) drawMachines();
+
   try {
     await invoke("agent_adapters_install", { machineId: id });
     MC.adapterTries.delete(id);
@@ -312,6 +326,7 @@ async function retryAdapters(id: string) {
   } catch (e) {
     MC.adapterTries.set(id, { busy: false, error: errorText(e) });
   }
+
   if (shown()) drawMachines();
 }
 
@@ -334,6 +349,7 @@ async function removeMachine() {
   asking.busy = true;
   asking.error = "";
   drawMachines();
+
   try {
     await invoke("remove_machine", { id: asking.id });
     MC.list = (MC.list || []).filter(m => m.id !== asking.id);
@@ -343,6 +359,7 @@ async function removeMachine() {
     asking.busy = false;
     asking.error = String(e);
   }
+
   if (shown()) drawMachines();
 }
 
@@ -351,8 +368,10 @@ async function removeMachine() {
 async function runUpdate(id: string) {
   MC.updates.set(id, { step: "updating" });
   if (shown()) drawMachines();
+
   try {
     const done = await invoke<{ from: string; to: string; restarting: boolean; note: string }>("update_machine", { id });
+
     if (done.restarting) {
       MC.updates.set(id, { step: "restarting", to: done.to, note: done.note });
       void waitForNode(id, done.to, done.note ? IDLE_POLLS : RESTART_POLLS);
@@ -364,6 +383,7 @@ async function runUpdate(id: string) {
   } catch (e) {
     MC.updates.set(id, { step: "failed", error: errorText(e) });
   }
+
   if (shown()) drawMachines();
 }
 
@@ -378,16 +398,19 @@ async function waitForNode(id: string, to: string, polls: number) {
     const check = async () => {
       if (reading) { again = true; return; }
       reading = true;
+
       do {
         again = false;
         const now = MC.updates.get(id);
         if (done) break;
         if (now?.step !== "restarting" || now.to !== to) { finish(); break; }
+
         try {
           const list = await invoke<Machine[]>("list_machines");
           if (done) break;
           MC.list = list;
           const machine = list.find(machine => machine.id === id);
+
           if (machine && updatedTo(machine, to)) {
             MC.updates.delete(id);
             if (shown()) drawMachines();
@@ -395,15 +418,18 @@ async function waitForNode(id: string, to: string, polls: number) {
           }
         } catch (error) { console.warn("machines while a node restarts:", error); }
       } while (again && !done);
+
       reading = false;
     };
     const unfollow = subscribeChanges(topic("machines"), () => check());
     const deadline = setTimeout(() => {
       const now = MC.updates.get(id);
+
       if (now?.step === "restarting" && now.to === to) {
         MC.updates.set(id, { step: "failed", error: `It did not come back on beep-node ${to} yet. Check the machine.` });
         if (shown()) drawMachines();
       }
+
       finish();
     }, RESTART_POLL_MS * polls);
     void check();
@@ -515,6 +541,7 @@ function machinePage(m: Machine) {
       + (env.avds.length ? kv("Android emulators", esc(env.avds.join(", "))) : "")
       : m.can_host === false ? "" : kv("Report", "None yet"));
   let html = `<div class="dset-box"><div class="dset-kv">${facts}</div></div>` + updateLine(m) + (search?.id === m.id ? errLine(search.error) : "");
+
   if (m.can_host !== false && env?.logins.length) {
     const rows = env.logins.map(l => {
       const who = l.signed_in ? esc(l.account ?? "Signed in") : '<span class="dtag ask">Not signed in</span>';
@@ -525,11 +552,13 @@ function machinePage(m: Machine) {
     }).join("");
     html += `<div class="dset-h">Sign-ins</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Account</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
   }
+
   if (m.can_host !== false && env?.tools.length) {
     const tools = [...coders(env.tools), ...env.tools.filter(t => !isCoder(t.name))];
     const rows = tools.map(t => `<tr><td class="dmono">${esc(t.name)}</td><td class="dmono">${esc(shownVersion(MC.installed, `${m.id} ${t.name}`, t.name, t.version) ?? "")}</td><td>${isCoder(t.name) ? "Coding agent" : "Tool"}</td></tr>`).join("");
     html += `<div class="dset-hrow"><div class="dset-h">Tools</div>${tools.map(t => toolUpdate(m, t)).join("")}${toolNotes(m, env.tools)}</div><table class="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Version</th><th>Kind</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
+
   html += trafficTable(m) + (m.can_host === false ? "" : logSection(m));
   return html + `<div class="dmach dset-rm">${button ? `<div class="dset-rm-row"><span class="t"><b>Remove this machine</b><small>${removeNote(m)}</small></span>${button}</div>` : ""}${ask}</div>`;
 }
@@ -565,11 +594,13 @@ const machineActions = '<span class="dline"><button class="dbtn quiet" id="mcLin
 function drawMachines() {
   const at = hosted(), el = root();
   const open = at?.machine ? MC.list?.find(m => m.id === at.machine) : undefined;
+
   if (at?.machine && MC.list && !open) {
     // Gone, such as just removed: back to the list.
     at.machine = null;
     at.opened(null);
   }
+
   if (open) {
     el.innerHTML = errLine(MC.error) + machinePage(open);
   } else if (at?.machine) {
@@ -587,6 +618,7 @@ function drawMachines() {
       : `<div class="dlist${at ? " dset-box" : ""}"><div class="dmt" style="--ag:${columns.length}">${list.map(m => machineCard(m, columns)).join("")}</div></div>`)
       + (at ? "" : hints([["esc", "back"]]));
   }
+
   for (const b of el.querySelectorAll<HTMLElement>("[data-machine]")) {
     const go = () => {
       at!.opened(b.dataset.machine!);
@@ -595,6 +627,7 @@ function drawMachines() {
     b.addEventListener("click", go);
     b.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
   }
+
   for (const b of el.querySelectorAll<HTMLElement>("[data-rm]")) {
     b.addEventListener("click", () => {
       MC.asking = { id: b.dataset.rm!, busy: false, error: "" };
@@ -602,9 +635,11 @@ function drawMachines() {
       el.querySelector<HTMLElement>("#rmNo")?.focus();
     });
   }
+
   el.querySelector("#mcLinkDesktop")?.addEventListener("click", () => openJoinTicket({ onClose: () => { if (shown()) void renderMachines(hosted()?.machine ?? null).then(() => hosted()?.changed()); } }));
   el.querySelector("#mcAdd")?.addEventListener("click", () => openAddMachine({ onClose: () => { if (shown()) void renderMachines(hosted()?.machine ?? null).then(() => hosted()?.changed()); } }));
   el.querySelector("#rmYes")?.addEventListener("click", removeMachine);
+
   if (open) {
     for (const b of el.querySelectorAll<HTMLElement>("[data-signin]")) b.addEventListener("click", () => openSignIn(open, b.dataset.signin!, () => {
       if (shown()) void renderMachines(open.id).then(() => hosted()?.changed());
@@ -615,6 +650,7 @@ function drawMachines() {
     const lines = el.querySelector(".dlog");
     if (lines) lines.scrollTop = lines.scrollHeight;
   }
+
   for (const b of el.querySelectorAll<HTMLElement>("[data-nodeup]")) b.addEventListener("click", () => { void runUpdate(b.dataset.nodeup!); });
   for (const b of el.querySelectorAll<HTMLElement>("[data-toolup]")) b.addEventListener("click", () => { void updateTool(b.dataset.id!, b.dataset.toolup!); });
   for (const b of el.querySelectorAll<HTMLElement>("[data-adapters]")) b.addEventListener("click", e => { e.stopPropagation(); void retryAdapters(b.dataset.adapters!); });

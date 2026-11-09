@@ -23,6 +23,7 @@ pub(super) async fn open_pull(
     peer: &EndpointId,
 ) -> Result<(LinkTx, LinkRx, Option<Reply>)> {
     let cursor = shared.cursor(peer);
+
     for with_branches in [true, false] {
         let (send, recv) = connection.open_bi().await?;
         let (mut tx, mut rx) = link(send, recv);
@@ -42,20 +43,24 @@ pub(super) async fn open_pull(
             }
         };
         tx.send(&request).await?;
+
         if !with_branches {
             return Ok((tx, rx, None));
         }
+
         match timeout(super::CONNECT_TIMEOUT, rx.recv::<Reply>()).await {
             Ok(Ok(Some(reply))) => {
                 if !matches!(reply, Reply::Branches { .. }) {
                     shared.forget_branches(peer);
                 }
+
                 return Ok((tx, rx, Some(reply)));
             }
             // Old nodes reject the new request on this stream. Open a legacy pull.
             _ => shared.forget_branches(peer),
         }
     }
+
     unreachable!("the legacy pull always returns")
 }
 
@@ -66,11 +71,13 @@ pub(super) async fn receive_catalog(
     tips: Vec<BranchTip>,
 ) -> Result<()> {
     BranchTip::validate(&tips)?;
+
     if shared.copies_git() || !shared.head().await?.present {
         // Bootstrap owns the initial copy; never index a pack into a partial repository.
         shared.observe_branches(peer, Vec::new());
         return Ok(());
     }
+
     let (root, peer_id, advertised) = (shared.root().to_owned(), *peer, tips.clone());
     spawn_blocking(move || {
         Repo::open(&root)
@@ -78,6 +85,7 @@ pub(super) async fn receive_catalog(
             .prepare_peer_refs(&peer_id, &advertised)
     })
     .await??;
+
     for tip in &tips {
         ensure!(
             shared.has_peer(peer) && !shared.is_stopped(),
@@ -93,6 +101,7 @@ pub(super) async fn receive_catalog(
             ))
         })
         .await??;
+
         if need {
             receive_objects(
                 connection,
@@ -106,6 +115,7 @@ pub(super) async fn receive_catalog(
             )
             .await?;
         }
+
         let (root, tip, peer) = (shared.root().to_owned(), tip.clone(), *peer);
         spawn_blocking(move || {
             Repo::open(&root)
@@ -114,6 +124,7 @@ pub(super) async fn receive_catalog(
         })
         .await??;
     }
+
     shared.observe_branches(peer, tips);
     Ok(())
 }

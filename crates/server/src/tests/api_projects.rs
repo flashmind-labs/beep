@@ -43,12 +43,14 @@ fn is_bad_request<T: std::fmt::Debug>(reply: Reply<T>) -> bool {
 #[tokio::test]
 async fn get_project_agent_refuses_bad_names() {
     let h = harness().await;
+
     for name in ["acme", "acme/widget/more", "", "acme/.."] {
         assert!(
             is_bad_request(project_agent(&h.alice, name).await),
             "{name}"
         );
     }
+
     assert!(projects(&h.alice).await.unwrap().is_empty());
 }
 

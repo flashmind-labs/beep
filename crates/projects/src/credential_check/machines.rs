@@ -29,6 +29,7 @@ enum Said {
 /// Reads `teacli whoami` output: exit 4 is refused, 2 is unknown server, 1 may name the status.
 fn read(ran: &ShellOutput) -> Said {
     let text = ran.output.to_ascii_lowercase();
+
     match ran.exit_code {
         Some(0) => match parse_login(&ran.output) {
             Ok(login) => Said::Valid(login),
@@ -66,6 +67,7 @@ pub async fn check_from(machines: &[Reach], url: &ForgejoUrl) -> CredentialCheck
     .await;
     let host = url.host();
     let named = || machines.iter().zip(&said);
+
     if let Some((machine, Said::Valid(login))) =
         named().find(|(_, said)| matches!(said, Said::Valid(_)))
     {
@@ -74,6 +76,7 @@ pub async fn check_from(machines: &[Reach], url: &ForgejoUrl) -> CredentialCheck
             machine: Some(machine.name.clone()),
         };
     }
+
     if let Some((machine, _)) = named().find(|(_, said)| **said == Said::Refused) {
         return CredentialCheck::Refused {
             machine: Some(machine.name.clone()),
@@ -83,6 +86,7 @@ pub async fn check_from(machines: &[Reach], url: &ForgejoUrl) -> CredentialCheck
             ),
         };
     }
+
     let tried: Vec<&str> = named()
         .filter(|(_, said)| **said == Said::Unreachable)
         .map(|(machine, _)| machine.name.as_str())

@@ -77,6 +77,7 @@ impl<'a> Meta<'a> {
                 pairs.push((QUOTE, quote.chars().take(MAX_QUOTE_CHARS).collect()));
             }
         }
+
         pairs
     }
 }

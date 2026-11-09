@@ -49,9 +49,11 @@ impl TryFrom<&Notice> for Waiting {
     /// one was resolved, or comes from a group.
     fn try_from(notice: &Notice) -> Result<Self, Self::Error> {
         let pending = notice.approval.as_ref().ok_or(NotWaitingApproval)?;
+
         if notice.changed || notice.group {
             return Err(NotWaitingApproval);
         }
+
         Ok(Self {
             session: notice.session_id.clone(),
             approval: Asking {
@@ -97,9 +99,11 @@ impl Voice {
         let Ok(waiting) = Waiting::try_from(&notice) else {
             return Some(notice);
         };
+
         if bar::is_open(&self.app) {
             return Some(notice);
         }
+
         let (id, new) = {
             let mut state = self.state();
             let Some(s) = state.live.as_mut().filter(|s| !s.note) else {
@@ -107,11 +111,13 @@ impl Voice {
             };
             (s.id, s.asks.add(waiting.clone(), Some(notice)))
         };
+
         if new {
             self.emit(LiveEvent::Approval(waiting.clone()));
             self.toast(NEEDS_OK);
             self.cue(id, &waiting);
         }
+
         None
     }
 
@@ -140,9 +146,11 @@ impl Voice {
             return;
         };
         let quiet = matches!(s.live.phase(), Phase::Listening | Phase::Waiting);
+
         if !quiet || s.playing.is_some() {
             return;
         }
+
         let me = self.clone();
         let task = tauri::async_runtime::spawn(async move {
             if let Err(e) = me.say_once(id, text).await {
@@ -161,9 +169,11 @@ impl Voice {
             .await
             .with_context(|| format!("writing {}", path.display()))?;
         let played = audio.play(&path).await;
+
         if let Err(e) = tokio::fs::remove_file(&path).await {
             log::debug!("removing {}: {e}", path.display());
         }
+
         let (_, done) = played?;
         // Stopped playback ends it as well.
         let _ = done.await;
@@ -186,9 +196,11 @@ impl Voice {
                 approval,
                 work: false,
             };
+
             if !s.asks.add(waiting.clone(), None) {
                 return;
             }
+
             waiting
         };
         self.emit(LiveEvent::Approval(waiting));
@@ -213,6 +225,7 @@ impl Voice {
             {
                 // Only the live reply's own approval resumes what it reads.
                 let ours = !asked.work && s.chat.is_some_and(|c| c.to_string() == session);
+
                 match s.live.phase() {
                     Phase::Waiting if ours => {
                         s.run = Some(run.clone());
@@ -238,10 +251,12 @@ impl Voice {
             decision,
         });
         let (id, heard) = follow?;
+
         if let Some(heard) = heard {
             self.input(id, Input::Answered);
             self.follow_reply(id, heard, false);
         }
+
         Some(teller)
     }
 
@@ -258,6 +273,7 @@ impl Voice {
                 .into_iter()
                 .find(|w| !w.work && Some(&w.session) == chat.as_ref())
         };
+
         if let Some(waiting) = waiting {
             self.cue(id, &waiting);
         }

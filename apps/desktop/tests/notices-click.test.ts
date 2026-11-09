@@ -96,10 +96,12 @@ test("Cmd+B focuses notifications; arrows, updates and dismissals keep keyboard 
       stopPropagation() { stopped = true; },
       composedPath: () => path,
     };
+
     for (const node of path) {
       listeners.get(node)?.get(name)?.call(node, event as unknown as Event);
       if (stopped) break;
     }
+
     return event;
   };
   const key = (key: string, metaKey = false) => fire(active!, "keydown", { key, metaKey });

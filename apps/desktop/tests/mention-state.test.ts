@@ -108,9 +108,11 @@ test("the menu's keys: arrows move round the ends, Enter and Tab pick, Esc close
 
 test("the menu leaves keys alone when it is empty, with a modifier, or while an input method composes", () => {
   assert.deepEqual(menuKey(0, 0, "Enter", keys), { type: "none" }, "Enter sends when no menu shows");
+
   for (const mod of ["shift", "alt", "ctrl", "meta"] as const) {
     assert.deepEqual(menuKey(3, 0, "Enter", { ...keys, [mod]: true }), { type: "none" }, mod);
   }
+
   assert.deepEqual(menuKey(3, 0, "Enter", { ...keys, composing: true }), { type: "none" });
   assert.deepEqual(menuKey(3, 0, "ArrowDown", { ...keys, composing: true }), { type: "none" });
 });

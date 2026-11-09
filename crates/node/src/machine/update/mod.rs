@@ -127,6 +127,7 @@ pub async fn update(options: Options) -> Result<(), Error> {
     let base = base();
     let client = client()?;
     let Newest { current, latest } = newest(&client, &base).await?;
+
     match current.cmp(&latest) {
         Ordering::Equal => {
             println!("beep-node {current} is the newest");
@@ -142,6 +143,7 @@ pub async fn update(options: Options) -> Result<(), Error> {
         }
         Ordering::Less => {}
     }
+
     println!("Downloading beep-node {latest} for {}", Target::current()?);
     let download = download(&client, &base, &latest).await?;
     // Keep the update connection until the restart.
@@ -244,6 +246,7 @@ async fn wait_for_idle(dir: &Path, limit: Duration) -> Option<restart::UpdateCon
          (`--now` skips this); new prompts can still start",
         limit.as_secs().div_ceil(60)
     );
+
     match restart::drain(dir, limit).await {
         Drained::NoNode => None,
         Drained::Idle(connection) => Some(connection),

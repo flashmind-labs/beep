@@ -25,10 +25,12 @@ async fn logged(lines: &mut Lines<BufReader<ChildStderr>>, log: &mut Vec<String>
     while let Some(line) = lines.next_line().await.expect("stderr reads") {
         let found = line.contains(text);
         log.push(line);
+
         if found {
             return;
         }
     }
+
     panic!("the node ended before logging {text:?}; it logged {log:#?}");
 }
 

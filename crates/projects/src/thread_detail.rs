@@ -41,12 +41,14 @@ pub async fn read(
         |out| parse(&sources[0].host, out),
     )
     .await?;
+
     if detail.number != number {
         return Err(SourceError::Refused(format!(
             "The host gave #{} for #{number}.",
             detail.number
         )));
     }
+
     Ok(detail)
 }
 
@@ -105,9 +107,11 @@ fn labels(value: &Value) -> Vec<String> {
 /// A review without text says what it decided.
 fn review_text(review: &Value) -> String {
     let body = text(review, "body");
+
     if !body.trim().is_empty() {
         return body;
     }
+
     match text(review, "state").as_str() {
         "APPROVED" => "Approved".to_owned(),
         "CHANGES_REQUESTED" => "Requested changes".to_owned(),
@@ -128,9 +132,11 @@ fn posts<'v>(
         } else {
             text(item, "body")
         };
+
         if body.trim().is_empty() {
             return None;
         }
+
         Some((
             at,
             ThreadPost {

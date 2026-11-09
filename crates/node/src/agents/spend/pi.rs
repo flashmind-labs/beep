@@ -50,6 +50,7 @@ pub(super) fn wanted(line: &str) -> bool {
 /// What one line of a pi log says, if anything that counts.
 pub(super) fn line(text: &str) -> Option<Line> {
     let entry: Entry = serde_json::from_str(text).ok()?;
+
     match entry.kind.as_deref()? {
         "session" => Some(Line::Session {
             id: entry.id?,
@@ -58,9 +59,11 @@ pub(super) fn line(text: &str) -> Option<Line> {
         }),
         "message" => {
             let message = entry.message?;
+
             if message.role.as_deref() != Some("assistant") {
                 return None;
             }
+
             let usage = message.usage?;
             let tokens = Tokens {
                 input: usage.input,
@@ -69,9 +72,11 @@ pub(super) fn line(text: &str) -> Option<Line> {
                 cache_write: usage.cache_write,
                 cache_write_long: 0,
             };
+
             if tokens.total() == 0 {
                 return None;
             }
+
             let at = entry
                 .timestamp
                 .as_deref()

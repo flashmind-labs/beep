@@ -3,6 +3,7 @@ use super::*;
 async fn stepped_snapshot(snapshots: &mut Snapshots) -> Option<Reply> {
     let next = snapshots.next();
     tokio::pin!(next);
+
     loop {
         if let std::task::Poll::Ready(result) = futures::poll!(&mut next) {
             return result.unwrap();

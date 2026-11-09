@@ -37,6 +37,7 @@ impl ReportStore {
         if let Some(r2) = &config.r2 {
             return Ok(Some(Self::R2(R2::new(r2, http)?)));
         }
+
         Ok(config.folder.clone().map(Self::Folder))
     }
 
@@ -109,6 +110,7 @@ async fn put_file(path: PathBuf, bytes: Vec<u8>) -> Result<()> {
         let _ = fs::remove_file(&temp).await;
         return Err(e).with_context(|| format!("moving a report to {}", path.display()));
     }
+
     Ok(())
 }
 

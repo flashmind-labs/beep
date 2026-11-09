@@ -172,6 +172,7 @@ struct Want {
 /// terminals as offline.
 async fn with_states(fleet: &Fleet, rows: Vec<Row>) -> Result<Vec<Terminal>> {
     let mut wants: HashMap<EndpointId, Want> = HashMap::new();
+
     for row in &rows {
         let want = wants.entry(row.record.machine).or_default();
         if row.record.pty {
@@ -180,6 +181,7 @@ async fn with_states(fleet: &Fleet, rows: Vec<Row>) -> Result<Vec<Terminal>> {
             want.tasks = true;
         }
     }
+
     let asks: Vec<_> = wants
         .iter()
         .map(|(machine, want)| async move {
@@ -196,6 +198,7 @@ async fn with_states(fleet: &Fleet, rows: Vec<Row>) -> Result<Vec<Terminal>> {
         .collect()
         .await;
     let mut out = Vec::with_capacity(rows.len());
+
     for row in rows {
         let answer = listed.get(&row.record.machine).and_then(|listed| {
             if row.record.pty {
@@ -213,8 +216,10 @@ async fn with_states(fleet: &Fleet, rows: Vec<Row>) -> Result<Vec<Terminal>> {
             forget(fleet, row.id).await?;
             continue;
         }
+
         out.push(view(fleet, &row, state));
     }
+
     Ok(out)
 }
 
@@ -281,13 +286,16 @@ pub(crate) async fn start(fleet: &Fleet, request: StartTerminal) -> Result<Termi
             started_at: now_ms(),
         },
     };
+
     if let Err(e) = save(fleet, &row).await {
         // Not kept, so nobody could stop it later.
         if let Err(stop) = terminals::stop(&client, &row.kept()).await {
             log::warn!("an unsaved terminal was not stopped: {stop:#}");
         }
+
         return Err(e);
     }
+
     Ok(view(fleet, &row, TerminalState::Running {}))
 }
 
@@ -331,13 +339,16 @@ pub(crate) async fn open(fleet: &Fleet, request: OpenTerminal) -> Result<Termina
             started_at: now_ms(),
         },
     };
+
     if let Err(e) = save(fleet, &row).await {
         // Not kept, so nobody could stop it later.
         if let Err(stop) = terminals::stop(&client, &row.kept()).await {
             log::warn!("an unsaved terminal was not stopped: {stop:#}");
         }
+
         return Err(e);
     }
+
     Ok(view(fleet, &row, TerminalState::Running {}))
 }
 
@@ -355,6 +366,7 @@ pub(crate) async fn get(fleet: &Fleet, id: Uuid) -> Result<TerminalOutput> {
     let Ok(client) = fleet.client(machine).await else {
         return Ok(offline(fleet, &row));
     };
+
     if row.record.pty {
         // Output streams through attach; this only says how it stands.
         let state = match terminals::list_ptys_fresh(&client).await {
@@ -367,6 +379,7 @@ pub(crate) async fn get(fleet: &Fleet, id: Uuid) -> Result<TerminalOutput> {
             earlier: false,
         });
     }
+
     let status = Tasks(&client)
         .ask(&TaskRequest::Status {
             id: TaskId(row.record.task),
@@ -399,6 +412,7 @@ pub(crate) async fn get(fleet: &Fleet, id: Uuid) -> Result<TerminalOutput> {
 /// Stops a terminal and forgets it.
 pub(crate) async fn close(fleet: &Fleet, id: Uuid) -> Result<()> {
     let row = find(fleet, id).ok_or_else(not_found)?;
+
     if let Some(machine) = fleet.member(&row.record.machine.to_string())
         && let Ok(client) = fleet.client(machine).await
     {
@@ -406,6 +420,7 @@ pub(crate) async fn close(fleet: &Fleet, id: Uuid) -> Result<()> {
             .await
             .map_err(|e| DesktopError::BadRequest(format!("{}: {e:#}", fleet.name_of(machine))))?;
     }
+
     forget(fleet, id).await
 }
 
@@ -427,9 +442,11 @@ pub(crate) async fn attach(
     rows: u32,
 ) -> Result<Opened> {
     let row = find(fleet, id).ok_or_else(not_found)?;
+
     if !row.record.pty {
         return Ok(Opened::Over(TerminalEvent::ViewOnly {}));
     }
+
     let ended = |state| Ok(Opened::Over(TerminalEvent::Ended { state }));
     let Some(machine) = fleet.member(&row.record.machine.to_string()) else {
         return ended(TerminalState::Offline {});
@@ -442,9 +459,11 @@ pub(crate) async fn attach(
         return ended(TerminalState::Offline {});
     };
     let now = state_of(&row.kept(), &listed);
+
     if now == (TerminalState::Gone {}) {
         return ended(now);
     }
+
     let size = Size::clamped(cols, rows);
     let (tx, rx) = terminals::attach(&client, TaskId(row.record.task), from, size)
         .await

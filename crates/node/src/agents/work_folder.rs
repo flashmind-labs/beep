@@ -45,9 +45,11 @@ impl WorkRoot {
         if root_dir != real {
             bail!("{shown} changed while it was checked");
         }
+
         if !root_dir.is_dir() {
             bail!("{shown} is not a folder");
         }
+
         Ok(Self { root: root_dir })
     }
 
@@ -59,9 +61,11 @@ impl WorkRoot {
             Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e).with_context(|| format!("could not open {}", rel.display())),
         };
+
         if !full.starts_with(&self.root) {
             bail!("{} leads outside the session's folder", rel.display());
         }
+
         Ok(Some(full))
     }
 
@@ -70,8 +74,10 @@ impl WorkRoot {
     /// root stops it before anything is made beyond.
     pub(super) fn make_folder(&self, rel: &Path) -> Result<PathBuf> {
         let mut at = self.root.clone();
+
         for name in rel.components() {
             let next = at.join(name);
+
             match fs::create_dir(&next) {
                 Ok(()) => {}
                 Err(e) if e.kind() == ErrorKind::AlreadyExists => {}
@@ -79,16 +85,19 @@ impl WorkRoot {
                     return Err(e).with_context(|| format!("could not make {}", rel.display()));
                 }
             }
+
             let real = paths::canonicalize(&next)
                 .with_context(|| format!("could not open {}", rel.display()))?;
             if !real.starts_with(&self.root) {
                 bail!("{} leads outside the session's folder", rel.display());
             }
+
             if !real.is_dir() {
                 bail!("{} is not a folder", rel.display());
             }
             at = real;
         }
+
         Ok(at)
     }
 
@@ -108,18 +117,22 @@ impl WorkRoot {
 /// empty names and `.` are dropped.
 fn names(rel: &str) -> Result<PathBuf> {
     let mut out = PathBuf::new();
+
     for name in rel.split('/') {
         match name {
             "" | "." => continue,
             ".." => bail!("{rel} leads outside the session's folder"),
             _ => {}
         }
+
         let mut parts = Path::new(name).components();
+
         match (parts.next(), parts.next()) {
             (Some(Component::Normal(name)), None) => out.push(name),
             _ => bail!("{rel} is not a path inside the session's folder"),
         }
     }
+
     Ok(out)
 }
 
@@ -146,6 +159,7 @@ pub(super) fn tree(root: &WorkRoot, path: &str, ignored: bool, depth: u32) -> Re
     let mut folders: Vec<WorkFolder> = Vec::new();
     let mut entries = 0;
     let mut truncated = false;
+
     while let Some((sub, level)) = queue.pop_front() {
         let dir = top.join(&sub);
         let changes = status
@@ -159,20 +173,25 @@ pub(super) fn tree(root: &WorkRoot, path: &str, ignored: bool, depth: u32) -> Re
             Err(e) => return Err(e),
         };
         entries += folder.entries.len();
+
         if entries > MAX_TREE_ENTRIES && !folders.is_empty() {
             truncated = true;
             break;
         }
+
         if level < depth {
             for entry in folder.entries.iter().filter(|e| e.folder && !e.ignored) {
                 let next = joined(&sub, &entry.name);
+
                 if fs::symlink_metadata(top.join(&next)).is_ok_and(|meta| meta.is_dir()) {
                     queue.push_back((next, level + 1));
                 }
             }
         }
+
         folders.push(folder);
     }
+
     Ok(WorkTree { folders, truncated })
 }
 
@@ -202,6 +221,7 @@ fn open_folder(root: &WorkRoot, path: &str) -> Result<PathBuf> {
     if !dir.is_dir() {
         bail!("{path} is not a folder");
     }
+
     Ok(dir)
 }
 
@@ -215,15 +235,19 @@ fn read_folder(
     let kept = not_ignored(dir);
     let mut entries = Vec::new();
     let items = fs::read_dir(dir).with_context(|| format!("could not list {path}"))?;
+
     for item in items {
         let item = item.with_context(|| format!("could not list {path}"))?;
         let name = item.file_name();
         // A name that is not UTF-8 cannot be named back to the node.
         let Some(name) = name.to_str() else { continue };
+
         if name == ".git" {
             continue;
         }
+
         let is_ignored = !kept.contains(name);
+
         if is_ignored && !ignored {
             continue;
         }
@@ -243,6 +267,7 @@ fn read_folder(
             change: changes.and_then(|c| c.get(name).copied()),
         });
     }
+
     entries.sort_by(|a, b| {
         b.folder
             .cmp(&a.folder)
@@ -332,6 +357,7 @@ pub(in crate::agents) fn git(dir: &Path, args: &[&str]) -> Option<String> {
 fn changes_in(status: &str, prefix: &str) -> HashMap<String, GitChange> {
     let mut out: HashMap<String, GitChange> = HashMap::new();
     let mut fields = status.split('\0');
+
     while let Some(field) = fields.next() {
         let (Some(code), Some(path)) = (field.get(..2), field.get(3..)) else {
             continue;
@@ -340,6 +366,7 @@ fn changes_in(status: &str, prefix: &str) -> HashMap<String, GitChange> {
         if code.contains(['R', 'C']) {
             fields.next();
         }
+
         let Some(inside) = path.strip_prefix(prefix) else {
             continue;
         };
@@ -357,6 +384,7 @@ fn changes_in(status: &str, prefix: &str) -> HashMap<String, GitChange> {
             .and_modify(|had| *had = (*had).max(change))
             .or_insert(change);
     }
+
     out
 }
 
@@ -375,8 +403,10 @@ pub(super) fn read(root: &WorkRoot, path: &str, offset: u64, len: u32) -> Result
     if !meta.is_file() {
         bail!("{path} is not a file");
     }
+
     let size = meta.len();
     let mut data = Vec::new();
+
     if offset < size {
         let want = (size - offset)
             .min(u64::from(len))
@@ -385,6 +415,7 @@ pub(super) fn read(root: &WorkRoot, path: &str, offset: u64, len: u32) -> Result
             .and_then(|_| file.take(want).read_to_end(&mut data))
             .with_context(|| format!("could not read {path}"))?;
     }
+
     Ok(Some(Chunk {
         size,
         mime: media_mime(path).unwrap_or("application/octet-stream"),
@@ -438,9 +469,11 @@ pub(super) fn write(
             MAX_WORK_UPLOAD / (1024 * 1024)
         );
     }
+
     if data.len() > AGENT_FILE_CHUNK {
         bail!("a part is over {} bytes", AGENT_FILE_CHUNK);
     }
+
     let end = offset
         .checked_add(u64::try_from(data.len())?)
         .filter(|end| *end <= size)
@@ -450,14 +483,18 @@ pub(super) fn write(
     else {
         bail!("{path} names no file");
     };
+
     if asked.ends_with(PART) {
         bail!("{asked} is not a name a file can take here");
     }
+
     let (folder, name) = if offset == 0 {
         let folder = root.make_folder(within)?;
+
         if within.starts_with(BEEP_FOLDER) {
             keep_out_of_git(&root.root.join(BEEP_FOLDER))?;
         }
+
         let name = free_name(&folder, asked)?;
         (folder, name)
     } else {
@@ -476,9 +513,11 @@ pub(super) fn write(
     } else {
         // Not followed through a symlink, and only where the last part ended.
         let had = fs::symlink_metadata(&part).ok();
+
         if !had.is_some_and(|meta| meta.is_file() && meta.len() == offset) {
             bail!("the upload of {path} stopped part way; drop it again");
         }
+
         OpenOptions::new()
             .append(true)
             .open(&part)
@@ -488,13 +527,16 @@ pub(super) fn write(
         .with_context(|| format!("could not write {path}"))?;
     drop(file);
     let to = folder.join(&name);
+
     if end == size {
         if fs::symlink_metadata(&to).is_ok() {
             fs::remove_file(&part).with_context(|| format!("could not clear {path}"))?;
             bail!("{name} appeared while it uploaded; drop it again");
         }
+
         fs::rename(&part, &to).with_context(|| format!("could not write {path}"))?;
     }
+
     Ok(root.relative(&to))
 }
 
@@ -509,6 +551,7 @@ fn free_name(folder: &Path, asked: &str) -> Result<String> {
         fs::symlink_metadata(folder.join(name)).is_ok()
             || fs::symlink_metadata(folder.join(format!(".{name}{PART}"))).is_ok()
     };
+
     if !taken(asked) {
         return Ok(asked.to_owned());
     }
@@ -521,6 +564,7 @@ fn free_name(folder: &Path, asked: &str) -> Result<String> {
 /// Gives the `.beep` folder a `.gitignore` that leaves all of it out, once.
 fn keep_out_of_git(beep: &Path) -> Result<()> {
     let at = beep.join(".gitignore");
+
     match OpenOptions::new().write(true).create_new(true).open(&at) {
         Ok(mut file) => file
             .write_all(b"*\n")

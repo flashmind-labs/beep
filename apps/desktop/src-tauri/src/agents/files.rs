@@ -67,15 +67,18 @@ pub(crate) async fn read_part(
     read: ReadWorkFile,
 ) -> Result<AgentFileChunk> {
     let full = work_copy::joined(&read.root, &read.path);
+
     if let Some(part) =
         work_copy::read(beep, fleet, &read.machine_id, &full, read.offset, read.len).await
     {
         return Ok(part);
     }
+
     let read = match fleet.member(&read.machine_id) {
         Some(machine) => direct::read(fleet, machine, &read).await,
         None => beep.call(read).await,
     };
+
     match read {
         Err(DesktopError::Api(ApiError::NotFound {})) => Err(DesktopError::BadRequest(GONE.into())),
         other => other,
@@ -204,6 +207,7 @@ pub async fn agent_tree_save(
 ) -> Result<PathBuf> {
     let chunk = u32::try_from(AGENT_FILE_CHUNK).map_err(anyhow::Error::from)?;
     let mut data = Vec::new();
+
     loop {
         let offset = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
         let part = read_part(
@@ -218,24 +222,29 @@ pub async fn agent_tree_save(
             },
         )
         .await?;
+
         if part.size > MAX_AGENT_FILE {
             return Err(DesktopError::BadRequest(format!(
                 "It is over {} MB, too large to save from here.",
                 MAX_AGENT_FILE / (1024 * 1024)
             )));
         }
+
         data.extend_from_slice(&part.data);
         let have = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
+
         if have >= part.size {
             data.truncate(usize::try_from(part.size).map_err(anyhow::Error::from)?);
             break;
         }
+
         if part.data.is_empty() {
             return Err(DesktopError::BadRequest(
                 "the file changed while read".into(),
             ));
         }
     }
+
     let to = free_name(&app.path().download_dir()?, &file_name(&path));
     fs::write(&to, &data).map_err(anyhow::Error::from)?;
     Ok(to)
@@ -275,6 +284,7 @@ pub async fn agent_tree_upload(
         size,
         data,
     };
+
     match (fleet.member(&write.machine_id), attachment) {
         (Some(machine), Some(owner)) => {
             direct::upload(&fleet, machine, owner.agent, owner.session, write).await
@@ -315,11 +325,13 @@ pub async fn agent_tree_save_many(
         io::Write,
         path::{Component, Path},
     };
+
     if paths.is_empty() || paths.len() > 50_000 {
         return Err(DesktopError::BadRequest(
             "Select between 1 and 50000 items".into(),
         ));
     }
+
     let machine = fleet.member(&machine_id).ok_or_else(|| {
         DesktopError::BadRequest("Connect this machine to the mesh to download folders".into())
     })?;
@@ -332,9 +344,11 @@ pub async fn agent_tree_save_many(
                 .components()
                 .all(|p| matches!(p, Component::Normal(_)))
     };
+
     if paths.iter().any(|p| !valid(p)) {
         return Err(DesktopError::BadRequest("Invalid selection path".into()));
     }
+
     let to = free_name(&app.path().download_dir()?, "Files");
     fs::create_dir(&to).map_err(anyhow::Error::from)?;
     let selected: HashSet<_> = paths.iter().cloned().collect();
@@ -350,16 +364,20 @@ pub async fn agent_tree_save_many(
     let mut seen = HashSet::new();
     let mut listings = HashMap::new();
     let mut total = 0u64;
+
     while let Some(path) = queue.pop_front() {
         if !seen.insert(path.clone()) {
             continue;
         }
+
         if seen.len() > 50_000 || path.split('/').count() > 128 {
             return Err(DesktopError::BadRequest(
                 "Download at most 50000 items at once".into(),
             ));
         }
+
         let parent = path.rsplit_once('/').map_or("", |(p, _)| p);
+
         if !listings.contains_key(parent) {
             let listing = direct::tree(
                 &fleet,
@@ -379,6 +397,7 @@ pub async fn agent_tree_save_many(
                 })?;
             listings.insert(parent.to_owned(), folder);
         }
+
         let top = listings
             .get(parent)
             .ok_or_else(|| DesktopError::BadRequest("The folder could not be read".into()))?;
@@ -387,6 +406,7 @@ pub async fn agent_tree_save_many(
                 "The folder has too many entries to download completely".into(),
             ));
         }
+
         let entry = top
             .entries
             .iter()
@@ -416,6 +436,7 @@ pub async fn agent_tree_save_many(
                     "The folder has too many entries to download completely".into(),
                 ));
             }
+
             if queue
                 .len()
                 .saturating_add(seen.len())
@@ -426,17 +447,21 @@ pub async fn agent_tree_save_many(
                     "Download at most 50000 items at once".into(),
                 ));
             }
+
             for child in &folder.entries {
                 if !valid(&child.name) || child.name.contains('/') {
                     return Err(DesktopError::BadRequest("Invalid file name".into()));
                 }
+
                 queue.push_back(format!("{path}/{}", child.name));
             }
+
             listings.insert(path, folder.clone());
         } else {
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent).map_err(anyhow::Error::from)?;
             }
+
             let mut file = fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
@@ -444,6 +469,7 @@ pub async fn agent_tree_save_many(
                 .map_err(anyhow::Error::from)?;
             let mut offset = 0;
             let mut size = None;
+
             loop {
                 let part = direct::read(
                     &fleet,
@@ -457,12 +483,15 @@ pub async fn agent_tree_save_many(
                     },
                 )
                 .await?;
+
                 if part.size > MAX_AGENT_FILE {
                     return Err(DesktopError::BadRequest(
                         "A selected file is too large to download".into(),
                     ));
                 }
+
                 let count = u64::try_from(part.data.len()).map_err(anyhow::Error::from)?;
+
                 if size.is_some_and(|size| size != part.size) || offset + count > part.size {
                     return Err(DesktopError::BadRequest(
                         "The file changed while downloading".into(),
@@ -477,11 +506,14 @@ pub async fn agent_tree_save_many(
                         "Download at most 256 MB at once".into(),
                     ));
                 }
+
                 file.write_all(&part.data).map_err(anyhow::Error::from)?;
                 offset += count;
+
                 if offset >= part.size {
                     break;
                 }
+
                 if count == 0 {
                     return Err(DesktopError::BadRequest(
                         "The file changed while downloading".into(),
@@ -490,5 +522,6 @@ pub async fn agent_tree_save_many(
             }
         }
     }
+
     Ok(to)
 }

@@ -127,9 +127,11 @@ pub fn editors() -> Vec<EditorRow> {
 #[tauri::command]
 pub fn open_in_editor(editor: Editor, path: String) -> Result<()> {
     let folder = Path::new(&path);
+
     if !folder.is_absolute() || !folder.is_dir() {
         return Err(DesktopError::BadRequest("not a folder on this Mac".into()));
     }
+
     let found = found()
         .iter()
         .find(|f| f.editor == editor)

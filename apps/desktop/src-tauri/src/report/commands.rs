@@ -59,6 +59,7 @@ pub async fn report_collect(
             added_at_ms: 0,
         });
     }
+
     let fleet: &Fleet = &fleet;
     let targets = join_all(devices.into_iter().map(|device| async move {
         let client = reach(fleet, device.id, &device.name).await;

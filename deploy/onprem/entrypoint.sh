@@ -32,10 +32,12 @@ flag() {
 # A key file from /local, copied where the server reads it.
 local_file() {
     if [ -z "$1" ]; then return; fi
+
     if [ ! -f "/local/$1" ]; then
         echo "$2 names $1, which is not in deploy/onprem/local" >&2
         exit 1
     fi
+
     mkdir -p /data/local
     cp "/local/$1" "/data/local/$1"
     printf '/data/local/%s' "$1"
@@ -45,6 +47,7 @@ render() {
     if [ "$mode" != link ]; then
         : "${BEEP_PROVIDER_KEY:?Set BEEP_PROVIDER_KEY in .env}"
     fi
+
     text secret_key /data/iroh-key
     text log_dir /data/logs
     text model "${BEEP_MODEL:-openrouter:z-ai/glm-5.3-flash}"
@@ -64,6 +67,7 @@ render() {
         cat /local/extra.toml
         echo
     fi
+
     echo '[instance]'
     text owner "${BEEP_OWNER:-}"
     text name "${BEEP_NAME:-Beep}"
@@ -71,6 +75,7 @@ render() {
     flag nodes "${BEEP_NODES:-}" BEEP_NODES
     flag agents "${BEEP_AGENTS:-}" BEEP_AGENTS
     text local_node /link
+
     if [ -n "${BEEP_APNS_FILE:-}" ]; then
         apns=$(local_file "$BEEP_APNS_FILE" BEEP_APNS_FILE)
         echo '[apns]'
@@ -82,6 +87,7 @@ render() {
 }
 
 config=${BEEP_CONFIG:-}
+
 if [ -z "$config" ]; then
     config=/data/config.toml
     render > "$config.partial"
@@ -105,4 +111,5 @@ if [ "$(id -u)" = 0 ]; then
         --inh-caps=-all --bounding-set=-all \
         env HOME=/home/beep beep-server "$@"
 fi
+
 exec beep-server "$@"

@@ -13,6 +13,7 @@ pub(super) fn verify(archive: &str, packed: &[u8], sums: &str) -> Result<(), Err
         archive: archive.to_owned(),
     })?;
     let actual = hex::encode(Sha256::digest(packed));
+
     if actual != expected {
         return Err(Error::Checksum {
             archive: archive.to_owned(),
@@ -20,6 +21,7 @@ pub(super) fn verify(archive: &str, packed: &[u8], sums: &str) -> Result<(), Err
             actual,
         });
     }
+
     Ok(())
 }
 
@@ -54,21 +56,25 @@ pub(super) fn unpack(target: Target, archive: &str, packed: &[u8]) -> Result<Vec
 /// The file named `binary` in a gzipped tarball.
 fn untar(packed: &[u8], binary: &str) -> io::Result<Option<Vec<u8>>> {
     let mut tarball = tar::Archive::new(flate2::read::GzDecoder::new(packed));
+
     for entry in tarball.entries()? {
         let mut entry = entry?;
         let named = entry.path()?.file_name().is_some_and(|name| name == binary);
+
         if named && entry.header().entry_type().is_file() {
             let mut bytes = Vec::new();
             entry.read_to_end(&mut bytes)?;
             return Ok(Some(bytes));
         }
     }
+
     Ok(None)
 }
 
 /// The file named `binary` in a zip archive.
 fn unzip(packed: &[u8], binary: &str) -> io::Result<Option<Vec<u8>>> {
     let mut archive = zip::ZipArchive::new(Cursor::new(packed))?;
+
     for index in 0..archive.len() {
         let mut file = archive.by_index(index)?;
         let named = file
@@ -80,6 +86,7 @@ fn unzip(packed: &[u8], binary: &str) -> io::Result<Option<Vec<u8>>> {
             return Ok(Some(bytes));
         }
     }
+
     Ok(None)
 }
 

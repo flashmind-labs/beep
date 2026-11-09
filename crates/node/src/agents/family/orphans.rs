@@ -72,9 +72,11 @@ impl Agents {
         let Some(parent_session) = self.get(parent) else {
             return false;
         };
+
         if ended_for_good(&parent_session.live.borrow()) {
             return false;
         }
+
         self.family.keeps(parent, machine, id, key)
     }
 }
@@ -88,14 +90,17 @@ async fn check_parent(
     parent: String,
 ) {
     let mut silent = None;
+
     loop {
         sleep(ORPHAN_CHECK).await;
         let Some(session) = session.upgrade() else {
             return;
         };
+
         if session.live.borrow().status() == beep_proto::node::agent::Status::Ended {
             return;
         }
+
         let mesh = membership.get().and_then(Membership::get);
         let answer = match &mesh {
             Some(mesh) if mesh.me() == peer => return,
@@ -105,6 +110,7 @@ async fn check_parent(
             }
             None => Parent::Silent,
         };
+
         if orphaned(answer, &mut silent, Instant::now()) {
             log::info!(
                 "closing session {}: its parent {parent} is gone or unreachable",

@@ -188,6 +188,7 @@ impl DecisionTool {
     /// Jev's pick of a model and thinking level; with one model only the thinking is asked.
     pub async fn route<'a>(&self, state: &str, models: &'a [AutoModel]) -> Result<Routed<'a>> {
         let mut questions = BTreeMap::from([("thinking".to_owned(), thinking_question())]);
+
         if models.len() > 1 {
             let criteria = models
                 .iter()
@@ -201,6 +202,7 @@ impl DecisionTool {
                 },
             );
         }
+
         let response = self.provider.decide(request(state, questions)).await?;
         let thinking = choice(&response, "thinking")
             .and_then(|level| level.parse().ok())
@@ -287,14 +289,17 @@ fn describe(error: anyhow::Error) -> String {
 fn parse(args: &Value) -> Result<JevRequest, String> {
     let args = DecisionArgs::deserialize(args).map_err(|e| format!("Invalid decision: {e}"))?;
     let state = args.state.trim();
+
     if state.is_empty() || state.len() > MAX_STATE_BYTES {
         return Err(format!(
             "Decision state must contain 1-{MAX_STATE_BYTES} bytes."
         ));
     }
+
     if args.questions.is_empty() || args.questions.len() > MAX_QUESTIONS {
         return Err(format!("Decision needs 1-{MAX_QUESTIONS} questions."));
     }
+
     if let Some(id) = args
         .questions
         .keys()
@@ -304,6 +309,7 @@ fn parse(args: &Value) -> Result<JevRequest, String> {
             "Question ID {id:?} must contain 1-{MAX_ID_BYTES} bytes."
         ));
     }
+
     Ok(JevRequest {
         model: JEV_LATEST_MODEL.into(),
         state: state.into(),

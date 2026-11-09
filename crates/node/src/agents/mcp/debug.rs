@@ -37,7 +37,10 @@ const ONLY_HERE: &str = "This agent runs on a node, and only a desktop reads ano
 
 /// Whether `tool` is one this module answers.
 pub(crate) fn handles(tool: Tool) -> bool {
-    matches!(tool, Tool::BeepStatus | Tool::BeepLogs | Tool::FileReport)
+    matches!(
+        tool,
+        Tool::BeepStatus | Tool::BeepLogs | Tool::BeepMetrics | Tool::FileReport
+    )
 }
 
 fn parse<T: DeserializeOwned>(args: &str) -> Result<T, Reply> {
@@ -53,6 +56,10 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
         Tool::BeepStatus => Ok(status(&peers).await),
         Tool::BeepLogs => match parse(&request.args) {
             Ok(args) => logs(&peers, args).await,
+            Err(refused) => return refused,
+        },
+        Tool::BeepMetrics => match parse(&request.args) {
+            Ok(args) => metrics(&peers, args).await,
             Err(refused) => return refused,
         },
         Tool::FileReport => match parse(&request.args) {
@@ -110,16 +117,19 @@ fn heading(share: &Share) -> String {
 async fn status(peers: &Peers) -> String {
     let shares = collect_within(peers.report_targets(), now(), 0).await;
     let mut text = String::new();
+
     if only_here(peers) {
         text.push_str(ONLY_HERE);
         text.push_str("\n\n");
     }
+
     for share in &shares {
         text.push_str(&heading(share));
         text.push('\n');
         text.push_str(share.status.trim_end());
         text.push_str("\n\n");
     }
+
     text
 }
 
@@ -157,6 +167,7 @@ async fn logs(peers: &Peers, args: LogsArgs) -> Result<String, String> {
         .collect();
     if targets.is_empty() {
         let devices = peers.devices();
+
         if devices
             .iter()
             .any(|status| command_name(&status.device.name) == command_name(name))
@@ -166,6 +177,7 @@ async fn logs(peers: &Peers, args: LogsArgs) -> Result<String, String> {
                  agent runs on a node: start it on a desktop to read {name}'s log."
             ));
         }
+
         let names: Vec<String> = devices
             .iter()
             .map(|status| command_name(&status.device.name))
@@ -178,6 +190,7 @@ async fn logs(peers: &Peers, args: LogsArgs) -> Result<String, String> {
             ),
         });
     }
+
     let since = now() - i64::from(minutes) * 60;
     let Some(share) = collect_within(targets, since, MAX_BYTES).await.pop() else {
         return Err("The machine gave nothing.".to_owned());
@@ -189,18 +202,77 @@ async fn logs(peers: &Peers, args: LogsArgs) -> Result<String, String> {
     };
     let all: Vec<&str> = share.log.lines().collect();
     let kept = &all[all.len().saturating_sub(lines)..];
+
     if kept.is_empty() {
         return Ok(format!(
             "{}'s Beep log has nothing from {note}.",
             share.name
         ));
     }
+
     Ok(format!(
         "{}'s Beep log, {} lines of {note}:\n{}\n",
         share.name,
         kept.len(),
         kept.join("\n")
     ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MetricsArgs {
+    machine: Option<String>,
+    period: Option<String>,
+}
+
+async fn metrics(peers: &Peers, args: MetricsArgs) -> Result<String, String> {
+    use beep_proto::node::metrics::{PROTOCOL, Reply, Request};
+    let period = args.period.as_deref().unwrap_or("1h");
+    let duration =
+        humantime::parse_duration(period).map_err(|e| format!("Invalid metrics period: {e}"))?;
+    if duration < Duration::from_secs(1)
+        || duration > Duration::from_secs(beep_proto::node::metrics::MAX_PERIOD)
+    {
+        return Err("The metrics period must be between 1s and 7d.".to_owned());
+    }
+
+    let seconds = duration.as_secs();
+    let name = args.machine.as_deref().map(str::trim).unwrap_or_default();
+    let me = peers.key().public();
+    let target = peers.report_targets().into_iter().find(|target| {
+        if name.is_empty() { target.id == me } else { named(target, name) }
+    }).ok_or_else(|| {
+        if only_here(peers) { format!("Only this node's metrics can be read here. Start the agent on a desktop to read {name}.") }
+        else { format!("There is no machine {name}.") }
+    })?;
+    let client = target
+        .client
+        .map_err(|reason| format!("{}: {reason}", target.name))?;
+    let until = u64::try_from(now()).map_err(|e| e.to_string())?;
+    let request = Request {
+        since: until.saturating_sub(seconds),
+        until,
+    };
+    let reply = timeout(
+        Duration::from_secs(30),
+        client.call::<_, Reply>(PROTOCOL, &request),
+    )
+    .await
+    .map_err(|_| "The machine did not answer within 30 seconds.".to_owned())?
+    .map_err(|e| {
+        format!(
+            "{}: {e:#}. Metrics collection requires a version supporting metrics/1.",
+            target.name
+        )
+    })?;
+
+    match reply {
+        Reply::Summary { text } => Ok(format!(
+            "{}'s Beep metrics, requested {period}:\n{text}",
+            target.name
+        )),
+        Reply::Failed { reason } => Err(format!("{}: {reason}", target.name)),
+    }
 }
 
 #[derive(Deserialize)]
@@ -221,9 +293,11 @@ async fn file(
     args: ReportArgs,
 ) -> Result<String, String> {
     let description = args.description.trim().to_owned();
+
     if description.is_empty() {
         return Err("The description is empty: say what you found.".to_owned());
     }
+
     let period = match args.period.as_deref().map(str::trim) {
         None | Some("") => Period::Today,
         Some(period) => period
@@ -256,6 +330,7 @@ async fn file(
             option("keep", "Don't send", OptionKind::RejectOnce),
         ],
     };
+
     match timeout(ASK_LIMIT, offers.agents.ask(session, question)).await {
         Ok(Ok(Answered::Picked(option))) if option.id == SEND => {}
         Ok(Ok(_)) => {
@@ -266,6 +341,7 @@ async fn file(
         Ok(Err(e)) => return Err(format!("Not sent: {e:#}")),
         Err(_) => return Err("Not sent: the user did not answer within an hour.".to_owned()),
     }
+
     let since = period.since_now();
     let shares = collect(peers.report_targets(), since).await;
     let key = peers.key();
@@ -299,9 +375,11 @@ async fn file(
         receipt.reference,
         answers.join(", ")
     );
+
     if only_here(peers) {
         text.push_str(" Only this machine's log went: a node reads no other machine's.");
     }
+
     Ok(text)
 }
 

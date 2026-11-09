@@ -102,6 +102,7 @@ pub async fn items(caller: &Caller<'_>) -> Result<Vec<Found>, HostError> {
     }))
     .await;
     let mut found = Vec::new();
+
     for (query, result) in Query::ALL.iter().zip(asked) {
         match result {
             Ok(hit) => found.push(hit),
@@ -111,6 +112,7 @@ pub async fn items(caller: &Caller<'_>) -> Result<Vec<Found>, HostError> {
             Err(e) => log::info!("GitHub search {query:?} failed: {e}"),
         }
     }
+
     Ok(merge(found))
 }
 
@@ -118,6 +120,7 @@ pub async fn items(caller: &Caller<'_>) -> Result<Vec<Found>, HostError> {
 fn merge(found: Vec<(Query, Vec<SearchItem>)>) -> Vec<Found> {
     let mut items: Vec<Found> = Vec::new();
     let mut at: HashMap<String, usize> = HashMap::new();
+
     for (query, hits) in found.iter().filter(|(query, _)| query.lists()) {
         for hit in hits {
             let Some(repo) = repo_of(&hit.repository_url) else {
@@ -128,6 +131,7 @@ fn merge(found: Vec<(Query, Vec<SearchItem>)>) -> Vec<Found> {
                 items.len() - 1
             });
             let item = &mut items[i].item;
+
             match query {
                 Query::AuthoredPulls | Query::AuthoredIssues => item.authored = true,
                 Query::Assigned => item.assigned = true,
@@ -136,12 +140,14 @@ fn merge(found: Vec<(Query, Vec<SearchItem>)>) -> Vec<Found> {
             }
         }
     }
+
     for (query, hits) in found.iter().filter(|(query, _)| !query.lists()) {
         for hit in hits {
             let Some(&i) = at.get(&hit.html_url) else {
                 continue;
             };
             let item = &mut items[i].item;
+
             match query {
                 Query::Approved => item.review = GitReview::Approved {},
                 Query::ChangesRequested => item.review = GitReview::ChangesRequested {},
@@ -150,6 +156,7 @@ fn merge(found: Vec<(Query, Vec<SearchItem>)>) -> Vec<Found> {
             }
         }
     }
+
     items
 }
 

@@ -23,10 +23,13 @@ pub(super) fn bundle(dir: &Path, head: &str) -> Result<Vec<u8>> {
     if text(dir, &["rev-parse", "HEAD"])? != head {
         bail!("the worktree's commit changed during the move");
     }
+
     let bytes = capped(dir, &["bundle", "create", "-", "HEAD"], MAX_BUNDLE, &[])?;
+
     if text(dir, &["rev-parse", "HEAD"])? != head {
         bail!("the worktree's commit changed during the move");
     }
+
     Ok(bytes)
 }
 
@@ -51,9 +54,11 @@ pub(super) fn import(main: &Path, head: &str, bytes: &[u8]) -> Result<()> {
     file.write_all(bytes)?;
     let path = file.path().to_string_lossy();
     run(main, &["bundle", "unbundle", &path], None).context("importing the worktree's commits")?;
+
     if !has_commit(main, head) {
         bail!("the source did not send the worktree's commit");
     }
+
     Ok(())
 }
 
@@ -142,7 +147,9 @@ fn run(dir: &Path, args: &[&str], stdin: Option<&[u8]>) -> Result<Vec<u8>> {
         stop(&mut child);
         return Err(e).context("sending to git");
     }
+
     let out = child.wait_with_output().context("waiting for git")?;
+
     if !out.status.success() {
         bail!(
             "git {} failed: {}",
@@ -150,6 +157,7 @@ fn run(dir: &Path, args: &[&str], stdin: Option<&[u8]>) -> Result<Vec<u8>> {
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
+
     Ok(out.stdout)
 }
 
@@ -176,18 +184,23 @@ fn capped(dir: &Path, args: &[&str], cap: usize, ok: &[i32]) -> Result<Vec<u8>> 
         bail!("git has no output");
     };
     let mut out = Vec::new();
+
     if let Err(e) = reader.take(cap as u64 + 1).read_to_end(&mut out) {
         stop(&mut child);
         return Err(e).context("reading git's output");
     }
+
     if out.len() > cap {
         stop(&mut child);
         bail!("the uncommitted changes are too large to move");
     }
+
     let status = child.wait().context("waiting for git")?;
+
     if !status.success() && !status.code().is_some_and(|code| ok.contains(&code)) {
         bail!("git {} failed", args.first().copied().unwrap_or_default());
     }
+
     Ok(out)
 }
 
@@ -212,17 +225,22 @@ pub(super) fn snapshot(dir: &Path) -> Result<Work> {
         None,
     )
     .context("listing new files")?;
+
     for name in others.split(|byte| *byte == 0).filter(|n| !n.is_empty()) {
         let name = String::from_utf8_lossy(name).into_owned();
+
         if name.ends_with('/') {
             bail!("{name} is a repository of its own, which cannot move in a patch");
         }
+
         let left = MAX_PATCH.saturating_sub(patch.len());
         // A file over the budget is not read at all.
         let size = std::fs::symlink_metadata(dir.join(&name)).map_or(0, |meta| meta.len());
+
         if size > left as u64 {
             bail!("the uncommitted changes are too large to move");
         }
+
         let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
         let mut args = vec!["diff", "--no-index"];
         args.extend(DIFF_OPTIONS);
@@ -235,8 +253,10 @@ pub(super) fn snapshot(dir: &Path) -> Result<Work> {
         if out.is_empty() {
             bail!("{name} could not be read, so it cannot move");
         }
+
         patch.extend_from_slice(&out);
     }
+
     Ok(Work { head, patch })
 }
 
@@ -245,6 +265,7 @@ pub(super) fn snapshot(dir: &Path) -> Result<Work> {
 fn listed(main: &Path) -> Result<Vec<(PathBuf, Option<String>)>> {
     let out = text(main, &["worktree", "list", "--porcelain"])?;
     let mut found: Vec<(PathBuf, Option<String>)> = Vec::new();
+
     for line in out.lines() {
         if let Some(path) = line.strip_prefix("worktree ") {
             found.push((PathBuf::from(path), None));
@@ -254,6 +275,7 @@ fn listed(main: &Path) -> Result<Vec<(PathBuf, Option<String>)>> {
             last.1 = Some(branch.to_owned());
         }
     }
+
     Ok(found)
 }
 
@@ -280,15 +302,18 @@ fn spot(main: &Path, path: &Path, branch: &str, running_here: bool) -> Result<Sp
     if branch.starts_with('-') {
         bail!("{branch} is not a branch name");
     }
+
     text(main, &["check-ref-format", "--branch", branch])
         .with_context(|| format!("{branch} is not a branch name"))?;
     let worktrees = listed(main)?;
+
     if let Some((there, _)) = worktrees
         .iter()
         .find(|(_, on)| on.as_deref() == Some(branch))
     {
         bail!("{branch} is checked out in {} here", there.display());
     }
+
     if !path.exists() {
         // A folder that was deleted but is still registered would make
         // `worktree add` fail. Nothing in git's admin folders is touched
@@ -301,23 +326,28 @@ fn spot(main: &Path, path: &Path, branch: &str, running_here: bool) -> Result<Sp
                 main.display()
             );
         }
+
         return Ok(Spot::Free);
     }
+
     let detached = worktrees
         .iter()
         .any(|(there, on)| on.is_none() && same_folder(there, path));
     if !detached {
         bail!("{} is taken on this machine", path.display());
     }
+
     if running_here {
         bail!("a session runs in {}", path.display());
     }
+
     if !text(path, &["status", "--porcelain"])?.is_empty() {
         bail!(
             "{} holds changes of its own: commit or discard them first",
             path.display()
         );
     }
+
     let prior = text(path, &["rev-parse", "HEAD"])?;
     let reference = format!("refs/heads/{branch}");
     let held = text(main, &["rev-parse", "--verify", "-q", &reference])
@@ -329,6 +359,7 @@ fn spot(main: &Path, path: &Path, branch: &str, running_here: bool) -> Result<Sp
             path.display()
         );
     }
+
     Ok(Spot::Detached { prior })
 }
 
@@ -356,15 +387,18 @@ pub(super) fn attach(
 ) -> Result<Attached> {
     let spot = spot(main, path, branch, running_here)?;
     let head = work.head.as_str();
+
     if head.is_empty() || !head.bytes().all(|b| b.is_ascii_hexdigit()) {
         bail!("the source sent no commit");
     }
+
     run(
         main,
         &["cat-file", "-e", &format!("{head}^{{commit}}")],
         None,
     )
     .context("the worktree's commit has not come here yet")?;
+
     if let Spot::Detached { prior } = &spot
         && !contains(main, head, prior)
     {
@@ -373,7 +407,9 @@ pub(super) fn attach(
             path.display()
         );
     }
+
     let reference = format!("refs/heads/{branch}");
+
     match text(main, &["rev-parse", "--verify", "-q", &reference]) {
         Ok(tip) if tip == head => {}
         Ok(tip) => {
@@ -382,17 +418,20 @@ pub(super) fn attach(
             if !contains(main, head, &tip) {
                 bail!("{branch} here has commits the source's {branch} does not");
             }
+
             run(main, &["update-ref", &reference, head, &tip], None)?;
         }
         Err(_) => {
             run(main, &["update-ref", &reference, head], None)?;
         }
     }
+
     let placed = match spot {
         Spot::Free => {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).context("making the worktree's folder")?;
             }
+
             let made = path.to_string_lossy();
             run(main, &["worktree", "add", "--quiet", &made, branch], None)
                 .context("adding the worktree")?;
@@ -404,12 +443,14 @@ pub(super) fn attach(
             Placed::Reused { prior }
         }
     };
+
     if !work.patch.is_empty() {
         let applied = run(
             path,
             &["apply", "--binary", "--whitespace=nowarn", "-"],
             Some(&work.patch),
         );
+
         if let Err(e) = applied {
             // The apply changed nothing, so the folder is as it was made
             // or found: this undo needs no proof.
@@ -422,9 +463,11 @@ pub(super) fn attach(
                     }
                 }
             }
+
             return Err(e.context("the uncommitted changes do not apply here"));
         }
     }
+
     let applied = fingerprint(path).context("noting what the worktree holds")?;
     Ok(Attached { placed, applied })
 }
@@ -449,6 +492,7 @@ pub(super) fn undo(main: &Path, path: &Path, placed: &Placed, applied: &str) -> 
         // Nothing was made, or it is gone.
         return Undone::Removed;
     }
+
     if applied.is_empty() {
         match text(path, &["status", "--porcelain"]) {
             Ok(status) if status.is_empty() => {}
@@ -489,6 +533,7 @@ pub(super) fn undo(main: &Path, path: &Path, placed: &Placed, applied: &str) -> 
             Err(e) => return Undone::Left(format!("{e:#}")),
         }
     }
+
     match placed {
         Placed::Made => {
             // Proven to hold only the patch: take it out, then the plain
@@ -509,6 +554,7 @@ pub(super) fn undo(main: &Path, path: &Path, placed: &Placed, applied: &str) -> 
                 None,
             )
             .and_then(|_| run(path, &["clean", "-fdq"], None));
+
             match back {
                 Ok(_) => Undone::Reset,
                 Err(e) => Undone::Left(format!("{e:#}")),
@@ -520,6 +566,7 @@ pub(super) fn undo(main: &Path, path: &Path, placed: &Placed, applied: &str) -> 
 /// Takes away a worktree this machine just made, which holds nothing yet.
 fn remove(main: &Path, path: &Path) {
     let made = path.to_string_lossy();
+
     if let Err(e) = run(main, &["worktree", "remove", "--force", &made], None) {
         log::warn!("the worktree made for a move stays: {e:#}");
     }
@@ -541,9 +588,11 @@ pub(super) fn detach_clean(dir: &Path, sent: Option<&str>) -> Result<bool> {
     let Some(sent) = sent else {
         return Ok(false);
     };
+
     if fingerprint(dir).ok().as_deref() != Some(sent) {
         return Ok(false);
     }
+
     run(dir, &["checkout", "--quiet", "--force", "--detach"], None)?;
     run(dir, &["clean", "-fdq"], None)?;
     Ok(true)

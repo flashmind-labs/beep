@@ -59,11 +59,13 @@ export function fileSize(n: number) {
 /// and above the suggested replies.
 export function sentBox(turn: Turn) {
   let box = turn.querySelector<HTMLElement>(".files");
+
   if (!box) {
     box = h('<div class="files dgrid6"></div>');
     const after = turn.querySelector(".dreplies");
     after ? turn.insertBefore(box, after) : turn.append(box);
   }
+
   return box;
 }
 
@@ -98,6 +100,7 @@ export function fileCard(turn: Turn, file: SentFile) {
     busy = true;
     sz.textContent = "Downloading…";
     go.innerHTML = '<span class="dspin"></span>';
+
     try {
       await invoke("open_file", { id: file.id, name: file.name });
       sz.textContent = about;
@@ -107,6 +110,7 @@ export function fileCard(turn: Turn, file: SentFile) {
       sz.textContent = gone ? String(e) : `${about}. ${e}`;
       if (gone) { card.classList.add("gone"); go.remove(); } else go.innerHTML = ICON.chev;
     }
+
     busy = false;
   });
   box.append(card);
@@ -149,6 +153,7 @@ export function fillPics(root: Element) {
 
 export function loadPic(id: string, mime: string) {
   let got = pictures.get(id);
+
   if (got === undefined) {
     got = invoke<string>("picture", { id, mime }).then(url => {
       pictures.set(id, url);
@@ -161,6 +166,7 @@ export function loadPic(id: string, mime: string) {
     });
     pictures.set(id, got);
   }
+
   return Promise.resolve(got);
 }
 
@@ -174,11 +180,13 @@ interface PicsRow extends HTMLElement {
 export function picsRow(turn: Turn) {
   const box = sentBox(turn);
   let row = box.querySelector<PicsRow>(".drpics");
+
   if (!row) {
     row = h<PicsRow>('<div class="drpics"></div>');
     row.pics = [];
     box.prepend(row);
   }
+
   return row;
 }
 
@@ -250,6 +258,7 @@ export function drawViewer() {
   // Keep viewer keys out of the composer and the window's page navigation.
   el.addEventListener("keydown", e => {
     e.stopPropagation();
+
     if (e.key === "Tab") {
       const buttons = [...el.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
       const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
@@ -264,6 +273,7 @@ export function drawViewer() {
 
 export function viewerAct(a: ViewerAct) {
   const p = V.pics[V.at];
+
   if (a === "prev" || a === "next") {
     const at = V.at + (a === "next" ? 1 : -1);
     if (at >= 0 && at < V.pics.length) { V.at = at; drawViewer(); }
@@ -279,6 +289,7 @@ export function viewerKeys(e: KeyboardEvent, cmd: boolean) {
   const key = e.key.toLowerCase();
   const act = e.key === "Escape" ? "close" : e.key === "ArrowLeft" ? "prev" : e.key === "ArrowRight" ? "next"
     : cmd && key === "s" ? "save" : cmd && key === "c" ? "copy" : null;
+
   if (act) { e.preventDefault(); viewerAct(act); }
   else if (cmd && key === "q") invoke("quit");
 }
@@ -322,6 +333,7 @@ export async function copyUrl(url: string) {
     canvas.getContext("2d")!.drawImage(img, 0, 0);
     return new Promise<Blob>(done => canvas.toBlob(done as BlobCallback, "image/png"));
   })();
+
   try {
     // Handing over the promise keeps the click's permission to write.
     await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);

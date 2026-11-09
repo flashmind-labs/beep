@@ -151,31 +151,40 @@ impl ToolApp {
 pub(crate) fn lookup(tool: &str) -> Option<(ToolApp, Acts)> {
     let tool = ToolSlug::new(tool);
     let tool = tool.as_ref();
+
     if tool.parse::<MediaKind>().is_ok() {
         return Some((ToolApp::Media, Acts::Always));
     }
+
     for app in CATALOG {
         if let Some(picked) = app.tools.iter().find(|picked| picked.slug == tool) {
             return Some((ToolApp::Catalog(app), picked.acts));
         }
     }
+
     let added = ADDED_PREFIX.to_ascii_uppercase();
+
     if let Some(rest) = tool.strip_prefix(&added) {
         let (server, name) = rest.split_once('_')?;
+
         if server.is_empty() || name.is_empty() {
             return None;
         }
+
         let slug = format!("{ADDED_PREFIX}{}", server.to_ascii_lowercase());
         return Some((ToolApp::Added(slug), Acts::Always));
     }
+
     if let Some(name) = tool.strip_prefix("FASTMAIL_") {
         let name = name.to_lowercase();
         let &(_, acts) = FASTMAIL_TOOLS.iter().find(|(known, _)| *known == name)?;
         return Some((ToolApp::Catalog(catalog_app("fastmail")?), acts));
     }
+
     if PROJECT_ONLY.contains(&tool) {
         return None;
     }
+
     project_tool(tool)
 }
 
@@ -187,6 +196,7 @@ pub(crate) fn lookup_in(tool: &str, is_project: bool) -> Option<(ToolApp, Acts)>
     if is_project && let Some(found) = project_tool(ToolSlug::new(tool).as_ref()) {
         return Some(found);
     }
+
     lookup(tool)
 }
 
@@ -228,6 +238,7 @@ fn action_tools(app: &CatalogApp) -> Vec<String> {
     if app.slug == PROJECT_APP.slug {
         return PROJECT_ALWAYS.iter().map(|&slug| slug.to_owned()).collect();
     }
+
     if app.slug == "fastmail" {
         return FASTMAIL_TOOLS
             .iter()
@@ -235,6 +246,7 @@ fn action_tools(app: &CatalogApp) -> Vec<String> {
             .map(|(name, _)| format!("FASTMAIL_{}", name.to_uppercase()))
             .collect();
     }
+
     app.tools
         .iter()
         .filter(|picked| picked.acts.can_act())
@@ -247,6 +259,7 @@ pub(crate) fn action_name(app: &ToolApp, tool: &str) -> String {
     if let (ToolApp::Media, Some(kind)) = (app, tool.parse::<MediaKind>().ok()) {
         return kind.action().to_owned();
     }
+
     let prefix = format!("{}_", app.as_ref().to_uppercase());
     tool.strip_prefix(&prefix)
         .unwrap_or(tool)
@@ -256,6 +269,7 @@ pub(crate) fn action_name(app: &ToolApp, tool: &str) -> String {
 
 pub(crate) fn capitalize(text: &str) -> String {
     let mut chars = text.chars();
+
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
         None => String::new(),

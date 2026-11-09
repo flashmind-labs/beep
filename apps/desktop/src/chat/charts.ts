@@ -77,11 +77,13 @@ export function chartValue(chart: { unit: string }, v: number, signed = false, d
   const most = digits ?? (Math.abs(v) < 1000 ? 2 : 0);
   const fixed = { minimumFractionDigits: digits ?? 0, maximumFractionDigits: most };
   if (unit === "%") return sign + new Intl.NumberFormat(undefined, fixed).format(v) + "%";
+
   if (/^[A-Z]{3}$/.test(unit)) {
     try {
       return sign + new Intl.NumberFormat(undefined, { style: "currency", currency: unit, ...fixed, ...(digits == null && Math.abs(v) < 1000 ? { minimumFractionDigits: 2 } : {}) }).format(v);
     } catch {}
   }
+
   return sign + new Intl.NumberFormat(undefined, fixed).format(v) + (unit ? " " + unit : "");
 }
 /// Round values between `lo` and `hi` for the value axis, about `n` apart.
@@ -103,6 +105,7 @@ export function chartTime(ms: number, span: number, full = false) {
 export function drawChart(card: ChartCard) {
   const c = card.chart, st = c.stock, many = c.series.length > 1;
   let head;
+
   if (st) {
     const change = st.last - st.previous, pct = st.previous ? change / st.previous * 100 : 0;
     const range = CHART_RANGES.find(([r]) => r === st.range)?.[1] ?? "";
@@ -113,6 +116,7 @@ export function drawChart(card: ChartCard) {
   } else {
     head = `<div class="ch"><span class="tt"><b>${esc(c.title)}</b>${c.unit ? `<small>${esc(c.unit)}</small>` : ""}</span></div>`;
   }
+
   const legend = !many ? ""
     : `<span class="legend">${c.series.map((s, i) => `<button data-series="${i}" aria-pressed="${!card.off.has(i)}"><i style="background:${CHART_COLORS[i]}"></i>${esc(s.name)}</button>`).join("")}</span>`;
   // A comparison has no range buttons: StockChart answers one symbol.
@@ -156,6 +160,7 @@ export function drawPlot(plot: Plot) {
   const { ticks, digits } = niceTicks(g.lo, g.hi, 3);
   const grid = ticks.map(v => `<line x1="0" x2="${g.plotW}" y1="${g.Y(v)}" y2="${g.Y(v)}" class="gl"/><text x="${g.plotW + 6}" y="${g.Y(v) + 4}" class="ax">${esc(chartValue(c, v, false, digits))}</text>`).join("");
   let xticks;
+
   if (c.x === "category") {
     const every = Math.ceil(c.categories.length / Math.max(1, Math.floor(g.plotW / 70)));
     xticks = c.categories.map((l, i) => i % every ? "" : `<text x="${g.X(i)}" y="${CHART_H - 4}" class="ax" text-anchor="middle">${esc(l)}</text>`).join("");
@@ -166,8 +171,10 @@ export function drawPlot(plot: Plot) {
       return `<text x="${g.X(x)}" y="${CHART_H - 4}" class="ax" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}">${esc(chartTime(x, g.span))}</text>`;
     }).join("");
   }
+
   let marks;
   const shown = shownSeries(plot);
+
   if (c.kind === "bar") {
     const slot = g.plotW / c.categories.length, bw = slot * .7 / Math.max(1, shown.length);
     marks = shown.map(({ s, i }, k) => s.points.map(p => {
@@ -183,6 +190,7 @@ export function drawPlot(plot: Plot) {
       return `${area}<path d="${d}" fill="none" stroke="${CHART_COLORS[i]}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>`;
     }).join("");
   }
+
   const baseAt = c.stock && c.series.length === 1 && c.kind !== "bar" ? c.stock.previous : c.unit === "%" ? 0 : null;
   const base = baseAt == null ? "" : `<line x1="0" x2="${g.plotW}" y1="${g.Y(baseAt)}" y2="${g.Y(baseAt)}" class="base"/>`;
   plot.innerHTML = `<svg width="${g.W}" height="${CHART_H}" viewBox="0 0 ${g.W} ${CHART_H}">${grid}${base}${marks}${xticks}<g class="hov"></g></svg><div class="tipc" hidden></div>`;
@@ -220,6 +228,7 @@ export async function chartClick(e: MouseEvent) {
   const card = t.closest<ChartCard>(".dchart");
   if (!card) return false;
   const series = t.closest<HTMLElement>("[data-series]");
+
   if (series) {
     const i = +series.dataset.series!;
     if (card.off.has(i)) card.off.delete(i);
@@ -227,11 +236,13 @@ export async function chartClick(e: MouseEvent) {
     drawChart(card);
     return true;
   }
+
   const range = t.closest<HTMLElement>("[data-range]");
   if (!range || !card.chart.stock || range.getAttribute("aria-pressed") === "true") return !!range;
   const plot = card.querySelector(".plot")!;
   plot.classList.add("wait");
   card.querySelectorAll("[data-range]").forEach(b => b.setAttribute("aria-pressed", String(b === range)));
+
   try {
     card.chart = await invoke<Chart>("stock_chart", { symbol: card.chart.stock.symbol, range: range.dataset.range });
     card.off.clear();
@@ -240,5 +251,6 @@ export async function chartClick(e: MouseEvent) {
     plot.classList.remove("wait");
     card.querySelector(".derr")!.textContent = String(err);
   }
+
   return true;
 }

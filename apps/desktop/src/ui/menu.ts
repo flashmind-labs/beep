@@ -43,6 +43,7 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
   };
   const fill = (list: readonly MenuItem[]) => {
     box.querySelectorAll("button").forEach(b => b.remove());
+
     for (const item of list) {
       const b = button(item.label, item.warn ? "warn" : "", () => { close(); item.on(); });
       b.setAttribute("role", "menuitem");
@@ -54,6 +55,7 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
   const keys = (ev: KeyboardEvent) => {
     if (ev.key === "Escape") { close(); focusBack(back); }
     else if (!arrowFocus(box, ev.key)) return;
+
     ev.preventDefault();
     ev.stopImmediatePropagation();
   };
@@ -121,14 +123,17 @@ export function confirmSheet(options: ConfirmOptions) {
     busy = true;
     act.disabled = true;
     error.hidden = true;
+
     try {
       const said = await options.run(box.checked);
       busy = false;
+
       if (box.checked && typeof said === "string" && said) {
         sheet.replaceChildren(el("div", "am-head", el("b", "", options.title), el("kbd", "", "esc")),
           el("div", "am-msg", said), el("div", "gp-foot", button("Close", "dbtn", close)));
         return;
       }
+
       close();
     } catch (e) {
       busy = false;
@@ -176,6 +181,7 @@ export function renameSheet(options: { title: string; value: string; run: (text:
     busy = true;
     saveBtn.disabled = true;
     error.hidden = true;
+
     try {
       await options.run(text);
       busy = false;

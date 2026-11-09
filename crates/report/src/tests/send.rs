@@ -40,6 +40,7 @@ async fn stand_in_typed(
             let n = stream.read(&mut chunk).await.expect("the request reads");
             assert!(n > 0, "the request ended before its headers");
             read.extend_from_slice(&chunk[..n]);
+
             if let Some(at) = read.windows(4).position(|w| w == b"\r\n\r\n") {
                 break at + 4;
             }
@@ -57,11 +58,13 @@ async fn stand_in_typed(
             .collect();
         let length: usize = headers["content-length"].parse().expect("a length");
         let mut body = read[head_end..].to_vec();
+
         while body.len() < length {
             let n = stream.read(&mut chunk).await.expect("the body reads");
             assert!(n > 0, "the body ended early");
             body.extend_from_slice(&chunk[..n]);
         }
+
         let answer = format!(
             "HTTP/1.1 {status}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
             reply.len()
@@ -118,6 +121,7 @@ async fn send_says_what_the_server_refused() {
     let reply = rmp_serde::to_vec_named(&error).expect("an error encodes");
     let (base, _server) = stand_in("400 Bad Request", reply).await;
     let got = send(&base, b"zip".to_vec(), &SecretKey::generate()).await;
+
     match got {
         Err(SendError::Refused(text)) => {
             assert_eq!(text, "This computer's clock is off by 12 minutes")
@@ -160,6 +164,7 @@ async fn a_server_that_never_answers_gives_up_after_the_limit() {
     let start = Instant::now();
     let got = send(&base, b"zip".to_vec(), &SecretKey::generate()).await;
     assert!(start.elapsed() >= SEND_LIMIT, "{:?}", start.elapsed());
+
     match got {
         Err(SendError::Net(e)) => assert!(e.is_timeout(), "{e}"),
         other => panic!("expected a timeout, got {other:?}"),

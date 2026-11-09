@@ -156,9 +156,11 @@ impl Session {
     /// Stops anything being read out.
     pub(super) fn hush(&mut self) {
         self.reader.stop();
+
         if let Some(audio) = self.audio.borrow().as_ref() {
             audio.stop_playing();
         }
+
         self.playing = None;
         self.step = None;
     }
@@ -196,9 +198,11 @@ impl Voice {
         };
         let card = {
             let mut state = self.state();
+
             if state.live.is_some() {
                 return;
             }
+
             let card = state.card.take();
             let warm = state.warm.take().map(|(_, opening)| opening);
             // A voice note only plays: it never asks for the microphone.
@@ -269,13 +273,16 @@ impl Voice {
         if let Some(card) = card {
             self.card_gone(card);
         }
+
         self.watch_escape();
+
         if let Some((note, _, notice)) = note {
             if let Some(s) = self.state().live.as_mut().filter(|s| s.id == id) {
                 s.notice = Some(notice);
             }
             self.read_note(id, note);
         }
+
         self.apply(id, effects);
         // Only a voice note starts with the bar closed; it shows in the orb.
         if bar::is_open(&self.app) {
@@ -292,12 +299,15 @@ impl Voice {
             // window, is not meant for live mode.
             hotkey::watch_escape(move || {
                 let focused = bar::is_focused(&me.app);
+
                 if focused {
                     me.cancel();
                 }
+
                 focused
             });
         });
+
         if let Err(e) = watched {
             log::warn!("watching Escape: {e}");
         }
@@ -324,11 +334,14 @@ impl Voice {
             return;
         };
         session.hush();
+
         for task in session.tasks.drain(..) {
             task.abort();
         }
+
         self.unwatch_escape();
         let chat = session.chat.or_else(|| self.open_chat());
+
         if let Some(chat) = chat {
             self.beep.set_session(Some(chat.to_string()));
         }
@@ -337,9 +350,11 @@ impl Voice {
         let reopen = bar::is_open(&self.app);
         orb::hide(&self.app);
         let failure = session.failure.take();
+
         if !reopen {
             self.notify_left(&session, failure.as_deref(), why, draft.is_some());
         }
+
         self.emit(LiveEvent::Left {
             draft,
             session: chat.map(|c| c.to_string()),
@@ -352,11 +367,13 @@ impl Voice {
         // Dropping the session closes the microphone.
         drop(session);
         let shown = reopen.then(|| self.beep.session()).flatten();
+
         for notice in asks.into_notices() {
             if shown.as_deref() != Some(notice.session_id.as_str()) {
                 crate::notices::notify::notice(&self.app, &notice);
             }
         }
+
         if reopen {
             bar::show(&self.app, None);
         }
@@ -368,6 +385,7 @@ impl Voice {
         if let (Some(notice), Some(_)) = (session.notice.as_deref(), failure) {
             return crate::notices::notify::notice(&self.app, notice);
         }
+
         let said = match (failure, why) {
             (Some(failure), _) => failure,
             (None, Leaving::Quiet) => QUIET,

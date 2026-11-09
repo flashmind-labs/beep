@@ -63,9 +63,11 @@ impl Client {
     /// `http://` is for a server on this machine.
     pub fn new(base: &str, identity: SecretKey) -> Result<Self> {
         let base = base.trim().trim_end_matches('/').to_owned();
+
         if !base.starts_with("https://") && !base.starts_with("http://") {
             bail!("the server address must start with https://");
         }
+
         Ok(Self {
             http: crate::https::client()
                 .connect_timeout(CONNECT_TIMEOUT)
@@ -186,16 +188,21 @@ impl Client {
         for attempt in 0..2 {
             let token = self.bearer().await?;
             let mut request = self.request(method.clone(), path, &token);
+
             if let Some(body) = &body {
                 request = request.body(body.clone());
             }
+
             let response = request.send().await.context("the server did not answer")?;
+
             if response.status() == StatusCode::UNAUTHORIZED && attempt == 0 {
                 self.forget_token(&token).await;
                 continue;
             }
+
             return Ok(response);
         }
+
         bail!("the server refused every session token")
     }
 
@@ -212,18 +219,22 @@ impl Client {
         if let Some(platform) = self.platform {
             request = request.header(PLATFORM_HEADER, platform.as_ref());
         }
+
         if let Some(version) = &self.version {
             request = request.header(VERSION_HEADER, version);
         }
+
         request
     }
 
     /// A session token good for now, made if there is none.
     async fn bearer(&self) -> Result<String> {
         let mut token = self.token.lock().await;
+
         if let Some(token) = token.as_ref().filter(|t| Instant::now() < t.renew_at) {
             return Ok(token.bearer.clone());
         }
+
         let made = self.start_session().await?;
         let bearer = made.bearer.clone();
         *token = Some(made);
@@ -232,6 +243,7 @@ impl Client {
 
     async fn forget_token(&self, stale: &str) {
         let mut token = self.token.lock().await;
+
         if token.as_ref().is_some_and(|t| t.bearer == stale) {
             *token = None;
         }
@@ -274,9 +286,11 @@ impl Client {
 /// The response when it succeeded, else the error it carries.
 async fn checked(response: Response) -> Result<Response> {
     let status = response.status();
+
     if status.is_success() {
         return Ok(response);
     }
+
     if let Some(refusal) = response
         .headers()
         .get(REFUSED_HEADER)
@@ -285,7 +299,9 @@ async fn checked(response: Response) -> Result<Response> {
     {
         return Err(refusal.into());
     }
+
     let body = response.bytes().await.unwrap_or_default();
+
     match http::decode::<ApiError>(&body) {
         Ok(error) => Err(error.into()),
         Err(_) => Err(anyhow!("the server answered {status}")),
@@ -328,6 +344,7 @@ impl<T: DeserializeOwned> Replies<T> {
         };
         let frame = frame.context("the stream broke")?;
         let (&tag, body) = frame.split_first().context("empty frame")?;
+
         match tag {
             OK => Ok(Some(
                 http::decode(body).context("could not read the server's reply")?,

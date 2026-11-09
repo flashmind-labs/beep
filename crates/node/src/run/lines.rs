@@ -15,11 +15,14 @@ pub(crate) async fn read_piece<R: AsyncBufRead + Unpin>(
     buf: &mut Vec<u8>,
 ) -> io::Result<usize> {
     let mut read = 0;
+
     while read < MAX_PIECE {
         let available = reader.fill_buf().await?;
+
         if available.is_empty() {
             break;
         }
+
         let room = available.len().min(MAX_PIECE - read);
         let (used, ended) = match available[..room].iter().position(|&b| b == b'\n') {
             Some(i) => (i + 1, true),
@@ -28,10 +31,12 @@ pub(crate) async fn read_piece<R: AsyncBufRead + Unpin>(
         buf.extend_from_slice(&available[..used]);
         reader.consume(used);
         read += used;
+
         if ended {
             break;
         }
     }
+
     Ok(read)
 }
 

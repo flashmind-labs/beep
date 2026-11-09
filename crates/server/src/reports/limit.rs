@@ -72,6 +72,7 @@ impl KeyLimit {
 async fn run(mut asks: mpsc::Receiver<Ask>, per_day: u32, max_keys: usize) {
     let mut counts: HashMap<EndpointId, Count> = HashMap::new();
     let mut today = NaiveDate::MIN;
+
     while let Some(ask) = asks.recv().await {
         match ask {
             Ask::Take { key, day, reply } => {
@@ -84,10 +85,13 @@ async fn run(mut asks: mpsc::Receiver<Ask>, per_day: u32, max_keys: usize) {
                     let _ = reply.send(false);
                     continue;
                 }
+
                 let count = counts.entry(key).or_insert(Count { day, sent: 0 });
+
                 if count.day != day {
                     *count = Count { day, sent: 0 };
                 }
+
                 let allowed = count.sent < per_day;
                 if allowed {
                     count.sent += 1;

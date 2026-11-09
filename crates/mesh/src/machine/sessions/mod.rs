@@ -63,6 +63,7 @@ impl Sessions for PeerClient {
         limit: Duration,
     ) -> Result<SessionsReply, MeshError> {
         let read = beep_proto::node::events::Read::Sessions(Box::new(request.clone()));
+
         if read.topic().is_some()
             && let Some(value) = tokio::time::timeout(limit, self.snapshot(read))
                 .await
@@ -73,6 +74,7 @@ impl Sessions for PeerClient {
                 _ => Err(said("the session subscription returned another resource")),
             };
         }
+
         let operation = match &request {
             SessionsRequest::List {} | SessionsRequest::ListAll {} => "list",
             SessionsRequest::Transcript { .. } => "transcript",

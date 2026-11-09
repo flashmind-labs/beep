@@ -33,6 +33,7 @@ pub(crate) async fn dismiss(user: &User, project: &ProjectRow) -> Result<(), Iss
             "This project has no GitHub or Forgejo issues host.".to_owned(),
         )));
     }
+
     Ok(())
 }
 
@@ -50,6 +51,7 @@ pub(super) async fn author_of(
     )
     .await
     .and_then(|out| parse_login(&out));
+
     match login {
         Ok(login) if !issue.author.is_empty() && login.eq_ignore_ascii_case(&issue.author) => {
             IssueAuthor::User
@@ -143,11 +145,13 @@ pub(crate) async fn track(
     .await
     .map_err(|error| host_failed(&error))?;
     let issue = parse_viewed_issue(&out).map_err(|error| host_failed(&error))?;
+
     if issue.number != number || !issue.open {
         return Err(IssueError::from(SourceError::Refused(format!(
             "Issue #{number} is not open."
         ))));
     }
+
     let title = match issue.title.trim() {
         "" => format!("Issue {number}"),
         title => title.to_owned(),
@@ -172,6 +176,7 @@ pub(crate) async fn track(
         TrackedIssue::Already(task) => return Err(IssueError::Tracked(Box::new(task))),
     };
     let chat = user.ensure_project_agent(project.id).await?;
+
     match &start {
         None => fleet.post(chat, ISSUE_LABEL, plan_request(&issue, &task)),
         Some(request) => match fleet.start_task(project, &task, request).await {
@@ -183,5 +188,6 @@ pub(crate) async fn track(
             }
         },
     }
+
     Ok(user.project_task(task.id).await?.unwrap_or(task))
 }

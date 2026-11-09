@@ -49,14 +49,17 @@ pub(super) fn diff_text(cwd: &Path, path: &Path, old: Option<&str>, new: &str) -
         .chain(after.iter().map(|line| (' ', *line)));
     let mut text = format!("[diff] {shown} +{} -{}", added.len(), removed.len());
     let total = before.len() + removed.len() + added.len() + after.len();
+
     for (mark, line) in lines.take(MAX_LINES) {
         text.push('\n');
         text.push(mark);
         text.push_str(cut_line(line));
     }
+
     if total > MAX_LINES {
         text.push_str(&format!("\n… {} more lines", total - MAX_LINES));
     }
+
     text
 }
 
@@ -64,7 +67,9 @@ fn cut_line(line: &str) -> &str {
     if line.len() <= MAX_LINE {
         return line;
     }
+
     let mut end = MAX_LINE;
+
     while !line.is_char_boundary(end) {
         end -= 1;
     }

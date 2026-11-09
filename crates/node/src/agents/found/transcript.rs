@@ -67,9 +67,11 @@ fn lines(path: &Path) -> io::Result<impl Iterator<Item = Value>> {
     let cut_at = len.saturating_sub(MAX_READ);
     file.seek(SeekFrom::Start(cut_at))?;
     let mut reader = BufReader::new(file.take(MAX_READ));
+
     if cut_at > 0 {
         reader.read_until(b'\n', &mut Vec::new())?;
     }
+
     Ok(reader
         .lines()
         .map_while(Result::ok)
@@ -134,6 +136,7 @@ fn codex(path: &Path) -> io::Result<Vec<Entry>> {
     } else {
         Box::new(lines(path)?)
     };
+
     for value in values {
         let payload = &value["payload"];
         let kind = payload["type"].as_str();
@@ -230,6 +233,7 @@ fn codex(path: &Path) -> io::Result<Vec<Entry>> {
                         MAX_ENTRY,
                     );
                 }
+
                 None
             }
             (Some("compacted"), _) => entry(EntryKind::Compacted, "[conversation compacted]"),
@@ -237,6 +241,7 @@ fn codex(path: &Path) -> io::Result<Vec<Entry>> {
         };
         entries.extend(made);
     }
+
     Ok(entries)
 }
 
@@ -245,17 +250,21 @@ fn codex(path: &Path) -> io::Result<Vec<Entry>> {
 fn pi(path: &Path) -> io::Result<Vec<Entry>> {
     let mut entries: Vec<Entry> = Vec::new();
     let mut calls: HashMap<String, usize> = HashMap::new();
+
     for value in lines(path)? {
         if value["type"] != "message" {
             continue;
         }
+
         let message = &value["message"];
+
         match message["role"].as_str() {
             Some("user") => entries.extend(entry(EntryKind::User, &prompt_of(&message["content"]))),
             Some("assistant") => {
                 let Value::Array(parts) = &message["content"] else {
                     continue;
                 };
+
                 for part in parts {
                     let made = match part["type"].as_str() {
                         Some("text") => {
@@ -284,6 +293,7 @@ fn pi(path: &Path) -> io::Result<Vec<Entry>> {
             }
             Some("toolResult") if message["isError"] == true => {
                 let id = message["toolCallId"].as_str().unwrap_or_default();
+
                 if let Some(call) = calls.get(id).and_then(|&at| entries.get_mut(at)) {
                     call.text.push_str(" (failed)");
                 }
@@ -291,6 +301,7 @@ fn pi(path: &Path) -> io::Result<Vec<Entry>> {
             _ => {}
         }
     }
+
     Ok(entries)
 }
 
@@ -298,15 +309,18 @@ fn pi(path: &Path) -> io::Result<Vec<Entry>> {
 /// text, `metadata.reasoning` and `toolCalls`) or `tool`.
 fn flsh(path: &Path) -> io::Result<Vec<Entry>> {
     let mut entries = Vec::new();
+
     for value in lines(path)? {
         let message = &value["message"];
         let content = message["content"].as_str().unwrap_or_default();
+
         match value["type"].as_str() {
             Some("user") => entries.extend(entry(EntryKind::User, &tags::untagged(content))),
             Some("assistant") => {
                 let reasoning = message["metadata"]["reasoning"].as_str();
                 entries.extend(entry(EntryKind::Thought, reasoning.unwrap_or_default()));
                 entries.extend(entry(EntryKind::Agent, content));
+
                 for call in message["toolCalls"].as_array().into_iter().flatten() {
                     let name = call["name"].as_str().unwrap_or("tool");
                     let title = match codex_run::detail(&call["arguments"]) {
@@ -319,6 +333,7 @@ fn flsh(path: &Path) -> io::Result<Vec<Entry>> {
             _ => {}
         }
     }
+
     Ok(entries)
 }
 

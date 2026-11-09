@@ -39,11 +39,13 @@ async function readCommands(key: string, machine: string, session: string, again
   if (askedCommands === key) return;
   askedCommands = key;
   let value: AgentCommand[] = [];
+
   try {
     value = await invoke<AgentCommand[]>("agent_commands", { machineId: machine, session });
   } catch {
     // No commands: the menu does not open.
   }
+
   askedCommands = "";
   commands = { key, at: Date.now(), value };
   again();
@@ -55,6 +57,7 @@ async function readFiles(key: string, machine: string, root: string, again: () =
   walking = key;
   const listings = new Map<string, Listing>();
   let next = [""];
+
   try {
     while (next.length && walking === key) {
       const got = await Promise.all(next.map(path => invoke<Tree>("agent_tree", { machineId: machine, root, path, ignored: false, deep: true })));
@@ -68,6 +71,7 @@ async function readFiles(key: string, machine: string, root: string, again: () =
   } catch {
     // Keeps the files read so far.
   }
+
   if (walking === key) walking = "";
 }
 
@@ -121,6 +125,7 @@ export function bindMentionMenu(field: HTMLTextAreaElement) {
     const t = composing || !s || s.external ? null : triggerAt(field.value, field.selectionStart);
     if (!t || !s) return close();
     const opening = box.hidden || trigger?.kind !== t.kind;
+
     if (t.kind === "command") {
       const key = `${s.machine_id}\n${s.id}`;
       if (opening && (commands?.key !== key || Date.now() - commands.at > COMMANDS_FRESH_MS)) void readCommands(key, s.machine_id, s.id, update);
@@ -128,6 +133,7 @@ export function bindMentionMenu(field: HTMLTextAreaElement) {
       const found = filterCommands(list, t.query);
       return found.length ? draw(found, t) : close();
     }
+
     const root = paneRoot() || s.cwd;
     const key = `${s.machine_id}\n${root}`;
     if (opening && (files?.key !== key || Date.now() - files.at > FILES_FRESH_MS)) void readFiles(key, s.machine_id, root, update);

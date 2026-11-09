@@ -53,6 +53,7 @@ impl<D: Send + 'static> Tool for DecisionTool<D> {
             Err(error) => return Ok(ToolResult::failure(call, format!("Bad arguments: {error}"))),
         };
         let mut slot = self.slot.lock().unwrap_or_else(PoisonError::into_inner);
+
         if slot.is_some() {
             return Ok(ToolResult::failure(call, "You already decided."));
         }

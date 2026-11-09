@@ -305,9 +305,11 @@ pub(crate) fn build_index(lists: &PaletteLists) -> Index {
 #[tauri::command]
 pub async fn center_find_text(beep: Service<'_>, query: String) -> Result<Vec<Entry>> {
     let query = query.trim().to_owned();
+
     if query.chars().count() < MIN_TEXT_QUERY {
         return Ok(Vec::new());
     }
+
     let found = section("chat text", beep.search(query).await).unwrap_or_default();
     Ok(found.into_iter().map(text_entry).collect())
 }

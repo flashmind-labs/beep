@@ -40,11 +40,13 @@ export function makeScreen(): Screen {
   term.attachCustomKeyEventHandler(e => {
     if (e.type === "keydown" && !e.isComposing) {
       const bytes = wordKeyBytes(e);
+
       if (bytes) {
         term.input(bytes, true);
         return false;
       }
     }
+
     if (e.type !== "keydown" || !escape || !leavesTerminal(e, term.buffer.active.type)) return true;
     escape();
     return false;
@@ -81,21 +83,25 @@ export function makeScreen(): Screen {
   // written before then waits in the terminal's buffer.
   const fitNow = () => {
     layout();
+
     if (document.hidden || !el.isConnected || !el.clientWidth || !el.clientHeight) {
       // Hidden terminals keep their buffers, but need no GPU context.
       dropGpu();
       gpuAttempted = false;
       return;
     }
+
     if (!opened) {
       term.open(el);
       opened = true;
       if (wantFocus) { wantFocus = false; term.focus(); }
     }
+
     // Try once per visible period. A lost context falls back to the DOM
     // renderer until the terminal is hidden and shown again.
     if (!gpuAttempted) {
       gpuAttempted = true;
+
       try {
         webgl = new WebglAddon();
         webgl.onContextLoss(dropGpu);
@@ -108,6 +114,7 @@ export function makeScreen(): Screen {
         console.warn("Terminal GPU rendering unavailable:", e);
       }
     }
+
     fit.fit();
   };
   const resized = new ResizeObserver(fitNow);
@@ -115,11 +122,13 @@ export function makeScreen(): Screen {
   // A zoom changes the size of a cell, not always of the element.
   window.addEventListener(ZOOMED, fitNow);
   document.addEventListener("visibilitychange", fitNow);
+
   if (bar) {
     document.body.append(bar.el);
     window.visualViewport?.addEventListener("resize", fitNow);
     window.visualViewport?.addEventListener("scroll", fitNow);
   }
+
   return {
     el,
     write: data => output.write(data),

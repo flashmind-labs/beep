@@ -303,6 +303,7 @@ fn search_finds_the_latest_message_that_holds_the_words() {
         (trip, user(13, "Book the Kimpton")),
         (trip, tool(14, "book", "kimpton")),
     ];
+
     for (at, (chat_id, message)) in messages.into_iter().enumerate() {
         updates.push(Update::Message {
             update_id: 3 + at as i64,
@@ -310,6 +311,7 @@ fn search_finds_the_latest_message_that_holds_the_words() {
             message,
         });
     }
+
     chats.apply(page(7, updates));
 
     let found = chats.search(" KIMPTON ").unwrap();

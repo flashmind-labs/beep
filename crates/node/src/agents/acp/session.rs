@@ -29,6 +29,7 @@ use std::path::Path;
 pub(in crate::agents) fn initialize(async_tasks: bool) -> InitializeRequest {
     let session = ClientSessionCapabilities::new().compaction(CompactionCapabilities::new());
     let mut capabilities = ClientCapabilities::new().session(session);
+
     if async_tasks {
         let mut meta = Map::new();
         meta.insert(
@@ -37,6 +38,7 @@ pub(in crate::agents) fn initialize(async_tasks: bool) -> InitializeRequest {
         );
         capabilities = capabilities.meta(meta);
     }
+
     InitializeRequest::new(ProtocolVersion::V1)
         .client_capabilities(capabilities)
         .client_info(Implementation::new("beep-node", env!("CARGO_PKG_VERSION")))
@@ -169,6 +171,7 @@ pub(in crate::agents) fn resume_session(
     brief: Option<&str>,
 ) -> Result<UntypedMessage, agent_client_protocol::Error> {
     let brief = brief.map(system_prompt);
+
     match method {
         ResumeMethod::Load => UntypedMessage::new(
             AGENT_METHOD_NAMES.session_load,
@@ -275,6 +278,7 @@ fn models_from_options(answer: &Value, options: Vec<SessionConfigOption>) -> Off
         matches!(option.category, Some(SessionConfigOptionCategory::Model))
             .then_some((option.id, select))
     });
+
     if let Some((id, select)) = selector {
         let choices: Vec<SessionConfigSelectOption> = match select.options {
             SessionConfigSelectOptions::Ungrouped(options) => options,
@@ -299,6 +303,7 @@ fn models_from_options(answer: &Value, options: Vec<SessionConfigOption>) -> Off
             ..Offered::default()
         };
     }
+
     let Some(models) = answer
         .get("models")
         .and_then(|models| serde_json::from_value::<SessionModels>(models.clone()).ok())

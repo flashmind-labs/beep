@@ -83,6 +83,7 @@ fn summary(body: &str, open: &[&ReviewFindingRow]) -> String {
         out.push_str("\n\n");
         out.push_str(&loose.join("\n"));
     }
+
     out
 }
 
@@ -160,9 +161,11 @@ impl ReviewTool {
         };
         let shards = tools.user.review_shards(&review).await?;
         let findings = tools.user.review_findings(&review).await?;
+
         if super::super::review::drive::running(&shards) {
             return Ok(Planned::Refused("The review is still running.".to_owned()));
         }
+
         let Some(pr) = review.pr.clone() else {
             return Ok(Planned::Refused(
                 "The branch has no open pull request.".to_owned(),
@@ -179,6 +182,7 @@ impl ReviewTool {
                 }
             },
         };
+
         match args.action {
             Action::Post => {
                 let body = args.body.as_deref().unwrap_or_default();
@@ -214,6 +218,7 @@ impl ReviewTool {
         let tools = &self.tools;
         let open = open(findings);
         let mut text = summary(body, &open);
+
         if text.trim().is_empty() {
             text = if open.is_empty() {
                 format!(
@@ -224,11 +229,13 @@ impl ReviewTool {
                 format!("Review of {}.", short(&review.head))
             };
         }
+
         if text.len() > MAX_BODY {
             return Ok(Planned::Refused(format!(
                 "Keep the summary under {MAX_BODY} characters."
             )));
         }
+
         let comments: Vec<InlineComment> = open.iter().filter_map(|f| inline(f)).collect();
         let command = HostCommand::PostReview {
             number,
@@ -237,13 +244,17 @@ impl ReviewTool {
             comments: &comments,
         };
         let hits = command.leaks(&tools.public_text().await?);
+
         if !hits.is_empty() {
             return Ok(Planned::Refused(leaked(&hits)));
         }
+
         let make_card = || post_card(url, &review.head, &text, &comments);
+
         if let Some(stop) = gated(tools.gate.check(id, POST_SLUG, Asks::Always, make_card)) {
             return Ok(stop);
         }
+
         Ok(
             match on_home(tools.fleet.as_ref(), &tools.user, project, host, command).await? {
                 Ok(_) => Planned::Done(format!(

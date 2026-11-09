@@ -260,6 +260,7 @@ pub(crate) async fn read_branches(
             branches,
         }));
     }
+
     known(beep.call(ListProjectBranches { project }).await)
 }
 
@@ -277,6 +278,10 @@ pub async fn project_branches(
 /// to review.
 #[tauri::command]
 pub async fn reviews_list(beep: Service<'_>, project: String) -> Result<Option<Vec<ReviewView>>> {
+    if !beep.has_server() {
+        return Ok(None);
+    }
+
     Ok(known(beep.call(ListBranchReviews { project }).await)?
         .map(|rows| rows.into_iter().map(Into::into).collect()))
 }

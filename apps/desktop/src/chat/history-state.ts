@@ -8,9 +8,11 @@ export const HISTORY_CHUNK = 40;
 /// index to draw from. 0 when the chat has no more prompts than that.
 export function windowStart(roles: readonly string[], count: number) {
   let seen = 0;
+
   for (let i = roles.length - 1; i >= 0; i--) {
     if (roles[i] !== "user" && roles[i] !== "scheduled") continue;
     if (++seen === count) return i;
   }
+
   return 0;
 }

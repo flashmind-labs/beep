@@ -115,6 +115,7 @@ impl Desk {
             .cloned()
             .collect();
         let servers = forgejo_of(&self.opened());
+
         for place in worktrees.iter().take(MAX_IMPORT_WORKTREES) {
             let on = place.machine_id.as_deref().unwrap_or(&imported.machine_id);
             let Some(branch) = branch_name(&place.branch) else {
@@ -137,6 +138,7 @@ impl Desk {
                 continue;
             };
             let Ok(shell) = machine.shell() else { continue };
+
             if let Err(why) =
                 add_worktree(shell, &machine.name, &folder, branch, FALLBACK_DEFAULT).await
             {
@@ -200,6 +202,7 @@ impl Desk {
     pub async fn host_repos(&self) -> Result<Vec<HostRepos>> {
         let servers = forgejo_of(&self.opened());
         let (mut gh, mut tea) = (Vec::new(), Vec::new());
+
         for seen in self.seen().await {
             let (Some(shell), Some(env)) = (seen.machine.shell, seen.env) else {
                 continue;
@@ -217,6 +220,7 @@ impl Desk {
                 tea.push((!signed_in("teacli"), shell));
             }
         }
+
         let signed_in_first = |mut shells: Vec<(bool, Arc<dyn Shell>)>| {
             shells.sort_by_key(|(signed_out, _)| *signed_out);
             shells
@@ -235,6 +239,7 @@ impl Desk {
                 .retain(|repo| !imported.contains(&repo.name.to_ascii_lowercase()));
             host.repos.truncate(MAX_REPOS);
         }
+
         Ok(hosts)
     }
 }

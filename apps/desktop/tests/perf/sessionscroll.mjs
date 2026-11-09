@@ -32,17 +32,21 @@ const SESSION = {
 /// output, an answer with a code block, now and then a picture.
 function entries(n) {
   const out = [];
+
   for (let t = 0; out.length < n; t++) {
     out.push({ kind: "user", text: `Fake prompt ${t}: change the widget so it does thing ${t}.` });
     out.push({ kind: "thought", text: `**Looking at widget ${t}**\nIt reads the config first.`, html: `<p><strong>Looking at widget ${t}</strong></p>`, ms: 1200 });
+
     for (let k = 0; k < 2; k++) {
       const lines = Array.from({ length: 40 + (t % 5) * 20 }, (_, i) => `line ${i} of fake output for step ${k} in turn ${t}`).join("\n");
       out.push({ kind: "tool", text: `Run \`cargo test -p fake-${t}\` [completed]\n\`\`\`\n${lines}\n\`\`\`` });
     }
+
     const code = Array.from({ length: 6 + (t % 7) * 3 }, (_, i) => `fn fake_${t}_${i}() -> u32 { ${i} }`).join("\n");
     const pic = t % 2 === 1 ? `\n[image: image-${t.toString(16).padStart(16, "0")}]` : "";
     out.push({ kind: "agent", text: `Done with turn ${t}.\n\n\`\`\`rust\n${code}\n\`\`\`${pic}`, html: `<p>Done with turn ${t}. ${"Some explanation of the change. ".repeat(1 + t % 6)}</p><pre><code class="language-rust">${code}</code></pre>` });
   }
+
   return out.slice(0, n);
 }
 
@@ -90,14 +94,17 @@ for (const flow of (opt("flow", "") || "open,reopen,switch,restore,restore-up").
   await sleep(500);
   const openSession = s => page.evaluate(s => { window.__pending = { agent: s }; window.__emit("center-open"); }, s);
   let keptTop;
+
   if (flow !== "open") {
     await openSession(flow === "switch" ? { ...SESSION, id: "fake-session-other" } : SESSION);
     await sleep(4000);
+
     if (flow === "restore-up") {
       await page.evaluate(() => { const b = document.querySelector("#agbody"); b.scrollTop = b.scrollHeight / 2; });
       await sleep(500);
       keptTop = await page.locator("#agbody").evaluate(b => b.scrollTop);
     }
+
     if (flow === "switch") await page.evaluate(() => { const b = document.querySelector("#agbody"); b.scrollTop = b.scrollHeight / 2; });
     else if (flow.startsWith("restore")) await page.evaluate(() => {
       window.__emit("center-hidden");
@@ -107,6 +114,7 @@ for (const flow of (opt("flow", "") || "open,reopen,switch,restore,restore-up").
     else await page.evaluate(() => { window.__pending = "home"; window.__emit("center-open"); });
     await sleep(500);
   }
+
   // Open the session as the sidebar or Home does, and record the log every frame for 3 s.
   const trace = await page.evaluate(([session, flow]) => new Promise(done => {
     const out = [], t0 = performance.now();
@@ -115,11 +123,13 @@ for (const flow of (opt("flow", "") || "open,reopen,switch,restore,restore-up").
       if (b) out.push({ t: Math.round(performance.now() - t0), top: Math.round(b.scrollTop), height: b.scrollHeight, client: b.clientHeight, stuck: b.stuck, turns: b.querySelectorAll(".agturn").length, pics: b.querySelectorAll("img.pic[src]").length });
       if (performance.now() - t0 < 3000) requestAnimationFrame(tick); else done(out);
     };
+
     if (flow.startsWith("restore")) window.__emit("center-shown");
     else {
       window.__pending = { agent: session };
       window.__emit("center-open");
     }
+
     requestAnimationFrame(tick);
   }), [SESSION, flow]);
 
@@ -128,14 +138,17 @@ for (const flow of (opt("flow", "") || "open,reopen,switch,restore,restore-up").
     let last = "";
     for (const { t, ...r } of trace) { const now = JSON.stringify(r); if (now !== last) console.log(flow, t, now); last = now; }
   }
+
   const end = trace.at(-1), off = trace.filter(r => r.turns && gap(r) > 40);
   check(`${flow}: the session's log drew`, !!end && end.turns > 0, end && `${end.turns} turns`);
+
   if (flow === "restore-up") {
     check(`${flow}: it keeps the reader's position`, !!end && Math.abs(end.top - keptTop) <= 1 && end.stuck === false, end && JSON.stringify({ ...end, keptTop }));
   } else {
     check(`${flow}: it ends at the bottom and follows it`, !!end && gap(end) <= 40 && end.stuck !== false, end && JSON.stringify(end));
     check(`${flow}: no frame after the first draw is left off the bottom`, off.length <= 2, off.length ? `${off.length} frames, first ${JSON.stringify(off[0])}` : "");
   }
+
   await page.close();
 }
 

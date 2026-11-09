@@ -39,10 +39,12 @@ use std::{
 async fn main() -> Result<()> {
     let mut args = env::args().skip(1);
     let first = args.next();
+
     if first.as_deref() == Some("link") {
         let config_path = args.next().unwrap_or_else(|| "config.toml".into());
         return print_link(&read_config(&config_path)?);
     }
+
     let config_path = first.unwrap_or_else(|| "config.toml".into());
     let config = read_config(&config_path)?;
     start_logging(&config)?;
@@ -104,11 +106,13 @@ async fn main() -> Result<()> {
              node started with --workspace; remove it from the config"
         );
     }
+
     if config.port.is_some() {
         log::warn!(
             "port is no longer used: the server binds no iroh port; remove it from the config"
         );
     }
+
     let mistral = config
         .mistral_key
         .clone()
@@ -218,10 +222,12 @@ async fn main() -> Result<()> {
     // connections close, so the apps hear how they ended.
     app.shutdown().await;
     drop(stopped);
+
     match serving.await {
         Ok(served) => served?,
         Err(e) => log::warn!("the apps' HTTP ended badly: {e}"),
     }
+
     Ok(())
 }
 

@@ -17,6 +17,7 @@ type KeyLike = Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "s
 export function wordKeyBytes(e: KeyLike): string | null {
   if (e.shiftKey) return null;
   const { metaKey: meta, ctrlKey: ctrl, altKey: alt } = e;
+
   switch (e.key) {
     case "ArrowLeft":
       if (meta && !ctrl && !alt) return "\x01";

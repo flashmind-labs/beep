@@ -329,10 +329,12 @@ export function makeReviews(deps: ReviewDeps) {
   /// A project's branches and reviews, from the cache until they are read.
   const of = (name: string) => {
     let t = all.get(name);
+
     if (!t) {
       const k = kept.get(name);
       all.set(name, t = { branches: k?.branches, reviews: k?.reviews, open: null, review: null, starting: null, error: "", note: "", busy: "" });
     }
+
     return t;
   };
 
@@ -391,12 +393,14 @@ export function makeReviews(deps: ReviewDeps) {
     const t = of(name);
     if (t.now?.id === r.id || isRunning(r)) return;
     t.now = { id: r.id, head: null, stale: false };
+
     try {
       const now = await invoke<ReviewHead | null>("review_check", { id: r.id });
       if (now && t.now?.id === r.id) t.now = { id: r.id, ...now };
     } catch (e) {
       console.warn("review head:", e);
     }
+
     redraw();
   }
 
@@ -404,6 +408,7 @@ export function makeReviews(deps: ReviewDeps) {
     const t = of(name);
     if (!t.open) return;
     const id = t.open;
+
     try {
       const r = await invoke<ReviewView>("review_get", { id });
       if (t.open !== id) return;
@@ -412,6 +417,7 @@ export function makeReviews(deps: ReviewDeps) {
     } catch (e) {
       t.error = reason(e);
     }
+
     redraw();
   }
 
@@ -436,16 +442,19 @@ export function makeReviews(deps: ReviewDeps) {
     t.note = "";
     const had = !again && (t.reviews || []).find(r => r.branch === branch);
     openTile("review");
+
     if (had) {
       t.open = had.id;
       t.review = had;
       read(name);
       return;
     }
+
     t.open = null;
     t.review = null;
     t.starting = branch;
     redraw();
+
     try {
       const r = await invoke<ReviewView>("review_start", { project: name, branch });
       t.open = r.id;
@@ -455,6 +464,7 @@ export function makeReviews(deps: ReviewDeps) {
     } finally {
       t.starting = null;
     }
+
     redraw();
   }
 
@@ -464,6 +474,7 @@ export function makeReviews(deps: ReviewDeps) {
     t.error = "";
     t.note = "";
     redraw();
+
     try {
       done(await call());
     } catch (e) {
@@ -471,6 +482,7 @@ export function makeReviews(deps: ReviewDeps) {
     } finally {
       t.busy = "";
     }
+
     redraw();
   }
 
@@ -500,12 +512,14 @@ export function makeReviews(deps: ReviewDeps) {
     const where = worktreeMachines(machines(), data.machine_id);
     const here: Target = where.find(m => m.id === data.machine_id) || { id: data.machine_id, name: data.machine_name };
     const busy = t.busy === `wt:${b.name}`;
+
     if (t.picking === b.name) {
       return [
         ...where.map(m => { const x = button(m.name, "small", () => addWorktree(name, b.name, m)); x.disabled = busy; return x; }),
         button("Cancel", "quiet small", () => { t.picking = null; redraw(); }),
       ];
     }
+
     const go = button(busy ? "Adding…" : "Add worktree", "small", () => addWorktree(name, b.name, here));
     go.disabled = busy;
     go.title = `git worktree add ${worktreeName(b.name)}`;
@@ -520,14 +534,17 @@ export function makeReviews(deps: ReviewDeps) {
     if (t.error) out.push(h("div", "cc-err", t.error));
     if (t.note && t.note.startsWith("Added ")) out.push(note("", t.note));
     const data = t.branches;
+
     if (data === null) {
       out.push(emptyPanel(h("b", "", "The server needs an update before it lists branches.")));
       return out;
     }
+
     if (!data) {
       out.push(emptyPanel(h("span", "dspin"), h("span", "", "Reading the branches…")));
       return out;
     }
+
     const byBranch = new Map((t.reviews || []).map(r => [r.branch, r]));
     const rows = data.branches.map(b => {
       const r = byBranch.get(b.name);
@@ -555,10 +572,12 @@ export function makeReviews(deps: ReviewDeps) {
         if (diff) items.push({ label: "View diff", on: diff });
         if (r) items.push({ label: "Open review", on: () => openBranch(name, b.name) });
         if (!isDefault && b.ahead > 0) items.push({ label: r ? "Review again" : "Review", on: () => openBranch(name, b.name, !!r) });
+
         if (!isDefault && !b.worktree) {
           const here = worktreeMachines(machines(), data.machine_id).find(m => m.id === data.machine_id) || { id: data.machine_id, name: data.machine_name };
           items.push({ label: `Worktree on ${here.name}`, on: () => addWorktree(name, b.name, here) });
         }
+
         items.push({ label: "Copy name", on: () => void writeClipboard(b.name) });
         openMenu(e, b.name, items);
       });
@@ -592,11 +611,13 @@ export function makeReviews(deps: ReviewDeps) {
     const text = h("span", "t", h("b", "", f.title), dropped ? null : h("code", "", f.line ? `${f.file}:${f.line}` : f.file),
       h("span", "", dropped ? `Not real: ${f.dropped_why || "the verifier found no problem"}` : f.why));
     const right = h("span", "rv-side", ver);
+
     if (!dropped && !isRunning(r)) {
       const b = button(f.dismissed ? "Bring back" : "Dismiss", "quiet small", () => dismiss(name, r, f));
       b.disabled = of(name).busy === `f${f.id}`;
       right.append(b);
     }
+
     return h("div", `rv-find${dropped || f.dismissed ? " gone" : ""}`,
       h("span", `chip ${dropped ? "" : f.severity}`, dropped ? "dropped" : f.dismissed ? "dismissed" : f.severity), text, right);
   }
@@ -604,18 +625,22 @@ export function makeReviews(deps: ReviewDeps) {
   function reviewPanel(name: string) {
     const t = of(name);
     const out: HTMLElement[] = [];
+
     if (t.starting) {
       out.push(emptyPanel(h("span", "dspin"), h("b", "", `Starting the review of ${t.starting}`)));
       watch(null);
       return out;
     }
+
     const r = t.review;
+
     if (!r) {
       if (t.error) out.push(errorNote(t.error));
       out.push(emptyPanel(h("b", "", "No review open"), button("Branches", "", () => openTile("branches"))));
       watch(null);
       return out;
     }
+
     const st = reviewState(r);
     const running = st === "running";
     checkHead(name, r);
@@ -627,30 +652,37 @@ export function makeReviews(deps: ReviewDeps) {
     const diff = deps.diff?.(name, r.branch);
     if (diff) tools.append(button("View diff", "", diff));
     if (pr) tools.append(button(`PR #${pr.number}`, "", () => openUrl(pr.url)));
+
     if (!running) {
       const again = button("Run again", "", () => openBranch(name, r.branch, true));
       again.title = "Reviews the branch head again";
       tools.append(again);
     }
+
     out.push(h("div", "rv-head", h("h3", "", `Review ${r.branch} into ${r.base}`), pill));
     out.push(h("div", "rv-facts", ...reviewFacts(r, ago).map(fact), tools));
     if (t.error) out.push(errorNote(t.error));
     if (t.note) out.push(note("", t.note));
+
     if (stale) {
       out.push(h("div", "cc-note", h("span", "ddot warn"),
         h("span", "", h("b", "", stale), ` The findings are for ${r.head.slice(0, 7)}; Merge is off until the new head is reviewed.`),
         button("Review again", "pri", () => openBranch(name, r.branch, true))));
     }
+
     const blocked: (Node | string)[] = [];
+
     if (r.merge === "conflicts") {
       blocked.push(h("b", "", `Conflicts with ${r.base} in ${plural(r.conflicts.length, "file", "files")}`),
         h("span", "", ...r.conflicts.slice(0, 6).flatMap((f, i) => [i ? ", " : "", h("code", "", f)]), r.conflicts.length > 6 ? ` and ${r.conflicts.length - 6} more` : ""));
     }
+
     if (pr?.checks === "failing") blocked.push(h("b", "", "CI failing"), h("span", "", `Checks fail on PR #${pr.number}. The review still ran.`));
     if (blocked.length) out.push(h("div", "cc-note rv-cfl", h("span", "ddot bad"), h("span", "rv-cfl-t", ...blocked)));
 
     const findings = r.findings || [];
     let body;
+
     if (findings.length) {
       body = h("div", "cc-panel", ...findings.map(f => findingRow(name, r, f)));
       if (running) body.append(h("div", "cc-empty rv-more", "More findings show as the reviewers finish."));
@@ -659,6 +691,7 @@ export function makeReviews(deps: ReviewDeps) {
     } else {
       body = emptyPanel(h("b", "", "No findings"), h("span", "rv-sum", readySummary(r)));
     }
+
     if (!running && findings.length && !openFindings(r).length) body.append(h("div", "rv-sum-row", readySummary(r)));
     const findSec = h("div", "", secHead("Findings", h("small", "", findingsSub(r))), body);
     const shards = h("div", "",

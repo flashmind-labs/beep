@@ -208,6 +208,7 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
         mesh: agents.mesh(),
         who: &who,
     };
+
     match request.tool {
         Tool::StartAgent => match parse::<StartArgs>(&request.args) {
             Ok(args) => reach.start(&session, args).await,
@@ -287,6 +288,7 @@ impl Reach<'_> {
             };
         };
         let all = machines(mesh);
+
         match all.iter().find(|machine| machine.name == name) {
             Some(machine) if machine.id == mesh.me() => Ok(None),
             Some(machine) => Ok(Some(Machine {
@@ -312,15 +314,19 @@ impl Reach<'_> {
             model,
             wait,
         } = args;
+
         if prompt.trim().is_empty() {
             return fail("Give a `prompt`.");
         }
+
         let prompt = self.tagged_as_mine(parent, &prompt);
+
         if let Some(model) = &model
             && !beep_proto::node::agent::valid_model(model)
         {
             return fail(format!("{model:?} is not a model name."));
         }
+
         let target = match self.target(machine.as_deref()) {
             Ok(target) => target,
             Err(e) => return fail(e),
@@ -339,6 +345,7 @@ impl Reach<'_> {
             None => self.start_here(parent, link, parts).await,
             Some(machine) => self.start_there(&machine, parent, link, parts).await,
         };
+
         match started {
             Ok(view) if wait => json_of(&self.waited(view).await),
             Ok(view) => json_of(&view),
@@ -443,6 +450,7 @@ impl Reach<'_> {
             machine: machine.id,
             name: &machine.name,
         };
+
         match sent.ask(tool, args, REMOTE_LIMIT).await {
             Answer::Text(text) => Ok(text),
             Answer::Refused(why) | Answer::Silent(why) => Err(why),
@@ -454,6 +462,7 @@ impl Reach<'_> {
     fn find(&self, id: &str) -> Result<Found, String> {
         let id = ChildId::from(id);
         let none = || format!("You have no agent {}.", id.session);
+
         match self.target(id.machine).map_err(|_| none())? {
             None => Ok(Found::Here(self.agents.child_of(self.who, id.session)?)),
             Some(machine) => self
@@ -471,6 +480,7 @@ impl Reach<'_> {
         if let Some(run) = self.agents.review_for(self.who, ChildId::from(id).session) {
             return super::review::standing(run);
         }
+
         match self.view_of(id).await {
             Ok(view) => json_of(&view),
             Err(e) => fail(e),
@@ -509,9 +519,11 @@ impl Reach<'_> {
             return Err("This machine is in no mesh.".to_owned());
         };
         let view = fetch_view(mesh, &self.who.session, kid).await?;
+
         if view.state == "ended" {
             self.agents.end_remote(kid);
         }
+
         Ok(view.named(&kid.name))
     }
 
@@ -519,7 +531,9 @@ impl Reach<'_> {
         if text.trim().is_empty() {
             return fail("Give the `text` to send.");
         }
+
         let text = self.tagged_as_mine(parent, &text);
+
         match self.find(id) {
             Err(e) => fail(e),
             Ok(Found::Here(child)) => match child.order(Command::Prompt(text.into())).await {
@@ -539,6 +553,7 @@ impl Reach<'_> {
                     text: Some(text),
                     turn_only: false
                 });
+
                 match self.peer(mesh, &machine, Tool::SendToAgent, &args).await {
                     Ok(text) => ok(text),
                     Err(e) => fail(e),
@@ -589,6 +604,7 @@ impl Reach<'_> {
         let mut kids = self.agents.remote_kids(&self.who.session);
         kids.retain(|kid| !kid.pending());
         let there = futures::future::join_all(kids.iter().map(|kid| self.view_there(kid))).await;
+
         for (kid, view) in kids.iter().zip(there) {
             views.push(view.unwrap_or_else(|e| ChildView {
                 id: format!("{}@{}", kid.id, kid.name),
@@ -607,6 +623,7 @@ impl Reach<'_> {
                 note: None,
             }));
         }
+
         json_of(&views)
     }
 
@@ -617,6 +634,7 @@ impl Reach<'_> {
         // What this wait answers goes in no note.
         let _waiting = self.agents.family.waits.hold(&self.who.session, &view.id);
         let deadline = Instant::now() + WAIT_LIMIT;
+
         while !view.settled() {
             if Instant::now() >= deadline {
                 view.note = Some(format!(
@@ -626,7 +644,9 @@ impl Reach<'_> {
                 ));
                 return view;
             }
+
             sleep(WAIT_POLL).await;
+
             match self.view_of(&view.id).await {
                 Ok(next) => view = next,
                 Err(e) => {
@@ -635,6 +655,7 @@ impl Reach<'_> {
                 }
             }
         }
+
         view
     }
 }
@@ -672,6 +693,7 @@ pub(in crate::agents) fn show_children(agents: &Agents, session: &Session, entri
     if calls.is_empty() {
         return;
     }
+
     let Some((_, who)) = agents.caller(&session.id) else {
         return;
     };
@@ -680,6 +702,7 @@ pub(in crate::agents) fn show_children(agents: &Agents, session: &Session, entri
         mesh: agents.mesh(),
         who: &who,
     };
+
     for at in calls {
         let text = entries[at].text.clone();
         let Some(first) = started_view(&text) else {
@@ -737,6 +760,7 @@ fn child_entry(call: &str, view: &ChildView) -> String {
             .map_or_else(|| "-".to_owned(), |usd| format!("{usd:.4}"));
         text.push_str(&format!("\n[spend] {} {cost}", view.tokens));
     }
+
     if let Some(question) = &view.question {
         text.push_str(&format!("\nWaiting for you: {question}"));
     } else if !view.last_message.is_empty() {
@@ -754,6 +778,7 @@ pub(crate) async fn answer_peer(agents: &Agents, peer: EndpointId, request: Requ
         machine: Some(peer),
         session: request.session.clone(),
     };
+
     match request.tool {
         Tool::StartAgent => match parse::<PeerStart>(&request.args) {
             Ok(order) if order.parent.machine != Some(peer) => {
@@ -770,6 +795,7 @@ pub(crate) async fn answer_peer(agents: &Agents, peer: EndpointId, request: Requ
                     model: order.model.map(ModelId::new),
                     review: None,
                 };
+
                 match agents.start_child(order.parent, start).await {
                     Ok(child) => json_of(&ChildView::of(&child.info(), &Agents::name_of(&child))),
                     Err(e) => fail(e),
@@ -812,6 +838,7 @@ pub(crate) async fn answer_peer(agents: &Agents, peer: EndpointId, request: Requ
                 Ok(child) => child,
                 Err(e) => return fail(e),
             };
+
             match request.tool {
                 Tool::AgentStatus => {
                     json_of(&ChildView::of(&child.info(), &Agents::name_of(&child)))

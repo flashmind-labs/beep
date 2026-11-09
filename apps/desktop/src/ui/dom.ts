@@ -51,3 +51,25 @@ export function h<T extends Element = HTMLElement>(html: string): T {
 export function present<T>(kids: readonly (T | null | undefined | false)[] | null | undefined) {
   return (kids || []).filter((k): k is T => k != null && k !== false);
 }
+
+// Layout writes run in the next frame, outside ResizeObserver delivery.
+// Several changed children in one delivery need only one layout pass.
+export function frameResize(update: () => void): ResizeObserver {
+  let frame: number | null = null;
+  const watch = new ResizeObserver(() => {
+    if (frame !== null) return;
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      update();
+    });
+  });
+  return {
+    observe: (target, options) => watch.observe(target, options),
+    unobserve: target => watch.unobserve(target),
+    disconnect: () => {
+      watch.disconnect();
+      if (frame !== null) cancelAnimationFrame(frame);
+      frame = null;
+    },
+  };
+}

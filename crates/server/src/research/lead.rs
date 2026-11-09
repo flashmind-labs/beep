@@ -69,6 +69,7 @@ fn scouts_for(
     let Some(config) = models.research() else {
         return Err("Research is not set up on this server.".to_owned());
     };
+
     if !count.contains(&asked.len()) {
         return Err(format!(
             "Give {} to {} questions.",
@@ -76,12 +77,16 @@ fn scouts_for(
             count.end()
         ));
     }
+
     let mut scouts = Vec::new();
+
     for asked in asked {
         let question = asked.question.trim();
+
         if question.is_empty() || question.len() > MAX_QUESTION {
             return Err(format!("Each question must be 1-{MAX_QUESTION} bytes."));
         }
+
         let model = match asked.model.as_deref() {
             None => config.scout.clone(),
             Some(id) => match models.find(id) {
@@ -98,6 +103,7 @@ fn scouts_for(
             round,
         });
     }
+
     Ok(scouts)
 }
 
@@ -129,12 +135,14 @@ impl Tool for StartResearchTool {
                 "The research is gone.",
             ));
         };
+
         if row.plan.as_ref().is_some_and(|plan| plan.round() > 1) || row.status == Status::Done {
             return Ok(ToolResult::failure(
                 ctx.tool_call_id,
                 "The paper is written. Use research_more for new questions.",
             ));
         }
+
         let scouts = match scouts_for(&self.app.models, args.questions, MIN_SCOUTS..=MAX_SCOUTS, 1)
         {
             Ok(scouts) => scouts,
@@ -151,12 +159,14 @@ impl Tool for StartResearchTool {
             critic: config.critic.clone(),
             writer: config.writer.clone(),
         };
+
         if !self.app.start_team(&self.user, self.research, plan).await? {
             return Ok(ToolResult::failure(
                 ctx.tool_call_id,
                 "The team is already working.",
             ));
         }
+
         Ok(ToolResult::success(
             ctx.tool_call_id,
             "The team started. Tell the user in one short sentence that it is under way and \
@@ -200,6 +210,7 @@ impl Tool for ResearchMoreTool {
                 "The team has not started. Plan it with the user and call start_research.",
             ));
         };
+
         if row.status.is_running() {
             return Ok(ToolResult::failure(
                 ctx.tool_call_id,
@@ -207,7 +218,9 @@ impl Tool for ResearchMoreTool {
                  this round ends, then call research_more when the result comes in.",
             ));
         }
+
         let round = plan.round() + 1;
+
         if round > MAX_ROUNDS {
             return Ok(ToolResult::failure(
                 ctx.tool_call_id,
@@ -216,6 +229,7 @@ impl Tool for ResearchMoreTool {
                 ),
             ));
         }
+
         let room = MAX_TEAM_SCOUTS.saturating_sub(plan.scouts.len());
         let scouts = match scouts_for(
             &self.app.models,
@@ -227,12 +241,14 @@ impl Tool for ResearchMoreTool {
             Err(why) => return Ok(ToolResult::failure(ctx.tool_call_id, why)),
         };
         plan.scouts.extend(scouts);
+
         if !self.app.start_team(&self.user, self.research, plan).await? {
             return Ok(ToolResult::failure(
                 ctx.tool_call_id,
                 "The team is already working.",
             ));
         }
+
         Ok(ToolResult::success(
             ctx.tool_call_id,
             "The team started the follow-up round. Tell the user in one short sentence what \
@@ -274,12 +290,14 @@ impl Tool for AddScoutsTool {
             let Ok(mut added) = self.added.lock() else {
                 anyhow::bail!("the added scouts are poisoned");
             };
+
             if !added.is_empty() {
                 return Ok(ToolResult::failure(
                     ctx.tool_call_id,
                     "You added this round's scouts already.",
                 ));
             }
+
             added.extend(scouts);
         }
         Ok(ToolResult::success(

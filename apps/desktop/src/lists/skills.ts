@@ -87,6 +87,7 @@ export function drawSkills(): void {
   const paused = K.list.filter(k => !k.enabled).length;
   const sum = !K.loaded ? "" : !K.list.length ? "None yet" : [plural(K.list.length, "skill", "skills"), paused && `${paused} paused`].filter(Boolean).join(", ");
   const head = `<div class="dhead"><span class="tt"><b>Skills</b><small>${sum}</small></span></div>`;
+
   if (K.loaded && !K.list.length) {
     bar.innerHTML = head + errLine(K.error) + emptyPage(SKILL_ICON, "No skills yet.", "Beep saves how you like things done here.")
       + hints([["esc", "back"]]);
@@ -105,6 +106,7 @@ export function drawSkills(): void {
         : [["↑↓", "move"], [ICON.ret, "open"], ["space", "on or off"], ["tab", "actions"], ["esc", "back"]]);
     bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }
+
   bar.onclick = skillClick;
   bar.oncontextmenu = skillMenu;
 }
@@ -115,6 +117,7 @@ export function drawSkill(): void {
   if (!k) { K.mode = "list"; return drawSkills(); }
   const err = errLine(K.error);
   bar.onclick = skillClick;
+
   if (K.mode === "edit") {
     bar.innerHTML = `<div class="dhead"><span class="tt"><b>Edit skill</b><small>Beep keeps the old version, so you can undo</small></span></div>${err}
       <div class="dform dscroll">
@@ -125,6 +128,7 @@ export function drawSkill(): void {
       </div>${hints([["tab", "next field"], [`⌘${ICON.ret}`, "save"], ["esc", "cancel"]])}`;
     return $$("#kbody").focus();
   }
+
   const confirm = K.mode === "vdelete" ? confirmCard("Delete this skill?", `Beep forgets how you like "${esc(k.name)}" done. It may learn it again if you keep asking for it.`, `<button class="dbtn warn" data-k="delete-yes">Delete<kbd>${ICON.ret}</kbd></button><button class="dbtn quiet" data-k="view">Cancel</button>`, "dcardm") : "";
   const undo = k.can_undo ? `<div class="dmuted dtop dpt"><span class="dfill">${k.edited ? "You changed this last." : "Beep changed this last."}</span><button class="dbtn" data-k="undo">Undo<kbd>⌘Z</kbd></button></div>` : "";
   bar.innerHTML = `<div class="dhead"><span class="tt"><b>${esc(k.name)}</b><small>${esc(k.group_name ? `${k.group_name} · ${k.description}` : k.description)}</small></span>
@@ -166,6 +170,7 @@ export function skillClick(e: MouseEvent) {
   const row = target.closest<HTMLElement>(".drt[data-i]");
   if (btn?.dataset.i) K.sel = Number(btn.dataset.i);
   if (btn) return skillAction(btn.dataset.k as SkillAction);
+
   if (row && K.mode !== "delete") {
     K.sel = Number(row.dataset.i);
     skillAction("view");
@@ -190,14 +195,17 @@ function editedSkill(k: Skill): SkillChange | null {
 
 export async function skillAction(a: SkillAction) {
   const k = K.list[K.sel];
+
   if (MODES.has(a)) {
     if (!k && a !== "list") return;
     K.mode = a as SkillMode;
     K.error = "";
     return drawSkills();
   }
+
   if (!k) return;
   const inView = ONE.has(K.mode);
+
   try {
     if (a === "toggle") {
       putSkill(await invoke<Skill>("update_skill", { id: k.id, change: { enabled: !k.enabled } }));
@@ -215,10 +223,12 @@ export async function skillAction(a: SkillAction) {
       K.error = "";
       return S.view === "skills" && drawSkills();
     }
+
     K.error = "";
   } catch (e) {
     K.error = String(e);
   }
+
   K.mode = inView ? "view" : "list";
   if (S.view === "skills") drawSkills();
 }
@@ -228,15 +238,18 @@ export function skillKeys(e: KeyboardEvent, cmd: boolean) {
     if (cmd && e.key === "Enter") { e.preventDefault(); skillAction("save"); }
     return;
   }
+
   if (K.mode === "delete" || K.mode === "vdelete") return confirmKey(e, () => skillAction("delete-yes"));
   if (!K.list.length) return;
   if (cmd && e.key.toLowerCase() === "z") { e.preventDefault(); return skillAction("undo"); }
   if (cmd && e.key === "Backspace") { e.preventDefault(); return skillAction(K.mode === "view" ? "vdelete" : "delete"); }
   if (e.key === " ") { e.preventDefault(); return skillAction("toggle"); }
+
   if (K.mode === "view") {
     if (cmd && e.key === "Enter") { e.preventDefault(); skillAction("edit"); }
     return;
   }
+
   if (arrowKey(e, K)) { K.mode = "list"; return drawSkills(); }
   if (e.key === "Tab") { e.preventDefault(); return skillAction(K.mode === "actions" ? "list" : "actions"); }
   if (e.key === "Enter") { e.preventDefault(); return skillAction("view"); }

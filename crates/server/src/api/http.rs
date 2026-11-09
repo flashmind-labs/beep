@@ -145,6 +145,7 @@ async fn start_session(State(service): State<Arc<Service>>, body: Bytes) -> Resp
         Ok(start) => start,
         Err(e) => return error(&ApiError::bad_request(e.to_string())),
     };
+
     match service.tokens.start(&start, SystemTime::now()) {
         Ok(token) => msgpack(StatusCode::OK, &token),
         Err(ApiError::Unauthorized {}) => stale_token(),
@@ -204,6 +205,7 @@ async fn request(
             Answer::Once(guest::call(&service.app, key, platform, op, &first).await)
         }
     };
+
     match answer {
         Answer::Once(Ok(reply)) => {
             drop(permit);
@@ -222,6 +224,7 @@ async fn read_body(kind: Option<Kind>, body: Body) -> Result<(Bytes, Option<UpFr
             .map_err(|_| ApiError::bad_request("the request is too large or was cut off"))?;
         return Ok((bytes, None));
     }
+
     let stream = body.into_data_stream().map_err(io::Error::other).boxed();
     let mut frames = FramedRead::new(StreamReader::new(stream), http::codec());
     let first = frames
@@ -286,15 +289,18 @@ impl Service {
         // A key makes its account as a phone; one the Mac app made it with
         // is a computer.
         let mut device = signed_in.device;
+
         if signed_in.primary
             && matches!(device, DeviceKind::Phone {})
             && matches!(platform, Some(Platform::Macos {}))
         {
             device = DeviceKind::Desktop {};
+
             if let Err(e) = self.app.store.set_key_kind(&key, device).await {
                 log::warn!("unable to mark a key as a computer: {e:#}");
             }
         }
+
         Ok(Caller::SignedIn(Cx {
             app: self.app.clone(),
             user: signed_in.user,

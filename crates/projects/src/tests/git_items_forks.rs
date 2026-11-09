@@ -24,13 +24,17 @@ async fn paged_host(
         while let Ok((mut stream, _)) = listener.accept().await {
             let mut data = Vec::new();
             let mut buf = [0u8; 4096];
+
             while !data.windows(4).any(|w| w == b"\r\n\r\n") {
                 let n = stream.read(&mut buf).await.expect("the request reads");
+
                 if n == 0 {
                     break;
                 }
+
                 data.extend_from_slice(&buf[..n]);
             }
+
             let request = String::from_utf8_lossy(&data).into_owned();
             let path = request.split(' ').nth(1).unwrap_or_default().to_owned();
             let authorized = request

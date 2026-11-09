@@ -167,10 +167,12 @@ export function readDay(at: Date) {
 /// the latest reads that added or confirmed memories.
 export function memFilters(): MemFilter[] {
   const subjects = new Map<string, MemFilter & { ids: Set<string> }>();
+
   for (const sc of M.scopes.values()) {
     const key = scopeKey(sc);
     subjects.set(key, subjects.get(key) ?? { key, label: scopeLabel(sc), about: `What Beep knows about ${scopeSubject(sc)}.`, ids: new Set() });
   }
+
   for (const m of M.all) { const sc = M.scopes.get(m.id); if (sc) subjects.get(scopeKey(sc))!.ids.add(m.id); }
   const have = new Set(M.all.map(m => m.id));
   const reads = M.reads.filter(r => r.memories.some(id => have.has(id))).slice(0, 3).map(r => {
@@ -228,6 +230,7 @@ export async function loadMemories() {
   } catch (e) {
     M.error = String(e);
   }
+
   if (S.view === "memories") drawMemories();
 }
 
@@ -237,10 +240,12 @@ function memRow(m: Memory, i: number, today: string) {
   const meta = [MEM_SOURCE[m.source] ?? "", shortDate(m.updated)].filter(Boolean).join(" · ")
     + (m.valid_from || m.valid_until ? ` · ${m.valid_from ? shortDate(m.valid_from) : ""} to ${m.valid_until ? shortDate(m.valid_until) : ""}` : "");
   const sc = M.scopes.get(m.id), about = sc ? scopeTag(sc) + " · " : "";
+
   if (on && M.mode === "edit") {
     return `<div class="dmem" aria-selected="true" data-i="${i}"><div class="top"><textarea id="medit" rows="2" aria-label="Memory">${esc(m.content)}</textarea>
             <span class="dfine dsave">${ICON.ret} save</span></div><div class="m">${about}${esc(meta)}</div></div>`;
   }
+
   const acts = on ? `<span class="acts"><button class="dbtn" data-m="edit">Edit</button><button class="dbtn warn" data-m="forget">Forget<kbd>⌘⌫</kbd></button></span>` : "";
   return `<div class="dmem${ended ? " ended" : ""}" role="option" aria-selected="${on}" data-i="${i}"><div class="top"><span class="c">${mark(m.content, M.query)}</span>${acts}</div>
             <div class="m">${about}${esc(meta)}</div>${m.quote ? `<q>${mark(m.quote, M.query)}</q>` : ""}</div>`;
@@ -250,12 +255,14 @@ function memRow(m: Memory, i: number, today: string) {
 function memRows(from: number, to: number, today: string) {
   let html = "";
   let last = from ? M.list[from - 1].category || "Other" : undefined;
+
   for (let i = from; i < to; i++) {
     const m = M.list[i], cat = m.category || "Other";
     if (cat !== last) html += `<div class="dsec bare">${esc(cat)}</div>`;
     last = cat;
     html += memRow(m, i, today);
   }
+
   return html;
 }
 
@@ -287,24 +294,29 @@ export function drawMemories() {
   if (!picked || picked.key === "all") M.filter = "all";
   M.list = M.all.filter(m => (!q || [m.content, m.category, m.quote].some(t => t?.toLowerCase().includes(q))) && (!picked?.ids || picked.ids.has(m.id)));
   const chips = $("#mchips");
+
   if (chips) {
     const chip = (f: MemFilter) => `<button class="dchip" aria-pressed="${f === picked}" data-mf="${esc(f.key)}">${esc(f.label)}${f.ids ? ` <span class="dmut">${f.ids.size}</span>` : ""}</button>`;
     const firstRead = filters.findIndex(f => f.read);
     chips.innerHTML = filters.length ? `<div class="dchips dchipbar">${filters.map((f, i) => (i === firstRead ? '<span class="dsep"></span>' : "") + chip(f)).join("")}</div>`
       + (picked?.about ? `<div class="dmuted dpadx">${esc(picked.about)}</div>` : "") : "";
   }
+
   // Grouped by category; the server lists newest first, so each group keeps that order.
   const byCategory = new Map<string, Memory[]>();
+
   for (const m of M.list) {
     const cat = m.category || "Other";
     const group = byCategory.get(cat);
     if (group) group.push(m); else byCategory.set(cat, [m]);
   }
+
   M.list = [...byCategory.values()].flat();
   clampSel(M);
   $$("#mcount").textContent = M.loaded ? (q || M.filter !== "all" ? `${M.list.length} of ${M.all.length}` : String(M.all.length)) : "";
   const today = dateValue(new Date());
   const nodes: Node[] = htmlNodes(M.error ? `<div class="derr dpad">${esc(M.error)}</div>` : "");
+
   if (M.mode === "clear") {
     nodes.push(...htmlNodes(confirmCard("Forget everything?", `Beep will forget all ${M.all.length} memories. This cannot be undone.`, '<button class="dbtn warn" data-m="clear-yes">Forget all</button><button class="dbtn quiet" data-m="list">Cancel</button>', "dm8")));
   } else if (M.loaded && !M.all.length) {
@@ -314,6 +326,7 @@ export function drawMemories() {
     nodes.push(...lazyRows("memories", `${M.query}|${M.filter}`, M.list.length, (from, to) => htmlNodes(memRows(from, to, today)), M.sel, 20));
     if (M.all.length && !M.query && M.filter === "all") nodes.push(...htmlNodes(`<div class="dpad"><button class="dbtn warn" data-m="clear">Forget all…</button></div>`));
   }
+
   list.replaceChildren(...nodes);
   list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   const edit = $<HTMLTextAreaElement>("#medit");
@@ -351,6 +364,7 @@ export function memClick(e: MouseEvent) {
   const btn = target.closest<HTMLElement>("[data-m]");
   const row = target.closest<HTMLElement>(".dmem[data-i]");
   if (btn) return memAction(btn.dataset.m as MemAction);
+
   if (row && M.mode !== "edit") {
     M.sel = Number(row.dataset.i);
     M.mode = "list";
@@ -360,20 +374,24 @@ export function memClick(e: MouseEvent) {
 
 export async function memAction(a: MemAction) {
   const m = M.list[M.sel];
+
   if (a === "list" || a === "clear" || a === "edit") {
     if (a === "edit" && !m) return;
     M.mode = a;
     return drawMemories();
   }
+
   try {
     if (a === "save" && m) {
       const content = $$<HTMLTextAreaElement>("#medit").value.trim();
       // Shown at once, so a second Return cannot send it again.
       M.mode = "list";
+
       if (content && content !== m.content) {
         const old = m.content;
         m.content = content;
         drawMemories();
+
         try {
           await invoke("update_memory", { id: m.id, content });
         } catch (e) {
@@ -388,10 +406,12 @@ export async function memAction(a: MemAction) {
       await invoke("clear_memories");
       M.all = [];
     }
+
     M.error = "";
   } catch (e) {
     M.error = String(e);
   }
+
   M.mode = "list";
   if (S.view === "memories") drawMemories();
   $("#mfind")?.focus();
@@ -402,7 +422,9 @@ export function memKeys(e: KeyboardEvent, cmd: boolean) {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); memAction("save"); }
     return;
   }
+
   if (M.mode === "clear") return confirmKey(e, () => memAction("clear-yes"));
+
   if (e.key === "Tab") {
     e.preventDefault();
     const filters = M.query ? [] : memFilters();
@@ -412,6 +434,7 @@ export function memKeys(e: KeyboardEvent, cmd: boolean) {
     M.sel = 0;
     return drawMemories();
   }
+
   const was = M.sel;
   if (arrowKey(e, M)) return moveSelection(was);
   if (e.key === "Enter" && !e.isComposing && M.list.length) { e.preventDefault(); return memAction("edit"); }

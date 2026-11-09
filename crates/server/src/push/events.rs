@@ -36,6 +36,7 @@ impl Pulse {
             let mut ticks = interval(period);
             // The first tick is at once; the streams just opened need none.
             ticks.tick().await;
+
             loop {
                 ticks.tick().await;
                 // No stream open is no error.
@@ -134,6 +135,7 @@ async fn follow(
     let last = *updates.borrow_and_update();
     send(tx, &AppEvent::Updated { last }).await?;
     catch_up(&store, &device, &mut cursor, tx).await?;
+
     loop {
         tokio::select! {
             event = heard.recv() => match event {
@@ -151,6 +153,7 @@ async fn follow(
                 if changed.is_err() {
                     return Ok(());
                 }
+
                 let last = *updates.borrow_and_update();
                 send(tx, &AppEvent::Updated { last }).await?;
             }
@@ -177,6 +180,7 @@ async fn catch_up(
         let Some(last) = page.last().map(|logged| logged.id) else {
             return Ok(());
         };
+
         for logged in page {
             if let Some(notice) = logged.notice.for_device(&device.key, &device.kind) {
                 let event = AppEvent::Notice {

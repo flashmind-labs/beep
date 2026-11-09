@@ -18,9 +18,11 @@ pub fn set_zoom_level(app: AppHandle, beep: Service<'_>, percent: u16) -> u16 {
     let zoom = Zoom::new(percent);
     beep.set_zoom(zoom);
     apply_all(&app, zoom);
+
     if let Err(e) = app.emit("zoom", zoom.percent()) {
         log::warn!("telling the windows about the zoom: {e}");
     }
+
     zoom.percent()
 }
 
@@ -31,9 +33,11 @@ pub(crate) fn on_load<R: Runtime>(webview: &Webview<R>) {
     if cfg!(mobile) {
         return;
     }
+
     let Some(beep) = webview.try_state::<Arc<Beep>>() else {
         return;
     };
+
     if let Err(e) = webview.set_zoom(beep.zoom().factor()) {
         log::warn!("zooming {}: {e}", webview.label());
     }
@@ -49,6 +53,7 @@ fn apply_all(app: &AppHandle, zoom: Zoom) {
     if cfg!(mobile) {
         return;
     }
+
     for (label, window) in app.webview_windows() {
         if let Err(e) = window.set_zoom(zoom.factor()) {
             log::warn!("zooming {label}: {e}");

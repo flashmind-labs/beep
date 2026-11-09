@@ -163,11 +163,13 @@ const MAX_TRIES = 6;
 /// a machine no longer listed goes under its own name at the end, offline.
 export function byMachine<T extends Pick<TerminalRow, "machine_id" | "machine_name">>(machines: readonly TerminalMachine[], list: readonly T[]): MachineTerminals<T>[] {
   const out: MachineTerminals<T>[] = machines.map(m => ({ id: m.id, name: m.name, online: m.online, terms: [] }));
+
   for (const t of list) {
     let m = out.find(x => x.id === t.machine_id);
     if (!m) out.push(m = { id: t.machine_id, name: t.machine_name || "Removed machine", online: false, terms: [] });
     m.terms.push(t);
   }
+
   return out;
 }
 
@@ -309,6 +311,7 @@ export function makeTerminals(deps: TerminalDeps) {
     if (reading.has(name)) return;
     reading.add(name);
     const t = of(name);
+
     try {
       t.list = name === ALL
         ? await invoke<TerminalRow[] | null>("terminals_all")
@@ -322,6 +325,7 @@ export function makeTerminals(deps: TerminalDeps) {
     } finally {
       reading.delete(name);
     }
+
     redraw();
   }
 
@@ -342,6 +346,7 @@ export function makeTerminals(deps: TerminalDeps) {
     let finish!: () => void;
     const current = new Promise<void>(done => { finish = done; });
     outputReads.set(id, current);
+
     try {
       const out = await invoke<OutputView>("terminal_output", { id });
       if (t.open !== id) return;
@@ -354,6 +359,7 @@ export function makeTerminals(deps: TerminalDeps) {
       if (outputReads.get(id) === current) outputReads.delete(id);
       finish();
     }
+
     redraw();
   }
 
@@ -383,6 +389,7 @@ export function makeTerminals(deps: TerminalDeps) {
   /// The live view of terminal `id`, made and attached the first time.
   function liveOf(name: string, id: string) {
     let live = lives.get(id);
+
     if (!live) {
       const screen = makeScreen();
       live = { id, screen, link: "attaching", next: 0, watching: false, tries: 0, view: newView(), attaches: 0, sent: null };
@@ -395,6 +402,7 @@ export function makeTerminals(deps: TerminalDeps) {
       screen.onResize(() => { if (l.link === "attached") sendSize(l); });
       attach(name, live);
     }
+
     return live;
   }
 
@@ -418,6 +426,7 @@ export function makeTerminals(deps: TerminalDeps) {
     const channel = new Channel<TermEvent>();
     channel.onmessage = ev => {
       if (!current()) return;
+
       if (ev.kind === "attached") {
         live.link = "attached";
         live.tries = 0;
@@ -458,12 +467,14 @@ export function makeTerminals(deps: TerminalDeps) {
       .catch(e => {
         if (!current() || live.link === "detached") return;
         const why = reason(e);
+
         if (/needs an update/i.test(why)) {
           live.link = "view_only";
           readOutput(name);
           redraw();
           return;
         }
+
         retry(name, live, why);
       });
   }
@@ -471,12 +482,14 @@ export function makeTerminals(deps: TerminalDeps) {
   function retry(name: string, live: Live, why: string) {
     live.tries += 1;
     live.screen.setInput(false);
+
     if (live.tries > MAX_TRIES) {
       live.link = "detached";
       of(name).error = why || "The terminal's stream keeps dropping.";
       redraw();
       return;
     }
+
     live.link = "attaching";
     live.timer = setTimeout(() => attach(name, live), retryDelay(live.tries));
     redraw();
@@ -495,6 +508,7 @@ export function makeTerminals(deps: TerminalDeps) {
       if (live.link === "attached" || live.link === "attaching") detach(live);
       live.screen.dispose();
     }
+
     lives.clear();
   }
 
@@ -503,10 +517,12 @@ export function makeTerminals(deps: TerminalDeps) {
     t.open = id;
     t.form = null;
     t.output = null;
+
     if ((t.list || []).some(x => x.id === id)) {
       const live = liveOf(name, id);
       queueMicrotask(() => live.screen.focus());
     }
+
     redraw();
   }
 
@@ -516,13 +532,16 @@ export function makeTerminals(deps: TerminalDeps) {
     t.error = "";
     redraw();
     const fields = { project: form.project ?? name, machineId: form.machine, name: form.name, command: form.command, cwd: form.cwd };
+
     try {
       let made = await invoke<TerminalRow | null>("terminal_open", { terminal: { ...fields, ...START_SIZE } });
+
       // A server from before interactive terminals runs commands view only.
       if (!made) {
         if (!form.command.trim()) throw new Error("The server needs an update before it runs a shell.");
         made = await invoke<TerminalRow>("terminal_start", { terminal: fields });
       }
+
       t.list = [...(t.list || []), made];
       t.form = null;
       select(name, made.id);
@@ -531,17 +550,20 @@ export function makeTerminals(deps: TerminalDeps) {
     } finally {
       t.busy = false;
     }
+
     redraw();
   }
 
   /// Drops ended terminal `id` here and on the server.
   function forget(name: string, id: string) {
     const live = lives.get(id);
+
     if (live) {
       clearTimeout(live.timer);
       live.screen.dispose();
       lives.delete(id);
     }
+
     const t = of(name);
     t.list = (t.list || []).filter(x => x.id !== id);
     if (t.open === id) { t.open = null; t.output = null; }
@@ -554,14 +576,17 @@ export function makeTerminals(deps: TerminalDeps) {
     const t = of(name);
     t.busy = true;
     redraw();
+
     try {
       await invoke("terminal_close", { id });
       const live = lives.get(id);
+
       if (live) {
         detach(live);
         live.screen.dispose();
         lives.delete(id);
       }
+
       t.list = (t.list || []).filter(x => x.id !== id);
       if (t.open === id) { t.open = null; t.output = null; }
       t.error = "";
@@ -570,6 +595,7 @@ export function makeTerminals(deps: TerminalDeps) {
     } finally {
       t.busy = false;
     }
+
     redraw();
   }
 
@@ -626,6 +652,7 @@ export function makeTerminals(deps: TerminalDeps) {
     };
     const detachHere = () => { detach(live); redraw(); };
     const attachHere = () => { live.tries = 0; attach(name, live); redraw(); };
+
     if (live.link === "attached" || live.link === "attaching") {
       const typing = button(live.watching ? "Take control" : "View only", "small", toggleTyping);
       typing.title = live.watching ? "Type into the terminal again" : "Stop typing into it, keep watching";
@@ -637,6 +664,7 @@ export function makeTerminals(deps: TerminalDeps) {
       acts.push(button("Attach", "small pri", attachHere));
       items.push({ label: "Attach", on: attachHere });
     }
+
     const running = open.state === "running";
     const stop = () => {
       if (!running) return void close(name, open.id);
@@ -657,6 +685,7 @@ export function makeTerminals(deps: TerminalDeps) {
       h("span", "tm-st", stateLabel(open)), ...acts);
     head.addEventListener("contextmenu", e => openMenu(e, open.name, items));
     let body: HTMLElement;
+
     if (live.link === "view_only") {
       const o = t.output;
       body = h("pre", "tm-screen", h("span", "tm-cmd", `${open.machine_name} ${open.cwd} $ ${open.command}`), "\n",
@@ -675,6 +704,7 @@ export function makeTerminals(deps: TerminalDeps) {
       requestAnimationFrame(() => live.screen.fit());
       if (keep) queueMicrotask(() => live.screen.focus());
     }
+
     const on = live.link === "attached" && open.state === "running";
     return h("div", "cc-panel tm-panel", head, body,
       h("div", "tm-foot", h("span", "", h("span", `ddot${on ? "" : " off"}`), " ", linkLabel(live.link, live.watching, open.machine_name, live.tries)),
@@ -706,6 +736,7 @@ export function makeTerminals(deps: TerminalDeps) {
     if (shown !== ALL || t.form || !t.open) return false;
     const live = lives.get(t.open);
     if (!live) return false;
+
     if (live.link === "view_only") {
       const output = document.querySelector<HTMLElement>(".tl .tm-screen");
       if (!output) return false;
@@ -713,6 +744,7 @@ export function makeTerminals(deps: TerminalDeps) {
     } else {
       live.screen.focus();
     }
+
     return true;
   }
 
@@ -722,10 +754,12 @@ export function makeTerminals(deps: TerminalDeps) {
     if (shown !== ALL) { dropAll(); shown = ALL; }
     const t = of(ALL);
     if (t.list === undefined) load(ALL);
+
     if (t.list === null) {
       watch(null);
       return [emptyPanel(h("b", "", "The server needs an update before it lists terminals on every machine."))];
     }
+
     const groups = byMachine(machines, t.list || []);
     const places = machines.filter(m => m.online).map(m => ({ id: m.id, name: m.name, folder: "" }));
     const list = h("div", "tl-list", ...groups.map(m => {
@@ -748,6 +782,7 @@ export function makeTerminals(deps: TerminalDeps) {
     }));
     let right: HTMLElement;
     const open = t.open && (t.list || []).find(x => x.id === t.open);
+
     if (t.form) {
       watch(null);
       right = formView(places);
@@ -759,6 +794,7 @@ export function makeTerminals(deps: TerminalDeps) {
       right = h("div", "cc-conn", h("b", "", any ? "Pick a terminal" : t.list ? "No terminals yet" : "Loading…"),
         button("New terminal", "pri", () => newOn(places[0]?.id || null)));
     }
+
     const out: HTMLElement[] = [];
     if (t.error) out.push(h("div", "cc-err", t.error));
     out.push(h("div", "tl", list, right));

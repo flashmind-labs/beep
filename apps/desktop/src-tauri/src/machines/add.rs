@@ -44,6 +44,7 @@ pub async fn mesh_invite(
                 "A phone pairs as a workspace controller.".into(),
             ));
         }
+
         fleet
             .ready()
             .await?
@@ -114,6 +115,7 @@ pub async fn machine_search(
     if let Some(machine) = fleet.member(&machine_id) {
         return direct::machine_search(&fleet, machine).await;
     }
+
     beep.call(GetMachineSearch { machine_id }).await
 }
 
@@ -128,5 +130,6 @@ pub async fn set_machine_search(
     if let Some(machine) = fleet.member(&machine_id) {
         return direct::set_machine_search(&fleet, machine, &search).await;
     }
+
     beep.call(SetMachineSearch { machine_id, search }).await
 }

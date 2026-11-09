@@ -142,6 +142,7 @@ pub(super) fn attach(
     if shown.is_empty() {
         return;
     }
+
     shown.sort_by_key(|(_, spawn)| spawn.entry);
     let folder = if session
         .parent()
@@ -153,6 +154,7 @@ pub(super) fn attach(
     };
     let found = agents(&folder);
     let mut taken = HashSet::new();
+
     for (call, spawn) in shown {
         let Some(agent) = pick(&found, call, spawn, &taken) else {
             continue;
@@ -162,6 +164,7 @@ pub(super) fn attach(
             continue;
         };
         entry.text = text(spawn, agent, &read(&agent.transcript));
+
         if let Some(id) = conversation(session, &agent.id) {
             add_conversation(&mut entry.text, &id);
         }
@@ -189,6 +192,7 @@ pub(super) fn attach_live(session: &Path, calls: &[(usize, String)], entries: &m
     let found = agents(&session.with_extension("").join("subagents"));
     let digest = transcript::digest_tail(session, entries.len()).ok();
     let mut taken = HashSet::new();
+
     for (at, call) in calls {
         let fallback = Spawn::default();
         let spawn = digest
@@ -199,6 +203,7 @@ pub(super) fn attach_live(session: &Path, calls: &[(usize, String)], entries: &m
             continue;
         };
         taken.insert(agent.id.as_str());
+
         if let Some(id) = conversation(session, &agent.id)
             && let Some(entry) = entries.get_mut(*at)
         {
@@ -262,6 +267,7 @@ fn meta(path: &Path) -> Meta {
         return Meta::default();
     };
     let reader = std::io::Read::take(file, MAX_META);
+
     match serde_json::from_reader(reader) {
         Ok(meta) => meta,
         Err(e) => {
@@ -282,11 +288,13 @@ fn read(path: &Path) -> Run {
             return run;
         }
     };
+
     for line in tail.text.lines() {
         if let Ok(value) = serde_json::from_str::<Value>(line.trim()) {
             run.line(&value);
         }
     }
+
     run
 }
 
@@ -295,6 +303,7 @@ impl Run {
         let Value::Array(blocks) = &value["message"]["content"] else {
             return;
         };
+
         match value["type"].as_str() {
             Some("assistant") => {
                 for block in blocks {
@@ -343,12 +352,15 @@ fn status(spawn: &Spawn, agent: &Found) -> Status {
     if spawn.failed || agent.meta.stopped_by_user == Some(true) {
         return Status::Failed;
     }
+
     if agent.meta.finished == Some(true) {
         return Status::Completed;
     }
+
     if agent.meta.tool_use_id.is_some() || agent.meta.finished == Some(false) {
         return Status::InProgress;
     }
+
     let changed = fs::metadata(&agent.transcript).and_then(|meta| meta.modified());
     let recent = changed
         .ok()
@@ -373,6 +385,7 @@ fn text(spawn: &Spawn, agent: &Found, run: &Run) -> String {
         .unwrap_or("Subagent");
     let title = title.lines().next().unwrap_or_default();
     let mut text = format!("{title} [{status}]\n[steps] {}", run.steps.len());
+
     for step in &run.steps[run.steps.len().saturating_sub(MAX_STEPS)..] {
         // A step left running in a finished subagent did not fail.
         let shown = match step.status {
@@ -382,6 +395,7 @@ fn text(spawn: &Spawn, agent: &Found, run: &Run) -> String {
         let title = step.title.lines().next().unwrap_or_default();
         text.push_str(&format!("\n[step {}] {}", shown, cut(title, MAX_STEP)));
     }
+
     let name = agent
         .meta
         .name
@@ -393,6 +407,7 @@ fn text(spawn: &Spawn, agent: &Found, run: &Run) -> String {
     if let Some(name) = name {
         text.push_str(&format!("\n[agent] {}", cut(name, MAX_STEP)));
     }
+
     if let Some(result) = &run.result {
         text.push('\n');
         text.push_str(result);

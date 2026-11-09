@@ -89,11 +89,13 @@ impl Provision {
             // were revoked must not keep using them.
             provision.configure_teacli().await;
             let dir = provision.dir.clone();
+
             match spawn_blocking(move || install_skills(&dir)).await {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => log::warn!("agent skills not installed: {e:#}"),
                 Err(e) => log::warn!("installing agent skills failed: {e}"),
             }
+
             if provision.install_tools().await {
                 provision.configure_teacli().await;
                 provision.changed.notify_one();
@@ -108,10 +110,12 @@ impl Provision {
         let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         interval.tick().await;
+
         loop {
             let (installed, _) =
                 crate::machine::env::probe_tools(crate::machine::env::ToolScope::Updatable).await;
             let mut updates = Vec::new();
+
             for tool in Tool::ALL {
                 let name: &str = tool.into();
                 let Some(version) = installed
@@ -121,6 +125,7 @@ impl Provision {
                 else {
                     continue;
                 };
+
                 if let Some(latest) = releases.latest(tool).await
                     && beep_proto::node::harness::is_newer(&latest, version)
                 {
@@ -131,6 +136,7 @@ impl Provision {
                     });
                 }
             }
+
             self.updates.send_replace(Some(updates));
             tokio::select! {
                 _ = interval.tick() => {},
@@ -147,6 +153,7 @@ impl Provision {
                     if let Some(available) = updates.borrow_and_update().clone() {
                         break available;
                     }
+
                     if updates.changed().await.is_err() {
                         break Vec::new();
                     }
@@ -156,6 +163,7 @@ impl Provision {
             .unwrap_or_default();
             tx.send(&available).await?;
         }
+
         tx.finish().await
     }
 
@@ -166,7 +174,9 @@ impl Provision {
             if which::which_in("sccache", Some(provision.tool_path()), "/").is_ok() {
                 return;
             }
+
             log::info!("installing sccache");
+
             if installed_ok("sccache", tools::SCCACHE.install(&provision.bin()).await) {
                 provision.changed.notify_one();
             }
@@ -178,17 +188,20 @@ impl Provision {
         let _one = self.installing.lock().await;
         let mut installed = false;
         let missing = |name| which::which_in(name, Some(self.tool_path()), "/").is_err();
+
         for tool in tools::PINNED {
             if missing(tool.name) {
                 log::info!("installing {}", tool.name);
                 installed |= installed_ok(tool.name, tool.install(&self.bin()).await);
             }
         }
+
         if missing("flsh") && tools::flsh_target(env::consts::OS, env::consts::ARCH).is_some() {
             log::info!("installing flsh");
             let result = tools::install_newest(Tool::Flsh, &self.bin()).await;
             installed |= installed_ok("flsh", result);
         }
+
         installed
     }
 
@@ -221,6 +234,7 @@ impl Provision {
         if tool == Tool::Teacli {
             self.configure_teacli().await;
         }
+
         self.changed.notify_one();
         self.recheck.notify_one();
         Ok(())
@@ -311,6 +325,7 @@ fn installed_ok(name: &str, result: Result<PathBuf>) -> bool {
 fn install_skills(node_dir: &Path) -> Result<()> {
     let home = dirs::home_dir().context("no home folder")?;
     let mut installed = skills::Installed::load(&node_dir.join("installed-skills"))?;
+
     for dir in skills::targets(&home) {
         for skill in skills::SKILLS {
             let outcome = skills::install(&dir, skill, &mut installed)
@@ -318,6 +333,7 @@ fn install_skills(node_dir: &Path) -> Result<()> {
             log::debug!("skill {} in {}: {outcome:?}", skill.name, dir.display());
         }
     }
+
     Ok(())
 }
 

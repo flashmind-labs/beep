@@ -180,9 +180,11 @@ struct Inner {
 /// Stops `running` and waits for its task, which saves its state, a while.
 async fn halt(running: Running) -> Arc<Shared> {
     running.shared.stop();
+
     if timeout(STOP_LIMIT, running.task).await.is_err() {
         log::warn!("{} did not stop in time", running.shared.name());
     }
+
     running.shared
 }
 
@@ -285,9 +287,11 @@ impl Syncs {
         };
         // What the server set before keeps its peers while the mesh waits for a machine.
         lock(&syncs.inner.lists).set_server(&config.projects);
+
         for refused in syncs.configure_from(config.projects, Source::Saved).await {
             log::warn!("not syncing {}: {}", refused.project, refused.message);
         }
+
         let task = tokio::spawn(check_syncthing(
             Arc::downgrade(&syncs.inner),
             syncs.inner.syncthing.clone(),
@@ -317,6 +321,7 @@ impl Syncs {
             .map(|project| (project, Arc::downgrade(agents)))
             .collect();
         *lock(&self.inner.recoveries) = recoveries.clone();
+
         for (name, running) in lock(&self.inner.projects).iter() {
             running.shared.set_recovery(recoveries.get(name).cloned());
         }
@@ -341,9 +346,11 @@ impl Syncs {
     pub(crate) fn unfollow(&self) {
         *lock(&self.inner.mesh) = None;
         lock(&self.inner.recoveries).clear();
+
         for running in lock(&self.inner.projects).values() {
             running.shared.set_recovery(None);
         }
+
         lock(&self.inner.lists).clear_mesh();
     }
 
@@ -381,6 +388,7 @@ impl Syncs {
                 })
                 .collect()
         };
+
         if !ignored.is_empty() {
             log::info!(
                 "ignored the server's sync list for {} projects: the mesh sets them",
@@ -421,11 +429,13 @@ impl Syncs {
             for name in gone {
                 stopping.extend(running.remove(&name));
             }
+
             lock(&self.inner.held).retain(|name, _| names.contains(&name.as_str()));
             lock(&self.inner.stopped).clear();
         }
         let folders: Vec<PathBuf> = projects.iter().map(|p| PathBuf::from(&p.folder)).collect();
         let managed = self.inner.syncthing.check_all(&folders).await;
+
         for (mut project, managed) in projects.into_iter().zip(managed) {
             project.peers.retain(|peer| peer.id != me);
             let same = {
@@ -439,6 +449,7 @@ impl Syncs {
                         running.shared.clone()
                     })
             };
+
             if let Some(shared) = same {
                 log::debug!("sync {}: keeps running, peers and pause set", project.name);
                 shared.set_peers(project.peers.clone());
@@ -481,7 +492,9 @@ impl Syncs {
                 }
                 continue;
             }
+
             log::debug!("sync {}: starting", project.name);
+
             match self.run(&project, from).await {
                 Ok(running) => {
                     lock(&self.inner.projects).insert(project.name.clone(), running);
@@ -509,13 +522,16 @@ impl Syncs {
                 }
             }
         }
+
         for stopped in stopping {
             log::debug!("sync {}: stopping", stopped.project.name);
             self.stop(stopped).await;
         }
+
         for old in replaced {
             self.forget(&old).await;
         }
+
         let config = Config { projects: kept };
         let saved = serde_json::to_vec_pretty(&config)
             .context("encoding the projects")
@@ -523,6 +539,7 @@ impl Syncs {
         if let Err(e) = saved {
             log::warn!("the synced projects are not saved: {e:#}");
         }
+
         refused
     }
 
@@ -543,13 +560,16 @@ impl Syncs {
             if ignored.is_none() && !root.path().join(".git").exists() && root.path().ancestors().skip(1).any(|parent| parent.join(".git").exists()) {
                 bail!("This folder is inside a Git checkout. Import the repository root for Git sync.");
             }
+
             if root.path().join(".git").is_file() {
                 bail!("Linked worktrees and submodules stay on their machine. Import the main checkout for Git sync.");
             }
+
             anyhow::Ok((root, made))
         })
         .await??;
         let key = key_of(&project.name, root.path());
+
         if made {
             // A folder made again starts as Add's empty folder does: what was seen in the one
             // that went is forgotten, so it is filled from the peers and deletes nothing.
@@ -561,6 +581,7 @@ impl Syncs {
             self.forget_key(&project.name, key, &self.state_file(key))
                 .await;
         }
+
         let start = Start {
             name: project.name.clone(),
             key,
@@ -617,11 +638,13 @@ impl Syncs {
             _ => Ok(()),
         })
         .await;
+
         match removed {
             Ok(Ok(())) => {}
             Ok(Err(e)) => log::warn!("the state of {name} stays: {e}"),
             Err(e) => log::warn!("the state of {name} stays: {e}"),
         }
+
         if let Err(e) = self
             .inner
             .parts
@@ -649,15 +672,18 @@ impl Syncs {
             .map(|(p, _)| PathBuf::from(&p.folder))
             .collect();
         let managed = self.inner.syncthing.check_all(&folders).await;
+
         for ((project, from), managed) in running.into_iter().zip(managed) {
             let Some(managed) = managed else {
                 continue;
             };
             log::info!("stopped syncing {}: {}", project.name, managed.reason());
             let stopped = lock(&self.inner.projects).remove(&project.name);
+
             if let Some(stopped) = stopped {
                 self.stop(stopped).await;
             }
+
             lock(&self.inner.held).insert(
                 project.name.clone(),
                 Held {
@@ -667,16 +693,19 @@ impl Syncs {
                 },
             );
         }
+
         let held: Vec<(Project, Source)> = lock(&self.inner.held)
             .values()
             .map(|held| (held.project.clone(), held.from))
             .collect();
         let folders: Vec<PathBuf> = held.iter().map(|(p, _)| PathBuf::from(&p.folder)).collect();
         let managed = self.inner.syncthing.check_all(&folders).await;
+
         for ((project, from), managed) in held.into_iter().zip(managed) {
             if managed.is_some() {
                 continue;
             }
+
             match self.run(&project, from).await {
                 Ok(running) => {
                     log::info!(
@@ -702,26 +731,33 @@ impl Syncs {
             .map(|running| (running.project.clone(), running.from))
             .collect();
         let mut again: Vec<(Project, Source)> = Vec::new();
+
         for (project, from) in running {
             let folder = PathBuf::from(&project.folder);
+
             if spawn_blocking(move || folder.exists())
                 .await
                 .unwrap_or(true)
             {
                 continue;
             }
+
             log::info!("{}: its folder {} is gone", project.name, project.folder);
             let stopped = lock(&self.inner.projects).remove(&project.name);
+
             if let Some(stopped) = stopped {
                 self.stop(stopped).await;
             }
+
             again.push((project, from));
         }
+
         again.extend(
             lock(&self.inner.stopped)
                 .values()
                 .map(|stopped| (stopped.project.clone(), stopped.from)),
         );
+
         for (project, from) in again {
             match self.run(&project, from).await {
                 Ok(running) => {
@@ -732,12 +768,14 @@ impl Syncs {
                 Err(e) => {
                     let message = format!("{e:#}");
                     let mut stopped = lock(&self.inner.stopped);
+
                     if stopped
                         .get(&project.name)
                         .is_none_or(|stopped| stopped.message != message)
                     {
                         log::warn!("not syncing {}: {message}", project.name);
                     }
+
                     stopped.insert(
                         project.name.clone(),
                         Stopped {
@@ -812,13 +850,17 @@ impl Syncs {
         let Some(shared) = self.project(project) else {
             bail!("{project} is not synced on this machine");
         };
+
         if !shared.has_peer(peer) {
             bail!("{project} is not synced with that machine");
         }
+
         let mut status = shared.watch_status();
+
         if !shared.caught_up_since(peer, since) {
             shared.pull_again();
         }
+
         loop {
             let now = shared.status();
             progress(&now);
@@ -833,6 +875,7 @@ impl Syncs {
             {
                 return Ok(());
             }
+
             tokio::select! {
                 changed = status.changed() => if changed.is_err() {
                     bail!("{project} stopped syncing");
@@ -879,9 +922,11 @@ impl Syncs {
             let (owner, _) = beep_proto::node::sync::ignored_folder(&running.project.name)?;
             (owner == project).then(|| running.shared.clone())
         }));
+
         for result in join_all(datasets.iter().map(|shared| shared.rescan(RESCAN_LIMIT))).await {
             result?;
         }
+
         self.status_for(project)
             .with_context(|| format!("{project} stopped syncing"))
     }
@@ -944,6 +989,7 @@ impl Syncs {
 /// taken away from Beep's sync at once; Syncthing does not wait for that.
 async fn check_syncthing(inner: Weak<Inner>, syncthing: Syncthing) {
     let mut since = 0;
+
     loop {
         syncthing.changed(&mut since).await;
         let Some(inner) = inner.upgrade() else {
@@ -959,14 +1005,17 @@ async fn check_syncthing(inner: Weak<Inner>, syncthing: Syncthing) {
 /// With the folder above missing too, as when a disk is not mounted, nothing is made.
 fn make_missing(folders: &Folders, folder: &str) -> Result<bool> {
     let path = Path::new(folder);
+
     match fs::symlink_metadata(path) {
         Ok(_) => return Ok(false),
         Err(e) if e.kind() == ErrorKind::NotFound => {}
         Err(e) => return Err(e).with_context(|| format!("reading {folder}")),
     }
+
     if !path.parent().is_some_and(Path::is_dir) {
         bail!("{PARENT_MISSING}: {folder}");
     }
+
     let resolved = folders
         .resolve(folder)
         .with_context(|| format!("{FOLDER_MISSING}: {folder}"))?;

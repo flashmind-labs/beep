@@ -93,11 +93,14 @@ pub(super) async fn wait(repo: &str, id: u64) -> Result<bool> {
             status = watch.wait() => break status.context("waiting on gh")?.success(),
             _ = every.tick() => {
                 let Ok(view) = view(repo, &id).await else { continue };
+
                 for change in changes(seen.as_ref(), &view) {
                     log::debug!("CI watch: {repo} run {id}: {change}");
                 }
+
                 let cancelled = view.state() == RunState::Cancelled {};
                 seen = Some(view);
+
                 if cancelled {
                     return Ok(false);
                 }
@@ -130,6 +133,7 @@ async fn view(repo: &str, id: &str) -> Result<View> {
             tail(&String::from_utf8_lossy(&output.stderr))
         );
     }
+
     serde_json::from_slice(&output.stdout).context("the run does not read")
 }
 
@@ -137,6 +141,7 @@ async fn view(repo: &str, id: &str) -> Result<View> {
 /// steps that failed.
 pub(super) fn changes(before: Option<&View>, now: &View) -> Vec<String> {
     let mut said = Vec::new();
+
     for job in &now.jobs {
         let was = before.and_then(|view| view.jobs.iter().find(|old| old.name == job.name));
         let going = |job: &Job| job.status == "in_progress";
@@ -149,6 +154,7 @@ pub(super) fn changes(before: Option<&View>, now: &View) -> Vec<String> {
         {
             said.push(format!("{} finished: {how}", job.name));
         }
+
         for step in &job.steps {
             let failed = |step: &Step| conclusion(&step.conclusion) == Some("failure");
             let had = was
@@ -159,6 +165,7 @@ pub(super) fn changes(before: Option<&View>, now: &View) -> Vec<String> {
             }
         }
     }
+
     if before.is_none() && !now.name.is_empty() {
         said.insert(0, format!("{} {}", now.name, now.status));
     }

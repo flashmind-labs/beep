@@ -78,9 +78,11 @@ impl User {
         let Some(research) = self.research_in(chat).await? else {
             return Ok(None);
         };
+
         if research.draft.trim().is_empty() {
             return Ok(None);
         }
+
         let sources = self.store.research_sources(research.id).await?;
         let paper = Paper {
             topic: research.topic,

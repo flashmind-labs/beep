@@ -25,9 +25,11 @@ impl Store {
         let mut db = Connection::open(path)?;
         db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;")?;
         let version: u32 = db.pragma_query_value(None, "user_version", |row| row.get(0))?;
+
         if version > 1 {
             bail!("the prompt index uses a newer schema");
         }
+
         if version == 0 {
             let legacy: bool = db.query_row(
                 "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='sessions')",
@@ -35,10 +37,13 @@ impl Store {
                 |row| row.get(0),
             )?;
             let tx = db.transaction()?;
+
             if legacy {
                 tx.execute_batch("ALTER TABLE sessions RENAME TO legacy_sessions;")?;
             }
+
             tx.execute_batch(include_str!("schema.sql"))?;
+
             if legacy {
                 tx.execute_batch(
                     "INSERT INTO sessions(id,stamp,data,activity) SELECT id,stamp,data,activity FROM legacy_sessions;
@@ -48,11 +53,13 @@ impl Store {
                      DROP TABLE legacy_sessions;",
                 )?;
             }
+
             tx.pragma_update(None, "user_version", 1)?;
             tx.commit()?;
         } else {
             db.execute_batch(include_str!("schema.sql"))?;
         }
+
         Ok(Self(db))
     }
 
@@ -60,6 +67,7 @@ impl Store {
         if self.removed(id)? {
             return Ok(true);
         }
+
         let saved: Option<String> = self
             .0
             .query_row("SELECT stamp FROM sessions WHERE id=?1", [id], |row| {
@@ -84,8 +92,10 @@ impl Store {
     pub fn sync_projects(&mut self, projects: &[ImportedProject]) -> Result<Vec<Place>> {
         let wanted: BTreeSet<Place> = projects.iter().map(Place::from).collect();
         let existing: BTreeSet<Place> = self.places(false)?.into_iter().collect();
+
         if wanted != existing {
             let tx = self.0.unchecked_transaction()?;
+
             for place in existing.difference(&wanted) {
                 retire(&tx, place)?;
                 tx.execute(
@@ -93,6 +103,7 @@ impl Store {
                     params![place.project, place.machine, place.folder],
                 )?;
             }
+
             for place in wanted.difference(&existing) {
                 tx.execute(
                     "INSERT OR IGNORE INTO projects VALUES (?1)",
@@ -107,6 +118,7 @@ impl Store {
                     params![place.project, place.machine, place.folder],
                 )?;
             }
+
             tx.execute(
                 "DELETE FROM projects WHERE name NOT IN (SELECT project FROM places)",
                 [],
@@ -114,6 +126,7 @@ impl Store {
             self.attach_sessions()?;
             tx.commit()?;
         }
+
         self.places(true)
     }
 
@@ -124,6 +137,7 @@ impl Store {
     ) -> Result<Vec<Place>> {
         let tx = self.0.unchecked_transaction()?;
         tx.execute("INSERT OR IGNORE INTO retired_places SELECT project,machine,folder FROM places WHERE project=?1", [project])?;
+
         for place in known
             .iter()
             .filter(|p| p.project == project)
@@ -131,6 +145,7 @@ impl Store {
         {
             retire(&tx, &place)?;
         }
+
         tx.execute("DELETE FROM projects WHERE name=?1", [project])?;
         self.attach_sessions()?;
         tx.commit()?;
@@ -165,12 +180,15 @@ impl Store {
         let rows = read.query_map([&session.machine_id], |row| {
             Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, String>(1)?))
         })?;
+
         for row in rows {
             let (id, folder) = row?;
+
             if super::super::projects::within(&session.cwd, &folder) {
                 return Ok(id.map_or(Owner::Removed, Owner::Place));
             }
         }
+
         Ok(Owner::Outside)
     }
 
@@ -181,8 +199,10 @@ impl Store {
             read.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
                 .collect::<rusqlite::Result<_>>()?
         };
+
         for (id, data) in rows {
             let session = serde_json::from_str(&data)?;
+
             match self.owner(&session)? {
                 Owner::Place(place) => {
                     self.0.execute(
@@ -196,14 +216,17 @@ impl Store {
                 Owner::Outside => {}
             }
         }
+
         Ok(())
     }
 
     fn put_session(&self, session: &MachineSession, stamp: Option<&str>) -> Result<bool> {
         let id = identity(session);
+
         if self.removed(&id)? {
             return Ok(false);
         }
+
         let place = match self.owner(session)? {
             Owner::Place(id) => Some(id),
             Owner::Outside => None,
@@ -222,9 +245,11 @@ impl Store {
     /// Pending rows survive a transcript snapshot taken before the send.
     pub fn append(&mut self, session: &MachineSession, text: &str) -> Result<bool> {
         let tx = self.0.unchecked_transaction()?;
+
         if !self.put_session(session, None)? {
             return Ok(false);
         }
+
         tx.execute(
             "INSERT INTO prompt_texts(session,text,words,pending) VALUES (?1,?2,?3,1)
              ON CONFLICT(session,text) DO UPDATE SET pending=1",
@@ -241,10 +266,13 @@ impl Store {
         complete: bool,
     ) -> Result<()> {
         let tx = self.0.unchecked_transaction()?;
+
         if !self.put_session(session, Some(&stamp(session)?))? {
             return Ok(());
         }
+
         let id = identity(session);
+
         if complete {
             tx.execute(
                 "DELETE FROM prompt_texts WHERE session=?1 AND pending=0",
@@ -256,6 +284,7 @@ impl Store {
                 "INSERT INTO prompt_texts(session,text,words) VALUES (?1,?2,?3)
                  ON CONFLICT(session,text) DO UPDATE SET pending=0",
             )?;
+
             for text in texts {
                 insert.execute(params![id, text, text.to_lowercase()])?;
             }
@@ -282,9 +311,11 @@ impl Store {
 
     pub fn find(&self, query: &str, machines: Option<&[String]>) -> Result<Vec<Found>> {
         let query = query.trim().to_lowercase();
+
         if query.chars().count() < 2 {
             return Ok(Vec::new());
         }
+
         let (condition, needle) = if query.chars().count() < 3 {
             ("instr(prompt_texts.words, ?1)>0", query)
         } else {

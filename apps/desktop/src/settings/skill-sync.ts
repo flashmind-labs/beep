@@ -25,6 +25,7 @@ export function mountSkillSync(host: HTMLElement) {
     busy = true;
     error = "";
     draw();
+
     try {
       enabled = await invoke<boolean>("skill_sync_get");
     } catch (e) {
@@ -41,6 +42,7 @@ export function mountSkillSync(host: HTMLElement) {
     busy = true;
     error = "";
     draw();
+
     try {
       await invoke("skill_sync_set", { enabled: next });
       enabled = next;

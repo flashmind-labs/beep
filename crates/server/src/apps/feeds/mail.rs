@@ -132,9 +132,11 @@ impl Email {
             "Date: {}",
             self.received.format("%A %Y-%m-%d %H:%M UTC")
         );
+
         if self.sent {
             let _ = writeln!(text, "Sent by the user");
         }
+
         let _ = writeln!(text, "From: {}", self.from);
         let _ = writeln!(text, "To: {}", self.to);
         let _ = writeln!(text, "Subject: {}", self.subject);
@@ -213,6 +215,7 @@ impl<'a> Source<'a> {
 
     async fn page(&self, window: Window, listing: Listing, cursor: Option<&str>) -> Result<Page> {
         let Window { after, before } = window;
+
         match self {
             Source::Gmail(client) => {
                 // Gmail reads Unix seconds after `after:`.
@@ -225,6 +228,7 @@ impl<'a> Source<'a> {
                     ),
                     "include_payload": true,
                 });
+
                 if let Some(cursor) = cursor {
                     arguments["page_token"] = json!(cursor);
                 }
@@ -233,6 +237,7 @@ impl<'a> Source<'a> {
                 let mut size = PAGE_SIZE;
                 let response = loop {
                     arguments["max_results"] = json!(size);
+
                     match client
                         .execute_tool("GMAIL_FETCH_EMAILS", arguments.clone())
                         .await
@@ -244,9 +249,11 @@ impl<'a> Source<'a> {
                         result => break result?,
                     }
                 };
+
                 if response.successful == Some(false) {
                     bail!("Gmail fetch failed");
                 }
+
                 parse_gmail(&response.data)
             }
             Source::Fastmail(user) => {
@@ -256,10 +263,13 @@ impl<'a> Source<'a> {
                 if let Some(before) = before {
                     let _ = write!(query, " before:{}", before.format("%Y-%m-%d"));
                 }
+
                 let mut arguments = json!({"query": query, "limit": PAGE_SIZE});
+
                 if let Some(cursor) = cursor {
                     arguments["cursor"] = json!(cursor);
                 }
+
                 let value = user.call_fastmail(None, "search_email", arguments).await?;
                 parse_fastmail(&value)
             }
@@ -273,22 +283,27 @@ impl<'a> Source<'a> {
                     "top": PAGE_SIZE,
                     "select": OUTLOOK_FIELDS,
                 });
+
                 if let Some(before) = before {
                     arguments["received_date_time_lt"] =
                         json!(before.to_rfc3339_opts(SecondsFormat::Secs, true));
                 }
+
                 if listing == Listing::Unread {
                     arguments["is_read"] = json!(false);
                 }
+
                 if let Some(cursor) = cursor {
                     arguments["page_token"] = json!(cursor);
                 }
+
                 let response = client
                     .execute_tool("OUTLOOK_LIST_MESSAGES", arguments)
                     .await?;
                 if response.successful == Some(false) {
                     bail!("Outlook listing failed");
                 }
+
                 parse_outlook(&response.data, sent_folder.as_deref())
             }
         }
@@ -300,6 +315,7 @@ impl<'a> Source<'a> {
             return;
         };
         let arguments = json!({"id": email.id});
+
         match user.call_fastmail(None, "read_email", arguments).await {
             Ok(value) => {
                 if let Some(body) = value["bodyText"].as_str() {
@@ -322,10 +338,12 @@ impl<'a> Source<'a> {
             let Some(cursor) = cursor else {
                 return Ok(None);
             };
+
             if number > MAX_PAGES {
                 log::warn!("mail: stopped listing after {MAX_PAGES} pages");
                 return Ok(None);
             }
+
             let page = self
                 .page(window, listing, cursor.as_deref())
                 .await
@@ -439,6 +457,7 @@ pub(crate) async fn sync(
         .boxed();
     let mut outcome = Outcome::default();
     let generator = app.generator(user.id());
+
     while let Some((email, scores)) = scored.try_next().await? {
         // Left unseen, so the next run tries it again.
         let probability = match scores.memory {
@@ -469,13 +488,17 @@ pub(crate) async fn sync(
             })
             .await?;
         }
+
         user.mark_feed_seen(feed, &email.id, email.received).await?;
     }
+
     drop(scored);
     outcome.listed = listed.into_inner();
+
     if outcome.failed > 0 {
         bail!("Jev could not score {} emails; {outcome}", outcome.failed);
     }
+
     Ok(outcome)
 }
 
@@ -528,6 +551,7 @@ async fn score(
         if !digest || email.sent || email.received < recent {
             return None;
         }
+
         decision
             .probability_with(&state, ATTENTION_QUESTION, &ATTENTION_CRITERIA)
             .await
@@ -555,6 +579,7 @@ fn parse_gmail(data: &Value) -> Result<Page> {
         .as_array()
         .context("Gmail returned no messages list")?;
     let mut emails = Vec::new();
+
     for message in messages {
         let Some(id) = message["messageId"].as_str() else {
             continue;
@@ -583,6 +608,7 @@ fn parse_gmail(data: &Value) -> Result<Page> {
             body: body.to_owned(),
         });
     }
+
     let next = data["nextPageToken"].as_str().map(str::to_owned);
     Ok(Page { emails, next })
 }
@@ -592,6 +618,7 @@ fn parse_fastmail(value: &Value) -> Result<Page> {
         .as_array()
         .context("Fastmail returned no results list")?;
     let mut emails = Vec::new();
+
     for result in results {
         let Some(id) = result["id"].as_str() else {
             continue;
@@ -615,6 +642,7 @@ fn parse_fastmail(value: &Value) -> Result<Page> {
             body: text(&result["preview"]),
         });
     }
+
     let more = value["hasMore"].as_bool().unwrap_or(false);
     let next = value["nextCursor"]
         .as_str()
@@ -626,6 +654,7 @@ fn parse_fastmail(value: &Value) -> Result<Page> {
 /// The Sent Items folder id, from the newest sent message.
 async fn outlook_sent_folder(client: &ComposioClient) -> Option<String> {
     let arguments = json!({"folder": "sentitems", "top": 1, "select": ["parentFolderId"]});
+
     match client
         .execute_tool("OUTLOOK_LIST_MESSAGES", arguments)
         .await
@@ -651,13 +680,16 @@ fn parse_outlook(data: &Value, sent_folder: Option<&str>) -> Result<Page> {
         .as_array()
         .context("Outlook returned no value list")?;
     let mut emails = Vec::new();
+
     for message in messages {
         let Some(id) = message["id"].as_str() else {
             continue;
         };
+
         if message["isDraft"].as_bool() == Some(true) {
             continue;
         }
+
         let Some(received) = message["receivedDateTime"].as_str().and_then(timestamp) else {
             log::debug!("mail: Outlook message without a usable date; id={id}");
             continue;
@@ -675,6 +707,7 @@ fn parse_outlook(data: &Value, sent_folder: Option<&str>) -> Result<Page> {
             body: outlook_body(message),
         });
     }
+
     let next = data["next_page_token"].as_str().map(str::to_owned);
     Ok(Page { emails, next })
 }
@@ -683,15 +716,18 @@ fn parse_outlook(data: &Value, sent_folder: Option<&str>) -> Result<Page> {
 fn outlook_body(message: &Value) -> String {
     let body = &message["body"];
     let content = body["content"].as_str().unwrap_or_default();
+
     if content.trim().is_empty() {
         return text(&message["bodyPreview"]);
     }
+
     if !body["contentType"]
         .as_str()
         .is_some_and(|kind| kind.eq_ignore_ascii_case("html"))
     {
         return content.to_owned();
     }
+
     html2text::config::plain_no_decorate()
         .raw_mode(true)
         .string_from_read(content.as_bytes(), HTML_TEXT_WIDTH)
@@ -722,9 +758,11 @@ pub(crate) fn timestamp(text: &str) -> Option<DateTime<Utc>> {
     if let Ok(date) = DateTime::parse_from_rfc3339(text) {
         return Some(date.with_timezone(&Utc));
     }
+
     if let Ok(date) = DateTime::parse_from_rfc2822(text) {
         return Some(date.with_timezone(&Utc));
     }
+
     let number: i64 = text.parse().ok()?;
     if number > 100_000_000_000 {
         DateTime::from_timestamp_millis(number)

@@ -102,10 +102,13 @@ struct ProviderAuth {
 /// is logged: an auth file holds tokens.
 fn read<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
     let meta = fs::metadata(path).ok()?;
+
     if !meta.is_file() || meta.len() > MAX_FILE {
         return None;
     }
+
     let bytes = fs::read(path).ok()?;
+
     match serde_json::from_slice(&bytes) {
         Ok(value) => Some(value),
         Err(_) => {
@@ -127,6 +130,7 @@ fn claude_settings(path: &Path) -> Billing {
     if keyed || settings.api_key_helper.is_some() {
         return Billing::Metered;
     }
+
     match settings.force_login_method.as_deref() {
         Some("console") => Billing::Metered,
         Some("claudeai") => Billing::Subscription,
@@ -225,6 +229,7 @@ impl Accounts {
         if seen != Billing::Unknown {
             return seen;
         }
+
         match agent {
             Agent::Claude => self.claude(cwd),
             Agent::Codex => match provider {
@@ -252,9 +257,11 @@ impl Accounts {
         let Some(cwd) = cwd.filter(|cwd| Path::new(cwd).is_absolute()) else {
             return self.claude;
         };
+
         if let Some(billing) = self.claude_projects.get(cwd) {
             return *billing;
         }
+
         let dir = Path::new(cwd).join(".claude");
         let project = [
             claude_settings(&dir.join("settings.local.json")),

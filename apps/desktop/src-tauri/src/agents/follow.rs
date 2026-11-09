@@ -39,6 +39,7 @@ impl Readers {
             self.cancelled.remove(index);
             return false;
         }
+
         self.active.insert(window.to_owned(), (id, stop));
         true
     }
@@ -58,6 +59,7 @@ impl Readers {
             if self.cancelled.len() == 256 {
                 self.cancelled.pop_front();
             }
+
             self.cancelled.push_back((window.to_owned(), id));
         }
     }
@@ -77,6 +79,7 @@ impl Follows {
 
     fn remove(&self, window: &str, id: Uuid) {
         let mut readers = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+
         if readers
             .active
             .get(window)
@@ -146,9 +149,11 @@ pub async fn agent_follow(
     on_event: Channel<Update>,
 ) -> Result<()> {
     let (cancel, mut cancelled) = watch::channel(false);
+
     if app.get_webview_window(window.label()).is_none() {
         return Ok(());
     }
+
     let registered = follows
         .0
         .lock()
@@ -157,14 +162,17 @@ pub async fn agent_follow(
     if !registered {
         return Ok(());
     }
+
     let _reading = Reading {
         follows: &follows,
         window: window.label().to_owned(),
         id,
     };
+
     if app.get_webview_window(window.label()).is_none() {
         return Ok(());
     }
+
     let follow = async {
         let machine = fleet
             .member(&machine_id)
@@ -188,6 +196,7 @@ pub async fn agent_follow(
             if app.get_webview_window(window.label()).is_none() {
                 return Ok(());
             }
+
             app.state::<AgentsShown>().read(
                 window.label(),
                 &machine_id,
@@ -244,9 +253,11 @@ pub async fn agent_follow(
             };
             view.entries = machine::entries_for(snapshot.entries, true);
             view.earlier = u32::try_from(snapshot.earlier).unwrap_or(u32::MAX);
+
             if let Some(mesh) = fleet.mesh() {
                 beep_fleet::session_titles::apply(&mesh, &mut view.session);
             }
+
             on_event.send(Update {
                 kind,
                 cursor: snapshot.cursor,

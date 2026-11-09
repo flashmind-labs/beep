@@ -86,9 +86,11 @@ impl Firebase {
 
     async fn access_token(&self) -> Result<SecretString> {
         let mut access = self.access.lock().await;
+
         if let Some(token) = access.as_ref().filter(|t| Instant::now() < t.refresh_at) {
             return Ok(token.value.clone());
         }
+
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let claims = Claims {
             iss: &self.account.client_email,
@@ -105,11 +107,13 @@ impl Firebase {
             .send()
             .await?;
         let status = response.status();
+
         if !status.is_success() {
             // Google's error body says what is wrong with the service account.
             let body = response.text().await.unwrap_or_default();
             anyhow::bail!("token request failed with {status}: {body}");
         }
+
         let token: TokenResponse = response.json().await?;
         log::debug!("fcm: access token valid for {}s", token.expires_in);
         let lifetime = Duration::from_secs(token.expires_in).saturating_sub(REFRESH_EARLY);
@@ -157,12 +161,14 @@ impl Firebase {
             StatusCode::UNAUTHORIZED => {
                 log::warn!("fcm: access token refused: {body}");
                 let mut cached = self.access.lock().await;
+
                 if cached
                     .as_ref()
                     .is_some_and(|t| t.value.expose_secret() == access.expose_secret())
                 {
                     *cached = None;
                 }
+
                 Delivery::Failed
             }
             _ => {

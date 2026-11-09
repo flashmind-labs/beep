@@ -6,12 +6,14 @@ async fn signals_noted_during_curation_are_kept() {
     let db = TestDb::new().await.unwrap();
     let store = db.store().await.unwrap();
     let alice = UserKey::for_test("alice");
+
     for _ in 0..2 {
         store
             .note_signal(&alice, &Scope::User, Signal::Close)
             .await
             .unwrap();
     }
+
     let counted = store.curation_states(&alice).await.unwrap()[&Scope::User].clone();
     // Noted while curation ran.
     store

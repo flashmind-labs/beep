@@ -8,6 +8,7 @@ use crate::{
     files::search::Searches,
     files::transfer::Transfers,
     link::Protocol,
+    link::protocol::SessionProtocol,
     link::restart::{self, Reopen},
     link::state::{Search, State},
     link::traffic::Traffic,
@@ -27,8 +28,7 @@ use crate::{
 use anyhow::{Context, Result};
 use beep_mesh::{JOIN_ALPN, PEER_ALPN};
 use beep_proto::node::{
-    LinkRx, LinkTx, Open, Opened, agent, desktop, sign_in, skills, status, tool_update, tools,
-    version,
+    LinkRx, LinkTx, Open, Opened, agent, desktop, sign_in, tool_update, version,
 };
 use iroh::{Endpoint, EndpointId, endpoint::presets, protocol::Router};
 use std::{
@@ -65,9 +65,11 @@ pub async fn serve(
 ) -> Result<()> {
     let traffic = Traffic::default();
     let relays_off = std::env::var_os(NO_RELAY).is_some();
+
     if relays_off {
         log::warn!("{NO_RELAY} is set: no relay, no discovery (for tests only)");
     }
+
     let builder = || {
         // Tests run nodes side by side on one machine, without relays.
         let preset = if relays_off {
@@ -153,6 +155,7 @@ pub async fn serve(
         }
         Err(e) => log::warn!("not offering transfers: {e:#}"),
     }
+
     if !folders.is_empty() {
         offers.extra.push(Arc::new(folders));
     }
@@ -164,12 +167,15 @@ pub async fn serve(
         state.name.clone(),
         offers.clone(),
     );
+
     if let Err(e) = peers.open().await {
         log::warn!("not serving the mesh: {e:#}");
     }
+
     if !peers.is_member() {
         log::info!("not in a mesh: waiting for `beep-node mesh join <ticket>`");
     }
+
     let mut router = Router::builder(endpoint.clone())
         .accept(PEER_ALPN, peers.peer_handler())
         .accept(JOIN_ALPN, peers.join_handler())
@@ -177,6 +183,7 @@ pub async fn serve(
     if let Some(served) = served {
         router = served.add_to(router);
     }
+
     let router = router.spawn();
     log::info!("offering {:?}", offers.names());
     // Claude Code's hooks report to the node over a socket in its folder.
@@ -245,26 +252,32 @@ pub async fn serve(
     // The last word is the shutdown's: the keeper stops first, and its
     // write in flight lands before this one.
     keeping.abort();
+
     if let Some(Err(e)) = stop_step("the note of what is open", STOP_STEP, &mut keeping).await
         && !e.is_cancelled()
     {
         log::warn!("the note of what is open was not kept: {e}");
     }
+
     let reopen = Reopen {
         sessions: offers.agents.open_sessions(),
         terminals,
     };
+
     if let Err(e) = reopen.save(&state.dir) {
         log::warn!("what was open will not open again: {e:#}");
     }
+
     if let Some(Err(e)) = stop_step("the router", STOP_STEP, router.shutdown()).await {
         log::warn!("the router did not stop cleanly: {e:#}");
     }
+
     if let Some(transfers) = started
         && let Some(Err(e)) = stop_step("transfers", STOP_STEP, transfers.shutdown()).await
     {
         log::warn!("transfers did not stop cleanly: {e:#}");
     }
+
     log::info!("stopped");
     Ok(())
 }
@@ -274,12 +287,14 @@ pub async fn serve(
 async fn stop_step<T>(name: &str, limit: Duration, step: impl Future<Output = T>) -> Option<T> {
     log::info!("stopping: {name}");
     let done = timeout(limit, step).await.ok();
+
     if done.is_none() {
         log::warn!(
             "stopping: {name} took over {} s, going on without it",
             limit.as_secs()
         );
     }
+
     done
 }
 
@@ -422,11 +437,12 @@ impl Who {
 }
 
 /// Reads the protocol a session stream opens with.
-pub(crate) async fn read_open(rx: &mut LinkRx) -> Result<Open> {
-    timeout(OPEN_TIMEOUT, rx.recv())
+pub(super) async fn read_open(rx: &mut LinkRx) -> Result<SessionProtocol> {
+    let open: Open = timeout(OPEN_TIMEOUT, rx.recv())
         .await
         .context("the session did not say its protocol")??
-        .context("the session closed before its protocol")
+        .context("the session closed before its protocol")?;
+    Ok(SessionProtocol::from(open.protocol.as_ref()))
 }
 
 /// Why a device of the mesh may not open `protocol` on a machine that does
@@ -457,6 +473,7 @@ fn commands_off(offers: &Offers) -> Option<String> {
     if offers.lends_to_peers() {
         return None;
     }
+
     let name = offers
         .mesh
         .get()
@@ -473,29 +490,33 @@ fn commands_off(offers: &Offers) -> Option<String> {
     ))
 }
 
-/// Serves a session stream that opened with `open`, if `who` may use it.
-pub(crate) async fn serve_open(
+/// Serves a session stream that opened with `protocol`, if `who` may use it.
+pub(super) async fn serve_open(
     mut tx: LinkTx,
     rx: LinkRx,
-    open: Open,
+    protocol: SessionProtocol,
     offers: Offers,
     who: Who,
 ) -> Result<()> {
     if matches!(who, Who::Node { .. })
         && !matches!(
-            open.protocol.as_str(),
-            status::PROTOCOL | tools::PROTOCOL | skills::PROTOCOL | TRANSCRIPT_PROTOCOL
+            protocol,
+            SessionProtocol::Status
+                | SessionProtocol::Tools
+                | SessionProtocol::Skills
+                | SessionProtocol::Transcripts
         )
     {
-        let reason = format!("a node may not open {}", open.protocol);
+        let reason = format!("a node may not open {}", protocol);
         return tx.send(&Opened::Refused { reason }).await;
     }
-    match open.protocol.as_str() {
-        status::PROTOCOL => {
+
+    match protocol {
+        SessionProtocol::Status => {
             tx.send(&Opened::Ready {}).await?;
             peers::status(tx, rx, offers).await
         }
-        version::PROTOCOL => {
+        SessionProtocol::Version => {
             tx.send(&Opened::Ready {}).await?;
             tx.send(&version::Version {
                 version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -507,7 +528,7 @@ pub(crate) async fn serve_open(
             })
             .await
         }
-        tools::PROTOCOL => {
+        SessionProtocol::Tools => {
             tx.send(&Opened::Ready {}).await?;
             let caller = match who {
                 Who::Everything(_) => Caller::local(&offers),
@@ -521,62 +542,65 @@ pub(crate) async fn serve_open(
             };
             peer_tools::serve(tx, rx, caller).await
         }
-        shell::PROTOCOL => {
+        SessionProtocol::Shell => {
             tx.send(&Opened::Ready {}).await?;
             shell::serve(tx, rx).await
         }
-        skills::PROTOCOL if offers.skills.home().is_some() => {
+        SessionProtocol::Skills if offers.skills.home().is_some() => {
             tx.send(&Opened::Ready {}).await?;
             let desktop = !matches!(who, Who::Node { .. });
             let mesh = offers.mesh.get().context("this node is not in a mesh")?;
             crate::agents::skills::serve(tx, rx, offers.skills, mesh, desktop).await
         }
-        tasks::PROTOCOL => {
+        SessionProtocol::Tasks => {
             tx.send(&Opened::Ready {}).await?;
             tasks::serve(tx, rx).await
         }
-        terminal::PROTOCOL => {
+        SessionProtocol::Terminal => {
             tx.send(&Opened::Ready {}).await?;
             terminal::serve(tx, rx).await
         }
-        sign_in::PROTOCOL => {
+        SessionProtocol::SignIn => {
             tx.send(&Opened::Ready {}).await?;
             crate::machine::sign_in::serve(tx, rx).await
         }
-        tool_update::CHECK if let Some(provision) = &offers.provision => {
+        SessionProtocol::ToolCheck if let Some(provision) = &offers.provision => {
             tx.send(&Opened::Ready {}).await?;
             provision.serve_tool_checks(tx, rx).await
         }
-        tool_update::PROTOCOL | tool_update::FLSH if let Some(provision) = &offers.provision => {
+        SessionProtocol::ToolUpdate | SessionProtocol::FlshUpdate
+            if let Some(provision) = &offers.provision =>
+        {
             tx.send(&Opened::Ready {}).await?;
             provision.serve_updates(tx, rx).await
         }
-        beep_proto::node::events::PROTOCOL => {
+        SessionProtocol::Events => {
             tx.send(&Opened::Ready {}).await?;
             super::events::serve(tx, rx, offers, who.id()).await
         }
-        agent::SESSION_FOLLOW_PROTOCOL => {
+        SessionProtocol::AgentFollow => {
             tx.send(&Opened::Ready {}).await?;
             crate::agents::serve_follow(tx, rx, offers.agents).await
         }
-        TRANSCRIPT_PROTOCOL => {
+        SessionProtocol::Transcripts => {
             tx.send(&Opened::Ready {}).await?;
             crate::agents::serve_transcripts(tx, rx, offers.agents).await
         }
-        agent::SESSIONS_PROTOCOL => {
+        SessionProtocol::Agents => {
             tx.send(&Opened::Ready {}).await?;
             crate::agents::serve_sessions(tx, rx, offers.agents, who.id()).await
         }
-        other => match offers.agents.kind(other) {
+        other => match offers.agents.kind(other.as_ref()) {
             Some(kind) => {
                 tx.send(&Opened::Ready {}).await?;
                 crate::agents::serve_session(tx, rx, offers.agents, kind).await
             }
             None => {
-                if let Some(protocol) = offers.extra.iter().find(|p| p.name() == other) {
+                if let Some(protocol) = offers.extra.iter().find(|p| p.name() == other.as_ref()) {
                     tx.send(&Opened::Ready {}).await?;
                     return protocol.serve(tx, rx).await;
                 }
+
                 let reason = format!("this node does not offer {other}");
                 tx.send(&Opened::Refused { reason }).await
             }

@@ -135,12 +135,14 @@ impl Followed {
 
     fn remove(&self, window: &str, project_id: Option<Uuid>) {
         let mut tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
+
         for following in tasks.iter_mut() {
             if project_id.is_none_or(|id| following.project_id == id) {
                 following.windows.remove(window);
                 following.selected.remove(window);
             }
         }
+
         tasks.retain(|following| !following.windows.is_empty());
         self.pending
             .lock()
@@ -166,6 +168,7 @@ impl Followed {
             let already_owned = tasks.iter().any(|following| {
                 following.project_id == project_id && following.windows.contains(window)
             });
+
             if !already_owned {
                 if tasks
                     .iter()
@@ -180,8 +183,10 @@ impl Followed {
                         oldest.windows.remove(window);
                         oldest.selected.remove(window);
                     }
+
                     tasks.retain(|following| !following.windows.is_empty());
                 }
+
                 if let Some(following) = tasks
                     .iter_mut()
                     .find(|following| following.project_id == project_id)
@@ -196,6 +201,7 @@ impl Followed {
                     });
                 }
             }
+
             if let Some(run) = self
                 .pending
                 .lock()
@@ -266,6 +272,7 @@ pub fn follow_project_run(
             "invalid run host".into(),
         ));
     }
+
     followed.select(
         window.label(),
         project_id,
@@ -299,6 +306,7 @@ pub(crate) fn changed(app: AppHandle) -> impl Fn(Changed) + Send + Sync + 'stati
                 app.clone(),
                 beep_proto::node::events::Topic::new("usage"),
             );
+
             if let Err(e) = app.emit(USAGE_CHANGED, ()) {
                 log::debug!("the usage pill missed an update: {e}");
             }
@@ -311,6 +319,7 @@ async fn poll(app: AppHandle, fleet: Arc<beep_fleet::Session>, project_id: Uuid,
     let mut before_lists = None;
     let mut before_runs = None;
     let mut ticks = interval(POLL_EVERY);
+
     loop {
         ticks.tick().await;
         let (lists, runs) = tokio::join!(fleet.lists(&project, true), fleet.runs(&project, true));
@@ -337,6 +346,7 @@ async fn poll(app: AppHandle, fleet: Arc<beep_fleet::Session>, project_id: Uuid,
                 false
             }
         };
+
         if lists_changed || runs_changed || !app.state::<Followed>().selected(project_id).is_empty()
         {
             emit(
@@ -359,6 +369,7 @@ async fn poll(app: AppHandle, fleet: Arc<beep_fleet::Session>, project_id: Uuid,
 async fn follow(app: AppHandle, beep: Arc<Beep>, project_id: Uuid) {
     let mut backoff = Backoff::eager();
     let mut again = false;
+
     loop {
         let mut replies = match beep.stream(WatchProject { project_id }).await {
             Ok(replies) => replies,
@@ -382,6 +393,7 @@ async fn follow(app: AppHandle, beep: Arc<Beep>, project_id: Uuid) {
                 continue;
             }
         };
+
         loop {
             match replies.next().await {
                 Ok(Some(change)) => {
@@ -393,6 +405,7 @@ async fn follow(app: AppHandle, beep: Arc<Beep>, project_id: Uuid) {
                         row.runs = true;
                         again = false;
                     }
+
                     emit(&app, &row);
                 }
                 Ok(None) => break,
@@ -415,7 +428,9 @@ pub(crate) async fn emit_snapshot(app: &AppHandle, mut row: LiveRow) {
     if !app.state::<Followed>().contains(row.project_id) {
         return;
     }
+
     let args = serde_json::json!({ "projectId": row.project_id });
+
     if row.lists {
         match crate::projects::runs::center_project_lists(
             app.state(),
@@ -437,6 +452,7 @@ pub(crate) async fn emit_snapshot(app: &AppHandle, mut row: LiveRow) {
             )),
         }
     }
+
     if row.runs {
         match crate::projects::runs::center_project_runs(
             app.state(),
@@ -482,15 +498,18 @@ pub(crate) async fn emit_snapshot(app: &AppHandle, mut row: LiveRow) {
             }
         }
     }
+
     if !app.state::<Followed>().contains(row.project_id) {
         return;
     }
+
     let machine = app.state::<Arc<crate::fleet::Fleet>>().id();
     app.state::<crate::fleet::events::Events>().publish_views(
         machine,
         beep_proto::node::events::Topic::keyed("forge", row.project_id.to_string()),
         serde_json::json!({ "views": row.views }),
     );
+
     if let Err(e) = app.emit("project-live", row) {
         log::debug!("the project page missed an update: {e}");
     }

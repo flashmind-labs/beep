@@ -233,6 +233,7 @@ async fn tool(offers: &Offers, session: &str, tool: Tool, args: Value) -> (bool,
         args: args.to_string(),
         approved: Default::default(),
     };
+
     match call(offers, &request).await {
         Reply::Done { text, failed } => (failed, text),
         other => panic!("not done: {other:?}"),
@@ -264,6 +265,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
             .expect("a session starts")
     };
     let (mine, theirs) = (start("mine"), start("theirs"));
+
     for session in [&mine, &theirs] {
         let mut live = session.live.clone();
         tokio::time::timeout(
@@ -274,6 +276,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
         .expect("the session settles")
         .expect("the session is kept");
     }
+
     let (mine, theirs) = (Agents::name_of(&mine), Agents::name_of(&theirs));
 
     // `wait` returns the answer once the child's turn ends.
@@ -330,6 +333,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
         let (failed, text) = tool(&offers, &theirs, tool_name, json!({ "id": done.id })).await;
         assert!(failed && text.starts_with("You have no agent"), "{text}");
     }
+
     let (failed, _) = tool(
         &offers,
         &theirs,

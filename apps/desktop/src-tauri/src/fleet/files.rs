@@ -121,6 +121,7 @@ impl PeerShell {
             };
             self.projection = Some((script, output));
         }
+
         Ok(self)
     }
 }
@@ -137,6 +138,7 @@ impl Shell for PeerShell {
                 output: output.output.clone(),
             });
         }
+
         let script = for_machine(script, self.windows);
         let Exec {
             exit_code,
@@ -233,9 +235,11 @@ pub(crate) async fn write(
         ))
         .into());
     }
+
     if write.data.len() > AGENT_FILE_CHUNK {
         return Err(ApiError::bad_request("A part of the file is too large.").into());
     }
+
     let client = fleet.client(machine).await?;
     let part = WorkWrite {
         root: write.root,
@@ -295,6 +299,7 @@ pub(crate) async fn found_on(
                 fleet.name_of(machine)
             );
         }
+
         let folders = sessions::found_folders(&client, FOLDERS_PER_MACHINE)
             .await
             .map_err(|e| e.to_string())?;

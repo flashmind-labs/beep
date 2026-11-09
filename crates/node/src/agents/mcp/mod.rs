@@ -145,9 +145,11 @@ impl Invocation {
     {
         let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
         let [flag, dir, command, session_flag, session] = <[OsString; 5]>::try_from(args).ok()?;
+
         if flag != "--dir" || command != "mcp" || session_flag != "--session" || dir.is_empty() {
             return None;
         }
+
         let session = session.into_string().ok().filter(|id| !id.is_empty())?;
         Some(Self {
             dir: PathBuf::from(dir),
@@ -193,12 +195,15 @@ impl Backend for Node {
         if request.tool == Tool::HarnessInfo {
             return Ok(harness::call(&self.offers, request).await);
         }
+
         if review::handles(request.tool) {
             return Ok(review::call(&self.offers, request).await);
         }
+
         if children::handles(request.tool) {
             return Ok(children::call(&self.offers, request).await);
         }
+
         if debug::handles(request.tool) {
             return Ok(debug::call(&self.offers, request).await);
         }
@@ -211,9 +216,11 @@ impl Backend for Node {
                 failed: true,
             });
         };
+
         if let Some(refused) = machines::run_here(&mesh, request) {
             return Ok(refused);
         }
+
         Ok(machines::call(&self.offers, &mesh, request).await)
     }
 
@@ -255,14 +262,17 @@ pub async fn listen(launch: Arc<Launch>, offers: Offers) -> Result<()> {
     offers.agents.serve_mesh(offers.mesh.clone());
     let node = Arc::new(Node { offers });
     let mut connections = JoinSet::new();
+
     loop {
         tokio::select! {
             stream = listener.accept() => {
                 let stream = stream?;
+
                 if connections.len() >= MAX_CONNECTIONS {
                     log::warn!("refused an MCP connection: {MAX_CONNECTIONS} already open");
                     continue;
                 }
+
                 connections.spawn(connection(launch.clone(), node.clone(), stream));
             }
             Some(ended) = connections.join_next() => match ended {
@@ -294,19 +304,23 @@ async fn connection(
     if line.trim().is_empty() {
         return Ok(());
     }
+
     let hello: Hello = serde_json::from_str(&line).context("not an MCP hello")?;
+
     if !launch.verify(&hello.session, &hello.token) {
         bail!(
             "refused an MCP connection for session {}: wrong token",
             hello.session
         );
     }
+
     if !node.offers.agents.runs(&hello.session) {
         bail!(
             "refused an MCP connection: session {} does not run",
             hello.session
         );
     }
+
     log::debug!("MCP connection for session {}", hello.session);
     server::serve(node.as_ref(), &hello.session, reader, write).await
 }

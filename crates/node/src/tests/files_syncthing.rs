@@ -73,12 +73,14 @@ async fn fake_api(folders: serde_json::Value) -> (SocketAddr, AbortOnDropHandle<
             };
             let mut request = Vec::new();
             let mut buf = [0; 1024];
+
             while !request.windows(4).any(|w| w == b"\r\n\r\n") {
                 match stream.read(&mut buf).await {
                     Ok(0) | Err(_) => break,
                     Ok(n) => request.extend_from_slice(&buf[..n]),
                 }
             }
+
             let text = String::from_utf8_lossy(&request).to_ascii_lowercase();
             let allowed = text.starts_with("get /rest/config/folders http/1.0\r\n")
                 && text.contains(&format!("x-api-key: {}", KEY.to_ascii_lowercase()));

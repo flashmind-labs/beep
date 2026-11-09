@@ -22,6 +22,7 @@ export async function loadResearches() {
 export async function research(topic: string) {
   topic = topic.trim();
   if (!topic) return;
+
   try {
     const id = await invoke<string>("research_begin", { topic });
     RESEARCHES.add(id);
@@ -56,6 +57,7 @@ export async function loadResearchList() {
   } catch (e) {
     RL.error = String(e);
   }
+
   if (S.view === "research") drawResearches();
 }
 
@@ -75,6 +77,7 @@ export function drawResearches() {
   const field = `<div class="dinput"><input id="rtopic" placeholder="What should the team research?" autocomplete="off" spellcheck="false"><kbd>⌘R</kbd></div>`;
   const empty = RL.loaded && !RL.list.length;
   let list, keys;
+
   if (empty) {
     // A paper's icon, as a research shows in the window's sidebar.
     list = emptyPage(ICON.doc, "No research yet.", "A team of agents digs into a question and writes it up as a paper.");
@@ -95,6 +98,7 @@ export function drawResearches() {
       : RL.mode === "actions" ? [["tab", "hide actions"], ["esc", "back"]]
       : [["↑↓", "move"], [ICON.ret, "open"], ["tab", "actions"], ["esc", "back"]];
   }
+
   bar.innerHTML = field + head + errLine(RL.error) + list + hints(keys);
   if (!empty) bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   const input = $$<HTMLInputElement>("#rtopic");
@@ -117,8 +121,10 @@ export function researchClick(e: MouseEvent) {
 export async function researchListAction(a: string) {
   const r = RL.list[RL.sel];
   if (!r) return;
+
   try {
     if (a === "open") return await invoke("open_research", { session: r.session });
+
     if (a === "pdf") {
       const to = await invoke<string>("export_research", { session: r.session });
       RL.error = "";
@@ -141,11 +147,14 @@ export function researchShortcut() {
 
 export function researchKeys(e: KeyboardEvent) {
   const typed = $<HTMLInputElement>("#rtopic")?.value.trim();
+
   if (e.key === "Enter" && !e.isComposing) {
     e.preventDefault();
     return typed ? research(typed) : researchListAction("open");
   }
+
   if (typed) return;
+
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();
     RL.sel = Math.max(0, Math.min(RL.list.length - 1, RL.sel + (e.key === "ArrowDown" ? 1 : -1)));

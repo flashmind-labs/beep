@@ -19,12 +19,15 @@ pub(crate) enum UrlError {
 /// The URL when it is https without credentials and every address of its host is public.
 pub(crate) async fn check_url(url: &str) -> Result<Url, UrlError> {
     let url = Url::parse(url.trim()).map_err(|_| UrlError::NotHttps)?;
+
     if url.scheme() != "https" || url.host_str().is_none() {
         return Err(UrlError::NotHttps);
     }
+
     if !url.username().is_empty() || url.password().is_some() {
         return Err(UrlError::Credentials);
     }
+
     let host = url.host_str().ok_or(UrlError::NotHttps)?;
     let host = host.trim_start_matches('[').trim_end_matches(']');
     let port = url.port_or_known_default().unwrap_or(443);
@@ -36,9 +39,11 @@ pub(crate) async fn check_url(url: &str) -> Result<Url, UrlError> {
     if addrs.is_empty() {
         return Err(UrlError::Unresolved);
     }
+
     if !addrs.into_iter().all(is_public) {
         return Err(UrlError::Private);
     }
+
     Ok(url)
 }
 
@@ -50,6 +55,7 @@ pub(super) fn is_public(ip: IpAddr) -> bool {
             if let Some(v4) = ip.to_ipv4_mapped() {
                 return public_v4(v4);
             }
+
             let first = ip.segments()[0];
             let global_unicast = first & 0xe000 == 0x2000;
             let documentation = first == 0x2001 && ip.segments()[1] == 0x0db8;

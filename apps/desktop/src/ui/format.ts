@@ -13,11 +13,13 @@ export const switchHtml = (on: unknown, label: string, attrs = "") =>
 /// an address belongs to the sentence.
 export function linkified(s: string) {
   let html = "", last = 0;
+
   for (const m of s.matchAll(/https?:\/\/[^\s<>"']+/g)) {
     const url = m[0].replace(/[.,;:!?)\]]+$/, "");
     html += `${esc(s.slice(last, m.index))}<a href="${esc(url)}">${esc(url)}</a>`;
     last = m.index + url.length;
   }
+
   return html + esc(s.slice(last));
 }
 
@@ -74,9 +76,11 @@ export function tokenCount(n: number) {
 export function isNewer(latest: string, current: string) {
   const nums = (v: string) => v.split(/[-+]/)[0].split(".").map(n => Number.parseInt(n, 10) || 0);
   const a = nums(latest), b = nums(current);
+
   for (let i = 0; i < Math.max(a.length, b.length); i++) {
     const x = a[i] ?? 0, y = b[i] ?? 0;
     if (x !== y) return x > y;
   }
+
   return false;
 }

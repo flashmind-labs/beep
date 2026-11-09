@@ -36,9 +36,11 @@ pub(crate) trait Visit {
 pub(crate) fn pick<T: Sample>(k: usize, more: &mut bool) -> T {
     let mut samples = T::samples();
     assert!(!samples.is_empty(), "a type with no samples");
+
     if k + 1 < samples.len() {
         *more = true;
     }
+
     let i = k % samples.len();
     samples.swap_remove(i)
 }
@@ -52,6 +54,7 @@ macro_rules! sample_each {
             #[allow(unused_mut)]
             let mut more = false;
             $out.push($($ctor)+ { $($field: $crate::compat::pick(k, &mut more)),* });
+
             if !more {
                 break;
             }
@@ -190,6 +193,7 @@ struct Fixtures {
 impl Fixtures {
     fn load(dir: PathBuf, bless: bool) -> Self {
         let mut files = BTreeMap::new();
+
         if let Ok(entries) = fs::read_dir(&dir) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().into_owned();
@@ -252,9 +256,11 @@ impl Visit for Fixtures {
                     R::OP
                 ));
             }
+
             return;
         };
         self.used.insert(name.clone());
+
         if let Err(e) = http::decode::<Vec<R>>(&self.files[&name]) {
             self.problems.push(format!(
                 "named/{name}: released apps send this, and it no longer decodes ({e}). \
@@ -270,9 +276,11 @@ fn released_apps_requests_still_decode() {
     let mut fixtures = Fixtures::load(fixtures_dir(), bless);
     each_request(&mut fixtures);
     fixtures.check_leftovers();
+
     for name in &fixtures.written {
         println!("wrote tests/wire/named/{name}");
     }
+
     assert!(
         fixtures.problems.is_empty(),
         "\n{}\n",

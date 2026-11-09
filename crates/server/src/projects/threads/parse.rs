@@ -40,6 +40,7 @@ pub(crate) fn needs_reply(comments: &[ThreadComment], me: &str) -> bool {
             .map(|c| c.at)
             .max()
     };
+
     match (newest(false), newest(true)) {
         (None, _) => false,
         (Some(_), None) => true,
@@ -122,6 +123,7 @@ pub(super) fn thread_from(value: &Value) -> Result<Thread> {
         ThreadKind::Issue
     };
     let mut comments: Vec<ThreadComment> = Vec::new();
+
     for (key, at) in [("comments", "createdAt"), ("reviews", "submittedAt")] {
         for item in value
             .get(key)
@@ -137,6 +139,7 @@ pub(super) fn thread_from(value: &Value) -> Result<Thread> {
             });
         }
     }
+
     comments.sort_by_key(|c| c.at);
     Ok(Thread {
         kind,

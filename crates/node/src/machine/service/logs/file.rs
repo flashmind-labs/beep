@@ -24,9 +24,11 @@ struct LogFiles {
 #[cfg(target_os = "linux")]
 fn files(_cutoff: i64) -> Result<LogFiles> {
     use crate::machine::service::initd::{LOG, SCRIPT};
+
     if !std::path::Path::new(SCRIPT).exists() {
         bail!("the node's service is not installed here: there is no {SCRIPT}");
     }
+
     Ok(LogFiles {
         older: Vec::new(),
         current: PathBuf::from(LOG),
@@ -37,12 +39,14 @@ fn files(_cutoff: i64) -> Result<LogFiles> {
 fn files(_cutoff: i64) -> Result<LogFiles> {
     use crate::machine::service::launchd::{log_path, plist_path};
     let plist = plist_path()?;
+
     if !plist.exists() {
         bail!(
             "the node's service is not installed here: there is no {}",
             plist.display()
         );
     }
+
     Ok(LogFiles {
         older: Vec::new(),
         current: log_path()?,
@@ -52,9 +56,11 @@ fn files(_cutoff: i64) -> Result<LogFiles> {
 #[cfg(windows)]
 fn files(cutoff: i64) -> Result<LogFiles> {
     use crate::machine::service::windows::{LOG_NAME, installed, log_dir};
+
     if !installed() {
         bail!("the node's service is not installed here: there is no scheduled task for it");
     }
+
     let dir = log_dir()?;
     let stem = LOG_NAME.trim_end_matches(".log");
     let entries = fs::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))?;
@@ -87,27 +93,34 @@ fn modified(metadata: &fs::Metadata) -> Option<i64> {
 
 pub(super) fn read(options: &LogOptions, printer: &mut Printer<impl Write>) -> Result<()> {
     let files = files(cutoff(options.since))?;
+
     for path in &files.older {
         let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
         let mut pending = Vec::new();
         drain(&mut BufReader::new(file), &mut pending, printer)?;
+
         if !pending.is_empty() {
             printer.bytes(&pending)?;
         }
     }
+
     let current = &files.current;
     let file = File::open(current).with_context(|| format!("opening {}", current.display()))?;
     let mut reader = BufReader::new(file);
     let mut pending = Vec::new();
     let mut read = drain(&mut reader, &mut pending, printer)?;
+
     if !options.follow {
         if !pending.is_empty() {
             printer.bytes(&pending)?;
         }
+
         printer.caught_up()?;
         return Ok(());
     }
+
     printer.caught_up()?;
+
     loop {
         thread::sleep(POLL);
         let len = match fs::metadata(current) {
@@ -125,6 +138,7 @@ pub(super) fn read(options: &LogOptions, printer: &mut Printer<impl Write>) -> R
         } else if len == read {
             continue;
         }
+
         reader.seek(SeekFrom::Start(read))?;
         read += drain(&mut reader, &mut pending, printer)?;
         printer.out.flush()?;
@@ -139,12 +153,15 @@ fn drain(
     printer: &mut Printer<impl Write>,
 ) -> Result<u64> {
     let mut read = 0;
+
     loop {
         let n = reader.read_until(b'\n', pending)?;
+
         if n == 0 {
             return Ok(read);
         }
         read += u64::try_from(n).context("a line longer than memory")?;
+
         if pending.ends_with(b"\n") {
             printer.bytes(pending)?;
             pending.clear();

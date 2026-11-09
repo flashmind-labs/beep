@@ -54,6 +54,7 @@ async function collect() {
   update({ type: "collect" });
   if (state.step !== "collecting") return;
   const asked = opening;
+
   try {
     const draft = await invoke<Draft>("report_collect", { period: state.period });
     answer(asked, { type: "collected", draft });
@@ -67,6 +68,7 @@ async function send() {
   update({ type: "send" });
   if (!draft || state.step !== "sending") return;
   const asked = opening;
+
   try {
     const sent = await invoke<Sent>("report_send", { draft, text: state.text });
     if (asked !== opening) return;
@@ -85,6 +87,7 @@ function issueArgs() {
 
 async function loadIssueText() {
   const asked = opening;
+
   try {
     const text = await invoke<string>("report_issue_text", issueArgs());
     if (asked !== opening) return;
@@ -98,6 +101,7 @@ async function loadIssueText() {
 async function openIssue(b: HTMLButtonElement) {
   b.disabled = true;
   const asked = opening;
+
   try {
     answer(asked, { type: "issued", url: await invoke<string>("report_issue", issueArgs()) });
   } catch (e) {

@@ -79,6 +79,7 @@ impl WaitingList {
     /// Replaces the list; true when it changed.
     fn set(&self, entries: Vec<Entry>) -> bool {
         let mut slot = self.slot();
+
         if *slot == entries {
             return false;
         }
@@ -149,9 +150,11 @@ fn chat_label(app: &str, action: &str) -> String {
 /// `text` on one line, cut to `LABEL_MAX` characters.
 fn shorten(text: &str) -> String {
     let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+
     if line.chars().count() <= LABEL_MAX {
         return line;
     }
+
     let mut cut: String = line.chars().take(LABEL_MAX - 1).collect();
     cut.truncate(cut.trim_end().len());
     cut.push('…');
@@ -183,6 +186,7 @@ pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
     list.poke();
     let mut wait = EVERY;
+
     loop {
         // Timing out is the usual way round: nothing poked.
         let _ = timeout(wait, list.wake.notified()).await;

@@ -87,10 +87,13 @@ fn own_updater(agent: &str) -> Option<&'static [&'static str]> {
 /// knows how to update it.
 pub(super) fn method(agent: &str, cli: &Path, npm: &Npm) -> Option<Method> {
     let real = paths::canonicalize(cli).unwrap_or_else(|_| cli.to_path_buf());
+
     if let Some(brew) = brew_keg(&real) {
         return Some(brew);
     }
+
     let package = harness(agent).and_then(|known| known.npm);
+
     if let Some(package) = package {
         let linked = npm
             .global
@@ -100,6 +103,7 @@ pub(super) fn method(agent: &str, cli: &Path, npm: &Npm) -> Option<Method> {
             return Some(Method::Npm);
         }
     }
+
     own_updater(agent).map(|_| Method::Own)
 }
 
@@ -153,9 +157,11 @@ impl Step {
 impl fmt::Display for Step {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.program)?;
+
         for arg in &self.args {
             write!(f, " {arg}")?;
         }
+
         Ok(())
     }
 }
@@ -276,24 +282,31 @@ pub(super) async fn run(
             "this node knows no way to install or update {agent}; install npm, or update it by hand"
         );
     }
+
     let deadline = Instant::now() + budget;
     let mut failed: Vec<Failed<'_>> = Vec::new();
+
     for step in steps {
         let left = deadline.saturating_duration_since(Instant::now());
+
         if left.is_zero() {
             break;
         }
+
         log::info!("updating {agent}: {step}");
         let ran = runner.run(step, left).await;
+
         if ran.ok {
             return Ok(());
         }
+
         log::warn!("updating {agent}: {step} failed");
         failed.push(Failed {
             step,
             output: clean_output(&ran.output),
         });
     }
+
     bail!("{}", failure_message(&failed))
 }
 
@@ -307,10 +320,12 @@ fn failure_message(failed: &[Failed<'_>]) -> String {
     } else {
         format!("{} failed: {why}", last.step.short())
     };
+
     if failed.len() > 1 {
         let tried: Vec<String> = failed.iter().map(|f| f.step.short()).collect();
         line.push_str(&format!(" (tried {})", tried.join(", then ")));
     }
+
     let details: Vec<String> = failed
         .iter()
         .map(|f| {
@@ -328,9 +343,11 @@ fn failure_message(failed: &[Failed<'_>]) -> String {
 /// The last `max` characters of `text`.
 fn last_chars(text: &str, max: usize) -> String {
     let count = text.chars().count();
+
     if count <= max {
         return text.to_owned();
     }
+
     let kept: String = text.chars().skip(count - max).collect();
     format!("…{kept}")
 }

@@ -76,12 +76,14 @@ pub(super) async fn resume(
     let path = env.roots.path(harness, &stored);
     let at = path.clone();
     spawn_blocking(move || store::write(&at, &stored)).await??;
+
     if let Some(agent) = agent {
         let (agents, id) = (env.agents.clone(), arrival.id.to_owned());
         spawn_blocking(move || agents.spend.mark_counted(agent, &id, &path))
             .await?
             .context("marking the copied usage as counted")?;
     }
+
     let cwd = folders.new.to_string_lossy().into_owned();
     let from = env.name_of(&arrival.from);
     let (note, brief) = match arrival.how {
@@ -129,6 +131,7 @@ pub(super) async fn continue_here(
     if harness_of(agent.as_ref()).is_none() {
         bail!("{agent} sessions cannot be continued yet");
     }
+
     let Some(_going) = env.agents.moves.begin_continue(id) else {
         bail!("session {id} is being continued already");
     };
@@ -141,9 +144,11 @@ pub(super) async fn continue_here(
         .await?
         .with_context(|| format!("this machine has no such copy of session {id}"))?
     };
+
     if env.agents.runs(id) {
         bail!("session {id} runs on this machine already");
     }
+
     let kind = env
         .agents
         .named(agent.as_ref())
@@ -151,7 +156,9 @@ pub(super) async fn continue_here(
     if kind.name.parse::<Agent>().ok() == Some(Agent::Flsh) {
         flsh::check(&kind, &env.name_of(&env.mesh.me())).await?;
     }
+
     let folders = continued_folders(env, &meta)?;
+
     if !folders.new.is_dir() {
         bail!(
             "{} has no folder here to continue in: sync the project first",
@@ -164,6 +171,7 @@ pub(super) async fn continue_here(
     // would set it aside where nothing lists it. If the session still does
     // not start, it goes back.
     let mut aside = None;
+
     if let Some(harness) = harness_of(agent.as_ref())
         && let Some(local) = env.agents.transcript_file(harness, id).await
     {
@@ -191,20 +199,24 @@ pub(super) async fn continue_here(
         .context("keeping the transcript this machine has of it")?;
         aside = Some((at, local));
     }
+
     let arrival = Arrival {
         id,
         mode: None,
         from: meta.from,
         how: How::Continued,
     };
+
     if let Err(e) = resume(env, &arrival, &kind, &folders, meta.file_name.clone(), copy).await {
         if let Some((at, local)) = aside {
             let (cache, slug, key) = (env.cache.clone(), agent.clone(), id.to_owned());
             let back = spawn_blocking(move || cache.put_back(&slug, &key, at, &local)).await;
+
             if !back.unwrap_or(false) {
                 log::warn!("the transcript of session {id} stays among the versions kept");
             }
         }
+
         return Err(e);
     }
     // The copy goes, and a note stays of the point it was taken at, so a
@@ -214,6 +226,7 @@ pub(super) async fn continue_here(
         if let Some(at) = lost {
             cache.drop_lost(&agent, &id, at);
         }
+
         cache.remove(&agent, &id, false);
         cache.mark_continued(&agent, &id, meta.last_activity, now_secs())
     })
@@ -230,12 +243,14 @@ fn continued_folders(env: &Env, meta: &Meta) -> Result<Folders> {
     let mine = project_folder(&env.mesh, &meta.project, &env.mesh.me())
         .context("this machine does not keep the project")?;
     let relative = Path::new(&meta.path);
+
     if relative
         .components()
         .any(|part| !matches!(part, Component::Normal(_)))
     {
         bail!("the session's folder is not inside the project");
     }
+
     Ok(Folders {
         old: Path::new(&theirs).join(relative),
         new: Path::new(&mine).join(relative),

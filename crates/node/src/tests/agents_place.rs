@@ -10,6 +10,7 @@ fn a_linked_worktree_is_told_from_the_main_checkout() {
         eprintln!("skipped: no git");
         return;
     }
+
     let root = tempfile::tempdir().expect("a temp folder");
     fs::create_dir_all(root.path().join("proj")).expect("a folder");
     let repo = paths::canonicalize(root.path().join("proj")).expect("a real path");

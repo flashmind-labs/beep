@@ -14,6 +14,7 @@ fn io_error(action: &'static str, path: &Path) -> impl FnOnce(io::Error) -> Erro
             let dir = path.parent().unwrap_or(path).to_owned();
             return Error::NoPermission { dir };
         }
+
         Error::Io {
             action,
             path: path.to_owned(),
@@ -48,10 +49,12 @@ pub(super) fn replace(exe: &Path, binary: &[u8]) -> Result<(), Error> {
     let fresh = staged(exe);
     let written = write_fresh(exe, &fresh, binary);
     let swapped = written.and_then(|()| swap(exe, &fresh));
+
     if swapped.is_err() {
         // Best effort: what matters is the error that stopped the update.
         let _ = fs::remove_file(&fresh);
     }
+
     swapped
 }
 
@@ -105,13 +108,16 @@ fn swap_aside(exe: &Path, fresh: &Path, old: &Path) -> Result<(), Error> {
             });
         }
     }
+
     fs::rename(exe, old).map_err(io_error("moving aside", exe))?;
+
     if let Err(e) = fs::rename(fresh, exe) {
         // Best effort: puts the old binary back, so the machine keeps a
         // beep-node; the error that matters is the failed rename.
         let _ = fs::rename(old, exe);
         return Err(io_error("replacing", exe)(e));
     }
+
     Ok(())
 }
 

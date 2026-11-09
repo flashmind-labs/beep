@@ -23,12 +23,14 @@ export class Closings {
   /// The machine said session `id` ended; true when one was closing.
   ended(id: string, now: number) {
     let any = false;
+
     for (const [key, mark] of this.marks) {
       if (mark.state === "closing" && key.endsWith(`:${id}`)) {
         this.marks.set(key, { state: "ended", at: now });
         any = true;
       }
     }
+
     return any;
   }
 

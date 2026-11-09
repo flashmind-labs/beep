@@ -108,6 +108,7 @@ impl PromptIndex {
             Ok::<(), anyhow::Error>(())
         }
         .await;
+
         if let Err(e) = removed {
             log::warn!("removing a session from the prompt index: {e}");
         }
@@ -119,12 +120,15 @@ impl PromptIndex {
 pub(crate) async fn sent(app: &AppHandle, session: MachineSession, text: &str) {
     let text = own_words(text);
     let text = text.trim().to_owned();
+
     if text.is_empty() {
         return;
     }
+
     let index = app.state::<Arc<PromptIndex>>().inner().clone();
     let saved = index.clone();
     let listed = session.clone();
+
     match spawn_blocking(move || saved.store().append(&listed, &text)).await {
         Ok(Ok(true)) => {
             app.state::<PaletteCache>().remember_session(app, session);
@@ -134,6 +138,7 @@ pub(crate) async fn sent(app: &AppHandle, session: MachineSession, text: &str) {
         Ok(Err(e)) => log::warn!("indexing the sent prompt: {e:#}"),
         Err(e) => log::warn!("indexing the sent prompt stopped: {e}"),
     }
+
     index.changed();
 }
 
@@ -148,12 +153,14 @@ pub(crate) async fn sent_existing(app: &AppHandle, machine: &str, session: &str,
         None => {
             let index = app.state::<Arc<PromptIndex>>().inner().clone();
             let id = format!("{machine} {session}");
+
             match spawn_blocking(move || index.reader().session(&id)).await {
                 Ok(Ok(known)) => known,
                 _ => None,
             }
         }
     };
+
     if let Some(known) = known {
         sent(app, known, text).await;
     }
@@ -162,6 +169,7 @@ pub(crate) async fn sent_existing(app: &AppHandle, machine: &str, session: &str,
 pub(super) async fn follow(app: &AppHandle) {
     let index = app.state::<Arc<PromptIndex>>().inner().clone();
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
+
     loop {
         let sessions = app.state::<PaletteCache>().sessions();
         let mut work = stream::iter(sessions)
@@ -199,14 +207,18 @@ async fn refresh(
     session: MachineSession,
 ) -> anyhow::Result<bool> {
     let machine = session.machine_id.parse()?;
+
     if !fleet.online().contains(&machine) {
         return Ok(false);
     }
+
     let (id, stamp) = (identity(&session), stamp(&session)?);
     let saved = index.clone();
+
     if spawn_blocking(move || saved.store().current(&id, &stamp)).await?? {
         return Ok(false);
     }
+
     let client = fleet.client(machine).await?;
     let read = read_prompts(&client, &session.id).await?;
     let saved = index.clone();
@@ -226,6 +238,7 @@ async fn read_prompts<S: Sessions + ?Sized>(
     let mut before = None;
     let mut prompts = Vec::new();
     let mut complete = false;
+
     loop {
         // Include thoughts in the count so the pagination cursor has the
         // same meaning on every page, then retain only the user's words.
@@ -241,11 +254,13 @@ async fn read_prompts<S: Sessions + ?Sized>(
             _ => bail!("the machine did not return a transcript"),
         };
         let earlier = u64::from(earlier);
+
         if !valid_page(before, earlier, entries.len()) {
             // An older node ignores `before`. Keep the usable latest
             // page instead of repeatedly appending it forever.
             break;
         }
+
         prompts.extend(
             entries
                 .into_iter()
@@ -253,12 +268,14 @@ async fn read_prompts<S: Sessions + ?Sized>(
                 .map(|entry| own_words(&entry.text))
                 .filter(|text| !text.trim().is_empty()),
         );
+
         if earlier == 0 {
             complete = true;
             break;
         }
         before = Some(earlier);
     }
+
     Ok(ReadPrompts {
         texts: prompts,
         complete,

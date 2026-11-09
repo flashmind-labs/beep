@@ -8,6 +8,7 @@
 # capability Docker grants stays available to sudo, which apt needs.
 set -eu
 beep-egress
+
 if [ "$(id -u)" = 0 ]; then
     # A volume from before, or a new one, may be owned by root.
     chown user:user /home/user
@@ -16,4 +17,5 @@ if [ "$(id -u)" = 0 ]; then
         --bounding-set=-net_admin \
         env HOME=/home/user USER=user LOGNAME=user beep-node "$@"
 fi
+
 exec beep-node "$@"

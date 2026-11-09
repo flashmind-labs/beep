@@ -83,6 +83,7 @@ async fn sums_each_users_calls_and_cost() {
     metered.complete(request(None)).count().await;
 
     let mut row = None;
+
     for _ in 0..100 {
         row = sqlx::query("SELECT calls, prompt_tokens, completion_tokens, cost FROM token_usage WHERE user_id='alice'")
                 .fetch_optional(store.pool())
@@ -92,8 +93,10 @@ async fn sums_each_users_calls_and_cost() {
         if row.is_some() {
             break;
         }
+
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+
     let row = row.expect("both calls were saved");
     assert_eq!(row.get::<i64, _>("prompt_tokens"), 2000);
     assert_eq!(row.get::<i64, _>("completion_tokens"), 200);
@@ -113,11 +116,13 @@ async fn the_billed_user_reaches_the_provider() {
 
     let content = billed_to("alice", async {
         let mut stream = metered.complete(request(None));
+
         while let Some(event) = stream.next().await {
             if let Ok(StreamEvent::ContentDelta(text)) = event {
                 return text;
             }
         }
+
         String::new()
     })
     .await;

@@ -105,11 +105,13 @@ fn real_agents_thought_chunks_join_into_one_entry() {
     for chunk in ["\n\n", "**Computing 17 × 23**", "\n\n", "**Checking**"] {
         live.apply_at(&thought(chunk), start);
     }
+
     live.apply_at(&said("Not prime."), start + Duration::from_secs(2));
     // Claude Code's summarized thinking arrives cut mid-word.
     for chunk in ["I'm checking wh", "ether 391 is pr", "ime by factoring it."] {
         live.apply_at(&thought(chunk), start + Duration::from_secs(3));
     }
+
     live.apply_at(
         &update(json!({"sessionUpdate": "tool_call", "toolCallId": "t1",
             "title": "Read notes.md", "kind": "read", "status": "pending"})),
@@ -206,6 +208,7 @@ fn replayed_image_chunks_stay_apart_from_the_text_around_them() {
 #[test]
 fn tool_calls_go_with_their_entries() {
     let mut live = live();
+
     for n in 0..MAX_ENTRIES {
         live.prompted("again");
         live.apply(&update(json!({
@@ -216,6 +219,7 @@ fn tool_calls_go_with_their_entries() {
             "status": "completed",
         })));
     }
+
     live.prompted("once more");
     assert!(
         live.tools.len() <= MAX_ENTRIES / 2 + 1,
@@ -228,6 +232,7 @@ fn tool_calls_go_with_their_entries() {
 fn a_long_turn_releases_tool_records_with_discarded_entries() {
     let mut live = live();
     live.prompted("keep working");
+
     for n in 0..MAX_ENTRIES + 128 {
         let id = format!("t{n}");
         live.apply(&update(json!({
@@ -238,6 +243,7 @@ fn a_long_turn_releases_tool_records_with_discarded_entries() {
         live.codex_threads
             .insert(format!("thread{n}"), ToolCallId::new(id));
     }
+
     assert_eq!(live.transcript.len(), MAX_ENTRIES);
     assert!(live.tools.len() <= MAX_ENTRIES + 63);
     assert!(live.codex_threads.len() <= MAX_ENTRIES + 63);
@@ -432,6 +438,7 @@ fn a_turn_shows_each_tool_image_once_and_a_bounded_few() {
     assert_eq!(agent_lines(&live).len(), 1);
     // The next turn may show as many as the cap.
     live.prompted("look at many");
+
     for n in 0..image_files::MAX_PER_TURN + 2 {
         let mut png = png.clone();
         png.push(u8::try_from(n).expect("a few"));
@@ -439,6 +446,7 @@ fn a_turn_shows_each_tool_image_once_and_a_bounded_few() {
         live.apply(&read_call(&id, &format!("/srv/project/{n}.png")));
         live.apply(&read_done(&id, Some(&png)));
     }
+
     assert_eq!(agent_lines(&live).len(), 1 + image_files::MAX_PER_TURN);
 }
 
@@ -692,35 +700,44 @@ fn a_session_looks_up_its_place_when_a_call_changes_the_folder() {
 #[test]
 fn pages_before_an_entry_cover_a_live_transcript_without_a_gap_or_a_repeat() {
     let mut session = live();
+
     for n in 0..25 {
         session.prompted(&format!("prompt {n}"));
         session.push(EntryKind::Agent, &format!("answer {n}"));
     }
+
     let (all, first) = session.transcript(MAX_ENTRIES);
     assert_eq!((all.len(), first), (50, 0));
 
     let mut seen = Vec::new();
     let mut before = None;
+
     loop {
         let (page, earlier) = session.transcript_before(8, before);
+
         if let Some(end) = before {
             assert_eq!(earlier + page.len() as u64, end);
         }
+
         seen.splice(0..0, page);
+
         if earlier == 0 {
             break;
         }
         before = Some(earlier);
     }
+
     assert_eq!(seen, all);
 }
 
 #[test]
 fn a_page_before_what_the_session_dropped_is_empty_and_says_where_the_rest_starts() {
     let mut session = live();
+
     for n in 0..MAX_ENTRIES + 10 {
         session.push(EntryKind::Agent, &format!("answer {n}"));
     }
+
     let (page, earlier) = session.transcript_before(5, Some(4));
     assert!(page.is_empty());
     assert_eq!(earlier, 10);
@@ -921,6 +938,7 @@ fn a_replayed_compaction_summary_does_not_name_the_session() {
         update(json!({"sessionUpdate": "user_message_chunk",
             "content": {"type": "text", "text": text}}))
     };
+
     for title in [None, Some("Saved name")] {
         for pieces in [
             vec![
@@ -933,10 +951,12 @@ fn a_replayed_compaction_summary_does_not_name_the_session() {
             ],
         ] {
             let mut session = title.map_or_else(live, live_titled);
+
             for piece in pieces {
                 session.apply(&chunk(piece));
                 assert_eq!(session.info.title.as_deref(), title);
             }
+
             session.apply(&said("Continuing."));
             session.apply(&chunk("Fix the build"));
             assert_eq!(

@@ -265,9 +265,11 @@ fn stopped() -> Result<impl Future<Output = ()>> {
 /// async workers that do can hold it.
 fn exit_after(limit: Duration) {
     static ARMED: AtomicBool = AtomicBool::new(false);
+
     if ARMED.swap(true, Ordering::SeqCst) {
         return;
     }
+
     let spawned = thread::Builder::new()
         .name("stop-deadline".to_owned())
         .spawn(move || {
@@ -314,8 +316,7 @@ fn signal() -> Result<impl Future<Output = &'static str>> {
 /// The log filter unless `RUST_LOG` says otherwise: the node at info, the
 /// networking crates under it (iroh, its QUIC and port mapping) only when
 /// something goes wrong, since they log every packet path at info.
-const LOG_FILTER: &str =
-    "info,iroh=warn,noq=warn,n0=warn,netwatch=warn,netdev=warn,portmapper=warn,igd_next=warn";
+const LOG_FILTER: &str = "info,iroh=warn,noq=warn,n0=warn,netwatch=warn,netdev=warn,portmapper=warn,igd_next=warn,notify::inotify=warn";
 
 /// Logs to stderr, or to `log_file` when given, a new one each day.
 fn start_logging(log_file: Option<&Path>) -> Result<()> {
@@ -359,6 +360,7 @@ async fn run() -> Result<()> {
         Some(dir) => dir,
         None => state::default_dir()?,
     };
+
     match cli.command {
         Command::Setup { args: _ } => anyhow::bail!(
             "`beep-node setup` is retired: machines no longer link to a server. Join this \
@@ -369,9 +371,11 @@ async fn run() -> Result<()> {
             MeshAction::Join { ticket, search } => {
                 // Refused before the ticket is spent.
                 let search = search.as_deref().map(state::Search::from);
+
                 if let Some(search) = &search {
                     search.existing_root().context("--search")?;
                 }
+
                 let ticket = if ticket == "-" {
                     let mut text = String::new();
                     tokio::io::AsyncReadExt::read_to_string(&mut tokio::io::stdin(), &mut text)
@@ -402,10 +406,13 @@ async fn run() -> Result<()> {
                         }
                     }
                 }
+
                 peers::join_when_up(&dir, &ticket, peers::START_LIMIT).await?;
+
                 if let Some(search) = &search {
                     state::save_search(&dir, search)?;
                 }
+
                 println!("Joined. The node picked it up.");
                 Ok(())
             }
@@ -413,6 +420,7 @@ async fn run() -> Result<()> {
                 for line in peers::devices(&dir).await? {
                     println!("{line}");
                 }
+
                 Ok(())
             }
             MeshAction::Leave => peers::leave(&dir).await,
@@ -427,9 +435,11 @@ async fn run() -> Result<()> {
                     None
                 }
             };
+
             if !cli.with_parent {
                 return link::serve(state, cli.workspace.as_deref(), stop).await;
             }
+
             let parent = service::parent_exited();
             let stop = async move {
                 tokio::pin!(stop);
@@ -502,6 +512,7 @@ async fn run() -> Result<()> {
                         .unwrap_or_default()
                 );
             }
+
             Ok(())
         }
         Command::Logs {

@@ -14,9 +14,11 @@ fn a_session_keeps_only_its_newest_pictures() {
     let images = Images::default();
     let first = png(0, 64);
     images.keep("a1", first.clone());
+
     for fill in 1..=u8::try_from(SESSION_IMAGES).unwrap() {
         images.keep("a1", png(fill, 64));
     }
+
     assert_eq!(images.get("a1", &image_key(&first.data)), None);
     let newest = png(u8::try_from(SESSION_IMAGES).unwrap(), 64);
     assert!(images.get("a1", &image_key(&newest.data)).is_some());
@@ -32,9 +34,11 @@ fn all_sessions_together_stay_under_the_overall_limit() {
     let images = Images::default();
     let first = png(0, 64);
     images.keep("s0", first.clone());
+
     for n in 1..=MAX_IMAGES {
         images.keep(&format!("s{n}"), png(1, 64 + n));
     }
+
     assert_eq!(images.get("s0", &image_key(&first.data)), None);
     assert_eq!(lock(&images.kept).held.len(), MAX_IMAGES);
     let big = png(2, SESSION_BYTES + 1);
@@ -55,9 +59,11 @@ fn new_pictures_wait_for_the_server_a_bounded_few() {
         images.next_unsent().now_or_never().is_none(),
         "a picture the session had, or one only kept, is not sent"
     );
+
     for n in 0..MAX_UNSENT + 2 {
         images.keep_and_send(&format!("s{n}"), png(2, 64 + n));
     }
+
     let oldest = images.next_unsent().now_or_never().expect("waiting");
     assert_eq!(oldest.session, "s2", "the oldest went");
 }

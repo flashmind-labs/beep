@@ -78,6 +78,7 @@ export async function routeRow(turn: Turn, callId: string) {
   card.pick = 0;
   card.open = new Set();
   sentBox(turn).append(card);
+
   try {
     card.route = await invoke<RouteCard>("route_card", { callId });
     drawRoute(card);
@@ -101,6 +102,7 @@ export function drawRoute(card: RouteCardEl) {
       const km = l.meters >= 1000 ? `, ${(l.meters / 1000).toFixed(1)} km` : "";
       return `<div class="dmuted"><span class="rw">${ROUTE_WALK}</span>Walk ${l.minutes} min${km} to ${esc(l.to || "destination")}</div>`;
     }
+
     const color = l.color || "var(--accent)", badge = l.line || l.name || l.mode;
     const key = `${card.pick}:${i}`, open = card.open.has(key), between = l.between ?? [];
     const label = `${l.stops} stop${l.stops > 1 ? "s" : ""}`;
@@ -178,18 +180,23 @@ interface Box {
 /// one station shares one label.
 export function routeLabels(rides: RouteLeg[], at: (p: RoutePoint) => number[], W: number, H: number) {
   const labels: Label[] = [];
+
   for (const l of rides) {
     const color = l.color || "var(--accent)";
+
     for (const [p, name, code] of [[l.points[0], l.from, l.from_code], [l.points.at(-1)!, l.to, l.to_code]] as const) {
       const [x, y] = at(p);
       const near = labels.find(b => Math.hypot(b.x - x, b.y - y) < 18);
+
       if (near) {
         if (code && !near.codes.some(c => c[0] === code)) near.codes.push([code, color]);
         continue;
       }
+
       if (name) labels.push({ x, y, name, codes: code ? [[code, color]] : [] });
     }
   }
+
   const placed: Box[] = [];
   const hits = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   return labels.map(b => {
@@ -214,16 +221,20 @@ export function routeClick(e: MouseEvent) {
   const t = e.target as HTMLElement;
   const card = t.closest<RouteCardEl>(".droute")!;
   const stops = t.closest<HTMLElement>("[data-stops]");
+
   if (stops) {
     const key = stops.dataset.stops!;
     if (!card.open.delete(key)) card.open.add(key);
     return drawRoute(card);
   }
+
   const pick = t.closest<HTMLElement>("[data-route]");
+
   if (pick) {
     card.pick = +pick.dataset.route!;
     return drawRoute(card);
   }
+
   const r = card.route.routes[card.pick], pts = r.legs.flatMap(l => l.points);
   if (!pts.length) return;
   const at = (p: RoutePoint) => `${p.latitude},${p.longitude}`;

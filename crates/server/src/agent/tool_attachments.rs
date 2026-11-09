@@ -42,17 +42,21 @@ fn carries_tool_parts(messages: &[Message], index: usize) -> bool {
 /// Replaces all but the newest `SHOWN` tool attachments with a note.
 fn keep_recent(messages: &mut [Message]) {
     let mut shown = 0;
+
     for index in (0..messages.len()).rev() {
         if !carries_tool_parts(messages, index) {
             continue;
         }
+
         let Some(parts) = messages[index].parts.as_mut() else {
             continue;
         };
+
         for part in parts.iter_mut().rev() {
             if matches!(part, ContentPart::Text { .. }) {
                 continue;
             }
+
             if shown < SHOWN {
                 shown += 1;
             } else {

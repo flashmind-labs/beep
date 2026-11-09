@@ -73,13 +73,16 @@ pub(super) fn run_here(mesh: &Mesh, request: &Request) -> Option<Reply> {
     if request.tool != Tool::RunOn {
         return None;
     }
+
     let args: Value = serde_json::from_str(&request.args).ok()?;
     let named = args.get("machine")?.as_str()?.trim();
     let me = mesh.me();
     let here = machines(mesh).into_iter().find(|m| m.id == me)?;
+
     if here.name != command_name(named) && named != me.to_string() {
         return None;
     }
+
     Some(done(
         format!(
             "{REMOTE_RUN} runs a command on another machine; {} is this machine. Run the \
@@ -98,6 +101,7 @@ pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Rep
             .and_then(Value::as_str)
             .map(str::to_owned)
     };
+
     match request.tool {
         Tool::ListMachines => list(mesh).await,
         Tool::RunOn | Tool::SendFiles => {
@@ -145,6 +149,7 @@ async fn to_target(
     if request.tool == Tool::SendFiles {
         return send_files(offers, mesh, target, request, args).await;
     }
+
     to_machine(offers, mesh, target, request).await
 }
 
@@ -168,29 +173,35 @@ async fn send_files(
     let Ok(Args { paths, dest }) = serde_json::from_value(args.clone()) else {
         return done("Give `machine` and `paths`.", true);
     };
+
     if paths.is_empty() || paths.len() > MAX_SEND {
         return done(
             format!("Send between 1 and {MAX_SEND} paths at a time."),
             true,
         );
     }
+
     let Some(transfers) = offers.transfers.get() else {
         return done(
             "This machine's file transfers did not start, so it sends no files.",
             true,
         );
     };
+
     if target.id == mesh.me() {
         return done("That is this machine.", true);
     }
+
     let mut lines = Vec::new();
     let mut failed = false;
+
     for path in &paths {
         let sent = send_one(&transfers, mesh, target, request, path, dest.clone()).await;
         failed |= sent.is_err();
         let (Ok(text) | Err(text)) = sent;
         lines.push(format!("- {path}: {text}"));
     }
+
     done(lines.join("\n"), failed)
 }
 
@@ -229,6 +240,7 @@ async fn send_one(
         args: serde_json::to_string(&incoming).map_err(|e| format!("not sent: {e}"))?,
         ..request.clone()
     };
+
     match over_the_mesh(mesh, target.id, &call).await {
         Ok(Reply::Done {
             text,
@@ -269,12 +281,14 @@ async fn sync_project(offers: &Offers, mesh: &Mesh, request: &Request, args: &Va
     };
     let me = mesh.me();
     let mut notes = Vec::new();
+
     if let Some(transfers) = offers.transfers.get()
         && spec.folders.contains_key(&me)
         && let Err(e) = transfers.syncs().rescan(name).await
     {
         notes.push(format!("not scanned here: {e:#}"));
     }
+
     let only = args
         .get("machine")
         .and_then(Value::as_str)
@@ -289,6 +303,7 @@ async fn sync_project(offers: &Offers, mesh: &Mesh, request: &Request, args: &Va
     {
         return done(format!("That machine does not sync {name}."), true);
     }
+
     let call = Request {
         args: json!({ "project": name }).to_string(),
         ..request.clone()
@@ -301,6 +316,7 @@ async fn sync_project(offers: &Offers, mesh: &Mesh, request: &Request, args: &Va
     .await;
     let mut failed = false;
     let mut text = format!("{name}:");
+
     for (machine, reply) in wanted.iter().zip(replies) {
         let Reply::Done {
             text: line,
@@ -313,9 +329,11 @@ async fn sync_project(offers: &Offers, mesh: &Mesh, request: &Request, args: &Va
         // Writing to a string cannot fail.
         let _ = write!(text, "\n- {}: {line}", machine.name);
     }
+
     for note in notes {
         let _ = write!(text, "\n{note}");
     }
+
     done(text, failed)
 }
 
@@ -362,15 +380,18 @@ async fn device_lines(mesh: &Mesh) -> Vec<String> {
             "- {}{here}: {online}, {label}",
             command_name(&status.device.name)
         );
+
         if !can_host {
             line.push_str(
                 "\n  Observes and controls machines; does not host sessions or file sync.",
             );
         }
+
         if let Some(env) = env {
             // Writing to a string cannot fail.
             let _ = write!(line, "\n  {}", describe(&env));
         }
+
         line
     }))
     .await
@@ -394,14 +415,19 @@ fn describe(env: &EnvReport) -> String {
     if !can.is_empty() {
         let _ = write!(line, "; can: {}", can.join(", "));
     }
+
     let gpus: Vec<&str> = env.gpus.iter().map(|gpu| gpu.model.as_str()).collect();
+
     if !gpus.is_empty() {
         let _ = write!(line, "; GPUs: {}", gpus.join(", "));
     }
+
     let tools: Vec<&str> = env.tools.iter().map(|tool| tool.name.as_str()).collect();
+
     if !tools.is_empty() {
         let _ = write!(line, "; tools: {}", tools.join(", "));
     }
+
     line
 }
 
@@ -410,6 +436,7 @@ fn describe(env: &EnvReport) -> String {
 async fn peer_env(mesh: &Mesh, peer: EndpointId) -> Option<EnvReport> {
     let read = async {
         let (_tx, mut rx) = handshake(mesh, peer, status::PROTOCOL).await.ok()?;
+
         loop {
             if let Report::Env(env) = rx.recv::<Report>().await.ok()?? {
                 return Some(env);
@@ -453,6 +480,7 @@ async fn to_machine(offers: &Offers, mesh: &Mesh, target: &Machine, request: &Re
             Err(e) => return done(format!("Could not reach {}: {e:#}", target.name), true),
         }
     };
+
     match (request.tool, reply) {
         (
             Tool::RunOn,
@@ -507,6 +535,7 @@ pub(super) async fn handshake(
     protocol: &str,
 ) -> Result<(LinkTx, LinkRx)> {
     let mut tries = HANDSHAKES;
+
     loop {
         match try_handshake(mesh, peer, protocol).await {
             Err(e) if tries > 1 => {
@@ -553,6 +582,7 @@ async fn open(
     let opened = timeout(LINK_WAIT, async {
         loop {
             updates.borrow_and_update();
+
             match mesh.open_bi(peer).await {
                 Ok(streams) => return Ok(streams),
                 Err(e) => {

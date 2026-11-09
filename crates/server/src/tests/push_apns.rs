@@ -51,6 +51,7 @@ async fn apple_takes_the_key() {
     })
     .unwrap();
     let token = "00".repeat(32);
+
     for environment in [Environment::Sandbox, Environment::Production] {
         let delivery = apns.wake(&token, environment).await.unwrap();
         assert_eq!(delivery, Delivery::Gone, "{environment:?}");

@@ -114,6 +114,7 @@ impl Shared {
         let before = peers.len();
         peers.retain(|id, _| devices.iter().any(|status| status.device.id == *id));
         let mut changed = peers.len() != before;
+
         for status in devices {
             changed |= peers
                 .get(&status.device.id)
@@ -127,6 +128,7 @@ impl Shared {
             peer.device = status.device;
             peer.online = status.online;
         }
+
         drop(peers);
         if changed {
             self.changes
@@ -178,6 +180,7 @@ impl Shared {
             _ => (false, false),
         };
         drop(peers);
+
         if machines || telemetry {
             self.changes.send_modify(|revision| {
                 if machines {
@@ -247,6 +250,7 @@ impl Status {
         if let Some(Watching { stop, task }) = watching {
             // A task that is gone already has nothing to stop.
             stop.send(()).ok();
+
             if let Err(e) = task.await {
                 log::warn!("following the machines ended badly: {e}");
             }
@@ -387,6 +391,7 @@ impl Status {
                 if agents.is_empty() {
                     return None;
                 }
+
                 let env = peer.env.as_ref();
                 Some(AgentHost {
                     machine_id: peer.device.id.to_string(),
@@ -425,6 +430,7 @@ impl Follower {
         // When each follow that ended last did, so it is not started again
         // on every change of the mesh.
         let mut ended: BTreeMap<EndpointId, Instant> = BTreeMap::new();
+
         loop {
             updates.borrow_and_update();
             self.shared.refresh(&self.mesh);
@@ -437,11 +443,14 @@ impl Follower {
                 !finished
             });
             ended.retain(|id, _| self.shared.peers().contains_key(id));
+
             for status in self.mesh.code_hosts().into_iter().filter(|s| s.online) {
                 let id = status.device.id;
+
                 if running.contains_key(&id) || !retry_due(ended.get(&id).copied()) {
                     continue;
                 }
+
                 let client = match (&self.session, id == self.me) {
                     (Some(session), true) => PeerClient::local(session.clone()),
                     // A phone is no machine of the mesh, so it never follows itself.
@@ -451,6 +460,7 @@ impl Follower {
                 let follow = follows.spawn(follow(client, id, self.shared.clone()));
                 running.insert(id, follow);
             }
+
             select! {
                 changed = updates.changed() => {
                     if changed.is_err() {
@@ -462,6 +472,7 @@ impl Follower {
                 _ = &mut stopped => break,
             }
         }
+
         follows.shutdown().await;
     }
 }
@@ -508,6 +519,7 @@ async fn follow(client: PeerClient, id: EndpointId, shared: Arc<Shared>) {
             return;
         }
     };
+
     loop {
         match rx.recv::<Report>().await {
             Ok(Some(report)) => shared.record(id, report),

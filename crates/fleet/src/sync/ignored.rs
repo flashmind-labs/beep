@@ -21,10 +21,12 @@ impl Desk {
                 .collect(),
             ..SyncSpec::default()
         });
+
         if let Some(settings) = settings {
             spec.ignored = settings.normalized().map_err(FleetError::refused)?;
             write(&self.mesh, key, Some(&spec)).await?;
         }
+
         Ok(spec.ignored)
     }
 }

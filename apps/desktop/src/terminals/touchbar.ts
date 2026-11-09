@@ -23,6 +23,7 @@ export function makeTouchBar(send: (data: string) => void): TouchBar {
   el.hidden = true;
   const mods = new Map<TermMod, HTMLButtonElement>();
   const paint = () => { for (const [m, b] of mods) b.setAttribute("aria-pressed", String(state.mods.has(m))); };
+
   for (const label of KEY_ROWS.flat()) {
     if (!label) { el.append(document.createElement("span")); continue; }
     const b = document.createElement("button");
@@ -31,6 +32,7 @@ export function makeTouchBar(send: (data: string) => void): TouchBar {
     // Keep focus in the terminal so the soft keyboard stays up.
     b.addEventListener("pointerdown", e => e.preventDefault());
     const what = labelKey(label);
+
     if ("mod" in what) {
       mods.set(what.mod, b);
       b.setAttribute("aria-pressed", "false");
@@ -38,8 +40,10 @@ export function makeTouchBar(send: (data: string) => void): TouchBar {
     } else {
       b.addEventListener("click", () => { send(state.press(what.key)); paint(); });
     }
+
     el.append(b);
   }
+
   return {
     el,
     apply: typed => { const out = state.applyTyped(typed); paint(); return out; },

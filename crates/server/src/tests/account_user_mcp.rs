@@ -190,8 +190,10 @@ async fn silent_fastmail() -> (String, mpsc::UnboundedReceiver<()>) {
     let (reached, reaching) = mpsc::unbounded_channel();
     tokio::spawn(async move {
         let mut held = Vec::new();
+
         while let Ok((stream, _)) = listener.accept().await {
             held.push(stream);
+
             if reached.send(()).is_err() {
                 break;
             }

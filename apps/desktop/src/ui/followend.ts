@@ -1,3 +1,5 @@
+import { frameResize } from "./dom.ts";
+
 // A log that follows its end stays there while what it shows grows by
 // itself: history drawn after the first paint, pictures loading, markdown
 // laid out. A reader who scrolled up (`stuck` false) is left where they are.
@@ -11,7 +13,7 @@ const followed = new WeakSet<ChatBody>();
 export function followEnd(box: ChatBody, content?: HTMLElement) {
   if (followed.has(box)) return;
   followed.add(box);
-  const watch = new ResizeObserver(() => {
+  const watch = frameResize(() => {
     if (box.isConnected && box.stuck !== false) box.scrollTop = box.scrollHeight;
   });
   if (content) return watch.observe(content);

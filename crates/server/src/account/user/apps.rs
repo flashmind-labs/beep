@@ -58,6 +58,7 @@ impl User {
                 .collect();
             composio.tools(&slugs).await
         };
+
         match tokio::time::timeout(TOOLS_TIMEOUT, fetch).await {
             Ok(Ok(defs)) => AppTools {
                 hinted: defs
@@ -81,6 +82,7 @@ impl User {
     /// Whether a Composio app is connected; `None` without Composio or an answer.
     pub async fn composio_connected(&self) -> Option<bool> {
         let client = self.composio_client()?;
+
         match connected_slugs(&client, self.external_id()).await {
             Ok(slugs) => Some(!slugs.is_empty()),
             Err(error) => {
@@ -93,16 +95,19 @@ impl User {
     /// The user's connected feeds from Composio and MCP; an outage leaves its feeds out.
     pub async fn feeds(&self) -> Vec<Feed> {
         let mut connected = HashSet::new();
+
         if let Some(client) = self.composio_client() {
             match connected_slugs(&client, self.external_id()).await {
                 Ok(slugs) => connected.extend(slugs),
                 Err(error) => log::warn!("apps: unable to list connected accounts: {error:#}"),
             }
         }
+
         match self.mcp_connected().await {
             Ok(servers) => connected.extend(servers),
             Err(error) => log::warn!("apps: unable to list MCP servers: {error:#}"),
         }
+
         Feed::ALL
             .into_iter()
             .filter(|feed| connected.contains(feed.as_ref()))
@@ -226,6 +231,7 @@ impl User {
                 Err(ApiError::NotFound {})
             };
         }
+
         let user = self.external_id();
         let client = self.composio_app(slug)?;
         let accounts = client
@@ -241,23 +247,27 @@ impl User {
         if ids.is_empty() {
             return Err(ApiError::NotFound {});
         }
+
         for id in ids {
             client
                 .delete_connected_account(&id)
                 .await
                 .map_err(internal("delete connected account"))?;
         }
+
         Ok(())
     }
 
     /// The client for a Composio app the user may connect or disconnect.
     fn composio_app(&self, slug: &str) -> Result<Arc<ComposioClient>, ApiError> {
         let app = catalog_app(slug).ok_or_else(|| ApiError::bad_request("unknown app"))?;
+
         if app.kind == (AppKind::Fastmail {}) {
             return Err(ApiError::bad_request(
                 "Fastmail connects through StartAppAuth with a localhost redirect.",
             ));
         }
+
         self.composio_client().ok_or_else(|| {
             ApiError::bad_request("App connections are not configured on this server.")
         })

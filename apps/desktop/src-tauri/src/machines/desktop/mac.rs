@@ -111,15 +111,19 @@ impl Session {
         if !CGPreflightScreenCaptureAccess() {
             return missing(Permission::ScreenRecording);
         }
+
         let bounds = CGDisplayBounds(CGMainDisplayID());
         let screen = bounds.size;
         let longest = screen.width.max(screen.height);
+
         if longest <= 0.0 {
             return failed("The main display has no size.");
         }
+
         let factor = (f64::from(max_side.clamp(320, 2560)) / longest).min(1.0);
         let width = pixels(screen.width * factor);
         let height = pixels(screen.height * factor);
+
         match capture(width, height) {
             Ok(jpeg) => {
                 self.scale = screen.width / width as f64;
@@ -183,11 +187,14 @@ impl Session {
         if let Some(no) = trusted() {
             return no;
         }
+
         let count = count.clamp(1, 3);
+
         if let Target::Element { index } = target {
             let Some(element) = self.element(index) else {
                 return failed(format!("No element {index}; take a new tree."));
             };
+
             if element.pressable && button == MouseButton::Left && count == 1 {
                 let press = CFString::from_static_str("AXPress");
                 // SAFETY: the element and the action name are live CF objects.
@@ -195,6 +202,7 @@ impl Session {
                     return done(format!("Pressed [{index}] {}.", element.label));
                 }
             }
+
             let Some(center) = element.center else {
                 return failed(format!("Element {index} has no place on screen to click."));
             };
@@ -202,6 +210,7 @@ impl Session {
             mouse_click(center, button, count);
             return done(format!("Clicked [{index}] {label}."));
         }
+
         let Some(point) = self.point(target) else {
             return failed("That target is not on screen.");
         };
@@ -213,6 +222,7 @@ impl Session {
         if let Some(no) = trusted() {
             return no;
         }
+
         if let Some(target) = at {
             let Some(point) = self.point(target) else {
                 return failed("That target is not on screen.");
@@ -279,6 +289,7 @@ pub fn request(permission: Permission) {
         }
     };
     let url = format!("x-apple.systempreferences:com.apple.preference.security?{pane}");
+
     if let Err(e) = Command::new("open").arg(url).status() {
         log::warn!("opening System Settings: {e}");
     }
@@ -371,6 +382,7 @@ fn capture(width: usize, height: usize) -> Result<Vec<u8>, String> {
                 }
                 Ok::<(), String>(())
             })();
+
             if let Err(reason) = started {
                 // As above: a waiter that timed out no longer listens.
                 let _ = tx.try_send(Err(reason));
@@ -414,9 +426,11 @@ fn attr(element: &AXUIElement, name: &str) -> Option<CFRetained<CFType>> {
     // SAFETY: `value` is a valid out pointer; on success it holds a +1
     // reference we take over.
     let error = unsafe { element.copy_attribute_value(&name, NonNull::from(&mut value)) };
+
     if error != AXError::Success {
         return None;
     }
+
     let value = NonNull::new(value.cast_mut())?;
     // SAFETY: the copy returned an owned reference, released on drop.
     Some(unsafe { CFRetained::from_raw(value) })
@@ -428,12 +442,15 @@ fn as_element(value: CFRetained<CFType>) -> Option<CFRetained<AXUIElement>> {
 
 fn string_attr(element: &AXUIElement, name: &str) -> Option<String> {
     let value = attr(element, name)?;
+
     if let Some(text) = value.downcast_ref::<CFString>() {
         return Some(text.to_string());
     }
+
     if let Some(number) = value.downcast_ref::<CFNumber>() {
         return number.as_f64().map(|n| n.to_string());
     }
+
     None
 }
 
@@ -500,12 +517,15 @@ fn read(ax: CFRetained<AXUIElement>, depth: usize, budget: &mut usize) -> Node<E
         Vec::new()
     };
     let mut nodes = Vec::with_capacity(kids.len());
+
     for kid in kids {
         if *budget == 0 {
             break;
         }
+
         nodes.push(read(kid, depth + 1, budget));
     }
+
     let label = [&title, &description, &value]
         .into_iter()
         .flatten()
@@ -557,6 +577,7 @@ fn mouse_click(point: CGPoint, button: MouseButton, count: u8) {
         point,
         CGMouseButton::Left,
     ));
+
     for click in 1..=count {
         for kind in [down, up] {
             let event = CGEvent::new_mouse_event(None, kind, point, which);
@@ -590,14 +611,17 @@ fn key(press: &KeyPress) -> Reply {
         return failed(format!("{:?} is not a key this Mac knows.", press.key));
     };
     let mut flags = flags(&press.modifiers);
+
     if press.key == "+" {
         flags |= CGEventFlags::MaskShift;
     }
+
     for down in [true, false] {
         let event = CGEvent::new_keyboard_event(None, code, down);
         CGEvent::set_flags(event.as_deref(), flags);
         post(event);
     }
+
     done(format!("Pressed {press}."))
 }
 
@@ -608,7 +632,9 @@ fn type_text(text: &str) -> Reply {
                 post(CGEvent::new_keyboard_event(None, 0x24, down));
             }
         }
+
         let units: Vec<u16> = line.encode_utf16().collect();
+
         for chunk in units.chunks(TYPE_CHUNK) {
             for down in [true, false] {
                 let event = CGEvent::new_keyboard_event(None, 0, down);
@@ -625,14 +651,17 @@ fn type_text(text: &str) -> Reply {
             }
         }
     }
+
     done(format!("Typed {} characters.", text.chars().count()))
 }
 
 fn open(target: &str) -> Reply {
     let target = target.trim();
+
     if target.is_empty() {
         return failed("Open what? Name an app or a URL.");
     }
+
     let tries: &[&[&str]] = if target.contains("://") {
         &[&[]]
     } else if target.contains('.') && !target.contains(' ') {
@@ -641,6 +670,7 @@ fn open(target: &str) -> Reply {
         &[&["-a"]]
     };
     let mut last = String::new();
+
     for args in tries {
         match Command::new("open").args(*args).arg(target).output() {
             Ok(out) if out.status.success() => return done(format!("Opened {target}.")),
@@ -648,6 +678,7 @@ fn open(target: &str) -> Reply {
             Err(e) => last = e.to_string(),
         }
     }
+
     failed(format!("Could not open {target}: {last}"))
 }
 
@@ -660,6 +691,7 @@ fn windows() -> Reply {
     // SAFETY: the window list is an array of dictionaries keyed by strings.
     let list = unsafe { list.cast_unchecked::<CFDictionary>() };
     let mut windows = Vec::new();
+
     for info in list.iter() {
         // SAFETY: as above, the keys are CFStrings and values CF objects.
         let info = unsafe { info.cast_unchecked::<CFString, CFType>() };
@@ -681,6 +713,7 @@ fn windows() -> Reply {
         if number(layer) != Some(0) {
             continue;
         }
+
         let rect = info
             .get(bounds)
             .and_then(|v| v.downcast::<CFDictionary>().ok());
@@ -703,9 +736,11 @@ fn windows() -> Reply {
             width: side("Width"),
             height: side("Height"),
         });
+
         if windows.len() >= MAX_WINDOWS {
             break;
         }
     }
+
     Reply::Windows { windows }
 }

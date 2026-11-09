@@ -203,6 +203,7 @@ pub fn open_folder(path: PathBuf) -> Result<()> {
             "That folder is not on this Mac.".into(),
         ));
     }
+
     crate::platform::open(&path)?;
     Ok(())
 }
@@ -252,6 +253,7 @@ pub async fn import_project(
         desk.project_syncthing_mode(&imported.project, Some(enabled))
             .await?;
     }
+
     mirror_import(&beep, &imported).await;
     Ok(imported.into())
 }
@@ -269,6 +271,7 @@ pub async fn list_machine_folder(
     if let Some(machine) = fleet.member(&machine_id) {
         return direct::folder(&fleet, machine, path.as_deref()).await;
     }
+
     beep.call(ListMachineFolder { machine_id, path })
         .await
         .map_err(outdated)
@@ -311,6 +314,7 @@ pub async fn pick_folder(app: AppHandle, start: Option<String>) -> Result<Option
     if let Some(start) = start.filter(|start| !start.is_empty()) {
         dialog = dialog.set_directory(PathBuf::from(start));
     }
+
     dialog.pick_folder(move |folder| {
         // The sheet may have closed meanwhile; then nobody waits for it.
         let _ = picked.send(folder);

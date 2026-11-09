@@ -90,20 +90,24 @@ export function projectsWithOpen<P extends OpenProject>(
 ) {
   const byName = new Map((projects || []).filter(p => p.imported).map(p => [p.name.toLowerCase(), p]));
   const rows = new Map<string, OpenRow<P>>();
+
   for (const item of view?.items || []) {
     const key = `${item.host} ${item.repo}`;
     let row = rows.get(key);
+
     if (!row) {
       const project = byName.get(item.repo.toLowerCase()) || null;
       row = { key, repo: item.repo, host: item.host, url: repoUrl(item.url), project, prs: 0, issues: 0, waiting: 0, last: 0, items: [] };
       rows.set(key, row);
     }
+
     if (item.kind === "pull_request") row.prs++;
     else row.issues++;
     if (waitsOnYou(item)) row.waiting++;
     row.last = Math.max(row.last, item.updated_at);
     row.items.push(item);
   }
+
   for (const row of rows.values()) row.items.sort(newestFirst);
   return [...rows.values()].sort((a, b) => (Math.sign(b.waiting) - Math.sign(a.waiting)) || b.last - a.last);
 }
@@ -111,6 +115,7 @@ export function projectsWithOpen<P extends OpenProject>(
 /// The state chips of an item.
 export function itemChips(item: Item & Pick<GitItemRow, "draft" | "assigned">) {
   const out: { text: string; cls: string }[] = [];
+
   if (item.kind === "pull_request") {
     if (item.review_requested) out.push({ text: "your review", cls: "wait" });
     if (item.draft) out.push({ text: "draft", cls: "" });
@@ -118,6 +123,7 @@ export function itemChips(item: Item & Pick<GitItemRow, "draft" | "assigned">) {
     else if (item.review === "approved") out.push({ text: "approved", cls: "run" });
     if (item.checks_failing) out.push({ text: "checks failing", cls: "bad" });
   } else if (item.assigned) out.push({ text: "assigned", cls: "" });
+
   return out;
 }
 

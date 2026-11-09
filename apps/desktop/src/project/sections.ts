@@ -199,6 +199,7 @@ export async function act(id: string, call: () => Promise<unknown>) {
   pa.busy.add(id);
   pa.errors.delete(id);
   redrawProjects();
+
   try {
     await call();
   } catch (e) {
@@ -206,6 +207,7 @@ export async function act(id: string, call: () => Promise<unknown>) {
   } finally {
     pa.busy.delete(id);
   }
+
   redrawProjects();
   loadProjectAgent();
 }

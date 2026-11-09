@@ -61,6 +61,7 @@ impl From<anyhow::Error> for DesktopError {
 impl From<beep_fleet::FleetError> for DesktopError {
     fn from(e: beep_fleet::FleetError) -> Self {
         use beep_fleet::FleetError;
+
         match e {
             FleetError::Offline(name) => Self::Offline(name),
             FleetError::NoMesh(why) => Self::NoMesh(why),

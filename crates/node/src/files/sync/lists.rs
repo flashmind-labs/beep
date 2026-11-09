@@ -62,10 +62,12 @@ impl Lists {
         removed: impl Fn(&EndpointId) -> bool,
     ) -> Vec<Project> {
         let mut projects = self.mesh.clone().unwrap_or_default();
+
         for project in &mut projects {
             if !self.pending.contains(&project.name) {
                 continue;
             }
+
             for peer in self.server.get(&project.name).into_iter().flatten() {
                 if peer.id != me
                     && !removed(&peer.id)
@@ -75,6 +77,7 @@ impl Lists {
                 }
             }
         }
+
         projects
     }
 }

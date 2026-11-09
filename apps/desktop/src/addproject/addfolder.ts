@@ -65,6 +65,7 @@ async function read(path: string | null, then: (listing: MachineFolder) => void)
   if (!machine || reading) return;
   reading = true;
   draw();
+
   try {
     const listing = await invoke<MachineFolder>("list_machine_folder", { machineId: machine, path });
     if (state.machine === machine) then(listing);
@@ -92,17 +93,21 @@ const browseTo = (path: string | null) => read(path, listing => update({ type: "
 async function choose() {
   if (reading) return;
   const how = chooseWith(state.machine, opts.macId || null);
+
   if (how === "browser") {
     browseTo(state.chosen?.path ?? null);
     return;
   }
+
   if (how !== "picker") return;
   let path: string | null = null;
+
   try {
     path = await invoke<string | null>("pick_folder", { start: state.chosen?.path ?? null });
   } catch (e) {
     update({ type: "oops", message: String(e) });
   }
+
   if (path) read(path, use);
 }
 
@@ -110,6 +115,7 @@ async function submit() {
   const was = state;
   update({ type: "submit" });
   if (state === was || !state.chosen) return;
+
   try {
     const project = await invoke<ProjectRow>("import_project", {
       repo: repoOf(state.chosen), machineId: state.machine, folder: state.chosen.path, worktrees: [], parent: null, syncthingFiles: syncthing.value(),

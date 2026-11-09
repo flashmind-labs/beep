@@ -43,6 +43,7 @@ export function makeStartComposer({ projectPicker = false, presentation = "cente
   let busy = false;
   const setBusy = (value: boolean) => {
     busy = value;
+
     if (current === "centered") {
       send.className = "agc-send";
       send.setAttribute("aria-label", busy ? "Starting" : "Start");
@@ -58,6 +59,7 @@ export function makeStartComposer({ projectPicker = false, presentation = "cente
     const centered = to === "centered";
     form.classList.toggle("centered", centered);
     input.rows = centered ? 3 : 1;
+
     if (centered) {
       const welcome = nextSessionIntro();
       intro.innerHTML = `<h3 aria-label="${esc(welcome)}"><span aria-hidden="true">${welcome.split(" ").map((word, i) => `<span class="agc-word" style="--word:${i}">${esc(word)}</span>`).join(" ")}</span></h3><p>A fresh idea. A tricky bug. A place to start.</p>`;
@@ -67,6 +69,7 @@ export function makeStartComposer({ projectPicker = false, presentation = "cente
       intro.remove();
       row.prepend(choices);
     }
+
     setBusy(busy);
   };
   setPresentation(presentation);

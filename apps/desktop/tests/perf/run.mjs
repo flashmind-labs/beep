@@ -75,6 +75,7 @@ async function open(page, cfg) {
     await page.evaluate(sel => window.__shown(sel), PAGES[cfg.from].ready);
     await sleep(300);
   }
+
   if (cfg.click) {
     // Clicks run inside the page so the start time is its own clock.
     const ms = await page.evaluate(async ({ click, ready }) => {
@@ -85,6 +86,7 @@ async function open(page, cfg) {
     }, { click: cfg.click, ready: cfg.ready });
     return ms;
   }
+
   return page.evaluate(async ({ target, ready }) => {
     const t0 = performance.now();
     window.__pending = target;
@@ -97,8 +99,10 @@ async function open(page, cfg) {
 async function scrollerBox(page, cfg) {
   return page.evaluate(sel => {
     let el = null;
+
     if (sel === "auto") {
       let best = 0;
+
       for (const e of document.querySelectorAll("#main *")) {
         const cs = getComputedStyle(e);
         if (!/(auto|scroll)/.test(cs.overflowY) || e.clientHeight === 0 || e.scrollHeight <= e.clientHeight + 100) continue;
@@ -106,6 +110,7 @@ async function scrollerBox(page, cfg) {
         if (e.scrollHeight > best) { best = e.scrollHeight; el = e; }
       }
     } else el = document.querySelector(sel);
+
     if (!el) return null;
     const r = el.getBoundingClientRect();
     return { x: r.x + r.width / 2, y: r.y + Math.min(r.height / 2, 300), travel: el.scrollHeight - el.clientHeight, id: el.id || el.className };
@@ -158,6 +163,7 @@ async function measure(browser, name) {
   // One refresh redraw: the window's focus event reads Home again.
   const refreshes = [];
   if (profile) await profiled(context, page, `${name} refresh`, () => page.evaluate(async () => { window.dispatchEvent(new Event("focus")); await new Promise(r => setTimeout(r, 400)); }));
+
   for (let i = 0; i < 3; i++) {
     const r = await page.evaluate(async () => {
       window.__parseMs = 0;
@@ -169,6 +175,7 @@ async function measure(browser, name) {
     refreshes.push(r);
     await sleep(300);
   }
+
   out.refreshMaxMs = median(refreshes.map(r => r.max));
   out.refreshBusyMs = median(refreshes.map(r => r.sum));
   out.refreshParseMs = median(refreshes.map(r => r.parse));
@@ -195,6 +202,7 @@ async function measure(browser, name) {
 
   // Scrolling: wheel ticks every frame for 1.5 s.
   const box = await scrollerBox(page, cfg);
+
   if (box && box.travel > 200) {
     await page.mouse.move(box.x, box.y);
     const frames = page.evaluate(() => window.__frames(1500));
@@ -209,6 +217,7 @@ async function measure(browser, name) {
   } else {
     out.scrollNote = box ? "short" : "no scroller";
   }
+
   out.errors = [...new Set([...errors, ...(await page.evaluate(() => window.__errors))])].slice(0, 5);
   await context.close();
   return out;
@@ -217,6 +226,7 @@ async function measure(browser, name) {
 // ---------- Main ----------
 
 const results = {};
+
 for (const b of browsers) {
   const type = b === "webkit" ? webkit : chromium;
   const executablePath = (b === "webkit" ? process.env.WEBKIT_BIN : process.env.CHROMIUM_BIN) || undefined;
@@ -224,21 +234,28 @@ for (const b of browsers) {
   try { browser = await type.launch({ executablePath }); } catch (e) { console.log(`${b}: launch failed: ${String(e).split("\n")[0]}`); continue; }
   console.log(`\n== ${b} ${browser.version()} (${runs} runs, medians) ==`);
   results[b] = {};
+
   for (const name of pageNames) {
     const samples = [];
+
     for (let i = 0; i < runs; i++) {
       try { samples.push(await measure(browser, name)); } catch (e) { console.log(`${name}: run failed: ${String(e).split("\n")[0]}`); }
     }
+
     if (!samples.length) continue;
     const row = { page: name, rows: samples[0].rows, domNodes: samples[0].domNodes, scroller: samples[0].scroller, errors: samples[0].errors };
+
     for (const k of ["switchMs", "refreshMaxMs", "refreshBusyMs", "refreshParseMs", "keyMedianMs", "keyP95Ms", "typingWorstFrameMs", "arrowMedianMs", "arrowP95Ms", "scrollMedianMs", "scrollLong", "scrollWorstMs"]) {
       const xs = samples.map(s => s[k]).filter(x => typeof x === "number" && !Number.isNaN(x));
       if (xs.length) row[k] = Math.round(median(xs) * 10) / 10;
     }
+
     results[b][name] = row;
     console.log(JSON.stringify(row));
   }
+
   await browser.close();
 }
+
 if (jsonOut) await writeFile(jsonOut, JSON.stringify(results, null, 2));
 server.close();

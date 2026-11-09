@@ -79,10 +79,12 @@ export function routineWhen(s: string) {
   const place = /^(arrive|leave):[^:]+(?::(daily|once))?$/.exec(s);
   if (place) return (place[1] === "arrive" ? "When you arrive at a saved place" : "When you leave a saved place")
     + (PLACE_LIMIT[place[2]] ?? "");
+
   if (/^\d{4}-\d\d-\d\dT/.test(s)) {
     const at = new Date(s);
     if (!isNaN(at.getTime())) return "Once, " + describeDay(at);
   }
+
   const p = cronParts(s);
   if (!p) return s;
   const min = Number(p[0]), days = p[4];
@@ -127,6 +129,7 @@ export function drawRoutines() {
   const on = R.list.filter(c => c.enabled).length, off = R.list.length - on;
   const sum = !R.loaded ? "" : !R.list.length ? "Nothing scheduled" : [on && `${on} on`, off && `${off} paused`].filter(Boolean).join(", ");
   const head = `<div class="dhead"><span class="tt"><b>Routines</b><small>${sum}</small></span><button class="dbtn" data-r="grants">Grants${GR.list.length ? ` <span class="dmut">${GR.list.length}</span>` : ""}<kbd>⌘G</kbd></button><button class="dbtn" data-r="new">${PLUS_ICON}New<kbd>⌘N</kbd></button></div>`;
+
   if (R.loaded && !R.list.length) {
     bar.innerHTML = head + errLine(R.error) + emptyPage(CLOCK_ICON, "No routines yet.", "Schedule tasks for Beep to run on a timer.", '<button class="dbtn pri" data-r="new">New routine</button>')
       + hints([["⌘N", "new routine"], ["esc", "back"]]);
@@ -135,6 +138,7 @@ export function drawRoutines() {
       + hints(R.mode === "actions" ? [["⌘E", "edit"], ["tab", "hide actions"], ["esc", "back"]] : [["↑↓", "move"], ["space", "on or off"], ["tab", "actions"], ["⌘N", "new routine"], ["⌘G", "grants"], ["esc", "back"]]);
     bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }
+
   bar.onclick = routineClick;
   bar.oncontextmenu = routineMenu;
 }
@@ -170,6 +174,7 @@ export function routineClick(e: MouseEvent) {
   const row = target.closest<HTMLElement>(".drt[data-i]");
   if (btn?.dataset.i) R.sel = Number(btn.dataset.i);
   if (btn) return routineAction(btn.dataset.r as RoutineAction);
+
   if (row) {
     R.sel = Number(row.dataset.i);
     R.mode = "actions";
@@ -182,12 +187,15 @@ export async function routineAction(a: RoutineAction) {
   if (a === "new") return renderRoutineNew();
   if (a === "grants") return renderGrants();
   if (a === "edit") return c && renderRoutineEdit(c);
+
   if (a === "list" || a === "actions" || a === "delete") {
     if (!c && a !== "list") return;
     R.mode = a;
     return drawRoutines();
   }
+
   if (!c) return;
+
   try {
     if (a === "toggle") {
       c.enabled = await invoke<boolean>("toggle_cron", { id: c.id });
@@ -198,10 +206,12 @@ export async function routineAction(a: RoutineAction) {
       const session = await invoke<string>("run_cron", { id: c.id });
       return openSession(session);
     }
+
     R.error = "";
   } catch (e) {
     R.error = String(e);
   }
+
   R.mode = "list";
   if (S.view === "routines") drawRoutines();
 }
@@ -223,10 +233,12 @@ export function routineSchedule() {
   if (NR.repeat === "hour") return `${m} * * * *`;
   if (NR.repeat === "day") return `${m} ${h} * * *`;
   if (NR.repeat === "weekdays") return `${m} ${h} * * 1-5`;
+
   if (NR.repeat === "week") {
     const days = CRON_DAYS.filter(d => NR.days.includes(d));
     return days.length ? `${m} ${h} * * ${days.join(",")}` : "";
   }
+
   if (!NR.date) return "";
   const at = new Date(`${NR.date}T${NR.time}`);
   return isNaN(at.getTime()) ? "" : at.toISOString();
@@ -244,10 +256,12 @@ export function renderRoutineNew(edit: Cron | null = null, fields: Partial<Routi
 /// back. A place trigger stays as it is, anything else shows as cron.
 export function routineFields(schedule: string): Partial<RoutineForm> {
   if (/^(arrive|leave):/.test(schedule)) return { repeat: "place" };
+
   if (/^\d{4}-\d\d-\d\dT/.test(schedule)) {
     const at = new Date(schedule);
     if (!isNaN(at.getTime())) return { repeat: "once", date: dateValue(at), time: `${pad2(at.getHours())}:${pad2(at.getMinutes())}` };
   }
+
   const p = cronParts(schedule);
   const cron: Partial<RoutineForm> = { repeat: "cron", cron: schedule };
   if (!p) return cron;
@@ -303,6 +317,7 @@ export function drawRoutineNew() {
     if (S.view !== "rnew") return;
     const target = e.target as HTMLElement;
     const rep = target.closest<HTMLElement>("[data-rep]"), day = target.closest<HTMLElement>("[data-day]");
+
     if (rep) { NR.repeat = rep.dataset.rep as Repeat; drawRoutineNew(); }
     else if (day) {
       const d = Number(day.dataset.day);
@@ -427,6 +442,7 @@ function grantRow(g: Grant, i: number, now: number) {
 export function drawGrants() {
   clampSel(GR);
   const head = `<div class="dhead"><span class="tt"><b>Routine grants</b><small>${GR.loaded && !GR.list.length ? "Nothing granted" : "What routines may do without asking"}</small></span></div>`;
+
   if (GR.loaded && !GR.list.length) {
     bar.innerHTML = head + errLine(GR.error) + emptyPage(SHIELD_ICON, "No routine grants.", "Beep asks in a chat when a routine needs one.") + hints([["esc", "back"]]);
   } else {
@@ -436,6 +452,7 @@ export function drawGrants() {
     bar.querySelector('.drt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
     fillAppTiles(bar);
   }
+
   bar.onclick = grantClick;
 }
 
@@ -452,11 +469,14 @@ export function grantClick(e: MouseEvent) {
 export async function grantAction(a: string) {
   const g = GR.list[GR.sel];
   if (!g) return;
+
   if (a === "list" || a === "revoke") {
     GR.mode = a === "revoke" ? "confirm" : "list";
     return drawGrants();
   }
+
   if (a !== "revoke-yes") return;
+
   try {
     await invoke("revoke_grant", { id: g.id });
     GR.list = GR.list.filter(x => x.id !== g.id);
@@ -464,6 +484,7 @@ export async function grantAction(a: string) {
   } catch (e) {
     GR.error = String(e);
   }
+
   GR.mode = "list";
   if (S.view === "grants") drawGrants();
 }

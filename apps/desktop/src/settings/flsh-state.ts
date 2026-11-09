@@ -64,6 +64,7 @@ const tokensOk = (n: number | null) => n === null || (Number.isInteger(n) && n >
 export function flshProblem(d: FlshDraft): string {
   if (!tokensOk(parseTokens(d.compact_tokens))) return `A threshold is a token count from ${MIN_TOKENS.toLocaleString("en")} to ${MAX_TOKENS.toLocaleString("en")}.`;
   const seen = new Set<string>();
+
   for (const m of d.models) {
     const name = m.model.trim();
     if (!/^[^:\s,]+:\S/.test(name)) return `Name each model provider:model, such as openrouter:vendor/model.`;
@@ -71,6 +72,7 @@ export function flshProblem(d: FlshDraft): string {
     seen.add(name.toLowerCase());
     if (!tokensOk(parseTokens(m.tokens))) return `The threshold for ${name} is a token count from ${MIN_TOKENS.toLocaleString("en")} to ${MAX_TOKENS.toLocaleString("en")}.`;
   }
+
   return "";
 }
 

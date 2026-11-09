@@ -97,6 +97,7 @@ pub(super) async fn offers(agents: &Agents, projects: &[Project]) -> Vec<Offer> 
     if projects.is_empty() {
         return Vec::new();
     }
+
     let seen = match agents.sightings().await {
         Ok(seen) => seen,
         Err(e) => {
@@ -123,6 +124,7 @@ pub(super) async fn offers(agents: &Agents, projects: &[Project]) -> Vec<Offer> 
             {
                 return None;
             }
+
             let path = inside.to_str()?.to_owned();
             Some((one, project.name.clone(), path))
         })
@@ -157,22 +159,29 @@ pub(super) async fn offers(agents: &Agents, projects: &[Project]) -> Vec<Offer> 
 fn hash_of(memo: &super::progress::Hashes, file: &Path) -> Option<(u64, Vec<u8>)> {
     let meta = std::fs::metadata(file).ok()?;
     let (size, modified) = (meta.len(), meta.modified().ok()?);
+
     if size > super::read::MAX_TRANSCRIPT {
         return None;
     }
+
     if let Some(hash) = memo.get(file, size, modified) {
         return Some((size, hash));
     }
+
     let mut hasher = blake3::Hasher::new();
     let mut reader = File::open(file).ok()?.take(size);
     let mut buf = vec![0; 256 * 1024];
+
     loop {
         let got = reader.read(&mut buf).ok()?;
+
         if got == 0 {
             break;
         }
+
         hasher.update(&buf[..got]);
     }
+
     let hash = hasher.finalize().as_bytes().to_vec();
     memo.put(file, size, modified, hash.clone());
     Some((size, hash))

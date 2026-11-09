@@ -49,9 +49,11 @@ fn removing_a_project_clears_its_lists_and_rejects_late_session_lists() {
     };
     lists.prune();
     let index = serde_json::to_value(build_index(&lists)).expect("the index serializes");
+
     for group in ["projects", "sessions", "code"] {
         assert_eq!(index[group], serde_json::json!([]));
     }
+
     lists.sessions = Some(vec![session]);
     lists.prune();
     let index = serde_json::to_value(build_index(&lists)).expect("the index serializes");

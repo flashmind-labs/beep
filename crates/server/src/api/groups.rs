@@ -21,19 +21,23 @@ fn group_name(name: &str) -> Reply<String> {
 /// What a member goes by in a group, trimmed. Nobody may go by Beep.
 fn group_member_name(name: &str) -> Reply<String> {
     let name = trimmed_name(name, "member name", 30)?;
+
     if name.eq_ignore_ascii_case("beep") {
         return Err(ApiError::bad_request("Beep is taken"));
     }
+
     Ok(name)
 }
 
 fn trimmed_name(name: &str, what: &str, max: usize) -> Reply<String> {
     let name = name.trim();
+
     if name.is_empty() || name.chars().count() > max {
         return Err(ApiError::bad_request(format!(
             "{what} must be 1-{max} characters"
         )));
     }
+
     Ok(name.to_owned())
 }
 
@@ -47,11 +51,13 @@ pub(super) async fn create_group(
 ) -> Reply<Group> {
     let name = group_name(&name)?;
     let member_name = group_member_name(&member_name)?;
+
     if !cx.user.create_group(id, &name, &member_name).await? {
         return Err(ApiError::Conflict {
             message: "group id is taken".into(),
         });
     }
+
     let joined = cx.user.group(id).await?.ok_or(ApiError::Internal {})?;
     Ok(cx.app.group_view(&joined, cx.user.id()))
 }
@@ -91,6 +97,7 @@ pub(super) async fn send_to_group(
     if message.trim().is_empty() || message.len() > 8192 {
         return Err(ApiError::bad_request("message must be 1-8192 bytes"));
     }
+
     check_images(&images)?;
     let pictures = images::pictures(&images);
     cx.app
@@ -110,9 +117,11 @@ pub(super) async fn get_group_images(
     GetGroupImages { group_id }: GetGroupImages,
 ) -> Reply<Vec<SentImages>> {
     let group_id = chat_id(&group_id)?;
+
     if cx.user.group(group_id).await?.is_none() {
         return Err(ApiError::NotFound {});
     }
+
     Ok(cx.app.store.group_pictures(group_id).await?)
 }
 
@@ -169,6 +178,7 @@ pub(super) async fn join_group(
             message: "someone in the group already goes by that name".into(),
         });
     }
+
     let id = match cx.user.join_group(&token, &member_name).await? {
         Join::Joined(id) => id,
         Join::NameTaken => {
@@ -179,12 +189,14 @@ pub(super) async fn join_group(
         Join::UnknownInvite => return Err(ApiError::NotFound {}),
     };
     let joined = cx.user.group(id).await?.ok_or(ApiError::Internal {})?;
+
     for member in &joined.members {
         let _ = cx
             .app
             .notifications
             .send(UserNotice::group_changed(&member.user_id, &id.to_string()));
     }
+
     Ok(cx.app.group_view(&joined, cx.user.id()))
 }
 
@@ -215,10 +227,12 @@ pub(super) async fn list_group_reminders(
         .await
         .unwrap_or_else(|_| "UTC".into());
     let mut reminders = Vec::new();
+
     for job in cx.app.store.group_reminders(group_id).await? {
         if !job.enabled {
             continue;
         }
+
         let setter = job.metadata.get("user_id").and_then(|v| v.as_str());
         let member = joined
             .members
@@ -247,6 +261,7 @@ pub(super) async fn list_group_reminders(
             },
         ));
     }
+
     reminders.sort_by_key(|(next, _)| (next.is_none(), *next));
     Ok(reminders.into_iter().map(|(_, r)| r).collect())
 }
@@ -256,9 +271,11 @@ pub(super) async fn delete_group_reminder(
     DeleteGroupReminder { group_id, id }: DeleteGroupReminder,
 ) -> Reply<()> {
     let group_id = chat_id(&group_id)?;
+
     if cx.user.group(group_id).await?.is_none() {
         return Err(ApiError::NotFound {});
     }
+
     let id: Uuid = id.parse().map_err(|_| ApiError::NotFound {})?;
     found(cx.app.store.delete_group_reminder(group_id, id).await?)
 }
@@ -281,11 +298,13 @@ pub(super) async fn leave_group(cx: Cx, LeaveGroup { id }: LeaveGroup) -> Reply<
         None => return Err(ApiError::NotFound {}),
     };
     cx.user.leave_group(group_id).await?;
+
     for member in &members {
         let _ = cx.app.notifications.send(UserNotice::group_changed(
             &member.user_id,
             &group_id.to_string(),
         ));
     }
+
     Ok(())
 }

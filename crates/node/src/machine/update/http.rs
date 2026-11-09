@@ -41,11 +41,13 @@ pub(super) async fn fetch(client: &Client, url: &Url) -> Result<Vec<u8>, Error> 
     };
     let response = client.get(url.clone()).send().await.map_err(network)?;
     let status = response.status();
+
     if !status.is_success() {
         return Err(Error::Status {
             url: url.clone(),
             status,
         });
     }
+
     Ok(response.bytes().await.map_err(network)?.to_vec())
 }

@@ -115,9 +115,11 @@ test("an HTML artifact's frame runs scripts but gets no same origin and no top n
   assert.equal(sandbox, FRAME_SANDBOX);
   const allowed = sandbox!.split(/\s+/);
   assert.ok(allowed.includes("allow-scripts"));
+
   for (const no of ["allow-same-origin", "allow-top-navigation", "allow-top-navigation-by-user-activation", "allow-popups", "allow-modals"]) {
     assert.ok(!allowed.includes(no), no);
   }
+
   assert.ok(!html.includes("srcdoc"));
   assert.match(html, /src="beepview:\/\/localhost\/abc"/);
   assert.match(html, /title="a &quot;page&quot;"/);

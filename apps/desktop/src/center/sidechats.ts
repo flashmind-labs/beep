@@ -36,6 +36,7 @@ export function openLabel(url: string) {
     const host = new URL(url).hostname.toLowerCase();
     if (host === "github.com" || host.endsWith(".github.com")) return "Open on GitHub";
   } catch {}
+
   return "Open in browser";
 }
 
@@ -51,13 +52,16 @@ export function sideThreads(
 ) {
   const rank = new Map(recent.map((id, i) => [id, i]));
   const byProject = new Map<string, ThreadChatEntry[]>();
+
   for (const c of chats) {
     let list = byProject.get(c.project);
     if (!list) byProject.set(c.project, list = []);
     list.push(c);
   }
+
   const at = (c: ThreadChatEntry) => rank.get(c.chat_id) ?? Number.MAX_SAFE_INTEGER;
   const out = new Map<string, ThreadChatEntry[]>();
+
   for (const [project, list] of byProject) {
     const sorted = [...list].sort((a, b) => at(a) - at(b));
     const must = (c: ThreadChatEntry) => c.chat_id === open || running.has(c.chat_id);
@@ -70,5 +74,6 @@ export function sideThreads(
     });
     if (kept.length) out.set(project, kept);
   }
+
   return out;
 }

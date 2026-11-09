@@ -46,10 +46,12 @@ impl Voice {
                 return;
             }
         };
+
         if self.is_live() || bar::is_open(&self.app) {
             crate::notices::notify::notice(&self.app, &notice);
             return;
         }
+
         let title = notice.title.clone();
         let notice = Box::new(notice);
         self.start(
@@ -82,6 +84,7 @@ impl Voice {
             // Read: it ends here rather than listening for an answer.
             me.input(id, Input::Escape);
         };
+
         if let Some(s) = self.state().live.as_mut().filter(|s| s.id == id) {
             s.reader.start(reader);
         }

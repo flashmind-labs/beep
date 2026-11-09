@@ -15,6 +15,7 @@ fn list_of<'a>(value: &'a Value, what: &str) -> Result<&'a [Value]> {
     if value.is_null() {
         return Ok(&[]);
     }
+
     value
         .as_array()
         .map(Vec::as_slice)
@@ -66,6 +67,7 @@ pub fn parse_found_issue(out: &str, marker: &str) -> Result<Option<IssueRef>> {
     if out.trim().is_empty() {
         return Ok(None);
     }
+
     let value = json(out)?;
     let items = list_of(&value, "issues")?;
     // The host's search may match loosely, so the body is checked here.
@@ -330,9 +332,11 @@ pub fn parse_pr_head(out: &str) -> Result<PrHead> {
             item.get("isCrossRepository").and_then(Value::as_bool) == Some(true),
         ),
     };
+
     if branch.is_empty() {
         bail!("#{number} names no branch");
     }
+
     Ok(PrHead {
         number,
         branch,
@@ -343,9 +347,11 @@ pub fn parse_pr_head(out: &str) -> Result<PrHead> {
 /// The issue [`HostCommand::ViewIssue`] printed. A pull request is refused.
 pub fn parse_viewed_issue(out: &str) -> Result<ViewedIssue> {
     let item = json(out)?;
+
     if item.get("pull_request").is_some_and(|pr| !pr.is_null()) {
         bail!("that number is a pull request, not an issue");
     }
+
     let number = item
         .get("number")
         .and_then(Value::as_u64)
@@ -372,9 +378,11 @@ pub fn parse_login(out: &str) -> Result<String> {
             .unwrap_or_default(),
         _ => out.to_owned(),
     };
+
     if login.is_empty() || login.contains(char::is_whitespace) {
         bail!("the host did not print a login");
     }
+
     Ok(login)
 }
 
@@ -382,11 +390,13 @@ pub fn parse_login(out: &str) -> Result<String> {
 /// teacli.
 pub fn parse_can_push(out: &str) -> Result<bool> {
     let out = out.trim();
+
     match serde_json::from_str::<Value>(out) {
         Ok(Value::Bool(push)) => Ok(push),
         Ok(repo @ Value::Object(_)) => {
             let can = repo.get("permissions");
             let flag = |key| can.and_then(|can| can.get(key)).and_then(Value::as_bool);
+
             match (flag("push"), flag("admin")) {
                 (None, None) => bail!("the host did not print permissions"),
                 (push, admin) => Ok(push.unwrap_or(false) || admin.unwrap_or(false)),
@@ -425,6 +435,7 @@ pub fn parse_pr(host: &IssueHost, out: &str) -> Result<Option<PrState>> {
     if out.trim().is_empty() || out.trim() == "null" {
         return Ok(None);
     }
+
     let value = json(out)?;
     let item = match &value {
         Value::Array(list) => match list.first() {
@@ -433,9 +444,11 @@ pub fn parse_pr(host: &IssueHost, out: &str) -> Result<Option<PrState>> {
         },
         other => other,
     };
+
     if item.get("error").and_then(Value::as_bool) == Some(true) {
         bail!("the host said: {}", text(item, "message"));
     }
+
     let number = item
         .get("number")
         .and_then(Value::as_u64)
@@ -478,6 +491,7 @@ pub fn checks_of(rollup: Option<&Value>) -> ChecksState {
         return ChecksState::None;
     };
     let mut pending = false;
+
     for check in checks {
         // A check run has `conclusion` and `status`; a commit status has `state`.
         let verdict = ["conclusion", "state"]
@@ -495,6 +509,7 @@ pub fn checks_of(rollup: Option<&Value>) -> ChecksState {
             _ => pending = true,
         }
     }
+
     if pending {
         ChecksState::Pending
     } else {

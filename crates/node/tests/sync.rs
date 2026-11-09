@@ -203,6 +203,7 @@ fn set_mtime(path: &Path, secs: u64) {
 fn files(dir: &Path) -> Vec<String> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_owned()];
+
     while let Some(at) = stack.pop() {
         for entry in fs::read_dir(&at).unwrap() {
             let entry = entry.unwrap();
@@ -223,6 +224,7 @@ fn files(dir: &Path) -> Vec<String> {
             }
         }
     }
+
     out.sort();
     out
 }
@@ -583,9 +585,11 @@ async fn synced_file(a: &Node, b: &Node) {
 fn empty_folder(node: &Node) {
     for entry in fs::read_dir(node.folder()).unwrap() {
         let entry = entry.unwrap();
+
         if entry.file_name() == MARKER {
             continue;
         }
+
         if entry.file_type().unwrap().is_dir() {
             fs::remove_dir_all(entry.path()).unwrap();
         } else {
@@ -813,6 +817,7 @@ async fn fake_syncthing(
     let path = serde_json::to_string(&path.to_string_lossy()).unwrap();
     let task = tokio::spawn(async move {
         let mut answering = JoinSet::new();
+
         while let Ok((stream, _)) = listener.accept().await {
             answering.spawn(fake_answer(stream, folder.subscribe(), path.clone()));
         }
@@ -823,12 +828,14 @@ async fn fake_syncthing(
 async fn fake_answer(mut stream: TcpStream, mut folder: watch::Receiver<FakeFolder>, path: String) {
     let mut request = Vec::new();
     let mut buf = [0; 1024];
+
     while !request.windows(4).any(|w| w == b"\r\n\r\n") {
         match stream.read(&mut buf).await {
             Ok(0) | Err(_) => return,
             Ok(n) => request.extend_from_slice(&buf[..n]),
         }
     }
+
     let text = String::from_utf8_lossy(&request);
     let line = text.lines().next().unwrap_or_default();
     let body = if let Some((_, query)) = line.split_once("since=") {
@@ -1187,6 +1194,7 @@ async fn configure_three(nodes: &[Node; 3], paused: bool) {
             .collect();
         assert!(node.configure_paused(peers, paused).await.is_empty());
     }
+
     eventually("all three nodes to acknowledge pause or resume", || {
         nodes.iter().all(|node| node.status().paused == paused)
     })
@@ -1208,6 +1216,7 @@ fn working_files(node: &Node) -> Option<Vec<(String, Vec<u8>)>> {
     let root = node.folder();
     let mut stack = vec![root.clone()];
     let mut out = Vec::new();
+
     while let Some(dir) = stack.pop() {
         for entry in fs::read_dir(dir).ok()? {
             let entry = entry.ok()?;
@@ -1218,6 +1227,7 @@ fn working_files(node: &Node) -> Option<Vec<(String, Vec<u8>)>> {
             if name == ".git" || name.starts_with(".beep-") {
                 continue;
             }
+
             if entry.file_type().ok()?.is_dir() {
                 stack.push(entry.path());
             } else {
@@ -1232,6 +1242,7 @@ fn working_files(node: &Node) -> Option<Vec<(String, Vec<u8>)>> {
             }
         }
     }
+
     out.sort();
     Some(out)
 }
@@ -1258,11 +1269,13 @@ fn concurrent_commits(nodes: &[Node; 3], round: usize, shared: bool, tied: bool)
                     write(&node.path(&own), &text);
                     set_mtime(&node.path(&own), seconds);
                     let mut paths = vec![own.as_str()];
+
                     if shared {
                         write(&node.path(&common), &text);
                         set_mtime(&node.path(&common), seconds);
                         paths.push(common.as_str());
                     }
+
                     let mut add = vec!["add", "--"];
                     add.extend(paths);
                     git(&node.folder(), &add);
@@ -1301,9 +1314,11 @@ fn concurrent_commits(nodes: &[Node; 3], round: usize, shared: bool, tied: bool)
 async fn three_host_commits_wait_for_git(shared: bool, tied: bool) {
     let mut nodes = [Node::new().await, Node::new().await, Node::new().await];
     new_repo(&nodes[0]);
+
     for round in 0..3 {
         write(&nodes[0].path(&format!("shared-{round}.txt")), "baseline\n");
     }
+
     git(
         &nodes[0].folder(),
         &["add", "--", "shared-0.txt", "shared-1.txt", "shared-2.txt"],
@@ -1342,6 +1357,7 @@ async fn three_host_commits_wait_for_git(shared: bool, tied: bool) {
             })
         })
         .await;
+
         if round == 1 {
             nodes[2].stop().await;
             nodes[2].start().await;
@@ -1355,6 +1371,7 @@ async fn three_host_commits_wait_for_git(shared: bool, tied: bool) {
             })
             .await;
         }
+
         for (i, node) in nodes.iter().enumerate() {
             assert_eq!(head(node).as_ref(), tips.get(i));
             assert_eq!(working_files(node), trees[i]);
@@ -1363,6 +1380,7 @@ async fn three_host_commits_wait_for_git(shared: bool, tied: bool) {
             assert!(node.status().conflicts.is_empty());
             assert_sound(node);
         }
+
         println!(
             "three hosts, shared={shared}, tied={tied}, round={round}: commits differ, file sync waits; each HEAD, index and working tree unchanged"
         );
@@ -1370,6 +1388,7 @@ async fn three_host_commits_wait_for_git(shared: bool, tied: bool) {
         // Reconcile through Git, resolving shared-file conflicts explicitly.
         // File sync must neither choose a branch tip nor resolve the merge.
         configure_three(&nodes, true).await;
+
         for peer in &nodes[1..] {
             git(
                 &nodes[0].folder(),
@@ -1406,6 +1425,7 @@ async fn three_host_commits_wait_for_git(shared: bool, tied: bool) {
                 );
             }
         }
+
         for peer in &nodes[1..] {
             git(
                 &peer.folder(),
@@ -1417,6 +1437,7 @@ async fn three_host_commits_wait_for_git(shared: bool, tied: bool) {
                 ],
             );
         }
+
         configure_three(&nodes, false).await;
         eventually(
             "file sync to resume after Git agrees on all three hosts",
@@ -1432,32 +1453,39 @@ async fn three_host_commits_wait_for_git(shared: bool, tied: bool) {
             },
         )
         .await;
+
         for node in &nodes {
             let history = git(&node.folder(), &["log", "--all", "--format=%H"]);
             assert!(
                 tips.iter()
                     .all(|tip| history.lines().any(|line| line == tip))
             );
+
             for i in 0..3 {
                 assert_eq!(
                     read(&node.path(&format!("host-{i}/round-{round}.txt"))),
                     Some(format!("round {round}, host {i}\n").into_bytes())
                 );
             }
+
             assert!(conflict_refs(node).is_empty());
             assert!(node.status().conflicts.is_empty());
             assert_sound(node);
         }
+
         println!(
             "three hosts, round={round}: Git merged all three commits; all checkouts clean, no sync conflict copies or refs"
         );
     }
+
     let heads: Vec<_> = nodes.iter().map(head).collect();
     write(&nodes[0].path("resumed.txt"), "file sync resumed\n");
+
     for node in &nodes[1..] {
         file_round(&nodes[0], node).await;
         assert!(!node.path("resumed.txt").exists());
     }
+
     for (i, node) in nodes.iter_mut().enumerate() {
         assert_eq!(head(node), heads[i]);
         assert_sound(node);
@@ -1503,6 +1531,7 @@ impl<S: Subscriber> Layer<S> for BlobRequests {
     fn on_event(&self, event: &Event<'_>, _: Context<'_, S>) {
         let mut fields = RequestFields::default();
         event.record(&mut fields);
+
         if fields.message.contains("get received request")
             && let Some(hash) = fields.hash
         {
@@ -1568,6 +1597,7 @@ async fn three_hosts_do_not_fetch_a_file_already_received_by_git_pull() {
     for peer in &nodes[1..] {
         write(&peer.path("local-only.txt"), "local test edit\n");
     }
+
     configure_three(&nodes, false).await;
     eventually("all nodes to wait for Git", || {
         nodes.iter().all(|node| {
@@ -1593,6 +1623,7 @@ async fn three_hosts_do_not_fetch_a_file_already_received_by_git_pull() {
             .all(|node| node.status().state == State::Paused)
     })
     .await;
+
     for peer in &nodes[1..] {
         fs::remove_file(peer.path("local-only.txt")).unwrap();
         git(
@@ -1605,6 +1636,7 @@ async fn three_hosts_do_not_fetch_a_file_already_received_by_git_pull() {
             ],
         );
     }
+
     let modified: Vec<_> = nodes
         .iter()
         .map(|node| {
@@ -1616,6 +1648,7 @@ async fn three_hosts_do_not_fetch_a_file_already_received_by_git_pull() {
         .collect();
     let since = tokio::time::Instant::now();
     configure_three(&nodes, false).await;
+
     for (i, node) in nodes.iter().enumerate() {
         for (j, peer) in nodes.iter().enumerate() {
             if i != j {
@@ -1633,6 +1666,7 @@ async fn three_hosts_do_not_fetch_a_file_already_received_by_git_pull() {
                 .expect("the peer is in sync");
             }
         }
+
         assert_eq!(
             read(&node.path("tracked.bin")).as_deref(),
             Some(changed.as_slice())
@@ -1647,6 +1681,7 @@ async fn three_hosts_do_not_fetch_a_file_already_received_by_git_pull() {
         assert!(is_clean(node));
         assert!(node.status().conflicts.is_empty());
     }
+
     assert_eq!(
         requests.count(&changed),
         0,
@@ -1668,6 +1703,7 @@ async fn three_hosts_do_not_fetch_a_file_already_received_by_git_pull() {
     );
     // Wait for every peer to record the common file before editing it apart.
     let since = tokio::time::Instant::now();
+
     for (i, node) in nodes.iter().enumerate() {
         for (j, peer) in nodes.iter().enumerate() {
             if i != j {
@@ -1685,6 +1721,7 @@ async fn three_hosts_do_not_fetch_a_file_already_received_by_git_pull() {
                 .expect("the peer is in sync");
             }
         }
+
         assert!(
             try_git(
                 &node.folder(),
@@ -1694,28 +1731,35 @@ async fn three_hosts_do_not_fetch_a_file_already_received_by_git_pull() {
             .success()
         );
     }
+
     configure_three(&nodes, true).await;
+
     for (i, node) in nodes.iter().enumerate() {
         for name in ["tracked.bin", "ignored-control.bin"] {
             write(&node.path(name), format!("{name} from host {i}\n"));
             set_mtime(&node.path(name), 2_000_000_000 + i as u64);
         }
     }
+
     configure_three(&nodes, false).await;
+
     for (i, node) in nodes.iter().enumerate() {
         for (j, peer) in nodes.iter().enumerate() {
             if i != j {
                 file_round(peer, node).await;
             }
         }
+
         for name in ["tracked.bin", "ignored-control.bin"] {
             assert_eq!(
                 read(&node.path(name)),
                 Some(format!("{name} from host {i}\n").into_bytes())
             );
         }
+
         assert!(node.status().conflicts.is_empty());
     }
+
     for node in &mut nodes {
         node.stop().await;
     }
@@ -1774,6 +1818,7 @@ async fn a_copy_interrupted_part_way_finishes_and_never_looks_corrupt() {
     let a = Node::new().await;
     let mut b = Node::new().await;
     new_repo(&a);
+
     for n in 0..30 {
         commit(
             &a,
@@ -1781,6 +1826,7 @@ async fn a_copy_interrupted_part_way_finishes_and_never_looks_corrupt() {
             &format!("{n}\n").repeat(5000),
         );
     }
+
     write(&a.path("big.bin"), data(4_000_000, 7));
     git(&a.folder(), &["add", "big.bin"]);
     git(&a.folder(), &["commit", "-q", "-m", "big"]);
@@ -2166,6 +2212,7 @@ async fn three_peers_catch_up_to_the_newest_linear_commit() {
             .all(|node| head(node).as_deref() == Some(newest.as_str()) && is_clean(node))
     })
     .await;
+
     for node in &nodes {
         assert_eq!(
             read(&node.path("one.txt")).as_deref(),
@@ -2220,9 +2267,11 @@ async fn automatic_git_catchup_preserves_unstaged_staged_and_untracked_work() {
             "README.md"
         };
         write(&b.path(path), "local work\n");
+
         if kind == "staged" {
             git(&b.folder(), &["add", path]);
         }
+
         let status = git(&b.folder(), &["status", "--porcelain"]);
         commit(&a, "README.md", "new commit\n");
         a.pause(&b, false).await;
@@ -2348,6 +2397,7 @@ async fn git_recovery_keeps_staged_unstaged_untracked_and_ignored_work() {
             .status
             .success()
     );
+
     for blob in private_blobs {
         assert!(
             !try_git(&c.folder(), &["cat-file", "-e", &blob])
@@ -2449,6 +2499,7 @@ async fn ignored_config(node: &Node, peer: &Node, enabled: bool, paused: bool) {
         peers: vec![peer.addr()],
         paused,
     }];
+
     if enabled {
         projects.push(Project {
             name: ignored_project(PROJECT, "assets/models"),
@@ -2457,6 +2508,7 @@ async fn ignored_config(node: &Node, peer: &Node, enabled: bool, paused: bool) {
             paused,
         });
     }
+
     let refused = node.running().transfers.syncs().configure(projects).await;
     assert!(refused.is_empty(), "{refused:?}");
 }

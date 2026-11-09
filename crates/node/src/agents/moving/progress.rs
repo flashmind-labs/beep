@@ -101,9 +101,11 @@ impl Hashes {
 
     pub(super) fn put(&self, file: &Path, size: u64, modified: SystemTime, hash: Vec<u8>) {
         let mut kept = lock(&self.0);
+
         if kept.len() >= MAX_HASHES {
             kept.clear();
         }
+
         kept.insert(
             file.to_owned(),
             Hashed {
@@ -225,6 +227,7 @@ impl Moves {
     /// The copies this node keeps, and the versions that lost.
     pub(crate) async fn copies(&self) -> Vec<beep_proto::node::agent::CopyView> {
         let env = lock(&self.env).upgrade();
+
         match env {
             Some(env) => super::background::views(&env).await,
             None => Vec::new(),
@@ -234,6 +237,7 @@ impl Moves {
     /// Throws a copy away, or the version set aside at `lost`.
     pub(crate) async fn discard_copy(&self, agent: &str, id: &str, lost: Option<u64>) {
         let env = lock(&self.env).upgrade();
+
         if let Some(env) = env {
             super::background::discard(&env, &beep_proto::AgentSlug::from(agent), id, lost).await;
         }
@@ -245,11 +249,13 @@ impl Moves {
         let Some(env) = env else {
             return Ok(());
         };
+
         if let Some(folder) = project_folder(&env.mesh, project, &env.mesh.me())
             && let Some(managed) = Syncthing::local().check(Path::new(&folder)).await
         {
             managed.protect_checkout().await?;
         }
+
         Ok(())
     }
 
@@ -267,6 +273,7 @@ impl Moves {
             return Target::Unknown;
         };
         let progress = one.tracker.borrow();
+
         match progress.phase {
             MovePhase::Done => Target::Landed,
             MovePhase::Failed | MovePhase::Cancelled => Target::Failed(

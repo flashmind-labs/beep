@@ -88,6 +88,7 @@ impl Latest {
         if scope.name() != "files" || !scope.is_pattern() {
             return;
         }
+
         let present: BTreeSet<_> = resources.iter().collect();
         self.retain(|(source, topic, query), _| {
             source != machine
@@ -111,9 +112,11 @@ impl Latest {
             update.query,
         );
         self.remove(&key);
+
         if bytes > MAX_NODE_SNAPSHOT_BYTES {
             return;
         }
+
         loop {
             let node_bytes: usize = self
                 .entries
@@ -122,12 +125,14 @@ impl Latest {
                 .map(|entry| entry.bytes)
                 .sum();
             let node_full = node_bytes.saturating_add(bytes) > MAX_NODE_SNAPSHOT_BYTES;
+
             if !node_full
                 && self.bytes.saturating_add(bytes) <= MAX_SNAPSHOT_BYTES
                 && self.entries.len() < 4096
             {
                 break;
             }
+
             let oldest = self
                 .entries
                 .iter()
@@ -137,6 +142,7 @@ impl Latest {
             let Some(oldest) = oldest else { return };
             self.remove(&oldest);
         }
+
         self.bytes += bytes;
         self.entries.insert(
             key,
@@ -163,6 +169,7 @@ impl Registry {
         if self.pending.len() == 256 {
             self.pending.pop_front();
         }
+
         self.pending.push_back(Pending {
             window: window.to_owned(),
             id,
@@ -187,6 +194,7 @@ impl Registry {
             };
             topics = wanted;
         }
+
         self.check_topics(window, &topics)?;
         let (stop, stopped) = watch::channel(());
         self.windows.insert(
@@ -209,6 +217,7 @@ impl Registry {
         {
             self.windows.remove(window);
         }
+
         self.remember(window, id, None);
     }
 
@@ -220,6 +229,7 @@ impl Registry {
         {
             return Ok(());
         }
+
         if self
             .windows
             .get(window)
@@ -227,6 +237,7 @@ impl Registry {
         {
             self.check_topics(window, &topics)?;
         }
+
         if let Some(current) = self
             .windows
             .get_mut(window)
@@ -236,6 +247,7 @@ impl Registry {
         } else {
             self.remember(window, id, Some(topics));
         }
+
         Ok(())
     }
 
@@ -243,6 +255,7 @@ impl Registry {
     fn check_topics(&self, window: &str, wanted: &[Interest]) -> Result<()> {
         let mut global = BTreeSet::new();
         let mut scoped: BTreeMap<&str, BTreeSet<Topic>> = BTreeMap::new();
+
         for interest in self
             .windows
             .iter()
@@ -262,9 +275,11 @@ impl Registry {
                 }
             }
         }
+
         let exceeds = |topics: BTreeSet<Topic>| {
             compact_topics(topics.into_iter().collect()).len() > events::MAX_TOPICS
         };
+
         if exceeds(global.clone())
             || scoped.into_values().any(|mut topics| {
                 topics.extend(global.iter().cloned());
@@ -275,6 +290,7 @@ impl Registry {
                 "too many topic subscriptions for one node across open windows".into(),
             ));
         }
+
         Ok(())
     }
 
@@ -336,6 +352,7 @@ struct Source {
 impl Events {
     pub(crate) fn clear(&self, window: &str) {
         let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
+
         for pending in registry
             .pending
             .iter_mut()
@@ -343,10 +360,12 @@ impl Events {
         {
             pending.topics = None;
         }
+
         if let Some(current) = registry.windows.get(window) {
             let id = current.id;
             registry.remove(window, id);
         }
+
         drop(registry);
         self.changed();
     }
@@ -382,6 +401,7 @@ impl Events {
                 true
             }
         });
+
         if let Some(source) = self
             .source
             .lock()
@@ -409,6 +429,7 @@ impl Events {
             self.remove(window, id);
             return Ok(None);
         }
+
         let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(stopped) = registry.register(window, id, topics, send)? else {
             return Ok(None);
@@ -429,17 +450,21 @@ impl Events {
             .collect();
         self.publish(&registry);
         drop(registry);
+
         if !alive() {
             drop(send);
             self.remove(window, id);
             return Ok(None);
         }
+
         let failed = initial.into_iter().any(|update| !send(update));
         drop(send);
+
         if failed {
             self.remove(window, id);
             return Ok(None);
         }
+
         self.refresh.send_replace(());
         Ok(Some(stopped))
     }
@@ -447,6 +472,7 @@ impl Events {
     fn start(&self, app: AppHandle, fleet: Arc<Fleet>) {
         self.controller.get_or_init(|| fleet.me);
         let mut manager = self.manager.lock().unwrap_or_else(PoisonError::into_inner);
+
         if manager.as_ref().is_none_or(|job| job.0.is_finished()) {
             *manager = Some(Job(tokio::spawn(run(
                 app.clone(),
@@ -455,8 +481,10 @@ impl Events {
                 self.commands.clone(),
             ))));
         }
+
         drop(manager);
         let mut source = self.source.lock().unwrap_or_else(PoisonError::into_inner);
+
         if source.is_none() {
             let (active, changes) = watch::channel(false);
             *source = Some(Source {
@@ -464,6 +492,7 @@ impl Events {
                 _task: Job(tokio::spawn(forge_source(app, changes))),
             });
         }
+
         drop(source);
         self.changed();
     }
@@ -472,6 +501,7 @@ impl Events {
         let bytes = serde_json::to_vec(&update).map_or(usize::MAX, |bytes| bytes.len());
         let destinations: Vec<_> = {
             let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
+
             if !registry
                 .windows
                 .values()
@@ -479,6 +509,7 @@ impl Events {
             {
                 return;
             }
+
             registry.latest.insert(update.clone(), bytes);
             registry
                 .windows
@@ -487,11 +518,13 @@ impl Events {
                 .map(|(label, window)| (label.clone(), window.id, window.send.clone()))
                 .collect()
         };
+
         for (label, id, delivery) in destinations {
             let sent = {
                 let send = delivery.lock().unwrap_or_else(PoisonError::into_inner);
                 send(update.clone())
             };
+
             if !sent {
                 self.remove(&label, id);
             }
@@ -523,6 +556,7 @@ impl Events {
             .map(|interest| interest.topic.clone())
             .collect();
         self.dispatch(update.clone());
+
         for topic in aliases {
             self.dispatch(Update {
                 topic,
@@ -597,6 +631,7 @@ impl Events {
         if !self.controller_wanted(&topic) {
             return;
         }
+
         let revision = {
             let mut revision = self.revision.lock().unwrap_or_else(PoisonError::into_inner);
             let Some(next) = revision.checked_add(1) else {
@@ -630,6 +665,7 @@ impl Events {
         {
             return Ok(None);
         }
+
         let sender = self
             .commands
             .lock()
@@ -684,6 +720,7 @@ pub fn mesh_topics(
     } else {
         events.remove(window.label(), id);
     }
+
     Ok(())
 }
 
@@ -749,6 +786,7 @@ fn validate(topics: &[Interest]) -> Result<()> {
             "controller-owned topics cannot specify a machine".into(),
         ));
     }
+
     if topics.len() > events::MAX_TOPICS
         || topics.iter().any(|interest| {
             !interest.topic.valid()
@@ -762,6 +800,7 @@ fn validate(topics: &[Interest]) -> Result<()> {
             "invalid subscription topics".into(),
         ));
     }
+
     Ok(())
 }
 
@@ -791,6 +830,7 @@ fn compact_topics(mut topics: Vec<Topic>) -> Vec<Topic> {
     if topics.iter().any(|topic| topic.name() == "home") {
         topics.extend(home_sources());
     }
+
     let topics: BTreeSet<_> = topics.into_iter().collect();
     topics
         .iter()
@@ -820,6 +860,7 @@ fn topics_for(interests: &[Interest], machine: EndpointId, local: EndpointId) ->
     {
         topics.extend(home_sources());
     }
+
     topics.sort();
     topics.dedup();
     compact_topics(topics)
@@ -856,14 +897,17 @@ async fn run(
     let mut materialized = Vec::new();
     let mut workers = JoinSet::new();
     let mut held: BTreeMap<EndpointId, Worker> = BTreeMap::new();
+
     loop {
         while workers.try_join_next().is_some() {}
         let interests = demand.borrow_and_update().clone();
+
         if interests.is_empty() {
             held.clear();
             workers.abort_all();
             fleet.snapshots.reconcile(&BTreeMap::new());
             materialized.clear();
+
             if demand
                 .wait_for(|interests| !interests.is_empty())
                 .await
@@ -874,6 +918,7 @@ async fn run(
             revision = *status.borrow_and_update();
             continue;
         }
+
         let mut machines = if mesh_is_open(&mesh) {
             fleet.online()
         } else {
@@ -898,6 +943,7 @@ async fn run(
                 false
             }
         });
+
         for (machine, topics) in wanted {
             if let Some(worker) = held.get(&machine) {
                 worker.topics.send_if_modified(|current| {
@@ -916,6 +962,7 @@ async fn run(
                 held.insert(machine, Worker { topics, task });
             }
         }
+
         if materialized != interests {
             super::event_views::changed(app.clone(), Topic::new("*"));
             app.state::<Events>().publish_views(
@@ -925,6 +972,7 @@ async fn run(
             );
             materialized = interests.clone();
         }
+
         tokio::select! {
             changed = demand.changed() => if changed.is_err() { return; },
             changed = mesh.changed() => {
@@ -945,10 +993,12 @@ async fn run(
             changed = status.changed() => {
                 if changed.is_err() { return; }
                 let current = *status.borrow_and_update();
+
                 if current.machines != revision.machines {
                     beep_node::events::system().changed(Topic::new("machines"));
                     beep_node::events::system().changed(Topic::new("accounts"));
                 }
+
                 if current.telemetry != revision.telemetry && interests.iter().any(|interest| matches!(interest.topic.name(), "telemetry" | "*")) {
                     beep_node::events::system().changed(Topic::new("telemetry"));
                 }
@@ -980,19 +1030,23 @@ async fn follow(
     commands: Commands,
 ) {
     let mut pause = Duration::from_secs(1);
+
     loop {
         if wanted.has_changed().is_err() {
             return;
         }
+
         let started = std::time::Instant::now();
         let result = stream(&app, &fleet, machine, &mut wanted, &commands).await;
 
         if started.elapsed() >= Duration::from_secs(10) {
             pause = Duration::from_secs(1);
         }
+
         if let Err(error) = result {
             log::debug!("node event stream ended: {error}");
         }
+
         tokio::select! { _ = sleep(pause) => {}, _ = wanted.wait_for(|_| false) => return }
         pause = (pause * 2).min(Duration::from_secs(30));
     }
@@ -1041,11 +1095,13 @@ async fn stream(
     let mut next = 1_u64;
     let mut dirty = false;
     let mut revision = 0;
+
     loop {
         if dirty && watches.is_empty() {
             let topics = wanted.borrow_and_update().clone();
             let queries = fleet.snapshots.queries(machine);
             app.state::<Events>().forget_queries(machine, &queries);
+
             if (topics.clone(), queries.clone()) == sent {
                 dirty = false;
                 continue;
@@ -1067,6 +1123,7 @@ async fn stream(
             .map_err(|_| DesktopError::Lost("the machine".into()))??;
             dirty = false;
         }
+
         tokio::select! {
             changed = wanted.changed() => { if changed.is_err() { return Ok(()); } dirty = true; },
             changed = query_changes.changed() => { if changed.is_err() { return Ok(()); } dirty = true; },
@@ -1083,6 +1140,7 @@ async fn stream(
             },
             reply = timeout(Duration::from_secs(35), rx.recv::<Reply>()) => {
                 let reply = reply.map_err(|_| DesktopError::Lost("the machine".into()))??.ok_or_else(|| DesktopError::Lost("the machine".into()))?;
+
                 match reply {
                     Reply::Ready => {
                         if !fleet.snapshots.ready(machine, generation) { return Ok(()); }
@@ -1093,13 +1151,16 @@ async fn stream(
                     Reply::Snapshot(snapshot) => {
                         revision = snapshot.revision;
                         let Some(initial) = fleet.snapshots.install(machine, generation, &snapshot) else { continue; };
+
                         if let events::Value::Resources(resources) = &snapshot.value {
                             app.state::<Events>().resources(machine, &snapshot.topic, resources);
                         }
+
                         if !initial { invalidate(app, snapshot.topic.name()); }
                         if !initial && (machine == fleet.me || matches!(snapshot.topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves" | "sync")) {
                             super::event_views::changed(app.clone(), snapshot.topic.clone());
                         }
+
                         if (machine != fleet.me || !controller_topic(&snapshot.topic))
                             && app.state::<Events>().node_wanted(machine, &snapshot.topic) {
                             let data = serde_json::to_value(&snapshot.value).ok();
@@ -1110,9 +1171,11 @@ async fn stream(
                         log::debug!("node snapshot failed for {topic}: {reason}");
                         if let Some(query) = query && !fleet.snapshots.failed(machine, generation, query, reason.clone()) { continue; }
                         invalidate(app, topic.name());
+
                         if machine == fleet.me || matches!(topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves" | "sync") {
                             super::event_views::failed(app, &topic, &reason);
                         }
+
                         if (machine != fleet.me || !controller_topic(&topic)) && app.state::<Events>().node_wanted(machine, &topic) {
                             app.state::<Events>().dispatch_node(Update { machine_id: machine.to_string(), revision, query, initial: false, data: Some(serde_json::json!({ "error": reason })), topic });
                         }
@@ -1148,6 +1211,7 @@ struct Registered<'a> {
 impl Drop for Registered<'_> {
     fn drop(&mut self) {
         let mut commands = self.commands.lock().unwrap_or_else(PoisonError::into_inner);
+
         if commands
             .get(&self.machine)
             .is_some_and(|(id, _)| *id == self.generation)
@@ -1165,6 +1229,7 @@ fn invalidate(app: &AppHandle, topic: &str) {
         app.state::<Arc<crate::center::home_sessions::AgentSessions>>()
             .stale();
     }
+
     if matches!(topic, "terminals" | "*") {
         app.state::<crate::machines::list::Outside>()
             .terminals
@@ -1178,8 +1243,10 @@ async fn forge_source(app: AppHandle, mut active: watch::Receiver<bool>) {
         if active.wait_for(|active| *active).await.is_err() {
             return;
         }
+
         let mut previous = None;
         let mut ticks = tokio::time::interval(Duration::from_secs(60));
+
         loop {
             tokio::select! {
                 changed = active.changed() => {
@@ -1194,9 +1261,11 @@ async fn forge_source(app: AppHandle, mut active: watch::Receiver<bool>) {
                         result = read => result,
                         _ = active.wait_for(|active| !*active) => break,
                     };
+
                     match result {
                         Ok(Some(items)) => {
                             let current = serde_json::to_value(&items).ok();
+
                             if current != previous {
                                 previous = current;
                                 let fleet = app.state::<Arc<Fleet>>();

@@ -146,10 +146,12 @@ pub fn numbered(name: &str, kind: ContentKind, n: u32) -> String {
     if n <= 1 {
         return name.to_owned();
     }
+
     let split = match kind {
         ContentKind::File => name.rfind('.').filter(|&at| at > 0),
         ContentKind::Folder => None,
     };
+
     match split {
         Some(at) => format!("{} ({n}){}", &name[..at], &name[at..]),
         None => format!("{name} ({n})"),

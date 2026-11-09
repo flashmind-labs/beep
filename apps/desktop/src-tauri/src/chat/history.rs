@@ -152,6 +152,7 @@ impl Pictures {
 impl Beep {
     pub async fn history(&self, id: String) -> Result<Vec<Turn>> {
         let session_id = Uuid::parse_str(&id).ok();
+
         if let Some(turns) = session_id.and_then(|id| self.chats().session(id)) {
             // The copy shows at once: the labels only name tool steps
             // better, so a slow or absent server does not hold it back.
@@ -163,6 +164,7 @@ impl Beep {
                 });
             return Ok(with_labels(turns, labels));
         }
+
         let (entries, images, labels) = join!(
             self.call(GetSession { id: id.clone() }),
             self.call(GetSessionImages { session_id: id }),
@@ -183,6 +185,7 @@ impl Beep {
         let Some(session_id) = session_id else {
             return HashMap::new();
         };
+
         match self.call(GetToolLabels { session_id }).await {
             Ok(labels) => labels
                 .into_iter()
@@ -243,6 +246,7 @@ fn sent_file(name: &str, output: &str) -> Option<SentFile> {
     if name != SEND_FILE && !MADE_FILES.contains(&name) {
         return None;
     }
+
     serde_json::from_str::<FileOutput>(output)
         .ok()
         .map(|o| o.file)
@@ -259,6 +263,7 @@ fn sent_images(name: &str, output: &str) -> Vec<SentImage> {
     if name != SEND_IMAGE && name != IMAGE_GEN {
         return Vec::new();
     }
+
     serde_json::from_str::<ImagesOutput>(output)
         .map(|o| o.images)
         .unwrap_or_default()
@@ -275,6 +280,7 @@ fn shown_chart(name: &str, output: &str) -> Option<Chart> {
     if name != SHOW_CHART && name != SHOW_STOCK_CHART {
         return None;
     }
+
     serde_json::from_str::<ChartOutput>(output)
         .ok()
         .map(|o| o.chart)
@@ -287,16 +293,19 @@ fn with_labels(mut turns: Vec<Turn>, labels: HashMap<String, String>) -> Vec<Tur
     if labels.is_empty() {
         return turns;
     }
+
     for turn in &mut turns {
         let Turn::Assistant { tools, .. } = turn else {
             continue;
         };
+
         for step in tools {
             if let Some(label) = labels.get(&step.call_id) {
                 step.label = Some(label.clone());
             }
         }
     }
+
     turns
 }
 

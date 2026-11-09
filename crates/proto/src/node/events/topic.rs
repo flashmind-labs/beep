@@ -86,14 +86,18 @@ impl Topic {
         if text.is_empty() || text.len() > MAX_TOPIC_BYTES {
             return Err(TopicError);
         }
+
         if text == "*" {
             return Ok(Self::new("*"));
         }
+
         let mut components = text.split('.');
         let name = decode(components.next().ok_or(TopicError)?)?;
+
         if name == "*" {
             return Err(TopicError);
         }
+
         let remaining: Vec<_> = components.collect();
         let wildcard = remaining.is_empty() || remaining.last() == Some(&"*");
         let literal_count = remaining.len() - usize::from(remaining.last() == Some(&"*"));
@@ -105,9 +109,11 @@ impl Topic {
             None
         } else {
             let mut key = resources.join(".");
+
             if wildcard {
                 key.push_str(".*");
             }
+
             Some(key)
         };
         let topic = Self {
@@ -175,17 +181,22 @@ impl fmt::Display for Topic {
         if let Some(invalid) = &self.invalid {
             return out.write_str(invalid);
         }
+
         if self.name == "*" && self.resources.is_empty() && self.wildcard {
             return out.write_str("*");
         }
+
         encode(&self.name, out)?;
+
         for resource in &self.resources {
             out.write_str(".")?;
             encode(resource, out)?;
         }
+
         if self.wildcard {
             out.write_str(".*")?;
         }
+
         Ok(())
     }
 }
@@ -219,6 +230,7 @@ fn encode(text: &str, out: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(out, "%{byte:02X}")?;
         }
     }
+
     Ok(())
 }
 
@@ -226,8 +238,10 @@ fn decode(text: &str) -> Result<String, TopicError> {
     if text.is_empty() || text == "*" {
         return Err(TopicError);
     }
+
     let mut bytes = Vec::with_capacity(text.len());
     let mut input = text.bytes();
+
     while let Some(byte) = input.next() {
         if byte == b'%' {
             let high = hex(input.next().ok_or(TopicError)?)?;
@@ -239,6 +253,7 @@ fn decode(text: &str) -> Result<String, TopicError> {
             return Err(TopicError);
         }
     }
+
     String::from_utf8(bytes).map_err(|_| TopicError)
 }
 

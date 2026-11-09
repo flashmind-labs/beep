@@ -18,15 +18,19 @@ fn permutations(ops: &[DeviceOp]) -> Vec<Vec<DeviceOp>> {
     if ops.len() <= 1 {
         return vec![ops.to_vec()];
     }
+
     let mut all = Vec::new();
+
     for i in 0..ops.len() {
         let mut rest = ops.to_vec();
         let first = rest.remove(i);
+
         for mut tail in permutations(&rest) {
             tail.insert(0, first.clone());
             all.push(tail);
         }
     }
+
     all
 }
 
@@ -114,9 +118,11 @@ fn a_flooded_buffer_still_takes_a_legitimate_out_of_order_op() {
     let op_b = src.add(&a, device(&b, "b", DeviceKind::Desktop)).unwrap();
     let op_c = src.add(&b, device(&c, "c", DeviceKind::Node)).unwrap();
     let mut mine = only_genesis(&src);
+
     for _ in 0..(MAX_PENDING + 50) {
         mine.merge(&[stranger_op(a.public())]);
     }
+
     let merged = mine.merge(&[op_c]);
     assert_eq!(merged.held, 1);
     let merged = mine.merge(&[op_b]);
@@ -133,9 +139,11 @@ fn a_repeated_stranger_op_is_held_once() {
     let a = key();
     let mut mine = genesis(&a);
     let op = stranger_op(a.public());
+
     for _ in 0..5 {
         mine.merge(std::slice::from_ref(&op));
     }
+
     assert_eq!(mine.pending.len(), 1);
 }
 
@@ -144,6 +152,7 @@ fn a_remove_signed_for_one_mesh_does_not_replay_into_another() {
     let (a, c, b, victim) = (key(), key(), key(), key());
     let mut x = genesis(&a);
     let mut y = genesis(&c);
+
     for list in [&mut x, &mut y] {
         let owner = if list.mesh() == a.public() { &a } else { &c };
         list.add(owner, device(&b, "b", DeviceKind::Desktop))
@@ -151,6 +160,7 @@ fn a_remove_signed_for_one_mesh_does_not_replay_into_another() {
         list.add(owner, device(&victim, "v", DeviceKind::Node))
             .unwrap();
     }
+
     let op = x.remove(&b, victim.public()).unwrap();
     let merged = y.merge(&[op]);
     assert!(matches!(
@@ -198,6 +208,7 @@ fn merging_ops_in_any_order_gives_the_same_members() {
         d.members()
     };
     assert_eq!(expected.len(), 4);
+
     for order in permutations(&all) {
         let mut d = only_genesis(&src);
         let merged = d.merge(&order);
@@ -227,6 +238,7 @@ fn a_low_timestamp_node_readd_leaves_a_desktop_in_every_order() {
         src.add(&a, node).unwrap(),
         src.add(&a, genesis_again).unwrap(),
     ];
+
     for order in permutations(&ops) {
         let mut d = only_genesis(&src);
         d.merge(&order);

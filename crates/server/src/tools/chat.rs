@@ -92,9 +92,11 @@ impl Tool for ChatSearchTool {
     }
     async fn execute(&self, ctx: ToolContext<'_>) -> Result<ToolResult> {
         let query = arg(&ctx.args, "query")?.trim().to_lowercase();
+
         if query.is_empty() {
             return Ok(ToolResult::failure(ctx.tool_call_id, "The query is empty."));
         }
+
         let messages = match messages(&self.user, self.chat, &ctx).await? {
             Ok(messages) => messages,
             Err(failure) => return Ok(failure),

@@ -59,6 +59,7 @@ impl Push {
         if notice.changed || notice.title.is_empty() {
             return Ok(Some(Self::wake()));
         }
+
         let Some(sealed) = seal_to_fit(phone, notice, MAX_SEALED)? else {
             return Ok(None);
         };
@@ -154,9 +155,11 @@ impl Apns {
 
     async fn provider_token(&self) -> Result<SecretString> {
         let mut cached = self.token.lock().await;
+
         if let Some(token) = cached.as_ref().filter(|t| Instant::now() < t.renew_at) {
             return Ok(token.value.clone());
         }
+
         let mut header = Header::new(Algorithm::ES256);
         header.kid = Some(self.key_id.clone());
         let claims = Claims {
@@ -191,6 +194,7 @@ impl Apns {
             .send()
             .await?;
         let status = response.status();
+
         if status == StatusCode::OK {
             return Ok(Delivery::Sent);
         }
@@ -208,12 +212,14 @@ impl Apns {
             (_, "ExpiredProviderToken" | "InvalidProviderToken") => {
                 log::warn!("apns: provider token refused: {reason}");
                 let mut cached = self.token.lock().await;
+
                 if cached
                     .as_ref()
                     .is_some_and(|t| t.value.expose_secret() == auth.expose_secret())
                 {
                     *cached = None;
                 }
+
                 Delivery::Failed
             }
             _ => {

@@ -12,7 +12,7 @@ use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::EnvFilter;
 
 const LOG_FILTER: &str = "info,beep_desktop=debug,iroh=warn,noq=warn,n0=warn,netwatch=warn,\
-                          netdev=warn,portmapper=warn,igd_next=warn";
+                          netdev=warn,portmapper=warn,igd_next=warn,notify::inotify=warn";
 /// A file is closed and a new one started past this size.
 const FILE_BYTES: u64 = 5 * 1024 * 1024;
 /// Files kept: `beep.log`, then `beep.1.log` and `beep.2.log`, the oldest.
@@ -122,6 +122,7 @@ impl Rolling {
                 _ => {}
             }
         }
+
         self.file = File::create(path(&self.dir, 0))?;
         self.size = 0;
         Ok(())
@@ -133,6 +134,7 @@ impl Write for Rolling {
         if self.size > 0 && self.size + buf.len() as u64 > self.max {
             self.roll()?;
         }
+
         let n = self.file.write(buf)?;
         self.size += n as u64;
         Ok(n)

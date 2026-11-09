@@ -37,6 +37,7 @@ impl Parents {
     pub(super) fn note(&self, machine: &str, listed: &[Linked]) {
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         held.parents.retain(|(at, _), _| at != machine);
+
         for linked in listed {
             let Some(parent) = &linked.parent else {
                 continue;
@@ -53,6 +54,7 @@ impl Parents {
                 },
             );
         }
+
         let reviewers: Vec<MachineSession> = listed
             .iter()
             .filter(|linked| linked.reviewer)

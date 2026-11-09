@@ -71,13 +71,17 @@ impl TestHost {
             while let Ok((mut stream, _)) = listener.accept().await {
                 let mut data = Vec::new();
                 let mut buf = [0u8; 4096];
+
                 while !data.windows(4).any(|w| w == b"\r\n\r\n") {
                     let n = stream.read(&mut buf).await.expect("the request reads");
+
                     if n == 0 {
                         break;
                     }
+
                     data.extend_from_slice(&buf[..n]);
                 }
+
                 let text = String::from_utf8_lossy(&data).to_ascii_lowercase();
                 let path = String::from_utf8_lossy(&data)
                     .split(' ')
@@ -94,9 +98,11 @@ impl TestHost {
                     reply.status,
                     reply.body.len()
                 );
+
                 for (name, value) in &reply.headers {
                     out.push_str(&format!("{name}: {value}\r\n"));
                 }
+
                 out.push_str("\r\n");
                 out.push_str(&reply.body);
                 stream

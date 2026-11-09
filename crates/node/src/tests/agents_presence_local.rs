@@ -58,6 +58,7 @@ async fn an_idle_connection_stays_present_until_eof_or_cancellation() {
             drop(reader);
             task.await.unwrap().unwrap();
         }
+
         timeout(HELLO_WAIT, changes.changed())
             .await
             .unwrap()

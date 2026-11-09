@@ -43,6 +43,7 @@ fn gate_rules() {
     assert!(!parks(&allow, "c1", Asks::ByLevel));
     assert!(parks(&allow, "c1", Asks::Always));
     let read_only = ProjectGate::new(rules(PermissionLevel::ReadOnly {}, &[]), Some("c1".into()));
+
     for asks in [Asks::ByLevel, Asks::Always] {
         assert!(matches!(
             read_only.check("c1", "project_plan", asks, card),

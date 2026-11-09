@@ -104,9 +104,11 @@ impl Ticker {
     /// Records `done` and reports it if one is due.
     async fn tick(&mut self, tx: &mut Out<'_>, done: u64) -> Result<()> {
         self.done = done;
+
         if self.due(Instant::now()) {
             self.send(tx).await?;
         }
+
         Ok(())
     }
 
@@ -246,9 +248,11 @@ impl Late {
     pub fn fail(&self) {
         self.slot.send_if_modified(|slot| {
             let waiting = matches!(slot, Slot::Waiting);
+
             if waiting {
                 *slot = Slot::Failed;
             }
+
             waiting
         });
     }
@@ -282,6 +286,7 @@ impl ProtocolHandler for Waiting {
             .map(|ready| ready.clone()),
             Err(_) => None,
         };
+
         match ready {
             Some(Slot::Ready { blobs, .. }) if self.blobs => blobs.accept(connection).await,
             Some(Slot::Ready { sync, .. }) => sync.accept(connection).await,
@@ -486,6 +491,7 @@ impl Transfers {
     /// closes the store, so it can be opened again.
     pub async fn shutdown(&self) -> Result<()> {
         self.inner.syncs.shutdown().await;
+
         if let Some(router) = &self.inner.router {
             router
                 .shutdown()
@@ -496,6 +502,7 @@ impl Transfers {
         if let Err(e) = self.inner.store.shutdown().await {
             log::debug!("the blob store stopped: {e}");
         }
+
         Ok(())
     }
 }
@@ -677,6 +684,7 @@ async fn serve_fetch(
         let mut out = Out::Stream(&mut tx);
         let work = fetch::fetch(cx, job, &mut out);
         let mut work = std::pin::pin!(work);
+
         loop {
             tokio::select! {
                 result = &mut work => break result,
@@ -700,14 +708,18 @@ async fn serve_fetch(
             message: format!("{e:#}"),
         },
     };
+
     if let Err(e) = tx.send(&reply).await {
         // A server that went away cannot hear it; the result stands.
         log::debug!("could not report a fetch: {e:#}");
+
         if matches!(reply, Reply::Done { .. }) {
             return Ok(());
         }
+
         bail!(e);
     }
+
     Ok(())
 }
 

@@ -72,6 +72,7 @@ pub fn parse_state(output: &str) -> Result<CheckoutState> {
         behind: 0,
     };
     let mut seen = false;
+
     for line in output.lines() {
         if line.starts_with("@@detached") {
             seen = true;
@@ -88,9 +89,11 @@ pub fn parse_state(output: &str) -> Result<CheckoutState> {
             }
         }
     }
+
     if !seen {
         bail!("git did not answer as expected");
     }
+
     Ok(state)
 }
 
@@ -155,6 +158,7 @@ fn signed_out(output: &str) -> bool {
 /// Reads the state of the checkout in `folder`.
 pub async fn read_state(shell: &dyn Shell, folder: &str) -> Result<CheckoutState> {
     let ran = shell.run(&state_script(folder), STATE_LIMIT).await?;
+
     match ran.exit_code {
         Some(0) => parse_state(&ran.output),
         Some(3) => bail!("the project's folder is not there"),

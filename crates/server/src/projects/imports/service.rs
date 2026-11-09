@@ -22,6 +22,7 @@ pub(crate) async fn project_machines(
     if rows.is_empty() {
         return Ok(None);
     }
+
     let linked: HashSet<String> = user
         .account_keys()
         .await?

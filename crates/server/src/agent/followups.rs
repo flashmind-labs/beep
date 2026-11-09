@@ -182,7 +182,9 @@ impl Input<'_> {
         if self.results.is_empty() {
             return Ok(());
         }
+
         write!(f, "What its tools returned:")?;
+
         for result in &self.results {
             write!(
                 f,
@@ -191,6 +193,7 @@ impl Input<'_> {
                 clip(result.output, MAX_RESULT_CHARS)
             )?;
         }
+
         write!(f, "\n\n")
     }
 }
@@ -198,9 +201,11 @@ impl Input<'_> {
 impl fmt::Display for Input<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.write_context(f)?;
+
         if let Some(turn) = self.earlier {
             writeln!(f, "Earlier:\n{turn}\n")?;
         }
+
         self.write_results(f)?;
         // The reply goes last, next to the line saying to write in its
         // language, so the tool results' language is further away.
@@ -220,15 +225,18 @@ pub async fn write(
     match kind {
         Kind::Answers => {
             let output = choice_output(items(generator, ANSWERS_SYSTEM, state, reply).await?);
+
             if output.is_none() {
                 log::info!("no short answers to the reply's question");
             }
+
             output
         }
         Kind::FollowUps => {
             if score? < THRESHOLD {
                 return None;
             }
+
             draft(generator, state, reply).await
         }
     }
@@ -252,9 +260,11 @@ pub async fn score(decision: &DecisionTool, state: &str) -> Option<f64> {
 pub async fn draft(generator: Generator<'_>, state: String, reply: &str) -> Option<String> {
     let items = items(generator, SYSTEM, state, reply).await?;
     let output = replies_output(items.clone());
+
     if output.is_none() {
         log::warn!("fewer than two usable follow-ups: {items:?}");
     }
+
     output
 }
 
@@ -270,6 +280,7 @@ async fn items(
     let mut state =
         format!("{state}\n\nWrite every item in the language of the Assistant line above.");
     let mut retried = false;
+
     loop {
         let answer = match generator.text(system, state.clone()).await {
             Ok(answer) => answer,
@@ -329,6 +340,7 @@ fn script(c: char) -> Option<Script> {
     if !c.is_alphabetic() {
         return None;
     }
+
     Some(match u32::from(c) {
         0x0000..=0x024F | 0x1E00..=0x1EFF => Script::Latin,
         0x0370..=0x03FF => Script::Greek,
@@ -348,9 +360,11 @@ fn script(c: char) -> Option<Script> {
 /// The script most of `text`'s letters are in, if it has any.
 fn main_script(text: &str) -> Option<Script> {
     let mut counts = [0usize; SCRIPTS.len()];
+
     for script in text.chars().filter_map(script) {
         counts[script as usize] += 1;
     }
+
     let (most, count) = counts.iter().enumerate().max_by_key(|(_, count)| **count)?;
     (*count > 0).then_some(SCRIPTS[most])
 }

@@ -68,8 +68,10 @@ fn slashes(name: &str) -> usize {
 pub(crate) fn projects(mesh: &Mesh) -> Vec<Stored> {
     let mut found: BTreeMap<String, Stored> = BTreeMap::new();
     let mut places = Vec::new();
+
     for (key, bytes) in mesh.scan("project/") {
         let Key::Project(name) = &key else { continue };
+
         match slashes(name) {
             1 => {
                 if let Some(record) = decode::<ProjectRecord>(&key, &bytes) {
@@ -97,11 +99,13 @@ pub(crate) fn projects(mesh: &Mesh) -> Vec<Stored> {
             _ => {}
         }
     }
+
     for (project, machine, place) in places {
         if let Some(stored) = found.get_mut(&project) {
             stored.places.insert(machine, place);
         }
     }
+
     found.into_values().collect()
 }
 
@@ -124,25 +128,32 @@ pub(crate) async fn sync_checkouts(mesh: &Mesh, stored: &Stored) -> Result<()> {
     if places.len() < 2 {
         return Ok(());
     }
+
     let key = Key::Sync(stored.name.clone());
     let mut spec = SyncSpec::default();
+
     if mesh.get(&key).is_some() {
         // One that does not read may say more than this build knows: it stays.
         let Some(held) = read::<SyncSpec>(mesh, &key) else {
             return Ok(());
         };
+
         if held.folders.is_empty() {
             return Ok(());
         }
         spec = held;
     }
+
     let before = spec.clone();
+
     for (machine, place) in places {
         spec.folders.insert(*machine, place.folder.clone());
     }
+
     if spec != before {
         write(mesh, key, Some(&spec)).await?;
     }
+
     Ok(())
 }
 

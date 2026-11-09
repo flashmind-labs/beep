@@ -55,6 +55,7 @@ pub(super) async fn ensure_session(
             .await?;
         return Ok(SessionChat::New);
     }
+
     let owned: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM chats c JOIN chat_members m ON m.chat_id = c.id
          WHERE c.id = $1 AND c.kind = 'session' AND m.user_id = $2)",
@@ -139,6 +140,7 @@ impl Store {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
+
         let rows = sqlx::query(&format!(
             "SELECT c.id, c.kind::text, CASE WHEN c.kind = 'session' THEN {SESSION_TITLE}
                  ELSE COALESCE(c.title, '') END, m.pinned, m.shares_apps
@@ -157,6 +159,7 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         let mut by_chat: HashMap<Uuid, Vec<GroupMember>> = HashMap::new();
+
         for row in members {
             let member: String = row.try_get(1)?;
             let joined_at: DateTime<Utc> = row.try_get(4)?;
@@ -170,6 +173,7 @@ impl Store {
                     joined_at: joined_at.timestamp_millis(),
                 });
         }
+
         rows.iter()
             .map(|row| {
                 let id: Uuid = row.try_get(0)?;
@@ -268,11 +272,13 @@ impl Store {
             reset,
         };
         let mut bytes = 0;
+
         for row in logged {
             if bytes >= PAGE_BYTES {
                 page.more = true;
                 break;
             }
+
             page.last = row.update_id;
             let update = match (row.op, row.message_id) {
                 (UpdateOp::Message, Some(id)) => {
@@ -310,6 +316,7 @@ impl Store {
             };
             page.updates.push(update);
         }
+
         if page.more && page.last < pruned_below - 1 {
             // The next page must continue this rebuild rather than reset it.
             page.last = -page.last;

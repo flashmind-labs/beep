@@ -68,6 +68,7 @@ fn claude_sessions(listing: &str, is_file: impl Fn(&str) -> bool) -> Vec<(u32, O
             let (pid, args) = line.trim().split_once(char::is_whitespace)?;
             let pid = pid.parse().ok()?;
             let rest = claude_arguments(args.trim(), &is_file)?;
+
             if rest
                 .split_whitespace()
                 .next()
@@ -75,6 +76,7 @@ fn claude_sessions(listing: &str, is_file: impl Fn(&str) -> bool) -> Vec<(u32, O
             {
                 return None;
             }
+
             Some((pid, session_named(rest)))
         })
         .take(MAX_PROCESSES)
@@ -92,10 +94,12 @@ fn claude_arguments<'a>(args: &'a str, is_file: &impl Fn(&str) -> bool) -> Optio
         .chain(std::iter::once(args.len()));
     for (word, end) in ends.take(MAX_PROGRAM_WORDS).enumerate() {
         let program = &args[..end];
+
         if is_claude(program) && (word == 0 || is_file(program)) {
             return Some(args[end..].trim_start());
         }
     }
+
     None
 }
 
@@ -106,9 +110,11 @@ fn is_claude(program: &str) -> bool {
     let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
         return false;
     };
+
     if name == "claude" {
         return true;
     }
+
     let called = |path: Option<&Path>, name: &str| {
         path.and_then(Path::file_name)
             .is_some_and(|dir| dir == name)
@@ -147,6 +153,7 @@ fn session_named(rest: &str) -> Option<String> {
             .find_map(|word| session_in(word.strip_prefix(flag)?.strip_prefix('=')?))
             .or_else(|| value(flag))
     };
+
     match value_or_equals("--session-id") {
         Some(id) => Some(id),
         None if words.contains(&"--fork-session") => None,
@@ -178,6 +185,7 @@ async fn folders(pids: &[u32]) -> Vec<(u32, PathBuf)> {
     if pids.is_empty() {
         return Vec::new();
     }
+
     let list = pids
         .iter()
         .map(u32::to_string)
@@ -194,6 +202,7 @@ async fn folders(pids: &[u32]) -> Vec<(u32, PathBuf)> {
 fn lsof_folders(text: &str) -> Vec<(u32, PathBuf)> {
     let mut found = Vec::new();
     let mut pid = None;
+
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix('p') {
             pid = rest.parse().ok();
@@ -203,6 +212,7 @@ fn lsof_folders(text: &str) -> Vec<(u32, PathBuf)> {
             found.push((pid, PathBuf::from(path)));
         }
     }
+
     found
 }
 

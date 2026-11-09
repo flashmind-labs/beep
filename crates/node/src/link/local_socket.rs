@@ -31,6 +31,7 @@ mod unix {
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
                 Err(e) => return Err(e).with_context(|| format!("removing {}", socket.display())),
             }
+
             let listener = UnixListener::bind(socket)
                 .with_context(|| format!("listening on {}", socket.display()))?;
             fsat::set_mode(socket, 0o600)?;
@@ -158,6 +159,7 @@ mod windows {
     pub(crate) async fn connect(socket: &Path) -> io::Result<Stream> {
         let name = pipe_name(socket);
         let start = Instant::now();
+
         loop {
             match ClientOptions::new().open(&name) {
                 Ok(client) => return Ok(Stream::Client(client)),

@@ -78,13 +78,16 @@ pub(crate) async fn follow(
     // A move cancelled while the node was down left its worktree: taken back
     // now if it is proven to be ours and unchanged, else reported.
     let wanted = records(&env);
+
     for id in env.state.with_made() {
         if !wanted.contains_key(&id) {
             super::target::take_back(&env, &id).await;
         }
     }
+
     loop {
         reconcile(&env, &mut running).await;
+
         if updates.changed().await.is_err() {
             return;
         }
@@ -136,14 +139,17 @@ pub(super) async fn reconcile(env: &Arc<Env>, running: &mut HashMap<String, Runn
         // Past the resume the session runs here: nothing to take back, and
         // the task is left to finish starting it.
     }
+
     for (id, record) in records {
         if running.get(&id).is_some_and(|one| one.at == record.at) {
             continue;
         }
+
         if !has_room(running) {
             log::warn!("not taking part in the move of session {id}: {MAX_MOVES} are going");
             continue;
         }
+
         let target = record.to == env.mesh.me();
         let task = spawn(env.clone(), record.clone(), target);
         running.insert(
@@ -178,6 +184,7 @@ fn spawn(env: Arc<Env>, record: SessionMove, target: bool) -> AbortOnDropHandle<
                 () = watch_target(&env, &record, said) => Ok(()),
             }
         };
+
         match result {
             Ok(()) => log::info!("the move of session {} is done on this side", record.id),
             Err(e) => log::warn!("the move of session {} did not finish: {e:#}", record.id),
@@ -194,6 +201,7 @@ async fn cancelled(env: &Env, id: &str, at: u64, target: bool) {
     } else {
         source::cancel(env, id).await;
     }
+
     env.state.clear(id, true);
     log::info!("the move of session {id} was cancelled");
 }

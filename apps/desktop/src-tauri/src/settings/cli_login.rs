@@ -133,9 +133,11 @@ async fn gh_accounts(gh: &Path) -> Result<Vec<GhAccount>> {
 /// no `--user`; its one account's token is the active one.
 async fn gh_account_token(gh: &Path, login: &str) -> Result<SecretText> {
     let args = ["auth", "token", "--hostname", "github.com", "--user", login];
+
     if let Some(token) = stdout(gh, &args).await?.as_deref().and_then(parse_token) {
         return Ok(token);
     }
+
     let active = gh_accounts(gh)
         .await?
         .into_iter()
@@ -143,6 +145,7 @@ async fn gh_account_token(gh: &Path, login: &str) -> Result<SecretText> {
     if active {
         return gh_token().await;
     }
+
     Err(refused(&format!(
         "gh has no token for @{login} on this Mac"
     )))
@@ -156,6 +159,7 @@ fn parse_gh_status(text: &str) -> Vec<GhAccount> {
     let mut accounts: Vec<GhAccount> = Vec::new();
     // Whether the lines now are about the last account pushed.
     let mut current = false;
+
     for line in text.lines().map(str::trim) {
         if line.contains("Failed to log in") {
             current = false;
@@ -170,6 +174,7 @@ fn parse_gh_status(text: &str) -> Vec<GhAccount> {
             last.active = value.trim() == "true";
         }
     }
+
     accounts
 }
 
@@ -177,6 +182,7 @@ fn parse_gh_status(text: &str) -> Vec<GhAccount> {
 /// whether it was one.
 fn push_login(accounts: &mut Vec<GhAccount>, rest: &str, active: bool) -> bool {
     let word = rest.split_whitespace().next().unwrap_or_default();
+
     match parse_login(word) {
         Some(login)
             if !accounts
@@ -266,6 +272,7 @@ async fn stdout(program: &Path, args: &[&str]) -> Result<Option<String>> {
     if !out.status.success() {
         return Ok(None);
     }
+
     let text = String::from_utf8(out.stdout)
         .with_context(|| format!("{} printed something other than text", program.display()))?;
     Ok(Some(text))
@@ -333,6 +340,7 @@ fn tool_dirs(path: &OsStr, home: Option<&Path>) -> Vec<PathBuf> {
             dirs.push(dir);
         }
     }
+
     dirs
 }
 
@@ -348,6 +356,7 @@ async fn tea_logins() -> Result<Vec<TeaLogin>> {
     let Some(file) = tea_config() else {
         return Ok(Vec::new());
     };
+
     match fs::read_to_string(&file).await {
         Ok(text) => Ok(parse_tea(&text)),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(Vec::new()),
@@ -390,31 +399,38 @@ fn parse_tea(text: &str) -> Vec<TeaLogin> {
     }
     let mut logins = Vec::new();
     let mut section = None;
+
     for line in text.lines().map(str::trim) {
         if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
             continue;
         }
+
         if line.starts_with('[') && line.ends_with(']') {
             if let Some(done) = section.take() {
                 finish(done, &mut logins);
             }
+
             let name = line[1..line.len() - 1].trim();
             section = (name != "global").then(Section::default);
             continue;
         }
+
         let (Some(current), Some((key, value))) = (section.as_mut(), line.split_once('=')) else {
             continue;
         };
         let value = value.trim().to_owned();
+
         match key.trim() {
             "url" => current.url = Some(value),
             "token" => current.token = Some(value),
             _ => {}
         }
     }
+
     if let Some(done) = section {
         finish(done, &mut logins);
     }
+
     logins
 }
 

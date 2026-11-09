@@ -78,6 +78,7 @@ test("paths outside the session folder do not request native actions", async () 
     assert.deepEqual(labels(), ["Open in Beep", "Copy path", "Open in default app"]);
     closeMenu();
   }
+
   assert.equal(calls.length, 0);
 });
 

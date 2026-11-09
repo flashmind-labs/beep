@@ -176,6 +176,7 @@ export function conflictCount(n: number) { return `${n} ${n === 1 ? "conflict" :
 export function machineMeta(m: Pick<MachineDetail, "status" | "paused" | "progress" | "files" | "bytes" | "pending" | "waiting"> & Partial<Pick<MachineDetail, "error">>) {
   if (syncedBySyncthing(m)) return [];
   const p = m.progress;
+
   if (m.status === "syncing" && p && !m.paused) {
     return [
       `${p.files_done.toLocaleString("en-US")} of ${p.files_total.toLocaleString("en-US")} files`,
@@ -184,6 +185,7 @@ export function machineMeta(m: Pick<MachineDetail, "status" | "paused" | "progre
       timeLeft(p.eta_secs),
     ].filter(Boolean);
   }
+
   const left = Math.max(m.pending, m.waiting.length);
   // An offline machine's counts are not known.
   if (m.status === "offline") return left ? [changes(left)] : [];
@@ -215,6 +217,7 @@ export function gitConflict(path: string) {
 /// committed; a git ref is kept until the user says to drop it.
 export function conflictPrompt(c: Pick<Conflict, "path" | "original">) {
   const git = gitConflict(c.path);
+
   if (git) {
     return [
       `Two machines committed to ${git.original} at once, and file sync kept the other side as ${git.ref}.`,
@@ -223,6 +226,7 @@ export function conflictPrompt(c: Pick<Conflict, "path" | "original">) {
       `Delete ${git.ref} with git update-ref -d only if I ask you to.`,
     ].join("\n");
   }
+
   return [
     `${c.original} was edited on two machines at once, and file sync kept the other side as ${c.path} beside it.`,
     `Read ${c.original} and ${c.path} and say what differs. Merge them into ${c.original}, keeping both sides' intent, then delete ${c.path}. Do not commit.`,
@@ -234,6 +238,7 @@ export function conflictPrompt(c: Pick<Conflict, "path" | "original">) {
 /// online one that can settle it.
 export function conflictList(d: Pick<SyncDetail, "machines"> | null | undefined): Conflict[] {
   const out = new Map<string, Conflict>();
+
   for (const m of d?.machines || []) {
     for (const path of m.conflicts) {
       let c = out.get(path);
@@ -243,6 +248,7 @@ export function conflictList(d: Pick<SyncDetail, "machines"> | null | undefined)
       if (!c.resolver && m.can_resolve && m.status !== "offline") c.resolver = m.machine_id;
     }
   }
+
   return [...out.values()].sort((a, b) => a.path.localeCompare(b.path));
 }
 
@@ -345,6 +351,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     if (s.loading) return;
     s.loading = true;
     const was = JSON.stringify([s.detail, s.error]);
+
     try {
       s.detail = await invoke<SyncDetail | null>("project_sync_detail", { project: name });
       await loadClocks(invoke);
@@ -357,6 +364,7 @@ export function makeFileSync(deps: FileSyncDeps) {
       s.loading = false;
       s.read_at = Date.now();
     }
+
     // A read that found nothing new draws nothing.
     if (was !== JSON.stringify([s.detail, s.error])) redraw();
   }
@@ -394,6 +402,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     s.busy = what;
     s.error = "";
     redraw();
+
     try {
       await run();
     } catch (e) {
@@ -401,6 +410,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     } finally {
       s.busy = null;
     }
+
     await load(name);
     redraw();
   }
@@ -429,15 +439,19 @@ export function makeFileSync(deps: FileSyncDeps) {
     if (clock) row.append(h("div", "fs-m", Object.assign(h("span", "clockoff", clock.text), { title: clock.title })));
     const note = stateNote(m);
     if (note) row.append(Object.assign(h("div", m.status === "syncthing" ? "fs-m" : "cc-err", note), { title: m.error || "" }));
+
     if (deps.fixGit && !m.paused && gitSyncWarning(m)) {
       const fix = button("Fix with an agent", "small", () => deps.fixGit!(name, m.machine_id, m.error!));
       fix.title = "Opens a draft with both checkouts and recent session references";
       row.append(h("div", "fs-m", fix));
     }
+
     if (m.hint) row.append(h("div", "fs-m", `Rescanned instead of watched. To watch it, run ${m.hint}`));
+
     if (deps.changeFolder && m.status !== "offline" && m.folder) {
       row.addEventListener("contextmenu", e => openMenu(e, m.machine_name, [{ label: "Change folder…", on: () => deps.changeFolder!(name, m) }]));
     }
+
     return row;
   }
 
@@ -452,10 +466,12 @@ export function makeFileSync(deps: FileSyncDeps) {
   /// Shows what differs on a file conflict, or hides it again.
   async function compare(name: string, c: Conflict, machines: readonly MachineDetail[]) {
     const key = `${name}\n${c.path}`;
+
     if (compared.has(key)) {
       compared.delete(key);
       return redraw();
     }
+
     compared.set(key, null);
     redraw();
     const machine = machines.find(m => m.machine_id === c.holder);
@@ -484,6 +500,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     const text = h("span", "t", h("code", "", c.path), h("span", "", conflictSub(project ? name : null, c, machines)));
     const busy = s.busy === c.path;
     let acts: HTMLElement;
+
     if (c.resolver) {
       const copy = button(busy ? "Keeping…" : "Keep this copy", "small", () => resolve(name, c, true));
       const orig = button("Keep the original", "small", () => resolve(name, c, false));
@@ -494,12 +511,14 @@ export function makeFileSync(deps: FileSyncDeps) {
     } else {
       acts = h("span", "acts", compareButton(name, c, machines), fixButton(name, c), h("span", "dmuted", "Update beep-node on a machine that has it to settle it here"));
     }
+
     const shown = compared.get(`${name}\n${c.path}`);
     const row = h("div", `fs-conflict${shown === undefined ? "" : " open"}`, text, acts);
     row.addEventListener("contextmenu", e => {
       const items: MenuItem[] = [];
       if (!gitConflict(c.path)) items.push({ label: shown === undefined ? "Compare" : "Hide", on: () => void compare(name, c, machines) });
       if (deps.fix && c.holder) items.push({ label: "Fix with an agent", on: () => deps.fix!(name, c) });
+
       if (c.resolver && !s.busy && !s.detail?.paused) {
         items.push({
           label: "Keep this copy…",
@@ -521,14 +540,17 @@ export function makeFileSync(deps: FileSyncDeps) {
           }),
         });
       }
+
       if (items.length) openMenu(e, c.path, items);
     });
+
     if (shown !== undefined) {
       const kept = h("span", "", "Kept ", h("b", "", c.original));
       const copy = h("span", "", "Copy ", h("b", "", c.path));
       row.append(h("div", "fs-cmp", h("div", "fs-cmph", kept, copy, h("small", "", where ? `on ${where}` : "")),
         shown === null ? h("div", "dmuted fs-cmpn", "Reading…") : typeof shown === "string" ? h("div", "dmuted fs-cmpn", shown) : shown));
     }
+
     return row;
   }
 
@@ -561,16 +583,19 @@ export function makeFileSync(deps: FileSyncDeps) {
     }
 
     const conflicts = conflictList(d);
+
     if (conflicts.length) {
       out.push(secHead("Conflicts", h("small", "", "edited on two machines at once")));
       out.push(h("div", "cc-panel fs-list", ...conflicts.map(c => conflictRow(name, c, d.machines))));
     }
 
     const waiting = waitingList(d);
+
     if (waiting.length) {
       out.push(secHead("Waiting"));
       out.push(h("div", "cc-panel fs-list", ...waiting.map(w => h("div", "fs-wait", h("code", "", w.path), h("span", "dmuted", w.machines.join(", "))))));
     }
+
     out.push(h("div", "dmuted fs-note", d.machines.some(machine => machine.git_only)
       ? d.ignored_folders?.length
         ? "Git syncs commits. Selected ignored folders use file sync. Other uncommitted edits stay local."

@@ -124,6 +124,7 @@ function schedulePreview() {
       fork = got;
       if (root && state.step === "form") draw();
     });
+
     try {
       const got = await invoke<PreviewView | null>("preview_import", { repo });
       if (previewFor !== repo) return;
@@ -134,6 +135,7 @@ function schedulePreview() {
       preview = null;
       previewError = reason(e);
     }
+
     if (root && state.step !== "cloning" && state.step !== "done") draw();
   }, 700);
 }
@@ -188,6 +190,7 @@ async function submit() {
   if (state === was) return;
   // The branches picked go with it only when they were read for this repo.
   const worktrees = preview && previewFor === state.repo.trim() ? worktreesToAsk(preview, picks) : [];
+
   try {
     const project = await invoke<ProjectRow>("import_project", { repo: state.repo, machineId: state.machine, folder: state.chosen?.path ?? null, worktrees, parent: parentFolder(), syncthingFiles: syncthing.value() });
     keepLastImport(project);
@@ -219,10 +222,12 @@ function draw() {
   const field = box.querySelector("input");
   const pick = box.querySelector<HTMLElement>(".ip-browse .dirs button");
   const dir = box.querySelector<HTMLInputElement>(".ip-dir");
+
   if (typing != null && dir && !dir.disabled) { dir.focus(); dir.setSelectionRange(typing, typing); }
   else if (state.browsing && pick) pick.focus();
   else if (field && !state.browsing) { field.focus(); field.setSelectionRange(field.value.length, field.value.length); }
   else box.querySelector<HTMLElement>(".dbtn.pri")?.focus();
+
   // The menu is drawn again when the field kept focus, else dropped. The
   // old field's blur may have dropped it and a lookup on its way: ask again.
   setMenu(keep);
@@ -236,6 +241,7 @@ async function read(path: string | null, then: (listing: MachineFolder) => void)
   if (!machine || reading) return;
   reading = true;
   if (root) draw();
+
   try {
     const listing = await invoke<MachineFolder>("list_machine_folder", { machineId: machine, path });
     if (!path && !bases.has(machine)) bases.set(machine, listing.path);
@@ -259,22 +265,27 @@ const browseTo = (path: string | null) => read(path, listing => update({ type: "
 /// Choose…: the macOS picker on this Mac, the folder browser elsewhere.
 async function choose() {
   if (reading) return;
+
   // On Auto, Choose… picks this Mac, or else the first machine listed.
   if (!state.machine) {
     const id = macId && machines.some(m => m.id === macId) ? macId : machines[0]?.id;
     if (!id) return;
     update({ type: "pick", machine: id });
   }
+
   if (state.machine !== macId) {
     browseTo(state.chosen?.path ?? null);
     return;
   }
+
   let path = null;
+
   try {
     path = await invoke<string | null>("pick_folder", { start: state.chosen?.path ?? bases.get(state.machine!) ?? null });
   } catch (e) {
     update({ type: "oops", message: String(e) });
   }
+
   if (path) read(path, listing => update({ type: "choose", listing }));
 }
 
@@ -353,11 +364,13 @@ function branchesBlock() {
     const meta = previewLine(b, default_branch);
     const line = el("div", "ip-branch", el("code", "", b.name), el("span", "m", meta));
     line.title = `${b.name}  ${meta}`;
+
     if (b.name !== default_branch && !b.worktree) {
       const places = [...choices.map(c => ({ label: c.name, value: c.id as string | null })), { label: "Skip", value: null }];
       const choose = (id: string | null) => { if (id == null) delete picks[b.name]; else picks[b.name] = id; draw(); };
       line.append(el("span", "lbl", "Worktree"), segmented(places, picks[b.name] ?? null, choose));
     }
+
     return line;
   });
   return [
@@ -423,10 +436,12 @@ function resetFolder() {
 /// first). Enter with no menu imports.
 function onFolderKey(e: KeyboardEvent, field: HTMLInputElement) {
   const act = menuKey(menu, e.key, e.shiftKey || e.altKey || e.ctrlKey || e.metaKey);
+
   if (act.type === "none") {
     if (e.key === "Enter") { e.preventDefault(); submit(); }
     return;
   }
+
   e.preventDefault();
   if (act.type === "move") setMenu({ ...menu, index: act.index });
   else if (act.type === "close") setMenu(NO_MENU);

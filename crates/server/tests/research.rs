@@ -52,11 +52,14 @@ impl TeamStub {
             .filter(|m: &&Message| m.role == Role::Tool)
             .count();
         let at = |steps: Vec<Step>| steps.into_iter().nth(done).unwrap_or(Step::Say("Done."));
+
         if system.starts_with("You keep the long-term memory") {
             return Step::Say(r#"{"ops":[]}"#);
         }
+
         if system.starts_with("You coordinate a research team") {
             let brief = json!({"text": "Lead with yes.", "to": "writer"});
+
             if task.contains("Round 1 ") {
                 let gap = json!({"questions": [{"question": "Q gap"}]});
                 return at(vec![
@@ -65,15 +68,19 @@ impl TeamStub {
                     Step::Say("Ready."),
                 ]);
             }
+
             return at(vec![Step::Call("post_message", brief), Step::Say("Ready.")]);
         }
+
         if system.contains("leading a research") {
             if task.contains("The team finished the research") {
                 return Step::Say("Mostly yes. The full paper is in the research window.");
             }
+
             if task.contains("The team finished follow-up round") {
                 return Step::Say("It is cheap. The paper is updated.");
             }
+
             if task.contains("cost") {
                 let more = json!({"questions": [{"question": "Q cost"}]});
                 return at(vec![
@@ -81,6 +88,7 @@ impl TeamStub {
                     Step::Say("Looking into the cost."),
                 ]);
             }
+
             if task.lines().any(|line| line.trim() == "Go") {
                 let questions =
                     json!({"questions": [{"question": "Q one"}, {"question": "Q two"}]});
@@ -89,8 +97,10 @@ impl TeamStub {
                     Step::Say("Under way."),
                 ]);
             }
+
             return Step::Say("Two questions, one scout each. Start?");
         }
+
         if system.starts_with("You are a scout") {
             if task.contains("The critic challenged") {
                 let answer = json!({"text": "The source says so.", "to": "critic"});
@@ -99,6 +109,7 @@ impl TeamStub {
                     Step::Say("Checked."),
                 ]);
             }
+
             let url = format!("https://example.com/{}", Uuid::new_v4());
             let source = json!({"url": url, "title": "A report", "quote": "It works."});
             return at(vec![
@@ -107,11 +118,13 @@ impl TeamStub {
                 Step::Say("Found it."),
             ]);
         }
+
         if system.starts_with("You are the critic") {
             if task.contains("Read the draft") {
                 let fix = json!({"text": "Add a caveat.", "to": "writer"});
                 return at(vec![Step::Call("post_message", fix), Step::Say("Close.")]);
             }
+
             let challenge = json!({"text": "Which page?", "to": "scout-1"});
             return at(vec![
                 Step::Call("read_notes", json!({})),
@@ -119,6 +132,7 @@ impl TeamStub {
                 Step::Say("Mostly solid."),
             ]);
         }
+
         if system.starts_with("You are the writer") {
             let markdown = if task.contains("The critic asks") {
                 "# Paper\n\nYes [1], with a caveat."
@@ -130,6 +144,7 @@ impl TeamStub {
                 Step::Say("Wrote it."),
             ]);
         }
+
         Step::Say("Title")
     }
 }
@@ -224,11 +239,13 @@ fn chat(session_id: Uuid, message: &str, research: bool) -> Chat {
 async fn say(client: &Client, request: &Chat) -> String {
     let mut replies: Replies<Event> = client.stream(request).await.unwrap();
     let mut text = String::new();
+
     while let Some(event) = replies.next().await.unwrap() {
         if let RunEvent::TextDelta { delta } = event.event {
             text.push_str(&delta);
         }
     }
+
     text
 }
 
@@ -277,9 +294,11 @@ async fn replied(client: &Client, session: Uuid, start: &str) -> Vec<HistoryEntr
             let replied = entries.iter().any(|e| {
                 matches!(e, HistoryEntry::Assistant { content, .. } if content.starts_with(start))
             });
+
             if replied {
                 return entries;
             }
+
             sleep(Duration::from_millis(100)).await;
         }
     })

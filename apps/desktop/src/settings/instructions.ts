@@ -57,6 +57,7 @@ export function registerInstructions(deps: InstructionsDeps) {
       st.newest ??= null;
       st.error = fail(e);
     }
+
     draw();
   }
 
@@ -65,6 +66,7 @@ export function registerInstructions(deps: InstructionsDeps) {
     st.saving = true;
     st.error = "";
     draw();
+
     try {
       st.newest = await invoke<VersionRow>("instructions_save", { text: text(), base: st.newest?.version ?? null, note: note ?? st.note });
       st.draft = null;
@@ -76,6 +78,7 @@ export function registerInstructions(deps: InstructionsDeps) {
     } finally {
       st.saving = false;
     }
+
     draw();
   }
 
@@ -86,6 +89,7 @@ export function registerInstructions(deps: InstructionsDeps) {
       st.versions = null;
       st.error = fail(e);
     }
+
     draw();
   }
 
@@ -93,6 +97,7 @@ export function registerInstructions(deps: InstructionsDeps) {
     if (st.reading) return;
     st.reading = true;
     draw();
+
     try {
       st.files = await invoke<MachineAgentFiles[]>("agent_files_read");
     } catch (e) {
@@ -101,12 +106,14 @@ export function registerInstructions(deps: InstructionsDeps) {
     } finally {
       st.reading = false;
     }
+
     draw();
   }
 
   async function writeFiles(machineId: string) {
     st.writing.add(machineId);
     draw();
+
     try {
       const after = await invoke<MachineAgentFiles>("agent_files_sync", { machineId });
       st.files = (st.files || []).map(m => (m.machine_id === machineId ? after : m));
@@ -115,6 +122,7 @@ export function registerInstructions(deps: InstructionsDeps) {
     } finally {
       st.writing.delete(machineId);
     }
+
     draw();
   }
 
@@ -264,12 +272,14 @@ export function registerInstructions(deps: InstructionsDeps) {
       : nothingSaved();
     const acts = h("div", "in-acts", button("Read again", "", readFiles));
     const todo = saved ? behind(st.files) : [];
+
     if (todo.length) {
       const busy = todo.some(id => st.writing.has(id));
       const all = button(busy ? "Writing…" : "Write to all machines", "", () => { for (const id of todo) if (!st.writing.has(id)) writeFiles(id); });
       all.disabled = busy;
       acts.prepend(all);
     }
+
     return [lead, sec("Machines", ver, machinesPanel(machines)), acts];
   }
 
@@ -280,9 +290,11 @@ export function registerInstructions(deps: InstructionsDeps) {
     const rows = st.versions.map(v => {
       const open = st.shown === `v${v.version}`;
       const acts = [button(open ? "Hide" : "Show", "small", () => { st.shown = open ? null : `v${v.version}`; draw(); })];
+
       if (v.version !== st.newest?.version) {
         acts.push(button("Restore", "small", () => { st.draft = v.text; save(`Restored version ${v.version}`).then(() => setTab("editor")); }));
       }
+
       return h("div", "in-hist", h("div", "h", h("b", "", versionLine(v)), h("small", "", ago(v.saved_at)), h("span", "acts", ...acts)),
         open ? h("pre", "in-pre", v.text) : null);
     });
@@ -301,6 +313,7 @@ export function registerInstructions(deps: InstructionsDeps) {
     const active = document.activeElement;
     const caret = active instanceof HTMLTextAreaElement && el.contains(active) ? active.selectionStart : null;
     if (old) { const top = old.scrollTop; old.replaceWith(view); view.scrollTop = top; } else el.append(view);
+
     if (caret != null) {
       const area = view.querySelector("textarea");
       area?.focus();

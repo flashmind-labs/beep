@@ -49,15 +49,19 @@ impl Clip {
     pub fn push(&mut self, text: &str) {
         let room = HEAD.saturating_sub(self.head.len());
         let mut cut = text.len().min(room);
+
         while !text.is_char_boundary(cut) {
             cut -= 1;
         }
+
         self.head.push_str(&text[..cut]);
         self.tail.push_str(&text[cut..]);
         let mut start = self.tail.len().saturating_sub(TAIL);
+
         while !self.tail.is_char_boundary(start) {
             start += 1;
         }
+
         self.tail.drain(..start);
     }
 

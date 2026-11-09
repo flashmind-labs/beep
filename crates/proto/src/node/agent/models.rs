@@ -75,6 +75,7 @@ impl From<Effort> for AgentEffort {
 /// Gemini CLI and OpenCode have no such setting.
 pub fn efforts(agent: &str) -> &'static [Effort] {
     use Effort::*;
+
     match agent {
         "claude" => &[Low, Medium, High, Xhigh, Max],
         "codex" => &[Low, Medium, High],

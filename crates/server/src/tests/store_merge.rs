@@ -184,6 +184,7 @@ async fn events_and_machines_move_with_the_account() {
     let target_key = UserKey::for_test(&target);
     let source_key = UserKey::for_test(&source);
     let pool = &store.pool;
+
     for (user, dedupe) in [(&source, "a"), (&source, "b"), (&target, "a")] {
         sqlx::query(
             "INSERT INTO app_events (user_id, app, kind, dedupe_key, summary, ids, raw, source, occurred_at)
@@ -195,6 +196,7 @@ async fn events_and_machines_move_with_the_account() {
         .await
         .unwrap();
     }
+
     for query in [
         "INSERT INTO event_triage (user_id, decision, reason) VALUES ($1, 'ignore', '')",
         "INSERT INTO event_topics (user_id, topic, enabled) VALUES ($1, 'github_ci', false)",
@@ -277,6 +279,7 @@ async fn events_and_machines_move_with_the_account() {
         ("credentials", 2),
     ] {
         let query = format!("SELECT count(*) FROM {table} WHERE user_id=$1");
+
         for (user, expected) in [(&source, 0), (&target, rows)] {
             let count: i64 = sqlx::query_scalar(&query)
                 .bind(user)

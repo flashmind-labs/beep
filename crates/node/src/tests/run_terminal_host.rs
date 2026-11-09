@@ -29,11 +29,13 @@ fn a_host_from_the_previous_version_still_works_with_this_node() {
         },
         Request::Resize { size },
     ];
+
     for request in requests {
         let sent = rmp_serde::to_vec(&request).expect("encodes");
         let read: Request = rmp_serde::from_slice(&sent).expect("the old host reads it");
         assert_eq!(read, request);
     }
+
     let hello = Hello {
         env: vec![EnvSecret {
             name: "A".into(),
@@ -55,6 +57,7 @@ fn a_host_from_the_previous_version_still_works_with_this_node() {
             message: "no".into(),
         },
     ];
+
     for reply in replies {
         let sent = rmp_serde::to_vec_named(&reply).expect("encodes");
         let read: Reply = lenient::from_slice(&sent).expect("this node reads it");
@@ -82,6 +85,7 @@ async fn start(dir: &Path, command: &str) -> TaskId {
         cwd: None,
         size: Size::DEFAULT,
     };
+
     match ask(dir, request).await {
         Reply::Started { task } => task.id,
         other => panic!("not started: {other:?}"),

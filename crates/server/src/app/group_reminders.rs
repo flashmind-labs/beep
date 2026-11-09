@@ -57,6 +57,7 @@ fn local_time(at: &str, tz: Tz) -> Option<DateTime<Utc>> {
     if let Ok(at) = DateTime::parse_from_rfc3339(at) {
         return Some(at.with_timezone(&Utc));
     }
+
     let naive = ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"]
         .iter()
         .find_map(|format| NaiveDateTime::parse_from_str(at, format).ok())?;
@@ -117,9 +118,11 @@ impl ReminderTool {
         let Some(message) = text(&ctx.args, "message") else {
             return failure(ctx, "Write the message to post.");
         };
+
         if message.chars().count() > MAX_MESSAGE {
             return failure(ctx, "Keep the message shorter.");
         }
+
         let label = text(&ctx.args, "label").unwrap_or("Reminder");
         let tz = self.run.timezone().await;
         let (schedule, once) = match (text(&ctx.args, "at"), text(&ctx.args, "repeat")) {
@@ -135,15 +138,18 @@ impl ReminderTool {
             _ => return failure(ctx, "Give exactly one of `at` or `repeat`."),
         };
         let store = &self.run.app.store;
+
         if store.group_reminders(self.run.group_id).await?.len() >= MAX_REMINDERS {
             return failure(ctx, "The group has too many reminders. Delete one first.");
         }
+
         if self.run.leaks(message).await {
             return failure(
                 ctx,
                 "That message reveals something private about a member. Write it without that.",
             );
         }
+
         let job = CronJob {
             id: Uuid::new_v4(),
             schedule,
@@ -202,6 +208,7 @@ impl ReminderTool {
         if !deleted {
             return failure(ctx, "No reminder in this group has that id.");
         }
+
         success(ctx, json!({"deleted": true}))
     }
 }

@@ -59,14 +59,19 @@ def call(method, url, body=None, content_type="application/json", token=None):
     command = ["curl", "--silent", "--show-error", "--request", method,
                "--header", f"Content-Type: {content_type}",
                "--write-out", "\\n%{http_code}", "--data-binary", "@-", url]
+
     if token:
         command[1:1] = ["--header", f"Authorization: Bearer {token}"]
+
     result = subprocess.run(command, input=body or b"", capture_output=True, check=True)
     text, _, code = result.stdout.rpartition(b"\n")
+
     if not code.startswith(b"2"):
         if b"This Edit has been deleted" in text:
             raise EditDeleted()
+
         sys.exit(f"{method} {url.split('?')[0]}: {code.decode()} {text.decode()}")
+
     return json.loads(text) if text.strip() else {}
 
 
@@ -86,12 +91,14 @@ def main():
     account_path, bundle_path, track, status = sys.argv[1:5]
     with open(account_path) as f:
         token = access_token(json.load(f))
+
     for attempt in range(5):
         try:
             return upload(token, bundle_path, track, status)
         except EditDeleted:
             print("Another upload took the edit, starting over")
             time.sleep(30 * (attempt + 1))
+
     sys.exit("Gave up after five deleted edits")
 
 

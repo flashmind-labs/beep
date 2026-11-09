@@ -21,6 +21,7 @@ fn stored(steps: Vec<Step>, first: i64) -> Vec<StoredMessage> {
         .enumerate()
         .map(|(index, step)| {
             let id = index as i64 + first;
+
             if step.body.opens_turn() {
                 turn_id = Some(id);
             }
@@ -248,6 +249,7 @@ fn a_routines_notice_is_what_it_told_the_user_with_what_it_sent() {
         failed: HashSet::from(["x".to_owned()]),
         ..CallNotes::default()
     };
+
     for told in [&with_call[..], &after_call[..]] {
         let routine: Vec<ConversationEntry> = opening
             .iter()

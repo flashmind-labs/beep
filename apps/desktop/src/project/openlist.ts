@@ -44,6 +44,7 @@ export function listControls(key: string, redraw: () => void, issues: boolean) {
   });
   const order = button(c.order === "newest" ? "Newest first" : "Oldest first", "quiet small", () => { c.order = c.order === "newest" ? "oldest" : "newest"; redraw(); });
   const kids = [h("span", "seg", ...seg), h("span", "sp"), order];
+
   if (issues) {
     const select = button("Select", `quiet small${c.selecting ? " on" : ""}`, () => {
       c.selecting = !c.selecting;
@@ -55,6 +56,7 @@ export function listControls(key: string, redraw: () => void, issues: boolean) {
     select.setAttribute("aria-pressed", String(c.selecting));
     kids.push(select);
   }
+
   return h("div", "pj-ctl", ...kids);
 }
 
@@ -85,11 +87,13 @@ export function startBar(key: string, shown: readonly StartEntry[], redraw: () =
   if (!c.selecting) return out ?? document.createDocumentFragment();
   const picked = pickedInOrder(shown, c.picked);
   const busy = starting.has(key);
+
   if (!c.confirming) {
     const go = button(startLabel(picked.length), "pri small", () => { c.confirming = true; redraw(); });
     go.disabled = !picked.length;
     return h("div", "pj-start", h("span", "", `${picked.length} picked`), h("span", "sp"), go, out);
   }
+
   const plan = issueStartPlan(picked);
   if (!plan) return h("div", "pj-start", h("span", "", "Reading machines…"));
   const runnable = plan.filter(r => !r.skip);

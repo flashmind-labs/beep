@@ -30,6 +30,7 @@ async fn cached(beep: &Beep, id: &str, path: &Path) -> Result<()> {
     if path.exists() {
         return Ok(());
     }
+
     match beep.download(id, path).await {
         Err(DesktopError::Api(ApiError::NotFound {})) => Err(DesktopError::BadRequest(GONE.into())),
         other => other,
@@ -41,6 +42,7 @@ async fn cached_file(app: &AppHandle, beep: &Beep, id: &str, name: &str) -> Resu
     if !file_id(id) {
         return Err(DesktopError::BadRequest("bad file".into()));
     }
+
     let dir = app.path().app_cache_dir()?.join("files").join(id);
     fs::create_dir_all(&dir).map_err(anyhow::Error::from)?;
     let path = dir.join(file_name(name));
@@ -73,9 +75,11 @@ pub async fn save_file(
 #[tauri::command]
 pub fn reveal_file(app: AppHandle, path: PathBuf) -> Result<()> {
     let downloads = app.path().download_dir()?;
+
     if path.parent() != Some(downloads.as_path()) || !path.is_file() {
         return Err(DesktopError::BadRequest("not a saved file".into()));
     }
+
     crate::platform::reveal(&path)?;
     Ok(())
 }
@@ -84,9 +88,11 @@ pub fn reveal_file(app: AppHandle, path: PathBuf) -> Result<()> {
 /// free, the way Finder numbers a copy.
 pub(crate) fn free_name(dir: &Path, name: &str) -> PathBuf {
     let path = dir.join(name);
+
     if !path.exists() {
         return path;
     }
+
     let (stem, ext) = match name.rsplit_once('.') {
         Some((stem, ext)) if !stem.is_empty() => (stem, format!(".{ext}")),
         _ => (name, String::new()),
@@ -109,6 +115,7 @@ pub async fn picture(
     if !file_id(&id) || !image_mime(&mime) {
         return Err(DesktopError::BadRequest("bad picture".into()));
     }
+
     let dir = app.path().app_cache_dir()?.join("pictures");
     fs::create_dir_all(&dir).map_err(anyhow::Error::from)?;
     let path = dir.join(&id);
@@ -150,9 +157,11 @@ pub async fn copy_diagram_image(
 /// `name` as a file name, with the extension of `mime` when it has none.
 fn picture_name(name: &str, mime: &str) -> String {
     let name = file_name(name);
+
     if name.contains('.') {
         return name;
     }
+
     let ext = match mime {
         "image/jpeg" => "jpg",
         "image/svg+xml" => "svg",

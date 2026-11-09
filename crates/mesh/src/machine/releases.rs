@@ -88,6 +88,7 @@ impl ToolReleases {
 
     async fn cached(&self, of: Of) -> Option<String> {
         let mut found = self.found.lock().await;
+
         if let Some(found) = found.get(&of) {
             let wait = if found.version.is_some() {
                 match of {
@@ -97,10 +98,12 @@ impl ToolReleases {
             } else {
                 RETRY
             };
+
             if found.at.elapsed() < wait {
                 return found.version.clone();
             }
         }
+
         let version = match timeout(LOOKUP_TIMEOUT, self.lookup(of)).await {
             Ok(Ok(version)) => Some(version),
             Ok(Err(e)) => {

@@ -74,6 +74,7 @@ pub(super) async fn copy_share(
     CopyShare { token, session_id }: CopyShare,
 ) -> Reply<Session> {
     let id = session_id.to_string();
+
     match cx.user.copy_share(&token, session_id).await? {
         CopiedShare::Copied => {}
         CopiedShare::NotFound => return Err(ApiError::NotFound {}),
@@ -83,6 +84,7 @@ pub(super) async fn copy_share(
             });
         }
     }
+
     cx.user
         .sessions()
         .await?
@@ -113,6 +115,7 @@ pub(super) async fn get_session_agents(
     if !cx.user.owns_session(chat_id(&session_id)?).await? {
         return Err(ApiError::NotFound {});
     }
+
     Ok(Vec::new())
 }
 
@@ -163,6 +166,7 @@ pub(super) async fn get_file(cx: Cx, GetFile { id, offset }: GetFile) -> Reply<F
 fn shared_conversation(entries: &[HistoryEntry]) -> Conversation {
     let at = |millis| DateTime::from_timestamp_millis(millis).unwrap_or_default();
     let mut conversation = Conversation::new();
+
     for entry in entries {
         let mut shared = match entry {
             HistoryEntry::User { content, .. } => ConversationEntry::user(content.clone()),
@@ -173,13 +177,16 @@ fn shared_conversation(entries: &[HistoryEntry]) -> Conversation {
             | HistoryEntry::Scheduled { .. }
             | HistoryEntry::Approval { .. } => continue,
         };
+
         if let HistoryEntry::User { timestamp, .. } | HistoryEntry::Assistant { timestamp, .. } =
             entry
         {
             shared.timestamp = at(*timestamp);
         }
+
         conversation.add(shared);
     }
+
     conversation
 }
 
@@ -190,6 +197,7 @@ fn share_history(conversation: &Conversation) -> Vec<HistoryEntry> {
         .iter()
         .filter_map(|entry| {
             let timestamp = entry.timestamp.timestamp_millis();
+
             match &entry.kind {
                 EntryKind::User { content, .. } => Some(HistoryEntry::User {
                     content: content.clone(),
@@ -233,12 +241,15 @@ pub(super) async fn search_chats(
 
 async fn search(cx: &Cx, query: &str, listing: Listing) -> Reply<Vec<SessionMatch>> {
     let query = query.trim();
+
     if query.chars().count() < 2 {
         return Ok(Vec::new());
     }
+
     if query.len() > 200 {
         return Err(ApiError::bad_request("search is at most 200 bytes"));
     }
+
     let found = match listing {
         Listing::All => cx.user.search_sessions(query, SEARCH_CANDIDATES).await?,
         Listing::Chats => cx.user.search_chats(query, SEARCH_CANDIDATES).await?,
@@ -266,6 +277,7 @@ pub(super) async fn rename_session(
     if title.is_empty() {
         return Err(ApiError::bad_request("title required"));
     }
+
     found(cx.user.rename_session(chat_id(&id)?, &title).await?)
 }
 
@@ -277,6 +289,7 @@ pub(super) async fn delete_sessions(cx: Cx, DeleteSessions { ids }: DeleteSessio
     if ids.len() > 200 {
         return Err(ApiError::bad_request("at most 200 sessions at once"));
     }
+
     let ids: Vec<Uuid> = ids.iter().filter_map(|id| chat_id(id).ok()).collect();
     Ok(cx.user.delete_sessions(&ids).await?)
 }
@@ -288,6 +301,7 @@ pub(super) async fn existing_sessions(
     if ids.len() > 1000 {
         return Err(ApiError::bad_request("at most 1000 sessions at once"));
     }
+
     let parsed: Vec<Uuid> = ids.iter().filter_map(|id| chat_id(id).ok()).collect();
     let existing: HashSet<Uuid> = (cx.user.existing_sessions(&parsed).await?)
         .into_iter()

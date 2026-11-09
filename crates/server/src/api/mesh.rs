@@ -38,12 +38,15 @@ async fn record(user: &User, request: &MirrorImport) -> Reply<()> {
         }
         Err(e) => return Err(ApiError::bad_request(e.to_string())),
     };
+
     if request.url.len() > MAX_URL || request.url.chars().any(char::is_control) {
         return Err(ApiError::bad_request("The repository URL is not valid."));
     }
+
     let machine = request.machine_id.as_str();
     let nodes = user.nodes().await?;
     let node_named = nodes.iter().find(|node| node.endpoint == machine);
+
     if node_named.is_none() {
         let keys = user.account_keys().await?;
         let key = keys
@@ -58,6 +61,7 @@ async fn record(user: &User, request: &MirrorImport) -> Reply<()> {
         })
         .await?;
     }
+
     let before = user.imports().await?;
     let same_project = |one: &&ImportRow| one.project.eq_ignore_ascii_case(&project);
     // One project is one row per machine whatever its case.
@@ -76,9 +80,11 @@ async fn record(user: &User, request: &MirrorImport) -> Reply<()> {
         url: &request.url,
     })
     .await?;
+
     if url_changed {
         user.set_import_fork(name, machine, None).await?;
     }
+
     Ok(())
 }
 

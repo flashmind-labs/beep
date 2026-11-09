@@ -106,10 +106,13 @@ pub fn draft(
 ) -> Result<Draft, BundleError> {
     let mut machines = Vec::with_capacity(shares.len());
     let mut files = Vec::new();
+
     for share in shares {
         let dir = folder(&share.name, share.id);
+
         for (name, body) in NAMES.into_iter().zip([&share.log, &share.status]) {
             let text = redact(body)?;
+
             if !text.is_empty() {
                 files.push(DraftFile {
                     path: format!("{dir}/{name}"),
@@ -117,6 +120,7 @@ pub fn draft(
                 });
             }
         }
+
         machines.push(MachineEntry {
             id: share.id,
             name: share.name,
@@ -127,6 +131,7 @@ pub fn draft(
             os_version: share.os_version,
         });
     }
+
     fit(&mut files, MAX_BODY - MANIFEST_RESERVE);
     files.retain(|f| !f.text.is_empty());
     let manifest = Manifest {
@@ -148,15 +153,18 @@ pub fn draft(
 /// The zip of `draft`, every file redacted again: `manifest.json`, then the files.
 pub fn zip(draft: &Draft) -> Result<Vec<u8>, BundleError> {
     let mut files = Vec::with_capacity(draft.files.len());
+
     for file in &draft.files {
         if !is_report_file(&file.path) {
             return Err(BundleError::BadPath(file.path.clone()));
         }
+
         files.push(DraftFile {
             path: file.path.clone(),
             text: redact(&file.text)?,
         });
     }
+
     let mut manifest = draft.manifest.clone();
     manifest.text = redact(&manifest.text)?;
     manifest.files = entries(&files);
@@ -165,14 +173,18 @@ pub fn zip(draft: &Draft) -> Result<Vec<u8>, BundleError> {
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
     writer.start_file(MANIFEST, options)?;
     writer.write_all(&serde_json::to_vec_pretty(&manifest)?)?;
+
     for file in &files {
         writer.start_file(file.path.as_str(), options)?;
         writer.write_all(file.text.as_bytes())?;
     }
+
     let body = writer.finish()?.into_inner();
+
     if body.len() > MAX_BODY {
         return Err(BundleError::TooLarge { bytes: body.len() });
     }
+
     Ok(body)
 }
 
@@ -219,6 +231,7 @@ fn clean(name: &str) -> String {
     while clean.contains("..") {
         clean = clean.replace("..", "-");
     }
+
     let dots = clean.len() - clean.trim_start_matches('.').len();
     clean.replace_range(..dots, &"-".repeat(dots));
     clean
@@ -230,6 +243,7 @@ fn fit(files: &mut [DraftFile], budget: usize) {
     let mut order: Vec<usize> = (0..files.len()).collect();
     order.sort_by_key(|&i| files[i].text.len());
     let mut left = budget;
+
     for (done, &i) in order.iter().enumerate() {
         let share = left / (order.len() - done);
         let text = std::mem::take(&mut files[i].text);

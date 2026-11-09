@@ -28,6 +28,7 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         let mut out = Vec::new();
+
         for row in &rows {
             // One a newer server saved for an agent this one does not know.
             let Ok(Slot::AgentToken(agent)) = slot_from(row) else {
@@ -40,6 +41,7 @@ impl Store {
                 unreadable: !opens(row, user, key),
             });
         }
+
         Ok(out)
     }
 
@@ -73,6 +75,7 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         let mut out = Vec::new();
+
         for row in &rows {
             let id: String = row.try_get("id")?;
             let sealed: Vec<u8> = row.try_get("secret")?;
@@ -97,6 +100,7 @@ impl Store {
                     github,
                 })
             });
+
             match opened {
                 Ok(opened) => out.push(opened),
                 Err(e) => log::warn!("credential {id} skipped: {e:#}"),
@@ -110,6 +114,7 @@ impl Store {
         {
             first.default = true;
         }
+
         Ok(out)
     }
 }

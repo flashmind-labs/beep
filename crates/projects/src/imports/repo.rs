@@ -27,25 +27,32 @@ impl RepoRef {
     /// The repository `input` names; a non-GitHub URL must be on one of `forgejo`.
     pub fn parse(input: &str, forgejo: &[ForgejoUrl]) -> Result<Self, ImportError> {
         let input = input.trim();
+
         if input.is_empty() {
             return Err(ImportError::Malformed);
         }
+
         if let Some(rest) = input.strip_prefix("git@") {
             // scp-like: git@host:org/repo.git
             let (host, path) = rest.split_once(':').ok_or(ImportError::Malformed)?;
             return Self::on_host(host, None, path, forgejo);
         }
+
         if input.contains("://") {
             let url = Url::parse(input).map_err(|_| ImportError::Malformed)?;
+
             if !matches!(url.scheme(), "https" | "http" | "ssh" | "git") {
                 return Err(ImportError::Malformed);
             }
+
             let host = url.host_str().ok_or(ImportError::Malformed)?;
             // An ssh URL's port is its own, never the web server's.
             let web_port = url.port().filter(|_| url.scheme().starts_with("http"));
             return Self::on_host(host, web_port, url.path(), forgejo);
         }
+
         let parts: Vec<&str> = input.trim_matches('/').split('/').collect();
+
         match parts[..] {
             [org, name] => Self::new(Host::GitHub, org, name),
             // `github.com/org/repo` without a scheme.
@@ -67,10 +74,12 @@ impl RepoRef {
         forgejo: &[ForgejoUrl],
     ) -> Result<Self, ImportError> {
         let host = host.to_ascii_lowercase();
+
         if is_github(&host) {
             let (org, name) = org_and_name(path)?;
             return Self::new(Host::GitHub, org, name);
         }
+
         let server = forgejo.iter().find_map(|server| {
             let base = Url::parse(server.as_ref()).ok()?;
             let same_host = base.host_str()? == host;
@@ -100,9 +109,11 @@ impl RepoRef {
 
     pub fn new(host: Host, org: &str, name: &str) -> Result<Self, ImportError> {
         let name = name.strip_suffix(".git").unwrap_or(name);
+
         if !valid_part(org) || !valid_part(name) {
             return Err(ImportError::Malformed);
         }
+
         Ok(Self {
             host,
             org: org.to_owned(),
@@ -199,6 +210,7 @@ pub fn same_repo(url: &str, origin: &str, servers: &[ForgejoUrl]) -> bool {
 /// The first two segments of `path`; the rest, such as `/tree/main`, is a page.
 fn org_and_name(path: &str) -> Result<(&str, &str), ImportError> {
     let mut parts = path.split('/').filter(|part| !part.is_empty());
+
     match (parts.next(), parts.next()) {
         (Some(org), Some(name)) => Ok((org, name)),
         _ => Err(ImportError::Malformed),

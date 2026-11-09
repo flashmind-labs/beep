@@ -51,6 +51,7 @@ impl ProjectGate {
         card: impl FnOnce() -> Approval,
     ) -> Gate {
         let level = self.level();
+
         if level == (PermissionLevel::ReadOnly {}) {
             return Gate::Refuse(
                 "Not done: the user set Project to read only. Tell them, and that they can \
@@ -58,6 +59,7 @@ impl ProjectGate {
                     .to_owned(),
             );
         }
+
         let approved = self.approved.as_deref() == Some(call_id);
         let runs = approved
             || match asks {
@@ -72,6 +74,7 @@ impl ProjectGate {
         if runs {
             return Gate::Run;
         }
+
         Gate::Park(ToolResult::interrupt(
             call_id,
             Arc::new(ApprovalPayload { approval: card() }),

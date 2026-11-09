@@ -75,6 +75,7 @@ impl Agents {
         before: Option<u64>,
     ) -> (Vec<agent::Entry>, u64) {
         let (mut entries, earlier) = self.codex_transcript(session, last, before).await;
+
         if session.agent == "claude" {
             let (id, calls) = {
                 let live = session.live.borrow();
@@ -83,6 +84,7 @@ impl Agents {
                     live.claude_children(earlier, entries.len()),
                 )
             };
+
             if let Some(id) = id.filter(|_| !calls.is_empty()) {
                 match self
                     .external
@@ -94,6 +96,7 @@ impl Agents {
                 }
             }
         }
+
         mcp::children::show_children(self, session, &mut entries);
         (entries, earlier)
     }
@@ -106,9 +109,11 @@ impl Agents {
     ) -> (Vec<agent::Entry>, u64) {
         let (mut entries, earlier) = session.live.borrow().transcript_before(last, before);
         let children = session.live.borrow().codex_children(earlier);
+
         if children.is_empty() {
             return (entries, earlier);
         }
+
         let stores = self.stores.clone();
         let read = spawn_blocking(move || {
             children
@@ -125,6 +130,7 @@ impl Agents {
             }
         };
         let live = session.live.borrow();
+
         for (call, run) in runs {
             let Some((at, text)) = live.with_run(&call, &run) else {
                 continue;
@@ -197,6 +203,7 @@ impl Agents {
         if self.reading_plans.swap(true, Ordering::Relaxed) {
             return;
         }
+
         let agents = self.clone();
         tokio::spawn(async move {
             agents.read_plans().await;
@@ -210,12 +217,14 @@ impl Agents {
     /// for `SETTINGS_WAIT` at most.
     pub(crate) async fn read_plans_at_start(self: &Arc<Self>) {
         let mut settled = self.settled.subscribe();
+
         if timeout(SETTINGS_WAIT, settled.wait_for(|settled| *settled))
             .await
             .is_err()
         {
             log::debug!("reading the plans without the agent settings");
         }
+
         self.read_plans_soon();
     }
 
@@ -250,6 +259,7 @@ impl Agents {
         tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
             loop {
                 interval.tick().await;
                 harnesses::refresh_versions(&agents.kinds(), &agents.latest).await;
@@ -324,6 +334,7 @@ impl Agents {
             *current = Arc::new(kinds);
             true
         });
+
         if changed {
             let names: Vec<String> = self.kinds().iter().map(|kind| kind.name.clone()).collect();
             log::info!("coding agents now: {}", names.join(", "));
@@ -354,9 +365,11 @@ impl Agents {
             .filter_map(|s| {
                 let live = s.live.borrow();
                 live.agent_session.as_ref()?;
+
                 if s.reviewer && !(reviewers && live.info.parent.is_some()) {
                     return None;
                 }
+
                 Some(SessionInfo {
                     reviewer: s.reviewer,
                     ..live.info.clone()
@@ -378,10 +391,12 @@ impl Agents {
         mut begin: Begin,
     ) -> Result<Arc<Session>> {
         self.prepare(kind).await?;
+
         if checkout.is_some() {
             // Refused starts must not leave a branch or worktree behind.
             self.settings.configured(kind)?;
         }
+
         let prompt = begin.prompt.as_deref().unwrap_or_default();
         let place = checkout::place(cwd.map(str::to_owned), checkout, prompt).await?;
         begin.note = place.note;
@@ -423,6 +438,7 @@ impl Agents {
         {
             anyhow::bail!("session {resume} already runs here as {}", running.id);
         }
+
         if sessions.len() >= MAX_KEPT {
             let oldest = sessions
                 .values()
@@ -446,6 +462,7 @@ impl Agents {
             }
             None => loop {
                 let id = new_id();
+
                 if !sessions.contains_key(&id) {
                     break id;
                 }
@@ -493,6 +510,7 @@ impl Agents {
         let mut updates = session.live.clone();
         session.keep(tokio::spawn(async move {
             let mut previous = None;
+
             loop {
                 let info = updates.borrow_and_update().info.clone();
                 events.changed(beep_proto::node::events::Topic::keyed("agent", &info.id));
@@ -503,11 +521,13 @@ impl Agents {
                     info.turns,
                     info.state.tasks.clone(),
                 );
+
                 if previous.as_ref() != Some(&summary) {
                     events.changed(beep_proto::node::events::Topic::new("agents"));
                     events.changed(beep_proto::node::events::Topic::new("processes"));
                     previous = Some(summary);
                 }
+
                 if updates.changed().await.is_err() {
                     return;
                 }
@@ -524,6 +544,7 @@ fn find_session(sessions: &HashMap<String, Arc<Session>>, id: &str) -> Option<Ar
     if let Some(found) = sessions.get(id) {
         return Some(found.clone());
     }
+
     sessions
         .values()
         .filter(|session| session.live.borrow().agent_session.as_deref() == Some(id))
@@ -579,6 +600,7 @@ pub(super) fn folder(cwd: Option<&str>) -> Result<PathBuf> {
         "the folder must be an absolute path, not {}",
         path.display()
     );
+
     if path.is_dir() {
         return Ok(path);
     }
@@ -590,6 +612,7 @@ pub(super) fn folder(cwd: Option<&str>) -> Result<PathBuf> {
     {
         return Ok(found);
     }
+
     anyhow::bail!("there is no folder {}", path.display())
 }
 

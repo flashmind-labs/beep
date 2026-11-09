@@ -30,9 +30,11 @@ pub struct Version {
 /// our clock went backwards during it.
 pub fn clock_offset_ms(before_ms: u64, after_ms: u64, remote_ms: u64) -> Option<i64> {
     let trip = after_ms.checked_sub(before_ms)?;
+
     if trip > MAX_ROUND_TRIP_MS {
         return None;
     }
+
     let middle = i64::try_from(before_ms.checked_add(trip / 2)?).ok()?;
     i64::try_from(remote_ms).ok()?.checked_sub(middle)
 }

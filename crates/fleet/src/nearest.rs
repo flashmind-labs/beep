@@ -16,6 +16,7 @@ fn rtt(mesh: &Mesh, machine: EndpointId) -> Option<Duration> {
     if machine == mesh.me() {
         return Some(Duration::ZERO);
     }
+
     let connection = mesh.peer(machine)?;
     let paths = connection.paths();
     paths

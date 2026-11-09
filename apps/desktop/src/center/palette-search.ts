@@ -66,13 +66,16 @@ export class PaletteSearch<T> {
     const { query, version } = this;
     source.asking = true;
     let text: T[] | null = null;
+
     try {
       text = await source.find(query);
     } catch (e) {
       console.warn("searching palette text:", e);
     }
+
     source.asking = false;
     if (this.stopped) return;
+
     if (version === this.version) {
       if (text) { source.text = text; this.refresh(); }
     } else if (this.timer === undefined && this.query.trim().length >= MIN_TEXT_QUERY) {

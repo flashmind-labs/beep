@@ -23,6 +23,7 @@ const waiting = new Set<() => void>();
 export function editorTools(folder: string | null | undefined, redraw: () => void): Node[] {
   if (onPhone()) return [];
   if (installed === null) waiting.add(redraw);
+
   if (installed === null && !reading) {
     reading = true;
     invoke<EditorRow[]>("editors").then(
@@ -36,6 +37,7 @@ export function editorTools(folder: string | null | undefined, redraw: () => voi
       e => { reading = false; waiting.clear(); console.warn("editors:", e); },
     );
   }
+
   if (!folder || !installed?.length) return [];
   const [first, ...rest] = installed;
   const open = (ed: EditorRow, b: HTMLElement) =>

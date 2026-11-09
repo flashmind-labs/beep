@@ -63,17 +63,20 @@ impl Call {
             None => None,
         };
         let prompt = text(args, "prompt").unwrap_or_default();
+
         if prompt.chars().count() > MAX_PROMPT {
             return Err(format!(
                 "The prompt is longer than {MAX_PROMPT} characters."
             ));
         }
+
         if prompt.is_empty() && !(kind == MediaKind::Model3d && image.is_some()) {
             return Err(match kind {
                 MediaKind::Model3d => "Give `prompt`, `image` or both.".into(),
                 _ => "Give `prompt`, what to make.".into(),
             });
         }
+
         let model = match text(args, "model") {
             Some(model) => model.to_owned(),
             None => kind
@@ -144,6 +147,7 @@ pub(super) fn schema(kind: MediaKind, available: &[MediaProvider]) -> Value {
             "description": "Name to give it, without extension; taken from the prompt when left out"
         }
     });
+
     match kind {
         MediaKind::Image => {
             properties["size"] = json!({ "type": "string", "description": "Pixel size such as 1024x1024 or 1536x1024, where the service takes one" });
@@ -161,6 +165,7 @@ pub(super) fn schema(kind: MediaKind, available: &[MediaProvider]) -> Value {
             properties["texture"] = json!({ "type": "boolean", "description": "Paint textures on the model (default true); false is faster and cheaper" });
         }
     }
+
     let required: &[&str] = match kind {
         MediaKind::Model3d => &["provider"],
         _ => &["prompt", "provider"],
@@ -183,15 +188,18 @@ pub(crate) fn approval_fields(kind: MediaKind, args: &Value) -> Vec<ApprovalFiel
     if let Some(prompt) = text(args, "prompt") {
         fields.push(field("Prompt", prompt));
     }
+
     let provider = text(args, "provider").and_then(|slug| MediaProvider::from_str(slug).ok());
     if let Some(provider) = provider {
         fields.push(field("Provider", provider.name()));
     }
+
     let model = text(args, "model")
         .or_else(|| kind.default_model(provider?, text(args, "image").is_some()));
     if let Some(model) = model {
         fields.push(field("Model", model));
     }
+
     let image_label = match kind {
         MediaKind::Video => "Start image",
         _ => "Image",

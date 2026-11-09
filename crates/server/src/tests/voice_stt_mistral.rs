@@ -84,6 +84,7 @@ async fn audio_is_finished_and_its_text_comes_back() {
         while !finished.load(Ordering::SeqCst) {
             tokio::task::yield_now().await;
         }
+
         Ok(done)
     })
     .chain(stream::pending());

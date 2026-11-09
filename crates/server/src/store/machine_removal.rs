@@ -27,6 +27,7 @@ pub(super) async fn remove_machine_rows(
 ) -> Result<Gone> {
     let mut gone = Gone::default();
     let mut names: Vec<String> = Vec::new();
+
     for table in ["project_imports", "project_sync"] {
         let found: Vec<String> = sqlx::query_scalar(&format!(
             "DELETE FROM {table} WHERE user_id=$1 AND endpoint_id=$2 RETURNING project"
@@ -37,6 +38,7 @@ pub(super) async fn remove_machine_rows(
         .await?;
         names.extend(found);
     }
+
     let checkouts = sqlx::query(
         "DELETE FROM project_checkouts c USING projects p
          WHERE c.project_id = p.id AND p.user_id=$1 AND c.machine=$2
@@ -47,8 +49,10 @@ pub(super) async fn remove_machine_rows(
     .fetch_all(&mut *tx)
     .await?;
     let mut lost_home: Vec<Uuid> = Vec::new();
+
     for row in &checkouts {
         names.push(row.try_get(0)?);
+
         if row.try_get(2)? {
             lost_home.push(row.try_get(1)?);
         }
@@ -67,6 +71,7 @@ pub(super) async fn remove_machine_rows(
     .bind(&names)
     .fetch_all(&mut *tx)
     .await?;
+
     for name in &orphans {
         remove_project_rows(tx, user, name, &mut gone).await?;
     }
@@ -98,9 +103,11 @@ pub(super) async fn remove_machine_rows(
     .bind(live_states())
     .fetch_all(&mut *tx)
     .await?;
+
     for row in &live {
         gone.removed.workers.push(worker_from(row)?);
     }
+
     sqlx::query("DELETE FROM project_workers WHERE user_id=$1 AND machine=$2")
         .bind(user.as_ref())
         .bind(endpoint)

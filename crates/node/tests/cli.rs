@@ -27,12 +27,14 @@ fn beep_node(args: &[&str]) -> String {
 #[test]
 fn help_lists_the_commands_in_groups() {
     let help = beep_node(&["--help"]);
+
     for heading in ["Mesh", "Agents", "Service", "Diagnostics", "Other"] {
         assert!(
             help.lines().any(|line| line == heading),
             "no {heading} group in:\n{help}"
         );
     }
+
     for listed in [
         "mesh join",
         "status",
@@ -96,6 +98,7 @@ fn take_one(listener: TcpListener) -> JoinHandle<Vec<u8>> {
             let n = stream.read(&mut chunk).expect("the request reads");
             assert!(n > 0, "the request ended before its headers");
             read.extend_from_slice(&chunk[..n]);
+
             if let Some(at) = read.windows(4).position(|w| w == b"\r\n\r\n") {
                 break at + 4;
             }
@@ -109,11 +112,13 @@ fn take_one(listener: TcpListener) -> JoinHandle<Vec<u8>> {
             .parse()
             .expect("a number");
         let mut body = read[head_end..].to_vec();
+
         while body.len() < length {
             let n = stream.read(&mut chunk).expect("the body reads");
             assert!(n > 0, "the body ended early");
             body.extend_from_slice(&chunk[..n]);
         }
+
         let reply = rmp_serde::to_vec_named(&Receipt {
             reference: "R-TEST".into(),
         })

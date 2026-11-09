@@ -117,6 +117,7 @@ impl Tool for Named {
 async fn making_media_asks_first_with_its_service_and_model() {
     let token = tokio_util::sync::CancellationToken::new();
     let args = json!({ "prompt": "a red fox", "provider": "openai" });
+
     for tool in ["image_gen", "video_gen", "3d_gen"] {
         let (app, acts) = lookup(tool).unwrap();
         assert_eq!(app.as_ref(), MEDIA_APP);
@@ -136,6 +137,7 @@ async fn making_media_asks_first_with_its_service_and_model() {
         // An untrusted turn never gets it.
         assert!(read_tools_only(vec![Arc::new(Named(tool))], &HashSet::new()).is_empty());
     }
+
     let approval = approval_for(&ToolApp::Media, "image_gen", &args);
     assert_eq!(approval.app, "Media generation");
     assert_eq!(approval.action, "make an image");

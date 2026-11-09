@@ -173,10 +173,12 @@ fn folders_slug_like_claude_code() {
 #[test]
 fn a_session_that_moved_into_a_linked_worktree_says_so() {
     use crate::agents::checkout::tests::{has_git, run};
+
     if !has_git() {
         eprintln!("skipped: no git");
         return;
     }
+
     let root = tempfile::tempdir().expect("a temp folder");
     let repo = root.path().join("proj");
     fs::create_dir_all(&repo).expect("a folder");

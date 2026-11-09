@@ -41,9 +41,11 @@ impl App {
     /// Jev's thinking pick for `prompt`; `None` when Auto is off or Jev fails.
     pub(super) async fn auto_pick(&self, user: &User, prompt: &Prompt<'_>) -> Option<AutoChoice> {
         let decision = self.decision()?;
+
         if self.models.auto().is_empty() || !self.auto_on(user).await {
             return None;
         }
+
         let model = self.model_for(user).await;
         let own = AutoModel {
             name: model.name().to_owned(),
@@ -51,6 +53,7 @@ impl App {
             when: String::new(),
         };
         let started = Instant::now();
+
         match decision.route(&state(prompt), slice::from_ref(&own)).await {
             Ok(routed) => {
                 log::info!(
@@ -94,13 +97,17 @@ async fn last_turn(user: &User, session: Uuid) -> Option<TurnRecord> {
 /// The latest message and the turn before it, as Jev reads them.
 fn state(prompt: &Prompt<'_>) -> String {
     let mut state = String::new();
+
     if let Some(turn) = earlier_turns(prompt.conversation, Utc::now()).pop() {
         let _ = write!(state, "Earlier turn:\n{turn}\n\n");
     }
+
     state.push_str("Latest message from the user: ");
     state.push_str(&clip(prompt.message, MAX_PROMPT_CHARS));
+
     if prompt.images > 0 {
         let _ = write!(state, "\n({} image(s) attached)", prompt.images);
     }
+
     state
 }

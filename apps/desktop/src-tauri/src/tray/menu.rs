@@ -94,6 +94,7 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
         let recent = Submenu::with_id(app, "recent", "Recent", !chats.is_empty())?;
+
         for chat in &chats {
             let title = if chat.title.is_empty() {
                 "New chat"
@@ -103,6 +104,7 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
             let id = format!("{CHAT_ITEM}{}", chat.id);
             recent.append(&MenuItem::with_id(app, id, title, true, None::<&str>)?)?;
         }
+
         menu.append(&recent)?;
         for (id, title, keys) in [
             ("memories", "Memories", "CmdOrCtrl+m"),
@@ -115,18 +117,24 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
         item("apps", "Apps", true, None)?;
         separator()?;
     }
+
     let waiting = app.state::<WaitingList>().entries();
+
     if !waiting.is_empty() {
         item("waiting", "Waiting", false, None)?;
+
         for entry in waiting.iter().take(waiting::SHOWN) {
             item(entry.id.as_str(), entry.label.as_str(), true, None)?;
         }
+
         if waiting.len() > waiting::SHOWN {
             let more = format!("{} more on Home", waiting.len() - waiting::SHOWN);
             item(waiting::MORE, more.as_str(), true, None)?;
         }
+
         separator()?;
     }
+
     if SERVER_ENABLED && !linked {
         let title = if beep.signed_out() {
             "Sign in"
@@ -135,12 +143,15 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
         };
         item("link", title, true, None)?;
     }
+
     item(REPORT, "Report a Problem", true, None)?;
     item("settings", "Settings", true, Some("CmdOrCtrl+,"))?;
+
     match update::ready(app) {
         Some(_) => item("restart-update", "Restart to Update Beep", true, None)?,
         None => item("check-update", "Check for Updates", true, None)?,
     }
+
     item("show-logs", "Show Logs", true, None)?;
     separator()?;
     item("quit", "Quit Beep", true, Some("CmdOrCtrl+q"))?;
@@ -152,6 +163,7 @@ pub(crate) fn refresh(app: &AppHandle) {
         return;
     };
     let beep = app.state::<Arc<Beep>>();
+
     match menu(app, &beep) {
         Ok(menu) => {
             let _ = tray.set_menu(Some(menu));
@@ -160,9 +172,11 @@ pub(crate) fn refresh(app: &AppHandle) {
     }
     // The count beside the icon, while anything waits on the user.
     let count = app.state::<WaitingList>().entries().len();
+
     if let Err(e) = tray.set_title(waiting::badge(count)) {
         log::warn!("showing what waits beside the tray icon: {e}");
     }
+
     if let Err(e) = tray.set_tooltip(Some(waiting::tooltip(count))) {
         log::warn!("setting the tray tooltip: {e}");
     }
@@ -182,9 +196,11 @@ pub(crate) fn became_linked(app: &AppHandle) {
 /// Fetches the latest chats for Recent and rebuilds the menu.
 pub(crate) async fn refresh_recent(app: AppHandle) {
     let beep = app.state::<Arc<Beep>>().inner().clone();
+
     if beep.link_state() != LinkState::Linked {
         return;
     }
+
     match beep.sessions().await {
         Ok(mut chats) => {
             // The server lists pinned chats first; Recent is by time.
@@ -223,11 +239,14 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
             .target(event.id().as_ref())
             .unwrap_or(CenterTarget::Home);
         let pending = app.state::<center::Pending>();
+
         if let Err(e) = center::open_on(app, &pending, target) {
             log::warn!("opening what waits: {e}");
         }
+
         return;
     }
+
     if let Some(id) = event.id().as_ref().strip_prefix(CHAT_ITEM) {
         app.state::<Arc<Beep>>().set_session(Some(id.to_owned()));
         bar::show(app, Some("open"));
@@ -241,11 +260,14 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
             || matches!(target, CenterTarget::Settings | CenterTarget::Report))
     {
         let pending = app.state::<center::Pending>();
+
         if let Err(e) = center::open_on(app, &pending, target) {
             log::warn!("opening the command center: {e}");
         }
+
         return;
     }
+
     match event.id().as_ref() {
         "open-bar" => bar::show(app, Some("tray")),
         "open-center" => {

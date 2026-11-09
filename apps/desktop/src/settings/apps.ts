@@ -183,6 +183,7 @@ export async function loadApps() {
   } catch (e) {
     A.error = String(e);
   }
+
   // A server too old to know them leaves the section out.
   const [servers] = await Promise.all([
     invoke<McpServer[]>("list_mcp_servers").catch(() => A.servers),
@@ -255,6 +256,7 @@ function drawServers(servers: McpServer[]) {
     return `<div class="dappr${open ? " on" : ""}"${open}>${letterLogo(m.name)}<span class="tt"><b>${esc(m.name)}</b><small>${esc(hostOf(m.url))}</small></span>${end}</div>`;
   };
   let html = '<div class="dsec">Your MCP servers</div>' + servers.map(row).join("");
+
   if (A.adding) {
     const busy = A.busy === "new", off = busy ? " disabled" : "";
     html += `<div class="dform dmcp">
@@ -265,6 +267,7 @@ function drawServers(servers: McpServer[]) {
   } else {
     html += `<div class="dpad"><button class="dbtn" data-mnew>Add MCP server</button></div>`;
   }
+
   return html + '<div class="dmuted dpad dblock">Beep asks before every tool on a server you add.</div>';
 }
 
@@ -274,6 +277,7 @@ export async function addServer() {
   A.busy = "new";
   A.addError = "";
   drawApps();
+
   try {
     const server = await invoke<McpServer>("add_mcp_server", { name, url });
     A.adding = false;
@@ -281,6 +285,7 @@ export async function addServer() {
   } catch (e) {
     A.addError = String(e);
   }
+
   A.busy = null;
   await loadApps();
   if (A.adding) q("#murl")?.focus();
@@ -290,6 +295,7 @@ async function serverAction(kind: "connect" | "remove", id: string) {
   A.busy = id;
   A.error = "";
   drawApps();
+
   try {
     if (kind === "connect") {
       const server = await invoke<McpServer>("connect_mcp_server", { id });
@@ -300,6 +306,7 @@ async function serverAction(kind: "connect" | "remove", id: string) {
   } catch (e) {
     A.error = String(e);
   }
+
   A.busy = null;
   loadApps();
 }
@@ -314,6 +321,7 @@ listen<string | null>("mcp-signed-in", e => {
 async function appsClick(e: MouseEvent) {
   const target = e.target as HTMLElement;
   const d = target.closest<HTMLElement>("[data-mnew],[data-mclose],[data-madd],[data-mcancel],[data-mconnect],[data-mremove],[data-mopen]")?.dataset;
+
   if (d) {
     if (d.mnew != null) { A.adding = true; A.addError = ""; drawApps(); return q("#mname")?.focus(); }
     if (d.mclose != null) { A.adding = false; A.addError = ""; return drawApps(); }
@@ -323,10 +331,12 @@ async function appsClick(e: MouseEvent) {
     if (d.mremove) return serverAction("remove", d.mremove);
     if (d.mopen) return renderMcpServer(A.servers!.find(s => s.id === d.mopen));
   }
+
   if (target.closest("[data-cancel]")) {
     cancelSignIn();
     return stopConnecting();
   }
+
   const connect = target.closest<HTMLElement>("[data-connect]");
   if (connect) return connectApp(A.apps!.find(a => a.slug === connect.dataset.connect));
   const open = target.closest<HTMLElement>("[data-open]");
@@ -380,11 +390,13 @@ export async function renderMcpServer(server: McpServer | undefined) {
     <div class="dlist dapps" id="tlist"></div>${backHint()}`;
   q("#tlist")!.addEventListener("click", mcpClick);
   drawMcpTools();
+
   try {
     A.tools = await invoke<McpTools>("list_mcp_tools", { id: server.id });
   } catch (e) {
     A.error = String(e);
   }
+
   if (viewIs("mcp") && A.server === server) drawMcpTools();
 }
 
@@ -395,6 +407,7 @@ export function drawMcpTools() {
   const list = q("#tlist"), t = A.tools;
   if (!list) return;
   let html = listTop(t);
+
   if (t) {
     const on = t.tools.filter(x => x.enabled).length;
     html += `<div class="dsec dsplit"><span>Tools</span><span${on > t.limit ? ' class="over"' : ""}>${on} of ${t.limit} on</span></div>` + t.tools.map(tool => {
@@ -406,6 +419,7 @@ export function drawMcpTools() {
     }).join("");
     html += `<div class="dmuted dpad dblock">Beep uses up to ${t.limit} tools from a server, so turn on the ones you need. It asks before every tool on a server you add.</div>`;
   }
+
   html += `<div class="dpad dline">${A.unadd
     ? '<span class="dmuted">Beep stops using this server</span><button class="dbtn quiet" data-unremove>Cancel</button><button class="dbtn warn" data-mremove>Remove</button>'
     : '<button class="dbtn warn" data-mremoving>Remove server</button>'}</div>`;
@@ -415,27 +429,32 @@ export function drawMcpTools() {
 async function setTool(name: string, enabled: boolean) {
   const server = A.server!;
   A.asking = null;
+
   try {
     A.tools = await invoke<McpTools>("set_mcp_tool", { id: server.id, tool: name, enabled });
     A.error = "";
   } catch (e) {
     A.error = String(e);
   }
+
   if (viewIs("mcp") && A.server === server) drawMcpTools();
 }
 
 async function mcpClick(e: MouseEvent) {
   const d = (e.target as HTMLElement).closest<HTMLElement>("[data-ttool],[data-tyes],[data-tno],[data-mremoving],[data-unremove],[data-mremove]")?.dataset;
   if (!d || !A.tools && d.ttool) return;
+
   if (d.ttool) {
     const tools = A.tools!, tool = tools.tools.find(x => x.name === d.ttool)!;
     // Past the limit, the switch asks first, as the phone's does.
     if (!tool.enabled && tools.tools.filter(x => x.enabled).length >= tools.limit) { A.asking = tool.name; return drawMcpTools(); }
     return setTool(tool.name, !tool.enabled);
   }
+
   if (d.tyes != null) return setTool(A.asking!, true);
   if (d.tno != null) { A.asking = null; return drawMcpTools(); }
   if (d.mremoving != null || d.unremove != null) { A.unadd = d.mremoving != null; return drawMcpTools(); }
+
   if (d.mremove != null) {
     try {
       await invoke("remove_mcp_server", { id: A.server!.id });
@@ -443,6 +462,7 @@ async function mcpClick(e: MouseEvent) {
       A.error = String(e);
       return drawMcpTools();
     }
+
     return renderApps();
   }
 }
@@ -466,11 +486,13 @@ export async function renderAppPermissions(app: App | undefined) {
   drawPerms();
   // Each part draws when it arrives, so a slow account list holds up nothing.
   if (app.kind === "fastmail") loadPageAccounts(app);
+
   try {
     A.perms = await invoke<AppPermissions>("app_permissions", { slug: app.slug });
   } catch (e) {
     A.error = String(e);
   }
+
   if (permsOn(app)) drawPerms();
 }
 
@@ -483,6 +505,7 @@ async function loadPageAccounts(app: App) {
   } catch (e) {
     A.accountsError = String(e);
   }
+
   if (permsOn(app)) drawPerms();
 }
 
@@ -518,12 +541,14 @@ async function removeAccount(app: App, id: string) {
   A.busy = "account:" + id;
   A.removing = null;
   drawPerms();
+
   try {
     await invoke("remove_app_account", { slug: app.slug, id });
     A.error = "";
   } catch (e) {
     A.error = String(e);
   }
+
   A.busy = null;
   await loadAccounts(app);
   if (!permsOn(app)) return;
@@ -540,6 +565,7 @@ function drawPerms() {
   if (A.accountsError) html += `<div class="dsec">Accounts</div><div class="daction"><span class="derr">${esc(app.name)} accounts did not load: ${esc(A.accountsError)}</span></div>`;
   if (A.error || A.accountsError) html += '<div class="dpad"><button class="dbtn" data-retry>Retry</button></div>';
   if (accounts?.length) html += drawAccounts(app, accounts);
+
   if (p) {
     html += `<div class="dsec">When Beep acts in ${esc(app.name)}</div>` + APP_LEVELS.map(([level, title, detail]) =>
       `<button class="dlevel" role="radio" aria-checked="${p.level === level}" data-level="${level}"><span class="dradio"></span>
@@ -553,6 +579,7 @@ function drawPerms() {
     }
     html += '<div class="dmuted dpad dblock">Searching and reading is always allowed.</div>';
   }
+
   const all = (accounts?.length ?? 0) > 1 ? " (all accounts)" : "";
   html += `<div class="dpad"><button class="dbtn warn" id="disconnect">Disconnect ${esc(app.name)}${all}</button></div>`;
   list.innerHTML = html;
@@ -561,31 +588,39 @@ function drawPerms() {
 async function permsClick(e: MouseEvent) {
   const target = e.target as HTMLElement;
   const app = A.open!, p = A.perms;
+
   if (target.closest("[data-cancel]")) {
     cancelSignIn();
     A.connecting = null;
     return drawPerms();
   }
+
   if (target.closest("[data-retry]")) return renderAppPermissions(app);
   if (target.closest("[data-addaccount]")) return addAccount(app);
   const account = target.closest<HTMLElement>("[data-removing],[data-unremove],[data-remove]")?.dataset;
+
   if (account) {
     if (account.remove) return removeAccount(app, account.remove);
     A.removing = account.removing ?? null;
     return drawPerms();
   }
+
   const disconnect = target.closest<HTMLButtonElement>("#disconnect");
+
   if (disconnect) {
     disconnect.disabled = true;
+
     try {
       await invoke("disconnect_app", { slug: app.slug });
     } catch (err) {
       A.error = String(err);
       return drawPerms();
     }
+
     A.apps = null;
     return renderApps();
   }
+
   if (!p) return;
   const level = target.closest<HTMLElement>("[data-level]")?.dataset.level as Level | undefined;
   const tool = target.closest<HTMLElement>("[data-tool]")?.dataset.tool;
@@ -597,6 +632,7 @@ async function permsClick(e: MouseEvent) {
   if (next.level === p.level && !tool) return;
   A.perms = next;
   drawPerms();
+
   try {
     await invoke("set_app_permissions", { slug: app.slug, level: next.level, allowed: next.actions.filter(a => a.allowed).map(a => a.tool) });
     A.error = "";
@@ -604,5 +640,6 @@ async function permsClick(e: MouseEvent) {
     A.perms = p;
     A.error = String(err);
   }
+
   if (viewIs("appperms")) drawPerms();
 }

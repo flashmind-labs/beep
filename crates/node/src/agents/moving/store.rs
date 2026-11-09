@@ -110,11 +110,13 @@ impl StoreRoots {
 pub(super) fn write(path: &Path, stored: &Stored) -> Result<()> {
     let dir = path.parent().context("the transcript has no folder")?;
     fs::create_dir_all(dir)?;
+
     if let Ok(before) = fs::read(path)
         && !stored.bytes.starts_with(&before)
     {
         fs::rename(path, aside_name(path))?;
     }
+
     let mut partial = path.as_os_str().to_owned();
     partial.push(".partial");
     let partial = PathBuf::from(partial);
@@ -131,13 +133,16 @@ fn aside_name(path: &Path) -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| since.as_millis());
     let mut n = 0;
+
     loop {
         let mut aside = path.as_os_str().to_owned();
         aside.push(format!(".replaced-{now}"));
         if n > 0 {
             aside.push(format!("-{n}"));
         }
+
         let aside = PathBuf::from(aside);
+
         if !aside.exists() {
             return aside;
         }

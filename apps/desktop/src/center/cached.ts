@@ -33,6 +33,7 @@ export interface Seeded {
 export function seed(state: Seeded, cached: CachedViews | null, dismissed: Set<number>): boolean {
   if (!cached) return false;
   let home = false;
+
   // Home, the pins, groups and sync come in one answer: none of them is in
   // before Home is.
   if (!state.home && cached.home) {
@@ -43,6 +44,7 @@ export function seed(state: Seeded, cached: CachedViews | null, dismissed: Set<n
     if (cached.sync) state.sync = cached.sync;
     home = true;
   }
+
   if (state.agents === undefined && cached.agents !== undefined) state.agents = cached.agents;
   if (state.overview === undefined && cached.overview !== undefined) state.overview = cached.overview;
   return home;

@@ -78,9 +78,11 @@ impl Store {
         let Some(before) = self.revise(user, id, fact.clone()).await? else {
             return Ok(false);
         };
+
         if changes(&before, &fact) {
             self.supersede(user, &before, id).await?;
         }
+
         Ok(true)
     }
 
@@ -93,6 +95,7 @@ impl Store {
         for (key, value) in history_pairs(user, row, by, &now_text()) {
             builder = builder.meta(key, &value);
         }
+
         builder.await?;
         self.trim_history(user, by).await
     }
@@ -105,6 +108,7 @@ impl Store {
         let now = now_text();
         let row = MemoryRow::from(record);
         self.relink(user, &row, by, &now).await?;
+
         for earlier in self.history_records(user, id).await? {
             let superseded_at = meta_map(&earlier.meta)
                 .get(SUPERSEDED_AT)
@@ -113,6 +117,7 @@ impl Store {
             let row = row_from(earlier.id, earlier.content, &earlier.meta);
             self.relink(user, &row, by, &superseded_at).await?;
         }
+
         self.trim_history(user, by).await?;
         Ok(true)
     }
@@ -165,6 +170,7 @@ impl Store {
         {
             self.memories.delete(&old.row.id).await?;
         }
+
         Ok(())
     }
 

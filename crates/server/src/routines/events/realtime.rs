@@ -43,6 +43,7 @@ const CHUNKED_EVENT: &str = "chunked-trigger_to_client";
 pub(crate) async fn run(app: Arc<App>, composio: Arc<Composio>) {
     let stop = app.events.stopping().clone();
     let mut retry = FIRST_RETRY;
+
     loop {
         let started = Instant::now();
         let session = tokio::select! {
@@ -50,19 +51,23 @@ pub(crate) async fn run(app: Arc<App>, composio: Arc<Composio>) {
             session = listen(&app, &composio) => session,
         };
         app.events.set_realtime(false);
+
         match session {
             Ok(()) => log::info!("events: realtime channel closed"),
             Err(error) => log::warn!("events: realtime channel failed: {error:#}"),
         }
+
         if started.elapsed() >= HEALTHY {
             retry = FIRST_RETRY;
         }
+
         tokio::select! {
             _ = stop.cancelled() => break,
             _ = sleep(retry) => {}
         }
         retry = (retry * 2).min(MAX_RETRY);
     }
+
     app.events.set_realtime(false);
 }
 
@@ -85,9 +90,11 @@ struct ChannelAuth {
 /// The frame that subscribes to `channel` with Composio's signature.
 fn subscribe_frame(channel: &str, auth: ChannelAuth) -> Value {
     let mut data = json!({"auth": auth.auth, "channel": channel});
+
     if let Some(channel_data) = auth.channel_data {
         data["channel_data"] = Value::String(channel_data);
     }
+
     json!({"event": "pusher:subscribe", "data": data})
 }
 
@@ -121,6 +128,7 @@ async fn listen(app: &App, composio: &Composio) -> Result<()> {
     if established.event != "pusher:connection_established" {
         bail!("Pusher opened with {}", established.event);
     }
+
     let greeting = established.data();
     let socket_id = greeting["socket_id"]
         .as_str()
@@ -152,6 +160,7 @@ async fn listen(app: &App, composio: &Composio) -> Result<()> {
 
     let mut chunks = Chunks::default();
     let mut ping_sent: Option<Instant> = None;
+
     loop {
         let wait = match ping_sent {
             Some(sent) => PONG_TIMEOUT.saturating_sub(sent.elapsed()),
@@ -179,6 +188,7 @@ async fn listen(app: &App, composio: &Composio) -> Result<()> {
             log::debug!("events: unreadable Pusher frame");
             continue;
         };
+
         match frame.event.as_str() {
             "pusher:ping" => {
                 let pong = json!({"event": "pusher:pong", "data": {}});
@@ -210,9 +220,11 @@ fn pusher_url(credentials: &Credentials) -> Result<String> {
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     };
+
     if !plain(&credentials.pusher_cluster) || !plain(&credentials.pusher_key) {
         bail!("unexpected Pusher credentials");
     }
+
     Ok(format!(
         "wss://ws-{}.pusher.com/app/{}?protocol=7&client=beep-server&version=1.0&flash=false",
         credentials.pusher_cluster, credentials.pusher_key
@@ -228,6 +240,7 @@ where
             return serde_json::from_str(&text).context("unreadable Pusher frame");
         }
     }
+
     bail!("Pusher closed the connection")
 }
 
@@ -268,28 +281,36 @@ impl Chunks {
         let id = piece["id"].as_str()?;
         let index = usize::try_from(piece["index"].as_u64()?).ok()?;
         let chunk = piece["chunk"].as_str()?;
+
         if !self.open.contains_key(id) && self.open.len() >= MAX_CHUNKED {
             log::warn!("events: too many chunked events at once; one dropped");
             return None;
         }
+
         let entry = self.open.entry(id.to_owned()).or_default();
         entry.bytes += chunk.len();
+
         if entry.bytes > MAX_CHUNKED_BYTES || index > MAX_CHUNKED_BYTES {
             log::warn!("events: chunked event too large; dropped");
             self.open.remove(id);
             return None;
         }
+
         if entry.parts.len() <= index {
             entry.parts.resize(index + 1, None);
         }
+
         entry.parts[index] = Some(chunk.to_owned());
         if piece["final"].as_bool() == Some(true) {
             entry.last = Some(index);
         }
+
         let last = entry.last?;
+
         if entry.parts.len() != last + 1 || entry.parts.iter().any(Option::is_none) {
             return None;
         }
+
         let whole: String = self.open.remove(id)?.parts.into_iter().flatten().collect();
         serde_json::from_str(&whole)
             .inspect_err(|error| log::warn!("events: unreadable chunked event: {error}"))
@@ -312,6 +333,7 @@ pub async fn deliver(app: &App, payload: &Value) {
         log::debug!("events: trigger for a user this server does not have");
         return;
     };
+
     match AppEvent::try_from(&message) {
         Ok(event) => submit(app, user.id(), event).await,
         Err(_) => log::debug!(

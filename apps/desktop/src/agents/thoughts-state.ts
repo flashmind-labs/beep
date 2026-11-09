@@ -5,14 +5,17 @@ import { esc } from "../ui/format.ts";
 /// groups keep their places, including output hidden by a folded turn.
 export function groupThoughts(entries: LogEntry[], groups: number[][], offset = 0) {
   const out: number[][] = [];
+
   for (const group of groups) {
     const previous = out.at(-1);
     const at = group[0];
+
     if (entries[at - offset].kind === "thought" && previous
       && previous.at(-1)! + 1 === at && entries[previous[0] - offset].kind === "thought") {
       previous.push(...group);
     } else out.push([...group]);
   }
+
   return out;
 }
 

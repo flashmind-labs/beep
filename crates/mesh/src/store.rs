@@ -102,15 +102,18 @@ impl Core {
     /// the old one is put back.
     pub(crate) fn recover(dir: &Path) -> Result<(), MeshError> {
         let (live, aside) = (dir.join(MESH_DIR), dir.join(ASIDE));
+
         if !aside.exists() {
             return Ok(());
         }
+
         if !live.join("devices.bin").exists() {
             remove_if_present(&live)?;
             fs::rename(&aside, &live)?;
         } else {
             remove_if_present(&aside)?;
         }
+
         sync_dir(dir)?;
         Ok(())
     }
@@ -126,15 +129,18 @@ impl Core {
         Self::recover(dir)?;
         let (live, aside) = (dir.join(MESH_DIR), dir.join(ASIDE));
         let had_old = live.exists();
+
         if had_old {
             fs::rename(&live, &aside)?;
             sync_dir(dir)?;
         }
+
         let started = Self::start(dir, key, devices).and_then(|core| {
             core.save_addrs(addrs)?;
             sync_dir(dir)?;
             Ok(core)
         });
+
         match started {
             Ok(core) => {
                 remove_if_present(&aside)?;
@@ -146,6 +152,7 @@ impl Core {
                     remove_if_present(&live)?;
                     fs::rename(&aside, &live)?;
                 }
+
                 Err(e)
             }
         }
@@ -176,6 +183,7 @@ impl Core {
                         dir.join(OLD_MESH_DIR).display()
                     );
                 }
+
                 return Ok(None);
             }
             Err(e) => return Err(e.into()),
@@ -210,13 +218,17 @@ impl Core {
             .truncate(true)
             .open(&tmp)?;
         file.write_all(bytes)?;
+
         if durable {
             file.sync_all()?;
         }
+
         fs::rename(&tmp, &path)?;
+
         if durable {
             sync_dir(&mesh_dir)?;
         }
+
         Ok(())
     }
 
@@ -324,20 +336,24 @@ impl Core {
         let ticket = self.tickets.remove(at);
         self.tickets.retain(|t| !t.expired(now));
         self.save_tickets()?;
+
         if ticket.expired(now) {
             return Err(refuse("ticket expired"));
         }
+
         let device = Device {
             id: joiner,
             name: name.to_owned(),
             kind: ticket.kind,
             added_at_ms: now,
         };
+
         match self.devices.add(&self.key, device) {
             Ok(_) => {}
             Err(MeshError::Removed(_)) => return Err(refuse("this key was removed")),
             Err(e) => return Err(e),
         }
+
         self.save_devices()?;
         self.redemptions.retain(|claimed| claimed.expires_ms > now);
         self.redemptions.push(Redemption {
@@ -350,14 +366,17 @@ impl Core {
             &rmp_serde::to_vec(&self.redemptions)?,
             true,
         )?;
+
         if ticket.observer {
             self.state
                 .set(Key::Observer(joiner.to_string()), Some(Vec::new()))?;
         }
+
         if ticket.temporary {
             self.state
                 .set(Key::Temporary(joiner.to_string()), Some(Vec::new()))?;
         }
+
         self.publish();
         Ok(self.devices.ops().to_vec())
     }
@@ -377,16 +396,20 @@ impl Core {
         self.desktop()?;
         let key = Key::Temporary(id.to_string());
         let temporary = self.state.get(&key).is_some();
+
         if self.devices.is_removed(id) {
             if temporary {
                 self.state.set(key, None)?;
                 self.publish();
             }
+
             return Ok(false);
         }
+
         if !temporary || !self.devices.is_member(id) {
             return Err(MeshError::Refused("not a temporary device".to_owned()));
         }
+
         self.devices.remove(&self.key, id)?;
         self.save_devices()?;
         self.state.set(key, None)?;
@@ -404,9 +427,11 @@ impl Core {
 
     pub(crate) fn set(&mut self, key: Key, value: Option<Vec<u8>>) -> Result<Entry, MeshError> {
         self.desktop()?;
+
         if value.as_ref().is_some_and(|v| v.len() > MAX_VALUE) {
             return Err(MeshError::TooLarge);
         }
+
         let entry = self.state.set(key, value)?;
         self.publish();
         Ok(entry)
@@ -415,18 +440,22 @@ impl Core {
     pub(crate) fn merge(&mut self, ops: &[DeviceOp]) -> Result<Merged, MeshError> {
         let before = self.devices.ops().len();
         let merged = self.devices.merge(ops);
+
         if self.devices.ops().len() != before {
             self.save_devices()?;
             self.publish();
         }
+
         Ok(merged)
     }
 
     pub(crate) fn apply(&mut self, entries: Vec<Entry>) -> Result<Applied, MeshError> {
         let applied = self.state.apply(entries, &self.devices)?;
+
         if !applied.changed.is_empty() {
             self.publish();
         }
+
         Ok(applied)
     }
 
@@ -504,6 +533,7 @@ impl Store {
     /// once the thread is done with the files.
     pub(crate) async fn close(&self) {
         let (done, stopped) = oneshot::channel();
+
         if self.jobs.send(Msg::Stop(done)).await.is_ok() {
             stopped.await.ok();
         }

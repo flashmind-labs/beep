@@ -72,10 +72,12 @@ export function progressLine(r: ResearchRow) {
   const state = researchState(r.status);
   if (state === "running") return round + STATUS_LABEL[r.status];
   if (state === "waiting") return r.round > 1 ? `Round ${r.round} planned` : "Plan ready";
+
   if (state === "done") {
     const rounds = r.round > 1 ? `${r.round} rounds · ` : "";
     return r.finished_at != null ? `${rounds}took ${tookFor(r.finished_at - r.started_at)}` : rounds + "Done";
   }
+
   const how = state === "failed" ? "Failed" : r.status === "interrupted" ? "Cut off" : "Stopped";
   return `${how} in round ${r.round}`;
 }

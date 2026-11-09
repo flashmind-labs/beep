@@ -50,6 +50,7 @@ fn public_text_hits() {
 #[test]
 fn ipv6_edges_are_kept() {
     let public = public();
+
     for literal in ["::1", "fe80::", "::ffff:10.0.0.1"] {
         assert_eq!(public.hits(&format!("see {literal}.")), [literal]);
     }

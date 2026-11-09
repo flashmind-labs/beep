@@ -107,12 +107,14 @@ fn only_abandoned_partial_uploads_expire() {
 fn names_and_oversized_uploads_cannot_escape_the_cache() {
     let dir = TempDir::new().unwrap();
     let session = owner("codex", "session");
+
     for name in ["../clip.mp4", "/clip.mp4", "a/b", "a\\b", "", ".", ".."] {
         assert!(
             write_in(dir.path(), 100, &session, name, 0, 1, b"a").is_err(),
             "{name:?}"
         );
     }
+
     assert!(
         write_in(
             dir.path(),

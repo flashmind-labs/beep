@@ -14,17 +14,21 @@ function sha1(bytes: Uint8Array) {
   let [a, b, c, d, e] = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0];
   const w = new Uint32Array(80);
   const rol = (x: number, n: number) => (x << n) | (x >>> (32 - n));
+
   for (let at = 0; at < padded.length; at += 64) {
     for (let i = 0; i < 16; i++) w[i] = view.getUint32(at + i * 4);
     for (let i = 16; i < 80; i++) w[i] = rol(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
     let [x, y, z, u, v] = [a, b, c, d, e];
+
     for (let i = 0; i < 80; i++) {
       const [f, k] = i < 20 ? [(y & z) | (~y & u), 0x5a827999] : i < 40 ? [y ^ z ^ u, 0x6ed9eba1] : i < 60 ? [(y & z) | (y & u) | (z & u), 0x8f1bbcdc] : [y ^ z ^ u, 0xca62c1d6];
       const t = (rol(x, 5) + f + v + k + w[i]) >>> 0;
       [v, u, z, y, x] = [u, z, rol(y, 30) >>> 0, x, t];
     }
+
     [a, b, c, d, e] = [(a + x) >>> 0, (b + y) >>> 0, (c + z) >>> 0, (d + u) >>> 0, (e + v) >>> 0];
   }
+
   const out = new Uint8Array(20);
   const o = new DataView(out.buffer);
   [a, b, c, d, e].forEach((n, i) => o.setUint32(i * 4, n));

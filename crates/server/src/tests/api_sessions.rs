@@ -23,9 +23,11 @@ fn a_share_keeps_only_the_message_text() {
     ));
     let shared = shared_conversation(&share_history(&chat));
     let json = serde_json::to_string(&shared).unwrap();
+
     for private in ["home", "secret", "thinking", "c1"] {
         assert!(!json.contains(private), "{private} leaked into {json}");
     }
+
     let texts: Vec<_> = shared.entries().iter().map(|e| e.content()).collect();
     assert_eq!(texts, ["check my mail", "Two new emails."]);
 }

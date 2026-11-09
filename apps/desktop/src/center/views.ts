@@ -20,11 +20,13 @@ let currentPage: Location | null = null;
 /// Adds a view the window can show.
 export function registerView<K extends ViewName>(name: K, view: CenterView<NoInfer<K>>) {
   let el = view.el;
+
   if (!el) {
     el = h("div", "cc-box");
     el.hidden = true;
     $("#main").append(el);
   }
+
   views.set(name, { ...view, el });
 }
 
@@ -70,11 +72,13 @@ const pageTiming = new PageTiming(() => performance.now(), callback => { request
 /// The page showing, as `go` opens it again.
 export function currentLocation(): Location | null {
   if (!currentPage) return null;
+
   // Project sections change without mounting the page again.
   if (currentPage.view === "projects") {
     const arg = views.get("projects")?.currentArg?.();
     if (arg && typeof arg === "object" && "project" in arg) return { view: "projects", arg };
   }
+
   return currentPage;
 }
 
@@ -85,11 +89,13 @@ export function goHistory(forward: boolean): boolean {
   const page = forward ? pages.forward(current) : pages.back(current);
   if (!page) return false;
   moving = true;
+
   try {
     goTo(page);
   } finally {
     moving = false;
   }
+
   return true;
 }
 
@@ -111,22 +117,26 @@ export function go(...[name, arg]: NavigationArgs): boolean {
 export function goTo(target: Location): boolean {
   const page = withReturnTarget(target, currentLocation());
   const { view: name, arg } = page;
+
   // A link to a page only a subscription has lands on Home, and a new or old chat on the
   // agent's start form.
   if (viewHidden(name, arg, state.subscribed, S.server)) {
     const chat = !!arg && typeof arg === "object" && "chat" in arg;
     return chat ? go("pane", { agentnew: { prompt: "" } }) : go("home");
   }
+
   if (route(windowScope(), page) === "main") {
     toMain(mainTarget(page));
     return false;
   }
+
   // Settings open over whatever shows, which stays as it is.
   if (name === "pane" && arg === "settings") {
     if (!currentPage) go("home");
     openSettings();
     return true;
   }
+
   const view = views.get(name);
   if (!view) return false;
   const afterMount = pageTiming.start(pageName(name, arg));
@@ -153,9 +163,11 @@ function withReturnTarget(page: Location, current: Location | null): Location {
   const target = page.arg;
   if (current.view !== "pane") return { view: "pane", arg: { ...target, from: current } };
   const previous = current.arg;
+
   if (previous && typeof previous === "object" && "draft" in previous) {
     return { view: "pane", arg: { ...target, from: { view: "projects", arg: { project: previous.draft.project } } } };
   }
+
   if (opensAgent(previous) && previous.from) return { view: "pane", arg: { ...target, from: previous.from } };
   return page;
 }

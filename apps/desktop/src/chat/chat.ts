@@ -201,6 +201,7 @@ export function drawMap() {
   const all = early.length + turns.length;
   // A long chat's ticks are a wall of noise: they show only on hover.
   map.classList.toggle("many", all > MAP_QUIET_AFTER);
+
   if (map.early !== early.length || map.turns?.length !== turns.length || map.turns.some((t, i) => t !== turns[i])) {
     map.turns = turns;
     map.early = early.length;
@@ -220,6 +221,7 @@ export function drawMap() {
       ...turns.map(t => tick(askText(t), () => b.scrollTo({ top: t.offsetTop - b.offsetTop - 6, behavior: "smooth" }))),
     );
   }
+
   map.style.top = b.offsetTop + "px";
   map.style.height = b.clientHeight + "px";
   // Earlier prompts spread evenly above; the drawn ones by where they sit, in the share of the track their count takes.
@@ -295,6 +297,7 @@ let turnCount = 0;
 /// heading until it is opened.
 export function drawWork(turn: Turn) {
   let box = turn.querySelector<HTMLElement>(":scope > .tools");
+
   if (!box) {
     box = h('<div class="tools dcoderlog"></div>');
     box.dataset.key = String(++turnCount);
@@ -308,14 +311,17 @@ export function drawWork(turn: Turn) {
     const after = turn.querySelector(`${ANSWER}, :scope > .dcard, :scope > .derrcard`);
     after ? turn.insertBefore(box, after) : turn.append(box);
   }
+
   const running = !turn.done, steps = turn.steps, th = turn.thought, opened = !turn.folded;
   const shown = opened ? steps : running ? steps.slice(-1) : [];
   let thought = "";
+
   if (th && (running || opened || !steps.length)) {
     const live = running && th.ms == null, folding = !live && !th.touched && !th.ended;
     if (!live) th.ended = true;
     thought = thoughtHtml({ key: `chat:${box.dataset.key}`, text: th.text, ms: th.ms, live, folding, open: live ? !th.touched || !!th.open : !!th.open || folding });
   }
+
   // Once the answer streams it says the turn is alive.
   const live = running && !turn.querySelector(ANSWER);
   const thinking = (th != null && th.ms == null) || !steps.some(t => t.state === "run");
@@ -333,11 +339,13 @@ function endThought(turn: Turn) {
 
 export function reply(turn: Turn) {
   let el = turn.querySelector(ANSWER);
+
   if (!el) {
     el = h('<div class="dcoderen agent md"></div>');
     const files = turn.querySelector(".files");
     files ? turn.insertBefore(el, files) : turn.append(el);
   }
+
   return el;
 }
 
@@ -403,17 +411,21 @@ export function finish(id: string | null, turn: Turn) {
   replyActs(turn);
   if (turn.user) loadTurnAgent(id, turn);
   const e = live.get(id);
+
   if (e) {
     e.run = null;
     if (!e.approval) live.delete(id);
   }
+
   // The window's sidebar stops its spinner.
   changed();
   if (id === S.session) refreshHints();
   else if (S.view === "chats") S.chats.mode === "list" ? loadChats(S.chats.query) : drawChats();
   const q = queued.get(id);
+
   if (q) {
     q.held ||= !!(turn.stopped || turn.failed || (turn.status && !["completed", "waiting"].includes(turn.status)));
+
     // An approval still waiting keeps the queue until it is answered.
     if (!q.held && !live.get(id)?.approval && id === S.session && S.view === "chat") setTimeout(() => sendQueued(id));
     else if (id === S.session) { drawQueue(); refreshHints(); }
@@ -504,6 +516,7 @@ export function follow(id: string | null, turn: Turn) {
     // A stopped turn only needs its run's id, to stop it.
     if (turn.stopped) return ev.kind === "started" && turn.started?.(ev.run_id);
     if (ev.kind !== "text" && ev.kind !== "reasoning" && frame) flush();
+
     switch (ev.kind) {
       case "started":
         entry(id).run = { id: ev.run_id, turn };
@@ -553,6 +566,7 @@ export function follow(id: string | null, turn: Turn) {
         finish(id, turn);
         break;
     }
+
     if (turn.isConnected) keepDown();
   };
   return channel;
@@ -578,6 +592,7 @@ export async function runTurn(id: string | null, turn: Turn, run: Promise<unknow
   } catch (err) {
     if (!turn.stopped) failed(turn, String(err));
   }
+
   turn.started?.(null);
   if (!turn.done) finish(id, turn);
 }
@@ -622,6 +637,7 @@ export const watching = new Set<string>();
 export async function watchRun(id: string | null) {
   if (!id || live.has(id) || watching.has(id)) return;
   watching.add(id);
+
   try {
     const runId = await invoke<string | null>("active_run", { session: id }).catch(() => null);
     if (!runId || live.has(id) || S.session !== id || S.view !== "chat") return;

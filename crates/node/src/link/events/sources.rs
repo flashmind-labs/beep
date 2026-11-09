@@ -79,6 +79,7 @@ pub(super) async fn subscribe(offers: &Offers, topics: &[Topic]) -> Result<Subsc
         "invalid subscription topics"
     );
     let mut subscriptions = Subscriptions::new();
+
     for topic in topics {
         let source = {
             let mut registry = offers.agents.event_sources.lock().await;
@@ -90,6 +91,7 @@ pub(super) async fn subscribe(offers: &Offers, topics: &[Topic]) -> Result<Subsc
             None => {
                 let candidate = Arc::new(Source::new(offers, topic).await?);
                 let mut registry = offers.agents.event_sources.lock().await;
+
                 match registry.get(topic).and_then(Weak::upgrade) {
                     Some(source) => (source, true),
                     None => {
@@ -103,10 +105,12 @@ pub(super) async fn subscribe(offers: &Offers, topics: &[Topic]) -> Result<Subsc
                 }
             }
         };
+
         if reused {
             // A reused source still checks the node's current allowed roots.
             source.reconcile(offers).await?;
         }
+
         let stream = BroadcastStream::new(source.sender.subscribe());
         subscriptions.insert(topic.clone(), Subscription { stream, source });
         ensure!(
@@ -114,6 +118,7 @@ pub(super) async fn subscribe(offers: &Offers, topics: &[Topic]) -> Result<Subsc
             "too many watched directories; subscribe to specific file roots"
         );
     }
+
     Ok(subscriptions)
 }
 
@@ -128,6 +133,7 @@ pub(super) async fn reconcile(offers: &Offers, subscriptions: &Subscriptions) ->
     for subscription in subscriptions.values() {
         subscription.source.reconcile(offers).await?;
     }
+
     ensure!(
         roots(subscriptions).len() <= MAX_FILE_ROOTS,
         "too many watched directories; subscribe to specific file roots"

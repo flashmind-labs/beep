@@ -74,6 +74,7 @@ export async function answerWork(id: string | null, q: HeldQuestion | undefined,
   q.answer = decision;
   answeredWork.mark(q.query_id, id);
   redrawIfOpen(id);
+
   try {
     if (await invoke<"delivered" | "withdrawn">("answer_work", { session: id, queryId: q.query_id, decision }) === "withdrawn") {
       q.answer = null;
@@ -84,6 +85,7 @@ export async function answerWork(id: string | null, q: HeldQuestion | undefined,
     answeredWork.forget(q.query_id);
     if (id === S.session) notice(String(err), { bad: true });
   }
+
   redrawIfOpen(id);
 }
 

@@ -5,14 +5,18 @@ fn pages_walk_back_without_a_gap_or_a_repeat() {
     let (first, len) = (7, 25);
     let mut seen = Vec::new();
     let mut before = None;
+
     loop {
         let range = window(first, len, 10, before);
+
         if range.is_empty() {
             break;
         }
+
         seen.splice(0..0, range.clone());
         before = Some(first + range.start as u64);
     }
+
     assert_eq!(seen, (0..len).collect::<Vec<_>>());
 }
 

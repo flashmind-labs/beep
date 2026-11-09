@@ -52,9 +52,11 @@ fn stops_a_repeated_sentence() {
 #[test]
 fn leaves_normal_text_alone() {
     let mut guard = RepeatGuard::default();
+
     for i in 0..200 {
         assert!(!guard.push(&format!("Line {i} says something different. ")));
     }
+
     let mut guard = RepeatGuard::default();
     assert!(!guard.push("| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n"));
     let mut guard = RepeatGuard::default();

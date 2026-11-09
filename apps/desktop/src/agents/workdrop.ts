@@ -108,14 +108,17 @@ export function askUpload(files: File[], folder: string, root = paneSession()?.c
 /// agent takes: temporary attachments by default, permanent when `folder` is chosen.
 export async function uploadDropped(files: File[], folder: string | null = null, root = paneSession()?.cwd ?? "") {
   const session = paneSession();
+
   for (const f of files) {
     if (paneSession() !== session) return;
     const why = uploadRefusal(f);
     if (why) { MN.error(why); continue; }
+
     try {
       MN.reading++;
       const path = await uploadOne(f, folder, root);
       const data = path ? await fileBase64(f) : "";
+
       if (path && paneSession() === session) {
         MN.files.set(path, { name: f.name, mime: f.type || "application/octet-stream", size: f.size, data });
         if (!MN.paths.includes(path)) MN.paths.push(path);
@@ -125,8 +128,10 @@ export async function uploadDropped(files: File[], folder: string | null = null,
     } finally {
       MN.reading--;
     }
+
     MN.redraw();
   }
+
   if (folder !== null) reloadFolder(folder);
 }
 
@@ -135,11 +140,13 @@ export async function prepareStashFiles(files: StashFile[]) {
   const session = paneSession();
   if (!session && files.length) throw new Error("Open a session before restoring files");
   const restored = new Map<string, StashFile>();
+
   for (const file of files) {
     const path = await uploadOne(stashFile(file), null, session!.cwd);
     if (!path || paneSession() !== session) throw new Error("The session changed while restoring files");
     restored.set(path, file);
   }
+
   return restored;
 }
 
@@ -152,13 +159,17 @@ async function uploadOne(file: File, folder: string | null, root: string) {
   const up: Upload = { name: file.name || "file", size: file.size, done: 0 };
   MN.uploads.push(up);
   MN.redraw();
+
   try {
     let path = folder === null ? up.name : joinPath(folder, up.name);
+
     for (const part of uploadParts(file.size)) {
       // A folder dropped from Finder fails to read here.
       let data: string;
+
       try { data = await fileBase64(file.slice(part.offset, part.offset + part.len)); }
       catch { throw new Error("it could not be read; folders do not upload, drop the files in them"); }
+
       path = await invoke<string>("agent_tree_upload", {
         machineId: s.machine_id, root, path, offset: part.offset, size: file.size, data,
         attachment: folder === null ? { agent: s.agent, session: s.id } : null,
@@ -167,6 +178,7 @@ async function uploadOne(file: File, folder: string | null, root: string) {
       up.done = part.offset + part.len;
       MN.redraw();
     }
+
     return folder === null ? path : mentioned(root, s.cwd, path);
   } finally {
     MN.uploads = MN.uploads.filter(u => u !== up);

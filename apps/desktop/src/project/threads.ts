@@ -217,11 +217,13 @@ const BRANCH_SLUG = 30;
 /// the title's words cut at a word to fit `BRANCH_SLUG`.
 export function issueBranch(number: number, title: string) {
   let slug = String(title || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
   if (slug.length > BRANCH_SLUG) {
     const cut = slug.slice(0, BRANCH_SLUG);
     const at = cut.lastIndexOf("-");
     slug = at > 0 ? cut.slice(0, at) : cut;
   }
+
   return slug ? `issue-${number}-${slug}` : `issue-${number}`;
 }
 
@@ -305,11 +307,13 @@ export function makeThreads(deps: ThreadDeps) {
   /// A project's lists, from the cache until they are read.
   const of = (id: string) => {
     let s = all.get(id);
+
     if (!s) {
       const k = kept.get(id);
       s = { issues: k?.issues, threads: k?.threads, prs: k?.prs, chats: k?.chats, error: "", issuesError: "", prsError: "", busy: new Set(), failed: new Map(), all: new Set(), labels: new Set(), syncedAt: null };
       all.set(id, s);
     }
+
     return s;
   };
 
@@ -341,6 +345,7 @@ export function makeThreads(deps: ThreadDeps) {
   async function lists(id: string, refresh: boolean): Promise<[PromiseSettledResult<IssueRow[] | null>, PromiseSettledResult<PullRequestRow[] | null>]> {
     const s = of(id);
     const copy = await invoke<ListsRow | null>("center_project_lists", { projectId: id, refresh });
+
     if (copy) {
       s.syncedAt = copy.synced_at;
       return [
@@ -348,6 +353,7 @@ export function makeThreads(deps: ThreadDeps) {
         copy.prs_error ? { status: "rejected", reason: copy.prs_error } : { status: "fulfilled", value: copy.prs },
       ];
     }
+
     s.syncedAt = null;
     return Promise.allSettled([
       invoke<IssueRow[] | null>("center_project_issues", { projectId: id }),
@@ -385,10 +391,12 @@ export function makeThreads(deps: ThreadDeps) {
     s.prsError = prs.status === "rejected" ? reason(prs.reason) : "";
     // Without the list the tile shows the user's own threads as before.
     s.prs = prs.status === "fulfilled" ? prs.value : s.prs ?? null;
+
     // Kept once the host answered; a failed read keeps the last good lists.
     if (issues.status === "fulfilled" && prs.status === "fulfilled" && !s.error) {
       kept.put(id, { issues: s.issues ?? null, threads: s.threads ?? null, prs: s.prs ?? null, chats: s.chats ?? null });
     }
+
     redraw();
   }
 
@@ -400,6 +408,7 @@ export function makeThreads(deps: ThreadDeps) {
     s.error = "";
     s.failed.delete(key);
     redraw();
+
     try {
       await work();
     } catch (e) {
@@ -472,10 +481,12 @@ export function makeThreads(deps: ThreadDeps) {
     const s = of(agent.project_id);
     const n = i.number;
     const buttons = [button("Work on it", "pri", () => ctx.workOn(i))];
+
     if (server()) {
       buttons.push(button("Plan", "", () => track(agent, n)),
         button(s.busy.has(`d${n}`) ? "Opening…" : "Discuss", "", () => discuss(agent, n)));
     }
+
     for (const b of buttons) b.disabled = s.busy.has(`i${n}`);
     buttons[0].title = "Start a coding agent on a new branch for this issue";
     return actsEl(s, [`i${n}`, `d${n}`], buttons);
@@ -489,10 +500,12 @@ export function makeThreads(deps: ThreadDeps) {
       openChat(await invoke<string>("center_reply_thread", { projectId: agent.project_id, repo: l.repo || agent.name, number: n }));
     }) });
     items.push({ label: "Continue", on: () => void act(agent.project_id, `c${n}`, () => ctx.continuePr(l.pr)) });
+
     if (l.branch && ctx.review) {
       const branch = l.branch;
       items.push({ label: "Review", on: () => ctx.review!(branch) });
     }
+
     items.push({ label: "Agent review", on: () => void act(agent.project_id, `a${n}`, () => ctx.reviewPr(l.pr)) });
     openMenu(e, `#${n} ${l.pr.title}`, items);
   }
@@ -519,6 +532,7 @@ export function makeThreads(deps: ThreadDeps) {
     const waiting = list.filter(t => t.needs_reply).length;
     out.push(h("div", "cc-sec", h("h4", "", "Your pull requests and issues", h("small", "", waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : "")),
       fresh(agent.project_id), button("Refresh", "quiet small", () => load(agent.project_id))));
+
     if (!list.length) {
       out.push(emptyPanel(h("span", "", "You have no open pull requests or issues here.")));
     } else {
@@ -533,6 +547,7 @@ export function makeThreads(deps: ThreadDeps) {
         return row;
       })));
     }
+
     if (s.chats?.length) {
       out.push(secHead("Chats about one thread"),
         h("div", "cc-panel", ...s.chats.map(c => {
@@ -541,6 +556,7 @@ export function makeThreads(deps: ThreadDeps) {
           return row;
         })));
     }
+
     return out;
   }
 

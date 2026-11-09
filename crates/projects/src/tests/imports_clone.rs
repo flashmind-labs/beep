@@ -123,6 +123,7 @@ fn a_fork_clones_as_origin_with_upstream_added_and_its_branches_tracked() {
         eprintln!("skipped: no git");
         return;
     }
+
     let root = tempfile::tempdir().unwrap();
     let (upstream, fork) = upstream_and_fork(root.path());
     let folder = root.path().join("ws/projects/acme/widget");
@@ -174,6 +175,7 @@ fn a_checkout_already_there_gets_the_fork_and_its_branches() {
         eprintln!("skipped: no git");
         return;
     }
+
     let root = tempfile::tempdir().unwrap();
     let (upstream, fork) = upstream_and_fork(root.path());
     let folder = root.path().join("code/widget");
@@ -218,6 +220,7 @@ fn clones_then_reuses_and_refuses_other_files() {
         eprintln!("skipped: no git");
         return;
     }
+
     let root = tempfile::tempdir().unwrap();
     let src = root.path().join("src");
     std::fs::create_dir(&src).unwrap();

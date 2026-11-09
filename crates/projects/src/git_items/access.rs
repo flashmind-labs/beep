@@ -120,23 +120,28 @@ async fn check(hosts: &dyn Hosts, logins: &[Login<'_>], repo: &Repo) -> Option<b
     if let Some(writable) = known(repo) {
         return Some(writable);
     }
+
     let client = hosts.client().ok()?;
     let mut answered = false;
+
     for login in logins {
         let Some(url) = repo_url(login, repo) else {
             continue;
         };
+
         if let Slot::Forgejo(base) = login.slot
             && !hosts.is_public(base).await
         {
             continue;
         }
+
         let caller = Caller {
             client: &client,
             calls: hosts.calls(),
             host: &repo.host,
             token: login.secret,
         };
+
         match caller.get::<RepoReply>(&url).await {
             Ok(reply) if reply.writable() => {
                 remember(repo.clone(), true);
@@ -148,9 +153,11 @@ async fn check(hosts: &dyn Hosts, logins: &[Login<'_>], repo: &Repo) -> Option<b
             Err(e) => log::info!("write access to {} on {}: {e}", repo.name, repo.host),
         }
     }
+
     if answered {
         remember(repo.clone(), false);
     }
+
     answered.then_some(false)
 }
 

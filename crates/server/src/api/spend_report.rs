@@ -54,6 +54,7 @@ fn spend_period(
     let mut subscription_tokens = 0;
     let mut projects: BTreeMap<String, ProjectBill> = BTreeMap::new();
     let mut harnesses: BTreeMap<HarnessKey, HarnessBill> = BTreeMap::new();
+
     for row in days.iter().filter(|row| row.day >= from) {
         let subscription = row.billing.on_subscription(&row.agent);
         let project = project_of(&row.endpoint, &row.cwd, imports);
@@ -77,6 +78,7 @@ fn spend_period(
         harness.tokens += row.tokens;
         if subscription {
             subscription_tokens += row.tokens;
+
             match bill.subscription.iter_mut().find(|t| t.agent == row.agent) {
                 Some(tokens) => tokens.tokens += row.tokens,
                 None => bill.subscription.push(AgentTokens {
@@ -90,11 +92,13 @@ fn spend_period(
             metered_tokens += row.tokens;
             bill.cost_usd += cost;
             bill.metered_tokens += row.tokens;
+
             if let Some(cost) = row.cost_usd {
                 *harness.cost_usd.get_or_insert(0.0) += cost;
             }
         }
     }
+
     for ((agent, subscription), tokens) in period_models(models, from) {
         if let Some(harness) = harnesses.get_mut(&(agent, subscription)) {
             harness.models = tokens;
@@ -108,6 +112,7 @@ fn spend_period(
     for project in &mut projects {
         project.subscription.sort_by_key(|t| Reverse(t.tokens));
     }
+
     let project_tokens =
         |p: &ProjectBill| p.metered_tokens + p.subscription.iter().map(|t| t.tokens).sum::<u64>();
     projects.sort_by(|a, b| {
@@ -146,22 +151,27 @@ fn period_models(
         .map(|row| &row.agent)
         .collect();
     let mut by_model: BTreeMap<(HarnessKey, &ModelId), u64> = BTreeMap::new();
+
     for row in models {
         if row.from_logs == logged.contains(&row.agent) {
             let key = (&row.agent, row.billing.on_subscription(&row.agent));
             *by_model.entry((key, &row.model)).or_default() += row.tokens;
         }
     }
+
     let mut out: BTreeMap<HarnessKey, Vec<ModelSpend>> = BTreeMap::new();
+
     for ((key, model), tokens) in by_model {
         out.entry(key).or_default().push(ModelSpend {
             model: model.clone(),
             tokens,
         });
     }
+
     for list in out.values_mut() {
         list.sort_by_key(|model| Reverse(model.tokens));
     }
+
     out
 }
 

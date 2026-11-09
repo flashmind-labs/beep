@@ -40,9 +40,11 @@ fn a_pause_never_sends_in_word_mode() {
     let t = Instant::now();
     let (mut live, _) = Live::listening(EndMode::Word, t);
     says(&mut live, "Remind me to call the plumber", at(t, 100));
+
     for ms in (200..10_000).step_by(100) {
         assert_eq!(sends(&live.input(Input::Tick, at(t, ms))), None);
     }
+
     says(&mut live, ", send.", at(t, 10_000));
     let out = live.input(Input::Tick, at(t, 10_000) + PHRASE_PAUSE);
     assert_eq!(sends(&out), Some("Remind me to call the plumber"));
@@ -480,9 +482,11 @@ fn an_approval_waits_without_the_quiet_limit_then_goes_on() {
         vec![Effect::Transcribe]
     );
     assert_eq!(live.phase(), Phase::Waiting);
+
     for s in (5..=600).step_by(5) {
         assert!(live.input(Input::Tick, at(t, s * 1000)).is_empty());
     }
+
     assert_eq!(live.phase(), Phase::Waiting);
     assert_eq!(
         live.input(Input::Answered, at(t, 601_000)),

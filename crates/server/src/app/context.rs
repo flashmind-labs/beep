@@ -46,6 +46,7 @@ impl App {
         if let Some(platform) = message.platform {
             let _ = writeln!(ctx, "The user is writing from {}.", platform.describe());
         }
+
         if message.origin == (DeviceKind::Desktop {}) {
             let _ = writeln!(
                 ctx,
@@ -53,6 +54,7 @@ impl App {
                  maps, contacts and opening apps are not available in this turn."
             );
         }
+
         if message.voice.is_some() || message.spoken {
             let _ = writeln!(
                 ctx,
@@ -63,9 +65,11 @@ impl App {
                  later, unless they ask for it."
             );
         }
+
         if message.spoken {
             let _ = writeln!(ctx, "{LIVE}");
         }
+
         if message.draws.charts {
             let _ = writeln!(
                 ctx,
@@ -74,7 +78,9 @@ impl App {
                  gave you that read better as a chart."
             );
         }
+
         let _ = writeln!(ctx, "{}", sources_line(message.draws.sources));
+
         if message.draws.cards {
             let _ = writeln!(
                 ctx,
@@ -95,6 +101,7 @@ impl App {
         if let Some(label) = message.scheduled.as_deref() {
             let _ = writeln!(ctx, "{}", cron::scheduled_context(label));
         }
+
         if let Some(woken) = &message.woken {
             let _ = writeln!(ctx, "{}", wake::woken_context(woken));
         }
@@ -115,6 +122,7 @@ impl App {
         match user.projects().await {
             Ok(rows) => {
                 let names: Vec<_> = rows.into_iter().map(|row| row.name).collect();
+
                 if let Some(block) = projects::context_block(&names)
                     && last_block(chat, projects::HEADER) != Some(block.as_str())
                 {
@@ -196,9 +204,11 @@ fn apps_line(apps: &[AppIntegration]) -> Option<String> {
             .join(", ")
     };
     let (connected, available) = (names(true), names(false));
+
     if connected.is_empty() && available.is_empty() {
         return None;
     }
+
     let mut line = format!(
         "Connected apps: {}.",
         if connected.is_empty() {
@@ -207,12 +217,14 @@ fn apps_line(apps: &[AppIntegration]) -> Option<String> {
             &connected
         }
     );
+
     if !available.is_empty() {
         let _ = write!(
             line,
             " Not connected: {available}. The user connects these from Apps in Beep's menu."
         );
     }
+
     Some(line)
 }
 

@@ -34,6 +34,7 @@ function textView(t: MediaTab, text: TreeText) {
   const lang = languageOf(rel);
   let body: string;
   let lines = 0;
+
   if (text.binary) {
     body = `<div class="agpmsg">${esc(t.name)} is not text (${esc(shortSize(text.size))}). Save it to open it on this computer.</div>`;
   } else {
@@ -44,6 +45,7 @@ function textView(t: MediaTab, text: TreeText) {
     const width = String(shown.length).length;
     body = `<div class="agcode" style="--lnw:${width}ch"><pre>${shown.map((l, i) => `<span class="ln">${i + 1}</span>${highlight(l, lang)}`).join("\n")}</pre></div>`;
   }
+
   if (t.preview?.active) {
     body = t.preview.loading ? '<div class="agpmsg">Loading preview…</div>'
       : t.preview.error ? `<div class="agpmsg derr">${esc(t.preview.error)}</div>`
@@ -70,6 +72,7 @@ function textView(t: MediaTab, text: TreeText) {
     preview.loading = true;
     preview.error = "";
     render();
+
     try {
       const got = await invoke<{ kind: string; src: string }>("agent_artifact", {
         machineId: s.machine_id, root: t.root ?? s.cwd, path: rel, preview: true,
@@ -100,6 +103,7 @@ function termView(t: MediaTab, term: PaneTerm) {
       kill().catch(e => { el.querySelector(".meta")!.textContent = readError(e); });
       return;
     }
+
     confirmSheet({
       title: `Stop ${t.name}?`,
       text: `It stops running on ${term.row.machine_name}.`,
@@ -187,6 +191,7 @@ function imageView(t: MediaTab) {
   stage.addEventListener("wheel", e => {
     e.preventDefault();
     if (!t.image) return;
+
     // Trackpad pinches send Control-wheel events; ordinary swipes pan.
     if (e.ctrlKey) {
       zoom(Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
@@ -272,6 +277,7 @@ function modelView(t: MediaTab) {
   // A .gltf's buffers and textures are files beside it.
   const sibling = async (uri: string) => {
     if (!P.session || !dir || /^[a-z]+:/i.test(uri)) return null;
+
     try {
       return (await readFile(P.session.machine_id, resolvePath(dir, decodeURIComponent(uri)), () => {})).bytes;
     } catch {
@@ -316,11 +322,13 @@ function animControls(bar: HTMLElement, a: Animation) {
     // Only on a change: each frame calls this, and a button whose text node is
     // replaced between press and release gets no click in WebKit.
     const label = a.playing ? "Pause" : "Play";
+
     if (play.title !== label) {
       play.title = label;
       play.setAttribute("aria-label", label);
       play.innerHTML = a.playing ? ICON.pause : ICON.play;
     }
+
     loop.classList.toggle("on", a.loop);
     loop.setAttribute("aria-pressed", String(a.loop));
     scrub.max = String(end);

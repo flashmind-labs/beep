@@ -131,9 +131,11 @@ pub(super) async fn a_failed_or_silent_transcription_says_only_what_happened() {
 #[tokio::test]
 pub(super) async fn a_user_is_limited_but_others_are_not() {
     let voice = Voice::new(Arc::new(Stub::default()), None, VoiceConfig::default());
+
     for _ in 0..RATE_CALLS {
         voice.speak("u1", "hi").await.expect("within the limit");
     }
+
     assert!(matches!(
         voice.speak("u1", "hi").await,
         Err(VoiceError::RateLimited)

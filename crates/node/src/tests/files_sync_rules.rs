@@ -3,15 +3,19 @@ use tempfile::TempDir;
 
 fn project(files: &[&str]) -> TempDir {
     let dir = TempDir::new().expect("a temp folder");
+
     for file in files {
         let path = dir.path().join(file);
+
         if let Some(stripped) = file.strip_suffix('/') {
             fs::create_dir_all(dir.path().join(stripped)).unwrap();
             continue;
         }
+
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, "").unwrap();
     }
+
     dir
 }
 
@@ -62,6 +66,7 @@ fn only_the_roots_git_syncs_and_own_partials_are_hidden() {
     for folder in [".git/logs", ".git/worktrees", ".git/hooks"] {
         assert_eq!(skipped(&rules, folder, true), Some(Rule::Other), "{folder}");
     }
+
     assert_eq!(skipped(&rules, "sub/.git", false), Some(Rule::Git));
     assert_eq!(skipped(&rules, "sub/.git/config", false), Some(Rule::Git));
     assert_eq!(

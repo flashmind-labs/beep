@@ -134,19 +134,24 @@ impl Store {
     /// Every top-level transcript, newest first.
     pub(super) fn transcripts(&self) -> io::Result<Vec<Transcript>> {
         let mut found = Vec::new();
+
         for project in fs::read_dir(self.root.join("projects"))? {
             let project = project?.path();
             let Ok(files) = fs::read_dir(&project) else {
                 continue;
             };
+
             for file in files.flatten() {
                 if found.len() >= MAX_FILES {
                     break;
                 }
+
                 let path = file.path();
+
                 if path.extension().is_none_or(|ext| ext != "jsonl") {
                     continue;
                 }
+
                 let Some(id) = path
                     .file_stem()
                     .and_then(|stem| stem.to_str())
@@ -166,6 +171,7 @@ impl Store {
                 });
             }
         }
+
         found.sort_by_key(|transcript| Reverse(transcript.modified));
         Ok(found)
     }
@@ -182,9 +188,11 @@ impl Store {
                 .join(format!("agent-{agent}.jsonl"));
             return path.is_file().then_some(path);
         }
+
         if !is_session_id(id) {
             return None;
         }
+
         let name = format!("{id}.jsonl");
         fs::read_dir(self.root.join("projects"))
             .ok()?
@@ -243,6 +251,7 @@ pub(super) fn list(
     if let Some(id) = only.filter(|id| id.starts_with("subagent:")) {
         return super::subagents::session(store, id).map(|session| session.into_iter().collect());
     }
+
     let all = store.transcripts()?;
     let newest_in_folder = newest_by_folder(&all);
     let picked: Vec<&Transcript> = match only {
@@ -250,12 +259,14 @@ pub(super) fn list(
         None => all.iter().take(limit).collect(),
     };
     let mut sessions = Vec::new();
+
     for transcript in picked {
         let newest = newest_in_folder
             .get(folder_of(transcript))
             .is_some_and(|id| *id == transcript.id);
         sessions.push(describe(store, transcript, newest, snapshot)?);
     }
+
     Ok(sessions)
 }
 
@@ -268,12 +279,14 @@ pub(super) fn list_ids(
     let all = store.transcripts()?;
     let newest_in_folder = newest_by_folder(&all);
     let mut sessions = Vec::new();
+
     for transcript in all.iter().filter(|t| ids.contains(&t.id)) {
         let newest = newest_in_folder
             .get(folder_of(transcript))
             .is_some_and(|id| *id == transcript.id);
         sessions.push(describe(store, transcript, newest, snapshot)?);
     }
+
     Ok(sessions)
 }
 
@@ -283,16 +296,19 @@ pub(super) fn list_ids(
 pub(super) fn sightings(store: &Store) -> io::Result<Vec<Sighting>> {
     let all = store.transcripts()?;
     let mut by_folder: HashMap<&str, Vec<&Transcript>> = HashMap::new();
+
     for transcript in &all {
         by_folder
             .entry(folder_of(transcript))
             .or_default()
             .push(transcript);
     }
+
     let mut folders: Vec<Vec<&Transcript>> = by_folder.into_values().collect();
     // Newest first within each folder already; the busiest-lately first.
     folders.sort_by_key(|transcripts| Reverse(transcripts.first().map(|t| t.modified)));
     let mut out = Vec::new();
+
     for transcripts in folders.into_iter().take(MAX_FOLDERS) {
         let Some(cwd) = transcripts.iter().take(HEADS_PER_FOLDER).find_map(|t| {
             let read = || transcript::head(&t.path).map(|head| head.cwd);
@@ -300,6 +316,7 @@ pub(super) fn sightings(store: &Store) -> io::Result<Vec<Sighting>> {
         }) else {
             continue;
         };
+
         for transcript in transcripts {
             let modified = unix(transcript.modified);
             out.push(Sighting {
@@ -313,6 +330,7 @@ pub(super) fn sightings(store: &Store) -> io::Result<Vec<Sighting>> {
             });
         }
     }
+
     Ok(out)
 }
 
@@ -328,11 +346,13 @@ fn folder_of(transcript: &Transcript) -> &str {
 /// The newest session id in each project folder; `all` is newest first.
 fn newest_by_folder(all: &[Transcript]) -> HashMap<&str, &str> {
     let mut newest = HashMap::new();
+
     for transcript in all {
         newest
             .entry(folder_of(transcript))
             .or_insert(transcript.id.as_str());
     }
+
     newest
 }
 
@@ -433,6 +453,7 @@ pub(super) fn presence(seen: &Seen<'_>, snapshot: &Snapshot) -> Found {
             pid: Some(file.pid),
         };
     }
+
     let claimed = |pid: u32| {
         snapshot
             .pid_files
@@ -469,6 +490,7 @@ pub(super) fn presence(seen: &Seen<'_>, snapshot: &Snapshot) -> Found {
             pid: Some(process.pid),
         };
     }
+
     let now = snapshot.now.unwrap_or_else(SystemTime::now);
     let quiet = now.duration_since(seen.modified).unwrap_or_default();
     Found {

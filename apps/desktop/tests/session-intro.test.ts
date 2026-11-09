@@ -4,8 +4,10 @@ import { nextSessionIntro } from "../src/agents/session-intro.ts";
 
 test("welcome sentences exhaust the deck before repeating and differ across cycles", () => {
   let previous = "";
+
   for (let cycle = 0; cycle < 3; cycle++) {
     const seen = new Set<string>();
+
     for (let i = 0; i < 60; i++) {
       const sentence = nextSessionIntro();
       assert.notEqual(sentence, previous);
@@ -13,6 +15,7 @@ test("welcome sentences exhaust the deck before repeating and differ across cycl
       seen.add(sentence);
       previous = sentence;
     }
+
     assert.equal(seen.size, 60);
   }
 });

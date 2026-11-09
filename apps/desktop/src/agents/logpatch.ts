@@ -28,11 +28,13 @@ export function patchRows(live: Element, next: ParentNode, units: readonly Unit[
   const was = [...(drawnFrom.get(live) ?? [])];
   const html = fresh.map(el => el.outerHTML);
   const nestedKid = kids.findIndex(isLog), nestedFresh = fresh.findIndex(isLog);
+
   if (units && nestedFresh >= 0) {
     if (!setUnits((nestedKid >= 0 ? kids[nestedKid] : fresh[nestedFresh]) as HTMLElement, units, held)) return false;
     if (nestedKid >= 0) was[nestedKid] = NESTED;
     html[nestedFresh] = NESTED;
   }
+
   const reuse = reuseRows(was, html);
   const keep = new Set(reuse.filter(i => i >= 0));
   const going = kids.filter((_, i) => !keep.has(i));

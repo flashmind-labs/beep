@@ -80,6 +80,7 @@ impl Books {
         now: SystemTime,
     ) -> Seen {
         let mut seen = Seen::default();
+
         for run in runs.iter().filter(|run| is_users(run, login)) {
             if self.settle(project, run, now) {
                 seen.tell.push(run.clone());
@@ -87,6 +88,7 @@ impl Books {
                 seen.going.push(run.clone());
             }
         }
+
         seen
     }
 
@@ -94,17 +96,21 @@ impl Books {
     /// A run is told once, whatever reads it again.
     pub(super) fn settle(&mut self, project: &str, run: &WorkflowRun, now: SystemTime) -> bool {
         let book = self.projects.entry(project.to_owned()).or_default();
+
         if book.told.contains(&run.id) {
             return false;
         }
+
         if run.state.going() {
             book.going.insert(run.id);
             trim(&mut book.going);
             return false;
         }
+
         if !run.state.finished() {
             return false;
         }
+
         let was_going = book.going.remove(&run.id);
         book.told.insert(run.id);
         trim(&mut book.told);

@@ -41,6 +41,7 @@ async fn an_unchanged_reply_is_a_304_served_from_the_kept_copy() {
                 .with("x-ratelimit-remaining", "4999")
                 .with("x-ratelimit-reset", "4102444800");
         }
+
         Reply::ok(r#"{"n": 7}"#)
             .with("etag", "\"v1\"")
             .with("x-ratelimit-remaining", "4999")

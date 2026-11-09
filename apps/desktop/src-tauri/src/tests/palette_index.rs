@@ -84,6 +84,7 @@ fn with_no_subscription_the_assistants_pages_are_not_found() {
     for kept in ["Home", "Settings", "Coding agents"] {
         assert!(actions.contains(&kept), "{kept}");
     }
+
     let settings = titles(&index.settings);
     for gone in [
         "Account",

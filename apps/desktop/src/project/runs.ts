@@ -184,6 +184,7 @@ export function progressText(p: RunProgress, now = Date.now()) {
     const at = p.step.started_at ?? p.job_started_at;
     return `${p.job}, step ${p.step.number} of ${p.step.of}: ${p.step.name}${at ? `, ${span(now - at)}` : ""}`;
   }
+
   const at = p.job_started_at;
   return `${p.job}, job ${Math.min(p.jobs_done + 1, p.jobs)} of ${p.jobs}${at ? `, ${span(now - at)}` : ""}`;
 }
@@ -324,10 +325,12 @@ export function makeRuns(deps: RunDeps) {
   /// A project's runs, from the cache until they are read.
   const of = (id: string) => {
     let s = all.get(id);
+
     if (!s) {
       s = { data: kept.get(id), error: "", open: null, openRun: null, loading: false };
       all.set(id, s);
     }
+
     return s;
   };
 
@@ -354,6 +357,7 @@ export function makeRuns(deps: RunDeps) {
     s.loading = true;
     tried.set(id, Date.now());
     const was = JSON.stringify([s.data, s.error]), hostsWere = JSON.stringify(s.data?.hosts ?? []);
+
     try {
       s.data = await invoke<RunsRow | null>("center_project_runs", { projectId: id, refresh });
       s.error = "";
@@ -364,6 +368,7 @@ export function makeRuns(deps: RunDeps) {
     } finally {
       s.loading = false;
     }
+
     if (s.data) readAhead(id, s.data);
     // A read that changed nothing draws nothing.
     if (JSON.stringify([s.data, s.error]) !== was) redraw();
@@ -376,6 +381,7 @@ export function makeRuns(deps: RunDeps) {
     const key = detailKey(id, run);
     if (reading.has(key)) return;
     reading.add(key);
+
     try {
       const d = await invoke<RunDetail>("center_project_run", { projectId: id, runId: run.id, host: run.host ?? null, refresh });
       details.put(key, d, Date.now());
@@ -385,6 +391,7 @@ export function makeRuns(deps: RunDeps) {
     } finally {
       reading.delete(key);
     }
+
     if (of(id).open === runKey(run)) redraw();
   }
 
@@ -422,11 +429,13 @@ export function makeRuns(deps: RunDeps) {
   function toggle(id: string, run: Pick<RunRow, "id" | "host">) {
     const s = of(id);
     const key = runKey(run);
+
     if (s.open === key) {
       s.open = null; s.openRun = null;
       watchDetail(id, null);
       redraw(); return;
     }
+
     s.open = key;
     s.openRun = { id: run.id, host: run.host ?? null };
     watchDetail(id, run);
@@ -495,28 +504,35 @@ export function makeRuns(deps: RunDeps) {
     if (error) box.append(h("span", "cc-err", error));
     if (!d.jobs.length) box.append(h("small", "dmuted", "The host gives no jobs for this run."));
     const jobs = h("span", "pj-jobs");
+
     for (const j of d.jobs) {
       const chip = runChip(j.state);
       const took = runSpan(j);
       jobs.append(h("b", j.state === "failed" ? "bad" : "", j.name), h("small", "", [chip.text, took].filter(Boolean).join(", ")));
     }
+
     if (d.jobs.length) box.append(jobs);
     const shown = d.jobs.find(j => j.state === "failed") || d.jobs.find(j => going(j.state));
+
     if (shown?.steps.length) {
       box.append(h("span", "pj-steps", ...shown.steps.map((st, i) => stepLine(`${i + 1}. ${st.name}`, st.state, st))));
     }
+
     if (d.log) {
       const where = [d.log.job, d.log.step].filter(Boolean).join(", ");
       box.append(h("span", "pj-log",
         h("small", "", `End of the log of ${where}${d.log.truncated ? " (earlier lines left out)" : ""}`),
         h("pre", "", d.log.text)));
     }
+
     const acts = h("span", "acts");
+
     if (d.run.state === "failed") {
       const b = button("Fix this", "pri", () => fix(now()));
       b.title = "Start a coding agent on this run's branch with the failure in its prompt";
       acts.append(b);
     }
+
     const job = d.jobs.find(j => j.state === "failed");
     if (job?.url) acts.append(button("Full log", "", () => openUrl(now().jobs.find(j => j.state === "failed")?.url || job.url)));
     if (acts.childNodes.length) box.append(acts);
@@ -530,10 +546,12 @@ export function makeRuns(deps: RunDeps) {
     // The event and who started it give way first on a narrow list.
     if (r.event) meta.push(h("span", "ev", r.event));
     if (r.actor) meta.push(h("span", "ev", r.actor));
+
     if (going(r.state) && r.progress) {
       meta.push(h("span", "", progressText(r.progress)));
       if (r.progress.jobs > 1) meta.push(h("span", "", `${r.progress.jobs_done} of ${r.progress.jobs} jobs done`));
     }
+
     const opened = s.open === runKey(r);
     const hosts = s.data?.hosts ?? [];
     let badge: HTMLElement | null = null;
@@ -606,14 +624,17 @@ export function makeRuns(deps: RunDeps) {
     if (d === undefined) { box.append(emptyPanel(h("span", "", "Reading the runs…"))); return box; }
     if (d === null) { box.append(emptyPanel(h("span", "", "The server needs an update before it shows runs."))); return box; }
     const why = s.error || d.error || "";
+
     if (d.rate_limited_until && d.rate_limited_until > Date.now()) {
       const at = new Date(d.rate_limited_until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       box.append(note("warn", `The host's rate limit for your token is low, so live progress waits until ${at}.`));
     }
+
     if (!d.runs.length) {
       box.append(emptyPanel(h("span", why ? "cc-err" : "", why || "No workflow runs yet.")));
       return box;
     }
+
     if (why) box.append(h("div", "cc-err", why));
     const current = d.runs.filter(r => going(r.state)), finished = d.runs.filter(r => !going(r.state));
     const states = [...new Set(finished.map(r => r.state))].sort();

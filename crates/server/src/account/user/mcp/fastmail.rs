@@ -24,6 +24,7 @@ impl User {
     /// The server of the Fastmail account named by address or id, or of the first.
     pub(crate) async fn fastmail_server(&self, account: Option<&str>) -> Result<String> {
         let accounts = self.fastmail_accounts().await?;
+
         match pick_account(&accounts, account) {
             Ok(found) => Ok(found.name.clone()),
             Err(message) => bail!(message),
@@ -50,6 +51,7 @@ impl User {
             let Some(address) = self.read_address(&account.name).await else {
                 continue;
             };
+
             if let Err(error) = self
                 .store
                 .set_mcp_address(&self.key, &account.name, Some(&address))
@@ -57,6 +59,7 @@ impl User {
             {
                 log::warn!("mcp: unable to save the account address: {error:#}");
             }
+
             account.address = Some(address);
         }
     }
@@ -86,17 +89,21 @@ impl User {
         if accounts.iter().all(|account| account.address.is_some()) {
             return;
         }
+
         let Some(user) = self.me.upgrade() else {
             return;
         };
+
         if !self.mcp.start_learning() {
             return;
         }
+
         tokio::spawn(async move {
             match user.fastmail_accounts().await {
                 Ok(mut accounts) => user.learn_addresses(&mut accounts).await,
                 Err(error) => log::warn!("mcp: unable to list accounts to learn: {error:#}"),
             }
+
             user.mcp.done_learning();
         });
     }
@@ -149,6 +156,7 @@ impl User {
                 },
             );
         }
+
         Ok(auth_url)
     }
 
@@ -186,6 +194,7 @@ impl User {
             log::info!("mcp: an account signed in again, dropping its older login; user={self}");
             self.remove_mcp(&account.name).await?;
         }
+
         Ok(())
     }
 
@@ -193,6 +202,7 @@ impl User {
         if !is_fastmail(id) {
             return Err(ApiError::NotFound {});
         }
+
         let removed = self
             .remove_mcp(id)
             .await
@@ -214,9 +224,11 @@ impl User {
             .filter(|name| is_fastmail(name))
             .collect();
         let mut existed = false;
+
         for name in names {
             existed |= self.remove_mcp(&name).await?;
         }
+
         Ok(existed)
     }
 }

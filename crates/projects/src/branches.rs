@@ -66,6 +66,7 @@ fn add_failure(code: Option<i32>, branch: &str, out: &str) -> String {
 pub fn tail(text: &str) -> &str {
     let text = text.trim();
     let mut start = text.len().saturating_sub(300);
+
     while !text.is_char_boundary(start) {
         start += 1;
     }
@@ -87,6 +88,7 @@ pub async fn add_worktree(
     if ran.exit_code != Some(0) {
         return Err(add_failure(ran.exit_code, branch, &ran.output));
     }
+
     let fallback = || ProjectBranch {
         name: branch.to_owned(),
         worktree: Some(format!(
@@ -192,6 +194,7 @@ pub fn parse_branches(output: &str) -> Result<(String, Vec<ProjectBranch>)> {
     let mut refs = Vec::new();
     // Behind, then ahead, by commit.
     let mut distance: HashMap<&str, (u32, u32)> = HashMap::new();
+
     for line in output.lines() {
         if let Some(name) = line.strip_prefix("@@default ") {
             default = Some(name.trim().to_owned());
@@ -213,9 +216,11 @@ pub fn parse_branches(output: &str) -> Result<(String, Vec<ProjectBranch>)> {
             } else {
                 continue;
             };
+
             if name == "HEAD" {
                 continue;
             }
+
             refs.push(Ref {
                 name: name.to_owned(),
                 local,
@@ -228,6 +233,7 @@ pub fn parse_branches(output: &str) -> Result<(String, Vec<ProjectBranch>)> {
             });
         } else if let Some(rest) = line.strip_prefix("@@ab ") {
             let mut parts = rest.split_whitespace();
+
             if let (Some(sha), Some(behind), Some(ahead)) =
                 (parts.next(), parts.next(), parts.next())
                 && let (Ok(behind), Ok(ahead)) = (behind.parse(), ahead.parse())
@@ -236,10 +242,12 @@ pub fn parse_branches(output: &str) -> Result<(String, Vec<ProjectBranch>)> {
             }
         }
     }
+
     let Some(default) = default else {
         bail!("git did not answer as expected");
     };
     let mut joined: BTreeMap<String, ProjectBranch> = BTreeMap::new();
+
     for one in refs {
         let (behind, ahead) = distance.get(one.head.as_str()).copied().unwrap_or((0, 0));
         let fresh = ProjectBranch {
@@ -253,6 +261,7 @@ pub fn parse_branches(output: &str) -> Result<(String, Vec<ProjectBranch>)> {
             local: one.local,
             pushed: !one.local,
         };
+
         match joined.get_mut(&one.name) {
             None => {
                 joined.insert(one.name, fresh);
@@ -267,6 +276,7 @@ pub fn parse_branches(output: &str) -> Result<(String, Vec<ProjectBranch>)> {
             Some(kept) => kept.pushed = true,
         }
     }
+
     let mut branches: Vec<ProjectBranch> = joined.into_values().collect();
     branches.sort_by(|a, b| {
         (b.name == default)
@@ -351,6 +361,7 @@ pub fn branches_with_work(
             });
         }
     }
+
     out.extend(
         branches
             .iter()

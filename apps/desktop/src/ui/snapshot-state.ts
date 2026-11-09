@@ -24,6 +24,7 @@ let bytes = 0;
 /// Install every projection before notifying any subscriber of the source update.
 export function installViews(data: unknown): void {
   if (!record(data) || !Array.isArray(data.views)) return;
+
   for (const value of data.views) {
     const snapshot = readSnapshot(value);
     if (!snapshot) continue;
@@ -35,6 +36,7 @@ export function installViews(data: unknown): void {
     if (size > MAX_BYTES) continue;
     views.set(id, { ...clone(result), bytes: size });
     bytes += size;
+
     while (views.size > MAX_VIEWS || bytes > MAX_BYTES) {
       const oldest = views.entries().next().value;
       if (!oldest) break;
@@ -54,10 +56,12 @@ export function snapshotView(command: string, args?: Record<string, unknown>): C
 /// A failure is delivered once, then the subscriber's retry can ask the recovered source.
 export function takeSnapshotView(command: string, args?: Record<string, unknown>): CachedView | null {
   const snapshot = snapshotView(command, args);
+
   if (snapshot?.kind === "error") {
     const id = key(command, args), held = views.get(id);
     if (held) { bytes -= held.bytes; views.delete(id); }
   }
+
   return snapshot;
 }
 

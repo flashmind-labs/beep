@@ -12,6 +12,7 @@ function load() {
     const width = Number(saved);
     if (saved && Number.isFinite(width)) return Math.max(MIN, Math.min(MAX, width));
   } catch { /* use the default when storage is unavailable */ }
+
   return DEFAULT;
 }
 

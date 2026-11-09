@@ -243,6 +243,19 @@ pub(super) fn tools(reviewer: bool) -> Value {
             "annotations": { "title": "Beep logs", "readOnlyHint": true }
         },
         {
+            "name": "beep_metrics",
+            "description": "Summarize retained metrics for a period (default 1h, maximum 7d). Gives snapshot coverage, counter increases and sampled ranges. Quantiles describe exporter windows, not whole-period percentiles. From a node only its own metrics; from a desktop any machine. Secrets are removed.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "machine": machine("The machine by name; this machine when left out"),
+                    "period": { "type": "string", "description": "Duration such as 1h, 4h, 1d or 1h 30m, between 1s and 7d; default 1h" }
+                },
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Beep metrics", "readOnlyHint": true }
+        },
+        {
             "name": "file_report",
             "description": "Send Beep a problem report, as Report a problem in the desktop app \
                 does: your findings as its description, with Beep's logs and status of every \

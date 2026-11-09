@@ -82,9 +82,11 @@ async fn review(offers: &Offers, session: &str, args: ReviewArgs) -> Reply {
     let Some((caller, who)) = agents.caller(session) else {
         return fail("This session is not one this node runs.");
     };
+
     if caller.reviewer {
         return fail("A reviewer does not start reviews. Call submit_review.");
     }
+
     let run = match args.id {
         Some(id) => match agents.review_for(&who, id.trim()) {
             Some(run) => run,
@@ -105,6 +107,7 @@ async fn review(offers: &Offers, session: &str, args: ReviewArgs) -> Reply {
                 focus: args.focus.unwrap_or_default(),
                 parent: Some(caller.id.clone()),
             };
+
             match agents.start_review(order).await {
                 Ok(run) => run,
                 Err(e) => return fail(e),
@@ -134,6 +137,7 @@ fn answer(view: &ReviewView) -> Reply {
 async fn waited(offers: &Offers, who: &crate::agents::family::Who, run: ReviewRun) -> ReviewView {
     let deadline = Instant::now() + WAIT_LIMIT;
     let mut run = run;
+
     while run.running() {
         if Instant::now() >= deadline {
             let mut view = ReviewView::from(run);
@@ -143,12 +147,15 @@ async fn waited(offers: &Offers, who: &crate::agents::family::Who, run: ReviewRu
             ));
             return view;
         }
+
         sleep(WAIT_POLL).await;
+
         match offers.agents.review_for(who, &run.id) {
             Some(next) => run = next,
             None => break,
         }
     }
+
     run.into()
 }
 
@@ -156,11 +163,13 @@ fn submit(offers: &Offers, session: &str, review: SubmittedReview) -> Reply {
     if review.summary.trim().is_empty() {
         return fail("Give a `summary`.");
     }
+
     if review.findings.len() > MAX_FINDINGS {
         return fail(format!(
             "Give at most {MAX_FINDINGS} findings, the ones that matter most."
         ));
     }
+
     if let Some(bad) = review
         .findings
         .iter()
@@ -170,6 +179,7 @@ fn submit(offers: &Offers, session: &str, review: SubmittedReview) -> Reply {
             "Each finding needs a `file` and a `summary`: {bad:?}"
         ));
     }
+
     match offers.agents.submit_review(session, review) {
         Ok(()) => ok("Submitted. The review is done: end your turn."),
         Err(e) => fail(e),

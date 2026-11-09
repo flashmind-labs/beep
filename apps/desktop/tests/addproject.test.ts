@@ -26,6 +26,7 @@ test("a batch runs at most the limit at once and a failure leaves the rest going
     started.push(item);
     gates.set(item, () => {
       running--;
+
       if (item === 2) reject(new Error("offline"));
       else { done.push(item); resolve(); }
     });

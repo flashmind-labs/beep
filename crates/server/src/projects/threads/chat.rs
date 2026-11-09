@@ -75,9 +75,11 @@ pub(crate) fn thread_block(project: &ProjectRow, read: &ReadThread) -> String {
         thread.body.trim()
     );
     let skipped = thread.comments.len().saturating_sub(MAX_COMMENTS);
+
     if skipped > 0 {
         let _ = writeln!(body, "\n({skipped} older comments left out)");
     }
+
     for c in thread.comments.iter().skip(skipped) {
         let _ = write!(
             body,
@@ -87,6 +89,7 @@ pub(crate) fn thread_block(project: &ProjectRow, read: &ReadThread) -> String {
             c.body.trim()
         );
     }
+
     let cut = head(&body, MAX_THREAD_TEXT);
     let more = if cut.len() < body.len() {
         "\n(The thread goes on; open it on the host for the rest.)"
@@ -113,6 +116,7 @@ pub(crate) async fn chat_context(
         chat.kind.label(chat.number),
         project.name
     );
+
     match read(fleet, user, project, chat.number).await {
         Ok(read) => format!("{intro}{}", thread_block(project, &read)),
         Err(error) => format!("{intro}Could not read the thread again: {error}\n"),
@@ -153,6 +157,7 @@ pub(crate) async fn open_chat(
     number: u64,
 ) -> Result<ThreadChatRow, IssueError> {
     let repo = project_repo(project, repo)?;
+
     if let Some(chat) = user
         .thread_chats(project.id)
         .await?
@@ -161,6 +166,7 @@ pub(crate) async fn open_chat(
     {
         return Ok(chat);
     }
+
     let read = read(fleet, user, project, number).await?;
     let thread = &read.thread;
     let title = match thread.title.trim() {

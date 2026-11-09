@@ -53,9 +53,11 @@ pub(super) fn permits(
     if ask == Asked::Background {
         return true;
     }
+
     let Some(record) = record.filter(|record| record.id == id) else {
         return false;
     };
+
     match ask {
         Asked::Read => record.from == me && record.to == peer,
         Asked::State => record.to == me && record.from == peer,
@@ -87,6 +89,7 @@ impl fmt::Debug for SessionsAlpn {
 impl ProtocolHandler for SessionsAlpn {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         let peer = connection.remote_id();
+
         if !self.allows(&peer) {
             log::info!("refused a session read from {peer}: not in the mesh");
             connection.close(1u32.into(), b"not in the mesh");
@@ -94,16 +97,19 @@ impl ProtocolHandler for SessionsAlpn {
         }
         // The streams end with the connection: dropping the set stops them.
         let mut streams = JoinSet::new();
+
         loop {
             tokio::select! {
                 stream = connection.accept_bi() => {
                     let Ok((send, recv)) = stream else {
                         return Ok(());
                     };
+
                     if streams.len() >= MAX_STREAMS {
                         log::warn!("refused a session read from {peer}: {MAX_STREAMS} open");
                         continue;
                     }
+
                     let (tx, rx) = beep_proto::node::link(send, recv);
                     let agents = self.agents.clone();
                     let Some(mesh) = self.membership.get() else {
@@ -127,6 +133,7 @@ impl ProtocolHandler for SessionsAlpn {
                         Ok(Err(e)) => log::debug!("a session read from {peer} ended: {e:#}"),
                         Err(e) => log::warn!("a session read task failed: {e}"),
                     }
+
                     if !self.allows(&peer) {
                         connection.close(1u32.into(), b"not in the mesh");
                         return Ok(());

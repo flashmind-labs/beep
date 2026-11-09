@@ -26,11 +26,13 @@ impl Voice {
             let mut state = self.state();
             let hold = state.hold.on_event(key, now);
             let taps = state.taps.on_event(key, now);
+
             if taps != TapStep::Nothing {
                 state.hold.forget_tap();
             }
             (taps, hold)
         };
+
         if taps == TapStep::Two {
             self.on_two_taps();
         }
@@ -39,11 +41,13 @@ impl Voice {
         if !(LIVE_ENABLED && self.beep.linked()) {
             return;
         }
+
         match hold {
             HoldStep::Wait(press) => {
                 if self.voice() == hotkey::Voice::Off {
                     self.warm_up(press);
                 }
+
                 let me = self.clone();
                 tauri::async_runtime::spawn(async move {
                     sleep(HOLD).await;
@@ -69,6 +73,7 @@ impl Voice {
     /// chat.
     fn on_two_taps(self: &Arc<Self>) {
         self.cool(None);
+
         match hotkey::on_two(self.voice(), bar::is_open(&self.app)) {
             // A notice card up: two taps open its chat, as Open does.
             hotkey::Two::Toggle if !bar::is_open(&self.app) && self.open_any_card() => {}
@@ -76,6 +81,7 @@ impl Voice {
             hotkey::Two::ShowBar => bar::show(&self.app, None),
             hotkey::Two::Leave => {
                 self.leave_live();
+
                 if !self.is_live() {
                     bar::show(&self.app, None);
                 }
@@ -93,14 +99,17 @@ impl Voice {
                 .on_timer(press, hotkey::since_press(), Instant::now());
             (step, state.hold.tapped())
         };
+
         if step != HoldStep::Start {
             // Option went with another key: nothing listens. A tap keeps
             // the microphone for the live mode it may start.
             if !tapped {
                 self.cool(Some(press));
             }
+
             return;
         }
+
         match act {
             Act::Live => self.input_now(Input::HoldStart),
             Act::Start => {
@@ -121,6 +130,7 @@ impl Voice {
         if step != HoldStep::Single {
             return self.cool(Some(press));
         }
+
         match hotkey::on_single(self.voice(), bar::is_open(&self.app)) {
             Act::Live => self.input_now(Input::Tap),
             Act::EndNote => self.leave_live(),
@@ -141,9 +151,11 @@ impl Voice {
         }
         {
             let mut state = self.state();
+
             if state.live.is_some() || state.warm.is_some() {
                 return;
             }
+
             state.warm = Some((press, open_audio(true)));
         }
         let me = self.clone();

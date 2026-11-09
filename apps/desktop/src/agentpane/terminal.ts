@@ -100,6 +100,7 @@ export function attach(t: PaneTerm) {
   const channel = new Channel<TermEvent>();
   channel.onmessage = ev => {
     if (t.link === "detached" || !current()) return;
+
     if (ev.kind === "attached") {
       t.link = "attached";
       t.tries = 0;
@@ -123,6 +124,7 @@ export function attach(t: PaneTerm) {
       t.link = "ended";
       t.screen.setInput(false);
     }
+
     t.onLink();
   };
   // The attach carries the size, so the node has it from here on.
@@ -164,14 +166,17 @@ export function dropTerm(t: PaneTerm) {
 export async function killTerm(t: PaneTerm) {
   const was = t.link;
   detachTerm(t);
+
   try {
     await invoke("terminal_close", { id: t.row.id });
   } catch (e) {
     if (!t.disposed) {
       if (was === "attached" || was === "attaching") { t.tries = 0; attach(t); } else t.link = was;
     }
+
     throw e;
   }
+
   dropTerm(t);
 }
 

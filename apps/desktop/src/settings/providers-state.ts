@@ -184,6 +184,7 @@ export function updatable(view: HarnessesView | null | undefined) {
 export function splitArgs(text: string) {
   const out: string[] = [];
   let cur = "", quote: string | null = null, any = false;
+
   for (const c of text) {
     if (quote) {
       if (c === quote) quote = null;
@@ -199,6 +200,7 @@ export function splitArgs(text: string) {
       cur += c;
     }
   }
+
   if (cur || any) out.push(cur);
   return out;
 }
@@ -297,6 +299,7 @@ export function toggledInput(h: HarnessView, enabled: boolean): SettingsInput {
 /// Why the env rows cannot be saved, or "" when they can.
 export function envProblem(env: EnvDraft[]) {
   const seen = new Set<string>();
+
   for (const v of env) {
     const name = v.name.trim();
     if (!name) continue;
@@ -304,6 +307,7 @@ export function envProblem(env: EnvDraft[]) {
     if (seen.has(name)) return `${name} is set twice.`;
     seen.add(name);
   }
+
   return "";
 }
 

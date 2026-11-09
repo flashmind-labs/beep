@@ -58,9 +58,11 @@ fn messages<R: AsyncBufRead + Unpin + Send + 'static>(
                 match lines.next().await {
                     Ok(Some(Line::Text(text))) => {
                         let trimmed = text.trim_start();
+
                         if trimmed.starts_with('{') || trimmed.starts_with('[') {
                             return Some((Ok(text), lines));
                         }
+
                         if !trimmed.is_empty() {
                             log::debug!(
                                 "agent wrote a line that is not JSON-RPC: {}",
@@ -111,12 +113,15 @@ impl<R: AsyncBufRead + Unpin> LineReader<R> {
     pub(crate) async fn next(&mut self) -> io::Result<Option<Line>> {
         self.line.clear();
         let mut length = 0usize;
+
         loop {
             let available = self.reader.fill_buf().await?;
+
             if available.is_empty() {
                 // The end of the input ends a last line that has no newline.
                 return Ok((length > 0).then(|| self.finish(length)));
             }
+
             let (part, used, ended) = match available.iter().position(|&b| b == b'\n') {
                 Some(at) => (&available[..at], at + 1, true),
                 None => (available, available.len(), false),
@@ -129,6 +134,7 @@ impl<R: AsyncBufRead + Unpin> LineReader<R> {
                 self.line = Vec::new();
             }
             self.reader.consume(used);
+
             if ended {
                 return Ok(Some(self.finish(length)));
             }
@@ -139,10 +145,13 @@ impl<R: AsyncBufRead + Unpin> LineReader<R> {
         if length > self.max {
             return Line::TooLong(length);
         }
+
         let mut text = String::from_utf8_lossy(&self.line).into_owned();
+
         if text.ends_with('\r') {
             text.pop();
         }
+
         Line::Text(text)
     }
 }

@@ -22,6 +22,7 @@ test("the command center runs its state before any page", async () => {
   const order = await runOrder("src/center/center.ts");
   const state = order.indexOf("src/center/state.ts");
   assert.ok(state >= 0);
+
   for (const page of ["src/project/page.ts", "src/center/views.ts", "src/center/home.ts"]) {
     assert.ok(order.indexOf(page) > state, `${page} runs before center/state.ts`);
   }

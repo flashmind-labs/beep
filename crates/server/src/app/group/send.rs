@@ -32,6 +32,7 @@ impl App {
             return Ok(None);
         };
         let message = group_message(&posted.message, user.id());
+
         if !posted.new {
             return Ok(Some(message));
         }
@@ -41,12 +42,14 @@ impl App {
                 chat: group_id,
                 message: posted.message.id,
             };
+
             if let Err(error) = user.save_pictures(of, pictures).await {
                 log::warn!(
                     "unable to keep a group message's pictures; group={group_id}: {error:#}"
                 );
             }
         }
+
         let Some(joined) = user.group(group_id).await? else {
             return Ok(Some(message));
         };
@@ -56,27 +59,34 @@ impl App {
             Some(user.id()),
             &said(&posted.message.author_name, text),
         );
+
         if self.decision().is_some() {
             let app = self.clone();
             let joined = joined.clone();
             let seq = posted.message.id;
             tokio::spawn(async move { app.learn_from_group(&joined, seq).await });
         }
+
         let mentioned = mentions_beep(text);
+
         if !mentioned && self.decision().is_none() {
             return Ok(Some(message));
         }
+
         let app = self.clone();
         let actor = user.clone();
         let mention = posted.message.id;
         tokio::spawn(async move {
             let group_id = joined.group.id;
+
             if !mentioned && !app.called_without_mention(&joined, mention).await {
                 return;
             }
+
             if !app.start_typing(group_id) {
                 return;
             }
+
             app.group_changed(&joined.members, group_id);
             let typing = Typing {
                 app: app.clone(),
@@ -99,6 +109,7 @@ impl App {
                     return;
                 }
             };
+
             match posted {
                 Ok(_) => {
                     app.group_notice(&members, &joined, None, &said("Beep", &reply));

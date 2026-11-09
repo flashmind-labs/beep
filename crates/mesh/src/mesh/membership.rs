@@ -14,6 +14,7 @@ impl Mesh {
         if ticket.mesh != self.id() {
             return Err(MeshError::OtherMesh);
         }
+
         let secret = ticket.secret.clone();
         self.inner
             .store

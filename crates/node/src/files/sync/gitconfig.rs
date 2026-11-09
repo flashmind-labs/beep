@@ -36,11 +36,13 @@ pub(super) fn kept(raw: &[u8]) -> String {
     let mut out = String::new();
     let mut open: Option<Section> = None;
     let mut written: Option<Section> = None;
+
     while let Some(c) = scan.skip_blank() {
         match c {
             '#' | ';' => scan.skip_line(),
             '[' => {
                 open = scan.header();
+
                 if open.is_none() {
                     scan.skip_line();
                 }
@@ -56,9 +58,11 @@ pub(super) fn kept(raw: &[u8]) -> String {
                 };
                 let Some(section) = &open else { continue };
                 let name = name.to_ascii_lowercase();
+
                 if !keeps(section, &name, &value) {
                     continue;
                 }
+
                 if written.as_ref() != Some(section) {
                     section.write(&mut out);
                     written = Some(section.clone());
@@ -68,6 +72,7 @@ pub(super) fn kept(raw: &[u8]) -> String {
             }
         }
     }
+
     out
 }
 
@@ -94,11 +99,13 @@ fn keeps(section: &Section, key: &str, value: &str) -> bool {
     let Some((_, needs_sub)) = KEPT.iter().find(|(kept, _)| *kept == full) else {
         return false;
     };
+
     if section.sub.as_ref().is_some_and(|sub| !sub.is_empty()) != *needs_sub
         || value.chars().any(char::is_control)
     {
         return false;
     }
+
     match full.as_str() {
         // Where a remote or a branch's remote points: a plain address, never
         // an option for git or a program for a transport helper to run.
@@ -136,6 +143,7 @@ fn escape(text: &str) -> String {
 
 fn quoted(value: &str) -> String {
     let mut out = String::from("\"");
+
     for c in value.chars() {
         match c {
             '\\' => out.push_str("\\\\"),
@@ -143,6 +151,7 @@ fn quoted(value: &str) -> String {
             c => out.push(c),
         }
     }
+
     out.push('"');
     out
 }
@@ -168,6 +177,7 @@ impl Scan<'_> {
         while self.peek().is_some_and(char::is_whitespace) {
             self.at += 1;
         }
+
         self.peek()
     }
 
@@ -189,6 +199,7 @@ impl Scan<'_> {
     fn header(&mut self) -> Option<Section> {
         self.next();
         let mut name = String::new();
+
         while let Some(c) = self
             .peek()
             .filter(|c| c.is_ascii_alphanumeric() || "-.".contains(*c))
@@ -196,11 +207,14 @@ impl Scan<'_> {
             name.push(c);
             self.at += 1;
         }
+
         self.skip_spaces();
         let mut sub = None;
+
         if self.peek() == Some('"') {
             self.at += 1;
             let mut text = String::new();
+
             loop {
                 match self.next()? {
                     '"' => break,
@@ -211,9 +225,11 @@ impl Scan<'_> {
             }
             sub = Some(text);
         }
+
         if self.next()? != ']' || name.is_empty() {
             return None;
         }
+
         let name = name.to_ascii_lowercase();
         Some(match (sub, name.split_once('.')) {
             (None, Some((name, sub))) => Section {
@@ -227,6 +243,7 @@ impl Scan<'_> {
     /// A variable's name: a letter, then letters, digits and dashes.
     fn name(&mut self) -> Option<String> {
         let mut name = String::new();
+
         while let Some(c) = self
             .peek()
             .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
@@ -234,6 +251,7 @@ impl Scan<'_> {
             name.push(c);
             self.at += 1;
         }
+
         name.chars()
             .next()
             .is_some_and(|c| c.is_ascii_alphabetic())
@@ -243,6 +261,7 @@ impl Scan<'_> {
     /// What follows a name: `= value`, or nothing for true.
     fn value(&mut self) -> Option<String> {
         self.skip_spaces();
+
         match self.peek() {
             Some('=') => {
                 self.at += 1;
@@ -259,6 +278,7 @@ impl Scan<'_> {
     fn text_of_value(&mut self) -> Option<String> {
         let mut value = String::new();
         let (mut quoted, mut comment, mut space) = (false, false, false);
+
         loop {
             let c = match self.next() {
                 None if quoted => return None,
@@ -266,23 +286,28 @@ impl Scan<'_> {
                 Some('\r') if self.peek() == Some('\n') => continue,
                 Some(c) => c,
             };
+
             if c == '\n' {
                 if quoted {
                     return None;
                 }
                 break;
             }
+
             if comment {
                 continue;
             }
+
             if c.is_whitespace() && !quoted {
                 space = !value.is_empty();
                 continue;
             }
+
             if !quoted && (c == '#' || c == ';') {
                 comment = true;
                 continue;
             }
+
             if space {
                 value.push(' ');
                 space = false;
@@ -303,6 +328,7 @@ impl Scan<'_> {
                 c => value.push(c),
             }
         }
+
         Some(value)
     }
 }

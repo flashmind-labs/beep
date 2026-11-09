@@ -21,6 +21,7 @@ let bound = "";
 /// terminals included.
 export function openDraft(project: string, machine: string | null) {
   const host = $("#agdraft");
+
   if (!(AG.draft === project && S.view === "agent" && host)) {
     pointBar(project, machine);
     stopAgentFollow();
@@ -28,6 +29,7 @@ export function openDraft(project: string, machine: string | null) {
     S.view = "agent";
     drawFrame(project);
   }
+
   // The project page takes the input when it shows; it comes back here.
   const at = $$("#agdraft");
   if (projectComp.form.parentNode !== at) at.append(projectComp.form);

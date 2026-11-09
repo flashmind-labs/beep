@@ -27,6 +27,7 @@ async fn main() -> Result<()> {
     let identity = load_secret_key(Some(Path::new(&identity)))?;
     let c = Client::new(&args[0], identity)?;
     let rest: Vec<&str> = args[2..].iter().map(String::as_str).collect();
+
     match (args[1].as_str(), rest.as_slice()) {
         ("health", []) => show(c.call(&Health {}).await?),
         ("sessions", []) => show(c.call(&ListSessions {}).await?),
@@ -34,6 +35,7 @@ async fn main() -> Result<()> {
         ("crons", []) => show(c.call(&ListCrons {}).await?),
         ("notifications", []) => {
             let mut events = c.events(None).await?;
+
             while let Some(event) = events.next().await? {
                 if let AppEvent::Notice { notice, .. } = event {
                     show(notice);
@@ -47,6 +49,7 @@ async fn main() -> Result<()> {
             };
             let mut events = c.stream(&request).await?;
             let wait = Duration::from_secs(45);
+
             while let Some(event) = tokio::time::timeout(wait, events.next()).await?? {
                 println!("{} {:?}", event.seq, event.event);
             }
@@ -83,6 +86,7 @@ async fn main() -> Result<()> {
         ("sync-status", [project]) => sync_status(&c, project).await?,
         _ => bail!(USAGE),
     }
+
     Ok(())
 }
 
@@ -93,6 +97,7 @@ async fn sync_status(c: &Client, project: &str) -> Result<()> {
     let Some(sync) = listed.iter().find(|sync| sync.project == project) else {
         bail!("{project} is not synced");
     };
+
     for machine in &sync.machines {
         let status: &'static str = machine.status.into();
         println!(
@@ -105,6 +110,7 @@ async fn sync_status(c: &Client, project: &str) -> Result<()> {
             machine.error.as_deref().unwrap_or("-").replace(' ', "_"),
         );
     }
+
     let all_in_sync = sync
         .machines
         .iter()
@@ -112,6 +118,7 @@ async fn sync_status(c: &Client, project: &str) -> Result<()> {
     if !all_in_sync {
         std::process::exit(3);
     }
+
     Ok(())
 }
 

@@ -89,6 +89,7 @@ fn query_storage_evicts_the_least_recent_read_and_keeps_reused_projections() {
     let first = Read::Process(process::Request::Status {
         id: process::TaskId(0),
     });
+
     for number in 0..u32::try_from(events::MAX_QUERIES).unwrap() {
         snapshots
             .register(
@@ -100,6 +101,7 @@ fn query_storage_evicts_the_least_recent_read_and_keeps_reused_projections() {
             .unwrap()
             .unwrap();
     }
+
     snapshots.register(id, first.clone()).unwrap().unwrap();
     snapshots
         .register(

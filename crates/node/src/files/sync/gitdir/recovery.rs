@@ -70,9 +70,11 @@ impl Repo {
                 .is_some_and(|own| self.is_ancestor(own, target) == Some(true)),
             "Git commits differ; automatic recovery only allows a fast-forward."
         );
+
         if !self.has_local_changes()? {
             return self.fast_forward(before, target, branch);
         }
+
         let file = self.recovery_file();
         fs::create_dir_all(file.parent().context("Recovery directory is missing")?)?;
         let mut recovery = Recovery {

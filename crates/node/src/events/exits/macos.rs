@@ -45,10 +45,13 @@ fn change(queue: &OwnedFd, event: &libc::kevent) -> io::Result<()> {
                 std::ptr::null(),
             )
         };
+
         if result >= 0 {
             return Ok(());
         }
+
         let error = io::Error::last_os_error();
+
         if error.kind() != io::ErrorKind::Interrupted {
             return Err(error);
         }
@@ -73,6 +76,7 @@ impl Reactor {
     fn new() -> Result<Arc<Self>> {
         // SAFETY: kqueue takes no pointers and returns a new owned descriptor.
         let raw = unsafe { libc::kqueue() };
+
         if raw < 0 {
             return Err(io::Error::last_os_error().into());
         }
@@ -115,6 +119,7 @@ impl Reactor {
                     data: 0,
                     udata: std::ptr::null_mut(),
                 }; 64];
+
                 while !stopping.load(Ordering::Acquire) {
                     // SAFETY: events supplies space for the requested number of initialized output entries.
                     // queue remains owned throughout the wait; no input entries or timeout are supplied.
@@ -128,31 +133,38 @@ impl Reactor {
                             std::ptr::null(),
                         )
                     };
+
                     if count < 0 {
                         let error = io::Error::last_os_error();
+
                         if error.kind() == io::ErrorKind::Interrupted {
                             continue;
                         }
+
                         failed.store(true, Ordering::Release);
                         log::debug!("process exit reactor stopped: {error}");
                         break;
                     }
+
                     for event in events.iter().take(usize::try_from(count).unwrap_or(0)) {
                         if event.filter == libc::EVFILT_PROC {
                             // udata is an opaque integer token, never dereferenced as a pointer.
                             let token = event.udata as usize;
                             let mut held = crate::lock(&listeners);
+
                             if let Ok(pid) = u32::try_from(event.ident)
                                 && held.processes.get(&pid) == Some(&token)
                             {
                                 held.processes.remove(&pid);
                             }
+
                             if let Some(sender) = held.waiters.remove(&token) {
                                 let _ = sender.send(());
                             }
                         }
                     }
                 }
+
                 let mut held = crate::lock(&listeners);
                 held.waiters.clear();
                 held.processes.clear();
@@ -167,6 +179,7 @@ impl Reactor {
 impl Drop for Reactor {
     fn drop(&mut self) {
         self.stopping.store(true, Ordering::Release);
+
         if let Err(error) = wake(&self.queue) {
             log::debug!("process exit reactor could not be woken: {error}");
         }
@@ -178,6 +191,7 @@ impl Drop for Reactor {
 pub(super) fn register(pid: u32) -> Result<Registration> {
     let reactor = {
         let mut shared = crate::lock(&REACTOR);
+
         match shared.upgrade() {
             Some(reactor) if !reactor.failed.load(Ordering::Acquire) => reactor,
             _ => {
@@ -202,13 +216,17 @@ pub(super) fn register(pid: u32) -> Result<Registration> {
         data: 0,
         udata: token as *mut std::ffi::c_void,
     };
+
     if let Some(previous) = listeners.processes.insert(pid, token) {
         listeners.waiters.remove(&previous);
     }
+
     listeners.waiters.insert(token, sender);
+
     if let Err(error) = change(&reactor.queue, &event) {
         let sender = listeners.waiters.remove(&token);
         listeners.processes.remove(&pid);
+
         if error.raw_os_error() != Some(libc::ESRCH) {
             return Err(error.into());
         }
@@ -217,6 +235,7 @@ pub(super) fn register(pid: u32) -> Result<Registration> {
             let _ = sender.send(());
         }
     }
+
     drop(listeners);
     Ok(Registration {
         reactor,
@@ -231,6 +250,7 @@ impl Registration {
         if let Some(exited) = self.exited.take() {
             exited.await.context("process exit reactor closed")?;
         }
+
         Ok(())
     }
 }
@@ -241,6 +261,7 @@ impl Drop for Registration {
         // registration if the system reused that PID before this lease was dropped.
         let mut listeners = crate::lock(&self.reactor.listeners);
         listeners.waiters.remove(&self.token);
+
         if listeners.processes.get(&self.pid) == Some(&self.token) {
             listeners.processes.remove(&self.pid);
             let event = libc::kevent {

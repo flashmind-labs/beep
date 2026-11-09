@@ -64,15 +64,19 @@ impl Transitous {
     async fn get(&self, path: &str, query: &[(&str, String)]) -> Result<Value> {
         let url = Url::parse_with_params(&format!("{BASE}{path}"), query)?;
         let key = url.to_string();
+
         if let Some(body) = self.cached(&key) {
             return Ok(body);
         }
+
         let _slot = self.slots.acquire().await?;
         let response = self.client.get(url).send().await?;
         let status = response.status();
+
         if !status.is_success() {
             bail!("Transitous answered {status}");
         }
+
         let body: Value = response.json().await?;
         let mut cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
         cache.retain(|_, cached| cached.at.elapsed() < CACHE_FOR);
@@ -105,6 +109,7 @@ impl Transitous {
         if let Some(near) = near {
             query.push(("place", near.to_string()));
         }
+
         let body = self.get("/v1/geocode", &query).await?;
         let found: Vec<Found> = serde_json::from_value(body)?;
         Ok(found.into_iter().next())
@@ -283,6 +288,7 @@ impl Tool for GetRouteTool {
                 {
                     log::warn!("unable to save route card: {error:#}");
                 }
+
                 ToolResult::success(ctx.tool_call_id, text)
             }
             Err(error) => ToolResult::failure(ctx.tool_call_id, format!("{error:#}")),
@@ -327,9 +333,11 @@ impl GetRouteTool {
             ("arriveBy", args.arrive_by.to_string()),
             ("language", language.to_owned()),
         ];
+
         if let Some(time) = &args.time {
             query.push(("time", utc(time, tz)?));
         }
+
         let body = self.transitous.get("/v5/plan", &query).await?;
         let plan: Plan =
             serde_json::from_value(body).context("unexpected answer from Transitous")?;
@@ -338,14 +346,17 @@ impl GetRouteTool {
         } else {
             useful(&plan.itineraries).into_iter().take(ROUTES).collect()
         };
+
         if routes.is_empty() {
             bail!(
                 "No route found. The area may lack open timetable data; say so and fall back to a web search."
             );
         }
+
         for (i, route) in routes.iter().enumerate() {
             describe(&mut out, i + 1, route);
         }
+
         Ok(Planned {
             text: out,
             card: RouteCard {
@@ -434,9 +445,11 @@ fn describe(out: &mut String, n: usize, route: &Itinerary) {
         route.transfers,
         if live { "" } else { ", timetable times" }
     );
+
     for leg in &route.legs {
         let from = place(&leg.from.name, "start");
         let to = place(&leg.to.name, "destination");
+
         if leg.mode == "WALK" {
             let metres = leg
                 .distance
@@ -449,19 +462,25 @@ fn describe(out: &mut String, n: usize, route: &Itinerary) {
             );
             continue;
         }
+
         let mut line = leg.mode.to_lowercase().replace('_', " ");
+
         if let Some(agency) = &leg.agency_name {
             let _ = write!(line, ", {agency}");
         }
+
         if let Some(name) = route_name(leg) {
             let _ = write!(line, " {name}");
         }
+
         if let Some(color) = leg.route_color.as_deref().filter(|c| !c.is_empty()) {
             let _ = write!(line, " (line colour #{color})");
         }
+
         if let Some(headsign) = leg.headsign.as_deref().filter(|h| !h.is_empty()) {
             let _ = write!(line, " toward {headsign}");
         }
+
         let track = |stop: &Stop| {
             let code = match stop.code() {
                 "" => String::new(),
@@ -633,6 +652,7 @@ fn decode(encoded: &str, precision: u32) -> Option<Vec<RoutePoint>> {
     let mut next = || -> Option<Option<i64>> {
         let mut result = 0i64;
         let mut shift = 0;
+
         loop {
             let Some(byte) = bytes.next() else {
                 // The end of the string, which is fine only between numbers.
@@ -641,13 +661,16 @@ fn decode(encoded: &str, precision: u32) -> Option<Vec<RoutePoint>> {
             let chunk = i64::from(byte.checked_sub(63)?);
             result |= (chunk & 0x1f) << shift;
             shift += 5;
+
             if shift > 60 {
                 return None;
             }
+
             if chunk < 0x20 {
                 break;
             }
         }
+
         Some(Some(if result & 1 == 1 {
             !(result >> 1)
         } else {
@@ -656,6 +679,7 @@ fn decode(encoded: &str, precision: u32) -> Option<Vec<RoutePoint>> {
     };
     let (mut latitude, mut longitude) = (0i64, 0i64);
     let mut points = Vec::new();
+
     while let Some(dlat) = next()? {
         latitude += dlat;
         longitude += next()??;
@@ -664,6 +688,7 @@ fn decode(encoded: &str, precision: u32) -> Option<Vec<RoutePoint>> {
             longitude: longitude as f64 / scale,
         });
     }
+
     Some(points)
 }
 
@@ -672,6 +697,7 @@ fn simplify(points: &[RoutePoint], most: usize) -> Vec<RoutePoint> {
     if points.len() <= most {
         return points.to_vec();
     }
+
     let span = |coordinate: fn(&RoutePoint) -> f64| {
         let (lo, hi) = points
             .iter()
@@ -681,6 +707,7 @@ fn simplify(points: &[RoutePoint], most: usize) -> Vec<RoutePoint> {
     };
     let extent = span(|p| p.latitude).max(span(|p| p.longitude));
     let mut tolerance = extent.max(1e-6) / 400.0;
+
     loop {
         let mut keep = vec![false; points.len()];
         keep[0] = true;
@@ -704,6 +731,7 @@ fn mark(points: &[RoutePoint], start: usize, end: usize, tolerance: f64, keep: &
     if end <= start + 1 {
         return;
     }
+
     let (a, b) = (points[start], points[end]);
     let (dx, dy) = (b.longitude - a.longitude, b.latitude - a.latitude);
     let length = dx.hypot(dy);
@@ -729,6 +757,7 @@ fn mark(points: &[RoutePoint], start: usize, end: usize, tolerance: f64, keep: &
 fn route_name(leg: &Leg) -> Option<String> {
     let short = leg.route_short_name.as_deref().unwrap_or_default();
     let long = leg.route_long_name.as_deref().unwrap_or_default();
+
     match (readable(short), readable(long)) {
         (true, true) if short != long => Some(format!("{short} ({long})")),
         (true, _) => Some(short.to_owned()),

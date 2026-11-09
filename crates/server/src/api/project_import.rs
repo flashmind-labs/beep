@@ -20,9 +20,11 @@ pub(super) async fn list_imported_projects(
 /// Removes one of the caller's projects; no machine's files are deleted.
 pub(super) async fn remove_project(cx: Cx, request: RemoveProject) -> Reply<()> {
     let name = request.project.trim();
+
     if name.is_empty() {
         return Err(ApiError::NotFound {});
     }
+
     if imports::remove_project(&cx.app, &cx.user, name).await? {
         Ok(())
     } else {

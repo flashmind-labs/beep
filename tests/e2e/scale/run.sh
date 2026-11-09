@@ -47,32 +47,40 @@ grow(){
   t0="$(now)"
   on "$from" "bash ~/beep/make-tree.sh ~/ws/$PROJECT/$dir $SMALL $MB_FILES" &
   gen=$!
+
   while :; do
     state="$(tree_state "$to" "$dir")" || state="0 -"
     read -r n d <<< "$state"
+
     if [[ -z "$first" ]] && (( n > 0 )); then
       first="$(since "$t0")"
       note "first file on $to after $first s"
     fi
+
     if [[ -z "$want_digest" ]] && ! kill -0 "$gen" 2> /dev/null; then
       wait "$gen" || abort "could not make $dir on $from"
       note "$dir made on $from after $(since "$t0") s"
       read -r n want_digest <<< "$(tree_state "$from" "$dir")"
       [[ "$n" == "$WANT" ]] || abort "$from holds $n files in $dir, not $WANT"
     fi
+
     [[ -n "$want_digest" && "$d" == "$want_digest" ]] && break
+
     if (( SECONDS - shown >= 30 )); then
       note "$to: $n of $WANT files"
       shown=$SECONDS
     fi
+
     if awk -v s="$(since "$t0")" -v l="$LIMIT" 'BEGIN { exit !(s > l) }'; then
       fail "$to holds $n of $WANT files of $dir after $LIMIT s"
       [[ -z "$want_digest" ]] && wait "$gen"
       probe sync-status "$PROJECT" | sed 's/^/   /'
       return 1
     fi
+
     sleep 1
   done
+
   local full; full="$(since "$t0")"
   pass "$to holds all $WANT files of $dir, same sha256, after $full s"
   measure "$label: first file" "$first" s max "$first_budget"
@@ -96,21 +104,28 @@ step "2. node-a deletes the whole tree"
 t0="$(now)"
 on node-a "rm -rf ~/ws/$PROJECT/tree-a" || abort "could not delete on node-a"
 first="" files_gone_at=""
+
 while :; do
   read -r files folders <<< "$(left node-b tree-a || echo "? ?")"
+
   if [[ -z "$first" && "$files" =~ ^[0-9]+$ ]] && (( files < WANT )); then
     first="$(since "$t0")"
     note "first delete on node-b after $first s"
   fi
+
   [[ "$files" == 0 && "$folders" == 0 ]] && break
   if [[ "$files" == 0 && -z "$files_gone_at" ]]; then files_gone_at=$SECONDS; fi
+
   if [[ -n "$files_gone_at" ]] && (( SECONDS - files_gone_at > 60 )); then
     break
   fi
+
   if awk -v s="$(since "$t0")" -v l="$LIMIT" 'BEGIN { exit !(s > l) }'; then break; fi
   sleep 1
 done
+
 gone="$(since "$t0")"
+
 if [[ "$files" == 0 && "$folders" == 0 ]]; then
   pass "tree-a is gone from node-b, folders and all, after $gone s"
   measure "scale delete: first file gone" "$first" s max "${E2E_BUDGET_SCALE_DELETE_FIRST-20}"
@@ -119,6 +134,7 @@ else
   fail "node-b still holds $files files and $folders folders of tree-a"
   on node-b "cd ~/ws/$PROJECT && find tree-a | head -20" | sed 's/^/   /'
 fi
+
 for role in node-a node-b; do
   empty="$(empty_folders "$role")"
   if [[ -z "$empty" ]]; then pass "no empty folder on $role"; else
@@ -126,6 +142,7 @@ for role in node-a node-b; do
     head -10 <<< "$empty" | sed 's/^/   /'
   fi
 done
+
 wait_for 120 "both in sync" in_sync && pass "the server sees both in sync" \
   || { fail "the server does not see both in sync"; probe sync-status "$PROJECT" | sed 's/^/   /'; }
 

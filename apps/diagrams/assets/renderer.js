@@ -46,12 +46,14 @@
     $("expand").textContent = expanded ? "Close" : "Expand";
     code.textContent = source;
     if (input.dark != null) document.documentElement.style.colorScheme = input.dark ? "dark" : "light";
+
     try {
       if (!source.trim() || source.length > 50000) throw new Error("Diagram is empty or too large.");
       // Configuration stays with the app. A diagram cannot change its security or resource limits.
       if (/%%\s*\{|^\s*---/.test(source)) throw new Error("Diagram configuration is not supported.");
       if (input.failed) throw new Error("Invalid diagram.");
       let image = input.svg;
+
       if (typeof image !== "string" || image.length > 4000000) {
         await loadEngine();
         mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "base", look: "classic", htmlLabels: false,
@@ -61,18 +63,22 @@
         const rendered = await mermaid.render("diagram-render", source);
         image = rendered.svg;
       }
+
       const doc = new DOMParser().parseFromString(image, "image/svg+xml");
       if (doc.querySelector("parsererror")) throw new Error("Invalid diagram image.");
       // Exports must be self contained too, including when opened outside this page's CSP.
       for (const node of doc.querySelectorAll("script,foreignObject,image,iframe,object,embed,a")) node.remove();
+
       for (const node of doc.querySelectorAll("*")) {
         for (const attr of [...node.attributes]) {
           if (/^on/i.test(attr.name) || /href$/i.test(attr.name) || /(?:@import|url\(\s*["']?\s*(?!#)[^)]*\))/i.test(attr.value)) node.removeAttribute(attr.name);
         }
       }
+
       for (const style of doc.querySelectorAll("style")) {
         style.textContent = style.textContent.replace(/@import[^;]*;?|url\(\s*["']?\s*(?!#)[^)]*\)/gi, "");
       }
+
       const root = doc.documentElement;
       const box = root.getAttribute("viewBox")?.split(/[\s,]+/).map(Number);
       if (!box || box.length !== 4 || !box.every(Number.isFinite) || box[2] <= 0 || box[3] <= 0 || box[2] > 100000 || box[3] > 100000) throw new Error("Invalid diagram size.");
@@ -128,6 +134,7 @@
   function imageAction(copy) {
     if (!svg || busy) return;
     menu.hidden = true;
+
     try { send(copy ? "copy-image" : "save", { name: "diagram.png", mime: "image/png", data: pngData() }); }
     catch { status.textContent = copy ? "Could not copy image." : "Could not export PNG. Try SVG instead."; }
   }
@@ -166,6 +173,7 @@
   addEventListener("keydown", event => {
     if (!menu.hidden) {
       if (event.key === "Escape" || event.key === "Tab") { event.preventDefault(); menu.hidden = true; $("copy-image").focus(); return; }
+
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         const buttons = [...menu.querySelectorAll("button")];
@@ -173,6 +181,7 @@
         buttons[(at + (event.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length].focus(); return;
       }
     }
+
     if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && !event.isComposing
       && ["c", "s"].includes(event.key.toLowerCase()) && svg && !stage.hidden && !getSelection()?.toString()) {
       event.preventDefault(); event.stopPropagation(); imageAction(event.key.toLowerCase() === "c");

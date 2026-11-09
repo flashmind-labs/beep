@@ -340,6 +340,7 @@ fn a_rejected_topic_change_keeps_the_previous_window_topics() {
 #[test]
 fn topic_limits_apply_separately_to_distinct_nodes() {
     let mut registry = Registry::default();
+
     for window in ["one", "two"] {
         let machine = iroh::SecretKey::generate().public();
         let topics = (0..events::MAX_TOPICS)
@@ -350,6 +351,7 @@ fn topic_limits_apply_separately_to_distinct_nodes() {
             .unwrap()
             .unwrap();
     }
+
     assert_eq!(registry.windows.len(), 2);
 }
 
@@ -431,11 +433,14 @@ fn home_keeps_agent_sources_live_on_every_node() {
     let local = iroh::SecretKey::generate().public();
     let remote = iroh::SecretKey::generate().public();
     let interests = [interest("home", None)];
+
     for machine in [local, remote] {
         let topics = topics_for(&interests, machine, local);
+
         for source in home_sources() {
             assert!(topics.contains(&source));
         }
+
         assert_eq!(topics.contains(&Topic::new("home")), machine == local);
     }
 }
@@ -458,12 +463,14 @@ fn retained_snapshots_bound_each_node_and_all_nodes_and_remove_oversized_replace
     assert_eq!(latest.values().next().unwrap().query, Some(2));
     latest.insert(second, MAX_NODE_SNAPSHOT_BYTES + 1);
     assert_eq!(latest.values().count(), 0);
+
     for _ in 0..10 {
         latest.insert(
             update(iroh::SecretKey::generate().public(), 1, "files"),
             10 * 1024 * 1024,
         );
     }
+
     assert!(latest.bytes <= MAX_SNAPSHOT_BYTES);
     assert_eq!(latest.values().count(), 6);
 }

@@ -17,12 +17,14 @@ pub fn rewrite_text(result: &mut ToolResult, rewrite: impl FnOnce(String) -> Opt
     let ToolResult::Success { content, .. } = result else {
         return;
     };
+
     if !content
         .iter()
         .any(|part| matches!(part, ContentPart::Text { .. }))
     {
         return;
     }
+
     let text: String = content
         .iter()
         .filter_map(|part| match part {
@@ -33,9 +35,11 @@ pub fn rewrite_text(result: &mut ToolResult, rewrite: impl FnOnce(String) -> Opt
     let Some(new) = rewrite(text.clone()) else {
         return;
     };
+
     if new == text {
         return;
     }
+
     content.retain(|part| !matches!(part, ContentPart::Text { .. }));
     content.insert(0, ContentPart::Text { text: new });
 }
@@ -79,6 +83,7 @@ fn has_more(value: &Value, depth: usize) -> bool {
         let number = |key| paging.get(key).and_then(Value::as_u64);
         matches!((number("page"), number("pages")), (Some(page), Some(pages)) if page < pages)
     });
+
     if flagged || linked || paged {
         return true;
     }

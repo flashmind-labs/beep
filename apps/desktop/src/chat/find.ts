@@ -87,6 +87,7 @@ export function openChatFind(chat: ChatSearch) {
       const parent = mark.parentNode;
       if (parent) { mark.replaceWith(...mark.childNodes); parent.normalize(); }
     }
+
     marks = [];
   }
   function highlight() {
@@ -96,11 +97,14 @@ export function openChatFind(chat: ChatSearch) {
     const log = body.querySelector(".dcoderlog");
     const roots = log ? [...log.querySelectorAll<HTMLElement>(":scope > .agturn")].map(root => ({ key: root.dataset.findKey!, root })) : [{ key: "chat", root: body }];
     let selected: HTMLElement | undefined;
+
     for (const { key, root } of roots) {
       const ranges = matchingRanges(root, pattern);
+
       // Wrap from the end so earlier offsets stay valid, including inline code.
       for (let at = ranges.length - 1; at >= 0; at--) {
         const on = chosen?.key === key && chosen.at === at;
+
         for (const range of ranges[at].slice().reverse()) {
           const mark = el("mark", `chat-match${on ? " current" : ""}`);
           range.surroundContents(mark);
@@ -109,6 +113,7 @@ export function openChatFind(chat: ChatSearch) {
         }
       }
     }
+
     observe();
     return selected;
   }
@@ -119,6 +124,7 @@ export function openChatFind(chat: ChatSearch) {
   function refresh(jump: boolean) {
     if (closed) return;
     const chosen = matches[current];
+
     try {
       pattern = searchPattern(input.value, regex.getAttribute("aria-pressed") === "true");
       error = "";
@@ -126,9 +132,12 @@ export function openChatFind(chat: ChatSearch) {
       pattern = null;
       error = e instanceof Error ? e.message : String(e);
     }
+
     bar.classList.toggle("invalid", !!error);
+
     if (error) { input.setAttribute("aria-invalid", "true"); status.title = error; }
     else { input.removeAttribute("aria-invalid"); status.removeAttribute("title"); }
+
     matches = pattern ? chat.sources().flatMap(({ key, root }) => matchingRanges(root, pattern).map((_, at) => ({ key, at }))) : [];
     const kept = chosen ? matches.findIndex(m => m.key === chosen.key && m.at === chosen.at) : -1;
     current = matches.length ? jump ? 0 : kept >= 0 ? kept : Math.min(Math.max(0, current), matches.length - 1) : -1;
@@ -137,11 +146,14 @@ export function openChatFind(chat: ChatSearch) {
   }
   function show() {
     const match = matches[current];
+
     if (match) {
       body.stuck = false;
       chat.reveal(match.key);
     }
+
     const selected = highlight();
+
     if (selected) {
       // Open command output and thoughts can scroll inside the conversation.
       for (let parent = selected.parentElement; parent; parent = parent.parentElement) {
@@ -149,10 +161,12 @@ export function openChatFind(chat: ChatSearch) {
         if (parent === body || /auto|scroll/.test(getComputedStyle(parent).overflowY)) {
           parent.scrollTop += rect.top - area.top - parent.clientHeight / 2 + rect.height / 2;
         }
+
         if (/auto|scroll/.test(getComputedStyle(parent).overflowX)) {
           if (rect.left < area.left) parent.scrollLeft += rect.left - area.left;
           else if (rect.right > area.right) parent.scrollLeft += rect.right - area.right;
         }
+
         if (parent === body) break;
       }
     }
@@ -190,6 +204,7 @@ export function matchingRanges(root: HTMLElement, pattern: RegExp | null): Range
   if (!pattern) return [];
   const groups: { block: Element | null; nodes: Text[]; text: string }[] = [];
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+
   while (walker.nextNode()) {
     const node = walker.currentNode as Text, parent = node.parentElement;
     if (!node.data || !parent || parent.closest('script,style,button,textarea,[hidden],[aria-hidden="true"],.dthink:not(.open) .bd,.dtrun:not(.open) .bd,.dcoderen.mf:not(.open) .mf-grp')) continue;
@@ -200,12 +215,14 @@ export function matchingRanges(root: HTMLElement, pattern: RegExp | null): Range
     if (!group || group.block !== block) { group = { block, nodes: [], text: "" }; groups.push(group); }
     group.nodes.push(node); group.text += node.data;
   }
+
   return groups.flatMap(group => {
     let first = 0, offset = 0;
     return textMatches(group.text, pattern).map(match => {
       while (first < group.nodes.length && offset + group.nodes[first].length <= match.start) offset += group.nodes[first++].length;
       const ranges: Range[] = [];
       let start = offset;
+
       for (let i = first; i < group.nodes.length && start < match.end; i++) {
         const node = group.nodes[i], range = document.createRange();
         range.setStart(node, Math.max(0, match.start - start));
@@ -213,6 +230,7 @@ export function matchingRanges(root: HTMLElement, pattern: RegExp | null): Range
         ranges.push(range);
         start += node.length;
       }
+
       return ranges;
     });
   });

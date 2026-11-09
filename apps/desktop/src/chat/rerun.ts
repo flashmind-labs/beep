@@ -62,10 +62,12 @@ export function rerunMenu(button: HTMLElement) {
 export function rerunClick(e: MouseEvent) {
   const target = e.target as Element;
   const level = target.closest("[data-rthink]");
+
   if (level) {
     level.parentElement!.querySelectorAll(".dchip").forEach(c => c.setAttribute("aria-pressed", String(c === level)));
     return true;
   }
+
   const pick = target.closest<HTMLElement>("[data-rerun]");
   if (!pick) return false;
   const menu = pick.closest(".dmenu")!, turn = pick.closest<Turn>(".turn")!;
@@ -86,10 +88,12 @@ export async function rerun(turn: Turn, model: string | null, thinking: string |
   for (const t of turns.slice(turns.indexOf(turn))) t.remove();
   const fresh = newTurn(question);
   fresh.user = true;
+
   if (model) {
     fresh.model = model;
     fresh.append(h(`<div class="drerunof">Rerun on ${esc(modelName(model))}${thinking ? " · " + thinking : ""}</div>`));
   }
+
   startRun(id, fresh, null);
   refreshHints();
   scrollDown();

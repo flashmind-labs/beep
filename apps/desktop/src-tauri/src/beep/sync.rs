@@ -82,6 +82,7 @@ impl Chats {
             synced.ready = true;
             synced.last = index.last;
             synced.alerts = index.alerts.into_iter().collect();
+
             for chat in index.chats {
                 let messages: Vec<ChatMessage> = fs::read(chat_file(&dir, chat.id))
                     .ok()
@@ -113,13 +114,16 @@ impl Chats {
         let mut changed = Changed::default();
         let mut touched = HashSet::new();
         let mut gone = HashSet::new();
+
         if page.reset {
             for (id, chat) in synced.chats.drain() {
                 changed.note(&chat);
                 gone.insert(id);
             }
+
             synced.messages.clear();
         }
+
         for update in page.updates {
             match update {
                 Update::Message {
@@ -140,6 +144,7 @@ impl Chats {
                     if let Some(messages) = synced.messages.get_mut(&chat_id) {
                         messages.remove(&message_id);
                     }
+
                     touched.insert(chat_id);
                 }
                 Update::Chat { chat, .. } => {
@@ -151,17 +156,20 @@ impl Chats {
                     if let Some(chat) = synced.chats.remove(&chat_id) {
                         changed.note(&chat);
                     }
+
                     synced.messages.remove(&chat_id);
                     touched.remove(&chat_id);
                     gone.insert(chat_id);
                 }
             }
         }
+
         for id in &touched {
             if let Some(chat) = synced.chats.get(id) {
                 changed.note(chat);
             }
         }
+
         synced.last = page.last;
         if !page.more {
             synced.ready = true;
@@ -169,6 +177,7 @@ impl Chats {
         if let Err(e) = self.save(&synced, &touched, &gone) {
             log::warn!("saving chats: {e:#}");
         }
+
         changed
     }
 
@@ -182,9 +191,11 @@ impl Chats {
         gone: &HashSet<Uuid>,
     ) -> anyhow::Result<()> {
         fs::create_dir_all(self.dir.join("chats"))?;
+
         for id in gone {
             let _ = fs::remove_file(chat_file(&self.dir, *id));
         }
+
         for id in touched {
             let messages: Vec<&ChatMessage> = synced
                 .messages
@@ -193,6 +204,7 @@ impl Chats {
                 .unwrap_or_default();
             write(&chat_file(&self.dir, *id), &serde_json::to_vec(&messages)?)?;
         }
+
         let index = Index {
             last: synced.last,
             chats: synced.chats.values().cloned().collect(),
@@ -223,12 +235,14 @@ impl Chats {
         let mut synced = self.synced();
         let changed = synced.alerts != alerts;
         synced.alerts = alerts;
+
         if changed
             && synced.ready
             && let Err(e) = self.save(&synced, &HashSet::new(), &HashSet::new())
         {
             log::warn!("keeping the alerts: {e}");
         }
+
         changed
     }
 
@@ -241,9 +255,11 @@ impl Chats {
     /// is worth showing.
     pub fn sessions(&self) -> Option<Vec<Session>> {
         let synced = self.synced();
+
         if !synced.ready {
             return None;
         }
+
         let mut sessions: Vec<Session> = synced
             .chats
             .values()
@@ -265,13 +281,17 @@ impl Chats {
     /// copy is worth showing.
     pub fn search(&self, query: &str) -> Option<Vec<SessionMatch>> {
         let synced = self.synced();
+
         if !synced.ready {
             return None;
         }
+
         let query = query.trim();
+
         if query.chars().count() < 2 {
             return Some(Vec::new());
         }
+
         let mut found: Vec<SessionMatch> = synced
             .chats
             .values()
@@ -310,9 +330,11 @@ impl Chats {
     pub fn session(&self, id: Uuid) -> Option<Vec<Turn>> {
         let synced = self.synced();
         let chat = synced.chats.get(&id)?;
+
         if !synced.ready || !matches!(chat.kind, ChatKind::Session {}) {
             return None;
         }
+
         let messages = synced.messages.get(&id)?;
         Some(turns(messages.values()))
     }
@@ -321,9 +343,11 @@ impl Chats {
     pub fn group(&self, id: Uuid) -> Option<GroupChatView> {
         let synced = self.synced();
         let chat = synced.chats.get(&id)?;
+
         if !synced.ready || !matches!(chat.kind, ChatKind::Group {}) {
             return None;
         }
+
         let messages: Vec<MessageView> = synced
             .messages
             .get(&id)
@@ -341,9 +365,11 @@ impl Chats {
     /// showing. Whether Beep is typing is not in the copy.
     pub fn groups(&self) -> Option<Vec<GroupView>> {
         let synced = self.synced();
+
         if !synced.ready {
             return None;
         }
+
         let mut groups: Vec<GroupView> = synced
             .chats
             .values()
@@ -415,6 +441,7 @@ pub fn write(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
 fn turns<'a>(messages: impl IntoIterator<Item = &'a ChatMessage>) -> Vec<Turn> {
     let mut out = Vec::new();
     let mut open = OpenTurn::default();
+
     for message in messages {
         let opens = matches!(
             message.body,
@@ -486,6 +513,7 @@ fn turns<'a>(messages: impl IntoIterator<Item = &'a ChatMessage>) -> Vec<Turn> {
             MessageBody::Member { .. } | MessageBody::Beep { .. } => {}
         }
     }
+
     open.finish(&mut out);
     out
 }
@@ -506,6 +534,7 @@ struct OpenTurn {
 impl OpenTurn {
     fn finish(&mut self, out: &mut Vec<Turn>) {
         let turn = mem::take(self);
+
         match turn.reply.and_then(|at| out.get_mut(at)) {
             Some(Turn::Assistant {
                 tools,
@@ -525,6 +554,7 @@ impl OpenTurn {
                 model: turn.model,
             }),
         }
+
         out.extend(turn.approvals);
     }
 }
@@ -568,14 +598,17 @@ fn group_message(message: &ChatMessage) -> Option<MessageView> {
 pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
     // Soon after it broke off: the user is at this Mac.
     let mut backoff = Backoff::eager();
+
     loop {
         if beep.link_state() != LinkState::Linked {
             tokio::time::sleep(UNLINKED_POLL).await;
             continue;
         }
+
         if let Err(e) = follow_once(&app, &beep).await {
             log::info!("following chat updates: {e}");
         }
+
         tokio::time::sleep(backoff.pause()).await;
     }
 }
@@ -587,12 +620,14 @@ async fn follow_once(app: &AppHandle, beep: &Beep) -> Result<()> {
     // Ends once the stream is no longer followed, as after a sign-out.
     while newest.changed().await.is_ok() {
         let last = *newest.borrow_and_update();
+
         match last {
             Some(last) if last != beep.chats().last() => catch_up(app, beep).await?,
             Some(_) => {}
             None => return Ok(()),
         }
     }
+
     Ok(())
 }
 
@@ -601,28 +636,34 @@ async fn follow_once(app: &AppHandle, beep: &Beep) -> Result<()> {
 async fn catch_up(app: &AppHandle, beep: &Beep) -> Result<()> {
     let mut sessions_changed = false;
     let mut alert_changed = false;
+
     loop {
         let after = beep.chats().last();
         let page = beep.call(GetUpdates { after }).await?;
         let more = page.more;
         let changed = beep.chats().apply(page);
+
         for id in changed.sessions {
             sessions_changed = true;
             // A reply from another device makes an alert a chat.
             alert_changed |= beep.chats().hides(id);
             let _ = app.emit("sessions-changed", id.to_string());
         }
+
         for id in changed.groups {
             let _ = app.emit("group-changed", id.to_string());
         }
+
         if !more {
             if alert_changed {
                 alerts::refresh(app).await;
             }
+
             if sessions_changed {
                 app.state::<PaletteCache>().chats_changed();
                 tauri::async_runtime::spawn(crate::tray::refresh_recent(app.clone()));
             }
+
             return Ok(());
         }
     }

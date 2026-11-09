@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 pub(super) fn rewrite(transcript: &[u8], file_name: &str, folders: &Folders) -> Stored {
     let mut lines = transcript.split_inclusive(|b| *b == b'\n');
     let mut bytes = Vec::with_capacity(transcript.len() + 64);
+
     if let Some(header) = lines.next() {
         if string_at(header, &[Step::Key("type")]).as_deref() == Some("session") {
             let spans = string_spans(header, &[Step::Key("cwd")]);
@@ -19,6 +20,7 @@ pub(super) fn rewrite(transcript: &[u8], file_name: &str, folders: &Folders) -> 
             bytes.extend_from_slice(header);
         }
     }
+
     for line in lines {
         bytes.extend_from_slice(line);
     }

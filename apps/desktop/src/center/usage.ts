@@ -166,11 +166,13 @@ export function harnessLine(spend: HarnessSpend) {
 /// Tokens reported for each model across harnesses and billing types.
 export function modelTotals(harnesses: HarnessSpend[]): NamedTokens[] {
   const totals = new Map<string, number>();
+
   for (const harness of harnesses) {
     for (const model of harness.models) {
       if (model.tokens > 0) totals.set(model.name, (totals.get(model.name) ?? 0) + model.tokens);
     }
   }
+
   return [...totals].map(([name, tokens]) => ({ name, tokens }))
     .sort((a, b) => b.tokens - a.tokens || a.name.localeCompare(b.name));
 }
@@ -195,13 +197,16 @@ function bar(used: number, cls: string) {
 
 function pill(view: UsageView) {
   const parts: Node[] = [];
+
   for (const plan of view.limits) {
     const used = planUsed(plan);
     if (used != null) parts.push(h("span", "", `${shortName(plan.agent)} `, h("b", "", `${used}%`), " used"), bar(used, "bar"));
+
     for (const credit of plan.credits ?? []) {
       if (credit.remaining != null) parts.push(h("span", "", `${providerName(credit.provider)} `, h("b", "", creditAmount(credit, credit.remaining)), " left"));
     }
   }
+
   parts.push(h("span", "", h("b", "", todayLine(view.today)), " today"));
   return parts;
 }
@@ -217,14 +222,17 @@ function limitBlock(plan: PlanLimits, now: number) {
     const reset = w.resets_at != null ? ` · resets ${resetName(w.resets_at, now)}` : "";
     return h("div", "us-lim", h("span", "", windowName(w)), bar(used, "bar"), h("small", "", `${used}% used${reset}`));
   });
+
   for (const credit of credits) {
     const label = singleProvider ? creditScope(credit.scope) : `${providerName(credit.provider)} · ${creditScope(credit.scope)}`;
     rows.push(h("div", "us-row", h("span", "", label), h("span", "", `${creditAmount(credit, credit.remaining)} remaining`)));
     rows.push(h("div", "us-row", h("small", "", credit.resets ? `Resets ${credit.resets}` : ""), h("small", "", `${creditAmount(credit, credit.used)} used · ${creditAmount(credit, credit.total)} total`)));
+
     if (credit.provider === "openrouter" && credit.scope === "api_key" && credit.remaining == null) {
       rows.push(h("div", "us-note", "Account balance unavailable."));
     }
   }
+
   return h("div", "", head, ...rows);
 }
 
@@ -251,11 +259,13 @@ function periodBlock(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => 
     return b;
   }));
   const block = h("div", "", seg);
+
   if (period.projects.length) {
     block.append(h("h5", "", h("span", "", "By project"), metered ? null : h("span", "", "at API prices")));
     const shown = allProjects ? period.projects : period.projects.slice(0, SHOWN_PROJECTS);
     for (const s of shown) block.append(spendRow(s.project, s.cost_usd > 0 ? money(s.cost_usd) : "", projectExtra(s, metered)));
     const more = period.projects.length - SHOWN_PROJECTS;
+
     if (more > 0) {
       const b = h("button", "us-more", allProjects ? "Show less" : `Show ${more} more`);
       b.type = "button";
@@ -265,19 +275,24 @@ function periodBlock(view: UsageView, key: PeriodKey, pick: (key: PeriodKey) => 
   } else if (key === "today") {
     block.append(h("div", "us-row", h("small", "", "Nothing yet today")));
   }
+
   if (period.harnesses.length) {
     block.append(h("h5", period.projects.length ? "us-sub" : "", h("span", "", "By harness")));
+
     for (const spend of period.harnesses) {
       const row = spendRow(h("small", "", harnessName(spend)), "", harnessLine(spend));
       if (spend.models.length) row.title = spend.models.map(m => `${m.name}: ${tokenCount(m.tokens)} tokens`).join("\n");
       block.append(row);
     }
   }
+
   const models = modelTotals(period.harnesses);
+
   if (models.length) {
     block.append(h("h5", "us-sub", h("span", "", "By model")));
     for (const model of models) block.append(spendRow(h("small", "", model.name), "", tokenCount(model.tokens)));
   }
+
   const tokens = period.tokens ? tokenCount(period.tokens) : metered ? "" : unpricedLine(period.total.unpriced);
   const paid = period.total.cost_usd > 0 || !tokens;
   block.append(spendRow("Total", paid ? money(period.total.cost_usd) : "", tokens, true));
@@ -337,6 +352,7 @@ export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promis
       console.warn("reading usage:", e);
       return;
     }
+
     draw();
   };
 

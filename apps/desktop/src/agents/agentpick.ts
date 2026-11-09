@@ -93,9 +93,11 @@ export function modelRows(list: AgentModels | null | undefined, query: string): 
   const fits = (r: ModelRow) => { const text = `${r.label} ${r.value}`.toLowerCase(); return words.every(w => text.includes(w)); };
   if (list === undefined) return { rows: [first], note: "Asking the machine which models it has…" };
   if (!list || list.pick === "fixed") return { rows: [first], note: "It runs its own model here." };
+
   if (list.pick === "named" || !list.models.length) {
     return { rows: q ? [first, { value: q, label: q, note: "use this name" }] : [first], note: q ? "" : "Type a model name to use it." };
   }
+
   const rows = [first, ...list.models.filter(m => !isDefault(m)).map(m => ({ value: m.id, label: m.name || m.id, note: m.name && m.name !== m.id ? m.id : "" }))].filter(fits);
   return { rows, note: rows.length ? "" : "No model matches." };
 }
@@ -255,12 +257,14 @@ export interface FormProject {
 /// imported projects come), each with its checkouts, by name.
 export function formProjects(rows: readonly { name: string; machine_id: string; folder: string }[] | null | undefined): FormProject[] {
   const by = new Map<string, FormProject>();
+
   for (const r of rows ?? []) {
     if (!r.folder) continue;
     const p = by.get(r.name) ?? { name: r.name, places: [] };
     if (!p.places.some(x => x.machine === r.machine_id)) p.places.push({ machine: r.machine_id, cwd: r.folder });
     by.set(r.name, p);
   }
+
   return [...by.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -371,9 +375,11 @@ export function placePopover(anchor: Rect, size: { width: number; height: number
   const over = (h: number) => Math.max(margin, anchor.top - gap - h);
   if (size.height <= above) return { top: over(size.height), left, width, maxHeight: null };
   if (size.height <= below) return { top: under, left, width, maxHeight: null };
+
   if (above >= below) {
     const h = Math.max(0, above);
     return { top: over(h), left, width, maxHeight: h };
   }
+
   return { top: under, left, width, maxHeight: Math.max(0, below) };
 }

@@ -67,13 +67,17 @@ fn header(line: &str) -> Option<Seen> {
 
 fn header_with_children(line: &str, children: bool) -> Option<Seen> {
     let value: Value = serde_json::from_str(line.trim()).ok()?;
+
     if value["type"] != "session_meta" {
         return None;
     }
+
     let meta = &value["payload"];
+
     if !children && meta["source"].is_object() {
         return None;
     }
+
     let id = meta["id"].as_str().filter(|id| !id.is_empty())?;
     let cwd = meta["cwd"].as_str().filter(|cwd| !cwd.is_empty())?;
     let started = meta["timestamp"]
@@ -100,13 +104,17 @@ pub(super) fn native(root: &Path, id: &str) -> Option<Seen> {
     let file = super::codex_run::rollout(root, thread)?;
     let line = first_line(&file).ok()??;
     let mut seen = header_with_children(&line, true)?;
+
     if seen.id != thread {
         return None;
     }
+
     let value: Value = serde_json::from_str(&line).ok()?;
+
     if !value["payload"]["source"].is_object() {
         return None;
     }
+
     seen.id = id.to_owned();
     seen.title = value["payload"]["agent_path"]
         .as_str()
@@ -130,6 +138,7 @@ fn titles(index: &Path) -> HashMap<String, String> {
         return HashMap::new();
     };
     let mut names = HashMap::new();
+
     for line in BufReader::new(file.take(MAX_INDEX))
         .lines()
         .map_while(Result::ok)
@@ -137,12 +146,14 @@ fn titles(index: &Path) -> HashMap<String, String> {
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
+
         if let (Some(id), Some(name)) = (value["id"].as_str(), value["thread_name"].as_str())
             && let Some(name) = prompt_title(name)
         {
             names.insert(id.to_owned(), name);
         }
     }
+
     names
 }
 
@@ -161,16 +172,21 @@ pub(super) fn latest_folder(path: &Path) -> Option<PathBuf> {
     let cut_at = len.saturating_sub(MAX_TAIL);
     file.seek(SeekFrom::Start(cut_at)).ok()?;
     let mut reader = BufReader::new(file.take(MAX_TAIL));
+
     if cut_at > 0 {
         reader.read_until(b'\n', &mut Vec::new()).ok()?;
     }
+
     let mut turn: Option<PathBuf> = None;
     let mut folder: Option<PathBuf> = None;
+
     for line in reader.lines().map_while(Result::ok) {
         let is_turn = line.contains("\"turn_context\"");
+
         if !is_turn && !line.contains("workdir") {
             continue;
         }
+
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
@@ -190,6 +206,7 @@ pub(super) fn latest_folder(path: &Path) -> Option<PathBuf> {
             folder = Some(dir);
         }
     }
+
     folder
 }
 
@@ -199,8 +216,10 @@ fn prompt(line: &str) -> Option<String> {
     if !line.contains("user_message") && !line.contains("UserMessage") {
         return None;
     }
+
     let value: Value = serde_json::from_str(line).ok()?;
     let payload = &value["payload"];
+
     match payload["type"].as_str()? {
         "user_message" => prompt_title(payload["message"].as_str()?),
         "item_completed" if payload["item"]["type"] == "UserMessage" => {

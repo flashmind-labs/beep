@@ -63,6 +63,7 @@ fn bring_up<R: Runtime>(window: &WebviewWindow<R>) -> Result<()> {
     if window.is_minimized()? {
         window.unminimize()?;
     }
+
     window.show()?;
     window.set_focus()?;
     Ok(())
@@ -135,6 +136,7 @@ pub fn open<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     let Some(window) = app.get_webview_window(LABEL) else {
         return build(app, LABEL, "Beep", 0.0);
     };
+
     if !window.is_visible()? {
         join_dock(app);
         bring_up(&window)?;
@@ -143,8 +145,10 @@ pub fn open<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
         if let Err(e) = app.emit_to(LABEL, SHOWN_EVENT, ()) {
             log::warn!("telling the window it shows: {e}");
         }
+
         return Ok(());
     }
+
     bring_up(&window)
 }
 
@@ -155,7 +159,9 @@ pub(crate) fn hide_on_close<R: Runtime>(window: &Window<R>) -> bool {
     if window.label() != LABEL {
         return false;
     }
+
     let app = window.app_handle();
+
     if let Err(e) = window.hide() {
         log::warn!("hiding the window: {e}");
         return false;
@@ -165,6 +171,7 @@ pub(crate) fn hide_on_close<R: Runtime>(window: &Window<R>) -> bool {
     if let Err(e) = app.emit_to(LABEL, HIDDEN_EVENT, ()) {
         log::warn!("telling the window it hid: {e}");
     }
+
     closed(app, LABEL);
     true
 }
@@ -214,19 +221,23 @@ pub(crate) fn is_center(label: &str) -> bool {
 pub(super) fn project_label(name: &str) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut label = String::from(PROJECT_PREFIX);
+
     for byte in name.bytes() {
         label.push(char::from(DIGITS[usize::from(byte >> 4)]));
         label.push(char::from(DIGITS[usize::from(byte & 0xf)]));
     }
+
     label
 }
 
 /// The project a window label names, `None` for any other window.
 fn label_project(label: &str) -> Option<String> {
     let hex = label.strip_prefix(PROJECT_PREFIX)?;
+
     if hex.is_empty() || hex.len() % 2 != 0 {
         return None;
     }
+
     let bytes = (0..hex.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok())
@@ -248,14 +259,17 @@ enum Pick {
 fn pick<'a>(name: &str, open: impl IntoIterator<Item = &'a str>) -> Pick {
     let label = project_label(name);
     let mut cascade: u32 = 0;
+
     for open in open {
         if open == label {
             return Pick::Focus(label);
         }
+
         if open.starts_with(PROJECT_PREFIX) {
             cascade = cascade.saturating_add(1);
         }
     }
+
     Pick::Open { label, cascade }
 }
 
@@ -265,6 +279,7 @@ fn pick<'a>(name: &str, open: impl IntoIterator<Item = &'a str>) -> Pick {
 pub fn center_open_project_window(app: AppHandle, project: String) -> Result<()> {
     bar::hide(&app);
     let labels: Vec<String> = app.webview_windows().into_keys().collect();
+
     match pick(&project, labels.iter().map(String::as_str)) {
         Pick::Focus(label) => match app.get_webview_window(&label) {
             Some(window) => bring_up(&window),

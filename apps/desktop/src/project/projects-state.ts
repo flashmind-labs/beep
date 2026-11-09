@@ -158,21 +158,26 @@ export function mergeProjects(
   running: readonly RunningRow[] | null | undefined,
 ): Project[] {
   const rows = new Map<string, Project>();
+
   for (const p of imported || []) {
     const row = rows.get(p.name) || { name: p.name, url: p.url, machines: [], agents: 0, last: null, imported: true };
     row.machines.push({ id: p.machine_id, name: p.machine_name, folder: p.folder });
     rows.set(p.name, row);
   }
+
   for (const r of (running || []).filter(isAgent)) {
     let row: Project | undefined;
+
     for (const p of rows.values()) {
       if (p.machines.some(m => m.id === r.machine_id && within(r.cwd, m.folder))) { row = p; break; }
     }
+
     if (!row) continue;
     row.agents += 1;
     const at = r.last_activity || r.started_at || null;
     if (at && (!row.last || at > row.last)) row.last = at;
   }
+
   return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -220,12 +225,14 @@ export function projectRunning(project: Pick<Project, "machines">, running: read
   const inside = (r: RunningAgent) => project.machines.some(m => r.machine_id === m.id && (r.cwd === m.folder || r.cwd.startsWith(m.folder + "/")));
   const live = (running || []).filter(isAgent).filter(inside);
   const known = new Set(live.map(r => `${r.machine_id} ${r.id}`));
+
   for (const s of sessions || []) {
     const key = `${s.machine_id} ${s.id}`;
     if (s.status === "ended" || known.has(key)) continue;
     known.add(key);
     live.push({ ...s, kind: "agent" });
   }
+
   return live;
 }
 
@@ -264,9 +271,11 @@ export function forgeLinks(url: string | null | undefined, hosts: readonly Pick<
     if (!page || !at || found.some(f => f.server === at)) return;
     found[first ? "unshift" : "push"]({ kind, url: page, server: at });
   };
+
   for (const h of [...(hosts ?? [])].sort((a, b) => Number(b.primary) - Number(a.primary))) {
     add(h.kind, h.url ?? (h.kind === "github" ? `https://github.com/${h.repo}` : null));
   }
+
   if (url) add(server(url) === "github.com" ? "github" : "forgejo", url, true);
   const label = (kind: HostRow["kind"]) => (kind === "github" ? "GitHub" : "Forgejo");
   return found.map(f => {
@@ -337,6 +346,7 @@ function homeRelative(path: string) {
   if (path === "~") return "";
   if (path.startsWith("~/")) return path.slice(2);
   const unrooted = /^[A-Za-z]:\//.test(path) ? path.slice(2) : path;
+
   for (const root of ["/home/", "/Users/"]) {
     if (!unrooted.startsWith(root)) continue;
     const rest = unrooted.slice(root.length);
@@ -344,6 +354,7 @@ function homeRelative(path: string) {
     if (cut < 0) return rest ? "" : null;
     return cut > 0 ? rest.slice(cut + 1) : null;
   }
+
   return null;
 }
 
@@ -370,10 +381,12 @@ export function homeShort(path: string) {
 export function groupPath(path: string | null | undefined) {
   const p = String(path || "").trim().replace(/\\/g, "/");
   const rest = homeRelative(p);
+
   if (rest == null) {
     const trimmed = p.replace(/\/+$/, "");
     return !trimmed && p.startsWith("/") ? "/" : trimmed;
   }
+
   const inner = rest.replace(/^\/+|\/+$/g, "");
   const cut = inner.indexOf("/");
   const first = cut < 0 ? inner : inner.slice(0, cut);
@@ -394,6 +407,7 @@ export function inGroupPath(folder: string | null | undefined, path: string) {
 /// that holds one of its folders, the older group on a tie; null for none.
 export function groupOf(project: { machines?: readonly { folder: string }[] | null }, groups: readonly ProjectGroup[] | null | undefined) {
   let best: ProjectGroup | null = null, depth = -1;
+
   for (const g of groups || []) {
     for (const path of g.paths) {
       if (path.length > depth && (project.machines || []).some(m => inGroupPath(m.folder, path))) {
@@ -402,6 +416,7 @@ export function groupOf(project: { machines?: readonly { folder: string }[] | nu
       }
     }
   }
+
   return best;
 }
 
@@ -459,10 +474,12 @@ export function sideProjects<T extends Groupable>(rows: readonly T[] | null | un
   (rows || []).forEach((p, at) => {
     const i = p.i ?? at;
     const group = groupOf(p, groups);
+
     if (group) {
       if (!inGroup.has(group.id)) inGroup.set(group.id, []);
       return inGroup.get(group.id)!.push({ ...p, i, repo: p.name });
     }
+
     const cut = p.name.indexOf("/");
     if (cut <= 0) return loose.push({ ...p, i });
     const org = p.name.slice(0, cut);
@@ -533,11 +550,13 @@ export function whereRows(project: { machines?: readonly ProjectPlace[] } | null
     if (m.folder) return { ...here(m.id, m.name, m.folder), syncthing: m.syncthing || null };
     const one = { id: m.id, name: m.name, folder: null, mac: false, checked_at: m.checked_at || null };
     if (m.checking) return { ...one, kind: "checking", text: "Checking…" };
+
     if (m.online) {
       const copies = machines.filter(o => o.folder && o.online);
       const free = copies.some(o => !o.syncthing);
       return { ...one, kind: "none", text: `Not on ${m.name}`, copy: free && !m.mesh, add: free && !!m.mesh, syncthing: free ? null : copies[0]?.syncthing || null };
     }
+
     return { ...one, kind: "offline", text: `Checks when ${m.name} is online` };
   }));
 }
@@ -625,6 +644,7 @@ export function countsLine(counts: Partial<TaskCounts> | null | undefined) {
 export function latestLine(latest: (Pick<LatestTask, "slug" | "title" | "state"> & { pr_url?: string | null }) | null | undefined) {
   if (!latest) return "No tasks yet";
   const t = latest.title || latest.slug;
+
   switch (latest.state) {
     case "running": return `Working on ${t}`;
     case "blocked": return `${latest.slug || t} is blocked`;

@@ -33,8 +33,10 @@ fn tool_versions_are_bare() {
         ("node", "v22.11.0", "22.11.0"),
         ("xcodebuild", "Xcode 16.1", "16.1"),
     ];
+
     for (name, line, want) in cases {
         assert_eq!(tool_version(name, line), want, "{name}: {line}");
     }
+
     assert_eq!(tool_version("tool", "no version here"), "no version here");
 }

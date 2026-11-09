@@ -26,6 +26,7 @@ const REASON_CHARS: usize = 200;
 pub async fn start(client: &PeerClient) -> Result<CodexLogin, MeshError> {
     let tasks = Tasks(client);
     let id = tasks.start(CODEX_LOGIN, None).await?;
+
     match timeout(CODE_LIMIT, wait_for_code(client, id)).await {
         Ok(Ok(prompt)) => Ok(CodexLogin {
             task: id.0,
@@ -79,12 +80,15 @@ async fn wait_for_code(client: &PeerClient, id: TaskId) -> Result<Prompt, String
         let process::Reply::Status { task, lines, .. } = reply else {
             return Err("the sign-in stopped on the machine.".into());
         };
+
         if let Some(prompt) = Prompt::read(&lines) {
             return Ok(prompt);
         }
+
         if !task.state.is_running() {
             return Err(failure(&lines));
         }
+
         sleep(CODE_POLL).await;
     }
 }
@@ -123,19 +127,23 @@ impl Prompt {
         let mut url = None;
         let mut code = None;
         let mut lifetime = CODE_LIFETIME;
+
         for line in lines.iter().map(|line| plain(line)) {
             for word in line.split_whitespace() {
                 if url.is_none() {
                     url = device_page(word);
                 }
+
                 if code.is_none() && is_code(word) {
                     code = Some(word.to_owned());
                 }
             }
+
             if let Some(minutes) = expires_in(&line) {
                 lifetime = Duration::from_secs(minutes * 60);
             }
         }
+
         Some(Self {
             url: url?,
             code: code?,
@@ -184,6 +192,7 @@ fn expires_in(line: &str) -> Option<u64> {
 fn plain(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars();
+
     while let Some(c) = chars.next() {
         if c != '\u{1b}' {
             if !c.is_control() || c == '\t' {
@@ -200,6 +209,7 @@ fn plain(line: &str) -> String {
             }
         }
     }
+
     out
 }
 
@@ -214,9 +224,11 @@ fn failure(lines: &[String]) -> String {
         })
         .unwrap_or_default();
     let last = last.trim();
+
     if last.is_empty() {
         return "Codex could not sign in.".into();
     }
+
     let short: String = last.chars().take(REASON_CHARS).collect();
     format!("Codex could not sign in: {short}")
 }

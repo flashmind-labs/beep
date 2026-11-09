@@ -73,6 +73,7 @@ pub(crate) async fn reopen(dir: &Path, terminals: Vec<OpenTerminal>) {
     #[cfg(not(all(unix, feature = "cli")))]
     {
         let _ = dir;
+
         for open in terminals {
             if let Err(e) = TERMINALS.reopen(&open) {
                 log::warn!("could not reopen terminal {}: {e:#}", open.id);
@@ -121,9 +122,11 @@ async fn serve_with(terminals: &Terminals, peer: &mut impl Peer) -> Result<()> {
                 None => peer.send(&unknown(id)).await,
             };
         }
+
         let reply = terminals.answer(request).await;
         peer.send(&reply).await?;
     }
+
     Ok(())
 }
 
@@ -138,6 +141,7 @@ fn unknown(id: TaskId) -> Reply {
 async fn attach(live: Arc<Live>, from: u64, peer: &mut impl Peer) -> Result<()> {
     let mut changed = live.changed.subscribe();
     let mut next = from;
+
     loop {
         // Marked seen before reading, so output that lands after the read
         // still wakes the wait below.
@@ -146,6 +150,7 @@ async fn attach(live: Arc<Live>, from: u64, peer: &mut impl Peer) -> Result<()> 
             let screen = lock(&live.screen);
             (screen.read_from(next), screen.state)
         };
+
         if let Some((at, data)) = chunk {
             next = at + data.len() as u64;
             peer.send(&Reply::Output {
@@ -155,9 +160,11 @@ async fn attach(live: Arc<Live>, from: u64, peer: &mut impl Peer) -> Result<()> 
             .await?;
             continue;
         }
+
         if !state.is_running() {
             return peer.send(&Reply::Ended { task: live.task() }).await;
         }
+
         tokio::select! {
             woke = changed.changed() => if woke.is_err() {
                 return Ok(());

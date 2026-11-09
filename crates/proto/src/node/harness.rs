@@ -245,6 +245,7 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
     let (latest, current) = (numbers(latest), numbers(current));
     let len = latest.len().max(current.len());
     let at = |list: &[u64], i: usize| list.get(i).copied().unwrap_or(0);
+
     for i in 0..len {
         match at(&latest, i).cmp(&at(&current, i)) {
             std::cmp::Ordering::Greater => return true,
@@ -252,6 +253,7 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
             std::cmp::Ordering::Equal => {}
         }
     }
+
     false
 }
 
@@ -277,6 +279,7 @@ mod output {
     pub fn clean_output(text: &str) -> String {
         let plain = strip_escapes(skip_cut_escape(text));
         let mut lines: Vec<String> = Vec::new();
+
         for raw in plain.split('\n') {
             let escaped = raw.contains(MARK);
             let raw = raw.replace(MARK, "");
@@ -297,28 +300,35 @@ mod output {
             } else {
                 line.trim_end().to_owned()
             };
+
             if !line.chars().any(char::is_alphabetic) {
                 // Only bars, glyphs or numbers.
                 continue;
             }
+
             if lines.last() == Some(&line) {
                 continue;
             }
+
             lines.push(line);
         }
+
         let mut out = String::new();
         let mut blank = false;
+
         for line in lines {
             if line.is_empty() {
                 blank = !out.is_empty();
                 continue;
             }
+
             if !out.is_empty() {
                 out.push_str(if blank { "\n\n" } else { "\n" });
             }
             blank = false;
             out.push_str(&line);
         }
+
         out
     }
 
@@ -343,8 +353,10 @@ mod output {
             {
                 return joined(from);
             }
+
             return head(&joined(last), max);
         }
+
         tail(&joined(0), max)
     }
 
@@ -361,6 +373,7 @@ mod output {
         if text.chars().count() <= max {
             return text.to_owned();
         }
+
         let cut: String = text.chars().take(max).collect();
         let cut = match cut.rfind(' ') {
             Some(space) if space > max / 2 => &cut[..space],
@@ -372,9 +385,11 @@ mod output {
     /// The last `max` characters of `text`, cut at a space.
     fn tail(text: &str, max: usize) -> String {
         let count = text.chars().count();
+
         if count <= max {
             return text.to_owned();
         }
+
         let cut: String = text.chars().skip(count - max).collect();
         let cut = match cut.find(' ') {
             Some(space) if space < max / 2 => &cut[space + 1..],
@@ -401,6 +416,7 @@ mod output {
     fn strip_escapes(text: &str) -> String {
         let mut out = String::with_capacity(text.len());
         let mut chars = text.chars().peekable();
+
         while let Some(c) = chars.next() {
             match c {
                 ESC => match chars.next() {
@@ -434,6 +450,7 @@ mod output {
                 c => out.push(c),
             }
         }
+
         out
     }
 

@@ -7,6 +7,7 @@ async fn alerts_past_the_cap_are_deleted_with_their_chats() {
     let store = db.store().await.unwrap();
     let alice = UserKey::for_test("alice");
     let mut chats = Vec::new();
+
     for n in 0..=LISTED {
         let chat = test_chat(&format!("alert-{n}"));
         let made = store
@@ -26,6 +27,7 @@ async fn alerts_past_the_cap_are_deleted_with_their_chats() {
             .unwrap();
         chats.push(chat);
     }
+
     let listed = store.alerts(&alice).await.unwrap();
     assert_eq!(listed.len(), LISTED as usize);
     // The oldest is gone with its chat, so it is no stray chat in a list.

@@ -86,8 +86,10 @@ impl PaletteLists {
             {
                 self.forgotten_chats.insert(board.chat_id.to_string());
             }
+
             boards.retain(|b| !self.forgotten_projects.contains(&b.name));
         }
+
         if let Some(branches) = &mut self.branches {
             branches.retain(|b| !self.forgotten_projects.contains(&b.project));
         }
@@ -222,9 +224,11 @@ impl PaletteCache {
             for project in &projects {
                 lists.forgotten_projects.remove(&project.project);
             }
+
             lists.projects = Some(projects);
             lists.retired_places = removed;
         });
+
         if changed {
             let _ = app.emit("palette-text-changed", ());
         }
@@ -253,6 +257,7 @@ impl PaletteCache {
                     &held.lists.retired_places,
                 )
         };
+
         if !known {
             self.remember_session(app, session);
         }
@@ -285,6 +290,7 @@ impl PaletteCache {
             change(&mut held.lists);
             held.lists.prune();
             cache_view(&app.state::<Arc<ViewCache>>(), View::Palette, &held.lists);
+
             match index_json(&held.lists) {
                 Ok(index) if index != held.index => {
                     held.index = index;
@@ -297,6 +303,7 @@ impl PaletteCache {
                 }
             }
         };
+
         if changed && let Err(e) = app.emit(PALETTE_CHANGED, ()) {
             log::warn!("telling the windows the palette changed: {e}");
         }
@@ -324,6 +331,7 @@ pub(crate) async fn follow(app: AppHandle, beep: Arc<Beep>) {
             handle.state::<PaletteCache>().read_sessions.notify_one()
         });
     }
+
     join!(
         follow_local(&app),
         follow_lists(&app, &beep),
@@ -335,6 +343,7 @@ pub(crate) async fn follow(app: AppHandle, beep: Arc<Beep>) {
 
 async fn follow_lists(app: &AppHandle, beep: &Arc<Beep>) {
     let cache = app.state::<PaletteCache>();
+
     loop {
         // With no subscription the machines, projects and branches come from the mesh.
         let without = beep.link_state() != LinkState::Linked;
@@ -350,6 +359,7 @@ async fn follow_lists(app: &AppHandle, beep: &Arc<Beep>) {
 
 async fn follow_chats(app: &AppHandle, beep: &Arc<Beep>) {
     let cache = app.state::<PaletteCache>();
+
     loop {
         // Walks every chat's messages, so off the async workers.
         let reader = Arc::clone(beep);
@@ -403,6 +413,7 @@ async fn read_local_lists(app: &AppHandle) {
     if fleet.mesh().is_none() {
         return;
     }
+
     let index = app.state::<Arc<PromptIndex>>();
     let _projects = index.project_lock().await;
     let projects = mesh_imports(&fleet, &session).await;
@@ -425,6 +436,7 @@ async fn read_server_lists(app: &AppHandle, beep: &Beep) {
     if beep.link_state() != LinkState::Linked {
         return;
     }
+
     let (memories, routines, listed, boards) = join!(
         beep.call(ListMemories {}),
         beep.call(ListCrons {}),
@@ -455,6 +467,7 @@ async fn read_prs(app: &AppHandle, beep: &Beep) {
     if beep.link_state() != LinkState::Linked {
         return;
     }
+
     let Some(git) = section("pull requests", beep.call(ListGitItems {}).await) else {
         return;
     };
@@ -470,6 +483,7 @@ async fn read_prs(app: &AppHandle, beep: &Beep) {
 
 async fn follow_sessions(app: &AppHandle, beep: &Arc<Beep>) {
     let cache = app.state::<PaletteCache>();
+
     loop {
         read_sessions(app, beep).await;
         sleep(Duration::from_secs(5)).await;
@@ -509,6 +523,7 @@ async fn read_branches(app: &AppHandle, beep: &Arc<Beep>) {
             .collect()
     };
     let mut reads = JoinSet::new();
+
     for project in projects {
         let beep = Arc::clone(beep);
         let fleet = app.state::<Arc<Fleet>>().inner().clone();
@@ -519,7 +534,9 @@ async fn read_branches(app: &AppHandle, beep: &Arc<Beep>) {
             (project, read)
         });
     }
+
     let mut rows = Vec::new();
+
     while let Some(done) = reads.join_next().await {
         let (project, read) = match done {
             Ok(done) => done,
@@ -544,6 +561,7 @@ async fn read_branches(app: &AppHandle, beep: &Arc<Beep>) {
                 }),
         );
     }
+
     rows.sort_by(|a, b| (&a.project, &a.name).cmp(&(&b.project, &b.name)));
     cache.update(app, |lists| lists.branches = Some(rows));
 }

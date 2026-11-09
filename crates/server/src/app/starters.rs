@@ -15,9 +15,11 @@ impl App {
         let here = user.get_location().await.ok().flatten();
         // Past the limit a refresh gets the cached set.
         let refresh = refresh && user.may_refresh_starters();
+
         if !refresh && let Some(cached) = user.cached_starters(here.as_ref()).await {
             return cached;
         }
+
         let context = starter_context(user, here.clone(), refresh);
         user.generate_starters(self.generator(user.id()), context, here)
             .await

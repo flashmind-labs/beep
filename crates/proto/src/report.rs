@@ -40,15 +40,18 @@ pub fn report_id(body: &[u8]) -> String {
     let mut bits = 0u32;
     let mut held = 0u32;
     let mut id = String::with_capacity(16);
+
     for byte in &hash.as_bytes()[..10] {
         bits = (bits << 8) | u32::from(*byte);
         held += 8;
+
         while held >= 5 {
             held -= 5;
             id.push(char::from(ALPHABET[((bits >> held) & 31) as usize]));
         }
         bits &= (1 << held) - 1;
     }
+
     id
 }
 

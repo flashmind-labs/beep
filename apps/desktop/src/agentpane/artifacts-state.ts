@@ -85,14 +85,17 @@ export function toolArtifacts(text: string, cwd: string): { status: string; file
     files.push({ path, url, published });
   };
   const named = TITLE.exec(title.split("\n")[0]);
+
   if (named) {
     const published = named[1] === "Artifact";
     add(named[2], published ? link(output) : null, published);
   }
+
   for (const line of output.split("\n")) {
     const m = CHANGED.exec(line.trim());
     if (m) add(m[1], null, false);
   }
+
   return { status, files };
 }
 
@@ -152,10 +155,12 @@ export interface MadeFiles {
 /// null for any other note.
 export function madeFiles(text: string, cwd: string): MadeFiles | null {
   const files: MadeFile[] = [];
+
   for (const name of madeNames(text)) {
     const path = resolvePath(cwd, name);
     if (!files.some(f => f.path === path)) files.push({ path, name: baseName(path) });
   }
+
   if (!files.length) return null;
   const groups = GROUP_ORDER
     .map(group => ({ group, label: GROUP_NAMES[group].label, files: files.filter(f => madeGroup(f.path) === group) }))
@@ -181,11 +186,13 @@ export function collectArtifacts(entries: LogEntry[], earlier: number, cwd: stri
     const at = earlier + i;
     if (en.kind === "user") { turn = at; turnNo++; written = new Set(); return; }
     let status = "completed", files: Written[] = [], made = false;
+
     if (en.kind === "tool") ({ status, files } = toolArtifacts(en.text, cwd));
     else if (en.kind === "other") {
       files = madeArtifacts(en.text, cwd).filter(path => !written.has(path)).map(path => ({ path, url: null, published: false }));
       made = true;
     }
+
     for (const f of files) {
       const had = byPath.get(f.path);
       if (!made) written.add(f.path);

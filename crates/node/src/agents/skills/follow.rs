@@ -80,9 +80,11 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
     tick.tick().await;
     let mut ask = true;
     let mut syncing = None;
+
     loop {
         let now = online(&mesh);
         let on = enabled(&mesh);
+
         if syncing != Some(on) {
             log::info!("skills: syncing {}", if on { "enabled" } else { "paused" });
             syncing = Some(on);
@@ -114,6 +116,7 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
                     if changed.is_err() {
                         return;
                     }
+
                     if online(&mesh) != now {
                         break true;
                     }
@@ -174,17 +177,21 @@ impl Passes {
         if !enabled(&self.mesh) {
             return false;
         }
+
         let Some(scan) = self.scan().await else {
             return false;
         };
         let here = self.listing(&scan);
         self.skills.listed.send_replace(Some(here.clone()));
+
         if ask || self.asked.is_none_or(|at| at.elapsed() >= ASK_EVERY) {
             self.ask(online).await;
         }
+
         if !enabled(&self.mesh) {
             return false;
         }
+
         let mesh = self.mesh.clone();
         self.lists.retain(|id, _| mesh.is_member(*id));
         // A pass that kept a copy runs again, listing it as picked.
@@ -192,6 +199,7 @@ impl Passes {
             self.save().await;
             return true;
         }
+
         let names: HashMap<EndpointId, String> = mesh
             .devices()
             .into_iter()
@@ -213,6 +221,7 @@ impl Passes {
             here: true,
             listed: &here,
         }];
+
         for (id, name) in &machines {
             if let Some(listed) = self.lists.get(id) {
                 holders.push(Holder {
@@ -223,6 +232,7 @@ impl Passes {
                 });
             }
         }
+
         let Outcome {
             conflicts,
             takes,
@@ -232,15 +242,18 @@ impl Passes {
         });
         drop(holders);
         let mut wrote = false;
+
         for take in takes.into_iter().take(MAX_TAKEN) {
             if !enabled(&self.mesh) {
                 self.save().await;
                 return wrote;
             }
+
             let Some((files, from)) = self.files_for(&take, &here, online, &me).await else {
                 continue;
             };
             let fresh = take.old.is_empty();
+
             match self.write(&take, files).await {
                 Ok(true) => {
                     wrote = true;
@@ -257,18 +270,23 @@ impl Passes {
                 Err(e) => log::warn!("skill {} not written: {e:#}", take.name),
             }
         }
+
         if !enabled(&self.mesh) {
             self.save().await;
             return wrote;
         }
+
         for record in synced {
             self.seen.set(&record.name, record.base);
         }
+
         self.tell(conflicts);
         self.save().await;
+
         if !wrote {
             self.say_changed(online, &here).await;
         }
+
         let summary = Summary {
             held: scan
                 .listed
@@ -279,6 +297,7 @@ impl Passes {
             compared: self.compared,
             differ: self.told.len(),
         };
+
         if self.said != Some(summary) {
             log::info!(
                 "skills: {} here, {} other machines compared, {} differ",
@@ -288,17 +307,21 @@ impl Passes {
             );
             self.said = Some(summary);
         }
+
         wrote
     }
 
     /// Reads each online machine's list.
     async fn ask(&mut self, online: &BTreeSet<EndpointId>) {
         let mut compared = 0;
+
         for &peer in online {
             if !enabled(&self.mesh) {
                 return;
             }
+
             let client = PeerClient::over(self.mesh.clone(), peer);
+
             match client.call(PROTOCOL, &Request::List {}).await {
                 Ok(Reply::Skills { skills }) => {
                     self.lists.insert(peer, skills);
@@ -312,6 +335,7 @@ impl Passes {
                 Err(e) => log::debug!("skills: {peer} not read: {e}"),
             }
         }
+
         self.compared = compared;
         self.asked = Some(Instant::now());
     }
@@ -325,6 +349,7 @@ impl Passes {
             (scan, hashes)
         })
         .await;
+
         match scanned {
             Ok((scan, hashes)) => {
                 self.hashes = hashes;
@@ -342,11 +367,14 @@ impl Passes {
     /// first time with one content counts as synced as it is.
     fn listing(&mut self, scan: &Scan) -> Vec<Listed> {
         let mut contents: BTreeMap<&str, usize> = BTreeMap::new();
+
         for listed in &scan.listed {
             *contents.entry(&listed.name).or_default() += 1;
         }
+
         for (name, count) in contents {
             self.seen.hold(name);
+
             if self.seen.base(name).is_none()
                 && count == 1
                 && let Some(listed) = scan.listed.iter().find(|l| l.name == name)
@@ -361,6 +389,7 @@ impl Passes {
                 );
             }
         }
+
         scan.listed
             .iter()
             .map(|listed| {
@@ -410,6 +439,7 @@ impl Passes {
                 name: take.name.clone(),
                 hash: hash.clone(),
             };
+
             match PeerClient::over(self.mesh.clone(), from)
                 .call(PROTOCOL, &request)
                 .await
@@ -437,13 +467,17 @@ impl Passes {
             if !enabled(&mesh) {
                 return Ok(false);
             }
+
             if old.is_empty() {
                 return disk::install(&home, &name, &files);
             }
+
             let mut replaced = 0;
+
             for copy in &old {
                 replaced += disk::replace(&home, &name, &files, &copy.folders, &copy.hash)?;
             }
+
             Ok(replaced > 0)
         })
         .await
@@ -457,10 +491,12 @@ impl Passes {
     async fn keep(&mut self, here: &[Listed]) -> bool {
         let picks = self.skills.picks.send_replace(BTreeMap::new());
         let mut kept = false;
+
         for (name, hash) in picks {
             if !enabled(&self.mesh) {
                 break;
             }
+
             let ver = here
                 .iter()
                 .chain(self.lists.values().flatten())
@@ -481,6 +517,7 @@ impl Passes {
                 if !enabled(&mesh) {
                     return Ok(false);
                 }
+
                 disk::keep(&home, &key, &wanted, &old).map(|()| true)
             })
             .await
@@ -502,6 +539,7 @@ impl Passes {
                 Ok(Ok(false)) => {}
             }
         }
+
         kept
     }
 
@@ -510,6 +548,7 @@ impl Passes {
         let Some(saved) = self.seen.unsaved() else {
             return;
         };
+
         match spawn_blocking(move || saved.write()).await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => log::warn!("skills: the record of held names not written: {e:#}"),
@@ -524,10 +563,13 @@ impl Passes {
             if !enabled(&self.mesh) {
                 return;
             }
+
             if self.sent.get(&peer).is_some_and(|sent| sent == here) {
                 continue;
             }
+
             let client = PeerClient::over(self.mesh.clone(), peer);
+
             match client
                 .call::<_, Reply>(PROTOCOL, &Request::Changed {})
                 .await
@@ -538,6 +580,7 @@ impl Passes {
                 Err(e) => log::debug!("skills: {peer} not told: {e}"),
             }
         }
+
         self.sent.retain(|id, _| online.contains(id));
     }
 
@@ -557,13 +600,16 @@ impl Passes {
                 );
             }
         }
+
         self.told = now;
         let list: Vec<Conflict> = self.told.values().cloned().collect();
         self.skills.conflicts.send_if_modified(|before| {
             let changed = *before != list;
+
             if changed {
                 *before = list;
             }
+
             changed
         });
     }
@@ -584,6 +630,7 @@ pub(crate) async fn serve(
     let Some(home) = skills.home().cloned() else {
         bail!("this node does not sync skills");
     };
+
     if !enabled(&mesh) {
         let reply = match request {
             Request::Conflicts {} => Reply::Conflicts {
@@ -596,6 +643,7 @@ pub(crate) async fn serve(
         tx.send(&reply).await?;
         return tx.finish().await;
     }
+
     let reply = match request {
         Request::Conflicts {} => Reply::Conflicts {
             conflicts: skills.conflicts.borrow().clone(),
@@ -633,6 +681,7 @@ pub(crate) async fn serve(
             if !desktop {
                 bail!("only a desktop keeps a copy of a skill");
             }
+
             let held = skills
                 .listed
                 .borrow()
@@ -641,6 +690,7 @@ pub(crate) async fn serve(
             if !held {
                 bail!("this machine has no such copy of {name}");
             }
+
             skills.picks.send_modify(|picks| {
                 picks.insert(name, hash);
             });

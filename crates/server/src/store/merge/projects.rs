@@ -38,6 +38,7 @@ pub(super) async fn move_projects(tx: &mut PgConnection, source: &str, target: &
         .collect();
     let mut taken: HashSet<String> = kept.clone();
     taken.extend(moved.iter().map(|name| name.lower.clone()));
+
     for name in moved.iter().filter(|name| kept.contains(&name.lower)) {
         let Some(renamed) = (1u32..)
             .map(|n| copy_name(&name.name, n))
@@ -46,6 +47,7 @@ pub(super) async fn move_projects(tx: &mut PgConnection, source: &str, target: &
             anyhow::bail!("no copy name is free for the project {}", name.name);
         };
         taken.insert(renamed.to_lowercase());
+
         for (table, column) in NAMED {
             sqlx::query(&format!(
                 "UPDATE {table} SET {column}=$3 WHERE user_id=$1 AND lower({column})=$2"
@@ -57,6 +59,7 @@ pub(super) async fn move_projects(tx: &mut PgConnection, source: &str, target: &
             .await?;
         }
     }
+
     let tables = NAMED
         .iter()
         .map(|(table, _)| *table)
@@ -68,6 +71,7 @@ pub(super) async fn move_projects(tx: &mut PgConnection, source: &str, target: &
             .execute(&mut *tx)
             .await?;
     }
+
     Ok(())
 }
 
@@ -82,9 +86,11 @@ pub(super) fn copy_name(name: &str, n: u32) -> String {
         Err(_) => MAX_NAME,
     };
     let mut keep = longest.saturating_sub(suffix.len()).min(name.len());
+
     while !name.is_char_boundary(keep) {
         keep -= 1;
     }
+
     format!("{}{suffix}", &name[..keep])
 }
 

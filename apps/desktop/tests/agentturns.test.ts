@@ -100,6 +100,7 @@ test("a Beep call reads as its machine, command, files and verb", () => {
 
 test("agent starts expose the full prompt with or without a target machine", () => {
   const prompt = "Fix the login flow.\n\nRun `cargo test` and preserve <session>.\n" + "Last instruction. ".repeat(200);
+
   for (const [head, machine] of [["Start codex agent", ""], ["Start claude agent on build-box", "build-box"], ["Start an agent", ""]]) {
     const title = `Beep: ${head}: ${prompt}`;
     const call = beepCall(title)!;

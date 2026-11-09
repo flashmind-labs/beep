@@ -72,6 +72,7 @@ export function initConversationSwitcher(options: SwitcherOptions) {
           row.onclick = () => { p.index = i; finish(true); };
           return row;
         }));
+
         if (p.index >= 0) {
           list.setAttribute("aria-activedescendant", `conversation-choice-${p.index}`);
           list.children[p.index]?.scrollIntoView({ block: "nearest" });
@@ -87,6 +88,7 @@ export function initConversationSwitcher(options: SwitcherOptions) {
 
   document.addEventListener("keydown", e => {
     if (e.isComposing) return;
+
     if (isConversationKey(e)) {
       if (!picker && !begin()) return;
       e.preventDefault(); e.stopImmediatePropagation();
@@ -94,9 +96,11 @@ export function initConversationSwitcher(options: SwitcherOptions) {
       picker!.draw();
       return;
     }
+
     if (!picker) return;
     e.stopImmediatePropagation();
     e.preventDefault();
+
     if (e.key === "Escape") finish(false);
     else if (e.key === "Enter") finish(true);
     else if (["ArrowUp", "ArrowDown", "Tab"].includes(e.key)) {

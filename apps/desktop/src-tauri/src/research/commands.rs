@@ -49,9 +49,11 @@ pub fn research_begin(
     topic: String,
 ) -> Result<Uuid> {
     let topic = topic.trim();
+
     if topic.is_empty() {
         return Err(DesktopError::BadRequest("say what to research".into()));
     }
+
     let session = Uuid::new_v4();
     beep.add_research(session);
     pending.put(session, topic.to_owned());

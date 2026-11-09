@@ -26,6 +26,7 @@ pub(super) fn open_parent() -> Result<OwnedHandle> {
     // SAFETY: OpenProcess takes plain values and returns a new handle or
     // null.
     let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, parent) };
+
     if handle.is_null() {
         return Err(io::Error::last_os_error()).context("opening the parent process");
     }
@@ -39,12 +40,14 @@ pub(super) fn wait(handle: &OwnedHandle) -> Result<()> {
     if unsafe { WaitForSingleObject(handle.as_raw_handle(), INFINITE) } != WAIT_OBJECT_0 {
         return Err(io::Error::last_os_error()).context("waiting for the parent process");
     }
+
     Ok(())
 }
 
 fn parent_pid() -> Result<u32> {
     // SAFETY: takes plain values and returns a new handle or an invalid one.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+
     if snapshot == INVALID_HANDLE_VALUE {
         return Err(io::Error::last_os_error().into());
     }
@@ -58,6 +61,7 @@ fn parent_pid() -> Result<u32> {
     // SAFETY: the snapshot is open and `entry` has its size set, as both
     // calls require.
     let mut found = unsafe { Process32FirstW(snapshot.as_raw_handle(), &mut entry) };
+
     while found != 0 {
         if entry.th32ProcessID == me {
             return Ok(entry.th32ParentProcessID);
@@ -65,5 +69,6 @@ fn parent_pid() -> Result<u32> {
         // SAFETY: as above.
         found = unsafe { Process32NextW(snapshot.as_raw_handle(), &mut entry) };
     }
+
     bail!("this process is not in the process list")
 }

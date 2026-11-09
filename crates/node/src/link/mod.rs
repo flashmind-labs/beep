@@ -18,6 +18,7 @@ host! {
     pub(crate) mod peer_tools;
     pub mod peers;
     mod report;
+    mod metrics;
     pub(crate) mod restart;
     pub use restart::{note_on_quit, reopen_and_keep};
     pub mod diagnostics;

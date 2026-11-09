@@ -34,12 +34,15 @@ impl TryFrom<Value> for Args {
 
     fn try_from(value: Value) -> Result<Self> {
         let args: Self = serde_json::from_value(value).context("Invalid transcript arguments")?;
+
         if args.session.trim().is_empty() || args.session.len() > 512 {
             bail!("Give a session ID of at most 512 bytes.");
         }
+
         if !(1..=50).contains(&args.last) {
             bail!("last must be between 1 and 50.");
         }
+
         Ok(args)
     }
 }
@@ -83,6 +86,7 @@ async fn read(offers: &Offers, args: &Args) -> Result<SessionsReply> {
                 .context("The machine closed the transcript read.");
         }
     }
+
     Ok(offers
         .agents
         .transcript_reply(&args.session, args.last, false, args.before)

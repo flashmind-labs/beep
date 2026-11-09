@@ -44,6 +44,7 @@ impl Dir {
     /// Names in this folder, without following child links.
     pub(crate) fn entries(&self) -> io::Result<Vec<std::ffi::OsString>> {
         let mut names = Vec::new();
+
         for entry in rustix::fs::Dir::read_from(&self.fd)? {
             let entry = entry?;
             let name = entry.file_name().to_bytes();
@@ -51,6 +52,7 @@ impl Dir {
                 names.push(OsStr::from_bytes(name).to_owned());
             }
         }
+
         Ok(names)
     }
 
@@ -60,9 +62,11 @@ impl Dir {
             .union(OFlags::NONBLOCK)
             .union(OFlags::CLOEXEC);
         let file = File::from(openat(&self.fd, name, flags, Mode::empty())?);
+
         if !file.metadata()?.is_file() {
             return Err(ErrorKind::InvalidInput.into());
         }
+
         Ok(file)
     }
 
@@ -139,12 +143,15 @@ impl Dir {
             Err(e) => return Err(e.into()),
         };
         let mut names = Vec::new();
+
         for entry in rustix::fs::Dir::read_from(&dir.fd)? {
             let entry = entry?;
             let entry_name = entry.file_name().to_bytes();
+
             if entry_name == b"." || entry_name == b".." {
                 continue;
             }
+
             let is_dir = match entry.file_type() {
                 FileType::Directory => true,
                 FileType::Unknown => statat(&dir.fd, entry.file_name(), AtFlags::SYMLINK_NOFOLLOW)
@@ -153,6 +160,7 @@ impl Dir {
             };
             names.push((OsStr::from_bytes(entry_name).to_owned(), is_dir));
         }
+
         for (entry, is_dir) in names {
             if is_dir {
                 dir.remove_tree(&entry)?;
@@ -163,6 +171,7 @@ impl Dir {
                 }
             }
         }
+
         match unlinkat(&self.fd, name, AtFlags::REMOVEDIR) {
             Ok(()) | Err(Errno::NOENT) => Ok(()),
             Err(e) => Err(e.into()),
@@ -203,6 +212,7 @@ pub(crate) fn rename_new(
 ) -> io::Result<()> {
     let taken = || io::Error::from(ErrorKind::AlreadyExists);
     let (from_fd, to_fd) = (&from_dir.fd, &to_dir.fd);
+
     match renameat_with(from_fd, from, to_fd, to, RenameFlags::NOREPLACE) {
         Ok(()) => Ok(()),
         Err(Errno::EXIST | Errno::NOTEMPTY) => Err(taken()),
@@ -221,6 +231,7 @@ pub(crate) fn rename_new(
             if statat(to_fd, to, AtFlags::SYMLINK_NOFOLLOW).is_ok() {
                 return Err(taken());
             }
+
             match renameat(from_fd, from, to_fd, to) {
                 Ok(()) => Ok(()),
                 Err(Errno::EXIST | Errno::NOTEMPTY) => Err(taken()),

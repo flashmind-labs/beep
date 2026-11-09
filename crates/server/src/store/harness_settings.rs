@@ -149,6 +149,7 @@ pub(super) async fn reseal_harnesses_for(
     .bind(source)
     .fetch_all(&mut *tx)
     .await?;
+
     for (machine, agent, sealed) in rows {
         let owner = |user| HarnessOwner {
             user,
@@ -174,5 +175,6 @@ pub(super) async fn reseal_harnesses_for(
             Err(e) => log::warn!("{agent} settings on {machine} not resealed for the merge: {e:#}"),
         }
     }
+
     Ok(())
 }

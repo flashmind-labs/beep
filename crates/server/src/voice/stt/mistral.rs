@@ -82,6 +82,7 @@ async fn pump(
     let mut sink = Some(sink);
     let mut sent_any = false;
     let mut ended_at = None;
+
     loop {
         let wait = ended_at.map_or(DONE_WAIT, |at: Instant| {
             DONE_WAIT.saturating_sub(at.elapsed())
@@ -90,10 +91,12 @@ async fn pump(
             chunk = chunks.recv(), if sink.is_some() => match chunk {
                 Some(chunk) => {
                     let Some(to) = sink.as_ref() else { continue };
+
                     if chunk.is_empty() {
                         continue;
                     }
                     sent_any = true;
+
                     if let Err(error) = to.send(Bytes::from(chunk)).await {
                         // Why it ended comes through `events`.
                         log::debug!("live transcription stopped taking audio: {error:#}");
@@ -135,6 +138,7 @@ async fn pump(
                     }
                 };
                 let failed = heard.is_err();
+
                 if said.send(heard).await.is_err() || failed {
                     return;
                 }

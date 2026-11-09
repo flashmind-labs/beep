@@ -151,12 +151,15 @@ impl Digest {
         if !self.native && value["isSidechain"].as_bool() == Some(true) {
             return;
         }
+
         let at_ms = value["timestamp"].as_str().and_then(unix_millis);
+
         if let Some(at_ms) = at_ms {
             let at = at_ms / 1000;
             self.first_at.get_or_insert(at);
             self.last_at = Some(at);
         }
+
         self.before_ms = self.line_ms.take().or(self.before_ms);
         self.line_ms = at_ms;
         if let Some(cwd) = value["cwd"].as_str() {
@@ -193,6 +196,7 @@ impl Digest {
         {
             return;
         }
+
         let content = &value["message"]["content"];
         let mut lines = String::new();
         let text = match content {
@@ -207,11 +211,13 @@ impl Digest {
                     } else if self.artifacts.remove(id) {
                         self.artifact_published(id, &block["content"]);
                     }
+
                     if let Some(spawn) = self.spawns.get_mut(id)
                         && let Some(agent_id) = value["toolUseResult"]["agentId"].as_str()
                     {
                         spawn.agent_id = Some(agent_id.to_owned());
                     }
+
                     if let Some(entry) = self
                         .tools
                         .get(id)
@@ -221,8 +227,10 @@ impl Digest {
                         (tool.result, tool.result_truncated) =
                             tool_details::json(block.get("content"));
                     }
+
                     self.tool_pictures(id, &block["content"]);
                 }
+
                 if let Some(pictures) = &mut self.pictures {
                     for picture in blocks.iter().filter_map(block_picture) {
                         lines.push('\n');
@@ -230,6 +238,7 @@ impl Digest {
                         pictures.push(picture);
                     }
                 }
+
                 let texts: Vec<String> = blocks
                     .iter()
                     .filter(|block| block["type"] == "text")
@@ -272,6 +281,7 @@ impl Digest {
         if let Some(prompt) = &prompt {
             kept.push(Part::User(prompt));
         }
+
         let mut shown = cut(tags::join(&kept).trim(), room);
         shown.push_str(&lines);
         self.push(EntryKind::User, shown.trim_start());
@@ -281,14 +291,18 @@ impl Digest {
         let Value::Array(blocks) = &value["message"]["content"] else {
             return;
         };
+
         for block in blocks {
             match block["type"].as_str() {
                 Some("text") => {
                     let text = block["text"].as_str().unwrap_or("").trim();
+
                     if text.is_empty() {
                         continue;
                     }
+
                     self.last_message = Some(cut(text, MAX_SHORT));
+
                     match self.entries.last_mut() {
                         Some(last) if last.kind == EntryKind::Agent => {
                             let joined = format!("{}\n\n{text}", last.text);
@@ -304,6 +318,7 @@ impl Digest {
                     if id.is_some_and(|id| self.spawns.contains_key(id)) {
                         continue;
                     }
+
                     let line = if self.native {
                         let name = block["name"].as_str().unwrap_or("tool");
                         let detail = ["command", "file_path", "pattern", "path"]
@@ -363,13 +378,16 @@ impl Digest {
     /// as a live session's does; thoughts in a row read as one.
     fn thinking(&mut self, text: &str) {
         let text = text.trim();
+
         if text.is_empty() {
             return;
         }
+
         let took = match (self.before_ms, self.line_ms) {
             (Some(start), Some(end)) => end.checked_sub(start),
             _ => None,
         };
+
         match self.entries.last_mut() {
             Some(last) if last.kind == EntryKind::Thought => {
                 let joined = format!("{}\n\n{text}", last.text);
@@ -393,6 +411,7 @@ impl Digest {
         if failed && let Some(spawn) = self.spawns.get_mut(id) {
             spawn.failed = true;
         }
+
         let Some(entry) = self.tools.get(id).and_then(|&at| self.entries.get_mut(at)) else {
             return;
         };
@@ -448,6 +467,7 @@ impl Digest {
         let Some(link) = artifact_link(&text) else {
             return;
         };
+
         if let Some(entry) = self
             .tools
             .get(id)
@@ -470,6 +490,7 @@ impl Digest {
         else {
             return;
         };
+
         for picture in blocks.iter().filter_map(block_picture) {
             entry.text.push('\n');
             entry.text.push_str(&picture.line());
@@ -495,6 +516,7 @@ fn text_field(value: &Value, key: &str) -> Option<String> {
 /// other wrapped text is not a prompt.
 fn prompt_text(text: &str) -> Option<String> {
     let text = text.trim();
+
     if let Some(start) = text.find("<command-name>") {
         let rest = &text[start + "<command-name>".len()..];
         let name = rest.split("</command-name>").next()?.trim();
@@ -515,9 +537,11 @@ fn prompt_text(text: &str) -> Option<String> {
             format!("{command} {args}")
         });
     }
+
     if text.is_empty() || text.starts_with('<') {
         return None;
     }
+
     Some(text.to_owned())
 }
 
@@ -536,9 +560,11 @@ fn artifact_link(text: &str) -> Option<&str> {
 pub(super) fn tool_line(block: &Value) -> String {
     let name = block["name"].as_str().unwrap_or("tool");
     let input = &block["input"];
+
     if let Some(tool) = BeepTool::of_name(name) {
         return cut(&tool.title(Some(input)), MAX_TOOL);
     }
+
     let detail = [
         "command",
         "file_path",
@@ -552,6 +578,7 @@ pub(super) fn tool_line(block: &Value) -> String {
     .iter()
     .find_map(|key| input[key].as_str())
     .map(|detail| detail.lines().next().unwrap_or("").trim().to_owned());
+
     match detail {
         Some(detail) if !detail.is_empty() => cut(&format!("{name}: {detail}"), MAX_TOOL),
         _ => name.to_owned(),
@@ -580,10 +607,12 @@ fn unix_millis(text: &str) -> Option<u64> {
     let second: i64 = second.parse().ok()?;
     // Milliseconds from the first three digits of the fraction.
     let mut millis: i64 = 0;
+
     for (i, digit) in fraction.chars().take(3).enumerate() {
         let digit = i64::from(digit.to_digit(10)?);
         millis += digit * [100, 10, 1][i];
     }
+
     if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
         return None;
     }
@@ -627,12 +656,14 @@ pub(super) fn read_from(file: &mut File, start: u64, end: u64) -> io::Result<Tai
     file.take(end.saturating_sub(from))
         .read_to_end(&mut bytes)?;
     let mut first = 0;
+
     if start > 0 {
         first = match bytes.iter().position(|&b| b == b'\n') {
             Some(at) => at + 1,
             None => bytes.len(),
         };
     }
+
     let last = bytes[first..]
         .iter()
         .rposition(|&b| b == b'\n')
@@ -657,10 +688,12 @@ fn digest_tail_with(
     read: impl Fn(&str) -> Digest,
 ) -> io::Result<Digest> {
     let mut window = FIRST_WINDOW;
+
     loop {
         let tail = read_tail(path, window)?;
         let digest = read(&tail.text);
         let enough = digest.entries.len() > entries && digest.prompt().is_some();
+
         if tail.whole || enough || window >= MAX_WINDOW {
             return Ok(digest);
         }
@@ -755,18 +788,23 @@ pub(super) mod tests {
 
         let mut seen = Vec::new();
         let mut before = None;
+
         loop {
             let page = entries(&path, 3, before, &kept).expect("read");
+
             if let Some(end) = before {
                 assert_eq!(page.earlier + page.entries.len() as u64, end);
             }
+
             let earlier = page.earlier;
             seen.splice(0..0, page.entries);
+
             if earlier == 0 {
                 break;
             }
             before = Some(earlier);
         }
+
         assert_eq!(seen, all.entries);
     }
 
@@ -989,12 +1027,14 @@ pub(super) mod tests {
 
         let mut before = newest.earlier;
         let mut pages = 1;
+
         while before > 0 {
             let page = entries(&path, 200, Some(before), &kept).expect("read");
             assert_eq!(page.earlier + page.entries.len() as u64, before);
             before = page.earlier;
             pages += 1;
         }
+
         assert_eq!(pages, total.div_ceil(200));
         let first = entries(&path, 1, Some(1), &kept).expect("read");
         assert_eq!(first.entries[0].text, "prompt 0");

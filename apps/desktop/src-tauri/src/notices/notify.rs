@@ -30,6 +30,7 @@ pub fn text(app: &AppHandle, title: &str, body: &str) {
     let shown = mac::text(app, title, body);
     #[cfg(not(target_os = "macos"))]
     let shown = app.notification().builder().title(title).body(body).show();
+
     if let Err(e) = shown {
         log::warn!("showing a notice: {e}");
     }
@@ -92,11 +93,13 @@ fn click_target(notice: &Notice) -> CenterTarget {
     if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>() {
         return CenterTarget::Agent(AgentTarget::notified(&key));
     }
+
     if notice.group {
         return CenterTarget::Group {
             id: notice.session_id.clone(),
         };
     }
+
     if let Ok(session) = Uuid::parse_str(&notice.session_id) {
         return CenterTarget::Chat {
             session: Some(session),
@@ -106,6 +109,7 @@ fn click_target(notice: &Notice) -> CenterTarget {
     if notice.app.is_some() {
         return CenterTarget::Apps;
     }
+
     CenterTarget::Home
 }
 
@@ -127,11 +131,13 @@ fn ask(notice: &Notice) -> Option<Ask> {
     if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>() {
         return key.question.is_some().then_some(Ask::Agent(key));
     }
+
     let pending = notice.approval.as_ref()?;
     // A resolved question is news that it stopped waiting, not a question.
     if notice.changed {
         return None;
     }
+
     let query_id = pending.query_id.clone();
     let session = notice.session_id.clone();
     Some(if notice.group {
@@ -152,10 +158,12 @@ fn open(app: &AppHandle, target: CenterTarget) {
     let handle = app.clone();
     let opened = app.run_on_main_thread(move || {
         let pending = handle.state::<center::Pending>();
+
         if let Err(e) = center::open_on(&handle, &pending, target) {
             log::warn!("opening what a notification is about: {e}");
         }
     });
+
     if let Err(e) = opened {
         log::warn!("opening what a notification is about: {e}");
     }
@@ -171,6 +179,7 @@ async fn answer(app: AppHandle, ask: Ask, allow: bool) {
     };
     let answered = send_answer(&app, ask, allow).await;
     app.state::<WaitingList>().poke();
+
     match answered {
         Ok(()) => {
             if let Some(key) = agent {
@@ -181,6 +190,7 @@ async fn answer(app: AppHandle, ask: Ask, allow: bool) {
             if let Some(key) = agent {
                 history::answered(&app, &key);
             }
+
             log::info!("a notification answered a question that no longer waits");
         }
         Err(e) => {
@@ -198,6 +208,7 @@ async fn send_answer(app: &AppHandle, ask: Ask, allow: bool) -> Result<()> {
     };
     let beep = app.state::<Arc<Beep>>().inner().clone();
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
+
     match ask {
         Ask::Turn { session, query_id } => {
             let answer = ChatAnswer {
@@ -214,9 +225,11 @@ async fn send_answer(app: &AppHandle, ask: Ask, allow: bool) -> Result<()> {
             .map(|_| ()),
         Ask::Group { group, query_id } => {
             beep.call(AnswerGroupApproval { query_id, allow }).await?;
+
             if let Err(e) = app.emit("group-changed", &group) {
                 log::warn!("telling the windows a group approval was answered: {e}");
             }
+
             Ok(())
         }
         // A machine of the mesh is asked directly; any other through the
@@ -226,9 +239,11 @@ async fn send_answer(app: &AppHandle, ask: Ask, allow: bool) -> Result<()> {
             let Some(question) = key.question else {
                 return Ok(());
             };
+
             if alerts::reaches(&fleet, &key.machine_id) {
                 return alerts::answer(&fleet, &key, agent_reply(allow)).await;
             }
+
             beep.call(AnswerAgentQuestion {
                 machine_id: key.machine_id,
                 agent: key.agent,
@@ -288,6 +303,7 @@ mod mac {
                 WAITING.fetch_sub(1, Ordering::Relaxed);
                 return None;
             }
+
             Some(Self)
         }
     }
@@ -338,6 +354,7 @@ mod mac {
                         return;
                     }
                 };
+
                 match (reply(response, asks), asked) {
                     (Reply::Open, _) => open(&handle, target),
                     (Reply::Answer(allow), Some(ask)) => {
@@ -364,9 +381,11 @@ mod mac {
     fn notification<'a>(title: &'a str, body: &'a str, icon: Option<&'a str>) -> Notification<'a> {
         let mut notification = Notification::new();
         notification.title(title).message(body);
+
         if let Some(icon) = icon {
             notification.app_icon(icon);
         }
+
         notification
     }
 
@@ -382,11 +401,13 @@ mod mac {
         let icon = notification_icon(app);
         let mut notification = notification(title, body, icon.as_deref());
         notification.wait_for_click(true);
+
         if asks {
             notification
                 .main_button(MainButton::SingleAction(ALLOW))
                 .close_button(DENY);
         }
+
         notification.send()
     }
 

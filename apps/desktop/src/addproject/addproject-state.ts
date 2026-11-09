@@ -40,10 +40,12 @@ export function toggleAllShown(shown: readonly string[], picked: ReadonlySet<str
   const open = shown.filter(name => tickable(status.get(name)));
   const all = open.length > 0 && open.every(name => picked.has(name));
   const out = new Set(picked);
+
   for (const name of open) {
     if (all) out.delete(name);
     else out.add(name);
   }
+
   return out;
 }
 
@@ -54,6 +56,7 @@ export async function eachLimited<T>(items: readonly T[], limit: number, run: (i
   const worker = async () => {
     while (next < items.length) {
       const item = items[next++];
+
       try {
         await run(item);
       } catch (e) {

@@ -84,8 +84,10 @@ pub struct Costs {
 impl Costs {
     pub fn of(definitions: &[ToolDefinition]) -> Self {
         let mut costs = Self::default();
+
         for definition in definitions {
             let bytes = size(definition);
+
             match Source::of(&definition.name) {
                 Source::BuiltIn => costs.built_in.add(bytes),
                 Source::Composio => costs.composio.add(bytes),
@@ -93,6 +95,7 @@ impl Costs {
                 Source::AddedMcp => costs.added_mcp.add(bytes),
             }
         }
+
         costs
     }
 
@@ -133,6 +136,7 @@ pub(crate) fn log(kind: &str, registry: &ToolRegistry) {
     if !log::log_enabled!(log::Level::Debug) {
         return;
     }
+
     let costs = Costs::of(&registry.definitions());
     log::debug!("tool cost: kind={kind} {costs}");
 }

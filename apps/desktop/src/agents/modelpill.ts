@@ -63,12 +63,14 @@ function drawModelPicker() {
 export async function switchSessionModel(s: AgentRow, next: { model: string; effort: string | null }, what: "model" | "effort") {
   const was = sessionPicks.get(s.id) ?? { model: "", effort: null };
   const model = what === "model" ? next.model || null : null, effort = what === "effort" ? next.effort : null;
+
   if (model || effort) {
     if (await steerAgent({ configure: { model, effort } })) sessionPicks.set(s.id, next);
   } else if (what === "model" ? was.model : was.effort) {
     AG.note = `A running session cannot go back to Default; pick ${what === "model" ? "a model" : "a level"} by name.`;
     drawAgentBody();
   }
+
   drawModelPicker();
   drawModelPill();
 }

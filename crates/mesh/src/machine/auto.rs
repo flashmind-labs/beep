@@ -124,6 +124,7 @@ fn pool(candidates: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Pool, AutoErr
     if offering.is_empty() {
         return Err(AutoError::NoAgent { agent });
     }
+
     let able: Vec<usize> = offering
         .iter()
         .copied()
@@ -136,6 +137,7 @@ fn pool(candidates: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Pool, AutoErr
             offering: names(&offering),
         });
     }
+
     let there: Vec<usize> = able
         .iter()
         .copied()
@@ -147,6 +149,7 @@ fn pool(candidates: &[Candidate<'_>], wants: &Wants<'_>) -> Result<Pool, AutoErr
             checked: names(&able),
         });
     }
+
     let (met, missed): (Vec<MachineCapability>, Vec<MachineCapability>) =
         wants.hints.iter().copied().partition(|hint| {
             there
@@ -233,6 +236,7 @@ fn choose(candidates: &[Candidate<'_>], pool: &Pool, wants: &Wants<'_>) -> Choic
 /// "a, b and c".
 fn list<'a>(items: impl Iterator<Item = &'a str>) -> String {
     let items: Vec<&str> = items.collect();
+
     match items.split_last() {
         None => String::new(),
         Some((last, [])) => (*last).to_owned(),
@@ -257,6 +261,7 @@ pub async fn pick(
         text.push('\n');
         text.push_str(cwd);
     }
+
     let hints: Vec<MachineCapability> = called_for(&text)
         .into_iter()
         .filter(|hint| !start.needs.contains(hint))
@@ -292,6 +297,7 @@ pub async fn pick(
             candidates[at].has_folder = there;
         }
     }
+
     let agent = start.agent.as_deref().map_or("a coding agent", agent_name);
     let wants = Wants {
         agent,
@@ -300,6 +306,7 @@ pub async fn pick(
         folder,
     };
     let chosen = pool(&candidates, &wants).map_err(|e| ApiError::bad_request(e.to_string()))?;
+
     if needs_load(&candidates, &chosen) {
         let asks: Vec<_> = chosen
             .at
@@ -314,6 +321,7 @@ pub async fn pick(
             candidates[at].running = count;
         }
     }
+
     Ok(choose(&candidates, &chosen, &wants))
 }
 
@@ -367,12 +375,14 @@ fn windows_folder_test(folder: &str) -> String {
     // Every quote that ends a single-quoted PowerShell string is doubled.
     let literal = |text: &str| {
         let mut quoted = String::from("'");
+
         for c in text.chars() {
             if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}') {
                 quoted.push(c);
             }
             quoted.push(c);
         }
+
         quoted.push('\'');
         quoted
     };

@@ -22,21 +22,26 @@ pub(super) async fn run(
     target: &mut watch::Receiver<Target>,
 ) -> Result<()> {
     let saved = env.state.load(&record.id).filter(|s| s.at == record.at);
+
     if saved.as_ref().is_some_and(|saved| saved.is_over(record.at)) {
         return Ok(());
     }
+
     if !env.agents.reopened() {
         log::info!(
             "session {}: waiting for the sessions open before the restart to resume",
             record.id
         );
     }
+
     env.agents.until_reopened().await;
+
     if record.worktree.is_some()
         && let Err(e) = env.agents.moves.prepare_worktree(&record.project).await
     {
         return fail(env, record, None, &e).await;
     }
+
     if let Some(worktree) = &record.worktree {
         env.agents
             .moves
@@ -46,6 +51,7 @@ pub(super) async fn run(
     let held = env.agents.moves.hold(&record.id);
     // Set once the session ended here: a restart finds it in what is kept.
     let mut open = saved.and_then(|saved| saved.open);
+
     if open.is_none()
         && let Some(session) = live(env, &record.id)
     {
@@ -54,9 +60,11 @@ pub(super) async fn run(
             Err(e) => return fail(env, record, None, &e).await,
         }
     }
+
     if let Err(e) = scan(env, record).await {
         return fail(env, record, open, &e).await;
     }
+
     drop(held);
     land(env, record, open, target).await
 }
@@ -89,6 +97,7 @@ async fn end(
     })
     .await
     .context("the session vanished")?;
+
     if live.borrow().status() == Status::Ended {
         return Ok(None);
     }
@@ -96,11 +105,13 @@ async fn end(
     // machine that cannot never costs the session.
     loop {
         let now = target.borrow_and_update().clone();
+
         match now {
             Target::Failed(reason) => return Err(anyhow!(reason)),
             Target::Taken | Target::Landed => break,
             Target::Unknown => {}
         }
+
         tokio::select! {
             changed = target.changed() => changed.context("the move lost its target")?,
             ended = live.wait_for(|live| live.status() == Status::Ended) => {
@@ -109,6 +120,7 @@ async fn end(
             }
         }
     }
+
     let open = env.agents.open_session(&record.id);
     session.close().await;
     env.state
@@ -134,9 +146,11 @@ async fn scan(env: &Env, record: &SessionMove) -> Result<()> {
     let Some(syncs) = &env.syncs else {
         return Ok(());
     };
+
     if !syncs.syncs_with(&record.project, &record.to).await {
         return Ok(());
     }
+
     syncs
         .rescan(&record.project)
         .await
@@ -153,6 +167,7 @@ async fn land(
 ) -> Result<()> {
     loop {
         let now = target.borrow_and_update().clone();
+
         match now {
             Target::Landed => {
                 detach(env, record).await;
@@ -166,6 +181,7 @@ async fn land(
                         record.id
                     );
                 }
+
                 return env
                     .state
                     .save(&record.id, &Saved::over(record.at, Phase::Done, None))
@@ -174,6 +190,7 @@ async fn land(
             Target::Failed(reason) => return fail(env, record, open, &anyhow!(reason)).await,
             Target::Taken | Target::Unknown => {}
         }
+
         target.changed().await.context("the move lost its target")?;
     }
 }
@@ -189,6 +206,7 @@ async fn detach(env: &Env, record: &SessionMove) {
     // What was sent, when this node sent it (a restart forgets): the
     // worktree is cleaned only if it still holds exactly that.
     let sent = env.agents.moves.sent_of(&record.id);
+
     match spawn_blocking(move || worktree::detach_clean(&dir, sent.as_deref())).await {
         Ok(Ok(true)) => log::info!(
             "the worktree of session {} is detached and clean: its work went with it",
@@ -216,6 +234,7 @@ async fn fail(
 ) -> Result<()> {
     let reason = format!("{why:#}");
     env.agents.moves.refuse(&record.id, &reason);
+
     match (live(env, &record.id), open) {
         (Some(session), _) => {
             if let Err(e) = session.order(Command::NotMoving).await {
@@ -232,6 +251,7 @@ async fn fail(
         }
         (None, None) => {}
     }
+
     env.state
         .save(
             &record.id,
@@ -247,6 +267,7 @@ pub(super) async fn cancel(env: &Env, id: &str) {
     let Some(session) = live(env, id) else {
         return;
     };
+
     if let Err(e) = session.order(Command::NotMoving).await {
         log::debug!("session {id} was not told the move is off: {e}");
     }

@@ -158,6 +158,7 @@ pub(crate) fn fingerprint(kind: FindingKind, area: &str, slug: &str) -> String {
 pub(crate) fn redact(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut word = String::new();
+
     for c in text.chars() {
         if c.is_whitespace() {
             out.push_str(&redact_word(&word));
@@ -167,15 +168,18 @@ pub(crate) fn redact(text: &str) -> String {
             word.push(c);
         }
     }
+
     out.push_str(&redact_word(&word));
     out
 }
 
 fn redact_word(word: &str) -> String {
     let core = word.trim_matches(|c: char| !c.is_alphanumeric());
+
     if core.contains('@') && core.contains('.') {
         return word.replace(core, "[email]");
     }
+
     let letters = core.chars().filter(|c| c.is_alphabetic()).count();
     let digits = core.chars().filter(char::is_ascii_digit).count();
     let token_like = core.len() >= 20 && letters > 0 && digits > 0;
@@ -190,6 +194,7 @@ fn redact_word(word: &str) -> String {
     // times stay.
     let mut out = String::new();
     let mut run = String::new();
+
     for c in word.chars() {
         if c.is_ascii_digit() || (!run.is_empty() && matches!(c, '-' | '.')) {
             run.push(c);
@@ -198,6 +203,7 @@ fn redact_word(word: &str) -> String {
             out.push(c);
         }
     }
+
     mask_number(&mut run, &mut out);
     out
 }
@@ -217,6 +223,7 @@ fn mask_number(run: &mut String, out: &mut String) {
     } else {
         out.push_str(number);
     }
+
     out.push_str(tail);
     run.clear();
 }
@@ -226,6 +233,7 @@ fn check(answer: &str, first_seq: i64, last_seq: i64) -> Result<Vec<Checked>> {
     let Answer { findings } = serde_json::from_str(unfence(answer))?;
     let mut seen = HashSet::new();
     let mut checked = Vec::new();
+
     for proposed in findings.into_iter().take(MAX_FINDINGS * 2) {
         let Ok(kind) = proposed.kind.trim().parse::<FindingKind>() else {
             continue;
@@ -236,13 +244,17 @@ fn check(answer: &str, first_seq: i64, last_seq: i64) -> Result<Vec<Checked>> {
         } else {
             &proposed.slug
         };
+
         if summary.is_empty() || words(slug).is_empty() {
             continue;
         }
+
         let fingerprint = fingerprint(kind, &proposed.area, slug);
+
         if !seen.insert(fingerprint.clone()) {
             continue;
         }
+
         let within = |seq: Option<i64>, or: i64| seq.unwrap_or(or).clamp(first_seq, last_seq);
         let (from, to) = (
             within(proposed.first_seq, first_seq),
@@ -259,18 +271,22 @@ fn check(answer: &str, first_seq: i64, last_seq: i64) -> Result<Vec<Checked>> {
             first_seq: from.min(to),
             last_seq: from.max(to),
         });
+
         if checked.len() == MAX_FINDINGS {
             break;
         }
     }
+
     Ok(checked)
 }
 
 fn prompt(known: &[FindingRow], transcript: &str) -> String {
     let mut text = String::from("Known findings:\n");
+
     if known.is_empty() {
         text.push_str("(none)\n");
     }
+
     for finding in known {
         // The fingerprint is kind:area:slug.
         let mut parts = finding.fingerprint.splitn(3, ':');
@@ -285,6 +301,7 @@ fn prompt(known: &[FindingRow], transcript: &str) -> String {
             clip(&finding.summary, 200)
         );
     }
+
     let _ = write!(text, "\nConversation:\n{transcript}\n");
     text
 }
@@ -304,9 +321,11 @@ impl Watcher for ImprovementWatcher {
 
     async fn review(&self, review: &Review<'_>) -> Result<()> {
         let transcript = review.transcript;
+
         if !transcript.talk {
             return Ok(());
         }
+
         let store = &review.app.store;
         let user = review.user;
         let known = store
@@ -318,6 +337,7 @@ impl Watcher for ImprovementWatcher {
             .await?;
         let findings = check(&answer, transcript.first_seq, transcript.last_seq)?;
         let now = Utc::now();
+
         for finding in &findings {
             let new = NewFinding {
                 fingerprint: &finding.fingerprint,
@@ -336,6 +356,7 @@ impl Watcher for ImprovementWatcher {
             };
             store.record_finding(&new, &seen, now).await?;
         }
+
         if !findings.is_empty() {
             let kinds: Vec<&str> = findings.iter().map(|f| f.kind.into()).collect();
             log::info!(
@@ -343,6 +364,7 @@ impl Watcher for ImprovementWatcher {
                 review.chat
             );
         }
+
         Ok(())
     }
 }

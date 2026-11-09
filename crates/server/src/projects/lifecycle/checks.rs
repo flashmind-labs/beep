@@ -74,6 +74,7 @@ pub(super) async fn check_prs(
     project: &ProjectRow,
 ) -> Result<()> {
     let mut changes = Vec::new();
+
     if let Some(prs) = &project.roles.prs {
         let tasks = user.project_tasks(project.id).await?;
         let review = tasks
@@ -91,15 +92,18 @@ pub(super) async fn check_prs(
                 }
             };
             let fingerprint = pr_fingerprint(&pr);
+
             if task.pr_seen.as_deref() != Some(fingerprint.as_str()) {
                 user.set_pr_seen(task.id, &fingerprint).await?;
                 changes.push(pr_line(task, &pr));
             }
+
             if pr.merged {
                 finish_task(fleet, user, project, task).await?;
             }
         }
     }
+
     if !changes.is_empty() {
         let chat = user.ensure_project_agent(project.id).await?;
         fleet.post(
@@ -112,6 +116,7 @@ pub(super) async fn check_prs(
             ),
         );
     }
+
     Ok(())
 }
 
@@ -132,6 +137,7 @@ pub(super) async fn rearm_check(
     } else {
         fleet.projects().disarm(&due);
     }
+
     Ok(())
 }
 
@@ -165,8 +171,10 @@ pub(super) fn pr_line(task: &TaskRow, pr: &PrState) -> String {
     };
     let checks: &'static str = pr.checks.into();
     let mut line = format!("- {}: {} is {state}, checks {checks}", task.slug, pr.url);
+
     if let Some(review) = &pr.review {
         let _ = write!(line, ", review {}", review.to_lowercase().replace('_', " "));
     }
+
     line
 }

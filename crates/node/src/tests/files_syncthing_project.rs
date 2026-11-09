@@ -27,6 +27,7 @@ async fn the_api_hands_one_project_between_syncthing_and_beep() {
                 let n = stream.read(&mut buf).await.unwrap();
                 assert!(n > 0);
                 raw.extend_from_slice(&buf[..n]);
+
                 if let Some(split) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
                     break split + 4;
                 }
@@ -45,6 +46,7 @@ async fn the_api_hands_one_project_between_syncthing_and_beep() {
                 assert!(n > 0);
                 raw.extend_from_slice(&buf[..n]);
             }
+
             let request = header.lines().next().unwrap();
             let body = if request.starts_with("GET /rest/config/folders ") {
                 serde_json::to_string(
@@ -56,12 +58,14 @@ async fn the_api_hands_one_project_between_syncthing_and_beep() {
                     request.contains(" /rest/db/ignores?folder=share "),
                     "{request}"
                 );
+
                 if request.starts_with("POST ") {
                     let ignores: Ignores =
                         serde_json::from_slice(&raw[split..split + length]).unwrap();
                     std::fs::write(serving.join(".stignore"), ignores.ignore.join("\n") + "\n")
                         .unwrap();
                 }
+
                 let ignore: Vec<_> = std::fs::read_to_string(serving.join(".stignore"))
                     .unwrap()
                     .lines()

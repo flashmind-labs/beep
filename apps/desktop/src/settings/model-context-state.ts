@@ -18,6 +18,7 @@ export function modelRules(draft: ModelCompactDraft[]): ModelCompact[] {
 export function modelProblem(draft: ModelCompactDraft[]) {
   const active = draft.filter(r => r.threshold.trim()), seen = new Set<string>();
   if (active.length > 64) return "At most 64 model overrides.";
+
   for (const r of active) {
     const id = r.model.trim();
     if (!id || id.length > 200 || /[\x00-\x1f\x7f]/.test(id)) return "Give each override a model id.";
@@ -25,5 +26,6 @@ export function modelProblem(draft: ModelCompactDraft[]) {
     seen.add(id);
     if (!parse(r.threshold)) return `Use 1 to 100%, a token count, or off for ${id}.`;
   }
+
   return "";
 }

@@ -43,9 +43,11 @@ few words of the text that show the fact, copied exactly, at most 20 words. At m
 /// The memories shown to a learner, with ids it can update or forget.
 pub(super) fn write_known(text: &mut String, known: &[Hit]) {
     let _ = writeln!(text, "\nKnown memories:");
+
     if known.is_empty() {
         let _ = writeln!(text, "(none related)");
     }
+
     for h in known {
         let _ = writeln!(
             text,
@@ -64,13 +66,16 @@ pub(crate) fn learn_prompt(known: &[Hit], exchange: &Exchange) -> String {
     let mut text = String::new();
     let _ = writeln!(text, "Today: {}", exchange.today.format("%A %Y-%m-%d"));
     write_known(&mut text, known);
+
     if !exchange.earlier.is_empty() {
         let _ = writeln!(text, "\nEarlier in the chat:");
+
         for turn in &exchange.earlier {
             let _ = writeln!(text, "User: {}", clip(&turn.message, MAX_CONTEXT_CHARS));
             let _ = writeln!(text, "Beep: {}", clip(&turn.reply, MAX_CONTEXT_CHARS));
         }
     }
+
     let latest = &exchange.latest;
     let _ = writeln!(
         text,
@@ -238,13 +243,17 @@ You get every memory about {} with its id, category, source, last change date an
 hold for a while, their days. {CURATE_RULES}",
         curated_subject(scope)
     );
+
     if *scope == Scope::User {
         text.push_str(CURATE_PROFILE);
     }
+
     text.push_str(CURATE_REPLY);
+
     if *scope == Scope::User {
         text.push_str(" Add \"core\": [string], the profile's ids, next to \"ops\".");
     }
+
     text
 }
 
@@ -253,6 +262,7 @@ pub(crate) fn curate_prompt(rows: &[MemoryRow], today: NaiveDate) -> String {
     let _ = writeln!(text, "Today: {}\n\nMemories:", today.format("%Y-%m-%d"));
     let mut rows: Vec<&MemoryRow> = rows.iter().collect();
     rows.sort_by(|a, b| a.category.cmp(&b.category));
+
     for row in rows {
         let ended = if row.valid.ended(today) { ", over" } else { "" };
         let core = if row.core { ", core" } else { "" };
@@ -267,5 +277,6 @@ pub(crate) fn curate_prompt(rows: &[MemoryRow], today: NaiveDate) -> String {
             row.content
         );
     }
+
     text
 }

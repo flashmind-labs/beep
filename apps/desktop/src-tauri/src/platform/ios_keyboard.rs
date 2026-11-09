@@ -34,13 +34,16 @@ pub fn hide_bar(webview: *mut c_void) {
         let views: *mut AnyObject = msg_send![scroll, subviews];
         let Some(views) = views.as_ref() else { return };
         let count: usize = msg_send![views, count];
+
         for i in 0..count {
             let view: *mut AnyObject = msg_send![views, objectAtIndex: i];
             let Some(view) = view.as_ref() else { continue };
             let class = view.class();
+
             if !class.name().to_bytes().starts_with(b"WKContent") {
                 continue;
             }
+
             let Some(sub) = AnyClass::get(NO_BAR).or_else(|| subclass(class)) else {
                 log::warn!("could not hide the keyboard's bar");
                 return;

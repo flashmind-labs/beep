@@ -16,6 +16,7 @@ const SHORT_HEAD: usize = 7;
 /// main checkout first. A bare repository is not one.
 fn parse(text: &str) -> Vec<Worktree> {
     let mut found = Vec::new();
+
     for block in text.split("\n\n") {
         let mut tree = Worktree {
             path: String::new(),
@@ -24,6 +25,7 @@ fn parse(text: &str) -> Vec<Worktree> {
             own: false,
         };
         let mut bare = false;
+
         for line in block.lines() {
             if let Some(path) = line.strip_prefix("worktree ") {
                 tree.path = path.to_owned();
@@ -36,10 +38,12 @@ fn parse(text: &str) -> Vec<Worktree> {
                 bare = true;
             }
         }
+
         if !tree.path.is_empty() && !bare {
             found.push(tree);
         }
     }
+
     found
 }
 
@@ -64,6 +68,7 @@ pub(super) fn checkout_of_gone(folder: &Path) -> Option<PathBuf> {
     if folder.exists() {
         return None;
     }
+
     let checkout = checkout_of(folder)?;
     git(&checkout, &["rev-parse", "--git-dir"]).ok()?;
     Some(checkout)
@@ -77,6 +82,7 @@ pub(super) fn list(folder: &Path) -> Result<Vec<Worktree>> {
     if let Some(checkout) = checkout_of_gone(folder) {
         return list(&checkout);
     }
+
     let text = match git(folder, &["worktree", "list", "--porcelain"]) {
         Ok(text) => text,
         Err(e) if format!("{e:#}").contains("not a git repository") => return Ok(Vec::new()),
@@ -103,13 +109,16 @@ pub(super) fn list(folder: &Path) -> Result<Vec<Worktree>> {
 /// the file system.
 pub(super) fn listed_in(folders: &[PathBuf], real: &Path) -> bool {
     let mut asked: Vec<PathBuf> = Vec::new();
+
     for folder in folders {
         let Ok(folder) = paths::canonicalize(folder) else {
             continue;
         };
+
         if asked.contains(&folder) {
             continue;
         }
+
         let Ok(trees) = list(&folder) else {
             asked.push(folder);
             continue;
@@ -125,6 +134,7 @@ pub(super) fn listed_in(folders: &[PathBuf], real: &Path) -> bool {
             return true;
         }
     }
+
     false
 }
 

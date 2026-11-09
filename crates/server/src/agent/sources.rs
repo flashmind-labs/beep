@@ -45,12 +45,14 @@ impl ReplySources {
         let Some(found) = Found::by(tool) else {
             return;
         };
+
         for source in sources {
             let Some(url) = web_url(&source.url) else {
                 continue;
             };
             let key = page_key(&url);
             let title = source.title.as_deref().unwrap_or("").trim();
+
             match self.entries.iter_mut().find(|entry| entry.key == key) {
                 Some(entry) => {
                     if found == Found::Read {
@@ -93,6 +95,7 @@ fn web_url(url: &str) -> Option<Url> {
     if url.len() > 2048 {
         return None;
     }
+
     let url = Url::parse(url.trim()).ok()?;
     (matches!(url.scheme(), "https" | "http") && url.host_str().is_some()).then_some(url)
 }
@@ -101,6 +104,7 @@ fn page_key(url: &Url) -> String {
     let mut page = url.clone();
     page.set_fragment(None);
     let text = page.to_string();
+
     match text.strip_suffix('/') {
         Some(trimmed) => trimmed.to_owned(),
         None => text,

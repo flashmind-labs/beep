@@ -81,6 +81,7 @@ impl App {
         // Nobody asked for a routine's or an event's turn.
         let background = is_cron || message.woken.is_some() || message.finished_research;
         let mut timer = TurnTimer::start();
+
         if !background && message.answer.is_none() {
             user.forget_used_starter(&message.message).await;
         }
@@ -134,6 +135,7 @@ impl App {
         let Some(auto) = cancel.run_until_cancelled(picking).await else {
             return self.stopped_early(user, run, live).await;
         };
+
         if research.is_some() {
             metering::research_turn();
         }
@@ -174,6 +176,7 @@ impl App {
                 },
             ),
         };
+
         if let Some(auto) = &auto {
             live.push(RunEvent::AutoPicked {
                 pick: AutoPick {
@@ -182,6 +185,7 @@ impl App {
                 },
             });
         }
+
         let mut llm = self
             .llm
             .with_model(model.clone())
@@ -200,6 +204,7 @@ impl App {
             message.origin,
             message.draws,
         );
+
         if is_cron {
             cron::remove_changing_tools(&mut registry);
             // A watch ends itself once it has told the user; the digest is
@@ -214,18 +219,23 @@ impl App {
                 )));
             }
         }
+
         if let Some(search) = &self.tools.search {
             registry.register(search.clone());
         }
+
         if let Some(key) = &self.tools.firecrawl_key {
             register_web_tools(&mut registry, key.expose_secret());
         }
+
         if let Some(decision) = &self.tools.decision {
             registry.register(decision.clone());
         }
+
         if let Some((row, _)) = &research {
             research::register_lead(&mut registry, self, user, row.id);
         }
+
         if let Some(transitous) = &self.tools.transitous {
             registry.register(Arc::new(tools::GetRouteTool {
                 user: user.clone(),
@@ -243,19 +253,23 @@ impl App {
         if untrusted {
             cron::remove_changing_tools(&mut registry);
         }
+
         let use_machines = !untrusted;
         // A project chat gets the project's tools in their place, below,
         // once the rules are loaded.
         let project = project.filter(|_| use_machines);
+
         if use_machines && project.is_none() {
             tools::machines::register(&mut registry, self, user);
         }
+
         registry.register(Arc::new(events::tools::EventTopicsTool {
             user: user.clone(),
         }));
         registry.register(Arc::new(events::tools::RecentEventsTool {
             user: user.clone(),
         }));
+
         if message
             .woken
             .as_ref()
@@ -274,6 +288,7 @@ impl App {
         });
         registry.register(Arc::new(tools::SendImageTool));
         let notify = Arc::new(AtomicBool::new(message.always_sent));
+
         if background {
             registry.register(Arc::new(tools::NotifyUserTool {
                 notify: notify.clone(),
@@ -317,6 +332,7 @@ impl App {
                 run.id
             );
         }
+
         let approved = Approved(
             answer
                 .filter(|answer| answer.decision != (ApprovalDecision::Deny {}))
@@ -339,12 +355,14 @@ impl App {
             log::warn!("permissions: unable to load, asking for everything: {error:#}");
             Rules::default()
         });
+
         match user.chat_allows(chat).await {
             Ok(allows) => rules.allow_in_chat(allows),
             Err(error) => {
                 log::warn!("permissions: unable to load the chat's allows: {error:#}");
             }
         }
+
         let app_tools: Vec<_> = composio.tools.into_iter().chain(mcp).collect();
         let app_tools = if untrusted {
             permissions::read_tools_only(app_tools, &composio.hinted)
@@ -366,10 +384,12 @@ impl App {
                 approved: approved.0.clone(),
             }));
         }
+
         if let Some(project) = &project {
             let gate = Arc::new(ProjectGate::new(rules.clone(), approved.0.clone()));
             projects::tools::register(&mut registry, self, user, project, gate);
         }
+
         for tool in permissions::guard(
             tools,
             rules,
@@ -429,11 +449,14 @@ impl App {
                     registry.execute(&call, None, cancel).await
                 }
             };
+
             if let Some(stop) = Parked::from(&call.id, &result) {
                 parked = Some(stop);
                 break;
             }
+
             conversation.add(ConversationEntry::tool(&call.id, result.output()));
+
             if answer.is_some() {
                 if !result.is_success() {
                     failed_tools.insert(call.id.clone());
@@ -444,6 +467,7 @@ impl App {
                         success: result.is_success(),
                     });
                 }
+
                 live.push(RunEvent::ToolResult {
                     name: call.name,
                     call_id: call.id,
@@ -459,6 +483,7 @@ impl App {
         let Some(mut context) = cancel.run_until_cancelled(building_context).await else {
             return self.stopped_early(user, run, live).await;
         };
+
         if let Some((row, config)) = &research {
             let block = self.research_context(row, config).await?;
             context = Some(match context {
@@ -466,6 +491,7 @@ impl App {
                 None => block,
             });
         }
+
         if let Some(project) = &project {
             let Some(mut block) = cancel
                 .run_until_cancelled(project_turn::start(self, user, project))
@@ -478,6 +504,7 @@ impl App {
                 log::warn!("projects: unable to read the chat's thread: {error:#}");
                 None
             });
+
             if let Some(thread) = thread {
                 let reading = project_turn::thread_context(self, user, project, &thread);
                 let Some(read) = cancel.run_until_cancelled(reading).await else {
@@ -491,6 +518,7 @@ impl App {
                 None => block,
             });
         }
+
         timer.context_built(building.elapsed());
 
         let mut agent = Agent::builder(self.provider.clone())
@@ -533,6 +561,7 @@ impl App {
             descriptions.resize(attached.len(), None);
             images::described(&descriptions)
         };
+
         if !message.files.is_empty() {
             let handed: Vec<Handed> = message
                 .files
@@ -572,8 +601,10 @@ impl App {
         } else {
             None
         };
+
         if let Some(query) = query.filter(|query| !query.trim().is_empty()) {
             let query = clip(query, memory_context::MAX_CHARS);
+
             match timeout(MEMORY_RECALL_TIMEOUT, user.prompt_memories(&query)).await {
                 Ok(Ok(found)) => {
                     let fresh = memory_context::select(found, &recalled);
@@ -623,6 +654,7 @@ impl App {
             // When the second pass only adds a card, its text stays off the
             // phone and out of the transcript; this is when that pass began.
             let mut quiet_since = None;
+
             loop {
                 // Flashmind removes memory entries after each agent pass.
                 memory_context::restore(&mut conversation, &recalled, false);
@@ -647,6 +679,7 @@ impl App {
                     // of streaming the same sentence until the deadline.
                     let mut text_guard = RepeatGuard::default();
                     let mut reasoning_guard = RepeatGuard::default();
+
                     loop {
                         let event = tokio::select! {
                             biased;
@@ -668,9 +701,11 @@ impl App {
                                     cancel.cancel();
                                     break RunStatus::Looped;
                                 }
+
                                 if quiet_since.is_some() {
                                     continue;
                                 }
+
                                 said.push_str(&delta);
                                 timer.output(Output::Text);
                                 let delta = if mem::take(&mut after_tool)
@@ -689,6 +724,7 @@ impl App {
                                     cancel.cancel();
                                     break RunStatus::Looped;
                                 }
+
                                 timer.output(Output::Reasoning);
                                 thought.push_str(&delta);
                                 RunEvent::ReasoningDelta { delta }
@@ -719,9 +755,11 @@ impl App {
                             }) => {
                                 tools_running = tools_running.saturating_sub(1);
                                 sources.add(&name, &found);
+
                                 if tools_running == 0 {
                                     timer.tools_done();
                                 }
+
                                 if !success {
                                     failed_tools.insert(id.clone());
                                 }
@@ -802,6 +840,7 @@ impl App {
                         message: message.to_owned(),
                     });
                 }
+
                 if matches!(status, RunStatus::Cancelled | RunStatus::Interrupted) {
                     let restarted = status == RunStatus::Interrupted;
                     failed_tools.extend(keep_stopped(&mut conversation, said, thought, restarted));
@@ -810,6 +849,7 @@ impl App {
                 if let Some(since) = quiet_since {
                     drop_text_since(&mut conversation, since);
                 }
+
                 if checks_left == 0 || status != RunStatus::Completed || parked.is_some() {
                     break status;
                 }
@@ -831,18 +871,22 @@ impl App {
                 let Some(verdict) = verdict else {
                     break status;
                 };
+
                 if verdict.card_only() {
                     quiet_since = Some(Utc::now());
                 }
+
                 if verdict.unfinished() && continues < MAX_CONTINUES {
                     continues += 1;
                     checks_left = 1;
                 }
+
                 conversation.add(ConversationEntry::system_message(verdict.note));
             }
         };
 
         timer.streamed();
+
         if parked.is_some() && status == RunStatus::Completed {
             status = RunStatus::Waiting;
         }
@@ -863,11 +907,13 @@ impl App {
         // Pages go out before the run finishes so the streaming app shows them at once; a routine
         // shows only its notice, so it has none.
         let sources = (!notice_only && !sources.is_empty()).then(|| sources.to_wire());
+
         if let Some(sources) = &sources {
             live.push(RunEvent::Sources {
                 sources: sources.clone(),
             });
         }
+
         let told = notice_only
             .then(|| steps::routine_reply(conversation.entries(), Some(turn_started)))
             .flatten();
@@ -895,10 +941,12 @@ impl App {
         let turn_from = asked.map_or(turn_started, |entry| entry.timestamp);
         // What the turn did in the user's apps, so starters stop suggesting it.
         let actions = permissions::actions_since(&conversation, turn_from);
+
         if !actions.is_empty() {
             if let Err(error) = user.record_actions(&actions).await {
                 log::warn!("unable to record actions: {error}; run_id={}", run.id);
             }
+
             user.forget_starters().await;
         }
 
@@ -907,6 +955,7 @@ impl App {
         let mut memory_score = None;
         // Whether the user corrected the last turn's approach, worth a skill review now.
         let mut corrected = false;
+
         if status == RunStatus::Completed && !background {
             let generator = self.generator(user.id());
             let exchange = Exchange {
@@ -950,6 +999,7 @@ impl App {
             if let Some(probability) = scores.memory {
                 live.push(RunEvent::MemoryScore { probability });
             }
+
             let follow_up = follow_up.to_string();
             let replied = exchange.latest.reply.clone();
             // Follow-ups are written only with Jev set up.
@@ -965,6 +1015,7 @@ impl App {
                     Some(probability) if probability < MEMORY_THRESHOLD && !acted => Vec::new(),
                     _ => user.learn(generator, exchange, &known).await,
                 };
+
                 if let Some(probability) = scores.memory {
                     log::info!(
                         "memory score {probability:.2}, {} change(s); run_id={}",
@@ -972,6 +1023,7 @@ impl App {
                         run.id
                     );
                 }
+
                 learned
             };
             let (learned, follow_up) = tokio::join!(learning, follow_up);
@@ -994,15 +1046,18 @@ impl App {
                     output,
                 });
             }
+
             add_server_calls(&mut conversation, live, calls);
         }
 
         // Save the turn before clients see the run finish, so they can load it.
         // A stopped turn keeps its pictures rather than wait for their descriptions.
         let stopped = matches!(status, RunStatus::Cancelled | RunStatus::Interrupted);
+
         if let Some(task) = describing.take_if(|_| stopped) {
             task.abort();
         }
+
         if let Some(task) = describing {
             match task.await {
                 Ok(descriptions) => images::replace_with_descriptions(
@@ -1028,6 +1083,7 @@ impl App {
             failed: failed_tools,
             descriptions: live.tool_descriptions(),
         };
+
         if let Some(asked) = conversation
             .entries()
             .iter()
@@ -1084,6 +1140,7 @@ impl App {
                     .filter(|entry| entry.timestamp >= turn_started)
                     .for_each(|entry| chat_context.add(entry.clone()));
             }
+
             chat_context
         });
         // Keep facts in the saved context only while their stored values still
@@ -1091,9 +1148,11 @@ impl App {
         conversation.strip_memories();
         // Files tools showed the model are not saved; only a note stays.
         tool_attachments::drop_attachments(&mut conversation);
+
         if let Some(stored) = &mut stored {
             tool_attachments::drop_attachments(stored);
         }
+
         if !was_compacted && !recalled.is_empty() {
             match timeout(MEMORY_RECALL_TIMEOUT, user.memory_rows()).await {
                 Ok(Ok(rows)) => {
@@ -1103,6 +1162,7 @@ impl App {
                 _ => log::warn!("unable to save recalled memories; user={user}"),
             }
         }
+
         let turn = FinishedTurn {
             context: stored.as_ref().unwrap_or(&conversation),
             prompt_tokens: stored.is_none().then_some(prompt_tokens),
@@ -1118,6 +1178,7 @@ impl App {
         // The pictures stay with the message they came with, so every device
         // shows them after the model only keeps their descriptions.
         let opened = finished.and_then(|saved| saved.opened);
+
         if let Some(turn) = finished.and_then(|saved| saved.turn)
             && let Some(sources) = &sources
         {
@@ -1129,6 +1190,7 @@ impl App {
                 ),
             }
         }
+
         if let Some(opened) = opened
             && !message.images.is_empty()
         {
@@ -1136,6 +1198,7 @@ impl App {
                 chat,
                 message: opened,
             };
+
             match user
                 .save_pictures(of, &images::pictures(&message.images))
                 .await
@@ -1155,6 +1218,7 @@ impl App {
                 chat,
                 message: opened,
             };
+
             match user.mark_spoken(of).await {
                 Ok(()) => user.changed(&run.session_id),
                 Err(error) => log::warn!(
@@ -1163,6 +1227,7 @@ impl App {
                 ),
             }
         }
+
         if let Some(opened) = opened
             && !message.files.is_empty()
         {
@@ -1170,6 +1235,7 @@ impl App {
                 chat,
                 message: opened,
             };
+
             match user.save_attachments(of, &message.files).await {
                 Ok(()) => user.changed(&run.session_id),
                 Err(error) => log::warn!(
@@ -1188,6 +1254,7 @@ impl App {
             );
             self.count_for_skills(user, chat, calls, corrected);
         }
+
         self.compact_after_turn(
             SessionRef {
                 user: user.id().to_owned(),
@@ -1205,6 +1272,7 @@ impl App {
         if let Some(parked) = parked {
             self.park(user, run, live, parked);
         }
+
         live.push(RunEvent::RunFinished {
             status: status.as_ref().to_owned(),
             updated_at: finished.map(|saved| SystemTime::from(saved.updated_at)),
@@ -1225,6 +1293,7 @@ impl App {
         if background && !matches!(status, RunStatus::Waiting | RunStatus::Interrupted) {
             self.watchers.task_ended(user.id(), chat);
         }
+
         if let Some(woken) = &message.woken {
             let finished = wake::Finished {
                 label: &woken.label,
@@ -1235,6 +1304,7 @@ impl App {
             };
             wake::finish(self, user, run, finished).await;
         }
+
         Ok(())
     }
 

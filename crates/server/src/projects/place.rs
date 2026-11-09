@@ -114,6 +114,7 @@ pub(crate) fn place(request: &PlaceRequest<'_>, fits: &[MachineFit]) -> Result<u
             }),
         };
     }
+
     if let Some(pin) = request.pin
         && let Some(at) = fits
             .iter()
@@ -121,6 +122,7 @@ pub(crate) fn place(request: &PlaceRequest<'_>, fits: &[MachineFit]) -> Result<u
     {
         return Ok(at);
     }
+
     let best = fits
         .iter()
         .enumerate()
@@ -129,6 +131,7 @@ pub(crate) fn place(request: &PlaceRequest<'_>, fits: &[MachineFit]) -> Result<u
     if let Some((at, _)) = best {
         return Ok(at);
     }
+
     if request.needs.is_empty() {
         return Err(PlaceError::NoneFree);
     }
@@ -145,9 +148,11 @@ pub(crate) fn place(request: &PlaceRequest<'_>, fits: &[MachineFit]) -> Result<u
             name: fit.name.clone(),
         });
     }
+
     if covering.is_empty() {
         return Err(PlaceError::NoneCovers(request.needs.to_vec()));
     }
+
     covering
         .iter()
         .find_map(|fit| match fit.unfit() {

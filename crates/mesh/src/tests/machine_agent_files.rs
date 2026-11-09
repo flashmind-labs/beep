@@ -69,9 +69,11 @@ fn a_file_over_the_limit_is_refused_not_cut() {
 #[test]
 fn the_windows_read_script_lists_every_file_and_reads_past_the_limit() {
     let script = read_script_windows();
+
     for (_, rel) in AGENT_FILES {
         assert!(script.contains(&format!("'{rel}'")));
     }
+
     assert!(script.contains(&format!("byte[] {}", MAX_FILE + 1)));
     assert!(script.contains("Join-Path $HOME"));
     assert!(!script.contains("&&"));

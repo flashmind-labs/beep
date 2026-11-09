@@ -81,9 +81,11 @@ pub async fn read(client: &PeerClient) -> Result<Vec<ReadFile>, MeshError> {
         read_script()
     };
     let ran = exec(client, &script, LIMIT).await?;
+
     if ran.exit_code != Some(0) {
         return Err(said("its shell could not read the agent files"));
     }
+
     parse_read(&ran.output).map_err(|e| said(format!("{e:#}")))
 }
 
@@ -92,6 +94,7 @@ pub async fn write(client: &PeerClient, files: &[ReadFile], text: &str) -> Resul
     if on_windows(client).await? {
         return run_write(client, write_script_windows(files, text)).await;
     }
+
     run_write(client, write_script(files, text)).await
 }
 
@@ -100,13 +103,16 @@ async fn run_write(client: &PeerClient, script: String) -> Result<(), MeshError>
     if script.is_empty() {
         return Ok(());
     }
+
     let ran = exec(client, &script, LIMIT).await?;
+
     if ran.exit_code != Some(0) {
         return Err(said(format!(
             "writing the agent files failed: {}",
             ran.output.trim()
         )));
     }
+
     Ok(())
 }
 
@@ -160,6 +166,7 @@ fn read_script_windows() -> String {
 
 fn parse_read(output: &str) -> anyhow::Result<Vec<ReadFile>> {
     let mut files = Vec::new();
+
     for line in output.lines() {
         let Some(rest) = line.trim_end().strip_prefix("@@ ") else {
             continue;
@@ -183,6 +190,7 @@ fn parse_read(output: &str) -> anyhow::Result<Vec<ReadFile>> {
                         MAX_FILE / 1024
                     );
                 }
+
                 Some(String::from_utf8_lossy(&bytes).into_owned())
             }
             "0" => None,
@@ -190,9 +198,11 @@ fn parse_read(output: &str) -> anyhow::Result<Vec<ReadFile>> {
         };
         files.push(ReadFile { agent, rel, text });
     }
+
     if files.is_empty() && !output.contains("@@ ") {
         anyhow::bail!("its shell did not answer as expected");
     }
+
     Ok(files)
 }
 
@@ -215,12 +225,14 @@ fn block(text: &str) -> String {
 fn merged(file: Option<&str>, text: &str) -> String {
     let block = block(text);
     let file = file.unwrap_or_default();
+
     if let Some(start) = file.find(START)
         && let Some(len) = file[start..].find(END)
     {
         let end = start + len + END.len();
         return format!("{}{block}{}", &file[..start], &file[end..]);
     }
+
     let kept = file.trim_end();
     if kept.is_empty() {
         format!("{block}\n")
@@ -264,6 +276,7 @@ fn write_script_windows(files: &[ReadFile], text: &str) -> String {
     if steps.is_empty() {
         return String::new();
     }
+
     format!(
         "$ErrorActionPreference = 'Stop'; try {{ {} }} catch {{ Write-Output $_.Exception.Message; exit 1 }}",
         steps.join("; ")

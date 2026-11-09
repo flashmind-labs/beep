@@ -13,6 +13,7 @@ const past = { ...session, id: "past-session", title: "Past session", status: "e
 const { server, origin } = await serve(fileURLToPath(new URL("../../dist", import.meta.url)));
 const kind = process.argv[2] || "webkit";
 const browser = await playwright()[kind].launch({ executablePath: kind === "webkit" ? process.env.WEBKIT_BIN : process.env.CHROMIUM_BIN });
+
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.setDefaultTimeout(8000);
@@ -25,6 +26,7 @@ try {
         window.__sync = () => args.onEvent.onmessage({ machine_id: session.machine_id, topic: "sync.*", revision: ++window.__revision });
         return new Promise(() => {});
       }
+
       if (cmd === "project_machines") return [{ id: session.machine_id, name: "build-box", online: true, folder: session.cwd, checking: false, checked_at: 0 }];
       if (cmd === "project_syncthing" || cmd === "project_git_state" || cmd === "editors") return [];
       if (cmd === "project_sessions") return [session, past];
@@ -78,6 +80,7 @@ try {
     await page.keyboard.press("Escape");
     await row.waitFor();
   }
+
   assert.deepEqual(await page.evaluate(() => window.__errors.filter(e => e !== "ResizeObserver loop completed with undelivered notifications.")), []);
   console.log(`Passed (${kind}): running and past sessions open on the first click across sync updates.`);
 } finally {

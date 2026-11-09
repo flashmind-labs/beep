@@ -38,6 +38,7 @@ pub(super) async fn load(user: &User) -> anyhow::Result<Vec<Project>> {
         .collect();
     let imports = user.imports().await?;
     let mut projects = Vec::new();
+
     for row in user.projects().await? {
         let name = row.name.to_string();
         let mut url = None;
@@ -48,6 +49,7 @@ pub(super) async fn load(user: &User) -> anyhow::Result<Vec<Project>> {
             .filter(|import| import.project.eq_ignore_ascii_case(&name))
         {
             url.get_or_insert_with(|| import.url.clone());
+
             if let Some(machine) = machines.get(&import.endpoint) {
                 places.push(Place {
                     machine: machine.clone(),
@@ -56,6 +58,7 @@ pub(super) async fn load(user: &User) -> anyhow::Result<Vec<Project>> {
                 });
             }
         }
+
         for checkout in user.checkouts(row.id).await? {
             let endpoint = checkout.machine.to_string();
             let Some(machine) = machines.get(&endpoint) else {
@@ -70,6 +73,7 @@ pub(super) async fn load(user: &User) -> anyhow::Result<Vec<Project>> {
                 places.push(place);
             }
         }
+
         places.sort_by(|a, b| a.machine.cmp(&b.machine).then(a.folder.cmp(&b.folder)));
         let tasks = user
             .project_tasks(row.id)
@@ -84,6 +88,7 @@ pub(super) async fn load(user: &User) -> anyhow::Result<Vec<Project>> {
             tasks,
         });
     }
+
     Ok(projects)
 }
 
@@ -109,6 +114,7 @@ pub(super) async fn git_items(app: &App, user: &User) -> (Vec<GitItem>, Vec<Stri
             return (Vec::new(), vec!["PRs and issues could not be read.".into()]);
         }
     };
+
     if logins.is_empty() {
         return (
             Vec::new(),
@@ -119,6 +125,7 @@ pub(super) async fn git_items(app: &App, user: &User) -> (Vec<GitItem>, Vec<Stri
             ],
         );
     }
+
     match app.git_items.list(user.id(), logins).await {
         Ok(listed) => {
             let listed = listed.found;

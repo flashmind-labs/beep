@@ -39,6 +39,7 @@ test("native show and hide events override stale WebKit visibility and focus", (
 test("interaction resumes a session even while WebKit reports hidden and unfocused", () => {
   focused = false;
   visibility = "hidden";
+
   for (const name of ["focus", "keydown", "pointerdown"]) {
     native.get("center-hidden")!();
     events.dispatchEvent(new Event(name));

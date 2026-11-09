@@ -36,6 +36,7 @@ impl LlmProvider for SummaryStub {
 
 fn long_chat() -> Conversation {
     let mut chat = Conversation::with_system("system");
+
     for turn in 0..4 {
         chat.add(ConversationEntry::user(format!(
             "turn {turn} {}",
@@ -43,6 +44,7 @@ fn long_chat() -> Conversation {
         )));
         chat.add(ConversationEntry::assistant(format!("reply {turn}")));
     }
+
     chat
 }
 

@@ -69,6 +69,7 @@ fn labels(t: &Timing) -> Option<(&'static str, &'static str, &'static str)> {
     if !t.ms.is_finite() || !(0.0..=600_000.0).contains(&t.ms) {
         return None;
     }
+
     let outcome = match t.outcome.as_str() {
         "ok" => "ok",
         "error" => "error",
@@ -99,6 +100,7 @@ pub(crate) fn desktop_timings(samples: Vec<Timing>) {
         } else {
             1000.0
         };
+
         if sample.ms >= slow {
             log::info!("desktop {kind} {name} took {:.0} ms ({outcome})", sample.ms);
         }

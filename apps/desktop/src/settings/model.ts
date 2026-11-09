@@ -49,13 +49,16 @@ export async function loadModels() {
   } catch {
     return;
   }
+
   refreshHints();
   if (!canPickModel()) return;
+
   try {
     takeAgents(await invoke<Agents>("get_agents"));
   } catch {
     return;
   }
+
   if (S.view === "model") drawModel();
 }
 function takeAgents(agents: Agents) {
@@ -113,6 +116,7 @@ async function change<T>(command: string, args: Record<string, unknown>, take: (
     if (err) err.textContent = String(e);
     return;
   }
+
   if (S.view === "model") drawModel();
 }
 function changeModel(command: string, args: Record<string, unknown>) {
@@ -132,10 +136,12 @@ export function modelKeys(e: KeyboardEvent) {
   const m = MODELS.info!;
   if (MODELS.agents && m.auto_available && m.auto) return;
   const n = m.choices.length;
+
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();
     MODELS.sel = (MODELS.sel + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
     return drawModel();
   }
+
   if (e.key === "Enter") { e.preventDefault(); return pickModel(); }
 }

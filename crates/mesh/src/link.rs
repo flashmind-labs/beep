@@ -70,12 +70,14 @@ pub(crate) async fn serve(inner: Arc<Inner>, conn: Connection, dialer: EndpointI
     } else {
         tracing::info!(peer = %peer.fmt_short(), connection = conn.stable_id(), "mesh link ended");
     }
+
     metrics::histogram!("beep_mesh_link_seconds").record(started.elapsed().as_secs_f64());
     unregister(&inner, &conn, peer);
 }
 
 fn unregister(inner: &Inner, conn: &Connection, peer: EndpointId) {
     let mut conns = inner.conns();
+
     if conns
         .get(&peer)
         .is_some_and(|l| l.conn.stable_id() == conn.stable_id())
@@ -83,6 +85,7 @@ fn unregister(inner: &Inner, conn: &Connection, peer: EndpointId) {
         conns.remove(&peer);
         inner.last_seen().insert(peer, SystemTime::now());
     }
+
     drop(conns);
     inner.bump();
 }
@@ -105,11 +108,13 @@ pub(crate) async fn tell_removed(inner: &Inner, conn: Connection) {
         timeout(FLUSH, conn.closed()).await.ok();
         Ok::<(), MeshError>(())
     };
+
     match timeout(SETUP, work).await {
         Ok(Ok(())) => {}
         Ok(Err(e)) => debug!("could not tell a removed device: {e}"),
         Err(_) => debug!("telling a removed device timed out"),
     }
+
     conn.close(1u32.into(), b"removed");
 }
 
@@ -127,18 +132,21 @@ fn register(
     session: u64,
 ) -> Option<Arc<Notify>> {
     let mut conns = inner.conns();
+
     if let Some(old) = conns.get(&peer)
         && old.conn.close_reason().is_none()
     {
         if old.session == session && old.dialer < who.0 {
             return None;
         }
+
         if old.session == session {
             old.retire.notify_one();
         } else {
             old.conn.close(3u32.into(), b"duplicate");
         }
     }
+
     let retire = Arc::new(Notify::new());
     conns.insert(
         peer,
@@ -208,9 +216,11 @@ async fn run(
     // removal still cuts it, through `retired`.
     inner.retired().insert(conn.stable_id(), conn.clone());
     unregister(inner, conn, peer);
+
     if !inner.is_member(inner.me) || !inner.is_member(peer) {
         conn.close(2u32.into(), b"removed");
     }
+
     over.send(true).ok();
     while app.join_next().await.is_some() {}
     inner.retired().remove(&conn.stable_id());
@@ -282,12 +292,14 @@ async fn read(
     known: Known,
 ) -> Result<(), MeshError> {
     let mut refused = 0;
+
     while let Some(frame) = recv.recv::<Frame>().await? {
         match frame {
             Frame::Hello { .. } => return Err(wire::net("a second hello")),
             Frame::Addrs(addrs) => inner.learn(addrs, peer).await,
             Frame::Ops(ops) => {
                 let merged = inner.store.run(move |core| core.merge(&ops)).await?;
+
                 if !merged.rejected.is_empty() {
                     debug!("refused {} device ops from a peer", merged.rejected.len());
                     refused += merged.rejected.len();
@@ -296,12 +308,14 @@ async fn read(
             Frame::Entries(entries) => {
                 {
                     let mut known = known.lock().unwrap_or_else(PoisonError::into_inner);
+
                     for e in &entries {
                         let head = known.entry(e.origin).or_insert(0);
                         *head = (*head).max(e.seq);
                     }
                 }
                 let applied = inner.store.run(move |core| core.apply(entries)).await?;
+
                 if !applied.refused.is_empty() {
                     warn!(
                         "refused entries from a peer in {} batches",
@@ -309,6 +323,7 @@ async fn read(
                     );
                     refused += applied.refused.len();
                 }
+
                 for key in applied.changed {
                     // No receiver is a normal state.
                     inner.changes.send(key).ok();
@@ -319,11 +334,13 @@ async fn read(
                 return Ok(());
             }
         }
+
         if refused >= MAX_REFUSED {
             conn.close(1u32.into(), b"too many refused items");
             return Err(wire::net("too many refused items"));
         }
     }
+
     Ok(())
 }
 
@@ -331,6 +348,7 @@ async fn send_ops(send: &mut SendStream, ops: &[DeviceOp]) -> Result<(), MeshErr
     for chunk in ops.chunks(OPS_PER_FRAME) {
         wire::send(send, &Frame::Ops(chunk.to_vec())).await?;
     }
+
     Ok(())
 }
 
@@ -342,14 +360,17 @@ async fn send_entries(
 ) -> Result<(), MeshError> {
     let mut page = Vec::new();
     let mut bytes = 0;
+
     for entry in entries {
         bytes += rmp_serde::to_vec(&entry)?.len();
         page.push(entry);
+
         if page.len() >= ENTRIES_PER_FRAME || bytes >= BYTES_PER_FRAME {
             flush(send, &mut page, known).await?;
             bytes = 0;
         }
     }
+
     flush(send, &mut page, known).await
 }
 
@@ -361,9 +382,11 @@ async fn flush(
     if page.is_empty() {
         return Ok(());
     }
+
     let page = take(page);
     {
         let mut known = known.lock().unwrap_or_else(PoisonError::into_inner);
+
         for e in &page {
             let head = known.entry(e.origin).or_insert(0);
             *head = (*head).max(e.seq);
@@ -386,18 +409,22 @@ async fn write(
     let ops = inner.store.run(|core| Ok(core.ops())).await?;
     let mut sent_ops = ops.len();
     send_ops(&mut send, &ops).await?;
+
     loop {
         rev.borrow_and_update();
         let view = inner.view();
         let ops = view.devices.ops();
+
         if sent_ops < ops.len() {
             send_ops(&mut send, &ops[sent_ops..]).await?;
             sent_ops = ops.len();
         }
+
         if !view.devices.is_member(inner.me) {
             conn.close(2u32.into(), b"removed");
             return Ok(());
         }
+
         if !view.devices.is_member(peer) {
             // The peer closes once it has read the news; a close sooner
             // would discard what it has not read. A peer that stalls is
@@ -412,6 +439,7 @@ async fn write(
             conn.close(2u32.into(), b"removed");
             return Ok(());
         }
+
         let fresh: Vec<_> = inner
             .addr_list()
             .into_iter()
@@ -421,9 +449,11 @@ async fn write(
             sent_addrs.extend(fresh.iter().map(|n| (n.addr.id, n.clone())));
             wire::send(&mut send, &Frame::Addrs(fresh)).await?;
         }
+
         let theirs = known.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let entries = inner.store.run(move |core| Ok(core.since(&theirs))).await?;
         send_entries(&mut send, entries, &known).await?;
+
         if rev.changed().await.is_err() {
             return Ok(());
         }
@@ -443,13 +473,16 @@ async fn streams(
     let permits = Arc::new(Semaphore::new(MAX_STREAMS));
     let mut running = JoinSet::new();
     let mut until: Option<Instant> = None;
+
     loop {
         if until.is_none() && *over.borrow() {
             until = Some(Instant::now() + DRAIN);
         }
+
         if until.is_some_and(|t| running.is_empty() && Instant::now() >= t) {
             return Ok(());
         }
+
         tokio::select! {
             accepted = conn.accept_bi() => {
                 let (mut send, mut recv) = accepted.map_err(wire::net)?;
@@ -478,6 +511,7 @@ async fn streams(
                 {
                     warn!("a peer stream task failed: {e}");
                 }
+
                 if until.is_some() {
                     until = Some(Instant::now() + LINGER);
                 }

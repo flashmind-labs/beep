@@ -8,6 +8,7 @@ fn signed_message_changes_with_body_and_time() {
     assert_ne!(a, b);
     assert_ne!(a, later);
     assert_ne!(b, later);
+
     for message in [&a, &b, &later] {
         assert!(message.starts_with(b"beep-report/1\0"));
     }

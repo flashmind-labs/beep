@@ -64,17 +64,23 @@ impl FromStr for Key {
 
     fn from_str(s: &str) -> Result<Self, MeshError> {
         let bad = || MeshError::BadKey(s.to_owned());
+
         if s == "flsh" {
             return Ok(Key::Flsh);
         }
+
         if s == "skills/sync" {
             return Ok(Key::SkillSync);
         }
+
         let (kind, name) = s.split_once('/').ok_or_else(bad)?;
+
         if name.is_empty() {
             return Err(bad());
         }
+
         let name = name.to_owned();
+
         match kind {
             "project" => Ok(Key::Project(name)),
             "sync" => Ok(Key::Sync(name)),

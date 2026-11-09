@@ -105,12 +105,14 @@ function cite(o: Open, html: string) {
   const walk = document.createTreeWalker(t.content, NodeFilter.SHOW_TEXT);
   const texts: Text[] = [];
   while (walk.nextNode()) if (!walk.currentNode.parentElement?.closest("a, code, pre")) texts.push(walk.currentNode as Text);
+
   for (const node of texts) {
     if (!/\[\d+(?:\s*,\s*\d+)*\]/.test(node.data)) continue;
     const span = document.createElement("span");
     span.innerHTML = esc(node.data).replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (_, list: string) => sup(o, list.split(",").map(Number)));
     node.replaceWith(...span.childNodes);
   }
+
   return t.innerHTML;
 }
 
@@ -178,12 +180,14 @@ function threadHtml(o: Open, a: Agent) {
   const mine = o.entries.filter(e => e.agent === a.id || (e.kind === "said" && e.to === a.id));
   let html = "", steps: string[] = [];
   const flush = () => { if (steps.length) html += `<div class="dsteps">${steps.join("")}</div>`; steps = []; };
+
   for (const e of mine) {
     if (e.kind === "step" && e.agent === a.id) {
       steps.push(`<div class="dstep"><span class="s">${e.success ? ok() : `<span class="dbad">${ICON.x}</span>`}</span><span>${esc(e.label)}</span></div>`);
     } else if (e.kind === "said") { flush(); html += msgHtml(o, e); }
     else if (e.kind === "note") { flush(); html += noteHtml(o, e, "Note"); }
   }
+
   flush();
   const [now, st] = doing(o, a.id);
   if (st === "run") html += `<div class="dsteps"><div class="dstep run"><span class="s"><span class="dspin"></span></span><span>${esc(now)}</span></div></div>`;

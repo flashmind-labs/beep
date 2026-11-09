@@ -271,6 +271,7 @@ mod lenient {
                 Choice::Struct { x: 5 },
             ),
         ];
+
         for (sent, expect) in cases {
             let bytes = rmp_serde::to_vec(&newer(sent)).expect("encodes");
             assert_eq!(from_slice::<Older>(&bytes).expect("decodes"), older(expect));
@@ -287,12 +288,14 @@ mod lenient {
         }
         let named = rmp_serde::to_vec_named(&Inner { a: 4 }).expect("encodes");
         let compact = rmp_serde::to_vec(&Inner { a: 4 }).expect("encodes");
+
         for bytes in [named, compact] {
             assert_eq!(
                 from_slice::<Grown>(&bytes).expect("decodes"),
                 Grown { a: 4, b: 0 }
             );
         }
+
         let unknown_key = rmp_serde::to_vec_named(&NewerInner { a: 1, added: 2 }).expect("encodes");
         assert_eq!(
             from_slice::<Inner>(&unknown_key).expect("decodes"),
@@ -528,12 +531,14 @@ mod agents {
         #[test]
         fn sorts_and_quantizations_spell_as_flsh_does() {
             use strum::VariantArray;
+
             for q in FlshQuantization::VARIANTS {
                 let text: &str = q.into();
                 let wire = rmp_serde::to_vec(q).expect("encodes");
                 assert_eq!(wire, rmp_serde::to_vec(text).expect("encodes"));
                 assert_eq!(text.parse::<FlshQuantization>().ok(), Some(*q));
             }
+
             assert!("fp7".parse::<FlshQuantization>().is_err());
             // flsh's own enum reads what Beep writes.
             for sort in FlshSort::VARIANTS {
@@ -567,6 +572,7 @@ mod agents {
                 assert!(written.starts_with("agent:"), "{written}");
                 assert_eq!(written.parse::<AgentNoticeKey>(), Ok(key(question)));
             }
+
             assert_eq!(
                 key(Some(7)).to_string(),
                 "agent:7:ab12:claude:a3f9c1:build-box: lab"

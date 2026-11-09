@@ -83,9 +83,11 @@ impl Store {
         .bind(grant.expires_at)
         .fetch_optional(&self.pool)
         .await?;
+
         if let Some(id) = inserted {
             return Ok(id);
         }
+
         Ok(
             sqlx::query_scalar("SELECT id FROM grants WHERE user_id=$1 AND call_id=$2")
                 .bind(user.as_ref())
@@ -158,6 +160,7 @@ impl Store {
             tx.rollback().await?;
             return Ok(false);
         }
+
         let inserted = sqlx::query(
             "INSERT INTO grant_uses (grant_id, run_id, call_id) VALUES ($1, $2, $3)
              ON CONFLICT DO NOTHING",

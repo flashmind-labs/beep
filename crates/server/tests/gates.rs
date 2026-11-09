@@ -202,6 +202,7 @@ async fn gate_evals() {
     });
     let verdicts = join_all(reviews).await;
     let mut failed = 0;
+
     for (case, verdict) in cases.iter().zip(&verdicts) {
         let got = verdict
             .as_ref()
@@ -215,5 +216,6 @@ async fn gate_evals() {
         );
         failed += usize::from(!pass);
     }
+
     assert_eq!(failed, 0, "{failed} of {} gate evals failed", cases.len());
 }

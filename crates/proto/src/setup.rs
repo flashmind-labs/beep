@@ -70,9 +70,11 @@ impl SetupToken {
     pub fn parse(text: &str) -> Result<Self, TokenError> {
         let text = text.trim();
         let prefix = text.get(..PREFIX.len()).ok_or(TokenError::Malformed)?;
+
         if !prefix.eq_ignore_ascii_case(PREFIX) {
             return Err(TokenError::Malformed);
         }
+
         let digits: Vec<u8> = text[PREFIX.len()..]
             .chars()
             .filter(|c| !c.is_whitespace() && *c != '-')
@@ -82,12 +84,15 @@ impl SetupToken {
         if digits.len() != TEXT_LEN {
             return Err(TokenError::Malformed);
         }
+
         let body = decode(&digits);
         let (key, rest) = body.split_at(32);
         let (secret, check) = rest.split_at(SECRET_LEN);
+
         if check != checksum(key, secret) {
             return Err(TokenError::BadCheck);
         }
+
         let key: [u8; 32] = key.try_into().map_err(|_| TokenError::Malformed)?;
         let server = EndpointId::from_bytes(&key).map_err(|_| TokenError::BadServer)?;
         let secret = secret.try_into().map_err(|_| TokenError::Malformed)?;
@@ -107,12 +112,15 @@ impl fmt::Display for SetupToken {
         body.extend_from_slice(&self.secret);
         body.extend_from_slice(&checksum(self.server.as_bytes(), &self.secret));
         f.write_str(PREFIX)?;
+
         for (i, chunk) in encode(&body).chunks(GROUP).enumerate() {
             if i > 0 {
                 f.write_str("-")?;
             }
+
             f.write_str(std::str::from_utf8(chunk).map_err(|_| fmt::Error)?)?;
         }
+
         Ok(())
     }
 }
@@ -154,15 +162,18 @@ fn encode(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len() * 8 / 5);
     let mut buffer: u16 = 0;
     let mut bits = 0;
+
     for &byte in bytes {
         buffer = (buffer << 8) | u16::from(byte);
         bits += 8;
+
         while bits >= 5 {
             bits -= 5;
             out.push(ALPHABET[usize::from((buffer >> bits) & 31)]);
         }
         buffer &= (1 << bits) - 1;
     }
+
     out
 }
 
@@ -172,6 +183,7 @@ fn decode(digits: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(digits.len() * 5 / 8);
     let mut buffer: u16 = 0;
     let mut bits = 0;
+
     for &d in digits {
         buffer = (buffer << 5) | u16::from(d);
         bits += 5;
@@ -181,6 +193,7 @@ fn decode(digits: &[u8]) -> Vec<u8> {
         }
         buffer &= (1 << bits) - 1;
     }
+
     out
 }
 

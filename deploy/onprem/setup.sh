@@ -12,6 +12,7 @@ set -eu
 cd "$(dirname "$0")"
 
 admin=${BEEP_ADMIN:-0}
+
 for arg in "$@"; do
     case "$arg" in
         --admin) admin=1 ;;
@@ -21,6 +22,7 @@ for arg in "$@"; do
 done
 
 interactive=0
+
 if [ -t 0 ] && [ "${BEEP_SETUP_NONINTERACTIVE:-0}" != 1 ]; then
     interactive=1
 fi
@@ -68,6 +70,7 @@ for key in $(sed -n 's/^\([A-Z][A-Z0-9_]*\)=.*/\1/p' .env.example); do
 done
 
 [ -n "$(get POSTGRES_PASSWORD)" ] || put POSTGRES_PASSWORD "$(secret)"
+
 if [ "$admin" = 1 ]; then
     put BEEP_EGRESS_LIMIT unlimited
 elif [ -z "$(get BEEP_EGRESS_LIMIT)" ]; then
@@ -94,12 +97,16 @@ fi
 docker compose up -d
 # The server makes its key on first start; the link code needs it.
 tries=0
+
 until docker compose exec -T server test -s /data/iroh-key 2> /dev/null; do
     tries=$((tries + 1))
+
     if [ "$tries" -gt 60 ]; then
         echo "The server did not start; see: docker compose logs server" >&2
         exit 1
     fi
+
     sleep 1
 done
+
 docker compose exec -T -u beep server beep-server link /data/config.toml

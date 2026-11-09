@@ -88,6 +88,7 @@ fn add(settings: &mut Value, command: &str) -> Result<Vec<&'static str>> {
     if settings.is_null() {
         *settings = Value::Object(Map::new());
     }
+
     let Some(root) = settings.as_object_mut() else {
         bail!("the settings file is not a JSON object");
     };
@@ -98,6 +99,7 @@ fn add(settings: &mut Value, command: &str) -> Result<Vec<&'static str>> {
         bail!("`hooks` in the settings is not an object");
     };
     let mut added = Vec::new();
+
     for &(event, waited) in EVENTS {
         let wanted = handler(command, waited);
         let groups = hooks
@@ -115,11 +117,13 @@ fn add(settings: &mut Value, command: &str) -> Result<Vec<&'static str>> {
             .filter(|handler| is_ours(handler));
         for handler in ours {
             present = true;
+
             if *handler != wanted {
                 *handler = wanted.clone();
                 changed = true;
             }
         }
+
         if !present {
             groups.push(json!({ "hooks": [wanted] }));
             changed = true;
@@ -128,6 +132,7 @@ fn add(settings: &mut Value, command: &str) -> Result<Vec<&'static str>> {
             added.push(event);
         }
     }
+
     Ok(added)
 }
 
@@ -156,10 +161,12 @@ fn remove_matching(settings: &mut Value, matches: impl Fn(&Value) -> bool) -> us
         return 0;
     };
     let mut removed = 0;
+
     for (event, _) in EVENTS {
         let Some(groups) = hooks.get_mut(*event).and_then(Value::as_array_mut) else {
             continue;
         };
+
         for group in groups.iter_mut() {
             if let Some(handlers) = group.get_mut("hooks").and_then(Value::as_array_mut) {
                 let before = handlers.len();
@@ -167,16 +174,20 @@ fn remove_matching(settings: &mut Value, matches: impl Fn(&Value) -> bool) -> us
                 removed += before - handlers.len();
             }
         }
+
         groups.retain(|group| group["hooks"].as_array().is_none_or(|h| !h.is_empty()));
+
         if groups.is_empty() {
             hooks.remove(*event);
         }
     }
+
     if hooks.is_empty()
         && let Some(root) = settings.as_object_mut()
     {
         root.remove("hooks");
     }
+
     removed
 }
 
@@ -218,6 +229,7 @@ fn write_settings(path: &Path, settings: &Value) -> Result<Option<PathBuf>> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
+
         None
     };
     let temp = path.with_extension("json.beep-tmp");
@@ -233,12 +245,14 @@ fn write_settings(path: &Path, settings: &Value) -> Result<Option<PathBuf>> {
 pub fn install(settings_path: &Path, command: &str) -> Result<String> {
     let mut settings = read_settings(settings_path)?;
     let added = add(&mut settings, command)?;
+
     if added.is_empty() {
         return Ok(format!(
             "The hooks are already in {}; nothing changed.",
             settings_path.display()
         ));
     }
+
     let backup = write_settings(settings_path, &settings)?;
     let mut out = format!(
         "Added to {}, under \"hooks\", for {}: {command}\nClaude Code waits for it, at most \
@@ -246,12 +260,14 @@ pub fn install(settings_path: &Path, command: &str) -> Result<String> {
         settings_path.display(),
         added.join(", "),
     );
+
     if let Some(backup) = backup {
         out.push_str(&format!(
             "The file was rewritten with its keys sorted; the old one is at {}.\n",
             backup.display()
         ));
     }
+
     out.push_str(
         "Claude Code reads hooks when a session starts, so sessions open now pick them up \
          once restarted. Remove them with `beep-node hooks uninstall`.",
@@ -263,20 +279,24 @@ pub fn install(settings_path: &Path, command: &str) -> Result<String> {
 pub fn uninstall(settings_path: &Path) -> Result<String> {
     let mut settings = read_settings(settings_path)?;
     let removed = remove(&mut settings);
+
     if removed == 0 {
         return Ok(format!(
             "No beep-node hooks in {}; nothing changed.",
             settings_path.display()
         ));
     }
+
     let backup = write_settings(settings_path, &settings)?;
     let mut out = format!(
         "Removed {removed} beep-node hooks from {}.",
         settings_path.display()
     );
+
     if let Some(backup) = backup {
         out.push_str(&format!(" The old file is at {}.", backup.display()));
     }
+
     Ok(out)
 }
 
@@ -412,9 +432,11 @@ impl HookMessage {
             HookEvent::Stop => ActivityKind::TurnDone,
             HookEvent::Notification => {
                 let kind = self.notification_type.as_deref()?;
+
                 if !WAITING.contains(&kind) {
                     return None;
                 }
+
                 ActivityKind::NeedsInput
             }
             HookEvent::SessionStart => ActivityKind::Started,
@@ -470,6 +492,7 @@ fn todo(item: &Value) -> Option<PlanEntry> {
 /// node that is not running never holds Claude Code up.
 pub async fn forward(dir: &Path) {
     let mut input = String::new();
+
     if std::io::stdin()
         .take(MAX_INPUT)
         .read_to_string(&mut input)
@@ -477,15 +500,18 @@ pub async fn forward(dir: &Path) {
     {
         return;
     }
+
     let Some(message) = serde_json::from_str(&input)
         .ok()
         .and_then(|input: Value| HookMessage::try_from(&input).ok())
     else {
         return;
     };
+
     match send(&socket_path(dir), &message).await {
         Ok(answer) if !answer.is_empty() => {
             let mut out = std::io::stdout().lock();
+
             if let Err(e) = out.write_all(answer.as_bytes()).and_then(|()| out.flush()) {
                 log::debug!("could not hand Claude Code the node's answer: {e}");
             }

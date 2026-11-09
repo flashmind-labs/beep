@@ -19,10 +19,12 @@ function parse(value: Topic): Parsed | null {
   const wildcard = parts.length === 1 || parts.at(-1) === "*";
   if (parts.at(-1) === "*") parts.pop();
   let decoded: string[];
+
   try {
     if (parts.some(part => !/^[A-Za-z0-9_~%\-]+$/.test(part))) return null;
     decoded = parts.map(part => decodeURIComponent(part));
   } catch { return null; }
+
   const [name, ...scope] = decoded;
   if (!name || name.length > 128 || !/^[A-Za-z0-9._/\-]+$/.test(name)
     || scope.some(part => !part.length || part.includes("\0")) || utf8.encode(scope.join(".")).length > 4096) return null;

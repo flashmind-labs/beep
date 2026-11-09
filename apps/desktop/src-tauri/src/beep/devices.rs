@@ -40,14 +40,18 @@ async fn start_here(app: &AppHandle, beep: &Beep) -> Result<()> {
     if beep.signed_out() {
         return super::signout::resume(app, beep).await;
     }
+
     if beep.link_state() != LinkState::Unlinked {
         return Ok(());
     }
+
     beep.set_link_state(LinkState::Linked);
+
     if let Err(e) = beep.call(ListDevices {}).await {
         beep.set_link_state(LinkState::Unlinked);
         return Err(e);
     }
+
     crate::tray::became_linked(app);
     Ok(())
 }
@@ -76,6 +80,7 @@ impl From<LinkedDevice> for DeviceView {
             primary: device.primary,
             this_device: device.this_device,
         };
+
         match device.kind {
             AccountDeviceKind::Phone {} => Self::Phone(info),
             AccountDeviceKind::Desktop {} => Self::Desktop(info),
@@ -129,6 +134,7 @@ pub async fn list_devices(beep: Service<'_>, fleet: State<'_, Arc<Fleet>>) -> Re
         })
         .collect();
     let mut server = ServerReach::None;
+
     if beep.has_server() {
         match beep.call(ListDevices {}).await {
             Ok(linked) => {
@@ -146,6 +152,7 @@ pub async fn list_devices(beep: Service<'_>, fleet: State<'_, Arc<Fleet>>) -> Re
             }
         }
     }
+
     Ok(Devices { devices, server })
 }
 
@@ -182,6 +189,7 @@ pub async fn remove_device(
     {
         return fleet.remove(device).await;
     }
+
     beep.call(RemoveDevice { id }).await
 }
 

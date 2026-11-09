@@ -199,6 +199,7 @@ async function answer(decision: string) {
   failure = "";
   drawAsk();
   const queryId = asked.approval.query_id;
+
   try {
     if (asked.work) await invoke("answer_work", { session: asked.session, queryId, decision });
     else await invoke("answer_approval", { session: asked.session, queryId, decision, onEvent: new Channel() });
@@ -268,6 +269,7 @@ listen<LiveEvent>("live", e => {
   else if (v.kind === "toast") showToast(v.text);
   else if (v.kind === "soon") soon(v.ms);
   if (v.kind === "sent") soon(null);
+
   // Leaving ends every question here; Rust shows those still waiting as
   // notifications.
   if (v.kind === "left") {

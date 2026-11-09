@@ -28,6 +28,7 @@ impl User {
                 .iter()
                 .any(|starter| starter.prompt.trim() == message.trim())
         });
+
         if used {
             *cache = None;
         }
@@ -40,15 +41,18 @@ impl User {
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         let now = Instant::now();
+
         while refreshes
             .front()
             .is_some_and(|at| now.duration_since(*at) >= STARTER_REFRESH_WINDOW)
         {
             refreshes.pop_front();
         }
+
         if refreshes.len() >= STARTER_REFRESHES {
             return false;
         }
+
         refreshes.push_back(now);
         true
     }

@@ -48,6 +48,7 @@ pub fn run() {
     if let Some(status) = machines::mcp_command::run(std::env::args_os().skip(1)) {
         std::process::exit(status);
     }
+
     let _log = platform::logfile::start();
     log::info!("Beep {} starting", env!("CARGO_PKG_VERSION"));
     // SAFETY: nothing else runs yet; Tauri starts its threads below.
@@ -80,6 +81,7 @@ pub fn run() {
         .manage(Arc::new(chat::clipboard::ImageClipboard::default()))
         .register_asynchronous_uri_scheme_protocol(artifacts::SCHEME, |ctx, request, responder| {
             let app = ctx.app_handle();
+
             match artifacts::route(&app.state::<artifacts::Pages>(), &request) {
                 artifacts::Route::Done(response) => responder.respond(response),
                 // A file beside a page is read from its machine first.
@@ -114,6 +116,7 @@ pub fn run() {
                 if window.label() == bar::LABEL && window.is_visible().unwrap_or(false) =>
             {
                 bar::hide(window.app_handle());
+
                 if let Some(voice) = window.app_handle().try_state::<Arc<Voice>>()
                     && voice.is_live()
                 {
@@ -134,6 +137,7 @@ pub fn run() {
                         .state::<center::Shown>()
                         .clear(window.label());
                 }
+
                 window
                     .app_handle()
                     .state::<center::AgentsShown>()
@@ -621,6 +625,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
                 })
                 .build(),
         )?;
+
         if let Err(e) = app.global_shortcut().register("Ctrl+Alt+Space") {
             log::warn!("could not register Ctrl+Alt+Space: {e}");
         }
@@ -640,6 +645,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         chats.clear();
         views.keep_local();
     }
+
     app.manage(Arc::new(center::home_sessions::AgentSessions::new(&views)));
     app.manage(palette::PaletteCache::load(&views)?);
     app.manage(Arc::new(palette::prompts::PromptIndex::open(
@@ -759,6 +765,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
             settings::apps::open_link(&links, url.as_str());
         }
     });
+
     if let Ok(Some(urls)) = app.deep_link().get_current() {
         for url in urls {
             settings::apps::open_link(&handle, url.as_str());
@@ -774,6 +781,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     let as_login_item = std::env::args().any(|arg| arg == LOGIN_ARG);
     #[cfg(mobile)]
     let as_login_item = false;
+
     if !as_login_item {
         // Opened by the user, not as a login item: show the window.
         if let Err(e) = center::open(&handle) {
@@ -790,6 +798,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
 #[cfg(desktop)]
 fn refresh_login_item(app: &AppHandle) {
     let manager = app.autolaunch();
+
     match manager.is_enabled() {
         Ok(true) => {
             if let Err(e) = manager.enable() {

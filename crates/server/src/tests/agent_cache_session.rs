@@ -32,6 +32,7 @@ async fn session_sent(provider: &SharedCacheSessions, model: &str, chat: Option<
     );
     request.session_id = chat.map(|chat| chat.parse().expect("a valid session id"));
     let mut stream = provider.complete(request);
+
     match stream.next().await {
         Some(Ok(StreamEvent::ContentDelta(session))) => session,
         other => panic!("expected the session id, got {other:?}"),

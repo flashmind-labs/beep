@@ -133,6 +133,7 @@ impl Member {
         timeout(LIMIT, async {
             loop {
                 updates.borrow_and_update();
+
                 if self
                     .mesh
                     .devices()
@@ -145,6 +146,7 @@ impl Member {
                         id,
                     };
                 }
+
                 updates.changed().await.expect("the mesh is alive");
             }
         })
@@ -197,6 +199,7 @@ impl Node {
         for store in [".claude/projects", ".codex/sessions", ".pi/agent/sessions"] {
             fs::create_dir_all(home.path().join(store)).expect("a store folder");
         }
+
         let key = SecretKey::generate();
         let key_file = dir.path().join("key");
         fs::write(&key_file, key.to_bytes()).expect("the key is written");
@@ -207,12 +210,15 @@ impl Node {
         if !config.files.is_empty() {
             settings["files"] = json!(config.files);
         }
+
         if let Some((program, args)) = config.agent {
             settings["agents"] = json!([{ "name": "codex", "program": program, "args": args }]);
         }
+
         let text = toml::to_string(&toml::Value::try_from(settings).expect("settings are toml"))
             .expect("settings encode");
         fs::write(dir.path().join("node.toml"), text).expect("settings are written");
+
         if !config.saved_projects.is_empty() {
             let projects: Vec<_> = config
                 .saved_projects
@@ -230,6 +236,7 @@ impl Node {
             )
             .expect("the saved list is written");
         }
+
         Self::run(dir, home, key.public(), config.env).await
     }
 
@@ -295,6 +302,7 @@ impl Node {
         let (send, lines) = mpsc::unbounded_channel();
         tokio::spawn(async move {
             let mut reader = BufReader::new(stderr).lines();
+
             while let Ok(Some(line)) = reader.next_line().await {
                 if send.send(line).is_err() {
                     return;
@@ -319,10 +327,12 @@ impl Node {
         timeout(LIMIT, async {
             while let Some(line) = self.lines.recv().await {
                 self.log.push(line.clone());
+
                 if line.contains(text) {
                     return line;
                 }
             }
+
             panic!("the node ended before logging {text:?}");
         })
         .await
@@ -443,6 +453,7 @@ async fn try_tool(conn: &Link, tool: Tool, args: serde_json::Value) -> Result<Re
     })
     .await
     .map_err(|e| fail(&e))?;
+
     match timeout(LIMIT, rx.recv::<Opened>())
         .await
         .expect("the node answered in time")
@@ -451,6 +462,7 @@ async fn try_tool(conn: &Link, tool: Tool, args: serde_json::Value) -> Result<Re
         Some(Opened::Ready {}) => {}
         other => return Err(format!("{TOOLS} was not opened: {other:?}")),
     }
+
     tx.send(&ToolRequest {
         session: "a3f9c1".to_owned(),
         tool,
@@ -580,6 +592,7 @@ async fn a_peer_starts_and_follows_an_agent_session() {
         .expect("the start is sent");
     let session = timeout(LIMIT, async {
         let mut id = None;
+
         loop {
             match agent.rx.recv::<AgentEvent>().await.expect("an event reads") {
                 Some(AgentEvent::Attached { session }) => id = Some(session.id),
@@ -623,6 +636,7 @@ async fn a_stranger_gets_no_shell() {
         .and_then(|d| d.addr)
         .expect("the desktop knows where the node is");
     let stranger = bind(&SecretKey::generate()).await;
+
     for alpn in [PEER_ALPN, JOIN_ALPN] {
         let conn = stranger
             .connect(addr.clone(), alpn)
@@ -660,12 +674,14 @@ async fn another_node_gets_no_shell_but_can_use_agent_tools() {
         "desktop/1",
         sign_in::PROTOCOL,
     ];
+
     for protocol in refused {
         match open(&conn, protocol).await {
             (_, Opened::Refused { .. }) => {}
             (_, other) => panic!("a node got {protocol}: {other:?}"),
         }
     }
+
     let Reply::Done { text, failed } = tool(
         &conn,
         Tool::RunOn,
@@ -683,6 +699,7 @@ async fn another_node_gets_no_shell_but_can_use_agent_tools() {
     };
     assert!(failed);
     let mut report = ready(&conn, STATUS).await;
+
     match timeout(LIMIT, report.rx.recv::<Report>())
         .await
         .expect("the status came in time")
@@ -743,6 +760,7 @@ async fn a_silent_node_on_the_socket_does_not_stop_the_report() {
     // Accepts and never writes, as a node whose workers are stuck.
     let _held = tokio::spawn(async move {
         let mut open = Vec::new();
+
         while let Ok((stream, _)) = listener.accept().await {
             open.push(stream);
         }
@@ -801,6 +819,7 @@ async fn a_node_peer_cannot_fill_the_desktops_tasks_or_read_its_jobs() {
     else {
         panic!("the desktop's job did not start");
     };
+
     for tool_call in [Tool::JobStatus, Tool::Cancel] {
         let Reply::Done { failed, text } = tool(
             &from_first,
@@ -830,12 +849,14 @@ async fn a_node_peer_cannot_fill_the_desktops_tasks_or_read_its_jobs() {
     assert!(failed && text.contains("No background process"), "{text}");
     // Filling its own slots leaves the desktop's `process/1` working.
     let mut refused = false;
+
     for _ in 0..40 {
         let Reply::Done { failed, .. } = run_background(&from_first, "sleep 30").await else {
             panic!("not done");
         };
         refused |= failed;
     }
+
     assert!(refused, "the peer's slots never ran out");
     process
         .tx
@@ -911,9 +932,11 @@ async fn the_control_socket_is_private_and_the_ticket_stays_out_of_the_log() {
     assert_eq!(mode & 0o777, 0o600);
     node.logged("joined a mesh").await;
     let text = ticket.encode_string();
+
     while let Ok(line) = node.lines.try_recv() {
         node.log.push(line);
     }
+
     assert!(node.log.iter().all(|line| !line.contains(&text)));
 }
 
@@ -1289,6 +1312,7 @@ async fn a_node_the_record_drops_stops_syncing_and_keeps_its_files() {
 async fn checkouts_at_other_commits_wait_for_git_when_the_mesh_names_them() {
     let (a, root, folder) = bare_node().await;
     let mut pair = bare_nodes(a, root, folder).await;
+
     for (folder, file) in [(&pair.a_folder, "a.txt"), (&pair.b_folder, "b.txt")] {
         git_in(folder, &["init", "-q", "-b", "main"]);
         fs::write(folder.join("same.txt"), file).expect("a file");
@@ -1298,6 +1322,7 @@ async fn checkouts_at_other_commits_wait_for_git_when_the_mesh_names_them() {
         // Not committed, as on a machine where work is under way.
         fs::write(folder.join("same.txt"), format!("edited beside {file}")).expect("a file");
     }
+
     pair.sync().await;
 
     for node in [&pair.a, &pair.b] {
@@ -1310,6 +1335,7 @@ async fn checkouts_at_other_commits_wait_for_git_when_the_mesh_names_them() {
         })
         .await;
     }
+
     for (folder, own, other) in [
         (&pair.a_folder, "a.txt", "b.txt"),
         (&pair.b_folder, "b.txt", "a.txt"),
@@ -1416,14 +1442,17 @@ async fn fake_syncthing(
     let config = format!(
         r#"<configuration><gui tls="false"><address>{addr}</address><apikey>fake-key</apikey></gui></configuration>"#
     );
+
     for home in ["state/syncthing", "Library/Application Support/Syncthing"] {
         let home = node.home.path().join(home);
         fs::create_dir_all(&home).expect("a config folder");
         fs::write(home.join("config.xml"), &config).expect("a config");
     }
+
     let path = json!(path).to_string();
     let task = tokio::spawn(async move {
         let mut answering = JoinSet::new();
+
         while let Ok((stream, _)) = listener.accept().await {
             answering.spawn(fake_answer(stream, folder.subscribe(), path.clone()));
         }
@@ -1434,12 +1463,14 @@ async fn fake_syncthing(
 async fn fake_answer(mut stream: TcpStream, mut folder: watch::Receiver<FakeFolder>, path: String) {
     let mut request = Vec::new();
     let mut buf = [0; 1024];
+
     while !request.windows(4).any(|w| w == b"\r\n\r\n") {
         match stream.read(&mut buf).await {
             Ok(0) | Err(_) => return,
             Ok(n) => request.extend_from_slice(&buf[..n]),
         }
     }
+
     let text = String::from_utf8_lossy(&request);
     let line = text.lines().next().unwrap_or_default();
     let body = if let Some((_, query)) = line.split_once("since=") {
@@ -1547,15 +1578,18 @@ impl Mcp {
             serde_json::from_str(text.lines().nth(1).expect("a session/new")).expect("JSON");
         let server = &new["params"]["mcpServers"][0];
         let mut command = Command::new(server["command"].as_str().expect("a command"));
+
         for arg in server["args"].as_array().expect("arguments") {
             command.arg(arg.as_str().expect("an argument"));
         }
+
         for var in server["env"].as_array().expect("env vars") {
             command.env(
                 var["name"].as_str().expect("a name"),
                 var["value"].as_str().expect("a value"),
             );
         }
+
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -1656,9 +1690,11 @@ async fn an_agent_queries_models_on_its_own_machine_and_a_peer() {
         loop {
             let (listed, failed) = mcp.call("list_machines", json!({})).await;
             assert!(!failed, "{listed}");
+
             if listed.contains("box-b: online") {
                 break;
             }
+
             tokio::task::yield_now().await;
         }
     })
@@ -1717,21 +1753,25 @@ async fn a_repair_agent_reads_local_and_remote_transcripts_with_pagination() {
         (&a, "11111111-1111-4111-8111-111111111111", "local intent"),
         (&b, "22222222-2222-4222-8222-222222222222", "peer intent"),
     ];
+
     for (node, id, text) in sessions {
         let dir = node.home.path().join(".codex/sessions/2026/11/04");
         fs::create_dir_all(&dir).unwrap();
         let mut lines = vec![
             json!({"type":"session_meta", "payload":{"id":id, "cwd":"/srv/project", "timestamp":"2026-11-04T09:30:00Z"}}),
         ];
+
         for n in 0..3 {
             lines.push(json!({"type":"event_msg", "payload":{"type":"user_message", "message":format!("{text} {n}")}}));
         }
+
         fs::write(
             dir.join(format!("rollout-2026-11-04T09-30-00-{id}.jsonl")),
             lines.iter().map(|v| format!("{v}\n")).collect::<String>(),
         )
         .unwrap();
     }
+
     let conn = desktop.reach(b.id).await;
     let mut read_only = ready(&conn, "agent-transcripts/1").await;
     read_only.tx.send(&SessionsRequest::List {}).await.unwrap();
@@ -1749,6 +1789,7 @@ async fn a_repair_agent_reads_local_and_remote_transcripts_with_pagination() {
             .iter()
             .any(|tool| tool == "read_session_transcript")
     );
+
     for (node, id, expected) in sessions {
         let (text, failed) = mcp
             .call(
@@ -1767,6 +1808,7 @@ async fn a_repair_agent_reads_local_and_remote_transcripts_with_pagination() {
         assert_eq!(page["entries"][1]["text"], format!("{expected} 1"));
         assert_eq!(page["next_before"], serde_json::Value::Null);
     }
+
     for args in [
         json!({"session":"missing"}),
         json!({"session":sessions[0].1, "last":51}),
@@ -1898,6 +1940,7 @@ async fn an_agent_runs_a_command_on_another_machine_with_no_server() {
     // This machine, by name or id, is refused and nothing runs.
     let marker = a.home.path().join("ran-here");
     let command = format!("touch {}", marker.display());
+
     for machine in ["box-a".to_owned(), a.id.to_string()] {
         let (text, failed) = mcp
             .call(
@@ -1912,6 +1955,7 @@ async fn an_agent_runs_a_command_on_another_machine_with_no_server() {
              command here with your own shell tool."
         );
     }
+
     assert!(!marker.exists());
 }
 
@@ -1997,9 +2041,11 @@ async fn coding_agents_get_no_memory_tools() {
     let mut mcp = agent_mcp(&desktop, &node, work.path(), &sent).await;
     let tools = mcp.tools().await;
     assert!(tools.iter().any(|tool| tool == "remote_run"), "{tools:?}");
+
     for memory in ["remember", "recall", "update_memory", "forget"] {
         assert!(!tools.iter().any(|tool| tool == memory), "{tools:?}");
     }
+
     for memory in [
         "remember",
         "recall",
@@ -2017,9 +2063,11 @@ async fn coding_agents_get_no_memory_tools() {
 fn files_holding(dir: &Path, needle: &str) -> Vec<PathBuf> {
     let mut found = Vec::new();
     let mut pending = vec![dir.to_owned()];
+
     while let Some(folder) = pending.pop() {
         for entry in fs::read_dir(&folder).into_iter().flatten().flatten() {
             let path = entry.path();
+
             match entry.file_type() {
                 Ok(kind) if kind.is_dir() => pending.push(path),
                 Ok(kind) if kind.is_file() => {
@@ -2032,6 +2080,7 @@ fn files_holding(dir: &Path, needle: &str) -> Vec<PathBuf> {
             }
         }
     }
+
     found
 }
 
@@ -2052,6 +2101,7 @@ async fn a_deleted_credential_disappears_from_every_node_and_one_copy_is_kept() 
     set_credential(&desktop, "gh", "MESH_VAR", "kept-in-one-place").await;
     a.logged("from the mesh: 1 credentials").await;
     b.logged("from the mesh: 1 credentials").await;
+
     for conn in [&from_a, &from_b] {
         assert_eq!(
             env_seen(conn, ["MESH_VAR", "NOT_SET"]).await,
@@ -2078,6 +2128,7 @@ async fn a_deleted_credential_disappears_from_every_node_and_one_copy_is_kept() 
                 .all(|line| !line.contains("kept-in-one-place"))
         );
     }
+
     desktop
         .mesh
         .set(Key::Credential("gh".to_owned()), None)
@@ -2085,6 +2136,7 @@ async fn a_deleted_credential_disappears_from_every_node_and_one_copy_is_kept() 
         .expect("the credential is deleted");
     a.logged("from the mesh: 0 credentials").await;
     b.logged("from the mesh: 0 credentials").await;
+
     for conn in [&from_a, &from_b] {
         assert_eq!(env_seen(conn, ["MESH_VAR", "NOT_SET"]).await, "got[][]");
     }
@@ -2113,9 +2165,11 @@ async fn env_after_restart(desktop: &Member, node: &Node) -> String {
                 json!({ "command": "printf 'got[%s]\\n' \"$MESH_VAR\"" }),
             )
             .await;
+
             if let Ok(Reply::Done { text, .. }) = call {
                 return text;
             }
+
             updates.changed().await.expect("the mesh is alive");
         }
     })
@@ -2144,9 +2198,11 @@ async fn a_deleted_credential_stays_gone_after_a_restart() {
     let mut node = node.restart().await;
     // The deleted key is still held, so the family is the mesh's and empty.
     let applied = "from the mesh: 0 credentials";
+
     if !node.log.iter().any(|line| line.contains(applied)) {
         node.logged(applied).await;
     }
+
     let seen = env_after_restart(&desktop, &node).await;
     assert!(seen.contains("got[]"), "{seen}");
 }
@@ -2169,9 +2225,11 @@ async fn credentials_come_back_after_a_restart_with_no_server() {
     // Nothing reaches it from a desktop: the state file is what it has. The
     // line may have come before the node was ready.
     let applied = "from the mesh: 1 credentials";
+
     if !node.log.iter().any(|line| line.contains(applied)) {
         node.logged(applied).await;
     }
+
     let seen = env_after_restart(&desktop, &node).await;
     assert!(seen.contains("got[still-here]"), "{seen}");
 }
@@ -2285,6 +2343,7 @@ async fn agent_tool(
     })
     .await
     .expect("the open is sent");
+
     match timeout(LIMIT, rx.recv::<Opened>())
         .await
         .expect("the node answered in time")
@@ -2293,6 +2352,7 @@ async fn agent_tool(
         Some(Opened::Ready {}) => {}
         other => panic!("{TOOLS} was not opened: {other:?}"),
     }
+
     tx.send(&ToolRequest {
         session: session.to_owned(),
         tool,
@@ -2301,6 +2361,7 @@ async fn agent_tool(
     })
     .await
     .expect("the call is sent");
+
     match timeout(LIMIT, rx.recv::<Reply>())
         .await
         .expect("the call answered in time")
@@ -2447,6 +2508,7 @@ async fn an_agent_on_another_machine_starts_a_child_here_and_reaches_only_its_ow
     // So is the count of the root's agents: eight run at most, the one
     // running here among them.
     let mut running = vec![id.clone()];
+
     for at in 1..8 {
         let (failed, text) = agent_tool(
             &other,
@@ -2459,6 +2521,7 @@ async fn an_agent_on_another_machine_starts_a_child_here_and_reaches_only_its_ow
         assert!(!failed, "{text}");
         running.push(child_id(&text));
     }
+
     let (failed, text) = agent_tool(&other, node.id, "p1", Tool::StartAgent, start("two", 1)).await;
     assert!(failed && text.contains("at most 8 agents"), "{text}");
     // One that stops leaves room.
@@ -2574,6 +2637,7 @@ async fn a_root_may_not_have_more_than_eight_agents_over_two_machines() {
     };
     // Four on each machine: neither is past eight alone.
     let mut on_b = Vec::new();
+
     for at in 0..4 {
         let (failed, text) = agent_tool(
             &other,
@@ -2604,6 +2668,7 @@ async fn a_root_may_not_have_more_than_eight_agents_over_two_machines() {
             if failed {
                 return text;
             }
+
             let (failed, text) = agent_tool(
                 &other,
                 b.id,
@@ -2835,9 +2900,11 @@ async fn line_sent(log: &Path, text: &str) -> String {
     timeout(LIMIT, async {
         loop {
             let read = fs::read_to_string(log).unwrap_or_default();
+
             if let Some(line) = read.lines().find(|line| line.contains(text)) {
                 return line.to_owned();
             }
+
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     })
@@ -2855,9 +2922,11 @@ async fn until_progress(
     timeout(LIMIT, async {
         loop {
             last = progress_on(conn).await;
+
             if last.as_ref().is_some_and(&done) {
                 return;
             }
+
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     })
@@ -2956,6 +3025,7 @@ async fn a_running_session_moves_to_the_other_machine_with_its_conversation_and_
     // The source ended it, and keeps the transcript.
     let mut list = ready(&conn_a, SESSIONS_PROTOCOL).await;
     list.tx.send(&SessionsRequest::List {}).await.expect("sent");
+
     match timeout(LIMIT, list.rx.recv::<SessionsReply>())
         .await
         .expect("answered")
@@ -2969,6 +3039,7 @@ async fn a_running_session_moves_to_the_other_machine_with_its_conversation_and_
         }
         other => panic!("not a list: {other:?}"),
     }
+
     assert!(source_rollout.exists());
     // The first prompt tells the agent the session moved and from where.
     let mut follow = ready(&conn_b, "codex/1").await;
@@ -3122,6 +3193,7 @@ async fn a_machine_that_cannot_take_the_session_leaves_it_running_where_it_was()
     line_sent(&pair.work.path().join("sent.jsonl"), "carry on").await;
     let mut list = ready(&conn_a, SESSIONS_PROTOCOL).await;
     list.tx.send(&SessionsRequest::List {}).await.expect("sent");
+
     match timeout(LIMIT, list.rx.recv::<SessionsReply>())
         .await
         .expect("answered")
@@ -3135,6 +3207,7 @@ async fn a_machine_that_cannot_take_the_session_leaves_it_running_where_it_was()
         }
         other => panic!("not a list: {other:?}"),
     }
+
     let conn_b = pair.desktop.reach(pair.b.id).await;
     until_progress(&conn_b, "failed", |p| {
         p.phase == MovePhase::Failed
@@ -3352,9 +3425,11 @@ async fn a_syncthing_worktree_moves_with_local_commits_and_relocated_session_pat
         ],
     );
     let head = git_in(&a_worktree, &["rev-parse", "HEAD"]);
+
     for folder in [&pair.a_folder, &pair.b_folder] {
         fs::create_dir(folder.join(".stfolder")).expect("the marker");
     }
+
     fs::write(pair.b_folder.join(".stignore"), ".worktrees\ncache/\n").unwrap();
     let conn_a = pair.desktop.reach(pair.a.id).await;
     let conn_b = pair.desktop.reach(pair.b.id).await;
@@ -3420,11 +3495,13 @@ async fn a_syncthing_worktree_moves_with_local_commits_and_relocated_session_pat
         header["payload"]["runtime_workspace_roots"][0],
         tree.to_str().unwrap()
     );
+
     for folder in [&pair.a_folder, &pair.b_folder] {
         let ignores = fs::read_to_string(folder.join(".stignore")).unwrap();
         assert!(ignores.lines().any(|line| line == ".git"));
         assert!(ignores.lines().any(|line| line == ".worktrees"));
     }
+
     assert!(
         fs::read_to_string(pair.b_folder.join(".stignore"))
             .unwrap()
@@ -3458,6 +3535,7 @@ async fn placed_pair() -> Pair {
     b.join(&desktop.ticket(DeviceKind::Node).await).await;
     let a_folder = roots[0].path().join("proj");
     let b_folder = roots[1].path().join("proj");
+
     for (node, folder) in [(&a, &a_folder), (&b, &b_folder)] {
         fs::create_dir(folder).expect("a project folder");
         let place = Place {
@@ -3516,6 +3594,7 @@ async fn fake_syncthing_status(
     let listed = json!([{"id": "kept", "label": "Kept", "path": folder, "paused": false}]);
     AbortOnDropHandle::new(tokio::spawn(async move {
         let mut answering = JoinSet::new();
+
         while let Ok((stream, _)) = listener.accept().await {
             answering.spawn(fake_syncthing_answer(stream, need.clone(), listed.clone()));
         }
@@ -3529,12 +3608,14 @@ async fn fake_syncthing_answer(
 ) {
     let mut request = Vec::new();
     let mut buf = [0; 1024];
+
     while !request.windows(4).any(|w| w == b"\r\n\r\n") {
         match stream.read(&mut buf).await {
             Ok(0) | Err(_) => return,
             Ok(n) => request.extend_from_slice(&buf[..n]),
         }
     }
+
     let text = String::from_utf8_lossy(&request);
     let body = if text.starts_with("GET /rest/events") {
         std::future::pending::<()>().await;
@@ -3610,6 +3691,7 @@ async fn a_project_neither_beep_nor_syncthing_syncs_is_refused_before_the_source
     assert!(!sent.contains("session/load"), "{sent}");
     let mut list = ready(&conn_a, SESSIONS_PROTOCOL).await;
     list.tx.send(&SessionsRequest::List {}).await.expect("sent");
+
     match timeout(LIMIT, list.rx.recv::<SessionsReply>())
         .await
         .expect("answered")
@@ -3695,6 +3777,7 @@ async fn until_copies(
             if done(&copies_on(conn).await) {
                 return;
             }
+
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     })
@@ -3704,6 +3787,7 @@ async fn until_copies(
 
 fn files_under(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
+
     if let Ok(read) = fs::read_dir(dir) {
         for entry in read.flatten() {
             let path = entry.path();
@@ -3714,6 +3798,7 @@ fn files_under(dir: &Path) -> Vec<PathBuf> {
             }
         }
     }
+
     out
 }
 
@@ -3912,9 +3997,11 @@ async fn when_two_machines_continued_a_session_the_later_one_wins_and_the_other_
 async fn the_cache_stays_under_its_cap_and_keeps_the_newest_sessions() {
     // Two copies fit, including room for the next note; a third does not.
     let mut pair = synced_pair_env(None, None, &copy_env(Some(4000))).await;
+
     for (id, age) in [("s1", 3000), ("s2", 2000), ("s3", 1000)] {
         rollout_for(&pair.a, &pair.a_folder, id, Duration::from_secs(age), 900);
     }
+
     let conn_b = pair.desktop.reach(pair.b.id).await;
     // The two newest come, whatever order a pass takes them in, and the
     // oldest is the one that does not fit.
@@ -4005,12 +4092,14 @@ async fn a_restore_that_cannot_run_leaves_the_recoverable_copy_where_it_was() {
     fs::rename(&pair.b_folder, &away).expect("the folder goes");
     let reply = copy_request(&conn_b, false, Some(lost)).await;
     fs::rename(&away, &pair.b_folder).expect("the folder comes back");
+
     match reply {
         SessionsReply::Error { message } => {
             assert!(message.contains("no folder here"), "{message}")
         }
         other => panic!("not refused: {other:?}"),
     }
+
     let kept = copies_on(&conn_b).await;
     assert!(
         kept.iter().any(|v| v.lost == Some(lost)),
@@ -4035,6 +4124,7 @@ async fn a_restore_over_another_version_sets_that_one_aside_under_its_own_name()
         json!({"timestamp":"2026-11-04T09:30:00.000Z","type":"session_meta","payload":{"id":MOVED_ID,"cwd":pair.b_folder.display().to_string()}})
     );
     fs::write(&b_rollout, &winner).expect("a transcript");
+
     match copy_request(&conn_b, false, Some(lost)).await {
         SessionsReply::CopyDone {} => {}
         other => panic!("not done: {other:?}"),
@@ -4126,6 +4216,7 @@ async fn a_session_in_a_worktree_moves_away_and_back_to_the_worktree_it_left() {
     .await;
     let mut list = ready(&conn_b, SESSIONS_PROTOCOL).await;
     list.tx.send(&SessionsRequest::List {}).await.expect("sent");
+
     match timeout(LIMIT, list.rx.recv::<SessionsReply>())
         .await
         .expect("answered")
@@ -4139,6 +4230,7 @@ async fn a_session_in_a_worktree_moves_away_and_back_to_the_worktree_it_left() {
         }
         other => panic!("not a list: {other:?}"),
     }
+
     assert_eq!(
         fs::read_to_string(a_worktree.join("scratch.txt")).expect("untouched"),
         "the user's\n"
@@ -4244,10 +4336,12 @@ async fn what_a_copy_spent_on_the_other_machine_is_not_counted_again_when_it_con
         c.iter().any(|v| v.id == MOVED_ID)
     })
     .await;
+
     match copy_request(&conn_b, false, None).await {
         SessionsReply::CopyDone {} => {}
         other => panic!("not done: {other:?}"),
     }
+
     let mut usage = ready(&conn_b, SESSIONS_PROTOCOL).await;
     usage
         .tx
@@ -4260,6 +4354,7 @@ async fn what_a_copy_spent_on_the_other_machine_is_not_counted_again_when_it_con
             match usage.rx.recv::<SessionsReply>().await.expect("reads") {
                 Some(SessionsReply::SessionSpend { usage }) => {
                     spent.push(usage.session);
+
                     if spent.iter().any(|id| id == "mine") {
                         return;
                     }
@@ -4455,9 +4550,11 @@ async fn until_status_shows(dir: &Path, shown: impl Fn(&str) -> bool) -> String 
     let found = timeout(LIMIT, async {
         loop {
             let text = status_text(dir).await;
+
             if shown(&text) {
                 return text;
             }
+
             send.send_replace(text);
             tokio::task::yield_now().await;
         }
@@ -4643,6 +4740,7 @@ fn put_skill(home: &Path, rel: &str, name: &str, body: &str) {
 fn tree(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
+
     while let Some(at) = stack.pop() {
         for entry in fs::read_dir(&at).expect("a folder").flatten() {
             let path = entry.path();
@@ -4654,6 +4752,7 @@ fn tree(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
             }
         }
     }
+
     out.sort();
     out
 }
@@ -4680,6 +4779,7 @@ async fn a_users_skills_reach_the_other_node_and_differences_change_nothing() {
     for home in [a.home.path(), b.home.path()] {
         put_skill(home, ".claude/skills", "shared", "Same everywhere.");
     }
+
     put_skill(a.home.path(), ".claude/skills", "style", "Short lines.");
     put_skill(b.home.path(), ".claude/skills", "style", "Long lines.");
     let style_a = tree(&a.home.path().join(".claude/skills/style"));
@@ -4695,9 +4795,11 @@ async fn a_users_skills_reach_the_other_node_and_differences_change_nothing() {
     a.has_logged("1 other machines compared, 1 differ").await;
 
     let notes = tree(&a.home.path().join(".claude/skills/notes"));
+
     for rel in [".claude/skills/notes", ".agents/skills/notes"] {
         assert_eq!(tree(&b.home.path().join(rel)), notes, "{rel} on box-b");
     }
+
     assert!(!b.home.path().join(".claude/skills/beep-made").exists());
     assert!(!b.home.path().join(".agents/skills/beep-made").exists());
     assert_eq!(tree(&a.home.path().join(".claude/skills/style")), style_a);
@@ -4708,6 +4810,7 @@ async fn a_users_skills_reach_the_other_node_and_differences_change_nothing() {
     for rel in [".claude/skills/notes", ".agents/skills/notes"] {
         fs::remove_dir_all(a.home.path().join(rel)).expect("the skill is deleted");
     }
+
     let mut a = a.restart().await;
     a.logged("skills: 2 here, 1 other machines compared, 1 differ")
         .await;
@@ -4719,6 +4822,7 @@ async fn a_users_skills_reach_the_other_node_and_differences_change_nothing() {
     while let Ok(line) = b.lines.try_recv() {
         b.log.push(line);
     }
+
     for node in [&a, &b] {
         let told = |text: &str| node.log.iter().filter(|l| l.contains(text)).count();
         assert_eq!(told("Skill style differs"), 1, "{:#?}", node.log);
@@ -4746,13 +4850,16 @@ async fn a_users_skills_reach_the_other_node_and_differences_change_nothing() {
     b.has_logged(differs).await;
     assert_eq!(tree(&a.home.path().join(".claude/skills/shared")), shared_a);
     assert_eq!(tree(&b.home.path().join(".claude/skills/shared")), shared_b);
+
     while let Ok(line) = b.lines.try_recv() {
         b.log.push(line);
     }
+
     for node in [&a, &b] {
         let told = node.log.iter().filter(|l| l.contains(differs)).count();
         assert_eq!(told, 1, "{:#?}", node.log);
     }
+
     let updates = b
         .log
         .iter()
@@ -4923,6 +5030,7 @@ mod topic_streams {
     async fn file(rx: &mut LinkRx, topic: &Topic, name: &str) -> events::Snapshot {
         loop {
             let state = snapshot(rx, topic).await;
+
             if has_file(&state.value, name) {
                 return state;
             }
@@ -5120,6 +5228,7 @@ mod topic_streams {
         fs::write(root.path().join("example.txt"), "changed").unwrap();
         let (mut started, mut listed, mut updated) = (false, false, false);
         let mut revision = 0;
+
         while !(started && listed && updated) {
             match receive(&mut stream.rx).await {
                 events::Reply::Result { id: 2, reply } => {

@@ -121,6 +121,7 @@ async fn ask(
         query_id: query_id.clone(),
         query,
     });
+
     match timeout(Duration::from_secs(timeout_secs), rx).await {
         Ok(Ok(answer)) => Ok(answer),
         Ok(Err(_)) => anyhow::bail!("device query channel closed without a response"),

@@ -60,10 +60,12 @@ pub struct Open {
 impl Drop for Open {
     fn drop(&mut self) {
         let mut open = self.desktops.lock();
+
         if let Some(keys) = open.get_mut(&self.user) {
             if let Some(at) = keys.iter().position(|key| *key == self.key) {
                 keys.remove(at);
             }
+
             if keys.is_empty() {
                 open.remove(&self.user);
             }

@@ -90,9 +90,11 @@ fn pagination_does_not_cap_the_complete_history() {
     let temp = tempfile::tempdir().expect("fixture");
     let dir = temp.path();
     git(dir, &["init", "-b", "main"]);
+
     for _ in 0..53 {
         git(dir, &["commit", "--allow-empty", "-m", "Work"]);
     }
+
     let ask = HistoryAsk {
         folder: dir.to_str().expect("path"),
         revision: None,

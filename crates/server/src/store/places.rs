@@ -92,6 +92,7 @@ fn check_name(name: &str) -> Result<()> {
     if name.trim().is_empty() || name.chars().count() > 100 {
         bail!("a place name must be 1-100 characters");
     }
+
     Ok(())
 }
 
@@ -103,6 +104,7 @@ fn check_radius(radius: u32) -> Result<()> {
             places::MAX_RADIUS
         );
     }
+
     Ok(())
 }
 
@@ -158,6 +160,7 @@ impl Store {
         if !valid {
             bail!("invalid coordinates");
         }
+
         let id: String = sqlx::query_scalar(
             "INSERT INTO places (user_id, id, name, latitude, longitude, radius, address, inside,
                  last_here_at)
@@ -193,9 +196,11 @@ impl Store {
         if let Some(name) = name {
             check_name(name)?;
         }
+
         if let Some(radius) = radius {
             check_radius(radius)?;
         }
+
         let taken = match name {
             Some(name) => self
                 .place_named(user, name)
@@ -203,9 +208,11 @@ impl Store {
                 .is_some_and(|other| other.id != id),
             None => false,
         };
+
         if taken {
             bail!("another place already has that name");
         }
+
         let radius = radius.map(i32::try_from).transpose()?;
         let updated = sqlx::query(
             "UPDATE places SET name=COALESCE($3, name), radius=COALESCE($4, radius)
@@ -218,9 +225,11 @@ impl Store {
         .execute(&self.pool)
         .await?
         .rows_affected();
+
         if updated == 0 {
             return Ok(None);
         }
+
         self.place(user, id).await
     }
 
@@ -242,6 +251,7 @@ impl Store {
         fix: &Location,
     ) -> Result<Vec<Crossed>> {
         let mut crossed = Vec::new();
+
         for place in self.list_places(user).await? {
             let Some(event) = places::crossing(&place, place.inside, fix) else {
                 continue;
@@ -263,6 +273,7 @@ impl Store {
                 crossed.push(Crossed { place, event });
             }
         }
+
         sqlx::query("UPDATE places SET last_here_at=$2 WHERE user_id=$1 AND inside")
             .bind(user.as_ref())
             .bind(fix.updated_at)
@@ -291,9 +302,11 @@ impl Store {
         .execute(&self.pool)
         .await?
         .rows_affected();
+
         if changed == 0 {
             return Ok(None);
         }
+
         let place = self.place(user, id).await?;
         Ok(place.map(|place| Crossed { place, event }))
     }
@@ -314,6 +327,7 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         let mut routines = Vec::new();
+
         for row in &rows {
             let job = job_from(row)?;
             let JobSchedule::Cron(schedule) = &job.schedule else {
@@ -326,6 +340,7 @@ impl Store {
                 routines.push(PlaceRoutine { job, trigger });
             }
         }
+
         Ok(routines)
     }
 
@@ -360,15 +375,19 @@ impl Store {
     ) -> Result<Uuid> {
         let label = routine.label.trim();
         let task = routine.task.trim();
+
         if label.is_empty() || label.chars().count() > 200 {
             bail!("a routine's label must be 1-200 characters");
         }
+
         if task.is_empty() || task.chars().count() > 4000 {
             bail!("a routine's task must be 1-4000 characters");
         }
+
         if self.place(user, routine.trigger.place).await?.is_none() {
             bail!("no such place");
         }
+
         let id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO crons (user_id, id, label, prompt, schedule, run_once, chat_id)
@@ -391,14 +410,17 @@ impl Store {
         if !PlaceTrigger::claims(schedule) {
             return Ok(());
         }
+
         let Some(trigger) = schedule.parse::<PlaceTrigger>().ok() else {
             bail!(
                 "a place schedule is arrive:<place id> or leave:<place id>, ending in :daily for once a day at most or :once for only the next time"
             );
         };
+
         if self.place(user, trigger.place).await?.is_none() {
             bail!("no such place");
         }
+
         Ok(())
     }
 }

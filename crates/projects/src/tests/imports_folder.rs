@@ -7,6 +7,7 @@ fn a_checkout_names_its_branch_and_a_plain_folder_none() {
         eprintln!("skipped: no git");
         return;
     }
+
     let root = tempfile::tempdir().expect("a temp folder");
     let home = root.path();
     let repo = home.join("code/app");
@@ -125,6 +126,7 @@ fn lists_a_real_folder() {
         eprintln!("skipped the checkout: no git");
         return;
     }
+
     let repo = home.join("Documents/b dir");
     for args in [
         &["init", "-q"][..],

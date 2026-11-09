@@ -80,6 +80,7 @@ pub(crate) fn enter(step: Step) -> Running {
     if busy.running.fetch_add(1, Ordering::Relaxed) == 0 {
         busy.since_ms.store(now_ms(), Ordering::Relaxed);
     }
+
     Running(step)
 }
 
@@ -107,6 +108,7 @@ pub(crate) fn start() -> Watchdog {
     BEATEN_MS.store(now_ms(), Ordering::Relaxed);
     let beat = AbortOnDropHandle::new(tokio::spawn(async {
         let mut beat = interval(BEAT);
+
         loop {
             beat.tick().await;
             BEATEN_MS.store(now_ms(), Ordering::Relaxed);
@@ -128,17 +130,21 @@ fn stalls(now: u64) -> Option<String> {
     let stall = u64::try_from(STALL.as_millis()).unwrap_or(u64::MAX);
     let mut what = Vec::new();
     let quiet = now.saturating_sub(BEATEN_MS.load(Ordering::Relaxed));
+
     if quiet >= stall {
         what.push(format!(
             "the async workers have not run for {}s",
             quiet / 1000
         ));
     }
+
     for step in Step::ALL {
         let busy = busy(step);
+
         if busy.running.load(Ordering::Relaxed) == 0 {
             continue;
         }
+
         let waited = now.saturating_sub(busy.since_ms.load(Ordering::Relaxed));
         if waited >= stall {
             what.push(format!("{step} has run for {}s", waited / 1000));
@@ -151,8 +157,10 @@ fn stalls(now: u64) -> Option<String> {
 /// `AGAIN` while it lasts.
 fn look(stop: &AtomicBool) {
     let mut told: Option<Instant> = None;
+
     while !stop.load(Ordering::Relaxed) {
         thread::sleep(BEAT);
+
         match stalls(now_ms()) {
             Some(what) if told.is_none_or(|at| at.elapsed() >= AGAIN) => {
                 log::warn!("the node is stuck: {what}");

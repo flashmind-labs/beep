@@ -20,6 +20,7 @@ pub async fn run_host(
 /// Runs the host command `rendered`, failing unless it exits 0.
 pub async fn run_rendered(shell: &dyn Shell, rendered: &str) -> Result<String> {
     let out = shell.run(rendered, HOST_LIMIT).await?;
+
     match out.exit_code {
         Some(0) => Ok(out.output),
         code => {
@@ -51,6 +52,7 @@ pub async fn read_first<S, T>(
     parse: impl Fn(&str) -> Result<T>,
 ) -> Result<(&S, T), Vec<anyhow::Error>> {
     let mut failures = Vec::new();
+
     for item in items {
         let read = run_rendered(shell_of(item), &command(item))
             .await
@@ -63,6 +65,7 @@ pub async fn read_first<S, T>(
             }
         }
     }
+
     Err(failures)
 }
 
@@ -107,6 +110,7 @@ pub(super) async fn set_up_on(
     failures: &[anyhow::Error],
 ) -> Vec<bool> {
     let mut set_up = Vec::new();
+
     for source in sources.iter().take(failures.len()) {
         let whoami = run_host(
             source.shell.as_ref(),
@@ -117,6 +121,7 @@ pub(super) async fn set_up_on(
         .await;
         set_up.push(whoami.is_ok());
     }
+
     set_up
 }
 
@@ -130,6 +135,7 @@ pub(super) async fn failed_everywhere(
     if let ([error], [_]) = (failures, sources) {
         return host_failed(error);
     }
+
     let Some(first) = sources.first() else {
         return SourceError::Refused("No machine to read the issues host on.".to_owned());
     };
@@ -154,6 +160,7 @@ pub(super) async fn failed_everywhere(
             host_label(&first.host)
         ));
     }
+
     SourceError::Refused(format!(
         "Could not read the issues host. {}",
         tried.join("; ")
@@ -181,6 +188,7 @@ pub fn host_failed(error: &anyhow::Error) -> SourceError {
 /// The start of `text`, at most `max` bytes, cut on a character boundary.
 pub fn head(text: &str, max: usize) -> &str {
     let mut end = text.len().min(max);
+
     while !text.is_char_boundary(end) {
         end -= 1;
     }

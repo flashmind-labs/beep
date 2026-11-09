@@ -64,6 +64,7 @@ const NOTICE_CHARS: usize = 400;
 fn notification_text(reply: &str) -> String {
     let plain = reply.replace("**", "").replace("__", "").replace('`', "");
     let plain = plain.trim();
+
     match plain.char_indices().nth(NOTICE_CHARS) {
         Some((end, _)) => format!("{}...", plain[..end].trim_end()),
         None => plain.to_owned(),

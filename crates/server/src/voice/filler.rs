@@ -83,6 +83,7 @@ pub fn language(said: &str) -> Lang {
         .map(str::to_lowercase)
         .collect();
     let mut best = (Lang::En, 0);
+
     for (lang, common) in WORDS {
         let hits = words
             .iter()
@@ -92,18 +93,21 @@ pub fn language(said: &str) -> Lang {
             best = (*lang, hits);
         }
     }
+
     best.0
 }
 
 fn kind(step: &str) -> Kind {
     let lower = step.to_lowercase();
     let command = lower.starts_with("running ") || lower.starts_with("ran ");
+
     if command
         && let Some((_, host)) = step.rsplit_once(" on ")
         && let Some(host) = host.split_whitespace().next()
     {
         return Kind::Machine(host.trim_end_matches(['.', ',']).to_owned());
     }
+
     if ["mail", "inbox", "fastmail", "gmail", "outlook"]
         .iter()
         .any(|w| lower.contains(w))
@@ -127,6 +131,7 @@ fn kind(step: &str) -> Kind {
 /// The line for tool step `step` in the language of `said`; `still` for a long wait.
 pub fn line(step: &str, said: &str, still: bool) -> String {
     let lang = language(said);
+
     if still {
         return match lang {
             Lang::En => "Still on it.",
@@ -139,6 +144,7 @@ pub fn line(step: &str, said: &str, still: bool) -> String {
         }
         .to_owned();
     }
+
     match kind(step) {
         Kind::Machine(host) => match lang {
             Lang::En => format!("Let me check {host}."),

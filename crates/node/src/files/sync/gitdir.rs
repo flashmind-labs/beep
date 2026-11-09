@@ -59,22 +59,27 @@ fn is_hex(text: &str) -> bool {
 /// What `path` in the list is in `.git`; `None` for what never travels.
 pub(super) fn kind(path: &str) -> Option<Kind> {
     let rest = path.strip_prefix(PREFIX)?;
+
     match rest {
         "HEAD" => return Some(Kind::Head),
         "shallow" => return Some(Kind::Shared),
         "config" | "description" | "info/exclude" | "info/attributes" => return Some(Kind::Once),
         _ => {}
     }
+
     if let Some(name) = rest.strip_prefix("refs/") {
         return is_ref_name(name).then_some(Kind::Ref);
     }
+
     let object = rest.strip_prefix("objects/")?;
+
     if let Some(pack) = object.strip_prefix("pack/") {
         let (stem, ext) = pack.rsplit_once('.')?;
         let is_pack = is_hex(stem.strip_prefix("pack-")?)
             && matches!(ext, "pack" | "idx" | "rev" | "mtimes" | "promisor");
         return is_pack.then_some(Kind::Object);
     }
+
     let (folder, name) = object.split_once('/')?;
     (folder.len() == 2 && is_hex(folder) && name.len() >= 38 && is_hex(name))
         .then_some(Kind::Object)
@@ -95,12 +100,15 @@ pub(super) fn walks(path: &str) -> bool {
     let Some(rest) = path.strip_prefix(PREFIX) else {
         return path == GIT;
     };
+
     if rest == "info" || rest == "objects" || rest == "refs" {
         return true;
     }
+
     if let Some(name) = rest.strip_prefix("refs/") {
         return is_ref_name(name);
     }
+
     rest.strip_prefix("objects/")
         .is_some_and(|folder| folder == "pack" || (folder.len() == 2 && is_hex(folder)))
 }
@@ -182,10 +190,13 @@ impl FromStr for Oid {
         if !(hex.len() == 40 || hex.len() == 64) || !is_hex(hex) {
             bail!("invalid object id");
         }
+
         let mut bytes = [0; 32];
+
         for (at, byte) in bytes.iter_mut().take(hex.len() / 2).enumerate() {
             *byte = u8::from_str_radix(&hex[at * 2..at * 2 + 2], 16)?;
         }
+
         Ok(Self(bytes))
     }
 }
@@ -197,9 +208,11 @@ impl fmt::Display for Oid {
         } else {
             32
         };
+
         for byte in &self.0[..used] {
             write!(f, "{byte:02x}")?;
         }
+
         Ok(())
     }
 }
@@ -235,9 +248,11 @@ impl WriteGuard {
         let Some(expected) = expected else {
             return Ok(guard);
         };
+
         if is_busy(root) {
             bail!("waiting for the Git operation running on this machine");
         }
+
         if expected.present {
             let lock = root.join(GIT).join("index.lock");
             fs::OpenOptions::new()
@@ -247,9 +262,11 @@ impl WriteGuard {
                 .context("waiting for Git's index lock")?;
             guard.0.push(lock);
         }
+
         if Checkout::read(root) != expected {
             bail!("the Git checkout changed before this batch could be applied");
         }
+
         Ok(guard)
     }
 
@@ -261,6 +278,7 @@ impl WriteGuard {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(guard),
             Err(e) => return Err(e).context("reading linked worktrees before a Git update"),
         };
+
         for entry in linked {
             let lock = entry?.path().join("index.lock");
             fs::OpenOptions::new()
@@ -270,6 +288,7 @@ impl WriteGuard {
                 .context("waiting for a linked worktree's Git index lock")?;
             guard.0.push(lock);
         }
+
         Ok(guard)
     }
 }
@@ -357,17 +376,22 @@ pub(super) fn move_ref(root: &Path, change: &RefMove) -> Result<Option<Stay>> {
     if is_busy(root) {
         bail!("waiting for the git operation running on this machine");
     }
+
     let name = ref_name(&change.path);
     // A folder with no `refs` is not a repository to git yet.
     for folder in ["refs", "objects"] {
         fs::create_dir_all(root.join(GIT).join(folder))
             .with_context(|| format!("making .git/{folder}"))?;
     }
+
     let repo = Repo::open(root).context("HEAD has not come yet")?;
+
     if repo.is_linked_to(name) {
         bail!("{name} is checked out in a linked worktree on this machine");
     }
+
     let is_head = repo.head_ref().as_deref() == Some(name);
+
     match change.new {
         Some(new) => {
             if change.stays_ahead
@@ -376,20 +400,24 @@ pub(super) fn move_ref(root: &Path, change: &RefMove) -> Result<Option<Stay>> {
             {
                 return Ok(None);
             }
+
             if !repo.is_complete(new) {
                 bail!("waiting for the objects of {name}");
             }
+
             repo.set_ref(name, new, change.old)?;
         }
         None => {
             if is_head {
                 bail!("{name} is what HEAD names on this machine");
             }
+
             if let Some(old) = change.old {
                 repo.delete_ref(name, old)?;
             }
         }
     }
+
     Ok(Some(if is_head {
         Stay::HeadMoved
     } else {
@@ -437,11 +465,13 @@ impl Repo {
         if is_busy(&self.root) {
             bail!("{}", busy_reason(&self.root));
         }
+
         if self.has_local_changes()? {
             bail!(
                 "Git commits differ; commit or stash staged, unstaged and untracked changes before syncing"
             );
         }
+
         Ok(())
     }
 
@@ -459,15 +489,18 @@ impl Repo {
     /// or checks out another branch.
     pub(super) fn fast_forward(&self, before: Checkout, target: Oid, branch: &str) -> Result<()> {
         self.require_clean()?;
+
         if Checkout::read(&self.root) != before || self.head_ref().as_deref() != Some(branch) {
             bail!("the Git checkout changed while fetching; retrying sync");
         }
+
         if before
             .commit
             .is_none_or(|own| self.is_ancestor(own, target) != Some(true))
         {
             bail!("Git commits differ; histories diverged or this checkout is ahead");
         }
+
         self.run(&[
             "-c",
             "merge.autostash=false",
@@ -532,6 +565,7 @@ impl Repo {
                 String::from_utf8_lossy(&output.stderr).trim()
             );
         }
+
         Ok(output)
     }
 
@@ -540,6 +574,7 @@ impl Repo {
         let format = "--format=%(objectname)%00%(creatordate:unix)%00%(symref)%00%(refname)";
         let output = self.run(&["for-each-ref", format])?;
         let mut refs = Vec::new();
+
         for line in output.stdout.split(|&b| b == b'\n') {
             let mut fields = line.split(|&b| b == 0).map(std::str::from_utf8);
             let (Some(Ok(oid)), Some(Ok(when)), Some(Ok("")), Some(Ok(name))) =
@@ -551,9 +586,11 @@ impl Repo {
                 continue;
             };
             let path = format!("{PREFIX}{name}");
+
             if !is_ref(&path) || name == "refs/stash" || name.starts_with("refs/beep-recovery/") {
                 continue;
             }
+
             let secs: i64 = when.parse().unwrap_or(0);
             refs.push(RefNow {
                 found: Found {
@@ -564,6 +601,7 @@ impl Repo {
                 oid,
             });
         }
+
         Ok(refs)
     }
 
@@ -662,6 +700,7 @@ impl Repo {
         for name in ["objects", "refs"] {
             fs::create_dir_all(self.root.join(GIT).join(name))?;
         }
+
         self.run(&["rev-parse", "--git-dir"])?;
         Ok(if self.head().is_some() {
             !self.has_no_index()
@@ -688,6 +727,7 @@ impl Repo {
         // Says so by its exit code when files differ, which they may.
         let _ = self.run(&["update-index", "-q", "--refresh"]);
         let staged = self.run(&["ls-files", "-s", "-z"])?;
+
         for line in staged.stdout.split(|&b| b == 0) {
             let Ok(line) = std::str::from_utf8(line) else {
                 continue;
@@ -696,9 +736,11 @@ impl Repo {
                 continue;
             };
             let there = self.root.join(path);
+
             if fs::symlink_metadata(&there).is_ok() {
                 continue;
             }
+
             if meta.starts_with("120000") {
                 // A folder left to come; the next rebuild gets it.
                 if let Err(e) = self.run(&["checkout-index", "-q", "--", path]) {
@@ -710,6 +752,7 @@ impl Repo {
                     .with_context(|| format!("making the folder of {path}"))?;
             }
         }
+
         Ok(())
     }
 }

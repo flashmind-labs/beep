@@ -191,6 +191,7 @@ fn github_notifications_are_sorted_by_reason() {
         ("subscribed", EventKind::PullRequest),
         ("state_change", EventKind::GithubOther),
     ];
+
     for (reason, kind) in cases {
         let event = AppEvent::try_from(&notification(
             reason,

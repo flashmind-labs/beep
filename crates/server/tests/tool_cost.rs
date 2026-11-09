@@ -47,6 +47,7 @@ impl LlmProvider for Recorder {
         if !request.tools.is_empty() {
             *self.tools.lock().expect("never poisoned") = request.tools.clone();
         }
+
         Box::pin(async_stream::stream! {
             yield Ok(StreamEvent::ContentDelta("Done.".into()));
             yield Ok(StreamEvent::Finished(FinishReason::Stop));
@@ -124,9 +125,11 @@ async fn offered(message: Message) -> Vec<ToolDefinition> {
     timeout(Duration::from_secs(20), async {
         loop {
             let tools = provider.tools.lock().expect("never poisoned").clone();
+
             if !tools.is_empty() {
                 return tools;
             }
+
             sleep(Duration::from_millis(20)).await;
         }
     })
@@ -138,6 +141,7 @@ fn report(kind: &str, mut tools: Vec<ToolDefinition>) -> Costs {
     let costs = Costs::of(&tools);
     tools.sort_by_key(|tool| std::cmp::Reverse(size(tool)));
     println!("== {kind}: {costs}");
+
     for tool in &tools {
         let cost = Cost {
             tools: 1,
@@ -150,6 +154,7 @@ fn report(kind: &str, mut tools: Vec<ToolDefinition>) -> Costs {
             tool.name
         );
     }
+
     costs
 }
 

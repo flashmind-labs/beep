@@ -63,6 +63,7 @@ impl UserNotice {
         if !self.to.includes(id, kind) {
             return None;
         }
+
         Some(match &self.desktop {
             Some(desktop) if matches!(kind, DeviceKind::Desktop {}) => desktop,
             _ => &self.notice,

@@ -153,6 +153,7 @@ impl Hub {
             user: user.to_owned(),
             chat,
         };
+
         if wakes.try_send(wake).is_err() {
             log::info!("watchers: too many ended tasks waiting; chat={chat} is read once quiet");
         }
@@ -173,9 +174,11 @@ impl Hub {
 /// Starts the watchers. Starting again does nothing.
 pub fn start(app: &Arc<App>, settings: Settings) {
     let mut task = lock(&app.watchers.task);
+
     if task.is_some() {
         return;
     }
+
     let (wakes, queue) = mpsc::channel(WAKES);
     let watchers = settings
         .watchers
@@ -199,6 +202,7 @@ fn built_in(kind: WatcherKind) -> Arc<dyn Watcher> {
 async fn run(mut runner: Runner, mut queue: mpsc::Receiver<Wake>) {
     let mut ticks = interval(runner.settings.sweep_every);
     ticks.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
     loop {
         tokio::select! {
             wake = queue.recv() => {
@@ -288,11 +292,14 @@ impl Runner {
             }
         };
         let mut waiting = HashSet::new();
+
         for job in jobs {
             let key = (job.chat, job.kind);
+
             if lock(&self.busy).contains(&key) {
                 continue;
             }
+
             let Ok(permit) = self.limit.clone().try_acquire_owned() else {
                 waiting.insert(job.chat);
                 continue;
@@ -325,24 +332,31 @@ impl Runner {
         let since = now - delta(self.settings.lookback);
         let mut chats = app.store.watched_chats(since).await?;
         let mut causes: HashMap<Uuid, Cause> = HashMap::new();
+
         for (chat, user) in &self.woken {
             causes.insert(*chat, Cause::TaskEnded);
+
             if chats.iter().any(|found| found.chat == *chat) {
                 continue;
             }
+
             if let Some(found) = app.store.watched_chat(user, *chat).await? {
                 chats.push(found);
             }
         }
+
         let ids: Vec<Uuid> = chats.iter().map(|chat| chat.chat).collect();
         let states = app.store.watcher_states(&ids).await?;
         let timing = self.settings.timing();
         let mut jobs = Vec::new();
+
         for chat in &chats {
             let cause = causes.get(&chat.chat).copied().unwrap_or(Cause::Sweep);
+
             for (watcher, _) in &self.watchers {
                 let kind = watcher.kind();
                 let state = states.get(&(chat.chat, kind));
+
                 if trigger::due(chat, state, cause, now, timing) {
                     jobs.push(Job {
                         chat: chat.chat,
@@ -354,6 +368,7 @@ impl Runner {
                 }
             }
         }
+
         Ok(jobs)
     }
 
@@ -361,11 +376,13 @@ impl Runner {
     #[cfg(test)]
     pub(crate) async fn drain(&mut self) -> Vec<tokio::task::JoinError> {
         let mut errors = Vec::new();
+
         while let Some(done) = self.running.join_next().await {
             if let Err(error) = done {
                 errors.push(error);
             }
         }
+
         errors
     }
 }
@@ -393,6 +410,7 @@ async fn review(
                     "watchers: unable to keep the {kind} watcher's place: {error:#}; chat={chat}"
                 );
             }
+
             return;
         }
         Ok(Ok(Err(error))) => {
@@ -405,6 +423,7 @@ async fn review(
             log::error!("watchers: the {kind} watcher panicked; user={user} chat={chat}");
         }
     }
+
     let failures = match app.store.watch_failed(chat, job.kind, now).await {
         Ok(failures) => failures,
         Err(error) => {
@@ -412,12 +431,14 @@ async fn review(
             return;
         }
     };
+
     if failures >= MAX_FAILURES {
         // What it could not read is given up on, up to where the chat was.
         log::warn!(
             "watchers: the {kind} watcher gave up after {failures} failures; chat={chat} upto={}",
             job.upto
         );
+
         if let Err(error) = app.store.mark_watched(chat, job.kind, job.upto, now).await {
             log::warn!("watchers: unable to move the {kind} watcher on: {error:#}; chat={chat}");
         }
@@ -442,9 +463,11 @@ async fn attempt(
         // Only messages older than the lookback were left.
         return Ok(job.upto);
     }
+
     if !watcher.worth_reading(&messages) {
         return Ok(messages.last().map_or(job.upto, |message| message.id));
     }
+
     let user = app
         .user(&job.user)
         .ok_or_else(|| anyhow!("the user is not started"))?;
@@ -472,6 +495,7 @@ async fn attempt(
 async fn tool_arguments(user: &User, chat: Uuid) -> Result<HashMap<String, String>> {
     let context = user.context(chat).await.context("loading the chat")?;
     let mut arguments = HashMap::new();
+
     for entry in context
         .iter()
         .flat_map(|context| context.conversation.entries())
@@ -486,6 +510,7 @@ async fn tool_arguments(user: &User, chat: Uuid) -> Result<HashMap<String, Strin
             }
         }
     }
+
     Ok(arguments)
 }
 

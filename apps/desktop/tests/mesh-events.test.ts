@@ -25,6 +25,7 @@ test("direct dotted subscriptions send canonical strings and filter hierarchical
   const exact: number[] = [], scoped: number[] = [];
   const stopExact = subscribeEvents("files.org.repo", event => exact.push(event.revision));
   const stopScoped = subscribeEvents(["files.org.*", "files.%6f%72%67.*"], event => scoped.push(event.revision));
+
   try {
     await settle();
     const reader = latestReader();
@@ -114,9 +115,11 @@ test("initial query answers do not trigger rereads while live query updates and 
   t.after(() => { stopState(); stopEvents(); });
   await settle();
   const reader = latestReader();
+
   for (let query = 1; query <= 256; query++) {
     reader.onEvent.onmessage({ ...update(query), query, initial: true });
   }
+
   t.mock.timers.tick(1000);
   await settle();
   assert.equal(rereads, 0, "reading more folders than the query cache holds must not start a refresh loop");

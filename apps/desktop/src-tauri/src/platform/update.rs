@@ -42,7 +42,9 @@ pub async fn follow(app: AppHandle) {
     if cfg!(debug_assertions) {
         return;
     }
+
     tokio::time::sleep(FIRST_CHECK).await;
+
     loop {
         check(&app, false).await;
         tokio::time::sleep(CHECK_EVERY).await;
@@ -55,6 +57,7 @@ pub async fn check(app: &AppHandle, asked: bool) {
     if ready(app).is_some() {
         return;
     }
+
     match download(app).await {
         Ok(Some(version)) => {
             tray::refresh(app);
@@ -68,6 +71,7 @@ pub async fn check(app: &AppHandle, asked: bool) {
         Ok(None) => {}
         Err(e) => {
             log::warn!("checking for an update: {e}");
+
             if asked {
                 notify::text(app, "Could not check for updates", "Try again later.");
             }
@@ -91,6 +95,7 @@ pub fn install(app: &AppHandle) {
     let Some(ready) = app.state::<Updates>().lock().take() else {
         return;
     };
+
     if let Err(e) = ready.update.install(&ready.bytes) {
         log::warn!("installing Beep {}: {e}", ready.update.version);
     }

@@ -12,6 +12,7 @@ export function modelContextPanel({ invoke, h, button, redraw }: Deps) {
   async function load(machine: string, agent: string, st: State) {
     st.loading = true;
     st.error = "";
+
     try {
       const [models, rules, defaultModel] = await Promise.all([
         invoke<AgentModels | null>("agent_models", { machineId: machine, agent }),
@@ -32,6 +33,7 @@ export function modelContextPanel({ invoke, h, button, redraw }: Deps) {
     st.saving = true;
     st.error = "";
     redraw();
+
     try {
       const rules = modelRules(st.draft);
       await invoke("harness_model_compacts_save", { agent, rules });
@@ -44,11 +46,13 @@ export function modelContextPanel({ invoke, h, button, redraw }: Deps) {
   function render(machine: string, agent: string): Node[] {
     const key = `${machine} ${agent}`;
     let st = states.get(key);
+
     if (!st) {
       st = { models: null, saved: [], draft: [], loading: false, saving: false, error: "", loaded: false, filter: "", defaultModel: "", savedDefault: "", savingDefault: false, defaultError: "" };
       states.set(key, st);
       void load(machine, agent, st);
     }
+
     const state = st, title = h("h4", "", "Models and context");
     if (st.loading) return [title, h("div", "hv-note", "Loading models and context limits…")];
     if (!st.loaded) return [title, h("div", "derr", st.error), button("Try again", "", () => { void load(machine, agent, state); redraw(); })];
@@ -61,9 +65,11 @@ export function modelContextPanel({ invoke, h, button, redraw }: Deps) {
     defaultInput.disabled = st.savingDefault;
     const choices = h("datalist", "");
     choices.id = "harness-default-models";
+
     for (const model of defaultModels) {
       const option = h("option", ""); option.value = model.name; choices.append(option);
     }
+
     const defaultError = h("span", "derr", st.defaultError);
     const saveDefault = button(st.savingDefault ? "Saving…" : "Save default model", "pri", () => {
       const model = state.defaultModel.trim();
@@ -103,6 +109,7 @@ export function modelContextPanel({ invoke, h, button, redraw }: Deps) {
       state.filter = value;
       for (const row of body.rows) row.hidden = !!row.dataset.model && !row.dataset.model.includes(value.toLowerCase());
     });
+
     for (const id of ids) {
       const model = models.find(m => m.id === id);
       const custom = state.draft.find(r => r.model === id);
@@ -119,6 +126,7 @@ export function modelContextPanel({ invoke, h, button, redraw }: Deps) {
       row.hidden = !row.dataset.model.includes(state.filter.toLowerCase());
       body.append(row);
     }
+
     const add = button("Add model", "small", () => {
       const rule = { model: "", threshold: "" }; state.draft.push(rule);
       const idInput = input("", "Model id for override", "Model id", v => { rule.model = v; });

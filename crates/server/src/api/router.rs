@@ -190,6 +190,7 @@ impl Router {
                 self.duplicates
             );
         }
+
         Ok(())
     }
 

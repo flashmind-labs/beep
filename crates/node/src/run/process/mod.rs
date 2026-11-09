@@ -32,6 +32,7 @@ pub(crate) fn command(program: impl AsRef<OsStr>) -> Command {
     if let Ok(found) = which::which(program) {
         return Command::new(found);
     }
+
     Command::new(program)
 }
 
@@ -84,13 +85,17 @@ impl GroupLeader {
         if self.reaped() {
             return;
         }
+
         self.signal(Group::terminate);
+
         if timeout(grace, self.child.wait()).await.is_err() {
             log::debug!("the process group outlived SIGTERM; killing it");
             self.signal(Group::kill);
+
             if let Err(e) = self.child.wait().await {
                 log::warn!("could not reap a stopped child: {e}");
             }
+
             return;
         }
         // The child exited, but something it started may still run. POSIX

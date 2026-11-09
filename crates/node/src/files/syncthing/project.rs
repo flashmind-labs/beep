@@ -31,6 +31,7 @@ impl Syncthing {
                     for folder in &mut raw {
                         folder.paused = false;
                     }
+
                     let home = self.inner.home.clone();
                     Some(
                         tokio::task::spawn_blocking(move || super::resolve(raw, home.as_deref()))
@@ -64,6 +65,7 @@ impl Syncthing {
                 label: None,
             });
         };
+
         if let Some(enabled) = enabled {
             let id = managed
                 .id
@@ -75,10 +77,12 @@ impl Syncthing {
             let old: Ignores = serde_json::from_slice(&raw)?;
             let pattern = pattern(&managed.root, &folder)?;
             let updated = update(&old.ignore, &pattern, enabled);
+
             if updated != old.ignore {
                 post(&gui, &path, &Ignores { ignore: updated }).await?;
             }
         }
+
         let share = managed.root.clone();
         let ignored = tokio::task::spawn_blocking(move || {
             crate::files::sync::stignore::project_ignored(&folder, &share)
@@ -102,6 +106,7 @@ fn pattern(root: &Path, folder: &Path) -> Result<String> {
             "This project's path contains characters Syncthing treats as patterns; set its ignore rule in Syncthing"
         );
     }
+
     Ok(if relative.is_empty() {
         "/**".into()
     } else {
@@ -112,6 +117,7 @@ fn pattern(root: &Path, folder: &Path) -> Result<String> {
 fn update(lines: &[String], pattern: &str, enabled: bool) -> Vec<String> {
     let mut out = Vec::new();
     let mut at = 0;
+
     while at < lines.len() {
         if lines[at] == BEGIN
             && lines.get(at + 1).is_some_and(|line| line == pattern)
@@ -123,6 +129,7 @@ fn update(lines: &[String], pattern: &str, enabled: bool) -> Vec<String> {
             at += 1;
         }
     }
+
     if !enabled {
         let git_rules: Vec<_> = super::LOCAL_GIT.lines().map(str::to_owned).collect();
         let at = if out.starts_with(&git_rules) {
@@ -135,6 +142,7 @@ fn update(lines: &[String], pattern: &str, enabled: bool) -> Vec<String> {
             [BEGIN.to_owned(), pattern.to_owned(), END.to_owned()],
         );
     }
+
     out
 }
 

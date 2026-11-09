@@ -69,24 +69,28 @@ impl LlmProvider for ProviderStub {
     fn complete(&self, request: CompletionRequest) -> CompletionStream {
         // Memory learning and chat titles run in the background; they are not counted.
         let system = &request.messages[0].content;
+
         if system.starts_with("You keep the long-term memory") {
             return Box::pin(async_stream::stream! {
                 yield Ok(StreamEvent::ContentDelta(r#"{"ops":[]}"#.into()));
                 yield Ok(StreamEvent::Finished(FinishReason::Stop));
             });
         }
+
         if system.starts_with("You turn a message from Beep") {
             return Box::pin(async_stream::stream! {
                 yield Ok(StreamEvent::ContentDelta("Your tea order is ready. Want me to pay?".into()));
                 yield Ok(StreamEvent::Finished(FinishReason::Stop));
             });
         }
+
         if system.starts_with("You name chats") {
             return Box::pin(async_stream::stream! {
                 yield Ok(StreamEvent::ContentDelta("Tea preference".into()));
                 yield Ok(StreamEvent::Finished(FinishReason::Stop));
             });
         }
+
         self.calls.fetch_add(1, Ordering::SeqCst);
         *self.tools.lock().unwrap() = request.tools.iter().map(|t| t.name.clone()).collect();
         *self.asked.lock().unwrap() = request
@@ -135,6 +139,7 @@ impl LlmProvider for ProviderStub {
                 yield Ok(StreamEvent::Finished(FinishReason::ToolCalls));
                 return;
             }
+
             for text in ["I", " remember", " your", " preference", "."] {
                 tokio::time::sleep(Duration::from_millis(20)).await;
                 yield Ok(StreamEvent::ContentDelta(text.into()));
@@ -295,9 +300,11 @@ fn api_error(err: anyhow::Error) -> ApiError {
 /// Reads events until the stream ends.
 async fn drain(replies: &mut Replies<Event>) -> Vec<RunEvent> {
     let mut events = Vec::new();
+
     while let Some(event) = replies.next().await.unwrap() {
         events.push(event.event);
     }
+
     events
 }
 
@@ -720,6 +727,7 @@ async fn a_woken_agent_reaches_the_phone_only_when_it_asks_to() {
     // Change notices carry no title.
     let next_notice = async |titles: &mut mpsc::UnboundedReceiver<String>| loop {
         let title = next_title(titles).await;
+
         if !title.is_empty() {
             return title;
         }
@@ -858,9 +866,11 @@ async fn watch(h: &Harness, task: &str, session: Option<Uuid>) -> CronJob {
         &h.alice_id,
     )));
     let mut metadata = json!({"user_id": h.alice_id, "label": "Sam's reply"});
+
     if let Some(session) = session {
         metadata["session_id"] = json!(session.to_string());
     }
+
     tools
         .create_with_metadata(
             JobSchedule::Cron("*/15 * * * *".into()),
@@ -1059,6 +1069,7 @@ async fn arriving_at_a_place_starts_its_routine_once() {
             if let Some(at) = last_run().await {
                 return at;
             }
+
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     })
@@ -1070,6 +1081,7 @@ async fn arriving_at_a_place_starts_its_routine_once() {
     for metres in [110.0, 90.0, 400.0, 10.0] {
         c.call(&fix(metres, 15.0)).await.unwrap();
     }
+
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(last_run().await, Some(ran));
 
@@ -1165,6 +1177,7 @@ async fn next_titled(rx: &mut mpsc::UnboundedReceiver<Notice>, title: &str) -> N
     timeout(Duration::from_secs(20), async {
         loop {
             let notice = rx.recv().await.expect("the inbox is open");
+
             if notice.title == title {
                 return notice;
             }
@@ -1279,10 +1292,13 @@ async fn a_linked_computer_shares_the_account_until_removed() {
     assert!(devices[1].this_device && !devices[1].primary);
     h.notify("Both");
     let mut phone_seen = next_title(&mut phone_titles).await;
+
     while phone_seen != "Both" {
         phone_seen = next_title(&mut phone_titles).await;
     }
+
     let mut desk_seen = next_title(&mut desk_titles).await;
+
     while desk_seen != "Both" {
         desk_seen = next_title(&mut desk_titles).await;
     }
@@ -1371,9 +1387,11 @@ async fn a_client_follows_its_log_and_fetches_only_what_is_new() {
     };
     let page = loop {
         let page = c.call(&GetUpdates { after: start }).await.unwrap();
+
         if replied(&page.updates) {
             break page;
         }
+
         timeout(Duration::from_secs(10), next_updated(&mut newest))
             .await
             .expect("the log moves");
@@ -1467,6 +1485,7 @@ async fn a_prompt_from_the_computer_shows_live_on_the_phone() {
         }
         assert!(history.is_empty(), "only the prompt shows: {history:?}");
     }
+
     let sessions = phone.call(&ListSessions {}).await.unwrap();
     assert!(sessions.iter().any(|s| s.id == session_id.to_string()));
 
@@ -1482,6 +1501,7 @@ async fn a_prompt_from_the_computer_shows_live_on_the_phone() {
         .unwrap();
     assert_eq!(started(&mut followed).await, run_id);
     let mut text = String::new();
+
     while text.is_empty() {
         match followed.next().await.unwrap().map(|e| e.event) {
             Some(RunEvent::TextDelta { delta }) => text = delta,
@@ -1489,6 +1509,7 @@ async fn a_prompt_from_the_computer_shows_live_on_the_phone() {
             None => panic!("the run ended before writing"),
         }
     }
+
     assert_eq!(text, "Working");
 
     desk.call(&CancelRun { id: run_id }).await.unwrap();
@@ -1643,6 +1664,7 @@ async fn a_chat_lists_its_background_work_and_refuses_ids_it_does_not_have() {
     let updates = c.call(&ListUpdates {}).await.unwrap();
     assert!(updates.is_empty());
     c.call(&DismissUpdates { ids: vec![1, 2] }).await.unwrap();
+
     for id in ["w1", "not an id"] {
         let refused = c
             .call(&CancelWork {

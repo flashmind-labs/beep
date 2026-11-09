@@ -94,9 +94,11 @@ pub async fn find(caller: &Caller<'_>, lookup: &Lookup<'_>) -> Result<Option<For
         Some(login) => login.to_owned(),
         None => caller.get::<Account>(&format!("{base}/user")).await?.login,
     };
+
     if lookup.upstream.owner().eq_ignore_ascii_case(&login) {
         return Ok(None);
     }
+
     let upstream = lookup.upstream.to_string();
     let parent: Repo = caller.get(&format!("{base}/repos/{upstream}")).await?;
     let Some(name) = fork_of(caller, lookup, base, &login, &parent.full_name).await? else {
@@ -127,6 +129,7 @@ async fn fork_of(
     upstream: &str,
 ) -> Result<Option<RepoName>, HostError> {
     let same_name = format!("{base}/repos/{login}/{}", lookup.upstream.repo());
+
     match caller.get::<Repo>(&same_name).await {
         Ok(repo)
             if repo.fork
@@ -140,6 +143,7 @@ async fn fork_of(
         Ok(_) | Err(HostError::Status { status: 404, .. }) => {}
         Err(e) => return Err(e),
     }
+
     let owned = |repo: &Repo| {
         repo.owner
             .as_ref()
@@ -166,6 +170,7 @@ pub(super) async fn all_pages<T: DeserializeOwned>(
     let origin = Url::parse(&first).ok().map(|url| url.origin());
     let mut items = Vec::new();
     let mut url = Some(first);
+
     for _ in 0..MAX_PAGES {
         let Some(at) = url.take() else {
             break;
@@ -173,6 +178,7 @@ pub(super) async fn all_pages<T: DeserializeOwned>(
         let page: Page<Vec<T>> = caller.get_page(&at).await?;
         let done = found(&page.items);
         items.extend(page.items);
+
         if done {
             break;
         }
@@ -181,6 +187,7 @@ pub(super) async fn all_pages<T: DeserializeOwned>(
             next.is_some() && next == origin
         });
     }
+
     Ok(items)
 }
 
@@ -188,6 +195,7 @@ pub(super) async fn all_pages<T: DeserializeOwned>(
 fn branches_from(pulls: &[Pull], login: &str, fork: &RepoName) -> Vec<String> {
     let fork = fork.to_string();
     let mut branches: Vec<String> = Vec::new();
+
     for pull in pulls {
         let mine = pull
             .user
@@ -205,6 +213,7 @@ fn branches_from(pulls: &[Pull], login: &str, fork: &RepoName) -> Vec<String> {
             branches.push(branch.to_owned());
         }
     }
+
     branches
 }
 

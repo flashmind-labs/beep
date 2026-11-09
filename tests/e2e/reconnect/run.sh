@@ -37,10 +37,12 @@ interrupt(){
   local n="$1" signal="$2"
   step "$n. node-b stopped with SIG$signal mid-fetch, then started"
   on node-a "head -c ${SIZE_MB}M /dev/urandom > $P/large-$n.bin" || abort "could not write on node-a"
+
   if ! wait_for 180 "node-b fetching large-$n.bin" halfway; then
     fail "node-b never got partway through large-$n.bin (at $(fetching_mb node-b) MB)"
     return
   fi
+
   note "stopping node-b at $(fetching_mb node-b) MB of $SIZE_MB"
   stop_node node-b "$signal"
   start_node node-b

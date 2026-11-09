@@ -145,12 +145,14 @@ fn session(r: &PgRow) -> Result<Session> {
 /// `query` with LIKE's wildcards escaped, so a percent sign matches itself.
 fn like_pattern(query: &str) -> String {
     let mut pattern = String::with_capacity(query.len());
+
     for c in query.chars() {
         if matches!(c, '\\' | '%' | '_') {
             pattern.push('\\');
         }
         pattern.push(c);
     }
+
     pattern
 }
 
@@ -239,6 +241,7 @@ impl Store {
         if title.is_empty() || title.chars().count() > 200 {
             bail!("session title must be 1-200 characters");
         }
+
         if !self.owns_session(user, chat).await? {
             return Ok(false);
         }
@@ -344,11 +347,13 @@ impl Store {
         .await?;
         let mut files = Vec::new();
         let mut bumped = Vec::new();
+
         for &chat in &owned {
             let gone = delete_chat(&mut tx, chat).await?;
             files.extend(gone.files);
             bumped.extend(gone.bumped);
         }
+
         tx.commit().await?;
         self.announce(&bumped);
         self.blobs.delete(&files).await?;
@@ -369,10 +374,12 @@ impl Store {
         .bind(user.as_ref())
         .fetch_optional(&mut *tx)
         .await?;
+
         if empty != Some(true) {
             tx.rollback().await?;
             return Ok(false);
         }
+
         let gone = delete_chat(&mut tx, chat).await?;
         tx.commit().await?;
         self.announce(&gone.bumped);
@@ -407,6 +414,7 @@ impl Store {
         .bind(chat)
         .fetch_one(&mut *tx)
         .await?;
+
         if busy {
             tx.rollback().await?;
             return Ok(DeletedTurn::Busy);
@@ -428,6 +436,7 @@ impl Store {
         // The context may no longer hold the turn when it was compacted; a
         // summary of it stays.
         let mut context: Conversation = serde_json::from_str(&raw)?;
+
         if remove_turn(&mut context, timestamp, which) {
             sqlx::query("UPDATE sessions SET context = $2 WHERE chat_id = $1")
                 .bind(chat)
@@ -435,6 +444,7 @@ impl Store {
                 .execute(&mut *tx)
                 .await?;
         }
+
         let which_messages = match which {
             TurnsToDelete::One => "turn_id = $2",
             TurnsToDelete::Onward => "id >= $2",
@@ -473,6 +483,7 @@ impl Store {
         if !self.owns_session(user, chat).await? {
             return Ok(false);
         }
+
         self.set_member_flag(user, chat, "pinned", pinned).await
     }
 

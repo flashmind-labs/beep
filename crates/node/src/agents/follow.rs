@@ -111,11 +111,14 @@ async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Res
     let mut previous = None;
     let mut observed_pid = None;
     let mut exit = None;
+
     loop {
         presence.borrow_and_update();
+
         if let Some(live) = &mut live {
             live.borrow_and_update();
         }
+
         let snapshot = match snapshot(agents, &request).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
@@ -132,6 +135,7 @@ async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Res
             SessionSource::External(session) => session.pid,
             SessionSource::Owned(_) => None,
         };
+
         if pid != observed_pid {
             exit = pid.and_then(|pid| match crate::events::exits::Exit::watch(pid) {
                 Ok(exit) => Some(exit),
@@ -142,6 +146,7 @@ async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Res
             });
             observed_pid = pid;
         }
+
         let prior = previous.take();
         let requested = request.clone();
         let (snapshot, update, changed) = spawn_blocking(move || {
@@ -154,10 +159,13 @@ async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Res
         .await
         .context("preparing transcript update")??;
         previous = Some(snapshot);
+
         if changed {
             send(tx, &update).await?;
         }
+
         let follow_presence = live.is_none();
+
         loop {
             tokio::select! {
                 changed = async {
@@ -197,6 +205,7 @@ async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Res
         }
         // Coalesce token bursts; the watch channel and file queue retain a dirty bit.
         sleep(Duration::from_millis(40)).await;
+
         if live.is_none() {
             live = agents
                 .get(request.session.as_ref())
@@ -211,6 +220,7 @@ fn recent_deadline(session: &beep_proto::node::agent::ExternalSession) -> Option
     if session.pid.is_some() || session.presence != beep_proto::node::agent::Presence::Recent {
         return None;
     }
+
     let remaining = session
         .last_activity
         .saturating_add(181)
@@ -247,6 +257,7 @@ fn validates(snapshot: &SessionSnapshot, cursor: &SessionCursor) -> Result<bool>
     {
         return Ok(false);
     }
+
     let start = (cursor.start - snapshot.earlier) as usize;
     let end = (cursor.next - snapshot.earlier) as usize;
     Ok(fingerprint(cursor.start, &snapshot.entries[start..end])? == cursor.fingerprint)
@@ -282,6 +293,7 @@ fn retained(mut snapshot: SessionSnapshot) -> Result<SessionSnapshot> {
     // Reserve the largest compact array header before counting complete entries.
     let mut bytes = 5usize;
     let mut kept = 0;
+
     for entry in snapshot.entries.iter().rev() {
         let encoded = rmp_serde::to_vec(entry).context("measuring transcript entry")?;
         let next = bytes
@@ -293,9 +305,11 @@ fn retained(mut snapshot: SessionSnapshot) -> Result<SessionSnapshot> {
         bytes = next;
         kept += 1;
     }
+
     if kept == 0 && !snapshot.entries.is_empty() {
         bail!("a transcript entry exceeds the retained window limit");
     }
+
     let removed = snapshot.entries.len() - kept;
     snapshot.entries.drain(..removed);
     snapshot.earlier = snapshot
@@ -331,6 +345,7 @@ fn next_update(
         let update = suffix(&snapshot, skip, true);
         return Ok((snapshot, SessionUpdate::Snapshot(Box::new(update))));
     }
+
     let snapshot = window(snapshot, initial_start)?;
     Ok((
         snapshot.clone(),
@@ -342,9 +357,11 @@ async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSna
     let source = match agents.get(request.session.as_ref()) {
         Some(session) => {
             let info = session.live.borrow().info.clone();
+
             if info.agent != request.agent.as_ref() {
                 bail!("session belongs to another agent");
             }
+
             SessionSource::Owned(Box::new(info))
         }
         None => {
@@ -386,6 +403,7 @@ async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSna
                     .context("session transcript is no longer on the machine")?
             }
         };
+
         for picture in read.pictures {
             agents.images.keep(request.session.as_ref(), picture);
         }
@@ -411,7 +429,9 @@ async fn paths(agents: &Agents, request: &FollowSession) -> Result<Vec<PathBuf>>
     if agents.get(request.session.as_ref()).is_some() {
         return Ok(Vec::new());
     }
+
     let mut paths = Vec::new();
+
     if let Some(file) = agents.session_file(request.session.as_ref()).await? {
         if request.session.as_ref().starts_with("subagent:claude:") {
             paths.push(file.with_extension("meta.json"));
@@ -421,8 +441,10 @@ async fn paths(agents: &Agents, request: &FollowSession) -> Result<Vec<PathBuf>>
             wal.push("-wal");
             paths.push(PathBuf::from(wal));
         }
+
         paths.push(file);
     }
+
     if request.agent == "claude" {
         paths.extend(agents.external.presence_path());
     } else if request.agent == "codex" {
@@ -437,6 +459,7 @@ async fn paths(agents: &Agents, request: &FollowSession) -> Result<Vec<PathBuf>>
                 }),
         );
     }
+
     Ok(paths)
 }
 

@@ -8,11 +8,13 @@ use iroh::{Endpoint, protocol::Router};
 /// The ticket in `text`, which must be a desktop's phone pairing ticket.
 pub fn phone_ticket(text: &str) -> Result<JoinTicket> {
     let ticket = JoinTicket::parse(text).map_err(|error| FleetError::refused(error.to_string()))?;
+
     if ticket.kind != DeviceKind::Desktop {
         return Err(FleetError::refused(
             "Create a Phone pairing ticket on desktop to give this phone project controls.",
         ));
     }
+
     Ok(ticket)
 }
 
@@ -23,6 +25,7 @@ pub async fn observe(mesh: &Mesh, endpoint: &Endpoint) -> Result<Router> {
         mesh.set(Key::Observer(mesh.me().to_string()), Some(Vec::new()))
             .await?;
     }
+
     let (peer, join) = mesh.protocols();
     Ok(Router::builder(endpoint.clone())
         .accept(PEER_ALPN, peer)
@@ -74,11 +77,14 @@ mod tests {
         // The mark replicates to the desktop, whose code hosts are its own machine only.
         timeout(Duration::from_secs(60), async {
             let mut updates = desktop.updates();
+
             loop {
                 updates.borrow_and_update();
+
                 if desktop.is_observer(phone_id) {
                     return;
                 }
+
                 updates.changed().await.expect("the mesh is alive");
             }
         })

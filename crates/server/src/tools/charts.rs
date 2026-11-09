@@ -85,13 +85,16 @@ impl Tool for ShowStockChartTool {
             Ok(args) => args,
             Err(e) => return Ok(ToolResult::failure(ctx.tool_call_id, e.to_string())),
         };
+
         if args.symbols.is_empty() || args.symbols.len() > MAX_SYMBOLS {
             return Ok(ToolResult::failure(
                 ctx.tool_call_id,
                 format!("Chart between 1 and {MAX_SYMBOLS} symbols."),
             ));
         }
+
         let mut symbols = Vec::new();
+
         for text in &args.symbols {
             match Symbol::parse(text) {
                 Ok(symbol) if !symbols.contains(&symbol) => symbols.push(symbol),
@@ -99,6 +102,7 @@ impl Tool for ShowStockChartTool {
                 Err(e) => return Ok(ToolResult::failure(ctx.tool_call_id, e.to_string())),
             }
         }
+
         let histories = match stocks::fetch(&symbols, args.range).await {
             Ok(histories) => histories,
             Err(e) => {
@@ -124,12 +128,14 @@ impl Tool for ShowStockChartTool {
 /// One line per symbol: its latest price and the change over `range`.
 fn summary(range: ChartRange, histories: &[History]) -> String {
     let mut out = String::new();
+
     for history in histories {
         let info = &history.info;
         let change = history.change();
         if !out.is_empty() {
             out.push('\n');
         }
+
         let name = if info.name.is_empty() {
             info.symbol.clone()
         } else {
@@ -145,11 +151,14 @@ fn summary(range: ChartRange, histories: &[History]) -> String {
             range.as_ref(),
             price(info.previous),
         );
+
         if !info.exchange.is_empty() {
             let _ = write!(out, ", on {}", info.exchange);
         }
+
         out.push('.');
     }
+
     out
 }
 
@@ -289,6 +298,7 @@ fn build(args: ChartArgs, dropped: &mut Vec<String>) -> Result<Chart, String> {
     if args.series.is_empty() || args.series.len() > MAX_SERIES {
         return Err(format!("Give between 1 and {MAX_SERIES} series."));
     }
+
     let title = clip(&args.title, MAX_TITLE);
     let categories: Vec<String> = args
         .categories
@@ -299,12 +309,14 @@ fn build(args: ChartArgs, dropped: &mut Vec<String>) -> Result<Chart, String> {
     if categories.len() > MAX_POINTS {
         return Err(format!("Give at most {MAX_POINTS} categories."));
     }
+
     let x = if categories.is_empty() {
         ChartAxis::Time
     } else {
         ChartAxis::Category
     };
     let mut series = Vec::new();
+
     for (i, requested) in args.series.into_iter().enumerate() {
         let name = match clip(&requested.name, MAX_NAME) {
             name if name.is_empty() => format!("Series {}", i + 1),
@@ -320,9 +332,11 @@ fn build(args: ChartArgs, dropped: &mut Vec<String>) -> Result<Chart, String> {
             series.push(ChartSeries { name, points });
         }
     }
+
     if series.is_empty() {
         return Err(format!("Nothing to chart. {}", dropped.join("; ")));
     }
+
     Ok(Chart {
         title,
         kind: args.kind,
@@ -355,12 +369,14 @@ fn category_points(
             "{name}: give `values`, one per category, since categories are set."
         ));
     };
+
     if values.len() != categories {
         return Err(format!(
             "{name}: {} values for {categories} categories; give one per category, null where unknown.",
             values.len()
         ));
     }
+
     let mut skipped = 0;
     let points = values
         .iter()
@@ -390,12 +406,15 @@ fn time_points(
             "{name}: give `points` of a time and a value, or set `categories` and give `values`."
         ));
     };
+
     if requested.len() > MAX_POINTS {
         return Err(format!("{name}: at most {MAX_POINTS} points."));
     }
+
     let mut bad_times = Vec::new();
     let mut bad_values = 0;
     let mut points = Vec::new();
+
     for point in requested {
         match (time_ms(&point.t), point.v.filter(|v| v.is_finite())) {
             (Some(x), Some(y)) => points.push(ChartPoint { x, y }),
@@ -403,6 +422,7 @@ fn time_points(
             (Some(_), None) => bad_values += 1,
         }
     }
+
     if !bad_times.is_empty() {
         let shown: Vec<String> = bad_times.iter().take(3).map(|t| format!("{t:?}")).collect();
         dropped.push(format!(
@@ -411,6 +431,7 @@ fn time_points(
             shown.join(", ")
         ));
     }
+
     if bad_values > 0 {
         dropped.push(format!("{name}: {bad_values} points without a number"));
     }
@@ -421,9 +442,11 @@ fn time_points(
 /// Unix milliseconds of a date or an ISO 8601 time, UTC without an offset.
 fn time_ms(text: &str) -> Option<f64> {
     let text = text.trim();
+
     if let Ok(time) = DateTime::parse_from_rfc3339(text) {
         return Some(time.timestamp_millis() as f64);
     }
+
     for format in [
         "%Y-%m-%dT%H:%M:%S%.f",
         "%Y-%m-%dT%H:%M",

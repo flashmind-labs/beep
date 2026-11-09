@@ -62,6 +62,7 @@ impl Agents {
                 return;
             }
         };
+
         match first_walk {
             Some(mut on_disk) => *on_disk = Some(Arc::new(walk.found)),
             None if walk.whole => *self.on_disk.lock().await = Some(Arc::new(walk.found)),
@@ -76,6 +77,7 @@ impl Agents {
         if self.rescanning.swap(true, Ordering::Relaxed) {
             return Ok(());
         }
+
         let walked = async {
             let known = self.disk_checkouts()?;
             let all = spawn_blocking(move || found::rescan(&root, &dir, &known))
@@ -111,9 +113,11 @@ impl Agents {
     /// read wait for it rather than read again.
     pub(super) async fn sighted_folders(&self) -> Result<Arc<Vec<PathBuf>>> {
         let mut sighted = self.sighted.lock().await;
+
         if let Some(fresh) = sighted.as_ref().filter(|s| s.at.elapsed() < SIGHTED_FOR) {
             return Ok(fresh.folders.clone());
         }
+
         let mut folders: Vec<PathBuf> = self
             .sightings()
             .await?
@@ -152,6 +156,7 @@ impl Agents {
             Vec::new()
         });
         seen.extend(others.context("reading the agents' sessions")?);
+
         for native in self.presence.snapshot() {
             if seen
                 .iter()
@@ -159,6 +164,7 @@ impl Agents {
             {
                 continue;
             }
+
             seen.push(found::Seen {
                 agent: Agent::Flsh,
                 id: native.id,
@@ -169,6 +175,7 @@ impl Agents {
                 file: None,
             });
         }
+
         Ok(seen)
     }
 
@@ -231,11 +238,13 @@ impl Agents {
                 .iter()
                 .any(|folder| found::within(Path::new(&session.cwd), folder))
         });
+
         for session in &mut sessions {
             if session.taken_over.is_none() {
                 session.taken_over = owned.get(&session.id).cloned();
             }
         }
+
         sessions.sort_by_key(|session| Reverse(session.last_activity));
         sessions.truncate(limit);
         Ok(sessions)
@@ -264,6 +273,7 @@ impl Agents {
                 None => stores.sessions(Some(agent)),
             };
             seen.sort_by_key(|seen| Reverse(seen.last_activity));
+
             match session {
                 Some(id) => seen.retain(|seen| seen.id == id),
                 None => seen.truncate(
@@ -272,18 +282,21 @@ impl Agents {
                         .clamp(1, MAX_IN_FOLDERS),
                 ),
             }
+
             seen.into_iter()
                 .map(|seen| stores.describe(seen, now))
                 .collect::<Vec<_>>()
         })
         .await?;
         let held = self.held(agent, &sessions).await;
+
         for found in &mut sessions {
             // A native thread shares its parent's process. Its own turn events,
             // rather than the process holding its file, say whether it works.
             if found.id.starts_with("subagent:") {
                 continue;
             }
+
             let held = held.get(&found.id).copied();
             found.presence =
                 holders::settle(found.presence, found.pid, held.map(|pid| pid.is_some()));
@@ -291,11 +304,13 @@ impl Agents {
                 found.pid = held.flatten();
             }
         }
+
         self.presence.merge(&mut sessions);
         sessions.retain(|found| {
             found.agent == agent.as_ref() && only.as_ref().is_none_or(|id| found.id == *id)
         });
         sessions.sort_by_key(|session| Reverse(session.last_activity));
+
         if only.is_none() {
             sessions.truncate(
                 usize::try_from(limit)
@@ -303,9 +318,11 @@ impl Agents {
                     .clamp(1, MAX_IN_FOLDERS),
             );
         }
+
         for found in &mut sessions {
             found.taken_over = owned.get(&found.id).cloned();
         }
+
         Ok(sessions)
     }
 
@@ -335,6 +352,7 @@ impl Agents {
             "This subagent is managed by its parent. Open the parent to continue it."
         );
         let ours = self.get(id);
+
         if let Some(session) = &ours
             && session.agent != kind.name
         {
@@ -359,6 +377,7 @@ impl Agents {
         };
         let id = id.as_str();
         let owned = self.owned();
+
         if let Some(session) = owned.get(id).and_then(|node_id| self.get(node_id))
             && session.agent == kind.name
             && session.live.borrow().status() != Status::Ended
@@ -369,6 +388,7 @@ impl Agents {
                     .await
                     .map_err(anyhow::Error::msg)?;
             }
+
             return Ok(session);
         }
         // ACP can reload a session this node ran without a reader for the
@@ -402,9 +422,11 @@ impl Agents {
         .with_context(|| format!("there is no {} session {id} on this machine", kind.name))?;
         let mut found = found;
         found.presence = self.presence(agent, &found).await;
+
         if let Some(reason) = claude::refuse_takeover(&found) {
             anyhow::bail!("{reason}");
         }
+
         self.prepare(kind).await?;
         let begin = self.resumed_begin(prompt, id, before.unwrap_or_default());
         let session = self.start(kind, Some(&found.cwd), begin)?;
@@ -440,6 +462,7 @@ impl Agents {
         {
             return registered.presence;
         }
+
         let held = self.held(agent, std::slice::from_ref(found)).await;
         holders::settle(
             found.presence,
@@ -462,9 +485,11 @@ impl Agents {
         if agent == Agent::Claude {
             return ids.into_iter().map(|id| (id, None)).collect();
         }
+
         if ids.is_empty() {
             return HashMap::new();
         }
+
         let stores = self.stores.clone();
         let files = spawn_blocking(move || {
             ids.into_iter()
@@ -492,6 +517,7 @@ impl Agents {
         if let Some(picture) = self.images.get(session, key) {
             return Ok(Some(picture));
         }
+
         let Some(file) = self.session_file(session).await? else {
             return Ok(None);
         };
@@ -518,14 +544,17 @@ impl Agents {
             }
             None => (None, session.to_owned()),
         };
+
         if agent.is_none_or(|agent| agent == Agent::Claude)
             && let Some(file) = self.external.file(&id).await?
         {
             return Ok(Some(file));
         }
+
         if agent == Some(Agent::Claude) {
             return Ok(None);
         }
+
         let stores = self.stores.clone();
         Ok(spawn_blocking(move || stores.file(agent, &id)).await?)
     }

@@ -77,11 +77,14 @@ impl SyncthingFolder {
     /// Whether `folder` is this folder or lies inside it.
     pub fn holds(&self, folder: &str) -> bool {
         let separator = |c: char| c == '/' || c == '\\';
+
         if self.path.is_empty() || folder.is_empty() {
             return false;
         }
+
         let root = self.path.trim_end_matches(separator);
         let folder = folder.trim_end_matches(separator);
+
         match folder.strip_prefix(root) {
             Some("") => true,
             Some(rest) => rest.starts_with(separator),

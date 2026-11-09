@@ -38,13 +38,16 @@ function marked(a: readonly string[], b: readonly string[]): DiffLine[] | null {
   if (x.length * y.length > MAX_CELLS) return null;
   const w = y.length + 1;
   const t = new Uint32Array((x.length + 1) * w);
+
   for (let i = x.length - 1; i >= 0; i--) {
     for (let j = y.length - 1; j >= 0; j--) {
       t[i * w + j] = x[i] === y[j] ? t[(i + 1) * w + j + 1] + 1 : Math.max(t[(i + 1) * w + j], t[i * w + j + 1]);
     }
   }
+
   const out: DiffLine[] = a.slice(0, head).map(l => ({ k: " ", t: l }));
   let i = 0, j = 0;
+
   while (i < x.length || j < y.length) {
     if (i < x.length && j < y.length && x[i] === y[j]) {
       out.push({ k: " ", t: x[i] });
@@ -56,6 +59,7 @@ function marked(a: readonly string[], b: readonly string[]): DiffLine[] | null {
       out.push({ k: "+", t: y[j++] });
     }
   }
+
   for (const l of a.slice(a.length - tail)) out.push({ k: " ", t: l });
   return out;
 }
@@ -67,10 +71,12 @@ export function lineDiff(a: string, b: string): DiffHunk[] | null {
   if (!lines) return null;
   // Old and new lines before each line.
   const before = [{ old: 0, now: 0 }];
+
   for (const l of lines) {
     const p = before[before.length - 1];
     before.push({ old: p.old + (l.k === "+" ? 0 : 1), now: p.now + (l.k === "-" ? 0 : 1) });
   }
+
   const spans: { lo: number; hi: number }[] = [];
   lines.forEach((l, i) => {
     if (l.k === " ") return;
@@ -110,13 +116,16 @@ export function compareView(c: Pick<Conflict, "original">, kept: string, copy: s
 /// Reads the conflict's two files from `machine` and compares them.
 export async function compareFiles(invoke: typeof Invoke, machine: Pick<MachineDetail, "machine_id" | "folder">, c: Pick<Conflict, "path" | "original">) {
   if (!machine.folder) return "That machine's folder is not known";
+
   try {
     const read = (path: string) => invoke<TreeText>("agent_tree_text", { machineId: machine.machine_id, root: machine.folder, path });
     const [kept, copy] = await Promise.all([read(c.original), read(c.path)]);
+
     for (const f of [kept, copy]) {
       if (f.binary) return "A binary file: nothing to compare as text";
       if (f.cut) return `Too large to compare here (${bytes(Math.max(kept.size, copy.size))})`;
     }
+
     return compareView(c, kept.text, copy.text);
   } catch (e) {
     return reason(e);

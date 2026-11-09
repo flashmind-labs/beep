@@ -93,9 +93,11 @@ impl Tool for TasksTool {
         };
         let project = self.tools.project().await?;
         let tasks = self.tools.user.project_tasks(project.id).await?;
+
         if let TasksAction::List = args.action {
             return Ok(ToolResult::success(id, list(&tasks)));
         }
+
         let Some(slug) = args.task.as_deref() else {
             return Ok(ToolResult::failure(id, "Name the task by its slug."));
         };
@@ -131,24 +133,31 @@ pub(super) fn list(tasks: &[TaskRow]) -> String {
     if tasks.is_empty() {
         return "The project has no tasks yet.".to_owned();
     }
+
     let mut text = String::new();
+
     for task in tasks {
         let state: &'static str = task.state.into();
         let _ = write!(text, "- {}: {state}, \"{}\"", task.slug, task.title);
+
         if let Some(after) = task
             .depends_on
             .and_then(|id| tasks.iter().find(|other| other.id == id))
         {
             let _ = write!(text, ", after {}", after.slug);
         }
+
         if let Some(issue) = &task.issue {
             let _ = write!(text, ", issue #{} {}", issue.number, issue.url);
         }
+
         if let Some(pr) = &task.pr_url {
             let _ = write!(text, ", PR {pr}");
         }
+
         text.push('\n');
     }
+
     text
 }
 
@@ -169,6 +178,7 @@ pub(super) fn waits_on(tasks: &[TaskRow], task: &TaskRow, target: TaskId) -> boo
         let Some(current) = at else {
             return false;
         };
+
         if current.id == target {
             return true;
         }
@@ -176,6 +186,7 @@ pub(super) fn waits_on(tasks: &[TaskRow], task: &TaskRow, target: TaskId) -> boo
             .depends_on
             .and_then(|next| tasks.iter().find(|other| other.id == next));
     }
+
     false
 }
 
@@ -191,14 +202,17 @@ impl TasksTool {
         let tools = &self.tools;
         let title = args.title.as_deref().map(str::trim);
         let body = args.body.as_deref().map(str::trim);
+
         if title.is_none() && body.is_none() && args.after.is_none() {
             return Ok(Planned::Refused(
                 "Give a new title, body or after.".to_owned(),
             ));
         }
+
         if title == Some("") {
             return Ok(Planned::Refused("A task needs a title.".to_owned()));
         }
+
         let after: Option<Option<TaskId>> = match args.after.as_deref().map(str::trim) {
             None => None,
             Some("") => Some(None),
@@ -227,9 +241,11 @@ impl TasksTool {
             body: new_body,
         }
         .leaks(&tools.public_text().await?);
+
         if !hits.is_empty() {
             return Ok(Planned::Refused(leaked(&hits)));
         }
+
         let update_card = || {
             let mut fields = vec![field("Task", task.slug.to_string())];
             if let Some(title) = title {
@@ -244,6 +260,7 @@ impl TasksTool {
                     if after.is_empty() { "nothing" } else { after },
                 ));
             }
+
             card("Update task".to_owned(), fields)
         };
         if let Some(stop) = gated(
@@ -254,9 +271,11 @@ impl TasksTool {
             return Ok(stop);
         }
         tools.user.update_task_text(task.id, title, body).await?;
+
         if let Some(after) = after {
             tools.user.set_task_after(task.id, after).await?;
         }
+
         let mut text = format!("Updated {}.", task.slug);
         if task.issue_foreign && task.issue.is_some() && (title.is_some() || body.is_some()) {
             text.push_str(" Its issue was opened by someone else, so it stays as it is.");
@@ -269,10 +288,12 @@ impl TasksTool {
                 title: new_title,
                 body: &body,
             };
+
             if let Err(why) = self.on_home(project, host, command).await? {
                 let _ = write!(text, " Its issue was not updated: {why}");
             }
         }
+
         Ok(Planned::Done(text))
     }
 
@@ -283,21 +304,25 @@ impl TasksTool {
         task: &TaskRow,
     ) -> Result<Planned> {
         let tools = &self.tools;
+
         if !task.state.is_open() {
             return Ok(Planned::Refused(format!(
                 "{} is already closed.",
                 task.slug
             )));
         }
+
         let drop_card = || {
             card(
                 "Drop task".to_owned(),
                 vec![field("Task", format!("{}: {}", task.slug, task.title))],
             )
         };
+
         if let Some(stop) = gated(tools.gate.check(id, DROP_SLUG, Asks::ByLevel, drop_card)) {
             return Ok(stop);
         }
+
         Ok(Planned::Done(
             drop_task(tools.fleet.as_ref(), &tools.user, project, task).await?,
         ))
@@ -310,9 +335,11 @@ impl TasksTool {
         task: &TaskRow,
     ) -> Result<Planned> {
         let tools = &self.tools;
+
         if task.state.is_open() {
             return Ok(Planned::Refused(format!("{} is still open.", task.slug)));
         }
+
         let reopen_card = || {
             card(
                 "Reopen task".to_owned(),
@@ -379,15 +406,18 @@ impl TasksTool {
             }
             card("Merge pull request".to_owned(), fields)
         };
+
         if let Some(stop) = gated(tools.gate.check(id, MERGE_SLUG, Asks::Always, merge_card)) {
             return Ok(stop);
         }
+
         if let Err(why) = self
             .on_home(project, host, HostCommand::MergePr { number })
             .await?
         {
             return Ok(Planned::Refused(format!("The merge failed: {why}")));
         }
+
         super::super::finish_task(tools.fleet.as_ref(), &tools.user, project, task).await?;
         Ok(Planned::Done(format!(
             "Merged {url}; {} is done.",
@@ -415,6 +445,7 @@ impl TasksTool {
         else {
             return Ok(Planned::Refused("Give the comment as body.".to_owned()));
         };
+
         if task.issue_foreign && task.issue_commented {
             return Ok(Planned::Refused(format!(
                 "Beep already commented on issue #{}, which someone else opened; it gets one \
@@ -422,14 +453,17 @@ impl TasksTool {
                 issue.number
             )));
         }
+
         let command = HostCommand::CommentIssue {
             number: issue.number,
             body,
         };
         let hits = command.leaks(&tools.public_text().await?);
+
         if !hits.is_empty() {
             return Ok(Planned::Refused(leaked(&hits)));
         }
+
         let comment_card = || {
             card(
                 "Comment on issue".to_owned(),
@@ -458,6 +492,7 @@ impl TasksTool {
                 issue.number
             )));
         }
+
         Ok(match self.on_home(project, host, command).await? {
             Ok(_) => Planned::Done(format!("Commented on issue #{}.", issue.number)),
             Err(why) => Planned::Refused(format!("The comment failed: {why}")),
@@ -507,6 +542,7 @@ pub(crate) async fn drop_task(
     task: &TaskRow,
 ) -> Result<String> {
     user.set_task_state(task.id, TaskState::Dropped).await?;
+
     for worker in user.live_workers().await? {
         if worker.task == task.id {
             super::super::worker::end_worker(fleet, user, &worker).await?;
@@ -527,6 +563,7 @@ pub(crate) async fn drop_task(
             comment: "Dropped: no longer planned.",
             not_planned: true,
         };
+
         match on_home(fleet, user, project, host, command).await? {
             Ok(_) => {
                 let _ = write!(text, " Closed issue #{} as not planned.", issue.number);
@@ -536,6 +573,7 @@ pub(crate) async fn drop_task(
             }
         }
     }
+
     Ok(text)
 }
 
@@ -554,9 +592,11 @@ pub(crate) async fn reopen_task(
         let command = HostCommand::ReopenIssue {
             number: issue.number,
         };
+
         if let Err(why) = on_home(fleet, user, project, host, command).await? {
             let _ = write!(text, " Its issue is still closed: {why}");
         }
     }
+
     Ok(text)
 }

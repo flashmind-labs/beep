@@ -11,12 +11,14 @@ async fn each_key_gets_its_own_count_and_a_new_day_starts_over() {
     let a = SecretKey::generate().public();
     let b = SecretKey::generate().public();
     let tuesday = monday().succ_opt().expect("a next day");
+
     for expected in [true, true, false] {
         assert_eq!(
             limit.take(a, monday()).await.expect("the task runs"),
             expected
         );
     }
+
     assert!(limit.take(b, monday()).await.expect("the task runs"));
     assert!(limit.take(a, tuesday).await.expect("the task runs"));
 }

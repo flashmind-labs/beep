@@ -150,6 +150,7 @@ impl TryFrom<String> for DataImage {
         if !uri.starts_with("data:image/") || !uri.contains(";base64,") {
             return Err(DesktopError::BadRequest("not an image".into()));
         }
+
         Ok(Self(uri))
     }
 }
@@ -251,23 +252,27 @@ impl From<ApprovalField> for Field {
 pub fn uploads(files: Vec<FileUpload>) -> Result<Vec<Upload>> {
     let mut total = 0;
     let mut out = Vec::with_capacity(files.len());
+
     for file in files {
         let data = STANDARD
             .decode(file.data.as_bytes())
             .map_err(|_| DesktopError::BadRequest(format!("{} could not be read", file.name)))?;
         total += data.len();
+
         if total > MAX_UPLOAD {
             return Err(DesktopError::BadRequest(format!(
                 "files up to {} MB in one message",
                 MAX_UPLOAD >> 20
             )));
         }
+
         out.push(Upload {
             name: file.name,
             mime: file.mime,
             data,
         });
     }
+
     Ok(out)
 }
 
@@ -278,6 +283,7 @@ pub fn image_uris(images: Vec<DataImage>) -> Result<Vec<String>> {
             "up to {MAX_IMAGES} images in one message"
         )));
     }
+
     Ok(images.into_iter().map(|image| image.0).collect())
 }
 
@@ -340,6 +346,7 @@ impl Beep {
     /// server is out of reach or restarting, until `until`.
     async fn reopen(&self, from: &RunSource, seq: i64, until: Instant) -> Result<Replies<Event>> {
         let mut pause = FIRST_PAUSE;
+
         loop {
             let opened = match from {
                 // The same request id follows the run it started, if any.
@@ -352,6 +359,7 @@ impl Beep {
                     self.stream(more).await
                 }
             };
+
             match opened {
                 Ok(replies) => return Ok(replies),
                 Err(e) if passing(&e) && Instant::now() + pause < until => {
@@ -485,6 +493,7 @@ impl Beep {
         // Tries to follow it again end `RECONNECT` after the first that
         // brought no event.
         let mut lost: Option<Instant> = None;
+
         loop {
             let event = match replies.next().await {
                 Ok(Some(event)) => {
@@ -508,6 +517,7 @@ impl Beep {
                             error => Err(error),
                         },
                     };
+
                     match reopened {
                         Ok(more) => {
                             replies = more;
@@ -610,6 +620,7 @@ impl Beep {
                                 message: NOT_HERE.into(),
                             },
                         };
+
                         if let Err(e) = self.call(answer).await {
                             log::warn!("answering a phone query: {e}");
                         }
@@ -633,10 +644,12 @@ impl Beep {
                 RunEvent::Usage { .. } | RunEvent::MemoryScore { .. } => continue,
             };
             let finished = matches!(out, BarEvent::Finished { .. });
+
             if channel.send(out).is_err() || finished {
                 break;
             }
         }
+
         text
     }
 }

@@ -35,13 +35,17 @@ def call(method: str, url: str) -> bytes:
 
 def keys(bucket_url: str, prefix: str):
     token = None
+
     while True:
         query = {"list-type": "2", "prefix": prefix}
+
         if token:
             query["continuation-token"] = token
+
         root = ET.fromstring(call("GET", f"{bucket_url}?{urllib.parse.urlencode(query)}"))
         yield from (k.text for k in root.findall("s3:Contents/s3:Key", NS))
         token = root.findtext("s3:NextContinuationToken", namespaces=NS)
+
         if root.findtext("s3:IsTruncated", namespaces=NS) != "true" or not token:
             return
 
@@ -52,8 +56,10 @@ def parse(version: str) -> tuple[int, ...]:
 
 def prune(bucket_url: str, folder: str, version: str) -> None:
     prefix = f"beep/{folder}/"
+
     for key in list(keys(bucket_url, prefix)):
         match = VERSIONED.match(key[len(prefix):])
+
         if match and parse(match[1] or match[2]) < parse(version):
             call("DELETE", f"{bucket_url}/{urllib.parse.quote(key)}")
             print(f"Deleted {key}")
@@ -61,6 +67,7 @@ def prune(bucket_url: str, folder: str, version: str) -> None:
 
 def main(args: list[str]) -> None:
     bucket_url = f"https://{os.environ['ACCOUNT']}.r2.cloudflarestorage.com/{os.environ['CF_BUCKET']}"
+
     if args == ["list"]:
         for key in keys(bucket_url, "beep/"):
             print(key)

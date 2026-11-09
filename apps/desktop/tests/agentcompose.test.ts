@@ -173,8 +173,10 @@ for (const status of ["idle", "working", "ended"]) {
     refuse("agent_steer", "bad request: refused");
     refuse("agent_resume", "bad request: refused");
     t.after(() => { delete answers.agent_resume; });
+
     if (status === "working") { enter(input); await settle(); }
     else await sendAgentMessage();
+
     assert.equal(input.value, "check the attachment");
     assert.deepEqual(MN.paths, [path]);
     assert.deepEqual(MN.files.get(path), file);
@@ -338,6 +340,7 @@ test("close refuses ended and external sessions and empty drafts", async () => {
     await closeOpenSession();
     assert.deepEqual(steers(), []);
   }
+
   AG.draft = null;
 });
 

@@ -104,6 +104,7 @@ function subsequence(q: string, s: string) {
 export function filterFiles(index: FileIndex, query: string, shown: (path: string) => string = p => p, cap = MAX_FILE_ROWS): Row[] {
   const q = query.toLowerCase();
   const found: { path: string; score: number; depth: number }[] = [];
+
   for (let i = 0; i < index.paths.length; i++) {
     const path = index.paths[i], lower = index.lower[i];
     const base = lower.slice(lower.lastIndexOf("/") + 1);
@@ -111,6 +112,7 @@ export function filterFiles(index: FileIndex, query: string, shown: (path: strin
     if (score < 0) continue;
     found.push({ path, score, depth: path.split("/").length });
   }
+
   found.sort((a, b) => a.score - b.score || a.depth - b.depth || a.path.length - b.path.length || (a.path < b.path ? -1 : 1));
   return found.slice(0, cap).map(({ path }) => {
     const slash = path.lastIndexOf("/");
@@ -138,6 +140,7 @@ export interface KeyState {
 export function menuKey(count: number, index: number, key: string, mods: KeyState): MenuAction {
   if (!count || mods.composing || mods.shift || mods.alt || mods.ctrl || mods.meta) return { type: "none" };
   const at = Math.min(Math.max(index, 0), count - 1);
+
   switch (key) {
     case "ArrowDown": return { type: "move", index: (at + 1) % count };
     case "ArrowUp": return { type: "move", index: (at - 1 + count) % count };
@@ -160,8 +163,10 @@ export function picked(text: string, caret: number, trigger: Trigger, row: Row) 
 /// ignores too (the node does not read into it).
 export function filePaths(listings: ReadonlyMap<string, { entries: { name: string; folder: boolean; ignored: boolean }[] | null }>) {
   const out: string[] = [];
+
   for (const [dir, listing] of listings) {
     for (const e of listing.entries ?? []) if (!e.folder && !e.ignored) out.push(joinPath(dir, e.name));
   }
+
   return out;
 }

@@ -58,9 +58,11 @@ fn a_harness_without_the_command_never_gets_it() {
         ended(&mut compactor, usage(99, 100), &commands(&["compact"]));
         assert!(!compactor.start(false), "{agent} compacts on its own");
     }
+
     let mut compactor = Compactor::new(route("codex"), Policy::default());
     ended(&mut compactor, usage(99, 100), &commands(&["review"]));
     assert!(!compactor.start(false), "not advertised");
+
     for agent in ["claude", "opencode"] {
         let mut compactor = Compactor::new(route(agent), Policy::default());
         ended(&mut compactor, usage(99, 100), &commands(&["compact"]));
@@ -132,11 +134,13 @@ fn a_token_count_wins_over_the_percent() {
 #[test]
 fn claude_and_pi_get_the_node_compact_for_a_token_count() {
     let policy = Policy::AtTokens(100);
+
     for agent in ["claude", "pi"] {
         let mut compactor = Compactor::new(route(agent), policy);
         ended(&mut compactor, usage(100, 1_000), &commands(&["compact"]));
         assert!(compactor.start(false), "{agent}");
     }
+
     let mut compactor = Compactor::new(route("claude"), policy);
     ended(&mut compactor, usage(99, 1_000), &commands(&["compact"]));
     assert!(!compactor.start(false), "under the count");

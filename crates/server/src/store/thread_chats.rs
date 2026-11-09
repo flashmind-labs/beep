@@ -129,6 +129,7 @@ async fn thread_chat_in(
     if found.is_none() {
         bail!("the project is not the user's");
     }
+
     let number = i64::try_from(new.number)?;
     let existing = sqlx::query(&format!(
         "SELECT {COLUMNS} FROM project_thread_chats WHERE project_id=$1 AND repo=$2 AND number=$3"
@@ -138,13 +139,17 @@ async fn thread_chat_in(
     .bind(number)
     .fetch_optional(&mut *tx)
     .await?;
+
     if let Some(row) = existing {
         return row_from(&row);
     }
+
     let chat = Uuid::new_v4();
+
     if ensure_session(&mut *tx, user.as_ref(), chat).await? != SessionChat::New {
         bail!("a fresh chat id was already taken");
     }
+
     sqlx::query("UPDATE chats SET title=$2 WHERE id=$1")
         .bind(chat)
         .bind(new.title)

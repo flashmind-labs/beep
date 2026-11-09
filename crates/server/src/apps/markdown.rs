@@ -104,6 +104,7 @@ fn convert_value(value: &mut Value) -> bool {
             {
                 *kind = Value::from("markdown");
             }
+
             converted
         }
         _ => false,
@@ -125,11 +126,13 @@ fn to_markdown(html: &str) -> String {
     };
     let mut out = String::with_capacity(markdown.len());
     let mut blank = false;
+
     for line in markdown.lines().map(str::trim_end) {
         if line.is_empty() {
             blank = !out.is_empty();
             continue;
         }
+
         if blank {
             out.push('\n');
             blank = false;
@@ -137,6 +140,7 @@ fn to_markdown(html: &str) -> String {
         out.push_str(line);
         out.push('\n');
     }
+
     out.truncate(out.trim_end().len());
     out
 }

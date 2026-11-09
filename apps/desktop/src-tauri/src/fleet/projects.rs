@@ -83,12 +83,14 @@ pub(crate) async fn mirror_import(beep: &Beep, imported: &ImportedProject) {
     if !beep.has_server() {
         return;
     }
+
     let request = MirrorImport {
         project: imported.project.clone(),
         machine_id: imported.machine_id.clone(),
         folder: imported.folder.clone(),
         url: imported.url.clone(),
     };
+
     if let Err(e) = beep.call(request).await {
         log::info!("the server did not take an import: {e}");
     }
@@ -100,6 +102,7 @@ pub(crate) async fn mirror_remove(beep: &Beep, project: &str) -> Result<()> {
     if !beep.has_server() {
         return Ok(());
     }
+
     let request = RemoveProject {
         project: project.to_owned(),
     };

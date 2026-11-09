@@ -52,9 +52,11 @@ pub(super) fn wanted(line: &str) -> bool {
 /// copies are told apart by message and request id.
 pub(super) fn line(text: &str) -> Option<Line> {
     let entry: Entry = serde_json::from_str(text).ok()?;
+
     if entry.kind.as_deref() != Some("assistant") {
         return None;
     }
+
     let message = entry.message?;
     let usage = message.usage?;
     let model = message.model.filter(|model| !model.starts_with('<'))?;
@@ -77,9 +79,11 @@ pub(super) fn line(text: &str) -> Option<Line> {
         cache_write,
         cache_write_long,
     };
+
     if tokens.total() == 0 {
         return None;
     }
+
     let key = (message.id.is_some() || entry.request_id.is_some()).then(|| {
         let mut hasher = blake3::Hasher::new();
         hasher.update(message.id.as_deref().unwrap_or_default().as_bytes());

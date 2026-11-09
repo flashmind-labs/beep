@@ -159,14 +159,17 @@ fn node_of(dev: &Dev, alert: Alert, closed: Arc<Notify>) {
             let Ok(Some(open)) = rx.recv::<Open>().await else {
                 return;
             };
+
             if open.protocol != SESSIONS_PROTOCOL || tx.send(&Opened::Ready {}).await.is_err() {
                 return;
             }
+
             let alerts = match rx.recv::<SessionsRequest>().await {
                 Ok(Some(SessionsRequest::FollowAlerts {})) => true,
                 Ok(Some(SessionsRequest::FollowRuns {})) => false,
                 _ => return,
             };
+
             if alerts && tx.send(&SessionsReply::Alert { alert }).await.is_err() {
                 return;
             }
@@ -186,6 +189,7 @@ async fn two() -> (Dev, Dev) {
     timeout(LIMIT, async {
         loop {
             updates.borrow_and_update();
+
             if desktop
                 .mesh
                 .devices()
@@ -194,6 +198,7 @@ async fn two() -> (Dev, Dev) {
             {
                 return;
             }
+
             updates.changed().await.expect("the mesh is alive");
         }
     })

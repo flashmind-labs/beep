@@ -129,6 +129,7 @@ impl Folder {
     pub(super) fn clear(&self, id: &str, state: bool) {
         // Gone already is as good as removed.
         let _ = fs::remove_dir_all(self.dir.join(id));
+
         if state {
             let _ = fs::remove_file(self.file(id));
         }

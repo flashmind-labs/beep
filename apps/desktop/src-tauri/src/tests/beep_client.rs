@@ -42,6 +42,7 @@ async fn a_request_only_a_server_answers_says_there_is_none() {
         let error = beep.call(ListSessions {}).await.expect_err("no server");
         assert!(matches!(error, DesktopError::NoServer), "{error:?}");
     }
+
     assert!(matches!(
         beep.link_offer("Studio").await,
         Err(DesktopError::NoServer)
@@ -149,4 +150,17 @@ async fn a_failed_connect_keeps_its_error() {
     let connect = async { Err::<(), _>(anyhow::anyhow!("no route to the server")) };
     let error = connect_in_time(connect, CONNECT_TIMEOUT).await.unwrap_err();
     assert_eq!(error.to_string(), "no route to the server");
+}
+
+#[tokio::test]
+async fn chat_lists_and_search_are_empty_without_a_server() {
+    let dir = TempDir::new().expect("a temp dir");
+    let beep = without_server(&dir).await;
+    assert!(beep.sessions().await.expect("local sessions").is_empty());
+    assert!(
+        beep.search("example".to_owned())
+            .await
+            .expect("local search")
+            .is_empty()
+    );
 }

@@ -23,9 +23,11 @@ impl User {
         const MIN_COSINE: f32 = 0.7;
         const CANDIDATES: usize = 32;
         let query = query.trim();
+
         if query.is_empty() {
             return Ok(Vec::new());
         }
+
         let threshold = 1.0 - ((1.0 - MIN_COSINE) / 2.0).sqrt();
         let today = self.today().await;
         Ok(self
@@ -51,6 +53,7 @@ impl User {
         let query = query.trim();
         let today = self.today().await;
         let holds = |row: &MemoryRow| !row.valid.ended(today);
+
         if query.is_empty() {
             return Ok(self
                 .memory_rows()
@@ -71,6 +74,7 @@ impl User {
         for crowded in crowded_scopes(&found) {
             self.note_signal(&crowded, Signal::Crowded).await;
         }
+
         Ok(found
             .into_iter()
             .filter(|found| found.score >= RECALLABLE && holds(&found.row))
@@ -101,6 +105,7 @@ impl User {
                 valid: Some(fact.valid.unwrap_or_default()),
                 ..fact.clone()
             };
+
             if self.replace_memory(&found.row.id, replacement).await? {
                 return Ok(Remembered {
                     id: found.row.id,
@@ -110,9 +115,11 @@ impl User {
             // Deleted meanwhile: add it instead.
         }
         let id = self.add_memory(fact).await?;
+
         if close {
             self.note_signal(&scope, Signal::Close).await;
         }
+
         Ok(Remembered {
             id,
             replaced: false,
@@ -161,6 +168,7 @@ impl User {
             if exchange.latest.message.split_whitespace().count() < 3 {
                 return Ok(Vec::new());
             }
+
             let prompt = learn_prompt(known, &exchange);
             let answer = generator.text(LEARN_SYSTEM, prompt).await?;
             let ops = parse_learn_ops(&answer)?;
@@ -199,6 +207,7 @@ impl User {
                     }
                 }
             }
+
             let system = format!("{}\n{LEARN_RULES}", reading.kind.intro());
             let answer = generator
                 .text(&system, reading_prompt(&known, reading))
@@ -235,6 +244,7 @@ impl User {
         let facts: Vec<&str> = ops.iter().filter_map(LearnOp::fact).collect();
         let mut filed = self.file_each(&facts).await.into_iter();
         let mut learned = Vec::new();
+
         for op in ops {
             let category = if op.fact().is_some() {
                 filed.next().flatten()
@@ -243,6 +253,7 @@ impl User {
             };
             let origin = op.origin(reference);
             let scope = scope(&op);
+
             match self
                 .apply_learned(known, op, source, origin, category, scope)
                 .await
@@ -251,6 +262,7 @@ impl User {
                 Err(error) => log::warn!("memories: unable to learn: {error:#}; user={self}"),
             }
         }
+
         learned
     }
 
@@ -280,6 +292,7 @@ impl User {
                 content: hit.content.clone(),
             }));
         }
+
         let Some(content) = op.fact() else {
             return Ok(None);
         };
@@ -301,6 +314,7 @@ impl User {
                 content: content.to_owned(),
             }));
         }
+
         let fact = Fact {
             valid: Some(fact.valid.unwrap_or_default()),
             ..fact
@@ -337,10 +351,13 @@ impl User {
             "too many memories for a complete split pass"
         );
         let mut scopes: HashMap<Scope, Vec<MemoryRow>> = HashMap::new();
+
         for row in rows {
             scopes.entry(row.scope.clone()).or_default().push(row);
         }
+
         let mut changed = 0;
+
         for (scope, rows) in scopes {
             for batch in rows.chunks(20) {
                 changed += self
@@ -348,6 +365,7 @@ impl User {
                     .await?;
             }
         }
+
         Ok(changed)
     }
 
@@ -361,12 +379,15 @@ impl User {
         if rows.is_empty() {
             return Ok(0);
         }
+
         let today = self.today().await;
         let attempt = async {
             let mut system = curate_system(scope);
+
             if split_only {
                 system.push_str(" This pass only splits memories. Return only split operations, or an empty ops list. Do not merge, update, supersede or forget anything.");
             }
+
             let answer = generator.text(&system, curate_prompt(&rows, today)).await?;
             parse_curation(&answer)
         };
@@ -385,6 +406,7 @@ impl User {
             .filter(|_| !split_only && *scope == Scope::User)
             .map(|core| core_ids(core, &plan, &by_id));
         let mut changed = 0;
+
         for step in plan {
             match step {
                 Step::Split { id, contents } => {
@@ -413,6 +435,7 @@ impl User {
                             .await?;
                         changed += 1;
                     }
+
                     let fact = Fact {
                         content: &contents[0],
                         category: Some(&row.category),
@@ -439,10 +462,12 @@ impl User {
                         origin: None,
                         scope: None,
                     };
+
                     if !self.replace_memory(&keep, fact).await? {
                         continue;
                     }
                     changed += 1;
+
                     for id in drop {
                         changed +=
                             usize::from(self.store.retire_memory(&self.key, &id, &keep).await?);
@@ -456,6 +481,7 @@ impl User {
                 changed += usize::from(self.store.set_core(&self.key, &row.id, !row.core).await?);
             }
         }
+
         Ok(changed)
     }
 
@@ -479,8 +505,10 @@ impl User {
         };
         let needs = curation_needs(&rows, &states, Utc::now().naive_utc());
         let needs = &needs[..needs.len().min(MAX_SCOPES_PER_SWEEP)];
+
         for need in needs {
             let (kind, why) = (need.scope.kind(), need.need.as_ref());
+
             match self.curate_scope(generator, &need.scope).await {
                 Ok(changed) => {
                     log::info!(
@@ -492,6 +520,7 @@ impl User {
                 }
             }
         }
+
         if needs.is_empty() {
             return;
         }
@@ -503,9 +532,11 @@ impl User {
                 return;
             }
         };
+
         for need in needs {
             let size = rows.iter().filter(|row| row.scope == need.scope).count();
             let counted = states.get(&need.scope).cloned().unwrap_or_default();
+
             if let Err(error) = self
                 .store
                 .mark_curated(&self.key, &need.scope, size, &counted)

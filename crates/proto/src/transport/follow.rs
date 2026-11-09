@@ -71,12 +71,14 @@ impl Drop for Follow {
 async fn follow(client: Arc<Client>, on_event: OnEvent, shared: Arc<Shared>) {
     let mut after = None;
     let mut failures = 0usize;
+
     loop {
         match client.events(after).await {
             Ok(mut events) => {
                 shared.open.store(true, Ordering::Relaxed);
                 failures = 0;
                 let mut asked = false;
+
                 loop {
                     let next = tokio::select! {
                         next = events.next() => next,
@@ -85,6 +87,7 @@ async fn follow(client: Arc<Client>, on_event: OnEvent, shared: Arc<Shared>) {
                             break;
                         }
                     };
+
                     match next {
                         Ok(Some(AppEvent::Heartbeat {})) => {}
                         Ok(Some(AppEvent::Resume { after: from })) => after = Some(from),
@@ -94,8 +97,10 @@ async fn follow(client: Arc<Client>, on_event: OnEvent, shared: Arc<Shared>) {
                                 _ => None,
                             };
                             let shown = on_event(event);
+
                             if let Some(id) = notice {
                                 after = Some(id);
+
                                 if shown && let Err(e) = client.call(&AckNotice { id }).await {
                                     log::debug!("acking notice {id} failed: {e:#}");
                                 }
@@ -108,6 +113,7 @@ async fn follow(client: Arc<Client>, on_event: OnEvent, shared: Arc<Shared>) {
                         }
                     }
                 }
+
                 shared.open.store(false, Ordering::Relaxed);
                 // A server that ends streams at once is not asked again at once.
                 if !asked {
@@ -123,6 +129,7 @@ async fn follow(client: Arc<Client>, on_event: OnEvent, shared: Arc<Shared>) {
                 } else {
                     log::debug!("events stream failed: {e:#}");
                 }
+
                 let wait = BACKOFF[failures.min(BACKOFF.len() - 1)];
                 failures += 1;
                 tokio::select! {

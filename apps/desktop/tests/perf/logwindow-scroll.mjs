@@ -12,9 +12,11 @@ const code = buildSync({
 
 const browserArg = process.argv.indexOf("--browser");
 const kinds = browserArg < 0 ? ["webkit", "chromium"] : [process.argv[browserArg + 1]];
+
 for (const kind of kinds) {
   const executablePath = (kind === "webkit" ? process.env.WEBKIT_BIN : process.env.CHROMIUM_BIN) || undefined;
   const browser = await playwright()[kind].launch({ executablePath });
+
   try {
     const page = await browser.newPage();
     await page.setContent(`<style>
@@ -41,12 +43,14 @@ for (const kind of kinds) {
         get() { return scroll.get.call(this); },
         set(value) { writes++; scroll.set.call(this, value); },
       });
+
       // The browser has already applied a wheel movement when fillLog runs.
       for (const top of [1500, 1400, 1300, 1400, 1500]) {
         scroll.set.call(b, top);
         logWindow.fillLog(b, false);
         if (b.scrollTop !== top) throw new Error(`Scroll moved from ${top} to ${b.scrollTop}`);
       }
+
       return writes;
     });
     assert.equal(writes, 0, `${kind}: unchanged turns must not interrupt native scrolling with scrollTop writes`);
@@ -88,6 +92,7 @@ for (const kind of kinds) {
         key: `turn-${i}`, rows: () => [`<div style="height:400px">Turn ${i}</div>`],
       })), []);
       logWindow.fillLog(b, false);
+
       for (const top of [600, 1200, 1800, 2400, 2000, 1200, 600]) {
         scroll.set.call(b, top);
         logWindow.fillLog(b, false);
@@ -111,6 +116,7 @@ for (const kind of kinds) {
       logWindow.fillLog(b, false);
       b.addEventListener("scroll", () => logWindow.fillLog(b, false));
     });
+
     for (const selector of ["pre.dcode", "table"]) {
       await page.locator(selector).evaluate(el => el.scrollIntoView({ block: "start" }));
       await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
@@ -122,6 +128,7 @@ for (const kind of kinds) {
       await page.mouse.wheel(0, -160);
       await page.waitForFunction(down => document.querySelector(".dbody").scrollTop < down, down);
     }
+
     console.log(`${kind}: wheel scrolling over Markdown code blocks and tables moves the conversation both ways`);
   } finally {
     await browser.close();

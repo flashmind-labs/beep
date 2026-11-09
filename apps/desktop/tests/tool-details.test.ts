@@ -23,9 +23,11 @@ test("only shell calls get the command inspector", () => {
   assert.equal(isCommandCall(call({ name: "exec_command" })), true);
   assert.equal(isCommandCall(call({ name: null })), true);
   assert.equal(isCommandCall(call({ name: null, input: null })), false);
+
   for (const name of ['Read', 'Grep', 'Edit', 'mcp__beep__remote_run', 'mcp__clock__sleep']) {
     assert.equal(isCommandCall(call({ name })), false);
   }
+
   assert.equal(isCommandCall(null), false);
 });
 

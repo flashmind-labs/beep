@@ -29,6 +29,7 @@ export function windowCommand(event: WindowKeyEvent, at: WindowKeyContext, windo
   if (key === "w" && !event.shiftKey) return { kind: "close" };
   if (key === "n" && event.shiftKey && at.page === "projects" && at.project && !at.projectWindow) return { kind: "project-window", project: at.project };
   if (key !== "k" && keyHidden(key, at.subscribed)) return { kind: "blocked" };
+
   if (windowTakes(key, at.page === "pane" ? at.pane : null)) {
     switch (key) {
       case "k": return { kind: "palette" };
@@ -40,6 +41,7 @@ export function windowCommand(event: WindowKeyEvent, at: WindowKeyContext, windo
       case "l": return { kind: "pane", view: "skills" };
     }
   }
+
   if (key === "n" && at.page !== "pane") return { kind: "new-agent" };
   if (key === "t" && !event.shiftKey && !event.altKey && (!event.ctrlKey || windows) && !event.defaultPrevented) return { kind: "project-terminal" };
   return null;

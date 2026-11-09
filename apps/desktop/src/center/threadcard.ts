@@ -77,10 +77,12 @@ const THREAD_TEXT = 600;
 /// The card atop thread chat `t`, read again when it is stale.
 export function threadCard(t: ThreadChatEntry) {
   let card = threadCards.get(t.chat_id);
+
   if (!card) {
     card = { el: h("div", "th-card"), view: undefined, at: 0, error: "", loading: false, all: false };
     threadCards.set(t.chat_id, card);
   }
+
   if (!card.loading && Date.now() - card.at > THREAD_FRESH_MS) readThreadCard(t, card);
   drawThreadCard(t, card);
   return card.el;
@@ -88,6 +90,7 @@ export function threadCard(t: ThreadChatEntry) {
 
 async function readThreadCard(t: ThreadChatEntry, card: ThreadCard) {
   card.loading = true;
+
   try {
     card.view = await invoke<ThreadCardView | null>("center_thread_view", { projectId: t.project_id, repo: t.repo, number: t.number });
     card.error = "";
@@ -97,6 +100,7 @@ async function readThreadCard(t: ThreadChatEntry, card: ThreadCard) {
     card.loading = false;
     card.at = Date.now();
   }
+
   drawThreadCard(t, card);
   const on = paneOn();
   if (on.view === "chat" && on.session === t.chat_id) drawTop();
@@ -168,6 +172,7 @@ pane.onChange(now => {
     if (last.view === "chat" && now.view !== "chat" && now.view !== "group") invoke("new_chat").catch(() => {});
     if (last.group && !now.group) invoke("close_group").catch(() => {});
   }
+
   last = now;
   $("#bar").dataset.view = now.view ?? "";
   drawSide();

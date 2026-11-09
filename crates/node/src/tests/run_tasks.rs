@@ -89,6 +89,7 @@ async fn stopping_a_task_stops_its_whole_group() {
             {
                 return pid;
             }
+
             tokio::task::yield_now().await;
         }
     })
@@ -112,6 +113,7 @@ async fn stopping_a_task_stops_its_whole_group() {
             if !running {
                 return;
             }
+
             tokio::task::yield_now().await;
         }
     })

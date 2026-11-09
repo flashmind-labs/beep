@@ -97,6 +97,7 @@ impl ThreadCommand<'_> {
             parts.extend(["-R".to_owned(), quote(repo)]);
             format!("{}{}", gh_account(repo), parts.join(" "))
         };
+
         match *self {
             Self::ListMine(kind) => {
                 let fields = match kind {
@@ -191,6 +192,7 @@ pub(crate) async fn list(
     let repo = project.name.to_string();
     let me = whoami(shell.as_ref(), project).await;
     let mut out = Vec::new();
+
     for kind in [ThreadKind::PullRequest, ThreadKind::Issue] {
         let printed = run_rendered(shell.as_ref(), &ThreadCommand::ListMine(kind).render(&repo))
             .await
@@ -212,6 +214,7 @@ pub(crate) async fn list(
             }
         }));
     }
+
     out.sort_by(|a, b| {
         b.needs_reply
             .cmp(&a.needs_reply)
@@ -237,6 +240,7 @@ pub(crate) fn project_repo(project: &ProjectRow, repo: &str) -> Result<String, I
             "{repo} is not this project's repository; Beep reads and replies on {name} only."
         ))));
     }
+
     Ok(name)
 }
 
@@ -290,12 +294,14 @@ pub(crate) async fn read(
     .await
     .map_err(|error| host_failed(&error))?;
     let thread = parse_thread(&printed).map_err(|error| host_failed(&error))?;
+
     if thread.number != number {
         return Err(IssueError::from(SourceError::Refused(format!(
             "The host gave #{} for #{number}.",
             thread.number
         ))));
     }
+
     let me = whoami(shell.as_ref(), project).await;
     Ok(ReadThread {
         thread,

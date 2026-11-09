@@ -96,6 +96,7 @@ pub async fn items(caller: &Caller<'_>, base: &str) -> Result<Vec<Found>, HostEr
 fn merge(host: &str, found: Vec<(Query, Vec<Issue>)>) -> Vec<Found> {
     let mut items: Vec<Found> = Vec::new();
     let mut at: HashMap<String, usize> = HashMap::new();
+
     for (query, issues) in &found {
         for issue in issues {
             let i = *at.entry(issue.html_url.clone()).or_insert_with(|| {
@@ -103,6 +104,7 @@ fn merge(host: &str, found: Vec<(Query, Vec<Issue>)>) -> Vec<Found> {
                 items.len() - 1
             });
             let item = &mut items[i].item;
+
             match query {
                 Query::AuthoredPulls | Query::AuthoredIssues => item.authored = true,
                 Query::ReviewRequested => item.review_requested = true,
@@ -110,6 +112,7 @@ fn merge(host: &str, found: Vec<(Query, Vec<Issue>)>) -> Vec<Found> {
             }
         }
     }
+
     items
 }
 

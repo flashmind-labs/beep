@@ -32,11 +32,13 @@ type ReviewProject = Parameters<typeof reviewStart>[1];
 /// reads it with its GitHub tools, and posting asks first.
 async function replyItem(item: GitItemRow) {
   go("pane", { chat: { session: null } });
+
   try {
     await pane.compose(`Help me reply to ${item.url}`);
   } catch (e) {
     console.warn("starting a reply:", e);
   }
+
   reloadChats();
 }
 
@@ -83,11 +85,13 @@ function rowImportButton(p: OpenRepo): HTMLElement {
   if (now === "busy") return h("span", "age", h("span", "dspin"), " Importing…");
   const b = rowButton("Import", "small", () => quickImport(p));
   b.title = importTitle(p);
+
   if (now) {
     const failed = tag("bad", "Import failed");
     failed.title = now.error;
     return h("span", "", failed, " ", b);
   }
+
   return b;
 }
 
@@ -115,6 +119,7 @@ async function quickImport(p: OpenRepo) {
   if (!machine) return importWithSettings(p);
   rowImports.set(p.key, "busy");
   draw();
+
   try {
     // A checkout the machines found imports as it is, not as a second clone.
     if (!state.found) await loadFound();
@@ -128,6 +133,7 @@ async function quickImport(p: OpenRepo) {
     rowImports.set(p.key, { error });
     console.warn(`importing ${p.repo}:`, error);
   }
+
   draw();
 }
 
@@ -191,6 +197,7 @@ export function single(load: () => Promise<void>) {
     running = (async () => {
       do { dirty = false; await load(); } while (dirty);
     })();
+
     try { await running; }
     finally { running = undefined; }
   };
@@ -217,6 +224,7 @@ listen<GitItemsView>("git-items", e => {
 /// refresh. A failure shows in the tab.
 export const refreshGit = single(async () => {
   receiving = true;
+
   try {
     state.git = await invoke<GitItemsView | null>("git_items");
     state.gitError = null;
@@ -226,5 +234,6 @@ export const refreshGit = single(async () => {
   } finally {
     receiving = false;
   }
+
   if (currentLocation()?.view === "home") draw();
 });

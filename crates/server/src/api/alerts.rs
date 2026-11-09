@@ -15,6 +15,7 @@ fn bounded(ids: &[Uuid]) -> Reply<()> {
     if ids.len() > MAX_IDS {
         return Err(ApiError::bad_request("at most 200 alerts at once"));
     }
+
     Ok(())
 }
 

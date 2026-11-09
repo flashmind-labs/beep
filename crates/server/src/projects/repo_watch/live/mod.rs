@@ -96,6 +96,7 @@ impl RepoWatch {
             AskRead::Copy => false,
         };
         let poll = copy.any_going(&self.calls) && entry.runs.timing().poll(Instant::now());
+
         if ask.forced || stale || poll {
             let plan = Plan {
                 forced: ask.forced,
@@ -104,6 +105,7 @@ impl RepoWatch {
             };
             self.sync(app, user, project, entry, &mut copy, plan).await;
         }
+
         copy
     }
 
@@ -152,19 +154,23 @@ impl RepoWatch {
             user: user.clone(),
         };
         let places = hosts::find(&fleet, project, entry, &Tokens(&opened)).await?;
+
         if places.is_empty() {
             copy.set_places(places);
             return Err(NO_HOST.to_owned());
         }
+
         copy.set_places(places);
         let client = host_client().map_err(|e| {
             log::warn!("repo watch: no client for the host: {e:#}");
             HostError::Internal("the host".to_owned()).to_string()
         })?;
         let mut targets = Vec::with_capacity(copy.hosts.len());
+
         for slot in &copy.hosts {
             targets.push(target(user.id(), &opened, &slot.place).await);
         }
+
         Ok(Found { client, targets })
     }
 
@@ -192,14 +198,17 @@ impl RepoWatch {
                 slot.copy.who = Some(target.who.clone());
                 let limited = slot.copy.limited(&self.calls).is_some();
                 let poll = plan.poll && !limited && slot.copy.going();
+
                 if plan.forced || (plan.stale && !limited) || poll {
                     let caller = target.caller(calls, client);
                     // Reread the list too: an unchanged one is a free 304, and it shows when a run ends.
                     self.read_list(&caller, &target, &mut slot.copy).await;
+
                     if poll || slot.copy.going() {
                         self.read_running(&caller, &target, &mut slot.copy).await;
                     }
                 }
+
                 slot.copy.error.is_none()
             });
         join_all(reads).await.into_iter().all(|ok| ok)
@@ -274,9 +283,11 @@ pub(super) async fn sync_in_background(
     entry: &Entry,
 ) -> bool {
     let mut copy = entry.runs.copy.lock().await;
+
     if !entry.runs.stale() {
         return false;
     }
+
     let plan = Plan {
         forced: false,
         stale: true,

@@ -114,6 +114,7 @@ pub const MAX_SLUG: usize = 40;
 /// letter or digit. Project tasks name their branches the same way.
 pub fn slug(text: &str) -> String {
     let mut slug = String::new();
+
     for c in text.chars() {
         if c.is_ascii_alphanumeric() {
             slug.push(c.to_ascii_lowercase());

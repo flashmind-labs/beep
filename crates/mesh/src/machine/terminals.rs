@@ -43,6 +43,7 @@ pub async fn request(client: &PeerClient, request: &Request) -> Result<Reply, Me
             _ => Err(said("the terminal subscription returned another resource")),
         };
     }
+
     request_fresh(client, request).await
 }
 
@@ -87,6 +88,7 @@ pub async fn list_ptys_fresh(client: &PeerClient) -> Result<Vec<Task>, MeshError
 /// The node's background tasks.
 pub async fn list_tasks(client: &PeerClient) -> Result<Vec<Task>, MeshError> {
     use beep_proto::node::process::{Reply, Request};
+
     match Tasks(client).ask(&Request::List {}).await? {
         Reply::Tasks { tasks } => Ok(tasks),
         other => Err(unexpected(&other)),
@@ -113,9 +115,11 @@ pub async fn attach(
 /// Stops the terminal if it still runs its command; one reusing its number is left alone.
 pub async fn stop(client: &PeerClient, kept: &Kept<'_>) -> Result<(), MeshError> {
     let id = TaskId(kept.task);
+
     if !kept.pty {
         return Tasks(client).stop(id, kept.command).await;
     }
+
     let running = list_ptys_fresh(client)
         .await?
         .iter()
@@ -123,6 +127,7 @@ pub async fn stop(client: &PeerClient, kept: &Kept<'_>) -> Result<(), MeshError>
     if !running {
         return Ok(());
     }
+
     match request(client, &Request::Stop { id }).await? {
         Reply::Error { message } => Err(said(message)),
         _ => Ok(()),
@@ -168,11 +173,13 @@ pub fn heard(reply: Reply) -> Heard {
 /// `text` trimmed, refused when empty, too long or on several lines.
 pub fn field<'a>(what: &str, text: &'a str) -> Result<&'a str, ApiError> {
     let text = text.trim();
+
     if text.is_empty() || text.len() > MAX_FIELD || text.contains(['\n', '\r', '\0']) {
         return Err(ApiError::bad_request(format!(
             "A terminal needs a {what} of 1 to {MAX_FIELD} characters on one line."
         )));
     }
+
     Ok(text)
 }
 

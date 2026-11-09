@@ -15,11 +15,13 @@ export function guess(measured: Iterable<number>, fallback: number) {
 /// after it. Past the end, the last turn.
 export function windowOf(sizes: readonly number[], top: number, bottom: number) {
   let y = 0, from = -1, to = sizes.length;
+
   for (let i = 0; i < sizes.length; i++) {
     if (from < 0 && y + sizes[i] > top) from = i;
     if (y >= bottom) { to = i; break; }
     y += sizes[i];
   }
+
   if (from < 0) from = Math.max(0, sizes.length - 1);
   return { from, to: Math.max(from, to) };
 }

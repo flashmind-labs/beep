@@ -80,6 +80,7 @@ test("storage failure leaves typing and clearing usable", () => {
     setItem() { throw new Error("full"); },
     removeItem() { throw new Error("unavailable"); },
   } });
+
   try {
     const field = open("offline");
     field.type("keep typing");

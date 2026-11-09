@@ -82,9 +82,11 @@ document.addEventListener("keydown", e => {
   // Keys typed into a terminal are the terminal's, Esc and Tab too, but not ⌘W or ⌘N.
   if (WINDOWS && e.ctrlKey && e.target instanceof Element && e.target.closest(".tm-xterm")) return;
   if (e.target instanceof Element && e.target.closest(".tm-xterm") && !isCloseKey(e) && !isNewKey(e)) return;
+
   // Esc goes up one page: a project's open tile closes, then the Projects page, then Home, then its Overview tab.
   if (e.key === "Escape" && !(currentLocation()?.view === "terminals" && isZoomKey(e)) && !e.defaultPrevented) {
     const up = escUp({ page: currentLocation()?.view ?? null, picked: state.picked, tile: !!pa.tile, alone: !!windowProject, homeTab: homeTab !== "overview" });
+
     if (up) {
       e.preventDefault();
       if (up.to === "overview") return jump();
@@ -92,6 +94,7 @@ document.addEventListener("keydown", e => {
       return up.to === "home" ? go("home") : void openProjects();
     }
   }
+
   const command = windowCommand(e, {
     page: currentLocation()?.view ?? null,
     pane: currentLocation()?.view === "pane" ? pane.current().view : null,
@@ -100,13 +103,16 @@ document.addEventListener("keydown", e => {
     subscribed: state.subscribed,
   });
   if (!command) return;
+
   // A project terminal only takes the key when a project can provide its folder.
   if (command.kind === "project-terminal") {
     const to = projectHere();
     if (to) { e.preventDefault(); go("pane", { draft: { project: to.project, machine: to.machine, terminal: true } }); }
     return;
   }
+
   e.preventDefault();
+
   switch (command.kind) {
     case "history": return goHistory(command.forward);
     case "close":
@@ -193,6 +199,7 @@ $<HTMLFormElement>("#home-comp").addEventListener("submit", async e => {
   note.textContent = "";
   input.value = "";
   go("pane", { chat: { session: null } });
+
   try {
     await pane.compose(prompt);
   } catch (err) {
@@ -201,6 +208,7 @@ $<HTMLFormElement>("#home-comp").addEventListener("submit", async e => {
     go("home");
     note.textContent = reason(err);
   }
+
   reloadChats();
 });
 
@@ -266,6 +274,7 @@ listen<string>("link-state", e => {
   if (now === state.subscribed) return;
   state.subscribed = now;
   for (const name of ["pinned", "chats", "views", "research"]) reloadGroup(name);
+
   if (now) loadAgents();
   else {
     state.agents = null;
@@ -275,6 +284,7 @@ listen<string>("link-state", e => {
     const page = currentLocation();
     if (page && viewHidden(page.view, arg, false, S.server)) go("home");
   }
+
   draw();
 });
 

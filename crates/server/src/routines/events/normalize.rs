@@ -77,6 +77,7 @@ impl TryFrom<&Value> for TriggerMessage {
         {
             return Ok(Self::new(user, slug, &payload["payload"], at));
         }
+
         Err(UnsupportedEvent)
     }
 }
@@ -123,9 +124,11 @@ fn gmail_message(data: &Value) -> Option<AppEvent> {
         .map(|labels| labels.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
     let has = |label: &str| labels.contains(&label);
+
     if has("SENT") || has("DRAFT") || BULK_LABELS.iter().any(|label| has(label)) {
         return None;
     }
+
     let from = str_of(data, &["sender", "from"]).unwrap_or("someone");
     let subject = str_of(data, &["subject"]).unwrap_or("(no subject)");
     let preview = data["preview"]["body"]
@@ -154,6 +157,7 @@ fn outlook_message(data: &Value) -> Option<AppEvent> {
         &data["message"]
     };
     let id = str_of(data, &["id"]).or_else(|| str_of(message, &["id"]))?;
+
     if message["is_draft"]
         .as_bool()
         .or(message["isDraft"].as_bool())
@@ -166,9 +170,11 @@ fn outlook_message(data: &Value) -> Option<AppEvent> {
         message,
         &["inference_classification", "inferenceClassification"],
     );
+
     if classified.is_some_and(|class| class.eq_ignore_ascii_case("other")) {
         return None;
     }
+
     let sender = if message["from_address"].is_object() {
         &message["from_address"]["email_address"]
     } else if message["from"].is_object() {
@@ -294,6 +300,7 @@ pub fn from_email(mailbox: Mailbox, email: &Email) -> Option<AppEvent> {
     if email.sent || email.bulk {
         return None;
     }
+
     let app = match mailbox {
         Mailbox::Gmail => EventApp::Gmail,
         Mailbox::Outlook => EventApp::Outlook,
@@ -337,9 +344,11 @@ struct MailFields<'a> {
 
 fn mail_event(mail: MailFields<'_>) -> AppEvent {
     let mut ids = json!({"message_id": mail.id});
+
     if let Some(thread) = mail.thread {
         ids["thread_id"] = json!(thread);
     }
+
     let detail = mail
         .preview
         .map(|preview| {

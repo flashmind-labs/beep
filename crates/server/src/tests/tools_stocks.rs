@@ -36,7 +36,9 @@ fn checks_symbols() {
     for good in ["AAPL", "btc-usd", "^GSPC", "EURUSD=X", "BRK.B", "ES_F"] {
         assert!(Symbol::parse(good).is_ok(), "{good}");
     }
+
     assert_eq!(symbol("btc-usd").to_string(), "BTC-USD");
+
     for bad in ["", "AAPL MSFT", "../x", "A/B", "ABCDEFGHIJKLMNOPQRSTU", "Ä"] {
         assert!(Symbol::parse(bad).is_err(), "{bad}");
     }

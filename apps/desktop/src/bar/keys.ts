@@ -42,11 +42,13 @@ const backToChat = () => S.session ? openSession(S.session) : renderChat();
 export function back() {
   if (closeAgentNewMenus()) return;
   if (S.view === "agent" || S.view === "agentnew" || S.view === "agents") return agentBack();
+
   if (S.view === "chats") {
     if (S.chats.mode !== "list") return chatMode("list");
     if (S.chats.back) return renderGroup(S.chats.back);
     return backToChat();
   }
+
   if (S.view === "group" && G.mention) return closeMention();
   if (S.view === "memories" && M.mode !== "list") { M.mode = "list"; drawMemories(); return $("#mfind")?.focus(); }
   if (S.view === "routines" && R.mode !== "list") return routineAction("list");
@@ -63,21 +65,25 @@ export function back() {
   if (S.view === "model") return backToChat();
   if ((S.view === "memories" || S.view === "routines" || S.view === "skills" || S.view === "research" || S.view === "settings") && S.link === "linked") return backToChat();
   if (S.view === "ginfo" || S.view === "invite") return renderGroup(G.id!);
+
   if (S.view === "gnew") {
     if (J.mode === "join") return renderGroupNew("code");
     if (J.mode === "code") return renderGroupNew("new");
     return renderChats();
   }
+
   if (!PANE) invoke("hide_bar");
 }
 
 export function chatsKeys(e: KeyboardEvent, cmd: boolean) {
   const { list, mode } = S.chats, c = list[S.chats.sel];
   const key = e.key.toLowerCase();
+
   if (mode === "rename") {
     if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); chatAction("rename-save"); }
     return;
   }
+
   if (mode === "delete" && e.key === "Enter") { e.preventDefault(); return chatAction("delete-yes"); }
   if (arrowKey(e, S.chats)) { S.chats.mode = "list"; return drawChats(); }
   if (e.key === "Tab" && c) { e.preventDefault(); return chatMode(mode === "actions" ? "list" : "actions"); }
@@ -92,11 +98,13 @@ export function groupKeys(e: KeyboardEvent) {
   const t = target(e);
   if (!(t instanceof HTMLTextAreaElement) || t.id !== "gask") return;
   const mn = G.mention;
+
   if (mn && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
     e.preventDefault();
     mn.sel = (mn.sel + (e.key === "ArrowDown" ? 1 : mn.items.length - 1)) % mn.items.length;
     return drawMention();
   }
+
   if (mn && (e.key === "Enter" || e.key === "Tab") && !e.isComposing) { e.preventDefault(); return insertMention(mn.sel); }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); return sendGroup(); }
   if (!PANE && e.key === "ArrowUp" && !t.value) { e.preventDefault(); return renderChats(); }
@@ -114,12 +122,14 @@ export function liveKeys(e: KeyboardEvent, cmd: boolean) {
   if (cmd && (e.key === "Enter" || key === "d") && (here()?.approval || waitingQuestion(S.session))) return false;
   if (cmd && key === "c") return false;
   if (cmd || e.ctrlKey) { e.preventDefault(); return true; }
+
   if (e.key.length === 1 && !e.altKey && !e.isComposing && !LV.view?.title) {
     e.preventDefault();
     VN.typed += e.key;
     invoke("leave_live").catch(() => {});
     return true;
   }
+
   return false;
 }
 
@@ -142,8 +152,10 @@ document.addEventListener("keydown", e => {
   if (!cmd && t instanceof Element && t.closest(".tm-xterm")) return;
   if (!e.isComposing && e.key === "Escape" && closeChatFind()) { e.preventDefault(); return; }
   if (cmd && !e.altKey && !e.isComposing && e.key.toLowerCase() === "g" && stepChatFind(e.shiftKey ? -1 : 1)) { e.preventDefault(); return; }
+
   if (cmd && !e.altKey && !e.shiftKey && !e.isComposing && e.key.toLowerCase() === "f" && ["agent", "chat", "group"].includes(S.view) && !document.querySelector('[role="dialog"]:not(#bar), #viewer')) {
     const body = $<ChatBody>(S.view === "agent" ? "#agbody" : S.view === "group" ? "#gbody" : "#body");
+
     if (body) {
       e.preventDefault();
       openChatFind({
@@ -156,6 +168,7 @@ document.addEventListener("keydown", e => {
       return;
     }
   }
+
   if (e.key === "Escape" && closeFilesMenu()) { e.preventDefault(); return; }
   if ($("#viewer")) return viewerKeys(e, cmd);
   if (LV.on && liveKeys(e, cmd)) return;
@@ -166,10 +179,12 @@ document.addEventListener("keydown", e => {
   if (S.view === "link" || S.view === "login" || S.view === "revoked") return;
   if (agentKeys(e, cmd)) return;
   const key = e.key.toLowerCase();
+
   if (cmd && e.shiftKey && key === "a" && S.link !== "revoked") {
     e.preventDefault();
     return renderAgentNew(S.view === "chat" ? $<HTMLTextAreaElement>("#ask")?.value.trim() ?? "" : "", S.view === "agents" ? "agents" : "chat");
   }
+
   // These views live in the window now; before linking the bar keeps them.
   const linked = S.link === "linked";
   // Without a subscription the assistant's pages are not there, so their keys do nothing.
@@ -192,6 +207,7 @@ document.addEventListener("keydown", e => {
   if (cmd && e.key === ".") { e.preventDefault(); return stop(); }
   if (cmd && key === "e" && canPickModel()) { e.preventDefault(); return S.view === "model" ? back() : renderModel(); }
   if (S.view === "model") return modelKeys(e);
+
   if (S.view === "chat") {
     if (cmd && e.key === "Enter" && here()?.approval) { e.preventDefault(); return answer(decision(e)); }
     if (cmd && key === "d" && here()?.approval) { e.preventDefault(); return answer("deny"); }
@@ -207,6 +223,7 @@ document.addEventListener("keydown", e => {
     if (!PANE && e.key === "ArrowUp" && ask === "") { e.preventDefault(); return renderChats(); }
     if (e.key === "Backspace" && !cmd && ask === "" && attachedCount()) { e.preventDefault(); return unattach(attachedCount() - 1); }
   }
+
   if (S.view === "chats") return chatsKeys(e, cmd);
   if (S.view === "memories") return memKeys(e, cmd);
   if (S.view === "routines") return routineKeys(e, cmd);
@@ -215,6 +232,7 @@ document.addEventListener("keydown", e => {
   if (S.view === "skills") return skillKeys(e, cmd);
   if (S.view === "group") return groupKeys(e);
   if (S.view === "gnew" && e.key === "Enter" && !e.isComposing && t.tagName === "INPUT") { e.preventDefault(); return groupFormGo(); }
+
   if (S.view === "apps" && e.key === "Enter" && !e.isComposing && (t.id === "mname" || t.id === "murl")) {
     e.preventDefault();
     const url = $$<HTMLInputElement>("#murl");

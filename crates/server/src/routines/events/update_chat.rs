@@ -58,13 +58,17 @@ fn context(detail: &UpdateDetail) -> String {
          the app's read tools with the ids below to look further.",
         detail.update.reason
     );
+
     if detail.events.is_empty() {
         text.push_str("\n\nIts events are no longer stored.");
         return text;
     }
+
     text.push_str("\n\nThe events it covers:");
+
     for event in &detail.events {
         write_event(&mut text, &event.row);
+
         if !event.raw.is_null() {
             let raw = event.raw.to_string();
             let cut = clip(&raw, RAW_CHARS);
@@ -72,6 +76,7 @@ fn context(detail: &UpdateDetail) -> String {
             let _ = write!(text, "\nThe record the app sent{more}: {cut}");
         }
     }
+
     text
 }
 

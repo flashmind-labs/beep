@@ -334,6 +334,7 @@ impl Actor {
         processes.close().await;
         child.stop(STOP_GRACE).await;
         drop(held);
+
         if closed && by_user {
             let info = self.live.borrow().info.clone();
             let removed =
@@ -342,11 +343,13 @@ impl Actor {
                 log::warn!("could not remove closed session attachments: {e:#}");
             }
         }
+
         if !asked {
             self.alert(AlertKind::Failed {
                 reason: reason.clone(),
             });
         }
+
         self.live.send_modify(|live| {
             // A cost the agent reported after its last turn still counts.
             live.spent(TurnTokens::default());
@@ -421,11 +424,13 @@ impl Actor {
             .on_receive_request(
                 async move |request: RequestPermissionRequest, responder, _cx| {
                     let event = Event::Permission(request, responder);
+
                     if let Err(mpsc::error::SendError(Event::Permission(_, responder))) =
                         questions.send(event).await
                     {
                         responder.respond(acp::cancelled())?;
                     }
+
                     Ok(())
                 },
                 on_receive_request!(),
@@ -450,6 +455,7 @@ impl Actor {
         });
         let mut stderr_open = true;
         self.look_for_place();
+
         loop {
             // Biased so an update the agent sent before an answer is
             // applied before it, as the dispatch loop handed them over.
@@ -469,9 +475,11 @@ impl Actor {
                 line = inputs.stderr.next(), if stderr_open => match line {
                     Ok(Some(Line::Text(line))) if !line.trim().is_empty() => {
                         log::debug!("agent stderr: {line}");
+
                         if self.stderr.len() >= STDERR_LINES {
                             self.stderr.pop_front();
                         }
+
                         self.stderr.push_back(cut(line.trim(), 300));
                     }
                     Ok(Some(_)) => {}
@@ -481,12 +489,14 @@ impl Actor {
                     let Some(Order { command, done }) = order else {
                         return Ok(End::Closed);
                     };
+
                     if let Command::Close { by_user } = command {
                         self.by_user = by_user;
                         self.live.send_modify(|live| live.closing = by_user);
                         let _ = done.send(Ok(()));
                         return Ok(End::Closed);
                     }
+
                     let result = self.command(cx, command)?;
                     // The stream may have gone; the order still happened.
                     let _ = done.send(result);
@@ -527,17 +537,21 @@ impl Actor {
                 {
                     self.show_steer();
                 }
+
                 if let SessionUpdate::ConfigOptionUpdate(options) = &update {
                     let offered = acp::offered_models(
                         &serde_json::json!({ "configOptions": options.config_options }),
                     );
+
                     if let Some(model) = offered.current {
                         self.model_is(Some(&model));
                     }
                 }
+
                 if let SessionUpdate::CurrentModeUpdate(now) = &update {
                     self.mode_is(cx, now.current_mode_id.to_string());
                 }
+
                 let finished = self.tool_finished(&update);
                 // Followers also need transcript and metadata changes that
                 // leave the compact state unchanged.
@@ -545,9 +559,11 @@ impl Actor {
                     live.apply(&update);
                 });
                 self.look_for_place();
+
                 if let Some(stopping) = self.stopping {
                     self.show_stopping(stopping);
                 }
+
                 if finished {
                     self.steer_now(cx)?;
                 }
@@ -559,11 +575,13 @@ impl Actor {
                 let Some(responder) = self.plan_ready(&request, responder) else {
                     return Ok(());
                 };
+
                 if let Some(responder) = self.allow(&request, responder)? {
                     self.ask(&request, responder);
                 }
             }
         }
+
         Ok(())
     }
 
@@ -608,6 +626,7 @@ impl Actor {
             Reply::Initialized(Ok(initialized)) => {
                 self.takes_images = Some(acp::takes_images(&initialized));
                 self.takes_steering = acp::takes_steering(&initialized);
+
                 if let Some(end) = self.initialized(cx, &initialized) {
                     return Ok(Some(end));
                 }
@@ -639,6 +658,7 @@ impl Actor {
                     if let Some(model) = model {
                         self.model_is(Some(model.as_ref()));
                     }
+
                     self.note(&format!("Switched to {what} from the next turn"));
                 }
                 Err(e) => self.note(&format!("Could not switch to {what}: {e}")),
@@ -651,6 +671,7 @@ impl Actor {
                         effort.as_ref()
                     ));
                 }
+
                 self.unprompted(cx);
             }
             Reply::ModelSet {
@@ -667,11 +688,13 @@ impl Actor {
                     // Requests that still come are allowed in `ask`.
                     Err(e) => log::warn!("the agent did not switch to {mode}: {e}"),
                 }
+
                 self.idle(cx);
             }
             Reply::ModeSet { was, result } => {
                 if let Err(e) = result {
                     self.note(&format!("Could not switch mode: {e}"));
+
                     if let Some(was) = was {
                         self.mode_is(cx, was);
                     }
@@ -739,6 +762,7 @@ impl Actor {
                 }
             }
         }
+
         Ok(None)
     }
 
@@ -771,10 +795,12 @@ impl Actor {
                 self.brief = brief;
                 None
             };
+
             match acp::new_session(&self.cwd, self.mcp_servers.clone(), system.as_deref()) {
                 Ok(request) => self.send(cx, request, Reply::NewSession),
                 Err(e) => return Some(End::Failed(format!("the agent did not start: {e}"))),
             }
+
             return None;
         };
         // A resumed session keeps the caller's brief in its first prompt: it
@@ -791,9 +817,11 @@ impl Actor {
             return Some(End::Failed("the agent cannot resume a session".into()));
         };
         let earlier = std::mem::take(&mut self.earlier);
+
         if method == acp::ResumeMethod::Resume && !earlier.is_empty() {
             self.live.send_modify(|live| live.restore(earlier));
         }
+
         match acp::resume_session(
             method,
             session.clone(),
@@ -824,6 +852,7 @@ impl Actor {
         self.model_is(offered.current.as_deref());
         self.thinking = offered.thinking;
         self.switch = offered.switch.clone();
+
         if let Some(modes) = offered.modes {
             let bypass = self.bypass_mode;
             self.live.send_modify(|live| {
@@ -850,6 +879,7 @@ impl Actor {
             self.think(cx);
             return None;
         };
+
         match acp::switch_model(&session, &switch, model.as_ref()) {
             Ok(request) => {
                 // The first prompt waits for the model.
@@ -869,6 +899,7 @@ impl Actor {
     fn model_is(&mut self, model: Option<&str>) {
         if self.compactor.set_model(model) {
             let live = self.live.borrow();
+
             if live.info.state.status == Status::Idle {
                 self.compactor.turn_ended(TurnEnd {
                     usage: live.info.context,
@@ -906,6 +937,7 @@ impl Actor {
             self.unprompted(cx);
             return;
         };
+
         match acp::set_effort(&session, &id, effort) {
             // The first prompt waits for the level.
             Ok(request) => self.send(cx, request, move |result| Reply::EffortSet {
@@ -926,6 +958,7 @@ impl Actor {
             return;
         };
         let first = self.first_mode.take();
+
         if let Some(mode) = first.or_else(|| self.bypass_mode.map(str::to_owned)) {
             // The first prompt waits for the mode, so it never asks.
             let request = SetSessionModeRequest::new(session, mode.clone());
@@ -935,6 +968,7 @@ impl Actor {
             });
             return;
         }
+
         self.idle(cx);
     }
 
@@ -961,9 +995,11 @@ fn cycle(mut modes: Vec<ModeOption>, bypass: Option<&str>) -> Vec<ModeOption> {
         acp::PLAN_MODE => 1,
         _ => 2,
     });
+
     for mode in modes.iter_mut().filter(|mode| is_bypass(mode)) {
         mode.name = "Full access".to_owned();
     }
+
     modes
 }
 

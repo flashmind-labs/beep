@@ -16,6 +16,7 @@ export async function fillAppTiles(root: ParentNode) {
   const tiles = [...root.querySelectorAll<HTMLElement>(".dapp[data-app]")].filter(t => !t.childElementCount && !t.textContent);
   if (!tiles.length) return;
   const list = await (apps ??= invoke<AppLogo[]>("list_apps").catch(() => { apps = null; return []; }));
+
   for (const tile of tiles) {
     const app = tile.dataset.app ?? "";
     const letter = esc((app || "?")[0].toUpperCase());

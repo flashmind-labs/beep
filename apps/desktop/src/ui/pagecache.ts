@@ -77,6 +77,7 @@ function knownKey(key: string) {
 export function evict(slots: readonly [string, Slot][], maxSlots = MAX_SLOTS, maxChars = MAX_CHARS): [string, Slot][] {
   const out: [string, Slot][] = [];
   let chars = 0;
+
   for (const [key, slot] of [...slots].sort((a, b) => b[1].used - a[1].used)) {
     if (out.length >= maxSlots) break;
     const size = key.length + JSON.stringify(slot).length + 4;
@@ -84,6 +85,7 @@ export function evict(slots: readonly [string, Slot][], maxSlots = MAX_SLOTS, ma
     chars += size;
     out.push([key, slot]);
   }
+
   return out;
 }
 
@@ -147,6 +149,7 @@ export class PageCache {
     const f = file as Partial<PageCacheFile>;
     if (f.format !== PAGE_CACHE_FORMAT || f.account !== account || !f.slots || typeof f.slots !== "object") return;
     const now = this.clock();
+
     for (const [key, slot] of Object.entries(f.slots)) {
       if (!knownKey(key) || !isSlot(slot) || now - slot.at >= MAX_AGE_MS) continue;
       const had = this.slots.get(key);

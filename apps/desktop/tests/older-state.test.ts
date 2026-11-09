@@ -25,12 +25,14 @@ test("a read that leaves a gap or starts earlier stands alone", () => {
 test("pages read before the first entry join to the whole log without a gap or a repeat", () => {
   const total = 530;
   let held = run(total - 60, total);
+
   while (held.earlier > 0) {
     const before = held.earlier, from = Math.max(0, before - 200);
     const got = run(from, before);
     assert.equal(answersBefore(got, before), true);
     held = takeOlder(held, got).run;
   }
+
   assert.deepEqual(held.entries.map(e => e.text), at(0, total).map(e => e.text));
   // A poll later keeps them.
   const polled = joinRuns(held, run(total - 55, total + 4));
@@ -77,11 +79,13 @@ test("a prompt search that reads pages until a user entry comes first ends withi
   const total = log.length;
   let held = { earlier: total - 60, entries: log.slice(total - 60) };
   let reads = 0;
+
   while (lacksPrompt(held) && olderBefore(held, "") != null && reads < 5) {
     const before = held.earlier, from = Math.max(0, before - 200);
     held = takeOlder(held, { earlier: from, entries: log.slice(from, before) }).run;
     reads++;
   }
+
   assert.equal(held.entries[0].kind, "user");
   assert.equal(reads, 2);
   assert.equal(splitTurns(held.entries, held.earlier)[0].user, held.earlier);
@@ -91,17 +95,20 @@ test("a prompt search gives up at its bound on a turn with no prompt in reach", 
   const log = at(0, 4000);
   let held = { earlier: 3940, entries: log.slice(3940) };
   let reads = 0;
+
   while (lacksPrompt(held) && olderBefore(held, "") != null && reads < 5) {
     const before = held.earlier, from = Math.max(0, before - 200);
     held = takeOlder(held, { earlier: from, entries: log.slice(from, before) }).run;
     reads++;
   }
+
   assert.equal(reads, 5);
   assert.equal(held.earlier, 3940 - 1000);
 });
 
 test("a user's prompt starts a turn and shows whatever the turn holds", () => {
   const log = [{ kind: "user", text: "go" }, { kind: "other", text: "[compacted]" }, { kind: "user", text: "again" }];
+
   for (const t of splitTurns(log)) {
     assert.notEqual(t.user, null);
     // Notes alone are shown bare only when no prompt starts the turn.

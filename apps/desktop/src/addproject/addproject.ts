@@ -59,12 +59,14 @@ const scans = new Map<string, Promise<FoundAfter>>();
 /// Has `machine` look for checkouts again, once at a time.
 function rescan(machine: FoundMachine) {
   let scan = scans.get(machine.id);
+
   if (!scan) {
     scan = invoke<FoundAfter>("rescan_found", { machineId: machine.id })
       .catch(e => ({ rows: null, problem: reason(e) }))
       .finally(() => scans.delete(machine.id));
     scans.set(machine.id, scan);
   }
+
   return scan;
 }
 
@@ -72,11 +74,13 @@ function rescan(machine: FoundMachine) {
 /// the looks begin, and `each` the list after each machine answers.
 export async function rescanAll(start: (machines: FoundMachine[]) => void, each: (machine: FoundMachine, after: FoundAfter) => void) {
   let machines: FoundMachine[] = [];
+
   try {
     machines = await invoke<FoundMachine[]>("found_machines");
   } catch (e) {
     console.warn("found machines:", e);
   }
+
   start(machines);
   await Promise.all(machines.map(machine => rescan(machine).then(after => each(machine, after))));
 }
@@ -122,6 +126,7 @@ let search: HTMLInputElement | null = null, bar: HTMLDivElement | null = null, l
 /// Imports a found row in place on each machine that has it.
 export async function importFound(row: FoundRow, syncthingFiles: boolean | null = null) {
   let first: ProjectRow | null = null;
+
   for (const one of importPlan(row)) {
     try {
       const project = await invoke<ProjectRow>("import_project", { ...one, syncthingFiles });
@@ -131,6 +136,7 @@ export async function importFound(row: FoundRow, syncthingFiles: boolean | null 
       console.warn(`linking ${row.name} on another machine:`, e);
     }
   }
+
   if (!first) throw new Error("Nothing to import.");
   return first;
 }
@@ -204,6 +210,7 @@ function onKey(e: KeyboardEvent) {
   const at = document.activeElement;
   const row = at instanceof HTMLElement && at.classList.contains("ap-row") ? at : null;
   if (e.key === " " && row) { stop(); toggle(row.dataset.name || ""); return; }
+
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     const rows = rowEls();
     if (!rows.length || (!row && at !== search)) return;
@@ -213,6 +220,7 @@ function onKey(e: KeyboardEvent) {
     (to < 0 ? search : rows[to]).focus();
     return;
   }
+
   // Typing anywhere else in the sheet goes to the search.
   if (e.key.length === 1 && e.key !== " " && !e.metaKey && !e.ctrlKey && !e.altKey && at !== search) search.focus();
 }
@@ -232,15 +240,18 @@ async function importPicked() {
   if (!names.length) return;
   batch = true;
   const syncthingFiles = syncthing.value();
+
   for (const name of names) {
     status.set(name, { state: "importing" });
     failed.delete(name);
   }
+
   draw();
   const landed: ProjectRow[] = [];
   await eachLimited(names, IMPORTS_AT_ONCE, async name => {
     const row = byName.get(name);
     if (!row) return;
+
     try {
       landed.push(await importFound(row, syncthingFiles));
       status.set(name, { state: "done" });
@@ -248,6 +259,7 @@ async function importPicked() {
     } catch (e) {
       status.set(name, { state: "failed", why: reason(e) });
     }
+
     if (root) draw();
   });
   batch = false;
@@ -262,6 +274,7 @@ async function doImport(row: FoundRow) {
   failed.delete(row.name);
   status.delete(row.name);
   draw();
+
   try {
     const project = await importFound(row, syncthing.value());
     importing = null;
@@ -311,6 +324,7 @@ function draw() {
   const shown = shownRows();
   // The list is drawn anew, so it takes the old one's scroll with it.
   const scrolled = listBox.querySelector<HTMLElement>(".ap-list")?.scrollTop ?? 0;
+
   if (found === null) {
     listBox.replaceChildren(el("div", "am-wait", el("span", "dspin"), lookingText(opts.machines)));
   } else if (!found.length) {
@@ -327,6 +341,7 @@ function draw() {
     }))));
     listBox.querySelector<HTMLElement>(".ap-list")!.scrollTop = scrolled;
   }
+
   if (found?.length && notRead.length) listBox.append(el("div", "am-sub", notRead.join(" ")));
   if (keep) rowEls().find(r => r.dataset.name === keep)?.focus({ preventScroll: true });
   else if (!search.hidden && !sheet?.contains(document.activeElement)) search.focus();
@@ -392,6 +407,7 @@ export function foundRow(row: FoundRow, state: FoundRowState = {}, onImport: (ro
     row.last_activity ? el("span", "", ago(row.last_activity)) : null);
   const out = el("div", `ap-row${state.pick ? " ap-pick" : ""}`, el("span", "n", row.name), ...places, agents,
     why ? el("span", "m bad", why) : null, el("span", "acts", act));
+
   if (state.pick) {
     const pick = state.pick;
     const box = el("input");
@@ -406,6 +422,7 @@ export function foundRow(row: FoundRow, state: FoundRowState = {}, onImport: (ro
     out.dataset.name = row.name;
     out.setAttribute("aria-selected", String(pick.on));
   }
+
   return out;
 }
 

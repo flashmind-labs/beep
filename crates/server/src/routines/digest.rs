@@ -84,6 +84,7 @@ pub(crate) async fn run(
         log::info!("digest: no mailbox connected; user={user}");
         return Ok(None);
     }
+
     let feeds: Vec<Feed> = mailboxes.iter().copied().map(Feed::Mail).collect();
     feeds::sync_now(app, user, &feeds).await;
 
@@ -91,6 +92,7 @@ pub(crate) async fn run(
     let since = Utc::now() - WINDOW;
     let mut report = Report::default();
     let mut handled = Vec::new();
+
     for mailbox in mailboxes {
         let mine: Vec<&AttentionItem> = flagged
             .iter()
@@ -113,11 +115,14 @@ pub(crate) async fn run(
             }
         };
         report.checked.push(mailbox);
+
         for email in unread {
             let item = mine.iter().find(|item| item.message_id == email.id);
+
             if item.is_none() && (email.received < since || email.bulk) {
                 continue;
             }
+
             report.emails.push(DigestEmail {
                 mailbox,
                 received: email.received,
@@ -125,9 +130,11 @@ pub(crate) async fn run(
                 flagged: item.is_some(),
             });
         }
+
         let ids: Vec<String> = mine.iter().map(|item| item.message_id.clone()).collect();
         handled.push((mailbox, ids));
     }
+
     report.trim();
     log::info!(
         "digest: {} unread, {} flagged; user={user}",
@@ -146,6 +153,7 @@ pub(crate) async fn run(
             );
         }
     }
+
     Ok(run)
 }
 
@@ -195,9 +203,11 @@ fn prompt(job: &CronJob, report: &Report) -> String {
         "{}\n\n{GUIDE}\n\nIf I ask to stop these, turn off routine {} with cron_edit.",
         job.task, job.id
     );
+
     if !report.checked.is_empty() {
         let _ = write!(text, "\n\nChecked: {}.", names(&report.checked));
     }
+
     if !report.failed.is_empty() {
         let _ = write!(
             text,
@@ -205,15 +215,18 @@ fn prompt(job: &CronJob, report: &Report) -> String {
             names(&report.failed)
         );
     }
+
     if report.emails.is_empty() {
         text.push_str("\n\nUnread emails from the last day: none.");
         return text;
     }
+
     let _ = write!(
         text,
         "\n\nUnread emails from the last day ({}):",
         report.emails.len()
     );
+
     for email in &report.emails {
         let mark = if email.flagged { ", flagged" } else { "" };
         let _ = write!(
@@ -223,6 +236,7 @@ fn prompt(job: &CronJob, report: &Report) -> String {
             email.text
         );
     }
+
     text
 }
 

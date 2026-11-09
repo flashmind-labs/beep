@@ -27,12 +27,15 @@ pub(crate) struct Followed {
 pub(crate) async fn follow(url: &str) -> Result<Followed> {
     let followed = follow_public(url).await?;
     let response = &followed.response;
+
     if response.status() != StatusCode::OK {
         bail!("the server answered {}", response.status());
     }
+
     if response.content_length().is_some_and(|n| n > MAX_DOWNLOAD) {
         bail!("the file is larger than {} MiB", MAX_DOWNLOAD >> 20);
     }
+
     Ok(followed)
 }
 
@@ -40,12 +43,15 @@ pub(crate) async fn follow(url: &str) -> Result<Followed> {
 pub(crate) async fn follow_public(url: &str) -> Result<Followed> {
     let mut url = Url::parse(url).context("not a valid URL")?;
     let mut response = None;
+
     for _ in 0..=MAX_REDIRECTS {
         let reply = fetch(&url).await?;
+
         if !reply.status().is_redirection() {
             response = Some(reply);
             break;
         }
+
         let location = reply
             .headers()
             .get(LOCATION)
@@ -53,6 +59,7 @@ pub(crate) async fn follow_public(url: &str) -> Result<Followed> {
             .context("redirect without a location")?;
         url = url.join(location).context("bad redirect")?;
     }
+
     let response = response.context("too many redirects")?;
     Ok(Followed { response, url })
 }
@@ -80,6 +87,7 @@ pub(crate) async fn fetch_public(url: &str) -> Result<Fetched> {
     let content_type = content_type(&response);
     let mut data = Vec::new();
     let mut body = response.bytes_stream();
+
     while let Some(chunk) = body.next().await {
         let chunk = chunk.context("the download broke off")?;
         ensure!(
@@ -89,6 +97,7 @@ pub(crate) async fn fetch_public(url: &str) -> Result<Fetched> {
         );
         data.extend_from_slice(&chunk);
     }
+
     Ok(Fetched {
         name: file_name(None, &url),
         content_type,
@@ -100,9 +109,11 @@ pub(crate) async fn fetch_public(url: &str) -> Result<Fetched> {
 async fn fetch(url: &Url) -> Result<Response> {
     let Resolved { domain, addrs } = public_addresses(url).await?;
     let mut client = beep_proto::https::client().redirect(Policy::none());
+
     if let Some(domain) = domain {
         client = client.resolve(domain, addrs[0]);
     }
+
     let client = client
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(90))

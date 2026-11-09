@@ -19,9 +19,11 @@ pub(super) async fn save_harness_settings(
     }: SaveHarnessSettings,
 ) -> Reply<()> {
     let nodes = cx.user.nodes().await?;
+
     if !nodes.iter().any(|node| node.endpoint == machine_id) {
         return Err(ApiError::NotFound {});
     }
+
     check_agent(&agent)?;
     let settings = check_settings(settings)?;
     let key = &cx.app.credential_key;
@@ -84,6 +86,7 @@ pub(super) async fn save_harness_settings_all(
     if !machines.contains(&from_machine) {
         return Err(ApiError::NotFound {});
     }
+
     check_agent(&agent)?;
     let settings = check_settings(settings)?;
     let everywhere = Everywhere {
@@ -152,6 +155,7 @@ async fn save_everywhere(
     let kept = kept_per_machine(everywhere, &rows, &settings);
     let env = env_to_save(user, key, everywhere.from_machine, agent, settings.env).await?;
     let mut saved = Vec::with_capacity(kept.len());
+
     for machine in kept {
         user.save_harness_settings(
             key,
@@ -174,6 +178,7 @@ async fn save_everywhere(
         })?;
         saved.push(machine.machine_id);
     }
+
     Ok(saved)
 }
 

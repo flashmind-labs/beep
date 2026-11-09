@@ -156,19 +156,25 @@ pub(super) async fn register(
     .await;
 
     let mut by_name: BTreeMap<String, Vec<Owned>> = BTreeMap::new();
+
     for apps in loaded {
         let member = Arc::new(apps.member);
+
         for tool in apps.tools {
             let slug = ToolSlug::new(tool.name());
+
             if !GROUP_TOOLS.contains(&slug.as_ref()) {
                 continue;
             }
+
             let Some((app, acts)) = permissions::call_acts(tool.name(), &Value::Null) else {
                 continue;
             };
+
             if acts && apps.rules.read_only(app.slug) {
                 continue;
             }
+
             by_name
                 .entry(slug.as_ref().to_owned())
                 .or_default()
@@ -179,6 +185,7 @@ pub(super) async fn register(
                 });
         }
     }
+
     for owners in by_name.into_values() {
         registry.register(Arc::new(MemberTool::new(owners, run.clone())));
     }
@@ -208,6 +215,7 @@ impl Tool for Screened {
         if self.run.leaks(&ctx.args.to_string()).await {
             return Ok(ToolResult::failure(ctx.tool_call_id, LEAKS));
         }
+
         self.tool.execute(ctx).await
     }
 }
@@ -239,6 +247,7 @@ impl MemberTool {
             first.tool.description(),
             names.join(", ")
         );
+
         if acts {
             description.push_str(
                 " It asks that member on their phone first and runs once they allow it; \
@@ -260,21 +269,25 @@ fn with_member(mut schema: Value, names: &[&str]) -> Value {
     if !schema.is_object() {
         schema = json!({"type": "object"});
     }
+
     let member = json!({
         "type": "string",
         "enum": names,
         "description": "The member whose account this runs on.",
     });
+
     match schema["properties"].as_object_mut() {
         Some(properties) => {
             properties.insert("member".to_owned(), member);
         }
         None => schema["properties"] = json!({ "member": member }),
     }
+
     match schema["required"].as_array_mut() {
         Some(required) => required.push(json!("member")),
         None => schema["required"] = json!(["member"]),
     }
+
     schema
 }
 
@@ -308,14 +321,18 @@ impl Tool for MemberTool {
             ));
         };
         let mut args = ctx.args.clone();
+
         if let Some(map) = args.as_object_mut() {
             map.remove("member");
         }
+
         let acts = permissions::call_acts(&self.name, &args).is_some_and(|(_, acts)| acts);
+
         if acts {
             if self.run.leaks(&args.to_string()).await {
                 return Ok(ToolResult::failure(ctx.tool_call_id, LEAKS));
             }
+
             let approval =
                 permissions::approval_for(&ToolApp::Catalog(owner.app), &self.name, &args);
             self.run
@@ -330,6 +347,7 @@ impl Tool for MemberTool {
                 ),
             ));
         }
+
         let result = owner
             .tool
             .execute(ToolContext::new(
@@ -349,6 +367,7 @@ impl Tool for MemberTool {
                     content: clip(&result.output(), SECRET_CHARS),
                 });
         }
+
         Ok(result)
     }
 }
@@ -454,9 +473,11 @@ impl App {
             format!("{owner_name} didn't allow {action} in {app}.")
         };
         self.store.post_beep(group_id, &text).await?;
+
         if let Some(joined) = user.group(group_id).await? {
             self.group_notice(&joined.members, &joined, None, &said("Beep", &text));
         }
+
         Ok(true)
     }
 }

@@ -113,12 +113,15 @@ fn two_maps_converge_whatever_order_entries_arrive_in() {
     b.edit("y", &Version::default(), file(4, 1));
     let from_a = a.since(0, 100).entries;
     let from_b = b.since(0, 100).entries;
+
     for entry in from_b.iter().rev() {
         a.merge(entry);
     }
+
     for entry in &from_a {
         b.merge(entry);
     }
+
     let list = |map: &Map| map.entries().cloned().collect::<Vec<_>>();
     assert_eq!(list(&a), list(&b));
     let paths: Vec<_> = a.entries().map(|e| e.path.as_str()).collect();
@@ -129,9 +132,11 @@ fn two_maps_converge_whatever_order_entries_arrive_in() {
 #[test]
 fn changes_come_in_order_and_resume_from_a_cursor() {
     let mut map = Map::new(1);
+
     for name in ["a", "b", "c"] {
         map.edit(name, &Version::default(), file(1, 1));
     }
+
     let base = map.get("a").unwrap().version.clone();
     map.edit("a", &base, file(2, 2));
     let first = map.since(0, 2);
@@ -155,6 +160,7 @@ fn files_differing_only_in_the_executable_bit_settle_alike() {
     if let Some(file) = &mut exec.file {
         file.executable = true;
     }
+
     let mut one = Map::new(1);
     one.merge(&plain);
     one.merge(&exec);

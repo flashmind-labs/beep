@@ -101,14 +101,17 @@ fn env(name: &str, secret: &SecretString) -> Value {
 fn trimmed(secret: &SecretText) -> Result<SecretString> {
     let secret = SecretString::from(secret.expose().trim());
     let text = secret.expose_secret();
+
     if text.is_empty() {
         return Err(FleetError::refused("Paste the token or key first."));
     }
+
     if text.len() > MAX_SECRET || text.chars().any(char::is_whitespace) {
         return Err(FleetError::refused(
             "That does not look like a token or key: it has spaces or is too long.",
         ));
     }
+
     Ok(secret)
 }
 
@@ -125,6 +128,7 @@ impl Desk {
         found.sort_by(|a, b| a.0.cmp(&b.0));
         let mut out: Vec<Saved> = Vec::new();
         let mut orgs: BTreeMap<String, Vec<String>> = BTreeMap::new();
+
         for (id, value) in &found {
             if let Some((main, owner)) = id.split_once('~') {
                 orgs.entry(main.to_owned())
@@ -132,6 +136,7 @@ impl Desk {
                     .push(owner.to_owned());
                 continue;
             }
+
             let Some((kind, saved_ms, name)) = parse_id(id) else {
                 continue;
             };
@@ -184,6 +189,7 @@ impl Desk {
             owners.retain(|owner| !owner.eq_ignore_ascii_case(&login.login));
             login.orgs = owners;
         }
+
         out.sort_by_key(|saved| (saved.slot != Slot::GitHub, saved.saved_ms));
         out
     }
@@ -220,6 +226,7 @@ impl Desk {
     pub fn credentials(&self) -> Vec<Credential> {
         let mut github_seen = false;
         let mut out = Vec::new();
+
         for saved in self.saved() {
             let shown = last4(saved.secret.expose_secret());
             let (kind, account, env_var) = match &saved.slot {
@@ -227,6 +234,7 @@ impl Desk {
                     if std::mem::replace(&mut github_seen, true) {
                         continue;
                     }
+
                     let login = saved.github.map(|login| login.login);
                     (CredentialKind::GitHub {}, login, GITHUB_ENV_VAR.to_owned())
                 }
@@ -250,6 +258,7 @@ impl Desk {
                 unreadable: false,
             });
         }
+
         out.extend(self.unmoved(&out));
         out
     }
@@ -271,6 +280,7 @@ impl Desk {
                 let Ok(slot) = Slot::try_from(&credential.kind) else {
                     return false;
                 };
+
                 if slot == Slot::GitHub {
                     // One record per account: it waits for its own token.
                     return !credential
@@ -280,6 +290,7 @@ impl Desk {
                             logins.iter().any(|saved| saved.eq_ignore_ascii_case(login))
                         });
                 }
+
                 !held.contains(&&slot)
             })
             .filter(|credential| !listed.iter().any(|row| row.id == credential.id))
@@ -309,10 +320,12 @@ impl Desk {
                 (Some(saved), Some(record)) => saved.eq_ignore_ascii_case(record),
                 _ => true,
             };
+
             if same && whose {
                 self.mesh.set(key, None).await?;
             }
         }
+
         Ok(())
     }
 
@@ -324,12 +337,15 @@ impl Desk {
         secret: &SecretText,
     ) -> Result<Credential> {
         let slot = Slot::try_from(kind).map_err(|e| FleetError::refused(e.to_string()))?;
+
         if !slot.always_to_machines() {
             return Err(FleetError::refused(
                 "API keys are kept on the server, not on your machines.",
             ));
         }
+
         let secret = trimmed(secret)?;
+
         if slot == Slot::GitHub {
             self.save_github(&secret, true).await?;
             return self
@@ -338,6 +354,7 @@ impl Desk {
                 .find(|c| matches!(c.kind, CredentialKind::GitHub {}))
                 .ok_or(FleetError::NotFound);
         }
+
         let account = self.check(&slot, &secret).await?;
         let _write = WRITES.lock().await;
         let saved_ms = now_ms();
@@ -357,6 +374,7 @@ impl Desk {
         for old in self.saved().into_iter().filter(|old| old.slot == slot) {
             self.drop_keys(&old.id).await?;
         }
+
         crate::records::write(&self.mesh, key(&id), Some(&value)).await?;
         self.settle_unmoved(&slot, None).await?;
         Ok(Credential {
@@ -396,16 +414,20 @@ impl Desk {
         let default = first || replace_default;
         // The same login saved again replaces its account.
         let mut kept: Vec<(String, u64, SecretString, GitHubLogin)> = Vec::new();
+
         for saved in accounts {
             let Some(mut account) = saved.github else {
                 continue;
             };
+
             if account.login.eq_ignore_ascii_case(&login) {
                 continue;
             }
+
             account.default &= !default;
             kept.push((saved.id, saved.saved_ms, saved.secret, account));
         }
+
         let saved_login = login.clone();
         kept.push((
             id.clone(),
@@ -431,6 +453,7 @@ impl Desk {
         let _write = WRITES.lock().await;
         let mut found = false;
         let mut accounts = Vec::new();
+
         for saved in self.saved() {
             let Some(mut account) = saved.github else {
                 continue;
@@ -439,9 +462,11 @@ impl Desk {
             found |= account.default;
             accounts.push((saved.id, saved.saved_ms, saved.secret, account));
         }
+
         if !found {
             return Err(FleetError::NotFound);
         }
+
         self.write_github(accounts).await
     }
 
@@ -461,6 +486,7 @@ impl Desk {
             })
             .collect();
         let mut wanted: BTreeMap<String, Value> = BTreeMap::new();
+
         for (id, _, secret, login) in &accounts {
             let name = match login.default {
                 true => Some(GITHUB_ENV_VAR.to_owned()),
@@ -470,7 +496,9 @@ impl Desk {
                 wanted.insert(id.clone(), env(&name, secret));
             }
         }
+
         let mut owners: Vec<&str> = Vec::new();
+
         for (_, _, _, login) in &accounts {
             for owner in std::iter::once(&login.login).chain(&login.orgs) {
                 if !owners.iter().any(|seen| seen.eq_ignore_ascii_case(owner)) {
@@ -478,6 +506,7 @@ impl Desk {
                 }
             }
         }
+
         for owner in owners {
             let Some(picked) = github_for(&opened, owner) else {
                 continue;
@@ -490,6 +519,7 @@ impl Desk {
             if login.login.eq_ignore_ascii_case(owner) {
                 continue;
             }
+
             if let Some(name) = github_owner_var(owner) {
                 wanted.insert(format!("{id}~{owner}"), env(&name, secret));
             }
@@ -500,12 +530,15 @@ impl Desk {
                 crate::records::write::<Value>(&self.mesh, key(&stale), None).await?;
             }
         }
+
         for (id, value) in wanted {
             let current = crate::records::read::<Value>(&self.mesh, &key(&id));
+
             if current.as_ref() != Some(&value) {
                 crate::records::write(&self.mesh, key(&id), Some(&value)).await?;
             }
         }
+
         Ok(())
     }
 
@@ -523,11 +556,13 @@ impl Desk {
     /// Deletes the credential `id` and the owner keys that go with it.
     async fn drop_keys(&self, id: &str) -> Result<()> {
         let owners = format!("{id}~");
+
         for (key_id, _) in self.keys_of(parse_id(id).map_or("", |(kind, _, _)| kind)) {
             if key_id == id || key_id.starts_with(&owners) {
                 crate::records::write::<Value>(&self.mesh, key(&key_id), None).await?;
             }
         }
+
         Ok(())
     }
 
@@ -539,15 +574,19 @@ impl Desk {
         let Some(removed) = saved.iter().find(|saved| saved.id == id) else {
             // One an account move left to enter again.
             let record = unmoved_credential(id);
+
             if self.mesh.get(&record).is_none() {
                 return Err(FleetError::NotFound);
             }
+
             self.mesh.set(record, None).await?;
             return Ok(());
         };
+
         if removed.github.is_none() {
             return self.drop_keys(id).await;
         }
+
         let mut left: Vec<(String, u64, SecretString, GitHubLogin)> = saved
             .into_iter()
             .filter(|saved| saved.id != id)
@@ -567,6 +606,7 @@ impl Desk {
             Slot::Forgejo(url) => checker.forgejo(url, secret).await,
             Slot::ApiKey(_) | Slot::AgentToken(_) => return Ok(None),
         };
+
         match checked {
             Checked::Valid { login } => Ok(login),
             Checked::Refused(why) => Err(FleetError::refused(why)),
@@ -622,6 +662,7 @@ impl Desk {
     /// The online machines that run commands and report teacli, at most [`MAX_MACHINES`].
     async fn teacli_machines(&self) -> Vec<Reach> {
         let mut out = Vec::new();
+
         for machine in self.machines().await {
             let Some(shell) = machine.shell.clone() else {
                 continue;
@@ -636,16 +677,19 @@ impl Desk {
                 said.env
                     .is_some_and(|env| env.tools.iter().any(|tool| tool.name == "teacli"))
             });
+
             if has_teacli {
                 out.push(Reach {
                     name: machine.name,
                     shell,
                 });
             }
+
             if out.len() == MAX_MACHINES {
                 break;
             }
         }
+
         out
     }
 
@@ -703,6 +747,7 @@ impl Desk {
         let secret = trimmed(secret)?;
         let _write = WRITES.lock().await;
         let saved_ms = now_ms();
+
         for old in self
             .saved()
             .into_iter()
@@ -710,6 +755,7 @@ impl Desk {
         {
             self.drop_keys(&old.id).await?;
         }
+
         let id = make_id(AGENT, saved_ms, agent.as_ref());
         crate::records::write(&self.mesh, key(&id), Some(&env(agent.env_var(), &secret))).await?;
         Ok(AgentToken {
@@ -748,10 +794,13 @@ pub async fn drop_api_keys(mesh: &Mesh) -> Result<usize> {
             gone.push(key);
         }
     }
+
     let count = gone.len();
+
     for key in gone {
         mesh.set(key, None).await?;
     }
+
     Ok(count)
 }
 
@@ -762,9 +811,11 @@ fn agent_machine(status: DeviceStatus, env: Option<EnvReport>) -> Option<AgentMa
             .is_some_and(|env| env.tools.iter().any(|tool| tool.name == name))
     };
     let (claude, codex) = (has("claude"), has("codex"));
+
     if !claude && !codex {
         return None;
     }
+
     Some(AgentMachine {
         machine_id: status.device.id.to_string(),
         machine_name: status.device.name,

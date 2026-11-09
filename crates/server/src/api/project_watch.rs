@@ -78,6 +78,7 @@ pub(super) async fn watch_project(
     project_of(&cx.user, id).await?;
     let mut changes = cx.app.repo_watch.changes();
     let mut next = Some(change_of(false, false));
+
     loop {
         if let Some(change) = next.take() {
             match timeout(SEND_TIMEOUT, sink.send(&change)).await {
@@ -85,6 +86,7 @@ pub(super) async fn watch_project(
                 Err(_) => return Ok(()),
             }
         }
+
         tokio::select! {
             _ = sink.closed() => return Ok(()),
             changed = changes.recv() => {
@@ -169,6 +171,7 @@ pub(super) async fn copied_issues(
     id: ProjectId,
 ) -> Reply<Vec<ProjectIssue>> {
     let lists = project_lists(app, user, id, false).await?;
+
     match lists.issues_error {
         Some(why) => Err(ApiError::bad_request(why)),
         None => Ok(lists.issues),
@@ -182,6 +185,7 @@ pub(super) async fn copied_pull_requests(
     id: ProjectId,
 ) -> Reply<Vec<ProjectPullRequest>> {
     let lists = project_lists(app, user, id, false).await?;
+
     match lists.prs_error {
         Some(why) => Err(ApiError::bad_request(why)),
         None => Ok(lists.pull_requests),

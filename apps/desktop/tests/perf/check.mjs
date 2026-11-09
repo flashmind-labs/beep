@@ -44,14 +44,18 @@ const count = (page, sel) => page.evaluate(s => document.querySelectorAll(s).len
 /// shorter one only draws when the view passes it.
 async function drain(page, scroller, sel) {
   let last = -1, now = await count(page, sel);
+
   for (let i = 0; i < 60 && now !== last; i++) {
     last = now;
+
     for (const at of [1, 0.75, 0.5, 0.25, 0, 0.5, 1]) {
       await page.evaluate(([s, f]) => { const el = document.querySelector(s); el.scrollTop = (el.scrollHeight - el.clientHeight) * f; }, [scroller, at]);
       await sleep(150);
     }
+
     now = await count(page, sel);
   }
+
   return now;
 }
 

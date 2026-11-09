@@ -103,17 +103,20 @@ pub(crate) async fn prepare(
             _ => return Ok(Prepared::Waits(after.slug)),
         }
     }
+
     let checkouts = user.checkouts(project.id).await?;
     let persona = match &request.persona {
         Some(name) => Some(find_persona(&fleet, &checkouts, name).await?),
         None => None,
     };
     let mut needs = task.needs.clone();
+
     for need in persona.iter().flat_map(|found| &found.needs) {
         if !needs.contains(need) {
             needs.push(*need);
         }
     }
+
     let machines = fleet.machines().await?;
     let engine = persona.as_ref().and_then(|found| found.engine);
     // No machine offers an agent to the server, so none is picked for the start.
@@ -194,6 +197,7 @@ async fn fits(
 ) -> Result<Vec<MachineFit>> {
     let live = fleet.user.live_workers().await?;
     let mut fits = Vec::with_capacity(machines.len());
+
     for machine in machines {
         // The home checkout first, when the machine has it.
         let checkout = checkouts
@@ -216,6 +220,7 @@ async fn fits(
             running: u32::try_from(running)?,
         });
     }
+
     Ok(fits)
 }
 
@@ -267,6 +272,7 @@ pub(crate) async fn end_worker(fleet: &dyn Fleet, user: &User, worker: &WorkerRo
     };
     // Forgotten first, so the end its session reports is not news.
     fleet.projects().untrack(current.id);
+
     if current.state.is_live() {
         if let Some(session) = &current.session
             && let Err(error) = fleet
@@ -276,6 +282,7 @@ pub(crate) async fn end_worker(fleet: &dyn Fleet, user: &User, worker: &WorkerRo
             // An offline machine ends the session when it is back.
             log::warn!("projects: unable to close a worker's session: {error:#}");
         }
+
         user.set_worker_state(current.id, WorkerState::Ended)
             .await?;
         if let Some(task) = user.project_task(current.task).await?
@@ -284,5 +291,6 @@ pub(crate) async fn end_worker(fleet: &dyn Fleet, user: &User, worker: &WorkerRo
             lifecycle::block(fleet, user, &project, &task).await?;
         }
     }
+
     Ok(())
 }

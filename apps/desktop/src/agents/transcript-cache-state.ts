@@ -32,10 +32,12 @@ export class TranscriptCache<T extends Run> {
 
   get(key: string): Cached<T> | undefined {
     const held = this.sessions.get(key);
+
     if (held) {
       this.sessions.delete(key);
       this.sessions.set(key, held);
     }
+
     return held;
   }
 
@@ -45,6 +47,7 @@ export class TranscriptCache<T extends Run> {
     const held = this.sessions.get(key);
     const { cursor } = update;
     const append = update.kind === "delta" || update.resumed;
+
     if (!Number.isSafeInteger(cursor.start) || !Number.isSafeInteger(cursor.next)
       || !Number.isSafeInteger(update.page.earlier) || update.page.earlier < 0
       || cursor.start < 0 || cursor.next < cursor.start
@@ -55,37 +58,46 @@ export class TranscriptCache<T extends Run> {
       this.sessions.delete(key);
       return null;
     }
+
     let page = append ? joinRuns(held!.page, update.page) : update.page;
+
     if (cursor.start < page.earlier || cursor.start > cursor.next) {
       this.sessions.delete(key);
       return null;
     }
+
     page = { ...page, earlier: cursor.start, entries: page.entries.slice(cursor.start - page.earlier) };
     this.sessions.delete(key);
     this.sessions.set(key, { page, cursor });
+
     while (this.sessions.size > this.limit || this.size() > this.characters) {
       const oldest = this.sessions.keys().next().value;
       // One retained window is bounded by the node even when it exceeds the shared budget.
       if (oldest === undefined || this.sessions.size === 1) break;
       this.sessions.delete(oldest);
     }
+
     return page;
   }
 
   private size() {
     let characters = 0;
+
     for (const held of this.sessions.values()) {
       for (const entry of held.page.entries) {
         let size = this.entrySizes.get(entry);
+
         if (size === undefined) {
           // Include tool payloads while reusing measured immutable prefix entries.
           const plain = JSON.stringify({ kind: entry.kind, text: entry.text }).length;
           size = entry.text.length + Math.max(0, JSON.stringify(entry).length - plain);
           this.entrySizes.set(entry, size);
         }
+
         characters += size;
       }
     }
+
     return characters;
   }
 }

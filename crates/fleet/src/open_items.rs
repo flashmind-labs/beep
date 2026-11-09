@@ -70,6 +70,7 @@ impl Desk {
                 view: None,
             };
         }
+
         let view = match kept_view(project) {
             Some(view) => Some(view),
             None => {
@@ -77,9 +78,11 @@ impl Desk {
                 let _turn = limit.acquire().await;
                 let asked = timeout(PER_PROJECT, self.machine_view(project)).await;
                 let view = asked.ok().flatten();
+
                 if let Some(view) = &view {
                     keep_view(project, view);
                 }
+
                 view
             }
         };
@@ -138,13 +141,16 @@ impl Access {
             asked,
             view,
         } = learned;
+
         for (repo, can) in answers {
             self.set(repo, can);
         }
+
         let Some(view) = view else {
             return;
         };
         self.note_account(&view.host, &view.login);
+
         for repo in asked.into_iter().filter(|repo| repo.host == view.host) {
             if let Some(can) = view.can_push {
                 self.set(repo, can);
@@ -192,6 +198,7 @@ fn keep_view(project: &str, view: &MachineView) {
     if view.can_push.is_none() {
         return;
     }
+
     VIEWS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -327,10 +334,12 @@ pub(crate) fn merge(
             }
         }
     }
+
     found.sort_by_key(|one| Reverse(one.item.updated_at));
     let mut items = Vec::new();
     let mut labels = Vec::new();
     let mut opened_at = Vec::new();
+
     for one in found {
         items.push(one.item);
         labels.push(one.labels);

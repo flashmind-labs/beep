@@ -54,10 +54,12 @@ impl Store {
         .execute(&mut *tx)
         .await?
         .rows_affected();
+
         if claimed == 0 || !insert_account(&mut tx, &user, endpoint).await? {
             tx.rollback().await?;
             return Ok(None);
         }
+
         tx.commit().await?;
         Ok(Some(new_account(&user)))
     }

@@ -31,6 +31,7 @@ impl Store {
         if offered == 0 {
             return Ok(false);
         }
+
         let label = job.metadata["label"].as_str().unwrap_or_default();
         sqlx::query(
             "INSERT INTO crons (user_id, id, label, prompt, schedule, enabled, run_once, kind)
@@ -97,6 +98,7 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         let mut items = Vec::new();
+
         for row in rows {
             let slug: String = row.try_get("mailbox")?;
             let Some(Feed::Mail(mailbox)) = slug.parse::<Feed>().ok() else {
@@ -109,6 +111,7 @@ impl Store {
                 text: row.try_get("text")?,
             });
         }
+
         Ok(items)
     }
 

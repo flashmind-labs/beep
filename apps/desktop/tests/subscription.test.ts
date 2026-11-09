@@ -7,6 +7,7 @@ test("no_server_hides_assistant_pages", () => {
     assert.equal(groupShown(name, false), false, name);
     assert.equal(groupShown(name, true), true, name);
   }
+
   // What works over the mesh stays.
   for (const name of ["pinned", "projects", "machines", "views"]) assert.equal(groupShown(name, false), true, name);
   const views = [{ view: "memories" }, { view: "routines" }, { view: "settings" }];
@@ -24,11 +25,14 @@ test("with no subscription the assistant's keys, pages and links do nothing and 
     assert.equal(keyHidden(key, false), true, key);
     assert.equal(keyHidden(key, true), false, key);
   }
+
   for (const key of ["n", ",", "q"]) assert.equal(keyHidden(key, false), false, key);
+
   for (const page of ["chats", "memories", "routines", "skills", "apps", "research", "model", "ginfo"]) {
     assert.equal(viewHidden("pane", page, false, true), true, page);
     assert.equal(viewHidden("pane", page, true, true), false, page);
   }
+
   assert.equal(viewHidden("research", undefined, false, true), true);
   assert.equal(viewHidden("researchopen", { session: "s" }, false, true), true);
   assert.equal(viewHidden("pane", { chat: { session: null } }, false, true), true);
@@ -45,6 +49,7 @@ test("with no server the link, invite and removed pages do nothing, whatever the
     assert.equal(viewHidden("pane", page, false, false), true, page);
     assert.equal(viewHidden("pane", page, true, false), true, page);
   }
+
   assert.equal(viewHidden("pane", "link", false, true), false);
 });
 

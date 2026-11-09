@@ -57,20 +57,24 @@ function tier(query: string, text: string): number {
   let at = text.indexOf(query);
   if (at < 0) return NO_MATCH;
   if (at === 0) return PREFIX;
+
   for (; at >= 0; at = text.indexOf(query, at + 1)) {
     if (!WORD_CHAR.test(text[at - 1])) return WORD_START;
   }
+
   return SUBSTRING;
 }
 
 /// One group's matches by tier, ties in the group's order.
 function matches<S>(query: string, group: Entry<S>[]): Hit<S>[][] {
   const tiers: Hit<S>[][] = Array.from({ length: TIERS }, () => []);
+
   for (const entry of group) {
     let best = NO_MATCH;
     for (const key of entry.keys) best = Math.min(best, tier(query, key));
     if (best !== NO_MATCH) tiers[best].push(entry);
   }
+
   return tiers;
 }
 
@@ -78,12 +82,14 @@ function matches<S>(query: string, group: Entry<S>[]): Hit<S>[][] {
 function withText<S>(tiers: Hit<S>[][], text: Entry<S>[]) {
   for (const found of text) {
     let known = false;
+
     for (const hits of tiers) {
       const at = hits.findIndex(hit => hit.id === found.id);
       if (at < 0) continue;
       known = true;
       if (!hits[at].detail || found.kind === "agent_session") hits[at] = { ...hits[at], detail: found.detail, snippet: found.snippet };
     }
+
     if (!known) tiers[TEXT].push(found);
   }
 }
@@ -114,9 +120,11 @@ export function rank<S>(rawQuery: string, index: PaletteIndex<S>, text: Entry<S>
 /// was typed, when hits come from more than one group.
 function topGroup<S>(groups: Hit<S>[][][], shown: Hit<S>[][]): number {
   if (shown.filter(hits => hits.length).length < 2) return -1;
+
   for (const kind of TOP_ORDER) {
     const at = groups.findIndex((tiers, i) => tiers[PREFIX].length && shown[i][0].kind === kind);
     if (at >= 0) return at;
   }
+
   return -1;
 }

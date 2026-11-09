@@ -69,10 +69,12 @@ pub(crate) async fn idle_close(
     if worker.state != WorkerState::Waiting || worker.asking {
         return Ok(());
     }
+
     let Some(last) = worker.last_turn_at else {
         return Ok(());
     };
     let due = after(last, IDLE_CLOSE);
+
     if due > now {
         fleet.projects().arm(Due::Idle(worker.id), due);
         return Ok(());
@@ -94,6 +96,7 @@ pub(crate) async fn idle_close(
         Ok(_) => {}
         Err(error) => log::info!("projects: closing an idle worker unseen: {error:#}"),
     }
+
     close(fleet, user, &worker).await?;
     block(fleet, user, &project, &task).await?;
     let stays = if task.state == TaskState::Running {
@@ -117,6 +120,7 @@ pub(crate) async fn idle_close(
 /// Ends `worker` and closes its session, untracked first so its end is not taken as news.
 pub(super) async fn close(fleet: &dyn Fleet, user: &User, worker: &WorkerRow) -> Result<()> {
     fleet.projects().untrack(worker.id);
+
     if let Some(session) = &worker.session
         && let Err(error) = fleet
             .close_session(&worker.machine, worker.agent, session)
@@ -124,6 +128,7 @@ pub(super) async fn close(fleet: &dyn Fleet, user: &User, worker: &WorkerRow) ->
     {
         log::warn!("projects: unable to close a worker's session: {error:#}");
     }
+
     user.set_worker_state(worker.id, WorkerState::Ended).await?;
     Ok(())
 }
@@ -146,11 +151,13 @@ pub(crate) async fn finish_task(
             "{} is done. Its issue #{} was opened by someone else, so Beep leaves it open.",
             task.slug, issue.number
         );
+
         if !task.issue_commented {
             text.push_str(
                 " If a note there helps, offer the user one comment with project_tasks comment.",
             );
         }
+
         fleet.post(chat, WORKER_LABEL, text);
     } else if let (Some(issue), Some(host)) = (&task.issue, &task.issue_host)
         && task.state != TaskState::Done
@@ -164,6 +171,7 @@ pub(crate) async fn finish_task(
             comment: &comment,
             not_planned: false,
         };
+
         match fleet::home_shell(fleet, user, project).await {
             Ok(home) => {
                 if let Err(error) = run_host(home.as_ref(), host, &project.name, command).await {
@@ -173,6 +181,7 @@ pub(crate) async fn finish_task(
             Err(why) => log::info!("projects: a done task's issue stays open: {why}"),
         }
     }
+
     let worker = user
         .project_workers(project.id, task.created_at)
         .await?
@@ -182,8 +191,10 @@ pub(crate) async fn finish_task(
         if worker.state.is_live() {
             close(fleet, user, &worker).await?;
         }
+
         remove_worktree(fleet, user, project, task, &worker).await?;
     }
+
     fill_slots(fleet, user).await
 }
 
@@ -205,6 +216,7 @@ pub(super) async fn remove_worktree(
     let Some(checkout) = checkout else {
         return Ok(());
     };
+
     match fleet.shell(&worker.machine) {
         Some(shell) => {
             let out = shell
@@ -234,6 +246,7 @@ pub(super) async fn remove_worktree(
             );
         }
     }
+
     Ok(())
 }
 
@@ -247,6 +260,7 @@ pub(crate) async fn refill(fleet: &dyn Fleet, user: &Arc<User>) {
 /// Starts the user's queued tasks, oldest first, until the slots are full.
 pub(crate) async fn fill_slots(fleet: &dyn Fleet, user: &Arc<User>) -> Result<()> {
     let full = StartRefused::UserFull.to_string();
+
     for task in user.queued_tasks().await?.into_iter().take(MAX_FILLS) {
         let Some(request) = task.start.clone() else {
             continue;
@@ -254,6 +268,7 @@ pub(crate) async fn fill_slots(fleet: &dyn Fleet, user: &Arc<User>) -> Result<()
         let Some(project) = user.project(task.project).await? else {
             continue;
         };
+
         match fleet.start_task(&project, &task, &request).await {
             Ok(Started::Queued(why)) if why == full => break,
             Ok(Started::Queued(_)) => {}
@@ -263,6 +278,7 @@ pub(crate) async fn fill_slots(fleet: &dyn Fleet, user: &Arc<User>) -> Result<()
             }
         }
     }
+
     Ok(())
 }
 

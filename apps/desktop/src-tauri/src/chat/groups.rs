@@ -125,6 +125,11 @@ pub async fn list_groups(beep: Service<'_>) -> Result<Vec<GroupView>> {
     if let Some(groups) = beep.chats().groups() {
         return Ok(groups);
     }
+
+    if !beep.has_server() {
+        return Ok(Vec::new());
+    }
+
     let groups = beep.call(ListGroups {}).await?;
     Ok(groups.into_iter().map(GroupView::from).collect())
 }
@@ -137,12 +142,14 @@ pub async fn open_group(
 ) -> Result<GroupChatView> {
     // Made current before loading, so closing the group meanwhile is not undone.
     center::remember_for(&window, &beep, Chat::Group(Some(id.clone())));
+
     if let Some(view) = Uuid::parse_str(&id)
         .ok()
         .and_then(|g| beep.chats().group(g))
     {
         return Ok(view);
     }
+
     let (chat, images) = join!(
         beep.call(GetGroup { id: id.clone() }),
         beep.call(GetGroupImages {
@@ -151,9 +158,11 @@ pub async fn open_group(
     );
     let mut view = GroupChatView::from(chat?);
     let mut pictures = Pictures::new(images);
+
     for message in &mut view.messages {
         message.images = pictures.take(message.seq);
     }
+
     Ok(view)
 }
 
@@ -218,6 +227,7 @@ pub struct Found {
 #[tauri::command]
 pub async fn peek_group(beep: Service<'_>, code: String) -> Result<Found> {
     let token = group_code(&code).ok_or_else(|| DesktopError::BadRequest(NO_GROUP.into()))?;
+
     match beep
         .call(PeekGroup {
             token: token.clone(),
@@ -239,6 +249,7 @@ pub async fn join_group(
     member_name: String,
 ) -> Result<GroupView> {
     let name = member_name.clone();
+
     match beep.call(JoinGroup { token, member_name }).await {
         Ok(group) => Ok(group.into()),
         Err(DesktopError::Api(ApiError::Conflict { .. })) => Err(DesktopError::BadRequest(
@@ -254,12 +265,15 @@ pub async fn join_group(
 #[tauri::command]
 pub async fn leave_group(beep: Service<'_>, shown: State<'_, Shown>, id: String) -> Result<()> {
     beep.call(LeaveGroup { id: id.clone() }).await?;
+
     if let Ok(group) = Uuid::parse_str(&id) {
         beep.chats().forget(group);
     }
+
     if beep.group().as_deref() == Some(id.as_str()) {
         beep.set_group(None);
     }
+
     shown.leave_group(&id);
     Ok(())
 }
@@ -297,6 +311,10 @@ pub async fn answer_group_approval(beep: Service<'_>, query_id: String, allow: b
 /// the whole group.
 #[tauri::command]
 pub async fn group_typing(beep: Service<'_>, group_id: String) -> Result<bool> {
+    if !beep.has_server() {
+        return Ok(false);
+    }
+
     let groups = beep.call(ListGroups {}).await?;
     Ok(groups
         .into_iter()

@@ -65,9 +65,11 @@ impl GhSignIn {
 
     fn start(&self) -> Result<Started> {
         let mut slot = self.lock();
+
         if slot.running.is_some() {
             return Err(refused("A GitHub sign-in is already under way"));
         }
+
         slot.next_id += 1;
         let id = slot.next_id;
         let (cancel, cancelled) = oneshot::channel();
@@ -95,6 +97,7 @@ impl GhSignIn {
         if running.cancel.send(()).is_err() {
             log::debug!("the GitHub sign-in had already ended");
         }
+
         Some(running.ended)
     }
 
@@ -192,9 +195,11 @@ async fn run_gh(
         },
         _ = cancelled => "Sign-in cancelled",
     };
+
     if let Err(e) = child.kill().await {
         log::warn!("stopping gh: {e}");
     }
+
     Err(refused(stopped))
 }
 
@@ -210,6 +215,7 @@ async fn watch(
     let (mut out_open, mut err_open) = (true, true);
     let mut prompt = Prompt::default();
     let mut last = String::new();
+
     while out_open || err_open {
         let (line, from_out) = select! {
             line = out.next_line(), if out_open => (line, true),
@@ -223,18 +229,22 @@ async fn watch(
             }
             continue;
         };
+
         if let Some(device) = prompt.read(&line) {
             if let Err(e) = on_code.send(device.clone()) {
                 log::warn!("showing the GitHub code: {e}");
             }
+
             if let Err(e) = open_url(device.url) {
                 log::warn!("opening GitHub's device page: {e}");
             }
         }
+
         if !line.trim().is_empty() {
             last = line;
         }
     }
+
     let status = child.wait().await.context("waiting for gh")?;
     if status.success() {
         Ok(())
@@ -263,6 +273,7 @@ impl Prompt {
         if self.sent {
             return None;
         }
+
         let (Some(code), Some(url)) = (&self.code, &self.url) else {
             return None;
         };
@@ -297,9 +308,11 @@ fn parse_device_url(line: &str) -> Option<Url> {
 /// Why gh did not sign in, from the last line it printed.
 fn failure(last: &str) -> String {
     let line = last.trim().trim_start_matches(['!', 'X']).trim();
+
     if line.is_empty() {
         return "gh could not sign in to GitHub".into();
     }
+
     let short: String = line.chars().take(REASON_CHARS).collect();
     format!("gh could not sign in to GitHub: {short}")
 }

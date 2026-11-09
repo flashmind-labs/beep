@@ -163,6 +163,7 @@ pub fn open_url(url: String) -> Result<()> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err(DesktopError::BadRequest("only web links open".into()));
     }
+
     open(&url)
 }
 

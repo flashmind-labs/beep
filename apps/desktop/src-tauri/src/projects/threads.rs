@@ -208,6 +208,7 @@ pub async fn center_project_issues(
         let issues = desk.issues(&name).await?;
         return Ok(Some(issues.into_iter().map(Into::into).collect()));
     }
+
     Ok(known(beep.call(ListProjectIssues { project_id }).await)?
         .map(|rows| rows.into_iter().map(Into::into).collect()))
 }
@@ -245,6 +246,7 @@ pub async fn center_project_threads(
     if !beep.has_server() {
         return Ok(None);
     }
+
     Ok(known(beep.call(ListProjectThreads { project_id }).await)?
         .map(|rows| rows.into_iter().map(Into::into).collect()))
 }
@@ -261,6 +263,7 @@ pub async fn center_project_pull_requests(
         let prs = desk.pull_requests(&name).await?;
         return Ok(Some(prs.into_iter().map(Into::into).collect()));
     }
+
     Ok(
         known(beep.call(ListProjectPullRequests { project_id }).await)?
             .map(|rows| rows.into_iter().map(Into::into).collect()),
@@ -278,6 +281,7 @@ pub async fn center_pull_request_head(
     if let Some((desk, name)) = mesh_project(&fleet, project_id).await? {
         return Ok(desk.pr_head(&name, number).await?);
     }
+
     beep.call(GetPullRequestHead { project_id, number })
         .await
         .map_err(outdated)
@@ -328,6 +332,7 @@ pub async fn center_thread_chats(
     if !beep.has_server() {
         return Ok(None);
     }
+
     Ok(known(beep.call(ListThreadChats { project_id }).await)?
         .map(|rows| rows.into_iter().map(Into::into).collect()))
 }
@@ -425,6 +430,7 @@ pub async fn center_thread_detail(
     if let Some((desk, name)) = mesh_project(&fleet, project_id).await? {
         return Ok(Some(desk.thread_detail(&name, number).await?.into()));
     }
+
     Ok(known(beep.call(GetThreadDetail { project_id, number }).await)?.map(Into::into))
 }
 

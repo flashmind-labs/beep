@@ -214,6 +214,7 @@ async fn a_machine_not_lent_refuses_agent_streams_from_other_desktops() {
         // Dropping the connection now would cut off the last answer.
         from_desktop
     });
+
     for protocol in ["agents/1", "claude/1"] {
         let (send, recv) = to_node.open_bi().await.expect("a stream opens");
         let (mut tx, mut rx) = link(send, recv);
@@ -231,6 +232,7 @@ async fn a_machine_not_lent_refuses_agent_streams_from_other_desktops() {
             "{protocol}: {answer:?}"
         );
     }
+
     drop(serving.await.expect("served both"));
 }
 
@@ -260,6 +262,27 @@ async fn a_node_is_refused_a_report() {
 /// Opens `report/1` on a node that is not lent, from a caller `who`
 /// makes of its key, and asks for the share when the node is ready.
 async fn ask_report(who: fn(EndpointId) -> Who) -> (Option<Opened>, Option<report::Reply>) {
+    ask_report_using(who, report::PROTOCOL).await
+}
+
+#[tokio::test]
+async fn a_node_is_refused_another_machines_metrics() {
+    let (answer, reply) = ask_report_using(
+        |peer| Who::Node {
+            peer,
+            desktop_here: false,
+        },
+        beep_proto::node::metrics::PROTOCOL,
+    )
+    .await;
+    assert!(matches!(answer, Some(Opened::Refused { .. })), "{answer:?}");
+    assert!(reply.is_none());
+}
+
+async fn ask_report_using(
+    who: fn(EndpointId) -> Who,
+    protocol: &str,
+) -> (Option<Opened>, Option<report::Reply>) {
     use crate::machine::service::logs::Logs;
     use beep_proto::node::Open;
     use iroh::{SecretKey, endpoint::presets};
@@ -309,7 +332,7 @@ async fn ask_report(who: fn(EndpointId) -> Who) -> (Option<Opened>, Option<repor
     let (send, recv) = to_node.open_bi().await.expect("a stream opens");
     let (mut tx, mut rx) = link(send, recv);
     tx.send(&Open {
-        protocol: report::PROTOCOL.to_owned(),
+        protocol: protocol.to_owned(),
     })
     .await
     .expect("the protocol is sent");
@@ -318,6 +341,7 @@ async fn ask_report(who: fn(EndpointId) -> Who) -> (Option<Opened>, Option<repor
         .expect("an answer came")
         .expect("it reads");
     let mut reply = None;
+
     if matches!(answer, Some(Opened::Ready {})) {
         tx.send(&report::Request {
             since: 0,
@@ -330,6 +354,7 @@ async fn ask_report(who: fn(EndpointId) -> Who) -> (Option<Opened>, Option<repor
             .expect("a reply came")
             .expect("it reads");
     }
+
     drop(serving.await.expect("served"));
     (answer, reply)
 }
@@ -342,6 +367,7 @@ async fn join_waits_for_a_node_that_starts_late() {
     // node that was just started.
     wait_for_node(dir.path(), Duration::from_secs(10), || {
         retries += 1;
+
         if retries == 1 {
             let listener = Listener::bind(&dir.path().join(SOCKET)).expect("bind");
             serve_probe_then_join(listener);

@@ -31,6 +31,7 @@ export async function pairing(): Promise<void> {
     const pair = async (ticket: string) => {
       busy(true);
       error.hidden = true;
+
       try {
         await invoke("mobile_pair", { ticket });
         root.remove();
@@ -77,6 +78,7 @@ async function scanCode(root: HTMLElement, fail: (text: string) => void): Promis
   try {
     let state = (await invoke<{ camera: string }>(SCANNER + "check_permissions")).camera;
     if (state !== "granted") state = (await invoke<{ camera: string }>(SCANNER + "request_permissions")).camera;
+
     if (state !== "granted") {
       fail("Camera access is off. Allow it in Settings, or paste the code.");
       return null;
@@ -85,11 +87,13 @@ async function scanCode(root: HTMLElement, fail: (text: string) => void): Promis
     fail(message(e));
     return null;
   }
+
   // The camera shows behind a transparent page: only the cancel bar stays drawn.
   const stop = button("Cancel", "dbtn", () => { void invoke(SCANNER + "cancel").catch(() => {}); });
   const bar = el("div", "pair-scan", el("p", "", "Point the camera at the code"), stop);
   root.classList.add("scanning");
   root.append(bar);
+
   try {
     const found = await invoke<{ content?: string }>(SCANNER + "scan", { formats: ["QR_CODE"], windowed: false });
     const text = found.content?.trim();

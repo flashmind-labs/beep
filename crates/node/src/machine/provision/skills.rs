@@ -79,14 +79,18 @@ impl Installed {
         if !self.paths.insert(path) {
             return Ok(());
         }
+
         let mut text = String::new();
+
         for path in &self.paths {
             text.push_str(&path.to_string_lossy());
             text.push('\n');
         }
+
         if let Some(parent) = self.file.parent() {
             fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
+
         fs::write(&self.file, text).with_context(|| format!("writing {}", self.file.display()))
     }
 }
@@ -118,6 +122,7 @@ pub(super) fn install(dir: &Path, skill: &Skill, installed: &mut Installed) -> R
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
     };
     let wanted = marked(skill.text);
+
     match existing {
         Some(text) if text == wanted => {
             // Written by a node from before the record, or the record lost.
@@ -127,6 +132,7 @@ pub(super) fn install(dir: &Path, skill: &Skill, installed: &mut Installed) -> R
         Some(text) if !ours_unedited(&text) => return Ok(Outcome::Kept),
         _ => {}
     }
+
     let parent = path.parent().context("a skill file has a folder")?;
     fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     // Written beside it and renamed, so an agent never reads half a file.
@@ -169,6 +175,7 @@ fn front_matter_end(text: &str) -> usize {
     let Some(body) = text.strip_prefix("---\n") else {
         return 0;
     };
+
     match body.find("\n---\n") {
         Some(at) => 4 + at + "\n---\n".len(),
         None => 0,

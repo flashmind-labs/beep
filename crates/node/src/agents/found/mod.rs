@@ -196,18 +196,23 @@ impl Stores {
         let wants = |one: Agent| agent.is_none_or(|agent| agent == one);
         let mut seen = Vec::new();
         let memos = &self.memos;
+
         if let Some(root) = self.codex.as_deref().filter(|_| wants(Agent::Codex)) {
             seen.extend(codex::sessions(root, memos));
         }
+
         if let Some(root) = self.pi.as_deref().filter(|_| wants(Agent::Pi)) {
             seen.extend(pi::sessions(root, memos));
         }
+
         if let Some(root) = self.flsh.as_deref().filter(|_| wants(Agent::Flsh)) {
             seen.extend(flsh::sessions(root, memos));
         }
+
         if let Some(root) = self.opencode.as_deref().filter(|_| wants(Agent::OpenCode)) {
             seen.extend(opencode::sessions(root, memos));
         }
+
         seen
     }
 
@@ -230,12 +235,14 @@ impl Stores {
             let Ok(title) = self.memos.titles.read(file, read);
             seen.title = title;
         }
+
         let folder = self.working_folder(&seen);
         let place = of_folder(&folder);
         let mut session = ExternalSession {
             place,
             ..describe(seen, now)
         };
+
         if let Some(run) = native_run {
             session.presence = if run.working {
                 Presence::Working
@@ -244,6 +251,7 @@ impl Stores {
             };
             session.last_message = run.result.unwrap_or_default();
         }
+
         session
     }
 
@@ -293,6 +301,7 @@ impl Stores {
                 .then(|| codex::native(self.codex.as_deref()?, id))
                 .flatten();
         }
+
         self.sessions(agent).into_iter().find(|seen| seen.id == id)
     }
 
@@ -375,26 +384,32 @@ pub(crate) fn folders(
     mut lookup: impl FnMut(&Path) -> Option<Checkout>,
 ) -> Vec<SessionFolder> {
     let mut by_cwd: HashMap<&Path, Tally> = HashMap::new();
+
     for one in seen {
         by_cwd
             .entry(one.cwd.as_path())
             .or_default()
             .add(one.agent, 1, one.last_activity);
     }
+
     let mut cwds: Vec<(&Path, Tally)> = by_cwd.into_iter().collect();
     cwds.sort_by_key(|(cwd, tally)| (Reverse(tally.last_activity), *cwd));
     let skipped = |path: &Path| path.parent().is_none() || Some(path) == home;
     let mut roots: HashMap<PathBuf, (String, Tally)> = HashMap::new();
+
     for (cwd, tally) in cwds.into_iter().take(MAX_LOOKUPS) {
         if skipped(cwd) || !cwd.is_absolute() || !cwd.is_dir() {
             continue;
         }
+
         let Some(found) = lookup(cwd) else {
             continue;
         };
+
         if skipped(&found.root) {
             continue;
         }
+
         let (_, into) = roots
             .entry(found.root)
             .or_insert_with(|| (found.origin, Tally::default()));
@@ -402,6 +417,7 @@ pub(crate) fn folders(
             into.add(agent, sessions, tally.last_activity);
         }
     }
+
     let mut out: Vec<SessionFolder> = roots
         .into_iter()
         .map(|(root, (origin, tally))| {
@@ -442,10 +458,13 @@ pub(crate) fn add_checkouts(
         if out.len() >= limit {
             break;
         }
+
         let path = one.root.to_string_lossy();
+
         if Some(one.root.as_path()) == home || out.iter().any(|folder| folder.path == path) {
             continue;
         }
+
         out.push(SessionFolder {
             path: path.into_owned(),
             origin: one.origin.clone(),
@@ -463,6 +482,7 @@ pub(crate) fn with_commits(out: &mut [SessionFolder], commit: impl Fn(&Path) -> 
             folder.last_activity = folder.last_activity.max(at);
         }
     }
+
     out.sort_by(|a, b| {
         b.last_activity
             .cmp(&a.last_activity)
@@ -520,9 +540,11 @@ fn describe(seen: Seen, now: SystemTime) -> ExternalSession {
 fn first_line(path: &Path) -> io::Result<Option<String>> {
     let mut line = Vec::new();
     BufReader::new(File::open(path)?.take(MAX_FIRST_LINE)).read_until(b'\n', &mut line)?;
+
     if !line.ends_with(b"\n") && line.len() as u64 >= MAX_FIRST_LINE {
         return Ok(None);
     }
+
     Ok(Some(String::from_utf8_lossy(&line).into_owned()))
 }
 
@@ -566,10 +588,12 @@ fn collect(
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
+
     for entry in entries.flatten() {
         if out.len() >= MAX_FILES * 10 {
             return;
         }
+
         let path = entry.path();
         let Ok(kind) = entry.file_type() else {
             continue;

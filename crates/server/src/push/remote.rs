@@ -51,9 +51,11 @@ impl RemotePush {
                 return false;
             }
         };
+
         if tokens.is_empty() {
             log::debug!("push: no tokens to push to; user={phone}");
         }
+
         let mut sent = false;
         // The token itself is never logged: it is all anyone needs to push
         // to that phone.
@@ -63,6 +65,7 @@ impl RemotePush {
                 log::debug!("push: no key for {service}; user={phone}");
                 continue;
             };
+
             match delivery {
                 Ok(Delivery::Sent) => {
                     sent = true;
@@ -77,6 +80,7 @@ impl RemotePush {
                 Err(e) => log::warn!("{service}: push failed; user={phone} error={e:#}"),
             }
         }
+
         sent
     }
 
@@ -110,22 +114,28 @@ impl Fallback for RemotePush {
 /// `notice` sealed in at most `max` bytes, body cut to fit; `None` when it never fits.
 pub fn seal_to_fit(phone: &EndpointId, notice: &Notice, max: usize) -> Result<Option<String>> {
     let mut notice = notice.clone();
+
     loop {
         let sealed = seal::seal(phone, &notice)?;
+
         if sealed.len() <= max {
             return Ok(Some(sealed));
         }
+
         if notice.body.is_empty() {
             return Ok(None);
         }
         // Base64 grows the bytes by a third; cut that much and a little more.
         let over = (sealed.len() - max) * 3 / 4 + 16;
         let mut keep = notice.body.len().saturating_sub(over);
+
         while !notice.body.is_char_boundary(keep) {
             keep -= 1;
         }
+
         notice.body.truncate(keep);
         notice.body.truncate(notice.body.trim_end().len());
+
         if !notice.body.is_empty() {
             notice.body.push_str("...");
         }

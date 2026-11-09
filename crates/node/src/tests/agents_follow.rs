@@ -50,12 +50,15 @@ async fn an_external_process_exit_publishes_agent_and_summary_events() {
     timeout(Duration::from_secs(5), async {
         loop {
             let event = changes.recv().await.unwrap();
+
             if event.topic == beep_proto::node::events::Topic::keyed("agent", "external-example") {
                 break;
             }
         }
+
         loop {
             let event = changes.recv().await.unwrap();
+
             if event.topic.name() == "agents" {
                 break;
             }
@@ -217,12 +220,14 @@ fn structured_tool_updates_change_the_cursor_and_invalidate_old_resume_positions
     let (_, update) = next_update(after, None, &request(Some(before.cursor))).unwrap();
     assert!(matches!(update, SessionUpdate::Snapshot(ref snapshot) if !snapshot.resumed));
     let mut large = page(0, &["tool", "tool", "tool"]);
+
     for entry in &mut large.entries {
         entry.tool = Some(beep_proto::AgentToolCall {
             result: Some("x".repeat(RETAINED_BYTES / 2 - 128)),
             ..Default::default()
         });
     }
+
     let bounded = retained(large).unwrap();
     assert_eq!(bounded.earlier, 1);
     assert_eq!(bounded.entries.len(), 2);

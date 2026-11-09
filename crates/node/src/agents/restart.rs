@@ -86,6 +86,7 @@ impl Agents {
                     Status::Idle | Status::Ended
                 )
             });
+
             if busy.is_empty() {
                 return;
             }
@@ -105,6 +106,7 @@ impl Agents {
         if timeout(limit, self.until_idle()).await.is_err() {
             log::info!("a turn still runs after the wait; restarting anyway");
         }
+
         restart.await
     }
 
@@ -180,21 +182,27 @@ impl Agents {
             self.reopened.send_replace(true);
             return;
         }
+
         let mut settled = self.settled.subscribe();
+
         if timeout(SETTINGS_WAIT, settled.wait_for(|settled| *settled))
             .await
             .is_err()
         {
             log::info!("resuming sessions without the agent settings: the mesh gave none");
         }
+
         let mut sessions = sessions;
         Self::parents_first(&mut sessions);
+
         for open in sessions {
             let id = open.session.clone();
+
             if let Err(e) = self.reopen_one(open).await {
                 log::warn!("could not resume session {id} after the restart: {e:#}");
             }
         }
+
         self.reopened.send_replace(true);
     }
 
@@ -246,15 +254,18 @@ impl Agents {
             },
         )?;
         self.watch_parent(&session);
+
         for kid in open.kids {
             self.adopt_remote(&session, kid);
         }
+
         for prompt in open.held {
             session
                 .order(Command::Prompt(prompt))
                 .await
                 .map_err(anyhow::Error::msg)?;
         }
+
         Ok(())
     }
 }

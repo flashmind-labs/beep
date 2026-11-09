@@ -12,10 +12,12 @@ const drawn = new WeakMap<Element, Drawn>();
 /// The indexes from `root` down to `at`, or null when `at` is not inside it.
 function pathTo(root: Element, at: Element) {
   const path: number[] = [];
+
   for (let n: Element | null = at; n && n !== root; n = n.parentElement) {
     if (!n.parentElement) return null;
     path.unshift([...n.parentElement.children].indexOf(n));
   }
+
   return at === root || root.contains(at) ? path : null;
 }
 
@@ -32,11 +34,13 @@ export function patchChildren(container: Element, next: Element[]) {
   const was = drawn.get(container);
   const sigs = next.map(n => n.outerHTML);
   const intact = was && was.nodes.length === container.children.length && was.nodes.every((n, i) => container.children[i] === n);
+
   if (!was || !intact) {
     container.replaceChildren(...next);
     drawn.set(container, { nodes: [...next], sigs });
     return;
   }
+
   // A button drawn disabled (New terminal on an offline machine) is not a request in flight:
   // only one disabled since, which changed the node's markup, keeps it on screen.
   const busy = (i: number) => !!was.nodes[i].querySelector("button:disabled") && was.nodes[i].outerHTML !== was.sigs[i];
@@ -77,15 +81,18 @@ function patchNodes(to: ParentNode, from: ParentNode) {
   want.forEach((next, i) => {
     const old = have[i];
     if (!old) return void to.append(next);
+
     if (old instanceof Element && next instanceof Element && old.tagName === next.tagName) {
       for (const a of [...old.attributes]) if (!next.hasAttribute(a.name)) old.removeAttribute(a.name);
       for (const a of [...next.attributes]) if (old.getAttribute(a.name) !== a.value) old.setAttribute(a.name, a.value);
       return patchNodes(old, next);
     }
+
     if (old.nodeType === next.nodeType && !(old instanceof Element)) {
       if (old.nodeValue !== next.nodeValue) old.nodeValue = next.nodeValue;
       return;
     }
+
     old.replaceWith(next);
   });
   for (const gone of have.slice(want.length)) gone.remove();

@@ -74,9 +74,11 @@ pub(super) fn check(root: &Folder, saved: Option<&RootId>, seen_any: bool) -> Re
 /// Writes `saved`'s marker again into the folder it names.
 pub(super) fn restore(root: &Folder, saved: &RootId) -> Result<()> {
     let FileId { device, inode } = open_id(root)?;
+
     if (device, inode) != (saved.device, saved.inode) {
         bail!("{CHANGED}: {} is another folder now", root.path().display());
     }
+
     write_marker(root.path(), &saved.marker)?;
     Ok(())
 }
@@ -93,9 +95,11 @@ fn open_id(root: &Folder) -> Result<FileId> {
         }
     };
     let open = root.dir().id().context("reading the open folder")?;
+
     if open != at_path {
         bail!("{CHANGED}: {} is another folder now", root.path().display());
     }
+
     Ok(at_path)
 }
 
@@ -128,13 +132,16 @@ fn write_marker(root: &Path, id: &str) -> Result<String> {
 /// Keeps the marker out of `git status` in a repository.
 pub(super) fn exclude_from_git(root: &Path) {
     let info = root.join(".git/info");
+
     if !root.join(".git").is_dir() {
         return;
     }
+
     if let Err(e) = fs::create_dir_all(&info) {
         log::debug!("{MARKER} is not excluded from git: {e}");
         return;
     }
+
     let exclude = info.join("exclude");
     let listed = fs::read_to_string(&exclude)
         .map(|text| text.lines().any(|line| line.trim() == format!("/{MARKER}")))
@@ -142,6 +149,7 @@ pub(super) fn exclude_from_git(root: &Path) {
     if listed {
         return;
     }
+
     let added = OpenOptions::new()
         .create(true)
         .append(true)

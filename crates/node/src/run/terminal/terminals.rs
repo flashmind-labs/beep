@@ -111,16 +111,19 @@ impl Live {
     /// Returns whether it changed.
     pub(super) fn resize(&self, size: Size) -> bool {
         let master = lock(&self.master);
+
         if master
             .get_size()
             .is_ok_and(|now| now.cols == size.cols && now.rows == size.rows)
         {
             return false;
         }
+
         if let Err(e) = master.resize(pty_size(size)) {
             log::debug!("could not resize terminal {}: {e:#}", self.id);
             return false;
         }
+
         true
     }
 
@@ -179,6 +182,7 @@ impl Terminals {
 
     fn start(&self, command: Option<String>, cwd: Option<String>, size: Size) -> Reply {
         let mut inner = lock(&self.inner);
+
         if inner.terms.len() >= MAX_TERMINALS {
             match inner.terms.iter().position(|term| !term.live.is_running()) {
                 Some(oldest) => {
@@ -193,8 +197,10 @@ impl Terminals {
                 }
             }
         }
+
         inner.last = inner.last.wrapping_add(1);
         let id = TaskId(inner.last);
+
         match self.open(id, command.as_deref(), cwd, size, None) {
             Ok(term) => {
                 let task = term.live.task();
@@ -211,12 +217,15 @@ impl Terminals {
         let Some(live) = self.live(id) else {
             return unknown(id);
         };
+
         if live.is_running() {
             live.stopping.store(true, Ordering::Release);
             self.signal(id, false);
+
             if !live.wait_ended(STOP_GRACE).await {
                 log::debug!("terminal {id} outlived its hang-up; killing it");
                 self.signal(id, true);
+
                 if !live.wait_ended(STOP_WAIT).await {
                     log::warn!("terminal {id} did not stop in time");
                 }
@@ -232,6 +241,7 @@ impl Terminals {
         let Some(term) = inner.terms.iter_mut().find(|term| term.live.id == id) else {
             return;
         };
+
         if term.live.is_running() {
             term.signal(hard);
         }
@@ -291,10 +301,12 @@ impl Term {
             } else {
                 group.hang_up();
             }
+
             return;
         }
         // Windows has no gentle way; elsewhere SIGHUP to the child alone.
         let _ = hard;
+
         if let Err(e) = self.killer.kill() {
             log::debug!("could not end terminal {}: {e}", self.live.id);
         }

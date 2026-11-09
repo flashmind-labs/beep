@@ -73,6 +73,7 @@ pub fn combine(answers: Vec<Answer>) -> OpenedItems {
     let mut hosts = Vec::new();
     let mut found: Vec<Found> = Vec::new();
     let mut at: HashMap<String, usize> = HashMap::new();
+
     for Answer { mut host, result } in answers {
         match result {
             Ok(listed) => {
@@ -95,12 +96,15 @@ pub fn combine(answers: Vec<Answer>) -> OpenedItems {
             }
             Err(e) => host.error = Some(e.to_string()),
         }
+
         hosts.push(host);
     }
+
     found.sort_by_key(|one| Reverse(one.item.updated_at));
     let mut items = Vec::new();
     let mut labels = Vec::new();
     let mut opened_at = Vec::new();
+
     for one in found {
         items.push(one.item);
         labels.push(one.labels);

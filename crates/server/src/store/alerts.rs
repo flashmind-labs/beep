@@ -65,9 +65,11 @@ impl Store {
         .bind(LISTED)
         .fetch_all(&self.pool)
         .await?;
+
         if !expired.is_empty() {
             self.delete_sessions(user, &expired).await?;
         }
+
         Ok(())
     }
 

@@ -112,9 +112,11 @@ impl Config {
         let mut paths: Vec<&str> = PATHS.to_vec();
         rng.shuffle(&mut paths);
         paths.truncate(1 + rng.below(PATHS.len()));
+
         if rng.chance(25) {
             paths.extend(GIT_PATHS);
         }
+
         let mut percent = |on: u64, of: u64| if rng.chance(on) { of } else { 0 };
         let (drop, duplicate, delay) = (percent(50, 20), percent(50, 20), percent(50, 40));
         let (crashes, lost_state) = (rng.chance(30), rng.chance(15));
@@ -197,6 +199,7 @@ impl Node {
         let Some((to, version)) = target.map(|e| (e.path.clone(), e.version.clone())) else {
             return;
         };
+
         if let (Some(old), Some(file)) = (self.seen.remove(path), self.disk.remove(path)) {
             let hash = old.hash;
             self.disk.insert(to.clone(), file);
@@ -299,10 +302,13 @@ fn family(path: &str) -> String {
     if gitdir::in_git(path) {
         return ".git".to_owned();
     }
+
     let mut root = path.to_owned();
+
     while let Some(original) = original_of(&root) {
         root = original;
     }
+
     root
 }
 
@@ -382,6 +388,7 @@ impl Sim {
         for _ in 0..self.cfg.steps {
             self.step()?;
         }
+
         self.settle()?;
         self.check()
     }
@@ -389,10 +396,12 @@ impl Sim {
     fn step(&mut self) -> Result<(), String> {
         self.now += 1;
         let node = self.rng.below(self.cfg.nodes);
+
         match self.rng.below(100) {
             0..=24 => self.user_op(node),
             25..=54 => {
                 let server = self.rng.below(self.cfg.nodes);
+
                 if server != node {
                     self.pull(node, server)?;
                 }
@@ -403,6 +412,7 @@ impl Sim {
             95..=97 => self.network_fault(node),
             _ => self.restart(node)?,
         }
+
         Ok(())
     }
 
@@ -410,6 +420,7 @@ impl Sim {
     fn user_op(&mut self, n: usize) {
         let path = self.pick_path(n);
         let on_disk = self.nodes[n].disk.contains_key(&path);
+
         if on_disk
             && self.cfg.deletes
             && !gitdir::is_kept_from_deletes(&path)
@@ -420,6 +431,7 @@ impl Sim {
             self.scan_delete(n, &path);
             return;
         }
+
         let tombstone = self.nodes[n]
             .map
             .get(&path)
@@ -427,6 +439,7 @@ impl Sim {
         if !on_disk && tombstone && !self.cfg.re_adds {
             return;
         }
+
         let meta = self.new_content(n);
         self.note(|| format!("n{n} writes {path}: {}", show(Some(&meta))));
         self.nodes[n].disk.insert(path.clone(), meta.clone());
@@ -444,6 +457,7 @@ impl Sim {
                 return copies[self.rng.below(copies.len())].clone();
             }
         }
+
         self.cfg.paths[self.rng.below(self.cfg.paths.len())].to_owned()
     }
 
@@ -455,12 +469,15 @@ impl Sim {
             self.next_content
         };
         let mut hash = [0; 32];
+
         for (at, chunk) in hash.chunks_mut(8).enumerate() {
             chunk.copy_from_slice(&mix(id.wrapping_add(at as u64 + 1)).to_le_bytes());
         }
+
         if self.cfg.tag_collisions {
             hash[..4].fill(0xab);
         }
+
         let mtime_ms = if self.cfg.equal_mtimes {
             1000
         } else {
@@ -484,6 +501,7 @@ impl Sim {
         saw: Option<Hash>,
     ) -> Version {
         let version = self.nodes[n].map.edit(path, base, file.clone());
+
         if let Some(file) = &file {
             self.writes.push(Write {
                 node: n,
@@ -492,6 +510,7 @@ impl Sim {
                 version: version.clone(),
             });
         }
+
         self.overwrites.push(Overwrite {
             path: path.to_owned(),
             saw,
@@ -558,6 +577,7 @@ impl Sim {
                 self.record(n, &path, meta);
             }
         }
+
         let gone: Vec<String> = self.nodes[n]
             .seen
             .keys()
@@ -573,18 +593,23 @@ impl Sim {
     /// unless `all`, as when some fetches fail.
     fn apply(&mut self, n: usize, all: bool) {
         let entries: Vec<Entry> = self.nodes[n].map.entries().cloned().collect();
+
         for entry in entries {
             if !all && self.rng.chance(20) {
                 continue;
             }
+
             let path = &entry.path;
             let node = &mut self.nodes[n];
             let seen = node.seen.get(path).map(|seen| seen.hash);
             let wanted = entry.file.as_ref().map(|file| file.hash);
+
             if seen == wanted || (wanted.is_none() && gitdir::is_kept_from_deletes(path)) {
                 continue;
             }
+
             node.keep_losing_side(path);
+
             match &entry.file {
                 Some(file) => {
                     node.disk.insert(path.clone(), file.clone());
@@ -623,9 +648,11 @@ impl Sim {
             }
         });
         let changes = self.nodes[server].map.since(since, self.cfg.page);
+
         if changes.entries.is_empty() {
             return Ok(None);
         }
+
         if changes.entries.len() > self.cfg.page || changes.upto <= since {
             return Err(format!(
                 "since({since}, {}) gave {} entries up to {}",
@@ -634,6 +661,7 @@ impl Sim {
                 changes.upto
             ));
         }
+
         self.streams.insert((client, server), changes.upto);
         self.nodes[server].unsaved_partial_page |= changes.upto < self.nodes[server].map.seq();
         Ok(Some(Message {
@@ -652,6 +680,7 @@ impl Sim {
             self.streams.remove(&(client, server));
             return Ok(());
         }
+
         let Some(mut message) = self.page(client, server)? else {
             return Ok(());
         };
@@ -671,6 +700,7 @@ impl Sim {
             self.tally.dropped += 1;
             return Ok(());
         }
+
         if self.rng.chance(self.cfg.delay) {
             message.due += 1 + self.rng.below(40) as u64;
         }
@@ -702,6 +732,7 @@ impl Sim {
     /// joins up. In order the two are the same.
     fn receive(&mut self, message: &Message) -> Result<(), String> {
         let (to, from) = (message.to, message.from);
+
         if !self.connected(to, from) {
             // The stream breaks, and all that followed on it goes too.
             self.note(|| format!("n{to} misses n{from} {}..", message.since));
@@ -709,11 +740,13 @@ impl Sim {
             self.net.retain(|m| m.to != to || m.from != from);
             return Ok(());
         }
+
         let settling = self.settling;
         self.note(|| {
             if settling {
                 return format!("n{to} gets n{from} {}..{}", message.since, message.upto);
             }
+
             let entries: Vec<String> = message.entries.iter().map(line).collect();
             format!(
                 "n{to} gets n{from} {}..{}: {}",
@@ -722,17 +755,21 @@ impl Sim {
                 entries.join(", ")
             )
         });
+
         for entry in &message.entries {
             if !valid_path(&entry.path) {
                 return Err(format!("a peer would refuse {}", entry.path));
             }
+
             let map = &mut self.nodes[to].map;
             map.merge(entry);
             let seq = map.seq();
+
             if !map.merge(entry).is_empty() || map.seq() != seq {
                 return Err(format!("merging {} again changed n{to}", line(entry)));
             }
         }
+
         let cursor = self.nodes[to].cursors.entry(from).or_default();
         if cursor.replica != message.replica {
             if message.since == 0 {
@@ -768,9 +805,11 @@ impl Sim {
             self.down_until[n] = until;
         } else if self.cfg.partitions {
             self.split_until = self.now + 1 + self.rng.below(60) as u64;
+
             for at in 0..self.cfg.nodes {
                 self.group[at] = self.rng.below(3);
             }
+
             let (group, until) = (self.group.clone(), self.split_until);
             self.note(|| format!("network split into {group:?} until t{until}"));
         }
@@ -790,9 +829,11 @@ impl Sim {
         if kinds.is_empty() {
             return Ok(());
         }
+
         let kind = kinds[self.rng.below(kinds.len())];
         self.note(|| format!("n{n} {kind}"));
         self.tally.restarts += 1;
+
         match kind {
             "restarts" => self.save(n)?,
             "crashes" => self.tally.crashes += 1,
@@ -804,6 +845,7 @@ impl Sim {
             .retain(|&(client, server), _| client != n && server != n);
         self.net.retain(|message| message.to != n);
         let before: Vec<Entry> = self.nodes[n].map.entries().cloned().collect();
+
         match self.nodes[n].saved.clone() {
             Some(saved) => {
                 let map = rmp_serde::from_slice::<Map>(&saved.map)
@@ -812,6 +854,7 @@ impl Sim {
                 if kind == "restarts" && !map.entries().eq(before.iter()) {
                     return Err(format!("n{n} lost entries over a restart"));
                 }
+
                 let node = &mut self.nodes[n];
                 node.unsaved_load = true;
                 node.map = map;
@@ -827,6 +870,7 @@ impl Sim {
                 node.cursors.clear();
             }
         }
+
         self.scan(n);
         Ok(())
     }
@@ -837,6 +881,7 @@ impl Sim {
         self.note(|| "faults end".to_owned());
         self.split_until = 0;
         self.down_until.fill(0);
+
         while !self.net.is_empty() {
             self.now += 1;
             let at = if self.cfg.reorder {
@@ -847,10 +892,13 @@ impl Sim {
             let message = self.net.remove(at);
             self.receive(&message)?;
         }
+
         self.streams.clear();
         self.settling = true;
+
         for _ in 0..SETTLE_ROUNDS {
             let before: Vec<u64> = self.nodes.iter().map(|node| node.map.seq()).collect();
+
             for client in 0..self.cfg.nodes {
                 for server in 0..self.cfg.nodes {
                     if client != server {
@@ -858,6 +906,7 @@ impl Sim {
                     }
                 }
             }
+
             if self
                 .nodes
                 .iter()
@@ -867,9 +916,11 @@ impl Sim {
                 for n in 0..self.cfg.nodes {
                     self.apply(n, true);
                 }
+
                 return Ok(());
             }
         }
+
         Err(format!("not settled after {SETTLE_ROUNDS} rounds"))
     }
 
@@ -877,12 +928,16 @@ impl Sim {
     /// seen all that server holds, or `since` skipped something.
     fn drain(&mut self, client: usize, server: usize) -> Result<(), String> {
         self.streams.remove(&(client, server));
+
         while let Some(message) = self.page(client, server)? {
             self.receive(&message)?;
         }
+
         self.streams.remove(&(client, server));
+
         for entry in self.nodes[server].map.entries() {
             let held = self.nodes[client].map.get(&entry.path);
+
             if !held.is_some_and(|held| has_seen(&held.version, &entry.version)) {
                 return Err(format!(
                     "n{client} pulled all of n{server} but is behind on {}: has {}",
@@ -891,6 +946,7 @@ impl Sim {
                 ));
             }
         }
+
         Ok(())
     }
 
@@ -899,6 +955,7 @@ impl Sim {
             let list: Vec<String> = self.nodes[n].map.entries().map(line).collect();
             self.note(|| format!("n{n} ends with: {}", list.join(", ")));
         }
+
         self.check_convergence()?;
         self.check_paging()?;
         self.check_no_edit_lost()?;
@@ -906,10 +963,12 @@ impl Sim {
         self.check_conflict_names()?;
         self.check_disks()?;
         self.check_any_order()?;
+
         for entry in self.nodes[0].map.entries() {
             self.tally.conflicts += u64::from(is_conflict(&entry.path) && entry.file.is_some());
             self.tally.tombstones += u64::from(entry.file.is_none());
         }
+
         Ok(())
     }
 
@@ -919,6 +978,7 @@ impl Sim {
                 return Err(format!("n0 and n{n} differ: {differ}"));
             }
         }
+
         Ok(())
     }
 
@@ -926,22 +986,28 @@ impl Sim {
     fn check_paging(&self) -> Result<(), String> {
         for (n, node) in self.nodes.iter().enumerate() {
             let (mut paged, mut since) = (Vec::new(), 0);
+
             loop {
                 let changes = node.map.since(since, self.cfg.page);
+
                 if changes.entries.is_empty() {
                     break;
                 }
                 since = changes.upto;
                 paged.extend(changes.entries);
             }
+
             if since > node.map.seq() {
                 return Err(format!("n{n} paged to {since} of {}", node.map.seq()));
             }
+
             paged.sort_by(|a, b| a.path.cmp(&b.path));
+
             if !paged.iter().eq(node.map.entries()) {
                 return Err(format!("n{n} paging gave {} entries", paged.len()));
             }
         }
+
         Ok(())
     }
 
@@ -958,6 +1024,7 @@ impl Sim {
         // so there it is enough that the content was seen, or is anywhere.
         let rewound = self.cfg.crashes || self.cfg.lost_state;
         let map = &self.nodes[0].map;
+
         for write in &self.writes {
             // The rest of `.git` keeps no loser.
             let Some(copy) = conflict_path(&write.path, &write.hash) else {
@@ -975,6 +1042,7 @@ impl Sim {
             if is_conflict(&write.path) || self.overwrites.iter().any(|over| over.path == copy) {
                 continue;
             }
+
             let family_of = family(&write.path);
             let replaced = self.overwrites.iter().any(|over| {
                 over.saw == Some(write.hash)
@@ -987,6 +1055,7 @@ impl Sim {
                         && (rewound || family(&entry.path) == family_of)
                 })
             };
+
             if !replaced && !kept() {
                 return Err(format!(
                     "n{} wrote {} at {} {:?} and it is gone",
@@ -997,6 +1066,7 @@ impl Sim {
                 ));
             }
         }
+
         Ok(())
     }
 
@@ -1007,7 +1077,9 @@ impl Sim {
         if self.cfg.crashes || self.cfg.lost_state {
             return Ok(());
         }
+
         let map = &self.nodes[0].map;
+
         for write in &self.writes {
             let deleted = map
                 .get(&write.path)
@@ -1026,6 +1098,7 @@ impl Sim {
                 ));
             }
         }
+
         Ok(())
     }
 
@@ -1039,24 +1112,29 @@ impl Sim {
             1
         };
         let copies = map.entries().filter(|e| is_conflict(&e.path)).count();
+
         if copies > self.authored.len() {
             return Err(format!(
                 "{copies} copies from {} writes",
                 self.authored.len()
             ));
         }
+
         for entry in map.entries().filter(|e| is_conflict(&e.path)) {
             if depth(&entry.path) > limit {
                 return Err(format!("{} is nested too deep", entry.path));
             }
+
             if let (Some(file), false) = (&entry.file, self.cfg.edit_copies) {
                 let original = original_of(&entry.path);
                 let named = original.and_then(|original| conflict_path(&original, &file.hash));
+
                 if named.as_deref() != Some(&entry.path) {
                     return Err(format!("{} holds {}", entry.path, tag(&file.hash)));
                 }
             }
         }
+
         Ok(())
     }
 
@@ -1066,6 +1144,7 @@ impl Sim {
             for entry in node.map.entries() {
                 let hash = node.disk.get(&entry.path).map(|file| file.hash);
                 let kept = gitdir::is_kept_from_deletes(&entry.path);
+
                 if hash != entry.file.as_ref().map(|file| file.hash)
                     && !(kept && entry.file.is_none())
                 {
@@ -1074,6 +1153,7 @@ impl Sim {
                 }
             }
         }
+
         Ok(())
     }
 
@@ -1083,18 +1163,24 @@ impl Sim {
     /// it new again, so the nodes' list is only asked without crashes.
     fn check_any_order(&mut self) -> Result<(), String> {
         let mut maps: Vec<Map> = (1..=3).map(Map::new).collect();
+
         for map in &mut maps {
             let mut entries: Vec<&Entry> = self.authored.iter().collect();
             self.rng.shuffle(&mut entries);
+
             for entry in entries {
                 map.merge(entry);
             }
         }
+
         let mut settled = false;
+
         for _ in 0..SETTLE_ROUNDS {
             let before: Vec<u64> = maps.iter().map(Map::seq).collect();
+
             for from in 0..maps.len() {
                 let entries = maps[from].since(0, usize::MAX).entries;
+
                 for (to, map) in maps.iter_mut().enumerate() {
                     if to != from {
                         for entry in &entries {
@@ -1103,28 +1189,35 @@ impl Sim {
                     }
                 }
             }
+
             if maps.iter().map(Map::seq).eq(before.iter().copied()) {
                 settled = true;
                 break;
             }
         }
+
         if !settled {
             return Err("shuffled lists did not settle".to_owned());
         }
+
         for other in &maps[1..] {
             if let Some(differ) = difference(&maps[0], other) {
                 return Err(format!("shuffled lists differ: {differ}"));
             }
         }
+
         let rewound = self.cfg.crashes || self.cfg.lost_state;
+
         for entry in &self.authored {
             if !maps[0].merge(entry).is_empty() {
                 return Err(format!("late {} changed a settled list", line(entry)));
             }
+
             if !rewound && !self.nodes[0].map.merge(entry).is_empty() {
                 return Err(format!("late {} changed the nodes' list", line(entry)));
             }
         }
+
         Ok(())
     }
 }
@@ -1178,24 +1271,29 @@ fn run_many(seeds: impl Iterator<Item = u64> + Send) -> Result<Tally, u64> {
         for _ in 0..cores {
             scope.spawn(|| {
                 let mut mine = Tally::default();
+
                 while !stop.load(Ordering::Relaxed) {
                     let Some(seed) = seeds.lock().expect("no worker panics").next() else {
                         break;
                     };
                     let outcome = run(seed, false);
                     mine.add(outcome.tally);
+
                     if outcome.result.is_err() {
                         failed.store(seed, Ordering::Relaxed);
                         stop.store(true, Ordering::Relaxed);
                     }
                 }
+
                 total.lock().expect("no worker panics").add(mine);
             });
         }
     });
+
     if stop.load(Ordering::Relaxed) {
         return Err(failed.load(Ordering::Relaxed));
     }
+
     Ok(total.into_inner().expect("no worker panics"))
 }
 
@@ -1216,9 +1314,11 @@ fn map_sim_seeds_hold() {
         assert!(outcome.result.is_ok(), "seed {seed} failed");
         return;
     }
+
     let count = env_u64("BEEP_SIM_SEEDS").unwrap_or(SEEDS);
     let started = Instant::now();
     let seeds = FAILED_SEEDS.iter().copied().chain(0..count);
+
     match run_many(seeds) {
         Ok(tally) => {
             println!("{count} seeds in {:?}: {tally:?}", started.elapsed());

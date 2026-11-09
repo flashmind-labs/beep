@@ -42,6 +42,7 @@ pub async fn sample(mut folders: Vec<PathBuf>) -> StatsReport {
 fn disks(folders: &[PathBuf]) -> Vec<DiskUsage> {
     let mut seen = Vec::new();
     let mut disks = Vec::new();
+
     for folder in folders {
         match disk(folder) {
             Ok((device, usage)) if !seen.contains(&device) => {
@@ -52,6 +53,7 @@ fn disks(folders: &[PathBuf]) -> Vec<DiskUsage> {
             Err(e) => log::debug!("not measuring {}: {e:#}", folder.display()),
         }
     }
+
     disks
 }
 
@@ -100,6 +102,7 @@ fn other_volumes() -> Vec<PathBuf> {
     } else {
         fs::read_to_string("/proc/self/mounts").map(|mounts| linux_volumes(&mounts))
     };
+
     match listed {
         // A container mounts single files too, such as /etc/hosts.
         Ok(listed) => listed.into_iter().filter(|path| path.is_dir()).collect(),
@@ -182,6 +185,7 @@ async fn memory() -> Result<Memory> {
     if unsafe { GlobalMemoryStatusEx(&mut status) } == 0 {
         return Err(std::io::Error::last_os_error()).context("GlobalMemoryStatusEx");
     }
+
     let mb = 1024 * 1024;
     Ok(Memory {
         used_mb: status.ullTotalPhys.saturating_sub(status.ullAvailPhys) / mb,

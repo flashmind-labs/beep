@@ -57,6 +57,7 @@ pub(crate) fn start(fleet: Arc<Fleet>) -> (impl Future<Output = ()>, mpsc::Recei
 
 async fn follow(fleet: Arc<Fleet>, out: mpsc::Sender<Direct>) {
     let mut opened = fleet.mesh.subscribe();
+
     loop {
         let current = opened.borrow_and_update().clone();
         let Opened::Open(mesh) = current else {
@@ -110,13 +111,16 @@ async fn presence(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) 
     // An offline machine fails the same way on every try: logged once,
     // and again when the error changes or after a stream that worked.
     let mut logged = None;
+
     loop {
         let started = Instant::now();
         let mut replied = false;
+
         match stream(&fleet, id, &out, &mut replied).await {
             Ok(()) => return,
             Err(e) => {
                 let error = e.to_string();
+
                 if logged.as_ref() != Some(&error) {
                     log::debug!(
                         "following session presence from {}: {error}",
@@ -126,10 +130,12 @@ async fn presence(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) 
                 }
             }
         }
+
         if held(replied, started.elapsed()) {
             backoff.reset();
             logged = None;
         }
+
         sleep(backoff.pause()).await;
     }
 }
@@ -161,6 +167,7 @@ async fn stream(
             return Err(MeshError::Link(anyhow::anyhow!("the machine ended the stream")).into());
         };
         *replied = true;
+
         if let SessionsReply::External { sessions } = reply
             && out
                 .send(Direct::Presence {
@@ -212,6 +219,7 @@ impl Heard {
             machine_name: String::new(),
             ..key.clone()
         };
+
         match self.0.get(&key) {
             Some((was, _)) if *was != via => {
                 self.0.remove(&key);

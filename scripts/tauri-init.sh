@@ -16,6 +16,7 @@ esac
 # A folder without its project (left by a failed or partial run) is made again.
 if [[ ! -f $made ]]; then
     rm -rf "$dir"
+
     if [[ $platform == ios ]]; then
         # `tauri ios init` tries to brew-install CocoaPods and libimobiledevice,
         # which the build does not need. For init only, `pod` does nothing and
@@ -36,6 +37,7 @@ fi
 # Tauri's own icon in the project, so ours replaces it on every run.
 icons=$(mktemp -d)
 npm run --silent tauri -- icon src-tauri/icons/phone.png -o "$icons" --ios-color '#0B0E1D' >/dev/null 2>&1
+
 if [[ $platform == ios ]]; then
     cp "$icons"/ios/*.png "$dir/Assets.xcassets/AppIcon.appiconset/"
 else
@@ -43,4 +45,5 @@ else
     rm "$icons/android/values/ic_launcher_background.xml.bak"
     cp -R "$icons"/android/. "$dir/app/src/main/res/"
 fi
+
 rm -rf "$icons"

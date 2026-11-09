@@ -38,6 +38,7 @@ pub(super) fn rollout(root: &Path, thread: &str) -> Option<PathBuf> {
     if thread.is_empty() || thread.contains(['/', '\\']) {
         return None;
     }
+
     let suffix = format!("-{thread}.jsonl");
     let named = |path: &Path| {
         path.file_name()
@@ -55,18 +56,22 @@ pub(super) fn read(path: &Path) -> std::io::Result<SubagentRun> {
     let mut reader = Reader::default();
     let file = File::open(path)?;
     let mut skip = 0;
+
     for (at, line) in BufReader::new(file.take(MAX_READ)).lines().enumerate() {
         let line = line?;
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
+
         if at == 0 {
             skip = reader.header(&value["payload"]);
         }
+
         if at >= skip {
             reader.line(&value);
         }
     }
+
     Ok(reader.finish())
 }
 
@@ -107,12 +112,14 @@ impl Reader {
 
     fn line(&mut self, value: &Value) {
         let payload = &value["payload"];
+
         match (value["type"].as_str(), payload["type"].as_str()) {
             (Some("response_item"), Some("function_call" | "custom_tool_call")) => {
                 self.call(payload);
             }
             (Some("response_item"), Some("function_call_output" | "custom_tool_call_output")) => {
                 let id = payload["call_id"].as_str().unwrap_or_default();
+
                 if let Some(step) = self
                     .calls
                     .get(id)
@@ -137,6 +144,7 @@ impl Reader {
             (Some("event_msg"), Some("task_started")) => self.run.working = true,
             (Some("event_msg"), Some("task_complete" | "turn_aborted")) => {
                 self.run.working = false;
+
                 if let Some(last) = payload["last_agent_message"]
                     .as_str()
                     .map(str::trim)

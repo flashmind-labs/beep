@@ -67,6 +67,7 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         let mut states = HashMap::new();
+
         for row in rows {
             let watcher: String = row.try_get(1)?;
             // A watcher this server no longer runs is left out.
@@ -82,6 +83,7 @@ impl Store {
                 },
             );
         }
+
         Ok(states)
     }
 

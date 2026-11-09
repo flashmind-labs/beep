@@ -45,6 +45,7 @@ impl Store {
         .await?;
         let known = accounts.iter().any(|(login, _)| *login == login_key);
         let mut default = !accounts.iter().any(|(_, default)| *default);
+
         if new.replace_default && !known && !default {
             sqlx::query("DELETE FROM credentials WHERE user_id=$1 AND kind=$2 AND is_default")
                 .bind(user.as_ref())
@@ -53,6 +54,7 @@ impl Store {
                 .await?;
             default = true;
         }
+
         let row = sqlx::query(&format!(
             "INSERT INTO credentials (id, user_id, kind, provider, host_url, env_var, to_machines,
                  last4, account, secret, is_default, orgs)
@@ -114,9 +116,11 @@ impl Store {
         .bind(id)
         .fetch_optional(&mut *tx)
         .await?;
+
         if found.is_none() {
             return Ok(false);
         }
+
         sqlx::query("UPDATE credentials SET is_default=false WHERE user_id=$1 AND kind=$2")
             .bind(user.as_ref())
             .bind(GITHUB)
@@ -162,6 +166,7 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         let mut out = Vec::new();
+
         for row in &rows {
             let id: String = row.try_get("id")?;
             let sealed: Vec<u8> = row.try_get("secret")?;
@@ -175,6 +180,7 @@ impl Store {
                 let secret = key.open(&owner, &sealed)?;
                 Ok((slot, secret))
             });
+
             match opened {
                 Ok((slot, secret)) => out.push(GitLogin {
                     id,
@@ -185,6 +191,7 @@ impl Store {
                 Err(e) => log::warn!("credential {id} skipped: {e:#}"),
             }
         }
+
         Ok(out)
     }
 }

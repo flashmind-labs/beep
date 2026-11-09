@@ -82,6 +82,7 @@ test("attaching and reconnecting do not take keyboard focus", () => {
   let focuses = 0;
   screen.focus = () => { focuses++; };
   const term = paneTerm(ROW, screen, { onEnd() {}, onLink() {}, onEscape() {} });
+
   for (let i = 0; i < 2; i++) {
     const stream = nextAttach();
     attach(term);

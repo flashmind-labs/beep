@@ -68,6 +68,7 @@ impl Reach {
                 .filter(|folder| folder.parent().is_some())
                 .any(|folder| real.starts_with(folder))
         };
+
         match access {
             Access::Read => inside(&self.work) || inside(&self.read),
             Access::Write => inside(&self.work) && !inside(&self.no_write),
@@ -96,16 +97,19 @@ pub(super) fn refused(asked: &str, access: Access) -> anyhow::Error {
 pub(crate) fn real(path: &Path) -> Result<PathBuf> {
     let mut missing = Vec::new();
     let mut at = path;
+
     loop {
         match paths::canonicalize(at) {
             Ok(mut found) => {
                 for name in missing.iter().rev() {
                     found.push(name);
                 }
+
                 return Ok(found);
             }
             Err(e) if e.kind() == ErrorKind::NotFound => {
                 let mut parts = at.components();
+
                 match parts.next_back() {
                     Some(Component::Normal(name)) => missing.push(name.to_owned()),
                     _ => bail!("{} leads nowhere it can be checked", path.display()),
@@ -233,6 +237,7 @@ impl Agents {
         })
         .await
         .context("the path check stopped")??;
+
         if held {
             return Ok(real);
         }
@@ -243,6 +248,7 @@ impl Agents {
             let folders = self.session_folders();
             let asked_real = real.clone();
             let listed = spawn_blocking(move || worktrees::listed_in(&folders, &asked_real));
+
             if timeout(WORKTREE_WAIT, listed)
                 .await
                 .is_ok_and(|done| done.unwrap_or(false))

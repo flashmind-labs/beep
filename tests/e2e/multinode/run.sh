@@ -38,9 +38,11 @@ digest(){
 # same_on <role...> : whether those nodes hold one manifest.
 same_on(){
   local role
+
   for role in "$@"; do
     digest "$role" > "$WORK/digest-$role" &
   done
+
   wait
   [[ "$(for role in "$@"; do cat "$WORK/digest-$role"; done | sort -u | wc -l)" == 1 ]] \
     && [[ -s "$WORK/digest-$1" ]]
@@ -49,9 +51,11 @@ all_same(){ same_on "${NODES[@]}"; }
 
 show_manifests(){
   local role
+
   for role in "${NODES[@]}"; do
     on "$role" "cd $P && find . -type f ! -path '*/.beep-*' | wc -l" | sed "s/^/   $role files: /"
   done
+
   probe sync-status "$PROJECT" | sed 's/^/   /'
 }
 
@@ -64,6 +68,7 @@ converged(){
     show_manifests
     return 1
   fi
+
   poll 120 in_sync && return 0
   fail "$2: the files match but the server does not see all four in sync"
   show_manifests
@@ -95,6 +100,7 @@ converged 180 "the seed files" || abort "the seed files did not reach every node
 T="$(moment 4)"
 n=0
 t0="$(now)"
+
 for role in "${NODES[@]}"; do
   on "$role" "$(until_moment "$T"); cd $P/conv
 echo \"edit by $role\" > s$n-0.txt; rm s$n-1.txt; mkdir -p moved-$n; mv s$n-2.txt moved-$n/
@@ -102,7 +108,9 @@ mkdir -p own-$n/deep/er; for i in \$(seq 1 200); do echo \"$role \$i\" > own-$n/
 head -c 20M /dev/urandom > own-$n/big.bin" &
   n=$((n + 1))
 done
+
 wait
+
 if converged 300 "changes from every node"; then
   pass "all four hold one manifest after changes from every node"
   measure "multinode: convergence (800 files, 80 MB)" "$(since "$t0")" s max "${E2E_BUDGET_MULTI_CONVERGE-90}"
@@ -122,9 +130,11 @@ converged 180 "the round seeds" || abort "the round seeds did not reach every no
 
 # Tally per case.
 declare -A PATHS NEWEST COPIES LOST DIVERGED
+
 for c in add edit tie del gone; do
   PATHS[$c]=0 NEWEST[$c]=0 COPIES[$c]=0 LOST[$c]=0 DIVERGED[$c]=0
 done
+
 WORST_SPREAD=0
 
 # judge <case> <round> <deleter or ""> : what the round left in that case.
@@ -135,12 +145,15 @@ judge(){
   on node-a "cd $P/cases/$c && for f in r$r.txt 'r$r (conflict '*; do [ -f \"\$f\" ] && printf '%s\t%s\n' \"\$f\" \"\$(cat \"\$f\")\"; done; true" > "$WORK/left"
   at_path="$(awk -F'\t' -v f="r$r.txt" '$1 == f { print $2 }' "$WORK/left")"
   copies="$(grep -c '(conflict ' "$WORK/left")"
+
   if [[ "$c" == gone ]]; then
     if [[ -n "$at_path" || "$copies" != 0 ]]; then
       fail "gone round $r: left $(cat "$WORK/left")"
     fi
+
     return
   fi
+
   for role in "${NODES[@]}"; do
     [[ "$role" == "$deleter" ]] && continue
     want_copies=$((want_copies + 1))
@@ -152,12 +165,14 @@ judge(){
     if awk -v m="${mt:-0}" -v b="$best_at" 'BEGIN { exit !(m > b) }'; then best=("$text"); best_at="$mt"
     elif [[ "$mt" == "$best_at" ]]; then best+=("$text"); fi
   done
+
   want_copies=$((want_copies - 1))
   LOST[$c]=$((LOST[$c] + lost))
   if [[ "$copies" == "$want_copies" ]]; then COPIES[$c]=$((COPIES[$c] + 1)); else
     fail "$c round $r: $copies conflict copies, expected $want_copies"
     sed 's/^/   /' "$WORK/left"
   fi
+
   if [[ "$c" == tie ]]; then
     # One mtime: the hash decides, which only has to be one answer.
     [[ -n "$at_path" ]] && NEWEST[$c]=$((NEWEST[$c] + 1))
@@ -171,6 +186,7 @@ judge(){
 for ((r = 1; r <= ROUNDS; r++)); do
   T="$(moment 4)"
   deleter="${NODES[$((r % 4))]}"
+
   for role in "${NODES[@]}"; do
     # Same order on every node, at one moment; `M` lines give the mtimes.
     if [[ "$role" == "$deleter" ]]; then del_op="rm del/r$r.txt"; else del_op="echo 'del r$r $role' > del/r$r.txt"; fi
@@ -180,10 +196,12 @@ echo 'tie r$r $role' > tie/r$r.txt; touch -d @$T tie/r$r.txt
 $del_op; rm gone/r$r.txt
 for f in add/r$r.txt edit/r$r.txt del/r$r.txt; do [ -f \$f ] && echo M \$f \$(stat -c %.3Y \$f); done; true" > "$WORK/out-$r-$role" &
   done
+
   wait
   spread="$(cat "$WORK"/out-"$r"-node-* | awk '$1 == "S" { if (!m || $2 < m) m = $2; if ($2 > x) x = $2 } END { printf "%.3f", x - m }')"
   WORST_SPREAD="$(awk -v a="$WORST_SPREAD" -v b="$spread" 'BEGIN { print (b > a ? b : a) }')"
   converged 180 "round $r"
+
   if [[ "$?" == 1 ]]; then
     for c in add edit tie del gone; do DIVERGED[$c]=$((DIVERGED[$c] + 1)); done
   else
@@ -193,6 +211,7 @@ for f in add/r$r.txt edit/r$r.txt del/r$r.txt; do [ -f \$f ] && echo M \$f \$(st
     judge del "$r" "$deleter"
     judge gone "$r" ""
   fi
+
   note "round $r done, start spread ${spread} s"
 done
 # A result that only looks settled would drift here.
@@ -200,6 +219,7 @@ sleep 15
 if all_same; then pass "still one manifest 15 s after the last round"; else fail "the nodes drifted after the rounds"; show_manifests; fi
 note "the rounds started within $WORST_SPREAD s of each other (by the VMs' clocks)"
 printf '   %-6s %8s %10s %12s %12s %9s\n' case paths diverged newest-wins copies-right lost-edits
+
 for c in add edit tie del gone; do
   printf '   %-6s %8s %10s %12s %12s %9s\n' "$c" "${PATHS[$c]}" "${DIVERGED[$c]}" "${NEWEST[$c]}" "${COPIES[$c]}" "${LOST[$c]}"
 done
@@ -207,11 +227,13 @@ done
 # The conflict copies now make each node's status more than a datagram. A node
 # that is up must answer every time, not once in a while.
 offline=0
+
 for i in $(seq 1 30); do
   n="$(probe sync-status "$PROJECT" | awk '$2 == "offline" { n++ } END { print n + 0 }')"
   offline=$((offline + n))
   sleep 1
 done
+
 if (( offline == 0 )); then pass "no node looked offline in 30 status polls"; else
   fail "nodes looked offline $offline times in 30 status polls, all of them up"
 fi
@@ -238,12 +260,14 @@ mkdir -p new-b/p/q; for i in \$(seq 1 500); do echo \"new b \$i\" > new-b/p/q/f\
 on node-c "cd $P/base && rm -r d6; rm keep/b1.bin; echo 'edited by c' > d7/sub/f1.txt
 mkdir -p new-c/m; for i in \$(seq 1 500); do echo \"new c \$i\" > new-c/m/f\$i.txt; done" &
 wait
+
 if poll 600 same_on node-a node-b node-c; then
   pass "node-a, node-b and node-c converged without node-d"
 else
   fail "the three online nodes did not converge"
   show_manifests
 fi
+
 want="$(digest node-a)"
 on node-a "cd $P && find . -type f ! -path '*/.beep-*' | LC_ALL=C sort" > "$WORK/after"
 LC_ALL=C comm -23 "$WORK/before" "$WORK/after" > "$WORK/deleted"
@@ -255,26 +279,33 @@ start_node node-d
 # The status is read before the files, so "in_sync" with the wrong files
 # means the node said so while files were really missing.
 false_sync=0 real_sync="" seen_syncing=0 last=""
+
 while awk -v s="$(since "$t0")" 'BEGIN { exit !(s < 900) }'; do
   state="$(status_of node-d)"
   have="$(digest node-d)"
   count="$(on node-d "cd $P && find . -type f ! -path '*/.beep-*' | wc -l")"
   word="$(awk '{ print $1 }' <<< "$state")"
+
   if [[ "$word:$count" != "$last" ]]; then
     note "+$(since "$t0") s: $state, $count files"
     last="$word:$count"
   fi
+
   [[ "$word" == syncing || "$word" == scanning ]] && seen_syncing=1
+
   if [[ "$state" == *in_sync* && "$state" == *pending=0* ]]; then
     if [[ "$have" == "$want" ]]; then
       real_sync="$(since "$t0")"
       break
     fi
+
     false_sync=$((false_sync + 1))
     note "FALSE IN SYNC at +$(since "$t0") s: $count files, $state"
   fi
+
   sleep 1
 done
+
 if [[ -n "$real_sync" ]]; then
   pass "node-d holds the others' manifest and the server says in sync, after $real_sync s"
   measure "multinode: offline catch-up" "$real_sync" s max "${E2E_BUDGET_MULTI_CATCHUP-60}"
@@ -282,25 +313,30 @@ else
   fail "node-d did not reach a real in sync (have $(digest node-d), want $want)"
   show_manifests
 fi
+
 if [[ "$false_sync" == 0 ]]; then
   pass "the server never said in sync while node-d was missing files"
 else
   fail "the server said in sync $false_sync time(s) while node-d was missing files"
 fi
+
 [[ "$seen_syncing" == 1 ]] && note "the server showed node-d syncing during catch-up"
 # Files and status must also agree the other way: right files, status follows.
 if poll 60 in_sync; then pass "the server sees all four in sync"; else fail "the server does not see all four in sync"; show_manifests; fi
 # A delete that came back would come back after the first rounds settle.
 sleep 30
 returned=0
+
 for role in "${NODES[@]}"; do
   put "$role" "$WORK/deleted" beep/deleted.txt || abort "could not copy the deleted list"
   back="$(on "$role" "cd $P && while IFS= read -r f; do [ -e \"\$f\" ] && echo \"\$f\"; done < ~/beep/deleted.txt; true")"
+
   if [[ -n "$back" ]]; then
     returned=1
     fail "deleted files back on $role: $(wc -l <<< "$back"), like $(head -1 <<< "$back")"
   fi
 done
+
 [[ "$returned" == 0 ]] && pass "no deleted file came back on any node"
 if all_same; then pass "all four still hold one manifest"; else fail "the manifests differ 30 s after catch-up"; show_manifests; fi
 copies="$(on node-a "cd $P/base && find . -name '*(conflict*' | wc -l")"

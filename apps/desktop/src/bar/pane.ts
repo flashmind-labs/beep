@@ -95,6 +95,7 @@ export const pane = {
   /// Shows `target`.
   async open(target: PaneTarget) {
     await start();
+
     if (target && typeof target === "object") {
       if ("chat" in target) {
         const id = target.chat?.session ?? null;
@@ -102,8 +103,10 @@ export const pane = {
         if (id === S.session && S.view === "chat" && $("#ask")) return backOn();
         return openSession(id);
       }
+
       // Groups are not a CenterTarget: only the window's sidebar opens them.
       if ("group" in target) return renderGroup(target.group.id);
+
       // Agent views are not a CenterTarget either: Home and the sidebar open them.
       // A notice names a session with no folder: the loaded list has the row, when it has one.
       if ("agent" in target) {
@@ -111,6 +114,7 @@ export const pane = {
         const row = sessions.find(s => s.machine_id === machine_id && s.agent === agent && s.id === id);
         return openAgent(row ?? target.agent, { back: target.from ?? "agents", adopt: target.adopt });
       }
+
       if ("draft" in target) {
         // Loaded when needed: it brings in the project page, which only the command center has.
         return import("../agents/draft.ts").then(m => {
@@ -119,8 +123,10 @@ export const pane = {
           if (terminal === true) newTerminal(undefined, true); else if (terminal) openTerminal(terminal);
         });
       }
+
       if ("agentnew" in target) return renderAgentNew(target.agentnew.prompt ?? "", target.from ?? "agents", target.agentnew.at ?? null);
     }
+
     if (target === "agents") return renderAgents();
     if (typeof target === "string" && VIEWS[target]) return VIEWS[target]();
     if ((S.view === "chat" && $("#ask")) || (S.view === "group" && G.id)) return backOn();

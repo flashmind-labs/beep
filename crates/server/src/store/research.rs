@@ -409,6 +409,7 @@ async fn start_research_in(
     if ensure_session(conn, user.as_ref(), chat).await? == SessionChat::Taken {
         bail!("the chat is not the user's");
     }
+
     sqlx::query(
         "INSERT INTO researches (id, chat_id, user_id, topic) VALUES ($1, $2, $3, $4)
          ON CONFLICT (chat_id) DO NOTHING",

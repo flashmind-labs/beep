@@ -62,6 +62,7 @@ export const projectComp = (() => {
       const p = barProject(), hosts = pc.hosts ?? [];
       const current = p && barPlace(p.places, hosts, pc.machine);
       const next = p && current && nextBarMachine(p.places, hosts, current.machine_id);
+
       if (p && next) {
         e.preventDefault();
         pc.machine = next.machine_id;
@@ -69,16 +70,19 @@ export const projectComp = (() => {
         redrawProjects();
         input.focus();
       }
+
       return;
     }
   });
   machine.addEventListener("click", e => {
     const p = barProject(), hosts = pc.hosts ?? [];
     if (!p || pc.adding) return;
+
     if (!barPlace(p.places, hosts, pc.machine)) {
       openMenu(e, "Add to a machine", addHosts(hosts).map(m => ({ label: m.machine_name, on: () => addToMachine(p.name, m) })));
       return;
     }
+
     const able = addHosts(hosts).filter(m => p.places.some(x => x.machine === m.machine_id));
     openMenu(e, "Machine", able.map(m => ({ label: m.machine_name, on: () => { pc.machine = m.machine_id; keepMachine(p.name, m.machine_id); redrawProjects(); } })));
   });
@@ -160,6 +164,7 @@ function loadProjectBar(name: string) {
   const redraw = () => { if (barOn(name)) redrawProjects(); };
   invoke<AgentHost[]>("agent_hosts").then(list => { pc.hosts = list; preloadModels(list); redraw(); }).catch(e => { console.warn("agent hosts:", e); pc.hosts ??= []; redraw(); });
   loadSessions().then(redraw).catch(e => console.warn("agent sessions:", e));
+
   if (!pc.branches.has(name)) {
     invoke<BaseBranches | null>("project_branches", { project: name })
       .catch(() => null)
@@ -173,6 +178,7 @@ export function drawProjectComp(name: string) {
   c.form.querySelector(".prompt-stash-bar")?.remove();
   if (!document.querySelector("#agconv")) c.form.insertAdjacentHTML("beforeend", stashBar(name));
   c.setPresentation(currentLocation()?.view === "pane" && S.view === "agent" && AG.draft === name ? "centered" : "compact");
+
   if (pc.project !== name) {
     finishCopy?.();
     pc.project = name;
@@ -183,6 +189,7 @@ export function drawProjectComp(name: string) {
     c.err.textContent = "";
     loadProjectBar(name);
   }
+
   const p = barProject();
   // The machine last picked, while it still has a checkout and an agent,
   // else the first such machine.
@@ -201,12 +208,14 @@ export function drawProjectComp(name: string) {
   if (t?.kind === "issue" && document.activeElement !== c.branch) c.branch.value = t.branch;
   c.clear.hidden = !t;
   const { host, offered, agent } = barHarness(pc.adding ?? place ?? addHosts(pc.hosts ?? [])[0] ?? null);
+
   if (agent && host) {
     modelsOn(host.machine_id, agent, () => { if (barOn(name)) redrawProjects(); });
     c.harness.innerHTML = pillInner(agent, pc.picked.model, pc.picked.effort, host.machine_id);
   } else {
     c.harness.replaceChildren("Coding agent");
   }
+
   c.harness.disabled = !agent || pc.starting;
   if (!agent) pc.open = false;
   c.harness.setAttribute("aria-expanded", String(pc.open));
@@ -275,6 +284,7 @@ export async function loadStartHosts() {
 /// each start with those started so far.
 export async function startIssues(rows: readonly StartRow[], done: (started: StartRow[]) => void) {
   const started: StartRow[] = [];
+
   for (const row of rows) {
     if (row.skip !== null) continue;
     const { entry, agent, machine_id, cwd } = row;
@@ -282,14 +292,17 @@ export async function startIssues(rows: readonly StartRow[], done: (started: Sta
     const base = baseFor(null, pc.branches.get(entry.project!));
     const checkout = targetPlan({ kind: "issue", number: entry.number, branch: issueBranch(entry.number, entry.title), base });
     const model = same && pc.modelFor === `${machine_id}/${agent}` ? pc.picked.model.trim() || null : null;
+
     try {
       await invoke<Started>("agent_start", { machineId: machine_id, agent, cwd, prompt: issuePrompt(entry), chat: null, model, effort: same ? pc.picked.effort : null, checkout });
     } catch (e) {
       return { started, failed: row, error: reason(e) };
     }
+
     started.push(row);
     done(started);
   }
+
   return { started, failed: null, error: null };
 }
 
@@ -379,6 +392,7 @@ async function startFromBar() {
   pc.starting = true;
   pc.open = false;
   redrawProjects();
+
   try {
     const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd, text => { c.err.textContent = text; });
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
@@ -419,15 +433,18 @@ async function continueReview(project: string, number: number, earlier: ReviewSe
   c.err.textContent = "";
   pc.starting = true;
   redrawProjects();
+
   try {
     const root = listed?.cwd ?? barProject()?.places.find(p => p.machine === earlier.machine_id)?.cwd ?? "";
     const prompt = await barAttachments.files.prompt(text, earlier.machine_id, root, text => { c.err.textContent = text; });
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
     let session = listed;
+
     if (!session || session.status === "ended") {
       session = (await invoke<Started>("agent_resume", { ...at, prompt: "" })).session;
       keepReview(project, number, session);
     }
+
     await invoke("agent_steer", { machineId: session.machine_id, agent: session.agent, session: session.id, steer: { prompt: { text: prompt, images } } });
     barAttachments.clear();
     c.input.value = "";
@@ -451,6 +468,7 @@ async function addToMachine(project: string, m: AgentHost) {
   keepMachine(project, m.machine_id);
   err.textContent = `Adding ${shortName(project)} to ${m.machine_name}…`;
   redrawProjects();
+
   try {
     const listing = await invoke<MachineFolder>("list_machine_folder", { machineId: m.machine_id, path: null });
     const os = state.home?.machines?.find(x => x.id === m.machine_id)?.env?.os;
@@ -465,6 +483,7 @@ async function addToMachine(project: string, m: AgentHost) {
       const read = async () => {
         if (reading) { again = true; return; }
         reading = true;
+
         do {
           again = false;
           if (done) break;
@@ -475,6 +494,7 @@ async function addToMachine(project: string, m: AgentHost) {
           if (line.done) { finish(); break; }
           err.textContent = line.note ? `${line.text}. ${line.note}` : line.text;
         } while (again && !done);
+
         reading = false;
       };
       const unfollow = subscribeChanges([topic("sync"), topic("projects")], () => read());

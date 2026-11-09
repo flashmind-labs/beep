@@ -61,6 +61,7 @@ pub(super) async fn replay(dir: &Path, mesh: &Mesh) -> Result<()> {
     let settings: Vec<(String, Vec<u8>)> =
         serde_json::from_slice(&bytes).map_err(anyhow::Error::from)?;
     let mut failed = Vec::new();
+
     for (text, value) in settings {
         let set = match Key::from_str(&text) {
             Ok(key) => mesh.set_if_new(key, value).await.map(|_| ()),
@@ -70,10 +71,12 @@ pub(super) async fn replay(dir: &Path, mesh: &Mesh) -> Result<()> {
             failed.push(format!("{text}: {e}"));
         }
     }
+
     if failed.is_empty() {
         discard(dir);
         return Ok(());
     }
+
     Err(DesktopError::BadRequest(format!(
         "settings not carried over: {}",
         failed.join("; ")

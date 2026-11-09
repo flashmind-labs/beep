@@ -31,10 +31,12 @@ fn transcript() -> Conversation {
         ConversationEntry::user("Thanks"),
         ConversationEntry::assistant("Any time."),
     ];
+
     for (i, mut entry) in entries.into_iter().enumerate() {
         entry.timestamp = DateTime::from_timestamp_millis(AT + 1000 * i as i64).unwrap();
         chat.add(entry);
     }
+
     chat
 }
 

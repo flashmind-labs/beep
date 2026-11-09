@@ -124,9 +124,11 @@ impl Constraints {
         if recipients.is_empty() {
             return Err("Name at least one recipient.".to_owned());
         }
+
         if recipients.len() > MAX_RECIPIENTS {
             return Err(format!("Name at most {MAX_RECIPIENTS} recipients."));
         }
+
         let recipients = recipients
             .iter()
             .map(|text| {
@@ -134,6 +136,7 @@ impl Constraints {
             })
             .collect::<Result<BTreeSet<_>, _>>()?;
         let mut pinned = BTreeMap::new();
+
         for (key, value) in exact {
             if !spec.pinnable.contains(&key.as_str()) {
                 return Err(format!(
@@ -143,6 +146,7 @@ impl Constraints {
                     list_or_none(spec.pinnable)
                 ));
             }
+
             let value = value
                 .as_str()
                 .map(str::trim)
@@ -150,9 +154,11 @@ impl Constraints {
                 .ok_or_else(|| format!("Give {key} as the exact text the call will use."))?;
             pinned.insert(key.clone(), value.to_owned());
         }
+
         if let Some(missing) = spec.required.iter().find(|key| !pinned.contains_key(**key)) {
             return Err(format!("A grant for {} must pin {missing}.", spec.tool));
         }
+
         Ok(Self { recipients, pinned })
     }
 
@@ -230,12 +236,15 @@ pub(super) fn addresses(value: &Value) -> Option<Vec<String>> {
 /// `jo@example.com` or `Jo <jo@example.com>`, lowercased.
 pub(super) fn address(text: &str) -> Option<String> {
     let text = text.trim();
+
     match text.split_once('<') {
         Some((name, rest)) => {
             let inner = rest.strip_suffix('>')?;
+
             if name.contains(['@', '<', '>', '"']) {
                 return None;
             }
+
             plain_address(inner.trim())
         }
         None => plain_address(text),
@@ -246,6 +255,7 @@ pub(super) fn address(text: &str) -> Option<String> {
 pub(super) fn object_address(item: &Value) -> Option<String> {
     let map = item.as_object()?;
     let mut email = None;
+
     for (key, value) in map {
         match key.as_str() {
             "email" | "address" if email.is_none() => email = Some(value.as_str()?),
@@ -257,6 +267,7 @@ pub(super) fn object_address(item: &Value) -> Option<String> {
             _ => return None,
         }
     }
+
     plain_address(email?.trim())
 }
 

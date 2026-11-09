@@ -55,6 +55,7 @@ cut_network(){
     || { on "$1" "$RESTORE"; fail "could not cut $1's network"; return 1; }
   note "$1's network cut for $CUT_SECS s"
   sleep "$CUT_SECS"
+
   if poll 120 on "$1" "! sudo iptables -S e2e-cut 2> /dev/null"; then
     note "$1's network restored"
   else
@@ -71,35 +72,42 @@ interrupt(){
   local name="large-$n.bin" at rx0 rx1 after bound t0 secs
   step "$n. $what mid-transfer"
   drop_file node-a "$name" "$SIZE_MB" || abort "could not write on node-a"
+
   if ! wait_for 300 "node-b partway through $name" partway; then
     fail "node-b never got partway through $name (at $(fetching_mb node-b) MB)"
     return
   fi
+
   rx0="$(rx_bytes node-b)"
   at="$(fetching_mb node-b)"
   t0="$(now)"
   note "interrupting at $at MB of $SIZE_MB"
   "$@"
+
   if ! poll 900 on node-b "test -f ~/ws/$PROJECT/$name"; then
     fail "$name did not reach node-b after: $what"
     probe sync-status "$PROJECT" | sed 's/^/   /'
     return
   fi
+
   secs="$(since "$t0")"
   rx1="$(rx_bytes node-b)"
   after=$(( (rx1 - rx0) / 1048576 ))
   # What was left, and a tenth of the file for protocol and other traffic.
   bound=$(( SIZE_MB - at + SIZE_MB / 10 ))
   note "node-b received $after MB after the interruption; $((SIZE_MB - at)) MB were left"
+
   if (( after <= bound )); then
     pass "resumed: $after MB received after the interruption, at most $bound MB expected"
   else
     fail "started over: $after MB received after the interruption, more than $bound MB"
   fi
+
   measure "$what: MB after (of $SIZE_MB)" "$after" MB max ""
   measure "$what: s to arrive" "$secs" s max ""
   if same_file "$name"; then pass "$name on node-b with node-a's sha256"; else fail "$name differs on node-b"; fi
   local role found
+
   for role in node-a node-b; do
     found="$(leftovers "$role")"
     if [[ -z "$found" ]]; then pass "no partial files on $role"; else
@@ -107,6 +115,7 @@ interrupt(){
       sed 's/^/   /' <<< "$found"
     fi
   done
+
   wait_for 120 "both in sync" in_sync && pass "the server sees both in sync" \
     || { fail "the server does not see both in sync"; probe sync-status "$PROJECT" | sed 's/^/   /'; }
 }

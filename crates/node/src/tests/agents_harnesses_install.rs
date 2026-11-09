@@ -150,6 +150,7 @@ fn no_step_runs_with_sudo() {
     let real = file(prefix.path(), "Cellar/opencode/1.3.13/bin/opencode");
     let cli = prefix.path().join("bin/opencode");
     link(&real, &cli);
+
     for agent in ["claude", "codex", "opencode", "pi", "gemini", "flsh"] {
         for cli in [None, Some(cli.as_path())] {
             let target = Target {
@@ -157,6 +158,7 @@ fn no_step_runs_with_sudo() {
                 cli,
                 npm_adapter: None,
             };
+
             for step in plan(&target, &npm_none()) {
                 assert!(!step.program.contains("sudo"), "{step}");
                 assert!(!step.args.iter().any(|arg| arg == "sudo"), "{step}");

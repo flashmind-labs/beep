@@ -70,6 +70,7 @@ function delayed() {
   const registered = new Set<string>();
   const invoke = (async (command: string, args: { projectId: string }) => {
     calls.push([command, args.projectId]);
+
     if (command === "follow_project") {
       if (args.projectId === "p1") await first.promise;
       registered.add(args.projectId);
@@ -120,6 +121,7 @@ test("failed registration and cleanup preserve later ownership changes", async t
   const invoke = (async (command: string, args: { projectId: string }) => {
     const id = args.projectId;
     calls.push([command, id]);
+
     if (command === "follow_project") {
       registered.add(id);
       if (id === "p1") await first.promise;

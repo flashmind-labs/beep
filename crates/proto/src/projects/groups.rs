@@ -38,31 +38,38 @@ pub const MAX_PATHS: usize = 16;
 /// The folders as groups keep them, repeats left out, in the order given.
 pub fn group_paths(given: &[String]) -> Result<Vec<String>, ApiError> {
     let mut paths: Vec<String> = Vec::new();
+
     for raw in given {
         if raw.len() > MAX_PATH || raw.chars().any(char::is_control) {
             return Err(ApiError::bad_request(format!(
                 "A folder needs at most {MAX_PATH} characters, on one line."
             )));
         }
+
         let path = project_group_path(raw);
+
         if path.is_empty() || path == "/" {
             return Err(ApiError::bad_request(format!(
                 "{} holds every project; pick a folder inside it.",
                 raw.trim()
             )));
         }
+
         if !paths.contains(&path) {
             paths.push(path);
         }
     }
+
     if paths.is_empty() {
         return Err(ApiError::bad_request("A group needs a folder."));
     }
+
     if paths.len() > MAX_PATHS {
         return Err(ApiError::bad_request(format!(
             "A group holds at most {MAX_PATHS} folders."
         )));
     }
+
     Ok(paths)
 }
 
@@ -74,11 +81,13 @@ pub fn group_name(name: &str, paths: &[String]) -> Result<String, ApiError> {
     } else {
         name
     };
+
     if name.chars().count() > MAX_NAME || name.chars().any(char::is_control) {
         return Err(ApiError::bad_request(format!(
             "A group's name needs at most {MAX_NAME} characters, on one line."
         )));
     }
+
     Ok(name.to_owned())
 }
 
@@ -87,15 +96,18 @@ fn home_relative(path: &str) -> Option<&str> {
     if path == "~" {
         return Some("");
     }
+
     if let Some(rest) = path.strip_prefix("~/") {
         return Some(rest);
     }
+
     let bytes = path.as_bytes();
     let unrooted = if bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && &bytes[1..3] == b":/" {
         &path[2..]
     } else {
         path
     };
+
     for root in ["/home/", "/Users/"] {
         let Some(rest) = unrooted.strip_prefix(root) else {
             continue;
@@ -107,6 +119,7 @@ fn home_relative(path: &str) -> Option<&str> {
             _ => None,
         };
     }
+
     None
 }
 

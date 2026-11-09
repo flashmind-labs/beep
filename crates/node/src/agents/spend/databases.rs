@@ -69,6 +69,7 @@ pub(super) fn opencode(
     let since_ms = i64::try_from(since.saturating_mul(1000)).unwrap_or(i64::MAX);
     let mut rows = statement.query([since_ms, MAX_ROWS])?;
     let mut parts: BTreeMap<String, Part> = BTreeMap::new();
+
     while let Some(row) = rows.next()? {
         let session: String = row.get(0)?;
         let cwd: String = row.get(1)?;
@@ -83,9 +84,11 @@ pub(super) fn opencode(
         };
         let cost: f64 = row.get(8)?;
         let provider: String = row.get(9)?;
+
         if tokens.total() == 0 && cost <= 0.0 {
             continue;
         }
+
         let billing = accounts.resolve(
             Agent::OpenCode,
             Billing::Unknown,
@@ -108,6 +111,7 @@ pub(super) fn opencode(
             .or_default()
             .add(&model, &tokens, Some(cost));
     }
+
     Ok(parts)
 }
 
@@ -124,6 +128,7 @@ pub(super) fn flsh(
     let since = i64::try_from(since).unwrap_or(i64::MAX);
     let mut rows = statement.query([since, MAX_ROWS])?;
     let mut parts: BTreeMap<String, Part> = BTreeMap::new();
+
     while let Some(row) = rows.next()? {
         let totals: String = row.get(3)?;
         let Ok(totals) = serde_json::from_str::<FlshTotals>(&totals) else {
@@ -139,6 +144,7 @@ pub(super) fn flsh(
         };
         add_flsh(&mut parts, session, None, accounts);
     }
+
     Ok(parts)
 }
 
@@ -151,9 +157,11 @@ pub(super) fn flsh_file(
     accounts: &mut Accounts,
 ) -> std::io::Result<BTreeMap<String, Part>> {
     let mut parts = BTreeMap::new();
+
     if let Some(session) = flsh_header(path)? {
         add_flsh(&mut parts, session, counted, accounts);
     }
+
     Ok(parts)
 }
 
@@ -251,9 +259,11 @@ fn add_flsh(
         totals,
         last,
     } = session;
+
     if totals.tokens_unknown {
         return;
     }
+
     let before = counted.copied().unwrap_or_default();
     let input = totals.input_tokens.saturating_sub(before.input);
     let cached = totals
@@ -277,6 +287,7 @@ fn add_flsh(
     if tokens.total() == 0 && cost.is_none() {
         return;
     }
+
     let billing = accounts.resolve(
         Agent::Flsh,
         Billing::Unknown,
@@ -288,6 +299,7 @@ fn add_flsh(
         _ => model,
     };
     let mut bucket = Bucket::default();
+
     match cost {
         Some(cost) => bucket.add(&model, &tokens, Some(cost)),
         // flsh found no price; neither would the table, mostly.
@@ -297,6 +309,7 @@ fn add_flsh(
         }
         None => bucket.add(&model, &tokens, None),
     }
+
     let part = parts.entry(id).or_default();
     part.cwd = cwd;
     part.buckets.insert(

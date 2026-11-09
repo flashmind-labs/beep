@@ -103,6 +103,7 @@ impl Slots {
         if !self.has_room(pool, user) {
             return Err(Busy);
         }
+
         *self.per_user.entry((pool, user.to_owned())).or_default() += 1;
         *self.total.entry(pool).or_default() += 1;
         Ok(())
@@ -110,12 +111,15 @@ impl Slots {
 
     fn give_back(&mut self, pool: Pool, user: &str) {
         let key = (pool, user.to_owned());
+
         if let Some(mine) = self.per_user.get_mut(&key) {
             *mine = mine.saturating_sub(1);
+
             if *mine == 0 {
                 self.per_user.remove(&key);
             }
         }
+
         if let Some(all) = self.total.get_mut(&pool) {
             *all = all.saturating_sub(1);
         }
@@ -174,6 +178,7 @@ impl Subagents {
         if self.stop.is_cancelled() {
             return Err(Busy);
         }
+
         lock(&self.slots).take(pool, user)?;
         let slot = Slot {
             slots: self.slots.clone(),
@@ -190,6 +195,7 @@ impl Subagents {
                 log::error!("subagents: a task panicked: {error}");
             }
         }
+
         tasks.spawn(async move {
             let _slot = slot;
             tokio::select! {

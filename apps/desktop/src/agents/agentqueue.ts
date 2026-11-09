@@ -44,13 +44,16 @@ export function markDelivered(items: Waiting[], waiting: number, read: number) {
 /// Match each occurrence once, keeping local attachments and sends in flight.
 export function syncSteers(items: Waiting[], run: Run & { queued: number; queued_messages?: string[] }, read: number) {
   const messages = run.queued_messages;
+
   if (!messages || messages.length !== run.queued) {
     markDelivered(items, run.queued, read);
     return;
   }
+
   const local = items.filter(q => q.state !== "delivered").reverse();
   const matched = new Set<Waiting>();
   const restored: Waiting[] = [];
+
   for (const text of [...messages].reverse()) {
     const q = local.find(q => !matched.has(q)
       && [q.text, ...q.images.map(image => `[Image: ${image.name}]`)].filter(Boolean).join("\n") === text);
@@ -59,9 +62,11 @@ export function syncSteers(items: Waiting[], run: Run & { queued: number; queued
       how: "steer", typed: text, text, paths: [], images: [], state: "sent", after: read,
     });
   }
+
   for (const q of local) {
     if (q.state === "sent" && q.after < read && !matched.has(q)) q.state = "delivered";
   }
+
   items.push(...restored);
 }
 

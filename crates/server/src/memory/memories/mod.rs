@@ -153,18 +153,23 @@ impl Hit {
             "source": self.source.as_ref(),
             "updated": self.date,
         });
+
         if let Some(from) = self.valid.from {
             value["valid_from"] = json!(from.to_string());
         }
+
         if let Some(until) = self.valid.until {
             value["valid_until"] = json!(until.to_string());
         }
+
         if let Some(quote) = &self.quote {
             value["quote"] = json!(quote);
         }
+
         if let Some(scope) = scope {
             value["scope"] = json!(scope);
         }
+
         value
     }
 }
@@ -195,10 +200,13 @@ fn write_actions(out: &mut impl fmt::Write, actions: &[String]) -> fmt::Result {
     if actions.is_empty() {
         return Ok(());
     }
+
     write!(out, "\n\nBeep did:")?;
+
     for action in actions {
         write!(out, "\n- {action}")?;
     }
+
     Ok(())
 }
 
@@ -224,8 +232,10 @@ pub struct Remembered {
 pub fn start_purge(app: Arc<App>) {
     tokio::spawn(async move {
         let mut interval = interval(CURATE_SWEEP);
+
         loop {
             interval.tick().await;
+
             match app.store.purge_ended_memories().await {
                 Ok(0) => {}
                 Ok(purged) => log::info!("purged {purged} ended memories"),
@@ -266,6 +276,7 @@ impl Learned {
     /// The arguments of the `memory` call that makes the same change.
     pub fn arguments(&self) -> Value {
         let action = self.change.action();
+
         match self.change {
             Change::Forgotten => json!({"action": action, "id": self.id}),
             _ => json!({"action": action, "id": self.id, "content": self.content}),
@@ -290,6 +301,7 @@ pub(crate) fn settle(user: &str, outcome: Result<Result<Vec<Learned>>, Elapsed>)
             if !learned.is_empty() {
                 log::info!("memory learned {} change(s); user={user}", learned.len());
             }
+
             learned
         }
         Ok(Err(error)) => {

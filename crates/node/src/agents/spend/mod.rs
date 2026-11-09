@@ -117,6 +117,7 @@ impl Spend {
         });
         scan::pass(ledger, &self.roots, since);
         forget_gone(ledger, since);
+
         if let Some(path) = &self.path
             && let Err(e) = ledger.save(path)
         {
@@ -125,6 +126,7 @@ impl Spend {
                 path.display()
             );
         }
+
         let sessions = if all {
             ledger.sessions()
         } else {
@@ -151,6 +153,7 @@ impl Spend {
         path: &std::path::Path,
     ) -> std::io::Result<()> {
         let stamp = ledger::Stamp::of(path)?;
+
         if agent == Agent::Flsh {
             // flsh keeps totals, not a log: what they say now is held back.
             let counted = databases::flsh_counted(path)?;
@@ -191,6 +194,7 @@ impl Spend {
         log.total = header.total;
         log.recent = header.recent;
         ledger.changed = true;
+
         match &self.path {
             Some(saved) => ledger.save(saved),
             None => Ok(()),
@@ -204,6 +208,7 @@ impl Spend {
             return;
         };
         let mut guard = lock(&self.ledger);
+
         if let Some(ledger) = guard.as_mut() {
             let key = SessionKey {
                 agent,

@@ -46,10 +46,12 @@ export function removeButton(project: string, rows: readonly WhereRow[], m: Wher
   const why = blocked(project, rows, m);
   const b = dbtn(svgEl(IC.x) ?? "", "quiet small rmx", () => confirmRemove(project, m));
   b.setAttribute("aria-label", `Remove from ${m.name}`);
+
   if (!why) {
     b.title = `Remove from ${m.name}`;
     return b;
   }
+
   b.disabled = true;
   // A disabled button shows no tooltip, so the span around it does.
   const wrap = el("span", "rmx-off", b);

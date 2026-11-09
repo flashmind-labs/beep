@@ -76,15 +76,18 @@ pub(crate) async fn answer_chat(
     if let Err(e) = app.emit("approval-answered", answered) {
         log::warn!("telling the windows an approval was answered: {e}");
     }
+
     let on_event = match (on_event, &news) {
         (Some(channel), _) => channel,
         (None, Some(_)) => Channel::new(|_| Ok(())),
         (None, None) => return Ok(()),
     };
     let followed = beep.follow_answered(run, on_event, news.as_ref()).await;
+
     if let (Err(e), Some(news)) = (&followed, &news) {
         news.tell(RunNews::Failed(e.to_string()));
     }
+
     followed
 }
 

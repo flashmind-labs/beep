@@ -40,6 +40,7 @@ turn_on_sync
 put node-a "$E2E/scale/make-tree.sh" beep/make-tree.sh || abort "could not copy make-tree.sh"
 
 midway=0
+
 for ((cut = 1; cut <= CUTS; cut++)); do
   dir="tree-$cut"
   # Each cut lands further into its tree.
@@ -57,6 +58,7 @@ for ((cut = 1; cut <= CUTS; cut++)); do
   kept="$(wc -l < "$WORK/got")"
   note "node-b kept $kept of $WANT files through the cut"
   (( kept < WANT )) && midway=$((midway + 1))
+
   if [[ -z "$bad" ]]; then
     pass "cut $cut: every file on node-b is whole"
   else
@@ -76,6 +78,7 @@ for ((cut = 1; cut <= CUTS; cut++)); do
   if [[ "$copies" == "0 0" ]]; then pass "cut $cut: no conflict copies"; else
     fail "cut $cut: conflict copies on node-a and node-b: $copies"
   fi
+
   wait_for 120 "both in sync" in_sync && pass "cut $cut: the server sees both in sync" \
     || { fail "cut $cut: the server does not see both in sync"; probe sync-status "$PROJECT" | sed 's/^/   /'; }
 done

@@ -153,6 +153,7 @@ struct RelPath(String);
 impl RelPath {
     fn parse(raw: &str) -> Option<Self> {
         let mut segments = Vec::new();
+
         for segment in raw.split('/') {
             let segment = percent_decode_str(segment).decode_utf8().ok()?;
             let bad = segment.is_empty()
@@ -162,8 +163,10 @@ impl RelPath {
             if bad {
                 return None;
             }
+
             segments.push(segment);
         }
+
         let path = segments.join("/");
         (segments.len() <= MAX_REL_DEPTH && path.len() <= MAX_REL_PATH).then_some(Self(path))
     }
@@ -186,9 +189,11 @@ impl Pages {
             files: AtomicU32::new(0),
             bytes: AtomicU64::new(0),
         }));
+
         while kept.len() > KEPT_PAGES {
             kept.pop_front();
         }
+
         format!("{SCHEME}://localhost/{token}/")
     }
 
@@ -210,9 +215,11 @@ enum Kind {
 fn kind_of(path: &str) -> Option<Kind> {
     let name = path.rsplit('/').next()?;
     let (stem, ext) = name.rsplit_once('.')?;
+
     if stem.is_empty() {
         return None;
     }
+
     Some(match ext.to_ascii_lowercase().as_str() {
         "html" | "htm" => Kind::Html,
         "md" | "markdown" => Kind::Markdown,
@@ -301,6 +308,7 @@ pub async fn agent_artifacts_present(
     let Some(machine) = fleet.member(&machine_id) else {
         return Ok(None);
     };
+
     match direct::present(&fleet, machine, paths).await {
         Ok(present) => Ok(present),
         Err(e) => {
@@ -321,6 +329,7 @@ async fn read_whole(
 ) -> Result<(Vec<u8>, u64)> {
     let len = u32::try_from(AGENT_FILE_CHUNK).map_err(anyhow::Error::from)?;
     let mut data = Vec::new();
+
     loop {
         let offset = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
         let part = read_part(
@@ -335,6 +344,7 @@ async fn read_whole(
             },
         )
         .await?;
+
         if part.size > MAX_ARTIFACT {
             return Err(DesktopError::BadRequest(format!(
                 "It is {} MB; artifacts up to {} MB show here.",
@@ -342,14 +352,18 @@ async fn read_whole(
                 MAX_ARTIFACT / (1024 * 1024)
             )));
         }
+
         if part.data.is_empty() {
             return Ok((data, offset));
         }
+
         data.extend_from_slice(&part.data);
         let have = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
+
         if have >= part.size {
             return Ok((data, have));
         }
+
         if have > MAX_ARTIFACT {
             return Err(DesktopError::BadRequest(
                 "The file grew while it was read.".into(),
@@ -388,6 +402,7 @@ pub fn route(pages: &Pages, request: &Request<Vec<u8>>) -> Route {
     else {
         return Route::Done(status(StatusCode::NOT_FOUND));
     };
+
     if rest.is_empty() {
         return Route::Done(respond(
             Response::builder()
@@ -402,12 +417,15 @@ pub fn route(pages: &Pages, request: &Request<Vec<u8>>) -> Route {
                 .body(page.html.as_ref().clone()),
         ));
     }
+
     let Some(rel) = RelPath::parse(rest) else {
         return Route::Done(status(StatusCode::NOT_FOUND));
     };
+
     if page.files.fetch_add(1, Ordering::Relaxed) >= MAX_PAGE_FILES {
         return Route::Done(status(StatusCode::TOO_MANY_REQUESTS));
     }
+
     Route::Read(FileRead {
         file: page.place.file(&rel),
         mime: mime_of(&rel.0),
@@ -437,9 +455,11 @@ impl FileRead {
         };
         let len = u64::try_from(data.len()).unwrap_or(u64::MAX);
         let before = self.page.bytes.fetch_add(len, Ordering::Relaxed);
+
         if before.saturating_add(len) > MAX_PAGE_BYTES {
             return status(StatusCode::PAYLOAD_TOO_LARGE);
         }
+
         respond(
             Response::builder()
                 .status(StatusCode::OK)

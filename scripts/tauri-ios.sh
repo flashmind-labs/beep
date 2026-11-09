@@ -13,15 +13,18 @@ esac
 
 # Sign with the local development certificate's team unless one was supplied.
 team=${APPLE_DEVELOPMENT_TEAM:-${IOS_TEAM_ID:-}}
+
 if [[ -z "$team" ]]; then
     team=$(security find-certificate -c 'Apple Development' -p |
         openssl x509 -noout -subject -nameopt multiline |
         sed -n 's/^ *organizationalUnitName *= *//p')
 fi
+
 if ! [[ "$team" =~ ^[A-Z0-9]{10}$ ]]; then
     echo 'Set IOS_TEAM_ID to your Apple development team ID.' >&2
     exit 1
 fi
+
 export APPLE_DEVELOPMENT_TEAM=$team
 
 # On Xcode 27, swift-rs needs llvm-objcopy to export the Swift plugin symbols

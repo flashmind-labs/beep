@@ -26,9 +26,11 @@ fn state_file(name: &str) -> StateFile {
     let dir = std::env::temp_dir().join(format!("beep-state-{}-{name}", std::process::id()));
     fs::create_dir_all(&dir).expect("the test directory is made");
     let path = dir.join("state.json");
+
     if path.exists() {
         fs::remove_file(&path).expect("an earlier run's file is removed");
     }
+
     StateFile::new(path)
 }
 

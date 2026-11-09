@@ -49,8 +49,10 @@ fn mac_apps(applications: &Path, unreal_root: &Path) -> Vec<AppInfo> {
         ("Docker.app", AppName::DockerDesktop),
     ];
     let mut found = Vec::new();
+
     for (bundle, name) in BUNDLES {
         let path = applications.join(bundle);
+
         if path.is_dir() {
             let plist = fs::read_to_string(path.join("Contents/Info.plist")).ok();
             found.push(AppInfo {
@@ -59,6 +61,7 @@ fn mac_apps(applications: &Path, unreal_root: &Path) -> Vec<AppInfo> {
             });
         }
     }
+
     let mut unreal = unreal_folders(unreal_root);
     unreal.sort();
     found.extend(unreal.into_iter().map(unreal_app));
@@ -122,6 +125,7 @@ fn windows_apps(program_files: &Path, program_data: &Path) -> Vec<AppInfo> {
     if let Ok(text) = fs::read_to_string(program_data.join(LAUNCHER_LIST)) {
         unreal.extend(launcher_unreal_versions(&text));
     }
+
     unreal.sort();
     unreal.dedup();
     found.extend(unreal.into_iter().map(unreal_app));
@@ -155,12 +159,14 @@ fn linux_apps() -> Vec<AppInfo> {
     if let Some(home) = dirs::home_dir() {
         dirs.push(home.join(".local/share/applications"));
     }
+
     let mut found: Vec<AppInfo> = Vec::new();
     let mut add = |app: AppInfo| {
         if !found.iter().any(|known| known.name == app.name) {
             found.push(app);
         }
     };
+
     for dir in dirs {
         let mut entries: Vec<PathBuf> = fs::read_dir(dir)
             .into_iter()
@@ -170,6 +176,7 @@ fn linux_apps() -> Vec<AppInfo> {
             .filter(|path| path.extension().is_some_and(|ext| ext == "desktop"))
             .collect();
         entries.sort();
+
         for path in entries {
             if let Some(app) = fs::read_to_string(path)
                 .ok()
@@ -179,18 +186,21 @@ fn linux_apps() -> Vec<AppInfo> {
             }
         }
     }
+
     if Path::new("/snap/bin/blender").exists() {
         add(AppInfo {
             name: AppName::Blender,
             version: None,
         });
     }
+
     found
 }
 
 /// The app a `.desktop` file launches, when it is one we list.
 fn parse_desktop_entry(text: &str) -> Option<AppInfo> {
     let mut in_entry = false;
+
     for line in text.lines().map(str::trim) {
         if line.starts_with('[') {
             in_entry = line == "[Desktop Entry]";
@@ -211,6 +221,7 @@ fn parse_desktop_entry(text: &str) -> Option<AppInfo> {
             });
         }
     }
+
     None
 }
 

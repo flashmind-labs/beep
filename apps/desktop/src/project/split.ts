@@ -127,10 +127,12 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const agent = pageAgent(state.agents, p.name, state.subscribed)!;
   const pid = agent.project_id;
   const asked = pa.run;
+
   if (asked?.project === p.name) {
     pa.run = null;
     queueMicrotask(() => runs.show(pid, asked.id, asked.host));
   }
+
   const sessions = state.sessions.get(p.name);
   if (sessions === undefined || sessionsDue.has(p.name)) loadSessions(p.name);
   if (terms.list(p.name) === undefined) terms.load(p.name);
@@ -150,10 +152,12 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     { key: "sync", title: "File sync", sub: fileSyncTile(fsync.forTile(p.name), sync, new Map(rows.map(w => [w.id, w.name]))).count || "", detail: () => fsync.panel(p.name) },
   ];
   const threads = thr.threads(pid);
+
   if (threads?.length) {
     const waiting = threads.filter(t => t.needs_reply).length;
     project.push({ key: "threads", title: "Your pull requests and issues", sub: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : `${threads.length} open`, detail: () => thr.threadsPanel(agent) });
   }
+
   const runItems: SplitItem[] = byRecent(running).map(r => ({
     key: `run:${runningKey(r)}`, lead: harnessEl(r.agent), ...runningLineAt(r, state.home?.projects || []),
     right: runningStatus(r), open: () => go("pane", { agent: r }),
@@ -213,6 +217,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     : issue ? { key: "issues", detail: () => [button("All issues", "quiet small pj-back", () => openTile("issues")), ...issue.detail!()] }
     : all.find(i => i.key === pa.tile && i.detail) || all[0];
   const list = h("div", "pj-list");
+
   for (const [n, g] of groups.entries()) {
     if (!g.title && n) list.append(h("hr"));
     if (g.title) list.append(h("h4", "", g.title, g.items.length ? h("span", "n", String(g.items.length)) : null));
@@ -220,10 +225,12 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     if (g.controls) list.append(g.controls);
     const f = g.labels;
     if (f?.all.length) list.append(h("div", "pj-labels", ...f.all.map(l => labelChip(l, f, "button"))));
+
     for (const i of g.items) {
       list.append(splitRow(i, picked.key, f, null, !g.title));
     }
   }
+
   const error = state.pview.get(p.name)?.error;
   const history = pa.tile === "branches" ? gitHistory.panels(p.name) : null;
   const det = history?.detail || h("div", "pj-det", error ? errorNote(`Could not refresh the project: ${error}`) : null, ...picked.detail!());
@@ -258,6 +265,7 @@ function sessionTabs(p: Project, running: RunningAgent[], rows: WhereRow[]): Nod
   const list = sessionsList(p, running, true);
   const bar = h("div", "cc-tabs pj-tabs");
   bar.setAttribute("role", "tablist");
+
   for (const [key, label, n] of [["sessions", "Sessions", list.count], ["agents", "Agents", customAgentsCount(rows)]] as const) {
     const b = h("button", "", label, n ? h("span", "n", String(n)) : null);
     b.type = "button";
@@ -266,6 +274,7 @@ function sessionTabs(p: Project, running: RunningAgent[], rows: WhereRow[]): Nod
     b.addEventListener("click", () => { sessionTab = key; redrawProjects(); });
     bar.append(b);
   }
+
   return sessionTab === "sessions" ? [bar, list.body, ...(list.note ? [list.note] : [])] : [bar, customAgentsSection(rows)];
 }
 

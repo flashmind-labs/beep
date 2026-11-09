@@ -92,13 +92,16 @@ async fn an_offline_desktop_gets_what_it_missed() {
 async fn the_server_and_a_desktop_each_get_every_alert() {
     let hub = AlertHub::<Alert>::default();
     let (server, desktop) = (hub.follow(follower()), hub.follow(follower()));
+
     for session in ["a", "b", "c"] {
         hub.record(alert(session));
     }
+
     for follow in [&server, &desktop] {
         for session in ["a", "b", "c"] {
             assert_eq!(take(follow).await, session);
         }
+
         assert!(nothing(follow).await);
     }
 }
@@ -127,6 +130,7 @@ async fn a_reconnecting_follower_gets_nothing_twice() {
 async fn a_slow_follower_holds_nobody_up() {
     let hub = AlertHub::<Alert>::default();
     let (slow, quick) = (hub.follow(follower()), hub.follow(follower()));
+
     for n in 0..MAX_KEPT + 10 {
         hub.record(alert(&n.to_string()));
         assert_eq!(take(&quick).await, n.to_string());
@@ -140,10 +144,12 @@ fn only_the_most_recent_followers_are_remembered() {
     let hub = AlertHub::<Alert>::default();
     let ids: Vec<EndpointId> = (0..=MAX_FOLLOWERS).map(|_| follower()).collect();
     hub.record(alert("a"));
+
     for id in &ids {
         let follow = hub.follow(*id);
         follow.sent();
     }
+
     assert_eq!(lock(&hub.held).cursors.len(), MAX_FOLLOWERS);
     assert!(!lock(&hub.held).cursors.contains_key(&ids[0]));
 }

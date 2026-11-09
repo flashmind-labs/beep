@@ -11,9 +11,11 @@ export class ConversationHistory {
   }
   order(rows: readonly AgentRow[], current: AgentRow | null): AgentRow[] {
     const unique = new Map<string, AgentRow>();
+
     for (const row of rows) {
       unique.set(conversationKey(row), row);
     }
+
     const rank = (s: AgentRow) => {
       const key = conversationKey(s);
       if (current && key === conversationKey(current)) return -1;

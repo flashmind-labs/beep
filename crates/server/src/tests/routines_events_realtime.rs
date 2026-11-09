@@ -21,10 +21,12 @@ fn chunked_events_come_out_whole_in_any_order() {
 #[test]
 fn chunked_events_are_bounded() {
     let mut chunks = Chunks::default();
+
     for n in 0..MAX_CHUNKED {
         let piece = json!({"id": format!("e{n}"), "index": 0, "chunk": "{", "final": false});
         assert!(chunks.add(&piece).is_none());
     }
+
     let extra = json!({"id": "extra", "index": 0, "chunk": "{}", "final": true});
     assert!(chunks.add(&extra).is_none());
     assert!(!chunks.open.contains_key("extra"));

@@ -91,6 +91,7 @@ async fn run(peers: Arc<dyn Peers>, mesh: Mesh, out: mpsc::Sender<Heard>) {
         tokio::spawn(machine(peers.clone(), mesh.clone(), id, inner.clone()))
     });
     tokio::pin!(watching);
+
     loop {
         select! {
             _ = &mut watching => return,
@@ -100,6 +101,7 @@ async fn run(peers: Arc<dyn Peers>, mesh: Mesh, out: mpsc::Sender<Heard>) {
                     Heard::Notice { key, .. } => seen.fresh(key, Instant::now()),
                     Heard::Connected | Heard::Run(_) => true,
                 };
+
                 if fresh && out.send(heard).await.is_err() {
                     return;
                 }
@@ -121,11 +123,14 @@ impl Running {
     ) {
         self.0.retain(|id, task| {
             let stays = machines.contains(id);
+
             if !stays {
                 task.abort();
             }
+
             stays
         });
+
         for id in machines {
             self.0.entry(*id).or_insert_with(|| start(*id));
         }
@@ -146,10 +151,12 @@ pub async fn each_machine(mesh: &Mesh, start: impl FnMut(EndpointId) -> JoinHand
     let mut start = start;
     let mut running = Running::default();
     let mut updates = mesh.updates();
+
     loop {
         updates.borrow_and_update();
         let machines = mesh.code_hosts().into_iter().map(|d| d.device.id).collect();
         running.keep(&machines, &mut start);
+
         if updates.changed().await.is_err() {
             return;
         }
@@ -188,13 +195,16 @@ async fn follow_one(
     // An offline machine fails the same way on every try: logged once, and again when the error
     // changes or after a stream that worked.
     let mut logged = None;
+
     loop {
         let started = Instant::now();
         let mut replied = false;
+
         match stream(peers, mesh, id, out, what, &mut replied).await {
             Ok(()) | Err(FleetError::NotFound) => return,
             Err(e) => {
                 let error = e.to_string();
+
                 if logged.as_ref() != Some(&error) {
                     log::debug!(
                         "following {} from {}: {error}",
@@ -205,10 +215,12 @@ async fn follow_one(
                 }
             }
         }
+
         if held(replied, started.elapsed()) {
             backoff.reset();
             logged = None;
         }
+
         sleep(backoff.pause()).await;
     }
 }
@@ -264,6 +276,7 @@ async fn stream(
         Follows::Runs => SessionsRequest::FollowRuns {},
     };
     tx.send(&request).await.map_err(MeshError::Link)?;
+
     if matches!(what, Follows::Alerts) && out.send(Heard::Connected).await.is_err() {
         return Ok(());
     }
@@ -299,6 +312,7 @@ async fn stream(
             SessionsReply::Run { news } => Heard::Run(Box::new(news)),
             _ => continue,
         };
+
         if out.send(heard).await.is_err() {
             return Ok(());
         }
@@ -316,6 +330,7 @@ impl Seen {
         if key.question.is_none() {
             return true;
         }
+
         self.0
             .retain(|_, at| now.saturating_duration_since(*at) < TWICE);
         self.0.insert(key.clone(), now).is_none()
@@ -347,8 +362,10 @@ async fn attached(
     })
     .await
     .map_err(MeshError::Link)?;
+
     loop {
         let event = rx.recv::<Event>().await.map_err(MeshError::Link)?;
+
         match event {
             Some(Event::Attached { session }) => {
                 if session.question.as_ref().map(|q| q.id) != Some(question) {
@@ -356,6 +373,7 @@ async fn attached(
                         "The session no longer asks that question.".into(),
                     ));
                 }
+
                 tx.send(&Request::Answer {
                     question,
                     reply: reply.to_owned(),

@@ -106,25 +106,31 @@ impl Cache {
         let Ok(agents) = fs::read_dir(&self.dir) else {
             return out;
         };
+
         for agent in agents.flatten() {
             let slug = AgentSlug::from(agent.file_name().to_string_lossy().as_ref());
             let Ok(ids) = fs::read_dir(agent.path()) else {
                 continue;
             };
+
             for id in ids.flatten() {
                 let id = id.file_name().to_string_lossy().into_owned();
+
                 if self.folder(&slug, &id).is_none() {
                     continue;
                 }
+
                 out.push(self.entry(&slug, &id));
             }
         }
+
         out
     }
 
     fn entry(&self, agent: &AgentSlug, id: &str) -> Entry {
         let mut lost = Vec::new();
         let (mut copy_bytes, mut lost_bytes) = (0, 0);
+
         if let Some(folder) = self.folder(agent, id)
             && let Ok(files) = fs::read_dir(folder)
         {
@@ -136,6 +142,7 @@ impl Cache {
                 } else {
                     copy_bytes += len;
                 }
+
                 if let Some(at) = name
                     .strip_prefix("lost-")
                     .and_then(|rest| rest.strip_suffix(".jsonl"))
@@ -145,6 +152,7 @@ impl Cache {
                 }
             }
         }
+
         lost.sort_unstable();
         let copy = self.meta(agent, id);
         Entry {
@@ -210,11 +218,13 @@ impl Cache {
         let Some(folder) = self.folder(agent, id) else {
             return;
         };
+
         if all {
             // Gone already is as good as removed.
             let _ = fs::remove_dir_all(&folder);
             return;
         }
+
         for name in [
             "copy.jsonl",
             "meta.json",
@@ -244,9 +254,11 @@ impl Cache {
         // A name not taken: two versions set aside within a second must not
         // write over each other.
         let mut at = at;
+
         while folder.join(format!("lost-{at}.json")).exists() {
             at += 1;
         }
+
         fs::write(
             folder.join(format!("lost-{at}.json")),
             serde_json::to_vec(meta)?,
@@ -270,6 +282,7 @@ impl Cache {
         if to.exists() {
             return false;
         }
+
         let Some((kept, _)) = self.lost(agent, id, at) else {
             return false;
         };
@@ -278,6 +291,7 @@ impl Cache {
         if moved {
             self.drop_lost(agent, id, at);
         }
+
         moved
     }
 
@@ -323,10 +337,12 @@ pub(super) fn evictions(
         .filter(|e| e.copy_bytes > 0 && own != Some((&e.agent, e.id.as_str())))
         .collect();
     copies.sort_by_key(|entry| entry.copy.as_ref().map_or(0, |meta| meta.last_activity));
+
     for entry in copies {
         if total.saturating_add(need) <= cap {
             break;
         }
+
         if entry
             .copy
             .as_ref()

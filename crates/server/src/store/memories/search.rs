@@ -29,9 +29,11 @@ impl Store {
         if let Some(category) = category {
             search = search.filter(CATEGORY, category);
         }
+
         if let Some(stored) = &stored {
             search = search.filter(SCOPE, stored);
         }
+
         Ok(search
             .await?
             .into_iter()
@@ -76,9 +78,11 @@ impl Store {
             .threshold(threshold)
             .limit(CLOSEST_CANDIDATES);
         let stored = scope.stored();
+
         if let Some(stored) = &stored {
             similar = similar.filter(SCOPE, stored);
         }
+
         Ok(similar
             .await?
             .into_iter()

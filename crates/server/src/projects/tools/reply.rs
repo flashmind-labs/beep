@@ -100,15 +100,19 @@ impl ReplyTool {
             Err(error) => return refused(error),
         };
         let body = args.body.trim();
+
         if body.is_empty() || body.len() > MAX_REPLY {
             return Ok(Replied::Refused(format!(
                 "Give the reply as body, 1 to {MAX_REPLY} bytes."
             )));
         }
+
         let hits = tools.public_text().await?.hits(body);
+
         if !hits.is_empty() {
             return Ok(Replied::Refused(leaked(&hits)));
         }
+
         let read =
             match threads::read(tools.fleet.as_ref(), &tools.user, &project, args.number).await {
                 Ok(read) => read,
@@ -122,9 +126,11 @@ impl ReplyTool {
             .into_iter()
             .find(|task| task.issue.as_ref().map(|issue| issue.number) == Some(args.number));
         let once = read.foreign() || tracked.as_ref().is_some_and(|task| task.issue_foreign);
+
         if once && tracked.as_ref().is_some_and(|task| task.issue_commented) {
             return Ok(Replied::Refused(once_said(&read)));
         }
+
         let label = read.thread.kind.label(args.number);
         let reply_card = || {
             let mut fields = vec![
@@ -138,6 +144,7 @@ impl ReplyTool {
             fields.push(field("Reply", body));
             card("Post reply".to_owned(), fields)
         };
+
         match tools.gate.check(id, REPLY_SLUG, Asks::Always, reply_card) {
             Gate::Run => {}
             Gate::Refuse(reason) => return Ok(Replied::Refused(reason)),
@@ -153,12 +160,14 @@ impl ReplyTool {
                 Some(task) => tools.user.note_issue_comment(task.id, true).await?,
                 None => true,
             };
+
             if !fresh || !task_fresh {
                 return Ok(Replied::Refused(once_said(&read)));
             }
         } else if let Some(task) = &tracked {
             tools.user.note_issue_comment(task.id, false).await?;
         }
+
         Ok(match read.comment(body).await {
             Ok(()) => Replied::Done(format!("Posted the reply on {label}.")),
             Err(error) => Replied::Refused(format!("The reply failed: {error:#}")),

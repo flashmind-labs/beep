@@ -19,19 +19,24 @@ pub(super) fn read(
     if !scope.unit_path()?.exists() {
         bail!("the node's service is not installed here: there is no {UNIT}");
     }
+
     let since = format!("-{}s", options.since.as_secs());
     // The past first, so `--lines` knows where it ends; following then
     // starts right after its last entry.
     let mut past = journalctl(scope);
     past.args(["--since", &since]);
+
     if options.follow {
         past.arg("--show-cursor");
     }
+
     let cursor = stream(past, printer)?;
     printer.caught_up()?;
+
     if !options.follow {
         return Ok(());
     }
+
     let mut follow = journalctl(scope);
     follow.arg("--follow");
     match &cursor {
@@ -69,11 +74,13 @@ fn stream(mut command: Command, printer: &mut Printer<impl Write>) -> Result<Opt
     let mut line = Vec::new();
     let read = loop {
         line.clear();
+
         match reader.read_until(b'\n', &mut line) {
             Ok(0) => break Ok(()),
             Ok(_) => {}
             Err(e) => break Err(e),
         }
+
         if let Some(rest) = line.strip_prefix(CURSOR.as_bytes()) {
             cursor = Some(String::from_utf8_lossy(rest).trim().to_owned());
             continue;
@@ -83,6 +90,7 @@ fn stream(mut command: Command, printer: &mut Printer<impl Write>) -> Result<Opt
             break Err(e);
         }
     };
+
     if let Err(e) = read {
         // Stops journalctl when the reader went away, such as a closed pipe.
         // It may have exited already, which is the state wanted.
@@ -90,9 +98,12 @@ fn stream(mut command: Command, printer: &mut Printer<impl Write>) -> Result<Opt
         let _ = child.wait();
         return Err(e.into());
     }
+
     let status = child.wait().context("waiting for journalctl")?;
+
     if !status.success() {
         bail!("journalctl failed ({status})");
     }
+
     Ok(cursor)
 }

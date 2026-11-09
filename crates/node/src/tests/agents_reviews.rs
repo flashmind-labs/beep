@@ -105,6 +105,7 @@ impl Rig {
                 {
                     return run;
                 }
+
                 sleep(Duration::from_millis(20)).await;
             }
         };

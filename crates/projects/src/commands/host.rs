@@ -169,6 +169,7 @@ impl HostCommand<'_> {
     /// The private details in the text this command would publish, each once.
     pub fn leaks(&self, public_text: &PublicText) -> Vec<String> {
         let mut found: Vec<String> = Vec::new();
+
         for hit in self
             .outgoing()
             .into_iter()
@@ -178,6 +179,7 @@ impl HostCommand<'_> {
                 found.push(hit);
             }
         }
+
         found
     }
 
@@ -197,6 +199,7 @@ impl HostCommand<'_> {
             words.push(&number);
             gh(&words, flags)
         };
+
         match *self {
             Self::EnsureLabels => LABELS
                 .iter()
@@ -224,15 +227,19 @@ impl HostCommand<'_> {
                 remove,
             } => {
                 let mut flags = Vec::new();
+
                 if let Some(add) = add {
                     flags.extend(["--add-label", add]);
                 }
+
                 for label in remove {
                     flags.extend(["--remove-label", label]);
                 }
+
                 if flags.is_empty() {
                     return "true".to_owned();
                 }
+
                 number_command(&["issue", "edit"], number, &flags)
             }
             Self::EditIssue {
@@ -250,9 +257,11 @@ impl HostCommand<'_> {
                 not_planned,
             } => {
                 let mut flags = vec!["--comment", comment];
+
                 if not_planned {
                     flags.extend(["--reason", "not planned"]);
                 }
+
                 number_command(&["issue", "close"], number, &flags)
             }
             Self::ReopenIssue { number } => number_command(&["issue", "reopen"], number, &[]),
@@ -428,6 +437,7 @@ impl HostCommand<'_> {
                 .with(&["--format", "json"])
                 .render()
         };
+
         match *self {
             Self::EnsureLabels => LABELS
                 .iter()
@@ -466,9 +476,11 @@ impl HostCommand<'_> {
                     positional.extend(remove);
                     commands.push(tea(&["issue", "label", "remove"], &positional, &[]));
                 }
+
                 if commands.is_empty() {
                     return "true".to_owned();
                 }
+
                 commands.join(" && ")
             }
             Self::EditIssue {
@@ -557,9 +569,11 @@ impl HostCommand<'_> {
                     .map(|comment| format!("{}:{}:{}", comment.path, comment.line, comment.body))
                     .collect();
                 let mut flags = vec!["--state", "comment", "-b", body, "--commit", commit];
+
                 for comment in &inline {
                     flags.extend(["--comment", comment.as_str()]);
                 }
+
                 tea(&["pr", "review", "submit"], &[&number.to_string()], &flags)
             }
             Self::Visibility => tea(&["repo", "get"], &[], &[]),

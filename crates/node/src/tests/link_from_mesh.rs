@@ -82,12 +82,14 @@ async fn a_project_naming_a_machine_that_has_not_joined_is_pending() {
         folders: ids.iter().map(|id| (*id, "/srv/app".to_owned())).collect(),
         paused: false,
     };
+
     for (name, ids) in [("alone", vec![me]), ("waiting", vec![me, other])] {
         let bytes = spec(&ids).to_bytes().expect("a spec encodes");
         mesh.set(Key::Sync(name.to_owned()), Some(bytes))
             .await
             .expect("written");
     }
+
     let (projects, pending) = projects(&mesh, me, &mut BTreeMap::new());
     assert_eq!(projects.len(), 2);
     assert_eq!(pending, BTreeSet::from(["waiting".to_owned()]));

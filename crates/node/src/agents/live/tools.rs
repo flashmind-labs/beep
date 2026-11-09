@@ -115,6 +115,7 @@ impl Live {
             call.raw_input.as_ref(),
             call.raw_output.as_ref(),
         );
+
         if let Some(subagent) = &mut subagent {
             if let Some(title) = subagent.title.take() {
                 tool.title = title;
@@ -124,10 +125,12 @@ impl Live {
                     .insert(thread.clone(), call.tool_call_id.clone());
             }
         }
+
         tool.subagent = subagent;
         let pictures = self.tool_output(&mut tool, &call.content);
         self.info.state.summary = cut(&tool.own_title(), MAX_LINE);
         self.finish_tool(&tool);
+
         match parent {
             Some(parent) => {
                 if let Some(owner) = self.tools.get_mut(&parent) {
@@ -145,6 +148,7 @@ impl Live {
                 self.tools.insert(call.tool_call_id.clone(), tool);
             }
         }
+
         self.tool_images(&pictures);
     }
 
@@ -157,6 +161,7 @@ impl Live {
                 subagent.ended |= activity.ended;
             }
         }
+
         self.write_tool(owner);
     }
 
@@ -214,6 +219,7 @@ impl Live {
             return;
         };
         let fields = &update.fields;
+
         if let Some(name) = fields
             .name
             .as_deref()
@@ -223,17 +229,20 @@ impl Live {
         {
             call.details.name = Some(name);
         }
+
         update_details(
             &mut call.details,
             fields.raw_input.as_ref(),
             fields.raw_output.as_ref(),
         );
         let codex = call.subagent.as_ref().is_some_and(|sub| sub.codex);
+
         if let Some(title) = &fields.title {
             // A Codex subagent keeps the title its task or prompt gave it.
             if !codex {
                 call.title.clone_from(title);
             }
+
             self.info.state.summary = cut(title, MAX_LINE);
         }
         // Claude Code sends a call's arguments once they have all come.
@@ -242,19 +251,23 @@ impl Live {
                 BeepTool::of_call(&call.title, update.meta.as_ref(), fields.raw_input.as_ref())
                     .map(|tool| BeepCall { tool, input: None });
         }
+
         if let Some(beep) = &mut call.beep {
             if let Some(input) = &fields.raw_input {
                 beep.input = Some(input.clone());
             }
             self.info.state.summary = cut(&call.own_title(), MAX_LINE);
         }
+
         if let Some(subagent) = call.subagent.as_mut().filter(|sub| sub.codex) {
             subagent.update(fields.raw_input.as_ref());
+
             for thread in &subagent.threads {
                 self.codex_threads
                     .insert(thread.clone(), update.tool_call_id.clone());
             }
         }
+
         if let Some(kind) = fields.kind {
             call.kind = kind;
         }
@@ -274,6 +287,7 @@ impl Live {
         if !more.is_empty() {
             call.paths = more;
         }
+
         let pictures = match &fields.content {
             Some(content) => self.tool_output(&mut call, content),
             None => Vec::new(),
@@ -294,12 +308,15 @@ impl Live {
         let shown = output(content, Path::new(&self.info.cwd));
         tool.output = shown.text;
         tool.pictures = shown.pictures.iter().map(Picture::line).collect();
+
         for picture in &shown.pictures {
             self.keep(picture.clone());
         }
+
         for link in &shown.links {
             self.link(link);
         }
+
         shown.pictures
     }
 
@@ -308,8 +325,10 @@ impl Live {
         if tool.status != ToolCallStatus::Completed || !EDIT_KINDS.contains(&tool.kind) {
             return;
         }
+
         let cwd = Path::new(&self.info.cwd);
         let files = &mut self.info.state.files_touched;
+
         for path in &tool.paths {
             let shown = Path::new(path)
                 .strip_prefix(cwd)
@@ -317,6 +336,7 @@ impl Live {
             files.retain(|file| *file != shown);
             files.push(shown);
         }
+
         let extra = files.len().saturating_sub(MAX_FILES);
         files.drain(..extra);
     }
@@ -335,10 +355,13 @@ impl ToolCall {
         if self.backgrounded && self.status == ToolCallStatus::Completed {
             return ToolCallStatus::InProgress;
         }
+
         let codex = self.subagent.as_ref().filter(|sub| sub.codex);
+
         if self.status == ToolCallStatus::Failed || codex.is_none() {
             return self.status;
         }
+
         let working = match run {
             Some(run) => run.working,
             None => codex.is_some_and(|sub| !sub.ended),
@@ -357,6 +380,7 @@ impl ToolCall {
         if let Some(beep) = &self.beep {
             return Cow::Owned(beep.tool.title(beep.input.as_ref()));
         }
+
         match self.paths.first() {
             Some(path) if self.title == ARTIFACT_TOOL => {
                 Cow::Owned(format!("{} {path}", self.title))
@@ -372,10 +396,12 @@ impl ToolCall {
     /// its rollout.
     pub(super) fn entry_with(&self, steps: &[Step<'_>], run: Option<&Run>) -> String {
         let mut lines = String::new();
+
         for line in &self.pictures {
             lines.push('\n');
             lines.push_str(line);
         }
+
         let status = self.shown_status(run);
         let own = self.own_title();
         let title = run.and_then(|run| run.task.as_deref()).unwrap_or(&own);
@@ -399,8 +425,10 @@ impl ToolCall {
             Some(run) => (run_steps.as_slice(), run.count),
             None => (steps, steps.len()),
         };
+
         if !steps.is_empty() || self.subagent.is_some() {
             text.push_str(&format!("\n[steps] {count}"));
+
             for step in &steps[steps.len().saturating_sub(MAX_STEPS)..] {
                 let title = step.title.lines().next().unwrap_or_default();
                 text.push_str(&format!(
@@ -409,16 +437,19 @@ impl ToolCall {
                     cut(title, MAX_LINE)
                 ));
             }
+
             let name = run
                 .and_then(|run| run.name.as_deref())
                 .or(self.subagent.as_ref().and_then(|sub| sub.name.as_deref()));
             if let Some(name) = name {
                 text.push_str(&format!("\n[agent] {name}"));
             }
+
             if let Some(session) = run.and_then(|run| run.session.as_deref()) {
                 text.push_str(&format!("\n[session] {session}"));
             }
         }
+
         let output = run
             .and_then(|run| run.result.as_deref())
             .unwrap_or(&self.output);
@@ -426,6 +457,7 @@ impl ToolCall {
             text.push('\n');
             text.push_str(output);
         }
+
         let mut text = cut(&text, MAX_ENTRY.saturating_sub(lines.len()));
         text.push_str(&lines);
         text
@@ -462,6 +494,7 @@ pub(super) fn output(content: &[ToolCallContent], cwd: &Path) -> Output {
                         let mime = blob.mime_type.as_deref().unwrap_or("");
                         pictures.extend(picture_of(mime, &blob.blob));
                     }
+
                     None
                 }
                 ContentBlock::ResourceLink(link) => {
@@ -504,6 +537,7 @@ pub(super) fn paths(locations: &[ToolCallLocation], input: Option<&Value>) -> Ve
                 .map(str::to_owned),
         );
     }
+
     found
 }
 
@@ -512,6 +546,7 @@ fn update_details(details: &mut AgentToolCall, input: Option<&Value>, result: Op
     if input.is_some_and(|value| !value.is_null()) {
         (details.input, details.input_truncated) = tool_details::json(input);
     }
+
     if result.is_some_and(|value| !value.is_null()) {
         (details.result, details.result_truncated) = tool_details::json(result);
     }

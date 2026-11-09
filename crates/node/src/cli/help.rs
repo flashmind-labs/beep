@@ -56,8 +56,10 @@ fn render(cmd: &Command) -> String {
         .max()
         .unwrap_or(0);
     let mut blocks = Vec::new();
+
     for (title, names) in GROUPS {
         let mut block = String::from(*title);
+
         for name in *names {
             let Some(sub) = find(cmd, name) else {
                 continue;
@@ -65,14 +67,17 @@ fn render(cmd: &Command) -> String {
             let about = sub.get_about().map(|a| a.to_string()).unwrap_or_default();
             block.push_str(&format!("\n  {name:width$}  {about}"));
             let aliases: Vec<&str> = sub.get_visible_aliases().collect();
+
             match aliases.len() {
                 0 => {}
                 1 => block.push_str(&format!(" [alias: {}]", aliases[0])),
                 _ => block.push_str(&format!(" [aliases: {}]", aliases.join(", "))),
             }
         }
+
         blocks.push(block);
     }
+
     blocks.join("\n\n")
 }
 

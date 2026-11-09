@@ -212,6 +212,7 @@ async fn sent(
         }
         _ => Vec::new(),
     };
+
     if let Some(machine) = fleet.member(&machine_id) {
         let close = matches!(steer, AgentSteer::Close {});
         let operation = beep_proto::node::events::Operation::Agent {
@@ -219,6 +220,7 @@ async fn sent(
             session: session.clone(),
             request: beep_mesh::machine::node_request(steer.clone())?,
         };
+
         if let Some(reply) = app
             .state::<crate::fleet::events::Events>()
             .call(window, machine, operation)
@@ -229,6 +231,7 @@ async fn sent(
                     "unexpected session acknowledgement".into(),
                 ));
             };
+
             if let Some(prompt) = &indexed_prompt {
                 let host = beep_mesh::machine::Host {
                     id: machine_id.clone(),
@@ -241,9 +244,11 @@ async fn sent(
                 )
                 .await;
             }
+
             if close {
                 closed(&app, &machine_id, &session);
             }
+
             return Ok(keys);
         }
 
@@ -271,6 +276,7 @@ async fn sent(
             let metadata = beep_mesh::machine::beep_session(&host, opened.info.clone());
             crate::palette::prompts::sent(&app, metadata, prompt).await;
         }
+
         if close {
             // The lists show it ended once the machine says so, about two
             // seconds on; bounded by `until_ended`, nothing else owns it.
@@ -280,8 +286,10 @@ async fn sent(
                 closed(&app, &machine_id, &session);
             });
         }
+
         return Ok(keys);
     }
+
     let images = !keys.is_empty();
     let configure = matches!(steer, AgentSteer::Configure { .. });
     let fallback = queued_instead(&steer);
@@ -297,11 +305,13 @@ async fn sent(
         (Err(e), Some(prompt)) if older_than(&e, &[5, 6]) => beep.call(call(prompt)).await,
         (sent, _) => sent,
     };
+
     if sent.is_ok()
         && let Some(prompt) = &indexed_prompt
     {
         crate::palette::prompts::sent_existing(&app, &machine_id, &session, prompt).await;
     }
+
     match sent {
         Err(e) if images && older_than(&e, &[3]) => Err(DesktopError::BadRequest(
             "This Beep server does not take images yet. Send the message without them.".into(),

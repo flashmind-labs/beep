@@ -102,11 +102,13 @@ test("a keystroke over a big index stays under a millisecond", () => {
   // Warm, as it is after the first few keystrokes of a session.
   for (let run = 0; run < 200; run++) rank(typed[run % typed.length], big);
   const times: number[] = [];
+
   for (let run = 0; run < 1000; run++) {
     const at = performance.now();
     rank(typed[run % typed.length], big);
     times.push(performance.now() - at);
   }
+
   times.sort((a, b) => a - b);
   const [median, p95, worst] = [times[500], times[950], times[999]];
   console.log(`palette rank over 3600 entries: median ${median.toFixed(3)} ms, p95 ${p95.toFixed(3)} ms, max ${worst.toFixed(3)} ms`);

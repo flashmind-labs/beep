@@ -159,9 +159,11 @@ fn the_oldest_index_goes_past_the_limit() {
     let (_dir, path) = session(&[codex_line(1)]);
     let indexes = FileIndexes::default();
     indexes.find(&path, &key(1)).unwrap();
+
     for n in 0..MAX_FILES {
         indexes.index_of(Path::new(&format!("other-{n}")));
     }
+
     assert_eq!(lock(&indexes.files).len(), MAX_FILES);
     assert_eq!(read_so_far(&indexes, &path), 0, "read again from nothing");
 }

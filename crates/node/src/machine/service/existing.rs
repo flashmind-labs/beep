@@ -35,6 +35,7 @@ pub(super) fn installed(manager: Manager) -> Result<Installed> {
             if !windows::installed() {
                 return Ok(Installed::No);
             }
+
             let path = windows::task_path()?;
             return match fs::read(&path) {
                 Ok(bytes) => Ok(found(windows::dir_in(&windows::from_utf16(&bytes)))),
@@ -44,6 +45,7 @@ pub(super) fn installed(manager: Manager) -> Result<Installed> {
             };
         }
     };
+
     match fs::read_to_string(&path) {
         Ok(text) => Ok(found(parse(&text))),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(Installed::No),
@@ -69,6 +71,7 @@ pub enum Action {
 /// the one installed.
 pub(super) fn decide(installed: &Installed, dir: &Path) -> Result<Action> {
     let here = dir.display();
+
     match installed {
         Installed::No => Ok(Action::Install),
         Installed::From(other) if same_folder(other, dir) => Ok(Action::Start),

@@ -39,6 +39,7 @@ export function agentAttachError(text: string) {
 export async function agentAttach(files: Iterable<File>) {
   if (noAgentImages()) return agentAttachError("This Beep server does not take images yet.");
   imagesReading++;
+
   try { await attachImages(AG.att, files, agentAttachError); }
   finally { imagesReading--; drawAgentAttached(); }
 }
@@ -52,6 +53,7 @@ export async function attachImages(list: Attached[], files: Iterable<File>, erro
     if (f.size > AGENT_MAX_IMAGE) { error(`${f.name || "That image"} is over ${AGENT_MAX_IMAGE >> 20} MB`); continue; }
     const used = list.reduce((n, a) => n + a.size, 0);
     if (used + f.size > AGENT_MAX_IMAGES_TOTAL) { error(`Images up to ${AGENT_MAX_IMAGES_TOTAL >> 20} MB in all in one message`); continue; }
+
     try {
       const data = await fileBase64(f);
       list.push({ name: agentImageName(f, list), mime: f.type, size: f.size, data, url: `data:${f.type};base64,${data}` });
@@ -101,6 +103,7 @@ const failedThumbs = new Map<string, { fails: number; until: number }>();
 /// has stays gone; anything else tries again.
 function loadOnce(cache: typeof agentImages, command: string, o: OpenAgent, key: string) {
   let got = cache.get(key);
+
   if (got === undefined) {
     got = invoke<string>(command, { machineId: o.machine_id, session: o.session, key }).then(url => {
       cache.set(key, url);
@@ -109,14 +112,17 @@ function loadOnce(cache: typeof agentImages, command: string, o: OpenAgent, key:
     }, e => {
       if (String(e) === GONE) cache.set(key, null);
       else cache.delete(key);
+
       if (cache === agentThumbs && String(e) !== GONE) {
         const fails = (failedThumbs.get(key)?.fails ?? 0) + 1;
         failedThumbs.set(key, { fails, until: Date.now() + retryIn(fails) });
       }
+
       return null;
     });
     cache.set(key, got);
   }
+
   return Promise.resolve(got);
 }
 
@@ -143,6 +149,7 @@ export function fillAgentPics(b: HTMLElement) {
   const session = AG.page?.session;
   if (session) fillInlineImages(b, session, () => AG.open === o && AG.page?.session.cwd === session.cwd);
   let wait = Infinity;
+
   for (const img of b.querySelectorAll<HTMLImageElement>("img.pic[data-key]:not([src])")) {
     const key = img.dataset.key!, here = picHere(key);
     if (here) { img.src = here; continue; }
@@ -150,15 +157,18 @@ export function fillAgentPics(b: HTMLElement) {
     if (until > Date.now()) { wait = Math.min(wait, until - Date.now()); continue; }
     loadOnce(agentThumbs, "agent_thumb", o, key).then(url => {
       if (!b.isConnected || AG.open !== o) return;
+
       // The row may have been drawn again meanwhile: fill the tiles there now.
       for (const tile of b.querySelectorAll<HTMLImageElement>(`img.pic[data-key="${key}"]:not([src])`)) {
         if (url) tile.src = url;
         else if (agentThumbs.get(key) === null) tile.replaceWith(h(gonePic(tile.alt)));
       }
+
       const failed = failedThumbs.get(key);
       if (!url && failed) fillLater(b, failed.until - Date.now());
     });
   }
+
   if (wait < Infinity) fillLater(b, wait);
 }
 
@@ -181,5 +191,6 @@ export function keepAgentPics(o: OpenAgent, images: Attached[]) {
     agentPics.delete(key);
     agentPics.set(key, a.url);
   }
+
   while (agentPics.size > AGENT_PICS_KEPT) agentPics.delete(agentPics.keys().next().value!);
 }

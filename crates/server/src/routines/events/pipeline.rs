@@ -126,6 +126,7 @@ impl Hub {
     /// Ends the pipeline's tasks.
     pub fn stop(&self) {
         self.stop.cancel();
+
         for task in lock(&self.tasks).drain(..) {
             task.abort();
         }
@@ -173,6 +174,7 @@ impl Hub {
         for user in &due {
             pending.remove(user);
         }
+
         due
     }
 }
@@ -188,11 +190,13 @@ pub fn start(app: &Arc<App>, settings: Settings) {
         tokio::spawn(work(app.clone(), receiver, settings.clone())),
         tokio::spawn(sweep(app.clone(), settings.clone())),
     ];
+
     if settings.poll
         && let Some(composio) = app.composio()
     {
         tasks.push(tokio::spawn(realtime::run(app.clone(), composio.clone())));
     }
+
     lock(&hub.tasks).extend(tasks);
 }
 
@@ -231,10 +235,13 @@ pub async fn accept(app: &App, user: &User, event: AppEvent) -> Result<Accepted>
     if !user.event_topics().await?.is_on(event.kind.topic()) {
         return Ok(Accepted::Unsubscribed);
     }
+
     if event.occurred < Utc::now() - MAX_AGE {
         return Ok(Accepted::Stale);
     }
+
     let now = Instant::now();
+
     if !lock(&app.events.limiter).take_event(user.id(), now) {
         log::warn!("events: hourly limit reached, event dropped; user={user}");
         return Ok(Accepted::Limited);
@@ -242,9 +249,11 @@ pub async fn accept(app: &App, user: &User, event: AppEvent) -> Result<Accepted>
     // Only a stored event counts: a duplicate, or one the store failed on,
     // gives its place back.
     let stored = user.store_event(&event).await;
+
     if !matches!(stored, Ok(Some(_))) {
         lock(&app.events.limiter).give_back_event(user.id());
     }
+
     let Some(id) = stored? else {
         return Ok(Accepted::Duplicate);
     };
@@ -267,8 +276,10 @@ async fn work(app: Arc<App>, mut receiver: mpsc::Receiver<Incoming>, settings: S
         Ok(n) => log::info!("events: {n} events back in the queue after a restart"),
         Err(error) => log::warn!("events: unable to requeue triaging events: {error:#}"),
     }
+
     let mut ticks = interval(settings.tick);
     ticks.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
     loop {
         tokio::select! {
             _ = app.events.stop.cancelled() => break,
@@ -278,6 +289,7 @@ async fn work(app: Arc<App>, mut receiver: mpsc::Receiver<Incoming>, settings: S
                     log::debug!("events: no such user; user={user}");
                     continue;
                 };
+
                 if let Err(error) = accept(&app, &user, event).await {
                     log::warn!("events: unable to store an event: {error:#}; user={user}");
                 }
@@ -290,6 +302,7 @@ async fn work(app: Arc<App>, mut receiver: mpsc::Receiver<Incoming>, settings: S
 /// Hands due batches to triage for users with a free run and hourly budget.
 async fn flush(app: &Arc<App>, settings: &Settings) {
     let now = Instant::now();
+
     for id in app.events.due(now, settings.batch_window) {
         let Some(user) = app.user(&id) else { continue };
         // Kept waiting; it goes out with whatever comes next.
@@ -299,6 +312,7 @@ async fn flush(app: &Arc<App>, settings: &Settings) {
             app.events.mark_pending(&id, now);
             continue;
         }
+
         match start_triage(app, &user, settings).await {
             Ok(Batch::More) => app.events.mark_pending(&id, now),
             Ok(Batch::Done) => {}
@@ -318,15 +332,18 @@ async fn start_triage(app: &Arc<App>, user: &Arc<User>, settings: &Settings) -> 
     if rows.is_empty() {
         return Ok(Batch::Done);
     }
+
     let ids: Vec<i64> = rows.iter().map(|row| row.id).collect();
     user.move_events(&ids, EventState::Pending, EventState::Triaging, None)
         .await?;
     let work = triage::run(app.clone(), user.clone(), rows.clone(), settings.clone());
+
     if app.subagents.spawn(Pool::Triage, user.id(), work).is_err() {
         user.move_events(&ids, EventState::Triaging, EventState::Pending, None)
             .await?;
         return Ok(Batch::More);
     }
+
     let full = i64::try_from(rows.len()).is_ok_and(|n| n >= settings.max_batch);
     Ok(if full { Batch::More } else { Batch::Done })
 }
@@ -350,9 +367,11 @@ async fn wake_batch(
         _ => Duration::ZERO,
     };
     let rows = user.events_in(state, age, settings.max_batch).await?;
+
     if rows.is_empty() {
         return Ok(Batch::Done);
     }
+
     wake_rows(app, user, &rows, state, rule, settings).await
 }
 
@@ -401,11 +420,13 @@ pub(super) async fn wake_rows(
 /// The apps `rows` came from, each once, in order.
 pub(super) fn apps_of(rows: &[EventRow]) -> Vec<EventApp> {
     let mut apps = Vec::new();
+
     for row in rows {
         if !apps.contains(&row.app) {
             apps.push(row.app);
         }
     }
+
     apps
 }
 
@@ -443,9 +464,11 @@ pub(super) fn write_event(text: &mut String, row: &EventRow) {
         row.occurred.format("%Y-%m-%d %H:%M UTC"),
         row.summary
     );
+
     if let Some(detail) = &row.detail {
         let _ = write!(text, "\n{detail}");
     }
+
     if !row.ids.is_null() {
         let _ = write!(text, "\nids: {}", row.ids);
     }
@@ -460,9 +483,11 @@ pub(super) fn describe(rows: &[EventRow], rule: Rule, read_only: &[EventApp]) ->
             rows.len()
         ),
     };
+
     for row in rows {
         write_event(&mut text, row);
     }
+
     if !read_only.is_empty() {
         let names: Vec<&str> = read_only.iter().map(|app| app.name()).collect();
         let _ = write!(
@@ -471,6 +496,7 @@ pub(super) fn describe(rows: &[EventRow], rule: Rule, read_only: &[EventApp]) ->
             names.join(", ")
         );
     }
+
     text
 }
 
@@ -478,6 +504,7 @@ pub(super) fn describe(rows: &[EventRow], rule: Rule, read_only: &[EventApp]) ->
 async fn sweep(app: Arc<App>, settings: Settings) {
     let mut ticks = interval(settings.sweep_every);
     ticks.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
     loop {
         tokio::select! {
             _ = app.events.stop.cancelled() => break,
@@ -506,6 +533,7 @@ async fn sweep_user(app: &Arc<App>, user: &Arc<User>, settings: &Settings) {
         if let Err(error) = triggers::sync_user(user).await {
             log::warn!("events: unable to set up triggers: {error:#}; user={user}");
         }
+
         poll::poll_user(app, user).await;
     }
     // A triage that died, by a panic or a lost task, left its events here.
@@ -516,11 +544,13 @@ async fn sweep_user(app: &Arc<App>, user: &Arc<User>, settings: &Settings) {
         }
         Err(error) => log::warn!("events: unable to requeue stuck triages: {error:#}; user={user}"),
     }
+
     match user.events_in(EventState::Pending, Duration::ZERO, 1).await {
         Ok(rows) if !rows.is_empty() => app.events.mark_pending(user.id(), Instant::now()),
         Ok(_) => {}
         Err(error) => log::warn!("events: unable to read pending events: {error:#}"),
     }
+
     match user
         .events_in(EventState::Held, settings.digest_after, 1)
         .await
@@ -536,6 +566,7 @@ async fn sweep_user(app: &Arc<App>, user: &Arc<User>, settings: &Settings) {
         Ok(_) => {}
         Err(error) => log::warn!("events: unable to read held events: {error:#}"),
     }
+
     if let Err(error) = user.prune_events(Utc::now() - KEEP).await {
         log::warn!("events: unable to prune: {error:#}; user={user}");
     }

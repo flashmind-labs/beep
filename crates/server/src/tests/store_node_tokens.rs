@@ -58,6 +58,7 @@ async fn a_token_links_a_machine_once() {
 
     // Spent, for this machine and any other.
     let other = SecretKey::generate().public();
+
     for endpoint in [machine, other] {
         assert_eq!(
             store
@@ -67,6 +68,7 @@ async fn a_token_links_a_machine_once() {
             Claim::Used
         );
     }
+
     assert_eq!(
         store.claim_node_token(claim("nope", other)).await.unwrap(),
         Claim::Unknown

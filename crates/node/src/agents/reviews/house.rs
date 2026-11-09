@@ -46,9 +46,11 @@ pub(super) fn find(cwd: &Path, base: &str, harness: &str) -> Option<HouseRules> 
 /// The commit the changes are measured from.
 fn base_commit(cwd: &Path, base: &str) -> Option<String> {
     let base = base.trim();
+
     if base.starts_with('-') {
         return None;
     }
+
     let merge_base = |with: &str| git(cwd, &["merge-base", "HEAD", with]);
     let at = match base {
         "HEAD" => git(cwd, &["rev-parse", "HEAD"]),

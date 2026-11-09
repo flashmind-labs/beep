@@ -115,9 +115,11 @@ async fn run(app: AppHandle) {
         Ok(gone) => log::info!("removed {gone} API keys from the mesh"),
         Err(e) => log::warn!("API keys not removed from the mesh: {e}"),
     }
+
     if !beep.has_server() || beep.link_state() != LinkState::Linked {
         return;
     }
+
     match migrate::run(&mesh, &Server { beep: &beep }).await {
         Ok(report) if report.already => {}
         Ok(report) => {
@@ -126,6 +128,7 @@ async fn run(app: AppHandle) {
                 report.written,
                 report.unmoved
             );
+
             if let Err(e) = app.emit(HOME_CHANGED, ()) {
                 log::warn!("telling the windows the account moved: {e}");
             }

@@ -9,6 +9,7 @@ fn conversation_ids_are_bounded_store_ids_not_paths() {
             id
         );
     }
+
     for id in [
         "subagent:codex:../thread",
         "subagent:claude:parent:child:extra",

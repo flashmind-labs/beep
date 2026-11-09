@@ -38,11 +38,13 @@ impl RepoWatch {
         let entry = self.entry(user.id(), project.id);
         let ask = entry.lists.ask(Instant::now(), refresh);
         let mut copy = entry.lists.copy.lock().await;
+
         match entry.lists.ask_read(ask.forced, copy.synced_at.is_some()) {
             AskRead::Host => read(app, user, project, &entry, &mut copy).await,
             AskRead::CopyThenSync => self.sync_soon(),
             AskRead::Copy => {}
         }
+
         copy.clone()
     }
 }
@@ -73,6 +75,7 @@ async fn read(
     let store = StoredProject::new(user, project);
     let (prs, open) = tokio::join!(list_open_prs(&store, &fleet), read_open(&store, &fleet),);
     let mut any = false;
+
     match prs {
         Ok(prs) => {
             any = true;
@@ -81,6 +84,7 @@ async fn read(
         }
         Err(e) => copy.prs_error = Some(message(e)),
     }
+
     match open {
         Ok(open) => {
             any = true;
@@ -89,6 +93,7 @@ async fn read(
         }
         Err(e) => copy.issues_error = Some(message(e)),
     }
+
     if any {
         copy.synced_at = Some(SystemTime::now());
     }
@@ -113,9 +118,11 @@ pub(super) async fn sync_in_background(
     entry: &Entry,
 ) -> bool {
     let mut copy = entry.lists.copy.lock().await;
+
     if !entry.lists.stale() {
         return false;
     }
+
     read(app, user, project, entry, &mut copy).await;
     true
 }

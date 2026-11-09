@@ -66,9 +66,11 @@ pub async fn send(base: &Url, body: Vec<u8>, key: &SecretKey) -> Result<Receipt,
         .await?;
     let status = reply.status();
     let bytes = reply.bytes().await?;
+
     if status.is_success() {
         return rmp_serde::from_slice(&bytes).map_err(|_| SendError::Unavailable);
     }
+
     match rmp_serde::from_slice::<ApiError>(&bytes) {
         Ok(ApiError::BadRequest { message } | ApiError::Conflict { message }) => {
             Err(SendError::Refused(message))

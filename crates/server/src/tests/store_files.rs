@@ -40,11 +40,13 @@ async fn a_file_reads_back_in_parts_for_its_owner_only() {
     assert_eq!(last.data, data[200..]);
     let past = alice.file_part(&id, 300, 100).await.unwrap().unwrap();
     assert!(past.data.is_empty());
+
     for offset in [u64::from(u32::MAX), u64::MAX] {
         let far = alice.file_part(&id, offset, 100).await.unwrap().unwrap();
         assert!(far.data.is_empty());
         assert_eq!(far.size, 256);
     }
+
     let rest = alice.file_part(&id, 200, u64::MAX).await.unwrap().unwrap();
     assert_eq!(rest.data, data[200..]);
     assert!(bob.file_part(&id, 0, 100).await.unwrap().is_none());
@@ -63,9 +65,11 @@ struct SecondPutFails {
 impl Blobs for SecondPutFails {
     async fn put(&self, id: &str, data: &[u8]) -> Result<()> {
         let put = self.puts.fetch_add(1, Ordering::Relaxed);
+
         if put == 1 {
             anyhow::bail!("the blob store is down");
         }
+
         self.inner.put(id, data).await
     }
 

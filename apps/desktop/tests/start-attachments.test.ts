@@ -15,10 +15,12 @@ test("both start layouts accept video drops, expose a file picker, and protect p
     };
     let c: ReturnType<typeof makeStartComposer>, attachments: ReturnType<typeof startAttachments>;
     const errors: string[] = [];
+
     try {
       c = makeStartComposer({ presentation });
       attachments = startAttachments(c, e => errors.push(e), () => {});
     } finally { proto.addEventListener = listen; }
+
     const send = (el: HTMLElement, type: string, event: unknown = {}) => events.get(el)?.get(type)?.(event);
     const input = c.form.querySelector<HTMLInputElement>('input');
     assert.ok(input);

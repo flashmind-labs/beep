@@ -11,16 +11,19 @@ for (const width of [1280, 390]) {
       const item = document.createElement('li');
       item.textContent = 'Conversation summary';
       const nested = document.createElement('ul');
+
       for (let i = 0; i < 4; i++) {
         const row = document.createElement('li');
         row.textContent = 'A longer description of the requested changes and the remaining work. '.repeat(12);
         nested.append(row);
       }
+
       item.append(nested);
       list.append(item);
       node.append(list);
     });
     expect(await page.locator('.dbody').evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
+
     for (const item of await page.locator('li').all()) {
       expect(await item.evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
     }

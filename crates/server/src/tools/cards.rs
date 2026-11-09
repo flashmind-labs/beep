@@ -293,26 +293,31 @@ impl Tool for ShowCardsTool {
             Ok(args) => args,
             Err(e) => return Ok(ToolResult::failure(ctx.tool_call_id, e.to_string())),
         };
+
         if args.cards.is_empty() || args.cards.len() > MAX_CARDS {
             return Ok(ToolResult::failure(
                 ctx.tool_call_id,
                 format!("Show between 1 and {MAX_CARDS} cards."),
             ));
         }
+
         let mut dropped = Vec::new();
         let mut cards = Vec::new();
+
         for requested in args.cards {
             match card(requested, &mut dropped) {
                 Ok(card) => cards.push(card),
                 Err(reason) => dropped.push(reason),
             }
         }
+
         if cards.is_empty() {
             return Ok(ToolResult::failure(
                 ctx.tool_call_id,
                 format!("No card could be shown. {}", dropped.join("; ")),
             ));
         }
+
         let here = match self.user.get_location().await {
             Ok(Some(fix))
                 if Utc::now() - fix.updated_at < chrono::Duration::hours(FRESH_LOCATION_HOURS) =>
@@ -325,11 +330,13 @@ impl Tool for ShowCardsTool {
                 None
             }
         };
+
         if let Some(here) = here {
             for place in cards.iter_mut().filter_map(|card| card.place.as_mut()) {
                 place.distance_m = distance(here, place);
             }
         }
+
         let checks = cards.iter().map(|card| async move {
             match card.image.as_deref() {
                 Some(url) => image::check(url).await.err(),
@@ -337,12 +344,14 @@ impl Tool for ShowCardsTool {
             }
         });
         let failures = futures::future::join_all(checks).await;
+
         for (card, failure) in cards.iter_mut().zip(failures) {
             if let Some(reason) = failure {
                 dropped.push(format!("image of {}: {reason}", card.title));
                 card.image = None;
             }
         }
+
         let shown = Shown {
             action: NAME,
             cards,
@@ -358,18 +367,22 @@ impl Tool for ShowCardsTool {
 /// The card for `requested`, or why not; bad fields are noted in `dropped`.
 fn card(requested: Requested, dropped: &mut Vec<String>) -> Result<Card, String> {
     let title = clip(&requested.title, MAX_TITLE);
+
     if title.is_empty() {
         return Err("a card without a title".to_owned());
     }
+
     let kind = Kind::parse(&requested.kind).ok_or_else(|| {
         format!(
             "{title}: kind {:?} is not one lowercase word",
             requested.kind
         )
     })?;
+
     if kind.0 == "product" {
         return Err(format!("{title}: products go in show_products"));
     }
+
     let url = requested.url.trim();
     let host = public_host(url).ok_or_else(|| format!("{title}: {url} is not a web page"))?;
 
@@ -420,6 +433,7 @@ fn card(requested: Requested, dropped: &mut Vec<String>) -> Result<Card, String>
 /// Whether a card of `kind` takes `part`; otherwise noted in `dropped`.
 fn fits(kind: &Kind, part: KnownKind, title: &str, dropped: &mut Vec<String>) -> bool {
     let fits = kind.known() == Some(part);
+
     if !fits {
         let name: &'static str = part.into();
         dropped.push(format!(
@@ -427,6 +441,7 @@ fn fits(kind: &Kind, part: KnownKind, title: &str, dropped: &mut Vec<String>) ->
             kind.0
         ));
     }
+
     fits
 }
 

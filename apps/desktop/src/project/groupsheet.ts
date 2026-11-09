@@ -49,6 +49,7 @@ export function openGroupSheet(options: GroupSheetOptions) {
     if (saving || (field.value.trim() && !add()) || !paths.length) return;
     saving = true;
     draw();
+
     try {
       const saved = await invoke<ProjectGroup>("project_group_save", { id: group?.id ?? null, name: group?.name ?? "", paths });
       saving = false;
@@ -64,6 +65,7 @@ export function openGroupSheet(options: GroupSheetOptions) {
     if (e.key === "Escape") { e.preventDefault(); close(); }
     else if (e.key === "Enter" && e.metaKey) { e.preventDefault(); save(); }
     else if (e.key === "Enter" && e.target === field) { e.preventDefault(); if (field.value.trim()) add(); else save(); }
+
     e.stopImmediatePropagation();
     return true;
   }

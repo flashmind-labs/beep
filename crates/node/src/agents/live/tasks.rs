@@ -27,6 +27,7 @@ impl Live {
                 if task_type == TURN {
                     return false;
                 }
+
                 let task = Task {
                     id: async_task_id,
                     name: cut(&name, MAX_LINE),
@@ -39,6 +40,7 @@ impl Live {
                     entry: None,
                 };
                 let tasks = &mut self.info.state.tasks;
+
                 match tasks.iter_mut().find(|known| known.id == task.id) {
                     Some(known) => *known = task,
                     None => {
@@ -47,9 +49,11 @@ impl Live {
                             let gone = tasks.iter().position(|task| task.state.ended());
                             tasks.remove(gone.unwrap_or(0));
                         }
+
                         tasks.push(task);
                     }
                 }
+
                 tool_call_id
             }
             AsyncTask::Progress {
@@ -85,21 +89,25 @@ impl Live {
                 task.tool_call.clone()
             }
         };
+
         if let Some(call) = call {
             self.follow_background(&ToolCallId::new(call));
         }
+
         self.info.state.tasks != before
     }
 
     /// The session ended, and with it the commands its agent ran.
     pub(crate) fn end_tasks(&mut self) {
         let mut calls = Vec::new();
+
         for task in &mut self.info.state.tasks {
             if !task.state.ended() {
                 task.state = TaskState::Stopped;
                 calls.extend(task.tool_call.clone());
             }
         }
+
         for call in calls {
             self.follow_background(&ToolCallId::new(call));
         }
@@ -135,11 +143,13 @@ impl Live {
             return;
         };
         let entry = tool.entry;
+
         for task in &mut self.info.state.tasks {
             if task.tool_call.as_deref() == Some(&*call.0) {
                 task.entry = Some(entry);
             }
         }
+
         if tool.backgrounded != running {
             tool.backgrounded = running;
             self.write_tool(call);

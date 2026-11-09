@@ -70,6 +70,7 @@ fn track_branches(dir: &str, remote: &str, branches: &[String]) -> String {
     if branches.is_empty() {
         return String::new();
     }
+
     let quoted: Vec<String> = branches.iter().map(|branch| quote(branch)).collect();
     format!(
         "for b in {}; do git -C \"{dir}\" show-ref --verify --quiet \"refs/heads/$b\" || git -C \"{dir}\" branch --quiet --track \"$b\" {remote}/\"$b\" 2>/dev/null || true; done\n",
@@ -84,12 +85,14 @@ fn fork_steps(git: &str, fork: &ForkSetup<'_>) -> String {
         " && git -C \"$t\" remote add upstream {up} && {git} -C \"$t\" fetch --quiet upstream",
         up = quote(fork.upstream_url),
     );
+
     if !fork.default_branch.is_empty() {
         steps.push_str(&format!(
             " && git -C \"$t\" checkout --quiet -B {b} --track upstream/{b}",
             b = quote(fork.default_branch),
         ));
     }
+
     steps
 }
 
@@ -157,6 +160,7 @@ pub fn link_script(link: &Link<'_>) -> SecretString {
         "d={folder}\nexport GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never\n",
         folder = quote(link.folder)
     );
+
     for remote in link.add {
         script.push_str(&format!(
             "git -C \"$d\" remote add {} {} || exit 1\n",
@@ -164,6 +168,7 @@ pub fn link_script(link: &Link<'_>) -> SecretString {
             quote(&remote.url)
         ));
     }
+
     script.push_str(&format!(
         "{git} -C \"$d\" fetch --quiet {fork} && {git} -C \"$d\" fetch --quiet {up} || exit 1\n",
         fork = quote(link.fork_remote),
@@ -211,6 +216,7 @@ pub fn outcome(output: &str, exit_code: Option<i32>, timed_out: bool) -> Outcome
     if timed_out {
         return Outcome::TimedOut;
     }
+
     let said = output
         .lines()
         .rev()
@@ -231,6 +237,7 @@ pub fn outcome(output: &str, exit_code: Option<i32>, timed_out: bool) -> Outcome
 pub fn tail(output: &str) -> String {
     let output = output.trim();
     let mut start = output.len().saturating_sub(KEEP);
+
     while !output.is_char_boundary(start) {
         start += 1;
     }
@@ -287,6 +294,7 @@ pub fn explain(failure: Failure<'_>) -> ImportError {
     if has(&["no space left"]) {
         return ImportError::NoSpace(failure.machine.to_owned());
     }
+
     let detail = failure
         .output
         .lines()

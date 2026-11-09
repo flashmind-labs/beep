@@ -178,6 +178,7 @@ async fn left(store: &Store, user: &UserKey, name: &str, made: &Made) -> i64 {
         "branch_reviews",
     ];
     let mut total = 0;
+
     for table in by_project {
         let n: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {table}=$1"))
             .bind(made.project.0)
@@ -186,6 +187,7 @@ async fn left(store: &Store, user: &UserKey, name: &str, made: &Made) -> i64 {
             .expect("counted");
         total += n;
     }
+
     for table in by_name {
         let n: i64 = sqlx::query_scalar(&format!(
             "SELECT count(*) FROM {table} WHERE user_id=$1 AND project=$2"
@@ -197,6 +199,7 @@ async fn left(store: &Store, user: &UserKey, name: &str, made: &Made) -> i64 {
         .expect("counted");
         total += n;
     }
+
     let shards: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM branch_review_shards s JOIN branch_reviews r ON r.id = s.review_id
              WHERE r.user_id=$1",

@@ -31,6 +31,7 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
     if (!s) all.set(k, s = { error: "", loading: false });
     if (s.loading) return;
     s.loading = true;
+
     try {
       s.rows = await invoke<CustomAgentRow[]>("custom_agents", { machineId: place.id, folder: place.folder });
       s.error = "";
@@ -39,6 +40,7 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
     } finally {
       s.loading = false;
     }
+
     deps.redraw();
   }
 
@@ -55,6 +57,7 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
         el("span", "t", el("span", "ddot bad"), " ", el("code", "", a.path)),
         el("span", "m", el("span", "cc-err", a.error)));
     }
+
     const dot = el("span", "ddot ca-dot");
     const color = agentColor(a.color);
     if (color) dot.style.background = color;
@@ -79,13 +82,16 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
   function view(place: AgentsPlace | null): { body: Node; count: number } {
     if (!place) return { body: emptyPanel(el("span", "", "No machine has this project's folder to read its custom agents from.")), count: 0 };
     const s = listed(place);
+
     if (!s?.rows) {
       const text = s?.error ? `Could not read the custom agents on ${place.name}: ${s.error}` : `Reading the custom agents on ${place.name}…`;
       return { body: emptyPanel(el("span", s?.error ? "cc-err" : "", text)), count: 0 };
     }
+
     if (!s.rows.length) {
       return { body: emptyPanel(el("span", "", "No custom agents in .claude/agents, .opencode/agent, .codex/agents, .pi/agents or .agents yet.")), count: 0 };
     }
+
     return { body: el("div", "cc-panel pv-scroll", ...s.rows.map(a => row(a, place))), count: s.rows.length };
   }
 

@@ -98,9 +98,11 @@ impl Budget {
     /// Lets `key` hold `dirs` watches if they fit beside the others'.
     pub(super) fn admit(&mut self, key: Key, dirs: u64) -> bool {
         let held = self.used.get(&key).copied().unwrap_or(0);
+
         if dirs > held && dirs - held > self.left() {
             return false;
         }
+
         self.used.insert(key, dirs);
         true
     }
@@ -127,6 +129,7 @@ fn others_watches() -> u64 {
         return 0;
     };
     let mut count = 0;
+
     for process in processes.flatten() {
         let name = process.file_name();
         let Some(pid) = name
@@ -135,19 +138,24 @@ fn others_watches() -> u64 {
         else {
             continue;
         };
+
         if pid == me {
             continue;
         }
+
         let Ok(fds) = std::fs::read_dir(process.path().join("fd")) else {
             continue;
         };
+
         for fd in fds.flatten() {
             let is_inotify = std::fs::read_link(fd.path())
                 .is_ok_and(|target| target.as_os_str() == "anon_inode:inotify");
             if !is_inotify {
                 continue;
             }
+
             let info = process.path().join("fdinfo").join(fd.file_name());
+
             if let Ok(info) = std::fs::read_to_string(info) {
                 count += info
                     .lines()
@@ -156,6 +164,7 @@ fn others_watches() -> u64 {
             }
         }
     }
+
     count
 }
 
@@ -215,11 +224,14 @@ fn route(routes: &Mutex<HashMap<Key, Route>>, event: &Event) {
                 route.root.to_string_lossy(),
             ));
         }
+
         return;
     }
+
     if !is_change(&event.kind) {
         return;
     }
+
     for path in &event.paths {
         let Some(route) = routes
             .values()
@@ -235,6 +247,7 @@ fn route(routes: &Mutex<HashMap<Key, Route>>, event: &Event) {
         // up without a word to anyone: the ref's move is the signal.
         let git_says = gitdir::wakes(relative);
         let skipped = read_lock(&route.rules).skips_any(relative, path.is_dir());
+
         if git_says || (!skipped && !gitdir::is_quiet(&relative.to_string_lossy())) {
             // Full means a scan is due already.
             let _ = route.wake.try_send(());
@@ -309,6 +322,7 @@ impl Watcher {
     /// Stops watching the project, off the async workers.
     pub(super) async fn remove(&self, key: Key) {
         let this = self.clone();
+
         if let Err(e) = spawn_blocking(move || this.remove_now(key)).await {
             log::warn!("unwatching a project failed: {e}");
         }
@@ -317,9 +331,11 @@ impl Watcher {
     fn remove_now(&self, key: Key) {
         lock(&self.routes).remove(&key);
         let mut inner = lock(&self.inner);
+
         if let Some(watched) = inner.projects.remove(&key) {
             unwatch_all(&mut inner, &watched);
         }
+
         if let Some(budget) = &mut inner.budget {
             budget.release(key);
         }
@@ -332,6 +348,7 @@ impl Watcher {
     /// async workers.
     pub(super) async fn set_dirs(&self, key: Key, dirs: Vec<PathBuf>) -> Mode {
         let this = self.clone();
+
         match spawn_blocking(move || this.set_dirs_now(key, &dirs)).await {
             Ok(mode) => mode,
             Err(e) => {
@@ -348,12 +365,14 @@ impl Watcher {
             return Mode::Watching;
         };
         let mode = watch_dirs(inner, key, &mut watched, dirs);
+
         if let Mode::Rescan { hint } = &mode
             && !inner.told
         {
             inner.told = true;
             log::warn!("{} is not watched: {hint}", watched.root.display());
         }
+
         watched.mode = mode.clone();
         inner.projects.insert(key, watched);
         mode
@@ -377,6 +396,7 @@ fn unwatch_all(inner: &mut Inner, watched: &Watched) {
 fn fall_back(inner: &mut Inner, key: Key, watched: &mut Watched, hint: &'static str) -> Mode {
     unwatch_all(inner, watched);
     watched.dirs.clear();
+
     if let Some(budget) = &mut inner.budget {
         budget.release(key);
     }
@@ -389,6 +409,7 @@ fn watch_dirs(inner: &mut Inner, key: Key, watched: &mut Watched, dirs: &[PathBu
             hint: INSTANCES_HINT,
         };
     }
+
     if !cfg!(target_os = "linux") {
         // One stream covers the tree; events are filtered by the rules.
         if watched.dirs.is_empty()
@@ -404,10 +425,13 @@ fn watch_dirs(inner: &mut Inner, key: Key, watched: &mut Watched, dirs: &[PathBu
                 }
             }
         }
+
         return Mode::Watching;
     }
+
     let wanted: HashSet<&PathBuf> = dirs.iter().collect();
     let recount = inner.recount;
+
     if let Some(budget) = &mut inner.budget {
         // Other programs come and go; count them again on each change.
         if wanted.len() != watched.dirs.len()
@@ -415,10 +439,12 @@ fn watch_dirs(inner: &mut Inner, key: Key, watched: &mut Watched, dirs: &[PathBu
         {
             budget.others = recount();
         }
+
         if !budget.admit(key, wanted.len() as u64) {
             return fall_back(inner, key, watched, WATCHES_HINT);
         }
     }
+
     let Some(watcher) = &mut inner.watcher else {
         return Mode::Watching;
     };
@@ -432,10 +458,12 @@ fn watch_dirs(inner: &mut Inner, key: Key, watched: &mut Watched, dirs: &[PathBu
         let _ = watcher.unwatch(&dir);
         watched.dirs.remove(&dir);
     }
+
     for dir in wanted {
         if watched.dirs.contains(dir) {
             continue;
         }
+
         match watcher.watch(dir, RecursiveMode::NonRecursive) {
             Ok(()) => {
                 watched.dirs.insert(dir.clone());
@@ -447,6 +475,7 @@ fn watch_dirs(inner: &mut Inner, key: Key, watched: &mut Watched, dirs: &[PathBu
             Err(e) => log::debug!("could not watch {}: {e}", dir.display()),
         }
     }
+
     Mode::Watching
 }
 

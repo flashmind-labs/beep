@@ -16,6 +16,7 @@ impl PublicText {
             .filter_map(|path| path.trim_end_matches('/').rsplit('/').next())
             .map(str::to_owned);
         let mut names: Vec<String> = Vec::new();
+
         for name in machine_names.iter().cloned().chain(users) {
             let name = name.trim().to_owned();
             // Short names and generic accounts would hit ordinary words;
@@ -25,6 +26,7 @@ impl PublicText {
                 names.push(name);
             }
         }
+
         let home_paths = home_paths
             .iter()
             .map(|path| path.trim_end_matches('/').to_owned())
@@ -41,6 +43,7 @@ impl PublicText {
                 self.home_paths.push(path.to_owned());
             }
         }
+
         self
     }
 
@@ -53,27 +56,34 @@ impl PublicText {
             }
         };
         let lower = text.to_lowercase();
+
         for name in &self.names {
             if has_whole(&lower, &name.to_lowercase()) {
                 add(name);
             }
         }
+
         for path in &self.home_paths {
             if has_path(&lower, &path.to_lowercase()) {
                 add(path);
             }
         }
+
         for raw in raw_tokens(text) {
             let v6 = trim_colon_edges(raw.trim_end_matches(['.', '-']));
+
             if is_address(v6) {
                 add(v6);
                 continue;
             }
+
             let token = raw.trim_matches(['.', ':', '-']);
+
             if is_address(token) || is_host_port(token) {
                 add(token);
             }
         }
+
         found
     }
 }
@@ -83,6 +93,7 @@ fn has_whole(haystack: &str, needle: &str) -> bool {
     if needle.is_empty() {
         return false;
     }
+
     haystack.match_indices(needle).any(|(at, _)| {
         let before = haystack[..at].chars().next_back();
         let after = haystack[at + needle.len()..].chars().next();
@@ -113,6 +124,7 @@ fn trim_colon_edges(token: &str) -> &str {
         Some(rest) if !rest.starts_with(':') => rest,
         _ => token,
     };
+
     match token.strip_suffix(':') {
         Some(rest) if !rest.ends_with(':') => rest,
         _ => token,
@@ -137,6 +149,7 @@ fn is_ipv6(token: &str) -> bool {
         parts.pop();
         parts.extend(["0", "0"]);
     }
+
     let compressed = token.contains("::");
     parts.len() >= 3
         && (compressed || parts.len() == 8)
@@ -177,12 +190,15 @@ fn is_host_port(token: &str) -> bool {
     let Some((host, port)) = token.rsplit_once(':') else {
         return false;
     };
+
     if !is_port(port) || port.parse::<u32>().is_ok_and(|n| n > 65535) {
         return false;
     }
+
     if let Some(inner) = host.strip_prefix('[') {
         return inner.strip_suffix(']').is_some_and(is_address);
     }
+
     !host.is_empty()
         && !host.contains(':')
         && !is_file_name(host)

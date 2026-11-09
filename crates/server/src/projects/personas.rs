@@ -66,18 +66,24 @@ pub(crate) fn parse(text: &str) -> Result<ProjectPersona, PersonaFileError> {
 /// The frontmatter mapping and the body, or `None` without a complete mapping block.
 fn split(text: &str) -> Option<(Mapping, String)> {
     let mut lines = text.trim_start_matches('\u{feff}').lines();
+
     if lines.next()?.trim() != "---" {
         return None;
     }
+
     let mut yaml = String::new();
+
     loop {
         let line = lines.next()?;
+
         if line.trim() == "---" {
             break;
         }
+
         yaml.push_str(line);
         yaml.push('\n');
     }
+
     let Value::Mapping(meta) = serde_yaml::from_str(&yaml).ok()? else {
         return None;
     };

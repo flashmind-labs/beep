@@ -109,6 +109,7 @@ pub async fn folder<S: Sessions + ?Sized>(
         ignored,
         depth: 0,
     };
+
     match ask(node, request).await? {
         SessionsReply::Folder { folder } => Ok(NodeWork::Done(folder)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
@@ -128,6 +129,7 @@ pub async fn tree<S: Sessions + ?Sized>(
         ignored: list.ignored,
         depth: list.depth.max(1),
     };
+
     match ask(node, request).await? {
         SessionsReply::Tree { tree } => Ok(NodeWork::Done(tree)),
         SessionsReply::Folder { folder } => Ok(NodeWork::Done(WorkTree {
@@ -151,6 +153,7 @@ pub async fn write_file<S: Sessions + ?Sized>(
         size: write.size,
         data: write.data,
     };
+
     match ask(node, request).await? {
         SessionsReply::Written { path } => Ok(NodeWork::Done(path)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
@@ -175,6 +178,7 @@ pub async fn upload_file<S: Sessions + ?Sized>(
         data: write.data,
     };
     let reply = hinted(ask(node, request).await, "upload temporary attachments")?;
+
     match reply {
         SessionsReply::Written { path } => Ok(NodeWork::Done(path)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
@@ -196,6 +200,7 @@ pub async fn edit_files<S: Sessions + ?Sized>(
         .await,
         "to edit files",
     )?;
+
     match reply {
         SessionsReply::FilesEdited {} => Ok(NodeWork::Done(())),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
@@ -211,6 +216,7 @@ pub async fn custom_agents<S: Sessions + ?Sized>(
     let request = SessionsRequest::CustomAgents {
         folder: folder.to_owned(),
     };
+
     match ask(node, request).await? {
         SessionsReply::CustomAgents { agents } => Ok(NodeWork::Done(agents)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),

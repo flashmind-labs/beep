@@ -83,6 +83,7 @@ pub(crate) fn pick_account<'a>(
         if accounts.is_empty() {
             return "Fastmail is not connected.".to_owned();
         }
+
         let known: Vec<&str> = accounts.iter().map(FastmailAccount::label).collect();
         format!(
             "No Fastmail account {}. Use one of: {}.",
@@ -134,9 +135,11 @@ impl McpSlot {
     /// The registry, made on first use from the servers `user` saved.
     pub(crate) async fn get(&self, user: &Weak<User>) -> Arc<McpRegistry> {
         let mut current = self.current.lock().await;
+
         if let Some(registry) = current.as_ref() {
             return registry.clone();
         }
+
         let provider = Arc::new(StoreProvider {
             user: user.clone(),
             url: self.url.get().cloned(),
@@ -150,6 +153,7 @@ impl McpSlot {
     /// Forgets `stale` unless a newer registry already replaced it.
     pub(crate) async fn discard(&self, stale: &Arc<McpRegistry>) {
         let mut current = self.current.lock().await;
+
         if current
             .as_ref()
             .is_some_and(|registry| Arc::ptr_eq(registry, stale))
@@ -230,9 +234,11 @@ pub(crate) fn preset(name: &str) -> Option<McpServerConfig> {
 pub fn check_redirect(redirect_uri: &str) -> Result<()> {
     let url = Url::parse(redirect_uri)?;
     let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+
     if url.scheme() != "http" || !loopback || url.port().is_none() {
         bail!("redirect must be http on a loopback address with a port");
     }
+
     Ok(())
 }
 
@@ -256,6 +262,7 @@ impl McpConfigProvider for StoreProvider {
     /// Servers the user finished connecting. Half-started flows are left out.
     async fn list_configs(&self) -> Result<Vec<McpServerConfig>> {
         let mut configs = Vec::new();
+
         for row in self.user()?.mcp_servers().await? {
             let (Some(mut config), Some(credentials)) = (preset(&row.name), row.credentials) else {
                 continue;
@@ -269,6 +276,7 @@ impl McpConfigProvider for StoreProvider {
             }
             configs.push(config);
         }
+
         Ok(configs)
     }
 
@@ -277,6 +285,7 @@ impl McpConfigProvider for StoreProvider {
         if preset(&config.name).is_none() {
             bail!("unknown MCP server");
         }
+
         let mut config = config.clone();
         config.credentials = None;
         config.bearer_token = None;
@@ -358,16 +367,19 @@ pub(crate) fn app_tools(
         return Vec::new();
     };
     let mut tools: Vec<Arc<dyn Tool>> = Vec::new();
+
     for &(name, _) in FASTMAIL_TOOLS {
         let Some(def) = defs.iter().find(|def| def.name == name) else {
             continue;
         };
         let mut description = describe(name, def.description.as_deref().unwrap_or_default());
         let mut schema = def.input_schema.clone();
+
         if accounts.len() > 1 {
             add_account_arg(&mut schema, accounts);
             description.push_str(" Pass `account` to pick the Fastmail account; IDs from one account only work in that account.");
         }
+
         tools.push(Arc::new(AppTool {
             slot: slot.clone(),
             registry: registry.clone(),
@@ -378,6 +390,7 @@ pub(crate) fn app_tools(
             schema,
         }));
     }
+
     tools
 }
 
@@ -392,9 +405,11 @@ fn add_account_arg(schema: &mut Value, accounts: &[FastmailAccount]) {
             labels.first().copied().unwrap_or_default()
         ),
     });
+
     if !schema.is_object() {
         *schema = json!({"type": "object"});
     }
+
     let Some(object) = schema.as_object_mut() else {
         return;
     };
@@ -420,9 +435,11 @@ impl Tool for AppTool {
 
     async fn execute(&self, ctx: ToolContext<'_>) -> anyhow::Result<ToolResult> {
         let mut args = drop_empty(ctx.args);
+
         if self.tool == "search_email" {
             fix_query(&mut args);
         }
+
         let wanted = take_account(&mut args);
         let account = match pick_account(&self.accounts, wanted.as_deref()) {
             Ok(account) => account,
@@ -434,6 +451,7 @@ impl Tool for AppTool {
         } else {
             String::new()
         };
+
         match self
             .slot
             .call(&self.registry, &account.name, self.tool, args)
@@ -468,10 +486,13 @@ impl Tool for AppTool {
 
     fn humanize(&self, args: &Value) -> String {
         let tool = self.tool.replace('_', " ");
+
         if self.accounts.len() < 2 {
             return format!("Fastmail: {tool}");
         }
+
         let wanted = args.get(ACCOUNT).and_then(Value::as_str);
+
         match pick_account(&self.accounts, wanted) {
             Ok(account) => format!("Fastmail ({}): {tool}", account.label()),
             Err(_) => format!("Fastmail: {tool}"),

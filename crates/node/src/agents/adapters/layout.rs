@@ -70,9 +70,11 @@ pub(crate) fn installed(node_dir: &Path, known: &Known) -> Option<Installed> {
     };
     let root = root(node_dir);
     let node = node_program(&node_root(&root), env::consts::OS);
+
     if !node.is_file() {
         return None;
     }
+
     let script = script_in(&prefix(&root, known.name), package, bin)?;
     Some(Installed { node, script })
 }

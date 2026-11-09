@@ -114,6 +114,7 @@ async fn history_subscription_pushes_the_first_committed_file_without_polling() 
     std::fs::write(root.path().join("example.txt"), "first file").unwrap();
     git(root.path(), &["add", "example.txt"]).await;
     git(root.path(), &["commit", "-m", "second"]).await;
+
     loop {
         let next = projection(&mut rx, 7).await;
         let next =
@@ -152,6 +153,7 @@ async fn linked_worktree_metadata_pushes_an_empty_commit_without_checkout_writes
         &["commit", "--allow-empty", "-m", "metadata only"],
     )
     .await;
+
     loop {
         let next = projection(&mut rx, 7).await;
         let next =

@@ -347,6 +347,7 @@ fn unreadable_visibility_is_public() {
         parse_visibility(&forgejo(), r#"{"private":false}"#),
         Visibility::Public
     );
+
     for out in ["", "not json", "{}", "[]"] {
         assert_eq!(
             parse_visibility(&github(), out),

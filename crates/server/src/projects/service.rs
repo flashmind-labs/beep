@@ -148,6 +148,7 @@ impl Projects {
     /// Starts the schedule's runner, once.
     pub(crate) fn start_timer(&self, app: &Arc<App>) {
         let mut timer = lock(&self.timer);
+
         if timer.is_none() {
             let task = tokio::spawn(schedule::run(Arc::downgrade(app), self.armed.clone()));
             *timer = Some(AbortOnDropHandle::new(task));
@@ -166,6 +167,7 @@ impl Projects {
                 _task: AbortOnDropHandle::new(task),
             }
         });
+
         match jobs.queue.try_send(job) {
             Ok(()) => true,
             Err(error) => {
@@ -195,6 +197,7 @@ impl Projects {
                 true
             }
         };
+
         if !queued {
             self.arm(due, now + DROPPED_RETRY);
         }
@@ -206,6 +209,7 @@ impl Projects {
             let mut waiting = lock(&self.worker_jobs);
             let first = !waiting.contains_key(&worker);
             let jobs = waiting.entry(worker).or_default();
+
             if jobs.len() >= WORKER_JOBS {
                 log::warn!(
                     "projects: dropped a {} job, too many waiting for its worker",
@@ -213,9 +217,11 @@ impl Projects {
                 );
                 return;
             }
+
             jobs.push_back(job);
             first
         };
+
         if first && !self.spawn_worker(app, worker) {
             self.arm(Due::Worker(worker), Utc::now() + DROPPED_RETRY);
         }
@@ -236,9 +242,11 @@ impl Projects {
     fn next_for(&self, worker: WorkerId) -> Option<Job> {
         let mut waiting = lock(&self.worker_jobs);
         let job = waiting.get_mut(&worker)?.pop_front();
+
         if job.is_none() {
             waiting.remove(&worker);
         }
+
         job
     }
 
@@ -275,6 +283,7 @@ impl Projects {
     ) -> bool {
         let mut done = {
             let mut mirrors = lock(&self.mirrors);
+
             match mirrors.get(&project) {
                 Some(running) if !*running.done.borrow() => running.done.clone(),
                 _ => {
@@ -315,6 +324,7 @@ impl Projects {
 async fn run_worker(app: &Arc<App>, worker: WorkerId) {
     while let Some(job) = app.projects.next_for(worker) {
         let kind = job.kind;
+
         match AssertUnwindSafe((job.run)(app.clone()))
             .catch_unwind()
             .await
@@ -335,11 +345,13 @@ async fn deliver(
     text: String,
 ) -> Result<()> {
     let deadline = Instant::now() + POST_PATIENCE;
+
     loop {
         // Registered before trying, so a turn ending in between still wakes it.
         let ended = app.subagents.turn_ended.notified();
         tokio::pin!(ended);
         ended.as_mut().enable();
+
         match app
             .submit(user, posted_message(chat, label, text.clone()))
             .await?
@@ -348,6 +360,7 @@ async fn deliver(
             CreateRun::Conflict => bail!("chat {chat} stayed busy; the report was dropped"),
             CreateRun::Created(_) | CreateRun::Existing(_) => return Ok(()),
         }
+
         tokio::select! {
             () = ended => {}
             () = sleep(POST_RETRY) => {}
@@ -382,6 +395,7 @@ fn posted_message(chat: Uuid, label: &str, text: String) -> Message {
 /// Runs the jobs, at most [`JOBS_RUNNING`] at once.
 async fn run_jobs(app: Weak<App>, mut waiting: mpsc::Receiver<Job>) {
     let mut running = JoinSet::new();
+
     loop {
         tokio::select! {
             job = waiting.recv(), if running.len() < JOBS_RUNNING => {

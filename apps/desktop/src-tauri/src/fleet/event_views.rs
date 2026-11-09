@@ -59,11 +59,13 @@ pub(crate) fn changed(app: AppHandle, topic: Topic) {
     let views = app.state::<Views>();
     let events = app.state::<Events>();
     let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
+
     for &name in affected(topic.name()) {
         if events.controller_wanted(&Topic::new(name)) {
             pending.topics.insert(name);
         }
     }
+
     start(&app, &views, pending);
 }
 
@@ -71,6 +73,7 @@ pub(crate) fn changed(app: AppHandle, topic: Topic) {
 pub(crate) fn failed(app: &AppHandle, topic: &Topic, reason: &str) {
     let machine = app.state::<Arc<Fleet>>().id();
     let events = app.state::<Events>();
+
     for &name in affected(topic.name()) {
         let views: Vec<_> = commands(name)
             .iter()
@@ -99,6 +102,7 @@ pub(crate) fn project_changed(app: AppHandle, mut row: crate::projects::live::Li
     {
         return;
     }
+
     let views = app.state::<Views>();
     let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(previous) = pending.projects.get(&row.project_id) {
@@ -107,6 +111,7 @@ pub(crate) fn project_changed(app: AppHandle, mut row: crate::projects::live::Li
     } else if pending.projects.len() >= 128 {
         return;
     }
+
     pending.projects.insert(row.project_id, row);
     start(&app, &views, pending);
 }
@@ -115,6 +120,7 @@ fn start(app: &AppHandle, views: &Views, mut pending: std::sync::MutexGuard<'_, 
     if pending.running || (pending.topics.is_empty() && pending.projects.is_empty()) {
         return;
     }
+
     pending.running = true;
     let task_app = app.clone();
     *views.task.lock().unwrap_or_else(PoisonError::into_inner) =
@@ -143,6 +149,7 @@ async fn render(app: AppHandle) {
         let (names, projects) = {
             let views = app.state::<Views>();
             let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
+
             if pending.topics.is_empty() && pending.projects.is_empty() {
                 pending.running = false;
                 return;
@@ -152,18 +159,23 @@ async fn render(app: AppHandle) {
                 std::mem::take(&mut pending.projects),
             )
         };
+
         for name in names {
             let topic = Topic::new(name);
+
             if !app.state::<Events>().controller_wanted(&topic) {
                 continue;
             }
+
             let data = snapshot(&app, name).await;
+
             if !data.is_empty() {
                 let machine = app.state::<Arc<Fleet>>().id();
                 app.state::<Events>()
                     .publish_views(machine, topic, json!({ "views": data }));
             }
         }
+
         for (_, row) in projects {
             crate::projects::live::emit_snapshot(&app, row).await;
         }
@@ -215,6 +227,7 @@ fn append<T: Serialize>(views: &mut Vec<View>, command: &'static str, result: Re
 
 async fn snapshot(app: &AppHandle, name: &str) -> Vec<View> {
     let mut views = Vec::new();
+
     match name {
         "home" => append(
             &mut views,
@@ -277,6 +290,7 @@ async fn snapshot(app: &AppHandle, name: &str) -> Vec<View> {
         ),
         _ => {}
     }
+
     views
 }
 

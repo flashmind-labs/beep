@@ -64,12 +64,14 @@ impl Tool for SendFileTool {
             },
             "additionalProperties": false
         });
+
         if self.paper {
             schema["properties"]["paper"] = json!({
                 "type": "boolean",
                 "description": "true to send this research's paper as a PDF"
             });
         }
+
         schema
     }
     fn humanize(&self, args: &Value) -> String {
@@ -117,9 +119,11 @@ impl SendFileTool {
                 ));
             }
         };
+
         if loaded.data.is_empty() {
             return Ok(ToolResult::failure(ctx.tool_call_id, "The file is empty."));
         }
+
         let name = arg("filename")
             .map(clean_name)
             .unwrap_or_else(|| clean_name(&loaded.name));
@@ -156,6 +160,7 @@ impl SendFileTool {
                 if !url.starts_with("https://") {
                     bail!("only https URLs are allowed");
                 }
+
                 let fetched = fetch::fetch_public(url).await?;
                 Ok(Loaded {
                     name: fetched.name,
@@ -199,6 +204,7 @@ pub(crate) async fn fastmail_attachment(
     if attachment.data.len() as u64 > fetch::MAX_DOWNLOAD {
         bail!("the file is larger than {} MiB", fetch::MAX_DOWNLOAD >> 20);
     }
+
     Ok(attachment)
 }
 
@@ -213,6 +219,7 @@ pub(crate) struct Attachment {
 /// The file in Fastmail's `read_attachment` result: a file block, or JSON text.
 fn attachment_in(result: McpToolCallResult) -> Option<Attachment> {
     let mut text = String::new();
+
     for content in result.content {
         match content {
             McpContent::Blob(blob) => {
@@ -225,6 +232,7 @@ fn attachment_in(result: McpToolCallResult) -> Option<Attachment> {
             McpContent::Text(part) | McpContent::Other(part) => text.push_str(&part),
         }
     }
+
     let Value::Object(fields) = serde_json::from_str(&text).ok()? else {
         return None;
     };
@@ -257,6 +265,7 @@ fn mime_for(name: &str, data: &[u8]) -> &'static str {
     if data.starts_with(b"%PDF") {
         return "application/pdf";
     }
+
     let extension = name
         .rsplit_once('.')
         .map(|(_, ext)| ext.to_ascii_lowercase())

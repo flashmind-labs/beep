@@ -77,12 +77,15 @@ pub(super) fn activate(
         if !tagged(entry, SAVED) {
             return true;
         }
+
         if !matches_current(entry, &rows, today) {
             return false;
         }
+
         if !id(entry).is_some_and(|id| seen.insert(id.to_owned())) {
             return false;
         }
+
         set_tag(entry, ACTIVE);
         active.push(entry.clone());
         true
@@ -104,15 +107,19 @@ pub(super) fn select(found: Vec<Scored>, present: &[ConversationEntry]) -> Vec<C
     let mut ids: HashSet<String> = present.iter().filter_map(id).map(str::to_owned).collect();
     let mut remaining = MAX_CHARS;
     let mut selected = Vec::new();
+
     for found in found {
         if selected.len() == MAX_HITS {
             break;
         }
+
         if !ids.insert(found.row.id.clone()) {
             continue;
         }
+
         let text = content(&found.row);
         let size = text.chars().count();
+
         if size > remaining {
             continue;
         }
@@ -124,6 +131,7 @@ pub(super) fn select(found: Vec<Scored>, present: &[ConversationEntry]) -> Vec<C
             f64::from(cosine),
         ));
     }
+
     selected
 }
 
@@ -139,9 +147,11 @@ pub(crate) fn restore(chat: &mut Conversation, entries: &[ConversationEntry], sa
         let Some(id) = id(entry) else {
             continue;
         };
+
         if !ids.insert(id.to_owned()) {
             continue;
         }
+
         let mut entry = entry.clone();
         set_tag(&mut entry, if saved { SAVED } else { ACTIVE });
         let at = chat

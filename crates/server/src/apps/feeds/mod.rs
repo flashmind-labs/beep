@@ -49,6 +49,7 @@ async fn sync_feed(app: &App, decision: &DecisionTool, user: &User, feed: Feed, 
         log::debug!("feeds: {slug} already syncing; user={user}");
         return;
     };
+
     match user.feed_synced_recently(feed, every).await {
         Ok(true) => {
             log::debug!("feeds: {slug} synced recently; user={user}");
@@ -60,6 +61,7 @@ async fn sync_feed(app: &App, decision: &DecisionTool, user: &User, feed: Feed, 
             return;
         }
     }
+
     log::info!("feeds: syncing {slug}; user={user}");
     let outcome = match feed {
         Feed::Mail(mailbox) => mail::sync(app, decision, user, mailbox)
@@ -69,12 +71,15 @@ async fn sync_feed(app: &App, decision: &DecisionTool, user: &User, feed: Feed, 
             .await
             .map(|outcome| outcome.to_string()),
     };
+
     match outcome {
         Ok(outcome) => {
             log::info!("feeds: synced {slug}; user={user} {outcome}");
+
             if let Err(error) = user.mark_feed_synced(feed).await {
                 log::warn!("feeds: unable to save sync state: {error:#}");
             }
+
             if matches!(feed, Feed::Mail(_)) {
                 digest::offer(user).await;
             }

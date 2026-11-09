@@ -50,6 +50,7 @@ function takeMessage(input: HTMLTextAreaElement | null): Waiting | null {
     agentAttachError(`Wait for ${MN.uploads[0].name} to upload`);
     return null;
   }
+
   // Copies: what is attached next must not join this message.
   const typed = composeMessage(input?.value ?? ""), images = AG.att.slice();
   if (!typed && !images.length && !MN.paths.length) return null;
@@ -80,14 +81,17 @@ export async function editQueued(i: number, edit: boolean) {
   if (!q || q.state === "delivered") return;
   AG.queue.splice(i, 1);
   drawAgentBody();
+
   if (q.how === "steer" && q.state === "sent") {
     if (!await steerAgent({ drop_steers: null })) {
       if (isOpen(o)) { AG.queue.splice(i, 0, q); drawAgentBody(); }
       return;
     }
+
     if (!isOpen(o)) return;
     for (const other of AG.queue.filter(x => x.how === "steer" && x.state === "sent")) await sendSteer(other);
   }
+
   if (edit) backInField(q);
   drawQueue();
   redrawAgentHints();
@@ -109,6 +113,7 @@ async function sendSteer(q: Waiting, back = true) {
   drawAgentBody();
   if (q.images.length) keepAgentPics(o, q.images);
   const ok = await steerAgent({ steer: outgoing(q.text, q.images) });
+
   if (ok) {
     q.state = "sent";
     q.after = AG.polls;
@@ -118,6 +123,7 @@ async function sendSteer(q: Waiting, back = true) {
     if (at >= 0) queue.splice(at, 1);
     if (back && AG.queue === queue && isOpen(AG.open)) backInField(q);
   }
+
   if (AG.queue === queue && isOpen(AG.open)) drawAgentBody();
   return ok;
 }
@@ -144,6 +150,7 @@ export async function answerAgentQuestion(i: number) {
   if (!q || !opt || AG.answering === q.id) return;
   AG.answering = q.id;
   drawAgentBody();
+
   try {
     await invoke("center_answer_agent", { ...where(o), question: q.id, reply: opt.id });
     if (isOpen(o) && AG.page!.session.question?.id === q.id) {
@@ -156,6 +163,7 @@ export async function answerAgentQuestion(i: number) {
     if (!conflict && AG.answering === q.id) AG.answering = null;
     if (isOpen(o)) AG.note = conflict ? "" : String(e);
   }
+
   if (isOpen(o)) { drawAgentBody(); resumeAgent(); }
 }
 /// The first option of the open question that allows, or that does not.
@@ -176,9 +184,11 @@ export async function steerAgent(steer: Steer) {
   const message = "prompt" in steer ? steer.prompt : "steer" in steer ? steer.steer : null;
   const until = Date.now() + HOLD_MS, queued = AG.page?.queued ?? 0;
   let failed = await sendOnce(o, steer);
+
   if (message && failed && failed.kind !== "failed") {
     AG.held++;
     if (isOpen(o)) drawAgentBody();
+
     while (failed && failed.kind !== "failed" && Date.now() < until && AG.open === o) {
       await new Promise(r => setTimeout(r, HOLD_RETRY_MS));
       if (failed.kind === "lost") { failed = await sendOnce(o, steer); continue; }
@@ -187,8 +197,10 @@ export async function steerAgent(steer: Steer) {
       else if (took === false) failed = await sendOnce(o, steer);
       else if (took.kind === "failed") failed = took;
     }
+
     if (AG.open === o) AG.held--;
   }
+
   if (isOpen(o)) { AG.note = failed?.message ?? ""; drawAgentBody(); resumeAgent(); }
   return !failed;
 }
@@ -231,11 +243,13 @@ export async function sendAgentMessage() {
 async function sendMessage(input: HTMLTextAreaElement, text: string, images: Attached[], draft?: Draft) {
   const o = AG.open!, page = AG.page!;
   input.value = "";
+
   if (images.length) {
     AG.att = [];
     drawAgentAttached();
     keepAgentPics(o, images);
   }
+
   const mine = { kind: "user", text: [text, ...images.map(a => `[image: ${a.name}]`)].filter(Boolean).join("\n") };
   page.entries.push(mine);
   drawAgentBody();
@@ -260,6 +274,7 @@ export async function sendReview(text: string) {
   const o = AG.open, page = AG.page;
   if (!o || !page) return "No session is open.";
   let ok: boolean;
+
   if (page.session.status === "ended") {
     const input = $<HTMLTextAreaElement>("#agmsg");
     if (!input) return "This session cannot be continued from here.";
@@ -275,12 +290,14 @@ export async function sendReview(text: string) {
     page.entries.push(mine);
     drawAgentBody();
     ok = await steerAgent({ prompt: outgoing(text, []) });
+
     if (!ok) {
       const at = page.entries.indexOf(mine);
       if (at >= 0) page.entries.splice(at, 1);
       drawAgentBody();
     }
   }
+
   return ok ? "" : AG.note || "Could not send the review.";
 }
 
@@ -293,6 +310,7 @@ export async function continueAgent(input: HTMLTextAreaElement, text: string, im
   AG.note = "";
   if (!images.length) AG.page!.entries.push({ kind: "user", text });
   drawAgentBody();
+
   try {
     const started = await invoke<Started>("agent_resume", { ...where(o), prompt: images.length ? null : text }, AGENT_SEND_WAIT_MS);
     if (!isOpen(o)) return true;

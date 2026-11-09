@@ -110,3 +110,64 @@ fn a_machine_is_named_as_list_machines_names_it() {
     assert!(named(&target, &target.id.to_string()));
     assert!(!named(&target, "gpu-box"));
 }
+
+#[tokio::test]
+async fn metric_periods_accept_human_durations_and_enforce_retention() {
+    let (peers, _offers, _dir) = node("").await;
+
+    for period in ["1h", "4h", "1d", "7d", "1w", "1.5h", "1h 30m"] {
+        assert!(
+            metrics(
+                &peers,
+                MetricsArgs {
+                    machine: None,
+                    period: Some(period.to_owned())
+                }
+            )
+            .await
+            .is_ok(),
+            "{period}"
+        );
+    }
+
+    for period in [
+        "",
+        "0h",
+        "8d",
+        "7d 1ns",
+        "-1h",
+        "1",
+        "1ms",
+        "999999999999999999d",
+        "日",
+    ] {
+        assert!(
+            metrics(
+                &peers,
+                MetricsArgs {
+                    machine: None,
+                    period: Some(period.to_owned())
+                }
+            )
+            .await
+            .is_err(),
+            "{period}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn metrics_tool_reads_retained_snapshots_and_rejects_invalid_periods() {
+    let (_peers, offers, dir) = node("").await;
+    let stamp = now() - 60;
+    std::fs::write(dir.path().join("metrics.log"), format!(
+        "# snapshot unix_seconds={stamp}\n# TYPE actions_total counter\nactions_total 3\n# end snapshot\n"
+    )).unwrap();
+    let (summary, failed) =
+        text(call(&offers, &request(Tool::BeepMetrics, r#"{"period":"4h"}"#)).await);
+    assert!(!failed, "{summary}");
+    assert!(summary.contains("1 complete snapshots"), "{summary}");
+    assert!(summary.contains("actions_total"));
+    let (_, failed) = text(call(&offers, &request(Tool::BeepMetrics, r#"{"period":"8d"}"#)).await);
+    assert!(failed);
+}

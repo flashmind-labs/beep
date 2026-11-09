@@ -51,9 +51,11 @@ async fn no_tool_that_sets_up_routines_is_left() {
     register_tools(&mut registry, store, "user", "session", None);
     assert!(registry.contains("cron_create"));
     remove_changing_tools(&mut registry);
+
     for name in CHANGING_TOOLS {
         assert!(!registry.contains(name), "{name} is gone");
     }
+
     assert!(registry.contains("cron_list"), "reading routines stays");
 }
 

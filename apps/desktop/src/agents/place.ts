@@ -16,7 +16,13 @@ const IN_FLIGHT = 4;
 /// The most answers kept.
 const KEPT = 500;
 
-const known = new Map<string, { place: WorkPlace | null; at: number }>();
+interface KnownPlace {
+  place: WorkPlace | null;
+  at: number;
+  failures: number;
+  retryAt: number;
+}
+const known = new Map<string, KnownPlace>();
 const waiting = new Map<string, PlaceAsk>();
 const asking = new Set<string>();
 const listeners = new Set<() => void>();
@@ -32,9 +38,11 @@ export function onPlaces(redraw: () => void) {
 export function placeOf(r: PlaceAsk, maxAge = STALE_MS) {
   const key = placeKey(r);
   const got = known.get(key);
-  if (!got || Date.now() - got.at > maxAge) {
+
+  if (!got || (Date.now() - got.at > maxAge && Date.now() >= got.retryAt)) {
     if (!asking.has(key) && !waiting.has(key)) { waiting.set(key, r); pump(); }
   }
+
   return got?.place ?? null;
 }
 
@@ -51,7 +59,9 @@ function pump() {
         // A read that failed keeps the place known, so views do not switch away and back.
         const place = failed ? before?.place ?? null : read;
         if (known.size >= KEPT) known.clear();
-        known.set(key, { place, at: Date.now() });
+        const failures = failed ? Math.min((before?.failures ?? 0) + 1, 5) : 0;
+        const retryAt = failed ? Date.now() + Math.min(300_000, STALE_MS * 2 ** (failures - 1)) : 0;
+        known.set(key, { place, at: Date.now(), failures, retryAt });
         if (JSON.stringify(before?.place ?? null) !== JSON.stringify(place)) changed();
         pump();
       });

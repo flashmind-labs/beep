@@ -92,6 +92,7 @@ impl Settings {
         if AgentSlug::FLSH != kind.name.as_str() {
             return Ok(());
         }
+
         let Some(flsh) = lock(&self.0).flsh.clone() else {
             return Ok(());
         };
@@ -141,10 +142,12 @@ fn configure(kind: &AgentKind, config: &HarnessConfig) -> AgentKind {
     kind.default_model.clone_from(&config.default_model);
     kind.compact = config.compact;
     kind.compact_models.clone_from(&config.compact_models);
+
     for var in &config.env {
         kind.env
             .insert(var.name.clone(), var.value.expose().to_owned());
     }
+
     kind
 }
 
@@ -154,6 +157,7 @@ fn expand_home(path: &str) -> String {
         Some(rest) if rest.is_empty() || rest.starts_with('/') || rest.starts_with('\\') => rest,
         _ => return path.to_owned(),
     };
+
     match dirs::home_dir() {
         Some(home) => format!("{}{rest}", home.display()),
         None => path.to_owned(),
@@ -187,6 +191,7 @@ impl Latest {
         if find("npm").is_none() {
             return install::Npm::default();
         }
+
         let global = self
             .npm_global
             .get_or_init(|| async {
@@ -216,6 +221,7 @@ impl Latest {
             let found = lock(&self.found);
             let fresh = found.at.is_some_and(|at| at.elapsed() < LATEST_FOR);
             let all = packages.iter().all(|p| found.versions.contains_key(p));
+
             if !refresh && fresh && all {
                 return (found.versions.clone(), found.checked_at);
             }
@@ -245,11 +251,13 @@ impl Latest {
         }))
         .await;
         let mut found = lock(&self.found);
+
         for (package, version) in looked {
             if let Some(version) = version {
                 found.versions.insert(package, version);
             }
         }
+
         found.at = Some(Instant::now());
         found.checked_at = unix_now();
         (found.versions.clone(), found.checked_at)
@@ -478,12 +486,14 @@ async fn sign_in(agent: &str, cli: &std::path::Path, kind: &AgentKind) -> SignIn
     let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&out.stderr));
     let mut read = read_sign_in(agent, out.status.success(), &text);
+
     if agent == "claude"
         && read.signed_in == Some(false)
         && crate::machine::env::claude_in_keychain().await
     {
         read.signed_in = Some(true);
     }
+
     read
 }
 

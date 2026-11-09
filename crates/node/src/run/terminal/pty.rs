@@ -50,6 +50,7 @@ fn shell_command(command: Option<&str>) -> (String, CommandBuilder) {
         let program = "powershell.exe";
         let mut builder = CommandBuilder::new(program);
         builder.arg("-NoLogo");
+
         if let Some(command) = command {
             builder.args(["-Command", command]);
         }
@@ -69,6 +70,7 @@ fn shell_command(command: Option<&str>) -> (String, CommandBuilder) {
         let mut builder = CommandBuilder::new(&program);
         // A login shell reads the profile, as a terminal app's would.
         builder.arg("-l");
+
         if let Some(command) = command {
             builder.args(["-c", command]);
         }
@@ -89,11 +91,14 @@ impl Terminals {
         let command = command.map(str::trim).filter(|command| !command.is_empty());
         let (program, mut builder) = shell_command(command);
         let cwd = cwd.map(PathBuf::from).or_else(dirs::home_dir);
+
         if let Some(cwd) = &cwd {
             builder.cwd(cwd);
         }
+
         builder.env("TERM", "xterm-256color");
         builder.env("COLORTERM", "truecolor");
+
         match &*lock(&self.env) {
             Some(env) => {
                 for var in env {
@@ -106,6 +111,7 @@ impl Terminals {
                 }
             }
         }
+
         let pair = native_pty_system()
             .openpty(pty_size(size))
             .context("opening a pseudo-terminal")?;
@@ -183,6 +189,7 @@ fn spawn_thread(name: &str, run: impl FnOnce() + Send + 'static) -> Result<()> {
 /// Keeps the terminal's output until it closes.
 fn read_output(live: &Live, mut reader: Box<dyn Read + Send>, drained: &std_mpsc::SyncSender<()>) {
     let mut buf = vec![0; READ_SIZE];
+
     loop {
         match reader.read(&mut buf) {
             Ok(0) => break,
@@ -227,6 +234,7 @@ fn wait_exit(
     if drained.recv_timeout(DRAIN_WAIT).is_err() {
         log::debug!("terminal {} ended with its output still open", live.id);
     }
+
     let state = if live.stopping.load(Ordering::Acquire) {
         TaskState::Stopped
     } else {

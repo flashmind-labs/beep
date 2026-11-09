@@ -60,6 +60,7 @@ pub async fn sweep(
         .map(|status| (status.device.id, status.online))
         .collect();
     let mut removed = Vec::new();
+
     for id in leftovers.step(&online, now) {
         if mesh.remove_temporary(id).await?
             && let Some(status) = devices.iter().find(|status| status.device.id == id)
@@ -67,6 +68,7 @@ pub async fn sweep(
             removed.push(status.device.clone());
         }
     }
+
     Ok(removed)
 }
 

@@ -109,6 +109,7 @@ impl RollingFile {
         {
             fs::create_dir_all(folder).with_context(|| format!("creating {}", folder.display()))?;
         }
+
         let today = day(SystemTime::now());
         let mut rolling = Self {
             current: path.to_owned(),
@@ -125,11 +126,13 @@ impl RollingFile {
             .map(day);
         if let Some(written) = written.filter(|&written| written < today) {
             let file = rolling.roll(written)?;
+
             match rolling.open.get_mut() {
                 Ok(open) => open.file = file,
                 Err(poisoned) => poisoned.into_inner().file = file,
             }
         }
+
         Ok(rolling)
     }
 
@@ -168,9 +171,11 @@ impl RollingFile {
             .collect();
         dated.sort();
         let extra = dated.len().saturating_sub(self.keep);
+
         for (_, path) in dated.into_iter().take(extra) {
             fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
         }
+
         Ok(())
     }
 
@@ -205,14 +210,17 @@ impl Write for &RollingFile {
             .lock()
             .map_err(|_| io::Error::other("the log lock is poisoned"))?;
         let today = day(SystemTime::now());
+
         if today > open.day {
             match self.roll(open.day) {
                 Ok(file) => open.file = file,
                 // Keep writing to the old file rather than lose lines.
                 Err(e) => eprintln!("rolling the log over: {e:#}"),
             }
+
             open.day = today;
         }
+
         open.file.write(buf)
     }
 

@@ -26,6 +26,7 @@ pub fn serve(app: Arc<App>, path: PathBuf) -> Result<()> {
         }
         _ => {}
     }
+
     let listener =
         UnixListener::bind(&path).with_context(|| format!("binding {}", path.display()))?;
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
@@ -67,10 +68,12 @@ async fn answer(app: &Arc<App>, stream: UnixStream) -> Result<()> {
         ]),
     };
     let lines = reply.unwrap_or_else(|error| vec![format!("error: {error:#}")]);
+
     for line in lines {
         write.write_all(line.as_bytes()).await?;
         write.write_all(b"\n").await?;
     }
+
     Ok(())
 }
 
@@ -93,8 +96,10 @@ async fn rescan(app: &Arc<App>, only: Option<&str>) -> Result<Vec<String>> {
     if users.is_empty() {
         return Ok(vec!["no such user".to_owned()]);
     }
+
     let mut lines = Vec::new();
     let mut rescanned = 0;
+
     for user in &users {
         let connected: Vec<String> = match user.apps().await {
             Ok(apps) => apps
@@ -114,13 +119,16 @@ async fn rescan(app: &Arc<App>, only: Option<&str>) -> Result<Vec<String>> {
                 continue;
             }
         };
+
         if started.is_empty() {
             continue;
         }
+
         let names: Vec<&str> = started.iter().map(|source| source.key()).collect();
         lines.push(format!("{}: {}", user.id(), names.join(", ")));
         rescanned += 1;
     }
+
     log::info!("admin: rescan started; users={rescanned}");
     lines.push(format!("rescan started for {rescanned} users"));
     Ok(lines)

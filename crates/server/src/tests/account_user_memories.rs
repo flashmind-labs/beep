@@ -115,6 +115,7 @@ async fn the_same_words_in_two_scopes_are_two_memories() {
     for row in &mut rows {
         row.core = true;
     }
+
     assert_eq!(
         memories::profile_facts(&rows, alice.today().await),
         ["gh is signed in."]
@@ -218,6 +219,7 @@ async fn curation_splits_a_memory_and_preserves_its_metadata() {
     alice.split_existing_memories(generator).await.unwrap();
     let rows = alice.memory_rows().await.unwrap();
     assert_eq!(rows.len(), 2);
+
     for content in ["The project uses Rust.", "The project runs on Linux."] {
         let row = rows.iter().find(|row| row.content == content).unwrap();
         assert_eq!(
@@ -233,6 +235,7 @@ async fn curation_splits_a_memory_and_preserves_its_metadata() {
         assert_eq!(row.category, "work");
         assert_eq!(row.source, MemorySource::Learned {});
     }
+
     assert!(alice.memory_history(&id).await.unwrap().is_empty());
 }
 
@@ -289,6 +292,7 @@ async fn curation_merges_within_one_scope_and_keeps_what_it_replaced() {
     let docker = alice.remember(on("Has Docker.")).await.unwrap().id;
     let compose = alice.remember(on("Runs Compose stacks.")).await.unwrap().id;
     let mine = alice.remember(fact("Lives in Lisbon.")).await.unwrap().id;
+
     for _ in 0..3 {
         alice
             .store
@@ -296,6 +300,7 @@ async fn curation_merges_within_one_scope_and_keeps_what_it_replaced() {
             .await
             .unwrap();
     }
+
     let needs = alice.curation_needs().await.unwrap();
     assert_eq!(needs.len(), 1);
     assert_eq!(needs[0].scope, mac);

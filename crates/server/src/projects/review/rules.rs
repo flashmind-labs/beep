@@ -15,7 +15,9 @@ pub(crate) fn merge_blocked(
     if running(shards) {
         return Some("The review is still running.".to_owned());
     }
+
     let open = open(findings).len();
+
     if open > 0 {
         return Some(format!(
             "{open} {} open: fix or dismiss {} first.",
@@ -27,6 +29,7 @@ pub(crate) fn merge_blocked(
             if open == 1 { "it" } else { "them" },
         ));
     }
+
     if let Some(files) = review.conflicts.as_ref().filter(|files| !files.is_empty()) {
         return Some(format!(
             "The branch conflicts with {} in {} {}.",
@@ -35,6 +38,7 @@ pub(crate) fn merge_blocked(
             if files.len() == 1 { "file" } else { "files" }
         ));
     }
+
     if review
         .pr
         .as_ref()
@@ -42,6 +46,7 @@ pub(crate) fn merge_blocked(
     {
         return Some("Checks fail on the pull request.".to_owned());
     }
+
     None
 }
 

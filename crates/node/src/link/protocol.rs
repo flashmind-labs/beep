@@ -1,4 +1,4 @@
-//! The protocol a host serves beside the node's own.
+//! Session protocol names and the protocols a host serves beside the node's own.
 
 use anyhow::Result;
 use beep_proto::node::{LinkRx, LinkTx};
@@ -15,3 +15,48 @@ pub trait Protocol: Send + Sync {
 
 /// One session served by a `Protocol`.
 pub type Session = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
+
+// Protocol names are only routed on machines hosting sessions.
+host! {
+    use strum::{AsRefStr, Display, EnumString};
+
+    #[derive(Debug, Clone, PartialEq, Eq, EnumString, AsRefStr, Display)]
+    pub(crate) enum SessionProtocol {
+        #[strum(serialize = "metrics/1")]
+        Metrics,
+        #[strum(serialize = "report/1")]
+        Report,
+        #[strum(serialize = "status/1")]
+        Status,
+        #[strum(serialize = "version/1")]
+        Version,
+        #[strum(serialize = "tools/1")]
+        Tools,
+        #[strum(serialize = "shell/1")]
+        Shell,
+        #[strum(serialize = "skills/1")]
+        Skills,
+        #[strum(serialize = "process/1")]
+        Tasks,
+        #[strum(serialize = "terminal/1")]
+        Terminal,
+        #[strum(serialize = "sign-in/1")]
+        SignIn,
+        #[strum(serialize = "tool-updates/1")]
+        ToolCheck,
+        #[strum(serialize = "tool-update/1")]
+        ToolUpdate,
+        #[strum(serialize = "tool-update/flsh")]
+        FlshUpdate,
+        #[strum(serialize = "events/1")]
+        Events,
+        #[strum(serialize = "agent-view/1")]
+        AgentFollow,
+        #[strum(serialize = "agent-transcripts/1")]
+        Transcripts,
+        #[strum(serialize = "agents/1")]
+        Agents,
+        #[strum(default, transparent)]
+        Other(String),
+    }
+}

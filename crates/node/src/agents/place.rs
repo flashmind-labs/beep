@@ -46,15 +46,19 @@ pub(crate) fn of_folder(dir: &Path) -> Option<WorkPlace> {
         };
         fresh.then(|| answer.place.clone())
     });
+
     if let Some(place) = kept {
         return place;
     }
+
     let found = place(&dir);
     let stamp = found.as_ref().map(stamp).unwrap_or_default();
     let mut cache = lock();
+
     if cache.len() >= MAX_KEPT {
         cache.clear();
     }
+
     cache.insert(
         dir,
         Answer {

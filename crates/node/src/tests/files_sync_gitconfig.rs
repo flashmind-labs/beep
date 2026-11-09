@@ -50,6 +50,7 @@ fn keys_that_make_git_run_a_program_are_dropped() {
         "[extensions]\n\tworktreeConfig = true\n\tobjectformat = sha999\n\trefstorage = /tmp/x\n",
         "[extensions]\n\tpartialClone = origin\n\tcompatobjectformat = sha1\n",
     ];
+
     for config in hostile {
         assert_eq!(keeps_only(config), "", "{config}");
     }
@@ -182,10 +183,12 @@ fn git_opens_a_repository_with_its_config_rewritten() {
         let source = tempfile::tempdir().expect("a temp folder");
         let mut init = vec!["init", "-q"];
         init.extend(flags);
+
         if git_ok(source.path(), &init).is_none() {
             // This git does not know the format.
             continue;
         }
+
         let config = std::fs::read(source.path().join(".git/config")).expect("a config");
         let rewritten = kept(&config);
         assert!(
@@ -198,6 +201,7 @@ fn git_opens_a_repository_with_its_config_rewritten() {
         std::fs::create_dir(copy.path().join(".git")).expect("a Git folder");
         let mut dirs = vec![source.path().join(".git")];
         let mut at = 0;
+
         while at < dirs.len() {
             for entry in std::fs::read_dir(&dirs[at]).expect("a folder") {
                 let path = entry.expect("an entry").path();
@@ -211,6 +215,7 @@ fn git_opens_a_repository_with_its_config_rewritten() {
             }
             at += 1;
         }
+
         std::fs::write(copy.path().join(".git/config"), &rewritten).expect("written");
         assert_eq!(
             git_ok(copy.path(), &["rev-parse", show]).as_deref(),

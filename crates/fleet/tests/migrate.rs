@@ -81,6 +81,7 @@ impl Server {
         if self.down.load(Ordering::Relaxed) {
             return Err(FleetError::NeedsServer);
         }
+
         Ok(())
     }
 }

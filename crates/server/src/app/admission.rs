@@ -55,6 +55,7 @@ impl App {
                 if !self.owns(instance, &account, endpoint).await? {
                     return Ok(Admission::NotInvited);
                 }
+
                 Admission::SignedIn(self.signed_in(&account, device, primary))
             }
             SignIn::Revoked => Admission::Revoked,
@@ -89,13 +90,17 @@ impl App {
         let Some(instance) = &self.instance else {
             return Ok(None);
         };
+
         if let Some(owner) = instance.owner() {
             return Ok(Some(owner));
         }
+
         let owner = self.store.instance_owner().await?;
+
         if let Some(owner) = &owner {
             instance.set_owner(owner);
         }
+
         Ok(owner)
     }
 
@@ -111,11 +116,14 @@ impl App {
             log::info!("refused a key that is not the owner's; key={endpoint}");
             return Ok(None);
         }
+
         let claimed = self.store.claim_instance_new(endpoint).await?;
+
         if let Some(SignIn::Account { account, .. }) = &claimed {
             log::info!("instance claimed; user={} key={endpoint}", account.id);
             instance.set_owner(&account.id);
         }
+
         Ok(claimed)
     }
 
@@ -129,9 +137,11 @@ impl App {
         if let Some(owner) = self.instance_owner().await? {
             return Ok(owner == account.id);
         }
+
         if instance.owner_key().is_some_and(|key| key != endpoint) {
             return Ok(false);
         }
+
         if self.store.claim_instance(&account.id, endpoint).await? {
             log::info!("instance claimed; user={} key={endpoint}", account.id);
             instance.set_owner(&account.id);

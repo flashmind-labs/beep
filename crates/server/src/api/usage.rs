@@ -102,11 +102,13 @@ fn period_models(models: &[DayModelRow], from: NaiveDate) -> Vec<ModelRow> {
         .map(|row| &row.agent)
         .collect();
     let mut by_model: BTreeMap<(&AgentSlug, &ModelId), u64> = BTreeMap::new();
+
     for row in models {
         if row.from_logs == logged.contains(&row.agent) {
             *by_model.entry((&row.agent, &row.model)).or_default() += row.tokens;
         }
     }
+
     let mut out: Vec<ModelRow> = by_model
         .into_iter()
         .map(|((agent, model), tokens)| ModelRow {
@@ -163,12 +165,14 @@ pub(super) fn limits(
 /// Today's spending by project, the most expensive first.
 fn today(spend: &[SpendRow], imports: &[ImportRow]) -> Vec<ProjectSpend> {
     let mut by_project: BTreeMap<String, Vec<&SpendRow>> = BTreeMap::new();
+
     for row in spend.iter().filter(|row| row.today) {
         by_project
             .entry(project_of(&row.endpoint, &row.cwd, imports))
             .or_default()
             .push(row);
     }
+
     let mut today: Vec<ProjectSpend> = by_project
         .into_iter()
         .map(|(project, rows)| ProjectSpend {
@@ -194,8 +198,10 @@ fn unpriced(spend: &ProjectSpend) -> u64 {
 fn total<'a>(rows: impl Iterator<Item = &'a SpendRow>) -> ProjectSpend {
     let mut cost_usd = 0.0;
     let mut tokens: BTreeMap<&AgentSlug, u64> = BTreeMap::new();
+
     for row in rows {
         cost_usd += row.cost_usd.unwrap_or(0.0);
+
         if row.unpriced_tokens > 0 {
             *tokens.entry(&row.agent).or_default() += row.unpriced_tokens;
         }
@@ -216,6 +222,7 @@ fn total<'a>(rows: impl Iterator<Item = &'a SpendRow>) -> ProjectSpend {
 /// Today's spending by harness that spent anything, most expensive first.
 fn harnesses(spend: &[SpendRow], models: &[ModelRow]) -> Vec<HarnessSpend> {
     let mut by_agent: BTreeMap<&AgentSlug, HarnessSpend> = BTreeMap::new();
+
     for row in spend.iter().filter(|row| row.today) {
         let harness = by_agent.entry(&row.agent).or_insert_with(|| HarnessSpend {
             agent: row.agent.clone(),
@@ -223,9 +230,11 @@ fn harnesses(spend: &[SpendRow], models: &[ModelRow]) -> Vec<HarnessSpend> {
             tokens: 0,
             models: Vec::new(),
         });
+
         if let Some(cost) = row.cost_usd {
             *harness.cost_usd.get_or_insert(0.0) += cost;
         }
+
         harness.tokens += row.tokens;
     }
     // Rows come the most used first.
@@ -237,6 +246,7 @@ fn harnesses(spend: &[SpendRow], models: &[ModelRow]) -> Vec<HarnessSpend> {
             });
         }
     }
+
     let mut harnesses: Vec<HarnessSpend> = by_agent
         .into_values()
         .filter(|h| h.tokens > 0 || h.cost_usd.is_some_and(|cost| cost > 0.0))

@@ -106,6 +106,7 @@ pub fn to_html(markdown: &str) -> String {
                 Event::DisplayMath(latex) => (latex, DisplayMode::Block, "$$"),
                 _ => return event,
             };
+
             match mathml(latex, display) {
                 Some(mathml) => Event::InlineHtml(mathml.into()),
                 // Show what the model wrote rather than nothing.
@@ -130,6 +131,7 @@ pub fn to_html(markdown: &str) -> String {
     for (i, cards) in rows.iter().enumerate() {
         clean = clean.replacen(&row_mark(i), &products::row(cards), 1);
     }
+
     clean
 }
 
@@ -192,6 +194,7 @@ pub fn user_html(markdown: &str) -> String {
             clean.replacen(&mark, &fold, 1)
         };
     }
+
     clean
 }
 
@@ -206,6 +209,7 @@ fn pasted_blocks(text: &str) -> (String, Vec<String>) {
     let mut out = String::with_capacity(text.len());
     let mut pastes = Vec::new();
     let mut rest = text;
+
     while let Some(at) = rest.find(OPEN) {
         let after = &rest[at + OPEN.len()..];
         let Some(id_end) = after.find("\">") else {
@@ -225,6 +229,7 @@ fn pasted_blocks(text: &str) -> (String, Vec<String>) {
         pastes.push(inner.to_owned());
         rest = &body[end + close.len()..];
     }
+
     out.push_str(rest);
     (out, pastes)
 }
@@ -245,6 +250,7 @@ fn product_rows<'a>(
     // Set while the last event out is a row mark, so the next card joins it.
     let mut open_row = false;
     let mut block: Option<(Vec<Event<'a>>, Range<usize>)> = None;
+
     for (event, range) in parsed {
         let Some((events, _)) = block.as_mut() else {
             match &event {
@@ -262,9 +268,11 @@ fn product_rows<'a>(
         };
         let end = matches!(event, Event::End(TagEnd::CodeBlock));
         events.push(event);
+
         if !end {
             continue;
         }
+
         let Some((events, range)) = block.take() else {
             continue;
         };
@@ -284,15 +292,18 @@ fn product_rows<'a>(
                 continue;
             }
         };
+
         if !open_row {
             out.push(Event::Text(CowStr::from(row_mark(rows.len()))));
             rows.push(Vec::new());
             open_row = true;
         }
+
         if let Some(row) = rows.last_mut() {
             row.push(card);
         }
     }
+
     out
 }
 
@@ -302,6 +313,7 @@ fn autolink<'a>(events: impl Iterator<Item = Event<'a>>) -> Vec<Event<'a>> {
     let mut out = Vec::new();
     let mut in_link = 0usize;
     let mut in_code = false;
+
     for event in events {
         match &event {
             Event::Start(Tag::Link { .. }) => in_link += 1,
@@ -310,10 +322,12 @@ fn autolink<'a>(events: impl Iterator<Item = Event<'a>>) -> Vec<Event<'a>> {
             Event::End(TagEnd::CodeBlock) => in_code = false,
             Event::Text(text) if in_link == 0 && !in_code => {
                 let mut rest = text.as_ref();
+
                 if find_url(rest).is_none() {
                     out.push(event);
                     continue;
                 }
+
                 while let Some(found) = find_url(rest) {
                     let url = &rest[found.clone()];
                     if found.start > 0 {
@@ -329,6 +343,7 @@ fn autolink<'a>(events: impl Iterator<Item = Event<'a>>) -> Vec<Event<'a>> {
                     out.push(Event::End(TagEnd::Link));
                     rest = &rest[found.end..];
                 }
+
                 if !rest.is_empty() {
                     out.push(Event::Text(rest.to_owned().into()));
                 }
@@ -336,8 +351,10 @@ fn autolink<'a>(events: impl Iterator<Item = Event<'a>>) -> Vec<Event<'a>> {
             }
             _ => {}
         }
+
         out.push(event);
     }
+
     out
 }
 
@@ -348,8 +365,10 @@ fn restore_ip_hosts(html: String) -> String {
     if !html.contains("://%5B") {
         return html;
     }
+
     let mut out = String::with_capacity(html.len());
     let mut rest = html.as_str();
+
     while let Some(at) = ["href=\"http://%5B", "href=\"https://%5B"]
         .iter()
         .filter_map(|open| rest.find(open).map(|at| at + open.len()))
@@ -361,12 +380,14 @@ fn restore_ip_hosts(html: String) -> String {
         rest = after;
         // Only the closing bracket of this link's host.
         let end = rest.find('"').unwrap_or(rest.len());
+
         if let Some(close) = rest[..end].find("%5D") {
             out.push_str(&rest[..close]);
             out.push(']');
             rest = &rest[close + "%5D".len()..];
         }
     }
+
     out.push_str(rest);
     out
 }
@@ -382,22 +403,27 @@ fn find_url(text: &str) -> Option<Range<usize>> {
         .find(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | '"' | '`'))
         .unwrap_or(text.len() - start);
     let mut url = &text[start..start + len];
+
     loop {
         let trimmed = url.trim_end_matches(['.', ',', ';', ':', '!', '?', '\'', '*', '_']);
         let trimmed = match trimmed.strip_suffix(')') {
             Some(inner) if inner.matches('(').count() < trimmed.matches(')').count() => inner,
             _ => trimmed,
         };
+
         if trimmed == url {
             break;
         }
         url = trimmed;
     }
+
     let scheme_only = url.ends_with("://");
+
     if scheme_only {
         let next = start + url.len();
         return find_url(&text[next..]).map(|r| r.start + next..r.end + next);
     }
+
     Some(start..start + url.len())
 }
 
@@ -425,15 +451,18 @@ impl<'a> Fence<'a> {
     fn open(line: &'a str) -> Option<Self> {
         let line = line.trim_start_matches([' ', '\t', '>']);
         let mark = *line.as_bytes().first()?;
+
         if mark != b'`' && mark != b'~' {
             return None;
         }
+
         let len = line.bytes().take_while(|&b| b == mark).count();
         let info = &line[len..];
         // A backtick fence's info string may not hold a backtick.
         if len < 3 || (mark == b'`' && info.contains('`')) {
             return None;
         }
+
         Some(Self { mark, len, info })
     }
 
@@ -451,17 +480,21 @@ impl<'a> Fence<'a> {
 fn code_span_end(text: &str, ticks: usize) -> Option<usize> {
     let bytes = text.as_bytes();
     let mut i = 0;
+
     while i < bytes.len() {
         if bytes[i] != b'`' {
             i += 1;
             continue;
         }
+
         let run = bytes[i..].iter().take_while(|&&b| b == b'`').count();
         i += run;
+
         if run == ticks {
             return Some(i);
         }
     }
+
     None
 }
 
@@ -510,18 +543,22 @@ fn dollar_delimiters(markdown: &str) -> String {
     if !markdown.contains(['$', '\\']) {
         return markdown.to_owned();
     }
+
     let mut out = String::with_capacity(markdown.len());
     let mut fenced: Option<Fence> = None;
     // Display math may span lines, so the open delimiter carries over.
     let mut open: Option<&str> = None;
+
     for line in markdown.split_inclusive('\n') {
         if let Some(fence) = &fenced {
             if fence.closed_by(line) {
                 fenced = None;
             }
+
             out.push_str(line);
             continue;
         }
+
         if open.is_none()
             && let Some(fence) = Fence::open(line)
         {
@@ -529,7 +566,9 @@ fn dollar_delimiters(markdown: &str) -> String {
             out.push_str(line);
             continue;
         }
+
         let mut rest = line;
+
         while !rest.is_empty() {
             let next = match open {
                 Some(close) => rest.find(close).map(|i| (i, close)),
@@ -544,6 +583,7 @@ fn dollar_delimiters(markdown: &str) -> String {
             };
             push_text(&mut out, &rest[..i], open.is_some());
             rest = &rest[i + token.len()..];
+
             match token {
                 "`" => {
                     // A span opened by N backticks closes at the next run of
@@ -574,6 +614,7 @@ fn dollar_delimiters(markdown: &str) -> String {
             }
         }
     }
+
     out
 }
 
@@ -594,6 +635,7 @@ fn escape_prices(out: &mut String, text: &str) {
     // Lone dollars only: `\$` is already text and `$$` is display math.
     let mut dollars = Vec::new();
     let mut i = 0;
+
     while i < bytes.len() {
         match bytes[i] {
             b'\\' => i += 1,
@@ -603,6 +645,7 @@ fn escape_prices(out: &mut String, text: &str) {
         }
         i += 1;
     }
+
     let opens = |i: usize| at(i + 1).is_some_and(|c| !c.is_ascii_whitespace());
     let closes = |i: usize| {
         i > 0
@@ -611,8 +654,10 @@ fn escape_prices(out: &mut String, text: &str) {
     };
     let mut prices = Vec::new();
     let mut k = 0;
+
     while k < dollars.len() {
         let open = dollars[k];
+
         match dollars[k + 1..].iter().position(|&d| closes(d)) {
             Some(n) if opens(open) => k += n + 2,
             _ => {
@@ -621,12 +666,15 @@ fn escape_prices(out: &mut String, text: &str) {
             }
         }
     }
+
     let mut last = 0;
+
     for p in prices {
         out.push_str(&text[last..p]);
         out.push('\\');
         last = p;
     }
+
     out.push_str(&text[last..]);
 }
 

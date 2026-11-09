@@ -60,15 +60,18 @@ impl Process {
             name.strip_prefix(h)
                 .is_some_and(|rest| rest.is_empty() || rest.starts_with('-'))
         });
+
         if harness
             || matches!(name, "chrome_crashpad_handler" | "bwrap" | "sandbox-exec")
             || name.ends_with("-acp")
         {
             return true;
         }
+
         let args: Vec<_> = words.collect();
         // Codex keeps its JavaScript and computer-use runtimes alive between calls.
         let program = program.replace('\\', "/");
+
         if name == "node_repl" && program.ends_with("/cua_node/bin/node_repl")
             || name == "node"
                 && args.iter().any(|arg| {
@@ -78,6 +81,7 @@ impl Process {
         {
             return true;
         }
+
         if args.windows(2).any(|pair| pair == ["mcp", "--session"]) {
             return true;
         }
@@ -129,8 +133,10 @@ impl Processes {
         AbortOnDropHandle::new(tokio::spawn(async move {
             let mut ticks = interval(Duration::from_secs(1));
             ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
             loop {
                 ticks.tick().await;
+
                 if let Err(e) = processes.refresh(false).await {
                     log::debug!("could not read session processes: {e:#}");
                 }
@@ -148,6 +154,7 @@ impl Processes {
         if observed.root_birth.is_none() {
             observed.root_birth = all.get(&self.root).map(|p| p.birth);
         }
+
         let root = all
             .get(&self.root)
             .filter(|p| Some(p.birth) == observed.root_birth);
@@ -165,18 +172,22 @@ impl Processes {
         }
         loop {
             let before = known.len();
+
             for p in all.values() {
                 if (p.group == self.root && group_valid) || known.contains_key(&p.parent) {
                     known.insert(p.pid, p.clone());
                 }
             }
+
             if known.len() == before {
                 break;
             }
         }
+
         if *known != before {
             crate::events::system().changed(beep_proto::node::events::Topic::new("processes"));
         }
+
         Ok(known
             .values()
             .filter(|p| p.pid != self.root)
@@ -233,11 +244,13 @@ impl Processes {
 async fn send(processes: Arc<[Process]>, kill: bool) -> anyhow::Result<()> {
     tokio::task::spawn_blocking(move || {
         let mut error = None;
+
         for p in processes.iter() {
             if let Err(e) = os::signal(p, kill) {
                 error.get_or_insert(e);
             }
         }
+
         error.map_or(Ok(()), Err)
     })
     .await??;
@@ -248,21 +261,27 @@ async fn stop(processes: &[Process]) -> anyhow::Result<()> {
     if processes.is_empty() {
         return Ok(());
     }
+
     let processes: Arc<[Process]> = processes.into();
     let result = send(processes.clone(), false).await;
     let deadline = Instant::now() + Duration::from_secs(3);
     let mut ticks = interval(Duration::from_millis(50));
+
     loop {
         let checked = processes.clone();
         let alive = tokio::task::spawn_blocking(move || checked.iter().any(os::alive)).await?;
+
         if !alive {
             return result;
         }
+
         if Instant::now() >= deadline {
             break;
         }
+
         ticks.tick().await;
     }
+
     let killed = send(processes, true).await;
     result.and(killed)
 }

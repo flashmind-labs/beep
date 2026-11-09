@@ -477,6 +477,7 @@ async fn group_eval() -> Result<()> {
 
     // An error counts as a wrong judgement; a mention has no call to judge.
     let (mut wrong, mut judged) = (0, 0);
+
     for (case, call, learn) in &results {
         let call = match call {
             Some(Ok(p)) => {
@@ -506,6 +507,7 @@ async fn group_eval() -> Result<()> {
         };
         println!("{call:<16} {learn:<14} {}", case.name);
     }
+
     println!("\n{wrong} wrong of {judged} judgements");
     Ok(())
 }

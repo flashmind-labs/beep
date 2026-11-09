@@ -17,6 +17,7 @@ pub(super) async fn list_apps(cx: Cx, _: ListApps) -> Reply<Vec<AppIntegration>>
     if !feeds.is_empty() {
         feeds::spawn_sync(&cx.app, &cx.user, feeds);
     }
+
     let connected: Vec<String> = apps
         .iter()
         .filter(|app| app.connected)

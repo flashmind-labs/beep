@@ -16,6 +16,7 @@ pub(super) fn prompt(tool: Tool, output: &str) -> Option<State> {
     let done = &text[..text.rfind('\n')?];
     let words = || done.split_whitespace();
     let url = words().find_map(|word| link(word, hosts(tool)))?;
+
     match tool {
         Tool::Claude => Some(State::Waiting {
             url,
@@ -80,6 +81,7 @@ pub(super) fn failure(name: &str, output: &str) -> String {
     if last.is_empty() {
         return format!("{name} could not sign in.");
     }
+
     let short: String = last.chars().take(REASON_CHARS).collect();
     format!("{name} could not sign in: {short}")
 }
@@ -89,6 +91,7 @@ pub(super) fn failure(name: &str, output: &str) -> String {
 pub(super) fn plain(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
+
     while let Some(c) = chars.next() {
         match c {
             '\u{1b}' => match chars.next() {
@@ -108,6 +111,7 @@ pub(super) fn plain(text: &str) -> String {
                         if c == '\u{7}' {
                             break;
                         }
+
                         if c == '\u{1b}' && chars.peek() == Some(&'\\') {
                             chars.next();
                             break;
@@ -122,6 +126,7 @@ pub(super) fn plain(text: &str) -> String {
             c => out.push(c),
         }
     }
+
     out
 }
 

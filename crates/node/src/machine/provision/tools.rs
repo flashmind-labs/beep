@@ -314,9 +314,11 @@ impl Download {
         remove_dir(&work).await?;
         tokio::fs::create_dir_all(&work).await?;
         let installed = self.install_in(bin, &work).await;
+
         if let Err(e) = remove_dir(&work).await {
             log::warn!("could not clean up {}: {e:#}", work.display());
         }
+
         installed
     }
 
@@ -377,13 +379,17 @@ pub(crate) fn verify(path: &Path, expected: &str) -> Result<()> {
     let mut file = fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut hasher = Sha256::new();
     let mut buf = [0; 64 * 1024];
+
     loop {
         let read = file.read(&mut buf)?;
+
         if read == 0 {
             break;
         }
+
         hasher.update(&buf[..read]);
     }
+
     let found = hex::encode(hasher.finalize());
     ensure!(
         found.eq_ignore_ascii_case(expected),
@@ -398,9 +404,11 @@ pub(crate) fn verify(path: &Path, expected: &str) -> Result<()> {
 pub(crate) async fn curl(url: &str, to: Option<&Path>) -> Result<Vec<u8>> {
     let mut command = Command::new("curl");
     command.args(["-fsSL", "--proto", "=https", "--retry", "2"]);
+
     if let Some(to) = to {
         command.arg("-o").arg(to);
     }
+
     let run = command
         .arg(url)
         .stdin(Stdio::null())
@@ -418,6 +426,7 @@ pub(crate) async fn curl(url: &str, to: Option<&Path>) -> Result<Vec<u8>> {
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
+
     Ok(out.stdout)
 }
 
@@ -457,6 +466,7 @@ async fn extract(archive: &Path, member: &str, into: &Path) -> Result<()> {
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
+
     Ok(())
 }
 

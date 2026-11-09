@@ -27,12 +27,14 @@ pub(in crate::agents) fn read(root: &Path, ask: &DiffAsk) -> Result<WorkDiff> {
     if !root.is_dir() {
         bail!("{} is not a folder", root.display());
     }
+
     let inside = git(root, &["rev-parse", "--is-inside-work-tree"])
         .ok()
         .is_some_and(|out| out.trim() == "true");
     if !inside {
         bail!("{} is not in a git checkout", root.display());
     }
+
     let (dir, head) = match branch_ref(&ask.head)? {
         None => (root.to_owned(), None),
         Some(branch) => match worktree_of(root, branch)? {
@@ -85,9 +87,11 @@ pub(in crate::agents) fn read(root: &Path, ask: &DiffAsk) -> Result<WorkDiff> {
     args.push("--");
     stream_git(&dir, &args, |line| parser.line(line))?;
     let working_tree = head.is_none();
+
     if working_tree {
         add_untracked(&dir, &mut parser, caps)?;
     }
+
     let parsed = parser.finish();
     Ok(WorkDiff {
         root: dir.to_string_lossy().into_owned(),
@@ -105,9 +109,11 @@ pub(in crate::agents) fn read(root: &Path, ask: &DiffAsk) -> Result<WorkDiff> {
 /// it for an option or it is not a name.
 fn branch_ref(text: &str) -> Result<Option<&str>> {
     let text = text.trim();
+
     if text.is_empty() {
         return Ok(None);
     }
+
     let bad = text.len() > MAX_REF
         || text.starts_with('-')
         || text.contains("..")
@@ -119,18 +125,22 @@ fn branch_ref(text: &str) -> Result<Option<&str>> {
     if bad {
         bail!("{text} is not a branch name");
     }
+
     Ok(Some(text))
 }
 
 /// `name` as a commit git knows here, preferring the local branch.
 fn resolve(dir: &Path, name: &str) -> Result<String> {
     let remote = format!("origin/{name}");
+
     for candidate in [name, remote.as_str()] {
         let rev = format!("{candidate}^{{commit}}");
+
         if git(dir, &["rev-parse", "--verify", "--quiet", &rev]).is_ok() {
             return Ok(candidate.to_owned());
         }
     }
+
     bail!("git knows no branch {name} here")
 }
 
@@ -159,6 +169,7 @@ fn worktree_of(root: &Path, branch: &str) -> Result<Option<PathBuf>> {
     let list = git(root, &["worktree", "list", "--porcelain"])?;
     let want = format!("branch refs/heads/{branch}");
     let mut at: Option<&str> = None;
+
     for line in list.lines() {
         if let Some(path) = line.strip_prefix("worktree ") {
             at = Some(path);
@@ -170,12 +181,14 @@ fn worktree_of(root: &Path, branch: &str) -> Result<Option<PathBuf>> {
             return Ok(Some(real));
         }
     }
+
     Ok(None)
 }
 
 /// Adds the files git does not track and does not ignore, as added files.
 fn add_untracked(dir: &Path, parser: &mut DiffParser, caps: Caps) -> Result<()> {
     let list = git(dir, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+
     for rel in list
         .split('\0')
         .filter(|rel| !rel.is_empty())
@@ -184,6 +197,7 @@ fn add_untracked(dir: &Path, parser: &mut DiffParser, caps: Caps) -> Result<()> 
         let Some(text) = untracked_text(dir, rel, caps.file_bytes)? else {
             continue;
         };
+
         match text {
             Untracked::Binary => parser.untracked(rel, 0, true),
             Untracked::Text(text) => {
@@ -198,15 +212,18 @@ fn add_untracked(dir: &Path, parser: &mut DiffParser, caps: Caps) -> Result<()> 
                 };
                 let count = u32::try_from(lines.len()).unwrap_or(u32::MAX);
                 parser.untracked(rel, count, false);
+
                 for line in &lines {
                     parser.line(&format!("+{line}"));
                 }
+
                 if !ends && !lines.is_empty() {
                     parser.line("\\ No newline at end of file");
                 }
             }
         }
     }
+
     Ok(())
 }
 
@@ -225,13 +242,16 @@ fn untracked_text(dir: &Path, rel: &str, cap: usize) -> Result<Option<Untracked>
         // Gone since git listed it.
         Err(_) => return Ok(None),
     };
+
     if meta.file_type().is_symlink() {
         let target = fs::read_link(&path).with_context(|| format!("could not read {rel}"))?;
         return Ok(Some(Untracked::Text(target.to_string_lossy().into_owned())));
     }
+
     if !meta.is_file() {
         return Ok(None);
     }
+
     let file = fs::File::open(&path).with_context(|| format!("could not open {rel}"))?;
     let mut data = Vec::new();
     file.take(u64::try_from(cap).unwrap_or(u64::MAX).saturating_add(1))
@@ -240,6 +260,7 @@ fn untracked_text(dir: &Path, rel: &str, cap: usize) -> Result<Option<Untracked>
     if data.iter().take(8_000).any(|&b| b == 0) {
         return Ok(Some(Untracked::Binary));
     }
+
     Ok(Some(Untracked::Text(
         String::from_utf8_lossy(&data).into_owned(),
     )))
@@ -270,6 +291,7 @@ pub(in crate::agents) fn git(dir: &Path, args: &[&str]) -> Result<String> {
             error_text(&out.stderr)
         );
     }
+
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
@@ -295,6 +317,7 @@ fn stream_git(dir: &Path, args: &[&str], mut each: impl FnMut(&str)) -> Result<(
     let mut buf = Vec::new();
     let read = loop {
         buf.clear();
+
         match reader.read_until(b'\n', &mut buf) {
             Ok(0) => break Ok(()),
             Ok(_) => {
@@ -307,9 +330,11 @@ fn stream_git(dir: &Path, args: &[&str], mut each: impl FnMut(&str)) -> Result<(
     let status = child.wait().context("git did not finish")?;
     let errors = errors.join().unwrap_or_default();
     read.context("could not read git's output")?;
+
     if !status.success() {
         bail!("git diff: {}", error_text(&errors));
     }
+
     Ok(())
 }
 
@@ -317,6 +342,7 @@ fn error_text(stderr: &[u8]) -> String {
     let text = String::from_utf8_lossy(stderr);
     let text = text.trim();
     let mut end = text.len().min(MAX_ERROR);
+
     while !text.is_char_boundary(end) {
         end -= 1;
     }

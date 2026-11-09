@@ -148,12 +148,15 @@ pub async fn pin_session(beep: Service<'_>, id: String, pinned: bool) -> Result<
 #[tauri::command]
 pub async fn delete_session(beep: Service<'_>, shown: State<'_, Shown>, id: String) -> Result<()> {
     beep.call(DeleteSession { id: id.clone() }).await?;
+
     if let Ok(chat) = Uuid::parse_str(&id) {
         beep.chats().forget(chat);
     }
+
     if beep.session().as_deref() == Some(id.as_str()) {
         beep.set_session(None);
     }
+
     shown.forget_session(&id);
     Ok(())
 }

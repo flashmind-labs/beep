@@ -48,16 +48,20 @@ impl Live {
         if let Some(total) = self.flsh_tokens {
             tokens.total = total.checked_sub(self.info.tokens).unwrap_or(total);
         }
+
         let cost_usd = self.unbilled.take();
+
         if tokens.total == 0 && tokens.models.is_empty() && cost_usd.is_none() {
             return;
         }
+
         self.info.tokens = self
             .flsh_tokens
             .unwrap_or_else(|| self.info.tokens.saturating_add(tokens.total));
         if let Some(cost) = cost_usd {
             *self.info.cost_usd.get_or_insert(0.0) += cost;
         }
+
         self.usage.record(TurnUsage {
             session: self.info.id.clone(),
             agent: AgentSlug::new(self.info.agent.as_str()),
@@ -87,10 +91,12 @@ impl Live {
                 amount
             };
             self.cost_seen = amount;
+
             if delta > 0.0 {
                 *self.unbilled.get_or_insert(0.0) += delta;
             }
         }
+
         if self.info.agent == "flsh"
             && let Some(total) = meta.and_then(|meta| meta.get("flsh/sessionUsage"))
             && total.get("tokens_unknown") == Some(&Value::Bool(false))
@@ -102,6 +108,7 @@ impl Live {
         {
             self.flsh_tokens = Some(tokens);
         }
+
         if self.info.agent == "flsh"
             && let Some(credits) = meta
                 .and_then(|meta| meta.get("flsh/credits"))
@@ -116,12 +123,14 @@ impl Live {
                 Some(held) => *held = credits.clone(),
                 None => self.info.credits.push(credits.clone()),
             }
+
             self.usage.update_credits(
                 &AgentSlug::new(self.info.agent.as_str()),
                 credits,
                 unix_now(),
             );
         }
+
         if let Some(info) = meta.and_then(|meta| meta.get(CLAUDE_RATE_LIMIT)) {
             self.usage
                 .update_windows(&AgentSlug::CLAUDE, claude_rate_limit(info), unix_now());
@@ -166,6 +175,7 @@ impl Live {
                 if tool.parent.is_some() || tool.subagent.as_ref().is_none_or(|sub| sub.codex) {
                     return None;
                 }
+
                 let at = usize::try_from(tool.entry.checked_sub(from)?).ok()?;
                 (at < len).then(|| (at, id.to_string()))
             })
@@ -224,6 +234,7 @@ impl Live {
                 self.prune_tools();
             }
         }
+
         self.transcript.push_back(entry);
         self.dropped + self.transcript.len() as u64 - 1
     }
@@ -233,6 +244,7 @@ impl Live {
     pub(crate) fn restore(&mut self, earlier: Vec<Entry>) {
         self.end_thought(Instant::now());
         self.in_message = false;
+
         for entry in earlier {
             self.push_whole(entry);
         }
@@ -254,6 +266,7 @@ impl Live {
         {
             self.info.title = Some(cut(line, MAX_LINE));
         }
+
         self.end_thought(Instant::now());
         self.active_at = Some(Instant::now());
         self.info.last_activity = unix_now();

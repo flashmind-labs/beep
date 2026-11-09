@@ -6,9 +6,11 @@
 pub fn pcm16_level(pcm: &[u8]) -> f32 {
     let (samples, _) = pcm.as_chunks::<2>();
     let count = samples.len();
+
     if count == 0 {
         return 0.0;
     }
+
     let sum: f64 = samples
         .iter()
         .map(|&s| {

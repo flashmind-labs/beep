@@ -71,6 +71,7 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     while let Some(request) = rx.recv::<Request>().await? {
         tx.send(&answer(request).await).await?;
     }
+
     Ok(())
 }
 
@@ -101,6 +102,7 @@ async fn answer(request: Request) -> State {
     let Some((mut state, orders)) = found else {
         return State::Idle {};
     };
+
     match order {
         // A send fails once it ended: its state says how.
         Some(Order::Answer(text)) => {
@@ -111,17 +113,20 @@ async fn answer(request: Request) -> State {
         Some(Order::Cancel) => {
             if orders.send(Order::Cancel).await.is_ok() {
                 let stopped = state.wait_for(|state| !state.running());
+
                 if timeout(STOP_GRACE * 3, stopped).await.is_err() {
                     let now = state.borrow().clone();
                     return now;
                 }
             }
+
             lock(&SIGN_INS).retain(|entry| entry.tool != tool);
             changed(tool);
             return State::Idle {};
         }
         None => {}
     }
+
     state.borrow().clone()
 }
 
@@ -146,6 +151,7 @@ fn unknown(tool: &str) -> State {
 async fn start(tool: Tool) -> State {
     let mut state = {
         let mut sign_ins = lock(&SIGN_INS);
+
         match sign_ins.iter().find(|entry| entry.tool == tool) {
             Some(entry) if entry.state.borrow().running() => entry.state.clone(),
             _ => {
@@ -169,6 +175,7 @@ async fn start(tool: Tool) -> State {
     if timeout(LINK_LIMIT + STOP_GRACE * 2, wait).await.is_err() {
         return State::Starting {};
     }
+
     state.borrow().clone()
 }
 
@@ -207,15 +214,18 @@ async fn run(
     orders: mpsc::Receiver<Order>,
 ) {
     let ended = drive(tool, program, &state, orders).await;
+
     if let Err(reason) = &ended {
         log::info!("{tool} sign-in ended: {reason}");
     }
+
     let signed_in = ended.is_ok();
     state.send_replace(match ended {
         Ok(()) => State::SignedIn {},
         Err(reason) => State::Failed { reason },
     });
     changed(tool);
+
     if signed_in {
         SIGNED_IN.send_replace(());
     }
@@ -245,12 +255,15 @@ async fn drive(
     let mut child = GroupLeader::new(child);
     let mut stdin = child.child_mut().stdin.take();
     let (output_tx, mut output) = mpsc::channel(16);
+
     if let Some(out) = child.child_mut().stdout.take() {
         tokio::spawn(pump(out, output_tx.clone()));
     }
+
     if let Some(err) = child.child_mut().stderr.take() {
         tokio::spawn(pump(err, output_tx));
     }
+
     let started = Instant::now();
     let mut seen = String::new();
     let mut shown = false;
@@ -261,13 +274,17 @@ async fn drive(
             chunk = output.recv(), if output_open => match chunk {
                 Some(chunk) => {
                     seen.push_str(&chunk);
+
                     if seen.len() > MAX_OUTPUT {
                         let mut cut = seen.len() - MAX_OUTPUT;
+
                         while !seen.is_char_boundary(cut) {
                             cut += 1;
                         }
+
                         seen.drain(..cut);
                     }
+
                     if !shown && let Some(prompt) = read::prompt(tool, &seen) {
                         shown = true;
                         state.send_replace(prompt);
@@ -324,6 +341,7 @@ async fn give(stdin: Option<&mut ChildStdin>, text: &str) -> std::io::Result<()>
 /// Sends what `from` prints, in chunks as they come, until it closes.
 async fn pump(mut from: impl AsyncRead + Unpin, to: mpsc::Sender<String>) {
     let mut buf = [0u8; 4096];
+
     loop {
         match from.read(&mut buf).await {
             Ok(0) | Err(_) => return,

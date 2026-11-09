@@ -99,6 +99,7 @@ fn a_checkout_under_the_search_folder_is_found_whatever_was_looked_at_before() {
             for one in 0..MANY {
                 fs::create_dir_all(home.join(format!("many/{one}/.git"))).expect("a checkout");
             }
+
             let full = Agents::new(Vec::new());
             full.warm(Some(home.clone()), dir.clone()).await;
             let all = found(&full).await;

@@ -39,6 +39,7 @@ pub(super) fn line(text: &str) -> Option<Line> {
     let entry: Entry = serde_json::from_str(text).ok()?;
     let payload = entry.payload?;
     let text_of = |key: &str| payload.get(key).and_then(Value::as_str).map(str::to_owned);
+
     match entry.kind.as_deref()? {
         "session_meta" => Some(Line::Session {
             id: text_of("id")?,
@@ -65,6 +66,7 @@ pub(super) fn line(text: &str) -> Option<Line> {
                 cache_write: written,
                 cache_write_long: 0,
             };
+
             if tokens.total() == 0 {
                 return None;
             }

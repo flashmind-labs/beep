@@ -94,9 +94,11 @@ impl Copies {
     /// once all look, and their miss is logged once.
     fn keep(&self, asked: Asked, copy: Option<LocalCopy>) -> bool {
         let mut known = self.known.lock().unwrap_or_else(PoisonError::into_inner);
+
         if known.len() >= MAX_KEPT {
             known.clear();
         }
+
         let first = known
             .get(&asked)
             .is_none_or(|found| found.at.elapsed() >= FRESH);
@@ -120,13 +122,17 @@ pub(crate) fn joined(root: &str, path: &str) -> String {
 /// `path` relative to `folder`, `""` for the folder itself; `None` outside it.
 fn under<'a>(path: &'a str, folder: &str) -> Option<&'a str> {
     let folder = folder.trim_end_matches('/');
+
     if folder.is_empty() {
         return None;
     }
+
     let rest = path.strip_prefix(folder)?;
+
     if rest.is_empty() {
         return Some(rest);
     }
+
     rest.strip_prefix('/')
 }
 
@@ -288,6 +294,7 @@ async fn look(
     let (mut imported, mut synced) = fleet.mesh().map(|mesh| recorded(&mesh)).unwrap_or_default();
     let here = |folder: &Path| folder.is_absolute() && folder.is_dir();
     let (machine, folder) = (machine_id.to_owned(), dir.to_owned());
+
     if holder(&machine, &folder, &imported, &synced).is_none() && beep.has_server() {
         imported = beep.call(ListImportedProjects {}).await?;
         synced = match beep.call(ListProjectSync {}).await {
@@ -295,6 +302,7 @@ async fn look(
             other => other?,
         };
     }
+
     spawn_blocking(move || find_copy(&machine, &folder, &imported, &synced, here))
         .await
         .map_err(|e| DesktopError::Other(e.into()))
@@ -309,20 +317,25 @@ async fn copy_of(beep: &Beep, fleet: &Fleet, machine_id: &str, dir: &str) -> Opt
             local: PathBuf::from(dir),
         });
     }
+
     let asked = Asked {
         machine_id: machine_id.to_owned(),
         folder: dir.to_owned(),
     };
+
     if let Some(copy) = beep.copies().kept(&asked) {
         let copy = copy?;
+
         if tokio::fs::try_exists(copy.local.join(".git"))
             .await
             .unwrap_or(true)
         {
             return None;
         }
+
         return Some(copy);
     }
+
     match look(beep, fleet, machine_id, dir).await {
         Ok(Ok(copy)) => {
             beep.copies().keep(asked, Some(copy.clone()));
@@ -332,6 +345,7 @@ async fn copy_of(beep: &Beep, fleet: &Fleet, machine_id: &str, dir: &str) -> Opt
             if beep.copies().keep(asked, None) {
                 log::info!("{dir} on {machine_id} reads from the node: {miss}");
             }
+
             None
         }
         // Not kept: the next read asks again.
@@ -405,6 +419,7 @@ pub(crate) async fn read(
     let copy = copy_of(beep, fleet, machine_id, parent(full)).await?;
     let rel = under(full, &copy.remote)?.to_owned();
     let found = spawn_blocking(move || local_read(&copy.local, &rel, offset, len)).await;
+
     match found {
         Ok(Ok(chunk)) => chunk,
         Ok(Err(e)) => {
@@ -429,9 +444,11 @@ pub(crate) async fn tree(beep: &Beep, fleet: &Fleet, ask: &ListWorkTree) -> Opti
         if !stays_inside(&copy.local, &local) {
             return Ok(None);
         }
+
         local_tree(&local, &path, ignored, depth).map(Some)
     })
     .await;
+
     match found {
         Ok(Ok(tree)) => tree,
         Ok(Err(e)) => {

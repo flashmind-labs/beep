@@ -66,10 +66,12 @@ export function route(scope: ProjectScope | null, page: Location): Route {
   if ("agentnew" in target) return "here";
   if ("draft" in target) return target.draft.project === scope.project ? "here" : "main";
   if ("agent" in target) return agentInProject(target.agent, scope.folders) ? "here" : "main";
+
   if ("chat" in target) {
     const session = target.chat.session;
     return session && scope.chatProject(session) === scope.project ? "here" : "main";
   }
+
   return "main";
 }
 
@@ -114,9 +116,11 @@ function paneTarget(target: PaneTarget): CenterTarget {
       default: return "home";
     }
   }
+
   if (!target) return "home";
   if ("chat" in target) return { chat: { session: target.chat.session } };
   if ("group" in target) return { group: { id: target.group.id } };
+
   if ("agent" in target) {
     const agent = target.agent;
     return { agent: {
@@ -126,6 +130,7 @@ function paneTarget(target: PaneTarget): CenterTarget {
       last_activity: agent.last_activity ?? 0, external: agent.external ?? false,
     } };
   }
+
   return "home";
 }
 

@@ -109,10 +109,12 @@ impl Store {
         .bind(Verdict::Inform.as_ref())
         .fetch_optional(&mut *tx)
         .await?;
+
         if found.is_none() {
             tx.rollback().await?;
             return Ok(None);
         }
+
         let existing: Option<Uuid> =
             sqlx::query_scalar("SELECT chat_id FROM update_chats WHERE triage_id=$1")
                 .bind(id)
@@ -122,10 +124,13 @@ impl Store {
             tx.commit().await?;
             return Ok(Some(UpdateChat { chat, made: false }));
         }
+
         let chat = Uuid::new_v4();
+
         if ensure_session(&mut tx, user.as_ref(), chat).await? != SessionChat::New {
             bail!("a fresh chat id was already taken");
         }
+
         sqlx::query("UPDATE chats SET title=$2, titled_at=now() WHERE id=$1")
             .bind(chat)
             .bind(seed.title)

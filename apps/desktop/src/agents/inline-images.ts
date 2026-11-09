@@ -38,6 +38,7 @@ function keep(key: string, value: Cached) {
   cache.delete(key);
   cache.set(key, value);
   cachedBytes += value.url?.length ?? 0;
+
   while (cache.size > 64 || cachedBytes > MAX_CACHE) {
     const first = cache.keys().next().value!;
     cachedBytes -= cache.get(first)?.url?.length ?? 0;
@@ -51,12 +52,14 @@ function imagePath(cwd: string, src: string) {
     if (url.hostname && url.hostname !== "localhost") throw new Error("Remote file URL");
     src = url.pathname;
   } else src = src.split(/[?#]/, 1)[0];
+
   return resolvePath(cwd, decodeURIComponent(src));
 }
 
 async function readImage(machineId: string, path: string, current: () => boolean) {
   const parts: Uint8Array<ArrayBuffer>[] = [];
   let offset = 0, size = -1, mime = "";
+
   do {
     if (!current()) return;
     const part = await invoke<FilePart>("agent_file", { machineId, path, offset });
@@ -70,6 +73,7 @@ async function readImage(machineId: string, path: string, current: () => boolean
     parts.push(Uint8Array.from(data, c => c.charCodeAt(0)));
     offset += data.length;
   } while (offset < size);
+
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
@@ -84,10 +88,13 @@ export function fillInlineImages(root: HTMLElement, session: { machine_id: strin
   clearTimeout(retry);
   refill = () => { if (root.isConnected && current()) fillInlineImages(root, session, current); };
   let wait = Infinity;
+
   for (const img of root.querySelectorAll<HTMLImageElement>("img.pic[data-file]:not([src])")) {
     let path: string;
+
     try { path = imagePath(session.cwd, img.dataset.file!); }
     catch { img.replaceWith(h(gonePic(img.alt || "Image"))); continue; }
+
     const key = JSON.stringify([session.machine_id, path]);
     const got = cache.get(key);
     if (got?.url) { keep(key, got); img.src = got.url; continue; }
@@ -105,5 +112,6 @@ export function fillInlineImages(root: HTMLElement, session: { machine_id: strin
       keep(key, { url: gone ? null : undefined, fails, until: Date.now() + retryIn(fails) });
     }).finally(() => { pending.delete(key); refill(); });
   }
+
   if (wait < Infinity) retry = setTimeout(() => refill(), wait);
 }

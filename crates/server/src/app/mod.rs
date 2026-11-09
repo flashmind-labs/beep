@@ -276,6 +276,7 @@ impl App {
         for account in self.store.accounts().await? {
             self.start_user(&account);
         }
+
         Ok(())
     }
 
@@ -290,9 +291,11 @@ impl App {
             let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
             [users.remove(source), users.remove(target)]
         };
+
         for user in old.into_iter().flatten() {
             user.stop();
         }
+
         self.start_user(&account);
         Ok(())
     }
@@ -305,9 +308,11 @@ impl App {
     fn start_user(self: &Arc<Self>, account: &Account) -> Arc<User> {
         let id = &account.id;
         let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
+
         if let Some(user) = users.get(id) {
             return user.clone();
         }
+
         let user = User::new(account, &self.shared);
         users.insert(id.clone(), user.clone());
         // `start` only spawns, so holding the lock here is fine.
@@ -365,9 +370,11 @@ impl App {
         let app = self.clone();
         tokio::spawn(async move {
             let limit = compaction::compact_at(app.provider.context_window(&model).await);
+
             if prompt_tokens < limit {
                 return;
             }
+
             compaction::compact_session(&app.store, app.provider.as_ref(), &model, &session, limit)
                 .await;
         });
@@ -376,6 +383,7 @@ impl App {
     /// Retitles sessions that changed and have gone quiet.
     pub async fn retitle_idle_sessions(&self) {
         let retitled = titles::retitle_idle(&self.store, self.provider.as_ref(), &self.llm).await;
+
         for session in retitled {
             let _ = self
                 .notifications

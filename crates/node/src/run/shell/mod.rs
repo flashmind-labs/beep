@@ -43,6 +43,7 @@ pub async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     let mut shell: Option<Shell> = None;
     // Requests that came while a command ran.
     let mut waiting: VecDeque<Request> = VecDeque::new();
+
     loop {
         let request = match waiting.pop_front() {
             Some(request) => request,
@@ -71,6 +72,7 @@ pub async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
         let end = {
             let run = timeout(limit, current.run(&command, &mut out));
             tokio::pin!(run);
+
             loop {
                 tokio::select! {
                     ended = &mut run => break Some(match ended {
@@ -171,9 +173,11 @@ impl Shell {
             .kill_on_drop(true);
         // Its own process group, so stopping it stops what it started.
         own_group(&mut command);
+
         if let Some(home) = dirs::home_dir() {
             command.current_dir(home);
         }
+
         spawn_env::apply(&mut command, Scope::Shell);
         let mut child = command
             .spawn()
@@ -206,24 +210,29 @@ impl Shell {
         // the newline the mark's printf added, which is not output.
         let mut held = String::new();
         let mut line = Vec::new();
+
         loop {
             line.clear();
+
             if read_piece(&mut self.stdout, &mut line).await? == 0 {
                 out.push(&held).await?;
                 return Ok(End::ShellEnded {
                     exit_code: self.exit_code().await,
                 });
             }
+
             let text = String::from_utf8_lossy(&line);
             // PowerShell ends its lines with CRLF.
             let text = match text.strip_suffix("\r\n") {
                 Some(bare) if cfg!(windows) => format!("{bare}\n").into(),
                 _ => text,
             };
+
             if let Some((exit_code, cwd)) = parse_mark(&text, &self.mark) {
                 out.push(held.strip_suffix('\n').unwrap_or(&held)).await?;
                 return Ok(End::Finished { exit_code, cwd });
             }
+
             out.push(&held).await?;
             held = text.into_owned();
         }
@@ -336,24 +345,30 @@ impl<'a, S: Sink> Output<'a, S> {
         if text.len() > room {
             self.truncated = true;
             let mut end = room;
+
             while !text.is_char_boundary(end) {
                 end -= 1;
             }
+
             self.batch.push_str(&text[..end]);
         } else {
             self.batch.push_str(text);
         }
+
         if self.batch.len() >= BATCH || self.flushed.elapsed() >= FLUSH {
             self.flush().await?;
         }
+
         Ok(())
     }
 
     async fn flush(&mut self) -> Result<()> {
         self.flushed = Instant::now();
+
         if self.batch.is_empty() {
             return Ok(());
         }
+
         let text = std::mem::take(&mut self.batch);
         self.sent += text.len();
         self.tx.send_text(text).await

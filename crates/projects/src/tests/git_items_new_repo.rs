@@ -35,6 +35,7 @@ async fn forge(routes: Routes) -> (String, Seen) {
                 if let Some(at) = data.windows(4).position(|w| w == b"\r\n\r\n") {
                     break at + 4;
                 }
+
                 let n = stream.read(&mut buf).await.expect("the request reads");
                 assert_ne!(n, 0, "the request ended early");
                 data.extend_from_slice(&buf[..n]);
@@ -50,6 +51,7 @@ async fn forge(routes: Routes) -> (String, Seen) {
                 assert_ne!(n, 0, "the body ended early");
                 data.extend_from_slice(&buf[..n]);
             }
+
             let text = String::from_utf8_lossy(&data[..head]).into_owned();
             let mut words = text.split(' ');
             let line = format!(

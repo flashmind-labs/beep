@@ -356,6 +356,7 @@ pub(super) async fn insert_steps(
     mut turn: Option<i64>,
 ) -> Result<Vec<i64>> {
     let mut ids = Vec::with_capacity(steps.len());
+
     for step in steps {
         let opens = step.body.opens_turn();
         let id: i64 = sqlx::query_scalar(
@@ -373,9 +374,11 @@ pub(super) async fn insert_steps(
         .bind(step.sent_at)
         .fetch_one(&mut *tx)
         .await?;
+
         if opens {
             turn = Some(id);
         }
+
         match &step.body {
             StepBody::User { turn, .. } | StepBody::Scheduled { turn, .. } => {
                 sqlx::query(
@@ -448,8 +451,10 @@ pub(super) async fn insert_steps(
             }
             StepBody::Assistant { .. } => {}
         }
+
         ids.push(id);
     }
+
     Ok(ids)
 }
 
@@ -585,6 +590,7 @@ impl Store {
         if chats.is_empty() {
             return Ok(Vec::new());
         }
+
         let rows = sqlx::query(
             "SELECT latest.chat_id, latest.id FROM (
                  SELECT DISTINCT ON (chat_id) chat_id, id, status FROM runs
@@ -598,12 +604,15 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         let mut runs: HashMap<Uuid, String> = HashMap::new();
+
         for row in rows {
             runs.insert(row.try_get(0)?, row.try_get(1)?);
         }
+
         if runs.is_empty() {
             return Ok(Vec::new());
         }
+
         let waiting: Vec<Uuid> = runs.keys().copied().collect();
         let ids: Vec<i64> = sqlx::query_scalar(
             "SELECT DISTINCT ON (m.chat_id) m.id FROM messages m
@@ -615,6 +624,7 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         let mut open = Vec::with_capacity(ids.len());
+
         for message in self.messages_by_id(&ids).await? {
             let StoredBody::Approval { query_id, approval } = message.body else {
                 continue;
@@ -631,6 +641,7 @@ impl Store {
                 },
             ));
         }
+
         Ok(open)
     }
 
@@ -639,6 +650,7 @@ impl Store {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
+
         let rows = sqlx::query(&format!(
             "SELECT {COLUMNS} FROM {JOINS} WHERE m.id = ANY($1) ORDER BY m.id"
         ))
@@ -652,10 +664,13 @@ impl Store {
     async fn complete(&self, rows: Vec<PgRow>) -> Result<Vec<StoredMessage>> {
         let mut messages = rows.iter().map(stored).collect::<Result<Vec<_>>>()?;
         let ids: Vec<i64> = messages.iter().map(|m| m.id).collect();
+
         if ids.is_empty() {
             return Ok(messages);
         }
+
         let mut fields: HashMap<i64, Vec<ApprovalField>> = HashMap::new();
+
         if messages
             .iter()
             .any(|m| matches!(m.body, StoredBody::Approval { .. }))
@@ -667,6 +682,7 @@ impl Store {
             .bind(&ids)
             .fetch_all(&self.pool)
             .await?;
+
             for row in rows {
                 fields
                     .entry(row.try_get(0)?)
@@ -677,6 +693,7 @@ impl Store {
                     });
             }
         }
+
         let mut images: HashMap<i64, Vec<ImageRef>> = HashMap::new();
         let rows = sqlx::query(
             "SELECT message_id, id, mime, width, height FROM files
@@ -685,6 +702,7 @@ impl Store {
         .bind(&ids)
         .fetch_all(&self.pool)
         .await?;
+
         for row in rows {
             let width: i32 = row.try_get(3)?;
             let height: i32 = row.try_get(4)?;
@@ -695,12 +713,14 @@ impl Store {
                 height: u32::try_from(height)?,
             });
         }
+
         for message in &mut messages {
             if let StoredBody::Approval { approval, .. } = &mut message.body {
                 approval.fields = fields.remove(&message.id).unwrap_or_default();
             }
             message.images = images.remove(&message.id).unwrap_or_default();
         }
+
         Ok(messages)
     }
 }

@@ -23,11 +23,13 @@ pub(super) fn wrapper(cwd: &Path, overrides: &BTreeMap<String, String>) -> Optio
             return None;
         }
     }
+
     if variable("CARGO_INCREMENTAL", overrides).as_deref() == Some("1".as_ref())
         && variable("SCCACHE_ALLOW_INCREMENTAL", overrides).as_deref() != Some("1".as_ref())
     {
         return None;
     }
+
     let cargo_home = variable("CARGO_HOME", overrides)
         .map(PathBuf::from)
         .map(|path| {
@@ -49,6 +51,7 @@ pub(super) fn wrapper(cwd: &Path, overrides: &BTreeMap<String, String>) -> Optio
             }
         }
     }
+
     let path = overrides
         .get("PATH")
         .map(OsString::from)

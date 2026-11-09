@@ -293,9 +293,11 @@ pub async fn agent_title_save(
     let mesh = fleet.ready().await?;
     beep_fleet::session_titles::save(&mesh, &machine_id, &agent, &session, &title).await?;
     app.state::<Arc<AgentSessions>>().stale();
+
     if let Err(e) = app.emit("agent-title-changed", ()) {
         log::warn!("could not tell the windows a session title changed: {e}");
     }
+
     Ok(())
 }
 
@@ -318,6 +320,7 @@ pub(crate) fn closed(app: &AppHandle, machine_id: &str, session: &str) {
     // The scan runs again on the next read, which may find it gone.
     held.scans.stale();
     app.state::<Arc<AgentSessions>>().edit(end);
+
     if let Err(e) = app.emit("sessions-changed", session) {
         log::warn!("could not tell the windows a session closed: {e}");
     }
@@ -368,11 +371,13 @@ pub(crate) async fn machine_sessions(
         SCAN_FRESH,
     ));
     fleet.apply_presence(&mut sessions);
+
     if let Some(mesh) = fleet.mesh() {
         for session in &mut sessions {
             beep_fleet::session_titles::apply(&mesh, session);
         }
     }
+
     sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
     sessions
 }
@@ -479,6 +484,7 @@ pub async fn agent_preview(
     } else {
         beep.call(request).await
     };
+
     match asked {
         Ok(pick) => Ok(Some(pick.into())),
         Err(e) if unknown_op(&e) => Ok(None),
@@ -544,6 +550,7 @@ pub async fn agent_models(
         Some(machine) => direct::models(&fleet, machine, &request).await,
         None => beep.call(request).await,
     };
+
     match asked {
         Ok(list) => Ok(Some(list.into())),
         Err(e) if unknown_op(&e) => Ok(None),
@@ -586,9 +593,11 @@ pub async fn agent_resume(
         }
         None => beep.call(request).await?,
     };
+
     if let Some(prompt) = indexed_prompt {
         crate::palette::prompts::sent(&app, started.session.clone(), &prompt).await;
     }
+
     Ok(Started {
         session: started.session.into(),
         why: started.why,
@@ -623,6 +632,7 @@ pub async fn agent_delete(
     if let Err(e) = app.emit("sessions-changed", session) {
         log::warn!("could not tell the windows a session was deleted: {e}");
     }
+
     Ok(())
 }
 
@@ -701,9 +711,11 @@ pub async fn agent_view(
         }
         None => beep.call(request).await?,
     };
+
     if let Some(mesh) = fleet.mesh() {
         beep_fleet::session_titles::apply(&mesh, &mut view.session);
     }
+
     app.state::<crate::palette::PaletteCache>()
         .found_session(&app, view.session.clone());
     Ok(view.into())

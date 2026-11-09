@@ -247,6 +247,7 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
             },
         );
     }
+
     assert!(agents.images.get(&session.id, &key).is_none(), "evicted");
     let found = agents.image(&session.id, &key).await.unwrap();
     assert_eq!(
@@ -794,11 +795,13 @@ mod actor_tests {
         })
         .await
         .unwrap();
+
         loop {
             if matches!(rx.recv::<Reply>().await.unwrap(), Some(Reply::Snapshot(_))) {
                 break;
             }
         }
+
         tx.send(&Request::Call {
             id: 2,
             operation: Box::new(Operation::Agent {
@@ -827,6 +830,7 @@ mod actor_tests {
                     _ => {}
                 }
             }
+
             live.wait_for(|live| {
                 live.status() == agent::Status::Idle
                     && live

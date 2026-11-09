@@ -206,9 +206,11 @@ async fn delete_turn_finds_the_turn_by_its_time() {
     let store = db.store().await.unwrap();
     let alice = UserKey::for_test("alice");
     let s1 = test_chat("s1");
+
     for (at, prompt) in [(1000, "one"), (2000, "two"), (3000, "three")] {
         test_turn(&store, &alice, s1, prompt, at).await.unwrap();
     }
+
     let contents = |messages: Vec<StoredMessage>| -> Vec<String> {
         messages.iter().map(|m| m.text().to_owned()).collect()
     };

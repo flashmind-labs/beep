@@ -26,6 +26,7 @@ test("find waits for a prompt read and then reads the remaining history", async 
   const pending = new Promise<AgentPage>(done => { resolve = done; });
   let reads = 0;
   Object.defineProperty(answers, "agent_view", { configurable: true, get: () => ++reads === 1 ? pending : page(0, 200) });
+
   try {
     const prompt = loadOlder("prompt");
     const all = loadOlder("all");
@@ -44,6 +45,7 @@ test("a waiting find does not start reading a different conversation", async () 
   let resolve!: (page: AgentPage) => void;
   const pending = new Promise<AgentPage>(done => { resolve = done; });
   answers.agent_view = pending;
+
   try {
     const prompt = loadOlder("prompt");
     const all = loadOlder("all");

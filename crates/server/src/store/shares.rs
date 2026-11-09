@@ -123,10 +123,12 @@ impl Store {
         .execute(&mut *tx)
         .await?
         .rows_affected();
+
         if inserted == 0 {
             tx.rollback().await?;
             return Ok(CopiedShare::Taken);
         }
+
         sqlx::query("INSERT INTO chat_members (chat_id, user_id) VALUES ($1, $2)")
             .bind(chat)
             .bind(user.as_ref())

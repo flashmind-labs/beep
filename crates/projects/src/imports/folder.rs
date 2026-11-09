@@ -25,12 +25,15 @@ impl FolderPath {
     /// The folder `input` names, `None` when blank; refuses relative paths, `..` and control characters.
     pub fn parse(input: &str) -> Result<Option<Self>, ImportError> {
         let input = input.trim();
+
         if input.is_empty() {
             return Ok(None);
         }
+
         if input.len() > MAX_PATH || input.chars().any(char::is_control) {
             return Err(ImportError::BadFolder);
         }
+
         let (home, rest) = if input == "~" {
             (true, "")
         } else if let Some(rest) = input.strip_prefix("~/") {
@@ -41,6 +44,7 @@ impl FolderPath {
             return Err(ImportError::BadFolder);
         };
         let mut parts = Vec::new();
+
         for part in rest.split('/') {
             match part {
                 "" | "." => {}
@@ -48,6 +52,7 @@ impl FolderPath {
                 part => parts.push(part),
             }
         }
+
         let joined = parts.join("/");
         Ok(Some(if home {
             Self::Home(joined)
@@ -110,12 +115,14 @@ pub fn read(output: &str) -> Option<Seen> {
     let mut full = false;
     let mut folders = Vec::new();
     let mut more = 0;
+
     for line in output.lines() {
         let Some(said) = line.trim_end_matches('\r').strip_prefix(MARK) else {
             continue;
         };
         let said = said.strip_prefix(' ').unwrap_or(said);
         let (word, rest) = said.split_once(' ').unwrap_or((said, ""));
+
         match word {
             "path" => path = Some(rest.to_owned()),
             "missing" => {
@@ -131,6 +138,7 @@ pub fn read(output: &str) -> Option<Seen> {
             _ => {}
         }
     }
+
     let path = path.filter(|path| path.starts_with('/'))?;
     let path = match path.trim_end_matches('/') {
         "" => "/".to_owned(),
@@ -153,6 +161,7 @@ fn parent(path: &str) -> Option<String> {
     if path == "/" {
         return None;
     }
+
     match path.rfind('/') {
         Some(0) => Some("/".to_owned()),
         Some(at) => Some(path[..at].to_owned()),
@@ -220,6 +229,7 @@ pub async fn make(
     if ran.exit_code == Some(0) {
         return Ok(());
     }
+
     Err(ImportError::NoFolderMade {
         machine: machine.to_owned(),
         detail: ran.output.trim().to_owned(),

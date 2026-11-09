@@ -10,11 +10,13 @@ async fn share(mut tx: LinkTx, mut rx: LinkRx, log: String) {
     let Ok(Some(open)) = rx.recv::<Open>().await else {
         return;
     };
+
     if open.protocol != report::PROTOCOL {
         let reason = format!("this node does not offer {}", open.protocol);
         tx.send(&Opened::Refused { reason }).await.ok();
         return;
     }
+
     tx.send(&Opened::Ready {}).await.ok();
     let Ok(Some(Request { .. })) = rx.recv::<Request>().await else {
         return;
@@ -40,11 +42,13 @@ async fn older(mut tx: LinkTx, mut rx: LinkRx) {
     let Ok(Some(open)) = rx.recv::<Open>().await else {
         return;
     };
+
     if open.protocol != logs::PROTOCOL {
         let reason = format!("this node does not offer {}", open.protocol);
         tx.send(&Opened::Refused { reason }).await.ok();
         return;
     }
+
     tx.send(&Opened::Ready {}).await.ok();
     rx.recv::<logs::Request>().await.ok();
     let reply = logs::Reply::Log {
@@ -132,10 +136,12 @@ async fn an_unreachable_machine_is_listed_offline() {
 async fn an_oversized_log_keeps_its_newest_lines() {
     let mut log = String::new();
     let mut n = 0u32;
+
     while log.len() < 2 * 1024 * 1024 {
         log.push_str(&format!("line {n} of the log\n"));
         n += 1;
     }
+
     let last = format!("line {} of the log\n", n - 1);
     let shares = collect(vec![target("build-box", local(sharing(&log)))], 0).await;
     let cut = &shares[0].log;

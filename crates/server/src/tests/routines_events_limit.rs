@@ -25,10 +25,12 @@ fn wakes_stop_at_the_limit_and_come_back_after_an_hour() {
 fn what_did_not_happen_is_given_back() {
     let mut limiter = limiter();
     let now = Instant::now();
+
     for _ in 0..3 {
         assert!(limiter.take_event("alice", now));
         limiter.give_back_event("alice");
     }
+
     assert!(limiter.take_event("alice", now), "duplicates do not count");
     assert!(limiter.take_wake("alice", now));
     assert!(limiter.take_wake("alice", now));
@@ -44,9 +46,11 @@ fn what_did_not_happen_is_given_back() {
 fn each_user_and_each_limit_counts_on_its_own() {
     let mut limiter = limiter();
     let now = Instant::now();
+
     for _ in 0..3 {
         assert!(limiter.take_event("alice", now));
     }
+
     assert!(!limiter.take_event("alice", now));
     assert!(limiter.take_event("bob", now));
     assert!(

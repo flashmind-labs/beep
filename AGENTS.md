@@ -26,6 +26,16 @@ Update the platform mock before changing an app's UI, then match the app to it:
 `mockups/desktop/index.html` (including the tray bar), and for the phone
 layout of the same app `mockups/ios/index.html` or `mockups/android/index.html`.
 
+## Code structure and readability
+
+- Use established libraries for standard parsing and shared behavior instead
+  of writing custom parsers or utility implementations.
+- Keep related types, constants and functions together in existing modules.
+  Do not create a file for a single declaration or an unnecessary wrapper.
+- Separate logical stages in functions with blank lines, including before
+  control-flow blocks and after them before subsequent work or a tail return.
+  Keep cohesive setup and short related updates together.
+
 ## Rust layout
 
 Group code by responsibility in small modules, following `crates/node` and
@@ -58,7 +68,10 @@ exercise private code. Public API tests belong in the crate's `tests/`.
 ## Rust types and conversions
 
 Use domain types for identifiers, names with domain meaning, and paths. Reserve
-`String` for actual text. Prefer `From`, `TryFrom`, `FromStr`, `AsRef` and
+`String` for actual text. Use enums for fixed protocol and state sets, derive
+`PartialEq` and `Eq`, and match variants directly. Convert strings at external
+boundaries; preserve unknown wire values with a fallback variant when needed.
+Prefer `From`, `TryFrom`, `FromStr`, `AsRef` and
 `Display` over custom conversion methods such as `from_acp` or `as_str`. Use
 Strum derives for enum conversions when they preserve the exact accepted values,
 labels and errors. Prefer `EnumString`, `AsRefStr`, `IntoStaticStr` and `Display`

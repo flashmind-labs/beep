@@ -15,9 +15,11 @@ pub(super) const LABEL: &str = "com.flashmind.beep-node";
 pub(super) fn install(launch: &Launch) -> Result<PathBuf> {
     let path = plist_path()?;
     let log = log_path()?;
+
     for folder in [path.parent(), log.parent()].into_iter().flatten() {
         fs::create_dir_all(folder).with_context(|| format!("creating {}", folder.display()))?;
     }
+
     fs::write(&path, plist(launch, &log)).with_context(|| format!("writing {}", path.display()))?;
     let domain = domain()?;
     let service = format!("{domain}/{LABEL}");
@@ -34,10 +36,12 @@ pub(super) fn install(launch: &Launch) -> Result<PathBuf> {
 
 pub(super) fn uninstall() -> Result<()> {
     let path = plist_path()?;
+
     if !path.exists() {
         println!("{LABEL} is not installed.");
         return Ok(());
     }
+
     bootout(&format!("{}/{LABEL}", domain()?));
     fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
     println!("Stopped and removed {}.", path.display());
@@ -87,9 +91,11 @@ pub(super) fn plan(exe: &Path) -> Result<Plan> {
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(plain(Restart::NotInstalled)),
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
     };
+
     if !runs(&plist, exe) {
         return Ok(plain(Restart::OtherBinary(path)));
     }
+
     let service = format!("{}/{LABEL}", domain()?);
     let loaded = Command::new("launchctl")
         .args(["print", &service])
@@ -101,12 +107,15 @@ pub(super) fn plan(exe: &Path) -> Result<Plan> {
     // A plist from an older node gets this one's settings, keeping its
     // arguments and PATH. launchd reads it again only when loaded anew.
     let newer = refreshed(&plist);
+
     if let Some(newer) = &newer {
         fs::write(&path, newer).with_context(|| format!("writing {}", path.display()))?;
     }
+
     if !loaded {
         return Ok(plain(Restart::Stopped(Manager::Launchd)));
     }
+
     Ok(Plan {
         restart: Restart::Restarted(Manager::Launchd),
         reload: newer.is_some(),

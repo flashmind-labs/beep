@@ -108,10 +108,12 @@ impl Peer for Conn {
 /// is connected. Leaves at once when another host listens there.
 pub async fn run(dir: &Path) -> Result<()> {
     let socket = dir.join(SOCKET);
+
     if is_listening(&socket) {
         log::info!("a terminal host already runs");
         return Ok(());
     }
+
     let listener = Listener::bind(&socket)?;
     serve(dir, listener, &Terminals::default()).await
 }
@@ -123,6 +125,7 @@ pub fn in_process(dir: &Path) -> Result<impl Future<Output = Result<()>> + use<>
     if DIR.set(dir.to_path_buf()).is_err() {
         bail!("the node's terminals were set up already");
     }
+
     watch(dir)?;
     let listener = Listener::bind(&dir.join(SOCKET))?;
     let dir = dir.to_path_buf();
@@ -175,15 +178,18 @@ async fn serve(dir: &Path, mut listener: Listener, terminals: &Terminals) -> Res
     tokio::pin!(keeping);
     // Each connection borrows the host, so they run here, not spawned.
     let mut connections = futures::stream::FuturesUnordered::new();
+
     loop {
         tokio::select! {
             () = &mut keeping => return Ok(()),
             stream = listener.accept() => {
                 let stream = stream.context("taking a node's connection")?;
+
                 if connections.len() >= MAX_CONNECTIONS {
                     log::warn!("refused a connection: {MAX_CONNECTIONS} are open");
                     continue;
                 }
+
                 connections.push(connection(stream, &host));
             }
             Some(()) = connections.next() => {}
@@ -202,13 +208,16 @@ async fn connection(stream: Stream, host: &Host<'_>) {
         *lock(&host.terminals.env) = Some(hello.env);
         // Opened only now, with the node's environment.
         let noted = lock(&host.noted).take();
+
         for open in noted.into_iter().flatten() {
             if let Err(e) = host.terminals.reopen(&open) {
                 log::warn!("could not reopen terminal {}: {e:#}", open.id);
             }
         }
+
         super::serve_with(host.terminals, &mut conn).await
     };
+
     if let Err(e) = served.await {
         log::debug!("a node's connection failed: {e:#}");
     }
@@ -224,6 +233,7 @@ async fn keep(dir: &Path, host: &Host<'_>) {
         {
             log::warn!("terminals would not open again after a reboot: {e:#}");
         }
+
         let change = host.terminals.changed.notified();
         if !host.idle() {
             change.await;
@@ -242,6 +252,7 @@ fn watch(dir: &Path) -> Result<()> {
     if CHANGES.get().is_some() {
         return Ok(());
     }
+
     let dir = dir.canonicalize()?;
     let path = dir.join(NOTE);
     let mut current = read_note(&dir);
@@ -257,6 +268,7 @@ fn watch(dir: &Path) -> Result<()> {
             Err(error) => log::warn!("terminal host notification failed: {error}"),
             _ => {}
         }
+
         let next: Vec<OpenTerminal> = note::read(&path);
         // Lists also rewrite the note, so unchanged contents must not trigger another list.
         if next != current {
@@ -275,12 +287,15 @@ pub(super) async fn reopen(dir: &Path) {
     if DIR.set(dir.to_path_buf()).is_err() {
         log::debug!("the node's terminals were set up already");
     }
+
     if let Err(error) = watch(dir) {
         log::warn!("could not watch terminal host changes: {error:#}");
     }
+
     if read_note(dir).is_empty() || is_listening(&dir.join(SOCKET)) {
         return;
     }
+
     match open(dir, true).await {
         Ok(_) => log::info!("the terminals that were open start again as new shells"),
         Err(e) => log::warn!("could not open the terminals again: {e:#}"),
@@ -327,11 +342,13 @@ async fn relay_in(dir: &Path, link: &mut impl Peer) -> Result<()> {
         }
     };
     host.write(&first).await?;
+
     loop {
         let relayed = tokio::select! {
             request = link.recv() => Relayed::Request(request?),
             reply = host.read() => Relayed::Reply(reply?),
         };
+
         match relayed {
             Relayed::Request(Some(request)) => host.write(&request).await?,
             Relayed::Reply(Some(reply)) => link.send(&reply).await?,
@@ -369,11 +386,14 @@ async fn open(dir: &Path, start: bool) -> Result<Option<Conn>> {
 async fn launch(dir: &Path) -> Result<Stream> {
     let _starting = STARTING.lock().await;
     let socket = dir.join(SOCKET);
+
     if let Ok(stream) = connect(&socket).await {
         return Ok(stream);
     }
+
     let exe = std::env::current_exe().context("finding beep-node")?;
     let mut failed = None;
+
     for mut command in launchers(&exe, dir) {
         command
             .stdin(Stdio::null())
@@ -392,6 +412,7 @@ async fn launch(dir: &Path) -> Result<Stream> {
             }
         }
     }
+
     Err(failed.unwrap_or_else(|| anyhow::anyhow!("no way to start the terminal host")))
 }
 
@@ -406,6 +427,7 @@ fn launchers(exe: &Path, dir: &Path) -> Vec<Command> {
         command
     };
     let mut launchers = Vec::new();
+
     if std::env::var_os("INVOCATION_ID").is_some()
         && let Ok(systemd_run) = which::which("systemd-run")
     {
@@ -418,6 +440,7 @@ fn launchers(exe: &Path, dir: &Path) -> Vec<Command> {
             .arg(dir);
         launchers.push(command);
     }
+
     launchers.push(host(exe));
     launchers
 }
@@ -426,19 +449,24 @@ fn launchers(exe: &Path, dir: &Path) -> Vec<Command> {
 async fn listening(mut command: Command, socket: &Path) -> Result<Stream> {
     let mut child = command.spawn().context("starting the terminal host")?;
     let deadline = Instant::now() + START_WAIT;
+
     loop {
         if let Ok(stream) = connect(socket).await {
             return Ok(stream);
         }
+
         if let Some(status) = child.try_wait()? {
             bail!("it exited: {status}");
         }
+
         if Instant::now() >= deadline {
             if let Err(e) = child.start_kill() {
                 log::debug!("could not stop the terminal host: {e}");
             }
+
             bail!("it did not listen in {}s", START_WAIT.as_secs());
         }
+
         tokio::time::sleep(START_POLL).await;
     }
 }

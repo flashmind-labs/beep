@@ -23,6 +23,7 @@ fn dropped_events_wake_every_project() {
     let dir = tempfile::TempDir::new().unwrap();
     let routes: Mutex<HashMap<Key, Route>> = Mutex::default();
     let mut woken = Vec::new();
+
     for (key, root) in [(1, "/a"), (2, "/b")] {
         let (wake, rx) = mpsc::channel(1);
         let rules = Arc::new(RwLock::new(Rules::load(dir.path()).unwrap()));
@@ -36,8 +37,10 @@ fn dropped_events_wake_every_project() {
         );
         woken.push(rx);
     }
+
     let event = Event::new(EventKind::Other).set_flag(Flag::Rescan);
     route(&routes, &event);
+
     for rx in &mut woken {
         assert_eq!(rx.try_recv(), Ok(()));
     }

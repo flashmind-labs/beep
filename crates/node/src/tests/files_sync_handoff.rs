@@ -73,12 +73,15 @@ fn dirty_destinations_and_different_commits_are_refused_without_changing_files()
             "tracked.txt"
         };
         fs::write(target.join(file), "destination work\n").unwrap();
+
         if dirty == "staged" || dirty == "commit" {
             git(&target, &["add", file]);
         }
+
         if dirty == "commit" {
             git(&target, &["commit", "-qm", "local"]);
         }
+
         let before = git(&target, &["status", "--porcelain"]);
         let index = git(&target, &["diff", "--cached", "--binary"]);
         assert!(apply(&target, incoming).is_err(), "{dirty}");

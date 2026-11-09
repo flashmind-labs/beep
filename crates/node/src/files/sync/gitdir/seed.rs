@@ -62,6 +62,7 @@ impl Repo {
             let entry = entry?;
             let name = entry.file_name();
             let name = name.to_string_lossy();
+
             if let Some((old, ext)) = name.strip_prefix("pack-").and_then(|s| s.rsplit_once('.'))
                 && valid_pack(old)
                 && old != pack

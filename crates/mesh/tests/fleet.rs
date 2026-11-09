@@ -71,6 +71,7 @@ async fn machine(network: bool) -> Machine {
     if !network {
         endpoint.close().await;
     }
+
     let agent = AgentKind {
         name: "codex".into(),
         program: "sh".into(),

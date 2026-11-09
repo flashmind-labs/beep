@@ -73,13 +73,17 @@ fn need(rows: &[&MemoryRow], state: &ScopeState, now: NaiveDateTime) -> Option<N
     if rows.len() < 2 {
         return None;
     }
+
     let since = |at: NaiveDateTime| state.curated_at.is_none_or(|curated| at > curated);
+
     if rows.iter().filter_map(|row| ended_at(row, now)).any(since) {
         return Some(Need::Ended);
     }
+
     if state.close >= CLOSE_PILE {
         return Some(Need::Close);
     }
+
     if state.crowded >= CROWDED_PILE {
         return Some(Need::Crowded);
     }
@@ -93,9 +97,11 @@ pub(crate) fn curation_needs(
     now: NaiveDateTime,
 ) -> Vec<ScopeNeed> {
     let mut scopes: HashMap<&Scope, Vec<&MemoryRow>> = HashMap::new();
+
     for row in rows {
         scopes.entry(&row.scope).or_default().push(row);
     }
+
     let unseen = ScopeState::default();
     let mut needs: Vec<(usize, ScopeNeed)> = scopes
         .into_iter()
@@ -122,9 +128,11 @@ pub(crate) fn curation_needs(
 /// The scopes in which a recall's `found` memories crowd together.
 pub(crate) fn crowded_scopes(found: &[Scored]) -> Vec<Scope> {
     let mut close: HashMap<&Scope, usize> = HashMap::new();
+
     for hit in found.iter().filter(|hit| hit.score >= CROWDED_SCORE) {
         *close.entry(&hit.row.scope).or_default() += 1;
     }
+
     close
         .into_iter()
         .filter(|(_, hits)| *hits >= CROWDED_HITS)

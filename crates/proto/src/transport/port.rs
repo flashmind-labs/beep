@@ -73,5 +73,6 @@ pub async fn bind_on(builder: impl Fn() -> Builder, port: u16) -> Result<Endpoin
             Err(e) => log::warn!("cannot bind UDP port {port}, binding a random one: {e}"),
         }
     }
+
     builder().bind().await
 }

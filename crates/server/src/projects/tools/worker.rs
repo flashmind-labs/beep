@@ -77,6 +77,7 @@ pub(crate) fn start_card(
         "Branch",
         format!("{} from {}", task.slug.branch(), placement.base),
     ));
+
     if !inputs.is_empty() {
         let paths: Vec<String> = inputs
             .iter()
@@ -87,6 +88,7 @@ pub(crate) fn start_card(
             .collect();
         fields.push(field("Inputs", paths.join(", ")));
     }
+
     fields.push(field(
         "Permissions",
         format!(
@@ -150,6 +152,7 @@ impl Tool for WorkerTool {
 
     fn humanize(&self, args: &Value) -> String {
         let task = args.get("task").and_then(Value::as_str).unwrap_or("a task");
+
         match args.get("action").and_then(Value::as_str) {
             Some("start") => format!("Starting {task}"),
             Some("stop") => format!("Stopping {task}"),
@@ -168,11 +171,13 @@ impl WorkerTool {
                 args.task
             )));
         };
+
         if args.inputs.len() > MAX_INPUTS {
             return Ok(Planned::Refused(format!(
                 "At most {MAX_INPUTS} input files go with a task."
             )));
         }
+
         let inputs: Vec<InputFile> = args
             .inputs
             .iter()
@@ -191,6 +196,7 @@ impl WorkerTool {
             };
             return self.start(id, &project, &task, &request).await;
         }
+
         let Some(worker) = tools
             .user
             .live_workers()
@@ -218,19 +224,24 @@ impl WorkerTool {
         request: &StartRequest,
     ) -> Result<Planned> {
         let tools = &self.tools;
+
         if !task.state.is_open() {
             return Ok(Planned::Refused(format!("{} is closed.", task.slug)));
         }
+
         let prepared = match prepare(&self.app, &tools.user, project, task, request).await {
             Ok(prepared) => prepared,
             Err(error) => return Ok(Planned::Refused(error.to_string())),
         };
+
         if let Prepared::Ready(placement) = &prepared {
             let approval = start_card(task, &placement.machine_name, placement, &request.inputs);
+
             if let Some(stop) = gated(tools.gate.check(id, START_SLUG, Asks::Always, || approval)) {
                 return Ok(stop);
             }
         }
+
         Ok(
             match launch(&self.app, &tools.user, project, task, request, prepared).await {
                 Ok(Started::Queued(why)) => Planned::Done(format!(

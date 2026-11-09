@@ -103,9 +103,11 @@ impl User {
         seed: &UpdateChatSeed<'_>,
     ) -> Result<Option<UpdateChat>> {
         let opened = self.store.open_update_chat(&self.key, id, seed).await?;
+
         if opened.is_some_and(|opened| opened.made) {
             self.changed("");
         }
+
         Ok(opened)
     }
 

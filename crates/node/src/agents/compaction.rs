@@ -39,15 +39,19 @@ impl From<Option<AutoCompact>> for Policy {
         let Some(setting) = setting else {
             return Self::default();
         };
+
         if !setting.enabled {
             return Self::Off;
         }
+
         if let Some(tokens) = setting.tokens {
             if tokens > 0 {
                 return Self::AtTokens(tokens);
             }
+
             log::warn!("auto-compact at 0 tokens is not a limit; using the percent");
         }
+
         match setting.percent {
             None => Self::default(),
             Some(percent) if AutoCompact::valid_percent(percent) => Self::At(percent),
@@ -73,6 +77,7 @@ impl Policy {
             Self::AtTokens(tokens) => return usage.used >= tokens,
             Self::At(percent) => percent,
         };
+
         if usage.size == 0 {
             return false;
         }
@@ -211,6 +216,7 @@ impl Compactor {
         if self.model.as_ref().map(ModelId::as_ref) == model {
             return false;
         }
+
         self.model = model.map(ModelId::from);
         self.due = false;
         true
@@ -235,6 +241,7 @@ impl Compactor {
         if !self.due || self.running || question_open {
             return false;
         }
+
         self.due = false;
         self.running = true;
         true

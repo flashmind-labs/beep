@@ -144,6 +144,7 @@ async function setModelChange(command: string, args: Record<string, unknown>) {
     if (err) err.textContent = String(e);
     return;
   }
+
   refreshHints();
   if (setShown()) fillSection("models", setModelsHtml());
 }
@@ -251,6 +252,7 @@ async function thenRedraw(change: Promise<unknown>) {
   } catch (e) {
     console.warn(e);
   }
+
   if (setShown()) renderSettings();
 }
 
@@ -292,6 +294,7 @@ function bindSettings(el: Element) {
   $in("#signOutNo")?.addEventListener("click", () => renderSettings());
   $in("#signOutYes")?.addEventListener("click", async e => {
     (e.currentTarget as HTMLButtonElement).disabled = true;
+
     try {
       await invoke("sign_out");
       renderSettings();
@@ -304,6 +307,7 @@ function bindSettings(el: Element) {
   $in("#signIn")?.addEventListener("click", async e => {
     const button = e.currentTarget as HTMLButtonElement;
     button.disabled = true;
+
     try {
       // The events that follow redraw Settings and bring the server's parts back.
       await invoke("sign_in");
@@ -336,6 +340,7 @@ function bindSettings(el: Element) {
   bindAgents(el);
   $in("#autostart")?.addEventListener("click", async e => {
     const sw = e.currentTarget as HTMLElement, on = sw.getAttribute("aria-checked") !== "true";
+
     try {
       await invoke("set_autostart", { enabled: on });
       sw.setAttribute("aria-checked", String(on));
@@ -350,6 +355,7 @@ function bindSettings(el: Element) {
 async function signIn(el: Element, button: HTMLButtonElement) {
   const note = el.querySelector<HTMLElement>("#subNote");
   button.disabled = true;
+
   try {
     if (signInWay(await invoke<boolean>("login_hosted")) === "here") return void await invoke("use_here");
     await invoke("start_login");
@@ -465,10 +471,12 @@ function subLabel(sub: SettingsSub) {
 function subExists(sub: SettingsSub) {
   if (sub.kind === "app") return !A.apps || A.apps.some(a => a.slug === sub.id && a.connected);
   if (sub.kind === "mcp") return !A.servers || A.servers.some(s => s.id === sub.id && s.connected);
+
   if (sub.kind === "machine") {
     const list = SET.machines ?? MC.list;
     return !list || list.some(m => m.id === sub.id);
   }
+
   return true;
 }
 
@@ -614,16 +622,20 @@ function mountPage(path: SettingsPath) {
   const box = SET.root?.querySelector<HTMLElement>(`#set-${path.page}-host`);
   if (!box) return;
   const sub = path.sub;
+
   if (path.page === "apps") {
     appsIn(box, followApps);
     return openApps(box, sub);
   }
+
   if (path.page === "machines") {
     machinesIn(box, id => follow("machines", id ? { kind: "machine", id } : null), () => { SET.machines = MC.list; drawChrome(); });
     return renderMachines(sub?.kind === "machine" ? sub.id : null);
   }
+
   const embed = windowHooks?.embedView;
   if (!embed) return;
+
   if (path.page === "agents" && sub?.kind === "agent") {
     // The view draws its machine picker in a toolbar of its own, under the breadcrumb.
     SET.unembed = embed("providers", box, { agent: sub.id, settings: true });
@@ -639,11 +651,13 @@ async function openApps(box: HTMLElement, sub: SettingsSub | null) {
   const find = (): App | McpServer | undefined => sub.kind === "app"
     ? A.apps?.find(a => a.slug === sub.id && a.connected)
     : A.servers?.find(s => s.id === sub.id && s.connected);
+
   if (!find()) {
     box.innerHTML = setSkeleton(3);
     await loadApps();
     if (!box.isConnected || !SET.path?.sub || !samePath(SET.path, openSub(sub))) return;
   }
+
   const it = find();
   if (!it) return goTo(selectPage("apps"));
   if (sub.kind === "app") return renderAppPermissions(it as App);
@@ -670,14 +684,17 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
   ]).catch((e: unknown) => [e, null] as const);
   if (!alive()) return;
   const el = setRoot();
+
   if (got instanceof Error || typeof got !== "object") {
     el.innerHTML = `<div class="dwin"><h4>Settings</h4><p class="derr">${esc(got)}</p></div>`;
     return;
   }
+
   // What `settings` answered: an object that is not an Error.
   const set = got as MacSettings;
   const linked = S.link === "linked";
   SET.local = { set, mac, linked };
+
   if (SET.root) {
     drawSheet();
   } else {
@@ -686,6 +703,7 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
       <div class="dform dformcol">${sections}</div>${hints([["esc", "close"]])}`;
     bindSettings(el);
   }
+
   // The server's parts, side by side; each fills its section as it answers.
   if (linked) loadServerParts(set, alive);
   invoke<Machine[]>("list_machines").then(m => { SET.machines = m; MC.list = m; }, () => { SET.machines = null; })

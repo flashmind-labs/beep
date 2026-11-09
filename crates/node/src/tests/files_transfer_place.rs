@@ -25,13 +25,16 @@ fn written(journal: &Journal, target: &Arc<Folder>, name: &str, data: &str) -> P
 #[test]
 fn names_from_the_source_are_plain() {
     assert_eq!(plain_name("render.png").unwrap(), "render.png");
+
     for bad in ["", ".", "..", "a/b", "/abs", "a/", "../x"] {
         assert!(plain_name(bad).is_err(), "{bad:?}");
     }
+
     assert_eq!(
         relative_path("frames/0001.png").unwrap(),
         PathBuf::from("frames/0001.png")
     );
+
     for bad in ["", "/etc/passwd", "../out", "a/../../b", "a/./b", "a//b"] {
         assert!(relative_path(bad).is_err(), "{bad:?}");
     }

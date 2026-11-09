@@ -14,15 +14,18 @@ const files = Array.from({ length: 100 }, (_, i) => ({
   hunks: [{ old_start: 1, old_lines: 0, new_start: 1, new_lines: 250, section: "", lines: Array.from({ length: 250 }, (_, n) => ({ k: "+", t: `const value${n} = "${"example ".repeat(20)}";` })) }],
 }));
 const browser = await playwright().chromium.launch({ executablePath: process.env.CHROMIUM_BIN || undefined });
+
 try {
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 }, reducedMotion: "reduce" });
   const errors = [];
   page.on("pageerror", e => { console.error(e.stack); errors.push(e.message); });
   await page.setContent('<div id="bar" class="dbar" data-mode="window"></div>');
+
   for (const name of ["style.css", "diff.css"]) {
     const css = readFileSync(new URL(`../../dist/${name}`, import.meta.url), "utf8");
     await page.addStyleTag({ content: css.replace('@import url("skins.css");', "") });
   }
+
   await page.addStyleTag({ content: '#bar { position: fixed; inset: 0; width: 1300px; height: 850px; max-height: none; max-width: none; display: flex; flex-direction: column } .agconv { overflow: hidden } #agbody { overflow: auto; flex: 1 }' });
   await page.evaluate(stubInit, JSON.stringify({
     agent_hosts: [], agent_sessions: [], agent_reviews: [], editors: [], agent_worktrees: [], agent_tasks: [], session_moves: [], session_copies: [],
@@ -56,6 +59,7 @@ try {
     watch.observe(body, { childList: true, subtree: true });
     const times = [];
     let resizedChat = false;
+
     for (let i = 0; i < 6; i++) {
       const start = performance.now();
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", shiftKey: true, bubbles: true }));
@@ -65,6 +69,7 @@ try {
       await new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)));
       times.push({ handler: Math.round(handler * 10) / 10, painted: Math.round(performance.now() - start) });
     }
+
     watch.disconnect();
     return { times, replacements, resizedChat };
   });

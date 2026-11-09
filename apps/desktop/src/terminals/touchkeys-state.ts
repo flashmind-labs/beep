@@ -32,6 +32,7 @@ export function keyBytes(key: TermKey, mods: ReadonlySet<TermMod>): string {
   if (mods.has("alt")) number += 2;
   if (mods.has("ctrl")) number += 4;
   const csi = (final: string) => (number === 1 ? `\x1b[${final}` : `\x1b[1;${number}${final}`);
+
   switch (key) {
     case "esc": return "\x1b";
     case "tab": return mods.has("shift") ? "\x1b[Z" : "\t";
@@ -42,12 +43,15 @@ export function keyBytes(key: TermKey, mods: ReadonlySet<TermMod>): string {
     case "home": return csi("H");
     case "end": return csi("F");
   }
+
   let out = mods.has("shift") ? key.char.toUpperCase() : key.char;
+
   // Ctrl with a letter or one of @ [ \ ] ^ _ is the control byte.
   if (mods.has("ctrl") && out.length === 1) {
     const code = out.charCodeAt(0);
     if (code >= 0x40 && code <= 0x7f) out = String.fromCharCode(code & 0x1f);
   }
+
   return mods.has("alt") ? `\x1b${out}` : out;
 }
 

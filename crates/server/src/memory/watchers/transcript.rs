@@ -36,6 +36,7 @@ struct OpenTurn {
 fn close_turn(text: &mut String, turn: Option<OpenTurn>) {
     if let Some(turn) = turn {
         let took = turn.ended - turn.started;
+
         if took > SLOW_TURN {
             let _ = write!(text, "\n[turn took {}s]", took.num_seconds());
         }
@@ -53,9 +54,11 @@ pub(crate) fn transcript(
     let mut last_seq = 0;
     let mut talk = false;
     let mut turn: Option<OpenTurn> = None;
+
     for message in messages {
         let mut line = String::new();
         let id = message.id;
+
         match &message.body {
             StoredBody::User { content, .. } => {
                 close_turn(&mut line, turn.take());
@@ -96,9 +99,11 @@ pub(crate) fn transcript(
             // Group messages are not watched.
             StoredBody::Member { .. } | StoredBody::Beep { .. } => continue,
         }
+
         if first_seq != 0 && text.len() + line.len() > budget {
             break;
         }
+
         match &message.body {
             StoredBody::User { .. } | StoredBody::Scheduled { .. } => {
                 turn = Some(OpenTurn {
@@ -112,8 +117,10 @@ pub(crate) fn transcript(
                 }
             }
         }
+
         text.push_str(&line);
         talk |= matches!(message.body, StoredBody::User { .. });
+
         if first_seq == 0 {
             first_seq = id;
         }

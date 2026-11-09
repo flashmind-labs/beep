@@ -92,6 +92,7 @@ impl Tally {
                 Some(Some(closed)) => live.last = Into::<Bytes>::into(&closed.stats),
                 Some(None) => {}
             }
+
             ended.entry(live.alpn.clone()).or_default().add(live.last);
             false
         });
@@ -129,9 +130,11 @@ impl Traffic {
         // A hook runs for each connection, so this also clears the closed
         // ones while no link asks for reports.
         tally.settle();
+
         if tally.live.iter().any(|live| live.id == id) {
             return;
         }
+
         let handle = connection.weak_handle();
         tally.live.push(Live {
             id,
@@ -148,17 +151,21 @@ impl Traffic {
             let mut tally = lock(&self.0.tally);
             tally.settle();
             let mut by_alpn = tally.ended.clone();
+
             for live in &tally.live {
                 by_alpn.entry(live.alpn.clone()).or_default().add(live.last);
             }
+
             by_alpn
         };
         let mut counters = BTreeMap::new();
+
         for (alpn, bytes) in &by_alpn {
             let alpn = String::from_utf8_lossy(alpn);
             counters.insert(format!("alpn.{alpn}.tx"), bytes.tx);
             counters.insert(format!("alpn.{alpn}.rx"), bytes.rx);
         }
+
         if let Some(metrics) = self.0.endpoint.get() {
             let socket = &metrics.socket;
             for (key, bytes) in [

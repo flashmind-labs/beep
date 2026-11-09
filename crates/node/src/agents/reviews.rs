@@ -62,20 +62,24 @@ impl Reviews {
         let kept = all.iter_mut().find(|kept| kept.run.id == id)?;
         let before = kept.run.clone();
         let value = f(kept);
+
         if kept.run != before {
             self.events
                 .changed(beep_proto::node::events::Topic::keyed("reviews", id));
         }
+
         Some(value)
     }
 
     fn keep(&self, kept: Kept) {
         let mut all = crate::lock(&self.kept);
+
         if all.len() >= MAX_REVIEWS
             && let Some(at) = all.iter().position(|kept| !kept.run.running())
         {
             all.remove(at);
         }
+
         self.events.changed(beep_proto::node::events::Topic::keyed(
             "reviews",
             &kept.run.id,
@@ -105,6 +109,7 @@ impl Agents {
                 have.join(", ")
             ));
         }
+
         let (cwd, base, harness) = (order.cwd.clone(), order.base.clone(), order.agent.clone());
         let house = tokio::task::spawn_blocking(move || {
             house::find(std::path::Path::new(&cwd), &base, &harness)
@@ -122,6 +127,7 @@ impl Agents {
                 if parent.reviewer {
                     return Err("A reviewer does not start reviews.".to_owned());
                 }
+
                 let link = self.link_for(&parent, &who)?;
                 let start = ChildStart {
                     harness: order.agent.clone(),
@@ -260,9 +266,11 @@ enum Step {
 /// not and the nudge sent or not.
 fn step(live: &Live, submitted: bool, nudged: bool) -> Step {
     let status = live.status();
+
     if submitted && matches!(status, Status::Idle | Status::Ended) {
         return Step::Done;
     }
+
     match status {
         Status::Ended => {
             let why = live.info.state.error.clone().unwrap_or_default();
@@ -280,13 +288,17 @@ fn step(live: &Live, submitted: bool, nudged: bool) -> Step {
         Status::Idle => {}
         _ => return Step::Wait,
     }
+
     let turns = if nudged { 2 } else { 1 };
+
     if live.info.turns < turns {
         return Step::Wait;
     }
+
     if live.last_stop == Some(StopReason::Cancelled) {
         return Step::Fail("The review was stopped.".to_owned());
     }
+
     if nudged {
         Step::Fail("The reviewer ended without calling submit_review.".to_owned())
     } else {
@@ -300,8 +312,10 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
     let id = session.id.clone();
     let mut live = session.live.clone();
     let mut nudged = false;
+
     loop {
         let next = step(&live.borrow_and_update(), agents.submitted(&id), nudged);
+
         match next {
             Step::Wait => {
                 if live.changed().await.is_err() {
@@ -311,6 +325,7 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
             }
             Step::Nudge => {
                 nudged = true;
+
                 if let Err(e) = session
                     .order(Command::Prompt(NUDGE.to_owned().into()))
                     .await
@@ -326,6 +341,7 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
             }
         }
     }
+
     session.close().await;
     agents.lock().remove(&id);
     crate::link::restart::changed();

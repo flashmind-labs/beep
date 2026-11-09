@@ -37,10 +37,12 @@ const TEST_USERS: &[&str] = &["alice", "bob", "user"];
 #[doc(hidden)]
 pub fn test_chat(name: &str) -> Uuid {
     let mut hash: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
+
     for byte in name.bytes() {
         hash ^= u128::from(byte);
         hash = hash.wrapping_mul(0x0000_0000_0100_0000_0000_0000_0000_013b);
     }
+
     Uuid::from_u128(hash)
 }
 
@@ -103,6 +105,7 @@ pub async fn test_turn_with(
     };
     let mut turn = Conversation::new();
     turn.add(ConversationEntry::user(prompt));
+
     if calls > 0 {
         let ids: Vec<String> = (0..calls).map(|i| format!("call-{at}-{i}")).collect();
         let tool_calls = ids
@@ -116,15 +119,19 @@ pub async fn test_turn_with(
         turn.add(ConversationEntry::assistant_with_tool_calls(
             "", tool_calls, None,
         ));
+
         for id in &ids {
             turn.add(ConversationEntry::tool(id, "ok"));
         }
     }
+
     turn.add(ConversationEntry::assistant(format!("re: {prompt}")));
+
     for (i, entry) in turn.entries_mut().iter_mut().enumerate() {
         entry.timestamp =
             DateTime::from_timestamp_millis(at + i as i64).context("time out of range")?;
     }
+
     let mut context = match store.context(user, chat).await? {
         Some(stored) => stored.conversation,
         None => Conversation::new(),
@@ -247,15 +254,19 @@ fn server() -> Result<PgConnectOptions> {
 /// others wait on a lock.
 async fn template(server: &PgConnectOptions, admin: &mut PgConnection) -> Result<String> {
     let mut hash = blake3::Hasher::new();
+
     for (version, _, sql) in super::MIGRATIONS {
         hash.update(&version.to_le_bytes());
         hash.update(sql.as_bytes());
     }
+
     for user in TEST_USERS {
         hash.update(user.as_bytes());
     }
+
     let name = format!("beep_template_{}", &hash.finalize().to_hex()[..16]);
     let ready = "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1 AND datistemplate)";
+
     if sqlx::query_scalar(ready)
         .bind(&name)
         .fetch_one(&mut *admin)
@@ -263,6 +274,7 @@ async fn template(server: &PgConnectOptions, admin: &mut PgConnection) -> Result
     {
         return Ok(name);
     }
+
     sqlx::query("SELECT pg_advisory_lock(hashtext($1))")
         .bind(&name)
         .execute(&mut *admin)
@@ -357,6 +369,7 @@ impl Drop for TestDb {
                 log::warn!("unable to drop test database {name}: {error:#}");
             }
         });
+
         if closed.recv().is_err() {
             log::warn!("unable to close test database {}", self.name);
         }
@@ -373,10 +386,12 @@ async fn reap(admin: &mut PgConnection, name: &str) -> Result<()> {
     .bind(name)
     .fetch_all(&mut *admin)
     .await?;
+
     for name in closed {
         admin
             .execute(format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)").as_str())
             .await?;
     }
+
     Ok(())
 }

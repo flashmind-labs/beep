@@ -55,11 +55,13 @@ impl Project {
         let dir = TempDir::new().unwrap();
         let base = paths::canonicalize(dir.path()).unwrap();
         let folder = base.join("game");
+
         for file in files {
             let path = folder.join(file);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, file).unwrap();
         }
+
         let folders = Folders::new(std::slice::from_ref(&base));
         let root = open_target(&folders, &folder.to_string_lossy()).unwrap();
         let parts = Parts {
@@ -497,9 +499,11 @@ fn meta(hash: u8) -> FileMeta {
 /// Entries a peer made, one per path.
 fn from_peer(paths: &[&str], hash: u8) -> Vec<Entry> {
     let mut peer = Map::new(7);
+
     for path in paths {
         peer.edit(path, &Version::default(), Some(meta(hash)));
     }
+
     peer.since(0, usize::MAX).entries
 }
 
@@ -559,6 +563,7 @@ fn only_refs_are_removed_from_git_and_git_comes_in_the_order_it_needs() {
         ".git/refs/heads/gone",
     ];
     let mut state = State::new(Saved::default());
+
     for path in seen_here {
         map.edit(path, &Version::default(), Some(meta(1)));
         state.set_seen(
@@ -582,6 +587,7 @@ fn only_refs_are_removed_from_git_and_git_comes_in_the_order_it_needs() {
         let base = map.get(path).unwrap().version.clone();
         map.edit(path, &base, None);
     }
+
     state.saved.map = map;
     let planned = plan(&state, &rules);
     let paths: Vec<_> = planned.iter().map(|work| work.path.as_str()).collect();
@@ -618,9 +624,11 @@ fn only_refs_are_removed_from_git_and_git_comes_in_the_order_it_needs() {
 #[test]
 fn a_peer_cannot_grow_the_list_past_the_file_limit() {
     let mut map = Map::new(1);
+
     for n in 0..MAX_FILES {
         map.edit(&format!("f/{n}"), &Version::default(), Some(meta(1)));
     }
+
     let entries = from_peer(&["new.txt"], 2);
     assert_eq!(merge_peer(&mut map, &entries).refused, 1);
     assert!(map.get("new.txt").is_none());

@@ -130,12 +130,14 @@ export function doing(t: Team, id: string): Doing {
   const sources = t.research?.sources.filter(s => s.agent === id).length ?? 0;
   const said = mine.filter(e => e.kind === "said" && e.to).length;
   const summary = ({ scout: `Done: ${count(notes, "note")}, ${count(sources, "source")}`, critic: `Done: ${count(said, "challenge")}`, writer: "Done: the paper", lead: "Posted the result" } as Record<string, string>)[kind(id)];
+
   if (id === "lead") {
     if (st === "planning") return ["Waiting for your go", "wait"];
     if (st === "reviewing") return [round(t) > 1 ? `Coordinating round ${round(t)}` : "Coordinating", "run"];
     if (RUNNING.has(st)) return ["Watching the room", "run"];
     return st === "done" ? [summary, "ok"] : ["", ""];
   }
+
   if (st === "done") return [summary, "ok"];
   if (!RUNNING.has(st)) return mine.length ? [summary.replace("Done: ", ""), ""] : ["", ""];
   if (earlier(t, id)) return [summary, "ok"];
@@ -151,11 +153,13 @@ export function progress(t: Team, now: number) {
   const r = t.research!, st = r.status;
   const scouts = r.agents.filter(a => kind(a.id) === "scout" && !earlier(t, a.id));
   const took = minutes(roundStart(t), now);
+
   if (st === "researching") {
     const busy = scouts.filter(a => doing(t, a.id)[1] === "run").length;
     const n = `${busy} of ${count(scouts.length, "scout")} working`;
     return round(t) > 1 ? `Round ${round(t)}: ${n}, ${took}` : `Researching: ${n}, ${took}`;
   }
+
   if (st === "reviewing") return `The critic and the lead are reviewing, ${took}`;
   return round(t) > 1 ? `The writer is revising the paper, ${took}` : `The writer is drafting, ${took}`;
 }

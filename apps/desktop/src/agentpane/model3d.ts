@@ -60,6 +60,7 @@ async function parse(bytes: ArrayBuffer, ext: string, sibling: Sibling): Promise
     // The loader keeps the file's own face normals.
     return { root: new Mesh(new STLLoader().parse(bytes), gray()), format: "STL", clips: [] };
   }
+
   if (ext === "obj") {
     const root = new OBJLoader().parse(new TextDecoder().decode(bytes));
     // An OBJ's materials live in an .mtl the viewer does not read.
@@ -67,6 +68,7 @@ async function parse(bytes: ArrayBuffer, ext: string, sibling: Sibling): Promise
     root.traverse(o => { if (o instanceof Mesh) o.material = material; });
     return { root, format: "OBJ", clips: [] };
   }
+
   const glb = ext === "gltf" ? await packGltf(bytes, sibling) : bytes;
   const loader = new GLTFLoader();
   // Pictures decode off the main thread with createImageBitmap, from
@@ -112,16 +114,20 @@ async function packGltf(bytes: ArrayBuffer, sibling: Sibling): Promise<ArrayBuff
     parts.push(data);
     length = pad4(length + data.length);
   };
+
   for (const b of buffers) {
     const data = b.uri ? await read(b.uri) : new Uint8Array(b.byteLength);
     if (!data) throw new Error(`${b.uri} is not there`);
     add(data);
   }
+
   json.bufferViews ??= [];
+
   for (const v of json.bufferViews) {
     v.byteOffset = (v.byteOffset ?? 0) + base[v.buffer];
     v.buffer = 0;
   }
+
   for (const img of json.images ?? []) {
     const data = img.uri && await read(img.uri);
     if (!data) continue;
@@ -129,6 +135,7 @@ async function packGltf(bytes: ArrayBuffer, sibling: Sibling): Promise<ArrayBuff
     delete img.uri;
     add(data);
   }
+
   json.buffers = length ? [{ byteLength: length }] : [];
   const text = new TextEncoder().encode(JSON.stringify(json));
   const jsonLen = pad4(text.length), binLen = pad4(length);
@@ -141,12 +148,14 @@ async function packGltf(bytes: ArrayBuffer, sibling: Sibling): Promise<ArrayBuff
   view.setUint32(16, 0x4e4f534a, true);
   out.set(text, 20);
   out.fill(0x20, 20 + text.length, 20 + jsonLen);
+
   if (length) {
     const at = 20 + jsonLen;
     view.setUint32(at, binLen, true);
     view.setUint32(at + 4, 0x004e4942, true);
     parts.forEach((p, i) => out.set(p, at + 8 + base[i]));
   }
+
   return out.buffer;
 }
 
@@ -205,6 +214,7 @@ export async function mountModel(box: HTMLElement, bytes: ArrayBuffer, ext: stri
   const draw = () => renderer.render(scene, camera);
   const frame = (now: number) => {
     raf = 0;
+
     if (mixer && anim?.playing) {
       mixer.update(last ? (now - last) / 1000 : 0);
       last = now;
@@ -212,6 +222,7 @@ export async function mountModel(box: HTMLElement, bytes: ArrayBuffer, ext: stri
       anim.onchange();
       if (anim.playing) raf = requestAnimationFrame(frame);
     }
+
     draw();
   };
   const request = () => { raf ||= requestAnimationFrame(frame); };
@@ -316,12 +327,14 @@ export async function mountModel(box: HTMLElement, bytes: ArrayBuffer, ext: stri
       root.traverse(o => {
         if (!(o instanceof Mesh)) return;
         o.geometry.dispose();
+
         for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
           for (const v of Object.values(m)) {
             if (!(v instanceof Texture)) continue;
             v.dispose();
             if (v.image instanceof ImageBitmap) v.image.close();
           }
+
           m.dispose();
         }
       });

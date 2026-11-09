@@ -57,6 +57,8 @@ pub(super) struct Task {
     pub(super) fetcher: Arc<Fetcher>,
     pub(super) pending: u64,
     pub(super) error: Option<String>,
+    /// Repeated blocked states stay visible without logging every retry or scan.
+    last_logged_error: Option<(String, Instant)>,
     /// The last scan failed, so nothing on disk is recorded.
     pub(super) scan_failed: bool,
     saved_at: Instant,
@@ -116,11 +118,13 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
         task.save(true).await;
         start_pulls(&mut pulls, &shared, &task.parts, &peers.borrow_and_update());
     }
+
     let mut settle: Option<Instant> = None;
     let mut deletes = DeleteTimer::default();
     deletes.scanned(!task.held.is_empty(), Instant::now());
     let mut last_scan = Instant::now();
     let mut retry = RETRY;
+
     loop {
         if *paused.borrow_and_update() {
             // Nothing moves: the pulls stop, and changes on disk wait for
@@ -138,6 +142,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 () = sleep_until(task.saved_at + SAVE_EVERY), if unsaved => {}
             }
             task.save(false).await;
+
             if !*paused.borrow() {
                 while woken.try_recv().is_ok() {}
                 shared.listen_again();
@@ -149,6 +154,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
             }
             continue;
         }
+
         let mut apply = false;
         let mut forced = false;
         // A change waiting to be saved is saved once `SAVE_EVERY` passed.
@@ -223,17 +229,22 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
             },
         }
         deletes.scanned(!task.held.is_empty(), Instant::now());
+
         if apply && settle.is_none() {
             task.apply().await;
+
             if task.pending == 0 {
                 retry = RETRY;
             }
         }
+
         task.save(false).await;
+
         if forced {
             shared.rescans.send_modify(|count| *count += 1);
         }
     }
+
     watcher.remove(shared.key).await;
     task.save(true).await;
 }
@@ -266,6 +277,7 @@ impl Task {
             protected: None,
             pending: 0,
             error: None,
+            last_logged_error: None,
             scan_failed: false,
             saved_at: Instant::now(),
             held: BTreeSet::new(),
@@ -275,7 +287,13 @@ impl Task {
 
     pub(super) fn fail(&mut self, what: &str, e: &anyhow::Error) {
         let message = format!("{what}: {e:#}");
-        log::warn!("{}: {message}", self.shared.name);
+        let now = Instant::now();
+        if self.last_logged_error.as_ref().is_none_or(|(last, at)| {
+            last != &message || now.duration_since(*at) >= Duration::from_secs(60)
+        }) {
+            log::warn!("{}: {message}", self.shared.name);
+            self.last_logged_error = Some((message.clone(), now));
+        }
         self.error = Some(message);
     }
 
@@ -293,9 +311,11 @@ impl Task {
         let list: HashSeq = hashes.into_iter().collect();
         let bytes = list.into_inner();
         let root = Hash::new(&bytes);
+
         if self.protected == Some(root) {
             return Ok(());
         }
+
         let tag = self
             .parts
             .store
@@ -319,6 +339,7 @@ impl Task {
         if !now && self.saved_at.elapsed() < SAVE_EVERY {
             return true;
         }
+
         let Some(snapshot) = self.shared.lock().snapshot() else {
             return true;
         };
@@ -331,12 +352,14 @@ impl Task {
         .await
         .map_err(anyhow::Error::from)
         .and_then(|written| written);
+
         if let Err(e) = written {
             log::warn!("could not save {}: {e:#}", self.shared.name);
             // Tried again on the next pass.
             self.shared.lock().unsaved = true;
             return false;
         }
+
         true
     }
 

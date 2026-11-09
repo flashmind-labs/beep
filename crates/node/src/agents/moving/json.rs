@@ -35,6 +35,7 @@ pub(super) fn replace(
 ) -> Vec<u8> {
     let mut out = Vec::with_capacity(line.len() + 32);
     let mut at = 0;
+
     for span in spans {
         let Some(new) = serde_json::from_slice::<String>(&line[span.clone()])
             .ok()
@@ -49,6 +50,7 @@ pub(super) fn replace(
         out.extend_from_slice(&encoded);
         at = span.end;
     }
+
     out.extend_from_slice(&line[at..]);
     out
 }
@@ -58,23 +60,29 @@ fn collect(b: &[u8], i: usize, path: &[Step], out: &mut Vec<Range<usize>>) -> Op
         if b.get(i) == Some(&b'"') {
             out.push(i..skip_string(b, i)?);
         }
+
         return Some(());
     };
+
     match (step, b.get(i)?) {
         (Step::Key(want), b'{') => {
             let mut i = skip_ws(b, i + 1);
+
             while b.get(i)? != &b'}' {
                 let key_end = skip_string(b, i)?;
                 let key: Option<String> = serde_json::from_slice(&b[i..key_end]).ok();
                 i = skip_ws(b, key_end);
+
                 if b.get(i)? != &b':' {
                     return None;
                 }
                 i = skip_ws(b, i + 1);
+
                 if key.as_deref() == Some(want) {
                     collect(b, i, rest, out)?;
                 }
                 i = skip_ws(b, skip_value(b, i)?);
+
                 if b.get(i)? == &b',' {
                     i = skip_ws(b, i + 1);
                 }
@@ -82,9 +90,11 @@ fn collect(b: &[u8], i: usize, path: &[Step], out: &mut Vec<Range<usize>>) -> Op
         }
         (Step::Each, b'[') => {
             let mut i = skip_ws(b, i + 1);
+
             while b.get(i)? != &b']' {
                 collect(b, i, rest, out)?;
                 i = skip_ws(b, skip_value(b, i)?);
+
                 if b.get(i)? == &b',' {
                     i = skip_ws(b, i + 1);
                 }
@@ -92,6 +102,7 @@ fn collect(b: &[u8], i: usize, path: &[Step], out: &mut Vec<Range<usize>>) -> Op
         }
         _ => {}
     }
+
     Some(())
 }
 
@@ -99,6 +110,7 @@ fn skip_ws(b: &[u8], mut i: usize) -> usize {
     while b.get(i).is_some_and(u8::is_ascii_whitespace) {
         i += 1;
     }
+
     i
 }
 
@@ -107,7 +119,9 @@ fn skip_string(b: &[u8], i: usize) -> Option<usize> {
     if b.get(i)? != &b'"' {
         return None;
     }
+
     let mut i = i + 1;
+
     loop {
         match b.get(i)? {
             b'\\' => i += 2,
@@ -124,29 +138,35 @@ fn skip_value(b: &[u8], i: usize) -> Option<usize> {
         open @ (b'{' | b'[') => {
             let close = if *open == b'{' { b'}' } else { b']' };
             let mut i = skip_ws(b, i + 1);
+
             while b.get(i)? != &close {
                 if *open == b'{' {
                     i = skip_ws(b, skip_string(b, i)?);
+
                     if b.get(i)? != &b':' {
                         return None;
                     }
                     i = skip_ws(b, i + 1);
                 }
                 i = skip_ws(b, skip_value(b, i)?);
+
                 if b.get(i)? == &b',' {
                     i = skip_ws(b, i + 1);
                 }
             }
+
             Some(i + 1)
         }
         _ => {
             let mut i = i;
+
             while b
                 .get(i)
                 .is_some_and(|c| !matches!(c, b',' | b'}' | b']') && !c.is_ascii_whitespace())
             {
                 i += 1;
             }
+
             Some(i)
         }
     }

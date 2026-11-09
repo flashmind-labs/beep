@@ -29,6 +29,7 @@ impl App {
         {
             return;
         }
+
         let app = self.clone();
         let user = user.clone();
         tokio::spawn(async move {
@@ -96,6 +97,7 @@ impl App {
                 }
             };
             let mut transcript = String::new();
+
             for message in messages
                 .iter()
                 .filter(|message| review.since.is_none_or(|since| message.sent_at > since))
@@ -106,6 +108,7 @@ impl App {
                 };
                 transcript.push_str(&format!("\n\n{author}: {}", message.content));
             }
+
             let generator = app.generator(&generator_user);
             let owner = SkillOwner::Group(group_id);
             match skills::review(
@@ -137,13 +140,16 @@ impl App {
                 return None;
             }
         };
+
         if review.turns < REVIEW_TURNS && tool_calls < REVIEW_TOOL_CALLS && !corrected {
             return None;
         }
+
         if let Err(error) = self.store.reviewed_skills(chat, Utc::now()).await {
             log::warn!("unable to start a skill review: {error:#}; chat={chat}");
             return None;
         }
+
         Some(review)
     }
 }

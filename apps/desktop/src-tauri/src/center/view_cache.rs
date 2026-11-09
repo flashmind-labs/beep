@@ -109,9 +109,11 @@ impl ViewCache {
     pub fn put(&self, view: View, value: Value) -> bool {
         {
             let mut views = self.lock();
+
             if views.get(&view) == Some(&value) {
                 return false;
             }
+
             views.insert(view, value);
         }
         self.unsaved.fetch_add(1, Ordering::AcqRel) == 0
@@ -122,6 +124,7 @@ impl ViewCache {
     pub fn write_unsaved(&self) {
         loop {
             let seen = self.unsaved.load(Ordering::Acquire);
+
             if let Err(e) = self.save() {
                 log::warn!("saving the views: {e:#}");
             }
@@ -143,9 +146,11 @@ impl ViewCache {
                 views: &views,
             })?
         };
+
         if let Some(dir) = self.path.parent() {
             fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
         }
+
         let mut partial = self.path.as_os_str().to_owned();
         partial.push(".part");
         fs::write(&partial, &bytes).with_context(|| format!("writing {}", self.path.display()))?;
@@ -167,6 +172,7 @@ impl ViewCache {
     /// Forgets every view, when this computer starts over.
     pub fn clear(&self) {
         self.lock().clear();
+
         match fs::remove_file(&self.path) {
             Ok(()) => {}
             Err(e) if e.kind() == ErrorKind::NotFound => {}
@@ -199,6 +205,7 @@ fn read(path: &Path, app: &str) -> anyhow::Result<BTreeMap<View, Value>> {
             file.app
         );
     }
+
     let mut views = file.views;
     if file.app != app {
         views.retain(|view, _| matches!(view, View::Palette | View::AgentSessions));
@@ -215,6 +222,7 @@ pub(crate) fn kept<T: Serialize>(
     if let Ok(value) = &result {
         cache_view(cache, view, value);
     }
+
     result
 }
 
@@ -228,6 +236,7 @@ pub(crate) fn cache_view<T: Serialize>(cache: &Arc<ViewCache>, view: View, value
             return;
         }
     };
+
     if cache.put(view, value) {
         let cache = cache.clone();
         tauri::async_runtime::spawn_blocking(move || cache.write_unsaved());
@@ -241,9 +250,10 @@ pub fn center_cached(
     beep: Service<'_>,
     cache: State<'_, Arc<ViewCache>>,
 ) -> Option<BTreeMap<View, Value>> {
-    if beep.link_state() != LinkState::Linked {
+    if cfg!(mobile) && beep.link_state() != LinkState::Linked {
         return None;
     }
+
     let mut views = cache.views();
     // This side's own head starts, not the page's.
     views.remove(&View::AgentSessions);
@@ -256,18 +266,18 @@ pub fn center_cached(
 /// it lower; this only stops a runaway one filling the disk.
 const MAX_PAGES: usize = 4 * 1024 * 1024;
 
-/// Keeps what the project pages last read, so the next window, even after
-/// a restart, draws them at once. Only while linked: the file goes with
-/// the account on Start over.
+/// Keeps project pages across windows and restarts. Desktop pages belong to
+/// the local mesh; phone pages require a linked controller.
 #[tauri::command]
 pub fn center_keep_pages(
     beep: Service<'_>,
     cache: State<'_, Arc<ViewCache>>,
     pages: Value,
 ) -> error::Result<()> {
-    if beep.link_state() != LinkState::Linked {
+    if cfg!(mobile) && beep.link_state() != LinkState::Linked {
         return Err(DesktopError::Unlinked);
     }
+
     let size = serde_json::to_vec(&pages)
         .map_err(anyhow::Error::from)?
         .len();
@@ -276,6 +286,7 @@ pub fn center_keep_pages(
             "the page cache is {size} bytes, over the {MAX_PAGES} kept"
         )));
     }
+
     cache_view(&cache, View::Pages, &pages);
     Ok(())
 }

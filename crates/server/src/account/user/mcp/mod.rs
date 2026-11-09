@@ -56,6 +56,7 @@ impl User {
             self.drop_lost_custom_login(name).await;
             return;
         }
+
         let address = self
             .fastmail_accounts()
             .await
@@ -70,6 +71,7 @@ impl User {
                 return;
             }
         }
+
         let app = display_name(name);
         let which = match &address {
             Some(address) => format!("{app} ({address})"),
@@ -150,21 +152,25 @@ impl User {
         };
         let accounts = fastmail_rows(&rows);
         let mut tools = Vec::new();
+
         if !accounts.is_empty() {
             if accounts.len() > 1 {
                 // The agent picks accounts by address, so learn missing ones for the next run.
                 self.learn_addresses_later(&accounts);
             }
+
             let registry = self.mcp_registry().await;
             // Tools are rebuilt from `current_mcp_tools` every run; the queued ops are not needed.
             registry.drain_pending_ops();
             tools = app_tools(&self.mcp, &registry, &accounts);
         }
+
         if rows.iter().any(ready) {
             let registry = self.custom_registry().await;
             registry.drain_pending_ops();
             tools.extend(custom_tools(registry, &self.me, self.id(), &rows));
         }
+
         tools
     }
 
@@ -194,9 +200,11 @@ impl User {
                 if lost_login(&error) {
                     self.drop_lost_mcp_login(server).await;
                 }
+
                 return Err(error);
             }
         };
+
         if result.is_error {
             // Error text says what went wrong; it is clipped in case it echoes content.
             let reason: String = result
@@ -208,6 +216,7 @@ impl User {
                 .collect();
             bail!("{server} {tool} returned an error: {reason}");
         }
+
         Ok(result)
     }
 
@@ -220,6 +229,7 @@ impl User {
             .any(|server| server == name);
         let registry = self.mcp_registry().await;
         let mut forgotten = false;
+
         if registry.get_config(name).await.is_some() {
             // Closing can wait on a stuck call; the row goes either way.
             match self
@@ -233,9 +243,11 @@ impl User {
                 }
             }
         }
+
         if !forgotten {
             self.delete_mcp_server(name).await?;
         }
+
         registry.drain_pending_ops();
         Ok(existed)
     }
@@ -250,6 +262,7 @@ impl User {
                 return;
             }
         };
+
         for name in connected {
             // Asked again each time: one that runs out of time is replaced.
             let registry = self.mcp_registry().await;
@@ -258,8 +271,10 @@ impl User {
                 .bounded(&registry, &name, registry.reconnect(&name))
                 .await;
             registry.drain_pending_ops();
+
             if let Err(error) = reconnected {
                 log::warn!("mcp: keep-alive reconnect failed; server={name} error={error:#}");
+
                 if lost_login(&error) {
                     self.drop_lost_mcp_login(&name).await;
                 }

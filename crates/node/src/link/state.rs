@@ -94,6 +94,7 @@ fn expand(search: Option<&Path>, home: Option<PathBuf>) -> Option<PathBuf> {
     let Some(search) = search else {
         return home;
     };
+
     match search.strip_prefix("~") {
         Ok(rest) if rest.as_os_str().is_empty() => home,
         Ok(rest) => Some(home?.join(rest)),
@@ -116,6 +117,7 @@ impl State {
         if dir.join(SETTINGS_FILE).exists() {
             return Self::load(dir);
         }
+
         let key = ensure_key(dir)?;
         Self::save(dir, key, name)
     }
@@ -160,6 +162,7 @@ impl State {
 /// machine stays the same device.
 fn ensure_key(dir: &Path) -> Result<SecretKey> {
     fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+
     match read_key(dir)? {
         Some(key) => Ok(key),
         None => {
@@ -192,6 +195,7 @@ fn read_settings(dir: &Path) -> Result<Settings> {
 
 fn read_key(dir: &Path) -> Result<Option<SecretKey>> {
     let path = dir.join(KEY_FILE);
+
     match fs::read(&path) {
         Ok(bytes) => {
             let bytes: [u8; 32] = bytes

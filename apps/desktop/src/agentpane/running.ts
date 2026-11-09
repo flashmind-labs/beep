@@ -49,6 +49,7 @@ export async function readRunning() {
   syncSession();
   const s = paneSession(), asked = key, count = list.length;
   if (!s?.id || s.external || !visible()) return;
+
   try {
     const view = await invoke<ProcessesView>("agent_processes", { machineId: s.machine_id, session: s.id }, AGENT_READ_WAIT_MS);
     syncSession();
@@ -60,6 +61,7 @@ export async function readRunning() {
     if (key !== asked) return;
     error = readError(e);
   }
+
   render();
   if (list.length !== count) draw();
 }
@@ -67,28 +69,34 @@ export async function readRunning() {
 export function runningView() {
   syncSession();
   if (!list.length) { el?.remove(); return null; }
+
   if (!el) {
     el = h('<div class="agpview running"><div class="agrunninglist"></div><div class="agpacts"><span class="meta"></span><span class="sp"></span><button class="dbtn warn" data-stop-all>Stop all</button></div><div class="derr agrunningerror" role="status" hidden></div></div>');
     el.addEventListener("click", e => {
       const target = e.target as HTMLElement;
       const link = target.closest<HTMLAnchorElement>("a[data-port]");
+
       if (link) {
         e.preventDefault();
         e.stopPropagation();
         invoke("open_url", { url: link.href }).catch(e => { error = readError(e); render(); });
         return;
       }
+
       const cmd = target.closest<HTMLElement>("[data-whole]");
+
       // A click shows the whole command; selecting text in it does not fold it.
       if (cmd && !getSelection()?.toString()) {
         const pid = +cmd.dataset.whole!;
         if (!whole.delete(pid)) whole.add(pid);
         return render();
       }
+
       const button = target.closest<HTMLButtonElement>("button[data-pid], button[data-stop-all]");
       if (button && !button.disabled) void stop(button.hasAttribute("data-stop-all") ? list.map(p => p.pid) : [+button.dataset.pid!]);
     });
   }
+
   render();
   return el;
 }
@@ -119,6 +127,7 @@ async function stop(pids: number[]) {
   error = "";
   render();
   const failed: string[] = [];
+
   // Keep a large list from opening an unbounded number of mesh streams.
   for (let i = 0; i < pids.length; i += 4) {
     if (key !== asked) return;
@@ -130,6 +139,7 @@ async function stop(pids: number[]) {
       finally { if (key === asked) stopping.delete(pid); }
     }));
   }
+
   if (key !== asked) return;
   error = failed.join(" ");
   render();

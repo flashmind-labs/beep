@@ -93,6 +93,7 @@ impl Shared {
     pub(in crate::files::sync) fn load(start: Start) -> Result<Arc<Self>> {
         let mut saved = read_saved(&start.file);
         let migrated = saved.git_copy.is_none();
+
         if migrated {
             saved.git_copy = Some(if start.root.path().join(gitdir::GIT).exists() {
                 GitCopy::Finished
@@ -102,6 +103,7 @@ impl Shared {
             // Existing indexes, including staged work, stay owned by Git.
             saved.index_stale = false;
         }
+
         let ignored = IgnoredRoot::parse(&start.name, start.root.path())?;
         let git_only = ignored.is_none()
             && (saved.git_only
@@ -125,6 +127,7 @@ impl Shared {
             ..ProjectStatus::default()
         };
         let mut peer_branches = HashMap::new();
+
         if matches!(state.saved.git_copy, Some(GitCopy::Finished))
             && let Some(repo) = Repo::open(start.root.path())
         {
@@ -138,6 +141,7 @@ impl Shared {
                 }
             }
         }
+
         Ok(Arc::new(Self {
             bootstrap_paths: RwLock::new(
                 start
@@ -186,6 +190,7 @@ impl Shared {
         if let Some(scope) = self.ignored.clone() {
             spawn_blocking(move || scope.check()).await??;
         }
+
         Ok(())
     }
 
@@ -203,10 +208,12 @@ impl Shared {
             *current = agents;
             changed
         };
+
         if changed {
             if crate::lock(&self.recovery).is_some() {
                 *crate::write_lock(&self.bootstrap_paths) = Some(HashSet::new());
             }
+
             self.forced.notify_one();
         }
     }
@@ -334,9 +341,11 @@ impl Shared {
         checkout: Checkout,
     ) -> Result<Changes> {
         let state = self.lock();
+
         if state.saved.checkout != Some(checkout) {
             bail!("the file list changed base before this batch was sent");
         }
+
         Ok(state.saved.map.since(since, limit))
     }
 
@@ -429,6 +438,7 @@ impl Shared {
                 {
                     bail!("waiting for the first Git copy from another peer");
                 }
+
                 if checkout.present && donor.is_none() {
                     *donor = Some(peer.to_string());
                     state.unsaved = true;
@@ -437,6 +447,7 @@ impl Shared {
         } else if own.differs(checkout) && !self.branch_aware(peer) {
             bail!("Git commits differ; push and pull through Git before syncing files");
         }
+
         if copies_git && checkout.present {
             state.saved.git_only = true;
         }
@@ -450,28 +461,34 @@ impl Shared {
     /// Whether an established checkout must wait for Git before writing files.
     pub(in crate::files::sync) async fn check_git(&self) -> Result<()> {
         self.check_ignored().await?;
+
         if self.copies_git() {
             return Ok(());
         }
+
         let root = self.root().to_owned();
         let own = spawn_blocking(move || -> Result<Checkout> {
             if let Some(repo) = Repo::open(&root) {
                 repo.check_recovery()?;
             }
+
             if gitdir::is_busy(&root) {
                 bail!("{}", gitdir::busy_reason(&root));
             }
+
             Ok(Checkout::read(&root))
         })
         .await??;
         let aware: HashSet<_> = crate::lock(&self.peer_branches).keys().copied().collect();
         let heads = crate::lock(&self.peer_heads);
+
         if heads
             .iter()
             .any(|(peer, head)| self.has_peer(peer) && !aware.contains(peer) && own.differs(head.0))
         {
             bail!("Git commits differ; push and pull through Git before syncing files");
         }
+
         Ok(())
     }
 
@@ -479,9 +496,11 @@ impl Shared {
     pub(in crate::files::sync) async fn list_checkout(&self) -> Result<Checkout> {
         self.check_ignored().await?;
         let now = self.head().await?;
+
         if self.lock().saved.checkout != Some(now) {
             bail!("waiting for a scan of the current Git checkout");
         }
+
         let root = self.root().to_owned();
         let busy =
             spawn_blocking(move || gitdir::is_busy(&root).then(|| gitdir::busy_reason(&root)))
@@ -489,12 +508,14 @@ impl Shared {
         if let Some(reason) = busy {
             bail!("{reason}");
         }
+
         Ok(now)
     }
 
     /// The initial donor has sent its whole list successfully.
     pub(super) fn git_copy_received(&self) -> bool {
         let state = self.lock();
+
         match &state.saved.git_copy {
             Some(GitCopy::Pending { peer: Some(peer) }) => crate::lock(&self.caught)
                 .keys()
@@ -532,6 +553,7 @@ impl Shared {
                 _ => {}
             }
         }
+
         let entries: Vec<_> = entries
             .iter()
             .filter(|entry| {
@@ -551,6 +573,7 @@ impl Shared {
             .cloned()
             .collect();
         let merged = merge_peer(&mut state.saved.map, &entries);
+
         if merged.refused > 0 {
             log::warn!(
                 "{}: left out {} entries from {peer}: bad paths, or past {MAX_FILES} files",
@@ -558,14 +581,17 @@ impl Shared {
                 merged.refused
             );
         }
+
         let changed = merged.changed;
         state.saved.cursors.insert(peer.to_string(), cursor);
         state.unsaved = true;
         let seq = state.saved.map.seq();
         drop(state);
+
         if changed {
             self.seq.send_replace(seq);
         }
+
         self.merged.notify_one();
     }
 
@@ -575,6 +601,7 @@ impl Shared {
             update(status);
             *status != before
         });
+
         if changed {
             crate::events::system().changed(beep_proto::node::events::Topic::new("sync"));
         }
@@ -599,6 +626,7 @@ impl Shared {
         if self.is_paused() {
             bail!("sync of {} is paused; resume it to sync", self.name);
         }
+
         let mut done = self.rescans.subscribe();
         let before = *done.borrow_and_update();
         self.forced.notify_one();
@@ -619,17 +647,21 @@ impl Shared {
                 self.name
             );
         }
+
         if gitdir::in_git(path) && !self.copies_git() {
             bail!("resolve Git conflicts through Git on this machine");
         }
+
         if !valid_path(path) || !is_conflict(path) {
             bail!("{path} is not a conflict copy");
         }
+
         let original =
             original_of(path).with_context(|| format!("{path} is not a conflict copy"))?;
         if gitdir::in_git(path) {
             return self.resolve_ref(path, &original, keep).await;
         }
+
         let (copy, beside) = {
             let state = self.lock();
             let stat = |p: &str| state.saved.seen.get(p).map(|seen| seen.stat);
@@ -665,18 +697,22 @@ impl Shared {
         let moved = spawn_blocking(move || -> Result<bool> {
             let repo = Repo::open(&root).context("the repository is not here")?;
             let moved = keep == Keep::Copy;
+
             if moved {
                 repo.set_ref(gitdir::ref_name(&original), copy, beside)?;
             }
+
             repo.delete_ref(gitdir::ref_name(&path), copy)?;
             Ok(moved)
         })
         .await??;
+
         if moved {
             let mut state = self.lock();
             state.saved.index_stale = true;
             state.unsaved = true;
         }
+
         self.touched.notify_one();
         Ok(())
     }
@@ -694,6 +730,7 @@ struct Settle {
 /// since the last scan; blocks.
 fn settle(root: &Folder, path: &str, original: &str, settle: Settle) -> Result<()> {
     const CHANGED: &str = "changed on this machine since it was scanned; try again in a moment";
+
     match settle.keep {
         Keep::Original => {
             if !disk::remove(root, path, &settle.copy)? {
@@ -706,10 +743,12 @@ fn settle(root: &Folder, path: &str, original: &str, settle: Settle) -> Result<(
             {
                 bail!("{original} {CHANGED}");
             }
+
             if disk::rename(root, path, original, &settle.copy)?.is_none() {
                 bail!("{path} {CHANGED}");
             }
         }
     }
+
     Ok(())
 }

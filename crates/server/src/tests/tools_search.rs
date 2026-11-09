@@ -65,15 +65,18 @@ async fn sends_server_credentials_and_redacts_upstream_errors() {
     let server = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
         let mut data = Vec::new();
+
         loop {
             let mut buf = [0u8; 4096];
             let n = stream.read(&mut buf).await.unwrap();
             assert!(n > 0);
             data.extend_from_slice(&buf[..n]);
+
             if data.ends_with(b"}") {
                 break;
             }
         }
+
         let request = String::from_utf8(data).unwrap();
         assert!(request.contains("Bearer private-test-key"));
         assert!(request.contains("\"query\":\"hello\""));
@@ -106,12 +109,14 @@ async fn a_blank_location_searches_without_one() {
     let server = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
         let mut data = Vec::new();
+
         while !data.ends_with(b"}") {
             let mut buf = [0u8; 4096];
             let n = stream.read(&mut buf).await.unwrap();
             assert!(n > 0);
             data.extend_from_slice(&buf[..n]);
         }
+
         assert!(!String::from_utf8(data).unwrap().contains("location"));
         stream
             .write_all(

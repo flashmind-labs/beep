@@ -90,6 +90,7 @@ pub async fn sign_in(
             other => Err(unexpected(&other)),
         };
     }
+
     let words = Words {
         silent: "the machine did not answer about the sign-in",
         closed: "the machine closed the sign-in without an answer",
@@ -111,6 +112,7 @@ pub async fn log(client: &PeerClient, lines: u32) -> Result<String, MeshError> {
         words,
     )
     .await?;
+
     match reply {
         logs::Reply::Log { text } => Ok(text),
         logs::Reply::Failed { reason } => Err(said(reason)),
@@ -143,6 +145,7 @@ async fn ask_search(
         silent: "the node took too long to answer",
         closed: "the node closed the stream without an answer",
     };
+
     match exchange(client, limit, search::PROTOCOL, &request, words).await? {
         search::Reply::Folder { folder } => Ok(folder),
         search::Reply::Failed { reason } => Err(said(reason)),
@@ -157,6 +160,7 @@ impl Tasks<'_> {
     /// Sends `request` and returns the node's reply.
     pub async fn ask(&self, request: &process::Request) -> Result<process::Reply, MeshError> {
         let read = beep_proto::node::events::Read::Process(request.clone());
+
         if read.topic().is_some()
             && let Some(value) = timeout(TASK_LIMIT, self.0.snapshot(read))
                 .await
@@ -167,6 +171,7 @@ impl Tasks<'_> {
                 _ => Err(said("the process subscription returned another resource")),
             };
         }
+
         let words = Words {
             silent: "the node stopped answering",
             closed: "the node closed the process session",
@@ -180,6 +185,7 @@ impl Tasks<'_> {
             command: command.to_owned(),
             cwd,
         };
+
         match self.ask(&request).await? {
             process::Reply::Started { id } => Ok(id),
             process::Reply::Error { message } => Err(said(message)),
@@ -229,6 +235,7 @@ pub async fn install_tool(client: &PeerClient, tool: Tool, version: &str) -> Res
         silent: "the install took too long",
         closed: "the node closed the install without an answer",
     };
+
     match exchange(client, TOOL_INSTALL, tool_update::PROTOCOL, &request, words).await? {
         tool_update::Reply::Installed {} => Ok(()),
         tool_update::Reply::Failed { reason } => Err(said(reason)),
@@ -301,6 +308,7 @@ pub async fn exec(client: &PeerClient, command: &str, limit: Duration) -> Result
     tx.send(&request).await.map_err(MeshError::Link)?;
     let answer = async {
         let mut output = String::new();
+
         loop {
             match rx.recv::<Event>().await.map_err(MeshError::Link)? {
                 Some(Event::Output { text }) => output.push_str(&text),

@@ -79,9 +79,11 @@ async fn join(
         .map_err(internal)?
         .ok_or(ApiError::NotFound {})?;
     log::info!("a new key joined the owner; user={target} key={key}");
+
     if let Some(user) = app.user(&target) {
         user.changed("");
     }
+
     Ok(())
 }
 

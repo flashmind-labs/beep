@@ -71,6 +71,7 @@ impl GitBoard {
                 labels: Vec::new(),
             });
         }
+
         let slot = self
             .users
             .lock()
@@ -82,6 +83,7 @@ impl GitBoard {
         // first and takes its list.
         let mut cached = slot.lock().await;
         let ids: Vec<String> = logins.iter().map(|login| login.id.clone()).collect();
+
         if let Some(last) = cached.as_ref() {
             let ttl = if last
                 .items
@@ -94,10 +96,12 @@ impl GitBoard {
             } else {
                 FRESH
             };
+
             if last.logins == ids && last.at.elapsed() < ttl {
                 return Ok(last.items.clone());
             }
         }
+
         let hosts = BoardHosts {
             calls: self.calls.clone(),
         };

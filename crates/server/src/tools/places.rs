@@ -181,6 +181,7 @@ impl PlaceTool {
             }
             (None, Some(fix)) => {
                 let age = Utc::now() - fix.updated_at;
+
                 if age > TimeDelta::minutes(FRESH_MINUTES) {
                     return Ok(Err(format!(
                         "the phone's last location is {} minutes old, so it may not be \
@@ -188,6 +189,7 @@ impl PlaceTool {
                         age.num_minutes()
                     )));
                 }
+
                 Point::from(fix)
             }
         };

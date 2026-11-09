@@ -66,12 +66,15 @@ pub(super) async fn read_claude(command: Command) -> Result<Option<PlanUsage>> {
         if line["type"] != "control_response" || line["response"]["request_id"] != "beep-usage" {
             return Step::Wait;
         }
+
         Step::Done(line["response"].clone())
     })
     .await?;
+
     if answer["subtype"] != "success" {
         bail!("Claude Code refused: {}", answer["error"]);
     }
+
     Ok(claude_plan(&answer["response"], unix_now()))
 }
 
@@ -93,9 +96,11 @@ pub(super) async fn read_codex(command: Command) -> Result<Option<PlanUsage>> {
         }
     })
     .await?;
+
     if let Some(error) = answer.get("error") {
         bail!("Codex refused: {}", error["message"]);
     }
+
     Ok(codex_plan(&answer["result"], unix_now()))
 }
 
@@ -122,6 +127,7 @@ async fn exchange(
         let stdout = process.stdout.take().context("the CLI has no stdout")?;
         let mut lines = LineReader::new(BufReader::new(stdout), MAX_LINE);
         write(&mut stdin, &first).await?;
+
         for _ in 0..MAX_LINES {
             let Some(line) = lines.next().await? else {
                 bail!("the CLI exited without answering");
@@ -130,12 +136,14 @@ async fn exchange(
             let Ok(message) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
+
             match step(&message) {
                 Step::Send(more) => write(&mut stdin, &more).await?,
                 Step::Done(answer) => return Ok(answer),
                 Step::Wait => {}
             }
         }
+
         bail!("the CLI did not answer in {MAX_LINES} lines")
     };
     let answer = timeout(READ_TIMEOUT, talk)
@@ -151,6 +159,7 @@ async fn write(stdin: &mut ChildStdin, messages: &[Value]) -> Result<()> {
         line.push(b'\n');
         stdin.write_all(&line).await?;
     }
+
     stdin.flush().await?;
     Ok(())
 }
@@ -162,6 +171,7 @@ fn claude_plan(usage: &Value, at: u64) -> Option<PlanUsage> {
     if usage["rate_limits_available"] != true {
         return None;
     }
+
     let limits = usage["rate_limits"].as_object()?;
     let mut windows: Vec<LimitWindow> = limits
         .iter()
@@ -187,6 +197,7 @@ fn claude_plan(usage: &Value, at: u64) -> Option<PlanUsage> {
             scope: None,
         });
     }
+
     windows.sort_by_key(|window| window.minutes);
     Some(PlanUsage {
         agent: AgentSlug::CLAUDE,
@@ -218,6 +229,7 @@ fn codex_plan(result: &Value, at: u64) -> Option<PlanUsage> {
     if windows.is_empty() {
         return None;
     }
+
     let mut windows = windows;
     windows.sort_by_key(|window| window.minutes);
     Some(PlanUsage {

@@ -194,9 +194,11 @@ impl Store {
         .execute(&self.pool)
         .await?
         .rows_affected();
+
         if changed == 0 {
             return Ok(None);
         }
+
         let row = sqlx::query(&format!("SELECT {COLUMNS} FROM {FROM} WHERE f.id = $2"))
             .bind(reader)
             .bind(id)

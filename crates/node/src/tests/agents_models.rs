@@ -38,6 +38,7 @@ fn flsh_config_is_found_where_flsh_looks() {
     );
     let relative = |name: &str| (name == "FLASHMIND_HOME").then(|| OsString::from("rel"));
     assert_eq!(flsh_config_dir(&relative, Some(&home)), None);
+
     if !cfg!(windows) {
         assert_eq!(
             flsh_config_dir(&none, Some(&home)),
@@ -49,6 +50,7 @@ fn flsh_config_is_found_where_flsh_looks() {
             Some(PathBuf::from("/xdg/flashmind"))
         );
     }
+
     std::fs::create_dir_all(home.join(".flashmind")).unwrap();
     assert_eq!(
         flsh_config_dir(&none, Some(&home)),

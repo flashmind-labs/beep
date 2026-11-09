@@ -95,6 +95,7 @@ impl User {
         if deleted {
             self.changed("");
         }
+
         Ok(deleted)
     }
 
@@ -119,6 +120,7 @@ impl User {
         if deleted == DeletedTurn::Deleted {
             self.changed(&session_id.to_string());
         }
+
         Ok(deleted)
     }
 
@@ -253,9 +255,11 @@ impl User {
     /// Copies the share with `token` into the user's chats as `session_id`.
     pub async fn copy_share(&self, token: &str, session_id: Uuid) -> Result<CopiedShare> {
         let copied = self.store.copy_share(&self.key, token, session_id).await?;
+
         if copied == CopiedShare::Copied {
             self.changed("");
         }
+
         Ok(copied)
     }
 
@@ -277,6 +281,7 @@ impl User {
         if !self.store.owns_session(&self.key, session).await? {
             return Ok(None);
         }
+
         Ok(Some(self.store.chat_messages(session).await?))
     }
 
@@ -285,6 +290,7 @@ impl User {
         if !self.store.owns_session(&self.key, session).await? {
             return Ok(None);
         }
+
         Ok(Some(self.store.tool_labels(session).await?))
     }
 
@@ -303,6 +309,7 @@ impl User {
         if !self.store.owns_session(&self.key, session).await? {
             return Ok(None);
         }
+
         Ok(Some(self.store.session_sources(session).await?))
     }
 
@@ -334,9 +341,11 @@ impl User {
         status: RunStatus,
     ) -> Result<Option<SavedTurn>> {
         let saved = self.store.finish(&self.key, run, turn, status).await?;
+
         if saved.is_some() {
             self.changed(&run.session_id);
         }
+
         Ok(saved)
     }
 }

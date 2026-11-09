@@ -61,11 +61,13 @@ pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]
     let mut entries = Vec::new();
     let mut names: HashSet<&str> = HashSet::new();
     let mut repos: HashSet<String> = HashSet::new();
+
     for p in imported {
         // A project is imported once per machine it is on; it lists once.
         if !names.insert(p.project.as_str()) {
             continue;
         }
+
         repos.insert(last_part(&p.project).unwrap_or(&p.project).to_lowercase());
         let (id, name, machine) = (p.project.clone(), p.project.clone(), p.machine_name.clone());
         entries.push(Entry::new(
@@ -76,10 +78,12 @@ pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]
             &[&p.project],
         ));
     }
+
     for b in lists.boards.iter().flatten() {
         if !names.insert(b.name.as_str()) {
             continue;
         }
+
         repos.insert(last_part(&b.name).unwrap_or(&b.name).to_lowercase());
         let detail = "Project chat · not imported".to_owned();
         let (id, name) = (b.chat_id.to_string(), b.name.clone());
@@ -91,14 +95,18 @@ pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]
             &[&b.name],
         ));
     }
+
     let mut folders: Vec<FolderRow> = Vec::new();
+
     for s in lists.sessions.iter().flatten() {
         let Some(name) = session_project(s, imported) else {
             continue;
         };
+
         if names.contains(name) || repos.contains(&name.to_lowercase()) {
             continue;
         }
+
         let at = match folders.iter().position(|f| f.name == name) {
             Some(at) => at,
             None => {
@@ -116,6 +124,7 @@ pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]
             folder.machines.push(&s.machine_name);
         }
     }
+
     for f in folders {
         let count = if f.sessions == 1 {
             "1 session".to_owned()
@@ -132,6 +141,7 @@ pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]
             &[f.name],
         ));
     }
+
     entries
 }
 
