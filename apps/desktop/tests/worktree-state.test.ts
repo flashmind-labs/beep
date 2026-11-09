@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type Tree, follow, followSteps, removedCheckout, reviewHeading, rootOf, treeAt } from "../src/agentpane/worktree-state.ts";
+import { type Tree, type Entry, follow, followSteps, removedCheckout, reviewHeading, rootOf, treeAt, matchesTree, finishedTools } from "../src/agentpane/worktree-state.ts";
 import { homeShort } from "../src/project/projects-state.ts";
 
 const tree = (path: string, branch: string | null, own = false): Tree => ({ path, branch, head: "abc1234", own });
@@ -9,7 +9,7 @@ const fix = tree("/srv/app/.worktrees/fix", "fix");
 const side = tree("/srv/app-side", "side");
 const trees = [main, fix, side];
 const tool = (text: string) => ({ kind: "tool", text });
-const where = (entries: { kind: string; text: string }[], from = "/srv/app") => follow(entries, trees, "/srv/app", from);
+const where = (entries: Entry[], from = "/srv/app") => follow(entries, trees, "/srv/app", from);
 
 test("a path is in a worktree at a folder boundary", () => {
   assert.equal(treeAt(trees, "/srv/app", "/srv/app-side/src/a.rs"), side);
@@ -38,7 +38,7 @@ test("a tool title naming a path in another worktree moves the agent there, and 
   const into = where([tool("Edit `/srv/app-side/src/a.rs` [completed]")]);
   assert.equal(into.last, "/srv/app-side");
   assert.equal(into.hit, true);
-  const back = where([tool("Edit `/srv/app-side/src/a.rs` [completed]"), tool("Read /srv/app/src/b.rs [completed]")]);
+  const back = where([tool("Edit `/srv/app-side/src/a.rs` [completed]"), tool("Edit /srv/app/src/b.rs [completed]")]);
   assert.equal(back.last, "/srv/app");
 });
 
@@ -93,7 +93,7 @@ test("a running call is read again: only the entries before it are settled", () 
   ]);
   assert.equal(got.done, 1);
   assert.equal(got.kept, "/srv/app-side");
-  assert.equal(got.last, "/srv/app");
+  assert.equal(got.last, "/srv/app/.worktrees/fix");
 });
 
 test("a git worktree command or a worktree folder the list lacks asks for the list again", () => {
@@ -141,4 +141,37 @@ test("a review names its folder, with ~ for home, and says when it is a worktree
   assert.equal(reviewHeading(homeShort("/home/user/app/.worktrees/side"), true), "Review on worktree: ~/app/.worktrees/side");
   assert.equal(reviewHeading(homeShort("/Users/user/app/"), false), "Review on ~/app");
   assert.equal(reviewHeading(homeShort("/srv/app"), false), "Review on /srv/app");
+});
+
+
+test("read-only commands in the launch checkout preserve the active worktree", () => {
+  for (const text of ["Read /srv/app/src/a.rs", "git -C /srv/app status", "cat /srv/app/README.md"]) {
+    assert.equal(where([tool(`${text} [completed]`)], fix.path).last, fix.path);
+  }
+});
+
+test("creation is a candidate until an edit or structured directory confirms usage", () => {
+  const created = where([tool("git worktree add .worktrees/fix -b fix [completed]")]);
+  assert.equal(created.last, main.path);
+  assert.equal(created.hit, false);
+  assert.equal(created.done, 1);
+  const used = where([{ ...tool("exec_command [completed]"), tool: {
+    name: "exec_command", input: JSON.stringify({ workdir: fix.path }), input_truncated: false,
+    result: null, result_truncated: false,
+  } }]);
+  assert.equal(used.last, fix.path);
+});
+
+test("search matches branch names and full paths, ignoring case", () => {
+  assert.equal(matchesTree(fix, " FIX "), true);
+  assert.equal(matchesTree(fix, ".worktrees"), true);
+  assert.equal(matchesTree(main, "fix"), false);
+  assert.equal(matchesTree(main, ""), true);
+});
+
+test("completed and failed tools trigger Git list comparisons, pending ones wait", () => {
+  assert.deepEqual(finishedTools([
+    tool("wrapper [in_progress]"), tool("wrapper [completed]"), tool("wrapper [failed]"),
+    {kind: "agent", text: "Done [completed]"},
+  ], 20), [21, 22]);
 });

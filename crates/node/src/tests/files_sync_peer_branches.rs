@@ -1,3 +1,4 @@
+use std::time::Duration;
 use super::*;
 use crate::files::sync::{gitdir::Oid, peer::ALPN};
 use crate::files::{
@@ -134,7 +135,7 @@ async fn new_pulls_fall_back_after_a_legacy_reader_rejects_the_new_variant() {
     shared.observe_branches(&server.id(), Vec::new());
     let connection = client.connect(server.addr(), ALPN).await.unwrap();
     let (tx, mut rx, first) = timeout(
-        std::time::Duration::from_secs(5),
+        Duration::from_secs(5),
         open_pull(&connection, &shared, &server.id()),
     )
     .await

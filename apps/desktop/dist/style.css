@@ -834,6 +834,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dcoderturn .hd { min-width: 0 } .dcoderturn .hd > span:first-child, .dcoderturn .hd > svg, .dcoderturn .when { flex: none }
 /* The newest entry, when the reader scrolled up. */
 .dagjump { position: sticky; bottom: 6px; z-index: 2; align-self: center; flex: none; display: inline-flex; align-items: center; gap: 6px; margin-top: auto; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--elev); color: var(--fg); font: inherit; font-size: 12px; line-height: 18px; box-shadow: 0 6px 18px color-mix(in srgb, var(--shade) 35%, transparent); cursor: pointer }
+.dagjump { margin-bottom: -28px }
 .dagjump[hidden] { display: none }
 .dagjump:hover { border-color: var(--border-hi) }
 /* Code blocks in replies, with a copy button; tables. */
@@ -1310,6 +1311,8 @@ button.dachip:hover { border-color: var(--border-hi) }
 .mvm button[disabled] { opacity: .45; cursor: default }
 .mvm button[disabled]:hover { background: none }
 .mvm b { font-weight: 500 }
+#agmovebox { position: relative }
+.mvwarning { position: absolute; bottom: 0; left: 16px; right: 16px; z-index: 3; padding: 10px 12px; background: var(--elev); border: 1px solid var(--border); border-radius: 6px; color: var(--fg); font-size: 12px }
 .mvs { flex: none; display: grid; gap: 5px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 12.5px }
 .mvs .h { display: flex; align-items: center; gap: 8px; min-height: 24px }
 .mvs .h b { font-weight: 500 }
@@ -1442,3 +1445,9 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 /* Nested Markdown lists must size to the message column. */
 .dcoderen.md :is(ul, ol) { display: block; min-width: 0; padding-left: 20px }
 .dcoderen.md li { min-width: 0; white-space: normal; overflow-wrap: anywhere }
+
+.agwtm { max-height: min(70vh, 560px); overflow-y: auto }
+.agwtm [hidden] { display: none }
+.agwt-search { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--fg); font: inherit }
+.agwt-search:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
+.agwt-empty { padding: 8px }

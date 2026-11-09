@@ -13,6 +13,7 @@ use flashmind::types::{
 };
 use iroh::SecretKey;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// The instance tests never run a model turn.
 struct NoModel;
@@ -81,11 +82,7 @@ async fn a_new_phone_joins_the_owner_with_a_code() {
 
     let invite = owner
         .user
-        .create_invite(
-            &phone.public(),
-            "phone",
-            std::time::Duration::from_secs(600),
-        )
+        .create_invite(&phone.public(), "phone", Duration::from_secs(600))
         .await
         .expect("a code");
     let key = || NewKey {

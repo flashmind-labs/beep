@@ -5,7 +5,7 @@
 // again. Nothing here runs git checkout: only what the pane reads changes.
 // State is per session and kept in memory.
 
-import { type Entry, type Tree, follow, followSteps, removedCheckout, reportedRoot, rootOf, treeName } from "./worktree-state.ts";
+import { type Entry, type Tree, finishedTools, follow, followSteps, matchesTree, removedCheckout, reportedRoot, rootOf, treeName } from "./worktree-state.ts";
 import { onPlaces, placeOf } from "../agents/place.ts";
 import { type WorkPlace, placeName } from "../agents/place-state.ts";
 import { baseName } from "./media-state.ts";
@@ -53,6 +53,8 @@ const W = {
   /// The root the tabs read now.
   shown: "",
   open: false,
+  search: "",
+  finished: new Set<number>(),
   changed: (_root: boolean) => {},
 };
 
@@ -68,7 +70,7 @@ const bare = (dir: string) => dir.replace(/\/+$/, "") || "/";
 export function startWorktrees(place: Place, changed: (root: boolean) => void) {
   Object.assign(W, {
     place, trees: [], reading: false, again: false, follow: true, placed: null, pick: null, seen: null, cwd: bare(place.cwd), last: bare(place.cwd), next: 0, child: null, handled: false,
-    log: { entries: [], earlier: 0 }, asked: new Set(), shown: bare(place.cwd), open: false, changed,
+    log: { entries: [], earlier: 0 }, asked: new Set(), shown: bare(place.cwd), open: false, search: "", finished: new Set<number>(), changed,
   });
   firstRead = readTrees();
   report();
@@ -82,6 +84,7 @@ function report() {
   const got = placeOf({ machine_id: p.machine_id, agent: p.agent, id: p.id, external: p.external }, REPORT_MS);
   if (JSON.stringify(got) === JSON.stringify(W.placed)) return;
   W.placed = got;
+  if (got?.linked) W.seen = reportedRoot(W.trees, W.cwd, got.folder) ?? W.seen;
   if (got && !W.trees.some(t => bare(t.path) === bare(got.folder))) ask([got.folder]);
   apply(true);
   W.changed(false);
@@ -126,7 +129,8 @@ async function readTrees() {
       // A removed worktree: go on from the main checkout. The log is read
       // again from its start, against the new list and folder.
       W.cwd = removedCheckout(got, p.cwd) ?? bare(p.cwd);
-      Object.assign(W, { next: 0, last: W.cwd, seen: null });
+      if (W.seen && !got.some(t => rootOf(t, W.cwd) === W.seen)) W.seen = null;
+      Object.assign(W, { next: W.log.earlier, last: W.seen ?? W.cwd });
       const roots = got.map(t => rootOf(t, W.cwd));
       if (W.pick && !roots.includes(W.pick)) W.pick = null;
     }
@@ -148,7 +152,7 @@ async function readTrees() {
 function want() {
   const p = W.place;
   const reported = p && W.placed ? reportedRoot(W.trees, W.cwd, W.placed.folder) : null;
-  return W.child ?? (W.follow ? reported ?? W.seen : W.pick) ?? W.cwd;
+  return W.child ?? (W.follow ? W.seen ?? reported : W.pick) ?? W.cwd;
 }
 
 /// A comment box with text in the Changes tab: a switch waits for it to close.
@@ -201,6 +205,11 @@ export function followAgent(entries: Entry[], earlier: number, steps: string[] |
   const p = W.place;
   if (!p?.cwd) return;
   W.log = { entries, earlier };
+  const finished = finishedTools(entries, earlier);
+  const changed = finished.some(index => !W.finished.has(index));
+  for (const index of finished) W.finished.add(index);
+  for (const index of W.finished) if (index < earlier) W.finished.delete(index);
+  if (changed) readTrees();
   if (!steps) W.handled = false;
   W.child = null;
 
@@ -221,8 +230,11 @@ function pickRoot(root: string | null) {
   W.handled = true;
   W.child = null;
   W.open = false;
-  if (root == null) W.follow = true;
-  else Object.assign(W, { follow: false, pick: root });
+  W.search = "";
+  if (root == null) {
+    W.follow = !W.follow;
+    W.pick = W.follow ? null : W.shown;
+  } else Object.assign(W, { follow: false, pick: root });
   apply(false);
   W.changed(false);
 }
@@ -248,9 +260,9 @@ function menuHtml(p: Place) {
     const sub = t.own ? (gone ? "main checkout" : "the session's folder")
       : main && t.path.startsWith(`${bare(main.path)}/`) ? t.path.slice(bare(main.path).length + 1) : t.path;
     const here = W.seen === root ? " · agent here" : "";
-    return `<button role="menuitemradio" aria-checked="${root === W.shown}" data-wt="${esc(root)}" title="${esc(t.path)}"><code>${esc(treeName(t))}</code><small>${esc(sub)}${here}</small></button>`;
+    return `<button${matchesTree(t, W.search) ? "" : " hidden"} role="menuitemradio" aria-checked="${root === W.shown}" data-wt="${esc(root)}" title="${esc(t.path)}"><code>${esc(treeName(t))}</code><small>${esc(sub)}${here}</small></button>`;
   }).join("");
-  return `<div class="agwtm" role="menu"><button role="menuitemcheckbox" aria-checked="${W.follow}" data-wt="follow"><b>Follow the agent</b></button><hr>${items}</div>`;
+  return `<div class="agwtm" role="menu"><button role="menuitemcheckbox" aria-checked="${W.follow}" data-wt="follow"><b>Follow the agent</b></button><hr><input type="search" class="agwt-search" aria-label="Search worktrees" placeholder="Search worktrees" value="${esc(W.search)}">${items}<small class="agwt-empty"${W.trees.some(t => matchesTree(t, W.search)) ? " hidden" : ""}>No matching worktrees</small></div>`;
 }
 
 /// Draws the dropdown into `host`, in the header of a dock: only while the
@@ -259,19 +271,39 @@ function menuHtml(p: Place) {
 export function drawWorktrees(host: HTMLElement, here: boolean) {
   const p = W.place;
   const show = !!p && here && (W.trees.length > 1 || W.shown !== bare(p.cwd) || removed(p) || !!W.placed?.linked);
-  const sig = show ? JSON.stringify([W.trees, W.shown, W.follow, W.seen, W.open, W.cwd, W.placed]) : "";
+  const sig = show ? JSON.stringify([W.trees, W.shown, W.follow, W.seen, W.open, W.search, W.cwd, W.placed]) : "";
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
   host.hidden = !show;
   if (!show || !p) return host.replaceChildren();
   const now = W.trees.find(t => rootOf(t, W.cwd) === W.shown);
   const label = now ? treeName(now) : W.placed && bare(W.placed.folder) === W.shown ? placeName(W.placed) : baseName(W.shown);
+  const searchFocused = host.querySelector(".agwt-search") === document.activeElement;
   host.innerHTML = `<button class="agpbtn agwt" aria-haspopup="menu" aria-expanded="${W.open}" title="The worktree Files and Changes show"><code>${esc(label)}</code><span aria-hidden="true">&#9662;</span></button>${W.open ? menuHtml(p) : ""}`;
+  if (searchFocused) host.querySelector<HTMLInputElement>(".agwt-search")?.focus();
+  host.oninput = () => {
+    const input = host.querySelector<HTMLInputElement>(".agwt-search");
+    if (!input) return;
+    W.search = input.value;
+    for (const item of host.querySelectorAll<HTMLElement>('[role="menuitemradio"]')) {
+      const tree = W.trees.find(t => rootOf(t, W.cwd) === item.dataset.wt);
+      item.hidden = !tree || !matchesTree(tree, W.search);
+    }
+    const empty = host.querySelector<HTMLElement>(".agwt-empty");
+    if (empty) empty.hidden = W.trees.some(t => matchesTree(t, W.search));
+  };
   host.onclick = e => {
-    const target = e.target as HTMLElement;
+    const target = e.target;
+    if (!(target instanceof Element)) return;
     const item = target.closest<HTMLElement>("[data-wt]");
-    if (item) return pickRoot(item.dataset.wt === "follow" ? null : item.dataset.wt!);
-    if (target.closest(".agwt")) { W.open = !W.open; W.changed(false); }
+    const root = item?.dataset.wt ?? null;
+    if (root !== null) return pickRoot(root === "follow" ? null : root);
+    if (target.closest(".agwt")) {
+      W.open = !W.open;
+      W.search = "";
+      W.changed(false);
+      if (W.open) host.querySelector<HTMLInputElement>(".agwt-search")?.focus();
+    }
   };
 }
 

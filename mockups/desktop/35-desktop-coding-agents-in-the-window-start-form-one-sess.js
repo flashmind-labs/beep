@@ -909,7 +909,7 @@ expected 200, got 401</pre></details></span></div>`;
       if (S.d.ags === "wtmenu") {
         S.d.ags = "idle";
         try {
-          return orig().replace("<!--wtmenu-->", `<div class="ag-wtm" role="menu"><button role="menuitemcheckbox" aria-checked="true" data-toast="Files and Changes switch to the worktree the agent works in"><b>Follow the agent</b></button><hr>
+          return orig().replace("<!--wtmenu-->", `<div class="ag-wtm" role="menu"><button role="menuitemcheckbox" aria-checked="${S.d.wtfollow !== "off"}" data-wtfollow><b>Follow the agent</b></button><hr><input type="search" class="ag-wtsearch" placeholder="Search worktrees" aria-label="Search worktrees">
             <button role="menuitem" class="on" data-dact="dset:ags:idle"><code>fix-login</code><small>.worktrees/fix-login &#183; agent here</small></button>
             <button role="menuitem" data-dact="dset:ags:idle"><code>main</code><small>the session's folder</small></button>
             <button role="menuitem" data-dact="dset:ags:idle"><code>login-copy</code><small>.worktrees/login-copy</small></button></div>`);
@@ -919,7 +919,7 @@ expected 200, got 401</pre></details></span></div>`;
       if (S.d.ags === "wtgone") {
         S.d.ags = "idle";
         try {
-          return orig().replace("<!--wtmenu-->", `<div class="ag-wtm" role="menu"><button role="menuitemcheckbox" aria-checked="true" data-toast="Files and Changes switch to the worktree the agent works in"><b>Follow the agent</b></button><hr>
+          return orig().replace("<!--wtmenu-->", `<div class="ag-wtm" role="menu"><button role="menuitemcheckbox" aria-checked="${S.d.wtfollow !== "off"}" data-wtfollow><b>Follow the agent</b></button><hr><input type="search" class="ag-wtsearch" placeholder="Search worktrees" aria-label="Search worktrees">
             <button role="menuitem" class="on" data-dact="dset:ags:wtgone"><code>master</code><small>the session's folder</small></button>
             <button role="menuitem" data-dact="dset:ags:wtgone"><code>login-copy</code><small>.worktrees/login-copy</small></button></div>`)
             .replace('<code>fix-login</code><span aria-hidden', '<code>master</code><span aria-hidden')
@@ -1265,3 +1265,18 @@ DESK_SCREENS.find(g => g.group === "Command center").items.push(
     if (body) body.scrollTop = body.scrollHeight;
   };
 }
+
+// Worktree menu controls preserve the chosen checkout when following is paused.
+document.addEventListener("click", event => {
+  const button = event.target.closest("[data-wtfollow]");
+  if (!button) return;
+  S.d.wtfollow = button.getAttribute("aria-checked") === "true" ? "off" : "on";
+  button.setAttribute("aria-checked", String(S.d.wtfollow !== "off"));
+});
+document.addEventListener("input", event => {
+  if (!event.target.matches(".ag-wtsearch")) return;
+  const query = event.target.value.trim().toLowerCase();
+  for (const item of event.target.parentElement.querySelectorAll('[role="menuitem"]')) {
+    item.hidden = !item.textContent.toLowerCase().includes(query);
+  }
+});

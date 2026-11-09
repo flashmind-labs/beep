@@ -1,5 +1,6 @@
 //! Starting, finding and stopping the sessions this node runs.
 
+use std::time::Duration;
 use super::{
     AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, NodeMode, Prompt, Session, Start,
     checkout, harnesses, live::Live, models, plans, restart::SETTINGS_WAIT,
@@ -257,7 +258,7 @@ impl Agents {
     pub fn start_harness_checks(self: &Arc<Self>) -> tokio_util::task::AbortOnDropHandle<()> {
         let agents = self.clone();
         tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+            let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
             loop {

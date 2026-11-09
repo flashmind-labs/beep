@@ -18,7 +18,15 @@ import type { ProjectMachineRow } from "../project/projects-state.ts";
 const CHEV = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 const OK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-9"/></svg>';
 
-const UI = { targets: [] as MoveTarget[], open: false, loading: false, error: "" };
+const UI = { targets: [] as MoveTarget[], open: false, loading: false, error: "", errorSession: "" };
+let warningTimer: ReturnType<typeof setTimeout> | null = null;
+
+function warn(s: AgentRow, error: unknown) {
+  if (warningTimer !== null) clearTimeout(warningTimer);
+  UI.error = String(error);
+  UI.errorSession = s.id;
+  warningTimer = setTimeout(() => { UI.error = ""; warningTimer = null; drawMove(); }, 5000);
+}
 
 /// How long a machine may take to say whether it takes the move.
 const PROBE_MS = 3000;
@@ -134,7 +142,7 @@ async function start(s: AgentRow, to: MoveTarget, stop: boolean) {
     MV.records.set(r.session, r);
     MV.progress.set(r.session, { answer: "known", phase: "waiting", copied: 0, total: 0, files_left: 0, source_away: !to.online, reason: null });
   } catch (e) {
-    UI.error = String(e);
+    warn(s, e);
   }
 
   moved();
@@ -142,7 +150,7 @@ async function start(s: AgentRow, to: MoveTarget, stop: boolean) {
 }
 
 async function cancel(s: AgentRow) {
-  try { await invoke("session_move_cancel", { session: s.id }); } catch (e) { UI.error = String(e); }
+  try { await invoke("session_move_cancel", { session: s.id }); } catch (e) { warn(s, e); }
   MV.records.delete(s.id);
   MV.progress.delete(s.id);
   moved();
@@ -158,9 +166,8 @@ function drawBox(s: AgentRow) {
     if (act === "cancel") void cancel(s);
     if (act === "stop" && r) void start(s, UI.targets.find(t => t.id === r.to) ?? { id: r.to, name: nameOf(r.to), online: true, harnesses: [], checkout: true }, true);
   };
-
-  if (UI.error) {
-    box.innerHTML = `<div class="mvs" role="alert"><div class="h"><span class="t">${esc(UI.error)}</span></div></div>`;
+  if (UI.error && UI.errorSession === s.id) {
+    box.innerHTML = `<div class="mvwarning" role="status">${esc(UI.error)}</div>`;
     return;
   }
 

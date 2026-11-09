@@ -1,3 +1,4 @@
+use std::time::Duration;
 use super::*;
 
 #[tokio::test]
@@ -8,7 +9,7 @@ async fn dropping_the_last_lease_wakes_and_stops_the_shared_reactor() {
     drop(reactor);
     assert!(weak.upgrade().is_none());
     tokio::time::timeout(
-        std::time::Duration::from_secs(5),
+        Duration::from_secs(5),
         stopped.wait_for(|done| *done),
     )
     .await

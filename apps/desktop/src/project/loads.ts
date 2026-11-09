@@ -1,3 +1,4 @@
+import { refreshMoves, MV } from "../agents/move-store.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // Reading a project page: its view, agent, machines and sessions, kept
 // fresh while the user moves between projects, and prefetched ahead.
@@ -7,10 +8,10 @@ import { copy, dbtn as button, emptyPanel, fitRows, freshNote, svgEl } from "../
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { MACHINE_REFRESH_MS, SWITCH_MS } from "../ui/pagecache.ts";
 import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, listen } from "../ui/tauri.ts";
 import { harnessEl } from "../ui/harnessicon.ts";
 import { foundRow } from "../addproject/addproject.ts";
-import { foundFor, plainPath, withSyncthing, agentLabel, pastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
+import { foundFor, plainPath, withSyncthing, agentLabel, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { ITEMS_SHOWN, repoUrl } from "../center/openitems-state.ts";
@@ -462,7 +463,7 @@ export function sessionsSection(p: Project, running: RunningAgent[]) {
 /// with the note that they are being read again.
 export function sessionsList(p: Project, running: RunningAgent[], all: boolean) {
   const sessions = state.sessions.get(p.name);
-  const past = pastSessions(sessions, running).filter(sessionVisible);
+  const past = projectPastSessions(sessions, running, [...MV.records.values()]).filter(sessionVisible);
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
   let body;
 
@@ -499,14 +500,22 @@ function sessionRow(s: SessionRow) {
 /// next draw.
 const readingSessions = new Set<string>();
 export const sessionsDue = new Set<string>();
-export async function loadSessions(name: string) {
-  if (readingSessions.has(name)) return;
+const sessionReads = new Map<string, Promise<void>>();
+export async function loadSessions(name: string): Promise<void> {
+  const pending = sessionReads.get(name);
+  if (pending) { await pending; if (sessionsDue.has(name)) return loadSessions(name); return; }
+  const read = readSessions(name).finally(() => sessionReads.delete(name));
+  sessionReads.set(name, read);
+  return read;
+}
+async function readSessions(name: string) {
   readingSessions.add(name);
   sessionsDue.delete(name);
+  const movesBefore = JSON.stringify([...MV.records.values()]);
   let got: SessionRow[] | null = null;
 
   try {
-    got = await invoke<SessionRow[]>("project_sessions", { project: name });
+    [got] = await Promise.all([invoke<SessionRow[]>("project_sessions", { project: name }), refreshMoves()]);
   } catch (e) {
     console.warn("project sessions:", e);
   } finally {
@@ -517,7 +526,7 @@ export async function loadSessions(name: string) {
   state.sessions.set(name, list);
   if (got) keep("sessions", name, list);
   if (currentLocation()?.view !== "projects" || state.picked !== name) return;
-  if (changed) drawProjects(projectsEl());
+  if (changed || movesBefore !== JSON.stringify([...MV.records.values()])) drawProjects(projectsEl());
   else for (const el of document.querySelectorAll(".ss-updating")) el.remove();
 }
 
@@ -555,3 +564,14 @@ export function elsewhereSection(rows: Project[]) {
   return section("sec-elsewhere", "Your open PRs and issues in repos without a project", "", null,
     h("div", "cc-panel cc-open", ...body));
 }
+
+// Reopened sessions and moves change independently of project membership.
+const projectSessionsShown = () => currentLocation()?.view === "projects" && !!state.picked;
+async function refreshProjectSessions() {
+  const name = state.picked;
+  if (name) { sessionsDue.add(name); await loadSessions(name); }
+}
+subscribeChanges([topic("agents"), topic("moves")], refreshProjectSessions, null, projectSessionsShown);
+listen("agent-title-changed", () => {
+  if (projectSessionsShown()) void refreshProjectSessions().catch(e => console.warn("project session titles:", e));
+});
