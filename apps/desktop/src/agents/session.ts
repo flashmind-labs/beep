@@ -1,6 +1,7 @@
 import { SessionPicks } from "./agentmodels.ts";
 import { createElement } from "react";
 import { SessionField, SessionHead, showSessionFrame } from "./session-frame.tsx";
+import { disposeLog } from "./logwindow.ts";
 import { bindSessionStash } from "./stash.ts";
 import { stashIndicator, stashActions } from "../chat/stash.ts";
 import { AgentFeed } from "./agentfeed-state.ts";
@@ -564,6 +565,10 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const mode = isNativeSession(s.id) ? "native" : followsOnly(s) ? "readonly" : "writable";
   const banner = canTakeOver(s.agent) ? "Running outside Beep. Beep follows it here. Close it there to continue here." : "Started outside Beep. Beep follows it here.";
   showSessionFrame({ head: createElement(SessionHead, { agent: s.agent, title: s.title || k.name, folder: project?.label || shortCwd(s.cwd) || k.name, project: !!project, cwd: s.cwd, machine: s.machine_name, usage: usage.of === usageKey(s) ? usage.text : "" }), field: createElement(SessionField, { mode, name: k.name, banner }), body: b, hints: agentHints() }, inPlace, disposeQueue);
+  if (left && left.body !== b) {
+    const old = left.body.querySelector<HTMLElement>(".dcoderlog");
+    if (old) disposeLog(old);
+  }
   if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
   if (project) $("#agproj")?.addEventListener("click", project.open);
   const open = AG.open;

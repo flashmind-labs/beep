@@ -55,6 +55,16 @@ interface LogWindow {
 const windows = new WeakMap<Element, LogWindow>();
 const searchWatches = new WeakMap<HTMLElement, () => void>();
 
+/// A detached cached log remains live until its session body is replaced.
+export function disposeLog(log: HTMLElement) {
+  const w = windows.get(log);
+  if (!w) return;
+  w.watch.disconnect();
+  w.replyRoot?.unmount();
+  windows.delete(log);
+  searchWatches.delete(log);
+}
+
 export function watchLogSearch(log: HTMLElement, changed: () => void) {
   searchWatches.set(log, changed);
   return () => { searchWatches.delete(log); const w = windows.get(log); if (w) w.search = undefined; };

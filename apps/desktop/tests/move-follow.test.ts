@@ -8,6 +8,8 @@ import { MV } from "../src/agents/move-store.ts";
 import { drawAgentFrame, stopAgentFollow, userImages } from "../src/agents/session.ts";
 import { disposeQueue } from "../src/agents/messages.ts";
 import type { ChatBody } from "../src/ui/turn.ts";
+import * as agentlog from "../src/agents/agentlog.ts";
+import { fillLog } from "../src/agents/logwindow.ts";
 
 Object.assign(globalThis, { getSelection: () => null, getComputedStyle: () => ({ rowGap: "0" }) });
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -75,4 +77,23 @@ test("taking over an external session retains the transcript and dock", t => {
   assert.equal(bar.querySelector("#agbody"), body); assert.equal(bar.querySelector("#agpane-right"), dock);
   assert.equal(body.scrollTop, 42);
   assert.ok(bar.querySelector("#agmsg")); assert.equal(bar.querySelector(".dbanner"), null);
+});
+
+test("a cached transcript survives reattachment and is released when replaced", t => {
+  const session: AgentRow = { machine_id: "machine", machine_name: "Machine", id: "retained", agent: "codex", cwd: "/srv/project", status: "working", external: false };
+  const page: AgentPage = { session, plan: [], files: [], entries: [{ kind: "user", text: "Check" }, { kind: "agent", text: "Answer" }], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 };
+  Object.assign(AG, { open: { machine_id: session.machine_id, agent: session.agent, session: session.id }, page, log: agentlog, modes: null, tasks: [], queue: [] });
+  Object.assign(answers, { agent_tasks: [], editors: [], agent_hosts: [], session_moves: [] });
+  S.view = "agent";
+  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  drawAgentFrame();
+  const body = bar.querySelector<ChatBody>("#agbody"); assert.ok(body);
+  Object.defineProperty(body, "clientHeight", { configurable: true, value: 800 });
+  fillLog(body, false);
+  const reply = body.querySelector(".dcoderen.agent"); assert.ok(reply);
+  body.remove();
+  drawAgentFrame(false, body);
+  assert.equal(body.querySelector(".dcoderen.agent"), reply);
+  drawAgentFrame(false);
+  assert.equal(body.querySelector(".dcoderen.agent"), null);
 });
