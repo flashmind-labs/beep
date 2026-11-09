@@ -102,7 +102,7 @@ interface ModelPick {
 /// The right-edge map of prompts, which keeps the turns its ticks stand for,
 /// after a tick for each earlier prompt not drawn yet.
 interface PromptMap extends HTMLElement {
-  turns?: HTMLElement[];
+  turns?: Turn[];
   early?: number;
 }
 
@@ -216,7 +216,7 @@ export const MAP_QUIET_AFTER = 12;
 /// spread above the drawn ones; a click draws them.
 export function drawMap() {
   const b = body();
-  const turns = b && S.view === "chat" ? ([...b.children] as HTMLElement[]).filter(t => t.querySelector(ASK)) : [];
+  const turns = b && S.view === "chat" ? conversation(b).turns.filter(t => t.querySelector(ASK)) : [];
   const early = b ? earlierPrompts(b) : [];
   let map = $<PromptMap>("#map");
   if (!b || turns.length < 2 || b.scrollHeight <= b.clientHeight + 4) return map?.remove();
@@ -238,7 +238,7 @@ export function drawMap() {
     map.replaceChildren(
       ...early.map((q, i) => tick(q, () => {
         drawThrough(b, i);
-        const t = ([...b.children] as HTMLElement[]).filter(t => t.querySelector(ASK))[i];
+        const t = conversation(b).turns.filter(t => t.querySelector(ASK))[i];
         if (t) b.scrollTop = t.offsetTop - b.offsetTop - 6;
       })),
       ...turns.map(t => tick(askText(t), () => b.scrollTo({ top: t.offsetTop - b.offsetTop - 6, behavior: "smooth" }))),
@@ -272,6 +272,7 @@ export function newTurn(question: string, images?: PicRef[], files?: AskFile[]) 
 export function makeTurn(question: string, images?: PicRef[], files?: AskFile[]) {
   const owner = body();
   const turn = h<Turn>(`<div class="turn dcoderlog">${question ? owner ? '<div class="dcoderen user"></div>' : userRowHtml(linkified(question)) : ""}${owner && images?.length ? '<div class="dpics"></div>' : picRow(images)}</div>`);
+  turnState(turn).question = question;
   const prompt = turn.querySelector<HTMLElement>(".dcoderen.user");
   if (owner && prompt) renderChatPrompt(owner, turn, prompt, linkified(question));
   const pictures = turn.querySelector<HTMLElement>(".dpics");
@@ -304,7 +305,7 @@ export function ranOn(turn: Turn, model: string, thinking: string) {
 /// The user's prompt in a turn, and the answer.
 export const ASK = ":scope > .dcoderen.user", ANSWER = ":scope > .dcoderen.agent";
 /// What the prompt of `turn` says.
-export const askText = (turn: Element) => turn.querySelector(`${ASK} > span`)?.textContent ?? "";
+export const askText = (turn: Turn) => turnState(turn).question ?? turn.querySelector(`${ASK} > span`)?.textContent ?? "";
 
 /// The log's kind of call for a Beep tool, for its row's icon.
 function stepKind(name: string): ToolKind {
@@ -326,7 +327,6 @@ function stepRow(t: Step) {
 /// Turns drawn so far, so each thought has its own key.
 let turnCount = 0;
 const turnBodies = new WeakMap<Turn, ChatBody>();
-const replyContents = new WeakMap<Turn, string>();
 export const owningChatBody = (turn: Turn) => turnBodies.get(turn) ?? null;
 
 /// Draws what the turn did before its answer, as a coding agent's turn shows
@@ -405,13 +405,13 @@ export function reply(turn: Turn) {
 /// Sets reply HTML while keeping selected text stable.
 export function setChatReply(turn: Turn, html: string) {
   const box = reply(turn), owner = owningChatBody(turn);
-  replyContents.set(turn, html);
+  turnState(turn).reply = html;
   if (owner) renderChatReply(owner, turn, box, html);
 }
-export function appendChatReply(turn: Turn, html: string) { setChatReply(turn, (replyContents.get(turn) ?? "") + html); }
-export function chatReplyHtml(turn: Turn) { return replyContents.get(turn) ?? ""; }
+export function appendChatReply(turn: Turn, html: string) { setChatReply(turn, turnState(turn).reply + html); }
+export function chatReplyHtml(turn: Turn) { return turnState(turn).reply; }
 export function moveChatReply(from: Turn, to: Turn) {
-  replyContents.set(to, chatReplyHtml(from)); replyContents.delete(from);
+  turnState(to).reply = chatReplyHtml(from); turnState(from).reply = "";
   transferChatReply(from, to);
 }
 

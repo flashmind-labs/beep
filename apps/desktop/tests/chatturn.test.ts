@@ -2,7 +2,7 @@ import { answers, bar, removed, runFrames } from "./chat-dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { turnState } from "../src/chat/turn-state.ts";
-import { body, follow, newTurn, startRun } from "../src/chat/chat.ts";
+import { askText, body, chatReplyHtml, follow, newTurn, setChatReply, startRun } from "../src/chat/chat.ts";
 import type { BarEvent } from "../src/chat/chat.ts";
 import { S } from "../src/bar/core.ts";
 import { refreshSession } from "../src/chat/history.ts";
@@ -99,4 +99,16 @@ test("a stream's text is drawn once a frame, and all of it when the run ends", (
   events.onmessage({ kind: "text", html: "<p>No rain tomorrow.</p>" });
   events.onmessage({ kind: "finished", status: "completed" });
   assert.equal(turn.querySelector(".dcoderen.agent p")?.outerHTML, "<p>No rain tomorrow.</p>");
+});
+
+
+test("turn text remains available independently of its rendered nodes", () => {
+  S.view = "chat";
+  bar.innerHTML = '<div class="dbody" id="body"></div>';
+  const turn = newTurn("An example");
+  setChatReply(turn, "<p>Answer</p>");
+  turn.querySelector(".dcoderen.user")?.remove();
+  turn.querySelector(".dcoderen.agent")?.remove();
+  assert.equal(askText(turn), "An example");
+  assert.equal(chatReplyHtml(turn), "<p>Answer</p>");
 });
