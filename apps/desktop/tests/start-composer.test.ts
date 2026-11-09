@@ -2,7 +2,26 @@ import "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
+import { NewAgentNotes } from "../src/agents/start-composer-view.tsx";
 import { startDom } from "./start-react-env.ts";
+
+test("machine availability notes update without replacing the composer", async () => {
+  const env = startDom();
+  try {
+    const { makeStartComposer } = await import("../src/agents/start-composer.ts");
+    const c = makeStartComposer(); env.dom.window.document.body.append(c.form);
+    c.input.value = "Keep this draft"; c.input.focus();
+    c.setNotes(createElement(NewAgentNotes, { waiting: true, none: false, noMachine: false }));
+    assert.match(c.form.textContent ?? "", /Looking for machines/);
+    c.setNotes(createElement(NewAgentNotes, { waiting: false, none: true, noMachine: false }));
+    assert.ok(c.form.querySelector("#agmachines"));
+    c.setNotes(createElement(NewAgentNotes, { waiting: false, none: false, noMachine: true }));
+    assert.equal(c.form.querySelector("#agwhy")?.textContent, "Pick a machine to start.");
+    assert.equal(c.input.value, "Keep this draft");
+    assert.equal(document.activeElement, c.input);
+    c.dispose(); c.form.remove();
+  } finally { env.close(); }
+});
 
 test("start composers consume Enter once and preserve Shift+Enter and composition", async () => {
   const env = startDom();
