@@ -6,12 +6,12 @@ import { ModelSettingsView } from "./model-settings-view.tsx";
 import { ServerView } from "./server-view.tsx";
 import { GeneralView } from "./general-view.tsx";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
-import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsBarShell } from "./settings-shell-view.tsx";
+import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsBarShell, SettingsSection, SettingsHost, AgentSettingsSection } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
 import type { PanePage } from "../bar/pane.ts";
 // settings/: the Settings pages (apps, accounts, credentials, coding agents,
 // instructions, model) and the window's sheet (sheet.ts). Entry: this file.
-import { bindAgents, disposeAgents, preserveAgents, bindCreds, disposeCreds, preserveCreds, renderCreds, CRED, loadAgentAccounts, loadCreds } from "./accounts.ts";
+import { bindAgents, disposeAgents, bindCreds, disposeCreds, renderCreds, CRED, loadAgentAccounts, loadCreds } from "./accounts.ts";
 import { A, type App, appsIn, appsOut, type AppsView, loadApps, type McpServer, renderAppPermissions, renderApps, renderMcpServer } from "./apps.ts";
 import { toWindow } from "../chat/chat.ts";
 import { bar, type LinkState, S, windowHooks } from "../bar/core.ts";
@@ -139,21 +139,6 @@ function disposeLocalView(kind: LocalView) {
   current.observer.disconnect();
   drawSettingsOwner();
 }
-function preserveLocalViews(container: HTMLElement) {
-  const saved = [...localViews.entries()].filter(([, view]) => container.contains(view.host)).map(([kind, view]) => {
-    const active = view.host.contains(document.activeElement) ? document.activeElement : null;
-    view.host.remove();
-    return { kind, view, active };
-  });
-  return (next?: HTMLElement) => {
-    for (const { kind, view, active } of saved) {
-      const replacement = next?.querySelector(`#set-${kind}`);
-      if (!replacement) { disposeLocalView(kind); continue; }
-      replacement.replaceWith(view.host);
-      if (active instanceof HTMLElement) active.focus({ preventScroll: true });
-    }
-  };
-}
 function mountLocalViews(el: Element) {
   let shared = false;
   for (const kind of ["general", "appearance", "mac", "devices", "models", "apps", "machines", "instr", "agent-overview", "agent-bar"] as const) {
@@ -276,28 +261,21 @@ function refocus(box: HTMLElement, key: string) {
 }
 
 /// The sections of Settings, in order, each with the page it is.
-function settingsSections(_set: MacSettings, mac: MacControl | null, linked: boolean, sheet: boolean): [SettingsPage, string][] {
-  const sec = (id: string, title: string, body: string) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dsec flat top">${title}</div><div id="set-${id}">${body}</div></section>`;
-  // A page drawn by its own code, into this box.
-  const host = (id: SettingsPage) => `<section id="set-${id}-sec" data-sec="${id}"><div class="dset-host" id="set-${id}-host"></div></section>`;
-  const out: [SettingsPage, string][] = [["general", `<section id="set-general-sec" data-sec="general"><div class="dsec flat top">General</div><div id="set-general" style="display:contents"></div></section>`]];
-  out.push(["appearance", sec("appearance", "Appearance", "")]);
-  const machines: [SettingsPage, string] = ["machines", sheet ? host("machines") : sec("machines", "Machines", "")];
-  const creds: [SettingsPage, string] = ["creds", sec("creds", "Credentials", "")];
-  const instr: [SettingsPage, string] = ["instr", sheet ? host("instr") : sec("instr", "Instructions", "")];
+function settingsSections(mac: MacControl | null, linked: boolean, sheet: boolean): [SettingsPage, ReactElement][] {
+  const sec = (page: SettingsPage, title: string) => createElement(SettingsSection, { key: page, page, title });
+  const host = (page: SettingsPage) => createElement(SettingsHost, { key: page, page });
+  const out: [SettingsPage, ReactElement][] = [["general", sec("general", "General")], ["appearance", sec("appearance", "Appearance")]];
+  const machines: [SettingsPage, ReactElement] = ["machines", sheet ? host("machines") : sec("machines", "Machines")];
+  const creds: [SettingsPage, ReactElement] = ["creds", sec("creds", "Credentials")];
+  const instr: [SettingsPage, ReactElement] = ["instr", sheet ? host("instr") : sec("instr", "Instructions")];
   const sub = SET.path?.sub;
-  const agents: [SettingsPage, string] = ["agents", sheet && sub?.kind === "agent" ? host("agents")
-    : `<section id="set-agents-sec" data-sec="agents"><div class="dsec flat top">${linked ? "Agent accounts" : "Coding agents"}</div>${sheet ? "" : `<div id="set-agent-bar" style="display:contents"></div>`}${linked ? `<div id="set-agents"></div>` : ""}${sheet ? `<div id="set-agent-overview" style="display:contents"></div>` : ""}</section>`];
-  // These settings work over the mesh without the server.
-  const thisMacSec: [SettingsPage, string][] = mac && !onPhone() ? [["mac", `<section id="set-mac-sec" data-sec="mac"><div class="dsec flat top">This computer</div><div id="set-mac" style="display:contents"></div></section>`]] : [];
-  if (!linked) return [...out, ...thisMacSec, machines, agents, creds, instr, ...(S.server ? [["devices", sec("devices", "Beep server", "")] as [SettingsPage, string]] : [])];
-  if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models", "")]);
-  out.push(["apps", sheet ? host("apps") : sec("apps", "Apps", "")]);
-  out.push(...thisMacSec);
-  out.push(machines);
-  out.push(agents);
-  out.push(creds, instr);
-  out.push(["devices", sec("devices", "Beep server", "")]);
+  const agents: [SettingsPage, ReactElement] = ["agents", sheet && sub?.kind === "agent" ? host("agents")
+    : createElement(AgentSettingsSection, { key: "agents", linked, sheet })];
+  const computer: [SettingsPage, ReactElement][] = mac && !onPhone() ? [["mac", sec("mac", "This computer")]] : [];
+  if (!linked) return [...out, ...computer, machines, agents, creds, instr, ...(S.server ? [["devices", sec("devices", "Beep server")] as [SettingsPage, ReactElement]] : [])];
+  if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models")]);
+  out.push(["apps", sheet ? host("apps") : sec("apps", "Apps")]);
+  out.push(...computer, machines, agents, creds, instr, ["devices", sec("devices", "Beep server")]);
   return out;
 }
 
@@ -349,7 +327,7 @@ function store() {
 }
 
 /// The pages the sheet lists now.
-const sheetPages = () => SET.local ? settingsSections(SET.local.set, SET.local.mac, SET.local.linked, true).map(([id]) => id) : [];
+const sheetPages = () => SET.local ? settingsSections(SET.local.mac, SET.local.linked, true).map(([id]) => id) : [];
 
 let renderedPath: SettingsPath | null = null;
 let shell: { sheet: HTMLElement; navigation: HTMLElement | null; root: DocumentView; observer: MutationObserver } | null = null;
@@ -372,6 +350,7 @@ function renderShell(sheet: HTMLElement, pages: SettingsPage[], path: SettingsPa
   flushSync(() => current.root.render(createElement(Fragment, null, createElement(SettingsShell, {
     navigation: createElement(SettingsNavigation, { pages, path, version, subs: subEntries, pageName: settingsPageLabel, subName: subLabel, count: navCount, openPage, openSub: (sub: SettingsSub) => goTo(openSub(sub)) }),
     breadcrumb: createElement(SettingsBreadcrumb, { path, page: settingsPageLabel(path.page), sub: path.sub ? subLabel(path.sub) : null, openPage }),
+    children: settingsSections(SET.local?.mac ?? null, SET.local?.linked ?? false, true).find(([page]) => page === path.page)?.[1] ?? null,
   }), ...[...localViews].map(([kind, view]) => createPortal(view.node, view.host, kind)), ...sectionPortals())));
   current.navigation = sheet.querySelector<HTMLElement>(".dset-nav");
 }
@@ -379,39 +358,20 @@ function renderShell(sheet: HTMLElement, pages: SettingsPage[], path: SettingsPa
 function drawSheet() {
   const el = SET.root, local = SET.local;
   if (!el || !local) return;
-  const sections = settingsSections(local.set, local.mac, local.linked, true);
+  const sections = settingsSections(local.mac, local.linked, true);
   const shown = sections.map(([id]) => id);
   const path = SET.path = fitPath(SET.path ?? recallPath(store()), shown, subExists);
   rememberPath(store(), path);
-  const page = sections.find(([id]) => id === path.page)?.[1] ?? "";
-  const retainPage = shell?.sheet === el && renderedPath && samePath(renderedPath, path)
-    && (path.page === "apps" || path.page === "machines" || path.page === "instr" || (path.page === "agents" && path.sub?.kind === "agent"));
-  const oldPage = retainPage ? el.querySelector<HTMLElement>(".dset-page") : null;
+  const changed = shell?.sheet !== el || !renderedPath || !samePath(renderedPath, path);
   const previousFocus = document.activeElement instanceof HTMLElement && el.contains(document.activeElement) ? document.activeElement : null;
-  const active = oldPage?.contains(document.activeElement) ? document.activeElement : null;
-  const input = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? active : null;
-  const start = input?.selectionStart ?? null, end = input?.selectionEnd ?? null;
-  const scroll = oldPage ? { top: oldPage.scrollTop, left: oldPage.scrollLeft } : null;
-  if (!oldPage) leavePage();
-  const focus = active ? null : focusKey(el);
-  const restoreAgents = oldPage ? null : preserveAgents(), restoreCreds = oldPage ? null : preserveCreds(), restoreLocal = oldPage ? null : preserveLocalViews(el);
-  const navScroll = shell?.navigation ? { top: shell.navigation.scrollTop, left: shell.navigation.scrollLeft } : null;
+  const focus = focusKey(el);
+  if (changed) leavePage();
   renderShell(el, shown, path, local.set.version);
-  if (!oldPage) {
-    const body = el.querySelector<HTMLElement>(".dset-page");
-    if (body) body.innerHTML = page;
-    restoreAgents?.(el); restoreCreds?.(el); restoreLocal?.(el);
-    if (body) bindSettings(body);
-    mountPage(path);
-  }
+  bindSettings(el);
+  if (changed) mountPage(path);
   renderedPath = path;
-  if (active instanceof HTMLElement && active.isConnected) {
-    active.focus({ preventScroll: true });
-    if (input && start !== null && end !== null) input.setSelectionRange(start, end);
-  } else if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+  if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
   else if (focus) refocus(el, focus);
-  if (oldPage && scroll) { oldPage.scrollTop = scroll.top; oldPage.scrollLeft = scroll.left; }
-  if (navScroll && shell?.navigation) { shell.navigation.scrollTop = navScroll.top; shell.navigation.scrollLeft = navScroll.left; }
 }
 function drawChrome() {
   const el = SET.root, path = SET.path, local = SET.local;
@@ -506,7 +466,7 @@ async function openApps(box: HTMLElement, sub: SettingsSub | null) {
   return renderMcpServer(it as McpServer);
 }
 
-let barSettings: { host: HTMLElement; root: DocumentView; version: string; sections: string } | null = null;
+let barSettings: { host: HTMLElement; root: DocumentView; version: string; sections: ReactElement[] } | null = null;
 function drawBarSettings() {
   const current = barSettings;
   if (!current || !current.host.isConnected) return;
@@ -551,17 +511,14 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
     drawSheet();
   } else {
     disposeShell();
-    const sections = settingsSections(set, mac, linked, false).map(([, html]) => html).join("");
+    const sections = settingsSections(mac, linked, false).map(([, content]) => content);
     if (!barSettings || barSettings.host.parentElement !== bar) {
       const page = openBarPage(() => { barSettings = null; });
-      barSettings = { ...page, version: set.version, sections: "" };
+      barSettings = { ...page, version: set.version, sections: [] };
     }
-    const changed = sections !== barSettings.sections;
-    const restoreAgents = changed ? preserveAgents() : null, restoreCreds = changed ? preserveCreds() : null, restoreLocal = changed ? preserveLocalViews(el) : null;
     barSettings.version = set.version;
     barSettings.sections = sections;
     drawBarSettings();
-    restoreAgents?.(el); restoreCreds?.(el); restoreLocal?.(el);
     bindSettings(el);
   }
 
