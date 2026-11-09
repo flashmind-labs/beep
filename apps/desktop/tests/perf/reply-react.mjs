@@ -49,6 +49,19 @@ try {
     return value;
   });
   assert.deepEqual(duplicates, { oldCount: 2, count: 2, firstKept: true, secondKept: true, text: ["First updated", "Second"], afterRemoval: ["Second"] });
+  const prompt = await page.evaluate(() => {
+    const body = document.querySelector(".dbody"), log = document.querySelector(".dcoderlog");
+    const row = text => ({ kind: "prompt", row: "4", html: `<p>${text}</p>`, pictures: '<img class="pic" alt="attachment">' });
+    const units = text => [{ key: "turn", rows: () => [row(text)] }];
+    logWindow.setUnits(log, units("First"), []); logWindow.fillLog(body, false);
+    const original = log.querySelector('.dcoderen.user[data-at="4"]');
+    const selected = original.querySelector("p").firstChild;
+    const blocked = logWindow.setUnits(log, units("Updated"), [selected]);
+    const held = original.querySelector("p").textContent;
+    const updated = logWindow.setUnits(log, units("Updated"), []);
+    return { blocked, held, updated, same: log.querySelector('.dcoderen.user[data-at="4"]') === original, text: original.querySelector("p").textContent, image: !!original.querySelector(".pics img") };
+  });
+  assert.deepEqual(prompt, { blocked: false, held: "First", updated: true, same: true, text: "Updated", image: true });
   const longLog = await page.evaluate(() => {
     const body = document.querySelector(".dbody"), log = document.querySelector(".dcoderlog");
     const units = Array.from({ length: 1000 }, (_, index) => ({ key: `turn-${index}`, rows: () => [{ kind: "reply", row: String(index), markdown: true, html: `<p>Reply ${index}</p>` }] }));

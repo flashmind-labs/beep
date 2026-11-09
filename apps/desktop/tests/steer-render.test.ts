@@ -37,6 +37,16 @@ function setup() {
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
+test("agent prompt keeps context before the user and retains its element", t => {
+  const { page } = setup();
+  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  page.entries = [{ kind: "user", text: "<beep-context>\nContext\n</beep-context>\nHello", html: "<p>Hello</p>" }, { kind: "agent", text: "Reply" }];
+  drawAgentBody();
+  const prompt = bar.querySelector<HTMLElement>(".dcoderen.user.md"), context = bar.querySelector(".beepctx");
+  assert.ok(prompt && context); assert.equal(context.compareDocumentPosition(prompt) & Node.DOCUMENT_POSITION_FOLLOWING, Node.DOCUMENT_POSITION_FOLLOWING);
+  drawAgentBody(undefined, true); assert.equal(bar.querySelector(".dcoderen.user.md"), prompt);
+});
+
 test("session status updates preserve the status element for writable and read-only sessions", t => {
   const { page } = setup();
   t.after(() => { disposeQueue(); stopAgentFollow(); });

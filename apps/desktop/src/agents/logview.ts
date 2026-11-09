@@ -15,7 +15,7 @@ import { attachLive } from "./thoughtlive.ts";
 import { groupThoughts, mergedThought } from "./thoughts-state.ts";
 import { patchable, patchRows, startPatching } from "./logpatch.ts";
 import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.ts";
-import { answerHtml, collapseActivityHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml, userRowHtml } from "./turnrows.ts";
+import { answerHtml, collapseActivityHtml, errorCardHtml, KIND_ICONS, liveLineHtml, stepMark, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml } from "./turnrows.ts";
 import { type AgentQuestion, type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentAvatar, agentKind } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { promptParts } from "./promptparts-state.ts";
@@ -36,7 +36,7 @@ import type { ChatBody } from "../ui/turn.ts";
 import { ICON } from "../ui/icons.ts";
 import { showAgentControl } from "./composer-ui.tsx";
 import { AgentStatus, AgentStopFace } from "./mode-view.tsx";
-import { replyHtml, type ReplyRow } from "./reply-view.tsx";
+import { promptHtml, replyHtml, type PromptRow, type ReplyRow } from "./reply-view.tsx";
 
 // Elapsed clocks use when this window first saw the call running.
 const toolStarts = new Map<string, number>();
@@ -245,33 +245,7 @@ export function entryRow(en: AgentEntry, at: number) {
   const answered = en.kind === "user" && AG.log ? AG.log.answeredQuestions(en.text) : null;
   if (answered) return `<div class="dcoderen qa" data-row="${at}">${answered.map(x => `${x.question ? `<span class="q">${esc(x.question)}</span>` : ""}<span class="a">${esc(x.answer)}</span>`).join("")}</div>`;
 
-  if (en.kind === "user") {
-    // Beep's context, what another session sent and what a child came to
-    // get rows of their own, never the user's box.
-    const parts = promptParts(en.text);
-    let child = 0;
-    const others = parts.map(p => p.kind === "context"
-      ? `<details class="dcoderen beepctx"><summary>Beep context</summary><pre>${esc(p.text)}</pre></details>`
-      : p.kind === "session"
-        ? `<div class="dcoderen fromsession"><b>Other session wrote${p.name ? `<span class="who">${esc(p.name)}</span>` : ""}</b><span>${linkified(p.text)}</span></div>`
-        : p.kind === "child"
-          ? (() => {
-            const row = childRow(sessions, p.id);
-            const meta = [row?.machine_name ?? p.id.split("@").slice(1).join("@"), row ? agentKind(row.agent).name : ""].filter(Boolean).join(" · ");
-            const body = en.child_html?.[child++];
-            return childReplyHtml(p, body != null ? answerHtml(body) : `<p>${linkified(p.text).replace(/\n/g, "<br>")}</p>`, row ? agentAvatar(row.agent) : SUB_ICON, meta);
-          })()
-          : "").join("");
-    const own = parts.filter(p => p.kind === "user").map(p => p.text).join("\n");
-    if (!own && others) return others;
-    const { names, text: words } = userImages(own);
-    // The user's words come as Markdown HTML, its pasted blocks folded;
-    // the ones the reader opened stay open.
-    // A message just sent has no HTML until the next read: its text shows meanwhile.
-    const html = en.html ?? (words ? `<p>${esc(words).replace(/\n/g, "<br>")}</p>` : "");
-    const said = html.replace(/data-paste="(\d+)"/g, (m, i) => AG.opened.has(`${at}:${i}`) ? `${m} open` : m);
-    return others + userRowHtml(said, ` data-at="${at}"`, names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "", true);
-  }
+  if (en.kind === "user") return userRows(en, at).map(row => typeof row === "string" ? row : promptHtml(row)).join("");
 
   if (en.kind === "agent") return replyHtml(agentReply(en, at));
 
@@ -284,6 +258,35 @@ export function entryRow(en: AgentEntry, at: number) {
   const made = AG.page ? madeFiles(en.text, AG.page.session.cwd) : null;
   if (made) return madeRow(made, at);
   return `<div class="dcoderen other" data-row="${at}">${esc(en.text)}</div>`;
+}
+
+function userRows(en: AgentEntry, at: number): (string | PromptRow)[] {
+  // Beep's context, what another session sent and what a child came to
+  // get rows of their own, never the user's box.
+  const parts = promptParts(en.text);
+  let child = 0;
+  const others = parts.map(p => p.kind === "context"
+    ? `<details class="dcoderen beepctx"><summary>Beep context</summary><pre>${esc(p.text)}</pre></details>`
+    : p.kind === "session"
+      ? `<div class="dcoderen fromsession"><b>Other session wrote${p.name ? `<span class="who">${esc(p.name)}</span>` : ""}</b><span>${linkified(p.text)}</span></div>`
+      : p.kind === "child"
+        ? (() => {
+          const row = childRow(sessions, p.id);
+          const meta = [row?.machine_name ?? p.id.split("@").slice(1).join("@"), row ? agentKind(row.agent).name : ""].filter(Boolean).join(" · ");
+          const body = en.child_html?.[child++];
+          return childReplyHtml(p, body != null ? answerHtml(body) : `<p>${linkified(p.text).replace(/\n/g, "<br>")}</p>`, row ? agentAvatar(row.agent) : SUB_ICON, meta);
+        })()
+        : "").join("");
+  const own = parts.filter(p => p.kind === "user").map(p => p.text).join("\n");
+  if (!own && others) return [others];
+  const { names, text: words } = userImages(own);
+  // The user's words come as Markdown HTML, its pasted blocks folded;
+  // the ones the reader opened stay open.
+  // A message just sent has no HTML until the next read: its text shows meanwhile.
+  const html = en.html ?? (words ? `<p>${esc(words).replace(/\n/g, "<br>")}</p>` : "");
+  const said = html.replace(/data-paste="(\d+)"/g, (m, i) => AG.opened.has(`${at}:${i}`) ? `${m} open` : m);
+  const prompt: PromptRow = { kind: "prompt", row: String(at), html: said, pictures: names.map(entryPic).join("") };
+  return others ? [others, prompt] : [prompt];
 }
 
 /// The files a turn's commands made: one file as "Made x.md", several as a
@@ -423,8 +426,12 @@ function turnUnits(p: AgentPage): Unit[] {
     // Notes before the first message are not a turn of work.
     if (onlyNotes(p.entries, t, p.earlier)) return () => t.steps.map(row);
     const last = t === lastTurn, running = active && last;
-    const user = () => t.user == null ? "" : row(t.user);
-    if (!running && !t.steps.length && !t.answer.length) return () => [user()].filter(Boolean);
+    const user = (): TranscriptRow[] => {
+      if (t.user == null) return [];
+      const item = entry(t.user);
+      return item.kind === "user" && !AG.log?.answeredQuestions(item.text) ? userRows(item, t.user) : [row(t.user)];
+    };
+    if (!running && !t.steps.length && !t.answer.length) return user;
     const { start, end } = span({
       first: p.earlier === 0 && t.key === 0, last, running,
       seenStart: m.starts.get(t.key), seenEnd: m.ends.get(t.key),
@@ -471,7 +478,7 @@ function turnUnits(p: AgentPage): Unit[] {
         state, thinking: thinking, start,
         doing: state === "working" && doing !== "Thinking" && !(shownTitle && (shownTitle.includes(doing) || doing.includes(shownTitle))) ? doing : "",
       }) : "";
-      return [user(), head, ...work, live].filter(Boolean);
+      return [...user(), head, ...work, live].filter(Boolean);
     };
   }
 }
@@ -645,7 +652,7 @@ function showLog(b: HTMLElement, html: string, units: Unit[] | null, polled: boo
     if (sel.focusNode) held.push(sel.focusNode);
   }
 
-  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row) })) ?? null;
+  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row.kind === "prompt" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row) })) ?? null;
   return patchRows(main, next.content, prepared, held);
 }
 
