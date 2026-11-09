@@ -13,7 +13,7 @@ export function makeStartComposer({ projectPicker = false, externalChoices = fal
   choices.className = "choices";
   const nodes: StartComposerNodes = { input: null, project: null, machine: null, folder: null, extra: null, harness: null, send: null, pick: null, att: null, err: null, box: null };
   const root = createRoot(form);
-  let choiceView: ReactNode = null, attachmentView: ReactNode = null, notes: ReactNode = null, under: ReactNode = null, extras: ReactNode = null, picker: ReactNode = null;
+  let choiceView: ReactNode = null, attachmentView: ReactNode = null, notes: ReactNode = null, under: ReactNode = null, extras: ReactNode = null, picker: ReactNode = null, harnessView: ReactNode = null;
   let choiceContents: ChoiceContents | null = null;
   let current: Presentation = presentation, busy = false, welcome = presentation === "centered" ? nextSessionIntro() : "";
   const grow = () => {
@@ -25,7 +25,7 @@ export function makeStartComposer({ projectPicker = false, externalChoices = fal
   };
   const draw = () => {
     form.classList.toggle("centered", current === "centered");
-    flushSync(() => root.render(createElement(StartComposerView, { nodes, choices, projectPicker, externalChoices, choiceView, choiceContents, attachmentView, notes, under, extras, picker, centered: current === "centered", busy, welcome, grow, submit: () => form.requestSubmit() })));
+    flushSync(() => root.render(createElement(StartComposerView, { nodes, choices, projectPicker, externalChoices, choiceView, choiceContents, attachmentView, notes, under, extras, picker, harnessView, centered: current === "centered", busy, welcome, grow, submit: () => form.requestSubmit() })));
   };
   const setPresentation = (to: Presentation) => {
     if (to === current) return;
@@ -46,5 +46,6 @@ export function makeStartComposer({ projectPicker = false, externalChoices = fal
   const setUnder = (view: ReactNode) => { under = view; draw(); };
   const setExtras = (view: ReactNode) => { extras = view; draw(); };
   const setPicker = (view: ReactNode) => { picker = view; draw(); };
-  return { setPresentation, setBusy, setChoices, setChoiceContents, setAttachments, setNotes, setUnder, setExtras, setPicker, centered: () => current === "centered", form, input: required(nodes.input), project, machine, folder, extra, choices, harness: required(nodes.harness), send: required(nodes.send), pick: required(nodes.pick), att: required(nodes.att), err: required(nodes.err), box: required(nodes.box), grow, dispose: () => root.unmount() };
+  const setHarness = (view: ReactNode) => { harnessView = view; draw(); };
+  return { setPresentation, setBusy, setChoices, setChoiceContents, setAttachments, setNotes, setUnder, setExtras, setPicker, setHarness, centered: () => current === "centered", form, input: required(nodes.input), project, machine, folder, extra, choices, harness: required(nodes.harness), send: required(nodes.send), pick: required(nodes.pick), att: required(nodes.att), err: required(nodes.err), box: required(nodes.box), grow, dispose: () => root.unmount() };
 }
