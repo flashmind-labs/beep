@@ -1,4 +1,6 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { FlshView } from "./flsh-view.tsx";
+import type { FlshPanel } from "./flsh.ts";
 import { copy } from "../ui/parts.ts";
 import { splitFailure } from "../ui/failbanner.ts";
 import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
@@ -10,7 +12,8 @@ interface ProviderProps {
   machine: string | null; machineName: string; view: HarnessesView | null | false | undefined; picked: string | null;
   draft: HarnessDraft | null; others: MachineSettings[] | false | undefined; saving: boolean; updating: boolean;
   adapter: AdapterInstall | null | undefined; error: string; inSettings: boolean; savedAll: string; includeProgram: boolean;
-  shared: Node | null;
+  shared: { before: Node; after: Node; agent: string } | null;
+  flsh: FlshPanel;
   loading: boolean; checked: string; updateCount: number; canUpdate: boolean;
   pick: (agent: string) => void; toggle: (hv: HarnessView, on: boolean) => void; update: (hv: HarnessView) => void;
   retryAdapter: (agent: string) => void; openAccounts: () => void; setDraft: (value: Partial<HarnessDraft>) => void;
@@ -21,7 +24,7 @@ interface ProviderProps {
 
 export function ProvidersView(p: ProviderProps) {
   return <div className={`cc-view hv-view${p.inSettings ? " in-set" : ""}`}>
-    {p.inSettings ? <>{p.shared && <LegacyNode node={p.shared} />}<section className="hv-scope"><Toolbar p={p} /><Body {...p} /></section></> : <Body {...p} />}
+    {p.inSettings ? <>{p.shared && <SharedSettings value={p.shared} flsh={p.flsh} />}<section className="hv-scope"><Toolbar p={p} /><Body {...p} /></section></> : <Body {...p} />}
   </div>;
 }
 
@@ -36,7 +39,7 @@ function Body(p: ProviderProps) {
   const error = p.error && <div className="fb-err" role="alert"><div className="fb-line"><span>{failure.line}</span><button type="button" className="fb-x" aria-label="Dismiss" title="Dismiss" onClick={p.dismissError}>×</button></div>{failure.details && <details className="fb-more"><summary>Details</summary><pre>{failure.details}</pre></details>}</div>;
   if (p.view === null) return error || <div className="cc-err">Could not read the coding agents.</div>;
   if (p.inSettings) return <>{error}{hv ? <><Summary hv={hv} p={p} /><Runtime hv={hv} p={p} /></> : <Empty title={`${p.machineName} does not report ${harnessName(p.picked ?? "")}`} />}</>;
-  return <>{error}<div className="hv"><AgentList view={p.view} p={p} />{hv ? <div>{p.shared && <LegacyNode node={p.shared} />}<Runtime key={`${p.machine}:${hv.agent}`} hv={hv} p={p} /></div> : <div className="hv-d" />}</div></>;
+  return <>{error}<div className="hv"><AgentList view={p.view} p={p} />{hv ? <div>{p.shared && <SharedSettings value={p.shared} flsh={p.flsh} />}<Runtime key={`${p.machine}:${hv.agent}`} hv={hv} p={p} /></div> : <div className="hv-d" />}</div></>;
 }
 
 function Toolbar({ p }: { p: ProviderProps }) {
@@ -48,6 +51,9 @@ function Toolbar({ p }: { p: ProviderProps }) {
 }
 
 function Empty({ title, sub }: { title: string; sub?: string }) { return <div className="cc-panel cc-empty"><b>{title}</b>{sub && <span>{sub}</span>}</div>; }
+function SharedSettings({ value, flsh }: { value: NonNullable<ProviderProps["shared"]>; flsh: FlshPanel }) {
+  return <section className="hv-scope hv-d"><h3>All machines</h3><LegacyNode node={value.before} />{value.agent === "flsh" && <FlshView panel={flsh} />}<LegacyNode node={value.after} /></section>;
+}
 function LegacyNode({ node }: { node: Node }) {
   const host = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
