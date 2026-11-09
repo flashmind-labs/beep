@@ -1,12 +1,15 @@
+import { createElement, type MouseEvent as ReactMouseEvent } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { NewProjectView } from "./newproject-view.tsx";
 // The "New project" sheet: a name, where the repository goes (each host with
 // a token, or Local only), its owner and visibility, and the machines that
 // get a checkout. The server creates it, and each machine clones it.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
-import { button, el, present, press } from "../ui/dom.ts";
 import { openMenu } from "../ui/menu.ts";
 import { cleanError } from "./importproject-state.ts";
-import { canCreate, creatingText, goesText, landedLines, pickHost, shownName, startForm, toggleMachine } from "./newproject-state.ts";
+import { canCreate, pickHost, startForm, toggleMachine } from "./newproject-state.ts";
 import type { Created, Forge, NewProjectForm } from "./newproject-state.ts";
 import type { ProjectRow } from "../project/projects-state.ts";
 
@@ -32,9 +35,9 @@ let creating = false, error: string | null = null, created: Created | null = nul
 /// Which opening of the sheet this is: a create still running when it closed
 /// reports to no later one.
 let opening = 0;
+let view: Root | null = null;
 
 const online = () => (opts.machines || []).filter(m => m.online);
-const picked = () => form.machines.map(id => online().find(m => m.id === id)?.name ?? id);
 
 export function openNewProject(options: NewProjectOptions = {}) {
   if (root) return;
@@ -47,13 +50,16 @@ export function openNewProject(options: NewProjectOptions = {}) {
   error = null;
   created = null;
   ({ root, sheet, close } = openSheet("New project", "am-sheet ip-sheet np-sheet", { onClose: closed }));
+  view = createRoot(sheet);
   draw();
+  const mine = opening;
   invoke<Forge[] | null>("project_forges")
     .then(got => {
+      if (mine !== opening || !root) return;
       forges = got;
       form = { ...startForm(got || [], form.machines[0]), name: form.name };
-    }, e => { forges = []; loadError = cleanError(String(e)); })
-    .finally(() => { if (root) draw(); });
+    }, e => { if (mine === opening && root) { forges = []; loadError = cleanError(String(e)); } })
+    .finally(() => { if (mine === opening && root) draw(); });
 }
 
 /// Closes the sheet; a project made by then opens. One still being made
@@ -63,6 +69,7 @@ export function closeNewProject() {
 }
 
 function closed() {
+  view?.unmount(); view = null;
   root = sheet = close = null;
   if (created?.imported[0]) opts.onDone?.(created.imported[0]);
 }
@@ -97,96 +104,22 @@ async function submit() {
   if (root) draw();
 }
 
-function draw() {
-  if (!sheet) return;
-  const body = forges === undefined ? [el("div", "am-wait", el("span", "dspin"))]
-    : forges === null ? [el("div", "am-sub", "The server needs an update before it creates projects."), foot(null)]
-    : creating ? [el("div", "am-wait", el("span", "dspin"), creatingText(form, picked()))]
-    : created ? done(created)
-    : fields();
-  sheet.replaceChildren(el("div", "am-head", el("b", "", "New project"), el("kbd", "", "esc")), ...present(body));
-  const name = sheet.querySelector<HTMLInputElement>(".ip-field");
-  if (name) { name.focus(); name.setSelectionRange(name.value.length, name.value.length); }
-}
-
-/// Keeps the name's focus while typing.
-function syncTyped() {
-  const go = sheet!.querySelector<HTMLButtonElement>(".ip-go");
-  if (go) go.disabled = !canCreate(form) || !!hostError();
-  sheet!.querySelector(".am-msg.bad")?.remove();
-  error = null;
-}
-
-function foot(go: HTMLButtonElement | null) {
-  const again = button("Back", "dbtn quiet", () => { closeNewProject(); opts.onBack?.(); });
-  return el("div", "am-line ip-foot", go, again);
-}
-
 const hostError = () => (forges || []).find(f => f.host === form.host && !f.owners.length)?.error ?? null;
-
-function setForm(next: NewProjectForm) {
-  form = next;
-  error = null;
-  draw();
-}
-
-function fields() {
-  const list = forges || [];
-  const input = el("input", "ip-field");
-  input.type = "text";
-  input.placeholder = "my-project";
-  input.spellcheck = false;
-  input.autocapitalize = "off";
-  input.setAttribute("autocorrect", "off");
-  input.setAttribute("aria-label", "Name");
-  input.value = form.name;
-  input.addEventListener("input", () => { form = { ...form, name: input.value }; syncTyped(); });
-  input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
-  const chip = (label: string, on: boolean, click: () => void) => press(button(label, "dbtn dchip", click), on);
-  const hosts = el("div", "dchips",
-    ...list.map(f => chip(f.github ? "GitHub" : f.host, form.host === f.host, () => setForm(pickHost(form, list, f.host)))),
-    chip("Local only", form.host === null, () => setForm(pickHost(form, list, null))));
-  const owners = list.find(f => f.host === form.host)?.owners ?? [];
-  const owner = button(form.owner, "dbtn", e => openMenu(e, "Owner", owners.map(o => ({ label: o, on: () => setForm({ ...form, owner: o }) }))));
-  const machines = online();
-  const go = button("Create", "dbtn pri ip-go", submit);
-  go.disabled = !canCreate(form) || !!hostError();
-  const note = goesText(form, picked());
-  return [
-    el("div", "am-label", "Name"),
-    el("div", "am-line", input),
-    el("div", "am-sub", list.length
-      ? "Create with a connected GitHub, Forgejo or Gitea account, or keep it local."
-      : "Connect GitHub or add a Forgejo/Gitea token in Settings > Credentials to create a remote repository."),
-    el("div", "am-label", "Repository on"),
-    el("div", "am-line", hosts),
-    loadError ? el("div", "am-msg bad", loadError) : null,
-    hostError() ? el("div", "am-msg bad", hostError()!) : null,
-    form.host !== null && owners.length ? el("div", "am-label", "Owner and visibility") : null,
-    form.host !== null && owners.length ? el("div", "am-line", owner, el("div", "dchips",
-      chip("Private", form.isPrivate, () => setForm({ ...form, isPrivate: true })),
-      chip("Public", !form.isPrivate, () => setForm({ ...form, isPrivate: false })))) : null,
-    el("div", "am-label", "Machines"),
-    machines.length
-      ? el("div", "am-line", el("div", "dchips", ...machines.map(m => chip(m.name, form.machines.includes(m.id), () => setForm(toggleMachine(form, m.id))))))
-      : el("div", "am-sub", "None of your machines is online."),
-    note ? el("div", "am-sub ip-to", note) : null,
-    error ? el("div", "am-msg bad", error) : null,
-    foot(go),
-  ];
-}
-
-function done(made: Created) {
-  const first = made.imported[0];
-  const failures = made.failed.map(f => el("div", "am-msg bad", `${f.machine_name}: ${f.why}`));
-  return [
-    el("div", "am-done", el("span", "ddot"), el("b", "", `${shownName(form)} created`)),
-    ...(first ? landedLines(made.imported).map(line => el("div", "am-sub", line)) : []),
-    ...failures,
-    first
-      ? button("Open project", "dbtn pri", closeNewProject)
-      : el("div", "am-line",
-        button("Clone…", "dbtn pri", () => { closeNewProject(); opts.onClone?.(made.url); }),
-        button("Close", "dbtn quiet", closeNewProject)),
-  ];
+function setForm(next: NewProjectForm) { form = next; error = null; draw(); }
+function draw() {
+  if (!view) return;
+  const current = view;
+  flushSync(() => current.render(createElement(NewProjectView, {
+    forges, loadError, form, machines: online(), creating, error, created, hostError: hostError(),
+    name: (name: string) => setForm({ ...form, name }),
+    host: (host: string | null) => setForm(pickHost(form, forges ?? [], host)),
+    owner: (event: ReactMouseEvent<HTMLButtonElement>) => {
+      const anchor = event.currentTarget;
+      openMenu(event.nativeEvent, "Owner", (forges ?? []).find(f => f.host === form.host)?.owners.map(owner => ({ label: owner, on: () => { setForm({ ...form, owner }); if (anchor.isConnected) anchor.focus(); } })) ?? []);
+    },
+    privacy: (isPrivate: boolean) => setForm({ ...form, isPrivate }),
+    machine: (id: string) => setForm(toggleMachine(form, id)), submit: () => void submit(),
+    back: () => { closeNewProject(); opts.onBack?.(); }, close: closeNewProject,
+    clone: (url: string) => { closeNewProject(); opts.onClone?.(url); },
+  })));
 }
