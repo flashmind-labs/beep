@@ -16,7 +16,6 @@ import { refreshGit } from "./openitems.ts";
 import { currentLocation, registerView, go, openResearch } from "./views.ts";
 import { openAddMachine, projectRows } from "./sidebar.ts";
 import { loading, refresh, fresh } from "./refresh.ts";
-import { resetRows } from "../ui/lazyrows.ts";
 import { thisMacRow } from "../machines/machine-state.ts";
 import { type RunningAgent, runningKey, runningLine, type RunningRow, runningWhen } from "../agents/running-state.ts";
 import { onPlaces, runningLineAt } from "../agents/place.ts";
@@ -249,7 +248,7 @@ onClosing(() => draw());
 registerView("home", {
   el: $("#home-box"),
   title: () => ({ title: "Home", sub: new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) }),
-  mount() { resetRows("home:"); draw(); refresh(); refreshGit(); },
+  mount() { draw(); refresh(); refreshGit(); },
 });
 
 /// Element Home scrolls to once it has drawn.

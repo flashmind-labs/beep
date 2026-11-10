@@ -24,7 +24,6 @@ import { projectComp, drawProjectComp } from "./composer.ts";
 import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, disposeFoundSection, elsewhereSection, disposeElsewhereSection, sessionPanel, disposeSessionPanel } from "./loads.ts";
 import { refresh } from "../center/refresh.ts";
 import { IC } from "../ui/icons.ts";
-import { resetRows } from "../ui/lazyrows.ts";
 import { patchChildren } from "../ui/patch.ts";
 import { threadPanel } from "./threaddetail.ts";
 
@@ -176,7 +175,6 @@ registerView("projects", {
     }
 
     openTile(pa.run ? "actions" : arg?.tile ?? null, false);
-    resetRows("projects-overview");
     drawProjects(el);
 
     if (state.picked) revalidate(state.picked);
