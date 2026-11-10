@@ -311,3 +311,72 @@ fn lines_between_turns_do_not_make_a_session_recent() {
     assert_eq!(listed[0].last_activity, 1_793_261_025);
     assert_eq!(listed[0].presence, Presence::Stopped);
 }
+
+/// An append is read alone, carrying on from the summary before it, and
+/// says what reading the file again from scratch says.
+#[test]
+fn an_appended_transcript_summarizes_as_one_read_whole() {
+    let root = tempfile::tempdir().expect("a temp folder");
+    let project = root.path().join("projects").join("-srv-project");
+    fs::create_dir_all(&project).expect("folders");
+    let path = project.join(format!("{ID}.jsonl"));
+    fs::write(&path, FIXTURE).expect("a transcript");
+    let store = Store::at(root.path());
+    let ids = HashSet::from([ID.to_owned()]);
+    let shown = |store: &Store| {
+        let listed = list_ids(store, &Snapshot::default(), &ids).expect("the listing");
+        let session = listed.into_iter().next().expect("the session");
+        (
+            session.title,
+            session.last_prompt,
+            session.last_message,
+            session.cwd,
+            session.last_activity,
+        )
+    };
+    let append = |text: &str| {
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("the transcript");
+        std::io::Write::write_all(&mut file, text.as_bytes()).expect("an append");
+    };
+    let line = |second: u32, kind: &str, rest: &str| {
+        format!(
+            r#"{{"type":"{kind}","cwd":"/srv/project","timestamp":"2026-10-29T09:00:{second:02}.000Z"{rest}}}"#
+        )
+    };
+    shown(&store);
+
+    let steps = [
+        line(1, "user", r#","message":{"role":"user","content":"rename the module"}"#) + "\n",
+        line(2, "assistant", r#","message":{"content":[{"type":"text","text":"Renamed it."}]}"#) + "\n",
+        r#"{"type":"ai-title","aiTitle":"Rename the module"}"#.to_owned() + "\n",
+        r#"{"type":"summary","summary":"Not the title"}"#.to_owned() + "\n",
+        line(3, "user", r#","isSidechain":true,"message":{"role":"user","content":"a subagent's prompt"}"#) + "\n",
+        // A line not yet ended is read once it is.
+        line(4, "user", r#","message":{"role":"user","content":"now the docs"}"#),
+        "\n".to_owned(),
+        r#"{"type":"custom-title","customTitle":"Module rename"}"#.to_owned() + "\n",
+        r#"{"type":"last-prompt","lastPrompt":"recorded"}"#.to_owned() + "\n",
+        line(5, "assistant", r#","cwd":"/srv/other","message":{"content":[{"type":"text","text":"Docs done."}]}"#) + "\n",
+    ];
+
+    for step in &steps {
+        append(step);
+        assert_eq!(shown(&store), shown(&Store::at(root.path())), "after {step}");
+    }
+
+    assert_eq!(
+        shown(&store).0.as_deref(),
+        Some("Module rename"),
+        "the summary followed the appends"
+    );
+
+    // Past a tail read of appends, and after a rewrite, it reads the tail again.
+    let filler = line(6, "assistant", r#","message":{"content":[{"type":"text","text":"more"}]}"#);
+    append(&format!("{filler}\n").repeat(1024 * 1024 / filler.len() + 1));
+    assert_eq!(shown(&store), shown(&Store::at(root.path())));
+    fs::write(&path, FIXTURE).expect("a rewrite");
+    assert_eq!(shown(&store), shown(&Store::at(root.path())));
+}

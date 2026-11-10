@@ -18,6 +18,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs::File,
     io::{self, Read, Seek, SeekFrom},
+    ops::Range,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{Instant, SystemTime},
@@ -137,6 +138,7 @@ impl Digest {
     }
 
     /// The title to show: the user's, else the generated one.
+    #[cfg(test)]
     pub(super) fn title(&self) -> Option<&str> {
         self.custom_title.as_deref().or(self.title.as_deref())
     }
@@ -708,13 +710,15 @@ pub(super) fn read_from(file: &mut File, start: u64, end: u64) -> io::Result<Tai
 /// entries when it can.
 pub(super) fn digest_tail(path: &Path, entries: usize) -> io::Result<Digest> {
     digest_tail_with(path, entries, |text| Digest::for_file(path, text, false))
+        .map(|(digest, _)| digest)
 }
 
+/// As `digest_tail`, with where the text read ends in the file.
 fn digest_tail_with(
     path: &Path,
     entries: usize,
     read: impl Fn(&str) -> Digest,
-) -> io::Result<Digest> {
+) -> io::Result<(Digest, u64)> {
     let mut window = FIRST_WINDOW;
 
     loop {
@@ -723,9 +727,95 @@ fn digest_tail_with(
         let enough = digest.entries.len() > entries && digest.prompt().is_some();
 
         if tail.whole || enough || window >= MAX_WINDOW {
-            return Ok(digest);
+            return Ok((digest, tail.end));
         }
         window *= 4;
+    }
+}
+
+/// What a listing shows of a transcript, read from its tail and brought up
+/// to date by parsing only what is appended after it.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Gist {
+    native: bool,
+    pub(super) cwd: Option<String>,
+    title: Option<String>,
+    custom_title: Option<String>,
+    last_prompt: Option<String>,
+    recorded_prompt: Option<String>,
+    pub(super) last_message: Option<String>,
+    pub(super) last_at: Option<u64>,
+    /// Where the tail was read whole, and where the lines read end.
+    read_at: u64,
+    end: u64,
+    /// The `CHECKED` bytes before `end`, to tell an append from a rewrite.
+    check: Vec<u8>,
+}
+
+impl Gist {
+    /// The tail of the transcript at `path`, as `digest_tail` reads it.
+    pub(super) fn read(path: &Path) -> io::Result<Self> {
+        let (digest, end) = digest_tail_with(path, 0, |text| Digest::for_file(path, text, false))?;
+        let check = bytes_before(&mut File::open(path)?, end)?;
+        Ok(Self::of(digest, end, end, check))
+    }
+
+    /// This gist after the lines appended to `path` since, or `None` when
+    /// the file was written again or has grown by more than a tail read
+    /// since its tail was read whole.
+    pub(super) fn appended(&self, path: &Path) -> io::Result<Option<Self>> {
+        let mut file = File::open(path)?;
+        let len = file.metadata()?.len();
+
+        if len < self.end
+            || len - self.read_at > FIRST_WINDOW
+            || bytes_before(&mut file, self.end)? != self.check
+        {
+            return Ok(None);
+        }
+
+        let tail = read_from(&mut file, self.end, len)?;
+        let mut digest = Digest {
+            native: self.native,
+            cwd: self.cwd.clone(),
+            title: self.title.clone(),
+            custom_title: self.custom_title.clone(),
+            last_prompt: self.last_prompt.clone(),
+            recorded_prompt: self.recorded_prompt.clone(),
+            last_message: self.last_message.clone(),
+            last_at: self.last_at,
+            ..Digest::default()
+        };
+        digest.lines(&tail.text);
+        let check = bytes_before(&mut file, tail.end)?;
+        Ok(Some(Self::of(digest, self.read_at, tail.end, check)))
+    }
+
+    fn of(digest: Digest, read_at: u64, end: u64, check: Vec<u8>) -> Self {
+        Self {
+            native: digest.native,
+            cwd: digest.cwd,
+            title: digest.title,
+            custom_title: digest.custom_title,
+            last_prompt: digest.last_prompt,
+            recorded_prompt: digest.recorded_prompt,
+            last_message: digest.last_message,
+            last_at: digest.last_at,
+            read_at,
+            end,
+            check,
+        }
+    }
+
+    /// The title to show: the user's, else the generated one.
+    pub(super) fn title(&self) -> Option<&str> {
+        self.custom_title.as_deref().or(self.title.as_deref())
+    }
+
+    pub(super) fn prompt(&self) -> Option<&str> {
+        self.last_prompt
+            .as_deref()
+            .or(self.recorded_prompt.as_deref())
     }
 }
 
@@ -764,18 +854,44 @@ pub(super) fn entries(
     kept: &Transcripts,
 ) -> io::Result<Excerpt> {
     kept.with(path, |digest| {
-        let range = window(0, digest.entries.len(), last, before);
-        let skip = range.start;
-        let mut entries = digest.entries[range].to_vec();
-        let started = Instant::now();
-        subagents::attach(path, &digest.spawns, &mut entries, skip);
-        crate::agents::transcript_stage("subagents", started);
-        Excerpt {
-            entries,
-            earlier: skip as u64,
-            pictures: digest.pictures.clone().unwrap_or_default(),
-        }
+        excerpt(path, digest, window(0, digest.entries.len(), last, before))
     })
+}
+
+/// The newest `last` entries of the transcript at `path`, as `entries`
+/// reads them, but none before entry `from` when the transcript reaches
+/// it: a reader holding the entries from `from` on needs no earlier ones.
+pub(super) fn newest_from(
+    path: &Path,
+    last: usize,
+    from: u64,
+    kept: &Transcripts,
+) -> io::Result<Excerpt> {
+    kept.with(path, |digest| {
+        let mut range = window(0, digest.entries.len(), last, None);
+
+        if let Ok(from) = usize::try_from(from)
+            && from <= range.end
+        {
+            range.start = range.start.max(from);
+        }
+
+        excerpt(path, digest, range)
+    })
+}
+
+/// The entries of `digest` in `range`, with their subagents and pictures.
+fn excerpt(path: &Path, digest: &Digest, range: Range<usize>) -> Excerpt {
+    let skip = range.start;
+    let mut entries = digest.entries[range].to_vec();
+    let started = Instant::now();
+    subagents::attach(path, &digest.spawns, &mut entries, skip);
+    crate::agents::transcript_stage("subagents", started);
+    Excerpt {
+        entries,
+        earlier: skip as u64,
+        pictures: digest.pictures.clone().unwrap_or_default(),
+    }
 }
 
 /// How many bytes before a parsed transcript's end are compared on the next
@@ -972,6 +1088,28 @@ pub(super) mod tests {
 
     /// A fabricated transcript in Claude Code's format.
     pub(crate) const FIXTURE: &str = include_str!("fixtures/session.jsonl");
+
+    #[test]
+    fn a_follow_reads_from_the_entry_its_reader_holds() {
+        let folder = tempfile::tempdir().expect("a temp folder");
+        let path = folder.path().join("a3f9c1.jsonl");
+        let text: String = (0..10)
+            .map(|n| format!("{{\"type\":\"user\",\"message\":{{\"role\":\"user\",\"content\":\"entry {n}\"}}}}\n"))
+            .collect();
+        fs::write(&path, text).expect("a transcript");
+        let kept = Transcripts::new(2);
+        let read = |last, from| {
+            let excerpt = newest_from(&path, last, from, &kept).expect("read");
+            let texts: Vec<String> = excerpt.entries.into_iter().map(|e| e.text).collect();
+            (excerpt.earlier, texts)
+        };
+
+        assert_eq!(read(5000, 7), (7, vec!["entry 7".into(), "entry 8".into(), "entry 9".into()]));
+        assert_eq!(read(1, 7), (9, vec!["entry 9".into()]));
+        assert_eq!(read(5000, 10), (10, vec![]));
+        // A start the transcript no longer reaches reads as no start at all.
+        assert_eq!(read(3, 50).0, 7);
+    }
 
     #[test]
     fn pages_before_an_entry_cover_a_claude_transcript_without_a_gap_or_a_repeat() {

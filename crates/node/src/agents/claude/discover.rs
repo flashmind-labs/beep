@@ -60,15 +60,12 @@ impl Default for Memos {
 /// What a transcript says, as a listing shows it.
 #[derive(Debug, Clone)]
 struct Summary {
-    cwd: Option<String>,
-    title: Option<String>,
-    last_prompt: String,
-    last_message: String,
+    /// Its tail; its `last_at` is the Unix seconds of its last timestamped
+    /// line. Claude Code also appends lines without one, such as its
+    /// artifact ledger, between turns.
+    gist: transcript::Gist,
     /// Unix seconds.
     started_at: u64,
-    /// Unix seconds of its last timestamped line. Claude Code also appends
-    /// lines without one, such as its artifact ledger, between turns.
-    last_at: Option<u64>,
 }
 
 /// One transcript file.
@@ -399,23 +396,23 @@ fn newest_by_folder(all: &[Transcript]) -> HashMap<&str, &str> {
 }
 
 /// What `transcript` says, read from its tail (and its head for when it
-/// started, when the file system does not say).
-fn summary(transcript: &Transcript) -> io::Result<Summary> {
-    let digest = transcript::digest_tail(&transcript.path, 0)?;
+/// started, when the file system does not say). After a plain append only
+/// the new lines of a summary `before` are read.
+fn summary(transcript: &Transcript, before: Option<Summary>) -> io::Result<Summary> {
+    if let Some(before) = before
+        && let Some(gist) = before.gist.appended(&transcript.path)?
+    {
+        return Ok(Summary { gist, ..before });
+    }
+
+    let gist = transcript::Gist::read(&transcript.path)?;
     let started_at = transcript
         .created
         .map(unix)
         .filter(|at| *at > 0)
         .or(transcript::started_at(&transcript.path)?)
         .unwrap_or(0);
-    Ok(Summary {
-        title: digest.title().map(str::to_owned),
-        last_prompt: digest.prompt().unwrap_or("").to_owned(),
-        last_message: digest.last_message.clone().unwrap_or_default(),
-        cwd: digest.cwd,
-        started_at,
-        last_at: digest.last_at,
-    })
+    Ok(Summary { gist, started_at })
 }
 
 fn describe(
@@ -424,13 +421,13 @@ fn describe(
     newest_in_folder: bool,
     snapshot: &Snapshot,
 ) -> io::Result<ExternalSession> {
-    let summary = store
+    let Summary { gist, started_at } = store
         .memos
         .summaries
-        .read(&transcript.path, || summary(transcript))?;
+        .read_since(&transcript.path, |before| summary(transcript, before))?;
     // Its last entry, not the file's time: lines written between turns
     // touch the file too.
-    let active = summary.last_at.map_or(transcript.modified, |at| {
+    let active = gist.last_at.map_or(transcript.modified, |at| {
         UNIX_EPOCH + Duration::from_secs(at)
     });
     let found = presence(
@@ -445,18 +442,18 @@ fn describe(
     Ok(ExternalSession {
         id: transcript.id.clone(),
         agent: "claude".to_owned(),
-        place: summary
+        place: gist
             .cwd
             .as_deref()
             .and_then(|cwd| of_folder(Path::new(cwd))),
-        cwd: summary.cwd.unwrap_or_default(),
-        title: summary.title,
-        started_at: summary.started_at,
+        title: gist.title().map(str::to_owned),
+        started_at,
         last_activity: unix(active),
         presence: found.presence,
         pid: found.pid,
-        last_prompt: summary.last_prompt,
-        last_message: summary.last_message,
+        last_prompt: gist.prompt().unwrap_or("").to_owned(),
+        last_message: gist.last_message.unwrap_or_default(),
+        cwd: gist.cwd.unwrap_or_default(),
         taken_over: snapshot.owned.get(&transcript.id).cloned(),
     })
 }
