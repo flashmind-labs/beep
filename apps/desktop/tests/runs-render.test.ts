@@ -3,7 +3,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { makeRuns, type RunsRow } from "../src/project/runs.ts";
 import { el, button } from "../src/ui/dom.ts";
-import { patchChildren } from "../src/ui/patch.ts";
 import { PageCache } from "../src/ui/pagecache.ts";
 import { invoke } from "../src/ui/tauri.ts";
 
@@ -16,20 +15,19 @@ test("unchanged Actions redraws keep the visible run rows", () => {
     checks: [], synced_at: null, error: null, rate_limited_until: null,
   });
   const runs = makeRuns({ invoke, h: el, button, kept, redraw() {}, openUrl() {}, fix() {} });
-  const container = el("div");
-  document.body.append(container);
+  const draw = () => runs.section({ project_id: "project", name: "Project" });
+  const host = draw();
+  document.body.append(host);
   try {
-    const draw = () => patchChildren(container, [runs.section({ project_id: "project", name: "Project" })]);
-    draw();
-    const row = container.querySelector(".pj-runrow");
+    const row = host.querySelector(".pj-runrow");
     assert.ok(row);
     for (let i = 0; i < 3; i++) {
-      draw();
-      assert.equal(container.querySelectorAll(".pj-runrow").length, 1);
-      assert.equal(container.querySelector(".pj-runrow"), row);
+      assert.equal(draw(), host);
+      assert.equal(host.querySelectorAll(".pj-runrow").length, 1);
+      assert.equal(host.querySelector(".pj-runrow"), row);
     }
   } finally {
     runs.stop();
-    container.remove();
+    host.remove();
   }
 });
