@@ -26,6 +26,13 @@ export function windowOf(sizes: readonly number[], top: number, bottom: number) 
   return { from, to: Math.max(from, to) };
 }
 
+/// The turns a log scrolled to its end shows, `view` pixels tall, and a
+/// screen above them: the window `windowOf` gives at the end.
+export function endOf(sizes: readonly number[], view: number) {
+  const total = sizes.reduce((sum, size) => sum + size, 0);
+  return windowOf(sizes, total - 2 * view, total + view);
+}
+
 /// How tall the spacer for turns `[from, to)` is: their sizes less the gap
 /// the spacer takes itself. Null when it has nothing to stand for.
 export function spacer(sizes: readonly number[], from: number, to: number, gap: number) {

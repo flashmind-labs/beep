@@ -141,7 +141,9 @@ function keyboard() {
   // stopped, so the window follows it until it settles. Focus moving between fields with the
   // keyboard up leaves the window as it was, but iOS still scrolls toward the new field.
   let settle = 0;
+  // Only the phone layout has a soft keyboard to follow.
   const follow = () => {
+    if (!document.body.classList.contains("mobile")) return;
     const until = performance.now() + 800;
     cancelAnimationFrame(settle);
     const step = () => {

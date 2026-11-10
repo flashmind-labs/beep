@@ -1,6 +1,6 @@
 // Parts a turn's rows share in a Beep chat and a coding agent's log: the
 // heading, a step's mark and a running clock.
-import { memo, useLayoutEffect, useSyncExternalStore } from "react";
+import { memo, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { clock, duration, heading, type TurnState } from "./agentturns.ts";
 import { Icon } from "../ui/icons.tsx";
 import { onShownChange, paneShown } from "../ui/active.ts";
@@ -46,10 +46,13 @@ export function StepMarkView({ mark }: { mark: StepMark }) {
 }
 
 /// How long since `start`, moving on each second while the pane shows.
+/// A clock out of the page, in a log kept for later, keeps its second and does not draw.
 export function Since({ start, className, title }: { start: number; className?: string; title?: string }) {
-  useSyncExternalStore(subscribeSecond, currentSecond, currentSecond);
+  const el = useRef<HTMLSpanElement | null>(null), seen = useRef(second);
+  const shown = () => { if (el.current?.isConnected !== false) seen.current = second; return seen.current; };
+  useSyncExternalStore(subscribeSecond, shown, shown);
   useLayoutEffect(tickClocks);
-  return <span ref={placeClock} className={className} data-since={start} title={title}>{duration(Date.now() - start)}</span>;
+  return <span ref={node => { el.current = node; return placeClock(node); }} className={className} data-since={start} title={title}>{duration(Date.now() - start)}</span>;
 }
 
 // One timer serves every clock, and stops while none is in the page or the
@@ -57,8 +60,6 @@ export function Since({ start, className, title }: { start: number; className?: 
 const clocks = new Set<() => void>();
 let second = 0;
 let ticking: ReturnType<typeof setInterval> | null = null;
-
-const currentSecond = () => second;
 
 function subscribeSecond(listener: () => void) {
   clocks.add(listener);

@@ -94,7 +94,8 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   // while the agent winds the turn down.
   showAgentStop({ shown: AGENT_ACTIVE.has(s.status), stopping });
 
-  if (scroll === "bottom") pinEnd(b);
+  // A log goes to its end as `fillLog` draws it, with one layout.
+  if (scroll === "bottom" && !units) pinEnd(b);
   else if (anchor) restoreScroll(b, anchor);
   // A row opened at the bottom pushes the bottom away: the log follows
   // new entries again once the reader scrolls back down.
