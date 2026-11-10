@@ -42,7 +42,7 @@ import { moveStore, refreshMoves } from "./move-store.ts";
 import { movedTo } from "./move-state.ts";
 import { sameSession } from "./running-state.ts";
 import { isNativeSession, nativeUpdate } from "./native-session-state.ts";
-import { feed, flushDraw, offScreen, transcripts } from "./session-follow.ts";
+import { feed, flushDraw, keepTranscripts, keptTranscript, offScreen, transcripts } from "./session-follow.ts";
 import { drawAgentHeading, headText, readUsage, redrawAgentHints, agentHints, shownUsage } from "./session-head.ts";
 import { agentClick, openParent, toolKey } from "./session-click.ts";
 
@@ -88,14 +88,15 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
 
   if (from === undefined) from = S.view === "agents" ? "agents" : "chat";
   const inPlace = adopt && !!AG.draft && S.view === "agent" && !!$("#agshell");
-  if (AG.open) steerQueues.set(transcriptKey(AG.open), AG.queue);
+  if (AG.open) { steerQueues.set(transcriptKey(AG.open), AG.queue); keepTranscripts(); }
   for (const [key, queue] of steerQueues) if (!queue.length) steerQueues.delete(key);
   S.view = "agent";
   AG.draft = null;
+  const open: OpenAgent = { machine_id: s.machine_id, agent: s.agent, session: s.id };
+  const held = transcripts.get(transcriptKey(open))?.page ?? null;
   Object.assign(AG, {
-    open: { machine_id: s.machine_id, agent: s.agent, session: s.id },
-    page: transcripts.get(transcriptKey({ machine_id: s.machine_id, agent: s.agent, session: s.id }))?.page
-      ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
+    open,
+    page: held ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
     att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(),
     queue: steerQueues.get(transcriptKey({ machine_id: s.machine_id, agent: s.agent, session: s.id })) ?? [],
@@ -110,10 +111,23 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     AG.tasks = kept.tasks;
   }
 
-  if (AG.open) firstRead = { open: AG.open, at: performance.now() };
+  firstRead = { open, at: performance.now() };
   drawAgentFrame(inPlace);
-  watchRead(AG.open!);
-  pollAgent(true);
+  watchRead(open);
+  if (held) return void pollAgent(true);
+  // Not held in this window: the page kept on disk draws at once, and the follow goes on from it.
+  readingKept = open;
+  void keptTranscript(open).then(page => {
+    if (readingKept === open) readingKept = null;
+    if (AG.open !== open) return;
+    // The session row it opened with is newer than the kept one, and the steers it held went long ago.
+    if (page && !AG.sig && AG.page) {
+      AG.page = { ...page, session: AG.page.session, queued: 0, queued_messages: [] };
+      if (isOpen(open)) drawAgentBody();
+    }
+
+    void pollAgent(true);
+  });
 }
 
 /// The parts that stay while the session updates: the head, the body and the field.
@@ -209,7 +223,7 @@ export async function pollAgent(readNow = false) {
   const o = AG.open;
   if (!o) { feed.leave(); return; }
   const trace = readNow || !AG.sig;
-  const skip = !isOpen(o) ? "different-view" : AG.inflight === o ? "in-flight" : !readNow && !agentOnScreen() ? "hidden" : null;
+  const skip = !isOpen(o) ? "different-view" : AG.inflight === o || readingKept === o ? "in-flight" : !readNow && !agentOnScreen() ? "hidden" : null;
 
   if (skip) {
     if (skip !== "in-flight") feed.leave();
@@ -227,8 +241,8 @@ export async function pollAgent(readNow = false) {
     return;
   }
 
-  // Give the initial snapshot a chance to arrive before asking an older node for a fallback.
-  if (feed.waiting(o)) { AG.timer = setTimeout(pollAgent, 3000); return; }
+  // The follow answers with the page; a read is only for when it fails.
+  if (feed.waiting(o)) return;
   const version = feed.version(o);
   AG.inflight = o;
   const read = ++AG.polls;
@@ -240,12 +254,16 @@ export async function pollAgent(readNow = false) {
     if (trace) traceSession("read-settled", o, { part: name, ms: Date.now() - current.at, pending: [...current.pending] });
   });
 
-  try {
-    const [page, modes, tasks] = await Promise.all([tracked("view", invoke<AgentPage>("agent_view", { ...where(o), last: newestRead(AG.page, AGENT_LAST) }, AGENT_READ_WAIT_MS)), tracked("modes", readModes(o)), tracked("tasks", readTasks(o)), tracked("processes", readRunning())]);
+  const still = () => isOpen(o) && feed.version(o) === version;
+  // The page shows as soon as it comes; modes, tasks and processes join it as each arrives.
+  void tracked("modes", readModes(o)).then(modes => { if (still()) { AG.modes = modes; drawRest(); } });
+  void tracked("tasks", readTasks(o)).then(tasks => { if (still()) { AG.tasks = tasks; drawRest(); } });
+  void tracked("processes", readRunning());
 
-    if (isOpen(o) && feed.version(o) === version) {
-      AG.modes = modes;
-      AG.tasks = tasks;
+  try {
+    const page = await tracked("view", invoke<AgentPage>("agent_view", { ...where(o), last: newestRead(AG.page, AGENT_LAST) }, AGENT_READ_WAIT_MS));
+
+    if (still()) {
       // A push received while this fallback read ran is newer than its reply.
       flushDraw(true);
       applyAgentPage(o, page, read);
@@ -282,6 +300,8 @@ export async function pollAgent(readNow = false) {
 }
 
 let firstRead: { open: OpenAgent; at: number } | null = null;
+/// The session whose page kept on disk is being read: its follow starts after, from its cursor.
+let readingKept: OpenAgent | null = null;
 const steerQueues = new Map<string, Waiting[]>();
 function finishFirstRead(open: OpenAgent, outcome: "ok" | "error") {
   if (!firstRead || firstRead.open !== open) return;
@@ -353,13 +373,20 @@ export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, repl
   AG.stopping = stopPending(AG.stopping, page.session.id, AGENT_ACTIVE.has(page.session.status), page.turns);
   // The node holds the steers: show those another app sent, drop those it took.
   syncSteers(AG.queue, page, read);
-  // Nothing the log shows changed: no draw.
-  const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.answering, AG.log != null, stoppingNow(), AG.queue.map(q => q.state), placed]);
-  if (moved || rest !== AG.rest) { AG.rest = rest; drawAgentBody(undefined, true); }
+  drawRest(moved, placed);
   finishFirstRead(o, "ok");
   void readUsage(o, page);
   // The oldest turn shown has its prompt: read back until it does.
   if (lacksPrompt(AG.page) && !AG.older.gaveUp) void loadOlder("prompt");
+}
+
+/// Draws the log again when the page `moved` or what shows with it changed; nothing the log
+/// shows changed: no draw.
+function drawRest(moved = false, placed = false) {
+  const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.answering, AG.log != null, stoppingNow(), AG.queue.map(q => q.state), placed]);
+  if (!moved && rest === AG.rest) return;
+  AG.rest = rest;
+  drawAgentBody(undefined, true);
 }
 
 /// Whether the session view can be seen: the window shows, and in the

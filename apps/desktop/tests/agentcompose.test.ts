@@ -244,10 +244,11 @@ test("a stalled first read logs the operation it is waiting for", async t => {
   await settle();
   const logs = calls.filter(c => c.cmd === "log_webview").map(c => (c.args as { message: string }).message);
   assert.ok(logs.some(l => l.includes('"stage":"read-settled"') && l.includes('"pending":["tasks"]')));
-  assert.equal(AG.inflight, AG.open);
-  finish([]);
+  // The page shows without waiting for the tasks.
   await polling;
   assert.equal(AG.inflight, null);
+  assert.ok(AG.sig);
+  finish([]);
 });
 
 test("a text message that fails to send goes back in the field under the error", async () => {

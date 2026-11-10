@@ -1,6 +1,6 @@
 import { joinRuns, type Run } from "./older-state.ts";
 
-interface TranscriptCursor {
+export interface TranscriptCursor {
   start: number;
   next: number;
   fingerprint: string;
@@ -39,6 +39,14 @@ export class TranscriptCache<T extends Run> {
     }
 
     return held;
+  }
+
+  /// What is held for `key`, without making it the most recent.
+  peek(key: string): Cached<T> | undefined { return this.sessions.get(key); }
+
+  /// Holds a page kept from an earlier run, unless a newer one is held already.
+  seed(key: string, kept: Cached<T>) {
+    if (!this.sessions.has(key)) this.sessions.set(key, kept);
   }
 
   delete(key: string) { this.sessions.delete(key); }

@@ -5,7 +5,7 @@ import { AgentFeed, BACKGROUND_FOLLOWS, IDLE_FOLLOW_MS } from "../src/agents/age
 function setup() {
   let now = 0;
   const readers: { key: string; id: string; receive(update: string): void; end(): void; fail(error: unknown): void }[] = [];
-  const received: string[] = [], closed: string[] = [], unfollowed: string[] = [], lost: unknown[] = [], shown: (string | null)[] = [];
+  const received: string[] = [], closed: string[] = [], unfollowed: string[] = [], lost: unknown[] = [], failed: string[] = [], shown: (string | null)[] = [];
   const timers = new Set<{ at: number; run(): void }>();
   const feed = new AgentFeed<string, string>({
     id: () => String(readers.length), now: () => now, name: key => key,
@@ -15,12 +15,13 @@ function setup() {
     close: id => { closed.push(id); }, unfollowed: key => { unfollowed.push(key); },
     receive: (key, update) => { received.push(`${key}: ${update}`); },
     disconnected: (_key, error) => { lost.push(error); },
+    failed: key => { failed.push(key); },
   });
   const advance = (ms: number) => {
     now += ms;
     for (const timer of [...timers]) if (timer.at <= now) { timers.delete(timer); timer.run(); }
   };
-  return { feed, readers, received, closed, unfollowed, lost, shown, timers, advance };
+  return { feed, readers, received, closed, unfollowed, lost, failed, shown, timers, advance };
 }
 
 test("a quiet view keeps one live reader past the former five-minute cutoff", () => {
@@ -150,17 +151,18 @@ test("nodes without streaming keep the fallback available without a tight retry 
   assert.equal(readers.length, 2);
 });
 
-test("the opening snapshot gets a bounded wait before fallback reads are needed", async () => {
-  const { feed, readers, advance } = setup();
+test("an opening follow is waited on until it fails, then the shown session reads another way", async () => {
+  const { feed, readers, advance, failed } = setup();
   feed.follow("first");
   assert.equal(feed.waiting("first"), true);
-  advance(3000);
-  assert.equal(feed.waiting("first"), false);
+  advance(10_000);
+  assert.equal(feed.waiting("first"), true);
   feed.follow("second");
   assert.equal(feed.waiting("second"), true);
   readers[1].fail("unsupported");
   await Promise.resolve();
   assert.equal(feed.waiting("second"), false);
+  assert.deepEqual(failed, ["second"]);
 });
 
 test("a reader ending for idleness, the cap or a gap says its session is unfollowed", () => {

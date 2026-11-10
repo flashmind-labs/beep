@@ -10,6 +10,7 @@ import type { AgentRow, Started } from "./agents.ts";
 import { parentSession, loadSessions } from "./sessions.ts";
 import { sessionOffers } from "./sessionmenu-state.ts";
 import { closeSession } from "./closing.ts";
+import { forgetTranscript } from "./session-follow.ts";
 
 /// Opens the menu for `s` where `e` was clicked. `open` is what clicking the row does.
 export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow) => void) {
@@ -68,6 +69,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
           run: async () => {
             await invoke("agent_delete", at);
             forgetView(s.machine_id, s.id);
+            forgetTranscript({ machine_id: s.machine_id, agent: s.agent, session: s.id });
             await loadSessions().catch(err => console.warn("agent sessions:", err));
           },
         }),
