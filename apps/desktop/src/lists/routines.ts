@@ -371,7 +371,6 @@ export interface Grant {
 
 type GrantMode = "list" | "confirm";
 export const GR: ListState<Grant> & { mode: GrantMode } = { list: [], sel: 0, mode: "list", error: "", loaded: false };
-export const SHIELD_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg>';
 
 /// "40 min", "5 h" or "6 d".
 export function span(ms: number) {
