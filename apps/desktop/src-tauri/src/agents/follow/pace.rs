@@ -57,44 +57,70 @@ impl Pushed {
             return None;
         }
 
-        let held = u64::from(self.view.earlier);
-        let at = u64::from(next.view.earlier);
-        let end = held + self.view.entries.len() as u64;
+        let Pushed {
+            kind,
+            cursor,
+            resumed,
+            view,
+            modes,
+            tasks,
+        } = next;
 
-        if at < held || at > end {
-            return Some(next);
+        if let Err(view) = join_view(&mut self.view, view, cursor.start) {
+            return Some(Pushed {
+                kind,
+                cursor,
+                resumed,
+                view,
+                modes,
+                tasks,
+            });
         }
 
-        let Ok(keep) = usize::try_from(at - held) else {
-            return Some(next);
-        };
-
-        let mut entries = std::mem::take(&mut self.view.entries);
-        entries.truncate(keep);
-        entries.extend(next.view.entries);
-
-        // What the cursor no longer covers goes, as the webview drops it, so
-        // a hidden window does not hold a growing run.
-        let cut = next
-            .cursor
-            .start
-            .saturating_sub(held)
-            .min(entries.len() as u64);
-        let (cut, earlier) = match (usize::try_from(cut), u32::try_from(held + cut)) {
-            (Ok(cut), Ok(earlier)) => (cut, earlier),
-            _ => (0, self.view.earlier),
-        };
-        entries.drain(..cut);
-        self.view = AgentSessionView {
-            entries,
-            earlier,
-            ..next.view
-        };
-        self.cursor = next.cursor;
-        self.modes = next.modes;
-        self.tasks = next.tasks;
+        self.cursor = cursor;
+        self.modes = modes;
+        self.tasks = tasks;
         None
     }
+}
+
+/// Joins `next` on after `held`'s entries, as the webview would, and drops
+/// those before `start`, the cursor's first, as the webview drops them, so a
+/// long run held off screen does not grow. Gives `next` back when it does not
+/// continue `held`.
+pub(super) fn join_view(
+    held: &mut AgentSessionView,
+    next: AgentSessionView,
+    start: u64,
+) -> Result<(), AgentSessionView> {
+    let from = u64::from(held.earlier);
+    let at = u64::from(next.earlier);
+    let end = from + held.entries.len() as u64;
+
+    if at < from || at > end {
+        return Err(next);
+    }
+
+    let Ok(keep) = usize::try_from(at - from) else {
+        return Err(next);
+    };
+
+    let mut entries = std::mem::take(&mut held.entries);
+    entries.truncate(keep);
+    entries.extend(next.entries);
+
+    let cut = start.saturating_sub(from).min(entries.len() as u64);
+    let (cut, earlier) = match (usize::try_from(cut), u32::try_from(from + cut)) {
+        (Ok(cut), Ok(earlier)) => (cut, earlier),
+        _ => (0, held.earlier),
+    };
+    entries.drain(..cut);
+    *held = AgentSessionView {
+        entries,
+        earlier,
+        ..next
+    };
+    Ok(())
 }
 
 #[derive(Default)]

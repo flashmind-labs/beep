@@ -47,3 +47,89 @@ fn updates_join_as_the_webview_joins_them() {
     // A page that does not end at its cursor is dropped.
     assert!(join(None, false, page(0, &["a"]), &cursor(0, 2)).is_none());
 }
+
+fn pushed(kind: UpdateKind, earlier: u32, texts: &[&str], start: u64) -> Pushed {
+    use beep_proto::{AgentEntry, AgentEntryKind, AgentStatus, MachineSession};
+    use std::time::SystemTime;
+
+    let entries: Vec<_> = texts
+        .iter()
+        .map(|text| AgentEntry {
+            kind: AgentEntryKind::Agent {},
+            text: (*text).to_owned(),
+            tool: None,
+        })
+        .collect();
+    let next = u64::from(earlier) + entries.len() as u64;
+    Pushed {
+        kind,
+        cursor: cursor(start, next),
+        resumed: false,
+        view: AgentSessionView {
+            session: MachineSession {
+                machine_id: "build-box".into(),
+                machine_name: "build-box".into(),
+                id: "one".into(),
+                agent: "codex".into(),
+                title: None,
+                cwd: "/srv/project".into(),
+                status: AgentStatus::Working {},
+                doing: None,
+                started_at: SystemTime::UNIX_EPOCH,
+                last_activity: SystemTime::UNIX_EPOCH,
+                external: false,
+                question: None,
+                subagents: 0,
+            },
+            plan: Vec::new(),
+            files: Vec::new(),
+            last_message: String::new(),
+            error: None,
+            queued: 0,
+            turns: 0,
+            entries,
+            earlier,
+            queued_messages: Vec::new(),
+            model: None,
+        },
+        modes: None,
+        tasks: Vec::new(),
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_running_session_is_joined_typed_and_written_when_due() {
+    let dir = tempfile::tempdir().unwrap();
+    let kept = Arc::new(KeptTranscripts::new(dir.path().to_owned()));
+    let key = SessionKey {
+        machine_id: "build-box".into(),
+        agent: "codex".into(),
+        session: "one".into(),
+    };
+    let mut keeper = Keeper::new(kept.clone(), key.clone());
+    let start = Instant::now();
+
+    keeper
+        .take(&pushed(UpdateKind::Snapshot, 0, &["a"], 0), start)
+        .await;
+    assert_eq!(keeper.due(), None, "the first page is written at once");
+
+    for (at, text) in ["b", "c", "d"].into_iter().enumerate() {
+        let delta = pushed(UpdateKind::Delta, 1 + at as u32, &[text], 1);
+        keeper.take(&delta, start + Duration::from_secs(1)).await;
+    }
+    assert_eq!(keeper.due(), Some(start + RUNNING_EVERY));
+
+    keeper.write(start + RUNNING_EVERY);
+    assert_eq!(keeper.due(), None);
+
+    let page = kept.read(key).await.unwrap().expect("kept").page;
+    let texts: Vec<_> = page["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(texts, ["b", "c", "d"]);
+    assert_eq!(page["earlier"], 1);
+}

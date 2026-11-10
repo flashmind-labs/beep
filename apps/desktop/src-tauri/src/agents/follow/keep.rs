@@ -4,13 +4,13 @@
 
 use super::{
     UpdateKind,
-    pace::{Pushed, running},
+    pace::{Pushed, join_view, running},
 };
 use crate::agents::{
     kept_transcripts::{KeptTranscript, KeptTranscripts, SessionKey},
     sessions::SessionPage,
 };
-use beep_proto::node::agent::SessionCursor;
+use beep_proto::{AgentSessionView, node::agent::SessionCursor};
 use serde_json::Value;
 use std::{
     sync::Arc,
@@ -26,12 +26,22 @@ pub(super) struct Held {
     pub(super) cursor: SessionCursor,
 }
 
+/// The updates since the page was last written, joined as they came, still
+/// typed: they become a page only when written.
+struct Fresh {
+    view: AgentSessionView,
+    cursor: SessionCursor,
+    /// They go on after the held page rather than replace it.
+    append: bool,
+}
+
 pub(super) struct Keeper {
     kept: Arc<KeptTranscripts>,
     key: SessionKey,
+    /// The page last written, or kept before this follow.
     held: Option<Held>,
-    /// The held page changed since it was written.
-    dirty: bool,
+    /// What changed since.
+    fresh: Option<Fresh>,
     written: Option<Instant>,
     /// The page kept before this follow was read as the base for its first update.
     loaded: bool,
@@ -43,18 +53,18 @@ impl Keeper {
             kept,
             key,
             held: None,
-            dirty: false,
+            fresh: None,
             written: None,
             loaded: false,
         }
     }
 
-    /// Joins `pushed` to the held page and writes it if due at `now`.
+    /// Joins `pushed` to what changed and writes the page if due at `now`.
     pub(super) async fn take(&mut self, pushed: &Pushed, now: Instant) {
         let append = matches!(pushed.kind, UpdateKind::Delta) || pushed.resumed;
 
         // A follow going on from the webview's cursor joins the page kept before.
-        if append && self.held.is_none() && !self.loaded {
+        if append && self.held.is_none() && self.fresh.is_none() && !self.loaded {
             self.loaded = true;
             self.held = match self.kept.read(self.key.clone()).await {
                 Ok(Some(KeptTranscript {
@@ -69,15 +79,26 @@ impl Keeper {
             };
         }
 
-        let page = match serde_json::to_value(SessionPage::from(pushed.view.clone())) {
-            Ok(page) => page,
-            Err(e) => {
-                log::warn!("keeping the transcript: {e}");
-                return;
+        self.fresh = match self.fresh.take() {
+            Some(mut fresh) if append => {
+                match join_view(&mut fresh.view, pushed.view.clone(), pushed.cursor.start) {
+                    Ok(()) => {
+                        fresh.cursor = pushed.cursor.clone();
+                        Some(fresh)
+                    }
+                    // A gap: nothing is kept until the next snapshot.
+                    Err(_) => {
+                        self.held = None;
+                        None
+                    }
+                }
             }
+            _ => Some(Fresh {
+                view: pushed.view.clone(),
+                cursor: pushed.cursor.clone(),
+                append,
+            }),
         };
-        self.held = join(self.held.take(), append, page, &pushed.cursor);
-        self.dirty = self.held.is_some();
 
         if !running(&pushed.view)
             || self
@@ -88,18 +109,28 @@ impl Keeper {
         }
     }
 
-    /// When the held page is next due while the session runs.
+    /// When the page is next due while the session runs.
     pub(super) fn due(&self) -> Option<Instant> {
-        if !self.dirty {
-            return None;
-        }
-
+        self.fresh.as_ref()?;
         self.written.map(|written| written + RUNNING_EVERY)
     }
 
-    /// Writes the held page at `now` if it changed.
+    /// Writes the page at `now` if it changed.
     pub(super) fn write(&mut self, now: Instant) {
-        let Some(held) = self.held.as_ref().filter(|_| self.dirty) else {
+        let Some(fresh) = self.fresh.take() else {
+            return;
+        };
+        let page = match serde_json::to_value(SessionPage::from(fresh.view)) {
+            Ok(page) => page,
+            Err(e) => {
+                log::warn!("keeping the transcript: {e}");
+                self.held = None;
+                return;
+            }
+        };
+        self.held = join(self.held.take(), fresh.append, page, &fresh.cursor);
+
+        let Some(held) = &self.held else {
             return;
         };
         self.kept.keep(
@@ -109,7 +140,6 @@ impl Keeper {
                 cursor: Some(held.cursor.clone()),
             },
         );
-        self.dirty = false;
         self.written = Some(now);
     }
 }
