@@ -47,7 +47,7 @@ test("model totals combine harnesses and billing types, sorted by tokens", () =>
 });
 
 test("credits preserve zero, precision and unknown balances without counting as spend", () => {
-  const credit = { provider: "openrouter", scope: "api_key", unit: "usd", remaining: "0", total: null, used: "42.123456", resets: null };
+  const credit = { provider: "openrouter", scope: "api_key", unit: "usd", remaining: "0", total: null, used: "42.123456", resets: null, remaining_short: null, remaining_full: null, used_full: null, total_full: null };
   assert.equal(creditAmount(credit, credit.remaining), "$0");
   assert.equal(creditAmount(credit, credit.used), "$42.123456");
   assert.equal(creditAmount(credit, credit.total), "unavailable");

@@ -62,3 +62,22 @@ for (const [name, size] of [["desktop", { width: 1280, height: 900 }], ["phone",
     await page.screenshot({ path: `../../.artifacts/usage-${name}.png` });
   });
 }
+
+test("a provider balance shows whole dollars in the pill and cents in the popover", async ({ page }) => {
+  const period = { total: { project: "", cost_usd: 0, unpriced: [] }, tokens: 0, projects: [], harnesses: [] };
+  const credit = { provider: "openrouter", scope: "account", unit: "usd", remaining: "622.3218671", total: "1000", used: "377.6781329", resets: null };
+  const written = { ...credit, remaining_short: "$622", remaining_full: "$622.32", used_full: "$377.68", total_full: "$1,000.00" };
+  const usage = (credits: object[]) => ({ limits: [{ agent: "flsh", plan: null, machine_name: "build-box", as_of: Date.now(), windows: [], credits }], today: period, week: period, month: null, metered: true });
+  await openDesktop(page, false, { usage_get: usage([written]) });
+  const pill = page.locator(".us-pill");
+  await expect(pill).toContainText("OpenRouter $622 left");
+  await pill.click();
+  const pop = page.getByRole("dialog", { name: "Plan usage and cost" });
+  await expect(pop).toContainText("$622.32 remaining");
+  await expect(pop).toContainText("$377.68 used · $1,000.00 total");
+
+  // A desktop without the written amounts shows the provider's own.
+  await page.evaluate(value => { window.__navigation.respond("usage_get", value); window.__navigation.notify("usage"); }, usage([{ ...credit, remaining_short: null, remaining_full: null, used_full: null, total_full: null }]));
+  await expect(pop).toContainText("$622.3218671 remaining");
+  await expect(pill).toContainText("OpenRouter $622.3218671 left");
+});

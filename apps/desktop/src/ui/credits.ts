@@ -10,6 +10,16 @@ export interface ProviderCredits {
   resets: string | null;
 }
 
+/// A balance the usage view reads, its amounts written out by the desktop: what is
+/// left in whole dollars for the pill, such as "$622", and each amount to the cent
+/// for the popover. Null when unknown.
+export interface WrittenCredits extends ProviderCredits {
+  remaining_short: string | null;
+  remaining_full: string | null;
+  used_full: string | null;
+  total_full: string | null;
+}
+
 
 /// Keep decimal precision and distinguish an unknown balance from zero.
 export function creditAmount(credit: ProviderCredits, value: string | null) {
