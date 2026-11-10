@@ -1,18 +1,14 @@
+// A project's file sync: each machine's state, transfer rate and time left,
+// the changes still waiting, the conflicts with a way to keep either side,
+// Pause/Resume for every machine, and the board's File sync tile.
 import { gitSyncWarning } from "./gitsync-state.ts";
-// A project's file sync: the board's File sync tile, and its full view with
-// each machine's state, transfer rate and time left, the changes still
-// waiting, the conflicts with a way to keep either side, and Pause/Resume for
-// every machine.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import { secHead, emptyPanel } from "../ui/parts.ts";
-import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
-import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import type { TileData, TileRow } from "./board.ts";
 import { PageCache, type SectionStore } from "../ui/pagecache.ts";
 import { bytes, reason } from "../ui/format.ts";
 import { diffView, type DiffViewHandle } from "../review/diff.ts";
 import { compareFiles } from "./compare.ts";
-import { clockWarning, loadClocks } from "../machines/clock.ts";
+import { loadClocks } from "../machines/clock.ts";
 import { plainPath } from "./projects-state.ts";
 
 /// How far a machine is through what it brings in line now (ProgressRow).
@@ -72,8 +68,6 @@ export interface Conflict {
 /// What the window hands `makeFileSync`.
 export interface FileSyncDeps {
   invoke: typeof Invoke;
-  h: MakeEl;
-  button: MakeButton;
   redraw: () => void;
   /// Fills the bar of `project` to have an agent settle a conflict.
   fix?: (project: string, c: Conflict) => void;
@@ -86,8 +80,183 @@ export interface FileSyncDeps {
   kept?: SectionStore<SyncDetail | null>;
 }
 
-/// A project can place sync rows inside its machine sections.
-type MachineList = (rows: MachineDetail[], syncRow: (m: MachineDetail) => HTMLElement) => HTMLElement;
+/// One project's sync: `detail` is undefined while it loads and null from
+/// a server too old to give it.
+interface ProjectSyncState {
+  detail: SyncDetail | null | undefined;
+  error: string;
+  busy: string | null;
+  /// A read is under way.
+  loading: boolean;
+  /// When the detail was last read, in milliseconds.
+  read_at: number;
+}
+
+export function makeFileSync(deps: FileSyncDeps) {
+  const { invoke, redraw } = deps;
+  const all = new Map<string, ProjectSyncState>();
+  let watched: string | null = null;
+
+  /// The conflicts opened to compare, by project and path: the diff, or the
+  /// line saying why there is none, and null while it is read.
+  const compared = new Map<string, HTMLElement | string | null>();
+  const compareViews = new Map<string, DiffViewHandle>();
+  const compareReads = new Map<string, object>();
+
+  const kept = deps.kept ?? new PageCache(null).section<SyncDetail | null>("filesync");
+
+  /// A project's sync, from the cache until it is read; the kept one is as
+  /// old as the cache says.
+  const of = (name: string) => {
+    let s = all.get(name);
+    if (!s) all.set(name, s = { detail: kept.get(name), error: "", busy: null, loading: false, read_at: kept.at(name) ?? 0 });
+    return s;
+  };
+
+  const loads = new Map<string, Promise<void>>();
+  function load(name: string): Promise<void> {
+    const pending = loads.get(name);
+    if (pending) return pending;
+    const read = readList(name).finally(() => loads.delete(name));
+    loads.set(name, read);
+    return read;
+  }
+
+  async function readList(name: string) {
+    const s = of(name);
+    if (s.loading) return;
+    s.loading = true;
+    const was = JSON.stringify([s.detail, s.error]);
+    const wasDetail = JSON.stringify(s.detail);
+
+    try {
+      const detail = await invoke<SyncDetail | null>("project_sync_detail", { project: name });
+      await loadClocks(invoke);
+      s.error = "";
+
+      // An unchanged detail keeps its object, so what shows it can skip a draw.
+      if (JSON.stringify(detail) !== wasDetail) s.detail = detail;
+      kept.put(name, s.detail ?? null);
+    } catch (e) {
+      s.detail ??= null;
+      s.error = reason(e);
+    } finally {
+      s.loading = false;
+      s.read_at = Date.now();
+    }
+
+    // A read that found nothing new draws nothing.
+    if (was !== JSON.stringify([s.detail, s.error])) redraw();
+  }
+
+  /// Reads `name` once its detail is `every` old. The read, when one
+  /// starts.
+  function ensure(name: string, every = TILE_MAX_AGE_MS): Promise<void> | undefined {
+    const s = of(name);
+    if (Date.now() - s.read_at > every && !s.loading) return load(name);
+  }
+
+  /// The detail for the board's tile, read again once it is old.
+  function forTile(name: string) {
+    ensure(name);
+    return of(name).detail;
+  }
+
+  /// Marks the project whose view shows, so sync changes keep it fresh;
+  /// null stops.
+  function watch(name: string | null) {
+    watched = name;
+  }
+
+  /// Answers a sync change: the `changed` projects, whose summary differs,
+  /// are read again, and the projects on screen (`viewed` and the watched
+  /// one) once their detail is `age` old.
+  async function follow(changed: ReadonlySet<string>, viewed: readonly string[], age: number) {
+    const shown = new Set(viewed);
+    if (watched) shown.add(watched);
+    const due = [...shown].filter(p => !changed.has(p)).map(p => ensure(p, age));
+    await Promise.all([...[...changed].map(reload), ...due]);
+  }
+
+  async function reload(name: string) {
+    await loads.get(name);
+    await load(name);
+  }
+
+  async function act(name: string, what: string, run: () => Promise<unknown>) {
+    const s = of(name);
+    s.busy = what;
+    s.error = "";
+    redraw();
+
+    try {
+      await run();
+    } catch (e) {
+      s.error = reason(e);
+    } finally {
+      s.busy = null;
+    }
+
+    await load(name);
+    redraw();
+  }
+
+  function pause(name: string, paused: boolean) {
+    return act(name, "pause", async () => {
+      of(name).detail = await invoke<SyncDetail>("project_sync_pause", { project: name, paused });
+    });
+  }
+
+  function resolve(name: string, c: Conflict, keepCopy: boolean) {
+    return act(name, c.path, () => invoke("project_sync_resolve", { project: name, machineId: c.resolver, path: c.path, keepCopy }));
+  }
+
+  /// Shows what differs on a file conflict, or hides it again.
+  async function compare(name: string, c: Conflict, machines: readonly MachineDetail[]) {
+    const key = `${name}\n${c.path}`;
+
+    if (compared.has(key)) {
+      compared.delete(key);
+      compareReads.delete(key);
+      compareViews.get(key)?.dispose();
+      compareViews.delete(key);
+      return redraw();
+    }
+
+    const reading = {};
+    compareReads.set(key, reading);
+    compared.set(key, null);
+    redraw();
+    const machine = machines.find(m => m.machine_id === c.holder);
+    const done = machine ? await compareFiles(invoke, machine, c) : "No machine that has it is online";
+    if (compareReads.get(key) !== reading) return;
+    if (typeof done === "string") compared.set(key, done);
+    else {
+      const { windowDiffOwner } = await import("../review/diff-owner.ts");
+      if (compareReads.get(key) !== reading) return;
+      const view = diffView({ owner: windowDiffOwner(), load: async () => done,
+        review: { key: "compare", heading: () => "Review", send: async () => "Comments are not sent from here" } });
+      compareViews.set(key, view);
+      compared.set(key, view.el);
+    }
+    compareReads.delete(key);
+    redraw();
+  }
+
+  return {
+    follow,
+    ensure,
+    detail: (name: string) => of(name).detail,
+    forTile,
+    page: (name: string) => { const s = of(name); if (s.detail === undefined) void load(name); return { detail: s.detail, error: s.error, busy: s.busy }; },
+    compared: (name: string, path: string) => compared.get(`${name}\n${path}`),
+    pause, resolve, compare, watch,
+    fix: deps.fix ? (name: string, conflict: Conflict) => deps.fix?.(name, conflict) : null,
+    fixGit: deps.fixGit ? (name: string, machine: MachineDetail) => { if (machine.error) deps.fixGit?.(name, machine.machine_id, machine.error); } : null,
+    changeFolder: deps.changeFolder ? (name: string, machine: MachineDetail) => deps.changeFolder?.(name, machine) : null,
+    stop: () => watch(null),
+  };
+}
 
 /// How old the board's tile lets the sync get before it reads it again.
 const TILE_MAX_AGE_MS = 30_000;
@@ -305,345 +474,6 @@ export function fileSyncTile(d: SyncDetail | null | undefined, rows?: readonly R
     };
   });
   return { count, rows: out, empty: d?.pinned ? "Pinned: it stays on the machines it is on" : "No machine syncs it" };
-}
-
-/// One project's sync: `detail` is undefined while it loads and null from
-/// a server too old to give it.
-interface ProjectSyncState {
-  detail: SyncDetail | null | undefined;
-  error: string;
-  busy: string | null;
-  /// A read is under way.
-  loading: boolean;
-  /// When the detail was last read, in milliseconds.
-  read_at: number;
-}
-
-export function makeFileSync(deps: FileSyncDeps) {
-  const { invoke, h, button, redraw } = deps;
-  const all = new Map<string, ProjectSyncState>();
-  let watched: string | null = null;
-
-  /// The conflicts opened to compare, by project and path: the diff, or the
-  /// line saying why there is none, and null while it is read.
-  const compared = new Map<string, HTMLElement | string | null>();
-  const compareViews = new Map<string, DiffViewHandle>();
-  const compareReads = new Map<string, object>();
-
-  const kept = deps.kept ?? new PageCache(null).section<SyncDetail | null>("filesync");
-
-  /// A project's sync, from the cache until it is read; the kept one is as
-  /// old as the cache says.
-  const of = (name: string) => {
-    let s = all.get(name);
-    if (!s) all.set(name, s = { detail: kept.get(name), error: "", busy: null, loading: false, read_at: kept.at(name) ?? 0 });
-    return s;
-  };
-
-  const loads = new Map<string, Promise<void>>();
-  function load(name: string): Promise<void> {
-    const pending = loads.get(name);
-    if (pending) return pending;
-    const read = readList(name).finally(() => loads.delete(name));
-    loads.set(name, read);
-    return read;
-  }
-
-  async function readList(name: string) {
-    const s = of(name);
-    if (s.loading) return;
-    s.loading = true;
-    const was = JSON.stringify([s.detail, s.error]);
-    const wasDetail = JSON.stringify(s.detail);
-
-    try {
-      const detail = await invoke<SyncDetail | null>("project_sync_detail", { project: name });
-      await loadClocks(invoke);
-      s.error = "";
-
-      // An unchanged detail keeps its object, so what shows it can skip a draw.
-      if (JSON.stringify(detail) !== wasDetail) s.detail = detail;
-      kept.put(name, s.detail ?? null);
-    } catch (e) {
-      s.detail ??= null;
-      s.error = reason(e);
-    } finally {
-      s.loading = false;
-      s.read_at = Date.now();
-    }
-
-    // A read that found nothing new draws nothing.
-    if (was !== JSON.stringify([s.detail, s.error])) redraw();
-  }
-
-  /// Reads `name` once its detail is `every` old. The read, when one
-  /// starts.
-  function ensure(name: string, every = TILE_MAX_AGE_MS): Promise<void> | undefined {
-    const s = of(name);
-    if (Date.now() - s.read_at > every && !s.loading) return load(name);
-  }
-
-  /// The detail for the board's tile, read again once it is old.
-  function forTile(name: string) {
-    ensure(name);
-    return of(name).detail;
-  }
-
-  /// Marks the project whose view shows, so sync changes keep it fresh;
-  /// null stops.
-  function watch(name: string | null) {
-    watched = name;
-  }
-
-  /// Answers a sync change: the `changed` projects, whose summary differs,
-  /// are read again, and the projects on screen (`viewed` and the watched
-  /// one) once their detail is `age` old.
-  async function follow(changed: ReadonlySet<string>, viewed: readonly string[], age: number) {
-    const shown = new Set(viewed);
-    if (watched) shown.add(watched);
-    const due = [...shown].filter(p => !changed.has(p)).map(p => ensure(p, age));
-    await Promise.all([...[...changed].map(reload), ...due]);
-  }
-
-  async function reload(name: string) {
-    await loads.get(name);
-    await load(name);
-  }
-
-  async function act(name: string, what: string, run: () => Promise<unknown>) {
-    const s = of(name);
-    s.busy = what;
-    s.error = "";
-    redraw();
-
-    try {
-      await run();
-    } catch (e) {
-      s.error = reason(e);
-    } finally {
-      s.busy = null;
-    }
-
-    await load(name);
-    redraw();
-  }
-
-  function pause(name: string, paused: boolean) {
-    return act(name, "pause", async () => {
-      of(name).detail = await invoke<SyncDetail>("project_sync_pause", { project: name, paused });
-    });
-  }
-
-  function resolve(name: string, c: Conflict, keepCopy: boolean) {
-    return act(name, c.path, () => invoke("project_sync_resolve", { project: name, machineId: c.resolver, path: c.path, keepCopy }));
-  }
-
-  function machineRow(name: string, m: MachineDetail, compact = false) {
-    const chip = stateChip(m);
-    const pct = m.paused ? null : syncPct(m);
-    const head = h("div", "fs-h", ...(compact ? [] : [h("span", `ddot${m.status === "offline" ? " off" : ""}`)]), h("b", "", compact ? (m.git_only ? "Git sync" : "File sync") : m.machine_name),
-      Object.assign(h("span", `chip${chip.wait ? " wait" : ""}`, chip.text), { title: m.error || "" }));
-    const bar = pct == null ? null : h("div", "fs-bar", h("i", ""));
-    if (bar) (bar.firstChild as HTMLElement).style.width = `${pct}%`;
-    const folder = plainPath(m.folder);
-    const meta = h("div", "fs-m", ...(m.git_only ? ["Git sync"] : machineMeta(m)).map(x => h("span", "", x)), folder ? h("code", "", folder) : null);
-    const row = h("div", compact ? "fs-row pm-sync" : "fs-row", head, bar, compact ? (m.git_only ? null : h("div", "fs-m", ...machineMeta(m).map(x => h("span", "", x)))) : meta);
-    const clock = clockWarning(m.machine_id, null);
-    if (clock) row.append(h("div", "fs-m", Object.assign(h("span", "clockoff", clock.text), { title: clock.title })));
-    const note = stateNote(m);
-    if (note) row.append(Object.assign(h("div", m.status === "syncthing" ? "fs-m" : "cc-err", note), { title: m.error || "" }));
-
-    if (deps.fixGit && !m.paused && gitSyncWarning(m)) {
-      const fix = button("Fix with an agent", "small", () => deps.fixGit!(name, m.machine_id, m.error!));
-      fix.title = "Opens a draft with both checkouts and recent session references";
-      if (compact) head.append(fix);
-      else row.append(h("div", "fs-m", fix));
-    }
-
-    if (m.hint) row.append(h("div", "fs-m", `Rescanned instead of watched. To watch it, run ${m.hint}`));
-
-    if (!compact && deps.changeFolder && m.status !== "offline" && m.folder) {
-      row.addEventListener("contextmenu", e => openMenu(e, m.machine_name, [{ label: "Change folder…", on: () => deps.changeFolder!(name, m) }]));
-    }
-
-    return row;
-  }
-
-  /// Fix with an agent; none without the hook or an online machine that has it.
-  function fixButton(name: string, c: Conflict) {
-    if (!deps.fix || !c.holder) return null;
-    const fix = button("Fix with an agent", "small pri", () => deps.fix!(name, c));
-    fix.title = "Fills the bar to merge the two; you send it";
-    return fix;
-  }
-
-  /// Shows what differs on a file conflict, or hides it again.
-  async function compare(name: string, c: Conflict, machines: readonly MachineDetail[]) {
-    const key = `${name}\n${c.path}`;
-
-    if (compared.has(key)) {
-      compared.delete(key);
-      compareReads.delete(key);
-      compareViews.get(key)?.dispose();
-      compareViews.delete(key);
-      return redraw();
-    }
-
-    const reading = {};
-    compareReads.set(key, reading);
-    compared.set(key, null);
-    redraw();
-    const machine = machines.find(m => m.machine_id === c.holder);
-    const done = machine ? await compareFiles(invoke, machine, c) : "No machine that has it is online";
-    if (compareReads.get(key) !== reading) return;
-    if (typeof done === "string") compared.set(key, done);
-    else {
-      const { windowDiffOwner } = await import("../review/diff-owner.ts");
-      if (compareReads.get(key) !== reading) return;
-      const view = diffView({ owner: windowDiffOwner(), load: async () => done,
-        review: { key: "compare", heading: () => "Review", send: async () => "Comments are not sent from here" } });
-      compareViews.set(key, view);
-      compared.set(key, view.el);
-    }
-    compareReads.delete(key);
-    redraw();
-  }
-
-  /// Compare on a file conflict; none on a git ref, which no read can compare.
-  function compareButton(name: string, c: Conflict, machines: readonly MachineDetail[]) {
-    if (gitConflict(c.path)) return null;
-    const open = compared.has(`${name}\n${c.path}`);
-    const b = button(open ? "Hide" : "Compare", "small", () => compare(name, c, machines));
-    b.title = `Shows what differs between ${c.original} and this copy`;
-    return b;
-  }
-
-  /// `project` puts the project before what the other copy is, for lists across projects.
-  function conflictRow(name: string, c: Conflict, machines: readonly MachineDetail[], project = false) {
-    const s = of(name);
-    const where = c.on.map(id => machines.find(m => m.machine_id === id)?.machine_name || "").filter(Boolean).join(", ");
-    const text = h("span", "t", h("code", "", c.path), h("span", "", conflictSub(project ? name : null, c, machines)));
-    const busy = s.busy === c.path;
-    let acts: HTMLElement;
-
-    if (c.resolver) {
-      const copy = button(busy ? "Keeping…" : "Keep this copy", "small", () => resolve(name, c, true));
-      const orig = button("Keep the original", "small", () => resolve(name, c, false));
-      copy.title = `Puts this copy in place of ${c.original} on every machine`;
-      orig.title = `Keeps ${c.original} and deletes this copy on every machine`;
-      copy.disabled = orig.disabled = !!s.busy || !!s.detail?.paused;
-      acts = h("span", "acts", compareButton(name, c, machines), fixButton(name, c), copy, orig);
-    } else {
-      acts = h("span", "acts", compareButton(name, c, machines), fixButton(name, c), h("span", "dmuted", "Update beep-node on a machine that has it to settle it here"));
-    }
-
-    const shown = compared.get(`${name}\n${c.path}`);
-    const row = h("div", `fs-conflict${shown === undefined ? "" : " open"}`, text, acts);
-    row.addEventListener("contextmenu", e => {
-      const items: MenuItem[] = [];
-      if (!gitConflict(c.path)) items.push({ label: shown === undefined ? "Compare" : "Hide", on: () => void compare(name, c, machines) });
-      if (deps.fix && c.holder) items.push({ label: "Fix with an agent", on: () => deps.fix!(name, c) });
-
-      if (c.resolver && !s.busy && !s.detail?.paused) {
-        items.push({
-          label: "Keep this copy…",
-          warn: true,
-          on: () => confirmSheet({
-            title: "Keep this copy?",
-            text: `It takes the place of ${c.original} on every machine.`,
-            action: "Keep this copy",
-            run: () => resolve(name, c, true),
-          }),
-        }, {
-          label: "Keep the original…",
-          warn: true,
-          on: () => confirmSheet({
-            title: "Keep the original?",
-            text: `${c.original} stays and this copy is deleted on every machine.`,
-            action: "Keep the original",
-            run: () => resolve(name, c, false),
-          }),
-        });
-      }
-
-      if (items.length) openMenu(e, c.path, items);
-    });
-
-    if (shown !== undefined) {
-      const kept = h("span", "", "Kept ", h("b", "", c.original));
-      const copy = h("span", "", "Copy ", h("b", "", c.path));
-      row.append(h("div", "fs-cmp", h("div", "fs-cmph", kept, copy, h("small", "", where ? `on ${where}` : "")),
-        shown === null ? h("div", "dmuted fs-cmpn", "Reading…") : typeof shown === "string" ? h("div", "dmuted fs-cmpn", shown) : shown));
-    }
-
-    return row;
-  }
-
-  /// The full view: Pause or Resume, the machines, the conflicts and what
-  /// still waits.
-  /// `heading` names the machines' section (the project, on the Sync page);
-  /// a panel with one reads on its page's refresh, not on a timer of its own.
-  function panel(name: string, heading?: string, machines: MachineList | null = null): HTMLElement[] {
-    const s = of(name);
-    if (s.detail === undefined) load(name);
-    if (!heading) watch(name);
-    const d = s.detail;
-    const out: HTMLElement[] = [];
-    if (s.error) out.push(h("div", "cc-err", s.error));
-    if (d === null) return [...out, ...(machines ? [machines([], m => machineRow(name, m, true))] : []), emptyPanel(h("b", "", "The server needs an update before it shows file sync in detail."))];
-    if (d === undefined) return [...out, ...(machines ? [machines([], m => machineRow(name, m, true))] : []), emptyPanel(h("span", "", "Loading…"))];
-    const toggle = button(s.busy === "pause" ? (d.paused ? "Resuming…" : "Pausing…") : d.paused ? "Resume" : "Pause", d.paused ? "pri" : "", () => pause(name, !d.paused));
-    toggle.disabled = !!s.busy || d.pinned || !d.machines.length;
-    // Nothing of Beep's to pause when Syncthing keeps every folder.
-    toggle.hidden = !d.paused && d.machines.every(syncedBySyncthing);
-    toggle.title = d.paused ? "Sync again on every machine" : "Hold sync on every machine; files stay as they are";
-    out.push(secHead(heading ?? "Machines", h("span", "fs-tools", h("small", "", syncSummary(d)), toggle)));
-    out.push(machines ? machines(d.machines, m => machineRow(name, m, true)) : h("div", "cc-panel fs-list", ...(d.machines.length
-      ? d.machines.map(m => machineRow(name, m))
-
-      : [h("div", "cc-empty", h("span", "", d.pinned ? "Pinned: never syncs." : "No machine syncs this project."))])));
-
-    if (d.ignored_folders?.length) {
-      out.push(h("div", "fs-m", `File sync for ignored folders: ${d.ignored_folders.join(", ")}`));
-    }
-
-    const conflicts = conflictList(d);
-
-    if (conflicts.length) {
-      out.push(secHead("Conflicts", h("small", "", "edited on two machines at once")));
-      out.push(h("div", "cc-panel fs-list", ...conflicts.map(c => conflictRow(name, c, d.machines))));
-    }
-
-    const waiting = waitingList(d);
-
-    if (waiting.length) {
-      out.push(secHead("Waiting"));
-      out.push(h("div", "cc-panel fs-list", ...waiting.map(w => h("div", "fs-wait", h("code", "", w.path), h("span", "dmuted", w.machines.join(", "))))));
-    }
-
-    out.push(h("div", "dmuted fs-note", d.machines.some(machine => machine.git_only)
-      ? d.ignored_folders?.length
-        ? "Git syncs commits. Selected ignored folders use file sync. Other uncommitted edits stay local."
-        : "Git checkouts sync commits. Uncommitted edits stay on their machine; use Bring work here under Machines for an explicit handoff."
-      : "Builds, ignored files and links stay on each machine."));
-    return out;
-  }
-
-  return {
-    follow,
-    ensure,
-    detail: (name: string) => of(name).detail,
-    forTile,
-    panel,
-    conflictRow,
-    page: (name: string) => { const s = of(name); if (s.detail === undefined) void load(name); return { detail: s.detail, error: s.error, busy: s.busy }; },
-    compared: (name: string, path: string) => compared.get(`${name}\n${path}`),
-    pause, resolve, compare, watch,
-    fix: deps.fix ? (name: string, conflict: Conflict) => deps.fix?.(name, conflict) : null,
-    fixGit: deps.fixGit ? (name: string, machine: MachineDetail) => { if (machine.error) deps.fixGit?.(name, machine.machine_id, machine.error); } : null,
-    changeFolder: deps.changeFolder ? (name: string, machine: MachineDetail) => deps.changeFolder?.(name, machine) : null,
-    stop: () => watch(null),
-  };
 }
 
 /// One machine's sync of one project, as `project_sync` lists it (SyncRow).

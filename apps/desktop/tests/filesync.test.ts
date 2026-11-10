@@ -128,7 +128,7 @@ test("a sync update during its initial read reconciles the new snapshot before c
     if (command !== "project_sync_detail") return [];
     return ++reads === 1 ? initial : detail([machine({ pending: 2 })]);
   }) as Parameters<typeof makeFileSync>[0]["invoke"];
-  const sync = makeFileSync({ invoke, h: null!, button: null!, redraw() {} });
+  const sync = makeFileSync({ invoke, redraw() {} });
   const first = sync.ensure("example");
   const changed = sync.follow(new Set(["example"]), [], 5000);
   assert.equal(reads, 1);
