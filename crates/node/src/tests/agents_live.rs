@@ -1111,3 +1111,65 @@ fn recovery_waits_for_a_native_spawn_to_name_its_thread() {
     assert!(!live.recover_codex_children(std::slice::from_ref(&run)));
     assert_eq!(live.transcript(10).0.len(), 1);
 }
+
+#[test]
+fn a_background_claude_subagent_stops_counting_when_its_task_ends() {
+    use crate::agents::acp::AsyncTask;
+
+    let mut live = live();
+    live.prompted("research this in the background");
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "agent1", "title": "Task",
+        "kind": "think", "status": "in_progress",
+        "rawInput": {"subagent_type": "Explore", "description": "Research",
+            "prompt": "Look around", "run_in_background": true}
+    })));
+    assert_eq!(live.info.state.subagents, 1);
+
+    assert!(live.apply_task(AsyncTask::Spawned {
+        async_task_id: "task1".into(),
+        name: "Research".into(),
+        task_type: "agent".into(),
+        description: "Look around".into(),
+        can_stop: true,
+        output_file_path: None,
+        tool_call_id: Some("agent1".into()),
+    }));
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call_update", "toolCallId": "agent1", "status": "completed",
+        "_meta": {"jetbrains": {"air": {"asyncTasks": {"backgrounded": true}}}}
+    })));
+    assert_eq!(live.info.state.subagents, 1, "its task still runs");
+
+    assert!(live.apply_task(AsyncTask::StateUpdate {
+        async_task_id: "task1".into(),
+        state: "completed".into(),
+        summary: None,
+        output_file_path: None,
+        tool_call_id: None,
+    }));
+    assert_eq!(live.info.state.subagents, 0, "its task ended");
+}
+
+#[test]
+fn a_cancelled_turn_closes_the_subagent_calls_it_interrupted() {
+    let mut live = live();
+    live.prompted("research this");
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "agent1", "title": "Task",
+        "kind": "think", "status": "in_progress",
+        "rawInput": {"subagent_type": "Explore", "description": "Research",
+            "prompt": "Look around"}
+    })));
+    assert_eq!(live.info.state.subagents, 1);
+
+    live.close_interrupted_subagents();
+    assert_eq!(live.info.state.subagents, 0);
+    assert!(
+        live.transcript(10)
+            .0
+            .iter()
+            .any(|entry| entry.text.contains("[failed]")),
+        "its entry no longer reads as running"
+    );
+}

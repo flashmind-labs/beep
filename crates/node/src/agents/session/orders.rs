@@ -36,6 +36,7 @@ impl Actor {
             Command::RecoverCodexChildren(runs) => {
                 self.live
                     .send_if_modified(|live| live.recover_codex_children(&runs));
+                self.subagents_moved();
                 Ok(Ok(()))
             }
 
