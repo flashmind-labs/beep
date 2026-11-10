@@ -132,3 +132,36 @@ test("a deleted session's kept log is not drawn again", async ({ page }) => {
   await expect(body).toHaveCount(1);
   await expect(body).not.toHaveAttribute("data-kept", "old");
 });
+
+test("a kept log's clocks show the time at once when it comes back", async ({ page }) => {
+  await page.clock.install();
+  await openDesktop(page);
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args: Record<string, unknown> = {}) => {
+      if (command !== "agent_follow") return invoke<T>(command, args);
+      const channel = args.onEvent as { onmessage(value: unknown): void };
+      const base = await invoke<Record<string, unknown>>("agent_view", { session: args.session });
+      const entries = [{ kind: "user", text: `Check ${String(args.session)}`, at: Date.now() }];
+      channel.onmessage({ kind: "snapshot", resumed: false, cursor: { start: 0, next: 1, fingerprint: "0" }, page: { ...base, session: { ...base.session as object, status: args.session === "notice-two" ? "ended" : "working" }, entries, earlier: 0 }, modes: null, tasks: [] });
+      return new Promise<T>(() => {});
+    };
+  });
+  const open = (id: string, status = "working") => page.evaluate(session => window.__navigation.open({ agent: session }), { ...running, id, status });
+  const clock = page.locator("#agbody [data-since]").first();
+
+  await open("notice-one");
+  await expect(page.locator("#agbody")).toContainText("Check notice-one");
+  await expect(clock).toBeVisible();
+  const before = await clock.textContent();
+  // A session with no clock running: the timer stops.
+  await open("notice-two", "ended");
+  await expect(page.locator("#agbody")).toContainText("Check notice-two");
+  await expect(page.locator("#agbody [data-since]")).toHaveCount(0);
+  // Time stands still from here: only the reattach can move the clock.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 125_000));
+
+  await open("notice-one");
+  await expect(page.locator("#agbody")).toContainText("Check notice-one");
+  await expect(clock).not.toHaveText(before ?? "");
+});

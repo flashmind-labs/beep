@@ -80,23 +80,30 @@ function placeClock(el: HTMLElement | null) {
 
 const shownClock = () => clocks.size > 0 && paneShown() && [...placed].some(el => el.isConnected);
 
-/// Starts the clocks' timer when one shows.
+/// Starts the clocks' timer when one shows. Clocks stopped while away, as in a kept log put
+/// back, show the time at once.
 export function tickClocks() {
   const run = shownClock();
   if (run && ticking === null) {
     ticking = setInterval(() => {
       if (!shownClock()) { tickClocks(); return; }
-      second++;
-      for (const listener of clocks) listener();
+      nextSecond();
     }, 1000);
+    nextSecond();
   } else if (!run && ticking !== null) {
     clearInterval(ticking);
     ticking = null;
   }
 }
 
+function nextSecond() {
+  second++;
+  for (const listener of clocks) listener();
+}
+
 onShownChange(shown => {
+  const started = ticking === null;
   tickClocks();
-  // What was hidden catches up at once.
-  if (shown) { second++; for (const listener of clocks) listener(); }
+  // What was hidden catches up at once; a timer started now did so already.
+  if (shown && !(started && ticking !== null)) nextSecond();
 }, true);
