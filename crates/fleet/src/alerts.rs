@@ -39,8 +39,8 @@ const HELD: Duration = Duration::from_secs(30);
 const ANSWERING: Duration = Duration::from_secs(10);
 const FIRST_RETRY: Duration = Duration::from_secs(1);
 /// The longest wait between tries to a machine that is online but does not
-/// keep a stream open. One that goes offline and comes back starts again at
-/// once.
+/// keep a stream open. One that goes offline and comes back, or links again
+/// on a new connection after a restart, starts again at once.
 const LAST_RETRY: Duration = Duration::from_secs(60);
 
 /// What the streams tell the app.
@@ -207,6 +207,7 @@ async fn follow_one(
     loop {
         let started = Instant::now();
         let mut replied = false;
+        let link = link_of(mesh, id);
 
         match stream(peers, mesh, id, out, what, &mut replied).await {
             Ok(()) | Err(FleetError::NotFound) => return,
@@ -229,7 +230,39 @@ async fn follow_one(
             logged = None;
         }
 
-        sleep(backoff.pause()).await;
+        if relinked(mesh, id, link, backoff.pause()).await {
+            backoff.reset();
+        }
+    }
+}
+
+/// Which connection the mesh holds to `id`, if any.
+fn link_of(mesh: &Mesh, id: EndpointId) -> Option<usize> {
+    mesh.peer(id).map(|conn| conn.stable_id())
+}
+
+/// Waits `pause`, or less when `id` links on another connection than `link`,
+/// as a machine that restarted does: asks must reach the user at once. True
+/// when it did.
+async fn relinked(mesh: &Mesh, id: EndpointId, link: Option<usize>, pause: Duration) -> bool {
+    let mut updates = mesh.updates();
+    let wait = sleep(pause);
+    tokio::pin!(wait);
+
+    loop {
+        updates.borrow_and_update();
+
+        if link_of(mesh, id).is_some_and(|now| Some(now) != link) {
+            return true;
+        }
+
+        select! {
+            () = &mut wait => return false,
+            changed = updates.changed() => if changed.is_err() {
+                wait.await;
+                return false;
+            },
+        }
     }
 }
 

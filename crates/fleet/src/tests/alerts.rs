@@ -416,3 +416,26 @@ async fn an_offline_machine_is_not_followed_until_it_is_back() {
     .await
     .expect("the node is followed again once back");
 }
+
+#[tokio::test]
+async fn a_machine_that_links_again_ends_the_wait_at_once() {
+    let (desktop, node) = two(Arc::new(Notify::new())).await;
+    let node_id = node.id;
+    let link = link_of(&desktop.mesh, node_id);
+    assert!(link.is_some(), "the node is linked");
+
+    // Nothing changed: the whole pause runs.
+    assert!(!relinked(&desktop.mesh, node_id, link, Duration::from_millis(50)).await);
+
+    let (key, dir) = stop(node).await;
+    until_online(&desktop.mesh, node_id, false).await;
+    let mesh = desktop.mesh.clone();
+    let waiting = tokio::spawn(async move { relinked(&mesh, node_id, link, LAST_RETRY).await });
+    let _node = reopen(key, dir).await;
+
+    let relinked = timeout(Duration::from_secs(20), waiting)
+        .await
+        .expect("the wait ended well before the pause")
+        .expect("the wait ran");
+    assert!(relinked);
+}
