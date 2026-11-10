@@ -1,4 +1,3 @@
-import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 import { gitSyncWarning } from "./gitsync-state.ts";
 // A project's file sync: the board's File sync tile, and its full view with
 // each machine's state, transfer rate and time left, the changes still
@@ -323,8 +322,7 @@ interface ProjectSyncState {
 export function makeFileSync(deps: FileSyncDeps) {
   const { invoke, h, button, redraw } = deps;
   const all = new Map<string, ProjectSyncState>();
-  let unfollow: (() => void) | undefined;
-  let polling: string | null = null;
+  let watched: string | null = null;
 
   /// The conflicts opened to compare, by project and path: the diff, or the
   /// line saying why there is none, and null while it is read.
@@ -356,12 +354,16 @@ export function makeFileSync(deps: FileSyncDeps) {
     if (s.loading) return;
     s.loading = true;
     const was = JSON.stringify([s.detail, s.error]);
+    const wasDetail = JSON.stringify(s.detail);
 
     try {
-      s.detail = await invoke<SyncDetail | null>("project_sync_detail", { project: name });
+      const detail = await invoke<SyncDetail | null>("project_sync_detail", { project: name });
       await loadClocks(invoke);
       s.error = "";
-      kept.put(name, s.detail);
+
+      // An unchanged detail keeps its object, so what shows it can skip a draw.
+      if (JSON.stringify(detail) !== wasDetail) s.detail = detail;
+      kept.put(name, s.detail ?? null);
     } catch (e) {
       s.detail ??= null;
       s.error = reason(e);
@@ -387,19 +389,25 @@ export function makeFileSync(deps: FileSyncDeps) {
     return of(name).detail;
   }
 
-  /// Follows sync changes while its view shows; null stops.
+  /// Marks the project whose view shows, so sync changes keep it fresh;
+  /// null stops.
   function watch(name: string | null) {
-    if (polling === name) return;
-    unfollow?.();
-    polling = name;
-    if (!name) return;
-    unfollow = subscribeTopics(topic("sync"), () => reload(name));
+    watched = name;
+  }
+
+  /// Answers a sync change: the `changed` projects, whose summary differs,
+  /// are read again, and the projects on screen (`viewed` and the watched
+  /// one) once their detail is `age` old.
+  async function follow(changed: ReadonlySet<string>, viewed: readonly string[], age: number) {
+    const shown = new Set(viewed);
+    if (watched) shown.add(watched);
+    const due = [...shown].filter(p => !changed.has(p)).map(p => ensure(p, age));
+    await Promise.all([...[...changed].map(reload), ...due]);
   }
 
   async function reload(name: string) {
     await loads.get(name);
     await load(name);
-    if (of(name).error) throw new Error(of(name).error);
   }
 
   async function act(name: string, what: string, run: () => Promise<unknown>) {
@@ -622,7 +630,7 @@ export function makeFileSync(deps: FileSyncDeps) {
   }
 
   return {
-    reload,
+    follow,
     ensure,
     detail: (name: string) => of(name).detail,
     forTile,
@@ -647,4 +655,26 @@ export interface SyncRow {
   files: number;
   pending: number;
   error: string | null;
+}
+
+/// New `project_sync` rows against the shown ones: the rows to keep, with
+/// each unchanged row the same object, and the projects whose rows differ
+/// (added, removed or changed on some machine). Nothing changed keeps
+/// `before` itself.
+export function mergeSyncRows(before: SyncRow[], after: SyncRow[]): { rows: SyncRow[]; changed: Set<string> } {
+  const key = (r: SyncRow) => `${r.project}\n${r.machine_id}`;
+  const old = new Map(before.map(r => [key(r), r]));
+  const changed = new Set<string>();
+
+  const rows = after.map(r => {
+    const was = old.get(key(r));
+    old.delete(key(r));
+    if (was && JSON.stringify(was) === JSON.stringify(r)) return was;
+    changed.add(r.project);
+    return r;
+  });
+
+  for (const gone of old.values()) changed.add(gone.project);
+  const reordered = rows.some((r, i) => r !== before[i]) || rows.length !== before.length;
+  return { rows: reordered ? rows : before, changed };
 }

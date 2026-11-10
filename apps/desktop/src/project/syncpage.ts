@@ -38,9 +38,16 @@ export function conflictLines() {
 }
 
 /// Reads the projects' sync that are due; what changed draws itself.
-export async function readSync(changed = false) {
+export async function readSync() {
   const age = currentLocation()?.view === "sync" ? PAGE_MAX_AGE_MS : undefined;
-  await Promise.all(syncProjects().map(p => changed ? fsync.reload(p) : fsync.ensure(p, age)));
+  await Promise.all(syncProjects().map(p => fsync.ensure(p, age)));
+}
+
+/// After a sync change: reads the projects whose summary changed, and the
+/// ones on screen once their detail is a few seconds old. Others wait for
+/// their own change or for being shown.
+export async function followSync(changed: ReadonlySet<string>) {
+  await fsync.follow(changed, currentLocation()?.view === "sync" ? syncProjects() : [], PAGE_MAX_AGE_MS);
 }
 
 /// The sidebar's count, and the page while it shows.

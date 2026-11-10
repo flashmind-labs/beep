@@ -28,6 +28,8 @@ Other apps have independent versions and changelogs:
 - Desktop: update changed chat rows independently and virtualize long project
   session lists.
 - Desktop: share concurrent machine and chat list reads.
+- Desktop: use less CPU in the background while projects sync: a sync change
+  reads only the projects it touched, and machine clock checks are shared.
 - Desktop: Home, File sync and the saved window views do less work while agents
   run and files sync: one session's change no longer lists every machine,
   unchanged views are not sent again, and transfer progress redraws at most
