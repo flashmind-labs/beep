@@ -644,18 +644,6 @@ fn quit(app: &AppHandle) {
 }
 
 fn setup(app: &mut App) -> anyhow::Result<()> {
-    // The bar is a desktop popover; a phone has the one window.
-    #[cfg(desktop)]
-    {
-        let bar = app
-            .config()
-            .app
-            .windows
-            .iter()
-            .find(|window| window.label == bar::LABEL)
-            .ok_or_else(|| anyhow::anyhow!("bar window config missing"))?;
-        navigation::guard(tauri::WebviewWindowBuilder::from_config(app, bar)?).build()?;
-    }
     #[cfg(all(unix, desktop))]
     beep_node::machine::raise_open_files();
     #[cfg(target_os = "macos")]
@@ -822,12 +810,6 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         }
     });
 
-    if let Ok(Some(urls)) = app.deep_link().get_current() {
-        for url in urls {
-            settings::apps::open_link(&handle, url.as_str());
-        }
-    }
-
     #[cfg(desktop)]
     center::app_menu::install(app)?;
     tray::install(app, &beep)?;
@@ -844,6 +826,28 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
             log::warn!("opening the window at launch: {e}");
         }
     }
+
+    // The bar is a desktop popover; a phone has the one window. It is made after the main
+    // window, so its hidden page does not load ahead of Home, and zooms as it loads.
+    #[cfg(desktop)]
+    {
+        let bar = app
+            .config()
+            .app
+            .windows
+            .iter()
+            .find(|window| window.label == bar::LABEL)
+            .ok_or_else(|| anyhow::anyhow!("bar window config missing"))?;
+        navigation::guard(tauri::WebviewWindowBuilder::from_config(app, bar)?).build()?;
+    }
+
+    // A sign-in link that started Beep may show the bar, so it waits for it.
+    if let Ok(Some(urls)) = app.deep_link().get_current() {
+        for url in urls {
+            settings::apps::open_link(&handle, url.as_str());
+        }
+    }
+
     #[cfg(desktop)]
     refresh_login_item(&handle);
     Ok(())
