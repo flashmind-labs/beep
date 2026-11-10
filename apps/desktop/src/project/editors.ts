@@ -1,7 +1,5 @@
 // "Open in" for a project's checkout on this Mac: the editors installed
 // here, read once from the app, Zed first.
-import { dbtn as button, svgEl } from "../ui/parts.ts";
-import { openMenu } from "../ui/menu.ts";
 import { invoke } from "../ui/tauri.ts";
 import { notice } from "../chat/media.ts";
 import { onPhone } from "../ui/platform.ts";
@@ -44,20 +42,6 @@ export function editorsFor(folder: string | null | undefined, redraw: () => void
 
 export function openEditor(ed: EditorRow, folder: string, _button: HTMLElement) {
   return launch(ed, folder);
-}
-
-export function editorTools(folder: string | null | undefined, redraw: () => void): Node[] {
-  const editors = editorsFor(folder, redraw);
-  if (!folder || !editors.length) return [];
-  const [first, ...rest] = editors;
-  const open = (ed: EditorRow) => launch(ed, folder);
-  const main = button(`Open in ${first.name}`, "quiet small", () => open(first));
-  main.title = folder;
-  if (!rest.length) return [main];
-  const more = button(svgEl(CHEV)!, "quiet small", e => openMenu(e, "Open in", rest.map(ed => ({ label: ed.name, on: () => open(ed) }))));
-  more.title = "Other editors";
-  more.setAttribute("aria-label", "Other editors");
-  return [main, more];
 }
 
 /// Opens `folder` in the first installed editor, as the header's Open in button does.
