@@ -1,15 +1,15 @@
 import { useEffect, useRef } from "react";
 import { isOpen, type FolderMenu } from "../addproject/foldercomplete.ts";
 
-export function FolderInput({ value, menu, bind, pick }: { value: string; menu: FolderMenu; bind(): void; pick(index: number): void }) {
+export function FolderInput({ value, menu, bind, pick }: { value: string; menu: FolderMenu; bind(input: HTMLInputElement): void; pick(index: number): void }) {
   const input = useRef<HTMLInputElement>(null);
-  useEffect(() => { queueMicrotask(() => { if (input.current?.isConnected) bind(); }); }, []);
+  useEffect(() => { queueMicrotask(() => { if (input.current?.isConnected) bind(input.current); }); }, []);
   return <span className="agc-type"><input ref={input} id="agcwd" spellCheck={false} autoComplete="off" role="combobox" aria-label="Folder" aria-expanded={isOpen(menu)} placeholder="/path/to/folder or ~/folder" defaultValue={value} /><span id="agcwdmenu">{isOpen(menu) && <div className="agc-menu" role="listbox">{menu.items.map((name, index) => <button type="button" key={name} data-agfi={index} className={index === menu.index ? "on" : ""} role="option" onMouseDown={event => event.preventDefault()} onClick={event => { event.stopPropagation(); pick(index); }}><span /><span className="mono">{name}</span><small /></button>)}</div>}</span></span>;
 }
 
-export function BaseInput({ value, placeholder, bind }: { value: string; placeholder: string; bind(): void }) {
+export function BaseInput({ value, placeholder, bind }: { value: string; placeholder: string; bind(input: HTMLInputElement): void }) {
   const input = useRef<HTMLInputElement>(null);
-  useEffect(() => { queueMicrotask(() => { if (input.current?.isConnected) bind(); }); }, []);
+  useEffect(() => { queueMicrotask(() => { if (input.current?.isConnected) bind(input.current); }); }, []);
   return <span className="agc-type base"><input ref={input} id="agbase" spellCheck={false} autoComplete="off" aria-label="Base branch" placeholder={placeholder} defaultValue={value} /></span>;
 }
 
