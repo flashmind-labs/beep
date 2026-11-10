@@ -166,7 +166,5 @@ windows-sys = { version = "0.61", optional = true, features = [
 rustls = { version = "0.23", default-features = false }
 async-trait = "0.1"
 tokio = { version = "1", features = ["test-util"] }
-tracing = "0.1"
-tracing-subscriber = "0.3"
 # Reads what Beep writes to flsh's config with flsh's own types.
 flashmind-types = { git = "https://github.com/flashmind-labs/flashmind.git" }
