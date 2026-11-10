@@ -1,5 +1,5 @@
 // Shared command-center controls, dialog lifetimes, focus and clipboard behavior.
-import { button, el, type Kid } from "./dom.ts";
+import { button, el } from "./dom.ts";
 import { createElement, createRef, type MouseEvent as ReactMouseEvent } from "react";
 import { createDocumentScope } from "./document-root.tsx";
 
@@ -22,16 +22,6 @@ const parsedSvg = new Map<string, ChildNode | null>();
 /// A `dbtn` button with `cls` that runs `on`.
 export function dbtn(label: string | Node, cls: string, on: (e: MouseEvent) => void) {
   return button(label, `dbtn${cls ? " " + cls : ""}`, on);
-}
-
-/// A panel with nothing to list yet; `kids` say why.
-export function emptyPanel(...kids: Kid[]) {
-  return el("div", "cc-panel cc-empty", ...kids);
-}
-
-/// A section's head: its title, then notes or a button.
-export function secHead(title: Kid, ...kids: Kid[]) {
-  return el("div", "cc-sec", el("h4", "", title), ...kids);
 }
 
 /// `text` on the clipboard. The webview may refuse the async way; the old way

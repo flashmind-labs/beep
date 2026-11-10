@@ -17,7 +17,7 @@ function counted() {
     reads.push(args?.project ? `${command}:${args.project}` : command);
     return command === "project_sync_detail" ? detailOf(args?.project ?? "") : [];
   }) as Deps["invoke"];
-  const sync = makeFileSync({ invoke, h: null!, button: null!, redraw() { redraws += 1; } });
+  const sync = makeFileSync({ invoke, redraw() { redraws += 1; } });
   return { sync, reads, details: () => reads.filter(r => r.startsWith("project_sync_detail")), redraws: () => redraws };
 }
 
