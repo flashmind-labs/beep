@@ -5,7 +5,7 @@ import { baseName } from "./media-state.ts";
 import type { MediaTab } from "./media.ts";
 import { readError } from "./read.ts";
 
-function FileActions({ tab, machine, label, note }: { tab: MediaTab; machine: string | null; label: string; note(text: string): void }) {
+export function FileActions({ tab, machine, label, note }: { tab: MediaTab; machine: string | null; label: string; note(text: string): void }) {
   if (!tab.path) return null;
   const path = tab.path;
   const open = () => { if (machine) void invoke("agent_file_open", { machineId: machine, path }).catch(error => note(readError(error))); };
