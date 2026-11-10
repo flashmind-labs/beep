@@ -120,6 +120,10 @@ pub struct ModelOption {
     /// The largest usable window the harness reports for this model.
     #[serde(default)]
     pub max_context_window: Option<u64>,
+    /// Who serves it, such as `openrouter`, when the id names one; the
+    /// name leaves it out.
+    #[serde(default)]
+    pub provider: Option<String>,
 }
 
 #[cfg(test)]

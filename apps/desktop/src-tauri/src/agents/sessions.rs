@@ -511,6 +511,7 @@ pub struct ModelView {
     description: Option<String>,
     context_window: Option<u64>,
     max_context_window: Option<u64>,
+    provider: Option<String>,
 }
 
 impl From<AgentModels> for ModelsView {
@@ -531,6 +532,7 @@ impl From<AgentModel> for ModelView {
             description: model.description,
             context_window: model.context_window,
             max_context_window: model.max_context_window,
+            provider: model.provider,
         }
     }
 }

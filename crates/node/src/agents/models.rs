@@ -29,6 +29,7 @@ use std::{
 use tokio::{io::AsyncReadExt, sync::mpsc, task::spawn_blocking, time::Instant};
 
 mod context;
+mod names;
 
 /// How long an agent's list is kept.
 const KEEP: Duration = Duration::from_secs(5 * 60);
@@ -257,11 +258,14 @@ fn flsh_listing(output: &str) -> Vec<ModelOption> {
         .map(str::trim)
         .filter(|line| !line.is_empty() && !line.contains(char::is_whitespace))
         .take(MAX_MODELS)
-        .map(|id| ModelOption {
-            id: id.to_owned(),
-            name: id.to_owned(),
-            description: None,
-            ..ModelOption::default()
+        .map(|id| {
+            let (provider, name) = names::flsh_name(id);
+            ModelOption {
+                id: id.to_owned(),
+                name,
+                provider,
+                ..ModelOption::default()
+            }
         })
         .collect()
 }

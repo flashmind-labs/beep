@@ -6,6 +6,7 @@ fn old_model_entries_default_context_limits() {
     let decoded: ModelOption = crate::lenient::from_slice(&old).unwrap();
     assert_eq!(decoded.context_window, None);
     assert_eq!(decoded.max_context_window, None);
+    assert_eq!(decoded.provider, None);
 }
 
 #[test]
