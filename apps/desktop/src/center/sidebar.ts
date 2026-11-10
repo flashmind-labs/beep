@@ -128,13 +128,15 @@ export let chatList: ChatItem[] = [];
 let chatFetch: Promise<ChatItem[]> | null = null;
 /// The chats the server last said have a run going on, from any device.
 let serverRunning: string[] = [];
+let runningReadVersion = 0;
 
 /// One fetch feeds both groups, even when both ask at once.
 function fetchChats() {
   if (chatFetch) return chatFetch;
   // The rows come from this Mac's copy; which run elsewhere is the
   // server's to say, so the rows never wait for it.
-  pane.activeRuns().then(runs => { serverRunning = runs; drawSide(); });
+  const version = ++runningReadVersion;
+  pane.activeRuns().then(runs => { if (version === runningReadVersion) { serverRunning = runs; drawSide(); } });
   const mine: Promise<ChatItem[]> = pane.chatRows().then(rows => {
     if (chatFetch === mine) chatList = rows;
     return rows;
@@ -148,6 +150,7 @@ export function running() {
 }
 
 export function reloadChats() {
+  runningReadVersion++;
   // A fetch that started before this change may miss it: the next one is new.
   chatFetch = null;
   return Promise.all([reloadGroup("pinned"), reloadGroup("chats")]);

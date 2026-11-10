@@ -91,3 +91,33 @@ test("sidebar chat pin and context actions do not open the chat", async ({ page 
   await chat.getByRole("button", { name: "Example chat" }).click({ button: "right" });
   await expect(page.getByText("Rename…", { exact: true })).toBeVisible();
 });
+
+test("a stale running-chat read cannot replace a newer status", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, list_sessions: [{ id: "chat-one", title: "Example chat", pinned: false, updated_at: 1 }], list_groups: [], active_runs: [] });
+  const row = page.locator("#side .cc-chat").filter({ has: page.getByRole("button", { name: "Example chat" }) });
+  await expect(row).toBeVisible();
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    let reads = 0;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command !== "active_runs") return invoke<T>(command, args);
+      const read = ++reads;
+      Reflect.set(window, "runningReads", reads);
+      if (read === 1) {
+        await new Promise<void>(resolve => Reflect.set(window, "finishOldRunning", resolve));
+        Reflect.set(window, "oldRunningDelivered", true);
+      }
+      return (read === 1 ? ["chat-one"] : []) as T;
+    };
+    window.__navigation.emit("sessions-changed", null);
+  });
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "runningReads"))).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "list_sessions").length)).toBeGreaterThan(1);
+  await page.evaluate(() => window.__navigation.emit("sessions-changed", null));
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "runningReads"))).toBeGreaterThan(1);
+  await page.evaluate(() => Reflect.get(window, "finishOldRunning")());
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "oldRunningDelivered"))).toBe(true);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+  await expect(row.locator(".cc-run")).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "Pin to top" })).toBeVisible();
+});
