@@ -57,9 +57,6 @@ export function forgeLabel(url: string) {
   try { return new URL(url).host === "github.com" ? "Open on GitHub" : "Open on Forgejo"; } catch { return "Open on GitHub"; }
 }
 
-const slots = new WeakMap<Element, HTMLElement>();
-export function threadPanel(slot: Element) { return slots.get(slot) ?? null; }
-
 /// A comment being written or posted under one thread.
 type Draft = { text: string; posting: boolean; error?: string };
 
@@ -83,7 +80,7 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
     return r;
   }
 
-  function pane(projectId: string, stub: ThreadStub, acts: ThreadActions): Node[] {
+  function pane(projectId: string, stub: ThreadStub, acts: ThreadActions): HTMLElement {
     const key = `${projectId}#${stub.number}`, readState = read(projectId, stub.number), data = readState.data;
     const draft = drafts.get(key) ?? { text: "", posting: false };
     drafts.set(key, draft);
@@ -107,8 +104,7 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
       edit: (value: string) => { draft.text = value; draw(); }, post, open: (url: string) => { void deps.openUrl(url); },
     }) }]);
     draw();
-    const slot = h("div"); slots.set(slot, panel.host);
-    return [slot];
+    return panel.host;
   }
 
   return { pane, dispose: () => { if (current) removeWindowPart("project-thread"); current = null; } };

@@ -7,13 +7,13 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // fresh while the user moves between projects, and prefetched ahead.
 import { sessionVisible } from "../agents/closing.ts";
 import { reason, since } from "../ui/format.ts";
-import { copy, emptyPanel, freshNote } from "../ui/parts.ts";
+import { copy } from "../ui/parts.ts";
 import { type MenuItem } from "../ui/menu.ts";
 import { MACHINE_REFRESH_MS, SWITCH_MS } from "../ui/pagecache.ts";
 import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { ElsewhereSection, FoundSection } from "./overview-view.tsx";
-import { panelSlot } from "./split.ts";
+import type { RecentSessions } from "./split-view.tsx";
 import { foundFor, withSyncthing, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { el as h } from "../ui/dom.ts";
@@ -350,14 +350,12 @@ async function readWhere(name: string) {
 }
 
 /// Ended sessions in the project's folders, newest first; each opens.
-const sessionSlots = new WeakMap<Element, HTMLElement>();
 const sessionLists = new Map<boolean, { project: string; host: HTMLElement }>();
 const sessionPart = (all: boolean) => `project-sessions:${all ? "all" : "recent"}` as const;
 
-export function sessionPanel(slot: Element) { return sessionSlots.get(slot) ?? null; }
 export function disposeSessionPanel() { removeWindowParts([...sessionLists.keys()].map(sessionPart)); sessionLists.clear(); }
 
-function sessionListSlot(project: string, rows: SessionRow[], all: boolean) {
+function sessionListHost(project: string, rows: SessionRow[], all: boolean) {
   let current = sessionLists.get(all);
   if (current && current.project !== project) { removeWindowPart(sessionPart(all)); sessionLists.delete(all); current = undefined; }
   if (!current) {
@@ -370,34 +368,22 @@ function sessionListSlot(project: string, rows: SessionRow[], all: boolean) {
     rows, all, open: openAgentRow,
     menu: (event: MouseEvent, row: SessionRow) => void sessionMenu(event, row, selected => go("pane", { agent: selected })),
   }) }]);
-  const slot = h("div");
-  sessionSlots.set(slot, list.host);
-  return slot;
+  return list.host;
 }
 
 /// The project's past sessions, newest first: five rows tall unless `all`,
 /// with the note that they are being read again.
-export function sessionsList(p: Project, running: RunningAgent[], all: boolean) {
+export function sessionsList(p: Project, running: RunningAgent[], all: boolean): RecentSessions {
   const sessions = state.sessions.get(p.name);
   const past = projectPastSessions(sessions, running, [...MV.records.values()]).filter(sessionVisible);
   if ((!p.imported || sessions === undefined || !past.length)) disposeSessionPanel();
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
-  let body;
-  let empty: string | null = null;
-
-  if (!p.imported) { empty = "Import this project to see its sessions."; body = emptyPanel(h("span", "", empty)); }
-  else if (sessions === undefined) { empty = "Reading sessions…"; body = emptyPanel(h("span", "", empty)); }
-  else {
-    if (!past.length) empty = "No past sessions yet.";
-    body = past.length
-      ? sessionListSlot(p.name, past, all)
-      : emptyPanel(h("span", "", empty));
-  }
-
   const freshness = sessions !== undefined ? pageFresh("sessions", p.name, readingSessions.has(p.name)) : null;
-  const note = freshness ? freshNote(freshness) : null;
-  note?.classList.add("ss-updating");
-  return { body, note, count: past.length, empty, freshness };
+
+  if (!p.imported) return { host: null, empty: "Import this project to see its sessions.", count: past.length, freshness };
+  if (sessions === undefined) return { host: null, empty: "Reading sessions…", count: past.length, freshness };
+  if (!past.length) return { host: null, empty: "No past sessions yet.", count: past.length, freshness };
+  return { host: sessionListHost(p.name, past, all), empty: null, count: past.length, freshness };
 }
 
 /// The agent view for a session row.
@@ -418,7 +404,6 @@ export async function loadSessions(name: string): Promise<void> {
 async function readSessions(name: string) {
   readingSessions.add(name);
   sessionsDue.delete(name);
-  const movesBefore = JSON.stringify([...MV.records.values()]);
   let got: SessionRow[] | null = null;
 
   try {
@@ -429,12 +414,12 @@ async function readSessions(name: string) {
     readingSessions.delete(name);
   }
 
-  const { list, changed } = nextSessions(state.sessions.get(name), got);
+  const { list } = nextSessions(state.sessions.get(name), got);
   state.sessions.set(name, list);
   if (got) keep("sessions", name, list);
   if (currentLocation()?.view !== "projects" || state.picked !== name) return;
-  if (changed || movesBefore !== JSON.stringify([...MV.records.values()])) drawProjects(projectsEl());
-  else for (const el of document.querySelectorAll(".ss-updating")) el.remove();
+  // The draw also drops the Updating note.
+  drawProjects(projectsEl());
 }
 
 /// The checkouts the machines found that are not projects yet: the first
@@ -451,7 +436,7 @@ export function foundSection(enabled: boolean) {
   showWindowParts([{ part: "project-found", host: foundHost, content: createElement(FoundSection, {
     rows: state.found, importing: state.importing, error: state.foundError, importOne: importFromPage, add: addProject,
   }) }]);
-  return panelSlot(foundHost);
+  return foundHost;
 }
 
 let askedGit = false;
@@ -487,7 +472,7 @@ export function elsewhereSection(rows: Project[], enabled: boolean) {
     review: item => go("pane", { agentnew: reviewStart(item, null, state.home?.machines?.filter(m => m.can_host !== false)) }),
     reply: item => { void replyItem(item); },
   }) }]);
-  return panelSlot(elsewhereHost);
+  return elsewhereHost;
 }
 
 // Reopened sessions and moves change independently of project membership.

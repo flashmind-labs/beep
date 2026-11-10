@@ -273,7 +273,6 @@ export interface RunDeps {
   kept?: SectionStore<RunsRow | null>;
   /// Called when a read changes the hosts the runs come from.
   hostsChanged?: () => void;
-  slot?: (host: HTMLElement) => HTMLElement;
 }
 
 /// One project's runs: undefined while they load, null from a server too old to
@@ -509,7 +508,7 @@ export function makeRuns(deps: RunDeps) {
       detail: (run: RunRow) => ({ data: details.get(detailKey(id, run))?.data ?? null, error: detailErrors.get(detailKey(id, run)) ?? "" }),
       fix: (detail: RunDetail) => fix(openDetail(id) ?? detail), openUrl,
     }) }]);
-    return deps.slot?.(current.host) ?? current.host;
+    return current.host;
   }
 
   return {

@@ -5,9 +5,8 @@ import type { ProjectAgent, TaskRow } from "./agent.ts";
 import { STATE_LABEL, reviewState } from "../review/review.ts";
 import type { ReviewState, ReviewView } from "../review/review.ts";
 import { plural, reason } from "../ui/format.ts";
-import { emptyPanel, freshNote, stateChip, secHead } from "../ui/parts.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
-import { PageCache, REFRESH_MS, freshness, type SectionStore } from "../ui/pagecache.ts";
+import { PageCache, REFRESH_MS, freshness, type Freshness, type SectionStore } from "../ui/pagecache.ts";
 import type { ChecksRow } from "./runs.ts";
 import type { ThreadActions } from "./threaddetail-view.tsx";
 
@@ -299,8 +298,19 @@ interface ProjectThreads {
 /// The project agent the lists belong to.
 type Agent = Pick<ProjectAgent, "project_id" | "name">;
 
+/// An action a thread row offers, with its label while busy.
+interface ThreadAct { label: string; run(): void }
+
+/// The user's threads in a project as the page shows them.
+export type ThreadsPanel =
+  | { kind: "reading" }
+  | { kind: "hidden" }
+  | { kind: "list"; error: string; waiting: number; freshness: Freshness; refresh(): void;
+    rows: { thread: ThreadRow; code: string; meta: string; open(): void; reply: ThreadAct | null; discuss: ThreadAct }[];
+    chats: { id: string; title: string; open(): void }[] };
+
 export function makeThreads(deps: ThreadDeps) {
-  const { invoke, h, button, ago, redraw, openUrl, openChat, changed } = deps;
+  const { invoke, ago, redraw, openUrl, openChat, changed } = deps;
   const server = deps.server ?? (() => true);
   const kept = deps.kept ?? new PageCache(null).section<KeptThreads>("threads");
   const all = new Map<string, ProjectThreads>();
@@ -338,7 +348,7 @@ export function makeThreads(deps: ThreadDeps) {
   const fresh = (id: string) => {
     const synced = of(id).syncedAt;
     const f = freshness(synced ?? kept.at(id), reading.has(id), Date.now());
-    return freshNote(synced ? { ...f, text: f.text.replace(/^updated/, "synced") } : f);
+    return synced ? { ...f, text: f.text.replace(/^updated/, "synced") } : f;
   };
 
   /// The open issues and pull requests: from the server's copy, or read from
@@ -438,18 +448,10 @@ export function makeThreads(deps: ThreadDeps) {
     });
   }
 
-  function link(text: string, url: string) {
-    const a = h("a", "", text);
-    a.href = "#";
-    a.addEventListener("click", e => { e.preventDefault(); openUrl(url); });
-    return a;
-  }
-
-  /// Let the agent reply on thread `number`.
-  const replyButton = (agent: Agent, repo: string, number: number) =>
-    button(of(agent.project_id).busy.has(`r${number}`) ? "Asking…" : "Let the agent reply", "pri", () => act(agent.project_id, `r${number}`, async () => {
-      openChat(await invoke<string>("center_reply_thread", { projectId: agent.project_id, repo, number }));
-    }));
+  /// Lets the agent reply on thread `number`.
+  const reply = (agent: Agent, repo: string, number: number) => act(agent.project_id, `r${number}`, async () => {
+    openChat(await invoke<string>("center_reply_thread", { projectId: agent.project_id, repo, number }));
+  });
 
   /// A row's actions and why its last one failed.
   function actsEl(s: ProjectThreads, keys: string[], buttons: ThreadActions["buttons"]): ThreadActions {
@@ -463,7 +465,7 @@ export function makeThreads(deps: ThreadDeps) {
     const s = of(agent.project_id);
     const n = l.pr.number;
     const buttons: ThreadActions["buttons"] = [];
-    if (l.needs_reply) buttons.push({ key: "reply", label: s.busy.has(`r${n}`) ? "Asking…" : "Let the agent reply", primary: true, disabled: false, title: "", run: () => { void act(agent.project_id, `r${n}`, async () => { openChat(await invoke<string>("center_reply_thread", { projectId: agent.project_id, repo: l.repo || agent.name, number: n })); }); } });
+    if (l.needs_reply) buttons.push({ key: "reply", label: s.busy.has(`r${n}`) ? "Asking…" : "Let the agent reply", primary: true, disabled: false, title: "", run: () => { void reply(agent, l.repo || agent.name, n); } });
     buttons.push({ key: "continue", label: s.busy.has(`c${n}`) ? "Reading…" : "Continue", primary: !l.needs_reply, disabled: s.busy.has(`c${n}`), title: "Start a coding agent on this pull request's branch", run: () => { void act(agent.project_id, `c${n}`, () => ctx.continuePr(l.pr)); } });
     const branch = l.branch;
     if (branch && ctx.review) buttons.push({ key: "review", label: "Review", primary: false, disabled: false, title: "", run: () => ctx.review?.(branch) });
@@ -490,9 +492,7 @@ export function makeThreads(deps: ThreadDeps) {
   function prMenu(e: MouseEvent, agent: Agent, ctx: RepoActs, l: PrLine) {
     const n = l.pr.number;
     const items: MenuItem[] = [{ label: "Open on forge", on: () => openUrl(l.pr.url) }];
-    if (l.needs_reply) items.push({ label: "Let the agent reply", on: () => void act(agent.project_id, `r${n}`, async () => {
-      openChat(await invoke<string>("center_reply_thread", { projectId: agent.project_id, repo: l.repo || agent.name, number: n }));
-    }) });
+    if (l.needs_reply) items.push({ label: "Let the agent reply", on: () => void reply(agent, l.repo || agent.name, n) });
     items.push({ label: "Continue", on: () => void act(agent.project_id, `c${n}`, () => ctx.continuePr(l.pr)) });
 
     if (l.branch && ctx.review) {
@@ -515,43 +515,26 @@ export function makeThreads(deps: ThreadDeps) {
   }
 
   /// The user's pull requests and issues, with replies and chats.
-  function threadsPanel(agent: Agent) {
+  function threadsPanel(agent: Agent): ThreadsPanel {
     const s = of(agent.project_id);
     ensure(agent.project_id);
     const list = s.threads;
-    const out: HTMLElement[] = [];
-    if (list === undefined) return [emptyPanel(h("span", "", "Reading your pull requests and issues…"))];
-    if (list === null) return [];
-    if (s.error) out.push(h("div", "cc-err", s.error));
-    const waiting = list.filter(t => t.needs_reply).length;
-    out.push(h("div", "cc-sec", h("h4", "", "Your pull requests and issues", h("small", "", waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : "")),
-      fresh(agent.project_id), button("Refresh", "quiet small", () => load(agent.project_id))));
+    if (list === undefined) return { kind: "reading" };
+    if (list === null) return { kind: "hidden" };
 
-    if (!list.length) {
-      out.push(emptyPanel(h("span", "", "You have no open pull requests or issues here.")));
-    } else {
-      out.push(h("div", "cc-panel", ...list.map(t => {
-        const st = t.needs_reply ? stateChip("blocked", "needs reply") : stateChip("done", "nothing to answer");
-        const row = h("div", "pj-task pj-issue", h("span", "t", link(threadCode(t), t.url), ` ${t.title}`), st, h("span", "m", threadMeta(t, ago)));
-        const acts = h("span", "acts");
-        if (t.needs_reply) acts.append(replyButton(agent, t.repo, t.number));
-        acts.append(button(s.busy.has(`d${t.number}`) ? "Opening…" : "Discuss", "", () => discuss(agent, t.number)),
-          button("Open", "", () => openUrl(t.url)));
-        row.append(acts);
-        return row;
-      })));
-    }
-
-    if (s.chats?.length) {
-      out.push(secHead("Chats about one thread"),
-        h("div", "cc-panel", ...s.chats.map(c => {
-          const row = h("div", "pj-task", h("span", "t", c.title || threadCode(c)));
-          row.append(h("span", "acts", button("Open chat", "", () => openChat(c.chat_id))));
-          return row;
-        })));
-    }
-
-    return out;
+    return {
+      kind: "list",
+      error: s.error,
+      waiting: list.filter(t => t.needs_reply).length,
+      freshness: fresh(agent.project_id),
+      refresh: () => { void load(agent.project_id); },
+      rows: list.map(t => ({
+        thread: t, code: threadCode(t), meta: threadMeta(t, ago), open: () => { void openUrl(t.url); },
+        reply: t.needs_reply ? { label: s.busy.has(`r${t.number}`) ? "Asking…" : "Let the agent reply", run: () => { void reply(agent, t.repo, t.number); } } : null,
+        discuss: { label: s.busy.has(`d${t.number}`) ? "Opening…" : "Discuss", run: () => { void discuss(agent, t.number); } },
+      })),
+      chats: (s.chats ?? []).map(c => ({ id: c.chat_id, title: c.title || threadCode(c), open: () => openChat(c.chat_id) })),
+    };
   }
 
   return {

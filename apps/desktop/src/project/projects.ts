@@ -8,88 +8,26 @@ import { MV } from "../agents/move-store.ts";
 // project, and a picked project's detail sections.
 import { sessionVisible } from "../agents/closing.ts";
 import { ago, plural } from "../ui/format.ts";
-import { emptyPanel, errorNote } from "../ui/parts.ts";
-import { CI_TITLES, ciState, filterByName, listGroups, machineChips, projectBranch, splitName } from "./projectlist-state.ts";
-import type { GitRow } from "./gitsync-state.ts";
-import type { RunsRow } from "./runs.ts";
-import type { SyncDetail } from "./filesync.ts";
-import { pageAgent } from "./agent.ts";
 import { invoke } from "../ui/tauri.ts";
 import { awaitsView, projectRunning, whereRows, whereCount, overviewGroups, syncedBy, type OverviewCard, type Project, plainPath, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { makeCustomAgents } from "./customagents.ts";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
 import { pages, state, warm, pageFresh } from "../center/state.ts";
-import { plusLabel } from "../ui/pieces.ts";
 import { showMachineMenu } from "../machines/table.ts";
 import { MachinesSection, type ProjectMachineItem } from "./machines-section-view.tsx";
 import { blocked, confirmRemove, removeMenuItems } from "./removemachine.ts";
 import { changeFolder, changeFolderItems } from "./changefolder.ts";
 import { single } from "../center/openitems.ts";
-import { newWindowOn, openProjects, addProject } from "../center/sidebar.ts";
-import { splitOn, projectSplit, panelSlot, projectPanel, disposeProjectShell } from "./split.ts";
+import { addProject } from "../center/sidebar.ts";
+import { splitOn, projectSplit, disposeProjectShell } from "./split.ts";
+import { EmptyPanel, ErrorNote, hostPart, viewPart, type PagePart } from "./page-view.tsx";
 import { redrawProjects, redrawProjectsPage, pc, terms, fsync } from "./sections.ts";
 import { drawProjectComp, fillBar } from "./composer.ts";
-import { missingMachine, gitControls, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionPanel, sessionsList } from "./loads.ts";
+import { missingMachine, gitControls, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsList } from "./loads.ts";
 import { terminalNote, terminalWhere } from "../terminals/terminals.ts";
 import { go } from "../center/views.ts";
 import { type RunningAgent } from "../agents/running-state.ts";
-
-export const importButton = (cls: string) => plusLabel("Add a project", cls, addProject);
-
-/// What the Projects list is filtered by; one field kept across draws, so
-/// typing keeps its focus.
-const filter = h("input", "pl-filter");
-filter.placeholder = "Filter projects";
-filter.setAttribute("aria-label", "Filter projects");
-filter.addEventListener("input", () => redrawProjects());
-
-/// The filter field, refocused after a draw that moved it while it had focus.
-export function projectFilter() {
-  if (document.activeElement === filter) queueMicrotask(() => filter.focus());
-  return filter;
-}
-
-/// One row per project, "Working now" above "Others": its name, branch,
-/// a chip per machine with its sync, agents running, CI and last activity.
-/// Only what is read already shows; the list reads nothing itself.
-export function projectList(rows: Project[]) {
-  const online = new Map((state.home?.machines || []).map(m => [m.id, m.online]));
-  const head = h("div", "pl-row pl-head", ...["Project", "Branch", "Machines", "Agents", "CI", "Activity"].map(t => h("span", "", t)));
-  const list = h("div", "pl", head);
-  const shown = filterByName(rows, filter.value);
-  for (const g of listGroups(shown)) list.append(h("div", "pl-grp", g.label), ...g.rows.map(p => projectListRow(p, online)));
-  if (!shown.length) list.append(h("div", "pl-none", "No project matches."));
-  return list;
-}
-
-function projectListRow(p: Project, online: ReadonlyMap<string, boolean>) {
-  const { owner, repo } = splitName(p.name);
-  const branch = projectBranch(state.gitsync.get(p.name) ?? pages.get<GitRow[]>("gitsync", p.name), state.mac?.id || null);
-  const runs = pages.get<RunsRow | null>("runs", pageAgent(state.agents, p.name, state.subscribed)?.project_id ?? "");
-  const ci = ciState(runs?.runs, branch);
-  const chips = machineChips(p, { online, sync: state.sync, detail: pages.get<SyncDetail | null>("filesync", p.name) }).map(c => {
-    const chip = h("span", "pl-chip", h("i", `pl-dot ${c.state}`), c.name);
-    chip.title = c.title;
-    return chip;
-  });
-  const dot = h("span", `pl-ci ${ci}`);
-  dot.title = CI_TITLES[ci];
-  const name = h("span", "pl-name", h("span", "pl-owner", owner), h("b", "", repo));
-  name.title = p.url || p.name;
-  const row = h("button", "pl-row",
-    name,
-    h("span", "pl-branch", branch || ""),
-    h("span", "pl-mach", ...chips),
-    h("span", "pl-ag", ...(p.agents ? [h("i", "pl-dot live"), String(p.agents)] : [])),
-    dot,
-    h("span", "pl-last", p.last ? ago(p.last) : ""));
-  row.type = "button";
-  row.id = `p-${p.name}`;
-  row.addEventListener("click", () => openProjects(p.name));
-  newWindowOn(row, row, p.name);
-  return row;
-}
 
 /// Every project as a card, grouped by org: its tasks per state, its
 /// workers, what changed last and where it lives.
@@ -101,13 +39,13 @@ export function disposeOverview() {
   overviewHost = null;
 }
 
-export function overviewSection(rows: Project[]) {
+export function overviewSection(rows: Project[]): PagePart[] {
   const groups = overviewGroups(rows, state.overview, state.top, state.groups);
   if (!overviewHost) { overviewHost = h("div"); overviewHost.style.display = "contents"; }
   showWindowParts([{ part: "project-overview", host: overviewHost, content: createElement(ProjectsOverview, { groups, editing: state.renaming,
     sync: (name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name)), add: addProject,
   }) }]);
-  return [panelSlot(overviewHost)];
+  return [hostPart(overviewHost)];
 }
 
 /// Optional task summaries for the cards. Local projects draw before this
@@ -125,7 +63,7 @@ export const loadOverview = single(async () => {
 /// One project: where it lives on every machine, with "Start an agent here"
 /// per folder and "Copy here" where it is not, and the coding agents
 /// running in it now.
-export function projectDetail(p: Project) {
+export function projectDetail(p: Project): PagePart[] {
   if (p.imported) warm(p.name);
   const machines = p.imported ? state.where.get(p.name) : null;
   if (p.imported && (machines === undefined || whereDue.has(p.name))) loadWhere(p.name);
@@ -139,18 +77,18 @@ export function projectDetail(p: Project) {
   if (awaitsView(p, state.agents)) {
     disposeProjectFallback();
     const error = state.pview.get(p.name)?.error;
-    return [error ? errorNote(`Could not read the project: ${error}`) : emptyPanel(h("span", "", "Reading the project…"))];
+    return [error
+      ? viewPart("error", createElement(ErrorNote, { text: `Could not read the project: ${error}` }))
+      : viewPart("reading", createElement(EmptyPanel, { text: "Reading the project…" }))];
   }
 
   // Without a project agent there are no tasks, runs or code host lists.
   if (fallback?.project !== p.name) { disposeProjectFallback(); fallback = { project: p.name, host: h("div", "pj-cols pj-half") }; }
-  const sessions = sessionsList(p, running, false);
-  const host = (slot: HTMLElement) => projectPanel(slot) ?? slot;
   showWindowParts([{ part: "project-fallback", host: fallback.host, identity: p.name, content: createElement(ProjectFallback, {
-    session: { host: sessionPanel(sessions.body), empty: sessions.empty, count: sessions.count, freshness: sessions.freshness },
-    machines: host(whereSection(p, rows, !!machines)), running: host(agentsSection(running)), agents: host(customAgentsSection(rows)),
+    session: sessionsList(p, running, false),
+    machines: whereSection(p, rows, !!machines), running: agentsSection(running), agents: customAgentsSection(rows),
   }) }]);
-  return [panelSlot(fallback.host)];
+  return [hostPart(fallback.host)];
 }
 
 let fallback: { project: string; host: HTMLElement } | null = null;
@@ -162,7 +100,7 @@ export function disposeProjectFallback() {
 
 /// The project's custom agents: the named agents its folder defines for
 /// each harness on one machine, and the user's own there.
-const cags = makeCustomAgents({ redraw: () => redrawProjects(), start: startWithAgent, slot: panelSlot });
+const cags = makeCustomAgents({ redraw: () => redrawProjects(), start: startWithAgent });
 
 /// "Custom agents", read on this Mac's checkout or else the first machine
 /// with one. Named apart from "Agents", the ones running now.
@@ -221,7 +159,7 @@ export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
   const view = whereView, note = pageFresh("where", p.name, readingWhere.has(p.name));
   showWindowParts([{ part: "project-where", host: view.host, identity: p.name, content: createElement(MachinesSection, { sync: fsync, project: p.name, items, model, imported: p.imported, known,
     count: whereCount(rows, false), fresh: note }) }]);
-  return panelSlot(view.host);
+  return view.host;
 }
 
 /// The coding agents running in the project's folders now.
@@ -237,5 +175,5 @@ export function agentsSection(running: RunningAgent[]) {
   }
   const current = runningView;
   showWindowParts([{ part: "project-running", host: current.host, content: createElement(ProjectRunning, { running }) }]);
-  return panelSlot(current.host);
+  return current.host;
 }

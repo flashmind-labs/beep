@@ -1,8 +1,6 @@
 // A project's agent on its page: the Tasks list, the Workers tree and the
 // cards its chat waits on.
 import { agentLabel } from "./projects-state.ts";
-import { el } from "../ui/dom.ts";
-import { dbtn, secBlock } from "../ui/parts.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { localProjectId } from "./localid.ts";
 import { projectOf, type ChatApproval } from "../agents/running-state.ts";
@@ -255,12 +253,6 @@ const WORKER_STATUS: Record<string, string> = { starting: "starting", running: "
 
 // ---------- Drawing ----------
 
-function section(id: string, title: string, sub: string, body: Node) {
-  const box = secBlock(title, sub, body);
-  box.id = id;
-  return box;
-}
-
 /// A task row's right-click menu: what its buttons do. Drop and Merge ask first.
 export function taskMenu(e: MouseEvent, t: TaskRow, act: RowActs, diff: (() => void) | null | undefined) {
   const items: MenuItem[] = [];
@@ -303,32 +295,4 @@ export function workerMenu(e: MouseEvent, w: WorkerRow, name: string, title: str
     run: async () => { await act.stop(w); },
   }) });
   if (items.length) openMenu(e, name, items);
-}
-
-/// One card the project chat waits on: what it asks, its fields, and Approve,
-/// Allow for this session (the same action, until the chat ends) or Deny.
-function card(c: ChatApproval, act: ProjectActs) {
-  const out = act.outcome(c.query_id);
-  const a = c.approval;
-  const items = a.fields.map(f => el("li", "", f.label, " ", el("small", "", f.value)));
-  const row = el("div", "acts");
-
-  if (out?.said) row.append(el("span", "ok", out.said));
-  else {
-    row.append(
-      dbtn("Approve", "pri small", () => act.answer(c, "allow", "Approved")),
-      dbtn("Allow for this session", "small", () => act.answer(c, "session", "Allowed for the rest of this chat")),
-      dbtn("Deny", "warn small", () => act.answer(c, "deny", "Denied")));
-    if (out?.error) row.append(el("span", "cc-err", out.error));
-  }
-
-  const box = el("div", "pj-plan", el("b", "", a.action), a.app ? el("small", "", a.app) : null, items.length ? el("ol", "", ...items) : null, row);
-  if (out?.said) box.style.opacity = ".55";
-  return box;
-}
-
-/// The cards the project chat waits on, above the board; null without any.
-export function cardsSection(view: ProjectView, act: ProjectActs) {
-  if (!view.cards.length) return null;
-  return section("sec-project-needs", "Needs you", "the project chat waits on these", el("div", "pj-needs", ...view.cards.map(c => card(c, act))));
 }
