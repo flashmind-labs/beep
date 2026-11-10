@@ -12,8 +12,8 @@ import type { ProviderCredits } from "../ui/credits.ts";
 // every session. They run in the bar and in the window's pane alike. This
 // file holds their shared types and state, and the Every session list.
 import { nest } from "./nesting-state.ts";
-import { parentSession, ensureSessions, loadSessions, reviewers, sessions } from "./sessions.ts";
-import { copiesClick, copiesHtml, keepCopiesFresh, onCopies, onCopyAction } from "./copies.ts";
+import { parentSession, ensureSessions, reviewers, sessions } from "./sessions.ts";
+import { copies, copiesClick, copiesHtml, keepCopiesFresh } from "./copies.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { preloadModels } from "./agentpicker.ts";
 import type { CheckoutPick } from "./agentpick.ts";
@@ -424,9 +424,8 @@ function sessionSub(s: AgentSession, harness: string, folder: string) {
 
 onPlaces(() => { if (S.view === "agents") drawAgents(false); });
 onMoves(() => { if (S.view === "agents") drawAgents(false); });
-onCopies(() => { if (S.view === "agents") drawAgents(false); });
+copies.subscribe(() => { if (S.view === "agents") drawAgents(false); });
 onClosing(() => { if (S.view === "agents") drawAgents(false); });
-onCopyAction(() => void loadSessions().catch(() => []));
 
 function sessionRow({ row, depth }: { row: AgentSession; depth: number }): AgentListRow {
   const s = { ...row, status: shownStatus(row) };
@@ -449,12 +448,12 @@ export function drawAgents(loading: boolean) {
   drawn = shown.map(n => n.row);
   AG.sel = Math.min(AG.sel, Math.max(0, drawn.length - 1));
   const machines = new Set(list.map(s => s.machine_id)).size;
-  const copies = copiesHtml(new Set(list.map(s => s.id)));
+  const copyRows = copiesHtml(new Set(list.map(s => s.id)));
   const sum = loading && !list.length ? "Looking at your machines…" : list.length ? `${list.length} on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
   if (!listPage || listPage.host.parentElement !== bar) listPage = openBarPage(() => { listPage = null; });
   const root = listPage.root;
   flushSync(() => root.render(createElement(AgentsList, {
-    rows: shown.map(sessionRow), showSessions: !!list.length, selected: AG.sel, summary: sum, error: AG.error, copies, loading,
+    rows: shown.map(sessionRow), showSessions: !!list.length, selected: AG.sel, summary: sum, error: AG.error, copies: copyRows, loading,
     hints: hintModel([[ICON.ret, "open"], ["⌘⇧A", "new"], ["esc", "back"]]),
   })));
   bar.onclick = e => {

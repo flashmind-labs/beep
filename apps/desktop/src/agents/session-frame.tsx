@@ -2,7 +2,8 @@ import { FilePicker } from "./file-picker.tsx";
 import { StashActions, StashIndicator } from "../chat/stash-hints.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { SHORTCUTS } from "../ui/shortcuts.ts";
-import { cloneElement, Fragment, isValidElement, memo, useLayoutEffect, useRef, useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
+import { cloneElement, Fragment, isValidElement, memo, useLayoutEffect, useRef, type MouseEvent, type ReactNode } from "react";
+import { createStore, useStore, type StoreApi } from "zustand";
 import { SessionTitle } from "./title-view.tsx";
 import { createPortal, flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
@@ -16,14 +17,14 @@ let current: Owner | null = null;
 
 // Each child and portal is its own store, so a pane redrawing one tab strip
 // renders that strip alone instead of the whole session frame.
-interface Slot { key: number; host: HTMLElement | null; view: ReactNode; listeners: Set<() => void> }
+interface Slot { key: number; host: HTMLElement | null; view: StoreApi<ReactNode> }
 
 function slot(owner: Owner, host: HTMLElement | null, view: ReactNode): Slot {
-  return { key: ++owner.next, host, view, listeners: new Set() };
+  return { key: ++owner.next, host, view: createStore<ReactNode>(() => view) };
 }
 
 const SlotView = memo(function SlotView({ slot }: { slot: Slot }) {
-  const view = useSyncExternalStore(listener => { slot.listeners.add(listener); return () => { slot.listeners.delete(listener); }; }, () => slot.view);
+  const view = useStore(slot.view);
   return slot.host ? createPortal(view, slot.host) : view;
 });
 
@@ -32,9 +33,8 @@ function draw(owner: Owner) {
 }
 
 function update(entry: Slot, view: ReactNode) {
-  if (entry.view === view) return;
-  entry.view = view;
-  flushSync(() => { for (const listener of entry.listeners) listener(); });
+  if (entry.view.getState() === view) return;
+  flushSync(() => entry.view.setState(view, true));
 }
 
 export function setSessionChild(key: string, view: ReactNode) {
