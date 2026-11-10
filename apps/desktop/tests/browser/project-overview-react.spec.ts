@@ -150,3 +150,17 @@ test("folder group editor keeps its draft and retries a failed save", async ({ p
   await page.evaluate(() => { window.__navigation.respond("project_group_save", { id: "group", name: "Example group", paths: ["work", "personal"] }); window.__navigation.release("project_group_save"); });
   await expect(sheet).toHaveCount(0);
 });
+
+test("the overview keeps its group rows through a visit to a project and back", async ({ page }) => {
+  await openDesktop(page);
+  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
+  const card = page.locator(".pj-card").first();
+  await expect(card).toBeVisible();
+  await card.evaluate(el => { (el as HTMLElement).dataset.identity = "kept"; Reflect.set(window, "overviewCard", el); });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await expect(page.locator(".pj-split")).toBeVisible();
+  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
+  // Opening a project can reorder the cards by recency, so the marked card is found by its marker.
+  await expect(page.locator('.pj-card[data-identity="kept"]')).toHaveCount(1);
+  expect(await page.evaluate(() => { const card: unknown = Reflect.get(window, "overviewCard"); return card instanceof HTMLElement && card.isConnected; })).toBe(true);
+});

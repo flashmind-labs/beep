@@ -16,7 +16,7 @@ import { openUrl } from "../center/openitems.ts";
 import { boxOf, drawPage, windowProject } from "../center/views.ts";
 import { setProjectOnTop, openProjectWindow, removeProject, projectRows, openProjects, addProject } from "../center/sidebar.ts";
 import { editGroup } from "./groups.ts";
-import { overviewSection, projectDetail } from "./projects.ts";
+import { disposeOverview, overviewSection, projectDetail } from "./projects.ts";
 import { NoProjects, Parts, viewPart, type PagePart } from "./page-view.tsx";
 import { splitOn, openTile } from "./split.ts";
 import { liveMode, pa, redrawProjectsPage, runs, terms } from "./sections.ts";
@@ -151,5 +151,5 @@ export const projectsView: CenterView<"projects"> = {
     ensureHome();
     prefetchRecentSoon();
   },
-  unmount: () => { disposeSessionPanel(); openTile(null, false); liveMode.follow(null); terms.stop(); },
+  unmount: () => { disposeSessionPanel(); disposeOverview(); openTile(null, false); liveMode.follow(null); terms.stop(); },
 };
