@@ -510,6 +510,7 @@ dependencies = [
  "qrcode",
  "rmp-serde",
  "rusqlite",
+ "rust_decimal",
  "secrecy",
  "security-framework",
  "serde",
