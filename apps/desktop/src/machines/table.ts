@@ -32,9 +32,8 @@ export async function useThisMac() {
   }
 
   draw();
+  // The Mac joining changes the `machines` topic, which reads the machines again.
   reloadGroup("machines");
-  // The link takes a moment; Home looks again soon after.
-  for (const ms of [1500, 5000]) setTimeout(refresh, ms);
 }
 
 /// A machine the window can offer to remove: any but this Mac, which
