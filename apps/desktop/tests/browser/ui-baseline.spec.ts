@@ -406,7 +406,8 @@ test("phone session with the command strip folded", async ({ page }) => {
   await page.setViewportSize(PHONE);
   await openDesktop(page, false, { agent_view: { ...agentView, queued: steers.length, queued_messages: steers }, agent_tasks: tasks, agent_steer: [] });
   await page.evaluate(target => window.__navigation.open({ agent: target }), session);
-  await expect(page.locator(".ag-workline")).toHaveText("3 running, 2 queued");
+  await expect(page.locator(".ag-workline")).toHaveText("2 queued");
+  await expect(page.locator(".ag-tasks")).toHaveText("3 commands running");
   await baseline(page, "phone-session");
 });
 

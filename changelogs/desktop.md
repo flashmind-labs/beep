@@ -25,6 +25,9 @@ Other apps have independent versions and changelogs:
   starts a new agent. With nothing recent the bar opens on the new agent form.
 - Desktop: a session's background commands and queued messages take at
   most about a third of the window and scroll inside it.
+- Desktop: a session's background commands show as one line above the
+  message field, such as "3 commands running", instead of a row each. Click
+  it to open the Running tab, which lists each command with its Stop button.
 - Desktop: the usage pill shows each harness's icon and the share of its
   most used limit, without bars. The popover hides empty sections and keeps
   its note on dollars to periods that show dollars.

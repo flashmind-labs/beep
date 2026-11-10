@@ -41,6 +41,7 @@
 .wq .ln i{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}
 .wq .ln span{flex:1}
 .wq .ln svg{color:var(--dim)}
+.wq .ln.run{border-bottom:1px solid var(--border)}
 .wq .ls{position:absolute;left:8px;right:8px;bottom:calc(100% + 6px);max-height:360px;overflow:hidden;border:1px solid var(--border);border-radius:var(--radius);background:var(--elev);box-shadow:0 10px 30px rgba(0,0,0,.35);padding:4px 0}
 .wq .r{display:flex;align-items:center;gap:8px;min-height:36px;padding:0 6px 0 12px;font-size:12.5px;color:var(--muted)}
 .wq .r .d{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}

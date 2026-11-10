@@ -10,9 +10,10 @@ Earlier releases predate this changelog.
 
 ### Changed
 
-- iOS: background commands and queued messages in a session fold into
-  one line above the message field, such as "6 running, 4 queued"; tap it
-  to list them with Stop, Edit and remove.
+- iOS: a session's background commands fold into one line above the
+  message field, such as "3 commands running"; tap it to open the Running
+  tab, where each command has its Stop button. Queued messages fold into a
+  line of their own, such as "4 queued"; tap it to edit or remove them.
 - iOS: the Home usage pill shows each harness's icon and the share of its
   most used limit, without bars.
 - iOS: the Projects page lists the most recently active projects first

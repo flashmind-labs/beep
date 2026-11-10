@@ -23,7 +23,7 @@ import { readError, loadText, startTerminal, load } from "./read.ts";
 import { togglePreview } from "./text-view.tsx";
 import { frameResize } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
-import { draw, noteTab } from "./media-draw.ts";
+import { draw, noteTab, pickPhoneTab } from "./media-draw.ts";
 import { dockHolding, dockOf, docked, paneModel, paneOf, place, setPaneModel, shell, shownDocks, tabIds } from "./media-layout.ts";
 
 /// What the node gives of a file, a part at a time (`agent_file`).
@@ -428,6 +428,17 @@ export function showFiles() {
   P.on[d] = FILES;
   P.layout.hidden[d] = false;
   draw();
+}
+
+/// Shows the Running tab, unfolding its dock; on a phone it fills the screen.
+export function showRunning() {
+  if (!shell() || !tabIds().includes(RUNNING)) return;
+  if (paneModel.getState().phone) return pickPhoneTab(RUNNING);
+
+  const d = dockOf(RUNNING);
+  P.layout.hidden[d] = false;
+  saveLayout();
+  showTab(d, RUNNING);
 }
 
 /// Shows the Artifacts tab, unfolding its dock, on the artifact at `path`

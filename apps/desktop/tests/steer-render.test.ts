@@ -141,18 +141,22 @@ test("attachment updates preserve chips and upload choices", async t => {
   first.click(); assert.deepEqual(MN.paths, ["src/second.ts"]); assert.equal(document.activeElement, input);
 });
 
-test("background task updates preserve existing controls and focus", t => {
+test("background commands show as one line that keeps its focus as the count changes", t => {
   setup();
   t.after(() => { disposeQueue(); AG.tasks = []; });
   const task = { id: "first", name: "Build", description: "Build the app", state: "running", can_stop: true, output_file: null, summary: null, entry: null };
   AG.tasks = [task]; drawTasks();
-  const button = bar.querySelector<HTMLButtonElement>('[data-agtask="first"]'); assert.ok(button); button.focus();
+  const line = bar.querySelector<HTMLButtonElement>(".ag-tasks"); assert.ok(line); line.focus();
+  assert.equal(line.textContent, "1 command running");
+  assert.equal(bar.querySelector("[data-agtask]"), null, "rows with Stop live in the Running tab");
   AG.tasks = [{ ...task }, { ...task, id: "second", name: "Test" }]; drawTasks();
-  assert.equal(bar.querySelector('[data-agtask="first"]'), button);
-  assert.equal(document.activeElement, button);
+  assert.equal(bar.querySelector(".ag-tasks"), line);
+  assert.equal(line.textContent, "2 commands running");
+  assert.equal(document.activeElement, line);
   AG.tasks = [{ ...task, state: "completed" }, { ...task, id: "second", name: "Test" }]; drawTasks();
-  assert.equal(bar.querySelector('[data-agtask="first"]'), null);
-  assert.ok(bar.querySelector('[data-agtask="second"]'));
+  assert.equal(line.textContent, "1 command running");
+  AG.tasks = []; drawTasks();
+  assert.equal(bar.querySelector(".ag-tasks"), null);
 });
 
 test("steers appear only in the composer until recorded in the transcript", async t => {

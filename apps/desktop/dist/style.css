@@ -68,7 +68,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 /* Spinners turn only for a wait the user started and for the open transcript. */
 .dspin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); display: inline-block; animation: spin .8s linear infinite }
 /* Work that runs for minutes or hours shows a still dot, so it draws nothing while it runs. */
-.drun, .cc-running .dspin, .chip .dspin, .rr-st .dspin, .dchat .run .dspin, .ddock .step .dspin, .ag-task .dspin, .dspin.sw-spin, .cc-si > .dspin { display: inline-block; flex: none; width: 7px; height: 7px; border: 0; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); animation: none }
+.drun, .cc-running .dspin, .chip .dspin, .rr-st .dspin, .dchat .run .dspin, .ddock .step .dspin, .ag-tasks .dspin, .dspin.sw-spin, .cc-si > .dspin { display: inline-block; flex: none; width: 7px; height: 7px; border: 0; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); animation: none }
 @keyframes spin { to { transform: rotate(360deg) } }
 /* A hidden window keeps no spinner turning (ui/active.ts sets data-hidden). */
 :root[data-hidden] .dspin { animation-play-state: paused }
@@ -1286,11 +1286,12 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agpane.zoomed > .agpane-content { position: absolute; inset: 0; z-index: 3; background: var(--surface) }
 .agshell.zoomed .agdiv { visibility: hidden; pointer-events: none }
 #agtasks:empty { display: none }
-/* Background commands and queued steers never take more than about a third of the session. */
+/* Queued steers never take more than about a third of the session. */
 .ag-worklist { max-height: 30vh; overflow-y: auto; overscroll-behavior: contain }
 .ag-workline { display: none }
-.ag-task { display: flex; align-items: center; gap: 8px; margin: 6px 16px 0; padding: 4px 6px 4px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); font-size: 12.5px }
-.ag-task .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono) }
+/* Background commands are one line; their rows and Stop buttons are in the Running tab. */
+.ag-tasks { display: inline-flex; align-items: center; gap: 8px; margin: 6px 16px 0; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font: inherit; font-size: 12px; color: var(--muted); cursor: pointer }
+.ag-tasks:hover { color: var(--fg) }
 /* The worktree dropdown in a dock's header. */
 .agwtw { position: relative; margin-left: auto; flex: none }
 .agwtw[hidden] { display: none }
