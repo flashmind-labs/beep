@@ -244,3 +244,28 @@ test("rerun menu sends the selected model and thinking level", async ({ page }) 
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "rerun_prompt").map(call => call.args.pick))).toEqual([{ model: "one", thinking: "high" }]);
   await expect(page.locator(".turn .drerunof")).toHaveText("Rerun on One · high");
 });
+
+test("reply copy reports success and failure without replacing its focused button", async ({ page }) => {
+  const history = [{ role: "user", text: "Explain", at: 1, images: [], model: "", thinking: "" }, { role: "assistant", html: "<p>Answer</p>", tools: [], replies: [], model: "" }];
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const button = page.locator('.dreplyacts [data-act="copyReply"]');
+  await expect(button).toBeVisible();
+  await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (value: string) => { Reflect.set(window, "copiedText", value); } } }));
+  await button.click();
+  await expect(button).toContainText("Copied");
+  expect(await page.evaluate(() => Reflect.get(window, "copiedText"))).toBe("Answer");
+  await button.evaluate(el => Reflect.set(window, "copyButton", el));
+  await page.evaluate(() => window.__navigation.emit("sessions-changed", "chat-example"));
+  expect(await button.evaluate(el => el === Reflect.get(window, "copyButton") && document.activeElement === el)).toBe(true);
+  await expect(button).toContainText("Copy", { timeout: 3000 });
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("blocked"); } } });
+    document.execCommand = () => { throw new Error("blocked"); };
+  });
+  await button.click();
+  await expect(button).toContainText("Copy failed");
+  await expect(button).toBeEnabled();
+  await expect(button).toBeFocused();
+  await expect(page.locator("body > textarea")).toHaveCount(0);
+});

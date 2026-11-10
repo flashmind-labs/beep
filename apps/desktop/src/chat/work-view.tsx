@@ -7,6 +7,7 @@ import { COPY_ICON, ICON } from "../ui/icons.ts";
 import { PLAY_ICON } from "../lists/memories.ts";
 import type { ApprovalField, Decision } from "./chat.ts";
 import { invoke } from "../ui/tauri.ts";
+import { writeClipboard } from "../ui/parts.ts";
 import type { WebSource } from "./history.ts";
 import { liveText } from "../agents/karaoke.ts";
 import { duration, thoughtLabel } from "../agents/agentturns.ts";
@@ -138,7 +139,19 @@ function RerunMenu({ value }: { value: RerunView }) {
   return <>{value.choices.map(choice => <button key={choice.id} className="mi" role="menuitem" data-rerun={choice.id} aria-current={choice.used ? "true" : undefined} onClick={event => { event.stopPropagation(); value.run(choice.id, thinking === "default" ? null : thinking); }}><b>{choice.name}</b>{choice.used && <span className="ok" dangerouslySetInnerHTML={{ __html: ICON.check }} />}<small>{choice.detail}</small></button>)}<div className="think">Thinking<span className="dchips">{value.levels.map(level => <button key={level.id} className="dchip" data-rthink={level.id} aria-pressed={level.id === thinking} onClick={event => { event.stopPropagation(); setThinking(level.id); }}>{level.label}</button>)}</span></div></>;
 }
 const ReplyActionsView = memo(function ReplyActionsView({ value }: { value: ReplyActions }) {
-  return <>{value.copy && <button className="dcopy" data-act="copyReply"><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: COPY_ICON }} />Copy</button>}{value.rerun && <span className="drerun"><button className="dcopy" data-act="rerunMenu" aria-haspopup="menu" aria-expanded={false}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: PLAY_ICON }} />Rerun<span className="dchev" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></button></span>}{value.agent && <span className="dagent" title="The agent that answered">{value.agent}</span>}</>;
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null), generation = useRef(0);
+  useEffect(() => () => { generation.current++; if (timer.current) clearTimeout(timer.current); }, []);
+  const copyReply = async (button: HTMLButtonElement) => {
+    const mine = ++generation.current;
+    if (timer.current) clearTimeout(timer.current);
+    const text = button.closest(".turn")?.querySelector<HTMLElement>(":scope > .dcoderen.agent")?.innerText.trim() ?? "";
+    try { await writeClipboard(text); if (generation.current === mine) setCopyState("copied"); }
+    catch { if (generation.current === mine) setCopyState("failed"); }
+    if (generation.current === mine) timer.current = setTimeout(() => setCopyState("idle"), 1200);
+  };
+  const label = copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed" : "Copy";
+  return <>{value.copy && <button className="dcopy" data-act="copyReply" onClick={event => { event.stopPropagation(); void copyReply(event.currentTarget); }}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: copyState === "copied" ? ICON.check : COPY_ICON }} />{label}</button>}{value.rerun && <span className="drerun"><button className="dcopy" data-act="rerunMenu" aria-haspopup="menu" aria-expanded={false}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: PLAY_ICON }} />Rerun<span className="dchev" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></button></span>}{value.agent && <span className="dagent" title="The agent that answered">{value.agent}</span>}</>;
 });
 const Approval = memo(function Approval({ value }: { value: ApprovalView }) {
   return <><div className="head"><AppLogo app={value.app} /><div className="dcol"><b>{value.action}?</b><small>{value.app} asks first</small></div></div>
