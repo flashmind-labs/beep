@@ -1,9 +1,8 @@
 import { Fragment } from "react";
-import { thoughtLabel, duration, type RowParts, type ToolKind, type TurnState } from "./agentturns.ts";
+import { thoughtLabel, duration, KIND_ICONS, type RowParts, type ToolKind, type TurnState } from "./agentturns.ts";
 import { liveText } from "./karaoke.ts";
 import { ICON } from "../ui/icons.ts";
 import { esc } from "../ui/format.ts";
-import { KIND_ICONS } from "./turnrows.ts";
 import { SubagentsView, type SubagentRow } from "../agentpane/subagents-view.tsx";
 import type { MadeFile, MadeFiles } from "../agentpane/artifacts-state.ts";
 import type { Answered } from "./agentlog.ts";
