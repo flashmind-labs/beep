@@ -1,7 +1,7 @@
 // A chat's turns: the prompt, the work before the answer, the answer and
 // what tools sent under it.
 import { turnState } from "./turn-state.ts";
-import { appendTurn, createTurn, setView, turnsOf, viewOf, type Sent, type SentItem, type Turn, type WorkStep, type WorkThought, type WorkView } from "./transcript.ts";
+import { appendTurn, createTurn, setView, streamReply, turnsOf, viewOf, type Sent, type SentItem, type Turn, type WorkStep, type WorkThought, type WorkView } from "./transcript.ts";
 import type { AskFile } from "./attach.ts";
 import { type Chart } from "./charts.ts";
 import { cardKey, parseAgentReport } from "./agentcard.ts";
@@ -138,7 +138,7 @@ export function endThought(turn: Turn) {
 /// Sets the reply's HTML; a reply the user is selecting in waits.
 export function setChatReply(turn: Turn, html: string) {
   turnState(turn).reply = html;
-  setView(turn, { reply: html });
+  streamReply(turn, html);
 }
 export function appendChatReply(turn: Turn, html: string) { setChatReply(turn, turnState(turn).reply + html); }
 export function chatReplyHtml(turn: Turn) { return turnState(turn).reply; }
