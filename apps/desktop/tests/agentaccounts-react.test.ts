@@ -14,7 +14,7 @@ test("agent account updates retain the secret input and dispatch its save", asyn
   const { render, fireEvent, cleanup } = await import("@testing-library/react");
   let secret = "";
   const noop = () => {};
-  const actions: AgentAccountActions = { edit: noop, cancel: noop, save: value => { secret = value; }, revoke: noop, claudeSign: noop, claudeCancel: noop, codexSign: noop, codexCancel: noop, copy: noop, open: noop };
+  const actions: AgentAccountActions = { edit: noop, cancel: noop, save: value => { secret = value; }, revoke: noop, claudeSign: noop, claudeCancel: noop, codexSign: noop, codexCancel: noop, open: noop };
   const state: AgentAccountsState = { edit: "claude", data: { claude: null, codex_key: null, machines: [] } };
   try {
     const view = render(createElement(AgentAccountsView, { state, actions, ago: () => "today", now: 0 }));

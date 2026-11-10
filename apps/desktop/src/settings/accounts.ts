@@ -288,6 +288,5 @@ const agentActions: AgentAccountActions = {
     if (flow?.task !== undefined) await invoke("codex_login_cancel", { machineId: id, task: flow.task }).catch(console.warn);
     delete ACC.codex[id]; redrawAgents();
   },
-  copy(code, button) { void copy(code, button); },
   open(url) { invoke("open_url", { url }).catch(console.warn); },
 };

@@ -1,6 +1,5 @@
 import { flushSync } from "react-dom";
 import { renderChat } from "../chat/chat.ts";
-import { copy } from "../ui/parts.ts";
 import { S } from "./core.ts";
 import { type BarPageSlot, openBarPage } from "./bar-app.tsx";
 import { loadModels } from "../settings/model.ts";
@@ -13,7 +12,7 @@ export type PhoneInvite = Omit<LinkView, "uri">;
 export type LinkState = "waiting" | "linked" | "expired";
 export type LoginStep = "signin" | "browser" | "signfail" | "ownserver";
 let offer: (LinkView & { until: number }) | null = null;
-let invite: PhoneInvite | null = null, login: LoginStep = "signin", loginError = "";
+let login: LoginStep = "signin", loginError = "";
 let screen: LinkScreen = { kind: "loading" }, generation = 0;
 let view: BarPageSlot | null = null;
 
@@ -28,7 +27,7 @@ function draw(next: LinkScreen) {
 const actions: LinkActions = {
   again: () => void renderLink(), here: () => void useHere(), joinScreen: () => renderJoinCode(),
   loginStep: step => { generation++; login = step; loginError = ""; drawLogin(); }, browser: () => void openBrowser(), token: value => completeToken(value), connect: code => void connect(code), join: code => void join(code), back: () => void renderLink(),
-  inviteAgain: () => void renderInvitePhone(), inviteBack: () => { generation++; clearInterval(S.timer); renderSettings(); }, copy: button => { if (invite) copy(invite.code, button); }, startOver: () => void invoke("start_over"),
+  inviteAgain: () => void renderInvitePhone(), inviteBack: () => { generation++; clearInterval(S.timer); renderSettings(); }, startOver: () => void invoke("start_over"),
 };
 
 export async function renderLink() {
@@ -107,7 +106,7 @@ export async function renderInvitePhone() {
   try {
     const value = await invoke<PhoneInvite>("invite_phone");
     if (mine !== generation || S.view !== "invite-phone") return;
-    invite = value; const until = Date.now() + value.expires_in * 1000;
+    const until = Date.now() + value.expires_in * 1000;
     draw({ kind: "invite", invite: value, expired: false });
     S.timer = setInterval(() => {
       if (mine !== generation || S.view !== "invite-phone") return clearInterval(S.timer);

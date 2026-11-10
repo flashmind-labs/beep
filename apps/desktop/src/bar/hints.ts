@@ -1,10 +1,12 @@
 import { attachedCount } from "../chat/attach.ts";
-import { drawQueue } from "../chat/chat.ts";
+import { drawQueue, openInWindow } from "../chat/chat.ts";
 import { forRoutine } from "../chat/approval-cards.ts";
 import { $, bar, here, PANE, queued, S } from "./core.ts";
 import { linkChip } from "../settings/server-state.ts";
 import { liveParts, LV } from "./live.ts";
-import { modelChipLabel } from "../settings/model.ts";
+import { modelChipLabel, renderModel } from "../settings/model.ts";
+import { renderSettings } from "../settings/settings.ts";
+import { renderLink, renderRevoked } from "./link.ts";
 import { waitingQuestion } from "./work.ts";
 import { ICON } from "../ui/icons.tsx";
 import type { HintViewModel } from "./hints-view.tsx";
@@ -51,6 +53,17 @@ export function chatHints() {
 export const KNOWS_HOTKEY = "beep.knowsHotkey";
 export function knowsHotkey() { try { return localStorage.getItem(KNOWS_HOTKEY) === "1"; } catch { return false; } }
 export function learnedHotkey() { try { localStorage.setItem(KNOWS_HOTKEY, "1"); } catch {} }
+/// What a button in the hint row does.
+export type HintAction = "window" | "model" | "link";
+
+export function runHint(action: HintAction) {
+  switch (action) {
+    case "window": return openInWindow(S.session);
+    case "model": return renderModel();
+    case "link": return S.link === "revoked" ? renderRevoked() : S.signedOut ? renderSettings() : renderLink();
+  }
+}
+
 export function refreshHints() {
   if (S.view === "chat" && bar.querySelector(".dhints")) drawQueue();
 }

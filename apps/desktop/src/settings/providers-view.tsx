@@ -3,12 +3,11 @@ import { ModelContextView } from "./model-context-view.tsx";
 import type { ModelContextPanel } from "./model-context.ts";
 import { FlshView } from "./flsh-view.tsx";
 import type { FlshPanel } from "./flsh.ts";
-import { copy } from "../ui/parts.ts";
 import { splitFailure } from "../ui/failbanner-view.tsx";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { adapterLine, type AdapterInstall } from "../machines/adapters-state.ts";
 import { compactKind, differsLabel, differsOn, draftChanged, envProblem, harnessName, hasUpdate, listRows, planOf, summaryLine, versionLine, type AutoCompactDraft, type HarnessDraft, type HarnessesView, type HarnessView, type MachineSettings, type SharedField } from "./providers-state.ts";
-import { EmptyPanel } from "../ui/kit.tsx";
+import { CopyButton, EmptyPanel } from "../ui/kit.tsx";
 
 export interface SharedProviderSettings {
   agent: string; machineName: string | null;
@@ -94,7 +93,7 @@ function Runtime({ hv, p }: { hv: HarnessView; p: ProviderProps }) {
   const status = hv.sign_in;
   return <div className="hv-d">
     {!p.inSettings && <><h3><HarnessIcon agent={hv.agent} />{name}<span className="ver">{versionLine(hv)}</span></h3><h4>Status</h4></>}
-    {!hv.installed ? <>{!p.inSettings && <div className="hv-stat">Not installed on {p.machineName}.</div>}{hv.install ? <div className="hv-acts"><button type="button" className="dbtn pri" disabled={busy} onClick={() => p.update(hv)}>{busy ? "Installing…" : `Install on ${p.machineName}`}</button><button type="button" className="dbtn quiet" onClick={e => void copy(hv.install ?? "", e.currentTarget)}>Copy install command</button></div> : <div className="hv-note">Install it on the machine, then check again.</div>}</> : <>
+    {!hv.installed ? <>{!p.inSettings && <div className="hv-stat">Not installed on {p.machineName}.</div>}{hv.install ? <div className="hv-acts"><button type="button" className="dbtn pri" disabled={busy} onClick={() => p.update(hv)}>{busy ? "Installing…" : `Install on ${p.machineName}`}</button><CopyButton className="dbtn quiet" text={hv.install} label="Copy install command" /></div> : <div className="hv-note">Install it on the machine, then check again.</div>}</> : <>
       {!p.inSettings && (status.state === "signed_in" ? <div className="hv-stat"><span className="ddot" />{`Signed in${status.account ? ` as ${status.account}` : ""}${planOf(status)}`}</div> : status.state === "beep_token" ? <div className="hv-stat"><span className="ddot" />{`Signs in with the token in Agent accounts (…${status.last4 ?? ""})`}</div> : status.state === "signed_out" ? <div className="hv-stat"><span className="ddot" style={{ background: "var(--hot)" }} />Not signed in on {p.machineName}</div> : <div className="hv-stat">{name} does not say whether it is signed in. Run it on {p.machineName} to sign in.</div>)}
       {status.state === "beep_token" && <div className="hv-acts"><button type="button" className="dbtn" onClick={p.openAccounts}>Agent accounts</button></div>}
       {status.state === "signed_out" && (hv.agent === "claude" || hv.agent === "codex" ? <div className="hv-acts"><button type="button" className="dbtn pri" onClick={p.openAccounts}>Sign in</button></div> : <div className="hv-note">Run {hv.agent} on {p.machineName} and sign in there.</div>)}

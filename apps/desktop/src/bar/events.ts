@@ -2,7 +2,7 @@ import { turnState } from "../chat/turn-state.ts";
 import "./keys.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
 import { approvalNotice, answeredTurns } from "../chat/approval-cards.ts";
-import { openInWindow, renderChat } from "../chat/chat.ts";
+import { renderChat } from "../chat/chat.ts";
 import { watchRun } from "../chat/runs.ts";
 import { loadChats } from "../chat/chats.ts";
 import { copy } from "../ui/parts.ts";
@@ -10,10 +10,9 @@ import { bar, G, here, live, type LinkState, PANE, S } from "./core.ts";
 import { drawGroup, type GroupApproval, loadGroup } from "../chat/groups.ts";
 import { learnedHotkey, refreshHints } from "./hints.ts";
 import { refreshSession } from "../chat/history.ts";
-import { drawLink, loginFailed, renderLink, renderRevoked } from "./link.ts";
+import { drawLink, loginFailed, renderRevoked } from "./link.ts";
 import { openViewer } from "../chat/media.ts";
-import { loadModels, renderModel } from "../settings/model.ts";
-import { renderSettings } from "../settings/settings.ts";
+import { loadModels } from "../settings/model.ts";
 import { closeRerunMenu } from "../chat/rerun.ts";
 import { forgetHeight } from "./size.ts";
 import { show } from "./views.ts";
@@ -78,9 +77,6 @@ function flash(b: UndoButton, done: string, back: string) {
 // copies its link instead.
 bar.addEventListener("click", e => {
   const t = e.target as HTMLElement;
-  if (t.closest(".dhints .st")) return S.link === "revoked" ? renderRevoked() : S.signedOut ? renderSettings() : renderLink();
-  if (t.closest('[data-act="model"]')) return renderModel();
-  if (t.closest('[data-act="openWindow"]')) return openInWindow(S.session);
   if (!t.closest(".dmenu")) closeRerunMenu();
   // The sanitized markup of replies and cards brings its own copy buttons: a
   // product card's copies its link, a code block's or a quote's its text.

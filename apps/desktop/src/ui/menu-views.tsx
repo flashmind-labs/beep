@@ -1,6 +1,43 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { reason } from "./format.ts";
 import type { ConfirmOptions, RenameOptions } from "./menu.ts";
+
+/// The box of a right-click menu at `at`, kept inside the window. A click
+/// outside it, leaving the window or a scroll closes it; Esc also gives focus back.
+export function MenuBox({ at, close, escape, children }: { at: { x: number; y: number }; close(): void; escape(): void; children?: ReactNode }) {
+  const menuBox = useRef<HTMLDivElement>(null);
+  const [place, setPlace] = useState<CSSProperties>({});
+  useLayoutEffect(() => {
+    const r = menuBox.current?.getBoundingClientRect();
+    if (!r) return;
+    const left = Math.max(4, Math.min(at.x, innerWidth - r.width - 4)), top = Math.max(4, Math.min(at.y, innerHeight - r.height - 4));
+    setPlace(was => was.left === left && was.top === top ? was : { left, top });
+    // The first item takes focus once the list is drawn; a longer list keeps it where it was.
+    const box = menuBox.current;
+    if (box && !box.contains(document.activeElement)) box.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  }, [at, children]);
+  useEffect(() => {
+    const away = (event: MouseEvent) => { if (!(event.target instanceof Node) || !menuBox.current?.contains(event.target)) close(); };
+    const keys = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      escape();
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    window.addEventListener("mousedown", away, true);
+    window.addEventListener("keydown", keys, true);
+    window.addEventListener("blur", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("mousedown", away, true);
+      window.removeEventListener("keydown", keys, true);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [close, escape]);
+
+  return <div className="cc-menu" ref={menuBox} style={place}>{children}</div>;
+}
 
 export function ConfirmView({ options, close, pending }: { options: ConfirmOptions; close(): void; pending(value: boolean): void }) {
   const [busy, setBusy] = useState(false), [ticked, setTicked] = useState(false);

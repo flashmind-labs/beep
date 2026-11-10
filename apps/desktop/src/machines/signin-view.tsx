@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { copy } from "../ui/parts.ts";
+import { CopyButton } from "../ui/kit.tsx";
 import { stillRunning, type SignInView } from "./signin-state.ts";
 
 interface SignInBodyProps {
@@ -32,8 +32,8 @@ export function SignInBody({ machineName, tool, view, error, sending, send, retr
 
   return <>
     <div className="am-head"><b>{`Sign in ${tool} on ${machineName}`}</b><kbd>esc</kbd></div>
-    {view?.url && <><div className="am-label">Link</div><div className="am-line"><div className="am-code">{view.url}</div><button type="button" className="dbtn" onClick={e => void copy(view.url ?? "", e.currentTarget)}>Copy</button><button type="button" className="dbtn pri" onClick={() => openUrl(view.url ?? "")}>Open in browser</button></div></>}
-    {view?.code && <><div className="am-label">Code to enter there</div><div className="am-line"><div className="am-code">{view.code}</div><button type="button" className="dbtn" onClick={e => void copy(view.code ?? "", e.currentTarget)}>Copy</button></div></>}
+    {view?.url && <><div className="am-label">Link</div><div className="am-line"><div className="am-code">{view.url}</div><CopyButton text={view.url} /><button type="button" className="dbtn pri" onClick={() => openUrl(view.url ?? "")}>Open in browser</button></div></>}
+    {view?.code && <><div className="am-label">Code to enter there</div><div className="am-line"><div className="am-code">{view.code}</div><CopyButton text={view.code} /></div></>}
     {asksCode && <><div className="am-label">Code from the page</div><div className="am-line"><input ref={field} className="am-code" placeholder="Paste the code" spellCheck={false} autoCapitalize="off" value={code} onChange={e => setCode(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); void submit(); } }} /><button type="button" className="dbtn pri" onClick={() => void submit()}>{sending ? "Sending…" : "Send"}</button></div><div className="am-sub">Sign in on the page, then paste the code it shows.</div></>}
     {(!view || view.state === "starting") && <div className="am-wait"><span className="dspin" />{`Starting ${tool}'s sign-in on ${machineName}…`}</div>}
     {waiting && !view.asks_code && <div className="am-wait"><span className="dspin" />Waiting for you to approve it in the browser</div>}

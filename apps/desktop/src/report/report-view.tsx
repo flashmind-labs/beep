@@ -1,5 +1,4 @@
-import { Spinner } from "../ui/kit.tsx";
-import { copy } from "../ui/parts.ts";
+import { CopyButton, Spinner } from "../ui/kit.tsx";
 import { PERIODS, answerLabel, canSend, issueHint, sizeLabel, type ReportEvent, type ReportState } from "./report-state.ts";
 
 interface ReportBodyProps {
@@ -80,5 +79,5 @@ function Body(p: ReportBodyProps) {
 }
 
 function Reference({ reference }: { reference: string }) {
-  return <div className="rp-ref"><span>{reference}</span><button type="button" className="dbtn small" onClick={e => void copy(reference, e.currentTarget)}>Copy</button></div>;
+  return <div className="rp-ref"><span>{reference}</span><CopyButton className="dbtn small" text={reference} /></div>;
 }
