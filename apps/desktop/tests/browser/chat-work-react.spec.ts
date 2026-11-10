@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { openDesktop, pageErrors } from "./harness.ts";
 
 test("chat work keeps its heading and fold state on history refresh", async ({ page }) => {
   const id = 'chat-example';
@@ -288,9 +288,7 @@ test("streamed thought updates keep the thought body mounted", async ({ page }) 
 });
 
 test("history can add prompt pictures to an existing React turn", async ({ page }) => {
-  const errors: string[] = [];
-  page.on("pageerror", error => errors.push(error.message));
-  page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+  const errors = pageErrors(page);
   const user = { role: "user", text: "See this", at: 1, images: [], model: "", thinking: "" };
   const answer = { role: "assistant", html: "<p>Done.</p>", tools: [], replies: [], model: "" };
   const picture = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==";

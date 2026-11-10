@@ -23,12 +23,13 @@ async function setup(page: Page) {
 const frames = (page: Page) => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
 const takeLongTasks = (page: Page) => page.evaluate(() => { const list: number[] = Reflect.get(window, "longTasks"); return list.splice(0); });
 
-test("a 600 file diff opens, scrolls and updates without long tasks", async ({ page }, info) => {
+test("a 600 file diff opens, scrolls and updates without long tasks", async ({ page, browserName }, info) => {
   test.skip(info.project.name !== "macOS", "one measured run is enough");
   test.setTimeout(120_000);
   await setup(page);
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send("Performance.enable");
+  // DOM and heap counters come from CDP, which only Chromium has.
+  const cdp = browserName === "chromium" ? await page.context().newCDPSession(page) : null;
+  await cdp?.send("Performance.enable");
   const size = await page.evaluate(() => Reflect.get(window, "largeDiffStats")());
   expect(size.files).toBe(600);
   expect(size.lines).toBeGreaterThan(30_000);
@@ -45,9 +46,9 @@ test("a 600 file diff opens, scrolls and updates without long tasks", async ({ p
   });
   await frames(page);
   const openTasks = await takeLongTasks(page);
-  await cdp.send("HeapProfiler.collectGarbage");
-  const { nodes } = await cdp.send("Memory.getDOMCounters");
-  const metrics = (await cdp.send("Performance.getMetrics")).metrics;
+  await cdp?.send("HeapProfiler.collectGarbage");
+  const nodes = cdp ? (await cdp.send("Memory.getDOMCounters")).nodes : null;
+  const metrics = cdp ? (await cdp.send("Performance.getMetrics")).metrics : [];
   const heap = Math.round((metrics.find(m => m.name === "JSHeapUsedSize")?.value ?? 0) / 1e6);
   const dvNodes = await page.evaluate(() => document.querySelector(".dv")?.getElementsByTagName("*").length ?? 0);
 
