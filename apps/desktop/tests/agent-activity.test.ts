@@ -16,7 +16,7 @@ function mount() {
   bar.innerHTML = '<div id="agbody"></div>';
   const body = bar.querySelector<ChatBody>("#agbody"); assert.ok(body);
   Object.defineProperty(body, "clientHeight", { configurable: true, value: 800 });
-  const w = createLog(), view = createDocumentView(body);
+  const w = createLog(body), view = createDocumentView(body);
   flushSync(() => view.render(createElement("div", { className: "dcoderlog", ref: w.attach }, createElement(TranscriptLog, { log: w }))));
   const log = body.querySelector<HTMLElement>(".dcoderlog"); assert.ok(log);
   return { body, log, w, done: () => { disposeLog(w); view.unmount(); } };
