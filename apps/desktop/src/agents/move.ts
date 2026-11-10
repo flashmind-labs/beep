@@ -15,12 +15,14 @@ import { loadSessions } from "./sessions.ts";
 import { $, S, windowHooks } from "../bar/core.ts";
 import { placeOf } from "./place.ts";
 import { invoke } from "../ui/tauri.ts";
-import { paneShown } from "../ui/active.ts";
+import { latest, paneShown, STALE } from "../ui/active.ts";
 import type { ProjectMachineRow } from "../project/projects-state.ts";
 
 const UI = { targets: [] as MoveTarget[], open: false, loading: false, error: "", errorSession: "" };
 let warningTimer: ReturnType<typeof setTimeout> | null = null;
-let menuRequest = 0, menuSession = "";
+/// The menu's read of the machines; closing the menu drops it.
+const menuRead = latest();
+let menuSession = "";
 
 function warn(s: AgentRow, error: unknown) {
   if (warningTimer !== null) clearTimeout(warningTimer);
@@ -44,7 +46,7 @@ export function drawMove() {
   const s = AG.page?.session;
   if (!s) return;
   const key = `${s.machine_id}\n${s.agent}\n${s.id}`;
-  if (menuSession !== key) { menuSession = key; menuRequest++; UI.open = false; UI.loading = false; UI.targets = []; closeOutside(); }
+  if (menuSession !== key) { menuSession = key; menuRead.cancel(); UI.open = false; UI.loading = false; UI.targets = []; closeOutside(); }
   const head = $("#aghere"), box = $("#agmovebox");
   const eligible = !!head && canMove(s) && !s.external && !!windowHooks?.sessionProject?.(s)?.name;
   if (!eligible && !box && !moveRoot) return;
@@ -71,18 +73,22 @@ async function poll() {
   try { await loadSessions(); } catch (e) { console.warn("sessions not read after a move", e); }
   drawMove();
 }
-const outside = () => { UI.open = false; menuRequest++; closeOutside(); drawMove(); };
+const outside = () => { UI.open = false; menuRead.cancel(); closeOutside(); drawMove(); };
 function closeOutside() { document.removeEventListener("click", outside); }
 async function toggle(s: AgentRow) {
   UI.open = !UI.open;
-  const request = ++menuRequest;
   closeOutside();
-  if (!UI.open) return drawMove();
+
+  if (!UI.open) {
+    menuRead.cancel();
+    return drawMove();
+  }
+
   UI.targets = []; UI.loading = true;
   document.addEventListener("click", outside);
   drawMove();
-  const found = await targets(s);
-  if (request !== menuRequest || !UI.open || AG.page?.session.id !== s.id || AG.page.session.machine_id !== s.machine_id) return;
+  const found = await menuRead.run(targets(s));
+  if (found === STALE || !UI.open || AG.page?.session.id !== s.id || AG.page.session.machine_id !== s.machine_id) return;
   UI.loading = false; UI.targets = found;
   drawMove();
 }
@@ -121,7 +127,7 @@ async function targets(s: AgentRow): Promise<MoveTarget[]> {
 
 /// Asks the machine to take the session over.
 async function start(s: AgentRow, to: MoveTarget, stop: boolean) {
-  UI.open = false; menuRequest++; closeOutside();
+  UI.open = false; menuRead.cancel(); closeOutside();
   UI.error = "";
 
   try {
@@ -154,7 +160,7 @@ interface MoveOwner { head: HTMLElement | null; box: HTMLElement | null; root: D
 let moveRoot: MoveOwner | null = null;
 function disposeMove() {
   const current = moveRoot;
-  moveRoot = null; closeOutside(); menuRequest++; UI.open = false;
+  moveRoot = null; closeOutside(); menuRead.cancel(); UI.open = false;
   if (current) { current.observer.disconnect(); current.root.unmount(); }
 }
 function ownerOf(head: HTMLElement | null, box: HTMLElement | null): MoveOwner {
