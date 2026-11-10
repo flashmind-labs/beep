@@ -550,15 +550,15 @@ impl iroh::protocol::ProtocolHandler for SessionsProtocol {
                     let answers = self.0;
                     streams.spawn(async move {
                         let (mut tx, mut rx) = link(send, recv);
-                        let Some(Open::Session { protocol }) = rx.recv::<Open>().await.unwrap() else { return; };
+                        let Ok(Some(Open::Session { protocol })) = rx.recv::<Open>().await else { return; };
                         if protocol != "agents/1" {
-                            tx.send(&Opened::Refused { reason: "not offered".into() }).await.unwrap();
+                            let _ = tx.send(&Opened::Refused { reason: "not offered".into() }).await;
                             return;
                         }
-                        tx.send(&Opened::Ready {}).await.unwrap();
-                        let Some(_) = rx.recv::<SessionsRequest>().await.unwrap() else { return; };
+                        if tx.send(&Opened::Ready {}).await.is_err() { return; }
+                        let Ok(Some(_)) = rx.recv::<SessionsRequest>().await else { return; };
                         if answers {
-                            tx.send(&SessionsReply::Sessions { sessions: vec![SessionInfo { id: "s1".into(), agent: "claude".into(), ..SessionInfo::default() }] }).await.unwrap();
+                            let _ = tx.send(&SessionsReply::Sessions { sessions: vec![SessionInfo { id: "s1".into(), agent: "claude".into(), ..SessionInfo::default() }] }).await;
                         } else {
                             std::future::pending::<()>().await;
                         }
