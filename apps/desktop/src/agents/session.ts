@@ -423,7 +423,9 @@ export function agentHints() {
 /// Puts the session's key hints in place of those on screen.
 export function redrawAgentHints() {
   const input = $<HTMLTextAreaElement>("#agmsg"), s = AG.page?.session;
-  if (input && s) input.placeholder = AG.att.length ? "Add a message (optional)" : s.status === "ended" ? `Message ${agentKind(s.agent).name} to continue` : `Message ${agentKind(s.agent).name}`;
+  const placeholder = !s ? null : AG.att.length ? "Add a message (optional)" : s.status === "ended" ? `Message ${agentKind(s.agent).name} to continue` : `Message ${agentKind(s.agent).name}`;
+  // Each delta redraws the hints; an unchanged write would still invalidate style.
+  if (input && placeholder !== null && input.placeholder !== placeholder) input.placeholder = placeholder;
   updateSessionHints(agentHints());
 }
 
@@ -503,14 +505,19 @@ function drawAgentHeading() {
   updateSessionTitle(s.title || agentKind(s.agent).name);
   const project = windowHooks?.sessionProject?.(s), place = placeOf(s);
   const folder = $("#agproj"), branch = $("#agbranch");
-  if (folder) folder.textContent = project?.label || (place ? placeRepo(place) : shortCwd(s.cwd)) || agentKind(s.agent).name;
-  if (branch) branch.textContent = place?.linked ? ` · ${placeName(place)}` : "";
+  setText(folder, project?.label || (place ? placeRepo(place) : shortCwd(s.cwd)) || agentKind(s.agent).name);
+  setText(branch, place?.linked ? ` · ${placeName(place)}` : "");
   const here = $("#aghere");
   // Keep the machine menu when checkout details change.
-  if (here && !here.querySelector(".mvb")) here.textContent = s.machine_name;
+  if (here && !here.querySelector(".mvb")) setText(here, s.machine_name);
   void drawEditors(s.machine_id, s.cwd, () => !!AG.page && usageKey(AG.page.session) === usageKey(s));
 }
 onPlaces(drawAgentHeading);
+
+/// The heading redraws with every delta: only a changed text replaces its node.
+function setText(el: Element | null, text: string) {
+  if (el && el.textContent !== text) el.textContent = text;
+}
 
 
 /// Closes the open session, preserving its conversation for later.

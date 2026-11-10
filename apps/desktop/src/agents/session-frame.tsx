@@ -2,10 +2,9 @@ import { FilePicker } from "./file-picker.tsx";
 import { StashActions, StashIndicator } from "../chat/stash-hints.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { SHORTCUTS } from "../ui/shortcuts.ts";
-import { cloneElement, Fragment, isValidElement, useLayoutEffect, useRef, type ReactNode } from "react";
+import { cloneElement, Fragment, isValidElement, memo, useLayoutEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { SessionTitle } from "./title-view.tsx";
 import { createPortal, flushSync } from "react-dom";
-import type { Root } from "react-dom/client";
 import { openBarPage } from "../bar/page-root.ts";
 import { ICON } from "../ui/icons.ts";
 import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
@@ -13,17 +12,39 @@ import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
 type Dock = "bottom" | "right";
 export interface AgentHintsModel { value: HintViewModel; project: string | null }
 interface Frame { head: ReactNode; field: ReactNode; body: HTMLElement; hints: AgentHintsModel }
-interface Owner { host: HTMLElement; root: Root; revision: number; frame: Frame; portals: Map<HTMLElement, { key: number; view: ReactNode }>; children: Map<string, ReactNode>; next: number; release(): void }
+interface Owner { host: HTMLElement; root: { render(content: ReactNode): void }; revision: number; frame: Frame; portals: Map<HTMLElement, Slot>; children: Map<string, Slot>; next: number; release(): void }
 let current: Owner | null = null;
 
+// Each child and portal is its own store, so a pane redrawing one tab strip
+// renders that strip alone instead of the whole session frame.
+interface Slot { key: number; host: HTMLElement | null; view: ReactNode; listeners: Set<() => void> }
+
+function slot(owner: Owner, host: HTMLElement | null, view: ReactNode): Slot {
+  return { key: ++owner.next, host, view, listeners: new Set() };
+}
+
+const SlotView = memo(function SlotView({ slot }: { slot: Slot }) {
+  const view = useSyncExternalStore(listener => { slot.listeners.add(listener); return () => { slot.listeners.delete(listener); }; }, () => slot.view);
+  return slot.host ? createPortal(view, slot.host) : view;
+});
+
 function draw(owner: Owner) {
-  flushSync(() => owner.root.render(<Fragment><FrameView frame={owner.frame} revision={owner.revision} />{[...owner.children].map(([key, view]) => <Fragment key={`child:${key}`}>{view}</Fragment>)}{[...owner.portals].map(([host, entry]) => createPortal(entry.view, host, entry.key))}</Fragment>));
+  flushSync(() => owner.root.render(<Fragment><FrameView frame={owner.frame} revision={owner.revision} />{[...owner.children.values(), ...owner.portals.values()].map(entry => <SlotView key={entry.key} slot={entry} />)}</Fragment>));
+}
+
+function update(entry: Slot, view: ReactNode) {
+  if (entry.view === view) return;
+  entry.view = view;
+  flushSync(() => { for (const listener of entry.listeners) listener(); });
 }
 
 export function setSessionChild(key: string, view: ReactNode) {
   const owner = current;
   if (!owner) return;
-  if (view === null) owner.children.delete(key); else owner.children.set(key, view);
+  const prior = owner.children.get(key);
+  if (view === null) { if (owner.children.delete(key)) draw(owner); return; }
+  if (prior) { update(prior, view); return; }
+  owner.children.set(key, slot(owner, null, view));
   draw(owner);
 }
 
@@ -33,7 +54,8 @@ export function setSessionPortal(host: HTMLElement, view: ReactNode) {
   const owner = current;
   if (!owner) return;
   const prior = owner.portals.get(host);
-  owner.portals.set(host, { key: prior?.key ?? ++owner.next, view });
+  if (prior) { update(prior, view); return; }
+  owner.portals.set(host, slot(owner, host, view));
   draw(owner);
 }
 export function hasSessionPortal(host: HTMLElement) { return current?.portals.has(host) ?? false; }
@@ -84,16 +106,20 @@ function BodySlot({ body }: { body: HTMLElement }) {
   return <div ref={host} style={{ display: "contents" }} />;
 }
 
+const sameHints = (a: AgentHintsModel, b: AgentHintsModel) => a.project === b.project && a.value.window === b.value.window
+  && a.value.model === b.value.model && a.value.link?.[0] === b.value.link?.[0] && a.value.link?.[1] === b.value.link?.[1]
+  && a.value.items.length === b.value.items.length && a.value.items.every((item, i) => item.join("\n") === b.value.items[i].join("\n"));
+
 export function updateSessionHints(hints: AgentHintsModel) {
-  if (!current) return;
+  if (!current || sameHints(current.frame.hints, hints)) return;
   current.frame = { ...current.frame, hints };
   draw(current);
 }
 
-function AgentHints({ value }: { value: AgentHintsModel }) {
+const AgentHints = memo(function AgentHints({ value }: { value: AgentHintsModel }) {
   const sections = SHORTCUTS.filter(section => ["Agent session", "Side pane", "Terminals"].includes(section.title));
   return <div className="agkeys"><HintView value={value.value} slim /><StashIndicator project={value.project} /><details id="agshortcuts"><summary>Show more</summary><div className="agkeys-list">{sections.map(section => <section key={section.title}><b>{section.title}</b>{section.rows.map(row => <span key={`${row.keys}:${row.does}`}><kbd>{row.keys}</kbd>{row.does}</span>)}</section>)}<StashActions /></div></details></div>;
-}
+});
 
 function DockFrame({ dock }: { dock: Dock }) {
   return <><div className="agdiv" id={`agdiv-${dock}`} data-dock={dock} role="separator" tabIndex={0} title="Drag to resize, double-click to reset" hidden />
@@ -101,6 +127,6 @@ function DockFrame({ dock }: { dock: Dock }) {
     <button className="agpstrip" id={`agpstrip-${dock}`} data-dock={dock} hidden title="Show the pane" /></>;
 }
 
-function FrameView({ frame, revision }: { frame: Frame; revision: number }) {
+const FrameView = memo(function FrameView({ frame, revision }: { frame: Frame; revision: number }) {
   return <><div className="dhead" key={`head:${revision}`}>{frame.head}</div><div className="agshell" id="agshell"><div className="agmain" id="agmain"><div className="agconv" id="agconv" key={`conversation:${revision}`}><BodySlot body={frame.body} />{frame.field}<AgentHints value={frame.hints} /></div><DockFrame dock="bottom" /></div><DockFrame dock="right" /><div className="agdropzone" id="agdropzone" hidden /></div></>;
-}
+});
