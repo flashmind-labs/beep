@@ -8,7 +8,7 @@ import { conversation } from "./conversation.ts";
 import { ChatShell } from "./chat-shell.tsx";
 import { updateChatNavigation } from "./navigation-view.tsx";
 import { createChatBody, createChatTurn, disposeChatBody, discardChatApproval, discardChatNotice, discardChatSuggestions, renderChatApproval, renderChatPrompt, renderChatNotice, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkStep, type WorkThought, type WorkView } from "./work-view.tsx";
-import { drawAgentButton } from "../agents/agents.ts";
+import { AG } from "../agents/agents.ts";
 import { askFiles, attach, attached, attachError, drawAttached, unattach } from "./attach.ts";
 import type { AskFile } from "./attach.ts";
 import { type Chart, chartRow } from "./charts.ts";
@@ -154,7 +154,6 @@ export function renderChat() {
   dragGrip(ask);
   composeField(ask, { images: attach });
   takeDraft(ask);
-  drawAgentButton();
   focusAsk();
 }
 export const ASK_HEIGHT = "bar.askHeight", ASK_MAX = 420;
@@ -529,6 +528,7 @@ export function drawQueue() {
   };
   flushSync(() => shell.root.render(createElement(ChatShell, {
     body: shell.body, hints: currentChatHints(), running: !!here()?.run, dock: shell.dock, queue: q ?? null, attachments: attached,
+    agent: AG.hosts?.length ? () => renderAgentNew($<HTMLTextAreaElement>("#ask")?.value.trim() ?? "") : null,
     unattach: (index: number) => { unattach(index); focusAsk(); },
     edit: (index: number) => update(index, true), remove: (index: number) => update(index, false), send: () => sendQueued(S.session),
   })));

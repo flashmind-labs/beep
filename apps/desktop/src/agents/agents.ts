@@ -19,7 +19,7 @@ import { preloadModels } from "./agentpicker.ts";
 import { harnessTile } from "../ui/harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
 import type { Attached, Waiting } from "./agentqueue.ts";
-import { renderChat } from "../chat/chat.ts";
+import { drawQueue, renderChat } from "../chat/chat.ts";
 import { type Link, LINKED } from "./reconnect-state.ts";
 import { leavePane, newTerminal, newTerminalLike, showPaneTab } from "../agentpane/media.ts";
 import { draftEsc } from "./draft-state.ts";
@@ -39,7 +39,6 @@ import { closeModelPicker } from "./modelpill.ts";
 import { interruptAgent, answerFirst } from "./messages.ts";
 import { cycleMode } from "./modepill.ts";
 import { money } from "../ui/format.ts";
-import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import { onPlaces, placeOf } from "./place.ts";
@@ -385,17 +384,8 @@ export async function loadAgentHosts() {
     AG.hosts = [];
   }
 
-  drawAgentButton();
+  drawQueue();
   if (S.view === "agentnew") drawAgentNew();
-}
-
-/// The composer's Agent button, once some machine offers an agent.
-export function drawAgentButton() {
-  const row = bar.querySelector(":scope > .dinput.dgrow");
-  if (!row || S.view !== "chat" || $("#agentGo") || !AG.hosts?.length) return;
-  const b = h(`<button class="dbtn quiet" id="agentGo" title="Start a coding agent on a machine (⌘⇧A)">${AGENT_ICON}Agent</button>`);
-  b.onclick = () => renderAgentNew($<HTMLTextAreaElement>("#ask")?.value.trim() ?? "");
-  row.insertBefore(b, $("#grip"));
 }
 
 export function stateTag(status: string) {
