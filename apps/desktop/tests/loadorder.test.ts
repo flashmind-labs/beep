@@ -1,5 +1,5 @@
 // Modules run in import order, so a cycle can run a page before what it needs.
-// A page that calls registerView as it loads crashes the whole window then.
+// A page that uses the window state as it loads crashes the whole window then.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as esbuild from "esbuild";

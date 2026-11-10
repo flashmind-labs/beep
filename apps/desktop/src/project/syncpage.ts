@@ -1,8 +1,8 @@
 // The command center's Sync page: a panel for each project that syncs, its
 // machines and its conflicts, those with conflicts first. The sidebar's count
 // comes from the same reads.
-import { state, views } from "../center/state.ts";
-import { currentLocation, registerView, drawTop } from "../center/views.ts";
+import { type CenterView, state } from "../center/state.ts";
+import { boxOf, currentLocation, drawTop } from "../center/views.ts";
 import { drawSide } from "../center/sidebar.ts";
 import { ensureHome } from "../center/refresh.ts";
 import { UNWATCHED_MS } from "../ui/pagecache.ts";
@@ -46,7 +46,7 @@ export function redrawSync() {
 }
 
 function drawSync() {
-  const el = views.get("sync")?.el;
+  const el = boxOf("sync");
   if (!el) return;
   const count = (p: string) => conflictList(fsync.detail(p)).length;
   const projects = syncProjects().sort((a, b) => count(b) - count(a) || a.localeCompare(b));
@@ -54,7 +54,7 @@ function drawSync() {
   showWindowParts([{ part: "sync-page", host: el, content: createElement(SyncPage, { sync: fsync, models }) }]);
 }
 
-registerView("sync", {
+export const syncView: CenterView<"sync"> = {
   title() {
     const n = syncConflicts();
     return { title: "Sync", sub: n ? conflictCount(n) : syncProjects().length ? "All in sync" : "" };
@@ -66,4 +66,4 @@ registerView("sync", {
     void readSync(UNWATCHED_MS);
     ensureHome();
   },
-});
+};

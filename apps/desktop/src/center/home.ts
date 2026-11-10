@@ -5,10 +5,10 @@ import { connectProblem } from "./connect.ts";
 import { pane } from "../bar/pane.ts";
 import { S } from "../bar/core.ts";
 import { homeForDisplay, type HomeView, type NeedsYou, type UpdateRow } from "./home-state.ts";
-import { type Outcome, $, CONNECT_STUCK_MS, OFFLINE_NOTE_MS, state } from "./state.ts";
+import { type CenterView, type Outcome, $, CONNECT_STUCK_MS, OFFLINE_NOTE_MS, state } from "./state.ts";
 import { useThisMac, showMachineMenu, readSyncDetails } from "../machines/table.ts";
 import { refreshGit } from "./openitems.ts";
-import { currentLocation, registerView, go } from "./views.ts";
+import { currentLocation, go } from "./views.ts";
 import { openAddMachine, projectRows } from "./sidebar.ts";
 import { loading, refresh, fresh, ensureHome } from "./refresh.ts";
 import { UNWATCHED_MS } from "../ui/pagecache.ts";
@@ -192,8 +192,7 @@ onClosing(() => draw());
 /// When Home last asked for the open items; null before the first ask.
 let gitReadAt: number | null = null;
 
-registerView("home", {
-  el: $("#home-box"),
+export const homeView: CenterView<"home"> = {
   title: () => ({ title: "Home", sub: new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) }),
   mount() {
     draw();
@@ -207,7 +206,8 @@ registerView("home", {
       void refreshGit();
     }
   },
-});
+};
+
 
 /// Element Home scrolls to once it has drawn.
 export let scrollTarget: string | null = null;

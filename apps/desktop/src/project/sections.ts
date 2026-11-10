@@ -28,7 +28,7 @@ import { changeFolder } from "./changefolder.ts";
 import { makeThreads, type IssueRow, type PullRequestRow, type RepoActs } from "./threads.ts";
 import { makeThreadDetail } from "./threaddetail.ts";
 import { makeRuns, type RunDetail } from "./runs.ts";
-import { type Outcome, state, keptSection, views } from "../center/state.ts";
+import { type Outcome, state, keptSection } from "../center/state.ts";
 import { openUrl } from "../center/openitems.ts";
 import { currentLocation, ownChats, go, drawTop } from "../center/views.ts";
 import { reloadChats } from "../center/sidebar.ts";
@@ -107,14 +107,12 @@ export const runs = makeRuns({
   hostsChanged: () => redrawProjectsPage(),
 });
 
-export function projectsEl() { return views.get("projects")!.el; }
-
 onPlaces(() => redrawProjects());
 onMoves(() => redrawProjects());
 onClosing(() => redrawProjects());
 
 export function redrawProjects() {
-  if (currentLocation()?.view === "projects") drawProjects(projectsEl());
+  if (currentLocation()?.view === "projects") drawProjects();
   // The empty agent view has the same bar.
   else if (AG.draft && barOn(AG.draft)) drawProjectComp(AG.draft);
 }
@@ -149,7 +147,7 @@ function viewDiff(project: string, branch: string) {
 
 /// The Projects page and its header, while it shows.
 export function redrawProjectsPage() {
-  if (currentLocation()?.view === "projects") { drawProjects(projectsEl()); drawTop(); }
+  if (currentLocation()?.view === "projects") { drawProjects(); drawTop(); }
 }
 
 export const agentActs = {

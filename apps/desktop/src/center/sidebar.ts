@@ -31,7 +31,7 @@ import { allTerms } from "../terminals/view.ts";
 import { currentLocation, go, drawTop, openResearch } from "./views.ts";
 import { groupMenu } from "../project/groups.ts";
 import { loadOverview } from "../project/projects.ts";
-import { projectsEl, redrawProjects, redrawProjectsPage } from "../project/sections.ts";
+import { redrawProjects, redrawProjectsPage } from "../project/sections.ts";
 import { prefetchOnHover, sessionsDue } from "../project/loads.ts";
 import { drawProjects } from "../project/page.ts";
 import { refresh } from "./refresh.ts";
@@ -503,7 +503,7 @@ export async function importFromPage(row: FoundRow) {
   if (state.importing) return;
   state.importing = row.name;
   state.foundError = null;
-  drawProjects(projectsEl());
+  drawProjects();
 
   try {
     const project = await importFound(row);

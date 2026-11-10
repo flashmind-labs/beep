@@ -2,7 +2,6 @@ import { routerWindowGlobals } from "./start-react-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import type { CenterView } from "../src/center/state.ts";
 
 // Exercise Router-backed views as client code in jsdom.
 process.env.NODE_ENV = "test";
@@ -27,13 +26,10 @@ test("instructions keep editing and focus while saving and preserve later change
   const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
   const { invoke } = await import("../src/ui/tauri.ts");
   const { el, button } = await import("../src/ui/dom.ts");
-  const { registerInstructions } = await import("../src/settings/instructions.ts");
-  const views: CenterView<"instructions">[] = [];
-  registerInstructions({ registerView: (_name, view) => { views.push(view); }, invoke, h: el, button, ago: () => "recent", openSettings() {} });
+  const { instructionsPage } = await import("../src/settings/instructions.ts");
+  const view = instructionsPage({ invoke, h: el, button, ago: () => "recent", openSettings() {} });
   const host = dom.window.document.getElementById("host");
   assert.ok(host);
-  const view = views[0];
-  assert.ok(view);
   try {
     await act(async () => { await view.mount(host, null); });
     await waitFor(() => assert.ok(screen.getByLabelText("Your instructions")));

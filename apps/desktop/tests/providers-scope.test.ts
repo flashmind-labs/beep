@@ -32,11 +32,9 @@ test("machine selection preserves shared drafts and each save writes only its sc
   answers.agent_models = null;
   const root = el("div");
   document.body.append(root);
-  const { registerProviders } = await import("../src/settings/providers.ts");
+  const { providersPage } = await import("../src/settings/providers.ts");
   const { fireEvent } = await import("@testing-library/react");
-  registerProviders({ invoke, redrawTop: () => {}, openSettings: () => {}, follow: () => {},
-    registerView: (_name, view) => { void view.mount(root, { settings: true, agent: "claude" }); },
-  });
+  void providersPage({ invoke, redrawTop: () => {}, openSettings: () => {}, follow: () => {} }).mount(root, { settings: true, agent: "claude" });
   await settle();
   const scopes = () => root.querySelectorAll<HTMLElement>(".hv-scope");
   assert.match(scopes()[0].textContent ?? "", /All machines/);
@@ -83,10 +81,8 @@ test("shared compaction stays editable when no machine is online", async () => {
   answers.list_machines = [];
   const root = el("div");
   document.body.replaceChildren(root);
-  const { registerProviders } = await import("../src/settings/providers.ts");
-  registerProviders({ invoke, redrawTop: () => {}, openSettings: () => {}, follow: () => {},
-    registerView: (_name, view) => { void view.mount(root, { settings: true, agent: "claude" }); },
-  });
+  const { providersPage } = await import("../src/settings/providers.ts");
+  void providersPage({ invoke, redrawTop: () => {}, openSettings: () => {}, follow: () => {} }).mount(root, { settings: true, agent: "claude" });
   await settle();
   const threshold = root.querySelector<HTMLInputElement>('[aria-label="Auto-compact threshold"]');
   assert.ok(threshold);

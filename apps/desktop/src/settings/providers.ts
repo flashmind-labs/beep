@@ -16,9 +16,8 @@ import { type AdapterInstall, adapterOf } from "../machines/adapters-state.ts";
 /// A machine as `list_machines` gives it; only these fields are read.
 interface MachineRow { id: string; name: string; online: boolean; can_host?: boolean; adapters?: AdapterInstall[] }
 
-/// What the window hands `registerProviders`.
+/// What the window hands `providersPage`.
 interface ProvidersDeps {
-  registerView: (name: "providers", view: CenterView<"providers">) => void;
   invoke: typeof Invoke;
   /// Opens Settings at a section, such as "agents".
   openSettings: (section?: string) => void;
@@ -50,8 +49,8 @@ interface ProvidersState {
   savedAll: Map<string, string>;
 }
 
-export function registerProviders(deps: ProvidersDeps) {
-  const { registerView, invoke } = deps;
+export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
+  const { invoke } = deps;
   const st: ProvidersState = { machines: undefined, machine: null, views: new Map(), errors: new Map(), picked: null, drafts: new Map(), updating: new Set(), saving: false, note: "", others: new Map(), compacts: new Map(), includeProgram: false, savedAll: new Map() };
   /// The agents whose machines' settings are being read.
   const reading = new Set<string>();
@@ -351,7 +350,7 @@ export function registerProviders(deps: ProvidersDeps) {
     }) }]);
   }
 
-  registerView("providers", {
+  return {
     // In Settings (`arg.settings`) its buttons sit in the page's own toolbar.
     title: () => {
       const current = view();
@@ -381,5 +380,5 @@ export function registerProviders(deps: ProvidersDeps) {
       else ensure(st.machine);
     },
     unmount() { removeWindowPart("settings-page:providers"); root = null; },
-  });
+  };
 }

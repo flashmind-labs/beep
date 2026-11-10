@@ -26,7 +26,7 @@ import { openUrl, refreshGit, replyItem } from "../center/openitems.ts";
 import { currentLocation, go } from "../center/views.ts";
 import { projectRows, importSheet, addProject, importFromPage, loadFound } from "../center/sidebar.ts";
 import { loadOverview } from "./projects.ts";
-import { terms, fsync, revs, thr, runs, projectsEl, redrawProjects, redrawProjectsPage } from "./sections.ts";
+import { terms, fsync, revs, thr, runs, redrawProjects, redrawProjectsPage } from "./sections.ts";
 import { drawProjects } from "./page.ts";
 import { refresh, onScreen } from "../center/refresh.ts";
 import { openAddToMachine } from "./addmachine.ts";
@@ -445,7 +445,7 @@ async function readSessions(name: string) {
   if (got) keep("sessions", name, list);
   if (currentLocation()?.view !== "projects" || state.picked !== name) return;
   // The draw also drops the Updating note.
-  drawProjects(projectsEl());
+  drawProjects();
 }
 
 /// The checkouts the machines found that are not projects yet: the first

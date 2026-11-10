@@ -11,9 +11,9 @@ import { ProjectEditors } from "./header-view.tsx";
 import { createElement, type ReactNode } from "react";
 import { NEW_WINDOW } from "./projectwindow.ts";
 import { agentFor, pageAgent } from "./agent.ts";
-import { state, warm } from "../center/state.ts";
+import { type CenterView, state, warm } from "../center/state.ts";
 import { openUrl } from "../center/openitems.ts";
-import { registerView, windowProject } from "../center/views.ts";
+import { boxOf, windowProject } from "../center/views.ts";
 import { setProjectOnTop, openProjectWindow, removeProject, projectRows, openProjects, addProject } from "../center/sidebar.ts";
 import { editGroup } from "./groups.ts";
 import { overviewSection, projectDetail } from "./projects.ts";
@@ -31,7 +31,9 @@ import { EmptyPanel } from "../ui/kit.tsx";
 /// coming back keeps its place.
 const page = createDocumentScope<"page">();
 
-export function drawProjects(el: HTMLElement) {
+export function drawProjects() {
+  const el = boxOf("projects");
+  if (!el) return;
   const rows = projectRows();
   if (!state.picked) disposeSessionPanel();
   const parts: PagePart[] = [];
@@ -84,7 +86,7 @@ export function drawProjects(el: HTMLElement) {
   }
 }
 
-registerView("projects", {
+export const projectsView: CenterView<"projects"> = {
   currentArg: () => ({ project: state.picked, tile: pa.tile }),
   title() {
     if (!state.picked) {
@@ -123,7 +125,7 @@ registerView("projects", {
 
     return { title: state.picked, sub: projectLine(p), reactTools: tools };
   },
-  mount(el, arg) {
+  mount(_el, arg) {
     state.picked = arg?.project || null;
     // A build's notification opens its run on the Actions tile.
     const run = arg?.run;
@@ -138,7 +140,7 @@ registerView("projects", {
     }
 
     openTile(pa.run ? "actions" : arg?.tile ?? null, false);
-    drawProjects(el);
+    drawProjects();
 
     if (state.picked) revalidate(state.picked);
     else revalidateOverview();
@@ -147,4 +149,4 @@ registerView("projects", {
     prefetchRecentSoon();
   },
   unmount: () => { disposeSessionPanel(); openTile(null, false); liveMode.follow(null); terms.stop(); },
-});
+};

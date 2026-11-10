@@ -20,7 +20,8 @@ import type { ChatBody } from "../ui/turn.ts";
 import { onZoomKey, paneSize } from "../agentpane/media-state.ts";
 import { composeField, composeMessage } from "../chat/compose.ts";
 import { reloadGroup } from "../center/sidebar.ts";
-import { currentLocation, registerView } from "../center/views.ts";
+import { currentLocation } from "../center/views.ts";
+import type { CenterView } from "../center/state.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
 import { followsEnd, placeholder } from "./panes.ts";
@@ -77,7 +78,7 @@ const active = () => currentLocation()?.view === "researchopen" && !!page?.root.
 let zoomed = false;
 let watch: ResizeObserver | null = null;
 
-registerView("researchopen", {
+export const researchOpenView: CenterView<"researchopen"> = {
   title: () => ({ title: "Research" }),
   mount(el, arg) {
     const { session } = arg;
@@ -89,7 +90,7 @@ registerView("researchopen", {
     clearTimeout(timer);
     hideQuote();
   },
-});
+};
 
 // ---------- The page ----------
 

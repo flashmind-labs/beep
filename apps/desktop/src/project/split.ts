@@ -23,10 +23,10 @@ import type { StartEntry } from "./openlist-state.ts";
 import { pages, state } from "../center/state.ts";
 import { projectBranch } from "./projectlist-state.ts";
 import type { GitRow } from "./gitsync-state.ts";
-import { go } from "../center/views.ts";
+import { boxOf, go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { agentsSection, customAgentsCount, customAgentsSection, disposeOverview, whereSection } from "./projects.ts";
-import { pa, terms, fsync, revs, gitHistory, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
+import { pa, terms, fsync, revs, gitHistory, thr, details, runs, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsHost, sessionsList, sessionsDue, loadSessions } from "./loads.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
 import { runningLineAt } from "../agents/place.ts";
@@ -104,7 +104,7 @@ export function openTile(key: string | null, draw = true) {
   if (key !== "branches") gitHistory.stop();
   if (!draw) return;
   redrawProjects();
-  projectsEl().querySelector(":scope > .cc-view .pj-det")?.scrollTo({ top: 0 });
+  boxOf("projects")?.querySelector(":scope > .cc-view .pj-det")?.scrollTo({ top: 0 });
   if ((key === "overview" || key === null) && current) for (const selector of scrolls) {
     const element = current.overview.querySelector<HTMLElement>(selector), top = current.overviewScroll.get(selector);
     if (element && top !== undefined) element.scrollTop = top;

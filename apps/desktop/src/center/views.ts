@@ -1,16 +1,23 @@
 import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createStore, useStore } from "zustand";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { shownChanged } from "../ui/active.ts";
-// The window's views: registering one, going to one, and the header it draws.
+// The window's views: their boxes, going to one, and the header it draws.
 import { invoke, recordTiming } from "../ui/tauri.ts";
 import type { PaneTarget } from "../bar/pane.ts";
-import { el as h } from "../ui/dom.ts";
 import { mainTarget, route, type CenterTarget, type ProjectScope } from "../project/projectwindow.ts";
 import { chatProject, shortName } from "../project/agent.ts";
-import { type Location, type NavigationArgs, type ViewHead, type CenterView, type ViewName, $, state, views } from "./state.ts";
+import { type Location, type NavigationArgs, type ViewHead, type CenterView, type ViewName, $, state } from "./state.ts";
 import { drawSide, openProjects, projectRows } from "./sidebar.ts";
-import { openSettings } from "../settings/sheet.ts";
-import { threadChats } from "./threadcard.ts";
+import { instructionsView, openSettings, providersView } from "../settings/sheet.ts";
+import { paneView, threadChats } from "./threadcard.ts";
+import { homeView } from "./home.ts";
+import { projectsView } from "../project/page.ts";
+import { syncView } from "../project/syncpage.ts";
+import { researchView } from "../research/page.ts";
+import { researchOpenView } from "../research/open.ts";
+import { terminalsView } from "../terminals/view.ts";
 import { windowHistory } from "./window-router.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
 import { viewHidden } from "../settings/subscription.ts";
@@ -20,17 +27,50 @@ import { showWindowParts } from "./window-root.ts";
 
 let currentPage: Location | null = null;
 
-/// Adds a view the window can show.
-export function registerView<K extends ViewName>(name: K, view: CenterView<NoInfer<K>>) {
-  let el = view.el;
-
-  if (!el) {
-    el = h("div", "cc-box");
-    el.hidden = true;
-    $("#main").append(el);
+/// The view `name` is.
+function viewOf(name: ViewName): CenterView {
+  switch (name) {
+    case "home": return homeView;
+    case "pane": return paneView;
+    case "projects": return projectsView;
+    case "sync": return syncView;
+    case "instructions": return instructionsView;
+    case "providers": return providersView;
+    case "research": return researchView;
+    case "researchopen": return researchOpenView;
+    case "terminals": return terminalsView;
   }
+}
 
-  views.set(name, { ...view, el });
+/// The pages after Home and the pane, in the order their boxes follow them in `#main`.
+const PAGES = ["projects", "sync", "instructions", "providers", "research", "researchopen", "terminals"] as const;
+type Page = typeof PAGES[number];
+const boxes = new Map<Page, HTMLElement>();
+const keepBox = Object.fromEntries(PAGES.map(name => [name, (el: HTMLDivElement | null) => { if (el) boxes.set(name, el); else boxes.delete(name); }]));
+const shown = createStore<{ view: ViewName | null }>(() => ({ view: null }));
+
+/// Every page's box, the one showing unhidden. Hidden pages stay drawn, so
+/// coming back keeps their place.
+function CenterPages() {
+  const view = useStore(shown, s => s.view);
+  return PAGES.map(name => createElement("div", { key: name, className: "cc-box", hidden: view !== name, ref: keepBox[name] }));
+}
+
+showWindowParts([{ part: "pages", host: $("#main"), content: createElement(CenterPages) }]);
+
+/// The element view `name` draws in; Home and the pane have theirs in the page.
+export function boxOf(name: ViewName): HTMLElement | null {
+  switch (name) {
+    case "home": return $("#home-box");
+    case "pane": return $("#pane-box");
+    default: return boxes.get(name) ?? null;
+  }
+}
+
+function show(name: ViewName) {
+  $("#home-box").hidden = name !== "home";
+  $("#pane-box").hidden = name !== "pane";
+  flushSync(() => shown.setState({ view: name }));
 }
 
 /// A pane target that opens an agent view, which can go back.
@@ -78,7 +118,7 @@ export function currentLocation(): Location | null {
 
   // Project sections change without mounting the page again.
   if (currentPage.view === "projects") {
-    const arg = views.get("projects")?.currentArg?.();
+    const arg = projectsView.currentArg?.();
     if (arg && typeof arg === "object" && "project" in arg) return { view: "projects", arg };
   }
 
@@ -140,8 +180,8 @@ export function goTo(target: Location): boolean {
     return true;
   }
 
-  const view = views.get(name);
-  if (!view) return false;
+  const view = viewOf(name), box = boxOf(name);
+  if (!box) return false;
   const afterMount = pageTiming.start(pageName(name, arg));
   // Sending from a draft turns it into the session; Back skips the spent form.
   const replaceDraft = currentPage?.view === "pane" && !!currentPage.arg && typeof currentPage.arg === "object" && "draft" in currentPage.arg
@@ -149,10 +189,10 @@ export function goTo(target: Location): boolean {
   const previous = currentLocation();
   const next: Location = page.view === "projects" ? { view: "projects", arg: { project: page.arg?.project ?? null, tile: page.arg?.tile ?? null } } : page;
   if (!moving) { if (previous) pages.visit(previous, next, replaceDraft); else pages.start(next); }
-  if (previous && previous.view !== name) views.get(previous.view)?.unmount?.();
+  if (previous && previous.view !== name) viewOf(previous.view).unmount?.();
   currentPage = page;
-  for (const [n, v] of views) v.el.hidden = n !== name;
-  const mounted = view.mount(view.el, arg);
+  show(name);
+  const mounted = view.mount(box, arg);
   refreshTopicSubscriptions();
   shownChanged();
   drawTop();
@@ -179,7 +219,7 @@ function withReturnTarget(page: Location, current: Location | null): Location {
 let titleHost: HTMLElement | null = null;
 
 export function drawTop() {
-  const view = currentPage ? views.get(currentPage.view) : null;
+  const view = currentPage ? viewOf(currentPage.view) : null;
   const head: ViewHead = typeof view?.title === "function" ? view.title() : { title: view?.title ?? "Beep" };
   const title = $("#title"), date = $("#date"), project = windowProject;
   if (titleHost !== title) { title.replaceChildren(); titleHost = title; }
