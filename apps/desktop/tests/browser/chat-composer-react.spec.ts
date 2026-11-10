@@ -83,12 +83,15 @@ test("attachment updates keep the chat draft and focus", async ({ page }) => {
   await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
   await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
   const ask = page.locator("#ask");
+  await expect(ask).toHaveAttribute("placeholder", "Ask a follow-up…");
   await ask.fill("A draft");
   await ask.evaluate(el => { if (el instanceof HTMLTextAreaElement) { el.setSelectionRange(1, 3); Reflect.set(window, "attachmentDraft", el); } const data = new DataTransfer(); data.items.add(new File(["sample"], "example.txt", { type: "text/plain" })); el.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, clipboardData: data })); });
   await expect(page.locator("#thumbs")).toContainText("example.txt");
+  await expect(ask).toHaveAttribute("placeholder", "Ask about this file…");
   expect(await ask.evaluate(el => el === Reflect.get(window, "attachmentDraft") && document.activeElement === el && el instanceof HTMLTextAreaElement && el.selectionStart === 1 && el.selectionEnd === 3)).toBe(true);
   await page.getByRole("button", { name: "Remove example.txt" }).click();
   await expect(page.locator("#thumbs")).toHaveCount(0);
+  await expect(ask).toHaveAttribute("placeholder", "Ask a follow-up…");
   await expect(ask).toHaveValue("A draft");
   await expect(ask).toBeFocused();
 });

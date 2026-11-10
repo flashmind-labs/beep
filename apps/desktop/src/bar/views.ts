@@ -15,6 +15,7 @@ import { renderSettings } from "../settings/settings.ts";
 import { renderSkills } from "../lists/skills.ts";
 import { renderWaiting } from "./waiting.ts";
 import { invoke } from "../ui/tauri.ts";
+import { chatAsk } from "../chat/chat-shell.tsx";
 
 // ---------- State ----------
 
@@ -90,7 +91,7 @@ export async function show(view: string | null) {
   // Live mode runs in the bar until it ends.
   if (LV.on) return renderLive();
 
-  if (S.view !== "chat" || !$("#ask")) {
+  if (S.view !== "chat" || !chatAsk.current) {
     if (S.session) return openSession(S.session);
     return renderChat();
   }

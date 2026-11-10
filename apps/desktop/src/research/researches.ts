@@ -10,6 +10,7 @@ import { formatAgo, plural } from "../ui/format.ts";
 import { ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { latest, STALE } from "../ui/active.ts";
+import { chatAsk } from "../chat/chat-shell.tsx";
 
 // ---------- Research ----------
 
@@ -28,7 +29,7 @@ export async function research(topic: string) {
   try {
     const id = await invoke<string>("research_begin", { topic });
     RESEARCHES.add(id);
-    const ask = $<HTMLTextAreaElement>("#ask");
+    const ask = chatAsk.current;
     if (ask && ask.value.trim() === topic) { ask.value = ""; grow(ask); refreshHints(); }
   } catch (err) {
     if (S.view === "research") { RL.error = String(err); return drawResearches(); }
@@ -114,7 +115,7 @@ export async function researchListAction(a: string) {
 
 /// Cmd-R: researches what is typed, and otherwise opens the Research view.
 export function researchShortcut() {
-  const typed = (S.view === "chat" ? $<HTMLTextAreaElement>("#ask") : S.view === "research" ? $<HTMLInputElement>("#rtopic") : null)?.value.trim();
+  const typed = (S.view === "chat" ? chatAsk.current : S.view === "research" ? $<HTMLInputElement>("#rtopic") : null)?.value.trim();
   if (typed) return research(typed);
   if (S.view !== "research") return renderResearches();
 }
