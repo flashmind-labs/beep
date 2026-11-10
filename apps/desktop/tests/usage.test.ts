@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { creditAmount, creditScope, hasUsage, harnessLine, harnessName, modelTotals, projectExtra, planUsed, todayLine, windowUsed } from "../src/center/usage.ts";
+import { creditAmount, creditScope, hasUsage, harnessLine, harnessName, modelTotals, pillPlans, projectExtra, planUsed, showsDollars, todayLine, windowUsed } from "../src/center/usage.ts";
 import { tokenCount } from "../src/ui/format.ts";
 
 test("a plan has used what its tightest window has used", () => {
@@ -54,4 +54,21 @@ test("credits preserve zero, precision and unknown balances without counting as 
   assert.equal(creditScope("api_key"), "API key limit");
   const empty = { total: { project: "", cost_usd: 0, unpriced: [] }, tokens: 0, projects: [], harnesses: [] };
   assert.ok(hasUsage({ limits: [{ agent: "flsh", plan: null, machine_name: "build-box", as_of: 0, windows: [], credits: [credit] }], today: empty, week: empty, month: null }));
+});
+
+test("the pill shows each plan's binding window, the one most used", () => {
+  const plan = (agent: string, windows: { minutes: number; used_percent: number }[]) => ({ agent, plan: null, machine_name: "build-box", as_of: 0, windows: windows.map(w => ({ ...w, resets_at: null, scope: null })) });
+  assert.deepEqual(pillPlans([
+    plan("claude", [{ minutes: 300, used_percent: 38 }, { minutes: 10_080, used_percent: 76.4 }]),
+    plan("codex", [{ minutes: 300, used_percent: 9 }]),
+    plan("flsh", []),
+  ]), [{ agent: "claude", used: 76, window: "This week" }, { agent: "codex", used: 9, window: "5 hours" }]);
+});
+
+test("the note on dollars shows only when a row shows dollars", () => {
+  const total = { project: "", cost_usd: 0, unpriced: [] };
+  const covered = { agent: "claude", subscription: true, cost_usd: null, tokens: 5_000, models: [] };
+  assert.equal(showsDollars({ total, tokens: 5_000, projects: [], harnesses: [covered] }), false);
+  assert.equal(showsDollars({ total, tokens: 5_000, projects: [], harnesses: [{ ...covered, cost_usd: 61 }] }), true);
+  assert.equal(showsDollars({ total: { ...total, cost_usd: 1.5 }, tokens: 0, projects: [], harnesses: [] }), true);
 });

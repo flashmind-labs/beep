@@ -10,6 +10,8 @@ Earlier releases predate this changelog.
 
 ### Changed
 
+- iOS: the Home usage pill shows each harness's icon and the share of its
+  most used limit, without bars.
 - iOS: the Projects page lists the most recently active projects first
   within each group, after pinned ones.
 - iOS: a running agent session, or one waiting on a question, stays
@@ -18,6 +20,8 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- iOS: the usage popover shows percentages, project and harness tokens,
+  models and the total again.
 - iOS: the Projects page no longer runs off the side of the screen with
   long names, folders or group headings.
 - iOS: preserve composer drafts, focus and scroll during live updates.

@@ -19,6 +19,9 @@ Other apps have independent versions and changelogs:
 
 ### Changed
 
+- Desktop: the usage pill shows each harness's icon and the share of its
+  most used limit, without bars. The popover hides empty sections and keeps
+  its note on dollars to periods that show dollars.
 - Desktop: the Projects page lists the most recently active projects first
   within each group, after pinned ones.
 - Desktop: a running agent session, or one waiting on a question, stays

@@ -1,14 +1,20 @@
 import { Fragment, useLayoutEffect, useRef } from "react";
 import { agentLabel } from "../project/projects-state.ts";
 import { creditAmount, creditScope, providerName } from "../ui/credits.ts";
+import { harnessMark } from "../ui/harnessicon.ts";
 import { money, tokenCount } from "../ui/format.ts";
-import { asOf, harnessLine, harnessName, modelTotals, PERIODS, planName, planUsed, projectExtra, resetName, shortName, todayLine, unpricedLine, WARN_USED, windowName, windowUsed, type PeriodKey, type PlanLimits, type UsageView } from "./usage.ts";
+import { asOf, harnessLine, harnessName, modelTotals, PERIODS, pillPlans, planName, projectExtra, resetName, shortName, showsDollars, todayLine, unpricedLine, WARN_USED, windowName, windowUsed, type PeriodKey, type PlanLimits, type UsageView } from "./usage.ts";
 
 function Bar({ used }: { used: number }) { return <span className="bar"><i className={used > WARN_USED ? "warn" : ""} style={{ width: `${used}%` }} /></span>; }
+/// A harness's mark, else its short name: never a letter tile.
+function Mark({ agent }: { agent: string }) {
+  const mark = harnessMark(agent);
+  return mark ? <span className="us-mk" dangerouslySetInnerHTML={{ __html: mark }} /> : <span>{shortName(agent)}</span>;
+}
 function Limits({ plan, now }: { plan: PlanLimits; now: number }) {
   const credits = plan.credits ?? [], single = !plan.windows.length && credits.length === 1;
   const name = [agentLabel(plan.agent), planName(plan.agent, plan.plan), single ? `${providerName(credits[0].provider)} credits` : ""].filter(Boolean).join(" · ");
-  return <div><h5 title={`Read on ${plan.machine_name}`}><span>{name}</span><span>{asOf(plan.as_of, now)}</span></h5>
+  return <div><h5 title={`Read on ${plan.machine_name}`}><span>{harnessMark(plan.agent) && <Mark agent={plan.agent} />}{name}</span><span>{asOf(plan.as_of, now)}</span></h5>
     {plan.windows.map((window, index) => { const used = windowUsed(window), reset = window.resets_at != null ? ` · resets ${resetName(window.resets_at, now)}` : ""; return <div className="us-lim" key={index}><span>{windowName(window)}</span><Bar used={used} /><small>{used}% used{reset}</small></div>; })}
     {credits.map((credit, index) => <Fragment key={index}><div className="us-row"><span>{single ? creditScope(credit.scope) : `${providerName(credit.provider)} · ${creditScope(credit.scope)}`}</span><span>{creditAmount(credit, credit.remaining)} remaining</span></div><div className="us-row"><small>{credit.resets ? `Resets ${credit.resets}` : ""}</small><small>{creditAmount(credit, credit.used)} used · {creditAmount(credit, credit.total)} total</small></div>{credit.provider === "openrouter" && credit.scope === "api_key" && credit.remaining == null && <div className="us-note">Account balance unavailable.</div>}</Fragment>)}
   </div>;
@@ -24,13 +30,18 @@ function Period({ view, periodKey, allProjects, pick, more }: { view: UsageView;
     {period.projects.length ? <><h5><span>By project</span>{!metered && <span>at API prices</span>}</h5>{shown.map((spend, i) => <SpendRow key={i} name={spend.project} cost={spend.cost_usd > 0 ? money(spend.cost_usd) : ""} extra={projectExtra(spend, metered)} />)}{extra > 0 && <button type="button" className="us-more" onClick={more}>{allProjects ? "Show less" : `Show ${extra} more`}</button>}</> : periodKey === "today" && <div className="us-row"><small>Nothing yet today</small></div>}
     {!!period.harnesses.length && <><h5 className={period.projects.length ? "us-sub" : ""}><span>By harness</span></h5>{period.harnesses.map((spend, i) => <SpendRow key={i} title={spend.models.length ? spend.models.map(m => `${m.name}: ${tokenCount(m.tokens)} tokens`).join("\n") : undefined} name={<small>{harnessName(spend)}</small>} cost="" extra={harnessLine(spend)} />)}</>}
     {!!models.length && <><h5 className="us-sub"><span>By model</span></h5>{models.map(model => <SpendRow key={model.name} name={<small>{model.name}</small>} cost="" extra={tokenCount(model.tokens)} />)}</>}
-    <SpendRow name="Total" cost={paid ? money(period.total.cost_usd) : ""} extra={tokens} strong />
+    {(period.total.cost_usd > 0 || !!tokens) && <SpendRow name="Total" cost={paid ? money(period.total.cost_usd) : ""} extra={tokens} strong />}
   </div>;
 }
 export function UsageWidget({ view, open, period, allProjects, toggle, pick, more, position }: { view: UsageView; open: boolean; period: PeriodKey; allProjects: boolean; toggle(): void; pick(key: PeriodKey): void; more(): void; position(element: HTMLElement): void }) {
-  const pop = useRef<HTMLDivElement>(null), used = view.limits.map(planUsed).filter(value => value !== null), most = used.length ? Math.max(...used) : null;
+  const pop = useRef<HTMLDivElement>(null), plans = pillPlans(view.limits), shown = view[period] ?? view.today;
+  const label = plans.length ? `Plan usage: ${plans.map(plan => `${agentLabel(plan.agent)} ${plan.used}%`).join(", ")}` : `Cost today: ${todayLine(view.today)}`;
   useLayoutEffect(() => { if (pop.current) position(pop.current); }, [view, open, period, allProjects, position]);
-  return <><button type="button" className="us-pill" title="Plan usage and cost today" aria-expanded={open} onClick={toggle}>{view.limits.map((plan, i) => <Fragment key={i}>{planUsed(plan) !== null && <><span>{shortName(plan.agent)} <b>{planUsed(plan)}%</b> used</span><Bar used={planUsed(plan) ?? 0} /></>}{(plan.credits ?? []).map((credit, n) => credit.remaining != null && <span key={n}>{providerName(credit.provider)} <b>{creditAmount(credit, credit.remaining)}</b> left</span>)}</Fragment>)}<span><b>{todayLine(view.today)}</b> today</span><span className="us-short">{most !== null && <Bar used={most} />}<b>{most === null ? todayLine(view.today) : `${most}%`}</b></span></button>
-    {open && <div ref={pop} className="us-pop" role="dialog" aria-label="Plan usage and cost">{view.limits.filter(plan => plan.windows.length || plan.credits?.length).map((plan, i) => <Limits key={i} plan={plan} now={Date.now()} />)}<Period view={view} periodKey={period} allProjects={allProjects} pick={pick} more={more} /><div className="us-note">{view.metered ? "Dollars are API spend. ~ is what plan use would cost on the API, not in the total." : "Dollars are what the same work would cost at API prices."}</div></div>}
+  return <><button type="button" className={`us-pill${plans.length ? " plans" : ""}`} title="Plan usage and cost" aria-label={label} aria-expanded={open} onClick={toggle}>
+      {plans.map(plan => <span className="us-plan" key={plan.agent} title={`${agentLabel(plan.agent)}: ${plan.used}% of ${plan.window} used`}><Mark agent={plan.agent} /><b className={plan.used > WARN_USED ? "warn" : ""}>{plan.used}%</b></span>)}
+      {view.limits.flatMap(plan => plan.credits ?? []).map((credit, n) => credit.remaining != null && <span className="us-x" key={n}>{providerName(credit.provider)} <b>{creditAmount(credit, credit.remaining)}</b> left</span>)}
+      {(!plans.length || view.today.total.cost_usd > 0) && <span className="us-x"><b>{todayLine(view.today)}</b> today</span>}
+    </button>
+    {open && <div ref={pop} className="us-pop" role="dialog" aria-label="Plan usage and cost">{view.limits.filter(plan => plan.windows.length || plan.credits?.length).map((plan, i) => <Limits key={i} plan={plan} now={Date.now()} />)}<Period view={view} periodKey={period} allProjects={allProjects} pick={pick} more={more} />{showsDollars(shown) && <div className="us-note">{view.metered ? "Dollars are API spend. ~ is what plan use would cost on the API, not in the total." : "Dollars are what the same work would cost at API prices."}</div>}</div>}
   </>;
 }
