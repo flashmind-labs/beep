@@ -1,7 +1,7 @@
 // The diff viewer's frame: a one-line header with the counts, a filter, icon
 // toggles and the review buttons; a list of the files at wide widths, with a
 // grip to resize it; the files themselves (diff-files.tsx); and the keys.
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useState, type CSSProperties } from "react";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { DiffToolbar } from "./diff-toolbar.tsx";
@@ -55,7 +55,7 @@ function useRootEvents(v: Viewer) {
   }, [v]);
 }
 
-function Toolbar({ v }: { v: Viewer }) {
+const Toolbar = memo(function Toolbar({ v }: { v: Viewer }) {
   const s = useStore(v.store, useShallow(s => ({
     view: s.view, loading: s.loading, filter: s.filter, split: s.split, uncommitted: s.uncommitted, flash: s.flash,
     comments: s.draft.length, sending: s.sending, allFolded: allFolded(shown(s), s.folded),
@@ -77,9 +77,9 @@ function Toolbar({ v }: { v: Viewer }) {
     }}
     onUncommitted={() => { v.set({ uncommitted: !v.state.uncommitted }); void load(v); }}
     onFold={() => foldAll(v, !allFolded(shown(v.state), v.state.folded))} onRefresh={() => void load(v)} onSend={() => void sendReview(v)} />;
-}
+});
 
-function Tree({ v, scroller }: { v: Viewer; scroller: HTMLElement }) {
+const Tree = memo(function Tree({ v, scroller }: { v: Viewer; scroller: HTMLElement }) {
   const files = useStore(v.store, s => s.view?.files ?? NO_FILES);
   const filter = useStore(v.store, s => s.filter), cur = useStore(v.store, s => s.cur), reveal = useStore(v.store, s => s.revealTree);
   const closed = useStore(v.store, s => s.closedFolders), filteredClosed = useStore(v.store, s => s.filteredClosedFolders);
@@ -92,6 +92,6 @@ function Tree({ v, scroller }: { v: Viewer; scroller: HTMLElement }) {
       v.set(filtering ? { filteredClosedFolders: next } : { closedFolders: next });
     }}
     onFile={path => jump(v, path)} onMenu={(event, file) => fileMenu(v, event.nativeEvent, file)} />;
-}
+});
 
 const NO_FILES: readonly DiffFile[] = [];

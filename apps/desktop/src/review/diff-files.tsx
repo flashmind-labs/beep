@@ -24,7 +24,7 @@ import { openMenu, type MenuItem } from "../ui/menu.ts";
 
 type CssVars = CSSProperties & Record<`--${string}`, string>;
 
-export function DiffFiles({ v }: { v: Viewer }) {
+export const DiffFiles = memo(function DiffFiles({ v }: { v: Viewer }) {
   const s = useStore(v.store, useShallow(s => ({
     view: s.view, list: s.list, loading: s.loading, error: s.error, filter: s.filter, folded: s.folded, cur: s.cur,
     split: s.split && !s.narrow, pending: s.pending, draft: s.draft, orphaned: s.orphaned,
@@ -121,7 +121,7 @@ export function DiffFiles({ v }: { v: Viewer }) {
       <div style={{ display: "contents" }}><DiffMore count={s.view?.more ?? 0} /></div>
     </>}
   </div>;
-}
+});
 
 /// The comments on files or lines the diff no longer has, above the files.
 function LostComments({ v, lost }: { v: Viewer; lost: readonly ReviewComment[] }) {

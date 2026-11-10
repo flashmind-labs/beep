@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import { flushSync } from "react-dom";
 import type { FeedbackState } from "./feedback-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // Review with agent: the diff header's button, the start form's picker
@@ -230,6 +231,8 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   let tookAt = 0;
   const picked: Picked = { agent: "", model: "", effort: null, query: "" };
   const listeners = new Set<() => void>();
+  /// Set while the header unmounts, when React cannot flush.
+  let committing = false;
   let current: FeedbackSnapshot = { state: { kind: "ready", reason: "", open: false }, picker: null, note: "" };
   const connected = () => !!box?.isConnected;
 
@@ -254,13 +257,16 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     picked.query = "";
   }
 
-  function drawButton() {
+  /// Draws the button again. Flushed, as the picker places itself right after
+  /// it renders; not while React is committing, as when the header goes.
+  function drawButton(sync = true) {
     if (disposed) return;
     const run = runs.get(o.key);
     const state: FeedbackState = run ? { kind: "running", agent: agentLabel(run.agent) }
       : starting ? { kind: "starting" } : { kind: "ready", reason: why(), open };
     current = { state, picker: pickerView, note: notes.get(o.key) ?? "" };
-    for (const listener of listeners) listener();
+    const notify = () => { for (const listener of listeners) listener(); };
+    if (sync) flushSync(notify); else notify();
   }
 
   function closePicker() {
@@ -296,7 +302,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     const currentSlot = slot, currentButton = button;
     const focused = currentSlot.contains(document.activeElement);
     drawPicker(currentSlot, {
-      render: view => { pickerView = view; drawButton(); },
+      render: view => { pickerView = view; drawButton(!committing); },
       picked,
       offered: h.agents,
       everywhere: [...new Set((hosts ?? []).flatMap(m => m.agents))],
@@ -402,7 +408,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     setBox: value => {
       box = value;
       // The header went with the picker open.
-      if (!value && open) { closePicker(); drawButton(); }
+      if (!value && open) { committing = true; closePicker(); committing = false; drawButton(false); }
     },
     setButton: value => { button = value; },
     setSlot: value => { slot = value; },
