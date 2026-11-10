@@ -38,7 +38,8 @@ export function drawTasks() {
   for (const id of stopping) if (!live.some(t => t.id === id)) stopping.delete(id);
   const field = $("#agfield"), host = $("#agtasks");
   if (!field || !host) return;
-  showAgentTasks(field, host, createElement(Fragment, null, live.map(t => {
+  // No tasks draws nothing, and an unchanged nothing does not draw again.
+  showAgentTasks(field, host, live.length === 0 ? null : createElement(Fragment, null, live.map(t => {
     const going = stopping.has(t.id);
     const what = t.description || t.name;
     return createElement("div", { className: "ag-task", key: t.id },

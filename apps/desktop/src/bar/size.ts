@@ -28,23 +28,25 @@ function boxes(parent: Element, wrappers: Set<Node> | null = null): HTMLElement[
 /// Makes the next fit resize the bar even to the height it had.
 export function forgetHeight() { barHeight = 0; }
 /// Sizes the bar to its content once per frame, so a streaming reply does
-/// not resize the window on every token.
+/// not resize the window on every token. In a window's pane the bar does
+/// not size its window, so nothing is measured.
 export function fit() {
   fitFrame ||= requestAnimationFrame(() => {
     fitFrame = 0;
-    let height = 2;
-    for (const el of boxes(bar)) if (!FLOATING.has(el.id)) height += tall(el);
-    if ($("#viewer")) height = Math.max(height, VIEWER_HEIGHT);
-    const keys = $("#keys");
-    if (keys) height = Math.max(height, natural(keys) + 2);
-
-    if (!PANE && height !== barHeight) {
-      barHeight = height;
-      invoke("resize_bar", { height }).catch(() => {});
-    }
-
+    if (!PANE) resize();
     drawLatest();
   });
+}
+
+function resize() {
+  let height = 2;
+  for (const el of boxes(bar)) if (!FLOATING.has(el.id)) height += tall(el);
+  if ($("#viewer")) height = Math.max(height, VIEWER_HEIGHT);
+  const keys = $("#keys");
+  if (keys) height = Math.max(height, natural(keys) + 2);
+  if (height === barHeight) return;
+  barHeight = height;
+  invoke("resize_bar", { height }).catch(() => {});
 }
 
 const sizer = new ResizeObserver(fit);
