@@ -7,6 +7,7 @@ import {
   Vector3, WebGLRenderer,
 } from "three";
 import { clipName } from "./media-state.ts";
+import { onShownChange, paneShown } from "../ui/active.ts";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
@@ -51,6 +52,10 @@ export interface ModelView {
 /// Reads a file a `.gltf` names next to it (a buffer or texture), by its
 /// relative URI; the bytes, or null when it cannot be read.
 export type Sibling = (uri: string) => Promise<Uint8Array | null>;
+
+// Playing animations stop drawing while the pane hides and go on when it shows.
+const shownAgain = new Set<() => void>();
+onShownChange(shown => { if (shown) for (const resume of shownAgain) resume(); }, true);
 
 const gray = () => new MeshStandardMaterial({ color: 0xb8c4bd, roughness: 0.6, metalness: 0.05 });
 
@@ -213,6 +218,7 @@ export async function mountModel(box: HTMLElement, bytes: ArrayBuffer, ext: stri
   const draw = () => renderer.render(scene, camera);
   const frame = (now: number) => {
     raf = 0;
+    if (!paneShown()) { last = 0; return; }
 
     if (mixer && anim?.playing) {
       mixer.update(last ? (now - last) / 1000 : 0);
@@ -225,6 +231,7 @@ export async function mountModel(box: HTMLElement, bytes: ArrayBuffer, ext: stri
     draw();
   };
   const request = () => { raf ||= requestAnimationFrame(frame); };
+  const resume = () => { last = 0; request(); };
   const resize = () => {
     const w = box.clientWidth, h = box.clientHeight;
     if (!w || !h) return;
@@ -306,6 +313,7 @@ export async function mountModel(box: HTMLElement, bytes: ArrayBuffer, ext: stri
   watch.observe(box);
   resize();
   reset();
+  shownAgain.add(resume);
 
   return {
     info: { format, triangles: Math.round(triangles), meshes, clips: clips.length },
@@ -320,6 +328,7 @@ export async function mountModel(box: HTMLElement, bytes: ArrayBuffer, ext: stri
       request();
     },
     dispose() {
+      shownAgain.delete(resume);
       cancelAnimationFrame(raf);
       watch.disconnect();
       controls.dispose();

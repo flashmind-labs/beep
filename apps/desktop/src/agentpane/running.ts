@@ -6,7 +6,7 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import type { RunningProcess } from "./running-state.ts";
 import { draw, paneOf, paneSession, shell } from "./media.ts";
 import { DOCKS } from "./media-state.ts";
-import { onShownChange, paneShown } from "../ui/active.ts";
+import { AMBIENT_MS, onShownChange, paneShown } from "../ui/active.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { AGENT_READ_WAIT_MS } from "../agents/agents.ts";
@@ -31,7 +31,7 @@ function syncSession() {
   key = next;
   readVersion++;
   unfollow?.();
-  unfollow = s?.id && !s.external ? subscribeChanges(topic("processes", s.id), readRunning, s.machine_id, visible) : undefined;
+  unfollow = s?.id && !s.external ? subscribeChanges(topic("processes", s.id), readRunning, s.machine_id, visible, AMBIENT_MS) : undefined;
   list = [];
   local = false;
   error = "";

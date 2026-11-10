@@ -15,7 +15,7 @@ import { loadSessions } from "./sessions.ts";
 import { $, S, windowHooks } from "../bar/core.ts";
 import { placeOf } from "./place.ts";
 import { invoke } from "../ui/tauri.ts";
-import { paneShown } from "../ui/active.ts";
+import { SLOW_MS, paneShown } from "../ui/active.ts";
 import type { ProjectMachineRow } from "../project/projects-state.ts";
 
 const UI = { targets: [] as MoveTarget[], open: false, loading: false, error: "", errorSession: "" };
@@ -66,7 +66,7 @@ export function drawMove() {
   drawRoot(owner);
 }
 
-subscribeTopics([topic("moves"), topic("agents")], () => poll(), null, () => !!AG.open && S.view === "agent" && paneShown());
+subscribeTopics([topic("moves"), topic("agents")], () => poll(), null, () => !!AG.open && S.view === "agent" && paneShown(), SLOW_MS);
 async function poll() {
   try { await loadSessions(); } catch (e) { console.warn("sessions not read after a move", e); }
   drawMove();
