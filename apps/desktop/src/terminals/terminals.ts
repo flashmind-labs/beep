@@ -1,14 +1,13 @@
+// Terminals: commands and shells kept running on the user's machines, apart
+// from any chat, like tmux sessions: the node owns them, so they keep running
+// with the window closed and can be attached to again. The window's Terminals
+// page is view.ts; makeTerminals here holds its state.
 import { createElement, Fragment, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { TerminalOutput, TerminalPage, TerminalScreen } from "./page-view.tsx";
 import { NewTerminalFields } from "./new-terminal-view.tsx";
 import { TerminalFooter, TerminalHeader } from "./terminal-controls.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { onShownChange } from "../ui/active.ts";
-// terminals/: terminals kept running on the machines, and the window's
-// Terminals page (view.ts). Entry: makeTerminals here.
-// Terminals: commands and shells kept running on the user's machines, apart
-// from any chat, like tmux sessions: the node owns them, so they keep running
-// with the window closed and can be attached to again.
 import type { invoke as Invoke, Channel as ChannelCtor } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import type { Ago } from "../ui/dom.ts";
@@ -17,275 +16,15 @@ import { MACHINE_REFRESH_MS, PageCache, type SectionStore } from "../ui/pagecach
 import { reason } from "../ui/format.ts";
 import { newTermLike } from "./newkey-state.ts";
 
-/// A terminal (TerminalRow).
-export interface TerminalRow {
-  id: string;
-  /// `org/repo`, or empty for a terminal of no project.
-  project: string;
-  machine_id: string;
-  machine_name: string;
-  name: string;
-  command: string;
-  cwd: string;
-  /// `running`, `exited`, `stopped`, `offline` or `gone`.
-  state: string;
-  /// The exit code once it exited, when it gave one.
-  code: number | null;
-  /// In milliseconds since the Unix epoch.
-  started_at: number;
-}
-
-/// A terminal with its last lines, as `terminal_output` gives it (OutputView).
-export interface OutputView {
-  terminal: TerminalRow;
-  lines: string[];
-  /// Lines came before these.
-  earlier: boolean;
-}
-
-/// What an attached terminal sends (TermEvent): output from byte `at` in
-/// base64, its end, or that it takes no input.
-export type TermEvent =
-  | { kind: "attached" }
-  | { kind: "output"; at: number; data: string }
-  | { kind: "ended"; state: string; code: number | null }
-  | { kind: "view_only" };
-
-/// A machine a terminal can start on, in the project's folder there.
-export interface TerminalPlace {
-  id: string;
-  name: string;
-  folder: string;
-}
-
-/// A terminal emulator on the page (termview.ts draws one with xterm.js).
-export interface Screen {
-  el: HTMLElement;
-  write(data: Uint8Array): void;
-  /// A dim line of our own, such as "… earlier output was not kept".
-  note(text: string): void;
-  size(): { cols: number; rows: number };
-  /// Fits the screen to its element, once it is on the page.
-  fit(): void;
-  focus(): void;
-  /// Whether the keyboard is in it now.
-  focused(): boolean;
-  onData(cb: (data: string) => void): void;
-  onResize(cb: (size: { cols: number; rows: number }) => void): void;
-  /// Esc typed in it, which it does not send on; only a pane's terminal sets this.
-  /// A program on the alternate screen (vim, less) still gets Esc.
-  onEscape(cb: () => void): void;
-  /// Whether keys typed go anywhere.
-  setInput(on: boolean): void;
-  dispose(): void;
-}
-
-/// A machine as the Terminals page lists it (MachineView).
-export interface TerminalMachine {
-  id: string;
-  name: string;
-  online: boolean;
-}
-
-/// One machine's terminals on the Terminals page and Home.
-export interface MachineTerminals<T> {
-  id: string;
-  name: string;
-  online: boolean;
-  terms: T[];
-}
-
-/// The scope of the Terminals page: every terminal, of any project or none.
-export const ALL = "";
-
-/// What the window hands `makeTerminals`.
-export interface TerminalDeps {
-  invoke: typeof Invoke;
-  Channel: typeof ChannelCtor;
-  makeScreen: () => Screen;
-  ago: Ago;
-  redraw: () => void;
-  /// Where each project's list is kept between windows; in memory only
-  /// without it.
-  kept?: SectionStore<TerminalRow[] | null>;
-}
-
-/// The New terminal form as typed so far.
-interface TerminalForm {
-  command: string;
-  name: string;
-  machine: string | null;
-  cwd: string;
-  /// The project it is listed under, when not the page's.
-  project?: string;
-}
-
-/// How an open terminal's live view stands.
-type Link = "attaching" | "attached" | "detached" | "ended" | "view_only";
-
-/// The open terminal's live view: its screen and how far its output got.
-interface Live {
-  id: string;
-  screen: Screen;
-  link: Link;
-  /// Bytes of output on the screen so far: where a reattach starts.
-  next: number;
-  /// Typing is off by choice ("View only").
-  watching: boolean;
-  /// Failed attaches in a row, for the wait before the next.
-  tries: number;
-  timer?: ReturnType<typeof setTimeout>;
-  /// This view's name for its stream.
-  view: string;
-  /// Counts attaches, so a stream that an attach replaced is ignored.
-  attaches: number;
-  /// The size the node last got from this view.
-  sent: TermSize | null;
-  /// Let go while the window was hidden, to follow again when it shows.
-  paused?: boolean;
-}
-
-/// One project's terminals: `list` is undefined while it loads and null
-/// from a server too old to keep terminals.
-interface ProjectTerminals {
-  list: TerminalRow[] | null | undefined;
-  open: string | null;
-  output: OutputView | null;
-  form: TerminalForm | null;
-  error: string;
-  busy: boolean;
-}
-
-/// How often a view-only terminal's output is read again.
-/// The size a terminal starts at, before its screen is fitted.
-const START_SIZE = { cols: 100, rows: 30 };
-/// Attaches tried in a row before giving up until asked again.
-const MAX_TRIES = 6;
-
-/// Every machine with its terminals, in the machines' order; a terminal of
-/// a machine no longer listed goes under its own name at the end, offline.
-export function byMachine<T extends Pick<TerminalRow, "machine_id" | "machine_name">>(machines: readonly TerminalMachine[], list: readonly T[]): MachineTerminals<T>[] {
-  const out: MachineTerminals<T>[] = machines.map(m => ({ id: m.id, name: m.name, online: m.online, terms: [] }));
-
-  for (const t of list) {
-    let m = out.find(x => x.id === t.machine_id);
-    if (!m) out.push(m = { id: t.machine_id, name: t.machine_name || "Removed machine", online: false, terms: [] });
-    m.terms.push(t);
-  }
-
-  return out;
-}
-
-/// Where a terminal runs: its project and folder, or the folder alone.
-export function terminalWhere(t: Pick<TerminalRow, "project" | "cwd">) {
-  return t.project ? `${t.project} · ${t.cwd}` : t.cwd;
-}
-
-/// How a terminal stands in a list: how long it has run, or how it ended,
-/// with its exit code.
-export function terminalNote(t: Pick<TerminalRow, "state" | "started_at"> & Partial<Pick<TerminalRow, "code">>, ago: Ago) {
-  if (t.state === "running") return ago(t.started_at);
-  if (t.state === "exited" && t.code != null) return `exited ${t.code}`;
-  return stateLabel(t);
-}
-
-/// "N on M machines", counting the machines that have any.
-export function terminalsCount(groups: readonly MachineTerminals<unknown>[]) {
-  const n = groups.reduce((a, m) => a + m.terms.length, 0);
-  const on = groups.filter(m => m.terms.length).length;
-  if (!n) return "None open";
-  return `${n} on ${on} ${on === 1 ? "machine" : "machines"}`;
-}
-
-/// "running", "exited 1", "stopped", "offline", "gone".
-export function stateLabel(t: Pick<TerminalRow, "state"> & Partial<Pick<TerminalRow, "code">>) {
-  if (t.state === "exited") return t.code == null ? "ended" : t.code === 0 ? "done" : `exited ${t.code}`;
-  return t.state;
-}
-
-/// The board's Terminals tile from the project's terminals; undefined while
-/// they load, null from a server too old to keep them.
-export function terminalTile(
-  list: readonly (Pick<TerminalRow, "name" | "state" | "started_at"> & Partial<Pick<TerminalRow, "code" | "machine_name" | "command" | "cwd">>)[] | null | undefined,
-  ago: Ago,
-): TileData {
-  if (list === undefined) return { count: "", rows: [], empty: "Loading…" };
-  if (list === null) return { count: "", rows: [], empty: "The server keeps no terminals" };
-  const running = list.filter(t => t.state === "running").length;
-  return {
-    count: running ? `${running} running` : list.length ? String(list.length) : "",
-    rows: list.map(t => ({
-      code: t.name,
-      dot: t.state === "running" ? "" : "off",
-      note: t.state === "running" ? ago(t.started_at) : stateLabel(t),
-      title: `${t.machine_name}: ${t.command} in ${t.cwd}`,
-    })),
-    empty: "No terminals yet",
-  };
-}
-
-/// Where a chunk of `len` bytes from byte `at` meets the `next` byte the
-/// screen waits for: `skip` leading bytes it already shows, and `gap` when
-/// bytes before it were no longer kept.
-export function splice(next: number, at: number, len: number): { skip: number; gap: boolean } {
-  if (at > next) return { skip: 0, gap: true };
-  return { skip: Math.min(next - at, len), gap: false };
-}
-
-/// The bytes of a base64 string.
-export function fromBase64(data: string): Uint8Array {
-  const text = atob(data);
-  const out = new Uint8Array(text.length);
-  for (let i = 0; i < text.length; i++) out[i] = text.charCodeAt(i);
-  return out;
-}
-
-/// A terminal's size in cells.
-export interface TermSize {
-  cols: number;
-  rows: number;
-}
-
-/// Whether `now` differs from `sent`, the size the node last got. A resize
-/// to the size it already has makes the shell draw its prompt again.
-export function sizeChanged(sent: TermSize | null, now: TermSize) {
-  return !sent || sent.cols !== now.cols || sent.rows !== now.rows;
-}
-
-/// A name for one view of a terminal: two views of the same terminal
-/// each keep their own stream.
-export function newView(): string {
-  return crypto.randomUUID();
-}
-
-/// How long to wait before attach number `tries` (1 for the first retry).
-export function retryDelay(tries: number) {
-  return Math.min(1000 * 2 ** Math.max(0, tries - 1), 15000);
-}
-
-/// Whether a terminal that ended in `state` is done for good: it exited or was
-/// stopped, or its machine no longer has it.
-export function endsForGood(state: string) {
-  return state === "exited" || state === "stopped" || state === "gone";
-}
-
-/// The footer line of an open terminal.
-export function linkLabel(link: Link, watching: boolean, machine: string, tries = 0) {
-  switch (link) {
-    case "attaching": return tries ? `Reconnecting to ${machine}…` : "Attaching…";
-    case "attached": return watching ? "Watching: typing is off" : `Attached: what you type goes to ${machine}`;
-    case "detached": return "Detached: it keeps running";
-    case "ended": return "Ended";
-    case "view_only": return "View only: the last 100 lines, read every 2 seconds";
-  }
-}
+/// The terminals of every project shown, their live views and the
+/// Terminals page drawn from them.
 
 export function makeTerminals(deps: TerminalDeps) {
   const { invoke, Channel, makeScreen, ago, redraw } = deps;
   const all = new Map<string, ProjectTerminals>();
   /// Live views by terminal id, for the project on show.
   const lives = new Map<string, Live>();
-  let unfollow: (() => void) | undefined;
+  let unfollow: (() => void) | null = null;
   let polling: string | null = null;
   let formVersion = 0;
   /// The project whose terminals view shows.
@@ -777,4 +516,266 @@ export function makeTerminals(deps: TerminalDeps) {
     unselect: () => { const t = of(ALL); t.open = null; t.form = null; redraw(); },
     stop: () => { watch(null); dropAll(); shown = null; },
   };
+}
+
+/// A terminal (TerminalRow).
+export interface TerminalRow {
+  id: string;
+  /// `org/repo`, or empty for a terminal of no project.
+  project: string;
+  machine_id: string;
+  machine_name: string;
+  name: string;
+  command: string;
+  cwd: string;
+  /// `running`, `exited`, `stopped`, `offline` or `gone`.
+  state: string;
+  /// The exit code once it exited, when it gave one.
+  code: number | null;
+  /// In milliseconds since the Unix epoch.
+  started_at: number;
+}
+
+/// A terminal with its last lines, as `terminal_output` gives it (OutputView).
+export interface OutputView {
+  terminal: TerminalRow;
+  lines: string[];
+  /// Lines came before these.
+  earlier: boolean;
+}
+
+/// What an attached terminal sends (TermEvent): output from byte `at` in
+/// base64, its end, or that it takes no input.
+export type TermEvent =
+  | { kind: "attached" }
+  | { kind: "output"; at: number; data: string }
+  | { kind: "ended"; state: string; code: number | null }
+  | { kind: "view_only" };
+
+/// A machine a terminal can start on, in the project's folder there.
+export interface TerminalPlace {
+  id: string;
+  name: string;
+  folder: string;
+}
+
+/// A terminal emulator on the page (termview.ts draws one with xterm.js).
+export interface Screen {
+  el: HTMLElement;
+  write(data: Uint8Array): void;
+  /// A dim line of our own, such as "… earlier output was not kept".
+  note(text: string): void;
+  size(): { cols: number; rows: number };
+  /// Fits the screen to its element, once it is on the page.
+  fit(): void;
+  focus(): void;
+  /// Whether the keyboard is in it now.
+  focused(): boolean;
+  onData(cb: (data: string) => void): void;
+  onResize(cb: (size: { cols: number; rows: number }) => void): void;
+  /// Esc typed in it, which it does not send on; only a pane's terminal sets this.
+  /// A program on the alternate screen (vim, less) still gets Esc.
+  onEscape(cb: () => void): void;
+  /// Whether keys typed go anywhere.
+  setInput(on: boolean): void;
+  dispose(): void;
+}
+
+/// A machine as the Terminals page lists it (MachineView).
+export interface TerminalMachine {
+  id: string;
+  name: string;
+  online: boolean;
+}
+
+/// One machine's terminals on the Terminals page and Home.
+export interface MachineTerminals<T> {
+  id: string;
+  name: string;
+  online: boolean;
+  terms: T[];
+}
+
+/// The scope of the Terminals page: every terminal, of any project or none.
+export const ALL = "";
+
+/// What the window hands `makeTerminals`.
+export interface TerminalDeps {
+  invoke: typeof Invoke;
+  Channel: typeof ChannelCtor;
+  makeScreen: () => Screen;
+  ago: Ago;
+  redraw: () => void;
+  /// Where each project's list is kept between windows; in memory only
+  /// without it.
+  kept?: SectionStore<TerminalRow[] | null>;
+}
+
+/// The New terminal form as typed so far.
+interface TerminalForm {
+  command: string;
+  name: string;
+  machine: string | null;
+  cwd: string;
+  /// The project it is listed under, when not the page's.
+  project?: string;
+}
+
+/// How an open terminal's live view stands.
+type Link = "attaching" | "attached" | "detached" | "ended" | "view_only";
+
+/// The open terminal's live view: its screen and how far its output got.
+interface Live {
+  id: string;
+  screen: Screen;
+  link: Link;
+  /// Bytes of output on the screen so far: where a reattach starts.
+  next: number;
+  /// Typing is off by choice ("View only").
+  watching: boolean;
+  /// Failed attaches in a row, for the wait before the next.
+  tries: number;
+  timer?: ReturnType<typeof setTimeout>;
+  /// This view's name for its stream.
+  view: string;
+  /// Counts attaches, so a stream that an attach replaced is ignored.
+  attaches: number;
+  /// The size the node last got from this view.
+  sent: TermSize | null;
+  /// Let go while the window was hidden, to follow again when it shows.
+  paused?: boolean;
+}
+
+/// One project's terminals: `list` is undefined while it loads and null
+/// from a server too old to keep terminals.
+interface ProjectTerminals {
+  list: TerminalRow[] | null | undefined;
+  open: string | null;
+  output: OutputView | null;
+  form: TerminalForm | null;
+  error: string;
+  busy: boolean;
+}
+
+/// The size a terminal starts at, before its screen is fitted.
+const START_SIZE = { cols: 100, rows: 30 };
+/// Attaches tried in a row before giving up until asked again.
+const MAX_TRIES = 6;
+
+/// Every machine with its terminals, in the machines' order; a terminal of
+/// a machine no longer listed goes under its own name at the end, offline.
+export function byMachine<T extends Pick<TerminalRow, "machine_id" | "machine_name">>(machines: readonly TerminalMachine[], list: readonly T[]): MachineTerminals<T>[] {
+  const out: MachineTerminals<T>[] = machines.map(m => ({ id: m.id, name: m.name, online: m.online, terms: [] }));
+
+  for (const t of list) {
+    let m = out.find(x => x.id === t.machine_id);
+    if (!m) out.push(m = { id: t.machine_id, name: t.machine_name || "Removed machine", online: false, terms: [] });
+    m.terms.push(t);
+  }
+
+  return out;
+}
+
+/// Where a terminal runs: its project and folder, or the folder alone.
+export function terminalWhere(t: Pick<TerminalRow, "project" | "cwd">) {
+  return t.project ? `${t.project} · ${t.cwd}` : t.cwd;
+}
+
+/// How a terminal stands in a list: how long it has run, or how it ended,
+/// with its exit code.
+export function terminalNote(t: Pick<TerminalRow, "state" | "started_at"> & Partial<Pick<TerminalRow, "code">>, ago: Ago) {
+  if (t.state === "running") return ago(t.started_at);
+  if (t.state === "exited" && t.code != null) return `exited ${t.code}`;
+  return stateLabel(t);
+}
+
+/// "N on M machines", counting the machines that have any.
+export function terminalsCount(groups: readonly MachineTerminals<unknown>[]) {
+  const n = groups.reduce((a, m) => a + m.terms.length, 0);
+  const on = groups.filter(m => m.terms.length).length;
+  if (!n) return "None open";
+  return `${n} on ${on} ${on === 1 ? "machine" : "machines"}`;
+}
+
+/// "running", "exited 1", "stopped", "offline", "gone".
+export function stateLabel(t: Pick<TerminalRow, "state"> & Partial<Pick<TerminalRow, "code">>) {
+  if (t.state === "exited") return t.code == null ? "ended" : t.code === 0 ? "done" : `exited ${t.code}`;
+  return t.state;
+}
+
+/// The board's Terminals tile from the project's terminals; undefined while
+/// they load, null from a server too old to keep them.
+export function terminalTile(
+  list: readonly (Pick<TerminalRow, "name" | "state" | "started_at"> & Partial<Pick<TerminalRow, "code" | "machine_name" | "command" | "cwd">>)[] | null | undefined,
+  ago: Ago,
+): TileData {
+  if (list === undefined) return { count: "", rows: [], empty: "Loading…" };
+  if (list === null) return { count: "", rows: [], empty: "The server keeps no terminals" };
+  const running = list.filter(t => t.state === "running").length;
+  return {
+    count: running ? `${running} running` : list.length ? String(list.length) : "",
+    rows: list.map(t => ({
+      code: t.name,
+      dot: t.state === "running" ? "" : "off",
+      note: t.state === "running" ? ago(t.started_at) : stateLabel(t),
+      title: `${t.machine_name}: ${t.command} in ${t.cwd}`,
+    })),
+    empty: "No terminals yet",
+  };
+}
+
+/// Where a chunk of `len` bytes from byte `at` meets the `next` byte the
+/// screen waits for: `skip` leading bytes it already shows, and `gap` when
+/// bytes before it were no longer kept.
+export function splice(next: number, at: number, len: number): { skip: number; gap: boolean } {
+  if (at > next) return { skip: 0, gap: true };
+  return { skip: Math.min(next - at, len), gap: false };
+}
+
+/// The bytes of a base64 string.
+export function fromBase64(data: string): Uint8Array {
+  const text = atob(data);
+  const out = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i++) out[i] = text.charCodeAt(i);
+  return out;
+}
+
+/// A terminal's size in cells.
+export interface TermSize {
+  cols: number;
+  rows: number;
+}
+
+/// Whether `now` differs from `sent`, the size the node last got. A resize
+/// to the size it already has makes the shell draw its prompt again.
+export function sizeChanged(sent: TermSize | null, now: TermSize) {
+  return !sent || sent.cols !== now.cols || sent.rows !== now.rows;
+}
+
+/// A name for one view of a terminal: two views of the same terminal
+/// each keep their own stream.
+export function newView(): string {
+  return crypto.randomUUID();
+}
+
+/// How long to wait before attach number `tries` (1 for the first retry).
+export function retryDelay(tries: number) {
+  return Math.min(1000 * 2 ** Math.max(0, tries - 1), 15000);
+}
+
+/// Whether a terminal that ended in `state` is done for good: it exited or was
+/// stopped, or its machine no longer has it.
+export function endsForGood(state: string) {
+  return state === "exited" || state === "stopped" || state === "gone";
+}
+
+/// The footer line of an open terminal.
+export function linkLabel(link: Link, watching: boolean, machine: string, tries = 0) {
+  switch (link) {
+    case "attaching": return tries ? `Reconnecting to ${machine}…` : "Attaching…";
+    case "attached": return watching ? "Watching: typing is off" : `Attached: what you type goes to ${machine}`;
+    case "detached": return "Detached: it keeps running";
+    case "ended": return "Ended";
+    case "view_only": return "View only: the last 100 lines, read every 2 seconds";
+  }
 }
