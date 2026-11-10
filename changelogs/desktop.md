@@ -15,6 +15,18 @@ Other apps have independent versions and changelogs:
   native update dialog.
 - Release notes are kept for each version and included in desktop update feeds.
 
+### Fixed
+
+- Desktop: preserve panel scroll, drafts and selections during live updates.
+- Desktop: reject stale approvals after their question or session changes.
+- Desktop: retain terminal controls when returning to a cached session.
+
+### Performance
+
+- Desktop: update changed chat rows independently and virtualize long project
+  session lists.
+- Desktop: share concurrent machine and chat list reads.
+
 ## [0.7.0] - 2026-11-09
 
 ### Added
