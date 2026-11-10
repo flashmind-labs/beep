@@ -593,6 +593,51 @@ fn a_subagents_calls_go_on_the_call_that_started_it() {
     );
 }
 
+/// Claude Code stamps no parent on the calls after an inline skill, only on
+/// those of a skill that forks (`context: fork`), which runs as a subagent.
+#[test]
+fn only_a_forked_skill_takes_the_calls_after_it() {
+    let skill = |id: &str| {
+        update(json!({
+            "sessionUpdate": "tool_call", "toolCallId": id, "title": "Load skill: demo",
+            "kind": "other", "status": "in_progress", "rawInput": {"skill": "demo"},
+            "_meta": {"claudeCode": {"toolName": "Skill"}}
+        }))
+    };
+    let bash = |parent: Option<&str>| {
+        let mut meta = json!({"toolName": "Bash"});
+        if let Some(parent) = parent {
+            meta["parentToolUseId"] = json!(parent);
+        }
+        update(json!({
+            "sessionUpdate": "tool_call", "toolCallId": "bash", "title": "echo step",
+            "kind": "execute", "status": "in_progress", "_meta": {"claudeCode": meta}
+        }))
+    };
+
+    let mut inline = live();
+    inline.prompted("run the demo");
+    inline.apply(&skill("load"));
+    inline.apply(&update(json!({
+        "sessionUpdate": "tool_call_update", "toolCallId": "load", "status": "completed"
+    })));
+    inline.apply(&bash(None));
+    let (entries, _) = inline.transcript(10);
+    assert_eq!(entries.len(), 3, "the next call is a step of the turn");
+    assert_eq!(entries[1].text, "Load skill: demo [completed]");
+
+    let mut forked = live();
+    forked.prompted("run the demo");
+    forked.apply(&skill("fork"));
+    forked.apply(&bash(Some("fork")));
+    let (entries, _) = forked.transcript(10);
+    assert_eq!(entries.len(), 2, "the fork's call is its step");
+    assert_eq!(
+        entries[1].text,
+        "Load skill: demo [in_progress]\n[steps] 1\n[step in_progress] echo step"
+    );
+}
+
 #[test]
 fn a_codex_subagent_shows_on_its_spawn_and_takes_its_rollouts_steps() {
     let mut live = live();
