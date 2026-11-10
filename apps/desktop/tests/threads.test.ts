@@ -78,7 +78,7 @@ test("a second load while the lists first load asks the server once", async () =
   const asked: string[] = [];
   // A server too old to keep the lists answers null, and they are read the older way.
   const invoke = (async (cmd: string) => { asked.push(cmd); return cmd === "center_project_lists" ? null : []; }) as unknown as ThreadDeps["invoke"];
-  const thr = makeThreads({ invoke, h: null!, button: null!, ago, redraw() {}, openUrl() {}, openChat() {}, changed() {} });
+  const thr = makeThreads({ invoke, ago, redraw() {}, openUrl() {}, openChat() {}, changed() {} });
   await Promise.all([thr.load("p1"), thr.load("p1")]);
   assert.equal(asked.filter(c => c === "center_project_issues").length, 1);
   await thr.load("p1");
@@ -95,7 +95,7 @@ test("the lists come from the server's copy, with when it was read and why a lis
     synced_at: 1_800_000_000_000,
   };
   const invoke = (async (cmd: string, args: unknown) => { asked.push({ cmd, args }); return cmd === "center_project_lists" ? kept : []; }) as unknown as ThreadDeps["invoke"];
-  const thr = makeThreads({ invoke, h: null!, button: null!, ago, redraw() {}, openUrl() {}, openChat() {}, changed() {} });
+  const thr = makeThreads({ invoke, ago, redraw() {}, openUrl() {}, openChat() {}, changed() {} });
   await thr.load("p1", true);
   assert.deepEqual(asked.find(a => a.cmd === "center_project_lists")?.args, { projectId: "p1", refresh: true });
   assert.ok(!asked.some(a => a.cmd === "center_project_issues" || a.cmd === "center_project_pull_requests"), "the host is not read again");
@@ -109,7 +109,7 @@ test("a failed read keeps the last good lists in the cache", async () => {
   const cache = new PageCache("acct");
   cache.put("threads", "p1", { issues: [{ number: 1 }], threads: [], prs: [], chats: [] });
   const kept = cache.section<KeptThreads>("threads");
-  const thr = makeThreads({ invoke, h: null!, button: null!, ago, redraw() {}, openUrl() {}, openChat() {}, changed() {}, kept });
+  const thr = makeThreads({ invoke, ago, redraw() {}, openUrl() {}, openChat() {}, changed() {}, kept });
   await thr.load("p1");
   assert.deepEqual(kept.get("p1")?.issues?.map(i => i.number), [1]);
   assert.deepEqual(thr.issues("p1")?.map(i => i.number), [1]);

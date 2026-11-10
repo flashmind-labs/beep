@@ -68,7 +68,7 @@ test("kept issues draw before any read answers, and one closed upstream goes onc
   const asked: string[] = [];
   const invoke = ((cmd: string) => { asked.push(cmd); return cmd === "center_project_lists" ? lists.promise : Promise.resolve([]); }) as unknown as ThreadDeps["invoke"];
   let redraws = 0;
-  const thr = makeThreads({ invoke, h: null!, button: null!, ago: () => "", redraw() { redraws++; }, openUrl() {}, openChat() {}, changed() {}, kept });
+  const thr = makeThreads({ invoke, ago: () => "", redraw() { redraws++; }, openUrl() {}, openChat() {}, changed() {}, kept });
   // Opened again soon: what is kept shows and nothing is asked.
   now += SWITCH_MS - 1;
   assert.equal(thr.ensure("p1", SWITCH_MS), undefined);
