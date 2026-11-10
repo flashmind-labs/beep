@@ -95,3 +95,15 @@ fn excerpt_includes_a_late_match() {
     assert!(found.len() < 180);
     assert_eq!(excerpt("修正 接続を再試行", "再試行"), "修正 接続を再試行");
 }
+
+#[tokio::test]
+async fn a_session_found_current_is_skipped_until_it_changes_or_goes() -> anyhow::Result<()> {
+    let index = Arc::new(PromptIndex::open(Path::new(":memory:"))?);
+    index.known().insert("build-box one".into(), "stamp".into());
+    assert!(index.is_known("build-box one", "stamp"));
+    assert!(!index.is_known("build-box one", "newer"));
+
+    index.remove("build-box one".into()).await;
+    assert!(!index.is_known("build-box one", "stamp"));
+    Ok(())
+}
