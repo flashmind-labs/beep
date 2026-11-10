@@ -38,6 +38,7 @@ fn birth(info: &libc::proc_bsdinfo) -> u64 {
 }
 
 pub(super) async fn snapshot() -> anyhow::Result<HashMap<u32, Process>> {
+    crate::run::process::counted("ps".as_ref());
     let output = timeout(
         Duration::from_secs(2),
         Command::new("ps")
@@ -114,6 +115,7 @@ pub(super) async fn ports(processes: &[Process]) -> HashMap<u32, Vec<u16>> {
         .map(|p| p.pid.to_string())
         .collect::<Vec<_>>()
         .join(",");
+    crate::run::process::counted("lsof".as_ref());
     let output = timeout(
         Duration::from_millis(750),
         Command::new("lsof")

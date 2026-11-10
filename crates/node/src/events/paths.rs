@@ -50,6 +50,7 @@ impl Paths {
         let (reconciled_tx, reconciled) = tokio::sync::watch::channel(());
         let watcher = RecommendedWatcher::new(
             move |event: notify::Result<notify::Event>| {
+                counted("paths", &event);
                 let roots = crate::lock(&interested);
                 let changed_roots = match &event {
                     Ok(event) if event.need_rescan() => roots.clone(),
@@ -239,6 +240,23 @@ impl Inner {
         self.installed = wanted;
         Ok(true)
     }
+}
+
+/// Counts one filesystem notification by the watcher that took it.
+pub(crate) fn counted(watcher: &'static str, event: &notify::Result<notify::Event>) {
+    let kind = match event {
+        Ok(event) if event.need_rescan() => "rescan",
+        Ok(event) => match event.kind {
+            EventKind::Create(_) => "create",
+            EventKind::Modify(_) => "modify",
+            EventKind::Remove(_) => "remove",
+            EventKind::Access(_) => "access",
+            EventKind::Any | EventKind::Other => "other",
+        },
+        Err(_) => "error",
+    };
+    metrics::counter!("beep_watch_events_total", "watcher" => watcher, "kind" => kind)
+        .increment(1);
 }
 
 fn affects(root: &Path, path: &Path) -> bool {

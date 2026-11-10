@@ -1,3 +1,4 @@
+use super::scanning::Reason;
 use super::{
     fetch::{copy_out, copy_store, fetch_within, peers_to_ask},
     list::{Merged, merge_peer, move_target, plan, record},
@@ -82,7 +83,7 @@ impl Project {
         .unwrap();
         let watcher = Watcher::with_budget(None, None);
         let mut task = Task::new(shared, parts, watcher, Mode::Watching);
-        task.scan().await;
+        task.scan(Reason::Request).await;
         assert_eq!(task.error, None);
         Self {
             _dir: dir,
@@ -222,7 +223,7 @@ async fn keeping_the_copy_puts_it_in_place_of_the_file() {
     );
     assert!(!project.path(COPY).exists());
     // The scan records the new content, and holds the copy's delete.
-    project.task.scan().await;
+    project.task.scan(Reason::Request).await;
     assert_eq!(project.held(), [COPY]);
     let listed = project
         .task
@@ -349,7 +350,7 @@ async fn keeping_the_original_deletes_the_copy() {
         fs::read_to_string(project.path("docs/notes.txt")).unwrap(),
         "docs/notes.txt"
     );
-    project.task.scan().await;
+    project.task.scan(Reason::Request).await;
     assert_eq!(project.held(), [COPY]);
     project.stop().await;
 }
@@ -380,7 +381,7 @@ async fn a_new_folder_is_rechecked_without_rewalking_the_project() {
         project.task.shared.rules.clone(),
         wake,
     );
-    project.task.scan().await;
+    project.task.scan(Reason::Request).await;
     assert!(
         project
             .task
@@ -390,11 +391,11 @@ async fn a_new_folder_is_rechecked_without_rewalking_the_project() {
             .is_empty()
     );
     fs::create_dir(project.path("new")).unwrap();
-    project.task.scan().await;
+    project.task.scan(Reason::Request).await;
     let changes = project.task.watcher.take_changes(project.task.shared.key);
     assert!(!changes.full);
     assert_eq!(changes.paths, [PathBuf::from("new")].into());
-    project.task.scan().await;
+    project.task.scan(Reason::Request).await;
     assert!(
         project
             .task
@@ -476,7 +477,7 @@ async fn files_deleted_then_the_folder_removed_send_no_deletes() {
     // `rm -rf` midway: the files are gone, the folder and marker not yet.
     fs::remove_file(project.path("a.txt")).unwrap();
     fs::remove_dir_all(project.path("src")).unwrap();
-    project.task.scan().await;
+    project.task.scan(Reason::Request).await;
     assert_eq!(project.deleted(), Vec::<String>::new(), "held, not sent");
     assert_eq!(project.held(), ["a.txt", "src/b.rs"]);
 
@@ -486,7 +487,7 @@ async fn files_deleted_then_the_folder_removed_send_no_deletes() {
     assert_eq!(project.deleted(), Vec::<String>::new());
     let error = project.task.error.clone().unwrap_or_default();
     assert!(error.contains("not syncing"), "{error}");
-    project.task.scan().await;
+    project.task.scan(Reason::Request).await;
     project.task.send_deletes().await;
     assert_eq!(project.deleted(), Vec::<String>::new());
     project.stop().await;
@@ -497,7 +498,7 @@ async fn the_marker_removed_with_the_files_sends_no_deletes() {
     let mut project = Project::new(&["a.txt", "b.txt"]).await;
     let marker = project.path(MARKER);
     fs::remove_file(project.path("a.txt")).unwrap();
-    project.task.scan().await;
+    project.task.scan(Reason::Request).await;
     assert_eq!(project.held(), ["a.txt"]);
     fs::remove_file(&marker).unwrap();
     fs::remove_file(project.path("b.txt")).unwrap();
@@ -507,7 +508,7 @@ async fn the_marker_removed_with_the_files_sends_no_deletes() {
     assert_eq!(project.deleted(), Vec::<String>::new());
     assert!(project.task.scan_failed);
     // A scan does not trust the folder or mark it again.
-    project.task.scan().await;
+    project.task.scan(Reason::Request).await;
     project.task.send_deletes().await;
     assert_eq!(project.deleted(), Vec::<String>::new());
     assert!(project.task.scan_failed);
@@ -520,15 +521,15 @@ async fn a_subfolder_deleted_in_a_live_project_sends_its_deletes() {
     let mut project = Project::new(&["a.txt", "sub/x.txt", "sub/deep/y.txt"]).await;
     // The marker alone removed comes back, with no file missing.
     fs::remove_file(project.path(MARKER)).unwrap();
-    project.task.scan().await;
+    project.task.scan(Reason::Request).await;
     assert_eq!(project.task.error, None);
     assert!(project.path(MARKER).exists());
 
     fs::remove_dir_all(project.path("sub")).unwrap();
-    project.task.scan().await;
+    project.task.scan(Reason::Request).await;
     assert_eq!(project.deleted(), Vec::<String>::new(), "held first");
     // Quiet for the window: scanned again, then sent.
-    project.task.scan().await;
+    project.task.scan(Reason::Request).await;
     project.task.send_deletes().await;
     assert_eq!(project.task.error, None);
     assert_eq!(project.deleted(), ["sub/deep/y.txt", "sub/x.txt"]);
@@ -540,7 +541,7 @@ async fn a_subfolder_deleted_in_a_live_project_sends_its_deletes() {
 async fn a_folder_moved_to_the_trash_sends_no_deletes() {
     let mut project = Project::new(&["a.txt", "b.txt"]).await;
     fs::remove_file(project.path("a.txt")).unwrap();
-    project.task.scan().await;
+    project.task.scan(Reason::Request).await;
     assert_eq!(project.held(), ["a.txt"]);
     let trash = project.base.join("Trash");
     fs::create_dir(&trash).unwrap();
@@ -549,7 +550,7 @@ async fn a_folder_moved_to_the_trash_sends_no_deletes() {
     project.task.send_deletes().await;
     assert_eq!(project.deleted(), Vec::<String>::new());
     assert!(project.task.scan_failed);
-    project.task.scan().await;
+    project.task.scan(Reason::Request).await;
     project.task.send_deletes().await;
     assert_eq!(project.deleted(), Vec::<String>::new());
     project.stop().await;

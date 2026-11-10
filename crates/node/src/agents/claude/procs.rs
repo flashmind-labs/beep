@@ -219,6 +219,7 @@ fn lsof_folders(text: &str) -> Vec<(u32, PathBuf)> {
 /// What `program` prints, `None` when it fails to run in time. `lsof`
 /// exits 1 when one of the processes is gone, so its output still counts.
 async fn output(program: &str, args: &[&str]) -> Option<String> {
+    crate::run::process::counted(program.as_ref());
     let run = Command::new(program)
         .args(args)
         .stdin(Stdio::null())

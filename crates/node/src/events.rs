@@ -47,8 +47,18 @@ impl Hub {
     }
 
     pub fn changed(&self, topic: Topic) {
+        #[cfg(feature = "host")]
         if topic.valid() {
-            let change = Change { topic };
+            metrics::counter!("beep_topic_changed_total", "name" => topic.name().to_owned())
+                .increment(1);
+        }
+
+        self.forward(Change { topic });
+    }
+
+    /// Passes on a change another hub counted already.
+    pub(crate) fn forward(&self, change: Change) {
+        if change.topic.valid() {
             let _ = self.0.changes.send(change.clone());
             crate::lock(&self.0.topics).retain(|topic, weak| {
                 let Some(sender) = weak.upgrade() else {

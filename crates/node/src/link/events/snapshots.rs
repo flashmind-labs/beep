@@ -351,6 +351,8 @@ impl Snapshots {
             entry.not_before = now + READ_GAP;
             let source = entry.source.clone();
             let key = key.clone();
+            metrics::counter!("beep_snapshot_reads_total", "topic" => key.0.name().to_owned())
+                .increment(1);
             let offers = offers.clone();
             let generation = self.generation;
             let stream = self.stream;
