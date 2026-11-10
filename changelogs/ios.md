@@ -31,6 +31,8 @@ Earlier releases predate this changelog.
   long names, folders or group headings.
 - iOS: preserve composer drafts, focus and scroll during live updates.
 - iOS: reject stale approvals after their question or session changes.
+- iOS: notifications read, dismissed or opened on any desktop or phone are
+  read here too, and opening the app no longer replays ones already read.
 
 ### Performance
 

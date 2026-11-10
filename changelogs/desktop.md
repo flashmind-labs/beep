@@ -37,6 +37,9 @@ Other apps have independent versions and changelogs:
 - Desktop: preserve panel scroll, drafts and selections during live updates.
 - Desktop: reject stale approvals after their question or session changes.
 - Desktop: retain terminal controls when returning to a cached session.
+- Desktop: a notification read, dismissed or opened on any desktop or phone
+  is read on all of them, and one read elsewhere no longer pops up again
+  after the Mac wakes.
 - Desktop: view-only terminals on the Terminals page refresh their output again,
   and keep focus, selection and scroll position between reads.
 
