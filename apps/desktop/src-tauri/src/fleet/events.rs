@@ -1084,7 +1084,12 @@ async fn run(
                 Ok(change) if change.topic.name() == "telemetry" => {
                     app.state::<Events>().publish_views(fleet.me, change.topic, telemetry(&fleet));
                 },
-                Ok(change) if matches!(change.topic.name(), "machines" | "projects" | "home" | "usage" | "accounts" | "sync") => {
+                // This node's sync status also comes as a snapshot of its own sync stream, which tells
+                // a transfer's progress from its end.
+                Ok(change) if change.topic.name() == "sync" => {
+                    super::event_views::sync_changed(app.clone(), true);
+                },
+                Ok(change) if matches!(change.topic.name(), "machines" | "projects" | "home" | "usage" | "accounts") => {
                     super::event_views::changed(app.clone(), change.topic);
                 },
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {

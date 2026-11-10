@@ -172,7 +172,9 @@ impl SubscriptionWorker {
                             }
 
                             if !initial { invalidate(app, machine, &snapshot.topic, Some(&snapshot.value)); }
-                            if !initial && (machine == fleet.me || matches!(snapshot.topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves" | "sync")) {
+                            if !initial && snapshot.topic.name() == "sync" {
+                                super::super::event_views::sync_changed(app.clone(), super::super::event_views::moving(&snapshot.value));
+                            } else if !initial && (machine == fleet.me || matches!(snapshot.topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves")) {
                                 super::super::event_views::changed(app.clone(), snapshot.topic.clone());
                             }
 
