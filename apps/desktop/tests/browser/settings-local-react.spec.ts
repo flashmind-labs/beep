@@ -19,7 +19,7 @@ test("Appearance keeps the chosen control focused across refresh", async ({ page
   await page.evaluate(() => { localStorage.setItem("beep.skin", "quiet"); window.dispatchEvent(new StorageEvent("storage", { key: "beep.skin", newValue: "quiet" })); });
   await expect(settings.getByRole("button", { name: "Quiet", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.keyboard.press("Escape");
-  await expect.poll(() => page.evaluate(() => { const host: unknown = Reflect.get(window, "appearanceHost"); return host instanceof HTMLElement ? host.childElementCount : -1; })).toBe(0);
+  await expect.poll(() => page.evaluate(() => { const host: unknown = Reflect.get(window, "appearanceHost"); return host instanceof HTMLElement ? host.isConnected : null; })).toBe(false);
 });
 
 test("computer controls call the existing native commands", async ({ page }, info) => {

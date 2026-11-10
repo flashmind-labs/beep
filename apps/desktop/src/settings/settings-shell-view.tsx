@@ -1,5 +1,5 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
-import type { ReactNode } from "react";
+import { useLayoutEffect, type ReactNode, type Ref } from "react";
 import { navEntries, subKey, type SettingsPage, type SettingsPath, type SettingsSub } from "./settings-nav.ts";
 
 interface NavigationProps {
@@ -17,7 +17,7 @@ export function SettingsBreadcrumb({ path, page, sub, openPage }: { path: Settin
   return <><button className="dset-back" data-goto={path.page} aria-label={`Back to ${page}`} onClick={() => openPage(path.page)}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6l-6 6 6 6" /></svg></button><button className="dset-crumb" data-goto={path.page} onClick={() => openPage(path.page)}>{page}</button><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg><b>{sub}</b></>;
 }
 
-// Page contents retain their existing feature owner while the shell stays mounted.
+// The shell renders each page's content as its children; the sheet and bar share one owner each.
 export function SettingsShell({ navigation, breadcrumb, children }: { navigation: ReactNode; breadcrumb: ReactNode; children: ReactNode }) {
   return <><nav className="dset-nav" aria-label="Settings pages">{navigation}</nav><div className="dset-body"><div className="dset-top"><span className="dset-crumbs">{breadcrumb}</span><kbd>esc</kbd></div><div className="dset-page dform">{children}</div></div></>;
 }
@@ -26,20 +26,29 @@ export function SettingsBarShell({ version, sections, hints }: { version: string
   return <><div className="dhead"><span className="tt"><b>Settings</b><small>Beep desktop {version}</small></span></div><div className="dform dformcol">{sections}</div><HintView value={hints} /></>;
 }
 
-export function SettingsSection({ page, title }: { page: SettingsPage; title: string }) {
-  return <section id={`set-${page}-sec`} data-sec={page}><div className="dsec flat top">{title}</div><div id={`set-${page}`} style={page === "general" || page === "mac" ? { display: "contents" } : {}} /></section>;
+export function SettingsSection({ page, title, children }: { page: SettingsPage; title: string; children: ReactNode }) {
+  return <section id={`set-${page}-sec`} data-sec={page}><div className="dsec flat top">{title}</div><div id={`set-${page}`} style={page === "general" || page === "mac" ? { display: "contents" } : {}}>{children}</div></section>;
 }
 
-export function SettingsHost({ page, loading }: { page: SettingsPage; loading: boolean }) {
-  return <section id={`set-${page}-sec`} data-sec={page}><div className="dset-host" id={`set-${page}-host`}>{loading && <div className="dskel-rows">{[78, 56, 68].map(width => <div key={width} className="dskel" style={{ width: `${width}%` }} />)}</div>}</div></section>;
+/// A page drawn by its own code: Apps renders here as children, Machines and
+/// the embedded window views draw into `hostRef`.
+export function SettingsHost({ page, loading, hostRef, children }: { page: SettingsPage; loading: boolean; hostRef: Ref<HTMLDivElement>; children: ReactNode }) {
+  return <section id={`set-${page}-sec`} data-sec={page}><div className="dset-host" id={`set-${page}-host`} ref={hostRef}>{loading && <div className="dskel-rows">{[78, 56, 68].map(width => <div key={width} className="dskel" style={{ width: `${width}%` }} />)}</div>}{children}</div></section>;
 }
 
-export function AgentSettingsSection({ linked, sheet }: { linked: boolean; sheet: boolean }) {
+export function AgentSettingsSection({ linked, bar, accounts, overview }: { linked: boolean; bar: ReactNode; accounts: ReactNode; overview: ReactNode }) {
   return <section id="set-agents-sec" data-sec="agents"><div className="dsec flat top">{linked ? "Agent accounts" : "Coding agents"}</div>
-    {!sheet && <div id="set-agent-bar" style={{ display: "contents" }} />}
-    {linked && <div id="set-agents" />}
-    {sheet && <div id="set-agent-overview" style={{ display: "contents" }} />}
+    {bar !== null && <div id="set-agent-bar" style={{ display: "contents" }}>{bar}</div>}
+    {accounts !== null && <div id="set-agents">{accounts}</div>}
+    {overview !== null && <div id="set-agent-overview" style={{ display: "contents" }}>{overview}</div>}
   </section>;
+}
+
+/// Runs `entered` when its content mounts and `left` when it unmounts, so a
+/// section can drop pending work that belongs to the copy that left.
+export function Mounted({ entered, left, children }: { entered(): void; left(): void; children: ReactNode }) {
+  useLayoutEffect(() => { entered(); return left; }, [entered, left]);
+  return children;
 }
 
 

@@ -3,7 +3,7 @@ import { forgejoTokenPage, ghChoices, githubAccounts, hostOf, teaHas, teaOffers,
 
 type Machines = { name: string; env?: { tools?: { name: string }[] } | null }[] | null;
 export interface CredentialActions {
-  edit(key: string): void; cancel(): void; save(url: string, secret: string): void; remove(id: string): Promise<void>;
+  edit(key: string): void; cancel(): void; save(url: string, secret: string, clear: () => void): void; remove(id: string): Promise<void>;
   useCli(key: string): void; signIn(): void; cancelSignIn(): void; addAccount(open: boolean): void; useAccount(login: string): void; defaultAccount(id: string): Promise<void>; open(url: string): void;
 }
 function Icon({ svg }: { svg: string }) { return <span dangerouslySetInnerHTML={{ __html: svg }} />; }
@@ -25,7 +25,7 @@ function Link({ href, actions, children }: { href: string; actions: CredentialAc
 function Form({ state, actions, title, subtitle, children }: { state: CredState; actions: CredentialActions; title: string; subtitle?: string; children: ReactNode }) {
   const secret = useRef<HTMLInputElement>(null), url = useRef<HTMLInputElement>(null), edit = state.edit;
   useLayoutEffect(() => { (url.current ?? secret.current)?.focus(); }, []);
-  const save = () => actions.save(url.current?.value ?? "", secret.current?.value ?? "");
+  const save = () => actions.save(url.current?.value ?? "", secret.current?.value ?? "", () => { if (secret.current) secret.current.value = ""; });
   return <div className="dcred-form"><div className="dline"><b>{title}</b>{subtitle && <span className="dfine">{subtitle}</span>}</div><div className={`dfield${state.error ? " err" : ""}`}>
     {edit?.kind === "forgejo" && !edit.id && <input ref={url} id="credUrl" className="url" type="url" placeholder="https://git.example.com" autoComplete="off" spellCheck={false} defaultValue={edit.url ?? ""} aria-label="Server URL" />}
     <div className="dline"><input ref={secret} id="credSecret" type="password" className="dsecret" placeholder="Paste the token" autoComplete="off" spellCheck={false} aria-label="Token" onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /><button className="dbtn pri" id="credSave" disabled={!!state.busy} onClick={save}>{state.busy ? "Checking…" : "Check and save"}</button><button className="dbtn quiet" id="credCancel" onClick={actions.cancel}>Cancel</button></div></div><span className="dsub">{children}</span><div className="derr" id="credErr">{state.error || ""}</div></div>;

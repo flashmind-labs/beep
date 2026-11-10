@@ -1,11 +1,11 @@
-import { createElement, type ReactElement } from "react";
+import { createElement, createRef, type ReactElement } from "react";
 import { flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
 import { AppBarFrame, AppsListView } from "./apps-list-view.tsx";
 import { AppPermissionsView } from "./app-permissions-view.tsx";
 import { McpView } from "./mcp-view.tsx";
 import type { SettingsContentOwner } from "./settings.ts";
-import { bar, S } from "../bar/core.ts";
+import { S } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 
@@ -106,32 +106,31 @@ const cancelSignIn = () => invoke("cancel_app_sign_in").catch(() => {});
 /// A page Apps shows, as `S.view` names it.
 export type AppsView = "apps" | "appperms" | "mcp";
 
-/// The window's Settings sheet shows Apps in its right pane: `root` is the
-/// box Apps draws into instead of the page, `view` what it shows there,
+/// The window's Settings sheet shows Apps in its right pane: `owner`
+/// renders Apps there instead of on the page, `view` is what it shows,
 /// and `opened` tells Settings when Apps opens another page (an app or a
 /// server, by `id`) so its breadcrumb follows.
 interface AppsHost {
-  root: HTMLElement;
   owner: SettingsContentOwner;
   view: AppsView | null;
   opened(view: AppsView, id: string | null): void;
 }
 let host: AppsHost | null = null;
 
-/// Draws Apps into `root` from now on, until `appsOut` or until `root`
-/// leaves the page. The page's own view (`S.view`) is left alone.
-export function appsIn(root: HTMLElement, opened: AppsHost["opened"], owner: SettingsContentOwner) {
-  host = { root, owner, view: null, opened };
+/// Renders Apps through `owner` from now on, until `appsOut`. The page's
+/// own view (`S.view`) is left alone.
+export function appsIn(opened: AppsHost["opened"], owner: SettingsContentOwner) {
+  host = { owner, view: null, opened };
 }
 export function appsOut() {
-  if (host && appsRoot && host.root.contains(appsRoot.host)) disposeApps();
-  if (host && mcpRoot && host.root.contains(mcpRoot.host)) disposeMcp();
-  if (host && permsRoot && host.root.contains(permsRoot.host)) disposePerms();
+  if (appsRoot?.embedded) disposeApps();
+  if (mcpRoot?.embedded) disposeMcp();
+  if (permsRoot?.embedded) disposePerms();
   host = null;
 }
-const hosted = () => (host?.root.isConnected ? host : null);
-const root = () => hosted()?.root ?? bar;
-const q = <T extends Element = HTMLElement>(sel: string) => root().querySelector<T>(sel);
+const hosted = () => host;
+/// The add form's fields, so a failed add can put focus back.
+const addFields = { name: createRef<HTMLInputElement>(), url: createRef<HTMLInputElement>() };
 /// Whether Apps shows `view`, in Settings or on the page.
 const viewIs = (view: AppsView) => {
   const at = hosted();
@@ -146,33 +145,32 @@ function showView(view: AppsView, id: string | null) {
 /// Settings has its own back link and Esc.
 const backHint = () => (hosted() ? null : hintModel([["esc", "back"]]));
 
+/// Where one Apps page renders: the Settings sheet's owner, or the bar's
+/// page root, which releases it when another page takes the bar.
 interface AppMount {
-  host: HTMLElement;
+  embedded: boolean;
   render(content: ReactElement): void;
   unmount(): void;
-  observer: MutationObserver;
 }
-function mountView(section: AppsView, detached: () => void): AppMount {
+let mounts = 0;
+function mountView(section: AppsView): AppMount {
   const embedded = hosted();
-  const page = embedded ? null : openBarPage(() => { disposeApps(); disposeMcp(); disposePerms(); });
-  const element = page?.host ?? document.createElement("div");
+
   if (embedded) {
-    element.style.display = "contents";
-    element.id = section === "apps" ? "apps-react" : section === "mcp" ? "mcp-react" : "app-permissions-react";
-    embedded.root.replaceChildren(element);
+    // A fresh key per mount, so reopening a page starts it from scratch.
+    const key = ++mounts, id = section === "apps" ? "apps-react" : section === "mcp" ? "mcp-react" : "app-permissions-react";
+    return {
+      embedded: true,
+      render(content) { embedded.owner.show(createElement("div", { key, id, style: { display: "contents" } }, content)); },
+      unmount() { embedded.owner.remove(); },
+    };
   }
-  const observer = new MutationObserver(() => { if (!element.isConnected) detached(); });
-  observer.observe(document.body, { childList: true, subtree: true });
+
+  const page = openBarPage(() => { disposeApps(); disposeMcp(); disposePerms(); });
   return {
-    host: element, observer,
-    render(content) {
-      if (embedded) embedded.owner.show(section, element, content);
-      else if (page) flushSync(() => page.root.render(createElement(AppBarFrame, { section, hints: backHint(), children: content })));
-    },
-    unmount() {
-      if (embedded) embedded.owner.remove(section);
-      else if (page) flushSync(() => page.root.render(null));
-    },
+    embedded: false,
+    render(content) { flushSync(() => page.root.render(createElement(AppBarFrame, { section, hints: backHint(), children: content }))); },
+    unmount() { flushSync(() => page.root.render(null)); },
   };
 }
 
@@ -180,15 +178,13 @@ let appsRoot: AppMount | null = null;
 function disposeApps() {
   const current = appsRoot;
   appsRoot = null;
-  if (!current) return;
-  current.observer.disconnect();
-  current.unmount();
+  current?.unmount();
 }
 export function renderApps() {
   disposeMcp(); disposePerms(); disposeApps();
   showView("apps", null);
   A.open = null;
-  appsRoot = mountView("apps", () => { disposeApps(); });
+  appsRoot = mountView("apps");
   drawApps();
   void loadApps();
 }
@@ -227,11 +223,11 @@ async function loadAccounts(app: App) {
 
 export function drawApps() {
   const current = appsRoot;
-  if (!current?.host.isConnected || !viewIs("apps")) return;
+  if (!current || !viewIs("apps")) return;
   current.render(createElement(AppsListView, {
     apps: A.apps, accounts: A.accounts, error: A.error, connecting: A.connecting, servers: A.servers,
     waiting: A.waiting, busy: A.busy, adding: A.adding, addError: A.addError, serverName: A.serverName, serverUrl: A.serverUrl,
-    changeName: (value: string) => { A.serverName = value; }, changeUrl: (value: string) => { A.serverUrl = value; },
+    fields: addFields, changeName: (value: string) => { A.serverName = value; }, changeUrl: (value: string) => { A.serverUrl = value; },
     add: () => void addServer(), startAdd: () => { addFormVersion++; A.adding = true; A.serverName = ""; A.serverUrl = ""; A.addError = ""; drawApps(); },
     cancelAdd: cancelServerAdd,
     cancelServer: () => { A.waiting = null; drawApps(); },
@@ -251,8 +247,8 @@ export function cancelServerAdd() { addFormVersion++; A.adding = false; A.addErr
 export async function addServer() {
   if (A.busy) return;
   const version = addFormVersion;
-  const name = q<HTMLInputElement>("#mname")?.value.trim(), url = q<HTMLInputElement>("#murl")?.value.trim();
-  if (!name || !url) return (name ? q("#murl") : q("#mname"))?.focus();
+  const name = A.serverName.trim(), url = A.serverUrl.trim();
+  if (!name || !url) return (name ? addFields.url : addFields.name).current?.focus();
   A.busy = "new";
   A.addError = "";
   drawApps();
@@ -267,7 +263,7 @@ export async function addServer() {
 
   A.busy = null;
   await loadApps();
-  if (A.adding && addFormVersion === version) q("#murl")?.focus();
+  if (A.adding && addFormVersion === version) addFields.url.current?.focus();
 }
 
 async function serverAction(kind: "connect" | "remove", id: string) {
@@ -347,9 +343,7 @@ let mcpBusy = false;
 function disposeMcp() {
   const current = mcpRoot;
   mcpRoot = null;
-  if (!current) return;
-  current.observer.disconnect();
-  current.unmount();
+  current?.unmount();
 }
 export async function renderMcpServer(server: McpServer | undefined) {
   if (!server) return;
@@ -359,7 +353,7 @@ export async function renderMcpServer(server: McpServer | undefined) {
   showView("mcp", server.id);
   Object.assign(A, { server, tools: null, asking: null, unadd: false, error: "" });
   mcpBusy = false;
-  mcpRoot = mountView("mcp", () => { disposeMcp(); });
+  mcpRoot = mountView("mcp");
   const owner = mcpRoot;
   drawMcpTools();
   try {
@@ -372,7 +366,7 @@ export async function renderMcpServer(server: McpServer | undefined) {
 }
 export function drawMcpTools() {
   const server = A.server, current = mcpRoot;
-  if (!server || !current?.host.isConnected || !viewIs("mcp")) return;
+  if (!server || !current || !viewIs("mcp")) return;
   const toggle = (name: string) => {
     const tools = A.tools, tool = tools?.tools.find(item => item.name === name);
     if (!tools || !tool || mcpBusy) return;
@@ -420,9 +414,7 @@ let accountSignInVersion = 0;
 function disposePerms() {
   const current = permsRoot;
   permsRoot = null;
-  if (!current) return;
-  current.observer.disconnect();
-  current.unmount();
+  current?.unmount();
 }
 const permsOn = (app: App, owner: typeof permsRoot) => !!owner && permsRoot === owner && viewIs("appperms") && A.open === app;
 export async function renderAppPermissions(app: App | undefined) {
@@ -431,7 +423,7 @@ export async function renderAppPermissions(app: App | undefined) {
   showView("appperms", app.slug);
   Object.assign(A, { open: app, perms: null, removing: null, error: "", accountsError: "" });
   permsBusy = false;
-  permsRoot = mountView("appperms", () => { disposePerms(); });
+  permsRoot = mountView("appperms");
   const owner = permsRoot, version = permsVersions.get(app.slug) ?? 0;
   drawPerms();
   if (app.kind === "fastmail") void loadPageAccounts(app, owner);
@@ -474,7 +466,7 @@ async function removeAccount(app: App, id: string, owner: typeof permsRoot) {
 }
 function drawPerms() {
   const app = A.open, owner = permsRoot;
-  if (!app || !owner?.host.isConnected || !permsOn(app, owner)) return;
+  if (!app || !owner || !permsOn(app, owner)) return;
   owner.render(createElement(AppPermissionsView, {
     app, permissions: A.perms, error: A.error, accountsError: A.accountsError, accounts: A.accounts[app.slug] ?? null,
     connecting: A.connecting === app.slug, busy: A.busy, removing: A.removing, saving: permsBusy || permsPending.has(app.slug),

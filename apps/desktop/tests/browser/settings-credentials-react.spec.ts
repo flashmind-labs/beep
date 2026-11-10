@@ -28,7 +28,7 @@ test("credentials draft survives settings redraw and saves via Enter", async ({ 
   await secret.press("Enter");
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "save_credential" && JSON.stringify(call.args.credential) === JSON.stringify({ kind: "forgejo", url: "https://git.example.test", secret: "example-secret" })))).toBe(true);
   await page.keyboard.press("Escape");
-  await expect.poll(() => page.evaluate(() => { const host: unknown = Reflect.get(window, "credHost"); return host instanceof HTMLElement ? host.childElementCount : -1; })).toBe(0);
+  await expect.poll(() => page.evaluate(() => { const host: unknown = Reflect.get(window, "credHost"); return host instanceof HTMLElement ? host.isConnected : null; })).toBe(false);
 });
 
 test("late credential save does not clear a newer draft", async ({ page }) => {
