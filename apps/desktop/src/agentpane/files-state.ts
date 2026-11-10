@@ -32,6 +32,11 @@ export interface Tree {
   truncated: boolean;
 }
 
+/// Whether a reply to `agent_tree` is a tree to read.
+export function isTree(value: unknown): value is Tree {
+  return typeof value === "object" && value !== null && "folders" in value && Array.isArray(value.folders);
+}
+
 /// A folder's listing in one string, to tell a read that changed nothing.
 export function listingKey(l: Listing | undefined) {
   if (!l) return "";

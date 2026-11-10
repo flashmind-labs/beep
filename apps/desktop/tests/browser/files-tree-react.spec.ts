@@ -286,3 +286,12 @@ test("files keep working after leaving the session and opening it again", async 
   await expect(tree.locator('[data-fpath="b.txt"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".agpacts .meta")).toHaveText("1 selected");
 });
+
+test("a tree read that answers nothing shows a plain message, not an exception", async ({ page }) => {
+  await openDesktop(page, true, { agent_tree: null });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  const tree = page.getByRole("tree", { name: "Working files" });
+  await expect(tree).toContainText("The machine sent no file listing.");
+  await expect(tree).not.toContainText("Cannot read properties");
+});
