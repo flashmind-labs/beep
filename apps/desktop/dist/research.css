@@ -56,7 +56,7 @@
 
 .rs { flex: 1; min-height: 0; display: flex; flex-direction: column }
 .rs-log { padding: 12px 20px }
-.rs-pane { position: relative }
+.rs-pane { position: relative; flex-basis: var(--drag-size, 42%) }
 .rs-pane .rpane { user-select: text; cursor: auto }
 .rs .dhead .rdocic { display: grid; color: var(--dim); flex: none }
 .rs .dhead .tt small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }

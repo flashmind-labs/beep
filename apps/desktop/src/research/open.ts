@@ -136,15 +136,23 @@ const place = () => {
 onZoomKey(active, () => { zoomed = !zoomed; drawShell(); });
 
 /// The grip between the chat and the pane: drag to resize, double-click to reset.
+/// While it moves only a CSS variable on the pane changes; the page draws once when it ends.
 function wireDivider(p: ShellParts) {
   dragHandle(p.divider, () => {
     resizing = true;
     drawShell();
+    const right = p.shell.getBoundingClientRect().right, total = p.shell.clientWidth;
+    let width: number | null = null;
     return {
-      move: ev => setPaneWidth(p.shell.getBoundingClientRect().right - ev.clientX),
+      move: ev => {
+        width = paneSize("right", right - ev.clientX, total);
+        p.pane.style.setProperty("--drag-size", `${width}px`);
+      },
       end: () => {
         resizing = false;
+        if (width !== null) paneWidth = paneBasis = width;
         drawShell();
+        p.pane.style.removeProperty("--drag-size");
         keepPaneWidth();
       },
     };

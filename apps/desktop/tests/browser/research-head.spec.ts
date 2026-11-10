@@ -198,3 +198,25 @@ test("research quote and export notices keep their actions", async ({ page }) =>
   await note.getByRole("button", { name: "Show in Finder" }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "reveal_file" && call.args.path === "/path/to/paper.pdf"))).toBe(true);
 });
+
+test("dragging the research divider moves only the pane until it is let go", async ({ page }) => {
+  await openDesktop(page, false, {
+    status: { link: "linked", signed_out: false, server: true, live: false, session: null },
+    cached_research: research("Example topic"), get_research: research("Example topic"), research_history: [], research_pending: null,
+    list_researches: [],
+  });
+  await page.evaluate(() => window.__navigation.open({ open_research: { session: "first" } }));
+  const divider = page.locator(".rs .agdiv:visible"), pane = page.locator(".rs .rs-pane:visible");
+  await expect(divider).toBeVisible();
+  const box = (await divider.boundingBox())!, before = (await pane.boundingBox())!.width;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 80, box.y + box.height / 2, { steps: 4 });
+  await expect(pane).toHaveCSS("--drag-size", /px$/);
+  await expect(pane).not.toHaveAttribute("style", /flex-basis: \d/);
+  expect((await pane.boundingBox())!.width).toBeGreaterThan(before + 40);
+  await page.mouse.up();
+  await expect(pane).toHaveAttribute("style", /flex-basis: var\(--drag-size, \d+px\)/);
+  await expect(pane).not.toHaveAttribute("style", /--drag-size: /);
+  expect((await pane.boundingBox())!.width).toBeGreaterThan(before + 40);
+});
