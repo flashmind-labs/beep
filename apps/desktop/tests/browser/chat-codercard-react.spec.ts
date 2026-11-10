@@ -96,3 +96,14 @@ test("reopening a live chat resumes its coding-agent card", async ({ page }) => 
   await page.evaluate(async () => { Reflect.get(window, 'resumeCardRead')(); await new Promise(resolve => setTimeout(resolve, 0)); });
   await expect(card).toContainText('Latest agent activity');
 });
+
+test("a coding-agent card reads its agent's change without an ambient wait", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: 'linked', signed_out: false, server: true, live: false, session: null }, open_session: [{ role: 'assistant', html: '<p>Working on it.</p>', tools: [{ name: 'code_agent', label: 'Start agent', success: true, route: null, file: null, images: [], products: null, cards: null, chart: null, code_agent: 'codex session notice-one in /srv/project: working, 1 turn' }], replies: [], model: '' }], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: 'chat-example' } }));
+  const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'agent_view').length);
+  await expect.poll(reads).toBeGreaterThan(0);
+  await page.waitForTimeout(300);
+  const before = await reads();
+  await page.evaluate(() => window.__navigation.publish('agent.notice-one', null));
+  await expect.poll(reads, { timeout: 600 }).toBeGreaterThan(before);
+});
