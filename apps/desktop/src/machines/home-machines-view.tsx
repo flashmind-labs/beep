@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { formatAgo, plural } from "../ui/format.ts";
-import { IC } from "../ui/icons.ts";
+import { IC } from "../ui/icons.tsx";
 import { ALL, byMachine, terminalNote, terminalWhere, type TerminalRow } from "../terminals/terminals.ts";
 import { allTerms, openTerminals, termMachines } from "../terminals/view.ts";
 import { openAddMachine, openProjects } from "../center/sidebar.ts";

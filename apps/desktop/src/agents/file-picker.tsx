@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { IC } from "../ui/icons.ts";
+import { IC } from "../ui/icons.tsx";
 
 export function FilePicker({ attach, disabled = false }: { attach(files: File[]): unknown; disabled?: boolean }) {
   const input = useRef<HTMLInputElement>(null);

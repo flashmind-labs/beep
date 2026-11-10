@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { thoughtLabel, duration, KIND_ICONS, type RowParts, type ToolKind, type TurnState } from "./agentturns.ts";
 import { liveText } from "./karaoke.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { esc } from "../ui/format.ts";
 import { SubagentsView, type SubagentRow } from "../agentpane/subagents-view.tsx";
 import type { MadeFile, MadeFiles } from "../agentpane/artifacts-state.ts";

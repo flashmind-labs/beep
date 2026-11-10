@@ -14,7 +14,7 @@ import { rank, type Entry, type Hit as FoundHit, type HitKind, type PaletteIndex
 import { PaletteSearch } from "./palette-search.ts";
 import { projectFirst } from "../project/projectwindow.ts";
 import { state } from "./state.ts";
-import { IC } from "../ui/icons.ts";
+import { IC } from "../ui/icons.tsx";
 
 /// One search result. A branch's id is its project and the branch, split by
 /// a space.

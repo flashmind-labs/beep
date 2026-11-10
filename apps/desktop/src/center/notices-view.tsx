@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { formatAgo } from "../ui/format.ts";
-import { IC } from "../ui/icons.ts";
+import { IC } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { asks, badge, bellLabel, copies, copyLine, doneLabel, skillName, subLine, unreadCount, type Held, type Item } from "./notices-state.ts";
 

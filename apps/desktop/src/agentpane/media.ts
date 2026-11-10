@@ -28,7 +28,7 @@ import { drawTermFooter } from "./term-footer.tsx";
 import { readError, loadText, startTerminal, load } from "./read.ts";
 import { viewOf } from "./views.ts";
 import { frameResize, h } from "../ui/dom.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { runningCount, runningView } from "./running.ts";
 import { onShownChange } from "../ui/active.ts";

@@ -6,7 +6,7 @@ import { ModelView } from "./model-view.tsx";
 import { bar, S } from "../bar/core.ts";
 import { hintModel, refreshHints } from "../bar/hints.ts";
 import { cap } from "../chat/tools.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 
 // ---------- Model (admins) ----------

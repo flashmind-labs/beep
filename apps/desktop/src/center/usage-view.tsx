@@ -1,7 +1,7 @@
 import { Fragment, useLayoutEffect, useRef } from "react";
 import { agentLabel } from "../project/projects-state.ts";
 import { creditAmount, creditScope, providerName } from "../ui/credits.ts";
-import { harnessMark } from "../ui/harnessicon.ts";
+import { harnessMark } from "../ui/icons.tsx";
 import { money, tokenCount } from "../ui/format.ts";
 import { asOf, harnessLine, harnessName, modelTotals, PERIODS, pillPlans, planName, projectExtra, resetName, shortName, showsDollars, todayLine, unpricedLine, WARN_USED, windowName, windowUsed, type PeriodKey, type PlanLimits, type UsageView } from "./usage.ts";
 
@@ -9,7 +9,7 @@ function Bar({ used }: { used: number }) { return <span className="bar"><i class
 /// A harness's mark, else its short name: never a letter tile.
 function Mark({ agent }: { agent: string }) {
   const mark = harnessMark(agent);
-  return mark ? <span className="us-mk" dangerouslySetInnerHTML={{ __html: mark }} /> : <span>{shortName(agent)}</span>;
+  return mark ? <span className="us-mk">{mark}</span> : <span>{shortName(agent)}</span>;
 }
 function Limits({ plan, now }: { plan: PlanLimits; now: number }) {
   const credits = plan.credits ?? [], single = !plan.windows.length && credits.length === 1;

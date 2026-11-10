@@ -1,6 +1,6 @@
 // How a picture in a session's log is drawn, apart from the page.
 import { esc } from "../ui/format.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 
 /// A picture as read from its machine: the data URL, a promise while it is
 /// read, null when the machine no longer has it, nothing when not asked yet.

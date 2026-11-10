@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 
 export interface SubagentRow {
   at: number; title: string; agent: string; meta: string; mark: string;

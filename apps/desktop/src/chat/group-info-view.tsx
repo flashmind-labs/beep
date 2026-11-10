@@ -1,4 +1,4 @@
-import { BEEP_MARK } from "../ui/icons.ts";
+import { BEEP_MARK } from "../ui/icons.tsx";
 import type { GroupMember, GroupReminder, GroupSummary } from "./groups.ts";
 
 interface Props {

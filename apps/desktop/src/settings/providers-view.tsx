@@ -5,7 +5,7 @@ import { FlshView } from "./flsh-view.tsx";
 import type { FlshPanel } from "./flsh.ts";
 import { copy } from "../ui/parts.ts";
 import { splitFailure } from "../ui/failbanner-view.tsx";
-import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
+import { HarnessIcon } from "../ui/icons.tsx";
 import { adapterLine, type AdapterInstall } from "../machines/adapters-state.ts";
 import { compactKind, differsLabel, differsOn, draftChanged, envProblem, harnessName, hasUpdate, listRows, planOf, summaryLine, versionLine, type AutoCompactDraft, type HarnessDraft, type HarnessesView, type HarnessView, type MachineSettings, type SharedField } from "./providers-state.ts";
 
@@ -75,10 +75,6 @@ function SharedSettings({ value, p }: { value: SharedProviderSettings; p: Provid
     {p.machine && <ModelContextView panel={p.contexts} machine={p.machine} agent={value.agent} />}
   </section>;
 }
-function Mark({ agent }: { agent: string }) {
-  const mark = harnessMark(agent), safe = /^[a-z0-9-]+$/.test(agent) ? ` ${agent}` : "";
-  return <span className={`cc-ag${safe}${mark ? " mark" : ""}`} dangerouslySetInnerHTML={{ __html: harnessInner(agent) }} />;
-}
 function Switch({ hv, p, on }: { hv: HarnessView; p: ProviderProps; on: boolean }) {
   return <button type="button" className="dswitch" role="switch" aria-checked={on} aria-label={`${harnessName(hv.agent)} on ${p.machineName}`} disabled={p.saving} onClick={e => { e.stopPropagation(); p.toggle(hv, !on); }} onKeyDown={e => e.stopPropagation()} />;
 }
@@ -86,12 +82,12 @@ function Name({ name, version, latest, status, bad }: { name: string; version: s
   return <span className="hv-name"><span className="hv-nm"><b>{name}</b>{version && <span className="ver">{version}</span>}{latest && <span className="hv-up" title={`v${latest} is out`}>update</span>}</span><small className={bad ? "bad" : ""} title={status}>{status}</small></span>;
 }
 function AgentList({ view, p }: { view: HarnessesView; p: ProviderProps }) {
-  return <div className="hv-list">{listRows(view).map(r => { const hv = view.harnesses.find(h => h.agent === r.agent); if (!hv) return null; return <div key={r.agent} className={`hv-it${r.on || !r.switchable ? "" : " off"}`} role="button" tabIndex={0} aria-current={r.agent === p.picked} onClick={() => p.pick(r.agent)} onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); p.pick(r.agent); } }}><Mark agent={r.agent} /><Name name={r.name} version={r.version ? `v${r.version}` : ""} latest={r.update ? hv.latest : null} status={r.status} bad={r.bad} />{r.switchable ? <Switch hv={hv} p={p} on={r.on} /> : <span />}</div>; })}</div>;
+  return <div className="hv-list">{listRows(view).map(r => { const hv = view.harnesses.find(h => h.agent === r.agent); if (!hv) return null; return <div key={r.agent} className={`hv-it${r.on || !r.switchable ? "" : " off"}`} role="button" tabIndex={0} aria-current={r.agent === p.picked} onClick={() => p.pick(r.agent)} onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); p.pick(r.agent); } }}><HarnessIcon agent={r.agent} /><Name name={r.name} version={r.version ? `v${r.version}` : ""} latest={r.update ? hv.latest : null} status={r.status} bad={r.bad} />{r.switchable ? <Switch hv={hv} p={p} on={r.on} /> : <span />}</div>; })}</div>;
 }
 function Summary({ hv, p }: { hv: HarnessView; p: ProviderProps }) {
   const s = p.adapter ? { text: adapterLine(p.adapter), bad: p.adapter.failed !== null } : summaryLine(hv);
   const on = hv.installed && hv.settings.enabled;
-  return <div className={`hv-sum${hv.installed && !on ? " off" : ""}`}><Mark agent={hv.agent} /><Name name={harnessName(hv.agent)} version={hv.installed && hv.version ? `v${hv.version}` : ""} latest={hasUpdate(hv) ? hv.latest : null} status={s.text} bad={s.bad} />{hv.installed ? <><span className="on">{on ? "On" : "Off"} for {p.machineName}</span><Switch hv={hv} p={p} on={on} /></> : <><span /><span /></>}</div>;
+  return <div className={`hv-sum${hv.installed && !on ? " off" : ""}`}><HarnessIcon agent={hv.agent} /><Name name={harnessName(hv.agent)} version={hv.installed && hv.version ? `v${hv.version}` : ""} latest={hasUpdate(hv) ? hv.latest : null} status={s.text} bad={s.bad} />{hv.installed ? <><span className="on">{on ? "On" : "Off"} for {p.machineName}</span><Switch hv={hv} p={p} on={on} /></> : <><span /><span /></>}</div>;
 }
 function Field({ label, help, names, children }: { label: string; help: string; names?: readonly string[]; children: ReactNode }) {
   return <div className="hv-f"><span><b>{label}</b>{!!names?.length && <span className="hv-diff" title={`Not the same on ${names.join(", ")}`}>{differsLabel(names)}</span>}<small>{help}</small></span>{children}</div>;
@@ -101,7 +97,7 @@ function Runtime({ hv, p }: { hv: HarnessView; p: ProviderProps }) {
   const field = (label: SharedField) => p.others && p.machine ? differsOn(p.others, p.machine, label) : [];
   const status = hv.sign_in;
   return <div className="hv-d">
-    {!p.inSettings && <><h3><Mark agent={hv.agent} />{name}<span className="ver">{versionLine(hv)}</span></h3><h4>Status</h4></>}
+    {!p.inSettings && <><h3><HarnessIcon agent={hv.agent} />{name}<span className="ver">{versionLine(hv)}</span></h3><h4>Status</h4></>}
     {!hv.installed ? <>{!p.inSettings && <div className="hv-stat">Not installed on {p.machineName}.</div>}{hv.install ? <div className="hv-acts"><button type="button" className="dbtn pri" disabled={busy} onClick={() => p.update(hv)}>{busy ? "Installing…" : `Install on ${p.machineName}`}</button><button type="button" className="dbtn quiet" onClick={e => void copy(hv.install ?? "", e.currentTarget)}>Copy install command</button></div> : <div className="hv-note">Install it on the machine, then check again.</div>}</> : <>
       {!p.inSettings && (status.state === "signed_in" ? <div className="hv-stat"><span className="ddot" />{`Signed in${status.account ? ` as ${status.account}` : ""}${planOf(status)}`}</div> : status.state === "beep_token" ? <div className="hv-stat"><span className="ddot" />{`Signs in with the token in Agent accounts (…${status.last4 ?? ""})`}</div> : status.state === "signed_out" ? <div className="hv-stat"><span className="ddot" style={{ background: "var(--hot)" }} />Not signed in on {p.machineName}</div> : <div className="hv-stat">{name} does not say whether it is signed in. Run it on {p.machineName} to sign in.</div>)}
       {status.state === "beep_token" && <div className="hv-acts"><button type="button" className="dbtn" onClick={p.openAccounts}>Agent accounts</button></div>}

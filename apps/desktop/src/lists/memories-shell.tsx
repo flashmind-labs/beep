@@ -2,7 +2,7 @@ import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { Fragment, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { mark } from "../chat/chats.ts";
 import { MEM_ICON, MEM_SOURCE, scopeTag, shortDate, type Memory, type MemoryScope } from "./memories.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 
 interface Filter { key: string; label: string; about?: string; ids?: Set<string>; read?: boolean }
 export function MemoriesShell({ filters, picked, count, hints, search, filter, click, menu, memories, selected, mode, scopes, query, today, loaded, total, error }: {

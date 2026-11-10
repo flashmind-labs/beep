@@ -6,8 +6,7 @@ import { cloneElement, Fragment, isValidElement, memo, useLayoutEffect, useRef, 
 import { SessionTitle } from "./title-view.tsx";
 import { createPortal, flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
-import { ICON } from "../ui/icons.ts";
-import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
+import { HarnessIcon, ICON } from "../ui/icons.tsx";
 
 type Dock = "bottom" | "right";
 export interface AgentHintsModel { value: HintViewModel; project: string | null }
@@ -71,8 +70,7 @@ export function DraftHead({ project }: { project: string }) {
 }
 
 export function SessionHead({ agent, title, folder, project, cwd, machine, usage, saveTitle }: { agent: string; title: string; folder: string; project: boolean; cwd: string; machine: string; usage: string; saveTitle(value: string): Promise<void> }) {
-  const safe = /^[a-z0-9-]+$/.test(agent) ? ` ${agent}` : "";
-  return <><span className={`dapp dcoderav${safe}${harnessMark(agent) ? " mark" : ""}`} dangerouslySetInnerHTML={{ __html: harnessInner(agent) }} /><span className="tt"><SessionTitle title={title} save={saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{project ? <button className="agproj" id="agproj">{folder}</button> : <span id="agproj">{folder}</span>}<span id="agbranch" /></span><span>@</span><span id="aghere">{machine}</span></small></span><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage}</small><span id="agstate" /><span id="agedit" className="agedit" /></>;
+  return <><HarnessIcon agent={agent} className="dapp dcoderav" /><span className="tt"><SessionTitle title={title} save={saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{project ? <button className="agproj" id="agproj">{folder}</button> : <span id="agproj">{folder}</span>}<span id="agbranch" /></span><span>@</span><span id="aghere">{machine}</span></small></span><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage}</small><span id="agstate" /><span id="agedit" className="agedit" /></>;
 }
 
 export function updateSessionTitle(title: string) {

@@ -2,7 +2,7 @@
 // did after it, up to the next message.
 
 import { imageLines, parseTool, subagent } from "./agentlog.ts";
-import { BEEP_MARK } from "../ui/icons.ts";
+import { BEEP_MARK } from "../ui/icons.tsx";
 import { plural } from "../ui/format.ts";
 
 /// The parts of an entry a turn needs.

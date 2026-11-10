@@ -1,6 +1,6 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { useLayoutEffect, useRef } from "react";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import type { GroupFormMode } from "./groups.ts";
 
 interface Props {

@@ -1,6 +1,6 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { Fragment, useLayoutEffect, useRef } from "react";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { SKILL_ICON, skillMeta, type Skill } from "./skills.ts";
 
 type Mode = "list" | "actions" | "delete" | "view" | "vdelete";

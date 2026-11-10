@@ -1,6 +1,6 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { Fragment, useLayoutEffect, useRef } from "react";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { AppLogo } from "../chat/applogo-view.tsx";
 import { CLOCK_ICON, PLAY_ICON, PLUS_ICON } from "./memories.ts";
 import { describeDay, routineWhen, SHIELD_ICON, span, type Cron, type Grant } from "./routines.ts";

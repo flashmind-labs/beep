@@ -1,7 +1,7 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { useLayoutEffect, useRef } from "react";
 import type { Skill } from "./skills.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 
 export function SkillEditor({ skill, error, hints, save, cancel }: { skill: Skill; error: string; hints: HintViewModel; save(): void; cancel(): void }) {
   const body = useRef<HTMLTextAreaElement>(null);

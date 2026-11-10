@@ -1,4 +1,4 @@
-import { IC } from "../ui/icons.ts";
+import { IC } from "../ui/icons.tsx";
 import type { Freshness } from "../ui/pagecache.ts";
 import { SyncMachine, SyncProject } from "./syncpage-view.tsx";
 import type { makeFileSync, MachineDetail } from "./filesync.ts";

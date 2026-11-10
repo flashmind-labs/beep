@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from "react";
 import { mentionText, shortSize } from "../agentpane/files-state.ts";
 import { paneSession } from "../agentpane/media.ts";
 import { openViewer } from "../chat/media.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { AG } from "./agents.ts";
 import { drawAgentAttached } from "./images.ts";
 import { answerUpload, MN, removeMention } from "./workdrop.ts";

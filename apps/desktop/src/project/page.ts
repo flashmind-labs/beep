@@ -23,7 +23,7 @@ import { liveMode, pa, redrawProjectsPage, runs, terms } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
 import { noteRecent, revalidate, revalidateOverview, markDue, prefetchRecentSoon, whereDue, foundSection, disposeFoundSection, elsewhereSection, disposeElsewhereSection, disposeSessionPanel } from "./loads.ts";
 import { ensureHome } from "../center/refresh.ts";
-import { IC } from "../ui/icons.ts";
+import { IC } from "../ui/icons.tsx";
 
 /// The page's outer view. It stays rendered while another page shows, so
 /// coming back keeps its place.

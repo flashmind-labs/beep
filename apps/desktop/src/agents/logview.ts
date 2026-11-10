@@ -18,7 +18,7 @@ import { groupThoughts, mergedThought } from "./thoughts-state.ts";
 import { showLogShell } from "./log-shell.tsx";
 import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.ts";
 import { answerHtml, collapseActivityHtml, KIND_ICONS, liveLineHtml, stepMark, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml } from "./turnrows.ts";
-import { type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentAvatar, agentKind } from "./agents.ts";
+import { type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentKind } from "./agents.ts";
 import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
 import { promptParts } from "./promptparts-state.ts";
 import { childRow } from "./nesting-state.ts";
@@ -33,7 +33,7 @@ import { drawQueue, questionKey } from "./messages.ts";
 import { olderNote } from "./older-state.ts";
 import { holdNote } from "./reconnect-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { showAgentControl } from "./composer-ui.tsx";
 import { AgentStatus, AgentStopFace } from "./mode-view.tsx";
 import { contextHtml, promptHtml, replyHtml, type ContextRow, type PromptRow, type ReplyRow } from "./reply-view.tsx";
@@ -324,7 +324,8 @@ function userRows(en: AgentEntry, at: number): (string | PromptRow | ContextRow)
           const row = childRow(sessions, p.id);
           const meta = [row?.machine_name ?? p.id.split("@").slice(1).join("@"), row ? agentKind(row.agent).name : ""].filter(Boolean).join(" · ");
           const body = en.child_html?.[child++];
-          return { kind: "context", id: `${at}:${index}`, type: "child", part: p, body: body != null ? answerHtml(body) : `<p>${linkified(p.text).replace(/\n/g, "<br>")}</p>`, icon: row ? agentAvatar(row.agent) : SUB_ICON, agent: row?.agent ?? null, meta };
+          // AgentContext draws the harness tile; this string form only feeds search and change checks.
+          return { kind: "context", id: `${at}:${index}`, type: "child", part: p, body: body != null ? answerHtml(body) : `<p>${linkified(p.text).replace(/\n/g, "<br>")}</p>`, icon: row ? "" : SUB_ICON, agent: row?.agent ?? null, meta };
         })()]
         : []);
   const own = parts.filter(p => p.kind === "user").map(p => p.text).join("\n");

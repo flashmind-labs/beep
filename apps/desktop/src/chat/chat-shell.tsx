@@ -3,7 +3,7 @@ import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { focusAsk, stop } from "./chat.ts";
 import { LiveDock, LiveSheet } from "../bar/live-dock.tsx";
 import type { LiveView } from "../bar/live.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { ChatNavigation } from "./navigation-view.tsx";
 import { chatBodyHost } from "./work-view.tsx";
 import { fileKind, fileSize } from "./media.ts";

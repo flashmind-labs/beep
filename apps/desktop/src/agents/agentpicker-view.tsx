@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { agentKind } from "./agents.ts";
 import { effortNote, effortsOf, railOf, type ModelRow } from "./agentpick.ts";
-import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
+import { HarnessIcon } from "../ui/icons.tsx";
 import type { Picked } from "./agentpicker.ts";
 
 interface PickerProps {
@@ -25,14 +25,8 @@ function Check() {
   return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5 9-10"/></svg>;
 }
 
-function Harness({ agent }: { agent: string }) {
-  const mark = harnessMark(agent);
-  const cls = `cc-ag${/^[a-z0-9-]+$/.test(agent) ? ` ${agent}` : ""}${mark ? " mark" : ""}`;
-  return <span className={cls} dangerouslySetInnerHTML={{ __html: harnessInner(agent) }}/>;
-}
-
 export function AgentPillContent({ agent, detail }: { agent: string; detail: string }) {
-  return <><Harness agent={agent}/>{detail}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg></>;
+  return <><HarnessIcon agent={agent}/>{detail}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg></>;
 }
 
 export function AgentPicker({ picked, offered, everywhere, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onAgent, onModel, onEffort }: PickerProps) {
@@ -47,7 +41,7 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
       const kind = agentKind(item.agent);
       const title = item.enabled ? kind.name : `${kind.name} (not on ${machineName || "any machine"})`;
       return <button key={item.agent} type="button" data-agh={item.agent} aria-pressed={item.agent === picked.agent}
-        title={title} disabled={!item.enabled} onClick={() => { setHighlight(-1); onAgent(item.agent); }}><Harness agent={item.agent}/></button>;
+        title={title} disabled={!item.enabled} onClick={() => { setHighlight(-1); onAgent(item.agent); }}><HarnessIcon agent={item.agent}/></button>;
     })}</div>
     <div className="agc-list"><div className="agc-find"><input className="agc-search" spellCheck={false} autoComplete="off"
       placeholder={`Search ${name} models…`} value={picked.query} onChange={event => { setHighlight(-1); onQuery(event.currentTarget.value); }}

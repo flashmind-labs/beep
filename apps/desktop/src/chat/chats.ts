@@ -12,7 +12,7 @@ import { openSession } from "./history.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { withoutResearch } from "../research/research-list.ts";
 import { esc } from "../ui/format.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 
 // ---------- Chats ----------

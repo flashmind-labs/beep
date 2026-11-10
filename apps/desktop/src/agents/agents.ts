@@ -16,7 +16,6 @@ import { parentSession, ensureSessions, loadSessions, reviewers, sessions } from
 import { copiesClick, copiesHtml, keepCopiesFresh, onCopies, onCopyAction } from "./copies.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { preloadModels } from "./agentpicker.ts";
-import { harnessTile } from "../ui/harnessicon.ts";
 import type { CheckoutPick } from "./agentpick.ts";
 import type { Attached, Waiting } from "./agentqueue.ts";
 import { drawQueue, renderChat } from "../chat/chat.ts";
@@ -40,7 +39,7 @@ import { closeModelPicker } from "./modelpill.ts";
 import { interruptAgent, answerFirst } from "./messages.ts";
 import { cycleMode } from "./modepill.ts";
 import { money } from "../ui/format.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { Changes } from "../ui/pagecache.ts";
@@ -372,7 +371,6 @@ export const AGENT_ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh
 export const AGENT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>';
 
 export const agentKind = (a: string): AgentKind => AGENT_KINDS[a] ?? { ini: String(a || "?").slice(0, 2).toUpperCase(), name: a || "Agent", cls: "" };
-export const agentAvatar = (a: string) => harnessTile(a, "dapp dcoderav");
 export const folderName = (p: string) => String(p || "").split("/").filter(Boolean).pop() || p || "";
 export const byPreference = (a: string, b: string) => (AGENT_ORDER.indexOf(a) + 1 || 99) - (AGENT_ORDER.indexOf(b) + 1 || 99);
 /// The session `o` names, as the node's commands take it.

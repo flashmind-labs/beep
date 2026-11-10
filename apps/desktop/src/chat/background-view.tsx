@@ -2,7 +2,7 @@ import { Fragment } from "react";
 import { AppLogo } from "./applogo-view.tsx";
 import { forRoutine, type Decision } from "./chat.ts";
 import { answerWorkById, type HeldQuestion } from "../bar/work.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 
 const SAID = { allow: "Allowed once. The work goes on.", session: "Allowed for the rest of this chat. The work goes on.", always: "Allowed, and always allowed from now on. The work goes on.", deny: "Denied. The work goes on without it.", grant: "Allowed for this routine. The work goes on." };
 const BUTTONS: readonly [Decision, string, string, string][] = [["allow", "Allow", "pri", `⌘${ICON.ret}`], ["session", "Allow for this session", "", `⇧⌘${ICON.ret}`], ["always", "Always", "", `⌥⌘${ICON.ret}`], ["deny", "Deny", "warn", "⌘D"]];

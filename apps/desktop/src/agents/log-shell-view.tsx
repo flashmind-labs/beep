@@ -1,5 +1,5 @@
 import type { AgentQuestion } from "./agents.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 
 export interface LogShell {
   why: string | null;

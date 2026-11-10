@@ -1,7 +1,7 @@
 import { Fragment, useLayoutEffect, useRef } from "react";
 import { patchHtml } from "../ui/patch.ts";
 import { answerHtml } from "../agents/turnrows.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { agentOf, count, progress, RUNNING, type Open } from "./research-state.ts";
 import { cite } from "./panes.ts";
 

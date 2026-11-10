@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, Fragment, type ReactNode } from "react";
-import { IC } from "../ui/icons.ts";
+import { IC } from "../ui/icons.tsx";
 import type { GroupSlot } from "./state.ts";
 
 export interface SideLink { label: string; svg: string; count: number; current?: boolean; hot?: boolean; shortcut?: string; className?: string; open(): void }

@@ -4,7 +4,7 @@ import { hostOf } from "../settings/apps.ts";
 import { hintModel } from "../bar/hints.ts";
 import { HintView } from "../bar/hints-view.tsx";
 import { invoke } from "../ui/tauri.ts";
-import { COPY_ICON, ICON } from "../ui/icons.ts";
+import { COPY_ICON, ICON } from "../ui/icons.tsx";
 import { fileKind, fileSize, GONE_PIC, loadPic, viewerAct, viewerKeys, type ViewerPic } from "./media.ts";
 
 function ViewerImage({ picture }: { picture: ViewerPic }) {
