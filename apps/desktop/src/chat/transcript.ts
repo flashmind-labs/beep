@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createStore, type StoreApi } from "zustand";
 import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
-import { TranscriptView } from "./work-view.tsx";
+import { showHtml, TranscriptView } from "./work-view.tsx";
 import type { AgentReport } from "./agentcard.ts";
 import type { ApprovalField, Decision } from "./approval-cards.ts";
 import type { AskFile } from "./attach.ts";
@@ -90,6 +90,7 @@ interface Transcript { store: StoreApi<TranscriptState>; view: DocumentView; rev
 const transcripts = new WeakMap<ChatBody, Transcript>();
 const views = new WeakMap<Turn, TurnView>();
 const elements = new WeakMap<Turn, HTMLDivElement>();
+const replyElements = new WeakMap<Turn, HTMLElement>();
 let nextKey = 0;
 
 /// A chat's scrolling body, which draws its transcript.
@@ -144,12 +145,20 @@ export function viewOf(turn: Turn): TurnView {
   return view;
 }
 
-/// Changes what `turn` shows. A turn on screen draws again at once, alone.
+/// Changes what `turn` shows. A turn on screen draws again at once, alone,
+/// unless `batchViews` holds its drawing; a change to nothing draws nothing.
 export function setView(turn: Turn, change: Partial<Omit<TurnView, "turn">>) {
-  const next = { ...viewOf(turn), ...change };
+  const was = viewOf(turn), next = { ...was, ...change };
+  const before = Object.values(was), after = Object.values(next);
+  if (after.every((value, i) => Object.is(value, before[i]))) return;
   views.set(turn, next);
   const current = transcripts.get(turn.body);
   if (!current || current.disposed) return;
+
+  if (batched) {
+    batched.add(current);
+    return;
+  }
 
   const list = current.store.getState().turns, index = list.findIndex(view => view.turn === turn);
   if (index < 0) return;
@@ -157,6 +166,42 @@ export function setView(turn: Turn, change: Partial<Omit<TurnView, "turn">>) {
   const turns = list.slice();
   turns[index] = next;
   flushSync(() => current.store.setState({ turns }));
+}
+
+/// Streams `html` in as the reply of `turn`. Once its reply shows, the
+/// markup goes straight into the reply's element and the turn does not draw
+/// again; the turn's view takes it for its next draw.
+export function streamReply(turn: Turn, html: string) {
+  const el = replyElements.get(turn), was = viewOf(turn);
+  if (!el?.isConnected || was.reply === null) return setView(turn, { reply: html });
+  views.set(turn, { ...was, reply: html });
+  showHtml(el, html);
+}
+
+/// Transcripts whose turns changed while `batchViews` runs.
+let batched: Set<Transcript> | null = null;
+
+/// Runs `change`, then draws each transcript it changed once.
+export function batchViews<T>(change: () => T): T {
+  if (batched) return change();
+  const dirty = new Set<Transcript>();
+  batched = dirty;
+  let result: T;
+
+  try {
+    result = change();
+  } finally {
+    batched = null;
+  }
+
+  for (const current of dirty) {
+    if (current.disposed) continue;
+    const turns = current.store.getState().turns;
+    const next = turns.map(view => viewOf(view.turn));
+    if (next.some((view, i) => view !== turns[i])) flushSync(() => current.store.setState({ turns: next }));
+  }
+
+  return result;
 }
 
 /// The turns `body` shows, in order.
@@ -192,6 +237,7 @@ export function transcriptShown(body: ChatBody) { update(body, state => ({ shown
 
 /// The element a turn on screen draws into, for scrolling to it.
 export const turnElement = (turn: Turn) => elements.get(turn) ?? null;
+export function placeReplyElement(turn: Turn, element: HTMLElement) { replyElements.set(turn, element); }
 export function placeTurnElement(turn: Turn, element: HTMLDivElement | null) {
   if (element) elements.set(turn, element);
   else if (!shownTurn(turn)) elements.delete(turn);

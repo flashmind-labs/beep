@@ -1,5 +1,5 @@
 import { turnState } from "./turn-state.ts";
-import { placeTurns, prependTurns, setView, shownTurn, transcriptRevision, turnsOf, viewOf, type Turn } from "./transcript.ts";
+import { batchViews, placeTurns, prependTurns, setView, shownTurn, transcriptRevision, turnsOf, viewOf, type Turn } from "./transcript.ts";
 import { appendChatReply, askText, chatReplyHtml, drawWork, failed, makeTurn, newTurn, ranOn, suggestions, toolOutput } from "./turns.ts";
 import { answeredTurns, approvalCard } from "./approval-cards.ts";
 import { body, drawLatest, forgetChat, renderChat, scrollDown } from "./chat.ts";
@@ -237,7 +237,9 @@ function buildTurns(id: string, b: ChatBody, turns: HistoryTurn[]) {
 /// Puts `drawn`, the chat's turns as the server lists them, into body `b`
 /// without drawing again what it shows: a turn already there stays and
 /// takes the server's copy in place.
-function mergeTurns(b: ChatBody, drawn: Turn[]) {
+const mergeTurns = (b: ChatBody, drawn: Turn[]) => batchViews(() => mergeInto(b, drawn));
+
+function mergeInto(b: ChatBody, drawn: Turn[]) {
   const shown = turnsOf(b);
   const kept = new Map<Turn, Turn>(), order: Turn[] = [], used = new Set<Turn>();
   const byTime = new Map<number, Turn[]>();

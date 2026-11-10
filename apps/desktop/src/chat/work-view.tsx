@@ -1,7 +1,7 @@
 import { AppLogo } from "./applogo-view.tsx";
 import { BackgroundView } from "./background-view.tsx";
 import { CoderCard } from "./codercard-view.tsx";
-import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { Fragment, memo, useEffect, useLayoutEffect, useReducer, useRef, useState, type RefObject } from "react";
 import { useStore, type StoreApi } from "zustand";
 import { COPY_ICON, ICON, Icon } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
@@ -16,7 +16,7 @@ import { ChartView } from "./chart-view.tsx";
 import { fileKind, fileSize, GONE, GONE_PIC, loadPic, openViewer, pictures, savePic, type PicRef, type ProductCard, type SentFile, type SentImage } from "./media.ts";
 import { VOICE_ICON } from "../bar/live.ts";
 import type { AskFile } from "./attach.ts";
-import { placeTurnElement, type ApprovalView, type ReplyActions, type RerunView, type Sent, type SentItem, type Source, type StoppedView, type TranscriptState, type TurnView, type WorkLive, type WorkStep, type WorkThought, type WorkView } from "./transcript.ts";
+import { placeReplyElement, placeTurnElement, type Turn, type ApprovalView, type ReplyActions, type RerunView, type Sent, type SentItem, type Source, type StoppedView, type TranscriptState, type TurnView, type WorkLive, type WorkStep, type WorkThought, type WorkView } from "./transcript.ts";
 import { cardKey } from "./agentcard.ts";
 
 // A chat's transcript as React draws it: one list of turns, each drawn from
@@ -39,7 +39,7 @@ const TurnRow = memo(function TurnRow({ view, shown }: { view: TurnView; shown: 
     {view.rerunOf !== null && <div className="drerunof">{view.rerunOf}</div>}
     {view.work && <WorkBox value={view.work} />}
     {view.coders.map(report => <CoderCard key={cardKey(report)} report={report} shown={shown} />)}
-    {view.reply !== null && <Reply html={view.reply} />}
+    {view.reply !== null && <Reply turn={turn} html={view.reply} />}
     {view.sent && <SentBox sent={view.sent} />}
     {view.sources.length > 0 && <div className="dsources" aria-label="Sources"><Sources items={view.sources} /></div>}
     {view.approval && <div className="dcard"><Approval value={view.approval} /></div>}
@@ -53,21 +53,29 @@ const TurnRow = memo(function TurnRow({ view, shown }: { view: TurnView; shown: 
 });
 
 /// What a box shows while the user selects text in it: the value from
-/// before, until the selection leaves.
+/// before, until the selection leaves. Without a selection it is `value`,
+/// drawn in the same render.
 export function useHeld<T>(value: T, box: RefObject<HTMLElement | null>, same: (a: T, b: T) => boolean = Object.is): T {
-  const [shown, setShown] = useState(value);
+  const shown = useRef(value);
+  const [, resume] = useReducer((n: number) => n + 1, 0);
+  const held = !same(shown.current, value) && selecting(box.current);
+  const result = held ? shown.current : value;
+
   useLayoutEffect(() => {
-    if (same(shown, value)) return;
-    const selected = () => {
-      const selection = document.getSelection(), node = box.current;
-      return !!node && !!selection && !selection.isCollapsed && selection.containsNode(node, true);
-    };
-    if (!selected()) { setShown(value); return; }
-    const resume = () => { if (!selected()) setShown(value); };
-    document.addEventListener("selectionchange", resume);
-    return () => document.removeEventListener("selectionchange", resume);
-  }, [value, shown]);
-  return same(shown, value) ? value : shown;
+    shown.current = result;
+    if (!held) return;
+    const check = () => { if (!selecting(box.current)) resume(); };
+    document.addEventListener("selectionchange", check);
+    return () => document.removeEventListener("selectionchange", check);
+  }, [result, held]);
+
+  return result;
+}
+
+/// Whether the user is selecting text in `node`.
+function selecting(node: HTMLElement | null) {
+  const selection = document.getSelection();
+  return !!node && !!selection && !selection.isCollapsed && selection.containsNode(node, true);
 }
 
 function Prompt({ html }: { html: string }) {
@@ -76,10 +84,43 @@ function Prompt({ html }: { html: string }) {
 }
 
 /// The answer's sanitized markup. It is set only when it changes, so
-/// pictures filled in it stay.
-function Reply({ html }: { html: string }) {
-  const box = useRef<HTMLDivElement>(null), shown = useHeld(html, box);
-  return <div className="dcoderen agent md" ref={box}><Html html={shown} /></div>;
+/// pictures filled in it stay; a streaming answer is written in by
+/// `streamReply` without drawing the turn again.
+function Reply({ turn, html }: { turn: Turn; html: string }) {
+  const box = useRef<HTMLSpanElement>(null);
+
+  useLayoutEffect(() => {
+    if (!box.current) return;
+    showHtml(box.current, html);
+    placeReplyElement(turn, box.current);
+  }, [turn, html]);
+
+  return <div className="dcoderen agent md"><span style={{ display: "contents" }} ref={box} /></div>;
+}
+
+const written = new WeakMap<HTMLElement, string>(), waiting = new WeakMap<HTMLElement, string>();
+
+/// Puts sanitized `html` in `el`, unless it shows it already. While the
+/// user selects in `el` the newest waits until the selection leaves.
+export function showHtml(el: HTMLElement, html: string) {
+  if (!selecting(el)) {
+    waiting.delete(el);
+    if (written.get(el) !== html) { el.innerHTML = html; written.set(el, html); }
+    return;
+  }
+
+  if (!waiting.has(el)) {
+    const resume = () => {
+      const next = waiting.get(el);
+      if (next === undefined || !el.isConnected) { waiting.delete(el); document.removeEventListener("selectionchange", resume); return; }
+      if (selecting(el)) return;
+      document.removeEventListener("selectionchange", resume);
+      showHtml(el, next);
+    };
+    document.addEventListener("selectionchange", resume);
+  }
+
+  waiting.set(el, html);
 }
 
 function WorkBox({ value }: { value: WorkView }) {
