@@ -34,3 +34,15 @@ export function PdfView({ tab, machine }: { tab: MediaTab; machine: string | nul
   const [meta, setMeta] = useState(`PDF · ${fileSize(tab.size)}`);
   return <><div className="agpstage pdf"><iframe title={tab.name} src={tab.url ?? undefined} /></div><div className="agpacts"><span className="meta">{meta}</span><span className="sp" /><FileActions tab={tab} machine={machine} label="Open in Preview" note={setMeta} /></div></>;
 }
+
+export function ModelFooter({ tab, machine }: { tab: MediaTab; machine: string | null }) {
+  const [wire, setWire] = useState(!!tab.wire);
+  const [note, setNote] = useState<string | null>(null);
+  const model = tab.model, info = model?.info;
+  const clips = info?.clips ? ` · ${info.clips} clip${info.clips > 1 ? "s" : ""}` : "";
+  const meta = info ? `${info.format} · ${info.triangles.toLocaleString()} triangles${info.meshes > 1 ? ` · ${info.meshes} meshes` : ""}${clips} · ${fileSize(tab.size)}` : "";
+  return <><button className="dbtn" data-reset="1" disabled={!model} onClick={() => model?.reset()}>Reset view</button><button className={`dbtn${wire ? " on" : ""}`} data-wire="1" disabled={!model} onClick={() => {
+    const next = !wire;
+    tab.wire = next; setWire(next); model?.wireframe(next);
+  }}>Wireframe</button><span className="meta">{note ?? meta}</span><span className="sp" /><span className="hint">Drag to orbit, right-drag to pan, wheel to zoom</span><FileActions tab={tab} machine={machine} label="Open" note={setNote} /></>;
+}

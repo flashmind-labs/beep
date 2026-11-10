@@ -2,7 +2,7 @@
 // or a 3D model.
 import { actualView, baseName, fitView, resolvePath, zoomAt } from "./media-state.ts";
 import { TextView } from "./text-view.tsx";
-import { PdfView, VideoView } from "./media-view.tsx";
+import { ModelFooter, PdfView, VideoView } from "./media-view.tsx";
 import { createElement } from "react";
 import { removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
 import { ModelControls } from "./model-controls.tsx";
@@ -172,8 +172,12 @@ function pdfView(t: MediaTab) {
 function modelView(t: MediaTab) {
   const el = h(`<div class="agpview"><div class="agpstage model"></div>
     <div class="agpacts anim" hidden></div>
-    <div class="agpacts"><button class="dbtn" data-reset="1" disabled>Reset view</button><button class="dbtn" data-wire="1" disabled>Wireframe</button><span class="meta"></span><span class="sp"></span><span class="hint">Drag to orbit, right-drag to pan, wheel to zoom</span>${fileButtons(t, "Open")}</div></div>`);
+    <div class="agpacts model-actions"></div></div>`);
   const stage = el.querySelector<HTMLElement>(".agpstage")!;
+  const actions = el.querySelector<HTMLElement>(".model-actions")!;
+  const machine = P.session?.machine_id ?? null;
+  const drawActions = () => setSessionPortal(actions, createElement(ModelFooter, { tab: t, machine }));
+  drawActions();
   setSessionPortal(stage, createElement("div", { className: "agpmsg" }, createElement("span", { className: "dspin" }), `Drawing ${t.name}…`));
   const dir = t.path ? t.path.slice(0, t.path.lastIndexOf("/") + 1) : "";
   // A .gltf's buffers and textures are files beside it.
@@ -192,10 +196,7 @@ function modelView(t: MediaTab) {
       if (!P.tabs.includes(t) || t.el !== el) return view.dispose();
       t.model = view;
       removeSessionPortal(stage);
-      const i = view.info;
-      const clips = i.clips ? ` · ${i.clips} clip${i.clips > 1 ? "s" : ""}` : "";
-      el.querySelector(".meta")!.textContent = `${i.format} · ${i.triangles.toLocaleString()} triangles${i.meshes > 1 ? ` · ${i.meshes} meshes` : ""}${clips} · ${fileSize(t.size)}`;
-      el.querySelectorAll<HTMLButtonElement>("[data-reset], [data-wire]").forEach(b => { b.disabled = false; });
+      drawActions();
       if (view.anim) {
         const controls = el.querySelector<HTMLElement>(".anim");
         if (controls) { setSessionPortal(controls, createElement(ModelControls, { animation: view.anim })); controls.hidden = false; }
@@ -208,12 +209,5 @@ function modelView(t: MediaTab) {
       stage.replaceChildren();
       setSessionPortal(stage, createElement("div", { className: "agpmsg derr" }, `Could not draw ${t.name}: ${e instanceof Error ? e.message : String(e)}`));
     });
-  el.querySelector("[data-reset]")!.addEventListener("click", () => t.model?.reset());
-  el.querySelector("[data-wire]")!.addEventListener("click", e => {
-    t.wire = !t.wire;
-    t.model?.wireframe(t.wire);
-    (e.currentTarget as HTMLElement).classList.toggle("on", t.wire);
-  });
-  wireFileButtons(t, el);
   return el;
 }
