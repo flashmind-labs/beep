@@ -31,7 +31,7 @@ test("settings redraw preserves the agent account input and closes its root", as
   expect(await settings.evaluate(sheet => document.activeElement === sheet.querySelector("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex='-1'])"))).toBe(true);
   await page.keyboard.press("Escape");
   await expect(settings).toHaveCount(0);
-  await expect.poll(() => page.evaluate(() => { const host: unknown = Reflect.get(window, "agentHost"); return host instanceof HTMLElement ? host.childElementCount : -1; })).toBe(0);
+  await expect.poll(() => page.evaluate(() => { const host: unknown = Reflect.get(window, "agentHost"); return host instanceof HTMLElement ? host.isConnected : null; })).toBe(false);
 });
 
 test("a completed save does not discard a newer token draft", async ({ page }) => {

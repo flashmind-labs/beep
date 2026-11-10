@@ -1,17 +1,16 @@
-import { createElement, Fragment, type ReactNode, type ReactElement } from "react";
-import { createPortal, flushSync } from "react-dom";
-import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
+import { createElement, createRef, type ReactNode, type ReactElement } from "react";
+import { flushSync } from "react-dom";
 import { AgentsOverview, AppsOverview, CodingAgentOverview, InstructionsOverview, MachinesOverview } from "./overview-view.tsx";
 import { ModelSettingsView } from "./model-settings-view.tsx";
 import { ServerView } from "./server-view.tsx";
 import { GeneralView } from "./general-view.tsx";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
-import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsBarShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading } from "./settings-shell-view.tsx";
+import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsBarShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading, Mounted } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
 import type { PanePage } from "../bar/pane.ts";
 // settings/: the Settings pages (apps, accounts, credentials, coding agents,
 // instructions, model) and the window's sheet (sheet.ts). Entry: this file.
-import { bindAgents, disposeAgents, bindCreds, disposeCreds, renderCreds, CRED, loadAgentAccounts, loadCreds } from "./accounts.ts";
+import { agentAccountsContent, credentialsContent, renderCreds, CRED, loadAgentAccounts, loadCreds } from "./accounts.ts";
 import { A, type App, appsIn, appsOut, type AppsView, loadApps, type McpServer, renderAppPermissions, renderApps, renderMcpServer } from "./apps.ts";
 import { toWindow } from "../chat/chat.ts";
 import { bar, type LinkState, S, windowHooks } from "../bar/core.ts";
@@ -89,18 +88,22 @@ export const SET: {
   unembed: (() => void) | null;
 } = { root: null, token: 0, devices: null, machines: undefined, confirm: false, reach: null, path: null, local: null, unembed: null };
 
-let modelSettingsBusy = false, modelSettingsError = "", modelSettingsVersion = 0;
+// `modelsMount` counts each time the Models section comes or goes, so an
+// error answered after it left is dropped with it.
+let modelSettingsBusy = false, modelSettingsError = "", modelSettingsVersion = 0, modelsMount = 0;
+const modelsEntered = () => { modelsMount++; };
+const modelsLeft = () => { modelsMount++; modelSettingsError = ""; };
 async function setModelChange(command: string, args: Record<string, unknown>) {
   if (modelSettingsBusy) return;
-  const owner = localViews.get("models");
+  const mount = modelsMount;
   modelSettingsBusy = true; modelSettingsError = ""; modelSettingsVersion++;
-  if (setShown()) mountLocalViews(setRoot());
+  redrawSettings();
   try {
     MODELS.info = await invoke<Models>(command, args);
     SET.modelsError = false;
     refreshHints();
-  } catch (error) { if (owner && localViews.get("models") === owner) modelSettingsError = String(error); }
-  finally { modelSettingsVersion++; modelSettingsBusy = false; if (setShown()) mountLocalViews(setRoot()); }
+  } catch (error) { if (mount === modelsMount) modelSettingsError = String(error); }
+  finally { modelSettingsVersion++; modelSettingsBusy = false; redrawSettings(); }
 }
 
 export const setRoot = () => SET.root ?? bar;
@@ -122,34 +125,15 @@ function setAway(view: PanePage, inBar: () => unknown) {
   inBar();
 }
 
-type LocalView = "general" | "appearance" | "mac" | "devices" | "models" | "apps" | "machines" | "instr" | "agent-overview" | "agent-bar";
 const generalPending = new Set<string>();
 let macControlBusy = false;
-// Local controls share the active sheet or bar owner while their hosts stay mounted.
-const localViews = new Map<LocalView, { host: HTMLElement; node: ReactNode; observer: MutationObserver }>();
-function disposeLocalView(kind: LocalView) {
-  const current = localViews.get(kind);
-  localViews.delete(kind);
-  if (kind === "models") modelSettingsError = "";
-  if (!current) return;
-  current.observer.disconnect();
-  drawSettingsOwner();
-}
-function mountLocalViews(el: Element) {
-  let shared = false;
-  for (const kind of ["general", "appearance", "mac", "devices", "models", "apps", "machines", "instr", "agent-overview", "agent-bar"] as const) {
-    const host = el.querySelector<HTMLElement>(`#set-${kind}`);
-    if (!host) continue;
-    let view = localViews.get(kind);
-    if (view?.host !== host) {
-      disposeLocalView(kind);
-      const observer = new MutationObserver(() => { if (localViews.get(kind)?.host === host && !host.isConnected) disposeLocalView(kind); });
-      observer.observe(document.body, { childList: true, subtree: true });
-      view = { host, node: null, observer };
-      localViews.set(kind, view);
-    }
-    const local = SET.local, current = view;
-    current.node = kind === "general" && local ? createElement(GeneralView, {
+
+/// What a Settings section shows, drawn fresh from the module state on each render.
+type LocalView = "general" | "appearance" | "mac" | "devices" | "models" | "apps" | "machines" | "instr" | "creds" | "agent-overview" | "agent-bar";
+function localView(kind: LocalView): ReactNode {
+  const local = SET.local;
+  switch (kind) {
+    case "general": return local ? createElement(GeneralView, {
       settings: local.set, phone: onPhone(), server: S.server, busy: generalPending,
       autostart: (enabled: boolean) => void changeGeneral("autostart", "set_autostart", { enabled }),
       voice: (choice: NoticeVoice) => void changeGeneral("voice", "set_notice_voice", { choice }),
@@ -157,78 +141,76 @@ function mountLocalViews(el: Element) {
       notices: (enabled: boolean) => void changeGeneral("notices", "set_agent_notices", { enabled }),
       shortcuts: () => windowHooks ? windowHooks.openShortcuts() : toggleShortcuts(),
       report: () => windowHooks ? windowHooks.openReport() : toWindow("report"),
-    }) : kind === "apps" ? createElement(AppsOverview, { apps: A.apps, open: () => setAway("apps", renderApps) })
-      : kind === "machines" ? createElement(MachinesOverview, { machines: SET.machines, open: () => setAway("machines", renderMachines) })
-      : kind === "instr" ? createElement(InstructionsOverview, { open: () => windowHooks ? windowHooks.openInstructions() : toWindow("instructions") })
-      : kind === "agent-bar" ? createElement(AgentsOverview, { open: () => windowHooks ? windowHooks.openProviders() : toWindow("providers") })
-      : kind === "agent-overview" ? createElement(CodingAgentOverview, { open: (sub: SettingsSub) => goTo(openSub(sub)) })
-      : kind === "models" ? createElement(ModelSettingsView, {
-      model: MODELS.info, failed: !!SET.modelsError, busy: modelSettingsBusy, error: modelSettingsError,
-      pick: (id: string) => void setModelChange("set_model", { id }),
-      auto: (enabled: boolean) => void setModelChange("set_auto_model", { enabled }),
-      thinking: (level: Thinking) => void setModelChange("set_thinking", { level }),
-    }) : kind === "appearance" ? createElement(AppearanceView) : kind === "devices" && local ? createElement(ServerView, {
-      settings: local.set, devices: SET.devices, link: S.link, signedOut: S.signedOut, reach: SET.reach,
-      refresh: () => void renderSettings(), invite: () => setAway("invite", renderInvitePhone),
-      away: () => { if (SET.root) windowHooks?.settingsAway(null); show(null); },
-    }) : kind === "mac" && local?.mac ? createElement(ComputerView, {
+    }) : null;
+    case "appearance": return createElement(AppearanceView);
+    case "mac": return local?.mac ? createElement(ComputerView, {
       mac: local.mac, busy: macControlBusy,
       setEnabled: (enabled: boolean) => void setMacEnabled(enabled),
       allow: (permission: "ScreenRecording" | "Accessibility") => { invoke("allow_mac_permission", { permission }).catch(console.warn); },
     }) : null;
-    shared = true;
+    case "devices": return local ? createElement(ServerView, {
+      settings: local.set, devices: SET.devices, link: S.link, signedOut: S.signedOut, reach: SET.reach,
+      refresh: () => void renderSettings(), invite: () => setAway("invite", renderInvitePhone),
+      away: () => { if (SET.root) windowHooks?.settingsAway(null); show(null); },
+    }) : null;
+    case "models": return createElement(Mounted, { entered: modelsEntered, left: modelsLeft, children: createElement(ModelSettingsView, {
+      model: MODELS.info, failed: !!SET.modelsError, busy: modelSettingsBusy, error: modelSettingsError,
+      pick: (id: string) => void setModelChange("set_model", { id }),
+      auto: (enabled: boolean) => void setModelChange("set_auto_model", { enabled }),
+      thinking: (level: Thinking) => void setModelChange("set_thinking", { level }),
+    }) });
+    case "apps": return createElement(AppsOverview, { apps: A.apps, open: () => setAway("apps", renderApps) });
+    case "machines": return createElement(MachinesOverview, { machines: SET.machines, open: () => setAway("machines", renderMachines) });
+    case "instr": return createElement(InstructionsOverview, { open: () => windowHooks ? windowHooks.openInstructions() : toWindow("instructions") });
+    case "creds": return credentialsContent();
+    case "agent-bar": return createElement(AgentsOverview, { open: () => windowHooks ? windowHooks.openProviders() : toWindow("providers") });
+    case "agent-overview": return createElement(CodingAgentOverview, { open: (sub: SettingsSub) => goTo(openSub(sub)) });
   }
-  if (shared) { if (SET.root) drawChrome(); else drawBarSettings(); }
 }
 
 async function changeGeneral(key: string, command: string, args: Record<string, unknown>) {
   if (generalPending.size) return;
   generalPending.add(key);
-  if (setShown()) mountLocalViews(setRoot());
+  redrawSettings();
   try {
     try { await invoke(command, args); } catch (error) { console.warn(error); }
     if (setShown()) await renderSettings();
   } finally {
     generalPending.delete(key);
-    if (setShown()) mountLocalViews(setRoot());
+    redrawSettings();
   }
 }
 
 async function setMacEnabled(enabled: boolean) {
   if (macControlBusy) return;
   macControlBusy = true;
-  if (setShown()) mountLocalViews(setRoot());
+  redrawSettings();
   try {
     try { await invoke("set_mac_control", { enabled }); } catch (error) { console.warn(error); }
     if (setShown()) await renderSettings();
   } finally {
     macControlBusy = false;
-    if (setShown()) mountLocalViews(setRoot());
+    redrawSettings();
   }
 }
 
-/// Binds the controls inside `el`, a section or the whole page.
-export type SettingsContent = "credentials" | "agent-accounts" | "apps" | "mcp" | "appperms";
+/// Draws Settings again where it is shown, the sheet or the bar.
+export function redrawSettings() {
+  if (!setShown()) return;
+  if (SET.root) drawChrome();
+  else drawBarSettings();
+}
+
+/// Apps in the sheet renders here through its owner, as the host's children.
 export interface SettingsContentOwner {
-  show(section: SettingsContent, host: HTMLElement, content: ReactElement): void;
-  remove(section: SettingsContent): void;
+  show(content: ReactElement): void;
+  remove(): void;
 }
-const sectionViews = new Map<SettingsContent, { host: HTMLElement; content: ReactElement }>();
-function drawSettingsOwner() { if (SET.root) drawChrome(); else drawBarSettings(); }
+let appsContent: ReactElement | null = null;
 const contentOwner: SettingsContentOwner = {
-  show(section, host, content) { sectionViews.set(section, { host, content }); drawSettingsOwner(); },
-  remove(section) { if (sectionViews.delete(section)) drawSettingsOwner(); },
+  show(content) { appsContent = content; drawChrome(); },
+  remove() { if (!appsContent) return; appsContent = null; drawChrome(); },
 };
-function sectionPortals() {
-  return [...sectionViews].map(([section, view]) => createPortal(view.content, view.host, `section:${section}`));
-}
-
-function bindSettings(el: Element) {
-  mountLocalViews(el);
-  bindCreds(el, contentOwner);
-  bindAgents(el, contentOwner);
-
-}
 
 // The data attributes that name a Settings control when it has no id.
 const FOCUS_KEYS = ["remove", "vn", "pause", "allow", "goto", "sub", "setlevel"];
@@ -258,15 +240,16 @@ function refocus(box: HTMLElement, key: string) {
 
 /// The sections of Settings, in order, each with the page it is.
 function settingsSections(mac: MacControl | null, linked: boolean, sheet: boolean): [SettingsPage, ReactElement][] {
-  const sec = (page: SettingsPage, title: string) => createElement(SettingsSection, { key: page, page, title });
-  const host = (page: SettingsPage) => createElement(SettingsHost, { key: page, page, loading: page === "apps" && appRead !== null });
+  const sec = (page: LocalView & SettingsPage, title: string) => createElement(SettingsSection, { key: page, page, title, children: localView(page) });
+  const host = (page: SettingsPage) => createElement(SettingsHost, { key: page, page, loading: page === "apps" && appRead !== null, hostRef: pageHost, children: page === "apps" ? appsContent : null });
   const out: [SettingsPage, ReactElement][] = [["general", sec("general", "General")], ["appearance", sec("appearance", "Appearance")]];
   const machines: [SettingsPage, ReactElement] = ["machines", sheet ? host("machines") : sec("machines", "Machines")];
   const creds: [SettingsPage, ReactElement] = ["creds", sec("creds", "Credentials")];
   const instr: [SettingsPage, ReactElement] = ["instr", sheet ? host("instr") : sec("instr", "Instructions")];
   const sub = SET.path?.sub;
   const agents: [SettingsPage, ReactElement] = ["agents", sheet && sub?.kind === "agent" ? host("agents")
-    : createElement(AgentSettingsSection, { key: "agents", linked, sheet })];
+    : createElement(AgentSettingsSection, { key: "agents", linked,
+      bar: sheet ? null : localView("agent-bar"), accounts: linked ? agentAccountsContent() : null, overview: sheet ? localView("agent-overview") : null })];
   const computer: [SettingsPage, ReactElement][] = mac && !onPhone() ? [["mac", sec("mac", "This computer")]] : [];
   if (!linked) return [...out, ...computer, machines, agents, creds, instr, ...(S.server ? [["devices", sec("devices", "Beep server")] as [SettingsPage, ReactElement]] : [])];
   if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models")]);
@@ -325,33 +308,38 @@ function store() {
 /// The pages the sheet lists now.
 const sheetPages = () => SET.local ? settingsSections(SET.local.mac, SET.local.linked, true).map(([id]) => id) : [];
 
+/// The box of the page whose own code draws it (Machines, the embedded views).
+const pageHost = createRef<HTMLDivElement>();
+
+/// The window's tree, which the sheet renders as a part of. The window
+/// hands it over (sheet.ts), so the bar never loads the window's modules.
+export interface SettingsSheetOwner { show(sheet: HTMLElement, content: ReactNode): void; remove(): void }
+let sheetOwner: SettingsSheetOwner | null = null;
+export function connectSettingsSheet(owner: SettingsSheetOwner) { sheetOwner = owner; }
+
+// `shownSheet` is the sheet Settings is drawn in.
 let renderedPath: SettingsPath | null = null;
-let shell: { sheet: HTMLElement; navigation: HTMLElement | null; root: DocumentView; observer: MutationObserver } | null = null;
-function disposeShell() {
-  const current = shell;
-  shell = null;
-  renderedPath = null;
-  if (!current) return;
-  current.observer.disconnect();
-  current.root.unmount();
-}
-function ensureShell(sheet: HTMLElement) {
-  if (shell && shell.sheet !== sheet) disposeShell();
-  if (!shell) {
-    const observer = new MutationObserver(() => { if (shell?.sheet === sheet && !sheet.isConnected) disposeShell(); });
-    observer.observe(document.body, { childList: true, subtree: true });
-    shell = { sheet, navigation: null, root: createDocumentView(sheet), observer };
-  }
-  return shell;
+let shownSheet: HTMLElement | null = null;
+function showSheet(sheet: HTMLElement, content: ReactNode) {
+  shownSheet = sheet;
+  sheetOwner?.show(sheet, content);
 }
 function renderShell(sheet: HTMLElement, pages: SettingsPage[], path: SettingsPath, version: string) {
-  const current = ensureShell(sheet), openPage = (page: SettingsPage) => goTo(selectPage(page));
-  flushSync(() => current.root.render(createElement(Fragment, null, createElement(SettingsShell, {
+  const openPage = (page: SettingsPage) => goTo(selectPage(page));
+  showSheet(sheet, createElement(SettingsShell, {
     navigation: createElement(SettingsNavigation, { pages, path, version, subs: subEntries, pageName: settingsPageLabel, subName: subLabel, count: navCount, openPage, openSub: (sub: SettingsSub) => goTo(openSub(sub)) }),
     breadcrumb: createElement(SettingsBreadcrumb, { path, page: settingsPageLabel(path.page), sub: path.sub ? subLabel(path.sub) : null, openPage }),
     children: settingsSections(SET.local?.mac ?? null, SET.local?.linked ?? false, true).find(([page]) => page === path.page)?.[1] ?? null,
-  }), ...[...localViews].map(([kind, view]) => createPortal(view.node, view.host, kind)), ...sectionPortals())));
-  current.navigation = sheet.querySelector<HTMLElement>(".dset-nav");
+  }));
+}
+
+/// The sheet closed: its pages stop drawing and its part of the window goes.
+export function settingsClosed() {
+  if (!shownSheet) return;
+  shownSheet = null;
+  renderedPath = null;
+  leavePage();
+  sheetOwner?.remove();
 }
 /// Draws the sheet's current page while keeping its navigation mounted.
 function drawSheet() {
@@ -361,12 +349,11 @@ function drawSheet() {
   const shown = sections.map(([id]) => id);
   const path = SET.path = fitPath(SET.path ?? recallPath(store()), shown, subExists);
   rememberPath(store(), path);
-  const changed = shell?.sheet !== el || !renderedPath || !samePath(renderedPath, path);
+  const changed = shownSheet !== el || !renderedPath || !samePath(renderedPath, path);
   const previousFocus = document.activeElement instanceof HTMLElement && el.contains(document.activeElement) ? document.activeElement : null;
   const focus = focusKey(el);
   if (changed) leavePage();
   renderShell(el, shown, path, local.set.version);
-  bindSettings(el);
   if (changed) mountPage(path);
   renderedPath = path;
   if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
@@ -397,6 +384,11 @@ function follow(page: SettingsPage, sub: SettingsSub | null) {
   drawChrome();
 }
 
+/// The open sheet shows `page`, such as "machines".
+export function showSettingsPage(page: string) {
+  if (isPage(page)) goTo(selectPage(page));
+}
+
 /// Esc in the sheet: from a subpage back to its page. False when on a page.
 export function settingsBack() {
   if (!SET.root?.isConnected || !SET.path) return false;
@@ -421,14 +413,15 @@ const followApps = (view: AppsView, id: string | null) =>
 
 /// Draws the page of `path` that its own code draws, into its box.
 function mountPage(path: SettingsPath) {
-  const box = SET.root?.querySelector<HTMLElement>(`#set-${path.page}-host`);
-  if (!box) return;
   const sub = path.sub;
 
   if (path.page === "apps") {
-    appsIn(box, followApps, contentOwner);
-    return openApps(box, sub);
+    appsIn(followApps, contentOwner);
+    return openApps(sub);
   }
+
+  const box = pageHost.current;
+  if (!box) return;
 
   if (path.page === "machines") {
     machinesIn(box, id => follow("machines", id ? { kind: "machine", id } : null), () => { SET.machines = MC.list; drawChrome(); });
@@ -449,7 +442,7 @@ function mountPage(path: SettingsPath) {
 /// Apps, or one connected app or server of it. A remembered one waits for
 /// the list; one gone since shows the list.
 let appRead: { sub: SettingsSub } | null = null;
-async function openApps(box: HTMLElement, sub: SettingsSub | null) {
+async function openApps(sub: SettingsSub | null) {
   if (!sub || (sub.kind !== "app" && sub.kind !== "mcp")) return renderApps();
   const find = (): App | McpServer | undefined => sub.kind === "app"
     ? A.apps?.find(a => a.slug === sub.id && a.connected)
@@ -459,7 +452,7 @@ async function openApps(box: HTMLElement, sub: SettingsSub | null) {
     const request = appRead = { sub };
     drawChrome();
     await loadApps();
-    if (appRead !== request || !box.isConnected || !SET.path?.sub || !samePath(SET.path, openSub(sub))) return;
+    if (appRead !== request || !SET.path?.sub || !samePath(SET.path, openSub(sub))) return;
     appRead = null;
     drawChrome();
   }
@@ -470,13 +463,12 @@ async function openApps(box: HTMLElement, sub: SettingsSub | null) {
   return renderMcpServer(it as McpServer);
 }
 
-let barSettings: { host: HTMLElement; root: DocumentView; version: string; sections: ReactElement[] } | null = null;
+let barSettings: ReturnType<typeof openBarPage> | null = null;
 function drawBarSettings() {
-  const current = barSettings;
-  if (!current || !current.host.isConnected) return;
-  flushSync(() => current.root.render(createElement(Fragment, null,
-    createElement(SettingsBarShell, { version: current.version, sections: current.sections, hints: hintModel([["esc", "close"]]) }),
-    ...[...localViews].map(([kind, view]) => createPortal(view.node, view.host, kind)), ...sectionPortals())));
+  const current = barSettings, local = SET.local;
+  if (!current || !current.host.isConnected || !local) return;
+  const sections = settingsSections(local.mac, local.linked, false).map(([, content]) => content);
+  flushSync(() => current.root.render(createElement(SettingsBarShell, { version: local.set.version, sections, hints: hintModel([["esc", "close"]]) })));
 }
 
 /// Draws Settings into `root` (the window's sheet), or the bar when none.
@@ -489,10 +481,7 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
   // The window shows Settings as its sheet, never as a page of the pane.
   if (!SET.root && windowHooks) return windowHooks.openSettings();
   if (!SET.root) S.view = "settings";
-  if (root && shell?.sheet !== root) {
-    const current = ensureShell(root);
-    flushSync(() => current.root.render(createElement(SettingsLoading)));
-  }
+  if (root && shownSheet !== root) showSheet(root, createElement(SettingsLoading));
   SET.confirm = confirm;
   const token = ++SET.token;
   const alive = () => SET.token === token && setShown();
@@ -502,15 +491,14 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
     invoke<MacControl>("mac_control").catch(e => { console.warn(e); return null; }),
   ]).catch((e: unknown) => [e, null] as const);
   if (!alive()) return;
-  const el = setRoot();
 
   if (got instanceof Error || typeof got !== "object") {
     SET.local = null;
     renderedPath = null;
-    disposeAgents(); disposeCreds(); for (const kind of localViews.keys()) disposeLocalView(kind);
     leavePage();
-    const view = SET.root ? ensureShell(SET.root).root : openBarPage(() => { barSettings = null; }).root;
-    flushSync(() => view.render(createElement(SettingsFailure, { error: String(got) })));
+    const failure = createElement(SettingsFailure, { error: String(got) });
+    if (SET.root) showSheet(SET.root, failure);
+    else flushSync(() => openBarPage(() => { barSettings = null; }).root.render(failure));
     return;
   }
 
@@ -522,16 +510,8 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
   if (SET.root) {
     drawSheet();
   } else {
-    disposeShell();
-    const sections = settingsSections(mac, linked, false).map(([, content]) => content);
-    if (!barSettings || barSettings.host.parentElement !== bar) {
-      const page = openBarPage(() => { barSettings = null; });
-      barSettings = { ...page, version: set.version, sections: [] };
-    }
-    barSettings.version = set.version;
-    barSettings.sections = sections;
+    if (!barSettings || barSettings.host.parentElement !== bar) barSettings = openBarPage(() => { barSettings = null; });
     drawBarSettings();
-    bindSettings(el);
   }
 
   // The server's parts, side by side; each fills its section as it answers.
@@ -539,7 +519,7 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
   invoke<Machine[]>("list_machines").then(m => { SET.machines = m; MC.list = m; }, () => { SET.machines = null; })
     .then(() => {
       if (!alive()) return;
-      if (SET.root) drawChrome(); else mountLocalViews(setRoot());
+      redrawSettings();
       // The git hosts say which machines have gh and teacli.
       if (CRED.list) renderCreds();
     });
@@ -550,28 +530,18 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
 /// The subscription's parts of Settings, which fill their sections as each answers.
 function loadServerParts(alive: () => boolean) {
   invoke<DeviceList>("list_devices").then(d => { SET.devices = d.devices; SET.reach = d.server; }, e => { console.warn(e); SET.devices ??= []; SET.reach = "unreachable"; })
-    .then(() => { if (alive()) mountLocalViews(setRoot()); });
+    .then(() => { if (alive()) redrawSettings(); });
   const modelVersion = modelSettingsVersion;
   invoke<Models>("get_models").then(m => { if (modelVersion === modelSettingsVersion) { MODELS.info = m; SET.modelsError = false; } }, e => { if (modelVersion === modelSettingsVersion) { console.warn(e); SET.modelsError = !MODELS.info; } })
     .then(() => {
       if (!alive() || modelVersion !== modelSettingsVersion) return;
       // A server with no choices to offer leaves the section out.
-      if (canPickModel() || SET.modelsError) {
-        if (SET.root) drawChrome();
-        return mountLocalViews(setRoot());
-      }
-      if (SET.root) {
-        if (SET.path?.page === "models") drawSheet();
-        else drawChrome();
-        return;
-      }
-      setRoot().querySelector("#set-models-sec")?.remove();
-      setRoot().querySelector('[data-goto="models"]')?.remove();
+      if (SET.root && SET.path?.page === "models") return drawSheet();
+      redrawSettings();
     });
   invoke<App[]>("list_apps").then(a => { A.apps = a; }, () => { A.apps ??= []; })
     .then(() => {
-      if (!alive()) return;
-      if (SET.root) drawChrome(); else mountLocalViews(setRoot());
+      if (alive()) redrawSettings();
     });
 }
 

@@ -9,10 +9,9 @@ import type { CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount
 import { when } from "../chat/chats.ts";
 import { copy } from "../ui/parts.ts";
 import type { Machine } from "../machines/machines.ts";
-import { SET, setShown, type SettingsContentOwner } from "./settings.ts";
+import { redrawSettings, SET, setShown } from "./settings.ts";
+import { Mounted } from "./settings-shell-view.tsx";
 import { Channel, invoke } from "../ui/tauri.ts";
-
-interface AccountMount { host: HTMLElement; owner: SettingsContentOwner; observer: MutationObserver }
 
 /// Settings, Credentials (`credentials.ts` draws it, loaded on first use into
 /// `mod`).
@@ -100,30 +99,17 @@ async function signInGh(redraw: () => void) {
   await loadCreds();
 }
 
-let credsRoot: AccountMount | null = null;
+// Credentials render inside the Settings owner. Leaving drops what a pending save would write back.
+let credsShown = false;
 let credEditVersion = 0;
-export function disposeCreds() {
-  const current = credsRoot;
-  credsRoot = null;
-  if (!current) return;
-  credEditVersion++;
-  current.observer.disconnect();
-  current.owner.remove("credentials");
+const credsEntered = () => { credsShown = true; };
+const credsLeft = () => { credsShown = false; credEditVersion++; };
+export function credentialsContent() {
+  const machines = Array.isArray(SET.machines) ? SET.machines : null;
+  return createElement(Mounted, { entered: credsEntered, left: credsLeft, children: createElement(CredentialsView, { state: CRED, machines, actions: credActions }) });
 }
 export function renderCreds() {
-  if (!credsRoot?.host.isConnected) return;
-  const current = credsRoot, machines = Array.isArray(SET.machines) ? SET.machines : null;
-  current.owner.show("credentials", current.host, createElement(CredentialsView, { state: CRED, machines, actions: credActions }));
-}
-export function bindCreds(el: Element, owner: SettingsContentOwner) {
-  const host = el.matches("#set-creds") ? el : el.querySelector("#set-creds");
-  if (!(host instanceof HTMLElement)) return;
-  if (credsRoot?.host === host) { renderCreds(); return; }
-  disposeCreds();
-  const observer = new MutationObserver(() => { if (credsRoot?.host === host && !host.isConnected) disposeCreds(); });
-  observer.observe(document.body, { childList: true, subtree: true });
-  credsRoot = { host, owner, observer };
-  renderCreds();
+  if (credsShown) redrawSettings();
 }
 async function useLogin(busy: string, errorKey: string, act: () => Promise<unknown>) {
   if (CRED.cliBusy) return;
@@ -138,7 +124,7 @@ async function credentialCommand(command: string, args: Record<string, unknown>)
 const credActions: CredentialActions = {
   edit(key) { credEditVersion++; CRED.edit = CRED.mod?.editFor(key, CRED.list) ?? null; CRED.error = ""; redrawCreds(); },
   cancel() { credEditVersion++; CRED.edit = null; CRED.error = ""; redrawCreds(); },
-  async save(url, secret) {
+  async save(url, secret, clear) {
     if (CRED.busy || !CRED.mod) return;
     if (CRED.edit?.kind === "forgejo" && !CRED.edit.id) CRED.edit.url = url;
     const draft = CRED.mod.draft(CRED.edit, url, secret);
@@ -150,7 +136,7 @@ const credActions: CredentialActions = {
       if (version === credEditVersion) { if (kind === "github") CRED.ghAdd = false; CRED.edit = null; }
     } catch (error) { if (version === credEditVersion) CRED.error = String(error); }
     CRED.busy = false;
-    if (version === credEditVersion) { const input = credsRoot?.host.querySelector<HTMLInputElement>("#credSecret"); if (input) input.value = ""; }
+    if (version === credEditVersion) clear();
     await loadCreds();
   },
   remove(id) { return credentialCommand("remove_credential", { id }); },
@@ -240,35 +226,20 @@ function pollCodex() {
   void check();
 }
 
-let agentsRoot: AccountMount | null = null;
+let agentsShown = false;
 let agentEditVersion = 0;
-export function disposeAgents() {
-  const current = agentsRoot;
-  agentsRoot = null;
-  if (!current) return;
-  agentEditVersion++;
-  current.observer.disconnect();
-  current.owner.remove("agent-accounts");
+const agentsEntered = () => { agentsShown = true; };
+const agentsLeft = () => { agentsShown = false; agentEditVersion++; };
+export function agentAccountsContent() {
+  return createElement(Mounted, { entered: agentsEntered, left: agentsLeft, children: createElement(AgentAccountsView, { state: ACC, ago: when, now: Date.now(), actions: agentActions }) });
 }
 function renderAgents() {
-  if (!agentsRoot?.host.isConnected) return;
-  const current = agentsRoot;
-  current.owner.show("agent-accounts", current.host, createElement(AgentAccountsView, { state: ACC, ago: when, now: Date.now(), actions: agentActions }));
-}
-export function bindAgents(el: Element, owner: SettingsContentOwner) {
-  const host = el.matches("#set-agents") ? el : el.querySelector("#set-agents");
-  if (!(host instanceof HTMLElement)) return;
-  if (agentsRoot?.host === host) { renderAgents(); return; }
-  disposeAgents();
-  const observer = new MutationObserver(() => { if (agentsRoot?.host === host && !host.isConnected) disposeAgents(); });
-  observer.observe(document.body, { childList: true, subtree: true });
-  agentsRoot = { host, owner, observer };
-  renderAgents();
+  if (agentsShown) redrawSettings();
 }
 const agentActions: AgentAccountActions = {
   edit(agent) { agentEditVersion++; ACC.edit = agent; ACC.error = ""; renderAgents(); },
   cancel() { agentEditVersion++; ACC.edit = null; ACC.error = ""; renderAgents(); },
-  async save(secret) {
+  async save(secret, clear) {
     if (ACC.busy || !ACC.mod) return;
     const draft = ACC.mod.tokenDraft(ACC.edit, secret);
     if (!draft.agent) { ACC.error = draft.error; renderAgents(); return; }
@@ -277,8 +248,7 @@ const agentActions: AgentAccountActions = {
     try { await invoke("save_agent_token", { agentSlug: draft.agent, secret: draft.secret }); if (version === agentEditVersion) ACC.edit = null; }
     catch (error) { if (version === agentEditVersion) ACC.error = String(error); }
     ACC.busy = "";
-    const input = agentsRoot?.host.querySelector<HTMLInputElement>("#agSecret");
-    if (input && version === agentEditVersion) input.value = "";
+    if (version === agentEditVersion) clear();
     await loadAgentAccounts();
   },
   async revoke(agent) {

@@ -1,13 +1,13 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import type { ReactNode } from "react";
-import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useLayoutEffect, useState, type KeyboardEvent, type RefObject } from "react";
 import { ICON } from "../ui/icons.ts";
 import { plural } from "../ui/format.ts";
 import { hostOf, type App, type AppAccount, type McpServer } from "./apps.ts";
 
 interface Props {
   apps: App[] | null; accounts: Record<string, AppAccount[]>; error: string; connecting: string | null;
-  servers: McpServer[] | null; waiting: string | null; busy: string | null; adding: boolean; addError: string; serverName: string; serverUrl: string; changeName(value: string): void; changeUrl(value: string): void;
+  servers: McpServer[] | null; waiting: string | null; busy: string | null; adding: boolean; addError: string; serverName: string; serverUrl: string; fields: { name: RefObject<HTMLInputElement | null>; url: RefObject<HTMLInputElement | null> }; changeName(value: string): void; changeUrl(value: string): void;
   add(): void; startAdd(): void; cancelAdd(): void; cancelServer(): void; connectServer(id: string): void; removeServer(id: string): void; openServer(id: string): void;
   connectApp(slug: string): void; openApp(slug: string): void; cancelApp(): void;
 }
@@ -34,11 +34,11 @@ function ServerRow({ server, p }: { server: McpServer; p: Props }) {
   </div>;
 }
 function AddServer({ p }: { p: Props }) {
-  const name = useRef<HTMLInputElement>(null), busy = p.busy === "new";
+  const name = p.fields.name, busy = p.busy === "new";
   useLayoutEffect(() => { name.current?.focus(); }, []);
   return <form className="dform dmcp" onSubmit={e => { e.preventDefault(); p.add(); }}>
     <label className="dfield"><span>Name</span><input ref={name} id="mname" maxLength={60} placeholder="Team notes" autoComplete="off" spellCheck={false} defaultValue={p.serverName} onChange={e => p.changeName(e.currentTarget.value)} disabled={busy} /></label>
-    <label className={`dfield${p.addError ? " err" : ""}`}><span>{p.addError || "Server URL"}</span><input id="murl" className="url" maxLength={2000} placeholder="https://example.com/mcp" autoComplete="off" spellCheck={false} defaultValue={p.serverUrl} onChange={e => p.changeUrl(e.currentTarget.value)} disabled={busy} /></label>
+    <label className={`dfield${p.addError ? " err" : ""}`}><span>{p.addError || "Server URL"}</span><input ref={p.fields.url} id="murl" className="url" maxLength={2000} placeholder="https://example.com/mcp" autoComplete="off" spellCheck={false} defaultValue={p.serverUrl} onChange={e => p.changeUrl(e.currentTarget.value)} disabled={busy} /></label>
     <div className="dline">{busy ? <span className="dmuted"><span className="dspin" /> Connecting…</span> : <><button type="submit" className="dbtn pri">Add server<kbd dangerouslySetInnerHTML={{ __html: ICON.ret }} /></button><button type="button" className="dbtn quiet" onClick={p.cancelAdd}>Cancel</button></>}</div>
   </form>;
 }

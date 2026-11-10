@@ -9,6 +9,8 @@ import { pane } from "../bar/pane.ts";
 import { el as h } from "../ui/dom.ts";
 import { registerInstructions } from "./instructions.ts";
 import { registerProviders } from "./providers.ts";
+import { connectSettingsSheet, settingsClosed, showSettingsPage } from "./settings.ts";
+import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { type ViewArg, type ViewName, views } from "../center/state.ts";
 import { currentLocation, registerView, windowProject, toMain, drawTop } from "../center/views.ts";
 
@@ -21,7 +23,7 @@ export function openSettings(section?: string) {
   // A project window has no Settings of its own: the main window opens them.
   if (windowProject) return toMain("settings");
   // Already open: show page `section`, such as "machines".
-  if (settingsOpen) return section && settingsOpen.scrim.querySelector<HTMLElement>(`[data-goto="${section}"]`)?.click();
+  if (settingsOpen) return section && showSettingsPage(section);
   const afterMount = settingsTiming.start("settings");
   const { root: scrim, sheet, dispose } = mountSheetFrame("Settings", "cc-set", {
     host: document.body, scrimClass: "cc-set-scrim", onScrim: closeSettings,
@@ -88,6 +90,7 @@ export function closeSettings() {
   if (!settingsOpen) return;
   const { keys, back, dispose } = settingsOpen;
   settingsOpen = null;
+  settingsClosed();
   unembed();
   window.removeEventListener("keydown", keys, true);
   dispose();
@@ -107,6 +110,10 @@ function trapTab(e: KeyboardEvent, sheet: HTMLElement) {
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 }
 
+connectSettingsSheet({
+  show: (sheet, content) => showWindowParts([{ part: "settings-sheet", host: sheet, content }]),
+  remove: () => removeWindowPart("settings-sheet"),
+});
 registerInstructions({ registerView, invoke, h, button, ago, openSettings });
 registerProviders({ registerView, invoke, openSettings, redrawTop: () => {
   if (currentLocation()?.view === "providers") drawTop();
