@@ -5,6 +5,7 @@ import { type BarPageSlot, openBarPage } from "./bar-app.tsx";
 import { loadModels } from "../settings/model.ts";
 import { renderSettings } from "../settings/settings.ts";
 import { invoke } from "../ui/tauri.ts";
+import { paneShown } from "../ui/active.ts";
 import type { LinkActions, LinkScreen } from "./link-view.tsx";
 
 export interface LinkView { uri: string; code: string; qr_svg: string; expires_in: number }
@@ -52,7 +53,8 @@ export async function renderLink() {
     if (mine !== generation || S.view !== "link" || !offer) return clearInterval(S.timer);
     const left = Math.max(0, Math.round((offer.until - Date.now()) / 1000));
     if (!left) { clearInterval(S.timer); drawLink("expired"); }
-    else if (screen.kind === "link" && screen.state === "waiting") draw({ ...screen, seconds: left });
+    // A hidden bar shows no seconds; the next tick after it shows draws them.
+    else if (screen.kind === "link" && screen.state === "waiting" && paneShown()) draw({ ...screen, seconds: left });
   }, 1000);
 }
 export function drawLink(state: LinkState) {
@@ -108,11 +110,10 @@ export async function renderInvitePhone() {
     if (mine !== generation || S.view !== "invite-phone") return;
     const until = Date.now() + value.expires_in * 1000;
     draw({ kind: "invite", invite: value, expired: false });
-    S.timer = setInterval(() => {
-      if (mine !== generation || S.view !== "invite-phone") return clearInterval(S.timer);
-      if (Date.now() < until) return;
-      clearInterval(S.timer); draw({ kind: "invite", invite: value, expired: true });
-    }, 1000);
+    // The invite shows no countdown, so one wake at its expiry is enough.
+    S.timer = setTimeout(() => {
+      if (mine === generation && S.view === "invite-phone") draw({ kind: "invite", invite: value, expired: true });
+    }, until - Date.now());
   } catch (error) { if (mine === generation && S.view === "invite-phone") draw({ kind: "error", title: "Link a phone", message: String(error) }); }
 }
 export function renderRevoked() { generation++; clearInterval(S.timer); S.view = "revoked"; draw({ kind: "revoked" }); }
