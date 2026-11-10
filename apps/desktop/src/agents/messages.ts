@@ -16,8 +16,9 @@ import { agentAttachError, drawAgentAttached, keepSentImages, keepAgentPics } fr
 import { drawAgentBody } from "./logview.ts";
 import { invoke } from "../ui/tauri.ts";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
+import { closeMove } from "./move.ts";
 
-export function disposeQueue() { disposeComposerUi(); }
+export function disposeQueue() { disposeComposerUi(); closeMove(); }
 
 /// The pending steers above the field, each with what goes with it.
 export function drawQueue() {

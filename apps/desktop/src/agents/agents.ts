@@ -46,6 +46,7 @@ import { moveLabel, onMoves } from "./move-store.ts";
 import { onClosing, shownStatus, sessionVisible } from "./closing.ts";
 import { placeSub } from "./place-state.ts";
 import { agentMessage, draftMessage, sessionBody, shownMessage } from "./session-frame.tsx";
+import { closeMoveMenu } from "./move.ts";
 
 /// A question a session waits on, such as whether to run a command.
 export interface AgentQuestion {
@@ -561,7 +562,7 @@ export function agentBack(closed = false) {
     return;
   }
 
-  if (!closed && S.view === "agent" && closeModelPicker()) return;
+  if (!closed && S.view === "agent" && (closeModelPicker() || closeMoveMenu())) return;
   // Esc from a child opens its parent; closing returns to the previous page.
   const up = !closed && S.view === "agent" && AG.open ? AG.page && parentSession(AG.page.session) : undefined;
   if (up) return openAgent(up, { back: AG.back });

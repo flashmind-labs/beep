@@ -45,3 +45,22 @@ test("a move change reads the sessions without an ambient wait", async ({ page }
   await page.evaluate(() => window.__navigation.publish("moves.*", null));
   await expect.poll(reads, { timeout: 1000 }).toBeGreaterThan(before);
 });
+
+test("Esc closes the move menu first, and a session left and opened again shows it closed", async ({ page }) => {
+  await openAgent(page);
+  const button = page.locator("#agmoveb"), session = { kind: "agent", machine_id: "build-box", machine_name: "Build box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } as const;
+  await button.click();
+  await expect(page.getByRole("menuitem", { name: /Other box/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(button).toBeVisible();
+  await expect(button).toHaveAttribute("aria-expanded", "false");
+
+  await button.click();
+  await expect(page.getByRole("menuitem", { name: /Other box/ })).toBeVisible();
+  await page.evaluate(() => window.__navigation.open("home"));
+  await page.evaluate(target => window.__navigation.open({ agent: target }), session);
+  await expect(button).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(".mvm")).toHaveCount(0);
+  await button.click();
+  await expect(page.getByRole("menuitem", { name: /Other box/ })).toBeVisible();
+});
