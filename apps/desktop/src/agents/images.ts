@@ -10,7 +10,6 @@ import { showAgentAttachments } from "./composer-ui.tsx";
 import { type OpenAgent, AG, AGENT_IMAGE_TYPES, AGENT_MAX_IMAGES, AGENT_MAX_IMAGE, AGENT_MAX_IMAGES_TOTAL, agentPics, AGENT_PICS_KEPT, agentImages, agentThumbs } from "./agents.ts";
 import { noAgentImages } from "./session.ts";
 import { redrawAgentHints } from "./session-head.ts";
-import { h } from "../ui/dom.ts";
 import { gonePic, retryIn } from "./pic-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import { fillInlineImages } from "./inline-images.ts";
@@ -142,7 +141,7 @@ export function fillAgentPics(b: HTMLElement) {
       // The row may have been drawn again meanwhile: fill the tiles there now.
       for (const tile of b.querySelectorAll<HTMLImageElement>(`img.pic[data-key="${key}"]:not([src])`)) {
         if (url) tile.src = url;
-        else if (agentThumbs.get(key) === null) tile.replaceWith(h(gonePic(tile.alt)));
+        else if (agentThumbs.get(key) === null) tile.outerHTML = gonePic(tile.alt);
       }
 
       const failed = failedThumbs.get(key);

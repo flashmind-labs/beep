@@ -1,7 +1,6 @@
 // Markdown images whose files belong to the session's machine.
 import { baseName, resolvePath } from "../agentpane/media-state.ts";
 import type { FilePart } from "../agentpane/media.ts";
-import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { gonePic, retryIn } from "./pic-state.ts";
 
@@ -93,7 +92,7 @@ export function fillInlineImages(root: HTMLElement, session: { machine_id: strin
     let path: string;
 
     try { path = imagePath(session.cwd, img.dataset.file!); }
-    catch { img.replaceWith(h(gonePic(img.alt || "Image"))); continue; }
+    catch { img.outerHTML = gonePic(img.alt || "Image"); continue; }
 
     const key = JSON.stringify([session.machine_id, path]);
     const got = cache.get(key);
@@ -101,7 +100,7 @@ export function fillInlineImages(root: HTMLElement, session: { machine_id: strin
     if (got?.url === null) {
       const label = img.alt || baseName(path);
       const message = got.missing ? "The file is no longer on disk. Unable to load image." : label;
-      img.replaceWith(h(gonePic(label, message)));
+      img.outerHTML = gonePic(label, message);
       continue;
     }
     if (got && got.until > Date.now()) { wait = Math.min(wait, got.until - Date.now()); continue; }
