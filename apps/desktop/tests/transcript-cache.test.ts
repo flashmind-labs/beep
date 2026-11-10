@@ -88,3 +88,19 @@ test("cache budget includes structured tool payloads", () => {
   assert.equal(cache.get("one"), undefined);
   assert.ok(cache.get("two"));
 });
+
+test("the budget follows deltas that replace, append and drop entries", () => {
+  const cache = new TranscriptCache<Run>(8, 25);
+  cache.receive("one", update("snapshot", 0, ["a".repeat(10), "b".repeat(10)]));
+  // The last entry is replaced by a shorter one: 15 characters, under the budget with another session.
+  cache.receive("one", update("delta", 1, ["c".repeat(5)]));
+  cache.receive("two", update("snapshot", 0, ["d".repeat(10)]));
+  assert.ok(cache.get("one"));
+  // The window moves past its first entry: 5 + 10 for "one".
+  cache.receive("one", update("delta", 2, ["e".repeat(10)], 1));
+  assert.ok(cache.get("two"));
+  // Growing "one" past what both may hold lets the other go.
+  cache.receive("one", update("delta", 3, ["f".repeat(10)], 1));
+  assert.equal(cache.get("two"), undefined);
+  assert.deepEqual(cache.get("one")?.page.entries.map(e => e.text[0]), ["c", "e", "f"]);
+});

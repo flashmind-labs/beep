@@ -404,8 +404,10 @@ export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, repl
 function drawRest(moved = false, placed = false) {
   const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.answering, AG.log != null, stoppingNow(), AG.queue.map(q => q.state), placed]);
   if (!moved && rest === AG.rest) return;
+  // Only the page moved: the turns it left as they were keep their rows.
+  const news = rest === AG.rest;
   AG.rest = rest;
-  drawAgentBody(undefined, true);
+  drawAgentBody(undefined, true, false, news);
 }
 
 /// Whether the session view can be seen: the window shows, and in the

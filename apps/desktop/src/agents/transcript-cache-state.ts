@@ -24,6 +24,8 @@ export class TranscriptCache<T extends Run> {
   private readonly limit: number;
   private readonly characters: number;
   private readonly entrySizes = new WeakMap<object, number>();
+  /// Each held page's size in characters, by key.
+  private readonly sizes = new Map<string, number>();
 
   constructor(limit = 8, characters = 8 * 1024 * 1024) {
     this.limit = limit;
@@ -49,7 +51,10 @@ export class TranscriptCache<T extends Run> {
     if (!this.sessions.has(key)) this.sessions.set(key, kept);
   }
 
-  delete(key: string) { this.sessions.delete(key); }
+  delete(key: string) {
+    this.sessions.delete(key);
+    this.sizes.delete(key);
+  }
 
   receive(key: string, update: TranscriptUpdate<T>): T | null {
     const held = this.sessions.get(key);
@@ -63,26 +68,28 @@ export class TranscriptCache<T extends Run> {
       || (append && (!held || update.page.earlier < held.page.earlier
         || update.page.earlier > held.cursor.next
         || (update.resumed && update.page.earlier !== held.cursor.next)))) {
-      this.sessions.delete(key);
+      this.delete(key);
       return null;
     }
 
     let page = append ? joinRuns(held!.page, update.page) : update.page;
 
     if (cursor.start < page.earlier || cursor.start > cursor.next) {
-      this.sessions.delete(key);
+      this.delete(key);
       return null;
     }
 
     page = { ...page, earlier: cursor.start, entries: page.entries.slice(cursor.start - page.earlier) };
+    const size = this.pageSize(key, append ? held ?? null : null, update.page.earlier, page);
     this.sessions.delete(key);
     this.sessions.set(key, { page, cursor });
+    this.sizes.set(key, size);
 
     while (this.sessions.size > this.limit || this.size() > this.characters) {
       const oldest = this.sessions.keys().next().value;
       // One retained window is bounded by the node even when it exceeds the shared budget.
       if (oldest === undefined || this.sessions.size === 1) break;
-      this.sessions.delete(oldest);
+      this.delete(oldest);
     }
 
     return page;
@@ -91,19 +98,38 @@ export class TranscriptCache<T extends Run> {
   private size() {
     let characters = 0;
 
-    for (const held of this.sessions.values()) {
-      for (const entry of held.page.entries) {
-        let size = this.entrySizes.get(entry);
+    for (const [key, held] of this.sessions) {
+      let size = this.sizes.get(key);
+      if (size === undefined) this.sizes.set(key, size = this.entriesSize(held.page.entries));
+      characters += size;
+    }
 
-        if (size === undefined) {
-          // Include tool payloads while reusing measured immutable prefix entries.
-          const plain = JSON.stringify({ kind: entry.kind, text: entry.text }).length;
-          size = entry.text.length + Math.max(0, JSON.stringify(entry).length - plain);
-          this.entrySizes.set(entry, size);
-        }
+    return characters;
+  }
 
-        characters += size;
+  /// The size of `page`, which took the entries of `held` before `from` and
+  /// the update's from there: only the entries it took or dropped are counted.
+  private pageSize(key: string, held: Cached<T> | null, from: number, page: T) {
+    const before = this.sizes.get(key), h = held?.page;
+    if (!h || before === undefined || page.earlier < h.earlier || page.earlier > from) return this.entriesSize(page.entries);
+    return before - this.entriesSize(h.entries.slice(0, page.earlier - h.earlier)) - this.entriesSize(h.entries.slice(from - h.earlier))
+      + this.entriesSize(page.entries.slice(from - page.earlier));
+  }
+
+  private entriesSize(entries: readonly T["entries"][number][]) {
+    let characters = 0;
+
+    for (const entry of entries) {
+      let size = this.entrySizes.get(entry);
+
+      if (size === undefined) {
+        // Include tool payloads while reusing measured immutable prefix entries.
+        const plain = JSON.stringify({ kind: entry.kind, text: entry.text }).length;
+        size = entry.text.length + Math.max(0, JSON.stringify(entry).length - plain);
+        this.entrySizes.set(entry, size);
       }
+
+      characters += size;
     }
 
     return characters;

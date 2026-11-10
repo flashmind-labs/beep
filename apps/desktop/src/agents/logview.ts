@@ -44,8 +44,9 @@ import { sessionBody } from "./session-frame.tsx";
 /// Draws the log again. `keep` finds the row the reader just opened or
 /// folded, which stays where it is on screen. With `older` it is the row in
 /// view while older entries come in above, kept only when the reader is not
-/// at the end.
-export function drawAgentBody(keep?: string, polled = false, older = false) {
+/// at the end. With `news` only the page's entries changed since the last
+/// draw: the turns whose entries stayed keep their rows.
+export function drawAgentBody(keep?: string, polled = false, older = false, news = false) {
   const b = sessionBody(), p = AG.page;
   if (!b || !p) return;
   const s = p.session, q = s.question;
@@ -66,7 +67,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   const olderRow: ActivityRow | null = olderText ? { kind: "older", id: "older", text: olderText } : null;
   // The log goes in by turns, and only those near the view are drawn.
   const units = p.entries.length && AG.log
-    ? [fixed("up", crumb), fixed("older", olderRow), ...turnUnits(p)] : null;
+    ? [fixed("up", crumb), fixed("older", olderRow), ...turnUnits(p, news)] : null;
   const note = AG.held ? { text: holdNote(s.machine_name), error: false }
     : AG.note === "gone" ? { text: "This session is no longer on the machine, or the machine went offline.", error: false }
     : AG.note && AG.note === AG.readError && AG.link.lost ? { text: AG.note, error: false }
@@ -116,8 +117,16 @@ function showLog(b: HTMLElement, shell: Parameters<typeof showLogShell>[1], unit
     if (sel.anchorNode) held.push(sel.anchorNode);
     if (sel.focusNode) held.push(sel.focusNode);
   }
-  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(withInlineImages) })) ?? null;
+  const prepared = units?.map(unit => ({ ...unit, rows: () => preparedRows(unit.rows()) })) ?? null;
   return showLogShell(b, shell, prepared, held);
+}
+
+/// A turn's rows as drawn, worked out once for rows a turn kept (`turnUnits`).
+const prepared = new WeakMap<readonly TranscriptRow[], readonly TranscriptRow[]>();
+function preparedRows(rows: readonly TranscriptRow[]) {
+  let done = prepared.get(rows);
+  if (!done) prepared.set(rows, done = rows.map(withInlineImages));
+  return done;
 }
 
 /// A row with its Markdown images that are files on the session's machine
@@ -318,7 +327,7 @@ export function workingSubagents() {
 /// The places of the subagents' calls among the entries shown.
 function subagentsShown(p: AgentPage) {
   if (!AG.log) return [];
-  return p.entries.flatMap((en, i) => en.kind === "tool" && AG.log!.subagent(AG.log!.parseTool(en.text).output) ? [p.earlier + i] : []);
+  return p.entries.flatMap((en, i) => subCall(en) ? [p.earlier + i] : []);
 }
 
 /// An image a user entry carried: the one sent from here, the one read
@@ -449,10 +458,7 @@ const turnStarts = new Map<number, number>();
 function rowsOf(p: AgentPage, ats: number[]) {
   const out: TranscriptRow[] = [];
   let run: number[] = [];
-  const isSub = (at: number) => {
-    const en = p.entries[at - p.earlier];
-    return en.kind === "tool" && !!AG.log?.subagent(AG.log.parseTool(en.text).output);
-  };
+  const isSub = (at: number) => subCall(p.entries[at - p.earlier]);
   const flush = () => { if (run.length) out.push(subActivity(run)); run = []; };
   const groups = AG.log ? toolRuns(p.entries, ats, p.earlier, openedSteps()) : ats.map(at => [at]);
 
@@ -495,11 +501,41 @@ function runRow(p: AgentPage, ats: number[]): ActivityRow {
   return { kind: "run", id: String(ats[0]), at: ats[0], toolKind: kind, label: runLabel(kind, ats.length), summary: shown, open, tools } satisfies ActivityRow;
 }
 
+/// The rows of the finished turns last drawn, by turn, and what they were
+/// drawn with; anything else changed and they are worked out again.
+interface KeptRows {
+  scope: { session: string; status: string; earlier: number; sessions: typeof sessions; log: typeof AG.log };
+  turns: Map<number, { entries: AgentEntry[]; texts: string[]; rows: readonly TranscriptRow[] }>;
+}
+let keptRows: KeptRows | null = null;
+
+/// A tool entry's parts, read once per entry and text; null for other entries or before the log reader loads.
+const toolPartsRead = new WeakMap<AgentEntry, { text: string; parts: ReturnType<NonNullable<typeof AG.log>["parseTool"]>; sub: boolean }>();
+function toolRead(en: AgentEntry) {
+  if (en.kind !== "tool" || !AG.log) return null;
+  let read = toolPartsRead.get(en);
+
+  if (read?.text !== en.text) {
+    const parts = AG.log.parseTool(en.text);
+    read = { text: en.text, parts, sub: !!AG.log.subagent(parts.output) };
+    toolPartsRead.set(en, read);
+  }
+
+  return read;
+}
+const toolParts = (en: AgentEntry) => toolRead(en)?.parts ?? null;
+/// Whether a tool entry started a subagent.
+const subCall = (en: AgentEntry) => toolRead(en)?.sub ?? false;
+
 /// The log in turns: each message, then a heading with how long the agent
 /// worked, then its work and its answer. A turn's rows are worked out only
-/// when it is drawn (logwindow.ts).
-function turnUnits(p: AgentPage): Unit[] {
+/// when it is drawn (logwindow.ts). With `news` a finished turn before the
+/// last whose entries stayed keeps the rows it had.
+function turnUnits(p: AgentPage, news: boolean): Unit[] {
   const s = p.session, active = AGENT_ACTIVE.has(s.status);
+  const scope = { session: AG.open?.session ?? s.id, status: s.status, earlier: p.earlier, sessions, log: AG.log };
+  const same = news && keptRows && (Object.keys(scope) as (keyof typeof scope)[]).every(k => keptRows?.scope[k] === scope[k]);
+  const kept: KeptRows = same && keptRows ? keptRows : keptRows = { scope, turns: new Map() };
   newestStep = null;
   thinking = false;
   turnStarts.clear();
@@ -509,7 +545,21 @@ function turnUnits(p: AgentPage): Unit[] {
   const rows = (at: number) => entryRows(p.entries[at - p.earlier], at);
   const entry = (at: number) => p.entries[at - p.earlier];
   liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
-  return turns.map(t => ({ key: `t${t.key}`, rows: turnRows(t) }));
+  return turns.map(t => ({ key: `t${t.key}`, rows: t === lastTurn ? turnRows(t) : keptTurn(t, turnRows(t)) }));
+
+  /// The rows of a turn before the last: those it had while its entries stay, once none runs.
+  function keptTurn(t: Turn, rows: () => TranscriptRow[]): () => readonly TranscriptRow[] {
+    return () => {
+      const entries = [...(t.user == null ? [] : [t.user]), ...t.steps, ...t.answer].map(entry);
+      const held = kept.turns.get(t.key);
+      if (held && held.entries.length === entries.length && held.entries.every((en, i) => en === entries[i] && held.texts[i] === en.text)) return held.rows;
+      const made = rows();
+      // A call that runs, or a subagent, shows a clock or its state from outside its entry.
+      const settled = entries.every(en => { const read = toolRead(en); return !read || (!read.sub && read.parts.status !== "in_progress" && read.parts.status !== "pending"); });
+      if (settled) kept.turns.set(t.key, { entries, texts: entries.map(en => en.text), rows: made });
+      return made;
+    };
+  }
 
   function turnRows(t: Turn): () => TranscriptRow[] {
     // Notes before the first message are not a turn of work.
@@ -550,7 +600,7 @@ function turnUnits(p: AgentPage): Unit[] {
         // Keep the latest call in view until the turn ends. A failed last call
         // stays visible afterwards; manually opened rows already stay in kept.
         const preview = latestTool != null && section.ats.includes(latestTool)
-          && (running || AG.log?.parseTool(entry(latestTool).text).status === "failed") ? latestTool : null;
+          && (running || toolParts(entry(latestTool))?.status === "failed") ? latestTool : null;
         if (preview != null) kept.add(preview);
         const folding = section.ats.filter(at => !kept.has(at));
         const stats = progressSummary(p.entries, group, p.earlier);
@@ -563,7 +613,7 @@ function turnUnits(p: AgentPage): Unit[] {
         return [...(head ? [head] : []), ...(pics ? [pics] : []), ...shownRows, ...(collapse ? [collapse] : [])];
       });
       const head = turnHeading({ state, start: start ?? null, ms, stats: "", turn: null, opened: false });
-      const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
+      const shownTitle = newest != null ? toolParts(entry(newest))?.title.trim() : "";
       const liveDoing = state === "working" && doing !== "Thinking" && !(shownTitle && (shownTitle.includes(doing) || doing.includes(shownTitle))) ? doing : "";
       const live: ActivityRow | null = running ? { kind: "live", id: String(t.key), state, thinking, start: start ?? null, doing: liveDoing } : null;
       return [...user(), ...(head ? [head] : []), ...work, ...(live ? [live] : [])];

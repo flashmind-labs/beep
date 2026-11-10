@@ -28,7 +28,8 @@ export interface Unit {
 /// A row as drawn and its key in the turn.
 export interface KeyedRow { key: string; row: TranscriptRow }
 /// A drawn turn. The same object stays while none of its rows changes.
-export interface DrawnTurn { key: string; rows: readonly KeyedRow[] }
+/// `source` is the rows it was last drawn from: given them again, it stays.
+export interface DrawnTurn { key: string; rows: readonly KeyedRow[]; source: readonly TranscriptRow[] }
 interface LogView { turns: readonly DrawnTurn[]; top: number | null; bottom: number | null }
 
 export interface LogWindow {
@@ -285,12 +286,19 @@ function dropSearch(w: LogWindow) {
 
 /// The turn `u` as drawn now, keeping `prior`'s rows that did not change.
 function drawnTurn(u: Unit, prior: DrawnTurn | null): DrawnTurn {
-  const rows = keyedRows(u.rows());
-  if (!prior) return { key: u.key, rows };
+  const source = u.rows();
+  if (prior?.source === source) return prior;
+  const rows = keyedRows(source);
+  if (!prior) return { key: u.key, rows, source };
   const old = new Map(prior.rows.map(row => [row.key, row]));
   const merged = rows.map(row => { const was = old.get(row.key); return was && sameData(was.row, row.row) ? was : row; });
-  if (merged.length === prior.rows.length && merged.every((row, i) => row === prior.rows[i])) return prior;
-  return { key: u.key, rows: merged };
+
+  if (merged.length === prior.rows.length && merged.every((row, i) => row === prior.rows[i])) {
+    prior.source = source;
+    return prior;
+  }
+
+  return { key: u.key, rows: merged, source };
 }
 
 function keyedRows(rows: readonly TranscriptRow[]): KeyedRow[] {
