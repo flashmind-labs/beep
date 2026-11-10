@@ -5,7 +5,12 @@ use beep_proto::node::subscriptions::Reply;
 const MAX_READS: usize = 4;
 const MAX_VALUE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_RETAINED_BYTES: usize = 16 * 1024 * 1024;
-const READ_GAP: Duration = Duration::from_millis(40);
+/// The least time between two reads of one projection. A change during the
+/// gap or a read marks it dirty, so the last state is always read after it.
+const READ_GAP: Duration = Duration::from_millis(250);
+/// One session's status, question and tasks follow its turn more closely.
+/// Its chat text streams separately and never waits for this gap.
+const AGENT_GAP: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Debug, PartialEq)]
 enum Source {
@@ -15,6 +20,15 @@ enum Source {
     Reviews,
     Agent(String),
     Resources(Vec<Topic>),
+}
+
+impl Source {
+    fn gap(&self) -> Duration {
+        match self {
+            Self::Agent(_) => AGENT_GAP,
+            _ => READ_GAP,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -348,7 +362,7 @@ impl Snapshots {
             self.next_key = Some(key.clone());
             entry.dirty = false;
             entry.running = true;
-            entry.not_before = now + READ_GAP;
+            entry.not_before = now + entry.source.gap();
             let source = entry.source.clone();
             let key = key.clone();
             metrics::counter!("beep_snapshot_reads_total", "topic" => key.0.name().to_owned())
@@ -356,10 +370,10 @@ impl Snapshots {
             let offers = offers.clone();
             let generation = self.generation;
             let stream = self.stream;
-            tracing::info!(%stream, generation, query = key.1, topic = key.0.name(), "subscription snapshot scheduled");
+            tracing::debug!(%stream, generation, query = key.1, topic = key.0.name(), "subscription snapshot scheduled");
             self.reads.spawn(async move {
                 let started = Instant::now();
-                tracing::info!(%stream, generation, query = key.1, topic = key.0.name(), "subscription snapshot read started");
+                tracing::debug!(%stream, generation, query = key.1, topic = key.0.name(), "subscription snapshot read started");
                 let result = timeout(Duration::from_secs(60), async {
                     match source {
                         Source::Read(read) => read_value(offers, caller, read).await,
@@ -383,7 +397,7 @@ impl Snapshots {
                 .await
                 .context("snapshot read timed out")
                 .and_then(|r| r);
-                tracing::info!(%stream, generation, query = key.1, topic = key.0.name(), success = result.is_ok(), elapsed_ms = started.elapsed().as_millis() as u64, "subscription snapshot source completed");
+                tracing::debug!(%stream, generation, query = key.1, topic = key.0.name(), success = result.is_ok(), elapsed_ms = started.elapsed().as_millis() as u64, "subscription snapshot source completed");
                 let result = match result {
                     Ok(value) => tokio::task::spawn_blocking(move || {
                         let bytes = rmp_serde::to_vec(&value)?.len();
@@ -398,7 +412,7 @@ impl Snapshots {
                     .and_then(|result| result),
                     Err(error) => Err(error),
                 };
-                tracing::info!(%stream, generation, query = key.1, topic = key.0.name(), success = result.is_ok(), bytes = result.as_ref().map(|(_, bytes)| *bytes).unwrap_or(0), elapsed_ms = started.elapsed().as_millis() as u64, "subscription snapshot read completed");
+                tracing::debug!(%stream, generation, query = key.1, topic = key.0.name(), success = result.is_ok(), bytes = result.as_ref().map(|(_, bytes)| *bytes).unwrap_or(0), elapsed_ms = started.elapsed().as_millis() as u64, "subscription snapshot read completed");
                 Completed {
                     generation,
                     key,
