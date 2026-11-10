@@ -38,6 +38,7 @@ log = "0.4"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 percent-encoding = "2"
 rusqlite = { version = "0.40", features = ["bundled"] }
+rust_decimal = "1"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 secrecy = "0.10"
 serde = { version = "1", features = ["derive"] }

@@ -4,11 +4,13 @@
 
 use crate::{beep::epoch_ms, error::Result, fleet::projects::FleetState};
 use beep_proto::{
-    AgentSlug, AgentTokens, HarnessBill, HarnessSpend, ModelSpend, PeriodSpend, PlanLimits,
-    PlanWindow, ProjectBill, ProjectSpend, ProviderCredits, SpendPeriod, SpendReport, UsageReport,
-    UsageView,
+    AgentSlug, AgentTokens, CreditUnit, HarnessBill, HarnessSpend, ModelSpend, PeriodSpend,
+    PlanLimits, PlanWindow, ProjectBill, ProjectSpend, ProviderCredits, SpendPeriod, SpendReport,
+    UsageReport, UsageView,
 };
+use rust_decimal::{Decimal, RoundingStrategy};
 use serde::Serialize;
+use std::str::FromStr;
 
 /// `UsageReport` as the window reads it, times in milliseconds since the
 /// Unix epoch.
@@ -40,7 +42,21 @@ pub struct PlanRow {
     machine_name: String,
     as_of: u64,
     windows: Vec<WindowRow>,
-    credits: Vec<ProviderCredits>,
+    credits: Vec<CreditRow>,
+}
+
+/// A provider's balance with its amounts written out, each `None` when
+/// unknown or not a number.
+#[derive(Debug, Serialize)]
+pub struct CreditRow {
+    #[serde(flatten)]
+    credit: ProviderCredits,
+    /// What is left in whole dollars for the bar, such as `$622`.
+    remaining_short: Option<String>,
+    /// What is left to the cent for the popover, such as `$622.32`.
+    remaining_full: Option<String>,
+    used_full: Option<String>,
+    total_full: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -92,12 +108,71 @@ impl From<PlanWindow> for WindowRow {
 impl From<PlanLimits> for PlanRow {
     fn from(p: PlanLimits) -> Self {
         Self {
-            credits: p.credits,
+            credits: p.credits.into_iter().map(Into::into).collect(),
             agent: p.agent,
             plan: p.plan,
             machine_name: p.machine_name,
             as_of: epoch_ms(p.as_of),
             windows: p.windows.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<ProviderCredits> for CreditRow {
+    fn from(credit: ProviderCredits) -> Self {
+        let amount = |value: &Option<String>| {
+            value
+                .as_deref()
+                .and_then(|text| Amount::parse(credit.unit, text))
+        };
+        let remaining = amount(&credit.remaining);
+        let used = amount(&credit.used);
+        let total = amount(&credit.total);
+        Self {
+            remaining_short: remaining.map(|a| a.label(0)),
+            remaining_full: remaining.map(|a| a.label(2)),
+            used_full: used.map(|a| a.label(2)),
+            total_full: total.map(|a| a.label(2)),
+            credit,
+        }
+    }
+}
+
+/// A balance as a provider reports it: an exact decimal in its unit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Amount {
+    unit: CreditUnit,
+    value: Decimal,
+}
+
+impl Amount {
+    /// `text` as a decimal, such as `622.3218671` or `1e3`.
+    fn parse(unit: CreditUnit, text: &str) -> Option<Self> {
+        let text = text.trim();
+        let value = Decimal::from_str(text)
+            .or_else(|_| Decimal::from_scientific(text))
+            .ok()?;
+        Some(Self { unit, value })
+    }
+
+    /// The amount rounded half up (away from zero) to `places` decimals,
+    /// with a `$` for dollars: `$622` or `$622.32`.
+    fn label(self, places: u32) -> String {
+        let mut value = self
+            .value
+            .round_dp_with_strategy(places, RoundingStrategy::MidpointAwayFromZero);
+
+        if value.is_zero() {
+            value = Decimal::ZERO;
+        }
+
+        value.rescale(places);
+        let sign = if value.is_sign_negative() { "-" } else { "" };
+        let digits = value.abs();
+
+        match self.unit {
+            CreditUnit::Usd => format!("{sign}${digits}"),
+            CreditUnit::Credits | CreditUnit::Unknown => format!("{sign}{digits}"),
         }
     }
 }
@@ -267,3 +342,7 @@ impl From<UsageView> for UsageRow {
 pub async fn usage_get(fleet: FleetState<'_>, refresh: bool) -> Result<Option<UsageRow>> {
     Ok(Some(fleet.spend(refresh).await?.into()))
 }
+
+#[cfg(test)]
+#[path = "../tests/center_usage.rs"]
+mod tests;
