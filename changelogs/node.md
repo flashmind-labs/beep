@@ -22,3 +22,4 @@ Earlier releases predate this changelog.
 - On macOS, idle agent sessions no longer run `ps` every second when no app shows their processes.
 - Git branch, history and upstream views refresh only when Git refs, the index or settings change, not on every file save or Git object write.
 - Builds and checkouts in synced projects no longer flood listings with one change signal per file.
+- Streaming agent sessions open in an app cost the node less CPU: each update encodes only new or changed transcript entries.
