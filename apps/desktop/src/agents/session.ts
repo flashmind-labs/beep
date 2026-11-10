@@ -372,6 +372,15 @@ function keptPage(log: KeptLog | null, held: AgentPage | null): AgentPage | null
   return held ? joinRuns(log.page, held) : log.page;
 }
 
+/// Drops the kept log of a deleted session.
+export function forgetLog(s: { machine_id: string; id: string }) {
+  const key = sessionKey(s);
+  const log = keptLogs.get(key);
+  if (!log) return;
+  keptLogs.delete(key);
+  disposeLogShell(log.body);
+}
+
 const sessionKey = (s: { machine_id: string; id: string }) => `${s.machine_id}\n${s.id}`;
 
 export const isOpen = (o: OpenAgent | null) => S.view === "agent" && AG.open && o === AG.open;

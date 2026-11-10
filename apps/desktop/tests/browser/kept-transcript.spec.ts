@@ -111,3 +111,24 @@ test("a kept log scrolled up into older entries comes back where the reader left
   expect(await place()).toEqual(before);
   expect(await calls(page, "agent_older")).toHaveLength(1);
 });
+
+test("a deleted session's kept log is not drawn again", async ({ page }) => {
+  const ended = { ...running, title: "First notification", status: "ended", question: null };
+  await openDesktop(page, false, { agent_deletable: true, agent_delete: null, center_home: { machines: [], projects: [], running: [ended], needs_you: [], coming_up: null, updates: null } });
+  const body = page.locator("#agbody");
+  await page.evaluate(session => window.__navigation.open({ agent: session }), ended);
+  await expect(body).toHaveCount(1);
+  await body.evaluate(b => { b.dataset.kept = "old"; });
+  await page.evaluate(session => window.__navigation.open({ agent: session }), { ...ended, id: "notice-two" });
+  await expect(body).not.toHaveAttribute("data-kept", "old");
+
+  await page.evaluate(() => window.__navigation.open("home"));
+  await page.locator(".cwin").getByText("First notification").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Delete…" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
+  await expect.poll(() => calls(page, "agent_delete")).toHaveLength(1);
+
+  await page.evaluate(session => window.__navigation.open({ agent: session }), ended);
+  await expect(body).toHaveCount(1);
+  await expect(body).not.toHaveAttribute("data-kept", "old");
+});

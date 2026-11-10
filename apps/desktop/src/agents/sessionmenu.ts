@@ -18,6 +18,7 @@ import { transcriptKey } from "./transcript-cache-state.ts";
 import { closeSession } from "./closing.ts";
 import { forgetTranscript, offScreen, takeHeldSteers, transcripts } from "./session-follow.ts";
 import { prependDraft } from "../chat/compose.ts";
+import { forgetLog } from "./session.ts";
 
 /// Stops the turn of `s`, its subagents, background commands and the agents it started; asks
 /// first while any of those run.
@@ -108,6 +109,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
             await invoke("agent_delete", at);
             forgetView(s.machine_id, s.id);
             forgetTranscript({ machine_id: s.machine_id, agent: s.agent, session: s.id });
+            forgetLog(s);
             await loadSessions().catch(err => console.warn("agent sessions:", err));
           },
         }),
