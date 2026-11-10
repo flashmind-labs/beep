@@ -1,6 +1,5 @@
-import { createElement } from "react";
+import { createElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { AddProjectView } from "./addproject-view.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
 // addproject/: the Add a project, Add a folder, Import a project and New
@@ -95,7 +94,7 @@ const looking = new Map<string, string>();
 const unread = new Map<string, string>();
 /// Counts the opens, so an answer for a sheet since closed is dropped.
 let opened = 0;
-let view: DocumentView | null = null;
+let view: ((content: ReactNode) => void) | null = null;
 /// The row being imported by its own button, by name, and why one failed.
 let importing: string | null = null;
 const failed = new Map<string, string>();
@@ -139,8 +138,7 @@ export function openAddProject(options: AddProjectOptions = {}) {
   picked = new Set();
   status.clear();
   batch = false;
-  ({ root, sheet, close } = openSheet("Add a project", "am-sheet ap-sheet", { canClose: () => !busy(), onKey, onClose: closed }));
-  view = createDocumentView(sheet);
+  ({ root, sheet, close, render: view } = openSheet("Add a project", "am-sheet ap-sheet", { canClose: () => !busy(), onKey, onClose: closed }));
   draw();
   looking.clear();
   unread.clear();
@@ -173,7 +171,7 @@ function closeAddProject() {
 
 function closed() {
   syncthing.dispose();
-  view?.unmount(); view = null;
+  view = null;
   root = sheet = close = null;
 }
 
@@ -279,7 +277,7 @@ function draw() {
   if (!view) return;
   const current = view;
   const active = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>(".ap-row") : null;
-  flushSync(() => current.render(createElement(AddProjectView, {
+  flushSync(() => current(createElement(AddProjectView, {
     found, shown: shownRows(), hosts, machines: opts.machines, query, looking: [...looking.values()], unread: [...unread.values()], error, importing, batch, picked, status, failed, sync: syncthing,
     search: (value: string) => { query = value; draw(); }, toggle, toggleAll: () => { picked = toggleAllShown(shownRows().map(row => row.name), picked, status); draw(); },
     importPicked: () => void importPicked(), importOne: (row: FoundRow) => void doImport(row),

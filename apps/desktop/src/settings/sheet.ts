@@ -10,13 +10,14 @@ import { el as h } from "../ui/dom.ts";
 import { instructionsPage } from "./instructions.ts";
 import { providersPage } from "./providers.ts";
 import { connectSettingsSheet, settingsClosed, showSettingsPage } from "./settings.ts";
-import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
+import type { ReactNode } from "react";
+import { flushSync } from "react-dom";
 import type { CenterView, ViewArg, ViewName } from "../center/state.ts";
 import { boxOf, currentLocation, windowProject, toMain, drawTop } from "../center/views.ts";
 
 /// Settings as a sheet over the window: a dimmed backdrop and a centered sheet
 /// with its sections on the left.
-let settingsOpen: { scrim: HTMLElement; keys: (e: KeyboardEvent) => void; back: HTMLElement | null; dispose(): void } | null = null;
+let settingsOpen: { scrim: HTMLElement; keys: (e: KeyboardEvent) => void; back: HTMLElement | null; render(content: ReactNode): void; dispose(): void } | null = null;
 const settingsTiming = new PageTiming(() => performance.now(), callback => { requestAnimationFrame(callback); }, () => !document.hidden, (page, ms) => { if (settingsOpen) recordTiming("page", page, ms); });
 
 export function openSettings(section?: string) {
@@ -25,7 +26,7 @@ export function openSettings(section?: string) {
   // Already open: show page `section`, such as "machines".
   if (settingsOpen) return section && showSettingsPage(section);
   const afterMount = settingsTiming.start("settings");
-  const { root: scrim, sheet, dispose } = mountSheetFrame("Settings", "cc-set", {
+  const { root: scrim, sheet, render, dispose } = mountSheetFrame("Settings", "cc-set", {
     host: document.body, scrimClass: "cc-set-scrim", onScrim: closeSettings,
   });
   sheet.tabIndex = -1;
@@ -45,7 +46,7 @@ export function openSettings(section?: string) {
   };
   sheet.addEventListener("keydown", e => e.stopPropagation());
   window.addEventListener("keydown", keys, true);
-  settingsOpen = { scrim, keys, back, dispose };
+  settingsOpen = { scrim, keys, back, render, dispose };
   sheet.focus();
   pane.settings(sheet, section).then(() => { refreshTopicSubscriptions(); afterMount(); }).catch(e => console.warn("settings:", e));
 }
@@ -120,8 +121,7 @@ function trapTab(e: KeyboardEvent, sheet: HTMLElement) {
 }
 
 connectSettingsSheet({
-  show: (sheet, content) => showWindowParts([{ part: "settings-sheet", host: sheet, content }]),
-  remove: () => removeWindowPart("settings-sheet"),
+  show: (_sheet, content) => { const open = settingsOpen; if (open) flushSync(() => open.render(content)); },
 });
 export const instructionsView = instructionsPage({ invoke, h, button, ago: ms => formatAgo(ms, "short"), openSettings });
 export const providersView = providersPage({ invoke, openSettings, redrawTop: () => {

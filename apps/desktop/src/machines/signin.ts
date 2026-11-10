@@ -3,7 +3,6 @@
 // sends back the code the page gives.
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { reason } from "../ui/format.ts";
 import { openSheet } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -27,7 +26,6 @@ export function openSignIn(machine: { id: string; name: string }, tool: string, 
   let sending = false;
   let active = true;
   let pending: Promise<void> = Promise.resolve();
-  let root: DocumentView | null = null;
   const unfollow = subscribeChanges(topic("sign-in", tool), { deliver: "latest", receive: async () => {
     await step({ step: "state" });
     if (error) throw new Error(error);
@@ -37,14 +35,11 @@ export function openSignIn(machine: { id: string; name: string }, tool: string, 
       open = false;
       active = false;
       unfollow();
-      root?.unmount();
-      root = null;
       // Left before it ended: the machine stops it.
       if (view && stillRunning(view)) void ask(machine.id, tool, { step: "cancel" }).catch(console.warn);
       done();
     },
   });
-  root = createDocumentView(shell.sheet);
 
   const take = (next: SignInView) => {
     view = next;
@@ -82,8 +77,8 @@ export function openSignIn(machine: { id: string; name: string }, tool: string, 
   }
 
   function draw() {
-    if (!active || !root) return;
-    flushSync(() => root?.render(createElement(SignInBody, {
+    if (!active) return;
+    flushSync(() => shell.render(createElement(SignInBody, {
       machineName: machine.name, tool, view, error, sending, send,
       retry: () => { view = null; draw(); void step({ step: "start" }); },
       close: shell.close,

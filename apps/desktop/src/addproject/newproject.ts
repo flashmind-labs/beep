@@ -1,6 +1,5 @@
-import { createElement, type MouseEvent as ReactMouseEvent } from "react";
+import { createElement, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { NewProjectView } from "./newproject-view.tsx";
 // The "New project" sheet: a name, where the repository goes (each host with
 // a token, or Local only), its owner and visibility, and the machines that
@@ -26,7 +25,7 @@ interface NewProjectOptions {
   onClone?: (repo: string) => void;
 }
 
-let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, opts: NewProjectOptions = {}, close: (() => void) | null = null;
+let root: HTMLDivElement | null = null, opts: NewProjectOptions = {}, close: (() => void) | null = null;
 /// undefined while read, null from a server too old to make projects.
 let forges: Forge[] | null | undefined;
 let loadError: string | null = null;
@@ -35,7 +34,7 @@ let creating = false, error: string | null = null, created: Created | null = nul
 /// Which opening of the sheet this is: a create still running when it closed
 /// reports to no later one.
 let opening = 0;
-let view: DocumentView | null = null;
+let view: ((content: ReactNode) => void) | null = null;
 
 const online = () => (opts.machines || []).filter(m => m.online);
 
@@ -49,8 +48,7 @@ export function openNewProject(options: NewProjectOptions = {}) {
   creating = false;
   error = null;
   created = null;
-  ({ root, sheet, close } = openSheet("New project", "am-sheet ip-sheet np-sheet", { onClose: closed }));
-  view = createDocumentView(sheet);
+  ({ root, close, render: view } = openSheet("New project", "am-sheet ip-sheet np-sheet", { onClose: closed }));
   draw();
   const mine = opening;
   invoke<Forge[] | null>("project_forges")
@@ -69,8 +67,8 @@ function closeNewProject() {
 }
 
 function closed() {
-  view?.unmount(); view = null;
-  root = sheet = close = null;
+  view = null;
+  root = close = null;
   if (created?.imported[0]) opts.onDone?.(created.imported[0]);
 }
 
@@ -109,7 +107,7 @@ function setForm(next: NewProjectForm) { form = next; error = null; draw(); }
 function draw() {
   if (!view) return;
   const current = view;
-  flushSync(() => current.render(createElement(NewProjectView, {
+  flushSync(() => current(createElement(NewProjectView, {
     forges, loadError, form, machines: online(), creating, error, created, hostError: hostError(),
     name: (name: string) => setForm({ ...form, name }),
     host: (host: string | null) => setForm(pickHost(form, forges ?? [], host)),

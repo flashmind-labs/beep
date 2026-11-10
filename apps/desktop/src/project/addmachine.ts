@@ -1,6 +1,5 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentView } from "../ui/document-root.tsx";
 import { AddMachineView } from "./addmachine-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // The "Add <project> to <machine>" sheet of a project's "Where it lives": the
@@ -40,14 +39,13 @@ export function openAddToMachine(o: AddToMachine) {
   let folder = "", browsing: MachineFolder | null = null, reading = false, error: string | null = null;
   let adding = false, copying: CopyLine | null = null, open = true;
   let unfollow: (() => void) | undefined;
-  const { sheet, close } = openSheet(title, "am-sheet ip-sheet ip-add", {
-    onClose: () => { open = false; unfollow?.(); view.unmount(); },
+  const { close, render } = openSheet(title, "am-sheet ip-sheet ip-add", {
+    onClose: () => { open = false; unfollow?.(); },
   });
 
-  const view = createDocumentView(sheet);
   const draw = () => {
     if (!open) return;
-    flushSync(() => view.render(createElement(AddMachineView, {
+    flushSync(() => render(createElement(AddMachineView, {
       title, project, machine: machine.name, from: o.from == null ? null : plainPath(o.from), folder, browsing, reading, adding, error, copying,
       edit: (value: string) => { folder = value; error = null; draw(); }, choose: () => void choose(), add: () => void add(), close,
       browse: (path: string | null) => void read(path, next => { browsing = next; }),

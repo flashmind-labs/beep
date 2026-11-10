@@ -1,6 +1,5 @@
-import { createElement } from "react";
+import { createElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { AddFolderView } from "./addfolder-view.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
 // The "Add a folder" sheet: a machine (this Mac first), a folder on it, what
@@ -27,12 +26,12 @@ export interface AddFolderOptions {
 }
 
 let syncthing = syncthingImportChoice();
-let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, close: (() => void) | null = null;
+let root: HTMLDivElement | null = null, close: (() => void) | null = null;
 let opts: AddFolderOptions = {};
 let state: FolderState = startOn([], null);
 /// A folder is being read, so the folder buttons wait.
 let reading = false;
-let view: DocumentView | null = null, opening = 0, branchRequest = 0;
+let view: ((content: ReactNode) => void) | null = null, opening = 0, branchRequest = 0;
 
 /// Opens the sheet on this Mac. Nothing opens the folder picker until Choose….
 export function openAddFolder(options: AddFolderOptions = {}) {
@@ -42,18 +41,17 @@ export function openAddFolder(options: AddFolderOptions = {}) {
   opts = { ...options, machines: options.machines?.filter(m => m.can_host !== false) };
   state = startOn(opts.machines || [], opts.macId || null);
   reading = false;
-  ({ root, sheet, close } = openSheet("Add a folder", "am-sheet ip-sheet", {
+  ({ root, close, render: view } = openSheet("Add a folder", "am-sheet ip-sheet", {
     canClose: () => state.step !== "adding",
     onClose: closed,
   }));
-  view = createDocumentView(sheet);
   draw();
 }
 
 function closed() {
   syncthing.dispose();
-  view?.unmount(); view = null;
-  root = sheet = close = null;
+  view = null;
+  root = close = null;
   const done = state.step === "done" ? state.project : null;
   const then = opts.onDone;
   opts = {};
@@ -140,7 +138,7 @@ async function submit() {
 function draw() {
   if (!view) return;
   const current = view;
-  flushSync(() => current.render(createElement(AddFolderView, {
+  flushSync(() => current(createElement(AddFolderView, {
     state, machines: opts.machines ?? [], reading, sync: syncthing,
     pick: (machine: string) => update({ type: "pick", machine }), choose: () => void choose(), browse: browseTo,
     cancelBrowse: () => update({ type: "browse", listing: null }), use, submit: () => void submit(),
