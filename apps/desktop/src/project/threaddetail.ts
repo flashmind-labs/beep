@@ -4,9 +4,9 @@
 // HTML before it gets here, so the HTML it gives is safe to insert. Commenting stays on the host.
 import { createElement } from "react";
 import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
-import { el as h, type Kid } from "../ui/dom.ts";
+import { el as h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
-import { ThreadDetailView } from "./threaddetail-view.tsx";
+import { ThreadDetailView, type ThreadActions } from "./threaddetail-view.tsx";
 
 /// One comment, as cleaned HTML (PostHtmlRow).
 interface PostRow {
@@ -83,7 +83,7 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
     return r;
   }
 
-  function pane(projectId: string, stub: ThreadStub, acts: Kid[]): Node[] {
+  function pane(projectId: string, stub: ThreadStub, acts: ThreadActions): Node[] {
     const key = `${projectId}#${stub.number}`, readState = read(projectId, stub.number), data = readState.data;
     const draft = drafts.get(key) ?? { text: "", posting: false };
     drafts.set(key, draft);
@@ -92,7 +92,7 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
       const host = h("div"); host.style.display = "contents";
       current = { key, host };
     }
-    const panel = current, actions = h("div", "", ...acts);
+    const panel = current;
     const post = () => {
       const body = draft.text.trim();
       if (!data || !body || draft.posting) return;
@@ -103,7 +103,7 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
         .finally(() => { draft.posting = false; deps.redraw(); });
     };
     const draw = () => showWindowParts([{ part: "project-thread", host: panel.host, content: createElement(ThreadDetailView, {
-      stub, data, error: readState.error, acts: actions, comment: deps.comment(), text: draft.text, posting: draft.posting, draftError: draft.error,
+      stub, data, error: readState.error, acts, comment: deps.comment(), text: draft.text, posting: draft.posting, draftError: draft.error,
       edit: (value: string) => { draft.text = value; draw(); }, post, open: (url: string) => { void deps.openUrl(url); },
     }) }]);
     draw();

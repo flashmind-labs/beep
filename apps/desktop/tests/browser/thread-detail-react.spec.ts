@@ -10,6 +10,14 @@ test("issue detail keeps comment draft, caret and scroll during project refresh"
   await page.locator('.pj-det .pj-li[title="Example issue"]').click();
   const pane = page.locator(".pj-split > .pj-det"), input = pane.locator(".pj-reply textarea");
   await expect(input).toBeVisible();
+  const action = pane.getByRole("button", { name: "Work on it" });
+  await action.focus();
+  await action.evaluate(element => { (element as HTMLElement).dataset.identity = "kept"; });
+  const actionReads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "projects_on_top").length);
+  await page.evaluate(() => window.__navigation.notify("projects"));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "projects_on_top").length)).toBeGreaterThan(actionReads);
+  await expect(action).toHaveAttribute("data-identity", "kept");
+  await expect(action).toBeFocused();
   await input.fill("Draft reply");
   await input.evaluate(element => { if (element instanceof HTMLTextAreaElement) { element.dataset.identity = "kept"; element.setSelectionRange(2, 5); } });
   await pane.evaluate(element => { element.style.maxHeight = "150px"; element.scrollTop = 80; });
