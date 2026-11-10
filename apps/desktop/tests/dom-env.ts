@@ -1,13 +1,11 @@
 // The bar-env stub with a working DOM: `#bar` is an element that parses
 // HTML, finds by simple selectors and moves nodes as a webview does, so a
 // test can draw a chat and check which elements stayed. Import it before any
-// `src/bar` module, in place of bar-env. `calls` records every `invoke`,
-// `answers` holds what a command returns (null when absent), and `removed`
-// gets every element taken out of the page.
+// `src/bar` module, in place of bar-env. `calls` records every `invoke`
+// and `answers` holds what a command returns (null when absent).
 
 export const calls: { cmd: string; args: unknown }[] = [];
 export const answers: Record<string, unknown> = {};
-export const removed = new Set<object>();
 
 const VOID = new Set(["area", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", apos: "'", nbsp: " " };
@@ -31,7 +29,6 @@ class FakeNode {
   remove() {
     const p = this.parentNode;
     if (!p) return;
-    if (this.isConnected) removed.add(this);
     p.childNodes.splice(p.childNodes.indexOf(this), 1);
     this.parentNode = null;
   }
