@@ -50,6 +50,7 @@ export function subscribeTopics(topics: Topic | Topic[], receive: Receive, machi
 
 /// Initial query answers return through the requesting read; coalesce subsequent snapshots.
 /// Live views keep the default wait; ambient ones pass `AMBIENT_MS` or `SLOW_MS`.
+/// A receiver declared without parameters runs once for all pending updates.
 export function subscribeChanges(topics: Topic | Topic[], receive: Receive, machine: string | null = null, when: () => boolean = () => true, wait = 100): () => void {
   return subscribe(topics, receive, machine, when, true, wait);
 }
@@ -218,26 +219,38 @@ function schedule(subscriber: Subscriber, wait = subscriber.wait) {
   }, wait);
 }
 
+/// Takes every pending update in one pass so a burst over many keys draws once after the wait.
+/// A receiver that takes no event argument rereads its state and runs once; one that reads the
+/// event gets each update in arrival order, without waiting between them.
 async function read(subscriber: Subscriber) {
-  const next = subscriber.pending.entries().next().value;
-  if (!next) return;
-  const [key, pending] = next;
-  const { event } = pending;
-  subscriber.pending.delete(key);
-  subscriber.pendingBytes -= pending.bytes;
+  const taken = [...subscriber.pending];
+  if (!taken.length) return;
+  subscriber.pending.clear();
+  subscriber.pendingBytes = 0;
   subscriber.running = true;
+  let errored = false;
 
-  try {
-    await subscriber.receive(event);
-    subscriber.failures = 0;
-  } catch (error) {
-    report(error);
-    subscriber.failures++;
-    if (!subscriber.pending.has(key)) markDirty(subscriber, event);
-  } finally {
-    subscriber.running = false;
+  const keep = (from: number) => {
+    for (const [key, update] of taken.slice(from)) if (!subscriber.pending.has(key)) markDirty(subscriber, update.event);
+  };
+
+  if (subscriber.receive.length === 0) {
+    try { await subscriber.receive(taken[taken.length - 1][1].event); } catch (error) { report(error); errored = true; keep(0); }
+  } else {
+    for (const [index, [key, { event }]] of taken.entries()) {
+      if (!subscribers.has(subscriber)) break;
+      if (!active(subscriber)) { keep(index); break; }
+
+      try { await subscriber.receive(event); } catch (error) {
+        report(error);
+        errored = true;
+        if (!subscriber.pending.has(key)) markDirty(subscriber, event);
+      }
+    }
   }
 
+  subscriber.running = false;
+  subscriber.failures = errored ? subscriber.failures + 1 : 0;
   if (subscriber.pending.size) schedule(subscriber, subscriber.failures ? Math.min(1000 * 2 ** Math.min(subscriber.failures - 1, 5), 30000) : subscriber.wait);
 }
 
