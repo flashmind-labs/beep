@@ -28,18 +28,18 @@ async function linked() {
   return false;
 }
 
-/// Shows the first-run window over the app when it is due; `after` runs once it goes, or at once
-/// when it is not due. The choice is kept, so it shows once. A Mac already linked to other
-/// machines has made it.
-export async function firstRun(subscribed: boolean, after: () => void, signedOut = false) {
-  if (!firstRunDue(subscribed, stored(), signedOut)) return after();
-  if (await linked()) { keep(); return after(); }
+/// Shows the first-run window over the app when it is due. The choice is kept, so it shows once.
+/// A Mac already linked to other machines has made it: the window goes once the mesh says so.
+/// Resolves when that check is done.
+export async function firstRun(subscribed: boolean, signedOut = false) {
+  if (!firstRunDue(subscribed, stored(), signedOut)) return;
   const screen = createDocumentScope<"first-run">();
   let closed = false;
   const leave = () => {
     if (closed) return;
     closed = true;
-    keep(); screen.dispose(); after();
+    keep(); screen.dispose();
   };
   screen.set([{ slot: "first-run", host: document.body, content: createElement("div", null, createElement(FirstRunScreen, { done: leave, join: joinTicket })) }]);
+  if (await linked()) leave();
 }

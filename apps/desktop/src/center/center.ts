@@ -19,7 +19,7 @@ import { pane } from "../bar/pane.ts";
 import { type BackTo, S } from "../bar/core.ts";
 import { seed, type CachedViews } from "./cached.ts";
 import type { HomeView } from "./home-state.ts";
-import { startView, windowTitle } from "../project/projectwindow.ts";
+import { startView, windowTitle, type CenterTarget } from "../project/projectwindow.ts";
 import { newChatTarget } from "../project/agent.ts";
 import { mountUsage, type UsageView } from "./usage.ts";
 import { mountNotices } from "./notices.ts";
@@ -38,7 +38,8 @@ import { escUp } from "./escup-state.ts";
 import { openTile } from "../project/split.ts";
 import { pa } from "../project/sections.ts";
 import { AG } from "../agents/agents.ts";
-import { debugWithAgent, loadAgents, takePending } from "./pane.ts";
+import { debugWithAgent, loadAgents, readPending, showPending } from "./pane.ts";
+import { refresh } from "./refresh.ts";
 import { threadCard, threadChats } from "./threadcard.ts";
 import { openSettings, embedView, closeSettings } from "../settings/sheet.ts";
 import { followSkin } from "../ui/skin.ts";
@@ -214,12 +215,23 @@ initHomeComposer({
   agent: prompt => { go("pane", { agentnew: { prompt } }); },
 });
 
-/// The first view.
-export async function start() {
+/// What the window opens on: its project, or for the main window what the bar or tray asked
+/// for. Asked at load, beside the kept views and Home's reads.
+interface Opening {
+  project: string | null;
+  pending: CenterTarget | null;
+}
+
+async function readOpening(): Promise<Opening> {
   const project = await invoke<string | null>("center_window_project").catch(() => null);
+  return { project, pending: project ? null : await readPending() };
+}
+
+/// The first view.
+function start({ project, pending }: Opening) {
   document.title = windowTitle(project);
   const first = startView(project);
-  if (!first) return takePending("home");
+  if (!first) return showPending(pending, "home");
   // A project window: no sidebar, and a button back to the project.
   const name = first.arg.project;
   setWindowProject(name);
@@ -235,8 +247,8 @@ export function askBeep(prompt: string) {
   pane.compose(prompt).catch(e => console.warn("asking Beep:", e));
 }
 
-/// Shows what the app kept from the server's last answers, so the window
-/// opens on Home, its projects and sidebar before the server answers.
+/// Shows the views the app kept from its last answers, so the window
+/// opens on Home, its projects and sidebar before the mesh answers.
 async function showCached() {
   const [cached, mac, link] = await Promise.all([
     invoke<CachedViews | null>("center_cached").catch(e => { console.warn("kept views:", e); return null; }),
@@ -279,4 +291,12 @@ listen<string>("link-state", e => {
 });
 
 // A reload starts with no chat open, as the window just opened does.
-pairing().then(() => Promise.all([invoke("new_chat").catch(() => {}), showCached()])).then(() => onPhone() ? undefined : firstRun(state.subscribed, () => {}, S.signedOut)).then(start).then(() => { if (state.subscribed) loadAgents(); });
+// Home's reads start with the window; the first view waits only for the kept views.
+const opening = readOpening();
+void pairing().then(async () => {
+  void refresh();
+  const [, , open] = await Promise.all([invoke("new_chat").catch(() => {}), showCached(), opening]);
+  if (!onPhone()) void firstRun(state.subscribed, S.signedOut);
+  start(open);
+  if (state.subscribed) loadAgents();
+});

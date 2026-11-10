@@ -1,6 +1,7 @@
-// What the window last drew from the server, kept by the app so a window
-// that opens shows Home, the projects and the sidebar at once, then
-// updates them in place once the server answers.
+// What the window last drew, kept by the app so a window that opens shows
+// Home, the projects and the sidebar at once, then updates them in place
+// once the mesh answers. Home, the pins, groups and sync are kept on every
+// Mac; the project agents and the overview only while the server shows.
 import type { HomeView, UpdateRow } from "./home-state.ts";
 import type { OverviewCard, ProjectGroup } from "../project/projects-state.ts";
 import type { ProjectAgent } from "../project/agent.ts";
@@ -28,8 +29,7 @@ export interface Seeded {
   overview: OverviewCard[] | null | undefined;
 }
 
-/// Fills in from `cached` what the server has not answered yet, leaving what it
-/// has.
+/// Fills in from `cached` what has not been read yet, leaving what has.
 export function seed(state: Seeded, cached: CachedViews | null, dismissed: Set<number>): boolean {
   if (!cached) return false;
   let home = false;

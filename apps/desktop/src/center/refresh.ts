@@ -157,9 +157,12 @@ export async function refresh() {
   started = true;
 
   try {
-    const terminals = onScreen() && (currentLocation()?.view === "home" || currentLocation()?.view === "terminals");
-    await Promise.all([readHome(), refreshMac(), refreshSync().then(() => onScreen() ? readSync() : undefined), refreshProjects(),
-      ...["machines", "research"].map(name => reloadGroup(name, false)), terminals ? readAllTerms() : undefined]);
+    // At load no page shows yet, and Home is the usual first.
+    const view = currentLocation()?.view ?? "home";
+    const terminals = onScreen() && (view === "home" || view === "terminals");
+    // This computer's row in the machines group comes from `mac_control`.
+    await Promise.all([readHome(), refreshMac().then(() => reloadGroup("machines", false)), refreshSync().then(() => onScreen() ? readSync() : undefined), refreshProjects(),
+      reloadGroup("research", false), terminals ? readAllTerms() : undefined]);
     if (currentLocation()?.view === "projects" && !state.picked && onScreen()) loadOverview();
   } catch (error) {
     console.warn("Home:", error);
