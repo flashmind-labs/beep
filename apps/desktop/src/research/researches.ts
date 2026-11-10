@@ -11,6 +11,7 @@ import { progressLine, type ResearchRow } from "./research-list.ts";
 import { formatAgo, plural } from "../ui/format.ts";
 import { ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
+import { latest, STALE } from "../ui/active.ts";
 
 // ---------- Research ----------
 
@@ -43,10 +44,11 @@ export async function research(topic: string) {
 export const RL: { list: ResearchRow[]; loaded: boolean; sel: number; mode: "list" | "actions"; error: string } = { list: [], loaded: false, sel: 0, mode: "list", error: "" };
 
 let view: { host: HTMLElement; root: Root } | null = null;
-let generation = 0, readVersion = 0, initial = "";
+let initial = "";
+const reads = latest();
 function disposeResearches() { view = null; }
 export function renderResearches(topic = "") {
-  generation++; initial = topic;
+  initial = topic;
   S.view = "research";
   invoke("close_group").catch(() => {});
   Object.assign(RL, { mode: "list", error: "", sel: 0 });
@@ -56,16 +58,14 @@ export function renderResearches(topic = "") {
 }
 
 export async function loadResearchList() {
-  const mine = generation, read = ++readVersion;
   try {
-    const list = await invoke<ResearchRow[]>("list_researches");
-    if (mine !== generation || read !== readVersion) return;
+    const list = await reads.run(invoke<ResearchRow[]>("list_researches"));
+    if (list === STALE) return;
     RL.list = list;
     for (const r of RL.list) RESEARCHES.add(r.session);
     RL.loaded = true;
     RL.error = "";
   } catch (e) {
-    if (mine !== generation || read !== readVersion) return;
     RL.error = String(e);
   }
 
