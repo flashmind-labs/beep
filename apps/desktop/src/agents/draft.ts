@@ -15,6 +15,7 @@ import { DraftHead, draftMessage, showSessionFrame } from "./session-frame.tsx";
 import { draftCwd } from "./draft-state.ts";
 import { agentHints, drawEditors } from "./session-head.ts";
 import { stopAgentFollow } from "./session-follow.ts";
+import { leaveLog } from "./session.ts";
 
 /// Where the pane is bound: the machine and folder the input points to. Empty
 /// until the frame is drawn, which starts the pane.
@@ -32,6 +33,7 @@ export function openDraft(project: string, on: string | null) {
   if (!(AG.draft === project && S.view === "agent" && shown())) {
     pointBar(project, on);
     stopAgentFollow();
+    leaveLog();
     Object.assign(AG, { open: null, page: null, draft: project, inflight: null });
     S.view = "agent";
     drawFrame(project);

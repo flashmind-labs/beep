@@ -82,7 +82,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     S.view = "agent";
     Object.assign(AG, { sig: "", rest: "" });
     // Its log goes back where the reader left it, or to its end.
-    drawAgentFrame(false, keptLogs.get(sessionKey(s)) ?? null);
+    drawAgentFrame(false, keptLogs.get(sessionKey(s))?.body ?? null);
     watchRead(AG.open!);
     return void pollAgent(true);
   }
@@ -91,10 +91,12 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   const inPlace = adopt && !!AG.draft && S.view === "agent" && !!$("#agshell");
   if (AG.open) steerQueues.set(transcriptKey(AG.open), AG.queue);
   for (const [key, queue] of steerQueues) if (!queue.length) steerQueues.delete(key);
+  leaveLog();
   S.view = "agent";
   AG.draft = null;
   const open: OpenAgent = { machine_id: s.machine_id, agent: s.agent, session: s.id };
-  const held = transcripts.get(transcriptKey(open))?.page ?? null;
+  const log = inPlace ? null : keptLogs.get(sessionKey(s)) ?? null;
+  const held = keptPage(log, transcripts.get(transcriptKey(open))?.page ?? null);
   Object.assign(AG, {
     open,
     page: held ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
@@ -113,7 +115,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   }
 
   firstRead = { open, at: performance.now() };
-  drawAgentFrame(inPlace, inPlace ? null : keptLogs.get(sessionKey(s)) ?? null);
+  drawAgentFrame(inPlace, held && log && held.earlier <= log.page.earlier ? log.body : null);
   watchRead(open);
   if (held) return void pollAgent(true);
   // Not held in this window: the page kept on disk draws at once, and the follow goes on from it.
@@ -136,7 +138,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
 /// beside them, its terminals running, is not drawn again. `kept`, the log
 /// already drawn, goes back in as it is, where it was scrolled.
 export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
-  const s = AG.page!.session, k = agentKind(s.agent);
+  const page = AG.page!, s = page.session, k = agentKind(s.agent);
   disposeQueue();
   const project = windowHooks?.sessionProject?.(s);
   // Out of the page a box reads 0: it keeps where the reader left it.
@@ -173,7 +175,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
 
   drawAgentAttached();
   drawModelPill();
-  keepLog(sessionKey(s), b);
+  keepLog(sessionKey(s), b, page);
 
   // A kept log at its end goes there as `drawAgentBody` fills it, with no layout read here.
   if (kept) {
@@ -339,23 +341,38 @@ sessionsRead.add(() => {
 /// The logs drawn last, by session, to go back to as they were: switching
 /// between them puts their turns back without drawing them again. Out of the
 /// page they do no work; their clocks stop (`Since`).
-const keptLogs = new Map<string, ChatBody>();
+/// Each keeps the page it was drawn from, older entries read while it showed included.
+interface KeptLog { body: ChatBody; page: AgentPage }
+const keptLogs = new Map<string, KeptLog>();
 const KEPT_LOGS = 3;
 
-function keepLog(key: string, b: ChatBody) {
+function keepLog(key: string, b: ChatBody, page: AgentPage) {
   const prior = keptLogs.get(key);
-  if (prior && prior !== b) disposeLogShell(prior);
+  if (prior && prior.body !== b) disposeLogShell(prior.body);
   keptLogs.delete(key);
-  keptLogs.set(key, b);
+  keptLogs.set(key, { body: b, page });
 
-  for (const [old, body] of keptLogs) {
+  for (const [old, log] of keptLogs) {
     if (keptLogs.size <= KEPT_LOGS) break;
     keptLogs.delete(old);
-    disposeLogShell(body);
+    disposeLogShell(log.body);
   }
 }
 
-const sessionKey = (s: AgentRow) => `${s.machine_id}\n${s.id}`;
+/// The open session's kept log takes its page as the reader leaves it.
+export function leaveLog() {
+  const log = AG.open && keptLogs.get(sessionKey({ machine_id: AG.open.machine_id, id: AG.open.session }));
+  if (log && AG.page) log.page = AG.page;
+}
+
+/// The page a session opens with: the one held in this window, or the kept log's when it
+/// reaches further back, with the newest held joined on.
+function keptPage(log: KeptLog | null, held: AgentPage | null): AgentPage | null {
+  if (!log || (held && held.earlier <= log.page.earlier)) return held;
+  return held ? joinRuns(log.page, held) : log.page;
+}
+
+const sessionKey = (s: { machine_id: string; id: string }) => `${s.machine_id}\n${s.id}`;
 
 export const isOpen = (o: OpenAgent | null) => S.view === "agent" && AG.open && o === AG.open;
 

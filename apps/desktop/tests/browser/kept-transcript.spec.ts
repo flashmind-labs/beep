@@ -64,3 +64,50 @@ test("a streaming session is kept by the native follow, with no keep call from t
   await page.clock.runFor(1000);
   expect(await calls(page, "transcript_keep")).toHaveLength(0);
 });
+
+test("a kept log scrolled up into older entries comes back where the reader left it", async ({ page }) => {
+  await openDesktop(page);
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    const entry = (i: number) => i % 2 ? { kind: "assistant", text: `Answer ${i}` } : { kind: "user", text: `Question ${i}` };
+    const run = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => entry(from + i));
+    window.__TAURI__.core.invoke = async <T>(command: string, args: Record<string, unknown> = {}) => {
+      if (command === "agent_older") {
+        await invoke(command, args);
+        const before = Number(args.before), from = Math.max(0, before - 200);
+        return { entries: run(from, before), earlier: from } as T;
+      }
+
+      if (command !== "agent_follow") return invoke<T>(command, args);
+      const channel = args.onEvent as { onmessage(value: unknown): void };
+      const base = await invoke<Record<string, unknown>>("agent_view", { session: args.session });
+      const page = args.session === "notice-one" ? { ...base, entries: run(200, 400), earlier: 200 } : { ...base, entries: [entry(0), entry(1)], earlier: 0 };
+      channel.onmessage({ kind: "snapshot", resumed: false, cursor: { start: page.earlier, next: page.earlier + page.entries.length, fingerprint: String(args.session) }, page, modes: null, tasks: [] });
+      return new Promise<T>(() => {});
+    };
+  });
+  const open = (id: string) => page.evaluate(session => window.__navigation.open({ agent: session }), { ...running, id });
+  const body = page.locator("#agbody");
+
+  await open("notice-one");
+  await expect(body).toContainText("Answer 399");
+  await body.evaluate(b => { b.scrollTop = 0; b.dispatchEvent(new Event("scroll")); });
+  await expect.poll(() => calls(page, "agent_older")).toHaveLength(1);
+  await expect(body).toContainText("Answer 199");
+  await page.waitForTimeout(200);
+  const place = () => body.evaluate(b => {
+    const top = b.getBoundingClientRect().top;
+    const row = [...b.querySelectorAll<HTMLElement>("[data-row]")].find(el => el.getBoundingClientRect().bottom > top);
+    return { text: row?.textContent ?? "", off: Math.round((row?.getBoundingClientRect().top ?? 0) - top), top: Math.round(b.scrollTop) };
+  });
+  const before = await place();
+  expect(before.text).not.toBe("");
+
+  await open("notice-two");
+  await expect(body).toContainText("Answer 1");
+  await open("notice-one");
+  await expect(body).toContainText(before.text);
+  await page.waitForTimeout(300);
+  expect(await place()).toEqual(before);
+  expect(await calls(page, "agent_older")).toHaveLength(1);
+});
