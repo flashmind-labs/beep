@@ -186,7 +186,8 @@ subscribeChanges(topic("home"), { deliver: "each", receive: event => homeChanged
 for (const name of ["work-question", "work-resolved", "group-approval", "approval-answered"]) listen(name, () => homeChanged(true));
 subscribeChanges(topic("machines"), { deliver: "latest", receive: async () => { await refreshMac(); await reloadGroup("machines"); } }, { wait: AMBIENT_MS });
 subscribeChanges(topic("projects"), { deliver: "latest", receive: refreshProjects }, { wait: AMBIENT_MS });
-subscribeChanges(topic("sync"), { deliver: "latest", receive: refreshSync });
+// Sync progress changes many times a second during a transfer; the rows follow once a second.
+subscribeChanges(topic("sync"), { deliver: "latest", receive: refreshSync }, { wait: AMBIENT_MS });
 subscribeChanges(topic("terminals"), { deliver: "latest", receive: readAllTerms }, { wait: AMBIENT_MS });
 subscribeChanges(topic("forge"), { deliver: "latest", receive: async () => {
   if (!snapshotView("git_items")) return;
