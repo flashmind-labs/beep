@@ -77,6 +77,8 @@ test("resuming reconnects a stream that closed before its first snapshot", async
   const page = openSession("ended");
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
   answers.agent_follow = null;
+  // The stream ends at once, so the session is read instead, and it still says it ended.
+  answers.agent_view = page;
   await pollAgent(true);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(calls.filter(c => c.cmd === "agent_follow").length, 1);

@@ -17,7 +17,6 @@ interface Reader<K> {
   version: number;
   retryAt: number;
   ended: boolean;
-  startedAt: number;
   /// When it was last on screen, as a serial: the lowest is dropped first.
   viewed: number;
   activity: Activity;
@@ -39,6 +38,8 @@ interface Transport<K, T> {
   show(id: string | null): void;
   receive(key: K, update: T): void;
   disconnected(key: K, error: unknown): void;
+  /// The shown session's follow ended before its first update, as on a node without it.
+  failed(key: K): void;
 }
 
 export class AgentFeed<K, T> {
@@ -56,10 +57,10 @@ export class AgentFeed<K, T> {
 
   live(key: K) { return !!this.reader(key)?.live; }
   version(key: K) { return this.reader(key)?.version ?? 0; }
+  /// Whether `key`'s follow is opening: no read is needed until it answers or fails.
   waiting(key: K) {
     const reader = this.reader(key);
-    return !!reader && !reader.live && !reader.ended
-      && this.transport.now() - reader.startedAt < 3000;
+    return !!reader && !reader.live && !reader.ended;
   }
 
   /// The sessions followed, the one on screen included.
@@ -147,7 +148,7 @@ export class AgentFeed<K, T> {
   private open(key: K, name: string) {
     const now = this.transport.now();
     const reader: Reader<K> = {
-      key, name, id: this.transport.id(), live: false, version: ++this.serial, retryAt: 0, ended: false, startedAt: now,
+      key, name, id: this.transport.id(), live: false, version: ++this.serial, retryAt: 0, ended: false,
       viewed: 0, activity: "idle", idleSince: now, idle: null,
     };
     this.readers.set(name, reader);
@@ -211,5 +212,6 @@ export class AgentFeed<K, T> {
     if (reader.name !== this.shown) { this.remove(reader); return; }
 
     if (wasLive) this.transport.disconnected(reader.key, error);
+    else this.transport.failed(reader.key);
   }
 }
