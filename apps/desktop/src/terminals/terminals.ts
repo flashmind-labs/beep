@@ -10,7 +10,7 @@ import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts
 // with the window closed and can be attached to again.
 import type { invoke as Invoke, Channel as ChannelCtor } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
-import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
+import type { Ago } from "../ui/dom.ts";
 import type { TileData } from "../project/board.ts";
 import { MACHINE_REFRESH_MS, PageCache, type SectionStore } from "../ui/pagecache.ts";
 import { reason } from "../ui/format.ts";
@@ -102,8 +102,6 @@ export interface TerminalDeps {
   invoke: typeof Invoke;
   Channel: typeof ChannelCtor;
   makeScreen: () => Screen;
-  h: MakeEl;
-  button: MakeButton;
   ago: Ago;
   redraw: () => void;
   /// Where each project's list is kept between windows; in memory only

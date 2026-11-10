@@ -1,6 +1,6 @@
 // A project's issues and pull requests, and the user's threads there.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
+import type { Ago } from "../ui/dom.ts";
 import type { ProjectAgent, TaskRow } from "./agent.ts";
 import { STATE_LABEL, reviewState } from "../review/review.ts";
 import type { ReviewState, ReviewView } from "../review/review.ts";
@@ -255,8 +255,6 @@ export interface RepoActs {
 /// the pane; `changed()` reloads the project's tasks once an issue became one.
 export interface ThreadDeps {
   invoke: typeof Invoke;
-  h: MakeEl;
-  button: MakeButton;
   ago: Ago;
   redraw: () => void;
   openUrl: (url: string) => unknown;

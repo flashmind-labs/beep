@@ -154,8 +154,6 @@ test("the Terminals page reconnects without writing to the screen", async t => {
     }) as never,
     Channel: class { onmessage = (_: unknown) => {}; } as never,
     makeScreen: () => screen,
-    h: (() => ({})) as never,
-    button: (() => ({})) as never,
     ago: () => "",
     redraw() {},
   });
