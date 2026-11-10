@@ -37,7 +37,7 @@ import { readError } from "../agentpane/read.ts";
 import { loadOlder, nearTop } from "./older.ts";
 import { joinRuns, lacksPrompt, newestRead } from "./older-state.ts";
 import { endedPage, hasNews, LINKED, noteAfterRead, readFailed, retryDelay } from "./reconnect-state.ts";
-import { drawMove } from "./move.ts";
+import { drawMove, moveKey } from "./move.ts";
 import { moveStore, refreshMoves } from "./move-store.ts";
 import { movedTo } from "./move-state.ts";
 import { sameSession } from "./running-state.ts";
@@ -138,8 +138,8 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     await pollAgent(true);
     void loadSessions().catch(e => console.warn("session titles:", e));
   };
-  const head = createElement(SessionHead, { agent: s.agent, ...headText(s), openProject: project?.open ?? null, cwd: s.cwd, machine: s.machine_name, usage: shownUsage(s), saveTitle });
-  const field = createElement(SessionField, { mode, name: k.name, banner, attach: agentDrop, send: submitAgentMessage, stop: () => void interruptAgent(), openParent });
+  const head = createElement(SessionHead, { agent: s.agent, ...headText(s), openProject: project?.open ?? null, cwd: s.cwd, machine: s.machine_name, usage: shownUsage(s), moveKey: moveKey(s), saveTitle });
+  const field = createElement(SessionField, { mode, name: k.name, banner, moveKey: moveKey(s), attach: agentDrop, send: submitAgentMessage, stop: () => void interruptAgent(), openParent });
   showSessionFrame({ head, field, body: b, hints: agentHints() }, inPlace, disposeQueue);
   if (left && left.body !== b) {
     disposeLogShell(left.body);

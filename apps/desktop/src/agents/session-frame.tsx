@@ -10,6 +10,7 @@ import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import type { ChatBody } from "../ui/turn.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { PaneDock, PaneDropZone, PaneMain, PaneShell } from "../agentpane/dock-view.tsx";
+import { MoveBox, MoveHere } from "./move-view.tsx";
 
 interface AgentHintsModel { value: HintViewModel; project: string | null }
 interface Frame { head: ReactNode; field: ReactNode; body: ChatBody; hints: AgentHintsModel }
@@ -76,23 +77,26 @@ export function removeSessionPortal(host: HTMLElement) {
   draw(owner);
 }
 
-export function DraftHead({ project, openProject }: { project: string; openProject(): void }) {
-  return <><span className="tt"><b><button className="agproj" id="agproj" onClick={openProject}>{project}</button></b><small id="aghere" /></span><span ref={editHost} id="agedit" className="agedit" /></>;
+export function DraftHead({ project, openProject, machine }: { project: string; openProject(): void; machine: StoreApi<string> }) {
+  const here = useStore(machine);
+  return <><span className="tt"><b><button className="agproj" id="agproj" onClick={openProject}>{project}</button></b><small id="aghere">{here}</small></span><span ref={editHost} id="agedit" className="agedit" /></>;
 }
 
 interface SessionHeadProps {
   agent: string; title: string; folder: string; branch: string; cwd: string; machine: string; usage: string;
+  /// The session's machine, harness and id, which the move views follow.
+  moveKey: string;
   /// Opens the session's project from its folder name; null outside a project.
   openProject: (() => void) | null;
   saveTitle(value: string): Promise<void>;
 }
 
-export function SessionHead({ agent, title, folder, branch, openProject, cwd, machine, usage, saveTitle }: SessionHeadProps) {
-  return <><HarnessIcon agent={agent} className="dapp dcoderav" /><span className="tt"><SessionTitle title={title} save={saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{openProject ? <button className="agproj" id="agproj" onClick={openProject}>{folder}</button> : <span id="agproj">{folder}</span>}<span id="agbranch">{branch}</span></span><span>@</span><span id="aghere">{machine}</span></small></span><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage}</small><span id="agstate" /><span ref={editHost} id="agedit" className="agedit" /></>;
+export function SessionHead({ agent, title, folder, branch, openProject, cwd, machine, usage, moveKey, saveTitle }: SessionHeadProps) {
+  return <><HarnessIcon agent={agent} className="dapp dcoderav" /><span className="tt"><SessionTitle title={title} save={saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{openProject ? <button className="agproj" id="agproj" onClick={openProject}>{folder}</button> : <span id="agproj">{folder}</span>}<span id="agbranch">{branch}</span></span><span>@</span><MoveHere moveKey={moveKey} machine={machine} /></small></span><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage}</small><span id="agstate" /><span ref={editHost} id="agedit" className="agedit" /></>;
 }
 
 /// Redraws the session head with `change`; false when the frame shows no session head.
-export function updateSessionHead(change: Partial<Pick<SessionHeadProps, "title" | "folder" | "branch" | "usage">>) {
+export function updateSessionHead(change: Partial<Pick<SessionHeadProps, "title" | "folder" | "branch" | "usage" | "machine">>) {
   const owner = current, head = owner?.frame.head;
   if (!owner || !isValidElement<SessionHeadProps>(head) || head.type !== SessionHead) return false;
   if (Object.entries(change).every(([key, value]) => head.props[key as keyof typeof change] === value)) return true;
@@ -118,7 +122,7 @@ function keepPhoneField(event: MouseEvent) {
 }
 
 interface SessionFieldProps {
-  mode: "native" | "readonly" | "writable"; name: string; banner: string;
+  mode: "native" | "readonly" | "writable"; name: string; banner: string; moveKey: string;
   attach(files: File[]): unknown;
   send(input: HTMLTextAreaElement): void;
   stop(): void;
@@ -127,12 +131,14 @@ interface SessionFieldProps {
 
 /// The session's message field while the session page shows it.
 export const agentMessage = createRef<HTMLTextAreaElement>();
+/// The new-agent field while an empty agent view (a draft) shows it.
+export const draftMessage = createRef<HTMLTextAreaElement>();
 
-export function SessionField({ mode, name, banner, attach, send, stop, openParent }: SessionFieldProps) {
+export function SessionField({ mode, name, banner, moveKey, attach, send, stop, openParent }: SessionFieldProps) {
   const input = agentMessage;
   if (mode === "native") return <div className="dinput small" id="agfield"><textarea id="agnativemsg" rows={1} aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message" /><span id="agmodel" /><button className="dbtn" id="agnativeparent" onClick={openParent}>Open parent</button></div>;
   if (mode === "readonly") return <div className="dmuted dblock dbanner">{banner}</div>;
-  return <><div id="agmovebox" /><div id="agplan" /><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><div id="agtasks" /><div data-agent-queue-slot style={{ display: "contents" }} /></div><div data-agent-work-line style={{ display: "contents" }} /></div><div data-agent-attachment-slot style={{ display: "contents" }} /><div className="dinput small" id="agfield"><FilePicker attach={attach} /><textarea ref={input} id="agmsg" rows={1} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode" /><span id="agmodel" /><button className="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)" onClick={stop} /><button className="dbtn" id="agsend" aria-label="Send" onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></button><div data-agent-menu-slot style={{ display: "contents" }} /></div><div id="agpickm" /></>;
+  return <><MoveBox moveKey={moveKey} /><div id="agplan" /><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><div id="agtasks" /><div data-agent-queue-slot style={{ display: "contents" }} /></div><div data-agent-work-line style={{ display: "contents" }} /></div><div data-agent-attachment-slot style={{ display: "contents" }} /><div className="dinput small" id="agfield"><FilePicker attach={attach} /><textarea ref={input} id="agmsg" rows={1} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode" /><span id="agmodel" /><button className="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)" onClick={stop} /><button className="dbtn" id="agsend" aria-label="Send" onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></button><div data-agent-menu-slot style={{ display: "contents" }} /></div><div id="agpickm" /></>;
 }
 
 // A draft and the session it starts share the same dock nodes. Their terminals

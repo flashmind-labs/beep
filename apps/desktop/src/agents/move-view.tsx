@@ -1,7 +1,26 @@
 import { Spinner } from "../ui/kit.tsx";
+import { createStore, useStore } from "zustand";
 import type { MoveRow } from "./move-state.ts";
 
 export type MoveView = { kind: "none" } | { kind: "warning"; text: string } | { kind: "failed"; text: string } | { kind: "waiting"; to: string } | { kind: "progress"; to: string; cancelable: boolean; rows: MoveRow[] };
+
+type MenuProps = Parameters<typeof MoveMenu>[0];
+type StatusProps = Parameters<typeof MoveStatus>[0];
+/// What the open session's head and composer show of moving it, for the
+/// session `key` (machine, harness and id) they were drawn for.
+export const moveViews = createStore<{ key: string; menu: MenuProps | null; status: StatusProps | null }>(() => ({ key: "", menu: null, status: null }));
+
+/// The machine in the session head: a menu to move the session when it can move.
+export function MoveHere({ moveKey, machine }: { moveKey: string; machine: string }) {
+  const { key, menu } = useStore(moveViews);
+  return <span id="aghere">{key === moveKey && menu ? <MoveMenu {...menu} /> : machine}</span>;
+}
+
+/// The move above the composer: waiting, its steps, or why it failed.
+export function MoveBox({ moveKey }: { moveKey: string }) {
+  const { key, status } = useStore(moveViews);
+  return <div id="agmovebox">{key === moveKey && status && <MoveStatus {...status} />}</div>;
+}
 
 export function MoveStatus({ view, cancel, stop }: { view: MoveView; cancel(): void; stop(): void }) {
   if (view.kind === "none") return null;

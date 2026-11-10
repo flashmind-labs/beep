@@ -2,7 +2,7 @@
 // editors that open its folder.
 import { createElement } from "react";
 import { agentMessage, removeSessionPortal, sessionEditHost, setSessionPortal, updateSessionHead, updateSessionHints } from "./session-frame.tsx";
-import { $, windowHooks } from "../bar/core.ts";
+import { windowHooks } from "../bar/core.ts";
 import { hintModel, type Hint } from "../bar/hints.ts";
 import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, agentKind, folderName, where } from "./agents.ts";
 import { hasModes } from "./modepill.ts";
@@ -113,10 +113,7 @@ export async function drawEditors(machine: string, cwd: string, current: () => b
 // Titles and checkout details can arrive after the frame first draws.
 export function drawAgentHeading() {
   const s = AG.page?.session;
-  if (!s || !updateSessionHead(headText(s))) return;
-  const here = $("#aghere");
-  // Keep the machine menu when checkout details change.
-  if (here && !here.querySelector(".mvb") && here.textContent !== s.machine_name) here.textContent = s.machine_name;
+  if (!s || !updateSessionHead({ ...headText(s), machine: s.machine_name })) return;
   void drawEditors(s.machine_id, s.cwd, () => !!AG.page && usageKey(AG.page.session) === usageKey(s));
 }
 onPlaces(drawAgentHeading);
