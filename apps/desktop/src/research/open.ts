@@ -23,8 +23,7 @@ import { currentLocation, drawPage } from "../center/views.ts";
 import type { CenterView } from "../center/state.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
-import { followsEnd, placeholder } from "./panes.ts";
-import { type Open, type ResearchView, type Turn, RUNNING, agentOf, closeTab, openTab, round, shownTab } from "./research-state.ts";
+import { type Open, type ResearchView, type Turn, RUNNING, agentOf, closeTab, followsEnd, openTab, placeholder, round, shownTab } from "./research-state.ts";
 import { dragHandle } from "../ui/drag.ts";
 import { onShownChange, pageShown } from "../ui/active.ts";
 

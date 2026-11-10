@@ -1,9 +1,35 @@
-import { Fragment, useLayoutEffect, useRef } from "react";
+import { Fragment, useLayoutEffect, useMemo, useRef } from "react";
 import { patchHtml } from "../ui/patch.ts";
 import { answerHtml } from "../agents/turnrows.ts";
 import { ICON } from "../ui/icons.tsx";
-import { agentOf, count, progress, RUNNING, type Open } from "./research-state.ts";
-import { cite } from "./panes.ts";
+import { agentOf, count, progress, RUNNING, type Open, type Source } from "./research-state.ts";
+import { esc } from "../ui/format.ts";
+
+/// Citation numbers as links to their sources, which open in the browser.
+function sup(sources: readonly Source[], numbers: number[]) {
+  const links = numbers.map(n => {
+    const s = sources.find(s => s.number === n);
+    return s ? `<a class="rcite" href="${esc(s.url)}" title="${esc(s.title)}">${n}</a>` : String(n);
+  });
+  return `<sup>${links.join(", ")}</sup>`;
+}
+
+/// The rendered paper with "[3]" and "[1, 4]" turned into citation marks,
+/// outside links and code. The paper is sanitized HTML; this only adds links.
+function cite(sources: readonly Source[], html: string) {
+  const doc = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
+  const walk = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+  const texts: Text[] = [];
+  while (walk.nextNode()) if (walk.currentNode instanceof Text && !walk.currentNode.parentElement?.closest("a, code, pre")) texts.push(walk.currentNode);
+
+  for (const node of texts) {
+    if (!/\[\d+(?:\s*,\s*\d+)*\]/.test(node.data)) continue;
+    const marked = new DOMParser().parseFromString(`<body>${esc(node.data).replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (_, list: string) => sup(sources, list.split(",").map(Number)))}</body>`, "text/html");
+    node.replaceWith(...marked.body.childNodes);
+  }
+
+  return doc.body.innerHTML;
+}
 
 function RichText({ html }: { html: string }) {
   const node = useRef<HTMLSpanElement>(null);
@@ -25,7 +51,8 @@ export function ResearchChat({ research: o }: { research: Open }) {
 }
 export function ResearchPaper({ research: o }: { research: Open }) {
   const r = o.research, status = r?.status ?? "planning";
+  const html = useMemo(() => r ? cite(r.sources, r.draft_html) : "", [r?.sources, r?.draft_html]);
   if (!r || (status === "planning" && !o.entries.some(e => e.kind === "note"))) return <div className="rpane"><div className="rbox rempty">The workspace fills in once the team starts.</div></div>;
   if (!r.draft) return <div className="rpane"><div className="rbox rempty">{RUNNING.has(status) ? "The writer starts after the critic's review." : "No paper was written."}</div></div>;
-  return <><div className="rpane"><div className="rdoc"><span className="by">Written by {agentOf(o, "writer").name}, reviewed by {agentOf(o, "critic").name}. {r.sources.length} sources.</span><RichText html={cite(o, r.draft_html)} /></div></div><div className="agpacts"><span className="meta">Markdown, {count(r.sources.length, "source")}</span><span className="sp" /><button className="dbtn" data-act="copy">Copy</button><ExportButton exporting={o.exporting} /></div></>;
+  return <><div className="rpane"><div className="rdoc"><span className="by">Written by {agentOf(o, "writer").name}, reviewed by {agentOf(o, "critic").name}. {r.sources.length} sources.</span><RichText html={html} /></div></div><div className="agpacts"><span className="meta">Markdown, {count(r.sources.length, "source")}</span><span className="sp" /><button className="dbtn" data-act="copy">Copy</button><ExportButton exporting={o.exporting} /></div></>;
 }

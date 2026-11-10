@@ -1,5 +1,5 @@
 // An opened research: what the page holds of it, and the pure parts of what
-// it says about the team. Drawing is in panes.ts, the page itself in open.ts.
+// it says about the team. The views are the *-view.tsx files, the page itself open.ts.
 import { plural } from "../ui/format.ts";
 import type { ResearchStatus as Status } from "./research-list.ts";
 
@@ -199,3 +199,12 @@ export function closeTab(o: Open, tab: string) {
   o.tabs = o.tabs.filter(t => t !== tab);
   if (o.tab === tab) o.tab = "agents";
 }
+
+/// The message field's placeholder.
+export function placeholder(o: Open) {
+  const st = o.research?.status;
+  return st === "planning" ? "Say go, or what to change" : st === "done" ? "Ask a follow-up" : "Message the lead";
+}
+
+/// Whether a tab's view follows the newest line, as a thread or the room does.
+export const followsEnd = (tab: string) => tab !== "draft" && tab !== "notes" && tab !== "sources" && tab !== "agents";
