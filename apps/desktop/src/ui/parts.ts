@@ -1,5 +1,5 @@
 // Shared command-center controls, dialog lifetimes, focus and clipboard behavior.
-import { createElement, createRef, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { createElement, createRef, useCallback, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { createDocumentScope } from "./document-root.tsx";
 
 /// `text` on the clipboard. The webview may refuse the async way; the old way
@@ -56,6 +56,24 @@ export function sheetAbove(element: HTMLElement) {
   return openSheets.some(root => !!(element.compareDocumentPosition(root) & Node.DOCUMENT_POSITION_FOLLOWING));
 }
 
+/// The dialogs drawn now: sheets, menus that ask, the palette, popovers. Page
+/// shortcuts stand aside while one is in the page.
+const dialogs = new Set<Element>();
+export const dialogOpen = () => [...dialogs].some(el => el.isConnected);
+
+/// A dialog's ref: it counts as open while drawn. `own` also gets the element.
+export function useDialogRef<T extends Element>(own: RefObject<T | null> | null = null) {
+  return useCallback((el: T | null) => {
+    if (own) own.current = el;
+    if (!el) return;
+    dialogs.add(el);
+    return () => {
+      dialogs.delete(el);
+      if (own) own.current = null;
+    };
+  }, [own]);
+}
+
 interface SheetFrameOptions {
   host: HTMLElement; scrimClass: string; onScrim(): void;
   /// The dialog takes focus itself and keeps its keys from the page behind.
@@ -76,8 +94,9 @@ export function mountSheetFrame(label: string, cls: string, options: SheetFrameO
   const root = rootRef.current, sheet = sheetRef.current;
   // The scope commits synchronously, so its DOM refs must be available here.
   if (!root || !sheet) { owner.dispose(); throw new Error("Dialog did not mount"); }
+  dialogs.add(sheet);
   const render = (content: ReactNode, named = label) => owner.setDeferred([{ slot: "sheet", host: options.host, content: frame(content, named) }]);
-  return { root, sheet, render, dispose: owner.dispose };
+  return { root, sheet, render, dispose: () => { dialogs.delete(sheet); owner.dispose(); } };
 }
 
 /// A sheet on the page: a click on the scrim or Esc closes it, and focus goes

@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { useInteractOutside } from "react-aria/useInteractOutside";
 import type { StashEntry } from "./stash-state.ts";
+import { useDialogRef } from "../ui/parts.ts";
 
 export interface StashPanelProps {
   project: string;
@@ -17,11 +18,11 @@ export interface StashPanelProps {
 }
 
 export function StashPanel({ project, entries, busy, canPop, swap, anchor, onClose, onRemove, onPop, onOutside }: StashPanelProps) {
-  const panel = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null), dialog = useDialogRef(panel);
   const place = usePlace(panel, anchor, onClose);
   useInteractOutside({ ref: panel, onInteractOutside: e => onOutside(e.target) });
 
-  return <div ref={panel} className="prompt-stash-panel" role="dialog" aria-label="Project stash" style={place}><header><div><b>Stash</b><small>{project}</small></div><button type="button" data-stash-close aria-label="Close stash" autoFocus onClick={onClose}>×</button></header><div className="prompt-stash-items">{entries.map(item => <article key={item.id}><p>{item.text || "Attachments only"}</p><div className="prompt-stash-files">{[...item.images, ...item.files].map((name, index) => <span key={index}>{name}</span>)}</div><footer><button type="button" data-stash-remove={item.id} disabled={busy} onClick={() => onRemove(item.id)}>Remove</button><button type="button" data-stash-pop={item.id} disabled={busy || !canPop} onClick={() => onPop(item.id)}>{swap ? "Stash draft & pop" : "Pop"}</button></footer></article>)}</div></div>;
+  return <div ref={dialog} className="prompt-stash-panel" role="dialog" aria-label="Project stash" style={place}><header><div><b>Stash</b><small>{project}</small></div><button type="button" data-stash-close aria-label="Close stash" autoFocus onClick={onClose}>×</button></header><div className="prompt-stash-items">{entries.map(item => <article key={item.id}><p>{item.text || "Attachments only"}</p><div className="prompt-stash-files">{[...item.images, ...item.files].map((name, index) => <span key={index}>{name}</span>)}</div><footer><button type="button" data-stash-remove={item.id} disabled={busy} onClick={() => onRemove(item.id)}>Remove</button><button type="button" data-stash-pop={item.id} disabled={busy || !canPop} onClick={() => onPop(item.id)}>{swap ? "Stash draft & pop" : "Pop"}</button></footer></article>)}</div></div>;
 }
 
 /// Where the panel sits: above its button, right edges aligned, inside the window. It

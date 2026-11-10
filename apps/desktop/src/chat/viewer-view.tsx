@@ -6,6 +6,7 @@ import { HintView } from "../bar/hints-view.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { COPY_ICON, ICON } from "../ui/icons.tsx";
 import { fileKind, fileSize, GONE_PIC, loadPic, viewerAct, viewerKeys, type ViewerPic } from "./media.ts";
+import { useDialogRef } from "../ui/parts.ts";
 
 function ViewerImage({ picture }: { picture: ViewerPic }) {
   const file = picture.file;
@@ -26,9 +27,9 @@ export function Viewer({ pictures, at }: { pictures: ViewerPic[]; at: number }) 
   useLayoutEffect(() => { close.current?.focus(); }, [at]);
   const name = picture.file ? picture.file.name : picture.name || hostOf(picture.url);
   const about = [many ? `${at + 1} of ${pictures.length}` : "", picture.file ? [fileKind(picture.file), picture.file.size ? fileSize(picture.file.size) : ""].filter(Boolean).join(", ") : ""].filter(Boolean).join(" · ");
-  const keeps = !!picture.file || !!picture.saves;
+  const keeps = !!picture.file || !!picture.saves, dialog = useDialogRef();
   const keys: [string, string][] = [...(many ? [["← →", "move"] as [string, string]] : []), ...(keeps ? [["⌘S", "save"] as [string, string], ["⌘C", "copy"] as [string, string]] : []), ["esc", "close"]];
-  return <div className="dover dviewer" id="viewer" role="dialog" aria-modal="true" aria-label={name} onKeyDown={event => {
+  return <div ref={dialog} className="dover dviewer" id="viewer" role="dialog" aria-modal="true" aria-label={name} onKeyDown={event => {
     event.stopPropagation();
     if (event.key === "Tab") {
       const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")], index = buttons.indexOf(document.activeElement as HTMLButtonElement);

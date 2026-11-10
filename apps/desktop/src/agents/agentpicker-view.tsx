@@ -4,6 +4,7 @@ import { agentKind } from "./agents.ts";
 import { effortNote, effortsOf, placePopover, railOf, type ModelRow } from "./agentpick.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
 import type { Picked } from "./agentpicker.ts";
+import { useDialogRef } from "../ui/parts.ts";
 
 interface PickerProps {
   picked: Picked;
@@ -82,7 +83,8 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
   useLayoutEffect(() => { litRow.current?.scrollIntoView({ block: "nearest" }); }, [lit]);
   const resultKey = JSON.stringify([machineId, picked.agent, rows]);
   const { node, style } = usePlacement(JSON.stringify([resultKey, note, loading, failed, levels.length]), anchor, bounds);
-  return <div className="agc-pick" role="dialog" aria-label="Harness, model and thinking" ref={node} style={style}>
+  const dialog = useDialogRef(node);
+  return <div className="agc-pick" role="dialog" aria-label="Harness, model and thinking" ref={dialog} style={style}>
     <div className="agc-rail">{railOf(offered, everywhere).map(item => {
       const kind = agentKind(item.agent);
       const title = item.enabled ? kind.name : `${kind.name} (not on ${machineName || "any machine"})`;

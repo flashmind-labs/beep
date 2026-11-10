@@ -1,15 +1,16 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { JoinTicketFields, type JoinTicket } from "../machines/jointicket-view.tsx";
+import { useDialogRef } from "../ui/parts.ts";
 
 export function FirstRunScreen({ done, join }: { done: () => void; join: JoinTicket }) {
   const [step, setStep] = useState<"choose" | "link">("choose");
-  const start = useRef<HTMLButtonElement>(null);
+  const start = useRef<HTMLButtonElement>(null), dialog = useDialogRef();
 
   useLayoutEffect(() => {
     if (step === "choose") start.current?.focus();
   }, [step]);
 
-  return <div className="fr-scrim"><div className="fr-card" role="dialog" aria-label="First run">
+  return <div className="fr-scrim"><div ref={dialog} className="fr-card" role="dialog" aria-label="First run">
     <div className="fr-head">
       <svg width="34" height="34" viewBox="0 0 28 28" fill="currentColor" aria-hidden="true"><path d="M14 1 27 27h-3.1L15.4 10v17h-2.8V10L4.1 27H1Z" /></svg>
       <div><b>{step === "choose" ? "Welcome to Beep" : "Link another desktop"}</b><div className="fr-sub">{step === "choose" ? "Run coding agents on your machines." : "On your other desktop, open Machines, then Add a machine, choose Desktop and copy the ticket. This computer then shares its machines, projects and keys."}</div></div>

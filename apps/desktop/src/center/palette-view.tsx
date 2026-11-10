@@ -1,5 +1,6 @@
 import { Fragment, useLayoutEffect, useRef, type RefObject } from "react";
 import type { Hit } from "./palette.ts";
+import { useDialogRef } from "../ui/parts.ts";
 
 function Marked({ text, query }: { text: string; query: string }) {
   const terms = query.trim().split(/\s+/u).filter(Boolean);
@@ -21,10 +22,10 @@ export function PaletteView({ input, hits, selected, query, subscribed, searchIc
   group(hit: Hit, query: string): string; icon(hit: Hit): string | null;
   search(value: string): void; choose(hit: Hit): void; hover(index: number): void; ask(value: string): void;
 }) {
-  const active = useRef<HTMLButtonElement>(null);
+  const active = useRef<HTMLButtonElement>(null), dialog = useDialogRef();
   useLayoutEffect(() => { input.current?.focus(); }, []);
   useLayoutEffect(() => { active.current?.scrollIntoView({ block: "nearest" }); }, [selected, query]);
-  return <div className="cc-pal" role="dialog" aria-label="Search"><div className="q"><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: searchIcon }} /><input ref={input} type="text" placeholder={`Search anything: ${subscribed ? "chats, " : ""}projects, coding agents, machines, settings, PRs…`} autoComplete="off" spellCheck={false} aria-label="Search" role="combobox" aria-controls="pal-list" aria-expanded="true" aria-activedescendant={hits[selected] ? `pal-opt-${selected}` : undefined} onChange={e => search(e.currentTarget.value)} /></div>
+  return <div ref={dialog} className="cc-pal" role="dialog" aria-label="Search"><div className="q"><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: searchIcon }} /><input ref={input} type="text" placeholder={`Search anything: ${subscribed ? "chats, " : ""}projects, coding agents, machines, settings, PRs…`} autoComplete="off" spellCheck={false} aria-label="Search" role="combobox" aria-controls="pal-list" aria-expanded="true" aria-activedescendant={hits[selected] ? `pal-opt-${selected}` : undefined} onChange={e => search(e.currentTarget.value)} /></div>
     <div className="res" role="listbox" id="pal-list">{hits.map((hit, i) => {
       const title = group(hit, query), previous = i ? group(hits[i - 1], query) : null;
       const detail = hit.detail && ["chat", "routine", "setting", "project", "project_chat", "folder", "agent_session", "code", "branch"].includes(hit.kind) ? hit.detail : null;

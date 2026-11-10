@@ -7,7 +7,7 @@ import { S } from "../bar/core.ts";
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { ConversationSwitcher } from "./conversation-switcher-view.tsx";
-import { openSheet } from "../ui/parts.ts";
+import { dialogOpen, openSheet } from "../ui/parts.ts";
 
 interface SwitcherOptions {
   rows?(): readonly AgentRow[];
@@ -38,7 +38,7 @@ export function initConversationSwitcher(options: SwitcherOptions) {
   }
 
   function begin() {
-    if (document.querySelector('[role="dialog"]')) return false;
+    if (dialogOpen()) return false;
     const rows = available();
     refresh();
     if (!rows.length) return false;

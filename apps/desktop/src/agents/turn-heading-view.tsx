@@ -49,7 +49,7 @@ export function StepMarkView({ mark }: { mark: StepMark }) {
 export function Since({ start, className, title }: { start: number; className?: string; title?: string }) {
   useSyncExternalStore(subscribeSecond, currentSecond, currentSecond);
   useLayoutEffect(tickClocks);
-  return <span className={className} data-since={start} title={title}>{duration(Date.now() - start)}</span>;
+  return <span ref={placeClock} className={className} data-since={start} title={title}>{duration(Date.now() - start)}</span>;
 }
 
 // One timer serves every clock, and stops while none is in the page or the
@@ -69,7 +69,15 @@ function subscribeSecond(listener: () => void) {
   };
 }
 
-const shownClock = () => clocks.size > 0 && paneShown() && !!document.querySelector("[data-since]");
+/// The clocks' elements: a log kept out of the page keeps its clocks mounted, not shown.
+const placed = new Set<HTMLElement>();
+function placeClock(el: HTMLElement | null) {
+  if (!el) return;
+  placed.add(el);
+  return () => { placed.delete(el); };
+}
+
+const shownClock = () => clocks.size > 0 && paneShown() && [...placed].some(el => el.isConnected);
 
 /// Starts the clocks' timer when one shows.
 export function tickClocks() {
