@@ -5,6 +5,7 @@ import { createStore } from "zustand/vanilla";
 import { invoke } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { reason } from "../ui/format.ts";
+import { latest, STALE } from "../ui/active.ts";
 import type { Project } from "./projects-state.ts";
 
 interface SyncthingFiles {
@@ -17,24 +18,25 @@ interface SyncthingFiles {
 export function syncthingImportChoice() {
   let value: boolean | null = null;
   const state = createStore(() => ({ checked: true, disabled: false, indeterminate: true }));
-  let lookup = 0, lastTarget = "";
+  const lookup = latest();
+  let lastTarget = "";
   const choice = {
     value: () => value,
     state,
     change: (checked: boolean) => { value = checked; state.setState({ checked, disabled: false, indeterminate: false }); },
-    dispose: () => { lookup++; },
+    dispose: () => { lookup.cancel(); },
     follow: async (machine: string | null, folder: string | null) => {
       const target = `${machine ?? ""}\0${folder ?? ""}`;
       if (target === lastTarget) return;
       lastTarget = target;
-      const asked = ++lookup;
+      lookup.cancel();
       if (value !== null) return;
       state.setState({ checked: true, disabled: false, indeterminate: true });
       if (!machine || !folder) return;
 
       try {
-        const files = await invoke<SyncthingFiles>("project_syncthing_files", { machineId: machine, folder });
-        if (asked !== lookup || value !== null) return;
+        const files = await lookup.run(invoke<SyncthingFiles>("project_syncthing_files", { machineId: machine, folder }));
+        if (files === STALE || value !== null) return;
         state.setState({ checked: files.enabled, disabled: !files.available, indeterminate: false });
       } catch { /* Import keeps the current setting if the machine cannot answer. */ }
     },
