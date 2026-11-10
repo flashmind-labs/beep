@@ -140,3 +140,40 @@ test("opening a new terminal again resets the previous form", async ({ page }) =
   await create.click();
   await expect(page.getByRole("textbox", { name: "Command" })).toHaveValue("");
 });
+
+test("view-only output keeps its screen, focus, selection and scroll across reads", async ({ page }) => {
+  const terminal = { id: "watched", project: "", machine_id: "build-box", machine_name: "build-box", name: "watched", command: "tail", cwd: "/srv/project", state: "running", code: null, started_at: 1 };
+  const output = (count: number) => ({ terminal, earlier: true, lines: Array.from({ length: count }, (_, i) => `line ${i}`) });
+  await openDesktop(page, false, { terminals_all: [terminal], terminal_output: output(100) });
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command === "terminal_attach") throw new Error("The node needs an update to attach");
+      return invoke<T>(command, args);
+    };
+  });
+  await page.evaluate(() => window.__navigation.open("terminals"));
+  await page.locator(".tl-list").getByRole("button", { name: /watched/ }).click();
+  const screen = page.getByLabel("Terminal output");
+  await expect(screen).toContainText("line 99");
+  await expect(screen.locator(".tm-cmd")).toHaveText("build-box /srv/project $ tail");
+  await expect.poll(() => screen.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThan(4);
+  await screen.evaluate(element => { element.dataset.identity = "kept"; element.scrollTop = 0; element.dispatchEvent(new Event("scroll")); });
+  await screen.focus();
+  await screen.evaluate(element => {
+    const text = element.lastChild;
+    if (text) getSelection()?.setBaseAndExtent(text, 0, text, 6);
+  });
+
+  await page.evaluate(() => window.__navigation.notify("terminals"));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminals_all").length)).toBeGreaterThan(1);
+  await expect(screen).toHaveAttribute("data-identity", "kept");
+  await expect(screen).toBeFocused();
+  expect(await page.evaluate(() => getSelection()?.toString())).toBe("line 0");
+
+  await page.evaluate(value => { window.__navigation.respond("terminal_output", value); window.__navigation.notify("terminal-output"); }, output(101));
+  await expect(screen).toContainText("line 100");
+  await expect(screen).toHaveAttribute("data-identity", "kept");
+  await expect(screen).toBeFocused();
+  await expect(screen).toHaveJSProperty("scrollTop", 0);
+});

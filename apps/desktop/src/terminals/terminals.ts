@@ -1,5 +1,5 @@
 import { createElement, Fragment, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
-import { TerminalPage, TerminalScreen } from "./page-view.tsx";
+import { TerminalOutput, TerminalPage, TerminalScreen } from "./page-view.tsx";
 import { NewTerminalFields } from "./new-terminal-view.tsx";
 import { TerminalFooter, TerminalHeader } from "./terminal-controls.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
@@ -280,7 +280,7 @@ export function linkLabel(link: Link, watching: boolean, machine: string, tries 
 }
 
 export function makeTerminals(deps: TerminalDeps) {
-  const { invoke, Channel, makeScreen, h, ago, redraw } = deps;
+  const { invoke, Channel, makeScreen, ago, redraw } = deps;
   const all = new Map<string, ProjectTerminals>();
   /// Live views by terminal id, for the project on show.
   const lives = new Map<string, Live>();
@@ -376,7 +376,8 @@ export function makeTerminals(deps: TerminalDeps) {
     if (polling === name) return;
     unfollow?.();
     polling = name;
-    if (!name) return;
+    // The Terminals page is `ALL`, the empty name, so only null stops.
+    if (name === null) return;
     const stopList = subscribeTopics(topic("terminals"), async () => {
       await loads.get(name);
       await load(name);
@@ -648,22 +649,17 @@ export function makeTerminals(deps: TerminalDeps) {
       });
     };
     items.push({ label: running ? "Kill…" : "Close", warn: true, on: stop });
-    let body: HTMLElement;
+    let body: ReactNode;
 
     if (live.link === "view_only") {
       const o = t.output;
-      body = h("pre", "tm-screen", h("span", "tm-cmd", `${open.machine_name} ${open.cwd} $ ${open.command}`), "\n",
-        o?.earlier ? "…\n" : "", (o ? o.lines : []).join("\n"));
-      body.tabIndex = 0;
-      body.setAttribute("aria-label", "Terminal output");
+      body = createElement(TerminalOutput, { command: `${open.machine_name} ${open.cwd} $ ${open.command}`, earlier: !!o?.earlier, lines: o ? o.lines : [] });
       watch(name);
-      // The screen follows its newest line.
-      queueMicrotask(() => { const s = document.querySelector(".tm-screen"); if (s) s.scrollTop = s.scrollHeight; });
     } else {
       // A redraw moves the screen to the new page, which drops the focus:
       // the keys typed next would reach the window instead.
       const keep = live.screen.focused();
-      body = live.screen.el;
+      body = createElement(TerminalScreen, { element: live.screen.el });
       watch(null);
       requestAnimationFrame(() => live.screen.fit());
       if (keep) queueMicrotask(() => live.screen.focus());
@@ -673,7 +669,7 @@ export function makeTerminals(deps: TerminalDeps) {
       createElement("div", { className: "tm-head", onContextMenu: (event: ReactMouseEvent) => { event.preventDefault(); openMenu(event.nativeEvent, open.name, items); } },
         createElement(TerminalHeader, { terminal: open, state: stateLabel(open), link: live.link, watching: live.watching,
           focus: () => { focusOpen(); }, toggle: toggleTyping, detach: detachHere, attach: attachHere, stop })),
-      createElement(TerminalScreen, { element: body }),
+      body,
       createElement("div", { className: "tm-foot" }, createElement(TerminalFooter, { active: live.link === "attached" && open.state === "running", label: linkLabel(live.link, live.watching, open.machine_name, live.tries), started: ago(open.started_at) })));
   }
 
