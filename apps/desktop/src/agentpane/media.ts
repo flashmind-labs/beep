@@ -4,7 +4,7 @@
 // PDFs the agent made or looked at, its files, artifacts, terminals and
 // subagents, each a tab. Drawing the tabs is in media-draw.ts, the docks'
 // layout and dividers in media-layout.ts.
-import { agentMessage, removeSessionPortal } from "../agents/session-frame.tsx";
+import { agentMessage } from "../agents/session-frame.tsx";
 import { type SubagentRow } from "./subagents-view.tsx";
 import { readView, writeView, viewKey } from "./view-memory.ts";
 import { queuePreview } from "./html-preview-state.ts";
@@ -19,14 +19,12 @@ import { paneRoot, startWorktrees } from "./worktree.ts";
 import { dropTerm, killTerm, type PaneTerm, type TermPlace } from "./terminal.ts";
 import type { TerminalRow } from "../terminals/terminals.ts";
 import { newTermLike } from "../terminals/newkey-state.ts";
-import { tabDown } from "./drag.ts";
-import { drawTermFooter } from "./term-footer.tsx";
 import { readError, loadText, startTerminal, load } from "./read.ts";
+import { togglePreview } from "./text-view.tsx";
 import { frameResize } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
-import { draw } from "./media-draw.ts";
-import { dockOf, docked, paneOf, place, shell, tabIds, wireDivider } from "./media-layout.ts";
-import { paneClick, tabMenu } from "./media-draw.ts";
+import { draw, noteTab } from "./media-draw.ts";
+import { dockHolding, dockOf, docked, paneModel, paneOf, place, setPaneModel, shell, shownDocks, tabIds } from "./media-layout.ts";
 
 /// What the node gives of a file, a part at a time (`agent_file`).
 export interface FilePart {
@@ -64,8 +62,15 @@ export interface MediaTab {
   /// Bytes read so far while it loads, and why it could not be.
   done: number;
   error: string;
-  /// The tab's view, drawn once and kept while it is open.
-  el: HTMLElement | null;
+  /// Counts changes to what its view shows, so the view draws again.
+  rev: number;
+  /// Its view was last drawn hidden behind another tab.
+  viewHidden: boolean;
+  /// What a save or copy said, shown in its footer.
+  note: string | null;
+  /// A video tab's element, and where it stood when its view went.
+  video: HTMLVideoElement | null;
+  videoAt: number;
   image?: { view: ImageView; w: number; h: number };
   model?: ModelView | null;
   wire?: boolean;
@@ -125,10 +130,9 @@ export const P = {
   dragged: false,
   /// The dock zoomed over the whole session by ⇧esc, remembered per session.
   zoom: null as Dock | null,
+  /// The session drew on a phone, which shows the conversation first.
+  phoneShown: false,
 };
-
-// A cached session can restore the same dock nodes more than once.
-const wiredPanes = new WeakSet<HTMLElement>();
 
 /// Starts the pane for session `s`, closing what the last one had open.
 export function startPane(s: PaneSession) {
@@ -143,25 +147,13 @@ export function startPane(s: PaneSession) {
   P.subCount = 0;
   P.moved.clear();
   P.zoom = null;
+  P.phoneShown = false;
   const el = shell();
   if (!el) return;
   P.watch?.disconnect();
   // Too narrow for a right dock, its tabs join the bottom one, and back.
-  P.watch = frameResize(() => el.classList.contains("narrow") !== (el.clientWidth < SIDE_BY_SIDE_MIN) ? draw() : place());
+  P.watch = frameResize(() => paneModel.getState().narrow !== (el.clientWidth < SIDE_BY_SIDE_MIN) ? draw() : place());
   P.watch.observe(el);
-
-  for (const d of DOCKS) {
-    const pane = paneOf(d)!;
-    if (wiredPanes.has(pane)) continue;
-    wiredPanes.add(pane);
-    wireDivider(d);
-    pane.addEventListener("click", e => paneClick(e, d));
-    pane.addEventListener("contextmenu", tabMenu);
-    // A viewer may keep the pointer to itself; ⌘W still needs the pane focused.
-    pane.addEventListener("pointerdown", () => { if (!pane.contains(document.activeElement)) pane.focus({ preventScroll: true }); }, true);
-    pane.querySelector(".agtabs")!.addEventListener("pointerdown", e => tabDown(e as PointerEvent));
-    document.getElementById(`agpstrip-${d}`)!.addEventListener("click", () => { P.layout.hidden[d] = false; saveLayout(); draw(); });
-  }
   readWorktrees(s);
   if (saved && typeof saved === "object" && "tabs" in saved && Array.isArray(saved.tabs)) {
     for (const tab of saved.tabs) {
@@ -243,7 +235,7 @@ export function openPath(path: string) {
 
 export function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Partial<MediaTab>) {
   if (!P.tabs.some(x => x.id === t.id)) {
-    const tab: MediaTab = { size: 0, done: 0, error: "", el: null, ...t };
+    const tab: MediaTab = { size: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, video: null, videoAt: 0, ...t };
     P.tabs.push(tab);
 
     if (!tab.error) {
@@ -311,7 +303,7 @@ export function previewWorkFile(rel: string) {
 export function previewTab(t: MediaTab) {
   if (t.preview?.active) return;
   if (!t.text) { queuePreview(t); return; }
-  t.el?.querySelector<HTMLButtonElement>("[data-preview]")?.click();
+  void togglePreview(t);
 }
 
 /// Opens `rel`, a file in the worktree at `root`.
@@ -368,7 +360,7 @@ export function newTerminal(d?: Dock, zoom = false, like?: Omit<TermPlace, "name
 /// in its dock. False when no terminal shows.
 export function newTerminalLike() {
   if (!shell()) return false;
-  const shown = DOCKS.filter(d => paneOf(d)?.hidden === false).flatMap(d => {
+  const shown = shownDocks().flatMap(d => {
     const tab = P.tabs.find(t => t.id === P.on[d] && t.kind === "term");
     const at = tab && (tab.term?.row ?? tab.existing ?? tab.at);
     return at ? [{ dock: d, machine_id: at.machine_id, machine_name: at.machine_name, cwd: at.cwd, project: at.project, focused: !!tab.term?.screen.focused() }] : [];
@@ -390,14 +382,14 @@ export function closeTab(id: string) {
     if (tab.closed) return;
     tab.closed = true;
     const term = tab.term;
-    setTermNote(tab, "Closing…");
+    noteTab(tab, "Closing…");
     killTerm(term).then(() => {
       if (tab.term !== term) return;
       tab.term = undefined;
       closeTab(id);
     }, e => {
       tab.closed = false;
-      setTermNote(tab, `Could not stop it: ${e instanceof Error ? e.message : e}`);
+      noteTab(tab, `Could not stop it: ${e instanceof Error ? e.message : e}`);
     });
     return;
   }
@@ -419,18 +411,14 @@ export function closeTab(id: string) {
   draw();
 }
 
-function setTermNote(t: MediaTab, text: string) {
-  drawTermFooter(t, text);
-}
-
 /// Closes the tab on screen in the focused pane (⌘W); false when no pane is
 /// focused or that tab stays, as Files does. A terminal's tab ends the terminal.
 export function closeFocusedTab() {
-  const pane = document.activeElement?.closest<HTMLElement>(".agpane");
-  const tab = pane && P.tabs.find(t => t.id === P.on[pane.dataset.dock as Dock]);
-  if (!pane || !tab) return false;
+  const d = dockHolding(document.activeElement);
+  const tab = d && P.tabs.find(t => t.id === P.on[d]);
+  if (!d || !tab) return false;
   closeTab(tab.id);
-  pane.focus({ preventScroll: true });
+  paneOf(d)?.focus({ preventScroll: true });
   return true;
 }
 
@@ -462,7 +450,7 @@ export function showChanges() {
   const d = dockOf(CHANGES);
   P.on[d] = CHANGES;
   P.layout.hidden[d] = false;
-  shell()?.classList.remove("mb-log");
+  setPaneModel({ log: false });
   draw();
   P.zoom = d;
   place();
@@ -474,12 +462,12 @@ export function showChanges() {
 /// conversation's input takes the keys. False when no pane has them.
 export function leavePane() {
   const focus = document.activeElement;
-  if (!P.zoom && !focus?.closest(".agpane")) return false;
+  if (!P.zoom && !dockHolding(focus)) return false;
   P.zoom = null;
   place();
   rememberPane();
   const input = agentMessage.current ?? document.querySelector<HTMLElement>("#agdraft textarea");
-  if (input) input.focus(); else (focus as HTMLElement).blur();
+  if (input) input.focus(); else if (focus instanceof HTMLElement) focus.blur();
   return true;
 }
 
@@ -544,12 +532,10 @@ export function rememberTerminal(key: string, tab: MediaTab, row: TerminalRow) {
 window.addEventListener("pagehide", rememberPane);
 
 function dropTab(t: MediaTab) {
-  t.el?.querySelector("video")?.pause();
+  t.video?.pause();
   if (t.term) dropTerm(t.term);
-  if (t.el) removeSessionPortal(t.el);
   t.model?.dispose();
   if (t.url?.startsWith("blob:")) URL.revokeObjectURL(t.url);
-  t.el?.remove();
 }
 
 // Leaving the session view lets go of what its tabs hold. Files and Changes

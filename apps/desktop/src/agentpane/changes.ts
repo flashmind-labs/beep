@@ -14,29 +14,26 @@ import { localFileItems } from "./localfile.ts";
 import { paneLinked, paneRoot, refreshWorktrees, removedBranch, watchRoot, worktreesReady, worktreesSettled } from "./worktree.ts";
 import { reviewHeading } from "./worktree-state.ts";
 import { homeShort } from "../project/projects-state.ts";
-import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { SLOW_MS, ambient, paneShown } from "../ui/active.ts";
 import { setSessionChild } from "../agents/session-frame.tsx";
 import type { ReactNode } from "react";
+import { createStore } from "zustand";
 
 /// How many sessions keep their diff, and the diff lines all of them may hold.
 const KEPT = 4;
 const KEPT_LINES = 200_000;
 
 /// A session's diff view, kept while another session shows.
-interface Kept {
+export interface Kept {
   /// The session and folder the view is of.
   key: string;
   machine: string;
   /// The worktree it last read, and its subscription.
   root: string;
   unwatch: () => void;
-  el: HTMLElement;
   view: DiffViewHandle;
   owner: SessionDiffOwner;
-  /// The line saying the session's worktree was removed.
-  note: HTMLElement;
   /// The folder changed since the last full read.
   dirty: boolean;
   /// Lines in the last full read, to drop the largest first.
@@ -63,37 +60,63 @@ function sessionDiffOwner(): SessionDiffOwner {
 /// Most recently shown last.
 const kept = new Map<string, Kept>();
 let shown: Kept | null = null;
-/// The view of a session with no folder yet, which has no changes to read.
-let blank: HTMLElement | null = null;
+
+/// What the Changes view draws: the diff of the session on screen (none for
+/// a session with no folder yet, which has no changes to read), and the line
+/// saying its worktree was removed.
+interface ChangesModel { entry: Kept | null; note: string }
+export const changesModel = createStore<ChangesModel>(() => ({ entry: null, note: "" }));
 
 const sessionKey = () => {
   const s = paneSession();
   return s?.cwd ? `${s.machine_id}\n${s.id}\n${s.cwd}` : "";
 };
 
-/// The Changes view of the pane's session, made the first time it shows.
-export function changesView() {
-  const key = sessionKey();
-  if (!key) { hide(); return blank ??= h('<div class="agpview changes"></div>'); }
-  const have = kept.get(key);
-  return (have ? pick(have) : make(key)).el;
+/// The pane drew the Changes tab: `on` when it is the dock's tab on screen,
+/// `visible` when it can be seen. Its view is made the first time it shows,
+/// and kept for the session after that. True when a view draws.
+export function changesTab(on: boolean, visible: boolean) {
+  const key = sessionKey(), have = kept.get(key);
+
+  if (have) pick(have);
+  else if (key && on) make(key);
+  else hide();
+
+  publish();
+  const drawn = !!shown || (!key && on);
+  if (drawn) revalidateChanges(visible);
+  return drawn;
 }
 
-/// The view, when one is kept for the pane's session.
-export function madeChangesView() {
-  const have = kept.get(sessionKey());
-  if (!have) { hide(); return null; }
-  return pick(have).el;
+function publish() {
+  changesModel.setState({ entry: shown, note: noteText() });
+}
+
+/// A comment being written in the diff shown has text.
+export function writingComment() {
+  return shown?.view.writing() ?? false;
+}
+
+/// The view shown left the pane, or moved to the other dock: what it scrolled to is kept.
+export function leftChanges(entry: Kept) {
+  if (entry.view.el.isConnected) entry.scroll = entry.view.files()?.scrollTop ?? 0;
+  entry.view.el.remove();
+}
+
+/// The view came into the pane, laid out in the next frame: it scrolls back to where it was.
+export function placedChanges(entry: Kept) {
+  requestAnimationFrame(() => {
+    const files = entry.view.files();
+    if (shown === entry && files && entry.scroll) files.scrollTop = entry.scroll;
+  });
 }
 
 function make(key: string) {
   const s = paneSession();
   if (!s) throw new Error("the pane has no session");
-  const el = h('<div class="agpview changes"></div>');
-  const note = h('<div class="dv-note" hidden></div>');
   const owner = sessionDiffOwner();
   // The view reads as it is made, so what its reads need comes first.
-  const entry: Omit<Kept, "view"> = { key, machine: s.machine_id, root: paneRoot(), unwatch: () => {}, el, owner, note, dirty: false, lines: 0, scroll: 0 };
+  const entry: Omit<Kept, "view"> = { key, machine: s.machine_id, root: paneRoot(), unwatch: () => {}, owner, dirty: false, lines: 0, scroll: 0 };
   hide();
   onScreen = false;
   const view = diffView({
@@ -128,9 +151,7 @@ function make(key: string) {
   const made: Kept = Object.assign(entry, { view });
   shown = made;
   watch(made);
-  el.append(note, view.el);
   kept.set(key, made);
-  drawNote();
   trim();
   return made;
 }
@@ -143,11 +164,6 @@ function pick(entry: Kept) {
     onScreen = false;
     kept.delete(entry.key);
     kept.set(entry.key, entry);
-    // The dock it goes back into is not laid out yet.
-    requestAnimationFrame(() => {
-      const files = entry.el.querySelector<HTMLElement>(".dv-files");
-      if (shown === entry && files && entry.scroll) files.scrollTop = entry.scroll;
-    });
   }
 
   entry.owner.replay();
@@ -156,10 +172,6 @@ function pick(entry: Kept) {
 
 /// Takes the shown view out of the pane, keeping it.
 function hide() {
-  if (!shown) return;
-  // A view whose session frame went has no scroll left to keep.
-  if (shown.el.isConnected) shown.scroll = shown.el.querySelector<HTMLElement>(".dv-files")?.scrollTop ?? 0;
-  shown.el.remove();
   shown = null;
 }
 
@@ -171,7 +183,7 @@ function watch(entry: Kept) {
   });
 }
 
-const changesShown = () => !!shown?.el.offsetParent && paneShown();
+const changesShown = () => !!shown?.view.el.offsetParent && paneShown();
 /// A folder that changes while its diff shows is read again at most this often.
 const changed = ambient(() => { if (shown?.dirty && changesShown()) shown.view.reload(); }, SLOW_MS, changesShown);
 
@@ -202,15 +214,14 @@ function release(entry: Kept) {
   if (shown === entry) shown = null;
   entry.unwatch();
   entry.view.dispose();
-  entry.el.remove();
+  entry.view.el.remove();
+  if (changesModel.getState().entry === entry) publish();
 }
 
 /// Says so while the pane shows the main checkout in place of a removed worktree.
-function drawNote() {
+function noteText() {
   const branch = removedBranch();
-  if (!shown) return;
-  shown.note.hidden = !branch;
-  shown.note.textContent = branch ? `The session's worktree was removed. Showing ${branch}.` : "";
+  return branch ? `The session's worktree was removed. Showing ${branch}.` : "";
 }
 
 /// Whether the shown view was on screen when last asked.
@@ -222,7 +233,7 @@ let onScreen = false;
 /// the worktree is another; one already on screen at a slower pace while
 /// the agent works. Kept as it is otherwise.
 export function revalidateChanges(visible = changesShown()) {
-  drawNote();
+  if (changesModel.getState().note !== noteText()) publish();
   const now = visible && paneShown(), appeared = now && !onScreen;
   onScreen = now;
   const entry = shown;

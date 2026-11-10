@@ -46,6 +46,8 @@ export interface ModelView {
   anim: Animation | null;
   /// Draws again after the box changed size.
   resize(): void;
+  /// Moves the canvas into `box`, as when its tab moves to the other dock.
+  place(box: HTMLElement): void;
   dispose(): void;
 }
 
@@ -165,8 +167,9 @@ async function packGltf(bytes: ArrayBuffer, sibling: Sibling): Promise<ArrayBuff
 }
 
 /// Draws the model in `bytes` into `box`, filling it.
-export async function mountModel(box: HTMLElement, bytes: ArrayBuffer, ext: string, sibling: Sibling): Promise<ModelView> {
+export async function mountModel(stage: HTMLElement, bytes: ArrayBuffer, ext: string, sibling: Sibling): Promise<ModelView> {
   const { root, format, clips } = await parse(bytes, ext, sibling);
+  let box = stage;
   // A retina screen's pixels are fine enough without multisampling, which
   // would cost four samples on each of them.
   const renderer = new WebGLRenderer({ antialias: devicePixelRatio < 2, alpha: true });
@@ -319,6 +322,14 @@ export async function mountModel(box: HTMLElement, bytes: ArrayBuffer, ext: stri
     info: { format, triangles: Math.round(triangles), meshes, clips: clips.length },
     reset,
     resize,
+    place(next) {
+      if (next === box) return;
+      watch.unobserve(box);
+      box = next;
+      box.append(renderer.domElement);
+      watch.observe(box);
+      resize();
+    },
     anim,
     wireframe(on) {
       root.traverse(o => {

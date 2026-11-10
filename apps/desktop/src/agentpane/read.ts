@@ -1,14 +1,12 @@
-import { drawTermFooter } from "./term-footer.tsx";
-import { drawPending } from "./media-view.tsx";
-import { removeSessionPortal } from "../agents/session-frame.tsx";
 import { takeQueuedPreview } from "./html-preview-state.ts";
+import { togglePreview } from "./text-view.tsx";
 // Reading a tab's file from the session's machine, a part at a time, and
 // starting a terminal tab.
 import { viewKey } from "./view-memory.ts";
 import { fileSize } from "../chat/media.ts";
 import { dropTerm, followTerm, forgetTerm, killTerm, openTerm } from "./terminal.ts";
 import { type FilePart, type TreeText, type MediaTab, P, closeTab, leavePane, rememberTerminal } from "./media.ts";
-import { draw } from "./media-draw.ts";
+import { draw, touchTab } from "./media-draw.ts";
 import { invoke } from "../ui/tauri.ts";
 
 /// The most the pane reads of one file, as the node allows.
@@ -66,20 +64,9 @@ export async function loadText(t: MediaTab) {
   }
 
   if (P.tabs.includes(t)) {
-    redraw(t);
-
-    if (takeQueuedPreview(t) && t.text && !t.text.binary) {
-      t.el?.querySelector<HTMLButtonElement>("[data-preview]")?.click();
-    }
+    touchTab(t);
+    if (takeQueuedPreview(t) && t.text && !t.text.binary) void togglePreview(t);
   }
-}
-
-/// Draws tab `t` again, from scratch.
-function redraw(t: MediaTab) {
-  if (t.el) removeSessionPortal(t.el);
-  t.el?.remove();
-  t.el = null;
-  draw();
 }
 
 /// Starts a terminal tab's shell; when it exits the tab goes.
@@ -118,11 +105,15 @@ export async function startTerminal(t: MediaTab) {
     t.error = readError(e);
   }
 
-  redraw(t);
+  // Its screen fits the view and takes the keys the pane has.
+  t.rev++;
+  draw();
 }
 
+/// A terminal tab's footer says how its terminal stands again, in place of a note.
 export function drawTermStatus(t: MediaTab) {
-  drawTermFooter(t);
+  t.note = null;
+  touchTab(t);
 }
 
 export async function load(t: MediaTab) {
@@ -133,7 +124,7 @@ export async function load(t: MediaTab) {
     const { bytes, mime } = await readFile(s.machine_id, t.path, (done, size) => {
       t.done = done;
       t.size = size;
-      if (t.el && P.tabs.includes(t)) drawPending(t.el, t, P.session?.machine_name ?? null);
+      touchTab(t);
     });
     if (!P.tabs.includes(t)) return;
     t.size = bytes.length;
@@ -145,5 +136,5 @@ export async function load(t: MediaTab) {
   }
 
   // Drawn again now its bytes are here.
-  redraw(t);
+  touchTab(t);
 }

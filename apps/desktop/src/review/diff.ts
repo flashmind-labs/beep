@@ -42,6 +42,10 @@ export interface DiffSource {
 
 export interface DiffViewHandle {
   el: HTMLElement;
+  /// The scrolling list of files, while it is drawn.
+  files: () => HTMLElement | null;
+  /// A comment being written has text.
+  writing: () => boolean;
   reload: () => void;
   focus: () => void;
   dispose: () => void;
@@ -68,6 +72,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
 
   return {
     el: v.root,
+    files: () => v.files,
+    writing: () => !!v.root.querySelector<HTMLTextAreaElement>(".dv-cmt.open textarea")?.value.trim(),
     reload: () => void load(v),
     focus: () => v.root.focus({ preventScroll: true }),
     dispose: () => {

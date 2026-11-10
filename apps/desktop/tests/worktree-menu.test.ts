@@ -7,8 +7,11 @@ import type { Tree, Entry } from "../src/agentpane/worktree-state.ts";
 const dom = new JSDOM('<body><div id="bar" data-mode="bar"></div></body>');
 Object.assign(dom.window, { __TAURI__: window.__TAURI__ });
 Object.assign(globalThis, { document: dom.window.document, window: dom.window, Element: dom.window.Element, HTMLElement: dom.window.HTMLElement, MutationObserver: dom.window.MutationObserver });
-const { showSessionFrame } = await import("../src/agents/session-frame.tsx");
-const { startWorktrees, drawWorktrees, followAgent, paneRoot, refreshWorktrees } = await import("../src/agentpane/worktree.ts");
+const { createElement } = await import("react");
+const { flushSync } = await import("react-dom");
+const { createRoot } = await import("react-dom/client");
+const { WorktreeMenu } = await import("../src/agentpane/worktree-view.tsx");
+const { startWorktrees, worktreeMenu, followAgent, paneRoot, refreshWorktrees } = await import("../src/agentpane/worktree.ts");
 const main: Tree = {path: "/srv/app", branch: "main", head: "abc1234", own: true};
 const fix: Tree = {path: "/srv/app/.worktrees/fix", branch: "fix-login", head: "abc1234", own: false};
 const tool = (text: string): Entry => ({kind: "tool", text});
@@ -17,10 +20,13 @@ const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 function setup(id: string, trees: Tree[]) {
   answers.agent_worktrees = trees;
   answers.agent_place = {folder: main.path, main: main.path, linked: false, branch: "main", origin: ""};
-  showSessionFrame({ head: null, field: null, body: document.createElement("div"), hints: { value: { items: [], window: false, model: null, link: null }, project: null } }, false, () => {});
   const host = document.createElement("div");
   document.body.append(host);
-  const draw = () => drawWorktrees(host, true);
+  const root = createRoot(host);
+  const draw = () => {
+    const menu = worktreeMenu();
+    flushSync(() => root.render(menu && createElement(WorktreeMenu, menu)));
+  };
   startWorktrees({id, cwd: main.path, machine_id: "machine", agent: "codex"}, draw);
   return host;
 }

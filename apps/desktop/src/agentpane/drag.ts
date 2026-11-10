@@ -1,33 +1,33 @@
-// Dragging a session pane's tab to the other dock, by pointer or keys.
-import { createElement, Fragment } from "react";
-import { hasSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
-import { type Box, type Dock, dropDock, moveTab, paneSize, SIDE_BY_SIDE_MIN } from "./media-state.ts";
+// Dragging a session pane's tab to the other dock, by pointer or keys. The
+// ghost under the pointer and the drop zone are drawn by dock-view.tsx from
+// the pane's model; the ghost's place follows the pointer through its ref.
+import { createRef } from "react";
+import { type Box, type Dock, DOCKS, dropDock, moveTab, paneSize, SIDE_BY_SIDE_MIN } from "./media-state.ts";
 import { DRAG_START, P, saveLayout } from "./media.ts";
-import { DOCK_RIGHT, DOCK_BOTTOM, draw } from "./media-draw.ts";
-import { shell, main, paneOf, dockOf } from "./media-layout.ts";
+import { draw, paneTabItem } from "./media-draw.ts";
+import { shell, main, paneOf, dockOf, paneModel, setPaneModel, stripRefs } from "./media-layout.ts";
 
-/// Where a tab drag stands: the tab, where the pointer went down, and once
-/// it moved far enough, the tab's ghost under the pointer and the dock it
-/// would drop in.
+/// Where a tab drag stands: the tab, where the pointer went down, whether it
+/// moved far enough to drag, and the dock it would drop in.
 interface TabDrag {
   id: string;
   tab: HTMLElement;
   pointer: number;
   x: number;
   y: number;
-  ghost: HTMLElement | null;
+  ghost: boolean;
   to: Dock | null;
 }
 
 export let drag: TabDrag | null = null;
 
-export function tabDown(e: PointerEvent) {
+/// The dragged tab's ghost, while it shows.
+export const ghostRef = createRef<HTMLButtonElement>();
+
+/// The pointer went down on tab `id`, whose button is `tab`.
+export function tabDown(e: PointerEvent, id: string, tab: HTMLElement) {
   if (e.button !== 0 || drag) return;
-  const target = e.target as HTMLElement;
-  if (target.closest("[data-mclose]")) return;
-  const tab = target.closest<HTMLElement>("[data-mtab]");
-  if (!tab) return;
-  drag = { id: tab.dataset.mtab!, tab, pointer: e.pointerId, x: e.clientX, y: e.clientY, ghost: null, to: null };
+  drag = { id, tab, pointer: e.pointerId, x: e.clientX, y: e.clientY, ghost: false, to: null };
   tab.setPointerCapture(e.pointerId);
   tab.addEventListener("pointermove", tabMove);
   tab.addEventListener("pointerup", tabUp);
@@ -41,36 +41,33 @@ function tabMove(e: PointerEvent) {
 
   if (!d.ghost) {
     if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < DRAG_START) return;
-    d.ghost = d.tab.cloneNode(true) as HTMLElement;
-    d.ghost.classList.add("agtabghost");
-    d.ghost.removeAttribute("id");
-    document.body.append(d.ghost);
-    d.tab.classList.add("dragging");
-    el.classList.add("tabdrag");
+    d.ghost = true;
+    setPaneModel({ drag: { item: paneTabItem(d.id), selected: P.on[dockOf(d.id)] === d.id, to: null, zone: null } });
     document.addEventListener("keydown", dragKey, true);
   }
 
-  d.ghost.style.transform = `translate(${e.clientX + 8}px, ${e.clientY + 6}px)`;
+  ghostRef.current?.style.setProperty("--x", `${e.clientX + 8}px`);
+  ghostRef.current?.style.setProperty("--y", `${e.clientY + 6}px`);
   // Over a dock's own pane or strip, the tab goes there; else by the edge.
-  const over = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>(".agpane, .agpstrip")?.dataset.dock as Dock | undefined;
+  const at = document.elementFromPoint(e.clientX, e.clientY);
+  const over = DOCKS.find(dock => !!at && (!!paneOf(dock)?.contains(at) || !!stripRefs[dock].current?.contains(at)));
   const r = el.getBoundingClientRect();
   const to = over ?? dropDock(r, e.clientX, e.clientY, el.clientWidth >= SIDE_BY_SIDE_MIN);
   d.to = to && to !== dockOf(d.id) ? to : null;
-  drawDropZone(d.to);
+  showDropZone(d.to);
 }
 
 /// Shows where a dragged tab would go: over that dock, or where it would
 /// open.
-function drawDropZone(to: Dock | null) {
-  const zone = document.getElementById("agdropzone"), el = shell(), box = main();
-  if (!zone || !el || !box) return;
-  zone.hidden = !to;
-  if (!to) return;
+function showDropZone(to: Dock | null) {
+  const now = paneModel.getState().drag, el = shell(), box = main();
+  if (!now || now.to === to || !el || !box) return;
+  if (!to) { setPaneModel({ drag: { ...now, to: null, zone: null } }); return; }
   const s = el.getBoundingClientRect();
   const pane = paneOf(to);
   let r: Box;
 
-  if (pane && !pane.hidden) r = (pane.querySelector(".agpane-content") ?? pane).getBoundingClientRect();
+  if (pane && paneModel.getState().docks?.[to].shown) r = (pane.firstElementChild ?? pane).getBoundingClientRect();
   else if (to === "right") {
     const w = paneSize("right", P.layout.right, s.width);
     r = { left: s.right - w, top: s.top, width: w, height: s.height };
@@ -79,13 +76,7 @@ function drawDropZone(to: Dock | null) {
     r = { left: m.left, top: m.bottom - hgt, width: m.width, height: hgt };
   }
 
-  Object.assign(zone.style, { left: `${r.left - s.left}px`, top: `${r.top - s.top}px`, width: `${r.width}px`, height: `${r.height}px` });
-  if (zone.dataset.target !== to || !hasSessionPortal(zone)) {
-    zone.dataset.target = to;
-    setSessionPortal(zone, createElement(Fragment, null,
-      createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: to === "right" ? DOCK_RIGHT : DOCK_BOTTOM } }),
-      createElement("span", null, to === "right" ? "Dock on the right" : "Dock at the bottom")));
-  }
+  setPaneModel({ drag: { ...now, to, zone: { left: r.left - s.left, top: r.top - s.top, width: r.width, height: r.height } } });
 }
 
 function tabUp(e: PointerEvent) {
@@ -114,10 +105,7 @@ function endDrag() {
   if (d.tab.hasPointerCapture(d.pointer)) d.tab.releasePointerCapture(d.pointer);
   document.removeEventListener("keydown", dragKey, true);
   if (!d.ghost) return;
-  d.ghost.remove();
-  d.tab.classList.remove("dragging");
-  shell()?.classList.remove("tabdrag");
-  drawDropZone(null);
+  setPaneModel({ drag: null });
   // The click that ends a drag does not pick the tab.
   P.dragged = true;
   setTimeout(() => { P.dragged = false; }, 0);

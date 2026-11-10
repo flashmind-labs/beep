@@ -1,22 +1,37 @@
 // Where the pane's docks sit and how big they are: the split of tabs
-// between them, zoom, ctrl-tab between tabs, and the dividers.
+// between them, zoom, ctrl-tab between tabs, and the dividers. The dock
+// components (dock-view.tsx) draw from the model kept here.
+import { createRef, type RefObject } from "react";
+import { flushSync } from "react-dom";
+import { createStore } from "zustand";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
-import { type Dock, DOCKS, onZoomKey, paneSize, SIDE_BY_SIDE_MIN, splitTabs } from "./media-state.ts";
+import { type Box, type Dock, DOCKS, onZoomKey, paneSize, SIDE_BY_SIDE_MIN, splitTabs } from "./media-state.ts";
+import type { PaneTabItem } from "./tabs-view.tsx";
+import type { IconName } from "../ui/icons.tsx";
+import type { WorktreeMenuModel } from "./worktree-view.tsx";
 import { artifactCount } from "./artifacts.ts";
 import { S } from "../bar/core.ts";
 import { runningCount } from "./running.ts";
-import { dragHandle } from "../ui/drag.ts";
-import { P, rememberPane, saveLayout, showTab, FILES, CHANGES, ARTS, RUNNING, SUBS } from "./media.ts";
+import { P, rememberPane, saveLayout, showTab, FILES, CHANGES, ARTS, RUNNING, SUBS, type MediaTab } from "./media.ts";
 
 /// How far an arrow key moves a divider.
 const ARROW_STEP = 24;
 
 // ----- The pane's place -----
 
-export const shell = () => document.getElementById("agshell");
-/// The conversation and the bottom dock under it.
-export const main = () => document.getElementById("agmain");
-export const paneOf = (d: Dock) => document.getElementById(`agpane-${d}`);
+/// The session's shell, the conversation with the bottom dock under it, and each dock.
+export const shellRef = createRef<HTMLDivElement>();
+export const mainRef = createRef<HTMLDivElement>();
+export const paneRefs: Record<Dock, RefObject<HTMLElement | null>> = { right: createRef(), bottom: createRef() };
+/// The strip a folded dock leaves.
+export const stripRefs: Record<Dock, RefObject<HTMLButtonElement | null>> = { right: createRef(), bottom: createRef() };
+
+export const shell = () => shellRef.current?.isConnected ? shellRef.current : null;
+export const main = () => mainRef.current?.isConnected ? mainRef.current : null;
+export const paneOf = (d: Dock) => paneRefs[d].current?.isConnected ? paneRefs[d].current : null;
+
+/// The dock holding `node`, if any.
+export const dockHolding = (node: Node | null) => DOCKS.find(d => !!node && !!paneOf(d)?.contains(node)) ?? null;
 
 /// Every tab's id, in the order the tab strips show them.
 export function tabIds() {
@@ -33,38 +48,87 @@ export function dockOf(id: string): Dock {
   return docked().bottom.includes(id) ? "bottom" : "right";
 }
 
+// ----- The model the docks draw -----
+
+/// One view in a dock: a fixed tab's, or an opened tab's at its revision.
+export type DockView =
+  | { kind: "files" | "changes" | "artifacts" | "running" | "subagents"; hidden: boolean }
+  | { kind: "tab"; tab: MediaTab; rev: number; hidden: boolean };
+
+export interface DockModel {
+  tabs: PaneTabItem[];
+  on: string;
+  /// The pane shows, or only its strip.
+  shown: boolean;
+  strip: boolean;
+  /// Its size along the shell, once it was laid out.
+  size: number | null;
+  zoomed: boolean;
+  label: string;
+  icon: IconName;
+  /// The worktree menu in its head, while it shows Files or Changes.
+  worktrees: WorktreeMenuModel | null;
+  views: DockView[];
+}
+
+/// A tab being dragged: its strip item, whether its dock shows it, and the
+/// dock it would drop in, with where that dock is in the shell.
+interface DragModel { item: PaneTabItem; selected: boolean; to: Dock | null; zone: Box | null }
+
+interface PaneModel {
+  docks: Record<Dock, DockModel> | null;
+  narrow: boolean;
+  zoomed: boolean;
+  /// The divider being dragged.
+  resizing: Dock | null;
+  drag: DragModel | null;
+  /// On a phone: its tabs, and whether the conversation is the one shown.
+  phone: { tabs: { id: string; name: string }[]; selected: string } | null;
+  log: boolean;
+}
+
+export const paneModel = createStore<PaneModel>(() => ({ docks: null, narrow: false, zoomed: false, resizing: null, drag: null, phone: null, log: false }));
+
+/// Sets part of the model and renders it now: callers measure and focus what it draws.
+export function setPaneModel(change: Partial<PaneModel>) {
+  flushSync(() => paneModel.setState(change));
+}
+
 /// Lays the docks out for the shell's size: which show, their size,
 /// folded or not. A dock with no tabs goes.
 let paneWasShown = false;
 
-export function place() {
+export function place(fresh?: Record<Dock, DockModel>, extra: Partial<PaneModel> = {}) {
   const el = shell(), box = main();
-  if (!el || !box) return;
+  const docks = fresh ?? paneModel.getState().docks;
+  if (!docks) return;
+  if (!el || !box) { setPaneModel({ ...extra, docks }); return; }
   const narrow = el.clientWidth < SIDE_BY_SIDE_MIN;
-  el.classList.toggle("narrow", narrow);
   const split = docked();
+  const next = { ...docks };
 
   for (const d of DOCKS) {
-    const pane = paneOf(d), div = document.getElementById(`agdiv-${d}`), strip = document.getElementById(`agpstrip-${d}`);
-    if (!pane || !div || !strip) continue;
     // The Files tab is always there while a session shows, so one dock is.
     const has = !!P.session && split[d].length > 0;
-    pane.hidden = div.hidden = !has || P.layout.hidden[d];
-    strip.hidden = !has || !P.layout.hidden[d];
-    if (pane.hidden) continue;
+    const shown = has && !P.layout.hidden[d];
     const total = d === "right" ? el.clientWidth : box.clientHeight;
-    pane.style.flexBasis = `${paneSize(d, P.layout[d], total)}px`;
-    div.setAttribute("aria-orientation", d === "right" ? "vertical" : "horizontal");
+    next[d] = { ...docks[d], shown, strip: has && P.layout.hidden[d], size: shown ? paneSize(d, P.layout[d], total) : docks[d].size };
   }
 
-  const shown = DOCKS.some(d => paneOf(d)?.hidden === false);
+  const shown = DOCKS.some(d => next[d].shown);
+  // A zoomed dock that folded, emptied or moved away ends the zoom.
+  if (P.zoom && !next[P.zoom].shown) P.zoom = null;
+  for (const d of DOCKS) next[d] = { ...next[d], zoomed: P.zoom === d };
+  setPaneModel({ ...extra, docks: next, narrow, zoomed: !!P.zoom });
   if (shown && !paneWasShown) queueMicrotask(() => window.dispatchEvent(new Event("agent-pane-shown")));
   paneWasShown = shown;
   refreshTopicSubscriptions();
-  // A zoomed dock that folded, emptied or moved away ends the zoom.
-  if (P.zoom && paneOf(P.zoom)?.hidden !== false) P.zoom = null;
-  el.classList.toggle("zoomed", !!P.zoom);
-  for (const d of DOCKS) paneOf(d)?.classList.toggle("zoomed", P.zoom === d);
+}
+
+/// The docks on screen now, as last laid out.
+export function shownDocks(): Dock[] {
+  const docks = paneModel.getState().docks;
+  return docks ? DOCKS.filter(d => docks[d].shown && !!paneOf(d)) : [];
 }
 
 /// ⇧esc: the dock with focus, else the right one, else the bottom one, fills the session
@@ -73,17 +137,17 @@ export function place() {
 function toggleZoom() {
   if (P.zoom) P.zoom = null;
   else {
-    const shown = DOCKS.filter(d => paneOf(d)?.hidden === false);
-    P.zoom = shown.find(d => paneOf(d)?.contains(document.activeElement)) ?? shown.find(d => d === "right") ?? shown[0] ?? null;
+    const shown = shownDocks();
+    P.zoom = dockHolding(document.activeElement) ?? shown.find(d => d === "right") ?? shown[0] ?? null;
   }
 
   place();
   rememberPane();
   // From the input, the zoomed tab takes the keys: a terminal fills the view and is typed in.
-  const pane = P.zoom && paneOf(P.zoom);
+  const zoom = P.zoom, pane = zoom && paneOf(zoom);
 
-  if (pane && !pane.contains(document.activeElement)) {
-    const term = P.tabs.find(t => t.id === P.on[P.zoom!])?.term;
+  if (zoom && pane && !pane.contains(document.activeElement)) {
+    const term = P.tabs.find(t => t.id === P.on[zoom])?.term;
     if (term) term.screen.focus(); else pane.focus({ preventScroll: true });
   }
 }
@@ -94,49 +158,63 @@ onZoomKey(() => S.view === "agent" && !!P.session && !!shell()?.clientWidth, tog
 // ⌃tab with focus in a dock: its next tab, round to the first; ⌃⇧tab the one before.
 window.addEventListener("keydown", e => {
   if (e.key !== "Tab" || !e.ctrlKey || e.metaKey || e.altKey) return;
-  const target = e.target as Element;
-  const pane = target.closest<HTMLElement>(".agpane[data-dock]");
-  if (!pane) return;
+  const d = dockHolding(e.target instanceof Node ? e.target : null);
+  if (!d) return;
   e.preventDefault();
   e.stopImmediatePropagation();
-  const d = pane.dataset.dock as Dock, ids = docked()[d];
+  const ids = docked()[d];
   const step = e.shiftKey ? ids.length - 1 : 1;
   showTab(d, ids[(ids.indexOf(P.on[d]) + step) % ids.length]);
 }, true);
 
-export function wireDivider(dock: Dock) {
-  const div = document.getElementById(`agdiv-${dock}`)!;
-  const set = (size: number | null) => {
-    const el = shell(), box = main();
-    if (!el || !box) return;
-    P.layout[dock] = size == null ? null : paneSize(dock, size, dock === "right" ? el.clientWidth : box.clientHeight);
-    place();
+// ----- Dividers -----
+
+/// Sets dock `dock`'s size, or the default for null, as the shell allows.
+function resize(dock: Dock, size: number | null) {
+  const el = shell(), box = main();
+  if (!el || !box) return;
+  P.layout[dock] = size == null ? null : paneSize(dock, size, dock === "right" ? el.clientWidth : box.clientHeight);
+  place();
+}
+
+/// A drag of dock `dock`'s divider. While it moves only the dock's size, a
+/// CSS variable on its element, changes; the layout takes it when the drag ends.
+export function dividerDrag(dock: Dock) {
+  const el = shell(), box = main(), pane = paneOf(dock);
+  if (!el || !box || !pane) return;
+  setPaneModel({ resizing: dock });
+  const right = dock === "right";
+  const r = (right ? el : box).getBoundingClientRect();
+  const total = right ? el.clientWidth : box.clientHeight;
+  let size: number | null = null;
+  return {
+    move: (ev: PointerEvent) => {
+      size = paneSize(dock, right ? r.right - ev.clientX : r.bottom - ev.clientY, total);
+      pane.style.setProperty("--drag-size", `${size}px`);
+    },
+    end: () => {
+      setPaneModel({ resizing: null });
+      if (size !== null) resize(dock, size);
+      pane.style.removeProperty("--drag-size");
+      saveLayout();
+    },
   };
-  dragHandle(div, () => {
-    const el = shell()!, box = main()!;
-    el.classList.add("resizing", `resizing-${dock}`);
-    div.classList.add("active");
-    const right = dock === "right";
-    const r = (right ? el : box).getBoundingClientRect();
-    return {
-      move: ev => set(right ? r.right - ev.clientX : r.bottom - ev.clientY),
-      end: () => {
-        el.classList.remove("resizing", `resizing-${dock}`);
-        div.classList.remove("active");
-        saveLayout();
-      },
-    };
-  });
-  div.addEventListener("dblclick", () => { set(null); saveLayout(); });
-  div.addEventListener("keydown", e => {
-    const pane = paneOf(dock)!;
-    const now = dock === "right" ? pane.offsetWidth : pane.offsetHeight;
-    const grow: Record<string, number> = dock === "right" ? { ArrowLeft: 1, ArrowRight: -1 } : { ArrowUp: 1, ArrowDown: -1 };
-    const by = grow[e.key];
-    if (!by) return;
-    e.preventDefault();
-    e.stopPropagation();
-    set(now + by * ARROW_STEP);
-    saveLayout();
-  });
+}
+
+/// Double-click on a divider: the dock's default size.
+export function resetDivider(dock: Dock) {
+  resize(dock, null);
+  saveLayout();
+}
+
+/// Arrow keys on a divider grow or shrink its dock; false for other keys.
+export function dividerKey(dock: Dock, key: string) {
+  const pane = paneOf(dock);
+  const grow: Record<string, number> = dock === "right" ? { ArrowLeft: 1, ArrowRight: -1 } : { ArrowUp: 1, ArrowDown: -1 };
+  const by = grow[key];
+  if (!by || !pane) return false;
+  const now = dock === "right" ? pane.offsetWidth : pane.offsetHeight;
+  resize(dock, now + by * ARROW_STEP);
+  saveLayout();
+  return true;
 }

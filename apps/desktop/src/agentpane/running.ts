@@ -1,15 +1,13 @@
-import { createElement } from "react";
-import { removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
-import { RunningView, type RunningActions } from "./running-view.tsx";
 // Commands the session left running, following changes while its pane shows.
+// `RunningPane` in running-view.tsx draws `runningModel`.
+import { createStore } from "zustand";
+import type { RunningActions, RunningModel } from "./running-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import type { RunningProcess } from "./running-state.ts";
 import { paneSession } from "./media.ts";
 import { draw } from "./media-draw.ts";
-import { paneOf, shell } from "./media-layout.ts";
-import { DOCKS } from "./media-state.ts";
+import { shell, shownDocks } from "./media-layout.ts";
 import { AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
-import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { AGENT_READ_WAIT_MS } from "../agents/agents.ts";
 import { readError } from "./read.ts";
@@ -19,8 +17,10 @@ let key = "";
 let unfollow: (() => void) | undefined;
 let list: RunningProcess[] = [];
 let local = false;
-let el: HTMLElement | null = null;
 let error = "";
+
+/// What the view draws, for the session the pane shows.
+export const runningModel = createStore<{ model: RunningModel; actions: RunningActions } | null>(() => null);
 const reads = latest();
 const stopping = new Set<number>();
 /// Rows whose whole command shows, by pid.
@@ -37,16 +37,14 @@ function syncSession() {
   list = [];
   local = false;
   error = "";
-  if (el) removeSessionPortal(el);
+  runningModel.setState(null, true);
   stopping.clear();
-  el?.remove();
-  el = null;
   if (s?.id && !s.external) queueMicrotask(() => void readRunning());
 }
 
 export function runningCount() { syncSession(); return list.length; }
 
-const visible = () => paneShown() && !!shell()?.clientWidth && DOCKS.some(d => paneOf(d)?.hidden === false);
+const visible = () => paneShown() && !!shell()?.clientWidth && shownDocks().length > 0;
 
 window.addEventListener("agent-pane-shown", () => void readRunning());
 onShownChange(shown => { if (shown) void readRunning(); }, true);
@@ -72,16 +70,6 @@ export async function readRunning() {
   if (list.length !== count) draw();
 }
 
-/// The Running view, made once per session. Its host outlives a rebuilt
-/// session frame, so each call renders it again.
-export function runningView() {
-  syncSession();
-  if (!list.length) { el?.remove(); return null; }
-  el ??= h('<div class="agpview running"></div>');
-  render();
-  return el;
-}
-
 const actions: RunningActions = {
   open: url => { invoke("open_url", { url }).catch(e => { error = readError(e); render(); }); },
   toggle: pid => {
@@ -93,8 +81,8 @@ const actions: RunningActions = {
 
 function render() {
   const session = paneSession();
-  if (!el || !session || key !== `${session.machine_id}\n${session.id}`) return;
-  setSessionPortal(el, createElement(RunningView, { model: { processes: list, local, stopping, whole, machine: session.machine_name, error }, actions }));
+  if (!session || key !== `${session.machine_id}\n${session.id}`) return;
+  runningModel.setState({ model: { processes: list, local, stopping: new Set(stopping), whole: new Set(whole), machine: session.machine_name, error }, actions }, true);
 }
 
 async function stop(pids: number[]) {

@@ -16,14 +16,3 @@ export function forgetView(machine: string, session: string) {
   } catch { /* Storage may be unavailable. */ }
 }
 
-export function rememberScroll(root: HTMLElement, key: string) {
-  const saved = readView(key);
-  const nodes = [root, ...root.querySelectorAll<HTMLElement>("*")];
-  if (Array.isArray(saved)) requestAnimationFrame(() => {
-    for (const item of saved) if (Array.isArray(item) && item.every(value => typeof value === "number")) {
-      const node = nodes[item[0]];
-      if (node) { node.scrollTop = item[1]; node.scrollLeft = item[2]; }
-    }
-  });
-  root.addEventListener("scroll", () => writeView(key, nodes.flatMap((node, index) => node.scrollTop || node.scrollLeft ? [[index, node.scrollTop, node.scrollLeft]] : [])), true);
-}

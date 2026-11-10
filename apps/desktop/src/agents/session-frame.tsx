@@ -9,8 +9,8 @@ import { createPortal, flushSync } from "react-dom";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import type { ChatBody } from "../ui/turn.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
+import { PaneDock, PaneDropZone, PaneMain, PaneShell } from "../agentpane/dock-view.tsx";
 
-type Dock = "bottom" | "right";
 interface AgentHintsModel { value: HintViewModel; project: string | null }
 interface Frame { head: ReactNode; field: ReactNode; body: ChatBody; hints: AgentHintsModel }
 /// What the session page draws: the frame, and the views put in it.
@@ -58,8 +58,9 @@ export function setSessionChild(key: string, view: ReactNode) {
   draw(owner);
 }
 
-// Pane views retain their own hosts while the session root owns their React
-// children. Removing a view must release its portal before removing the host.
+// Views with their own hosts, as the editor buttons in the head, while the
+// session root owns their React children. Removing one must release its
+// portal before removing the host.
 export function setSessionPortal(host: HTMLElement, view: ReactNode) {
   const owner = current;
   if (!owner) return;
@@ -68,7 +69,6 @@ export function setSessionPortal(host: HTMLElement, view: ReactNode) {
   owner.portals.set(host, slot(owner, host, view));
   draw(owner);
 }
-export function hasSessionPortal(host: HTMLElement) { return current?.portals.has(host) ?? false; }
 
 export function removeSessionPortal(host: HTMLElement) {
   const owner = current;
@@ -175,12 +175,6 @@ const AgentHints = memo(function AgentHints({ value }: { value: AgentHintsModel 
   return <div className="agkeys"><HintView value={value.value} slim /><StashIndicator project={value.project} /><details id="agshortcuts"><summary>Show more</summary><div className="agkeys-list">{sections.map(section => <section key={section.title}><b>{section.title}</b>{section.rows.map(row => <span key={`${row.keys}:${row.does}`}><kbd>{row.keys}</kbd>{row.does}</span>)}</section>)}<StashActions /></div></details></div>;
 });
 
-function DockFrame({ dock }: { dock: Dock }) {
-  return <><div className="agdiv" id={`agdiv-${dock}`} data-dock={dock} role="separator" tabIndex={0} title="Drag to resize, double-click to reset" hidden />
-    <aside className="agpane" id={`agpane-${dock}`} data-dock={dock} tabIndex={-1} hidden><div className="agpane-content"><div className="agphead"><div className="agtabs" role="tablist" /><span className="agwtw" hidden /><button className="agpbtn agaddterm" data-pact="term" title="New terminal in this folder (⌃`)">+ Terminal</button><button className="agpbtn" data-pact="dock" /><button className="agpbtn" data-pact="fold" title="Hide the pane" /></div><div className="agpviews" /></div></aside>
-    <button className="agpstrip" id={`agpstrip-${dock}`} data-dock={dock} hidden title="Show the pane" /></>;
-}
-
 const FrameView = memo(function FrameView({ frame, revision }: { frame: Frame; revision: number }) {
-  return <><div className="dhead" key={`head:${revision}`}>{frame.head}</div><div className="agshell" id="agshell"><div className="agmain" id="agmain"><div className="agconv" id="agconv" key={`conversation:${revision}`}><BodySlot body={frame.body} />{frame.field}<AgentHints value={frame.hints} /></div><DockFrame dock="bottom" /></div><DockFrame dock="right" /><div className="agdropzone" id="agdropzone" hidden /></div></>;
+  return <><div className="dhead" key={`head:${revision}`}>{frame.head}</div><PaneShell><PaneMain><div className="agconv" id="agconv" key={`conversation:${revision}`}><BodySlot body={frame.body} />{frame.field}<AgentHints value={frame.hints} /></div><PaneDock dock="bottom" /></PaneMain><PaneDock dock="right" /><PaneDropZone /></PaneShell></>;
 });
