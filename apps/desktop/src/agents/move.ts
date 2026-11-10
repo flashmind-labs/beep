@@ -1,7 +1,4 @@
-import { createElement, Fragment, type ReactElement } from "react";
-import { createPortal, flushSync } from "react-dom";
-import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
-import { MoveMenu, MoveStatus, type MoveView } from "./move-view.tsx";
+import { moveViews, type MoveStatus, type MoveView } from "./move-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // Moving the open session to another machine: the machine name in the head is
 // a menu, a turn that runs waits (or is stopped), steps tick above the
@@ -12,7 +9,7 @@ import { type AgentHost, type AgentRow, AG } from "./agents.ts";
 import { type MoveRecord, type MoveTarget, canMove, going, moveRows, targetNote } from "./move-state.ts";
 import { machineNames, moveStore, nameOf, stateOf } from "./move-store.ts";
 import { loadSessions } from "./sessions.ts";
-import { $, S, windowHooks } from "../bar/core.ts";
+import { S, windowHooks } from "../bar/core.ts";
 import { placeOf } from "./place.ts";
 import { invoke } from "../ui/tauri.ts";
 import { latest, paneShown, STALE } from "../ui/active.ts";
@@ -41,31 +38,26 @@ function probe<T>(ask: Promise<T>, fallback: T): Promise<T> {
 
 const here = (s: AgentRow) => moveStore.getState().records.get(s.id);
 
+/// The session a move view belongs to.
+export const moveKey = (s: AgentRow) => `${s.machine_id}\n${s.agent}\n${s.id}`;
+
 /// Draws the machine menu in the head and the move above the composer.
 export function drawMove() {
   const s = AG.page?.session;
   if (!s) return;
-  const key = `${s.machine_id}\n${s.agent}\n${s.id}`;
+  const key = moveKey(s);
   if (menuSession !== key) { menuSession = key; menuRead.cancel(); UI.open = false; UI.loading = false; UI.targets = []; closeOutside(); }
-  const head = $("#aghere"), box = $("#agmovebox");
-  const eligible = !!head && canMove(s) && !s.external && !!windowHooks?.sessionProject?.(s)?.name;
-  if (!eligible && !box && !moveRoot) return;
-  const owner = ownerOf(head, box);
-  if (eligible && head) {
-    if (!owner.headView) head.replaceChildren();
-    const mid = going(stateOf(s.id)) && here(s)?.from === s.machine_id;
-    owner.headView = createElement(MoveMenu, {
+  const eligible = canMove(s) && !s.external && !!windowHooks?.sessionProject?.(s)?.name;
+  const mid = going(stateOf(s.id)) && here(s)?.from === s.machine_id;
+  moveViews.setState({
+    key,
+    menu: eligible ? {
       machine: s.machine_name, moving: mid, open: UI.open, loading: UI.loading,
       targets: UI.targets.map(target => ({ id: target.id, name: target.name, ...targetNote(target, s.agent) })),
       toggle: () => { void toggle(s); }, pick: (id: string) => { const target = UI.targets.find(t => t.id === id); if (target) void start(s, target, false); },
-    });
-  } else if (owner.headView) {
-    owner.headView = null;
-    drawRoot(owner);
-    if (head) head.textContent = s.machine_name;
-  }
-  if (box) owner.boxView = moveStatus(s);
-  drawRoot(owner);
+    } : null,
+    status: moveStatus(s),
+  });
 }
 
 subscribeChanges([topic("moves"), topic("agents")], { deliver: "latest", receive: () => poll() }, { when: () => !!AG.open && S.view === "agent" && paneShown() });
@@ -159,26 +151,7 @@ async function cancel(s: AgentRow) {
   drawMove();
 }
 
-interface MoveOwner { head: HTMLElement | null; box: HTMLElement | null; root: DocumentView; headView: ReactElement | null; boxView: ReactElement | null; observer: MutationObserver }
-let moveRoot: MoveOwner | null = null;
-function disposeMove() {
-  const current = moveRoot;
-  moveRoot = null; closeOutside(); menuRead.cancel(); UI.open = false;
-  if (current) { current.observer.disconnect(); current.root.unmount(); }
-}
-function ownerOf(head: HTMLElement | null, box: HTMLElement | null): MoveOwner {
-  if (moveRoot && moveRoot.head === head && moveRoot.box === box) return moveRoot;
-  disposeMove();
-  const root = createDocumentView(document.createElement("div"));
-  const observer = new MutationObserver(() => { if (moveRoot && moveRoot.head === head && moveRoot.box === box && !(head?.isConnected || box?.isConnected)) disposeMove(); });
-  observer.observe(document.body, { childList: true, subtree: true });
-  moveRoot = { head, box, root, headView: null, boxView: null, observer };
-  return moveRoot;
-}
-function drawRoot(owner: MoveOwner) {
-  flushSync(() => owner.root.render(createElement(Fragment, null, owner.head && owner.headView && createPortal(owner.headView, owner.head), owner.box && owner.boxView && createPortal(owner.boxView, owner.box))));
-}
-function moveStatus(s: AgentRow) {
+function moveStatus(s: AgentRow): Parameters<typeof MoveStatus>[0] {
   const r = here(s), p = stateOf(s.id);
   let view: MoveView = { kind: "none" };
   if (UI.error && UI.errorSession === s.id) view = { kind: "warning", text: UI.error };
@@ -189,8 +162,8 @@ function moveStatus(s: AgentRow) {
     if (p.phase === "waiting" && !p.source_away && (s.status === "working" || s.status === "asking")) view = { kind: "waiting", to };
     else view = { kind: "progress", to, cancelable: p.phase !== "resuming", rows: moveRows(p, s.machine_name, to, UI.targets.find(t => t.id === r.to)?.online ?? true) };
   }
-  return createElement(MoveStatus, {
+  return {
     view, cancel: () => { void cancel(s); },
     stop: () => { if (r) void start(s, UI.targets.find(t => t.id === r.to) ?? { id: r.to, name: nameOf(r.to), online: true, harnesses: [], checkout: true }, true); },
-  });
+  };
 }
