@@ -39,13 +39,14 @@ import type { ChatBody } from "../ui/turn.ts";
 import { showAgentControl } from "./composer-ui.tsx";
 import { AgentStatus, AgentStopFace } from "./mode-view.tsx";
 import type { ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
+import { sessionBody } from "./session-frame.tsx";
 
 /// Draws the log again. `keep` finds the row the reader just opened or
 /// folded, which stays where it is on screen. With `older` it is the row in
 /// view while older entries come in above, kept only when the reader is not
 /// at the end.
 export function drawAgentBody(keep?: string, polled = false, older = false) {
-  const b = $<ChatBody>("#agbody"), p = AG.page;
+  const b = sessionBody(), p = AG.page;
   if (!b || !p) return;
   const s = p.session, q = s.question;
   const st = $("#agstate"), stopping = stoppingNow();
@@ -144,7 +145,7 @@ function withInlineImages(row: TranscriptRow): TranscriptRow {
 
 /// Scrolls the log to its newest entry, which it follows again from there.
 export function jumpToLatest() {
-  const b = $<ChatBody>("#agbody");
+  const b = sessionBody();
   if (!b) return;
   b.stuck = true;
   // From far up it goes at once: a glide would end short of turns measured on the way.
@@ -156,7 +157,7 @@ export function jumpToLatest() {
 /// The row in view at the top of the log, to pass to `drawAgentBody` as the
 /// row that stays where it is when a key opens or folds many rows at once.
 export function rowInView() {
-  const b = $<ChatBody>("#agbody");
+  const b = sessionBody();
   return (b && scrollAnchor(b).sel) || "[data-row]";
 }
 

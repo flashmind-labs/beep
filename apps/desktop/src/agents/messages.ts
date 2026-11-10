@@ -15,13 +15,14 @@ import { redrawAgentHints } from "./session-head.ts";
 import { agentAttachError, drawAgentAttached, keepSentImages, keepAgentPics } from "./images.ts";
 import { drawAgentBody } from "./logview.ts";
 import { invoke } from "../ui/tauri.ts";
+import { sessionBody } from "./session-frame.tsx";
 
 export function disposeQueue() { disposeComposerUi(); }
 
 /// The pending steers above the field, each with what goes with it.
 export function drawQueue() {
   const field = $("#agfield");
-  if (!field) { if (S.view !== "agent" || !$("#agbody")) disposeQueue(); return; }
+  if (!field) { if (S.view !== "agent" || !sessionBody()) disposeQueue(); return; }
   dropDelivered(AG.queue);
   showAgentQueue(field, AG.queue, editQueued);
 }
@@ -163,7 +164,8 @@ export async function answerAgentQuestion(i: number, shown: string) {
 }
 /// The first option of the open question that allows, or that does not.
 export function answerFirst(allow: boolean) {
-  const button = $<HTMLButtonElement>(`#agconv :is(#agbody, #agplan) [data-agopt][data-agallow="${allow}"]`);
+  const option = `[data-agopt][data-agallow="${allow}"]`;
+  const button = sessionBody()?.querySelector<HTMLButtonElement>(option) ?? $<HTMLButtonElement>(`#agplan ${option}`);
   if (!button) return false;
   if (!button.disabled) void answerAgentQuestion(Number(button.dataset.agopt), button.dataset.agquestion ?? "");
   return true;

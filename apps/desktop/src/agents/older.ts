@@ -2,12 +2,12 @@
 // reader goes up, until the oldest turn shown has its prompt, or all of
 // them for Home. The log stays where the reader is.
 
-import { $, S } from "../bar/core.ts";
-import type { ChatBody } from "../ui/turn.ts";
+import { S } from "../bar/core.ts";
 import { invoke } from "../ui/tauri.ts";
 import { type AgentPage, AG, where } from "./agents.ts";
 import { drawAgentBody, jumpToLatest, rowInView, syncJump } from "./logview.ts";
 import { OLDER_MAX, OLDER_PAGE, PROMPT_READS, type Reading, drawsEachPage, lacksPrompt, olderBefore, takeOlder } from "./older-state.ts";
+import { sessionBody } from "./session-frame.tsx";
 
 /// How far from the top of the log, in pixels, the reader asks for older entries.
 const NEAR_TOP = 900;
@@ -46,7 +46,7 @@ async function readOlder(mode: Reading) {
   let reads = 0;
 
   try {
-    while (goesOn(mode, reads, $<ChatBody>("#agbody"))) {
+    while (goesOn(mode, reads, sessionBody())) {
       const held = AG.page!;
       const before = held.earlier;
       const got = await invoke<AgentPage>("agent_view", { ...where(o), last: OLDER_PAGE, before });
@@ -76,7 +76,7 @@ async function readOlder(mode: Reading) {
 /// Home or ⌘↑: every older entry is read, then the log shows its first.
 export async function jumpToStart() {
   await loadOlder("all");
-  const b = $<ChatBody>("#agbody");
+  const b = sessionBody();
   if (!b) return;
   b.stuck = false;
   b.scrollTop = 0;

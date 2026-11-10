@@ -96,6 +96,12 @@ const editHost = createRef<HTMLSpanElement>();
 /// Where the head shows the Open in editor button, while it shows.
 export const sessionEditHost = () => editHost.current?.isConnected ? editHost.current : null;
 
+/// The log body the frame shows, a session's or a draft's, while it is in the page.
+export function sessionBody(): ChatBody | null {
+  const body = current?.frame.body;
+  return body?.isConnected ? body : null;
+}
+
 /// A tap in the phone's list of commands and steers leaves the field and its keyboard as they are.
 function keepPhoneField(event: MouseEvent) {
   if (document.body.classList.contains("mobile")) event.preventDefault();

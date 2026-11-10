@@ -15,6 +15,7 @@ import { drawAgentAttached } from "../src/agents/images.ts";
 import { createElement } from "react";
 import { showAgentControl } from "../src/agents/composer-ui.tsx";
 import { AgentPlan } from "../src/agents/mode-view.tsx";
+import { showSessionBody } from "./session-frame-env.ts";
 
 function setup() {
   const previous = bar.querySelector<HTMLElement>("#agbody");
@@ -33,8 +34,7 @@ function setup() {
     queue: [], att: [], note: "", child: null, held: 0, stopping: null,
   });
   Object.assign(MN, { paths: [], uploads: [] });
-  bar.innerHTML = '<div id="agconv"><div id="agbody"></div><div id="agplan"></div><div data-agent-queue-slot style="display:contents"></div><div data-agent-attachment-slot style="display:contents"></div><div id="agfield"><textarea id="agmsg"></textarea><div data-agent-menu-slot style="display:contents"></div></div></div>';
-  Object.defineProperty(bar.querySelector("#agbody")!, "clientHeight", { configurable: true, value: 800 });
+  showSessionBody(true);
   const input = bar.querySelector("#agmsg")!;
   assert.ok(input instanceof HTMLTextAreaElement);
   input.value = "Use the existing fixture";

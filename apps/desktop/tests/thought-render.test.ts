@@ -5,6 +5,7 @@ import { AG, type AgentPage } from "../src/agents/agents.ts";
 import { toggleThoughts } from "../src/agents/logkeys.ts";
 import * as agentlog from "../src/agents/agentlog.ts";
 import { drawAgentBody, turnsOf } from "../src/agents/logview.ts";
+import { showSessionBody } from "./session-frame-env.ts";
 
 test("grouped live thoughts stay folded beside progress and preserve the reader's choice", () => {
   globalThis.getSelection = () => null;
@@ -18,8 +19,7 @@ test("grouped live thoughts stay folded beside progress and preserve the reader'
     earlier: 0, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0,
   };
   Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, log: agentlog, child: null });
-  bar.innerHTML = '<div id="agbody"></div>';
-  Object.defineProperty(bar.querySelector("#agbody")!, "clientHeight", { configurable: true, value: 800 });
+  showSessionBody();
   const rows = () => bar.querySelectorAll("[data-thought]");
   drawAgentBody();
   assert.equal(rows().length, 0, "thoughts start inside the collapsed progress group");
@@ -76,8 +76,7 @@ test("progress groups collect alternating thoughts and tools and split at visibl
   };
   Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, log: agentlog, child: null });
   AG.steps.clear();
-  bar.innerHTML = '<div id="agbody"></div>';
-  Object.defineProperty(bar.querySelector("#agbody")!, "clientHeight", { configurable: true, value: 800 });
+  showSessionBody();
   drawAgentBody();
   const heads = () => bar.querySelectorAll(".hd[data-turn]");
   assert.equal(heads().length, 2);
@@ -122,8 +121,7 @@ test("the latest call stays visible until completion, while manual expansion sur
   };
   Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, log: agentlog, child: null });
   AG.steps.clear();
-  bar.innerHTML = '<div id="agbody"></div>';
-  Object.defineProperty(bar.querySelector("#agbody")!, "clientHeight", { configurable: true, value: 800 });
+  showSessionBody();
   const rows = () => bar.querySelectorAll<HTMLElement>(".tool.row");
   const head = () => bar.querySelector('.hd[data-turn="41"]')!;
   drawAgentBody();
@@ -186,8 +184,7 @@ test("streaming waits while a reply control is focused, then updates the same re
     earlier: 0, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0,
   };
   Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, log: agentlog, child: null });
-  bar.innerHTML = '<div id="agbody"></div>';
-  Object.defineProperty(bar.querySelector("#agbody")!, "clientHeight", { configurable: true, value: 800 });
+  showSessionBody();
   drawAgentBody();
   const reply = bar.querySelector<HTMLElement>('.dcoderen.agent[data-row="1"]');
   const copy = reply?.querySelector<HTMLButtonElement>("[data-copy]");
