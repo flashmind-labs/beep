@@ -7,14 +7,14 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // fresh while the user moves between projects, and prefetched ahead.
 import { sessionVisible } from "../agents/closing.ts";
 import { reason, since } from "../ui/format.ts";
-import { copy, dbtn as button, emptyPanel, freshNote, svgEl } from "../ui/parts.ts";
-import { openMenu, type MenuItem } from "../ui/menu.ts";
+import { copy, emptyPanel, freshNote } from "../ui/parts.ts";
+import { type MenuItem } from "../ui/menu.ts";
 import { MACHINE_REFRESH_MS, SWITCH_MS } from "../ui/pagecache.ts";
 import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { ElsewhereSection, FoundSection } from "./overview-view.tsx";
 import { panelSlot } from "./split.ts";
-import { foundFor, plainPath, withSyncthing, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
+import { foundFor, withSyncthing, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { ITEMS_SHOWN, repoUrl, reviewStart } from "../center/openitems-state.ts";
@@ -30,11 +30,8 @@ import { terms, fsync, revs, thr, runs, projectsEl, redrawProjects, redrawProjec
 import { drawProjects } from "./page.ts";
 import { refresh, onScreen } from "../center/refresh.ts";
 import { openAddToMachine } from "./addmachine.ts";
-import { stateNote } from "./filesync.ts";
-import { machineSync } from "../machines/machine-state.ts";
 import type { RunningAgent } from "../agents/running-state.ts";
-import { gitSyncWarning, syncRepairPrompt, agentCanFix, gitLine, movingLabel, moveKey, moveTitle, withRow, type GitMove, type GitRow } from "./gitsync-state.ts";
-import { IC } from "../ui/icons.ts";
+import { syncRepairPrompt, agentCanFix, gitLine, movingLabel, moveKey, moveTitle, withRow, type GitMove, type GitRow } from "./gitsync-state.ts";
 import { openHandoff } from "./handoff.tsx";
 
 /// Each project's tasks, workers and chat, read one at a time per project
@@ -253,17 +250,6 @@ async function gitMove(p: Project, m: WhereRow, row: GitRow, move: GitMove) {
   redrawProjectsPage();
 }
 
-/// Pull or Push as an icon with its count, as VS Code's status bar has them:
-/// off with nothing to move, a spinner in place of the arrow while it runs.
-function moveButton(p: Project, m: WhereRow, row: GitRow, move: GitMove, on: boolean, busy: GitMove | null | undefined) {
-  const n = move === "pull" ? row.behind : row.ahead;
-  const b = button(h("span", "gi-in", busy === move ? h("span", "dspin") : svgEl(IC[move]), String(n)), "quiet small gi", () => gitMove(p, m, row, move));
-  b.title = busy === move ? movingLabel(move) : moveTitle(move, n);
-  b.setAttribute("aria-label", moveTitle(move, n));
-  b.disabled = !!busy || !on;
-  return b;
-}
-
 export function gitControls(p: Project, m: WhereRow, online: boolean) {
   const row = state.gitsync.get(p.name)?.find(r => r.machine_id === m.id);
   if (!row) return null;
@@ -289,33 +275,6 @@ export function missingMachine(p: Project, m: WhereRow) {
   return { text, title, syncthing: m.kind === "none" ? m.syncthing ?? null : null, action };
 }
 
-/// Under a checkout's folder: its branch, and the reason a move was refused;
-/// and the Pull and Push icons.
-export function gitCells(p: Project, m: WhereRow): { note: HTMLElement | null; buttons: HTMLElement[] } {
-  const row = state.gitsync.get(p.name)?.find(r => r.machine_id === m.id);
-  if (!row) return { note: null, buttons: [] };
-  const line = gitLine(row);
-  const note = h("small", "gs" + (line.error ? " err" : ""), ...(line.branch ? [h("code", "", line.branch), line.text ? " " : ""] : []), line.text);
-  if (!line.buttons) return { note, buttons: [] };
-  const mv = moves.get(moveKey(p.name, m.id));
-  const buttons = [moveButton(p, m, row, "pull", line.pull, mv?.moving), moveButton(p, m, row, "push", line.push, mv?.moving)];
-
-  if (p.machines.length > 1 && !m.syncthing) {
-    buttons.push(button("Bring work here", "small", () => openHandoff(p, m.id, () => { loadGit(p.name); refresh(); })));
-  }
-
-  if (mv?.failed) {
-    const why = h("small", "gs err", mv.failed);
-    note.append(h("br"), why);
-
-    if (agentCanFix(mv.failed)) {
-      buttons.push(button("Fix with an agent", "small", () => void openSyncRepair(p.name, m.id, mv.failed!)));
-    }
-  }
-
-  return { note, buttons };
-}
-
 /// Opens a reviewable draft; no agent starts until the user sends it.
 export async function openSyncRepair(project: string, machine: string, error: string) {
   const p = projectRows()?.find(p => p.name === project);
@@ -337,98 +296,6 @@ export function checkoutItems(p: Project, m: WhereRow, path: string): MenuItem[]
     ...(m.mac ? [{ label: "Open in Finder", on: () => void invoke("open_folder", { path }).catch(e => console.warn("open folder:", e)) }] : []),
     { label: "Copy path", on: () => void copy(path) },
   ];
-}
-
-/// One machine's row under "Where it lives": its folder and what to do
-/// there, or why there is none.
-export function whereRow(p: Project, m: WhereRow) {
-  const name = h("span", "nm", h("b", "", m.name));
-
-  if (m.kind === "here") {
-    const path = m.folder!;
-    // One menu instead of a row of buttons; what needs fixing keeps its button.
-    const items = checkoutItems(p, m, path);
-    const more = button("⋯", "quiet small", e => openMenu(e, m.name, items));
-    more.title = "More";
-    more.setAttribute("aria-label", `More for ${m.name}`);
-    const shown = plainPath(path);
-    const folder = h("span", "nm", h("span", "os", shown));
-    folder.title = shown;
-    const moving = machineSync(m.id, state.sync.filter(s => s.project === p.name));
-    const said = moving ? (moving.pct == null ? "Scanning" : `Syncing ${moving.pct}%`) : copies.get(`${p.name}\n${m.id}`)?.state === "already" ? "Already here" : "";
-    if (said) folder.append(" ", h("small", "", said));
-
-    if (m.syncthing) {
-      // Syncthing keeps it in step, so Beep's own sync stays off here.
-      const note = h("small", "", "Synced by Syncthing");
-      note.title = `Syncthing folder "${m.syncthing}". Beep does not sync it here.`;
-      folder.append(" ", note);
-    }
-
-    // A folder that went is made again and filled by its node; one whose disk is gone waits.
-    const row = state.sync.find(s => s.project === p.name && s.machine_id === m.id);
-
-    if (row && (row.status === "missing" || row.status === "parent_missing")) {
-      const why = h("small", "gs err", row.status === "missing" ? "Folder missing: filling it again from the other machines" : "The folder above it is missing");
-      why.title = stateNote(row) || "";
-      folder.append(h("br"), why);
-    }
-
-    const git = gitCells(p, m);
-    if (git.note) folder.append(h("span", "gs-line", git.note));
-    const warning = row && !m.syncthing ? gitSyncWarning(row) : null;
-
-    if (warning) {
-      folder.append(Object.assign(h("small", "gs err", warning), { title: row!.error || "" }));
-
-      if (!agentCanFix(moves.get(moveKey(p.name, m.id))?.failed ?? "")) {
-        git.buttons.push(button("Fix with an agent", "small", () => void openSyncRepair(p.name, m.id, row!.error!)));
-      }
-    }
-
-    return [name, folder, h("span", "acts", ...git.buttons, more)];
-  }
-
-  const key = `${p.name}\n${m.id}`;
-  const copied = copies.get(key);
-  const said = h("span", "os", copied?.text || m.text);
-  if (m.kind === "none" && m.checked_at) said.title = `Checked ${since(m.checked_at)}`;
-  const what = h("span", "nm", said);
-
-  if (m.kind === "none" && m.syncthing) {
-    // Sync would hold, so nothing would ever arrive.
-    const note = h("small", "", "Synced by Syncthing");
-    note.title = `Syncthing folder "${m.syncthing}". Beep does not sync it.`;
-    what.append(" ", note);
-  }
-
-  if (state.home?.machines?.some(x => x.id === m.id && x.can_host === false)) {
-    what.classList.add("wide");
-    return [name, what];
-  }
-
-  if (m.kind === "none" && m.add) {
-    const add = button("Add", "small", () => openAddToMachine({
-      project: p.name,
-      machine: m,
-      os: state.home?.machines?.find(x => x.id === m.id)?.env?.os,
-      macId: state.mac?.id || null,
-      added: () => { refresh(); loadWhere(p.name); },
-    }));
-    return [name, what, h("span", "acts", add)];
-  }
-
-  if (m.kind === "none" && m.copy && copied?.state !== "failed") {
-    const copy = button(copied ? "Copying…" : "Copy here", "small", () => copyHere(p, m, key));
-    copy.disabled = !!copied;
-    return [name, what, h("span", "acts", copy)];
-  }
-
-  const clone = m.kind === "none" && p.url ? button("Clone here", "small", () => importSheet(repoFromRemote(p.url), m.id)) : null;
-  if (clone) return [name, what, h("span", "acts", clone)];
-  // Nothing to do there, so the note takes the buttons' room too.
-  what.classList.add("wide");
-  return [name, what];
 }
 
 /// Follows changes to the selected project's checkouts on each machine.
