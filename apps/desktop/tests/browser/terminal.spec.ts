@@ -146,6 +146,10 @@ test("the screen fits its element and draws text, colours and images, placeholde
     window.term.write(`\x1b[38;5;9m${cell(r0, c0)}${cell(r0, c1)}\r\n${cell(r1, c0)}${cell(r1, c1)}\x1b[0m\r\n`);
   }, png(64, 64, green));
   await expect.poll(() => pixels(page, green)).toBeGreaterThan(180);
+  // Nerd Font icons come from the bundled symbols font.
+  const loaded = await page.evaluate(async () => (await document.fonts.load("12px 'Symbols Nerd Font Mono'", "\u{f07b}")).map(face => face.status));
+  expect(loaded).toEqual(["loaded"]);
+
   // The theme's foreground draws the text.
   await expect.poll(() => pixels(page, [0xcf, 0xe3, 0xd8])).toBeGreaterThan(20);
 });

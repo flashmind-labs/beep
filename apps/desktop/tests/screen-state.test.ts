@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cellAt, fitGrid, routeKey, wheelAction } from "../src/terminals/screen-state.ts";
+import { cellAt, fitGrid, routeKey, wheelAction, withSymbols } from "../src/terminals/screen-state.ts";
 
 const CELL = { width: 16, height: 32 };
 
@@ -42,4 +42,9 @@ test("the wheel scrolls, sends arrows or mouse buttons", () => {
   assert.deepEqual(wheelAction(-100, false, true, true), { kind: "mouse", button: "wheel-up", times: 1 });
   assert.deepEqual(wheelAction(-4, false, false, false), { kind: "scroll", rows: -1 });
   assert.equal(wheelAction(0, false, false, false), null);
+});
+
+test("the symbols font goes before the generic fallbacks", () => {
+  assert.equal(withSymbols(`"IBM Plex Mono", ui-monospace, Menlo, monospace`), `"IBM Plex Mono", 'Symbols Nerd Font Mono', ui-monospace, Menlo, monospace`);
+  assert.equal(withSymbols(`"Geist Mono", "IBM Plex Mono"`), `"Geist Mono", "IBM Plex Mono", 'Symbols Nerd Font Mono'`);
 });

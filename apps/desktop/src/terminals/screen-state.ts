@@ -90,3 +90,16 @@ export function wheelAction(deltaY: number, lines: boolean, mouseTracking: boole
   if (alternateScreen) return { kind: "keys", code: rows < 0 ? "ArrowUp" : "ArrowDown", times };
   return { kind: "scroll", rows };
 }
+
+/// Icons and symbols that programs (yazi, prompts, editors) draw from Nerd
+/// Fonts, bundled in fonts.css: no text font has them.
+export const SYMBOLS_FONT = "'Symbols Nerd Font Mono'";
+
+/// `family` with the symbols font before its generic fallbacks, which would
+/// otherwise draw icons as missing glyphs.
+export function withSymbols(family: string): string {
+  const names = family.split(",").map(name => name.trim()).filter(name => name !== "");
+  const generic = names.findIndex(name => ["monospace", "ui-monospace", "system-ui", "sans-serif", "serif"].includes(name));
+  names.splice(generic === -1 ? names.length : generic, 0, SYMBOLS_FONT);
+  return names.join(", ");
+}
