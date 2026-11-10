@@ -25,7 +25,7 @@ import { projectBranch } from "./projectlist-state.ts";
 import type { GitRow } from "./gitsync-state.ts";
 import { go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
-import { agentsSection, customAgentsCount, customAgentsSection, disposeCustomAgents, disposeOverview, disposeRunningAgents, whereSection } from "./projects.ts";
+import { agentsSection, customAgentsCount, customAgentsSection, disposeCustomAgents, disposeOverview, disposeProjectFallback, disposeRunningAgents, whereSection } from "./projects.ts";
 import { pa, terms, fsync, revs, gitHistory, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionPanel, sessionsList, sessionsDue, loadSessions } from "./loads.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
@@ -68,7 +68,7 @@ function renderProjectShell(current: ProjectShell) {
     createPortal(current.issuesView, current.issues, "issues"), createPortal(current.tasksView, current.tasks, "tasks"),
     createPortal(current.sessionTabsView, current.sessionTabs, "session-tabs"), createPortal(current.overviewView, current.overview, "overview")) }]);
 }
-function disposeProjectShell() {
+export function disposeProjectShell() {
   if (!shell) return;
   removeWindowPart("project-shell");
   shell = null;
@@ -109,6 +109,7 @@ export function openTile(key: string | null, draw = true) {
   if (!draw && key === null) {
     disposeCustomAgents();
     disposeOverview();
+    disposeProjectFallback();
     disposeRunningAgents();
     details.dispose();
     disposeProjectShell();

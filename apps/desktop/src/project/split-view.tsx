@@ -58,7 +58,7 @@ export function Chip({ cls, text, spin }: { cls: string; text: string; spin: boo
   return <span className={cls ? `chip ${cls}` : "chip"}>{spin && <span className="dspin"/>}{text}</span>;
 }
 
-function RetainedSessions({ host }: { host: HTMLElement }) {
+export function RetainedHost({ host, contents = true }: { host: HTMLElement; contents?: boolean }) {
   const slot = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const target = slot.current;
@@ -66,7 +66,16 @@ function RetainedSessions({ host }: { host: HTMLElement }) {
     if (host.parentElement !== target) target.append(host);
     return () => { if (host.parentElement === target) host.remove(); };
   }, [host]);
-  return <div ref={slot} style={{ display: "contents" }}/>;
+  return <div ref={slot} style={contents ? { display: "contents" } : undefined}/>;
+}
+
+export interface RecentSessions { host: HTMLElement | null; empty: string | null; count: number; freshness: Freshness | null }
+export function RecentSessionsSection({ session }: { session: RecentSessions }) {
+  return <div id="sec-sessions"><div className="cc-sec"><h4>Past sessions{!!session.count && <span className="n">{session.count}</span>}{session.freshness?.spin ? <span className="dspin sw-spin ss-updating" title="Updating"/> : session.freshness?.text ? <small className="sw-age ss-updating">{session.freshness.text}</small> : null}</h4></div>{session.host ? <RetainedHost host={session.host}/> : <div className="cc-panel cc-empty"><span>{session.empty}</span></div>}</div>;
+}
+
+export function ProjectFallback({ session, machines, running, agents }: { session: RecentSessions; machines: HTMLElement; running: HTMLElement; agents: HTMLElement }) {
+  return <><RecentSessionsSection session={session}/><div className="ca-col"><RetainedHost host={machines}/><RetainedHost host={running}/><RetainedHost host={agents} contents={false}/></div></>;
 }
 
 function OverviewRow({ item, openTile }: { item: SplitItem; openTile: (key: string) => void }) {
@@ -79,14 +88,14 @@ function OverviewBox({ title, count, open, children }: { title: string; count: n
 
 export function ProjectOverview({ run, prs, issues, prNote, issueNote, machines, terminals, session, openTile, openTerminal }: {
   run: SplitItem[]; prs: SplitItem[]; issues: SplitItem[]; prNote: string | undefined; issueNote: string | undefined;
-  machines: TileData; terminals: TerminalRow[]; session: { host: HTMLElement | null; empty: string | null; count: number; freshness: Freshness | null };
+  machines: TileData; terminals: TerminalRow[]; session: RecentSessions;
   openTile: (key: string) => void; openTerminal: (terminal: TerminalRow) => void;
 }) {
   const rows = (items: SplitItem[]) => items.map(item => <OverviewRow key={item.key} item={item} openTile={openTile}/>);
   const empty = (title: string, note: string | undefined) => <div id=""><div className="cc-sec"><h4>{title}</h4></div><div className="cc-panel cc-empty"><span>{note}</span></div></div>;
   return <><div>
     {!!run.length && <OverviewBox title="Running" count={run.length} open={() => openTile("running")}>{rows(run.slice(0, 5))}</OverviewBox>}
-    <div id="sec-sessions"><div className="cc-sec"><h4>Past sessions{!!session.count && <span className="n">{session.count}</span>}{session.freshness?.spin ? <span className="dspin sw-spin ss-updating" title="Updating"/> : session.freshness?.text ? <small className="sw-age ss-updating">{session.freshness.text}</small> : null}</h4></div>{session.host ? <RetainedSessions host={session.host}/> : <div className="cc-panel cc-empty"><span>{session.empty}</span></div>}</div>
+    <RecentSessionsSection session={session}/>
     {!!machines.rows.length && <OverviewBox title="Machines" count={machines.count} open={() => openTile("machines")}>{machines.rows.slice(0, 5).map((row, index) => <div key={row.id ?? index} className="cc-row cc-line" title={row.title || row.text || ""} onClick={() => openTile("machines")}><span className={`ddot${row.dot ? " off" : ""}`}/><button type="button" className="t" title={row.text || ""}><b>{row.text}</b><span>{row.note}</span></button><span className="r"/></div>)}</OverviewBox>}
     {!!terminals.length && <OverviewBox title="Terminals" count={terminals.length} open={() => openTile("machines")}>{terminals.slice(0, 5).map(terminal => <div key={`${terminal.machine_id}:${terminal.id}`} className="cc-row cc-line" title={`${terminal.machine_name}: ${terminal.command} in ${terminal.cwd}`} onClick={() => openTerminal(terminal)}><span className={`ddot${terminal.state === "running" ? "" : " off"}`}/><button type="button" className="t" title={terminal.name}><b>{terminal.name}</b><span>{terminal.machine_name} · {terminalWhere(terminal)}</span></button><span className="r">{terminalNote(terminal, ago)}</span></div>)}</OverviewBox>}
   </div><div>
