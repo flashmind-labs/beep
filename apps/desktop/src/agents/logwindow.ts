@@ -56,6 +56,8 @@ export interface LogWindow {
 }
 
 const windows = new WeakMap<Element, LogWindow>();
+/// Each session body's log window, so a body finds its log without a lookup.
+const bodies = new WeakMap<ChatBody, LogWindow>();
 
 /// How tall a turn is taken to be before any was measured.
 const FALLBACK = 120;
@@ -66,13 +68,13 @@ export function createLog(): LogWindow {
     units: [], drawn: new Map(), elements: new Map(), sizes: new Map(), width: 0, gap: 0, top: null, bottom: null, el: null,
     watch: frameResize(() => resized(w)), view: { turns: [], top: null, bottom: null }, listeners: new Set(), search: null, searchChanged: null,
     attach: el => {
-      if (w.el) windows.delete(w.el);
+      if (w.el) forget(w);
       w.el = el;
       if (!el) return;
       windows.set(el, w);
       w.gap = parseFloat(getComputedStyle(el).rowGap) || 0;
       const body = el.closest<ChatBody>(".dbody");
-      if (body) w.watch.observe(body);
+      if (body) { bodies.set(body, w); w.watch.observe(body); }
     },
     subscribe: listener => { w.listeners.add(listener); return () => { w.listeners.delete(listener); }; },
     snapshot: () => w.view,
@@ -95,7 +97,14 @@ export function disposeLog(w: LogWindow) {
   w.watch.disconnect();
   dropSearch(w);
   w.listeners.clear();
-  if (w.el) windows.delete(w.el);
+  if (w.el) forget(w);
+}
+
+function forget(w: LogWindow) {
+  if (!w.el) return;
+  windows.delete(w.el);
+  const body = w.el.closest<ChatBody>(".dbody");
+  if (body && bodies.get(body) === w) bodies.delete(body);
 }
 
 export function watchLogSearch(log: HTMLElement, changed: () => void) {
@@ -156,8 +165,7 @@ export function setUnits(w: LogWindow, units: readonly Unit[], held: readonly No
 /// wheel rests, see `pinEnd`); otherwise the first turn in view stays
 /// where it is on screen.
 export function fillLog(b: ChatBody, follow: boolean) {
-  const log = b.querySelector<HTMLElement>(".dcoderlog");
-  const w = log && windows.get(log);
+  const w = bodies.get(b), log = w?.el;
   if (!log || !w) return false;
   const pin = follow && pinEnd(b);
   // Turns measured at another width are guessed again.
@@ -238,7 +246,7 @@ export function logSearchSources(log: HTMLElement) {
 
 /// Mounts the requested turn and scrolls it into the virtual window.
 export function revealLogUnit(b: ChatBody, key: string) {
-  const log = b.querySelector<HTMLElement>(".dcoderlog"), w = log && windows.get(log);
+  const w = bodies.get(b), log = w?.el;
   if (!log || !w) return null;
   const at = w.units.findIndex(u => u.key === key);
   if (at < 0) return null;
