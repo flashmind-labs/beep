@@ -159,6 +159,42 @@ pub enum Reply {
     },
 }
 
+/// A request as this build reads it. A `Call` whose operation is newer than
+/// this build keeps its id, so the stream answers it with an error and
+/// carries on instead of ending.
+#[derive(Debug, PartialEq)]
+pub enum Incoming {
+    Request(Request),
+    Unread { id: u64, reason: String },
+}
+
+/// Only the id of a `Call`, read when its operation is not.
+#[derive(Deserialize)]
+enum CallId {
+    Call {
+        id: u64,
+        #[allow(dead_code)]
+        operation: serde::de::IgnoredAny,
+    },
+}
+
+impl Incoming {
+    pub fn read(frame: &[u8]) -> Result<Self, rmp_serde::decode::Error> {
+        let error = match crate::lenient::from_slice(frame) {
+            Ok(request) => return Ok(Self::Request(request)),
+            Err(error) => error,
+        };
+
+        match crate::lenient::from_slice(frame) {
+            Ok(CallId::Call { id, .. }) => Ok(Self::Unread {
+                id,
+                reason: format!("this node cannot read the call: {error}"),
+            }),
+            Err(_) => Err(error),
+        }
+    }
+}
+
 // The inbound events/1 protocol remains available to released apps.
 impl From<super::subscriptions::Reply> for Reply {
     fn from(reply: super::subscriptions::Reply) -> Self {
