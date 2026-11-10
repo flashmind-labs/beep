@@ -23,7 +23,7 @@ export function onKey(v: Viewer, e: KeyboardEvent) {
     e.preventDefault();
     if (i != null) jump(v, list[i].path);
   } else if (e.key === "x") {
-    const f = list[at] ?? list[currentFile(tops(v, list), v.files?.scrollTop ?? 0)];
+    const f = list[at] ?? list[topFile(v, v.files?.scrollTop ?? 0)];
     e.preventDefault();
     if (f) toggle(v, f.path);
   } else if (e.key === "/") {
@@ -49,11 +49,14 @@ export function markCurrent(v: Viewer, reveal = true) {
   const files = v.files;
   if (!files || v.disposed) return;
   const s = v.state, list = shown(s);
+  // The virtualizer keeps the scroll and height from its own events; reading
+  // the element's would lay the page out again each time a chunk draws.
+  const scroll = v.virtual?.scrollOffset ?? files.scrollTop, height = v.virtual?.scrollRect?.height ?? files.clientHeight;
   const held = itemAt(v, indexOf(v, s.cur));
   let cur = s.cur;
 
-  if (!held || !held.size || !inView(held.start, held.end - GAP, files.scrollTop, files.clientHeight)) {
-    cur = list[currentFile(tops(v, list), files.scrollTop)]?.path ?? null;
+  if (!held || !held.size || !inView(held.start, held.end - GAP, scroll, height)) {
+    cur = list[topFile(v, scroll)]?.path ?? null;
   }
 
   if (cur === s.cur) return;
@@ -61,23 +64,45 @@ export function markCurrent(v: Viewer, reveal = true) {
   v.store.setState(reveal ? { cur, revealTree: s.revealTree + 1, ...revealFolders(v, cur) } : { cur });
 }
 
-/// Where each shown file's header sits, less the gap above it.
-function tops(v: Viewer, list: readonly DiffFile[]) {
-  v.virtual?.getVirtualItems();
-  const at = new Map(v.state.list.map((f, i) => [f.path, i]));
-  return list.map(f => (v.virtual?.measurementsCache[at.get(f.path) ?? -1]?.start ?? 0) - GAP);
+/// The index among the shown files of the one at the top. Scrolling asks on
+/// every frame, so it reads only the laid out boxes it needs.
+function topFile(v: Viewer, scroll: number) {
+  const virtual = v.virtual, list = shown(v.state), at = listIndexes(v, list);
+  virtual?.getVirtualItems();
+  return currentFile(list.length, index => (virtual?.measurementsCache[at[index]]?.start ?? 0) - GAP, scroll);
 }
 
-/// The folders that hold `path`, opened.
+/// Where each shown file sits in the laid out list.
+function listIndexes(v: Viewer, list: readonly DiffFile[]) {
+  const kept = v.layout;
+  if (kept && kept.shown === list && kept.files === v.state.list) return kept.at;
+  const at = list.map(f => indexOf(v, f.path));
+  v.layout = { shown: list, files: v.state.list, at };
+  return at;
+}
+
+/// The folders that hold `path`, opened. A set with none of them stays the
+/// same set, so the list keeps its rows.
 function revealFolders(v: Viewer, path: string | null) {
-  const open = (closed: ReadonlySet<string>) => new Set([...closed].filter(folder => !path?.startsWith(folder)));
+  const open = (closed: ReadonlySet<string>) => {
+    const kept = [...closed].filter(folder => !path?.startsWith(folder));
+    return kept.length === closed.size ? closed : new Set(kept);
+  };
   return { closedFolders: open(v.state.closedFolders), filteredClosedFolders: open(v.state.filteredClosedFolders) };
 }
 
 /// A file's height before it is measured, with the gap after it.
 export function sizeOf(f: DiffFile | undefined, filter: string, folded: ReadonlyMap<string, boolean>) {
-  return f && matchesFilter(f, filter) ? estimateHeight(f, isFolded(f, folded)) + GAP : 0;
+  if (!f || !matchesFilter(f, filter)) return 0;
+  if (isFolded(f, folded)) return estimateHeight(f, true) + GAP;
+  let open = openHeights.get(f);
+  if (open === undefined) openHeights.set(f, open = estimateHeight(f, false));
+  return open + GAP;
 }
+
+/// Each open file's estimated height: every size change lays out the files
+/// below it again from these.
+const openHeights = new WeakMap<DiffFile, number>();
 
 export function toggle(v: Viewer, path: string) {
   const f = v.state.view?.files.find(x => x.path === path);

@@ -180,7 +180,12 @@ export function matchesFilter(f: Pick<DiffFile, "path" | "old_path">, q: string)
   return f.path.toLowerCase().includes(want) || !!f.old_path?.toLowerCase().includes(want);
 }
 
-const count = (n: number, one: string, many: string) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
+/// `n` with thousands separators. One formatter for all: `toLocaleString`
+/// makes a new one on every call, which shows in a list of thousands.
+const NUMBERS = new Intl.NumberFormat("en-US");
+export const grouped = (n: number) => NUMBERS.format(n);
+
+const count = (n: number, one: string, many: string) => `${grouped(n)} ${n === 1 ? one : many}`;
 
 /// "6 files", or "No changes".
 export function changedLabel(v: Pick<DiffView, "files" | "more">) {
@@ -220,12 +225,18 @@ export function withLoaded(v: DiffView, loaded: readonly DiffFile[]): DiffView {
   return { ...v, files: v.files.map(f => by.get(f.path) ?? f) };
 }
 
-/// The file at the top of the list: the last whose header is at or above
-/// `scroll`, given each file's top in `tops`.
-export function currentFile(tops: readonly number[], scroll: number) {
-  let at = 0;
-  for (let i = 0; i < tops.length; i++) if (tops[i] <= scroll + 1) at = i;
-  return at;
+/// The file at the top of the list: the last of `count` whose header is at
+/// or above `scroll`, given each file's top by `top`, rising down the list.
+export function currentFile(count: number, top: (index: number) => number, scroll: number) {
+  let low = 0, high = count;
+
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (top(mid) <= scroll + 1) low = mid + 1;
+    else high = mid;
+  }
+
+  return Math.max(0, low - 1);
 }
 
 /// Where j (`dir` 1) or k (-1) goes from file `at` of `count`; `null`

@@ -16,7 +16,7 @@ import {
   type DiffFile, type DiffRow, type PlacedFile, type ReviewComment, type SplitRow, diffRows, isFolded, leftOutNote, lineLabel, matchesFilter,
   numberWidth, placeComments, splitHeight, splitRows,
 } from "./diff-state.ts";
-import { CH, CHUNK, GAP, MARGIN, type Viewer, reasonOf, remember, say, selected, shown } from "./diff-viewer.ts";
+import { CH, CHUNK, GAP, MARGIN, type Viewer, indexOf, reasonOf, remember, say, selected, shown } from "./diff-viewer.ts";
 import { commentKey, openEditor } from "./diff-comments.ts";
 import { markCurrent, sizeOf, toggle } from "./diff-keys.ts";
 import { expandContext, loadFull } from "./diff.ts";
@@ -53,7 +53,7 @@ export const DiffFiles = memo(function DiffFiles({ v }: { v: Viewer }) {
     const extra: number[] = [];
 
     for (const [path, section] of v.sections) {
-      const index = v.state.list.findIndex(file => file.path === path);
+      const index = indexOf(v, path);
       if (index < 0 || (index >= out[0] && index <= out[out.length - 1])) continue;
       if (section.contains(document.activeElement) || section.querySelector(".dv-cmt.open") || selected(section)) extra.push(index);
     }
@@ -83,11 +83,20 @@ export const DiffFiles = memo(function DiffFiles({ v }: { v: Viewer }) {
   const items = virtual.getVirtualItems();
   const order = useSectionOrder(v, items.map(item => list[item.index]));
 
-  // The list starts below the lost comments and notes, which change in height.
+  // The list starts below the lost comments and notes, which change with the
+  // state read here, as a lost comment's editor grows, or with the width.
+  // Not on every render: that would lay the page out on every scroll.
+  const lost = useRef<HTMLDivElement>(null);
+  const hasList = list.length > 0;
+  useLayoutEffect(() => { setMargin(win.current?.offsetTop ?? 0); }, [s.error, s.loading, s.view, filter, placed.lost, hasList]);
   useLayoutEffect(() => {
-    const top = win.current?.offsetTop ?? 0;
-    if (top !== margin) setMargin(top);
-  });
+    const box = lost.current;
+    if (!files || !box) return;
+    const observer = new ResizeObserver(() => setMargin(win.current?.offsetTop ?? 0));
+    observer.observe(files);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [files]);
 
   // A file whose content changed while it was not drawn is laid out by its estimate again.
   const laidOut = useRef(list);
@@ -105,9 +114,9 @@ export const DiffFiles = memo(function DiffFiles({ v }: { v: Viewer }) {
 
   return <div className="dv-files" ref={setFiles} style={{ position: "relative" }}>
     <div style={{ display: "contents" }}>{s.error && <div className="dv-err">{s.error}</div>}</div>
-    <div className="dv-lost">{s.view && <LostComments v={v} lost={placed.lost} />}</div>
+    <div className="dv-lost" ref={lost}>{s.view && <LostComments v={v} lost={placed.lost} />}</div>
     <div style={{ display: "contents" }}><DiffMessage loading={s.loading} view={s.view} /></div>
-    {list.length > 0 && <>
+    {hasList && <>
       <div className="dv-more" hidden={!filter.trim()}>{`${shown(s).length} of ${s.view?.files.length ?? 0} files match`}</div>
       <div className="dv-win" ref={win} style={{ height: `${virtual.getTotalSize()}px` }}>
         {order.map(({ file, key }) => {
@@ -148,8 +157,7 @@ function useSectionOrder(v: Viewer, wanted: readonly DiffFile[]) {
     const ordered = wanted.flatMap(file => v.sections.get(file.path) ?? []);
     const parent = ordered[0]?.parentElement;
     if (!parent) return;
-    const selection = document.getSelection();
-    const anchor = ordered.findIndex(section => section.contains(document.activeElement) || (!!selection && !selection.isCollapsed && selection.containsNode(section, true)));
+    const anchor = ordered.findIndex(section => section.contains(document.activeElement) || selected(section));
 
     if (anchor >= 0) {
       let before: Node = ordered[anchor];

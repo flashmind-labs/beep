@@ -1,6 +1,6 @@
-import { useLayoutEffect, useMemo, type MouseEvent } from "react";
+import { useCallback, useLayoutEffect, useMemo, type MouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { compactFolders, matchesFilter, splitPath, STATUS_LETTER, type DiffFile } from "./diff-state.ts";
+import { compactFolders, grouped, matchesFilter, splitPath, STATUS_LETTER, type DiffFile } from "./diff-state.ts";
 
 interface Folder {
   kind: "folder";
@@ -76,12 +76,24 @@ function flatten(items: readonly TreeItem[], filter: string, open: (path: string
 
 export function DiffTree(props: DiffTreeProps) {
   const items = useMemo(() => groupFiles(props.files), [props.files]);
-  const filtering = !!props.filter.trim();
-  const rows: Row[] = [];
-  flatten(items, props.filter, path => filtering ? !props.filteredClosedFolders.has(path) : !props.closedFolders.has(path), 0, rows);
+  const closed = props.filter.trim() ? props.filteredClosedFolders : props.closedFolders;
+  // Worked out again only when they change: scrolling the files marks the
+  // current one, which draws the list again.
+  const rows = useMemo(() => {
+    const out: Row[] = [];
+    flatten(items, props.filter, path => !closed.has(path), 0, out);
+    return out;
+  }, [items, props.filter, closed]);
+  // A key function kept while the rows stay, so the virtualizer keeps its measurements.
+  const getItemKey = useCallback((index: number) => {
+    const row = rows[index];
+    return row.kind === "folder" ? `d:${row.folder.path}` : `f:${row.item.file.path}`;
+  }, [rows]);
   const virtual = useVirtualizer({
-    count: rows.length, getScrollElement: () => props.scroller, estimateSize: () => 22, overscan: 12, useFlushSync: false,
-    getItemKey: index => { const row = rows[index]; return row.kind === "folder" ? `d:${row.folder.path}` : `f:${row.item.file.path}`; },
+    count: rows.length, getScrollElement: () => props.scroller, estimateSize: () => 22, overscan: 12, useFlushSync: false, getItemKey,
+    // Rows take the size the ResizeObserver reports before they paint;
+    // measuring each one as it mounts would lay the page out once per row.
+    measureElement: (node, entry, instance) => entry?.borderBoxSize?.[0]?.blockSize ?? instance.measurementsCache[instance.indexFromElement(node)]?.size ?? 22,
   });
 
   useLayoutEffect(() => {
@@ -112,8 +124,8 @@ export function DiffTree(props: DiffTreeProps) {
       onClick={() => props.onFile(f.path)} onContextMenu={event => props.onMenu(event, f)}>
       <span className={`dv-st ${STATUS_LETTER[f.status]}`}>{STATUS_LETTER[f.status]}</span>
       <span className="nm"><b>{row.item.name}</b></span><span className="ct">
-        {!!f.additions && <i className="dv-plus">+{f.additions.toLocaleString("en-US")}</i>}
-        {!!f.deletions && <i className="dv-minus">-{f.deletions.toLocaleString("en-US")}</i>}
+        {!!f.additions && <i className="dv-plus">+{grouped(f.additions)}</i>}
+        {!!f.deletions && <i className="dv-minus">-{grouped(f.deletions)}</i>}
       </span>
     </button>;
   }
