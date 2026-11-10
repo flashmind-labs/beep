@@ -1,10 +1,19 @@
 use super::*;
 
 fn reader(id: Uuid, session: &str) -> (Reader, watch::Receiver<bool>) {
+    reader_on(id, session, "build-box", false)
+}
+
+fn reader_on(
+    id: Uuid,
+    session: &str,
+    machine_id: &str,
+    asking: bool,
+) -> (Reader, watch::Receiver<bool>) {
     let (stop, cancelled) = watch::channel(false);
     let (shown, _) = watch::channel(false);
     let followed = Followed {
-        machine_id: "build-box".into(),
+        machine_id: machine_id.into(),
         agent: "codex".into(),
         session: session.into(),
     };
@@ -13,6 +22,7 @@ fn reader(id: Uuid, session: &str) -> (Reader, watch::Receiver<bool>) {
             id,
             _stop: stop,
             shown,
+            asking: Arc::new(AtomicBool::new(asking)),
             followed,
         },
         cancelled,
@@ -106,4 +116,65 @@ fn a_finished_reader_leaves_and_closing_the_window_cancels_the_rest() {
     follows.clear("b");
     assert!(b_cancelled.has_changed().is_err());
     assert!(follows.readers().shown.is_empty());
+}
+
+#[test]
+fn a_window_past_its_reader_limit_keeps_the_shown_and_asking_readers() {
+    let mut readers = Readers::default();
+    let shown = Uuid::new_v4();
+    let (first, first_cancelled) = reader(shown, "shown");
+    readers.register("window", first);
+    readers.show("window", Some(shown));
+    let (second, asking_cancelled) = reader_on(Uuid::new_v4(), "asks", "build-box", true);
+    readers.register("window", second);
+    let mut rest = Vec::new();
+
+    for at in 2..=WINDOW_READERS {
+        let (next, receiver) = reader(Uuid::new_v4(), &at.to_string());
+        readers.register("window", next);
+        rest.push(receiver);
+    }
+
+    assert!(first_cancelled.has_changed().is_ok());
+    assert!(asking_cancelled.has_changed().is_ok());
+    assert!(rest[0].has_changed().is_err());
+    assert!(
+        rest[1..]
+            .iter()
+            .all(|receiver| receiver.has_changed().is_ok())
+    );
+}
+
+#[test]
+fn a_full_node_releases_the_oldest_quiet_background_reader_on_it() {
+    let mut readers = Readers::default();
+    let shown = Uuid::new_v4();
+    let (elsewhere, elsewhere_cancelled) = reader_on(Uuid::new_v4(), "a", "gpu-box", false);
+    let (asks, asks_cancelled) = reader_on(Uuid::new_v4(), "b", "build-box", true);
+    let (quiet, quiet_cancelled) = reader_on(Uuid::new_v4(), "c", "build-box", false);
+    let (newer, newer_cancelled) = reader_on(Uuid::new_v4(), "d", "build-box", false);
+    let (open, _) = reader(shown, "shown");
+
+    for next in [elsewhere, asks, quiet, newer, open] {
+        readers.register("window", next);
+    }
+
+    readers.show("window", Some(shown));
+    assert!(readers.release_on("window", "build-box", shown));
+    assert!(quiet_cancelled.has_changed().is_err());
+    assert!(elsewhere_cancelled.has_changed().is_ok());
+    assert!(asks_cancelled.has_changed().is_ok());
+    assert!(newer_cancelled.has_changed().is_ok());
+
+    assert!(readers.release_on("window", "build-box", shown));
+    assert!(newer_cancelled.has_changed().is_err());
+    assert!(!readers.release_on("window", "build-box", shown));
+    assert!(asks_cancelled.has_changed().is_ok());
+}
+
+#[test]
+fn a_full_node_is_told_apart_from_other_follow_errors() {
+    assert!(node_full("too many session readers"));
+    assert!(node_full("Too many session readers on this machine"));
+    assert!(!node_full("session not found"));
 }
