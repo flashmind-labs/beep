@@ -64,6 +64,23 @@ pub mod logs {
     /// The most bytes a node gives, whole lines from the end.
     pub const MAX_BYTES: usize = 256 * 1024;
 
+    /// Filtered log queries use a separate protocol; `logs/1` stays unchanged.
+    pub const QUERY_PROTOCOL: &str = "log-query/1";
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct Query {
+        /// UTC RFC 3339 bounds, start inclusive and end exclusive.
+        pub start: String,
+        pub end: String,
+        pub search: Option<String>,
+        pub regex: bool,
+        pub lines: u32,
+        /// Matching lines to skip from the newest end.
+        pub offset: u32,
+        /// Preserve the legacy behavior for logs without timestamps.
+        pub allow_untimed: bool,
+    }
+
     /// What the server sends.
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct Request {

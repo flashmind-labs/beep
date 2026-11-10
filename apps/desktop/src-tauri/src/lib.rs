@@ -63,13 +63,19 @@ pub fn run() {
             log::warn!("opening the existing window: {e}");
         }
     }));
+    #[cfg(target_os = "macos")]
+    let builder = if cfg!(debug_assertions) {
+        builder
+    } else {
+        builder.plugin(tauri_plugin_sparkle_updater::init())
+    };
+    #[cfg(all(desktop, not(target_os = "macos")))]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     #[cfg(desktop)]
-    let builder = builder
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_autostart::init(
-            MacosLauncher::LaunchAgent,
-            Some(vec![LOGIN_ARG]),
-        ));
+    let builder = builder.plugin(tauri_plugin_autostart::init(
+        MacosLauncher::LaunchAgent,
+        Some(vec![LOGIN_ARG]),
+    ));
     // The camera that scans the pairing QR code.
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
@@ -546,7 +552,11 @@ pub fn run() {
                 // Quit (an exit with a code) ends it.
                 RunEvent::ExitRequested {
                     code: None, api, ..
-                } => api.prevent_exit(),
+                } => {
+                    if !platform::update::relaunching(app) {
+                        api.prevent_exit();
+                    }
+                }
                 // Quitting: the windows go at once, whatever stopping takes.
                 RunEvent::ExitRequested { code: Some(_), .. } => hide_windows(app),
                 RunEvent::Exit => quit(app),

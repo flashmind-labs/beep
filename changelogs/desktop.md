@@ -1,0 +1,232 @@
+# Desktop changelog
+
+Desktop changes are collected under Unreleased, then archived by version and
+date. Releases before 0.6.0 predate this changelog.
+
+Other apps have independent versions and changelogs:
+[node](node.md), [Android](android.md),
+[iOS](ios.md), and [server](server.md).
+
+## [Unreleased]
+
+### Added
+
+- macOS: check for updates hourly and show release notes in Sparkle's standard
+  native update dialog.
+- Release notes are kept for each version and included in desktop update feeds.
+
+## [0.7.0] - 2026-11-09
+
+### Added
+
+- A setting to pause project sync across all machines.
+- Coding agents can discover projects and select a project when starting an agent.
+
+### Fixed
+
+- Model choices made before resuming a session and configured default models are
+  reflected correctly in the session controls.
+- Live updates no longer interrupt touch scrolling in conversations.
+- Editor launch failures are shown instead of leaving the action unexplained.
+- Missing Codex subagent conversations are recovered from their saved sessions.
+- Windows background desktop commands no longer open console windows.
+
+### Performance
+
+- Project sync scans changed paths instead of rescanning whole projects for
+  every filesystem change.
+
+## [0.6.10] - 2026-11-09
+
+### Fixed
+
+- Project and machine icons stay visible when the sidebar is collapsed.
+- Diff files appear in the same order as the changed-files tree.
+
+## [0.6.9] - 2026-11-09
+
+### Added
+
+- Move coding agent sessions between projects.
+- Copy quoted replies with a dedicated button.
+- Collapse the navigation sidebar while keeping its icons available.
+
+### Changed
+
+- Single-folder chains take less space in the changed-files tree.
+- Chat searches can match terms across different messages in the same conversation.
+
+### Fixed
+
+- Pasted text is preserved in the project composer.
+- Session controls show the model reported by the session.
+- Bundled diagrams can load in conversation panes.
+- Missing image files have an explanation in the conversation.
+- Windows background availability checks no longer open console windows.
+
+## [0.6.8] - 2026-11-09
+
+### Changed
+
+- Project setup controls and discovered-project lists use a more compact layout.
+
+### Fixed
+
+- Conversations stay at the bottom when the composer changes height.
+- Diff gutters keep their background colors when scrolling.
+- Focusing a conversation no longer changes its header border color.
+
+## [0.6.7] - 2026-11-09
+
+### Changed
+
+- Wide reply tables scroll horizontally instead of breaking words.
+
+### Fixed
+
+- Session panes restore correctly and terminals keep running when changing panes.
+- Model selections resolve display names to the model identifiers agents accept,
+  and retain the selected model for the session.
+- Bundled diagrams can run inside sandboxed conversation previews.
+
+## [0.6.6] - 2026-11-09
+
+### Changed
+
+- Project machines, sync settings, and terminals are grouped together.
+- Coding agent settings distinguish shared preferences from settings specific
+  to a machine.
+
+### Fixed
+
+- Session streams and model choices are restored when reopening a session.
+- Saved instructions are supplied to coding agent sessions.
+- HTML previews can load scripts, fonts, and relative assets.
+- Git views and file context menus stay open during background refreshes.
+- Removal dialogs can be dismissed while work is pending.
+- Actions keep existing runs visible when a machine cannot be reached.
+- Resumed session state is applied before sending attached images.
+
+## [0.6.5] - 2026-11-09
+
+### Added
+
+- Temporary warnings explain session moves that have not finished yet.
+- Expand the surrounding context in a diff.
+
+### Fixed
+
+- Session and worktree lists stay stable during background refreshes.
+- The changed-files tree keeps the current diff file in view.
+- Moved sessions no longer leave duplicate rows in project session lists.
+- Diagrams render again after reopening a conversation pane.
+- Reopened session panes restore their previous views.
+
+## [0.6.4] - 2026-11-09
+
+### Added
+
+- Open HTML previews from file menus.
+
+### Fixed
+
+- Default model suggestions show the model names.
+- Long messages and nested Markdown lists wrap within their columns.
+
+## [0.6.3] - 2026-11-09
+
+### Added
+
+- Notification read state is shared between apps through the mesh.
+
+### Fixed
+
+- Git panels stay visible during project refreshes.
+- The Running pane refreshes a session's child processes.
+- Steering messages sent from another app appear when reading the session.
+- Chat search floats above the conversation instead of moving its content.
+- The hide-keyboard control stays hidden outside the phone layout.
+
+## [0.6.2] - 2026-11-08
+
+### Added
+
+- Windows and Linux desktop installers.
+- Choose a default model for each coding agent harness.
+- Preview HTML files in the desktop file pane.
+- Copy selected coding agent output as Markdown.
+- Interrupted coding agent turns can continue after a restart.
+
+### Fixed
+
+- Steering messages remain visible above the composer.
+- Continuation summaries no longer replace restored session titles.
+- Diff line numbers are excluded from copied text.
+- Notifications return to the project they were opened from.
+- The command palette keeps its selection when scrolling under a stationary
+  pointer.
+
+## [0.6.1] - 2026-11-08
+
+### Added
+
+- Search conversations with a compact search box and regular expressions.
+- Navigate notifications with the keyboard.
+- See the latest command while a coding agent turn is running.
+- Open remote file links in their default local app.
+
+### Changed
+
+- Conversation compaction is shown more clearly in session logs.
+
+### Fixed
+
+- Steering messages appear immediately after sending.
+- Project refreshes preserve session clicks.
+- Long session lists continue loading older entries.
+- Finished notifications clear when their session is read through a live stream.
+
+### Performance
+
+- Diff scrolling and progress animations avoid unnecessary layout work.
+
+## [0.6.0] - 2026-11-08
+
+### Added
+
+- Windows desktop support and direct linking between desktop apps.
+- Hermes coding agent support.
+- Rename coding agent sessions by double-clicking their titles.
+- Resize the diff file list and browse collapsible Git history and worktrees.
+- Attach files across coding agent inputs and keep messages in a persistent
+  project stash.
+- Open subagents in the normal conversation view and see running reviewers
+  under the sessions they review.
+- Render Mermaid diagrams with image export and clipboard actions.
+- Sync selected Git-ignored project folders and recover local edits during
+  Git sync when recovery is enabled.
+- Open local app actions from file references in agent replies.
+- Open notifications with a keyboard shortcut.
+
+### Changed
+
+- Git branches sync independently of the branch checked out on each machine.
+- Command rows expand to show the actual command and its output.
+
+### Fixed
+
+- Hidden conversation views restore their scroll positions when shown again.
+- Delivered steering messages no longer remain in the composer.
+- Opened build notifications are dismissed.
+- Reviewers receive the project's reviewer instructions and can continue the
+  same review session on subsequent reviews.
+
+### Security
+
+- External sites cannot navigate over desktop app windows.
+
+### Performance
+
+- Live mesh subscriptions refresh sessions and project views without repeated
+  full reads.
+- Hidden terminal views release their renderers until shown again.

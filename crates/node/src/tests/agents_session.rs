@@ -1294,8 +1294,8 @@ async fn a_question_alerts_and_a_queued_prompt_ends_in_one_alert() {
     assert_eq!(alerts.drain(), [], "closing it is no news");
 }
 
-/// An adapter whose first turn runs one tool call, which finishes only
-/// once the test writes to the fifo in `$2`. It answers the node's
+/// An adapter whose first turn leaves a server running while another tool
+/// finishes once the test writes to the fifo in `$2`. It answers the node's
 /// `session/cancel` by ending the turn cancelled, and ends each later
 /// turn at once. It logs every line it reads.
 const STEERING_ADAPTER: &str = r#"
@@ -1305,6 +1305,7 @@ read -r line; log "$1"
 reply '{"sessionId":"s"}'
 read -r line; log "$1"
 prompt=$(id)
+echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"server","title":"Development server","status":"in_progress"}}}'
 echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Running tests","status":"in_progress"}}}'
 read -r go < "$2"
 echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed"}}}'
@@ -1315,7 +1316,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
 
 #[cfg(unix)]
 #[tokio::test]
-async fn a_steer_goes_when_the_tool_call_finishes_ahead_of_the_queue() {
+async fn a_steer_goes_after_one_tool_finishes_despite_a_background_server() {
     let temp = tempfile::tempdir().unwrap();
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
@@ -1906,20 +1907,28 @@ cat >/dev/null
 }
 
 /// Holds the tool completion and original turn's end on separate FIFO reads.
+/// Immediate modes leave the tool running while accepting steering.
 const INJECTING_ADAPTER: &str = r#"
 read -r line; log "$1"
 reply '{"protocolVersion":1,"agentInfo":{"name":"@agentclientprotocol/codex-acp","version":"2.4.0"},"agentCapabilities":{"promptCapabilities":{"image":true}},"_meta":{"steering":{"supported":true}}}'
 read -r line; log "$1"; reply '{"sessionId":"s"}'
 read -r line; log "$1"; prompt=$(id)
 echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Running tests","status":"in_progress"}}}'
-read -r go < "$3"
-echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed"}}}'
+if [ "$2" != immediate ] && [ "$2" != multiple ]; then
+    read -r go < "$3"
+    echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed"}}}'
+fi
 read -r line; log "$1"
+if [ "$2" = multiple ]; then read -r go < "$3"; fi
 case "$2" in
-    injected)
+    injected|immediate|multiple)
         echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"make it blue"}}}}'
         echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Adjusted."}}}}'
         reply '{"outcome":"injected"}'
+        if [ "$2" = multiple ]; then
+            read -r line; log "$1"
+            reply '{"outcome":"injected"}'
+        fi
         read -r go < "$3"
         ;;
     idle-first)
@@ -1970,16 +1979,14 @@ async fn release(fifo: &Path) {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn a_steer_injects_at_tool_completion_without_cancelling_the_turn() {
+async fn a_steer_injects_immediately_while_a_tool_is_running() {
     let temp = tempfile::tempdir().unwrap();
-    let (kind, log, fifo) = injecting(temp.path(), "injected");
+    let (kind, log, fifo) = injecting(temp.path(), "immediate");
     let session = Session::start(start_on(&kind, temp.path(), None)).unwrap();
     until(&session, |live| live.info.state.summary == "Running tests").await;
     let mut steer = shot();
     steer.text = "make it blue".into();
     session.order(Command::Steer(steer)).await.unwrap();
-    assert_eq!(sent(&log).len(), 3, "nothing goes while the tool runs");
-    release(&fifo).await;
     until(&session, |live| live.info.state.queued == 0).await;
     let requests = sent(&log);
     assert_eq!(requests.len(), 4);
@@ -2001,6 +2008,45 @@ async fn a_steer_injects_at_tool_completion_without_cancelling_the_turn() {
     release(&fifo).await;
     settle(&session).await;
     assert_eq!(session.info().turns, 1);
+    assert_eq!(prompts(&log), ["go"]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn steers_waiting_for_an_injection_reply_continue_while_tools_run() {
+    let temp = tempfile::tempdir().unwrap();
+    let (kind, log, fifo) = injecting(temp.path(), "multiple");
+    let session = Session::start(start_on(&kind, temp.path(), None)).unwrap();
+    until(&session, |live| live.info.state.summary == "Running tests").await;
+    session
+        .order(Command::Steer("first correction".to_owned().into()))
+        .await
+        .unwrap();
+    session
+        .order(Command::Steer("second correction".to_owned().into()))
+        .await
+        .unwrap();
+    assert_eq!(session.info().state.queued, 2);
+    release(&fifo).await;
+    until(&session, |live| live.info.state.queued == 0).await;
+    let requests = sent(&log);
+    let steering: Vec<_> = requests
+        .iter()
+        .filter(|request| request["method"] == "_session/steering")
+        .collect();
+    assert_eq!(steering.len(), 2);
+    assert_eq!(
+        steering[0]["params"]["prompt"][0]["text"],
+        "first correction"
+    );
+    assert_eq!(
+        steering[1]["params"]["prompt"][0]["text"],
+        "second correction"
+    );
+    assert_eq!(session.info().turns, 0);
+    assert_eq!(session.info().state.status, Status::Working);
+    release(&fifo).await;
+    settle(&session).await;
     assert_eq!(prompts(&log), ["go"]);
 }
 

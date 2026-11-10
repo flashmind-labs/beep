@@ -106,3 +106,8 @@ pub fn restart(app: &AppHandle) {
     install(app);
     app.restart();
 }
+
+/// Only the native macOS updater requests an exit without an exit code.
+pub fn relaunching(_app: &tauri::AppHandle) -> bool {
+    false
+}

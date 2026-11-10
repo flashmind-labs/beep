@@ -279,6 +279,34 @@ async fn a_node_is_refused_another_machines_metrics() {
     assert!(reply.is_none());
 }
 
+#[tokio::test]
+async fn a_node_is_refused_another_machines_log_query() {
+    let (answer, reply) = ask_report_using(
+        |peer| Who::Node {
+            peer,
+            desktop_here: false,
+        },
+        beep_proto::node::logs::QUERY_PROTOCOL,
+    )
+    .await;
+    assert!(matches!(answer, Some(Opened::Refused { .. })), "{answer:?}");
+    assert!(reply.is_none());
+}
+
+#[tokio::test]
+async fn a_node_is_refused_another_machines_filtered_metrics() {
+    let (answer, reply) = ask_report_using(
+        |peer| Who::Node {
+            peer,
+            desktop_here: false,
+        },
+        beep_proto::node::metrics::QUERY_PROTOCOL,
+    )
+    .await;
+    assert!(matches!(answer, Some(Opened::Refused { .. })), "{answer:?}");
+    assert!(reply.is_none());
+}
+
 async fn ask_report_using(
     who: fn(EndpointId) -> Who,
     protocol: &str,

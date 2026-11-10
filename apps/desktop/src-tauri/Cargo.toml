@@ -90,6 +90,7 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+tauri-plugin-sparkle-updater = "0.3"
 block2 = "0.6"
 # Notifications with Allow and Deny, and what a click on one opens. The
 # notification plugin shows them through the same crate but drops actions.

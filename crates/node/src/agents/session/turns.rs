@@ -59,8 +59,8 @@ impl Actor {
         });
     }
 
-    /// Follows the running turn's tool calls; true when `update` finished
-    /// one and none is left running, where a steer can go in.
+    /// Follows unfinished tools for the cancel fallback. Any completed tool
+    /// lets a steer through, even when other commands keep running.
     pub(super) fn tool_finished(&mut self, update: &SessionUpdate) -> bool {
         let (id, status) = match update {
             SessionUpdate::ToolCall(call) => (&call.tool_call_id, Some(call.status)),
@@ -71,7 +71,7 @@ impl Actor {
         match status {
             Some(ToolCallStatus::Completed | ToolCallStatus::Failed) => {
                 self.running.remove(id);
-                self.running.is_empty()
+                true
             }
             Some(_) if self.running.len() < MAX_RUNNING_TOOLS => {
                 self.running.insert(id.clone());
@@ -81,8 +81,8 @@ impl Actor {
         }
     }
 
-    /// Delivers at a tool boundary, injecting when supported, otherwise
-    /// ending the turn so the steer can go as the next prompt.
+    /// Injects immediately when supported. Older adapters end the turn at
+    /// a tool boundary so the steer can go as the next prompt.
     pub(super) fn steer_now(&mut self, cx: &ConnectionTo<Agent>) -> Result<()> {
         if self.steers.is_empty()
             || self.turn.is_none()
@@ -194,7 +194,7 @@ impl Actor {
             }
 
             self.next_prompt(cx);
-        } else if self.running.is_empty() {
+        } else if self.takes_steering || self.running.is_empty() {
             self.steer_now(cx)?;
         }
 

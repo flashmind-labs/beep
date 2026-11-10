@@ -1,3 +1,4 @@
+// Returning from Home restores the session pane and its running terminal tabs.
 
 // No project-agent chat in front: the bar under a project page starts a coding agent on a machine,
 // in the project's checkout as it is. Beep makes no branch: the agent is told to make its own branch and
@@ -39,7 +40,7 @@ document.getElementById("desk").addEventListener("click", e => {
 pjBar = (o = {}) => {
   const noco = /checked out/.test(o.ph || "");
   return `<div class="pjc"><div class="box"><textarea class="ta" rows="1" title="Enter starts, Shift+Enter adds a line" placeholder="${noco ? "Add acme/widget to a machine to start an agent" : "Describe a task for a coding agent in acme/widget"}"></textarea>
-    <div class="row"><button class="pill" data-toast="${noco ? "Machines with a coding agent: picking one adds acme/widget there" : "Machines with a checkout and a coding agent"}">${noco ? "Add to a machine" : "build-box"}</button>
+    <div class="row"><button class="pill" data-toast="${noco ? "Machines with a coding agent: picking one adds acme/widget there" : "Machines with a checkout and a coding agent, updated when machines reconnect"}">${noco ? "Add to a machine" : "build-box"}</button>
       <button class="pill" data-toast="The checkout, a new worktree, or an existing worktree">Current checkout<small>as it is</small></button>
       <span class="sp"></span>
       <button class="pill" data-pjpick aria-expanded="${!!S.d.pjpick}">Claude Code<small>Default · Medium</small></button>

@@ -411,7 +411,9 @@ pub(crate) async fn get(fleet: &Fleet, id: Uuid) -> Result<TerminalOutput> {
 
 /// Stops a terminal and forgets it.
 pub(crate) async fn close(fleet: &Fleet, id: Uuid) -> Result<()> {
-    let row = find(fleet, id).ok_or_else(not_found)?;
+    let Some(row) = find(fleet, id) else {
+        return Ok(());
+    };
 
     if let Some(machine) = fleet.member(&row.record.machine.to_string())
         && let Ok(client) = fleet.client(machine).await
@@ -441,7 +443,12 @@ pub(crate) async fn attach(
     cols: u32,
     rows: u32,
 ) -> Result<Opened> {
-    let row = find(fleet, id).ok_or_else(not_found)?;
+    // Listings remove exited shells. A saved tab can outlive its mesh row.
+    let Some(row) = find(fleet, id) else {
+        return Ok(Opened::Over(TerminalEvent::Ended {
+            state: TerminalState::Gone {},
+        }));
+    };
 
     if !row.record.pty {
         return Ok(Opened::Over(TerminalEvent::ViewOnly {}));
