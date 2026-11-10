@@ -1,7 +1,7 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import type { ReactNode } from "react";
 import { useLayoutEffect, useState, type KeyboardEvent, type RefObject } from "react";
-import { ICON } from "../ui/icons.tsx";
+import { Icon } from "../ui/icons.tsx";
 import { plural } from "../ui/format.ts";
 import { hostOf, type App, type AppAccount, type McpServer } from "./apps.ts";
 
@@ -15,7 +15,7 @@ function Logo({ app }: { app: App }) {
   const [failed, setFailed] = useState<string | null>(null), url = app.slug === "fastmail" ? "fastmail.svg" : app.logo_url;
   return url && failed !== url ? <img className="dalogo" src={url} alt="" onError={() => setFailed(url)} /> : <span className="dalogo">{app.name.slice(0, 1).toUpperCase()}</span>;
 }
-function Chevron() { return <span className="dmuted" dangerouslySetInnerHTML={{ __html: ICON.chev }} />; }
+function Chevron() { return <span className="dmuted"><Icon name="chev" /></span>; }
 function Waiting({ cancel }: { cancel: () => void }) { return <><span className="dmuted"><span className="dspin" /> Waiting for browser…</span><button className="dbtn quiet" onClick={e => { e.stopPropagation(); cancel(); }}>Cancel</button></>; }
 function openOnKey(event: KeyboardEvent<HTMLElement>, action: () => void) { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); action(); } }
 function AppRow({ app, p }: { app: App; p: Props }) {
@@ -39,7 +39,7 @@ function AddServer({ p }: { p: Props }) {
   return <form className="dform dmcp" onSubmit={e => { e.preventDefault(); p.add(); }}>
     <label className="dfield"><span>Name</span><input ref={name} id="mname" maxLength={60} placeholder="Team notes" autoComplete="off" spellCheck={false} defaultValue={p.serverName} onChange={e => p.changeName(e.currentTarget.value)} disabled={busy} /></label>
     <label className={`dfield${p.addError ? " err" : ""}`}><span>{p.addError || "Server URL"}</span><input ref={p.fields.url} id="murl" className="url" maxLength={2000} placeholder="https://example.com/mcp" autoComplete="off" spellCheck={false} defaultValue={p.serverUrl} onChange={e => p.changeUrl(e.currentTarget.value)} disabled={busy} /></label>
-    <div className="dline">{busy ? <span className="dmuted"><span className="dspin" /> Connecting…</span> : <><button type="submit" className="dbtn pri">Add server<kbd dangerouslySetInnerHTML={{ __html: ICON.ret }} /></button><button type="button" className="dbtn quiet" onClick={p.cancelAdd}>Cancel</button></>}</div>
+    <div className="dline">{busy ? <span className="dmuted"><span className="dspin" /> Connecting…</span> : <><button type="submit" className="dbtn pri">Add server<kbd><Icon name="ret" /></kbd></button><button type="button" className="dbtn quiet" onClick={p.cancelAdd}>Cancel</button></>}</div>
   </form>;
 }
 export function AppsListView(p: Props) {
