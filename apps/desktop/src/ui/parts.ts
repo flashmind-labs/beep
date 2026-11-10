@@ -1,12 +1,6 @@
 // Shared command-center controls, dialog lifetimes, focus and clipboard behavior.
-import { button, el } from "./dom.ts";
 import { createElement, createRef, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { createDocumentScope } from "./document-root.tsx";
-
-/// A `dbtn` button with `cls` that runs `on`.
-export function dbtn(label: string | Node, cls: string, on: (e: MouseEvent) => void) {
-  return button(label, `dbtn${cls ? " " + cls : ""}`, on);
-}
 
 /// `text` on the clipboard. The webview may refuse the async way; the old way
 /// still works.
@@ -15,7 +9,7 @@ export async function writeClipboard(text: string) {
     await navigator.clipboard.writeText(text);
   } catch {
     const previous = document.activeElement;
-    const t = el("textarea");
+    const t = document.createElement("textarea");
     t.value = text;
     document.body.append(t);
     try {
@@ -69,20 +63,20 @@ interface SheetFrameOptions {
 }
 
 /// A mounted React dialog frame. Its caller owns dismissal and focus behavior;
-/// `render` puts the dialog's content in it, in the caller's flush.
+/// `render` puts the dialog's content in it, in the caller's flush, and may name it anew.
 export function mountSheetFrame(label: string, cls: string, options: SheetFrameOptions) {
   const rootRef = createRef<HTMLDivElement>(), sheetRef = createRef<HTMLDivElement>();
   const owner = createDocumentScope<"sheet">();
-  const frame = (content: ReactNode) => createElement("div", {
+  const frame = (content: ReactNode, named = label) => createElement("div", {
     className: options.scrimClass, ref: rootRef,
     onMouseDown: (event: ReactMouseEvent) => { if (event.target === event.currentTarget) options.onScrim(); },
-  }, createElement("div", { className: cls, role: "dialog", "aria-modal": true, "aria-label": label, ref: sheetRef,
+  }, createElement("div", { className: cls, role: "dialog", "aria-modal": true, "aria-label": named, ref: sheetRef,
     ...options.ownKeys ? { tabIndex: -1, onKeyDown: (event: ReactKeyboardEvent) => event.stopPropagation() } : {} }, content));
   owner.set([{ slot: "sheet", host: options.host, content: frame(null) }]);
   const root = rootRef.current, sheet = sheetRef.current;
   // The scope commits synchronously, so its DOM refs must be available here.
   if (!root || !sheet) { owner.dispose(); throw new Error("Dialog did not mount"); }
-  const render = (content: ReactNode) => owner.setDeferred([{ slot: "sheet", host: options.host, content: frame(content) }]);
+  const render = (content: ReactNode, named = label) => owner.setDeferred([{ slot: "sheet", host: options.host, content: frame(content, named) }]);
   return { root, sheet, render, dispose: owner.dispose };
 }
 
@@ -112,5 +106,5 @@ export function openSheet(label: string, cls: string, options: SheetOptions = {}
   };
   document.addEventListener("keydown", keys, true);
   openSheets.push(root);
-  return { root, sheet, close, render: (content: ReactNode) => { if (open) render(content); } };
+  return { root, sheet, close, render: (content: ReactNode, named = label) => { if (open) render(content, named); } };
 }

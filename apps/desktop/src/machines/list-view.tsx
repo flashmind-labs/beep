@@ -71,7 +71,7 @@ function MachineCard({ machine: m, columns, props: p }: { machine: Machine; colu
       {m.online && (m.adapters ?? []).map((a, i) => { const text = adapterLine(a); return <span key={`${a.agent}-${i}`} className={`dmad${a.failed === null ? "" : " bad"}`}><span title={text}>{text}</span>{a.failed !== null && <button type="button" className="dbtn small" disabled={tried?.busy} onClick={e => { e.stopPropagation(); p.retryAdapter(m.id); }}>{tried?.busy ? "Trying again…" : "Try again"}</button>}</span>; })}
       {m.online && tried?.error && <span className="dmad bad"><span>{tried.error}</span></span>}
     </>}
-    {asking && !p.hosted && <div className="ask"><span>Remove {m.name} from your account? {note} {m.can_host === false ? "To reconnect, pair it again." : "To use it again, add it with a new setup command."}</span>{asking.error && <span className="derr">{asking.error}</span>}<span className="acts"><button type="button" className="dbtn warn" id="rmYes" disabled={asking.busy} onClick={p.remove}>Remove</button><button type="button" className="dbtn quiet" id="rmNo" onClick={p.cancelRemove}>Cancel</button></span></div>}
+    {asking && !p.hosted && <div className="ask"><span>Remove {m.name} from your account? {note} {m.can_host === false ? "To reconnect, pair it again." : "To use it again, add it with a new setup command."}</span>{asking.error && <span className="derr">{asking.error}</span>}<span className="acts"><button type="button" className="dbtn warn" id="rmYes" disabled={asking.busy} onClick={p.remove}>Remove</button><button type="button" className="dbtn quiet" id="rmNo" autoFocus onClick={p.cancelRemove}>Cancel</button></span></div>}
   </div>;
 }
 

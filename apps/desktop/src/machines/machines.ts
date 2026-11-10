@@ -1,15 +1,16 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
+import { createDocumentScope } from "../ui/document-root.tsx";
 import { MachineList, MachineLoading } from "./list-view.tsx";
 import { MachineDetail, type MachineLog } from "./detail-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { AMBIENT_MS } from "../ui/active.ts";
 // machines/: the Machines list, Home's machine table (table.ts) and the
 // Add a machine sheet. Entry: this file.
 import { openAddMachine } from "./addmachine.ts";
 import { openJoinTicket } from "./jointicket.ts";
 import { errorText, offeredNode, type NodeUpdate, updatedTo } from "./machines-state.ts";
-import { bar, S } from "../bar/core.ts";
+import { S } from "../bar/core.ts";
 import { type BarPage, type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import type { MachineTraffic } from "./traffic-state.ts";
 import { hintModel } from "../bar/hints.ts";
@@ -120,11 +121,10 @@ export function machinesIn(root: HTMLElement, opened: MachinesHost["opened"], ch
   host = { root, machine: null, opened, changed };
 }
 export function machinesOut() {
-  if (screenRoot?.host === host?.root) clearScreen();
+  if (host) embedded.remove(["machines"]);
   host = null;
 }
 const hosted = () => (host?.root.isConnected ? host : null);
-const root = () => hosted()?.root ?? bar;
 /// Whether Machines is on screen, in Settings or on the page.
 const shown = () => !!hosted() || S.view === "machines";
 
@@ -212,7 +212,7 @@ function readList(): Promise<void> {
 export function followToolUpdates() {
   // Opened before the machines connected: the page follows them as they come.
   for (const name of ["home-changed", "reconnected"]) listen(name, () => { if (shown()) { void readList(); void loadToolUpdates(); } });
-  subscribeChanges(topic("machines"), { deliver: "latest", receive: () => readList() }, { when: shown });
+  subscribeChanges(topic("machines"), { deliver: "latest", receive: () => readList() }, { when: shown, wait: AMBIENT_MS });
 }
 
 async function loadNodeRelease() {
@@ -419,30 +419,9 @@ async function waitForNode(id: string, to: string, polls: number) {
 // whatever version the app was built with, which may never have been released.
 const newest = () => offeredNode(MC.released, (MC.list ?? []).filter(m => MC.updatable.has(m.id)).map(m => m.version));
 
-let screenRoot: { host: HTMLElement; mount: HTMLElement; root: DocumentView; observer: MutationObserver } | null = null;
-
-function clearScreen() {
-  if (!screenRoot) return;
-  screenRoot.observer.disconnect();
-  screenRoot.root.unmount();
-  screenRoot.mount.remove();
-  screenRoot = null;
-}
-
-function ensureScreen(el: HTMLElement) {
-  if (screenRoot && (screenRoot.host !== el || screenRoot.mount.parentElement !== el)) clearScreen();
-  if (!screenRoot) {
-    const mount = document.createElement("div");
-    mount.style.display = "contents";
-    el.replaceChildren(mount);
-    const observer = new MutationObserver(() => {
-      if (screenRoot?.mount === mount && (!mount.isConnected || mount.parentElement !== el)) clearScreen();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-    screenRoot = { host: el, mount, root: createDocumentView(mount), observer };
-  }
-  return screenRoot.root;
-}
+/// Machines in the Settings sheet's box. Its own scope keeps the bar window from loading the
+/// command center's root.
+const embedded = createDocumentScope<"machines">();
 
 /// A Machines screen, drawn in the bar as its page or in the Settings sheet's box.
 type MachinesPage = Extract<BarPage, { view: "machines" | "machine" | "machine-loading" }>;
@@ -456,12 +435,11 @@ function showScreen(at: MachinesHost | null, page: MachinesPage) {
     return;
   }
 
-  const screen = ensureScreen(at.root);
-  flushSync(() => screen.render(page.view === "machines" ? createElement(MachineList, page.props)
-    : page.view === "machine" ? createElement(MachineDetail, page.props) : createElement(MachineLoading)));
+  embedded.set([{ slot: "machines", host: at.root, content: page.view === "machines" ? createElement(MachineList, page.props)
+    : page.view === "machine" ? createElement(MachineDetail, page.props) : createElement(MachineLoading) }]);
 }
 
-function drawList(el: HTMLElement, at: MachinesHost | null) {
+function drawList(at: MachinesHost | null) {
   const refreshAfterSheet = () => { if (shown()) void renderMachines(hosted()?.machine ?? null).then(() => hosted()?.changed()); };
   showScreen(at, { view: "machines", props: {
     list: MC.list, error: MC.error, hosted: !!at, mac: MC.mac, newest: newest(), asking: MC.asking,
@@ -469,14 +447,14 @@ function drawList(el: HTMLElement, at: MachinesHost | null) {
     open: (id: string) => { if (at) { at.opened(id); void renderMachines(id); } },
     add: () => openAddMachine({ onClose: refreshAfterSheet }),
     link: () => openJoinTicket({ onClose: refreshAfterSheet }),
-    askRemove: (id: string) => { MC.asking = { id, busy: false, error: "" }; drawMachines(); el.querySelector<HTMLElement>("#rmNo")?.focus(); },
+    askRemove: (id: string) => { MC.asking = { id, busy: false, error: "" }; drawMachines(); },
     cancelRemove: () => { MC.asking = null; drawMachines(); },
     remove: () => { void removeMachine(); },
     retryAdapter: (id: string) => { void retryAdapters(id); },
   } });
 }
 
-function drawDetail(el: HTMLElement, at: MachinesHost | null, machine: Machine) {
+function drawDetail(at: MachinesHost | null, machine: Machine) {
   showScreen(at, { view: "machine", props: {
     machine, error: MC.error, mac: MC.mac, newest: newest(), updatable: MC.updatable.has(machine.id),
     nodeUpdate: MC.updates.get(machine.id) ?? null, search, log, tools: MC.tools, toolUps: MC.toolUps,
@@ -486,13 +464,13 @@ function drawDetail(el: HTMLElement, at: MachinesHost | null, machine: Machine) 
     signIn: (tool: string) => openSignIn(machine, tool, () => { if (shown()) void renderMachines(machine.id).then(() => hosted()?.changed()); }),
     updateNode: () => { void runUpdate(machine.id); }, updateTool: (tool: string) => { void updateTool(machine.id, tool); },
     logRead: () => { void readLog(machine.id); }, logSave: () => { void saveLog(machine); },
-    askRemove: () => { MC.asking = { id: machine.id, busy: false, error: "" }; drawMachines(); el.querySelector<HTMLElement>(".ask .quiet")?.focus(); },
+    askRemove: () => { MC.asking = { id: machine.id, busy: false, error: "" }; drawMachines(); },
     remove: () => { void removeMachine(); }, cancelRemove: () => { MC.asking = null; drawMachines(); },
   } });
 }
 
 function drawMachines() {
-  const at = hosted(), el = root();
+  const at = hosted();
   const open = at?.machine ? MC.list?.find(m => m.id === at.machine) : undefined;
 
   if (at?.machine && MC.list && !open) {
@@ -502,12 +480,12 @@ function drawMachines() {
   }
 
   if (!open && !at?.machine) {
-    drawList(el, at);
+    drawList(at);
     return;
   }
 
   if (open) {
-    drawDetail(el, at, open);
+    drawDetail(at, open);
   } else {
     showScreen(at, { view: "machine-loading" });
   }

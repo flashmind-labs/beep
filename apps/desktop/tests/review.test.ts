@@ -52,7 +52,7 @@ test("a second load while branches first load asks the server once", async () =>
     asked.push(cmd);
     return cmd === "project_branches" ? { default_branch: "main", branches: [] } : [];
   }) as unknown as ReviewDeps["invoke"];
-  const revs = makeReviews({ invoke, h: null!, button: null!, ago, redraw() {}, openUrl() {}, openTile() {} });
+  const revs = makeReviews({ invoke, ago, redraw() {}, openUrl() {}, openTile() {} });
   await Promise.all([revs.load("acme"), revs.load("acme")]);
   assert.equal(asked.filter(c => c === "project_branches").length, 1);
   await revs.load("acme");
@@ -68,7 +68,7 @@ test("kept branches show at once and a read replaces them in the cache", async (
   const cache = new PageCache("acct");
   cache.put("branches", "acme", { branches: { default_branch: "main", branches: [{ name: "old" }] }, reviews: [] });
   const kept = cache.section<KeptBranches>("branches");
-  const revs = makeReviews({ invoke, h: null!, button: null!, ago, redraw() {}, openUrl() {}, openTile() {}, kept });
+  const revs = makeReviews({ invoke, ago, redraw() {}, openUrl() {}, openTile() {}, kept });
   assert.deepEqual(revs.branches("acme")?.branches.map(b => b.name), ["old"]);
   revs.ensure("acme");
   assert.equal(asked.length, 0, "a fresh cache is not read again");

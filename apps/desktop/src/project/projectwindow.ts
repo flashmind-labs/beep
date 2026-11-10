@@ -1,4 +1,5 @@
 // A project in a window of its own.
+import type { MouseEventHandler } from "react";
 import type { PaneTarget } from "../bar/pane.ts";
 import type { Location } from "../center/state.ts";
 
@@ -6,6 +7,12 @@ import type { Location } from "../center/state.ts";
 interface ClickLike {
   button: number;
   metaKey: boolean;
+}
+
+/// The handlers a project's row or card takes to open it in its own window.
+export interface ProjectWindowProps {
+  clicks: { onClickCapture: MouseEventHandler; onAuxClick: MouseEventHandler; onMouseEnter: MouseEventHandler; onMouseLeave: MouseEventHandler };
+  menu: { onContextMenu: MouseEventHandler };
 }
 
 /// The menu line that opens a project in its own window.

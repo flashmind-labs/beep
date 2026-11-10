@@ -33,6 +33,7 @@ import { groupMenu } from "../project/groups.ts";
 import { loadOverview } from "../project/projects.ts";
 import { redrawProjects, redrawProjectsPage } from "../project/sections.ts";
 import { prefetchOnHover, sessionsDue } from "../project/loads.ts";
+import type { ProjectWindowProps } from "../project/projectwindow.ts";
 import { drawProjects } from "../project/page.ts";
 import { refresh } from "./refresh.ts";
 import { threadChats } from "./threadcard.ts";
@@ -43,7 +44,7 @@ import { IC } from "../ui/icons.tsx";
 import { syncProjects, syncConflicts } from "../project/syncpage.ts";
 import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";
-import { createElement, type ReactNode } from "react";
+import { createElement, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { placeWindowParts } from "./window-root.ts";
 import { windowHost } from "./window-shell.tsx";
 import { SidebarShell, SidebarItem, SidebarGroup as SidebarGroupView, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
@@ -273,19 +274,20 @@ export function openProjectWindow(name: string) {
   invoke("center_open_project_window", { project: name }).catch(e => console.warn("opening a project window:", e));
 }
 
-/// Lets project `name` open in a window of its own: ⌘-click or middle-click on
-/// `clicks`, or "Open in New Window" from a right-click on `menu`.
-export function newWindowOn(clicks: HTMLElement, menu: HTMLElement, name: string) {
-  const open = (e: MouseEvent) => {
+/// What lets project `name` open in a window of its own: ⌘-click or middle-click on the
+/// element given `clicks`, which also reads the project ahead on hover, or "Open in New Window"
+/// from a right-click on the one given `menu`. The capture runs before the click opens it here.
+export function projectWindowProps(name: string): ProjectWindowProps {
+  const open = (e: ReactMouseEvent) => {
     if (!opensNewWindow(e)) return;
     e.preventDefault();
-    e.stopImmediatePropagation();
+    e.stopPropagation();
     openProjectWindow(name);
   };
-  clicks.addEventListener("click", open, true);
-  clicks.addEventListener("auxclick", open);
-  menu.addEventListener("contextmenu", e => openProjectMenu(e, name));
-  prefetchOnHover(clicks, name);
+  return {
+    clicks: { onClickCapture: open, onAuxClick: open, ...prefetchOnHover(name) },
+    menu: { onContextMenu: (e: ReactMouseEvent) => openProjectMenu(e.nativeEvent, name) },
+  };
 }
 
 /// The right-click menu of project `name`: a window of its own, and
@@ -331,7 +333,7 @@ function projectReact(project: Placed<Project>, label: string, pinned: boolean, 
     current: currentLocation()?.view === "projects" && state.picked === project.name,
     threads: nestedThreads().get(project.name) ?? [], activeChat: on.view === "chat" ? on.session : null,
     running: running(), open: () => openProjects(project.name), pin: () => { void setProjectOnTop(project.name, !pinned); },
-    wire: (button, row) => newWindowOn(button, row, project.name), openThread: id => { go("pane", { chat: { session: id } }); } });
+    windowProps: projectWindowProps(project.name), openThread: id => { go("pane", { chat: { session: id } }); } });
 }
 function chatReact(c: SideChat) {
   if (c.kind === "project") return projectReact(c.project, c.title, true, false);

@@ -20,7 +20,7 @@ import { blocked, confirmRemove, removeMenuItems } from "./removemachine.ts";
 import { changeFolder, changeFolderItems } from "./changefolder.ts";
 import { addProject } from "../center/sidebar.ts";
 import { splitOn, projectSplit, disposeProjectShell } from "./split.ts";
-import { hostPart, viewPart, type PagePart } from "./page-view.tsx";
+import { hostPart, retainedHost, viewPart, type PagePart } from "./page-view.tsx";
 import { redrawProjects, redrawProjectsPage, pc, terms, fsync } from "./sections.ts";
 import { drawProjectComp, fillBar } from "./composer.ts";
 import { missingMachine, gitControls, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsList } from "./loads.ts";
@@ -44,7 +44,7 @@ export function disposeOverview() {
 export function overviewSection(rows: Project[]): PagePart[] {
   visiting = null;
   const groups = overviewGroups(rows, state.overview, state.top, state.groups, overviewOrder(rows));
-  if (!overviewHost) { overviewHost = document.createElement("div"); overviewHost.style.display = "contents"; }
+  overviewHost ??= retainedHost(null);
   showWindowParts([{ part: "project-overview", host: overviewHost, content: createElement(ProjectsOverview, { groups, editing: state.renaming,
     sync: (name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name)), add: addProject,
   }) }]);

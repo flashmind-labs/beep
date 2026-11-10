@@ -25,9 +25,8 @@ test("instructions keep editing and focus while saving and preserve later change
   }, Channel: class {} }, event: { listen: async () => () => {} } } });
   const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
   const { invoke } = await import("../src/ui/tauri.ts");
-  const { el, button } = await import("../src/ui/dom.ts");
   const { instructionsPage } = await import("../src/settings/instructions.ts");
-  const view = instructionsPage({ invoke, h: el, button, ago: () => "recent", openSettings() {} });
+  const view = instructionsPage({ invoke, ago: () => "recent", openSettings() {} });
   const host = dom.window.document.getElementById("host");
   assert.ok(host);
   try {

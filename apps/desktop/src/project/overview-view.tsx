@@ -4,7 +4,7 @@ import { commandKey } from "../ui/platform.ts";
 import { formatAgo, plural } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
 import { itemChips, type GitItemRow } from "../center/openitems-state.ts";
-import { newWindowOn, openProjects, setProjectOnTop } from "../center/sidebar.ts";
+import { projectWindowProps, openProjects, setProjectOnTop } from "../center/sidebar.ts";
 import { agentLabel, foundSessions, type FoundRow, type OverviewCard, type Project } from "./projects-state.ts";
 import { searchOverview, type OverviewGroup } from "./overview-state.ts";
 import { OverviewCardView, overviewCardModel } from "./overview-card.tsx";
@@ -89,5 +89,5 @@ function OverviewGroupView({ group, sync, editing }: { group: Group; sync: (name
   };
   return <><h3 className={g ? "gp" : undefined} onContextMenu={g && !editing ? e => groupMenu(e.nativeEvent, g) : undefined}>
     {g ? <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><path d="M3 6.5A1.5 1.5 0 014.5 5H10l2 2.5h7.5A1.5 1.5 0 0121 9v9.5a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z" /></svg>{editing ? <><input ref={input} defaultValue={editing.draft} aria-label="Group name" onChange={e => { editing.draft = e.currentTarget.value; }} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); finish(true); } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(false); } }} /><span className="gp-acts"><button type="button" className="dbtn pri" onClick={() => finish(true)}>Save</button><button type="button" className="dbtn quiet" onClick={() => finish(false)}>Cancel</button></span></> : <>{g.name}<small>{plural(group.cards.length, "repo", "repos")}</small><span className="gp-paths" title="Matched on every machine">{g.paths.map(p => p.startsWith("/") ? p : `~/${p}`).join(", ")}</span><span className="gp-acts"><button type="button" className="dbtn quiet" onClick={() => startRename(g)}>Rename</button><button type="button" className="dbtn quiet" onClick={() => editGroup(g)}>Folders…</button><button type="button" className="dbtn quiet warn" onClick={() => removeGroup(g)}>Remove</button></span></>}</> : <>{group.org ? `${group.org}/` : "Other folders"}<small>{plural(group.cards.length, "repo", "repos")}</small></>}
-  </h3>{group.cards.length || !g ? <div className="pj-grid">{group.cards.map(c => <OverviewCardView key={c.name} model={overviewCardModel(c, sync(c.name))} open={openProjects} pin={setProjectOnTop} wire={newWindowOn} />)}</div> : <span className="gp-none">No projects in these folders yet.</span>}</>;
+  </h3>{group.cards.length || !g ? <div className="pj-grid">{group.cards.map(c => <OverviewCardView key={c.name} model={overviewCardModel(c, sync(c.name))} open={openProjects} pin={setProjectOnTop} windowProps={projectWindowProps(c.name)} />)}</div> : <span className="gp-none">No projects in these folders yet.</span>}</>;
 }

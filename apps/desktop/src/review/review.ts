@@ -1,15 +1,16 @@
-import { createElement, Fragment, type ReactNode } from "react";
-import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
+import { createElement, type ReactNode } from "react";
+import { ErrorNote } from "../ui/kit.tsx";
 import { ReviewFindings } from "./review-findings.tsx";
 import { ReviewActions, ReviewHeading } from "./review-controls.tsx";
 import { ReviewStatus } from "./review-status.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { AMBIENT_MS } from "../ui/active.ts";
 // review/: a project's branches and reviews. Entry:
 // makeReviews here.
 // A project's branches and the review of one before a merge.
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import { agentLabel } from "../project/projects-state.ts";
-import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
+import type { Ago } from "../ui/format.ts";
 import type { Place } from "./branchwork.ts";
 import { plural, reason } from "../ui/format.ts";
 import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
@@ -245,8 +246,6 @@ export function readySummary(r: Pick<ReviewView, "shards" | "findings" | "change
 /// for where a worktree goes.
 export interface ReviewDeps {
   invoke: typeof Invoke;
-  h: MakeEl;
-  button: MakeButton;
   ago: Ago;
   redraw: () => void;
   openUrl: (url: string) => unknown;
@@ -280,12 +279,11 @@ interface ProjectReviews {
 }
 
 export function makeReviews(deps: ReviewDeps) {
-  const { invoke, h, ago, redraw, openUrl, openTile } = deps;
+  const { invoke, ago, redraw, openUrl, openTile } = deps;
   const kept = deps.kept ?? new PageCache(null).section<KeptBranches>("branches");
   const all = new Map<string, ProjectReviews>();
   let unfollow: (() => void) | undefined;
   let polling: string | null = null;
-  let detailView: { project: string; host: HTMLElement } | null = null;
 
   /// A project's branches and reviews, from the cache until they are read.
   const of = (name: string) => {
@@ -392,7 +390,7 @@ export function makeReviews(deps: ReviewDeps) {
       await loads.get(name);
       await Promise.all([load(name), read(name)]);
       if (of(name).error) throw new Error(of(name).error);
-    } });
+    } }, { wait: AMBIENT_MS });
   }
 
   /// Opens `branch`'s newest review, starting one when it has none or
@@ -463,10 +461,6 @@ export function makeReviews(deps: ReviewDeps) {
   // ---------- Review ----------
 
   function reviewDetail(name: string, error: string | null) {
-    if (!detailView || detailView.project !== name) {
-      if (detailView) removeWindowPart("review-detail");
-      detailView = { project: name, host: h("div", "pj-det") };
-    }
     const t = of(name), r = t.review;
     const now = r && t.now?.id === r.id ? t.now : null;
     const status = createElement(ReviewStatus, {
@@ -483,9 +477,8 @@ export function makeReviews(deps: ReviewDeps) {
       actions = createElement(ReviewActions, { key: "actions", review: r, now, busy: t.busy, fix: () => void fix(name, r), post: () => void post(name, r), merge: () => void merge(name, r) });
       watch(name);
     }
-    showWindowParts([{ part: "review-detail", host: detailView.host, identity: name, content: createElement(Fragment, null,
-      error && createElement("div", { className: "cc-note" }, createElement("span", { className: "ddot bad" }), createElement("span", { className: "cc-err" }, `Could not refresh the project: ${error}`)), heading, status, findings, actions) }]);
-    return detailView.host;
+    return createElement("div", { className: "pj-det" },
+      error && createElement(ErrorNote, { key: "error", text: `Could not refresh the project: ${error}` }), heading, status, findings, actions);
   }
 
   return {
@@ -495,6 +488,6 @@ export function makeReviews(deps: ReviewDeps) {
     reviews: (name: string) => of(name).reviews,
     openBranch,
     reviewDetail,
-    stop: () => { watch(null); removeWindowPart("review-detail"); detailView = null; },
+    stop: () => watch(null),
   };
 }

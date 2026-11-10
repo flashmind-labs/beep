@@ -11,9 +11,8 @@ import { OpenListControls, OpenListStart } from "./openlist-view.tsx";
 import { sessionVisible } from "../agents/closing.ts";
 import { formatAgo, plural } from "../ui/format.ts";
 import { projectPastSessions, type Project, type WhereRow } from "./projects-state.ts";
-import { el as h } from "../ui/dom.ts";
 import { agentFor, pageAgent } from "./agent.ts";
-import { FreshNote, NeedsYou, Parts, hostPart, threadsParts, viewPart, type PagePart } from "./page-view.tsx";
+import { FreshNote, NeedsYou, Parts, hostPart, retainedHost, threadsParts, viewPart, type PagePart } from "./page-view.tsx";
 import { terminalTile, type TerminalRow } from "../terminals/terminals.ts";
 import { fileSyncTile } from "./filesync.ts";
 import { taskTile, machineTile, askingSessions } from "./board.ts";
@@ -57,7 +56,7 @@ export function disposeProjectShell() {
 function projectShell(project: string) {
   if (shell?.project === project) return shell;
   disposeProjectShell();
-  shell = { project, navigation: h("div", "pj-list"), overview: h("div", "pj-ov"), navView: null, overviewView: null, overviewScroll: new Map() };
+  shell = { project, navigation: retainedHost("pj-list"), overview: retainedHost("pj-ov"), navView: null, overviewView: null, overviewScroll: new Map() };
   return shell;
 }
 
@@ -253,8 +252,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     pick: (id: string, checked: boolean) => setIssueSelection(issueKey, id, checked, redrawProjects),
     openTile,
   })) : null;
-  const host = history?.detail ?? (showReview ? revs.reviewDetail(p.name, error ?? null) : null);
-  const det = host ? hostPart(host) : issuesView ? viewPart("issues", issuesView) : viewPart("detail", createElement(Parts, { className: "pj-det", parts: [
+  const det = history ? hostPart(history.detail) : showReview ? viewPart("review", revs.reviewDetail(p.name, error ?? null)) : issuesView ? viewPart("issues", issuesView) : viewPart("detail", createElement(Parts, { className: "pj-det", parts: [
     ...(error ? [viewPart("error", createElement(ErrorNote, { text: `Could not refresh the project: ${error}` }))] : []), ...(picked.detail?.() ?? []),
   ] }));
   const waiting = threads?.filter(t => t.needs_reply).length ?? 0;

@@ -27,6 +27,9 @@ export function linkified(s: string) {
 /// - `day`: "09:41" today, "Yesterday", "Thu" this week, then the date
 export type AgoStyle = "short" | "since" | "long" | "rough" | "chat" | "day";
 
+/// "12 min" or "now": how long ago a time in milliseconds was, as the window says it.
+export type Ago = (ms: number) => string;
+
 export function formatAgo(ms: number, style: AgoStyle, now = Date.now()): string {
   const s = Math.max(0, Math.round((now - ms) / 1000));
 

@@ -2,11 +2,10 @@ import { refreshTopicSubscriptions, subscribeEach, topic } from "../ui/mesh-even
 import { commandKey } from "../ui/platform.ts";
 // Settings as a sheet over the command center window.
 import { formatAgo } from "../ui/format.ts";
-import { dbtn as button, mountSheetFrame, sheetAbove } from "../ui/parts.ts";
+import { mountSheetFrame, sheetAbove } from "../ui/parts.ts";
 import { invoke, recordTiming } from "../ui/tauri.ts";
 import { PageTiming } from "../center/page-timing.ts";
 import { pane } from "../bar/pane.ts";
-import { el as h } from "../ui/dom.ts";
 import { instructionsPage } from "./instructions.ts";
 import { providersPage } from "./providers.ts";
 import { connectSettingsSheet, settingsClosed, showSettingsPage } from "./settings.ts";
@@ -121,7 +120,7 @@ function trapTab(e: KeyboardEvent, sheet: HTMLElement) {
 connectSettingsSheet({
   show: (_sheet, content) => { const open = settingsOpen; if (open) flushSync(() => open.render(content)); },
 });
-export const instructionsView = instructionsPage({ invoke, h, button, ago: ms => formatAgo(ms, "short"), openSettings });
+export const instructionsView = instructionsPage({ invoke, ago: ms => formatAgo(ms, "short"), openSettings });
 export const providersView = providersPage({ invoke, openSettings, redrawTop: () => {
   if (currentLocation()?.view === "providers") drawTop();
 }, follow: changed => { subscribeEach([topic("machines"), topic("accounts")], changed); } });
