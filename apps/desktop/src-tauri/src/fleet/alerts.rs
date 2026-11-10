@@ -136,7 +136,20 @@ async fn presence(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) 
             logged = None;
         }
 
+        until_online(&fleet, id).await;
         sleep(backoff.pause()).await;
+    }
+}
+
+/// Waits until `id` is online, at once if it is, so an offline machine is
+/// not asked again until it comes back.
+async fn until_online(fleet: &Fleet, id: EndpointId) {
+    let mut changes = fleet.changes();
+
+    while !fleet.online().contains(&id) {
+        if !changes.changed().await {
+            return;
+        }
     }
 }
 
