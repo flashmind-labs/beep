@@ -4,9 +4,11 @@ import { gfm } from "turndown-plugin-gfm";
 const markdown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
 markdown.use(gfm);
 
+/// The markdown of a rendered quote, without its copy buttons. Turndown reads
+/// a detached copy, so the page is left as it is.
 export function quotedMarkdown(quote: Element): string {
   const container = document.createElement("div");
-  container.innerHTML = quote.innerHTML;
+  container.append(...[...quote.childNodes].map(node => node.cloneNode(true)));
   container.querySelectorAll("button").forEach(button => button.remove());
   return markdown.turndown(container);
 }

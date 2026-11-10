@@ -1,8 +1,7 @@
-import { createElement } from "react";
+import { createElement, createRef } from "react";
 import { flushSync } from "react-dom";
 import { createDocumentView } from "../ui/document-root.tsx";
 import { FindView } from "./find-view.tsx";
-import { el } from "../ui/dom.ts";
 import { nextMatch, searchPattern, textMatches } from "./find-state.ts";
 
 export interface SearchSource { key: string; root: HTMLElement }
@@ -15,7 +14,7 @@ export interface ChatSearch {
 }
 interface Match { key: string; at: number }
 
-let active: { close: (focus?: boolean) => void; focus: () => void; move: (step: number) => void } | null = null;
+let active: { close: (focus?: boolean) => void; focus: () => void; move: (step: number) => void; shown: () => boolean } | null = null;
 
 export function stepChatFind(step: number) {
   if (!active) return false;
@@ -31,16 +30,19 @@ export function closeChatFind() {
 
 /** A find bar scoped to one conversation, including turns outside the DOM. */
 export function openChatFind(chat: ChatSearch) {
-  if (active && document.querySelector(".chat-find")) { active.focus(); return; }
+  if (active?.shown()) { active.focus(); return; }
   active?.close(false);
   const { body } = chat;
   const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  const layer = el("div", "chat-find-layer");
+  // The bar sits above the conversation it searches, in a host of its own.
+  const layer = document.createElement("div");
+  layer.className = "chat-find-layer";
   body.before(layer);
+  const field = createRef<HTMLInputElement>();
   const root = createDocumentView(layer);
   let useRegex = false, statusText = "";
   const draw = () => flushSync(() => root.render(createElement(FindView, {
-    error, status: statusText, regex: useRegex, disabled: !matches.length,
+    field, error, status: statusText, regex: useRegex, disabled: !matches.length,
     input: () => { clearTimeout(timer); timer = window.setTimeout(() => { timer = 0; refresh(true); }, 100); },
     enter: reverse => move(reverse ? -1 : 1),
     toggleRegex: () => { useRegex = !useRegex; clearTimeout(timer); timer = 0; refresh(true); input.focus({ preventScroll: true }); },
@@ -83,7 +85,9 @@ export function openChatFind(chat: ChatSearch) {
         const on = chosen?.key === key && chosen.at === at;
 
         for (const range of ranges[at].slice().reverse()) {
-          const mark = el("mark", `chat-match${on ? " current" : ""}`);
+          // Matches are marked inside the rendered messages, as the browser's own find does.
+          const mark = document.createElement("mark");
+          mark.className = on ? "chat-match current" : "chat-match";
           range.surroundContents(mark);
           marks.push(mark);
           if (on) selected = mark;
@@ -159,10 +163,9 @@ export function openChatFind(chat: ChatSearch) {
     if (focus && previous?.isConnected) previous.focus({ preventScroll: true });
   }
   draw();
-  const field = layer.querySelector<HTMLInputElement>("input");
-  if (!field) { root.unmount(); layer.remove(); return; }
-  input = field;
-  active = { close, move, focus: () => { input.focus(); input.select(); } };
+  if (!field.current) { root.unmount(); layer.remove(); return; }
+  input = field.current;
+  active = { close, move, shown: () => layer.isConnected, focus: () => { input.focus(); input.select(); } };
   active.focus();
   observe(); count();
   if (chat.prepare) void chat.prepare().then(() => { if (!closed) { loading = false; refresh(true); } }, () => { if (!closed) { loading = false; refresh(false); statusText = "Could not load older messages"; draw(); } });
