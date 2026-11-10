@@ -124,3 +124,32 @@ test("opening a group cancels a pending chat search", async ({ page }) => {
   await page.waitForTimeout(250);
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "search_sessions").length)).toBe(0);
 });
+
+test("bursts of chat changes share reads and keep the newest list", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, list_sessions: [session("old", 1)], list_groups: [] });
+  await page.evaluate(() => window.__navigation.open("chats"));
+  await expect(page.getByRole("option", { name: /Chat old/ })).toBeVisible();
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    let count = 0;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command === "list_sessions" && new Error().stack?.includes("readChats")) {
+        count++;
+        Reflect.set(window, "listReadCount", count);
+        if (count === 1) await new Promise<void>(resolve => Reflect.set(window, "resumeListRead", resolve));
+      }
+      return invoke<T>(command, args);
+    };
+    window.__navigation.emit("sessions-changed", null);
+  });
+  await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, "resumeListRead"))).toBe("function");
+  await page.evaluate(() => {
+    window.__navigation.emit("sessions-changed", null);
+    window.__navigation.emit("sessions-changed", null);
+    window.__navigation.respond("list_sessions", [{ id: "new", title: "Chat new", pinned: false, updated_at: 2 }]);
+  });
+  expect(await page.evaluate(() => Reflect.get(window, "listReadCount"))).toBe(1);
+  await page.evaluate(() => Reflect.get(window, "resumeListRead")());
+  await expect(page.getByRole("option", { name: /Chat new/ })).toBeVisible();
+  expect(await page.evaluate(() => Reflect.get(window, "listReadCount"))).toBe(2);
+});
