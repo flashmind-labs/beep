@@ -16,7 +16,7 @@ import { registerView, windowProject } from "../center/views.ts";
 import { setProjectOnTop, openProjectWindow, removeProject, projectRows, openProjects, addProject } from "../center/sidebar.ts";
 import { editGroup } from "./groups.ts";
 import { overviewSection, projectDetail } from "./projects.ts";
-import { EmptyPanel, NoProjects, Parts, hostPart, viewPart, type PagePart } from "./page-view.tsx";
+import { NoProjects, Parts, hostPart, viewPart, type PagePart } from "./page-view.tsx";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { splitOn, openTile } from "./split.ts";
 import { liveMode, pa, redrawProjectsPage, runs, terms } from "./sections.ts";
@@ -24,6 +24,7 @@ import { projectComp, drawProjectComp } from "./composer.ts";
 import { noteRecent, revalidate, revalidateOverview, markDue, prefetchRecentSoon, whereDue, foundSection, disposeFoundSection, elsewhereSection, disposeElsewhereSection, disposeSessionPanel } from "./loads.ts";
 import { ensureHome } from "../center/refresh.ts";
 import { IC } from "../ui/icons.tsx";
+import { EmptyPanel } from "../ui/kit.tsx";
 
 /// The page's outer view. It stays rendered while another page shows, so
 /// coming back keeps its place.
@@ -37,7 +38,7 @@ export function drawProjects(el: HTMLElement) {
   let one: Project | null = null;
 
   if (!state.home) {
-    parts.push(viewPart("loading", createElement(EmptyPanel, { text: "Loading projects…", bold: true })));
+    parts.push(viewPart("loading", createElement(EmptyPanel, { title: "Loading projects…" })));
   } else if (!rows || !rows.length) {
     parts.push(viewPart("none", createElement(NoProjects, { add: addProject })));
   } else {

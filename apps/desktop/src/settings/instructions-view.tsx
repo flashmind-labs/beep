@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { Ago } from "../ui/dom.ts";
 import type { InstructionsTab } from "../center/state.ts";
 import { MAX_BYTES, bytes, sizeLabel, versionLine, mineLayer, type VersionRow } from "./instructions-state.ts";
+import { SectionHead } from "../ui/kit.tsx";
 
 export interface InstructionsState {
   tab: InstructionsTab;
@@ -51,7 +52,7 @@ export function InstructionsView(p: Props) {
 }
 
 function Section({ title, sub, children }: { title: string; sub: string; children: ReactNode }) {
-  return <div><div className="cc-sec"><h4>{title}</h4>{sub && <small>{sub}</small>}</div>{children}</div>;
+  return <div><SectionHead title={title}>{sub && <small>{sub}</small>}</SectionHead>{children}</div>;
 }
 
 function History(p: Props) {

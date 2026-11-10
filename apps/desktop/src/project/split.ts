@@ -2,7 +2,7 @@ import { MV } from "../agents/move-store.ts";
 import { createElement, Fragment, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
-import { Chip, ProjectNavigation, ProjectOverview, ProjectStatus, RunningStatus, SessionTabs } from "./split-view.tsx";
+import { ProjectNavigation, ProjectOverview, ProjectStatus, RunningStatus, SessionTabs } from "./split-view.tsx";
 import { ProjectTasks } from "./tasks-view.tsx";
 import { ProjectIssues } from "./issues-view.tsx";
 import { OpenListControls, OpenListStart } from "./openlist-view.tsx";
@@ -13,7 +13,7 @@ import { formatAgo, plural } from "../ui/format.ts";
 import { projectPastSessions, type Project, type WhereRow } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { agentFor, pageAgent } from "./agent.ts";
-import { EmptyPanel, ErrorNote, FreshNote, NeedsYou, Parts, hostPart, threadsParts, viewPart, type PagePart } from "./page-view.tsx";
+import { FreshNote, NeedsYou, Parts, hostPart, threadsParts, viewPart, type PagePart } from "./page-view.tsx";
 import { terminalTile, type TerminalRow } from "../terminals/terminals.ts";
 import { fileSyncTile } from "./filesync.ts";
 import { taskTile, machineTile, askingSessions } from "./board.ts";
@@ -31,6 +31,7 @@ import { sessionsList, sessionsDue, loadSessions } from "./loads.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
 import { runningLineAt } from "../agents/place.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
+import { Chip, EmptyPanel, ErrorNote } from "../ui/kit.tsx";
 
 interface ProjectShell {
   project: string;
@@ -223,7 +224,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     const chip = prChip(l), pr = l.pr;
     return {
       key: `pr:${pr.number}`, opened: pr.created_at, lead: num(pr.number), title: pr.title, sub: prMeta(l, ms => formatAgo(ms, "short")).join(" · "), tags: pr.labels,
-      right: chip && createElement(Chip, { cls: chip.cls, text: chip.text, spin: chip.cls === "running" }),
+      right: chip && createElement(Chip, { kind: chip.cls, text: chip.text, spin: chip.cls === "running" }),
       menu: e => thr.prMenu(e, agent, acts, l),
       detail: () => [hostPart(details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, thr.prButtons(agent, acts, l)))],
     };
@@ -235,7 +236,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     key: `issue:${l.number}`, opened: l.issue?.opened_at, start: l.issue ? { key: `issue:${l.number}`, project: p.name, number: l.number, title: l.title, url: l.url } : undefined,
     lead: num(l.number), title: l.title,
     sub: l.issue ? issueMeta(l.issue, ms => formatAgo(ms, "short")) : `task: ${l.task!.title}`, tags: l.issue?.labels,
-    right: l.task && createElement(Chip, { cls: l.task.state, text: l.task.state, spin: l.task.state === "running" }),
+    right: l.task && createElement(Chip, { kind: l.task.state, text: l.task.state, spin: l.task.state === "running" }),
     menu: l.issue ? (e => thr.issueMenu(e, agent, acts, l.issue!)) : undefined,
     detail: () => [hostPart(details.pane(pid, { number: l.number, title: l.title, url: l.url, author: l.issue?.author || "", opened_at: l.issue?.opened_at || 0 },
       l.issue ? thr.issueButtons(agent, acts, l.issue) : { buttons: [{ key: "tasks", label: "Tasks", primary: false, disabled: false, title: "", run: () => openTile("tasks") }], error: null }))],

@@ -8,6 +8,7 @@ import { splitFailure } from "../ui/failbanner-view.tsx";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { adapterLine, type AdapterInstall } from "../machines/adapters-state.ts";
 import { compactKind, differsLabel, differsOn, draftChanged, envProblem, harnessName, hasUpdate, listRows, planOf, summaryLine, versionLine, type AutoCompactDraft, type HarnessDraft, type HarnessesView, type HarnessView, type MachineSettings, type SharedField } from "./providers-state.ts";
+import { EmptyPanel } from "../ui/kit.tsx";
 
 export interface SharedProviderSettings {
   agent: string; machineName: string | null;
@@ -40,16 +41,16 @@ export function ProvidersView(p: ProviderProps) {
 }
 
 function Body(p: ProviderProps) {
-  if (p.machines === undefined) return <Empty title="Loading your machines…" />;
+  if (p.machines === undefined) return <EmptyPanel title="Loading your machines…" />;
   if (p.machines === null) return <div className="cc-err">{p.error || "Could not load your machines."}</div>;
-  if (!p.machine) return <Empty title="No machine online" sub="Coding agents show here for machines that are online." />;
-  if (p.view === undefined) return <Empty title={`Asking ${p.machineName}…`} />;
+  if (!p.machine) return <EmptyPanel title="No machine online" text="Coding agents show here for machines that are online." />;
+  if (p.view === undefined) return <EmptyPanel title={`Asking ${p.machineName}…`} />;
   if (p.view === false) return <div className="cc-err">The server needs an update before it shows coding agents here.</div>;
   const hv = p.view?.harnesses.find(h => h.agent === p.picked);
   const failure = splitFailure(p.error);
   const error = p.error && <div className="fb-err" role="alert"><div className="fb-line"><span>{failure.line}</span><button type="button" className="fb-x" aria-label="Dismiss" title="Dismiss" onClick={p.dismissError}>×</button></div>{failure.details && <details className="fb-more"><summary>Details</summary><pre>{failure.details}</pre></details>}</div>;
   if (p.view === null) return error || <div className="cc-err">Could not read the coding agents.</div>;
-  if (p.inSettings) return <>{error}{hv ? <><Summary hv={hv} p={p} /><Runtime hv={hv} p={p} /></> : <Empty title={`${p.machineName} does not report ${harnessName(p.picked ?? "")}`} />}</>;
+  if (p.inSettings) return <>{error}{hv ? <><Summary hv={hv} p={p} /><Runtime hv={hv} p={p} /></> : <EmptyPanel title={`${p.machineName} does not report ${harnessName(p.picked ?? "")}`} />}</>;
   return <>{error}<div className="hv"><AgentList view={p.view} p={p} />{hv ? <div>{p.shared && <SharedSettings value={p.shared} p={p} />}<Runtime key={`${p.machine}:${hv.agent}`} hv={hv} p={p} /></div> : <div className="hv-d" />}</div></>;
 }
 
@@ -61,7 +62,6 @@ function Toolbar({ p }: { p: ProviderProps }) {
   </span><span className="sp" /><button type="button" className="dbtn quiet" title="Check the versions again" disabled={p.loading || !p.machine} onClick={p.refresh}>{p.loading ? "Checking…" : p.checked}</button><button type="button" className="dbtn" disabled={!!p.updateCount || !p.canUpdate} title={!p.canUpdate && !p.updateCount ? "Everything is up to date" : undefined} onClick={p.updateAll}>{p.updateCount ? `Updating ${p.updateCount}…` : "Update all"}</button></div>;
 }
 
-function Empty({ title, sub }: { title: string; sub?: string }) { return <div className="cc-panel cc-empty"><b>{title}</b>{sub && <span>{sub}</span>}</div>; }
 function SharedSettings({ value, p }: { value: SharedProviderSettings; p: ProviderProps }) {
   const compact = value.compact;
   useEffect(() => { if (compact && !compact.loaded) p.loadCompact(value.agent); }, [value.agent, compact?.loaded, p.loadCompact]);

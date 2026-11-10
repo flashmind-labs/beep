@@ -7,6 +7,7 @@ import { terminalNote, terminalWhere, type TerminalRow } from "../terminals/term
 import type { Freshness } from "../ui/pagecache.ts";
 import type { TileData } from "./board.ts";
 import type { LabelFilter, SplitGroup, SplitItem } from "./split.ts";
+import { EmptyPanel, LineRow, Section, SectionHead } from "../ui/kit.tsx";
 
 export function ProjectNavigation({ groups, picked, openTile }: { groups: readonly SplitGroup[]; picked: string; openTile: (key: string) => void }) {
   return <>{groups.map((group, index) => <Fragment key={`${index}:${group.title}`}>
@@ -48,10 +49,6 @@ export function RunningStatus({ row }: { row: RunningAgent }) {
   return runningWhen(row);
 }
 
-export function Chip({ cls, text, spin }: { cls: string; text: string; spin: boolean }) {
-  return <span className={cls ? `chip ${cls}` : "chip"}>{spin && <span className="drun"/>}{text}</span>;
-}
-
 export function RetainedHost({ host, contents = true }: { host: HTMLElement; contents?: boolean }) {
   const slot = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -73,11 +70,11 @@ export function ProjectFallback({ session, machines, running, agents }: { sessio
 }
 
 function OverviewRow({ item, openTile }: { item: SplitItem; openTile: (key: string) => void }) {
-  return <div className={`cc-row cc-line${item.lead ? "" : " bare"}`} onClick={() => item.open ? item.open() : openTile(item.key)} onContextMenu={item.menu ? event => item.menu?.(event.nativeEvent) : undefined}>{item.lead}<button type="button" className="t" title={item.title}><b>{item.title}</b><span>{item.sub}</span></button><span className="r">{item.right}{item.tags?.slice(0, 3).map(label => <i className="pj-tag" key={label}>{label}</i>)}</span></div>;
+  return <LineRow lead={item.lead} title={item.title} sub={item.sub} right={<>{item.right}{item.tags?.slice(0, 3).map(label => <i className="pj-tag" key={label}>{label}</i>)}</>} onOpen={() => item.open ? item.open() : openTile(item.key)} onContext={item.menu} />;
 }
 
 function OverviewBox({ title, count, open, children }: { title: string; count: number | string; open: () => void; children: ReactNode }) {
-  return <div id=""><div className="cc-sec"><h4><button type="button" className="dbtn lk" onClick={open}>{title}</button>{!!count && <span className="n">{count}</span>}</h4></div><div className="cc-panel">{children}</div></div>;
+  return <Section id="" title={<button type="button" className="dbtn lk" onClick={open}>{title}</button>} count={count}>{children}</Section>;
 }
 
 export function ProjectOverview({ run, prs, issues, prNote, issueNote, machines, terminals, session, openTile, openTerminal }: {
@@ -86,12 +83,12 @@ export function ProjectOverview({ run, prs, issues, prNote, issueNote, machines,
   openTile: (key: string) => void; openTerminal: (terminal: TerminalRow) => void;
 }) {
   const rows = (items: SplitItem[]) => items.map(item => <OverviewRow key={item.key} item={item} openTile={openTile}/>);
-  const empty = (title: string, note: string | undefined) => <div id=""><div className="cc-sec"><h4>{title}</h4></div><div className="cc-panel cc-empty"><span>{note}</span></div></div>;
+  const empty = (title: string, note: string | undefined) => <div id=""><SectionHead title={title} /><EmptyPanel text={note ?? ""} /></div>;
   return <><div>
     {!!run.length && <OverviewBox title="Running" count={run.length} open={() => openTile("running")}>{rows(run.slice(0, 5))}</OverviewBox>}
     <RecentSessionsSection session={session}/>
-    {!!machines.rows.length && <OverviewBox title="Machines" count={machines.count} open={() => openTile("machines")}>{machines.rows.slice(0, 5).map((row, index) => <div key={row.id ?? index} className="cc-row cc-line" title={row.title || row.text || ""} onClick={() => openTile("machines")}><span className={`ddot${row.dot ? " off" : ""}`}/><button type="button" className="t" title={row.text || ""}><b>{row.text}</b><span>{row.note}</span></button><span className="r"/></div>)}</OverviewBox>}
-    {!!terminals.length && <OverviewBox title="Terminals" count={terminals.length} open={() => openTile("machines")}>{terminals.slice(0, 5).map(terminal => <div key={`${terminal.machine_id}:${terminal.id}`} className="cc-row cc-line" title={`${terminal.machine_name}: ${terminal.command} in ${terminal.cwd}`} onClick={() => openTerminal(terminal)}><span className={`ddot${terminal.state === "running" ? "" : " off"}`}/><button type="button" className="t" title={terminal.name}><b>{terminal.name}</b><span>{terminal.machine_name} · {terminalWhere(terminal)}</span></button><span className="r">{terminalNote(terminal, ms => formatAgo(ms, "short"))}</span></div>)}</OverviewBox>}
+    {!!machines.rows.length && <OverviewBox title="Machines" count={machines.count} open={() => openTile("machines")}>{machines.rows.slice(0, 5).map((row, index) => <LineRow key={row.id ?? index} lead={<span className={`ddot${row.dot ? " off" : ""}`}/>} title={row.text ?? ""} sub={row.note} rowTitle={row.title || row.text || ""} textTitle={row.text || ""} onOpen={() => openTile("machines")} />)}</OverviewBox>}
+    {!!terminals.length && <OverviewBox title="Terminals" count={terminals.length} open={() => openTile("machines")}>{terminals.slice(0, 5).map(terminal => <LineRow key={`${terminal.machine_id}:${terminal.id}`} lead={<span className={`ddot${terminal.state === "running" ? "" : " off"}`}/>} title={terminal.name} sub={<>{terminal.machine_name} · {terminalWhere(terminal)}</>} right={terminalNote(terminal, ms => formatAgo(ms, "short"))} rowTitle={`${terminal.machine_name}: ${terminal.command} in ${terminal.cwd}`} onOpen={() => openTerminal(terminal)} />)}</OverviewBox>}
   </div><div>
     {prs.length ? <OverviewBox title="Pull requests" count={prs.length} open={() => openTile(prs[0].key)}>{rows(prs.slice(0, 5))}</OverviewBox> : empty("Pull requests", prNote)}
     {issues.length ? <div id=""><div className="cc-sec"><h4><button type="button" className="dbtn lk" onClick={() => openTile("issues")}>Issues</button><span className="n">{issues.length}</span></h4></div><div className="cc-panel pj-scroll pj-ov-issues">{rows(issues)}</div></div> : empty("Issues", issueNote)}
