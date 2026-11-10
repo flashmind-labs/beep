@@ -3,8 +3,7 @@ import { snapshotView } from "../ui/snapshot-state.ts";
 // Home reads changed domains; telemetry arrives from the native cache.
 import { invoke, listen } from "../ui/tauri.ts";
 import { AMBIENT_MS, SLOW_MS, ambient, onShownChange, pageShown } from "../ui/active.ts";
-import { withoutDismissed } from "./updates.ts";
-import { applyTelemetry, keepUnchanged, type HomeView, type Telemetry } from "./home-state.ts";
+import { applyTelemetry, keepUnchanged, withoutDismissed, type HomeView, type Telemetry } from "./home-state.ts";
 import { type ProjectGroup } from "../project/projects-state.ts";
 import { preloadModels } from "../agents/agentpicker.ts";
 import type { AgentHost } from "../agents/agents.ts";

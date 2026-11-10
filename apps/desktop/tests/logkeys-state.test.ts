@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { allOpen, commandRows, thoughtRows, turnsHolding } from "../src/agents/logkeys-state.ts";
+import { allOpen, commandRows, pageDirection, thoughtRows, turnsHolding } from "../src/agents/logkeys-state.ts";
 import { splitTurns } from "../src/agents/agentturns.ts";
 
 const log = [
@@ -30,4 +30,14 @@ test("a toggle opens all when any is closed, else closes all", () => {
 
 test("only turns holding the rows are named", () => {
   assert.deepEqual(turnsHolding(splitTurns(log), [1]), [0]);
+});
+
+const key = (name: string) => ({ key: name, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, isComposing: false });
+
+test("page keys scroll the conversation only without modifiers", () => {
+  assert.equal(pageDirection(key("PageUp"), true), -1);
+  assert.equal(pageDirection(key("PageDown"), true), 1);
+  assert.equal(pageDirection(key("PageUp"), false), 0);
+  assert.equal(pageDirection({ ...key("PageUp"), shiftKey: true }, true), 0);
+  assert.equal(pageDirection({ ...key("PageUp"), isComposing: true }, true), 0);
 });

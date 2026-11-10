@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { withoutDismissed } from "../src/center/updates.ts";
+import { withoutDismissed } from "../src/center/home-state.ts";
 
 const listed = [{ id: 3 }, { id: 2 }, { id: 1 }];
 

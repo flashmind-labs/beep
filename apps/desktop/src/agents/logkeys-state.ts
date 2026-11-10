@@ -32,3 +32,9 @@ export function turnsHolding(turns: Turn[], ats: number[]) {
   const want = new Set(ats);
   return turns.filter(t => t.steps.some(at => want.has(at))).map(t => t.key);
 }
+
+/// PageUp and PageDown page the conversation when its composer or log has focus.
+export function pageDirection(e: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey" | "isComposing">, inConversation: boolean) {
+  if (!inConversation || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing) return 0;
+  return e.key === "PageUp" ? -1 : e.key === "PageDown" ? 1 : 0;
+}

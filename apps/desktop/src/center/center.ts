@@ -1,11 +1,10 @@
 import { drawHomeComposer, initHomeComposer } from "./home-composer.tsx";
 import { onPhone, WINDOWS } from "../ui/platform.ts";
 import { initConversationSwitcher } from "../agents/conversation-switcher.ts";
-import "../ui/contextmenu.ts";
 import "../chat/diagrams.ts";
 // center/: the command center window: sidebar, Home, palette, usage pill and
 // the window's shared state (state.ts). Entry: this file (dist/center.js).
-import "../ui/loopclock.ts";
+import "../ui/window-defaults.ts";
 import "../ui/zoom.ts";
 import { initMobile } from "./mobile.ts";
 import { closeFocusedTab } from "../agentpane/media.ts";

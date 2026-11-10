@@ -4,7 +4,7 @@ import type { ModelContextPanel } from "./model-context.ts";
 import { FlshView } from "./flsh-view.tsx";
 import type { FlshPanel } from "./flsh.ts";
 import { copy } from "../ui/parts.ts";
-import { splitFailure } from "../ui/failbanner.ts";
+import { splitFailure } from "../ui/failbanner-view.tsx";
 import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
 import { adapterLine, type AdapterInstall } from "../machines/adapters-state.ts";
 import { compactKind, differsLabel, differsOn, draftChanged, envProblem, harnessName, hasUpdate, listRows, planOf, summaryLine, versionLine, type AutoCompactDraft, type HarnessDraft, type HarnessesView, type HarnessView, type MachineSettings, type SharedField } from "./providers-state.ts";

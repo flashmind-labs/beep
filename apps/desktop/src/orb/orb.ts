@@ -1,5 +1,4 @@
-import "../ui/contextmenu.ts";
-import "../ui/loopclock.ts";
+import "../ui/window-defaults.ts";
 import "../ui/zoom.ts";
 import { followSkin } from "../ui/skin.ts";
 import { createElement } from "react";

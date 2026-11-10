@@ -33,7 +33,7 @@ import { sessionMenu } from "./sessionmenu.ts";
 import { TAKEOVER } from "./sessionmenu-state.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
 import { jumpToStart, jumpToEnd, loadOlder, logJumpKey, nearTop } from "./older.ts";
-import { pageDirection } from "./page-key.ts";
+import { pageDirection } from "./logkeys-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import type { OlderStop } from "./older-state.ts";
 import { closeModelPicker } from "./modelpill.ts";
