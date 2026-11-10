@@ -37,6 +37,15 @@ Earlier releases predate this changelog.
 - Node: closing a session stops dev servers its commands left running, even when a wrapper started them and exited at once.
 - Node: Git branch and history views refresh for a folder that became a repository, or whose Git lookup failed once, after its next file change.
 - Node: a node started with its own `--dir` keeps its session presence file in that folder, so it no longer replaces or removes the installed node's.
+- Node: an action from a newer desktop or phone that this node cannot read
+  yet gets an error back, instead of dropping every live view on that link.
+- Node: Stop all also stops the background commands and subagents of agents
+  the session started on other machines, not only their turns.
+- Node: a Claude Code transcript replaced by a new file is always read again
+  in full, even when its size and time match the old one.
+- Node: after a sleep or a Wi-Fi drop, mesh links to other machines are
+  dialed again at once, and a machine still away is tried every 30 seconds
+  instead of every minute.
 
 ### Performance
 
@@ -65,3 +74,5 @@ Earlier releases predate this changelog.
   does not already hold, reads the process list at most every 10 seconds
   when no process runs the session, and waits 200 ms to batch writes. Chats
   Beep runs still update at once.
+- Node: following a Claude Code session lists its project folder only when a
+  file comes or goes there, not on every update.
