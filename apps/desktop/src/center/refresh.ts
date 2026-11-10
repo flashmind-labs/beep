@@ -20,8 +20,8 @@ import { loadOverview } from "../project/projects.ts";
 import { liveMode, projectsEl, runs } from "../project/sections.ts";
 import { drawProjects } from "../project/page.ts";
 import type { MacControl } from "../machines/machine-state.ts";
-import type { SyncRow } from "../project/filesync.ts";
-import { readSync } from "../project/syncpage.ts";
+import { mergeSyncRows, type SyncRow } from "../project/filesync.ts";
+import { followSync, readSync } from "../project/syncpage.ts";
 
 /// The server answered for Home in this window; until then Home may be
 /// the one the app kept from before.
@@ -70,9 +70,15 @@ async function readHome(): Promise<void> {
   finally { homeRead = undefined; loading = false; if (onScreen()) draw(); }
 }
 
+/// Takes the new sync summary; only projects whose rows changed are drawn and
+/// read again.
 const refreshSync = single(async () => {
-  state.sync = await invoke<SyncRow[]>("project_sync");
-  if (onScreen()) { draw(); drawSide(); await readSync(true); }
+  const { rows, changed } = mergeSyncRows(state.sync, await invoke<SyncRow[]>("project_sync"));
+  state.sync = rows;
+  if (!onScreen()) return;
+
+  if (changed.size) { draw(); drawSide(); }
+  await followSync(changed);
 });
 
 const refreshProjects = single(async () => {
@@ -100,7 +106,7 @@ export async function refresh() {
   clearTimeout(retryTimer);
 
   try {
-    await Promise.all([readHome(), refreshMac(), refreshSync(), refreshProjects(),
+    await Promise.all([readHome(), refreshMac(), refreshSync().then(() => onScreen() ? readSync() : undefined), refreshProjects(),
       ...["machines", "research"].map(name => reloadGroup(name, false))]);
     if (onScreen() && (currentLocation()?.view === "home" || currentLocation()?.view === "terminals")) await allTerms.load(ALL);
     if (currentLocation()?.view === "projects" && !state.picked && onScreen()) loadOverview();

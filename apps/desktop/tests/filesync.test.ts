@@ -130,7 +130,7 @@ test("a sync update during its initial read reconciles the new snapshot before c
   }) as Parameters<typeof makeFileSync>[0]["invoke"];
   const sync = makeFileSync({ invoke, h: null!, button: null!, redraw() {} });
   const first = sync.ensure("example");
-  const changed = sync.reload("example");
+  const changed = sync.follow(new Set(["example"]), [], 5000);
   assert.equal(reads, 1);
   finish(detail([machine({ pending: 0 })]));
   await Promise.all([first, changed]);

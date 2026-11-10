@@ -13,7 +13,7 @@ test("sync refresh retains the page, focused action and scroll", async ({ page }
   await view.evaluate(element => { element.style.height = "100px"; element.style.overflow = "auto"; element.scrollTop = 50; });
   const top = await view.evaluate(element => element.scrollTop);
   const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_sync_detail").length);
-  await page.evaluate(value => { window.__navigation.respond("project_sync_detail", value); window.__navigation.notify("sync"); }, { ...detail, machines: [{ ...machine, files: 19 }] });
+  await page.evaluate(value => { window.__navigation.respond("project_sync_detail", value); window.__navigation.respond("project_sync", [{ project: value.project, machine_id: "build-box", status: "in_sync", files: 19, pending: 0, error: null }]); window.__navigation.notify("sync"); }, { ...detail, machines: [{ ...machine, files: 19 }] });
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_sync_detail").length)).toBeGreaterThan(reads);
   await expect(view.getByText("19 files")).toBeVisible();
   await expect(pause).toHaveAttribute("data-identity", "kept");
@@ -31,7 +31,7 @@ test("sync conflict actions keep their identity across updates", async ({ page }
   await keep.focus();
   await keep.evaluate(element => { element.dataset.identity = "kept"; });
   const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_sync_detail").length);
-  await page.evaluate(value => { window.__navigation.respond("project_sync_detail", value); window.__navigation.notify("sync"); }, { ...detail, machines: [{ ...machine, files: 19 }] });
+  await page.evaluate(value => { window.__navigation.respond("project_sync_detail", value); window.__navigation.respond("project_sync", [{ project: value.project, machine_id: "build-box", status: "in_sync", files: 19, pending: 0, error: null }]); window.__navigation.notify("sync"); }, { ...detail, machines: [{ ...machine, files: 19 }] });
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_sync_detail").length)).toBeGreaterThan(reads);
   await expect(page.getByText("19 files")).toBeVisible();
   await expect(keep).toHaveAttribute("data-identity", "kept");
