@@ -1,6 +1,6 @@
 // The bar's one React tree, rooted in a box in `#bar`: the page on screen,
 // picked from the page store with a switch.
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { createStore, useStore } from "zustand";
@@ -16,12 +16,30 @@ import { SkillEditor } from "../lists/skill-editor.tsx";
 import { MemoriesShell } from "../lists/memories-shell.tsx";
 import { MachineList, MachineLoading } from "../machines/list-view.tsx";
 import { MachineDetail } from "../machines/detail-view.tsx";
+import { ChatShell } from "../chat/chat-shell.tsx";
+import { ChatsShell } from "../chat/chats-view.tsx";
+import { GroupShell } from "../chat/group-shell-view.tsx";
+import { GroupInfoPage } from "../chat/group-info-view.tsx";
+import { GroupInviteView } from "../chat/group-invite-view.tsx";
+import { GroupFormView } from "../chat/group-form-view.tsx";
+import { ResearchesView } from "../research/researches-view.tsx";
+import { AgentsList } from "../agents/agents-list-view.tsx";
+import { AgentNewShell } from "../agents/agentnew-shell.tsx";
+import { SessionFrame } from "../agents/session-frame.tsx";
 
-/// What the bar shows, with what it draws from. `drawn` is a page whose
-/// module builds its own tree, such as the chat and the agent views.
+/// What the bar shows, with what it draws from.
 export type BarPage =
   | { view: "none" }
-  | { view: "drawn"; content: ReactNode }
+  | { view: "chat"; props: ComponentProps<typeof ChatShell> }
+  | { view: "chats"; props: ComponentProps<typeof ChatsShell> }
+  | { view: "group"; props: ComponentProps<typeof GroupShell> }
+  | { view: "group-info"; props: ComponentProps<typeof GroupInfoPage> }
+  | { view: "group-invite"; props: ComponentProps<typeof GroupInviteView> }
+  | { view: "group-form"; props: ComponentProps<typeof GroupFormView> }
+  | { view: "research"; props: ComponentProps<typeof ResearchesView> }
+  | { view: "agents"; props: ComponentProps<typeof AgentsList> }
+  | { view: "agent-new"; props: ComponentProps<typeof AgentNewShell> }
+  | { view: "session"; props: ComponentProps<typeof SessionFrame> }
   | { view: "link"; props: ComponentProps<typeof LinkScreenView> }
   | { view: "waiting"; props: ComponentProps<typeof WaitingList> }
   | { view: "model"; props: ComponentProps<typeof ModelView> }
@@ -45,8 +63,6 @@ export interface BarPageSlot {
   readonly host: HTMLElement;
   isOpen(): boolean;
   show(page: BarPage): void;
-  /// For pages that draw their own tree.
-  readonly root: { render(content: ReactNode): void; unmount(): void };
 }
 
 /// The page on screen; `id` counts openings, so a page opened again starts fresh.
@@ -71,12 +87,7 @@ export function openBarPage(release: () => void): BarPageSlot {
     mount();
     pages.setState({ page });
   };
-  return {
-    host: box,
-    isOpen,
-    show,
-    root: { render: content => show({ view: "drawn", content }), unmount: () => show({ view: "none" }) },
-  };
+  return { host: box, isOpen, show };
 }
 
 /// The page box, mounted on first use. When something replaced the bar's
@@ -104,7 +115,16 @@ function BarApp() {
 function Page({ page }: { page: BarPage }) {
   switch (page.view) {
     case "none": return null;
-    case "drawn": return page.content;
+    case "chat": return <ChatShell {...page.props} />;
+    case "chats": return <ChatsShell {...page.props} />;
+    case "group": return <GroupShell {...page.props} />;
+    case "group-info": return <GroupInfoPage {...page.props} />;
+    case "group-invite": return <GroupInviteView {...page.props} />;
+    case "group-form": return <GroupFormView {...page.props} />;
+    case "research": return <ResearchesView {...page.props} />;
+    case "agents": return <AgentsList {...page.props} />;
+    case "agent-new": return <AgentNewShell {...page.props} />;
+    case "session": return <SessionFrame {...page.props} />;
     case "link": return <LinkScreenView {...page.props} />;
     case "waiting": return <WaitingList {...page.props} />;
     case "model": return <ModelView {...page.props} />;

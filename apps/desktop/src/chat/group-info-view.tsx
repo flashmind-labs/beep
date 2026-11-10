@@ -1,4 +1,7 @@
+import type { ComponentProps } from "react";
 import { BEEP_MARK } from "../ui/icons.tsx";
+import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
+import { GroupHeader } from "./group-shell-view.tsx";
 import type { GroupMember, GroupReminder, GroupSummary } from "./groups.ts";
 
 interface Props {
@@ -10,7 +13,12 @@ function Avatar({ name, label, color }: { name: string; label: string; color(nam
 }
 function Member({ name, label, note, color }: { name: string; label: string; note: string; color(name: string): string }) { return <div className="member"><Avatar name={name} label={label} color={color} /><span><b>{name}</b><small>{note}</small></span></div>; }
 const date = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short" });
-export function GroupInfoView(p: Props) {
+/// The group's info page in the bar: its header, the info and the keys.
+export function GroupInfoPage({ header, info, hints }: { header: ComponentProps<typeof GroupHeader>; info: Props; hints: HintViewModel }) {
+  return <><GroupHeader {...header} /><div className="dbody pt dgroupbody" id="ginfobody"><GroupInfoView {...info} /></div><HintView value={hints} /></>;
+}
+
+function GroupInfoView(p: Props) {
   const g = p.group;
   if (!g) return <div className="dmuted"><span className="dspin" />Loading…</div>;
   const members: GroupMember[] = [...g.members].sort((a, b) => Number(b.you) - Number(a.you));

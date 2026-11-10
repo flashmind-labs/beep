@@ -1,8 +1,5 @@
-import { createElement } from "react";
 import { flushSync } from "react-dom";
-import type { Root } from "react-dom/client";
-import { openBarPage } from "../bar/bar-app.tsx";
-import { ResearchesView } from "./researches-view.tsx";
+import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { failed, newTurn } from "../chat/turns.ts";
 import { grow } from "../chat/ask-height.ts";
 import { $, S } from "../bar/core.ts";
@@ -44,7 +41,7 @@ export async function research(topic: string) {
 /// the server, so ones started on another computer show too.
 export const RL: { list: ResearchRow[]; loaded: boolean; sel: number; mode: "list" | "actions"; error: string } = { list: [], loaded: false, sel: 0, mode: "list", error: "" };
 
-let view: { host: HTMLElement; root: Root } | null = null;
+let view: BarPageSlot | null = null;
 let initial = "";
 const reads = latest();
 function disposeResearches() { view = null; }
@@ -89,10 +86,10 @@ export function drawResearches() {
   const keys = empty || typed ? [[ICON.ret, "research"], ["esc", "back"]]
     : RL.mode === "actions" ? [["tab", "hide actions"], ["esc", "back"]]
     : [["↑↓", "move"], [ICON.ret, "open"], ["tab", "actions"], ["esc", "back"]];
-  flushSync(() => current.root.render(createElement(ResearchesView, {
+  flushSync(() => current.show({ view: "research", props: {
     list: RL.list, loaded: RL.loaded, selected: RL.sel, mode: RL.mode, error: RL.error, initial, typed: !!typed, hints: hintModel(keys),
     edit: drawResearches, choose: (index: number, action: "open" | "pdf") => { RL.sel = index; void researchListAction(action); },
-  })));
+  } }));
 }
 
 export async function researchListAction(a: string) {

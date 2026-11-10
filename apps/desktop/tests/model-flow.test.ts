@@ -17,7 +17,6 @@ test("model view sends one command per action and unmounts when another page ope
   const { MODELS, renderModel, modelKeys } = await import("../src/settings/model.ts");
   const { S } = await import("../src/bar/core.ts");
   const { openBarPage } = await import("../src/bar/bar-app.tsx");
-  const { createElement } = await import("react");
   const bar = dom.window.document.getElementById("bar");
   assert.ok(bar);
   MODELS.info = { ...models, thinking: "medium" };
@@ -30,7 +29,7 @@ test("model view sends one command per action and unmounts when another page ope
     await act(async () => { await modelKeys(new dom.window.KeyboardEvent("keydown", { key: "Enter", cancelable: true })); });
     assert.equal(calls.filter(c => c === "set_model").length, 1);
     const sharedHost = bar.firstElementChild;
-    act(() => { const next = openBarPage(() => {}); next.root.render(createElement("div", null, "Other page")); });
+    act(() => { const next = openBarPage(() => {}); next.show({ view: "none" }); });
     assert.equal(bar.firstElementChild, sharedHost);
     act(() => renderModel());
     assert.equal(bar.firstElementChild, sharedHost, "the model view reuses the shared bar root");
@@ -38,7 +37,7 @@ test("model view sends one command per action and unmounts when another page ope
     fireEvent.click(screen.getByRole("switch", { name: "Auto" }));
     await waitFor(() => assert.equal(calls.filter(c => c === "set_auto_model").length, 2));
     let released = false;
-    await act(async () => { S.view = "chat"; const next = openBarPage(() => { released = true; }); next.root.render(createElement("div", null, "Chat page")); await Promise.resolve(); });
+    await act(async () => { S.view = "chat"; const next = openBarPage(() => { released = true; }); next.show({ view: "settings-failure", error: "Chat page" }); await Promise.resolve(); });
     assert.equal(screen.queryByRole("switch", { name: "Auto" }), null, "the model view unmounts when the next page opens");
     await act(async () => { releaseAuto(); await Promise.resolve(); });
     assert.equal(screen.queryByRole("switch", { name: "Auto" }), null, "a late reply does not remount the model view");

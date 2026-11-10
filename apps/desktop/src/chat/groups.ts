@@ -1,11 +1,7 @@
-import { createElement, Fragment, type MouseEvent, type ReactElement } from "react";
+import { createElement, type MouseEvent, type ReactElement } from "react";
 import { flushSync } from "react-dom";
-import type { Root } from "react-dom/client";
-import { openBarPage } from "../bar/bar-app.tsx";
-import { GroupHeader, GroupShell } from "./group-shell-view.tsx";
-import { GroupFormView } from "./group-form-view.tsx";
-import { GroupInviteView, type GroupInvite, type InviteState } from "./group-invite-view.tsx";
-import { GroupInfoView } from "./group-info-view.tsx";
+import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
+import type { GroupInvite, InviteState } from "./group-invite-view.tsx";
 import { GroupMessages } from "./group-view.tsx";
 import type { ApprovalField } from "./approval-cards.ts";
 import { grow } from "./ask-height.ts";
@@ -13,7 +9,6 @@ import { renderChats } from "./chats.ts";
 import { copy } from "../ui/parts.ts";
 import { $, $$, changed, G, GROUP_VIEWS, S } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
-import { HintView } from "../bar/hints-view.tsx";
 import { dayDiff, esc } from "../ui/format.ts";
 import { BEEP_MARK, ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
@@ -165,7 +160,7 @@ function setGroup(id: string) {
 }
 
 /// Opens a group in the bar. `then` opens its info, or info with Leave asked.
-let messageRoot: { host: HTMLElement; root: Root; message: ReactElement | null; mention: ReactElement | null; draft: string } | null = null;
+let messageRoot: { host: HTMLElement; show: BarPageSlot["show"]; message: ReactElement | null; mention: ReactElement | null; draft: string } | null = null;
 const pendingKeys = new WeakMap<object, number>();
 let nextPending = 0, groupRevision = 0;
 const shareVersions = new Map<string, number>(), reminderVersions = new Map<string, number>();
@@ -179,8 +174,8 @@ export async function renderGroup(id: string, then?: "info" | "leave") {
   G.mention = null;
   G.leave = false;
   S.view = "group";
-  const { host, root } = openBarPage(() => { messageRoot = null; });
-  messageRoot = { host, root, message: null, mention: null, draft: G.drafts.get(id) ?? "" };
+  const page = openBarPage(() => { messageRoot = null; });
+  messageRoot = { host: page.host, show: page.show, message: null, mention: null, draft: G.drafts.get(id) ?? "" };
   drawGroupRoot(messageRoot);
   if (G.chat) drawGroup(true);
 
@@ -297,13 +292,13 @@ export function findMention() {
 function drawGroupRoot(current: NonNullable<typeof messageRoot>) {
   const group = G.chat?.group;
   const members = group ? youFirst(group.members).slice(0, 3) : [];
-  flushSync(() => current.root.render(createElement(GroupShell, {
+  flushSync(() => current.show({ view: "group", props: {
     name: group?.name ?? "Group", placeholder: group?.name ?? "the group", people: group ? people(group) : "Loading…",
     avatars: members.map(m => av(m.you ? "You" : m.name, m.name)).join("") + av("Beep"), draft: current.draft,
     message: current.message, mention: current.mention, hints: groupHints(), grow,
     input: (ask: HTMLTextAreaElement) => { G.drafts.set(G.id, ask.value); grow(ask); findMention(); },
     find: findMention, info: () => { void renderGroupInfo(); }, invite: () => { if (G.id) void renderInvite(G.id, G.chat?.group.name); },
-  })));
+  } }));
 }
 export function drawMention() {
   const current = messageRoot;
@@ -337,7 +332,7 @@ export function insertMention(i: number) {
 
 // ---------- Group info ----------
 
-let infoRoot: { host: HTMLElement; root: Root; id: string; error: string } | null = null;
+let infoRoot: { host: HTMLElement; show: BarPageSlot["show"]; id: string; error: string } | null = null;
 const infoBusy = new Set<string>();
 function disposeInfo() { infoRoot = null; }
 export function renderGroupInfo(leave = false) {
@@ -345,8 +340,8 @@ export function renderGroupInfo(leave = false) {
   disposeMessages(); disposeInfo();
   S.view = "ginfo";
   G.leave = leave; G.mention = null;
-  const id = G.id, { host, root } = openBarPage(() => { infoRoot = null; });
-  infoRoot = { host, root, id, error: "" };
+  const id = G.id, page = openBarPage(() => { infoRoot = null; });
+  infoRoot = { host: page.host, show: page.show, id, error: "" };
   const owner = infoRoot;
   G.reminders = null;
   drawGroupInfo();
@@ -388,8 +383,8 @@ function drawGroupInfo() {
   if (!current?.host.isConnected || S.view !== "ginfo" || G.id !== current.id) return;
   const pending = new Set([...infoBusy].filter(key => key.startsWith(`${current.id}\0`)).map(key => key.slice(current.id.length + 1)));
   const members = group ? youFirst(group.members).slice(0, 3) : [];
-  const header = createElement(GroupHeader, { name: group?.name ?? "Group", people: group ? people(group) : "Loading…", avatars: members.map(m => av(m.you ? "You" : m.name, m.name)).join("") + av("Beep"), info: () => renderGroupInfo(), invite: () => { if (G.id) void renderInvite(G.id, group?.name); } });
-  const content = createElement(GroupInfoView, {
+  const header = { name: group?.name ?? "Group", people: group ? people(group) : "Loading…", avatars: members.map(m => av(m.you ? "You" : m.name, m.name)).join("") + av("Beep"), info: () => renderGroupInfo(), invite: () => { if (G.id) void renderInvite(G.id, group?.name); } };
+  const info = {
     group, reminders: G.reminders ?? null, leave: G.leave, error: current.error, busy: pending, color: avColor, schedule: describeSchedule,
     share: () => { if (group) void changeGroupInfo(current, "share", async () => {
       const shared = !group.apps_shared;
@@ -411,8 +406,8 @@ function drawGroupInfo() {
       G.approvals.delete(group.id); G.drafts.delete(group.id); S.cache = S.cache.filter(chat => chat.id !== group.id);
       if (G.id === group.id) { G.id = null; G.chat = null; renderChats(); }
     }); },
-  });
-  flushSync(() => current.root.render(createElement(Fragment, null, header, createElement("div", { className: "dbody pt dgroupbody", id: "ginfobody" }, content), createElement(HintView, { value: hintModel([["esc", "back to the chat"], ["⌘K", "chats"]]) }))));
+  };
+  flushSync(() => current.show({ view: "group-info", props: { header, info, hints: hintModel([["esc", "back to the chat"], ["⌘K", "chats"]]) } }));
 }
 async function changeGroupInfo(owner: NonNullable<typeof infoRoot>, action: string, run: () => Promise<void>) {
   const key = `${owner.id}\0${action}`;
@@ -424,7 +419,7 @@ async function changeGroupInfo(owner: NonNullable<typeof infoRoot>, action: stri
 
 // ---------- Invite ----------
 
-let inviteRoot: { host: HTMLElement; root: Root; id: string; title: string; revision: number } | null = null;
+let inviteRoot: { host: HTMLElement; show: BarPageSlot["show"]; id: string; title: string; revision: number } | null = null;
 function disposeInvite() { inviteRoot = null; }
 
 export async function renderInvite(id: string, name?: string | null, reset = false) {
@@ -432,17 +427,17 @@ export async function renderInvite(id: string, name?: string | null, reset = fal
   S.view = "invite";
   setGroup(id);
   const title = name ?? G.chat?.group.name ?? "the group";
-  const { host, root } = openBarPage(() => { inviteRoot = null; });
-  const owner = { host, root, id, title, revision: 0 };
+  const page = openBarPage(() => { inviteRoot = null; });
+  const owner = { host: page.host, show: page.show, id, title, revision: 0 };
   inviteRoot = owner;
   await loadInvite(owner, reset);
 }
 
 async function loadInvite(owner: NonNullable<typeof inviteRoot>, reset: boolean) {
   const revision = ++owner.revision;
-  const draw = (state: InviteState) => flushSync(() => owner.root.render(createElement(GroupInviteView, {
+  const draw = (state: InviteState) => flushSync(() => owner.show({ view: "group-invite", props: {
     title: owner.title, state, copy, reset: () => { void loadInvite(owner, true); },
-  })));
+  } }));
   draw({ kind: "loading" });
   try {
     const invite = await invoke<GroupInvite>("group_invite", { id: owner.id, reset });
@@ -477,7 +472,7 @@ export type GroupFormMode = "new" | "code" | "join";
 /// The ⌘G form's state.
 export const J: { mode: GroupFormMode; name: string; found: FoundGroup | null; error: string; busy: boolean } = { mode: "new", name: "", found: null, error: "", busy: false };
 
-let formRoot: { host: HTMLElement; root: Root } | null = null;
+let formRoot: BarPageSlot | null = null;
 function disposeGroupForm() { formRoot = null; }
 
 export function renderGroupNew(mode: GroupFormMode = "new") {
@@ -486,15 +481,15 @@ export function renderGroupNew(mode: GroupFormMode = "new") {
   S.view = "gnew";
   if (mode !== J.mode) J.error = "";
   J.mode = mode;
-  const { host, root } = openBarPage(() => { formRoot = null; });
-  formRoot = { host, root };
+  const page = openBarPage(() => { formRoot = null; });
+  formRoot = page;
   const members = J.found?.preview.members ?? [];
   const help = mode === "new" ? [[ICON.ret, "create"], ["tab", "next field"], ["esc", "back"]] : [[ICON.ret, mode === "code" ? "find" : "join"], ["esc", "back"]];
-  flushSync(() => root.render(createElement(GroupFormView, {
+  flushSync(() => page.show({ view: "group-form", props: {
     mode, name: J.name, member: memberName(), error: J.error, preview: J.found?.preview ?? null,
     avatars: members.slice(0, 3).map(n => av(n)).join("") + av("Beep"), hints: hintModel(help),
     changeMode: renderGroupNew, cancel: renderChats, go: () => void groupFormGo(),
-  })));
+  } }));
 }
 
 export async function groupFormGo() {
