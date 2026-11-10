@@ -757,6 +757,10 @@ test("review picker remains usable through diff refresh and closes with Escape",
   await review.click();
   const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   await expect(picker).toBeVisible();
+  // The picker places itself as it opens, next to its button.
+  const placed = await page.locator(".dv-fbw .agc-pick").evaluate(element => element instanceof HTMLElement ? [element.style.top, element.style.left] : []);
+  expect(placed).toHaveLength(2);
+  expect(placed.every(value => /^-?\d+(\.\d+)?px$/.test(value))).toBe(true);
   const search = picker.locator(".agc-search");
   await expect(search).toBeFocused();
   await search.fill("example");

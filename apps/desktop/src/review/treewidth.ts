@@ -58,8 +58,14 @@ export function useTreeWidth(body: HTMLElement | null, grip: HTMLElement | null)
       let last = start;
       setResizing(true);
       return {
-        move: ev => { last = Math.round(Math.max(MIN, Math.min(maxWidth(grip.parentElement), start + ev.clientX - from))); setPreferred(last); },
-        end: () => { setResizing(false); save(last); },
+        // The drag writes the width straight to the body each frame and
+        // renders once at the end, so the files and the list are not drawn again on every move.
+        move: ev => {
+          last = Math.round(Math.max(MIN, Math.min(maxWidth(grip.parentElement), start + ev.clientX - from)));
+          grip.parentElement?.style.setProperty("--dv-tree-width", `${last}px`);
+          grip.setAttribute("aria-valuenow", String(last));
+        },
+        end: () => { setResizing(false); setPreferred(last); save(last); },
       };
     });
   }, [grip]);
