@@ -358,6 +358,7 @@ impl Actor {
             live.info.state.status = Status::Ended;
             live.info.state.queued = 0;
             live.info.state.queued_messages.clear();
+            live.info.state.subagents = 0;
             live.end_tasks();
             live.held = waiting;
             live.stopped(closed && by_user);

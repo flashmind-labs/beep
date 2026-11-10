@@ -80,12 +80,7 @@ impl Agents {
                 .values()
                 .map(|session| session.live.clone())
                 .collect();
-            busy.retain_mut(|live| {
-                !matches!(
-                    live.borrow_and_update().status(),
-                    Status::Idle | Status::Ended
-                )
-            });
+            busy.retain_mut(|live| live.borrow_and_update().info.state.runs());
 
             if busy.is_empty() {
                 return;

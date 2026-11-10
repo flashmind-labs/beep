@@ -9,6 +9,11 @@ Earlier releases predate this changelog.
 - Release pages include versioned release notes.
 - The node metrics log counts started programs, file watch events, sync scans, topic changes, snapshot reads and state file writes.
 
+### Fixed
+
+- A session whose turn ended while its subagents still run reports them, so
+  apps show it as working; node restarts and session moves wait for them.
+
 ### Performance
 
 - The node uses less CPU while agents work: live views of sessions, processes, terminals and folders refresh at most a few times a second, and one session's view no longer lists every session.

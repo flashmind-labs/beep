@@ -236,6 +236,21 @@ pub struct State {
     /// Text of messages waiting to be delivered, in delivery order.
     #[serde(default)]
     pub queued_messages: Vec<String>,
+    /// Subagents the session started that still run. An `Idle` session
+    /// with any runs until they finish.
+    #[serde(default)]
+    pub subagents: u32,
+}
+
+impl State {
+    /// A turn runs, or the session waits on subagents that still run.
+    pub fn runs(&self) -> bool {
+        match self.status {
+            Status::Idle => self.subagents > 0,
+            Status::Ended => false,
+            _ => true,
+        }
+    }
 }
 
 /// A command the agent left running in the background.

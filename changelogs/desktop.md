@@ -32,6 +32,8 @@ Other apps have independent versions and changelogs:
 
 ### Fixed
 
+- Desktop: a session whose turn ended while its subagents still run shows
+  as working until they finish, not idle.
 - Desktop: in a narrow window the Projects page no longer runs off the
   side with long names, folders or group headings.
 - Desktop: preserve panel scroll, drafts and selections during live updates.
