@@ -1,6 +1,4 @@
 // DOM helpers the windows share: layout writes after a resize.
-/// The terminal views still take `Ago` from here.
-export type { Ago } from "./format.ts";
 
 // Layout writes run in the next frame, outside ResizeObserver delivery.
 // Several changed children in one delivery need only one layout pass.

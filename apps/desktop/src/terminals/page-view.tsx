@@ -1,6 +1,6 @@
 import { createRef, useLayoutEffect, useRef, type ReactNode } from "react";
 import { TerminalMachines } from "./machines-view.tsx";
-import type { Ago } from "../ui/dom.ts";
+import type { Ago } from "../ui/format.ts";
 import type { MachineTerminals, TerminalRow } from "./terminals.ts";
 
 export function TerminalPage({ groups, selected, ago, open, create, children }: {
