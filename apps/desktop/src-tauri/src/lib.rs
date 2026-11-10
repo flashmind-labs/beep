@@ -164,7 +164,7 @@ pub fn run() {
             }
             _ => {}
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(counted(tauri::generate_handler![
             agents::accounts::agent_accounts,
             agents::accounts::cancel_claude_sign_in,
             agents::accounts::claude_sign_in,
@@ -543,7 +543,7 @@ pub fn run() {
             settings::models::set_auto_model,
             settings::models::set_model,
             settings::models::set_thinking,
-        ])
+        ]))
         .build(tauri::generate_context!())
         .expect("the app failed to start")
         .run(|app, event| {
@@ -570,6 +570,22 @@ pub fn run() {
                 _ => {}
             }
         });
+}
+
+/// Counts each command a window runs, by name, for the desktop's metrics.
+fn counted(
+    handler: impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static,
+) -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
+    move |invoke| {
+        let name = invoke.message.command().to_owned();
+        let handled = handler(invoke);
+
+        if handled {
+            metrics::counter!("beep_command_total", "name" => name).increment(1);
+        }
+
+        handled
+    }
 }
 
 fn hide_windows(app: &AppHandle) {

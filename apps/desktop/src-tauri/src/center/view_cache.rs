@@ -156,6 +156,7 @@ impl ViewCache {
         fs::write(&partial, &bytes).with_context(|| format!("writing {}", self.path.display()))?;
         fs::rename(&partial, &self.path)
             .with_context(|| format!("replacing {}", self.path.display()))?;
+        metrics::counter!("beep_persist_writes_total", "file" => "view_cache").increment(1);
         Ok(())
     }
 

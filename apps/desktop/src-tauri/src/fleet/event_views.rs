@@ -225,8 +225,9 @@ fn append<T: Serialize>(views: &mut Vec<View>, command: &'static str, result: Re
     }
 }
 
-async fn snapshot(app: &AppHandle, name: &str) -> Vec<View> {
+async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
     let mut views = Vec::new();
+    metrics::counter!("beep_view_render_total", "name" => name).increment(1);
 
     match name {
         "home" => append(
