@@ -108,13 +108,6 @@ export const runs = makeRuns({
   hostsChanged: () => redrawProjectsPage(),
 });
 
-/// Every 10 seconds while a project page shows: the runs move on, but only
-/// while one goes.
-export function tickRepo(name: string) {
-  const agent = pageAgent(state.agents, name, state.subscribed);
-  if (agent) runs.tick(agent.project_id);
-}
-
 export function projectsEl() { return views.get("projects")!.el; }
 
 onPlaces(() => redrawProjects());

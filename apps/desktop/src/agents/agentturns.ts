@@ -305,13 +305,6 @@ export function runLabel(kind: ToolKind, n: number) {
   }
 }
 
-/// What a turn did, for its heading: "12 tool calls · 3 files changed".
-export function turnStats(entries: LogEntry[], t: Turn, offset = 0) {
-  const tools = t.steps.map(at => entries[at - offset]).filter(en => en.kind === "tool");
-  const files = new Set(tools.filter(en => toolKind(en.text) === "edit" && parseTool(en.text).status !== "failed").map(en => target(en.text))).size;
-  return [tools.length && plural(tools.length, "tool call", "tool calls"), files && `${plural(files, "file", "files")} changed`].filter(Boolean).join(" · ");
-}
-
 /// What the tool acts on, so editing one file twice counts it once.
 function target(text: string) {
   return parseTool(text).title.trim().replace(/^[A-Za-z]+:? /, "");

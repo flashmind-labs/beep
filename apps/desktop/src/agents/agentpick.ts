@@ -310,12 +310,6 @@ export function projectAt(projects: readonly FormProject[], machine: string | nu
   return projects.find(p => p.places.some(x => (!machine || x.machine === machine) && (trimmed(x.cwd) === at || folderOn(x.cwd, null, null) === tilde))) ?? null;
 }
 
-/// The heading: the project's short name in bold, when there is one.
-export function formTitle(project: string | null | undefined): { lead: string; name: string | null } {
-  const name = project?.split("/").filter(Boolean).pop() ?? null;
-  return name ? { lead: "What should we build in", name } : { lead: "What should we build?", name: null };
-}
-
 /// A row of the Folder menu outside a project.
 export type FolderRow =
   | { kind: "workspace"; shown: string; on: boolean }
