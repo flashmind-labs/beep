@@ -40,3 +40,43 @@ fn adapters_and_harness_helpers_are_hidden_but_commands_are_not() {
         assert!(!process(command).helper(), "{command}");
     }
 }
+
+#[tokio::test(start_paused = true)]
+async fn the_process_table_is_read_every_second_only_while_followed() {
+    let (demand, mut seen) = tokio::sync::watch::channel(0usize);
+    let unfollowed = tokio::spawn(async move {
+        let started = Instant::now();
+        assert!(pace(&mut seen).await);
+        (started.elapsed(), seen)
+    });
+    tokio::time::sleep(WATCHED * 2).await;
+    assert!(!unfollowed.is_finished());
+    // A follower arriving is answered at once, without waiting out the slow pace.
+    let waited_from = Instant::now();
+    demand.send_replace(1);
+    let (elapsed, mut seen) = unfollowed.await.unwrap();
+    assert_eq!(elapsed, WATCHED * 2);
+    assert_eq!(Instant::now(), waited_from);
+
+    let started = Instant::now();
+    assert!(pace(&mut seen).await);
+    assert_eq!(started.elapsed(), WATCHED);
+
+    demand.send_replace(0);
+    assert!(pace(&mut seen).await);
+    let started = Instant::now();
+    assert!(pace(&mut seen).await);
+    assert_eq!(started.elapsed(), UNWATCHED);
+    drop(demand);
+    assert!(!pace(&mut seen).await);
+}
+
+#[test]
+fn following_processes_holds_demand_until_dropped() {
+    let mut seen = DEMAND.subscribe();
+    let held = Demand::new();
+    assert!(seen.has_changed().unwrap());
+    assert!(*seen.borrow_and_update() >= 1);
+    drop(held);
+    assert!(seen.has_changed().unwrap());
+}

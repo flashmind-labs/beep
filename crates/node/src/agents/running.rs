@@ -562,7 +562,16 @@ impl Agents {
 
                 if previous.as_ref() != Some(&summary) {
                     events.changed(beep_proto::node::events::Topic::new("agents"));
-                    events.changed(beep_proto::node::events::Topic::new("processes"));
+                    // An ended session lists no processes; its watch reports the rest.
+                    let ended = |status| status == Status::Ended;
+
+                    if previous
+                        .as_ref()
+                        .is_none_or(|(_, status, ..)| ended(*status) != ended(info.state.status))
+                    {
+                        events.changed(beep_proto::node::events::Topic::new("processes"));
+                    }
+
                     previous = Some(summary);
                 }
 

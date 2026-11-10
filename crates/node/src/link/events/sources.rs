@@ -26,6 +26,7 @@ pub(crate) struct Source {
     roots: Arc<Mutex<BTreeMap<Topic, PathBuf>>>,
     watcher: AsyncMutex<Option<FileWatcher>>,
     _agent_sources: Option<Arc<crate::agents::follow::Sources>>,
+    _processes: Option<crate::agents::ProcessDemand>,
 }
 
 impl Source {
@@ -43,6 +44,8 @@ impl Source {
             roots: Arc::default(),
             watcher: AsyncMutex::default(),
             _agent_sources: agent_sources,
+            _processes: matches!(topic.name(), "processes" | "*")
+                .then(crate::agents::ProcessDemand::new),
         };
         source.reconcile(offers).await?;
         Ok(source)
