@@ -6,7 +6,8 @@ import { playwright, stubInit } from "./stub.mjs";
 
 const code = buildSync({
   stdin: { contents: `export { S } from "./src/bar/core.ts";
-    export { paneFrame, startPane, draw, showChanges, leavePane } from "./src/agentpane/media.ts";`, resolveDir: process.cwd() },
+    export { paneFrame, startPane, showChanges, leavePane } from "./src/agentpane/media.ts";
+    export { draw } from "./src/agentpane/media-draw.ts";`, resolveDir: process.cwd() },
   bundle: true, write: false, format: "iife", globalName: "zoomCheck",
 }).outputFiles[0].text;
 const files = Array.from({ length: 100 }, (_, i) => ({

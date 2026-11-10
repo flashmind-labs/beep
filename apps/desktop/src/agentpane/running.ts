@@ -4,7 +4,9 @@ import { RunningView, type RunningActions } from "./running-view.tsx";
 // Commands the session left running, following changes while its pane shows.
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import type { RunningProcess } from "./running-state.ts";
-import { draw, paneOf, paneSession, shell } from "./media.ts";
+import { paneSession } from "./media.ts";
+import { draw } from "./media-draw.ts";
+import { paneOf, shell } from "./media-layout.ts";
 import { DOCKS } from "./media-state.ts";
 import { AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
 import { h } from "../ui/dom.ts";

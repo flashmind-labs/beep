@@ -7,7 +7,8 @@ import { takeQueuedPreview } from "./html-preview-state.ts";
 import { viewKey } from "./view-memory.ts";
 import { fileSize } from "../chat/media.ts";
 import { dropTerm, followTerm, forgetTerm, killTerm, openTerm } from "./terminal.ts";
-import { type FilePart, type TreeText, type MediaTab, P, draw, closeTab, leavePane, rememberTerminal } from "./media.ts";
+import { type FilePart, type TreeText, type MediaTab, P, closeTab, leavePane, rememberTerminal } from "./media.ts";
+import { draw } from "./media-draw.ts";
 import { invoke } from "../ui/tauri.ts";
 
 /// The most the pane reads of one file, as the node allows.
