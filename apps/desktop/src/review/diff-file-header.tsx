@@ -1,4 +1,4 @@
-import type { DiffFile } from "./diff-state.ts";
+import { grouped, type DiffFile } from "./diff-state.ts";
 
 interface DiffFileHeaderProps {
   file: DiffFile;
@@ -31,8 +31,8 @@ export function DiffFileHeader({ file, count, readOnly, openLabel, onComment, on
     </span>
     <span className={`dv-chip ${file.status}`}>{file.status}</span>
     <span className="dv-fct">
-      {!!file.additions && <i className="dv-plus">+{file.additions.toLocaleString("en-US")}</i>}
-      {!!file.deletions && <i className="dv-minus">-{file.deletions.toLocaleString("en-US")}</i>}
+      {!!file.additions && <i className="dv-plus">+{grouped(file.additions)}</i>}
+      {!!file.deletions && <i className="dv-minus">-{grouped(file.deletions)}</i>}
     </span>
     <span className="dv-fcm">{count}</span>
     <span className="dv-facts">

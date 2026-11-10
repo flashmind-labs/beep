@@ -1,4 +1,4 @@
-import { changedLabel, type DiffView } from "./diff-state.ts";
+import { changedLabel, grouped, type DiffView } from "./diff-state.ts";
 
 interface DiffSummaryProps {
   view: DiffView | null;
@@ -10,8 +10,8 @@ export function DiffSummary({ view, loading, uncommitted }: DiffSummaryProps) {
   if (!view) return <b>{loading ? "Reading the changes…" : "Changes"}</b>;
   return <>
     <b>{changedLabel(view)}</b>
-    {!!view.additions && <i className="dv-plus">+{view.additions.toLocaleString("en-US")}</i>}
-    {!!view.deletions && <i className="dv-minus">-{view.deletions.toLocaleString("en-US")}</i>}
+    {!!view.additions && <i className="dv-plus">+{grouped(view.additions)}</i>}
+    {!!view.deletions && <i className="dv-minus">-{grouped(view.deletions)}</i>}
     <span className="base">vs <code>{uncommitted ? "HEAD" : view.base}</code></span>
   </>;
 }

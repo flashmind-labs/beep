@@ -65,6 +65,13 @@ export interface DiffState {
 /// An editor's text and selection as it unmounted, for where it mounts next.
 export interface EditorSnapshot { text: string; start: number; end: number; focused: boolean }
 
+/// Where each shown file sits in the laid out list `files` (diff-keys.ts).
+interface ShownLayout {
+  shown: readonly DiffFile[];
+  files: readonly DiffFile[];
+  at: readonly number[];
+}
+
 /// A drawn chunk of rows: whether its rows show, and how to change that.
 export interface ChunkEntry { live: boolean; set: (state: { live: boolean; height: number }) => void }
 
@@ -96,6 +103,7 @@ export class Viewer {
   readonly chunks = new Map<Element, ChunkEntry>();
   chunkObserver: IntersectionObserver | null = null;
   virtual: Virtualizer<HTMLDivElement, HTMLElement> | null = null;
+  layout: ShownLayout | null = null;
   /// Paths held for a selection, released as it goes.
   readonly selectionHeld = new Set<string>();
   readonly onSelection = () => selectionChanged(this);
@@ -143,14 +151,44 @@ export function remember(v: Viewer) {
   writeView(v.memoryKey, { scroll: v.files?.scrollTop ?? 0, filter: s.filter, folded: [...s.folded], context: [...v.context].map(([path, value]) => [path, value.above, value.below]) });
 }
 
-export function shown(s: Pick<DiffState, "view" | "filter">): DiffFile[] {
-  return s.view ? s.view.files.filter(f => matchesFilter(f, s.filter)) : [];
+/// The files the filter lets through, kept per view and filter: the toolbar
+/// and scrolling ask on every change.
+export function shown(s: Pick<DiffState, "view" | "filter">): readonly DiffFile[] {
+  if (!s.view) return [];
+  const kept = filtered.get(s.view);
+  if (kept?.filter === s.filter) return kept.files;
+  const files = s.view.files.filter(f => matchesFilter(f, s.filter));
+  filtered.set(s.view, { filter: s.filter, files });
+  return files;
 }
+
+const filtered = new WeakMap<DiffView, { filter: string; files: readonly DiffFile[] }>();
 
 /// Whether the user's selection reaches into `box`: emptying it would lose the text.
 export function selected(box: Node) {
+  if (!anySelection()) return false;
   const sel = document.getSelection();
-  return !!sel && !sel.isCollapsed && sel.containsNode(box, true);
+  return !!sel && sel.containsNode(box, true);
+}
+
+/// Whether the document holds a selection, known again after each
+/// `selectionchange`: asking the selection lays the page out, and scrolling
+/// asks for every drawn file.
+let selection: "unknown" | "none" | "some" = "unknown";
+let watching = false;
+
+function anySelection() {
+  if (!watching) {
+    watching = true;
+    document.addEventListener("selectionchange", () => { selection = "unknown"; });
+  }
+
+  if (selection === "unknown") {
+    const sel = document.getSelection();
+    selection = sel && !sel.isCollapsed ? "some" : "none";
+  }
+
+  return selection === "some";
 }
 
 /// Brings the laid out files up to the view. A file whose section holds a
@@ -232,8 +270,14 @@ export function itemAt(v: Viewer, index: number | undefined) {
 
 export function indexOf(v: Viewer, path: string | null) {
   if (path === null) return -1;
-  return v.state.list.findIndex(file => file.path === path);
+  const list = v.state.list;
+  let at = positions.get(list);
+  if (!at) positions.set(list, at = new Map(list.map((file, index) => [file.path, index])));
+  return at.get(path) ?? -1;
 }
+
+/// Each laid out list's index by path, as scrolling looks files up on every frame.
+const positions = new WeakMap<readonly DiffFile[], ReadonlyMap<string, number>>();
 
 /// Lays out every file again from estimates, measuring the drawn ones now.
 export function remeasure(v: Viewer) {
