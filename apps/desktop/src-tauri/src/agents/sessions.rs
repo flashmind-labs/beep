@@ -727,6 +727,57 @@ pub async fn agent_view(
     Ok(view.into())
 }
 
+/// Older entries of a session, as `agent_view` with `before` reads them.
+#[derive(Debug, Serialize)]
+pub struct OlderPage {
+    entries: Vec<EntryRow>,
+    earlier: u32,
+}
+
+/// The `last` entries before entry `before` of a session, for scrolling back. A machine of the
+/// mesh reads only the transcript, not the session list `agent_view` reads too.
+#[tauri::command]
+pub async fn agent_older(
+    beep: Service<'_>,
+    fleet: Machines<'_>,
+    machine_id: String,
+    agent: String,
+    session: String,
+    last: u32,
+    before: u64,
+) -> Result<OlderPage, ViewError> {
+    let request = GetAgentSession {
+        machine_id,
+        agent,
+        session,
+        last,
+        before: Some(before),
+    };
+    let (entries, earlier) = match fleet.member(&request.machine_id) {
+        Some(machine) => {
+            let read = direct::older(&fleet, machine, &request);
+            fleet
+                .asked(
+                    machine,
+                    &request.session,
+                    "reading older entries",
+                    READ_LIMIT,
+                    read,
+                )
+                .await?
+        }
+        None => {
+            let view = beep.call(request).await?;
+            (view.entries, view.earlier)
+        }
+    };
+
+    Ok(OlderPage {
+        entries: entries.into_iter().map(EntryRow::from).collect(),
+        earlier,
+    })
+}
+
 /// The folder on this Mac for a session's folder, to open in an editor; `None`
 /// when this Mac does not have it.
 #[tauri::command]

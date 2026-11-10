@@ -250,6 +250,7 @@ pub fn run() {
             agents::sessions::agent_modes,
             agents::sessions::agent_tasks,
             agents::sessions::agent_view,
+            agents::sessions::agent_older,
             agents::follow::agent_follow,
             fleet::events::mesh_watch,
             fleet::events::mesh_topics,
