@@ -59,26 +59,11 @@ export function drawProjects() {
     if (elsewhere) parts.push(viewPart("elsewhere", elsewhere));
   }
 
-  // Read before the draw: a node that moves scrolls to 0.
-  const old = el.querySelector<HTMLElement>(":scope > .cc-view");
-  const top = old?.scrollTop ?? 0;
-  const inner = old ? [...old.querySelectorAll<HTMLElement>("[id] .pv-scroll")].flatMap(s => { const id = s.closest("[id]")?.id; return id ? [[id, s.scrollTop] as const] : []; }) : [];
-  const cols = [".pj-list", ".pj-det", ".pj-scroll"].map(c => [c, old?.querySelector(c)?.scrollTop ?? 0] as const);
-
-  shown = { project: state.picked ?? "", split: !!one && splitOn(one), parts };
+  const project = state.picked ?? "";
+  watchScroll(el, project);
+  shown = { project, split: !!one && splitOn(one), parts };
   drawPage("projects");
-
-  const view = el.querySelector<HTMLElement>(":scope > .cc-view");
-
-  if (old && view) {
-    if (view.scrollTop !== top) view.scrollTop = top;
-    for (const [c, at] of cols) { const col = view.querySelector(c); if (col && col.scrollTop !== at) col.scrollTop = at; }
-
-    for (const [id, at] of inner) {
-      const s = view.querySelector<HTMLElement>(`#${CSS.escape(id)} .pv-scroll`);
-      if (s && s.scrollTop !== at) s.scrollTop = at;
-    }
-  }
+  restoreScroll(el);
 
   // The bar starts coding agents in the project's checkout.
   if (one) {
@@ -86,6 +71,44 @@ export function drawProjects() {
     if (el.lastElementChild !== projectComp.form) el.append(projectComp.form);
   } else {
     projectComp.form.remove();
+  }
+}
+
+/// Where the page's scrollers stand, by selector within the page view ("" for
+/// the view itself), kept as they scroll rather than read around a draw,
+/// which would lay the page out on every open. A node the draw moves scrolls
+/// to 0, so one at 0 is put back; one that scrolled since, as a list keeping
+/// its rows in place does, stays. Another project starts with none.
+const scrolled = new Map<string, number>();
+let scrolledProject: string | null = null;
+const watchedBoxes = new WeakSet<HTMLElement>();
+const COLUMNS = [".pj-list", ".pj-det", ".pj-scroll"];
+
+function watchScroll(el: HTMLElement, project: string) {
+  if (scrolledProject !== project) {
+    scrolled.clear();
+    scrolledProject = project;
+  }
+
+  if (watchedBoxes.has(el)) return;
+  watchedBoxes.add(el);
+  el.addEventListener("scroll", event => {
+    const box = event.target, view = el.querySelector<HTMLElement>(":scope > .cc-view");
+    if (!(box instanceof HTMLElement) || !view) return;
+    if (box === view) scrolled.set("", box.scrollTop);
+    for (const column of COLUMNS) if (box.matches(column) && view.querySelector(column) === box) scrolled.set(column, box.scrollTop);
+    const id = box.matches(".pv-scroll") ? box.closest("[id]")?.id : null;
+    if (id) scrolled.set(`#${CSS.escape(id)} .pv-scroll`, box.scrollTop);
+  }, { capture: true, passive: true });
+}
+
+function restoreScroll(el: HTMLElement) {
+  const view = el.querySelector<HTMLElement>(":scope > .cc-view");
+  if (!view) return;
+
+  for (const [selector, at] of scrolled) {
+    const box = selector ? view.querySelector(selector) : view;
+    if (at && box && box.scrollTop === 0) box.scrollTop = at;
   }
 }
 

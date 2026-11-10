@@ -188,6 +188,18 @@ function loadProjectBar(name: string) {
   }
 }
 
+/// The field fits its text again only when the text, its host or its layout
+/// changed since it last did: fitting reads the field's height, which lays
+/// the page out, and the page draws the bar on every open.
+let fitted: { text: string; host: Element | null; centered: boolean } | null = null;
+
+function fitField() {
+  const c = projectComp, now = { text: c.input.value, host: c.form.parentElement, centered: c.centered() };
+  if (fitted && fitted.text === now.text && fitted.host === now.host && fitted.centered === now.centered) return;
+  fitted = now.host ? now : null;
+  c.grow();
+}
+
 /// Points the bar at project `name`: its field, machine, folder and harness.
 export function drawProjectComp(name: string) {
   const c = projectComp, inDraft = currentLocation()?.view === "pane" && S.view === "agent" && AG.draft === name;
@@ -211,7 +223,7 @@ export function drawProjectComp(name: string) {
   // else the first such machine.
   const place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
   // Text set or cleared from code (Work on it, a start) fits once the page places the form.
-  requestAnimationFrame(c.grow);
+  requestAnimationFrame(fitField);
   const t = pc.target;
   const co = t ? targetCheckout(t) : barCheckout(pc.checkout, baseFor(null, pc.branches.get(name)));
   c.renderChoices({
