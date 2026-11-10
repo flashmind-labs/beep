@@ -26,7 +26,7 @@ import { MN, resetMentions } from "./workdrop.ts";
 import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, drawAgents, usageLine, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, folderName, where } from "./agents.ts";
 import { agentAttachError, agentAttach, drawAgentAttached, fullPic } from "./images.ts";
 import { childRow } from "./nesting-state.ts";
-import { parentSession, keepNativeSession, loadSessions, sessions, sessionsRead } from "./sessions.ts";
+import { parentSession, keepNativeSession, ensureSessions, loadSessions, sessions, sessionsRead } from "./sessions.ts";
 import { closeSession, shownStatus } from "./closing.ts";
 import { sessionOffers } from "./sessionmenu-state.ts";
 import { thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest, closeSub, scrolledLog } from "./logview.ts";
@@ -485,7 +485,7 @@ onShownChange(shown => {
 
 const titlesChanged = ambient(() => {
   if (S.view === "agent") void pollAgent(true);
-  return loadSessions().then(() => { if (S.view === "agents") drawAgents(false); });
+  return S.view === "agents" ? ensureSessions().then(() => drawAgents(false)) : undefined;
 }, AMBIENT_MS);
 listen("agent-title-changed", () => titlesChanged());
 

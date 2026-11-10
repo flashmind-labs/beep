@@ -21,8 +21,14 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager, State, WebviewWindow, ipc::Channel};
-use tokio::{sync::watch, time::timeout};
+use tokio::{
+    sync::watch,
+    time::{Instant as TokioInstant, sleep_until, timeout},
+};
 use uuid::Uuid;
+
+mod pace;
+use pace::{Pace, Pushed};
 
 /// The most readers one window keeps; past it the oldest is cancelled, so a
 /// reloaded page cannot leave readers behind without bound.
@@ -40,6 +46,8 @@ struct Reader {
     id: Uuid,
     /// Dropping it cancels the reader.
     _stop: watch::Sender<bool>,
+    /// Whether the window shows its session.
+    shown: watch::Sender<bool>,
     followed: Followed,
 }
 
@@ -63,6 +71,9 @@ impl Readers {
             return false;
         }
 
+        reader
+            .shown
+            .send_replace(self.shown.get(window) == Some(&reader.id));
         let readers = self.active.entry(window.to_owned()).or_default();
         readers.push(reader);
 
@@ -111,23 +122,25 @@ impl Readers {
     /// `window` shows reader `id`'s session, or none; the session shown, if
     /// that reader is registered.
     fn show(&mut self, window: &str, id: Option<Uuid>) -> Option<Followed> {
-        let id = match id {
-            Some(id) => id,
-            None => {
-                self.shown.remove(window);
-                return None;
-            }
+        match id {
+            Some(id) => self.shown.insert(window.to_owned(), id),
+            None => self.shown.remove(window),
         };
-        self.shown.insert(window.to_owned(), id);
-        self.active
-            .get(window)?
+        let readers = self.active.get(window)?;
+
+        for reader in readers {
+            reader.shown.send_if_modified(|shown| {
+                let was = *shown;
+                *shown = Some(reader.id) == id;
+                was != *shown
+            });
+        }
+
+        let id = id?;
+        readers
             .iter()
             .find(|reader| reader.id == id)
             .map(|reader| reader.followed.clone())
-    }
-
-    fn shows(&self, window: &str, id: Uuid) -> bool {
-        self.shown.get(window) == Some(&id)
     }
 }
 
@@ -147,10 +160,6 @@ impl Follows {
 
     fn remove(&self, window: &str, id: Uuid) {
         self.readers().remove(window, id);
-    }
-
-    fn shows(&self, window: &str, id: Uuid) -> bool {
-        self.readers().shows(window, id)
     }
 }
 
@@ -181,6 +190,19 @@ pub struct Update {
     page: SessionPage,
     modes: Option<ModesRow>,
     tasks: Vec<TaskRow>,
+}
+
+impl From<Pushed> for Update {
+    fn from(pushed: Pushed) -> Self {
+        Self {
+            kind: pushed.kind,
+            cursor: pushed.cursor,
+            resumed: pushed.resumed,
+            page: pushed.view.into(),
+            modes: pushed.modes,
+            tasks: pushed.tasks,
+        }
+    }
 }
 
 #[tauri::command]
@@ -231,6 +253,7 @@ pub async fn agent_follow(
     on_event: Channel<Update>,
 ) -> Result<()> {
     let (cancel, mut cancelled) = watch::channel(false);
+    let (shown, mut on_screen) = watch::channel(false);
 
     if app.get_webview_window(window.label()).is_none() {
         return Ok(());
@@ -239,6 +262,7 @@ pub async fn agent_follow(
     let reader = Reader {
         id,
         _stop: cancel,
+        shown,
         followed: Followed {
             machine_id: machine_id.clone(),
             agent: agent.clone(),
@@ -274,19 +298,44 @@ pub async fn agent_follow(
         let (_tx, mut rx) = client
             .open_sending(SESSION_FOLLOW_PROTOCOL, &request)
             .await?;
+        let mut pace = Pace::default();
+
         loop {
+            let due = pace.due();
             // Heartbeats detect a half-open link even when the session is idle.
-            let update = timeout(Duration::from_secs(35), rx.recv::<SessionUpdate>())
-                .await
-                .map_err(|_| DesktopError::BadRequest("session stream stopped responding".into()))??
-                .ok_or_else(|| DesktopError::BadRequest("session stream disconnected".into()))?;
+            let update = tokio::select! {
+                update = timeout(Duration::from_secs(35), rx.recv::<SessionUpdate>()) => update
+                    .map_err(|_| DesktopError::BadRequest("session stream stopped responding".into()))??
+                    .ok_or_else(|| DesktopError::BadRequest("session stream disconnected".into()))?,
+                () = sleep_until(due.map_or_else(TokioInstant::now, TokioInstant::from_std)), if due.is_some() => {
+                    if let Some(pushed) = pace.flush(Instant::now()) {
+                        on_event.send(pushed.into())?;
+                    }
+
+                    continue;
+                }
+                changed = on_screen.changed() => {
+                    if changed.is_err() {
+                        return Ok(());
+                    }
+
+                    // Shown again: what was held goes at once.
+                    if *on_screen.borrow_and_update()
+                        && let Some(pushed) = pace.flush(Instant::now())
+                    {
+                        on_event.send(pushed.into())?;
+                    }
+
+                    continue;
+                }
+            };
             if app.get_webview_window(window.label()).is_none() {
                 return Ok(());
             }
 
             // Only the session on screen counts as read; those followed off
             // screen still notify.
-            let shown = follows.shows(window.label(), id);
+            let shown = *on_screen.borrow();
 
             if shown {
                 app.state::<AgentsShown>().read(
@@ -353,14 +402,19 @@ pub async fn agent_follow(
                 beep_fleet::session_titles::apply(&mesh, &mut view.session);
             }
 
-            on_event.send(Update {
+            let pushed = Pushed {
                 kind,
                 cursor: snapshot.cursor,
                 resumed: snapshot.resumed,
-                page: view.into(),
+                view,
                 modes,
                 tasks: tasks.into_iter().map(Into::into).collect(),
-            })?;
+            };
+
+            for pushed in pace.push(pushed, shown, Instant::now()) {
+                on_event.send(pushed.into())?;
+            }
+
             if shown {
                 crate::notices::history::agent_viewed(
                     &app,
