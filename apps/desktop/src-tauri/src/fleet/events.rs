@@ -516,6 +516,8 @@ impl Events {
                 return;
             }
 
+            metrics::counter!("beep_ipc_emit_total", "topic" => update.topic.name().to_owned())
+                .increment(1);
             registry.latest.insert(update.clone(), bytes);
             registry
                 .windows
