@@ -71,10 +71,21 @@ function seen(entries: IntersectionObserverEntry[]) {
 let views: IntersectionObserver | null = null;
 const VALUE = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!;
 
+const draftKeyOf = (draft: string) => `beep.promptDraft.v1.${draft}`;
+
+/// Puts `text` in front of the draft kept for a field not on screen, as `ComposeOptions.draft`
+/// names it, so it shows when that field is drawn.
+export function prependDraft(draft: string, text: string) {
+  try {
+    const kept = localStorage.getItem(draftKeyOf(draft));
+    localStorage.setItem(draftKeyOf(draft), kept ? `${text}\n${kept}` : text);
+  } catch { /* Storage can be unavailable. */ }
+}
+
 /// Makes `field` a composer. Calling it again on the same field does nothing.
 export function composeField(field: HTMLTextAreaElement, opts: ComposeOptions = {}) {
   if (fields.has(field)) return;
-  const draftKey = opts.draft === undefined ? null : `beep.promptDraft.v1.${opts.draft}`;
+  const draftKey = opts.draft === undefined ? null : draftKeyOf(opts.draft);
 
   if (draftKey) {
     try { field.value = localStorage.getItem(draftKey) ?? field.value; } catch { /* Storage can be unavailable. */ }

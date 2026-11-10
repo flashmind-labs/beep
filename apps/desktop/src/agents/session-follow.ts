@@ -20,7 +20,8 @@ interface FeedUpdate extends TranscriptUpdate<AgentPage> {
   tasks: typeof AG.tasks;
 }
 
-/// The newest modes and tasks of sessions followed off screen, by `transcriptKey`.
+/// The newest modes and tasks of each followed session, by `transcriptKey`, for when it opens
+/// again and for its menu.
 export const offScreen = new Map<string, Pick<FeedUpdate, "modes" | "tasks">>();
 
 /// What a session is doing, for how long it stays followed off screen.
@@ -62,12 +63,9 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     feed.activity(o, activityOf(page.session));
     unkept.set(key, o);
     keepSoon();
+    offScreen.set(key, { modes: update.modes, tasks: update.tasks });
     const fresh = update.kind === "delta" ? update.page : page;
-
-    if (!open) {
-      offScreen.set(key, { modes: update.modes, tasks: update.tasks });
-      return;
-    }
+    if (!open) return;
 
     AG.modes = update.modes;
     AG.tasks = update.tasks;
@@ -130,6 +128,16 @@ export async function keptTranscript(o: OpenAgent): Promise<AgentPage | null> {
   if (!kept || transcripts.peek(key)) return null;
   if (kept.cursor) transcripts.seed(key, { page: kept.page, cursor: kept.cursor });
   return kept.page;
+}
+
+/// The steers the node holds for `o`, as its newest page says, now dropped by a Stop all: the
+/// page held no longer lists them.
+export function takeHeldSteers(o: OpenAgent): string[] {
+  const held = transcripts.peek(transcriptKey(o));
+  if (!held) return [];
+  const steers = held.page.queued_messages ?? [];
+  held.page = { ...held.page, queued: 0, queued_messages: [] };
+  return steers;
 }
 
 /// Drops what is held of a deleted session, in memory and on disk.

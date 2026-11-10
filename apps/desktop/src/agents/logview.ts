@@ -308,6 +308,12 @@ function subActivity(ats: number[]): ActivityRow {
   return { kind: "subagents", id: String(ats[0]), at: ats[0], heading, counts, rows: ats.map(at => subData(at, false)) };
 }
 
+/// How many subagents of the open session's log still work, not counting agents it started.
+export function workingSubagents() {
+  const p = AG.page;
+  return p ? subagentsShown(p).filter(at => { const x = subOf(at); return x.working && !x.sub.child; }).length : 0;
+}
+
 /// The places of the subagents' calls among the entries shown.
 function subagentsShown(p: AgentPage) {
   if (!AG.log) return [];
