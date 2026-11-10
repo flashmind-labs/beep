@@ -1038,20 +1038,38 @@ async fn run(
     }
 }
 
-fn invalidate(app: &AppHandle, topic: &str) {
-    if matches!(topic, "agents" | "agent" | "processes" | "*") {
-        let outside = app.state::<crate::machines::list::Outside>();
-        outside.sessions.stale();
-        outside.scans.stale();
-        app.state::<Arc<crate::center::home_sessions::AgentSessions>>()
-            .stale();
+/// Drops what a snapshot of `topic` from `machine` makes out of date. One session's live report
+/// or the processes leave the session lists as they are; a live report updates its session.
+fn invalidate(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option<&events::Value>) {
+    match topic.name() {
+        name if lists_sessions_again(name) => {
+            let outside = app.state::<crate::machines::list::Outside>();
+            outside.sessions.stale();
+            outside.scans.stale();
+            app.state::<Arc<crate::center::home_sessions::AgentSessions>>()
+                .stale();
+        }
+        "agent" => {
+            if let Some(events::Value::Sessions(reply)) = value
+                && let beep_proto::node::agent::SessionsReply::Live { status } = reply.as_ref()
+            {
+                app.state::<Arc<crate::center::home_sessions::AgentSessions>>()
+                    .live(&machine.to_string(), &status.session);
+            }
+        }
+        _ => {}
     }
 
-    if matches!(topic, "terminals" | "*") {
+    if matches!(topic.name(), "terminals" | "*") {
         app.state::<crate::machines::list::Outside>()
             .terminals
             .stale();
     }
+}
+
+/// Whether a snapshot of the topic `name` can add or end sessions, so their lists are read again.
+fn lists_sessions_again(name: &str) -> bool {
+    matches!(name, "agents" | "*")
 }
 
 /// Hosts without a push feed are read once for all windows. Results arrive as IPC events.

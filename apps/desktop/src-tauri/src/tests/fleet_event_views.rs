@@ -24,3 +24,9 @@ fn failed_views_replace_values_and_successful_null_is_still_a_value() {
         })
     );
 }
+
+#[test]
+fn processes_do_not_draw_home_again() {
+    assert!(affected("processes").is_empty());
+    assert_eq!(affected("agent"), ["home"]);
+}

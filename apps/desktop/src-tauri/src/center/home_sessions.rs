@@ -13,10 +13,13 @@ use crate::{
     machines::list::Outside,
 };
 use anyhow::anyhow;
-use beep_proto::MachineSession;
+use beep_proto::{
+    AgentStatus, MachineSession,
+    node::agent::{ExternalSession, Presence},
+};
 use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::{Duration, Instant},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::{sync::oneshot, time::timeout};
@@ -72,6 +75,37 @@ impl AgentSessions {
         if let Some(listed) = self.last().as_mut() {
             change(listed.sessions.as_mut_slice());
         }
+    }
+
+    /// Takes one external session's live report into the last list, so a
+    /// change to one session does not list every machine again.
+    pub(crate) fn live(&self, machine_id: &str, report: &ExternalSession) {
+        let status = match report.presence {
+            Presence::Working => AgentStatus::Working {},
+            Presence::Waiting => AgentStatus::Waiting {},
+            Presence::Running | Presence::Recent => AgentStatus::Running {},
+            Presence::Stopped => AgentStatus::Ended {},
+            _ => return,
+        };
+        let at = UNIX_EPOCH + Duration::from_secs(report.last_activity);
+
+        self.edit(|sessions| {
+            let held = sessions.iter_mut().find(|session| {
+                session.external
+                    && session.machine_id == machine_id
+                    && session.id == report.id
+                    && session.agent == report.agent
+            });
+
+            if let Some(session) = held {
+                session.status = status;
+                session.last_activity = session.last_activity.max(at);
+
+                if report.title.is_some() {
+                    session.title.clone_from(&report.title);
+                }
+            }
+        });
     }
 
     pub(crate) fn stale(&self) {
@@ -170,3 +204,7 @@ fn stopped() -> DesktopError {
         "listing the agent sessions stopped before an answer"
     ))
 }
+
+#[cfg(test)]
+#[path = "../tests/center_home_sessions.rs"]
+mod tests;

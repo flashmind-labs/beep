@@ -171,7 +171,7 @@ impl SubscriptionWorker {
                                 app.state::<Events>().resources(machine, &snapshot.topic, resources);
                             }
 
-                            if !initial { invalidate(app, snapshot.topic.name()); }
+                            if !initial { invalidate(app, machine, &snapshot.topic, Some(&snapshot.value)); }
                             if !initial && (machine == fleet.me || matches!(snapshot.topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves" | "sync")) {
                                 super::super::event_views::changed(app.clone(), snapshot.topic.clone());
                             }
@@ -185,7 +185,7 @@ impl SubscriptionWorker {
                         Reply::SnapshotError { query, topic, reason } => {
                             log::warn!("node snapshot failed machine={machine} generation={generation} query={query:?} topic={}: {reason}", topic.name());
                             if let Some(query) = query && !fleet.snapshots.failed(machine, generation, query, reason.clone()) { continue; }
-                            invalidate(app, topic.name());
+                            invalidate(app, machine, &topic, None);
 
                             if machine == fleet.me || matches!(topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves" | "sync") {
                                 super::super::event_views::failed(app, &topic, &reason);

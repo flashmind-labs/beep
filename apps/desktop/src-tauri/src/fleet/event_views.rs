@@ -133,7 +133,8 @@ fn affected(name: &str) -> &'static [&'static str] {
         "*" => &[
             "home", "machines", "projects", "sync", "usage", "accounts", "forge",
         ],
-        "agents" | "agent" | "processes" | "moves" | "home" => &["home"],
+        // Home shows no processes.
+        "agents" | "agent" | "moves" | "home" => &["home"],
         "machines" => &["machines", "home"],
         "projects" => &["projects", "home"],
         "sync" => &["sync"],
