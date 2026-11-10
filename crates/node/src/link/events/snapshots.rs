@@ -364,27 +364,9 @@ impl Snapshots {
                     match source {
                         Source::Read(read) => read_value(offers, caller, read).await,
                         Source::Agent(session) => {
-                            let value = read_value(
-                                offers,
-                                caller,
-                                Read::Sessions(Box::new(SessionsRequest::ListAll {})),
-                            )
-                            .await?;
-
-                            match value {
-                                Value::Sessions(reply) => match *reply {
-                                    SessionsReply::Sessions { sessions } => {
-                                        Ok(Value::Sessions(Box::new(SessionsReply::Sessions {
-                                            sessions: sessions
-                                                .into_iter()
-                                                .filter(|info| info.id == session)
-                                                .collect(),
-                                        })))
-                                    }
-                                    other => Ok(Value::Sessions(Box::new(other))),
-                                },
-                                other => Ok(other),
-                            }
+                            Ok(Value::Sessions(Box::new(SessionsReply::Sessions {
+                                sessions: offers.agents.listed_session(&session),
+                            })))
                         }
                         Source::Reviews => Ok(Value::Sessions(Box::new(SessionsReply::Reviews {
                             runs: offers.agents.review_snapshots(),

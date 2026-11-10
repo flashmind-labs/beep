@@ -379,12 +379,25 @@ impl Agents {
 
     /// `list`, with the reviewers that run as a child when `reviewers`.
     pub(super) fn listed(&self, reviewers: bool) -> Vec<SessionInfo> {
+        self.listed_where(reviewers, None)
+    }
+
+    /// The entries of the full list whose id is `id`, without copying the others.
+    pub(crate) fn listed_session(&self, id: &str) -> Vec<SessionInfo> {
+        self.listed_where(true, Some(id))
+    }
+
+    fn listed_where(&self, reviewers: bool, id: Option<&str>) -> Vec<SessionInfo> {
         let mut sessions: Vec<SessionInfo> = self
             .lock()
             .values()
             .filter_map(|s| {
                 let live = s.live.borrow();
                 live.agent_session.as_ref()?;
+
+                if id.is_some_and(|id| live.info.id != id) {
+                    return None;
+                }
 
                 if s.reviewer && !(reviewers && live.info.parent.is_some()) {
                     return None;
