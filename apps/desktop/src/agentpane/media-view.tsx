@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, type RefCallback } from "react";
+import { ModelControls } from "./model-controls.tsx";
 import { setSessionPortal } from "../agents/session-frame.tsx";
 import { fileSize } from "../chat/media.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -63,6 +64,13 @@ export function drawPending(host: HTMLElement, tab: MediaTab, machineName: strin
   setSessionPortal(host, <div className={`agpmsg${next.error ? " derr" : ""}`}>{!next.error && <span className="dspin" />}{next.message}{next.progress !== null && <span className="agpload"><i style={{ transform: `scaleX(${next.progress})` }} /></span>}</div>);
 }
 
-export function ModelShell() {
-  return <><div className="agpstage model" /><div className="agpacts anim" hidden /><div className="agpacts model-actions" /></>;
+export type ModelState = { kind: "drawing" } | { kind: "drawn" } | { kind: "failed"; message: string };
+
+/// A 3D model tab. Three.js draws its canvas into the stage; React owns the
+/// stage's messages, the animation controls and the footer.
+export function ModelView({ tab, machine, state, stage }: { tab: MediaTab; machine: string | null; state: ModelState; stage: RefCallback<HTMLDivElement> }) {
+  const animation = state.kind === "drawn" ? tab.model?.anim ?? null : null;
+  return <><div className="agpstage model" ref={stage}>{state.kind === "drawing" ? <div className="agpmsg"><span className="dspin" />{`Drawing ${tab.name}…`}</div>
+    : state.kind === "failed" ? <div className="agpmsg derr">{`Could not draw ${tab.name}: ${state.message}`}</div> : null}</div>
+    <div className="agpacts anim" hidden={!animation}>{animation && <ModelControls animation={animation} />}</div><div className="agpacts model-actions"><ModelFooter tab={tab} machine={machine} /></div></>;
 }
