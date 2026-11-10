@@ -14,6 +14,8 @@ Earlier releases predate this changelog.
   message field, such as "3 commands running"; tap it to open the Running
   tab, where each command has its Stop button. Queued messages fold into a
   line of their own, such as "4 queued"; tap it to edit or remove them.
+- Android: the Home usage pill shows provider balances in whole dollars,
+  such as "$622 left"; the popover shows them to the cent.
 - Android: the Home usage pill shows each harness's icon and the share of
   its most used limit, without bars.
 - Android: the Projects page lists the most recently active projects first

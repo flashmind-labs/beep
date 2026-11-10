@@ -57,8 +57,8 @@ const usPill = () => {
         ${win("5 hours", 9, "15:10")}
         ${win("This week", 20, "Thu")}</div>
       <div><h5><span>${mk("flsh")}flsh · OpenRouter credits</span><span>as of just now</span></h5>
-        <div class="us-row"><span>API key limit</span><span>$7.25 remaining</span></div>
-        <div class="us-row"><small>Resets monthly</small><small>$2.75 used · $10 total</small></div></div>
+        <div class="us-row"><span>Account</span><span>$622.32 remaining</span></div>
+        <div class="us-row"><small></small><small>$377.68 used · $1,000.00 total</small></div></div>
       <div><div class="us-seg">${seg}</div>
         <h5><span>By project</span></h5>
         ${(S.d.usmore ? d.projects : d.projects.slice(0, 5)).map(([n, c, t]) => `<div class="us-row"><span>${n}</span><span class="us-r">${c}${t ? `<small>${c ? " · " : ""}${t}</small>` : ""}</span></div>`).join("")}
@@ -70,7 +70,7 @@ const usPill = () => {
         <div class="us-row"><b>Total</b><b class="us-r">${d.total}<small>${d.total ? " · " : ""}${d.tokens}</small></b></div></div>
       ${/\$/.test(JSON.stringify(d)) ? `<div class="us-note">Dollars are API spend. ~ is what plan use would cost on the API, not in the total.</div>` : ""}
     </div>` : "";
-  return `<span class="us"><button class="us-pill" data-uspop aria-expanded="${open}" title="Plan usage and cost" aria-label="Plan usage: Claude Code 76%, Codex 20%">${lim("claude", 76, true)}${lim("codex", 20)}<span>OpenRouter <b>$7.25</b> left</span></button>${pop}</span>`;
+  return `<span class="us"><button class="us-pill" data-uspop aria-expanded="${open}" title="Plan usage and cost" aria-label="Plan usage: Claude Code 76%, Codex 20%">${lim("claude", 76, true)}${lim("codex", 20)}<span>OpenRouter <b>$622</b> left</span></button>${pop}</span>`;
 };
 document.getElementById("desk").addEventListener("click", e => {
   if (!e.target.closest("[data-usmore]")) return;

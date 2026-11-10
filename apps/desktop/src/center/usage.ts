@@ -4,7 +4,7 @@ import { windowHost } from "./window-shell.tsx";
 import { UsageWidget } from "./usage-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
-import type { ProviderCredits } from "../ui/credits.ts";
+import type { WrittenCredits } from "../ui/credits.ts";
 export { creditAmount, creditScope, type ProviderCredits } from "../ui/credits.ts";
 // The pill at the right end of every command center header: how much of each
 // coding agent's plan is used and what the agents cost today.
@@ -25,7 +25,7 @@ export interface PlanLimits {
   machine_name: string;
   as_of: number;
   windows: UsageWindow[];
-  credits?: ProviderCredits[];
+  credits?: WrittenCredits[];
 }
 
 export interface NamedTokens {
