@@ -9,13 +9,13 @@ const { makeTouchBar } = await import("../src/terminals/touchbar.ts");
 test("touch keys preserve terminal focus and apply modifiers once", () => {
   const sent: string[] = [];
   const bar = makeTouchBar(value => sent.push(value));
-  document.body.append(bar.el);
-  bar.setShown(true);
+  bar.show(0);
+  const keys = () => document.querySelector(".tm-keys");
   const terminal = document.querySelector("input");
   assert.ok(terminal);
   terminal.focus();
   const button = (name: string) => {
-    const found = [...bar.el.querySelectorAll("button")].find(item => item.textContent === name);
+    const found = [...keys()?.querySelectorAll("button") ?? []].find(item => item.textContent === name);
     assert.ok(found);
     return found;
   };
@@ -32,13 +32,14 @@ test("touch keys preserve terminal focus and apply modifiers once", () => {
   assert.deepEqual(sent, ["\x1b[A", "\x1b[A"]);
   ctrl.click();
   assert.equal(bar.apply("paste"), "paste");
-  bar.el.remove();
-  document.body.append(bar.el);
+  bar.show(40);
+  assert.equal(keys()?.getAttribute("style"), "bottom: 40px;");
   assert.equal(button("Ctrl"), ctrl);
   assert.equal(ctrl.getAttribute("aria-pressed"), "true");
   assert.equal(bar.apply("d"), "\x04");
-  bar.setShown(false);
+  bar.show(null);
+  assert.equal(keys()?.hasAttribute("hidden"), true);
   assert.equal(bar.height(), 0);
   bar.dispose();
-  assert.equal(bar.el.isConnected, false);
+  assert.equal(keys(), null);
 });

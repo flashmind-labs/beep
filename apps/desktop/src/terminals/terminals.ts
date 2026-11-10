@@ -3,7 +3,7 @@
 // with the window closed and can be attached to again. The window's Terminals
 // page is view.ts; makeTerminals here holds its state.
 import { createElement, Fragment, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
-import { TerminalOutput, TerminalPage, TerminalScreen } from "./page-view.tsx";
+import { TerminalOutput, terminalOutput, TerminalPage, TerminalScreen } from "./page-view.tsx";
 import { NewTerminalFields } from "./new-terminal-view.tsx";
 import { TerminalFooter, TerminalHeader } from "./terminal-controls.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
@@ -445,8 +445,8 @@ export function makeTerminals(deps: TerminalDeps) {
     if (!live) return false;
 
     if (live.link === "view_only") {
-      const output = document.querySelector<HTMLElement>(".tl .tm-screen");
-      if (!output) return false;
+      const output = terminalOutput.current;
+      if (!output?.isConnected) return false;
       output.focus();
     } else {
       live.screen.focus();
