@@ -156,7 +156,7 @@ fn page(earlier: u64, text: &[&str]) -> SessionSnapshot {
         cursor: SessionCursor {
             start: earlier,
             next: earlier + text.len() as u64,
-            fingerprint: fingerprint(
+            fingerprint: reference::fingerprint(
                 earlier,
                 &text
                     .iter()
@@ -166,6 +166,15 @@ fn page(earlier: u64, text: &[&str]) -> SessionSnapshot {
             .unwrap(),
         },
         resumed: false,
+    }
+}
+
+/// The window a reader holds after receiving `snapshot`.
+fn held(snapshot: &SessionSnapshot) -> Window {
+    let (window, _) = retain(snapshot.clone(), None).unwrap();
+    Window {
+        cursor: snapshot.cursor.clone(),
+        ..window
     }
 }
 
@@ -190,13 +199,13 @@ fn fingerprints_cover_the_complete_compact_entry_encoding() {
     expected.update(&(encoded.len() as u64).to_le_bytes());
     expected.update(&encoded);
     assert_eq!(
-        fingerprint(7, &entries).unwrap(),
+        fingerprint(7, 1, &rmp_serde::to_vec(&entries[0]).unwrap()).unwrap(),
         expected.finalize().to_hex().to_string()
     );
     let before = page(7, &["thinking"]);
     let mut changed = before.clone();
     changed.entries[0].ms = Some(123);
-    let (after, update) = next_update(changed, Some(&before), &request(None)).unwrap();
+    let (after, update) = next_update(changed, Some(held(&before)), &request(None)).unwrap();
     assert_ne!(after.cursor.fingerprint, before.cursor.fingerprint);
     assert!(matches!(update, SessionUpdate::Delta(ref delta) if delta.entries[0].ms == Some(123)));
 }
@@ -209,10 +218,10 @@ fn structured_tool_updates_change_the_cursor_and_invalidate_old_resume_positions
         input: Some("echo example".into()),
         ..Default::default()
     });
-    before.cursor.fingerprint = fingerprint(0, &before.entries).unwrap();
+    before.cursor.fingerprint = reference::fingerprint(0, &before.entries).unwrap();
     let mut after = before.clone();
     after.entries[0].tool.as_mut().unwrap().result = Some("example".into());
-    let (current, delta) = next_update(after.clone(), Some(&before), &request(None)).unwrap();
+    let (current, delta) = next_update(after.clone(), Some(held(&before)), &request(None)).unwrap();
     assert_ne!(current.cursor.fingerprint, before.cursor.fingerprint);
     assert!(
         matches!(delta, SessionUpdate::Delta(ref delta) if delta.earlier == 0 && delta.entries[0].tool.as_ref().unwrap().result.as_deref() == Some("example"))
@@ -228,7 +237,7 @@ fn structured_tool_updates_change_the_cursor_and_invalidate_old_resume_positions
         });
     }
 
-    let bounded = retained(large).unwrap();
+    let (bounded, _) = retain(large, None).unwrap();
     assert_eq!(bounded.earlier, 1);
     assert_eq!(bounded.entries.len(), 2);
 }
@@ -239,7 +248,7 @@ fn retention_counts_complete_encoded_entries_and_rejects_an_oversized_entry() {
     let mut snapshot = page(0, &[]);
     snapshot.entries = vec![entry; 3];
     snapshot.cursor.next = 3;
-    let retained = retained(snapshot).unwrap();
+    let (retained, _) = retain(snapshot, None).unwrap();
     assert_eq!(retained.earlier, 1);
     assert_eq!(retained.entries.len(), 2);
     assert!(rmp_serde::to_vec(&retained.entries).unwrap().len() <= RETAINED_BYTES);
@@ -253,14 +262,14 @@ fn retention_counts_complete_encoded_entries_and_rejects_an_oversized_entry() {
 fn deltas_replace_same_count_edits_and_truncate_the_suffix() {
     let before = page(3, &["one", "thi"]);
     let (retained, update) =
-        next_update(page(3, &["one", "thinking"]), Some(&before), &request(None)).unwrap();
+        next_update(page(3, &["one", "thinking"]), Some(held(&before)), &request(None)).unwrap();
     let SessionUpdate::Delta(update) = update else {
         panic!("expected delta")
     };
     assert_eq!(update.earlier, 4);
     assert_eq!(update.entries[0].text, "thinking");
     assert_eq!(update.cursor, retained.cursor);
-    let (_, update) = next_update(page(3, &["one"]), Some(&retained), &request(None)).unwrap();
+    let (_, update) = next_update(page(3, &["one"]), Some(retained), &request(None)).unwrap();
     let SessionUpdate::Delta(update) = update else {
         panic!("expected delta")
     };
@@ -274,7 +283,7 @@ fn moving_retention_keeps_overlap_and_gaps_reset_the_snapshot() {
     let before = page(3, &["one", "two", "three"]);
     let (_, update) = next_update(
         page(4, &["two", "three", "four"]),
-        Some(&before),
+        Some(held(&before)),
         &request(None),
     )
     .unwrap();
@@ -290,7 +299,7 @@ fn moving_retention_keeps_overlap_and_gaps_reset_the_snapshot() {
         page(0, &["reset", "before", "window"]),
     ] {
         assert!(matches!(
-            next_update(fresh, Some(&before), &request(None)).unwrap().1,
+            next_update(fresh, Some(held(&before)), &request(None)).unwrap().1,
             SessionUpdate::Snapshot(_)
         ));
     }
@@ -359,14 +368,14 @@ async fn a_resume_window_can_extend_beyond_the_initial_two_hundred_entries() {
     let raw = snapshot(&agents, &request).await.unwrap();
     assert_eq!(raw.entries.len(), 250);
     let (initial, _) = next_update(raw, None, &request).unwrap();
-    assert_eq!(initial.entries.len(), 200);
+    assert_eq!(initial.cursor.next - initial.cursor.start, 200);
     assert_eq!(initial.cursor.start, 50);
     text.push_str(&line(250));
     std::fs::write(file, text).unwrap();
     request.after = Some(initial.cursor);
     let raw = snapshot(&agents, &request).await.unwrap();
     let (retained, update) = next_update(raw, None, &request).unwrap();
-    assert_eq!(retained.entries.len(), 201);
+    assert_eq!(retained.cursor.next - retained.cursor.start, 201);
     let SessionUpdate::Snapshot(update) = update else {
         panic!("expected snapshot")
     };
@@ -455,3 +464,261 @@ async fn an_external_transcript_pushes_deltas_and_reconnects_from_a_checkpoint()
         .unwrap()
         .unwrap();
 }
+
+/// The full re-encoding builder this module replaced, kept to prove identical output.
+mod reference {
+    use super::*;
+
+    pub(super) fn fingerprint(start: u64, entries: &[Entry]) -> Result<String> {
+        let wire = rmp_serde::to_vec(entries)?;
+        let mut hash = blake3::Hasher::new();
+        hash.update(b"session-window/1");
+        hash.update(&start.to_le_bytes());
+        hash.update(&u64::try_from(wire.len())?.to_le_bytes());
+        hash.update(&wire);
+        Ok(hash.finalize().to_hex().to_string())
+    }
+
+    fn window(mut snapshot: SessionSnapshot, start: u64) -> Result<SessionSnapshot> {
+        let skip = start
+            .saturating_sub(snapshot.earlier)
+            .min(snapshot.entries.len() as u64) as usize;
+        snapshot.entries.drain(..skip);
+        snapshot.earlier += skip as u64;
+        snapshot.cursor.start = snapshot.earlier;
+        snapshot.cursor.fingerprint = fingerprint(snapshot.earlier, &snapshot.entries)?;
+        Ok(snapshot)
+    }
+
+    fn validates(snapshot: &SessionSnapshot, cursor: &SessionCursor) -> Result<bool> {
+        if cursor.start < snapshot.earlier
+            || cursor.next < cursor.start
+            || cursor.next > snapshot.cursor.next
+        {
+            return Ok(false);
+        }
+        let start = (cursor.start - snapshot.earlier) as usize;
+        let end = (cursor.next - snapshot.earlier) as usize;
+        Ok(fingerprint(cursor.start, &snapshot.entries[start..end])? == cursor.fingerprint)
+    }
+
+    fn since(snapshot: &SessionSnapshot, previous: &SessionSnapshot) -> SessionSnapshot {
+        let offset = (snapshot.earlier - previous.earlier) as usize;
+        let same = if snapshot.cursor == previous.cursor {
+            snapshot.entries.len()
+        } else {
+            snapshot
+                .entries
+                .iter()
+                .zip(previous.entries.iter().skip(offset))
+                .take_while(|(new, old)| new == old)
+                .count()
+        };
+        suffix(snapshot, same, false)
+    }
+
+    fn suffix(snapshot: &SessionSnapshot, skip: usize, resumed: bool) -> SessionSnapshot {
+        SessionSnapshot {
+            source: snapshot.source.clone(),
+            entries: snapshot.entries[skip..].to_vec(),
+            earlier: snapshot.earlier + skip as u64,
+            cursor: snapshot.cursor.clone(),
+            resumed,
+        }
+    }
+
+    fn retained(mut snapshot: SessionSnapshot) -> Result<SessionSnapshot> {
+        let mut bytes = 5usize;
+        let mut kept = 0;
+        for entry in snapshot.entries.iter().rev() {
+            let next = bytes + rmp_serde::to_vec(entry)?.len();
+            if next > RETAINED_BYTES {
+                break;
+            }
+            bytes = next;
+            kept += 1;
+        }
+        if kept == 0 && !snapshot.entries.is_empty() {
+            bail!("a transcript entry exceeds the retained window limit");
+        }
+        let removed = snapshot.entries.len() - kept;
+        snapshot.entries.drain(..removed);
+        snapshot.earlier += removed as u64;
+        snapshot.cursor.start = snapshot.earlier;
+        Ok(snapshot)
+    }
+
+    pub(super) fn next_update(
+        snapshot: SessionSnapshot,
+        previous: Option<&SessionSnapshot>,
+        request: &FollowSession,
+    ) -> Result<(SessionSnapshot, SessionUpdate)> {
+        let snapshot = retained(snapshot)?;
+        let initial_start = snapshot
+            .cursor
+            .next
+            .saturating_sub(u64::from(request.last.clamp(1, MAX_TRANSCRIPT)));
+        if let Some(previous) = previous {
+            if snapshot.earlier <= previous.cursor.next && previous.earlier < snapshot.cursor.next {
+                let snapshot = window(snapshot, previous.earlier)?;
+                let delta = since(&snapshot, previous);
+                return Ok((snapshot, SessionUpdate::Delta(Box::new(delta))));
+            }
+        } else if let Some(after) = &request.after
+            && validates(&snapshot, after)?
+        {
+            let snapshot = window(snapshot, after.start)?;
+            let skip = (after.next - snapshot.earlier) as usize;
+            let update = suffix(&snapshot, skip, true);
+            return Ok((snapshot, SessionUpdate::Snapshot(Box::new(update))));
+        }
+        let snapshot = window(snapshot, initial_start)?;
+        Ok((
+            snapshot.clone(),
+            SessionUpdate::Snapshot(Box::new(snapshot)),
+        ))
+    }
+}
+
+#[test]
+fn incremental_updates_send_the_same_bytes_as_full_reencoding() {
+    let read = |earlier: u64, entries: &[Entry]| SessionSnapshot {
+        source: SessionSource::Owned(Box::default()),
+        entries: entries.to_vec(),
+        earlier,
+        cursor: SessionCursor {
+            start: earlier,
+            next: earlier + entries.len() as u64,
+            fingerprint: String::new(),
+        },
+        resumed: false,
+    };
+    let text = |n: usize| Entry::new(EntryKind::Agent, format!("entry {n}"));
+    let mut entries: Vec<_> = (0..300).map(text).collect();
+    let mut steps = vec![(0, entries.clone())];
+    entries.push(text(300));
+    steps.push((0, entries.clone()));
+    entries.last_mut().unwrap().text.push_str(" streamed");
+    steps.push((0, entries.clone()));
+    entries[290].tool = Some(beep_proto::AgentToolCall {
+        result: Some("finished".into()),
+        ..Default::default()
+    });
+    steps.push((0, entries.clone()));
+    steps.push((0, entries.clone()));
+    entries.truncate(295);
+    steps.push((0, entries.clone()));
+    steps.push((40, entries[40..].to_vec()));
+    // Large entries push the byte limit past the reader's window start.
+    entries.extend((0..3).map(|n| Entry::new(EntryKind::Tool, "x".repeat(RETAINED_BYTES / 3 - n))));
+    steps.push((40, entries[40..].to_vec()));
+    entries.push(text(1));
+    steps.push((40, entries[40..].to_vec()));
+    steps.push((0, vec![text(7), text(8)]));
+    steps.push((0, vec![text(7), text(9), text(10)]));
+
+    let mut old: Option<SessionSnapshot> = None;
+    let mut new: Option<Window> = None;
+    let mut cursors = Vec::new();
+
+    for (earlier, entries) in &steps {
+        let (old_window, old_update) =
+            reference::next_update(read(*earlier, entries), old.as_ref(), &request(None)).unwrap();
+        let (new_window, new_update) =
+            next_update(read(*earlier, entries), new.take(), &request(None)).unwrap();
+        assert_eq!(
+            rmp_serde::to_vec(&old_update).unwrap(),
+            rmp_serde::to_vec(&new_update).unwrap()
+        );
+        assert_eq!(old_window.cursor, new_window.cursor);
+        let whole = rmp_serde::to_vec(&new_window.entries).unwrap();
+        let header = whole.len() - new_window.wire.len();
+        assert_eq!(whole[header..], new_window.wire);
+        cursors.push(new_window.cursor.clone());
+        old = Some(old_window);
+        new = Some(new_window);
+    }
+
+    // Reconnects from every checkpoint resume or restart exactly as before.
+    for (earlier, entries) in &steps {
+        for cursor in &cursors {
+            let request = request(Some(cursor.clone()));
+            let (old_window, old_update) =
+                reference::next_update(read(*earlier, entries), None, &request).unwrap();
+            let (new_window, new_update) =
+                next_update(read(*earlier, entries), None, &request).unwrap();
+            assert_eq!(
+                rmp_serde::to_vec(&old_update).unwrap(),
+                rmp_serde::to_vec(&new_update).unwrap()
+            );
+            assert_eq!(old_window.cursor, new_window.cursor);
+        }
+    }
+}
+
+/// Times one streaming update against the full re-encoding builder, counting the
+/// replaced window's drop in both:
+/// `cargo test -p beep-node --release --lib streaming_update_cost -- --ignored --nocapture`.
+#[test]
+#[ignore = "timing"]
+fn streaming_update_cost() {
+    let entries: Vec<_> = (0..RETAINED_ENTRIES)
+        .map(|n| {
+            let mut entry = Entry::new(EntryKind::Tool, format!("step {n} ").repeat(40));
+            entry.tool = Some(beep_proto::AgentToolCall {
+                name: Some("command".into()),
+                input: Some(format!("cargo test {n}")),
+                result: Some("ok ".repeat(150)),
+                ..Default::default()
+            });
+            entry
+        })
+        .collect();
+    let read = |entries: &[Entry]| SessionSnapshot {
+        source: SessionSource::Owned(Box::default()),
+        entries: entries.to_vec(),
+        earlier: 0,
+        cursor: SessionCursor {
+            start: 0,
+            next: entries.len() as u64,
+            fingerprint: String::new(),
+        },
+        resumed: false,
+    };
+    let (whole, _) = retain(read(&entries), None).unwrap();
+    let whole = SessionCursor {
+        fingerprint: fingerprint(whole.earlier, whole.entries.len(), &whole.wire).unwrap(),
+        ..whole.cursor
+    };
+    let rounds = 100;
+
+    for after in [None, Some(whole)] {
+        let request = request(after);
+        let mut streamed = entries.clone();
+        let (mut old, _) = reference::next_update(read(&streamed), None, &request).unwrap();
+        let (mut new, _) = next_update(read(&streamed), None, &request).unwrap();
+        let held = new.cursor.next - new.cursor.start;
+        let (mut before, mut after) = (Vec::new(), Vec::new());
+
+        for round in 0..rounds {
+            streamed.last_mut().unwrap().text.push_str(&format!(" token {round}"));
+            let snapshot = read(&streamed);
+            let started = std::time::Instant::now();
+            old = reference::next_update(snapshot, Some(&old), &request).unwrap().0;
+            before.push(started.elapsed());
+            let snapshot = read(&streamed);
+            let started = std::time::Instant::now();
+            new = next_update(snapshot, Some(new), &request).unwrap().0;
+            after.push(started.elapsed());
+        }
+
+        before.sort();
+        after.sort();
+        println!(
+            "{held} held entries, median per update: {:?} before, {:?} after",
+            before[before.len() / 2],
+            after[after.len() / 2]
+        );
+    }
+}
+

@@ -545,6 +545,7 @@ dependencies = [
  "rand 0.9.5",
  "regex",
  "reqwest",
+ "rmp",
  "rmp-serde",
  "roxmltree 0.20.0",
  "rusqlite",

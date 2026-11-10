@@ -6,7 +6,7 @@ use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{Entry, FollowSession, SessionCursor, SessionSnapshot, SessionSource, SessionUpdate},
 };
-use std::{future::pending, path::PathBuf, sync::Arc, time::Duration};
+use std::{future::pending, ops::Range, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
     sync::{Semaphore, mpsc},
     task::spawn_blocking,
@@ -108,7 +108,7 @@ async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Res
     };
     let mut heartbeat = interval_at(Instant::now() + HEARTBEAT, HEARTBEAT);
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    let mut previous = None;
+    let mut previous: Option<Window> = None;
     let mut observed_pid = None;
     let mut exit = None;
 
@@ -149,16 +149,19 @@ async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Res
 
         let prior = previous.take();
         let requested = request.clone();
-        let (snapshot, update, changed) = spawn_blocking(move || {
-            let (snapshot, update) = next_update(snapshot, prior.as_ref(), &requested)?;
-            let changed = prior.as_ref().is_none_or(|prior| {
-                prior.cursor != snapshot.cursor || prior.source != snapshot.source
+        let (window, update, changed) = spawn_blocking(move || {
+            let held = prior
+                .as_ref()
+                .map(|prior| (prior.cursor.clone(), prior.source.clone()));
+            let (window, update) = next_update(snapshot, prior, &requested)?;
+            let changed = held.is_none_or(|(cursor, source)| {
+                cursor != window.cursor || source != window.source
             });
-            Ok::<_, anyhow::Error>((snapshot, update, changed))
+            Ok::<_, anyhow::Error>((window, update, changed))
         })
         .await
         .context("preparing transcript update")??;
-        previous = Some(snapshot);
+        previous = Some(window);
 
         if changed {
             send(tx, &update).await?;
@@ -186,7 +189,7 @@ async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Res
                 } => { exit = None; },
                 _ = async {
                     match &previous {
-                        Some(snapshot) => match &snapshot.source {
+                        Some(window) => match &window.source {
                             SessionSource::External(session) => match recent_deadline(session) {
                                 Some(deadline) => tokio::time::sleep_until(deadline).await,
                                 None => pending().await,
@@ -228,129 +231,278 @@ fn recent_deadline(session: &beep_proto::node::agent::ExternalSession) -> Option
     Instant::now().checked_add(Duration::from_secs(remaining.max(1)))
 }
 
-/// Hash exactly the canonical window the client can retain and validate on reconnect.
-fn fingerprint(start: u64, entries: &[Entry]) -> Result<String> {
-    let wire = rmp_serde::to_vec(entries).context("encoding transcript checkpoint")?;
+/// A reader's retained transcript with its compact encoding, so an update encodes only
+/// new or changed entries. Dropped with the follow stream.
+#[derive(Debug)]
+struct Window {
+    source: SessionSource,
+    /// Position of `entries[0]`; earlier than `cursor.start` when the reader holds less.
+    earlier: u64,
+    entries: Vec<Entry>,
+    /// Each entry's `rmp_serde` encoding back to back, entry `i` from `starts[i]`.
+    wire: Vec<u8>,
+    starts: Vec<usize>,
+    /// The range the reader holds, ending at the transcript end.
+    cursor: SessionCursor,
+}
+
+impl Window {
+    fn index(&self, position: u64) -> usize {
+        (position - self.earlier) as usize
+    }
+
+    fn offset(&self, index: usize) -> usize {
+        self.starts.get(index).copied().unwrap_or(self.wire.len())
+    }
+
+    /// Where this window encoded `entry`, if it held it unchanged at `position`.
+    fn held(&self, position: u64, entry: &Entry) -> Option<Range<usize>> {
+        let index = usize::try_from(position.checked_sub(self.earlier)?).ok()?;
+        (self.entries.get(index)? == entry).then(|| self.offset(index)..self.offset(index + 1))
+    }
+
+    /// Moves the reader's start within the retained entries and hashes what it holds.
+    fn hold(&mut self, start: u64) -> Result<()> {
+        let start = start.clamp(self.earlier, self.cursor.next);
+        let index = self.index(start);
+        self.cursor.start = start;
+        self.cursor.fingerprint = fingerprint(
+            start,
+            self.entries.len() - index,
+            &self.wire[self.offset(index)..],
+        )?;
+        Ok(())
+    }
+
+    fn suffix(&self, position: u64, resumed: bool) -> SessionSnapshot {
+        SessionSnapshot {
+            source: self.source.clone(),
+            entries: self.entries[self.index(position)..].to_vec(),
+            earlier: position,
+            cursor: self.cursor.clone(),
+            resumed,
+        }
+    }
+}
+
+/// Hash exactly the canonical window the client can retain and validate on reconnect:
+/// `rmp_serde::to_vec` of `count` entries whose encodings are `wire`.
+fn fingerprint(start: u64, count: usize, wire: &[u8]) -> Result<String> {
+    let mut header = Vec::with_capacity(5);
+    rmp::encode::write_array_len(&mut header, u32::try_from(count)?)
+        .context("encoding transcript checkpoint")?;
+    let length = header
+        .len()
+        .checked_add(wire.len())
+        .context("transcript size overflow")?;
     let mut hash = blake3::Hasher::new();
     hash.update(b"session-window/1");
     hash.update(&start.to_le_bytes());
-    hash.update(&u64::try_from(wire.len())?.to_le_bytes());
-    hash.update(&wire);
+    hash.update(&u64::try_from(length)?.to_le_bytes());
+    hash.update(&header);
+    hash.update(wire);
     Ok(hash.finalize().to_hex().to_string())
 }
 
-fn window(mut snapshot: SessionSnapshot, start: u64) -> Result<SessionSnapshot> {
-    let skip = start
-        .saturating_sub(snapshot.earlier)
-        .min(snapshot.entries.len() as u64) as usize;
-    snapshot.entries.drain(..skip);
-    snapshot.earlier += skip as u64;
-    snapshot.cursor.start = snapshot.earlier;
-    snapshot.cursor.fingerprint = fingerprint(snapshot.earlier, &snapshot.entries)?;
-    Ok(snapshot)
-}
-
-fn validates(snapshot: &SessionSnapshot, cursor: &SessionCursor) -> Result<bool> {
-    if cursor.start < snapshot.earlier
+fn validates(window: &Window, cursor: &SessionCursor) -> Result<bool> {
+    if cursor.start < window.earlier
         || cursor.next < cursor.start
-        || cursor.next > snapshot.cursor.next
+        || cursor.next > window.cursor.next
     {
         return Ok(false);
     }
 
-    let start = (cursor.start - snapshot.earlier) as usize;
-    let end = (cursor.next - snapshot.earlier) as usize;
-    Ok(fingerprint(cursor.start, &snapshot.entries[start..end])? == cursor.fingerprint)
+    let (start, end) = (window.index(cursor.start), window.index(cursor.next));
+    let wire = &window.wire[window.offset(start)..window.offset(end)];
+    Ok(fingerprint(cursor.start, end - start, wire)? == cursor.fingerprint)
 }
 
-/// Keeps only the suffix that replaces entries the reader already holds.
-fn since(snapshot: &SessionSnapshot, previous: &SessionSnapshot) -> SessionSnapshot {
-    let offset = (snapshot.earlier - previous.earlier) as usize;
-    let same = if snapshot.cursor == previous.cursor {
-        snapshot.entries.len()
-    } else {
-        snapshot
-            .entries
-            .iter()
-            .zip(previous.entries.iter().skip(offset))
-            .take_while(|(new, old)| new == old)
-            .count()
-    };
-    suffix(snapshot, same, false)
+/// An entry's encoding: still in the previous window's buffer, or new.
+enum Encoded {
+    Held(Range<usize>),
+    Fresh(Vec<u8>),
 }
 
-fn suffix(snapshot: &SessionSnapshot, skip: usize, resumed: bool) -> SessionSnapshot {
-    SessionSnapshot {
-        source: snapshot.source.clone(),
-        entries: snapshot.entries[skip..].to_vec(),
-        earlier: snapshot.earlier + skip as u64,
-        cursor: snapshot.cursor.clone(),
-        resumed,
+impl Encoded {
+    fn len(&self) -> usize {
+        match self {
+            Self::Held(range) => range.len(),
+            Self::Fresh(wire) => wire.len(),
+        }
     }
 }
 
-fn retained(mut snapshot: SessionSnapshot) -> Result<SessionSnapshot> {
+/// Keeps the newest entries that fit the retained limit, reusing the previous window's
+/// encoding of each entry it held unchanged. Also returns which kept entries were unchanged.
+fn retain(snapshot: SessionSnapshot, previous: Option<Window>) -> Result<(Window, Vec<bool>)> {
+    let SessionSnapshot {
+        source,
+        mut entries,
+        earlier,
+        cursor,
+        ..
+    } = snapshot;
     // Reserve the largest compact array header before counting complete entries.
     let mut bytes = 5usize;
-    let mut kept = 0;
+    let mut encoded = Vec::new();
 
-    for entry in snapshot.entries.iter().rev() {
-        let encoded = rmp_serde::to_vec(entry).context("measuring transcript entry")?;
+    for (index, entry) in entries.iter().enumerate().rev() {
+        let position = earlier
+            .checked_add(u64::try_from(index)?)
+            .context("transcript position overflow")?;
+        let entry = match previous
+            .as_ref()
+            .and_then(|previous| previous.held(position, entry))
+        {
+            Some(range) => Encoded::Held(range),
+            None => Encoded::Fresh(
+                rmp_serde::to_vec(entry).context("measuring transcript entry")?,
+            ),
+        };
         let next = bytes
-            .checked_add(encoded.len())
+            .checked_add(entry.len())
             .context("transcript size overflow")?;
         if next > RETAINED_BYTES {
             break;
         }
         bytes = next;
-        kept += 1;
+        encoded.push(entry);
     }
 
-    if kept == 0 && !snapshot.entries.is_empty() {
+    if encoded.is_empty() && !entries.is_empty() {
         bail!("a transcript entry exceeds the retained window limit");
     }
 
-    let removed = snapshot.entries.len() - kept;
-    snapshot.entries.drain(..removed);
-    snapshot.earlier = snapshot
-        .earlier
+    encoded.reverse();
+    let unchanged = encoded
+        .iter()
+        .map(|entry| matches!(entry, Encoded::Held(_)))
+        .collect();
+    let mut starts = Vec::with_capacity(encoded.len());
+    let mut offset = 0;
+
+    for entry in &encoded {
+        starts.push(offset);
+        offset += entry.len();
+    }
+
+    let previous = previous.map(|previous| previous.wire).unwrap_or_default();
+    let wire = assemble(encoded, previous, offset);
+    let removed = entries.len() - starts.len();
+    entries.drain(..removed);
+    let earlier = earlier
         .checked_add(u64::try_from(removed)?)
         .context("transcript position overflow")?;
-    snapshot.cursor.start = snapshot.earlier;
-    Ok(snapshot)
+    let window = Window {
+        source,
+        earlier,
+        entries,
+        wire,
+        starts,
+        cursor: SessionCursor {
+            start: earlier,
+            ..cursor
+        },
+    };
+    Ok((window, unchanged))
+}
+
+/// Lays the kept encodings out back to back. While a stream only appends or edits its
+/// last entries, the unchanged ones are one run of the previous buffer, trimmed in place.
+fn assemble(encoded: Vec<Encoded>, previous: Vec<u8>, length: usize) -> Vec<u8> {
+    let mut run: Option<Range<usize>> = None;
+    let mut fresh = false;
+    let mut in_place = true;
+
+    for entry in &encoded {
+        match (entry, &mut run) {
+            (Encoded::Fresh(_), _) => fresh = true,
+            (Encoded::Held(range), Some(run)) if !fresh && run.end == range.start => {
+                run.end = range.end;
+            }
+            (Encoded::Held(range), None) if !fresh => run = Some(range.clone()),
+            (Encoded::Held(_), _) => {
+                in_place = false;
+                break;
+            }
+        }
+    }
+
+    let mut wire = match run {
+        _ if !in_place => {
+            let mut wire = Vec::with_capacity(length);
+
+            for entry in &encoded {
+                match entry {
+                    Encoded::Held(range) => wire.extend_from_slice(&previous[range.clone()]),
+                    Encoded::Fresh(bytes) => wire.extend_from_slice(bytes),
+                }
+            }
+
+            return wire;
+        }
+        Some(run) => {
+            let mut wire = previous;
+            wire.truncate(run.end);
+            wire.drain(..run.start);
+            wire
+        }
+        None => Vec::with_capacity(length),
+    };
+
+    for entry in encoded {
+        if let Encoded::Fresh(bytes) = entry {
+            wire.extend_from_slice(&bytes);
+        }
+    }
+
+    wire
 }
 
 fn next_update(
     snapshot: SessionSnapshot,
-    previous: Option<&SessionSnapshot>,
+    previous: Option<Window>,
     request: &FollowSession,
-) -> Result<(SessionSnapshot, SessionUpdate)> {
-    let snapshot = retained(snapshot)?;
-    let initial_start = snapshot
+) -> Result<(Window, SessionUpdate)> {
+    let held = previous.as_ref().map(|previous| previous.cursor.clone());
+    let (mut window, unchanged) = retain(snapshot, previous)?;
+    let initial_start = window
         .cursor
         .next
         .saturating_sub(u64::from(request.last.clamp(1, MAX_TRANSCRIPT)));
-    if let Some(previous) = previous {
+
+    if let Some(held) = held {
         // Retention loss, a source reset, or truncation before our window requires a fresh view.
-        if snapshot.earlier <= previous.cursor.next && previous.earlier < snapshot.cursor.next {
-            let snapshot = window(snapshot, previous.earlier)?;
-            let delta = since(&snapshot, previous);
-            return Ok((snapshot, SessionUpdate::Delta(Box::new(delta))));
+        if window.earlier <= held.next && held.start < window.cursor.next {
+            let start = held.start.max(window.earlier);
+            // Only the suffix that replaces entries the reader already holds.
+            let same = unchanged[window.index(start)..]
+                .iter()
+                .take_while(|same| **same)
+                .count();
+            let end = start + same as u64;
+
+            if start == held.start && end == held.next && end == window.cursor.next {
+                // The same entries encode the same bytes, so the checkpoint stands.
+                window.cursor = held;
+            } else {
+                window.hold(start)?;
+            }
+
+            let delta = window.suffix(end, false);
+            return Ok((window, SessionUpdate::Delta(Box::new(delta))));
         }
     } else if let Some(after) = &request.after
-        && validates(&snapshot, after)?
+        && validates(&window, after)?
     {
-        let snapshot = window(snapshot, after.start)?;
-        let skip = (after.next - snapshot.earlier) as usize;
-        let update = suffix(&snapshot, skip, true);
-        return Ok((snapshot, SessionUpdate::Snapshot(Box::new(update))));
+        window.hold(after.start)?;
+        let update = window.suffix(after.next, true);
+        return Ok((window, SessionUpdate::Snapshot(Box::new(update))));
     }
 
-    let snapshot = window(snapshot, initial_start)?;
-    Ok((
-        snapshot.clone(),
-        SessionUpdate::Snapshot(Box::new(snapshot)),
-    ))
+    window.hold(initial_start)?;
+    let update = window.suffix(window.cursor.start, false);
+    Ok((window, SessionUpdate::Snapshot(Box::new(update))))
 }
 
 async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSnapshot> {

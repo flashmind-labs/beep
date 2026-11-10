@@ -40,6 +40,7 @@ host = [
     "dep:rand",
     "dep:regex",
     "dep:reqwest",
+    "dep:rmp",
     "dep:rmp-serde",
     "dep:roxmltree",
     "dep:rusqlite",
@@ -119,6 +120,7 @@ regex = { version = "1", optional = true }
 # `beep-node update` downloads releases, and the CI watch asks GitHub, with
 # the client setup from `beep_proto::https`.
 reqwest = { version = "0.13.5", default-features = false, optional = true }
+rmp = { version = "0.8", optional = true }
 rmp-serde = { version = "1", optional = true }
 roxmltree = { version = "0.20", optional = true }
 # flsh keeps its sessions in SQLite; the same version flashmind uses.
