@@ -45,3 +45,6 @@ Earlier releases predate this changelog.
 - iOS: update changed conversation rows independently during streaming.
 - iOS: returning to the app shows what changed while it was in the
   background instead of reloading every view, for up to a minute.
+- iOS: mesh links ping every 5 seconds instead of 3, so the radio sleeps
+  more, and ride out a network drop of up to 30 seconds instead of
+  reconnecting.
