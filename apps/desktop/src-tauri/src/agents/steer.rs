@@ -35,7 +35,10 @@ pub enum Steer {
     },
     /// Takes back the steers not yet delivered.
     DropSteers,
+    /// Stops the main agent's turn; its subagents and background commands keep running.
     Cancel,
+    /// Stops the turn, its subagents, background commands and the agents it started.
+    StopAll,
     Close,
     /// Switches the running session's model or thinking from its next turn.
     Configure {
@@ -108,6 +111,7 @@ impl TryFrom<Steer> for AgentSteer {
             },
             Steer::DropSteers => Self::DropSteers {},
             Steer::Cancel => Self::Cancel {},
+            Steer::StopAll => Self::StopAll {},
             Steer::Close => Self::Close {},
             Steer::Configure { model, effort } => Self::Configure {
                 model,

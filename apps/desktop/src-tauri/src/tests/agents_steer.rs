@@ -88,3 +88,9 @@ fn an_old_server_is_told_apart() {
         &[3]
     ));
 }
+
+#[test]
+fn stop_all_comes_from_the_page_as_stop_all() {
+    let steer: Steer = serde_json::from_value(serde_json::json!("stop_all")).unwrap();
+    assert_eq!(AgentSteer::try_from(steer).unwrap(), AgentSteer::StopAll {});
+}
