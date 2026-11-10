@@ -28,7 +28,7 @@ use tokio::{
     select,
     sync::{oneshot, watch},
     task::{AbortHandle, JoinHandle, JoinSet},
-    time::sleep,
+    time::{Instant as TokioInstant, sleep_until},
 };
 
 /// How long to wait before following a member whose follow ended without the
@@ -443,11 +443,21 @@ impl Follower {
                 !finished
             });
             ended.retain(|id, _| self.shared.peers().contains_key(id));
+            // The soonest a follow that ended to an online machine is tried again.
+            let mut retry: Option<Instant> = None;
 
             for status in self.mesh.code_hosts().into_iter().filter(|s| s.online) {
                 let id = status.device.id;
 
-                if running.contains_key(&id) || !retry_due(ended.get(&id).copied()) {
+                if running.contains_key(&id) {
+                    continue;
+                }
+
+                if let Some(at) = ended.get(&id).copied()
+                    && !retry_due(Some(at))
+                {
+                    let next = at + RETRY;
+                    retry = Some(retry.map_or(next, |soonest| soonest.min(next)));
                     continue;
                 }
 
@@ -467,7 +477,11 @@ impl Follower {
                         break;
                     }
                 }
-                () = sleep(RETRY) => {}
+                // A follow ended: it is tried again after `RETRY`.
+                Some(_) = follows.join_next() => {}
+                // Only while a follow waits to start again; an offline
+                // machine coming back is a mesh update.
+                () = sleep_until(retry.map_or_else(TokioInstant::now, TokioInstant::from_std)), if retry.is_some() => {}
                 // Sent, or the status is gone.
                 _ = &mut stopped => break,
             }

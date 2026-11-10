@@ -144,3 +144,18 @@ async fn an_agents_question_reaches_the_desktop_and_its_answer_returns() {
         .expect("the task ends cleanly");
     fleet.stop().await;
 }
+
+#[tokio::test]
+async fn an_offline_machine_is_not_asked_again_until_it_is_back() {
+    let mac = crate::fleet::tests::start("Studio").await;
+    timeout(LIMIT, until_online(&mac.fleet, mac.fleet.id()))
+        .await
+        .expect("this Mac is online at once");
+
+    let away = SecretKey::generate().public();
+    let waited = timeout(Duration::from_millis(200), until_online(&mac.fleet, away)).await;
+    assert!(
+        waited.is_err(),
+        "a machine that is not online is waited for"
+    );
+}
