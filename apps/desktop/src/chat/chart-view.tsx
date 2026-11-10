@@ -1,13 +1,14 @@
 import { ChartPlot } from "./chart-plot.tsx";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { chartValue, CHART_COLORS, CHART_RANGES, type Chart, type ChartCard } from "./charts.ts";
 import { invoke } from "../ui/tauri.ts";
+import { latest, STALE } from "../ui/active.ts";
 
 export function ChartView({ card, initial }: { card: ChartCard; initial: Chart }) {
   const [chart, setChart] = useState(initial), [off, setOff] = useState<Set<number>>(() => new Set());
   const [error, setError] = useState(""), [pending, setPending] = useState<string | null>(null);
-  const generation = useRef(0);
-  useEffect(() => () => { generation.current++; }, []);
+  const [reads] = useState(latest);
+  useEffect(() => () => reads.cancel(), [reads]);
   useLayoutEffect(() => { card.chart = chart; card.off = off; }, [card, chart, off]);
   const stock = chart.stock, many = chart.series.length > 1;
   const toggle = (index: number) => setOff(previous => {
@@ -17,13 +18,12 @@ export function ChartView({ card, initial }: { card: ChartCard; initial: Chart }
   });
   const chooseRange = async (range: string) => {
     if (!stock || range === (pending ?? stock.range)) return;
-    const mine = ++generation.current;
     setPending(range); setError("");
     try {
-      const result = await invoke<Chart>("stock_chart", { symbol: stock.symbol, range });
-      if (generation.current === mine) { setChart(result); setOff(new Set()); setPending(null); }
+      const result = await reads.run(invoke<Chart>("stock_chart", { symbol: stock.symbol, range }));
+      if (result !== STALE) { setChart(result); setOff(new Set()); setPending(null); }
     } catch (err) {
-      if (generation.current === mine) { setPending(null); setError(String(err)); }
+      setPending(null); setError(String(err));
     }
   };
   const change = stock ? stock.last - stock.previous : 0, pct = stock?.previous ? change / stock.previous * 100 : 0;
