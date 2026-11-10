@@ -10,7 +10,7 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 
 import { type AgentHost, type AgentRow, AG } from "./agents.ts";
 import { type MoveRecord, type MoveTarget, canMove, going, moveRows, targetNote } from "./move-state.ts";
-import { MV, moved, nameOf, stateOf } from "./move-store.ts";
+import { machineNames, moveStore, nameOf, stateOf } from "./move-store.ts";
 import { loadSessions } from "./sessions.ts";
 import { $, S, windowHooks } from "../bar/core.ts";
 import { placeOf } from "./place.ts";
@@ -39,7 +39,7 @@ function probe<T>(ask: Promise<T>, fallback: T): Promise<T> {
   return Promise.race([ask.catch(() => fallback), new Promise<T>(done => setTimeout(() => done(fallback), PROBE_MS))]);
 }
 
-const here = (s: AgentRow) => MV.records.get(s.id);
+const here = (s: AgentRow) => moveStore.getState().records.get(s.id);
 
 /// Draws the machine menu in the head and the move above the composer.
 export function drawMove() {
@@ -102,7 +102,7 @@ async function targets(s: AgentRow): Promise<MoveTarget[]> {
     invoke<AgentHost[]>("agent_hosts").catch(() => [] as AgentHost[]),
   ]);
   AG.hosts ??= hosts;
-  for (const m of rows ?? []) MV.names.set(m.id, m.name);
+  for (const m of rows ?? []) machineNames.set(m.id, m.name);
   const others = (rows ?? []).filter(m => m.id !== s.machine_id);
   // A node from before moves would ignore the move, so it is not offered. One
   // that cannot be asked (offline) is offered: it answers when it returns.
@@ -138,21 +138,24 @@ async function start(s: AgentRow, to: MoveTarget, stop: boolean) {
       worktreeFolder: tree?.linked ? tree.folder : null, worktreeBranch: tree?.linked ? tree.branch ?? "" : null,
       mode: null, stop,
     });
-    MV.records.set(r.session, r);
-    MV.progress.set(r.session, { answer: "known", phase: "waiting", copied: 0, total: 0, files_left: 0, source_away: !to.online, reason: null });
+    const { records, progress } = moveStore.getState();
+    moveStore.setState({
+      records: new Map(records).set(r.session, r),
+      progress: new Map(progress).set(r.session, { answer: "known", phase: "waiting", copied: 0, total: 0, files_left: 0, source_away: !to.online, reason: null }),
+    });
   } catch (e) {
     warn(s, e);
   }
 
-  moved();
   drawMove();
 }
 
 async function cancel(s: AgentRow) {
   try { await invoke("session_move_cancel", { session: s.id }); } catch (e) { warn(s, e); }
-  MV.records.delete(s.id);
-  MV.progress.delete(s.id);
-  moved();
+  const records = new Map(moveStore.getState().records), progress = new Map(moveStore.getState().progress);
+  records.delete(s.id);
+  progress.delete(s.id);
+  moveStore.setState({ records, progress });
   drawMove();
 }
 

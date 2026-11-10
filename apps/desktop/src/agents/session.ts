@@ -38,7 +38,7 @@ import { loadOlder, nearTop } from "./older.ts";
 import { joinRuns, lacksPrompt, newestRead } from "./older-state.ts";
 import { endedPage, hasNews, LINKED, noteAfterRead, readFailed, retryDelay } from "./reconnect-state.ts";
 import { drawMove } from "./move.ts";
-import { MV, refreshMoves } from "./move-store.ts";
+import { moveStore, refreshMoves } from "./move-store.ts";
 import { movedTo } from "./move-state.ts";
 import { sameSession } from "./running-state.ts";
 import { isNativeSession, nativeUpdate } from "./native-session-state.ts";
@@ -310,7 +310,7 @@ function watchRead(o: OpenAgent) {
 // The open session moved and its new machine lists it: the page follows it there.
 sessionsRead.add(() => {
   if (S.view !== "agent" || !AG.open) return;
-  const there = movedTo(AG.open, MV.records, sessions);
+  const there = movedTo(AG.open, moveStore.getState().records, sessions);
   if (there) openAgent(there, { back: AG.back });
 });
 
