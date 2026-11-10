@@ -34,17 +34,20 @@ test("hiding the window sends its UI timings once, with fixed labels and no cont
   const last = sent[sent.length - 1];
 
   expect(sent.every(batch => batch.window === "main")).toBe(true);
-  expect(last.supported).toEqual(expect.arrayContaining(["event", "longtask", "long-animation-frame"]));
+  // WebKit reports no long tasks or long frames: only what it observes is checked there.
+  if (page.context().browser()?.browserType().name() !== "webkit") expect(last.supported).toEqual(expect.arrayContaining(["event", "longtask", "long-animation-frame"]));
   const interactions = histograms.filter(h => h.kind === "interaction");
-  expect(interactions.some(h => h.input === "pointer" && h.max_ms >= 500 && h.counts[7] + h.counts[8] >= 1)).toBe(true);
-  expect(histograms.some(h => h.kind === "long_task" && h.view === "home" && h.max_ms >= 200)).toBe(true);
+  if (last.supported.includes("event")) {
+    expect(interactions.some(h => h.input === "pointer" && h.max_ms >= 500 && h.counts[7] + h.counts[8] >= 1)).toBe(true);
+    expect(sent.flatMap(batch => batch.slow).some(s => s.kind === "interaction" && s.ms >= 500)).toBe(true);
+  }
+  if (last.supported.includes("longtask")) expect(histograms.some(h => h.kind === "long_task" && h.view === "home" && h.max_ms >= 200)).toBe(true);
   expect(histograms.some(h => h.kind === "open" && h.view === "home")).toBe(true);
   for (const h of histograms) {
     expect(h.counts).toHaveLength(11);
     expect(h.counts.reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
     expect(h.sum_ms).toBeGreaterThanOrEqual(h.max_ms);
   }
-  expect(sent.flatMap(batch => batch.slow).some(s => s.kind === "interaction" && s.ms >= 500)).toBe(true);
   expect(sent.flatMap(batch => batch.shown_ms).reduce((sum, s) => sum + s.ms, 0)).toBeGreaterThan(0);
 
   const text = JSON.stringify(sent);

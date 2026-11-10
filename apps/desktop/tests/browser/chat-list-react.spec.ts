@@ -133,8 +133,9 @@ test("bursts of chat changes share reads and keep the newest list", async ({ pag
   await page.evaluate(() => {
     const invoke = window.__TAURI__.core.invoke;
     let count = 0;
+    // Counted by order, not by stack: WebKit names minified functions by their short names.
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
-      if (command === "list_sessions" && new Error().stack?.includes("readChats")) {
+      if (command === "list_sessions") {
         count++;
         Reflect.set(window, "listReadCount", count);
         if (count === 1) await new Promise<void>(resolve => Reflect.set(window, "resumeListRead", resolve));
