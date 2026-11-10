@@ -195,6 +195,13 @@ pub(crate) async fn serve(
                     snapshots.reset();
                 }
 
+                // A root bound without Git metadata may have become a repository.
+                for subscription in subscriptions.values() {
+                    if subscription.source.retry_git(changed.keys()) {
+                        subscription.source.reconcile(&offers).await?;
+                    }
+                }
+
                 for (topic, kind) in changed {
                     snapshots.changed(&topic, kind);
                 }
@@ -329,7 +336,13 @@ async fn watch(
         bail!("too many watched directories; subscribe to specific file roots");
     }
 
-    if *crate::lock(roots) == wanted {
+    let same_roots = *crate::lock(roots) == wanted;
+    let held = watcher
+        .as_ref()
+        .map(|watcher| crate::lock(&watcher.bindings).clone())
+        .unwrap_or_default();
+
+    if same_roots && held.values().all(|dependencies| has_git(dependencies)) {
         return Ok(());
     }
 
@@ -337,15 +350,14 @@ async fn watch(
         *watcher = None;
     } else {
         // A root kept from the last pass keeps its Git paths without asking Git again.
-        let held = watcher
-            .as_ref()
-            .map(|watcher| crate::lock(&watcher.bindings).clone())
-            .unwrap_or_default();
+        // One without them asks again: it may have become a repository, or Git failed.
         let bindings = stream::iter(wanted.clone())
             .map(|(topic, root)| {
                 let kept = held
                     .get(&topic)
-                    .filter(|dependencies| dependencies.first() == Some(&root))
+                    .filter(|dependencies| {
+                        dependencies.first() == Some(&root) && has_git(dependencies)
+                    })
                     .cloned();
                 async move {
                     if let Some(dependencies) = kept {
@@ -366,6 +378,11 @@ async fn watch(
             .buffer_unordered(8)
             .collect::<FileBindings>()
             .await;
+
+        if same_roots && bindings == held {
+            return Ok(());
+        }
+
         if watcher.is_none() {
             let bindings = Arc::new(Mutex::new(BTreeMap::<Topic, Vec<PathBuf>>::new()));
             let changed_roots = bindings.clone();
@@ -404,6 +421,11 @@ async fn watch(
     }
 
     Ok(())
+}
+
+/// Whether a root's bindings include its Git metadata after the root itself.
+fn has_git(dependencies: &[PathBuf]) -> bool {
+    dependencies.len() > 1
 }
 
 /// Resolve public project aliases through this node's signed mesh placement records.

@@ -21,6 +21,7 @@ Earlier releases predate this changelog.
 - Node: a session whose background subagent finished, or whose turn was stopped mid-subagent, stops showing as working and sends its "turn finished" notification right away.
 - Node: more session views can stay open across desktop windows and phones at once (128 instead of 32); idle views drop their cached transcript when memory runs short.
 - Node: closing a session stops dev servers its commands left running, even when a wrapper started them and exited at once.
+- Node: Git branch and history views refresh for a folder that became a repository, or whose Git lookup failed once, after its next file change.
 
 ### Performance
 

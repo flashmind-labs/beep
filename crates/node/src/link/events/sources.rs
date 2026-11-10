@@ -1,21 +1,25 @@
 //! Topic streams own the sources they keep running. Registries hold weak references only.
 
-use super::{FileWatcher, MAX_FILE_ROOTS, Offers, broad_files, watch};
+use super::{FileWatcher, MAX_FILE_ROOTS, Offers, broad_files, has_git, watch};
 use crate::{AsyncMutex, events::Change};
 use anyhow::{Result, ensure};
 use beep_proto::node::events::Topic;
 use futures::Stream;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     pin::Pin,
     sync::{Arc, Mutex, Weak},
     task::{Context, Poll},
+    time::Duration,
 };
-use tokio::sync::broadcast;
+use tokio::{sync::broadcast, time::Instant};
 use tokio_stream::{
     StreamMap, wrappers::BroadcastStream, wrappers::errors::BroadcastStreamRecvError,
 };
+
+/// How often a changing root without Git metadata asks Git again.
+const GIT_RETRY: Duration = Duration::from_secs(2);
 
 pub(crate) type Registry = AsyncMutex<BTreeMap<Topic, Weak<Source>>>;
 pub(super) type Subscriptions = StreamMap<Topic, Subscription>;
@@ -25,6 +29,7 @@ pub(crate) struct Source {
     sender: broadcast::Sender<Change>,
     roots: Arc<Mutex<BTreeMap<Topic, PathBuf>>>,
     watcher: AsyncMutex<Option<FileWatcher>>,
+    bare: Mutex<Bare>,
     _agent_sources: Option<Arc<crate::agents::follow::Sources>>,
     _processes: Option<crate::agents::ProcessDemand>,
 }
@@ -43,6 +48,7 @@ impl Source {
             sender: broadcast::channel(1024).0,
             roots: Arc::default(),
             watcher: AsyncMutex::default(),
+            bare: Mutex::default(),
             _agent_sources: agent_sources,
             _processes: matches!(topic.name(), "processes" | "*")
                 .then(crate::agents::ProcessDemand::new),
@@ -51,21 +57,56 @@ impl Source {
         Ok(source)
     }
 
-    async fn reconcile(&self, offers: &Offers) -> Result<()> {
+    pub(super) async fn reconcile(&self, offers: &Offers) -> Result<()> {
         let mut watcher = self.watcher.lock().await;
-        watch(
+        let watched = watch(
             offers,
             &mut watcher,
             &self.roots,
             std::slice::from_ref(&self.topic),
         )
-        .await
+        .await;
+        let bare = watcher
+            .as_ref()
+            .map(|watcher| {
+                crate::lock(&watcher.bindings)
+                    .iter()
+                    .filter(|(_, dependencies)| !has_git(dependencies))
+                    .map(|(topic, _)| topic.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        crate::lock(&self.bare).topics = bare;
+        watched
     }
+
+    /// Whether one of the `changed` roots was bound without Git metadata and
+    /// should ask Git again; at most once per `GIT_RETRY`.
+    pub(super) fn retry_git<'a>(&self, mut changed: impl Iterator<Item = &'a Topic>) -> bool {
+        let mut bare = crate::lock(&self.bare);
+
+        if !changed.any(|topic| bare.topics.contains(topic))
+            || bare.tried.is_some_and(|tried| tried.elapsed() < GIT_RETRY)
+        {
+            return false;
+        }
+
+        bare.tried = Some(Instant::now());
+        true
+    }
+}
+
+/// The roots a source bound without Git metadata, and when it last asked
+/// Git again.
+#[derive(Default)]
+struct Bare {
+    topics: BTreeSet<Topic>,
+    tried: Option<Instant>,
 }
 
 pub(super) struct Subscription {
     stream: BroadcastStream<Change>,
-    source: Arc<Source>,
+    pub(super) source: Arc<Source>,
 }
 
 impl Stream for Subscription {
