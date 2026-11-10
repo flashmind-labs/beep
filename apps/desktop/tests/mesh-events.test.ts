@@ -1,8 +1,7 @@
 import { calls, answers, nativeEvent } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { subscribeTopics as subscribeEvents } from "../src/ui/mesh-events.ts";
-import { refreshTopicSubscriptions, matchesTopic, subscribeChanges as subscribeTopics, topic, type MeshEvent } from "../src/ui/mesh-events.ts";
+import { matchesTopic, type MeshEvent, refreshTopicSubscriptions, subscribeChanges, subscribeEach, topic } from "../src/ui/mesh-events.ts";
 import { invoke } from "../src/ui/tauri.ts";
 import { clearViews, installViews, snapshotView } from "../src/ui/snapshot-state.ts";
 
@@ -23,8 +22,8 @@ test("direct dotted subscriptions send canonical strings and filter hierarchical
   await settle();
   calls.length = 0;
   const exact: number[] = [], scoped: number[] = [];
-  const stopExact = subscribeEvents("files.org.repo", event => exact.push(event.revision));
-  const stopScoped = subscribeEvents(["files.org.*", "files.%6f%72%67.*"], event => scoped.push(event.revision));
+  const stopExact = subscribeEach("files.org.repo", event => exact.push(event.revision));
+  const stopScoped = subscribeEach(["files.org.*", "files.%6f%72%67.*"], event => scoped.push(event.revision));
 
   try {
     await settle();
@@ -44,7 +43,7 @@ test("direct dotted subscriptions send canonical strings and filter hierarchical
 test("invalid dotted patterns do not register native demand", async () => {
   await settle();
   calls.length = 0;
-  assert.throws(() => subscribeEvents("files.*.repo", () => {}));
+  assert.throws(() => subscribeEach("files.*.repo", () => {}));
   await settle();
   assert.equal(calls.length, 0);
 });
@@ -55,9 +54,9 @@ test("views share a reader, filter machines, coalesce bursts and ignore disposed
   calls.length = 0;
   let files = 0, plugins = 0;
   const ids: number[] = [];
-  const stopEvents = subscribeEvents(topic("plugin.example"), event => ids.push(event.revision));
-  const stopFiles = subscribeTopics(topic("files", "/srv/project"), () => files++, "machine-a");
-  const stopPlugins = subscribeTopics(topic("plugin.example"), () => plugins++);
+  const stopEvents = subscribeEach(topic("plugin.example"), event => ids.push(event.revision));
+  const stopFiles = subscribeChanges(topic("files", "/srv/project"), { deliver: "latest", receive: () => files++ }, { machine: "machine-a" });
+  const stopPlugins = subscribeChanges(topic("plugin.example"), { deliver: "latest", receive: () => plugins++ });
   await settle();
   const readers = calls.filter(call => call.cmd === "mesh_watch");
   assert.equal(readers.length, 1);
@@ -110,8 +109,8 @@ test("initial query answers do not trigger rereads while live query updates and 
   await settle();
   let rereads = 0;
   const received: MeshEvent[] = [];
-  const stopState = subscribeTopics(topic("files"), () => rereads++);
-  const stopEvents = subscribeEvents(topic("files"), event => received.push(event));
+  const stopState = subscribeChanges(topic("files"), { deliver: "latest", receive: () => rereads++ });
+  const stopEvents = subscribeEach(topic("files"), event => received.push(event));
   t.after(() => { stopState(); stopEvents(); });
   await settle();
   const reader = latestReader();
@@ -145,7 +144,7 @@ test("inactive views make no requests and unchanged focus never rereads healthy 
   calls.length = 0;
   const requestsOnly = () => calls.filter(call => call.cmd !== "log_webview");
   let visible = false, reads = 0;
-  const stop = subscribeTopics(topic("files"), () => reads++, "machine-a", () => visible);
+  const stop = subscribeChanges(topic("files"), { deliver: "latest", receive: () => reads++ }, { machine: "machine-a", when: () => visible });
   t.after(stop);
   await settle();
   t.mock.timers.tick(86_400_000);
@@ -184,10 +183,10 @@ test("async snapshot application keeps the latest projection while paused or bus
   let finish!: () => void;
   const first = new Promise<void>(done => { finish = done; });
   const heard: MeshEvent[] = [];
-  const stop = subscribeTopics(topic("files"), async event => {
+  const stop = subscribeChanges(topic("files"), { deliver: "each", receive: async event => {
     heard.push(event);
     if (heard.length === 1) await first;
-  });
+  } });
   t.after(() => { stop(); nativeEvent("center-shown"); });
   await settle();
   const reader = latestReader();
@@ -223,10 +222,10 @@ test("failed reads retry only while active and independent topics do not reread 
   await settle();
   calls.length = 0;
   let files = 0, reviews = 0, visible = true;
-  const stopFiles = subscribeTopics(topic("files"), async () => {
+  const stopFiles = subscribeChanges(topic("files"), { deliver: "latest", receive: async () => {
     if (++files === 1) throw new Error("temporary read failure");
-  }, null, () => visible);
-  const stopReviews = subscribeTopics(topic("reviews"), () => reviews++);
+  } }, { when: () => visible });
+  const stopReviews = subscribeChanges(topic("reviews"), { deliver: "latest", receive: () => reviews++ });
   t.after(() => { stopFiles(); stopReviews(); });
   await settle();
   latestReader().onEvent.onmessage(update(1));
@@ -258,10 +257,10 @@ test("subscription changes are ordered and unchanged demand does not issue IPC",
   nativeEvent("center-shown");
   await settle();
   calls.length = 0;
-  const stopFiles = subscribeTopics(topic("files"), () => {});
+  const stopFiles = subscribeChanges(topic("files"), { deliver: "latest", receive: () => {} });
   let finish!: () => void;
   answers.mesh_topics = new Promise<void>(done => { finish = done; });
-  const stopReviews = subscribeTopics(topic("reviews"), () => {});
+  const stopReviews = subscribeChanges(topic("reviews"), { deliver: "latest", receive: () => {} });
   t.after(() => { delete answers.mesh_topics; finish(); stopFiles(); stopReviews(); });
   await settle();
   // The first combined set is carried by mesh_watch, which has no registration race.
@@ -271,7 +270,7 @@ test("subscription changes are ordered and unchanged demand does not issue IPC",
   stopFiles();
   await settle();
   assert.equal(calls.filter(call => call.cmd === "mesh_topics").length, 1);
-  const stopForge = subscribeTopics(topic("forge"), () => {});
+  const stopForge = subscribeChanges(topic("forge"), { deliver: "latest", receive: () => {} });
   t.after(stopForge);
   await settle();
   assert.equal(calls.filter(call => call.cmd === "mesh_topics").length, 1, "updates wait for the preceding IPC");
@@ -289,11 +288,11 @@ test("subscription changes are ordered and unchanged demand does not issue IPC",
 test("subscription visibility waits until module state is initialized", async t => {
   nativeEvent("center-shown");
   let initialized = false, checked = 0;
-  const stop = subscribeTopics(topic("agents"), () => {}, null, () => {
+  const stop = subscribeChanges(topic("agents"), { deliver: "latest", receive: () => {} }, { when: () => {
     assert.ok(initialized);
     checked++;
     return false;
-  });
+  } });
   t.after(stop);
   initialized = true;
   await settle();
@@ -304,7 +303,7 @@ test("distinct projections sharing a topic survive coalescing", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   nativeEvent("center-shown");
   const heard: MeshEvent[] = [];
-  const stop = subscribeTopics("files.org.repo", event => heard.push(event));
+  const stop = subscribeChanges("files.org.repo", { deliver: "each", receive: event => heard.push(event) });
   t.after(stop);
   await settle();
   const reader = latestReader();
@@ -321,7 +320,7 @@ test("distinct projections sharing a topic survive coalescing", async t => {
 test("controller view snapshots are installed before callbacks and kept while hidden", async t => {
   nativeEvent("center-shown");
   const heard: unknown[] = [];
-  const stop = subscribeEvents("home.*", async () => heard.push(await invoke("center_home")));
+  const stop = subscribeEach("home.*", async () => heard.push(await invoke("center_home")));
   t.after(() => { stop(); nativeEvent("center-shown"); });
   await settle();
   const reader = latestReader();
@@ -350,9 +349,9 @@ test("hiding pauses the reader and showing again reads only what changed", async
   await settle();
   const reads = { files: 0, reviews: 0, home: 0 };
   const stops = [
-    subscribeTopics(topic("files"), () => reads.files++),
-    subscribeTopics(topic("reviews"), () => reads.reviews++),
-    subscribeTopics("home.*", () => reads.home++),
+    subscribeChanges(topic("files"), { deliver: "latest", receive: () => reads.files++ }),
+    subscribeChanges(topic("reviews"), { deliver: "latest", receive: () => reads.reviews++ }),
+    subscribeChanges("home.*", { deliver: "latest", receive: () => reads.home++ }),
   ];
   t.after(() => { for (const stop of stops) stop(); nativeEvent("center-shown"); });
   await settle();
@@ -417,10 +416,10 @@ test("source errors invalidate rendered views and retries can read recovered sta
   nativeEvent("center-shown");
   const heard: unknown[] = [];
   let errors = 0;
-  const stop = subscribeTopics("home.*", async () => {
+  const stop = subscribeChanges("home.*", { deliver: "latest", receive: async () => {
     try { heard.push(await invoke("center_home")); }
     catch (error) { errors++; throw error; }
-  });
+  } });
   t.after(() => { stop(); delete answers.center_home; });
   await settle();
   const reader = latestReader();
@@ -449,7 +448,7 @@ test("a slow view bounds pending projections while preserving errors", async t =
   const heard: MeshEvent[] = [];
   let finish!: () => void;
   const busy = new Promise<void>(resolve => { finish = resolve; });
-  const stop = subscribeTopics("files.*", async event => { heard.push(event); if (heard.length === 1) await busy; });
+  const stop = subscribeChanges("files.*", { deliver: "each", receive: async event => { heard.push(event); if (heard.length === 1) await busy; } });
   t.after(stop);
   await settle();
   const reader = latestReader();
@@ -473,7 +472,7 @@ test("pending snapshot payloads respect the byte budget", async t => {
   const heard: MeshEvent[] = [];
   let finish!: () => void;
   const busy = new Promise<void>(resolve => { finish = resolve; });
-  const stop = subscribeTopics("files.*", async event => { heard.push(event); if (heard.length === 1) await busy; });
+  const stop = subscribeChanges("files.*", { deliver: "each", receive: async event => { heard.push(event); if (heard.length === 1) await busy; } });
   t.after(stop);
   await settle();
   const reader = latestReader(), payload = "x".repeat(1024 * 1024);
@@ -492,8 +491,8 @@ test("a slow view drains every pending key after one wait", async t => {
   nativeEvent("center-shown");
   let rereads = 0;
   const heard: string[] = [];
-  const stopState = subscribeTopics("files.*", () => { rereads++; }, null, () => true, 2000);
-  const stopEvents = subscribeTopics("files.*", event => { heard.push(event.machine_id); }, null, () => true, 2000);
+  const stopState = subscribeChanges("files.*", { deliver: "latest", receive: () => { rereads++; } }, { wait: 2000 });
+  const stopEvents = subscribeChanges("files.*", { deliver: "each", receive: event => { heard.push(event.machine_id); } }, { wait: 2000 });
   t.after(() => { stopState(); stopEvents(); });
   await settle();
   const reader = latestReader();

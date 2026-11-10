@@ -1,7 +1,7 @@
 import { CredentialsView, type CredentialActions } from "./credentials-view.tsx";
 import { createElement } from "react";
 import { AgentAccountsView, type AgentAccountActions } from "./agentaccounts-view.tsx";
-import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import type * as AgentAccountsModule from "./agentaccounts.ts";
 import type { AgentAccounts, AgentAccountsState, CodexFlow, CodexLogin } from "./agentaccounts.ts";
 import type * as CredentialsModule from "./credentials.ts";
@@ -227,7 +227,7 @@ function pollCodex() {
     if (done) await loadAgentAccounts();
     else redrawAgents();
   };
-  ACC.poll = { stop: subscribeTopics([topic("processes"), topic("process-output"), topic("accounts")], () => check(), null, setShown), check };
+  ACC.poll = { stop: subscribeChanges([topic("processes"), topic("process-output"), topic("accounts")], { deliver: "latest", receive: () => check() }, { when: setShown }), check };
   void check();
 }
 

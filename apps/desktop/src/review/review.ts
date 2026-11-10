@@ -3,7 +3,7 @@ import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ReviewFindings } from "./review-findings.tsx";
 import { ReviewActions, ReviewHeading } from "./review-controls.tsx";
 import { ReviewStatus } from "./review-status.tsx";
-import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // review/: a project's branches and reviews. Entry:
 // makeReviews here.
 // A project's branches and the review of one before a merge.
@@ -388,11 +388,11 @@ export function makeReviews(deps: ReviewDeps) {
     unfollow?.();
     polling = name;
     if (!name) return;
-    unfollow = subscribeTopics(topic("reviews"), async () => {
+    unfollow = subscribeChanges(topic("reviews"), { deliver: "latest", receive: async () => {
       await loads.get(name);
       await Promise.all([load(name), read(name)]);
       if (of(name).error) throw new Error(of(name).error);
-    });
+    } });
   }
 
   /// Opens `branch`'s newest review, starting one when it has none or

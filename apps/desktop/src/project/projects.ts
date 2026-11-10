@@ -18,7 +18,6 @@ import { showMachineMenu } from "../machines/table.ts";
 import { MachinesSection, type ProjectMachineItem } from "./machines-section-view.tsx";
 import { blocked, confirmRemove, removeMenuItems } from "./removemachine.ts";
 import { changeFolder, changeFolderItems } from "./changefolder.ts";
-import { single } from "../center/openitems.ts";
 import { addProject } from "../center/sidebar.ts";
 import { splitOn, projectSplit, disposeProjectShell } from "./split.ts";
 import { EmptyPanel, ErrorNote, hostPart, viewPart, type PagePart } from "./page-view.tsx";
@@ -28,6 +27,7 @@ import { missingMachine, gitControls, checkoutItems, readingWhere, whereDue, loa
 import { terminalNote, terminalWhere } from "../terminals/terminals.ts";
 import { go } from "../center/views.ts";
 import { type RunningAgent } from "../agents/running-state.ts";
+import { single } from "../ui/active.ts";
 
 /// Every project as a card, grouped by org: its tasks per state, its
 /// workers, what changed last and where it lives.

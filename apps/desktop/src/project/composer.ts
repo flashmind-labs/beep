@@ -178,7 +178,7 @@ async function readProjectHosts() {
 }
 
 // A host can return after the project opened during its update.
-subscribeChanges([topic("machines"), topic("accounts")], () => readProjectHosts(), null, () => !!pc.project && barOn(pc.project), AMBIENT_MS);
+subscribeChanges([topic("machines"), topic("accounts")], { deliver: "latest", receive: () => readProjectHosts() }, { when: () => !!pc.project && barOn(pc.project), wait: AMBIENT_MS });
 
 /// Reads what the bar needs for project `name`: the machines that run
 /// agents, the sessions (for worktrees) and the project's branches.
@@ -521,7 +521,7 @@ async function addToMachine(project: string, m: AgentHost) {
 
         reading = false;
       };
-      const unfollow = subscribeChanges([topic("sync"), topic("projects")], () => read());
+      const unfollow = subscribeChanges([topic("sync"), topic("projects")], { deliver: "latest", receive: () => read() });
       finishCopy = finish;
       void read();
     });

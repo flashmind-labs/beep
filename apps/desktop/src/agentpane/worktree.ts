@@ -13,7 +13,7 @@ import { createElement } from "react";
 import { hasSessionPortal, removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
 import { WorktreeMenu } from "./worktree-view.tsx";
 import { invoke } from "../ui/tauri.ts";
-import { subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { subscribeEach, topic } from "../ui/mesh-events.ts";
 
 /// The session the pane belongs to.
 interface Place {
@@ -126,12 +126,12 @@ const heard = new Map<string, number>();
 export function watchRoot(machine: string, root: string, changed: () => void): () => void {
   const name = topic("files", root), id = `${machine}\n${name}`;
   let seen = heard.get(id) ?? null;
-  return subscribeTopics(name, event => {
+  return subscribeEach(name, event => {
     if (event.revision === seen) return;
     seen = event.revision;
     heard.set(id, seen);
     changed();
-  }, machine);
+  }, { machine });
 }
 
 /// Reads the list of worktrees again, as the Changes tab does on a refresh.

@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import type { LiveMode } from "./projectlive.ts";
 import { RunsView } from "./runs-view.tsx";
-import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { snapshotView } from "../ui/snapshot-state.ts";
 // A project's workflow runs (GitHub Actions or Forgejo Actions) on its page:
 // the Actions section with each run's state and, for a running one, its
@@ -451,14 +451,14 @@ export function makeRuns(deps: RunDeps) {
     watching = id;
     unfollow?.();
     if (of(id).openRun) watchDetail(id, of(id).openRun);
-    unfollow = subscribeTopics(topic("forge", id), async () => {
+    unfollow = subscribeChanges(topic("forge", id), { deliver: "latest", receive: async () => {
       if (!snapshotView("center_project_runs", { projectId: id })) return;
       await loads.get(id);
       await load(id);
       const run = of(id).openRun;
       if (run && snapshotView("center_project_run", { projectId: id, runId: run.id, host: run.host ?? null })) await loadDetail(id, run);
       if (of(id).error) throw new Error(of(id).error);
-    });
+    } });
   }
 
   /// Reads again only while a run goes, so nothing is asked while all are

@@ -28,7 +28,6 @@ import { RESEARCHES } from "../research/researches.ts";
 import { type ChatItem, type ProjectPin, type SideChat, $, state, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
 import { stuck, problem, draw, jump } from "./home.ts";
 import { allTerms } from "../terminals/view.ts";
-import { single } from "./openitems.ts";
 import { currentLocation, go, drawTop, openResearch } from "./views.ts";
 import { groupMenu } from "../project/groups.ts";
 import { loadOverview } from "../project/projects.ts";
@@ -48,6 +47,7 @@ import { createElement, type ReactNode } from "react";
 import { showWindowParts } from "./window-root.ts";
 import { SidebarShell, SidebarItem, SidebarGroup as SidebarGroupView, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
 import { SidebarChatRow, SidebarProjectRow } from "./sidebar-rows.tsx";
+import { single } from "../ui/active.ts";
 
 export function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
   const slot: GroupSlot<T> = { title: "", ...group, items: null, loading: false, again: false };

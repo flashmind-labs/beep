@@ -1,5 +1,5 @@
 // The "Add a machine" sheet.
-import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { onShownChange } from "../ui/active.ts";
 import { invoke } from "../ui/tauri.ts";
 import { START, next, machineById, inviteArgs } from "./addmachine-state.ts";
@@ -57,7 +57,7 @@ export function openAddMachine(options: { onClose?: () => void } = {}) {
   mac = null;
   macAsked = false;
   loadMac();
-  macPoller = subscribeTopics(topic("machines"), () => loadMac());
+  macPoller = subscribeChanges(topic("machines"), { deliver: "latest", receive: () => loadMac() });
   start();
 }
 
@@ -94,7 +94,7 @@ async function start() {
     const made = await invoke<NodeToken>("mesh_invite", inviteArgs(kind));
     if (!root || requested !== creation) return;
     update({ type: "created", token: made.token, command: made.command, expiresAt: made.expires_at, qrSvg: made.qr_svg ?? undefined });
-    poller = subscribeTopics([topic("machines"), topic("projects")], () => poll());
+    poller = subscribeChanges([topic("machines"), topic("projects")], { deliver: "latest", receive: () => poll() });
     void poll();
   } catch (e) {
     if (!root || requested !== creation) return;

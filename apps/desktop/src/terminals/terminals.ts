@@ -2,7 +2,7 @@ import { createElement, Fragment, type FormEvent, type MouseEvent as ReactMouseE
 import { TerminalOutput, TerminalPage, TerminalScreen } from "./page-view.tsx";
 import { NewTerminalFields } from "./new-terminal-view.tsx";
 import { TerminalFooter, TerminalHeader } from "./terminal-controls.tsx";
-import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { onShownChange } from "../ui/active.ts";
 // terminals/: terminals kept running on the machines, and the window's
 // Terminals page (view.ts). Entry: makeTerminals here.
@@ -394,15 +394,15 @@ export function makeTerminals(deps: TerminalDeps) {
     polling = name;
     // The Terminals page is `ALL`, the empty name, so only null stops.
     if (name === null) return;
-    const stopList = subscribeTopics(topic("terminals"), async () => {
+    const stopList = subscribeChanges(topic("terminals"), { deliver: "latest", receive: async () => {
       await loads.get(name);
       await load(name);
       if (of(name).error) throw new Error(of(name).error);
-    });
-    const stopOutput = subscribeTopics(topic("terminal-output"), async () => {
+    } });
+    const stopOutput = subscribeChanges(topic("terminal-output"), { deliver: "latest", receive: async () => {
       await readOutput(name);
       if (of(name).error) throw new Error(of(name).error);
-    });
+    } });
     unfollow = () => { stopList(); stopOutput(); };
   }
 
