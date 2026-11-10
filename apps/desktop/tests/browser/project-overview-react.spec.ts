@@ -64,6 +64,8 @@ test("group rename keeps its draft during refresh and saves on Enter", async ({ 
   const group = page.locator('.pj-org').filter({ hasText: 'Example group' });
   await group.getByRole('button', { name: 'Rename' }).click();
   const input = page.getByRole('textbox', { name: 'Group name' });
+  // Rename focuses the field on the next frame, moving the caret to the end.
+  await expect(input).toBeFocused();
   await input.fill('Updated group');
   await page.locator('.pj-card').first().getByRole('button', { name: 'Pin to top' }).evaluate(el => { if (el instanceof HTMLElement) el.click(); });
   await expect(input).toHaveValue('Updated group');
@@ -85,6 +87,8 @@ test("overview refresh retains visible groups and a focused rename draft", async
   await second.evaluate(element => { element.dataset.identity = "kept"; });
   await first.getByRole("button", { name: "Rename" }).click();
   const input = page.getByRole("textbox", { name: "Group name" });
+  // Rename focuses the field on the next frame, moving the caret to the end.
+  await expect(input).toBeFocused();
   await input.fill("Editing group");
   await page.locator(".pj-card").first().getByRole("button", { name: "Pin to top" }).evaluate(element => { if (element instanceof HTMLElement) element.click(); });
   await expect(input).toHaveValue("Editing group");
