@@ -97,6 +97,26 @@ export function planUsed(plan: { windows: Pick<UsageWindow, "used_percent">[] })
   return Math.max(...plan.windows.map(windowUsed));
 }
 
+/// One harness in the pill: the share of its binding window, the one most used.
+export interface PillPlan {
+  agent: string;
+  used: number;
+  window: string;
+}
+
+/// Each plan with windows, as the pill shows it.
+export function pillPlans(limits: PlanLimits[]): PillPlan[] {
+  return limits.flatMap(plan => {
+    const binding = plan.windows.reduce<UsageWindow | null>((most, w) => !most || windowUsed(w) > windowUsed(most) ? w : most, null);
+    return binding ? [{ agent: plan.agent, used: windowUsed(binding), window: windowName(binding) }] : [];
+  });
+}
+
+/// Whether a period's rows show any dollars, so the note on dollars applies.
+export function showsDollars(period: Period) {
+  return period.total.cost_usd > 0 || period.projects.some(p => p.cost_usd > 0) || period.harnesses.some(h => harnessLine(h).includes("$"));
+}
+
 /// "Claude" and "Codex" in the pill, where space is short.
 export function shortName(agent: string) {
   return agent === "claude" ? "Claude" : agentLabel(agent);

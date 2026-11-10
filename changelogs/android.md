@@ -10,6 +10,8 @@ Earlier releases predate this changelog.
 
 ### Changed
 
+- Android: the Home usage pill shows each harness's icon and the share of
+  its most used limit, without bars.
 - Android: the Projects page lists the most recently active projects first
   within each group, after pinned ones.
 - Android: a running agent session, or one waiting on a question, stays
@@ -18,6 +20,8 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- Android: the usage popover shows percentages, project and harness tokens,
+  models and the total again.
 - Android: the Projects page no longer runs off the side of the screen with
   long names, folders or group headings.
 - Android: preserve composer drafts, focus and scroll during live updates.

@@ -13,7 +13,7 @@ body.mobile .cc-main { flex: 1; min-height: 0 }
 /* Top bar: Back in place of the sidebar. */
 body.mobile .cc-top { min-height: 48px; padding: calc(env(safe-area-inset-top) + 4px) 8px 4px 16px; gap: 6px }
 body.mobile .cc-top h2 { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 17px; font-weight: 600; letter-spacing: 0 }
-body.mobile .cc-top small { display: none }
+body.mobile .cc-top small:not(.us-pop small) { display: none }
 body.mobile .cc-top .tools { margin-left: 0; flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none }
 body.mobile .mb-back { display: grid; place-items: center; flex: none; width: 44px; height: 44px; margin: 0 0 0 -10px; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: var(--muted) }
 body.mobile .mb-back[hidden] { display: none }
@@ -130,9 +130,8 @@ body.mobile .pj-add { grid-template-columns: minmax(0, 1fr) }
 body.mobile kbd, body.mobile .dhints, body.mobile .agkeys, body.mobile .dv-keys, body.mobile .cc-pal .foot { display: none }
 
 body.mobile:not(.mb-home) #usage { display: none }
-/* Home's usage is one share and its bar; the popover has the rest. */
-body.mobile .us-pill > :not(.us-short) { display: none }
-body.mobile .us-pill > .us-short { display: inline-flex }
+/* Home's usage pill keeps to plan shares when there are any; the popover has the rest. */
+body.mobile .us-pill.plans > .us-x { display: none }
 body.mobile .us-pill { min-height: 0; height: 32px; border-radius: 999px }
 
 /* A session: the composer takes a full line for its text. */
