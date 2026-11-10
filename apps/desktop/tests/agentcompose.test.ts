@@ -474,7 +474,7 @@ function agentsListDom(t: TestContext) {
   Object.defineProperty(bar, "replaceChildren", { value: (...nodes: HTMLElement[]) => { actual.replaceChildren(...nodes); for (const node of nodes) { placed.add(node); Object.defineProperty(node, "parentElement", { get: () => node.parentNode === actual ? bar : node.parentNode, configurable: true }); } }, configurable: true });
   t.after(async () => {
     // Leaving releases the page; the next test's document gets a box of its own.
-    flushSync(() => openBarPage(() => {}).root.render(null));
+    flushSync(() => openBarPage(() => {}).show({ view: "none" }));
     actual.replaceChildren(); for (const node of placed) Reflect.deleteProperty(node, "parentElement");
     await new Promise(resolve => setImmediate(resolve)); dom.window.close();
     if (originalHtml) Object.defineProperty(bar, "innerHTML", originalHtml);

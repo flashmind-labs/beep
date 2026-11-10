@@ -1,9 +1,7 @@
-import { createElement } from "react";
 import { WINDOWS } from "../ui/platform.ts";
 import { flushSync } from "react-dom";
-import type { Root } from "react-dom/client";
-import { openBarPage } from "../bar/bar-app.tsx";
-import { AgentsList, type AgentListRow } from "./agents-list-view.tsx";
+import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
+import type { AgentListRow } from "./agents-list-view.tsx";
 import type { ProviderCredits } from "../ui/credits.ts";
 // agents/: coding agents in the bar: the start form, the picker, one
 // session's log and messages, and every session. Entry: this file.
@@ -439,7 +437,7 @@ function sessionRow({ row, depth }: { row: AgentSession; depth: number }): Agent
   return { key: `${s.machine_id}\0${s.agent}\0${s.id}`, depth, title: s.reviewer ? "Review" : s.title || folder || k.name, sub: sessionSub(s, k.name, folder), tail };
 }
 
-let listPage: { host: HTMLElement; root: Root } | null = null;
+let listPage: BarPageSlot | null = null;
 /// The sessions the list on screen shows, which its rows index. Another page
 /// can replace the shared list without a redraw here.
 let drawn: AgentSession[] = [];
@@ -451,12 +449,11 @@ export function drawAgents(loading: boolean) {
   const machines = new Set(list.map(s => s.machine_id)).size;
   const copyRows = copiesHtml(new Set(list.map(s => s.id)));
   const sum = loading && !list.length ? "Looking at your machines…" : list.length ? `${list.length} on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
-  if (!listPage || listPage.host.parentElement !== bar) listPage = openBarPage(() => { listPage = null; });
-  const root = listPage.root;
-  flushSync(() => root.render(createElement(AgentsList, {
+  const page = listPage?.host.parentElement === bar ? listPage : listPage = openBarPage(() => { listPage = null; });
+  flushSync(() => page.show({ view: "agents", props: {
     rows: shown.map(sessionRow), showSessions: !!list.length, selected: AG.sel, summary: sum, error: AG.error, copies: copyRows, loading,
     hints: hintModel([[ICON.ret, "open"], ["⌘⇧A", "new"], ["esc", "back"]]),
-  })));
+  } }));
   bar.onclick = e => {
     if (S.view !== "agents") return;
     const target = e.target as HTMLElement;

@@ -1,8 +1,7 @@
 import { Spinner } from "../ui/kit.tsx";
 import { createElement, Fragment } from "react";
 import { flushSync } from "react-dom";
-import { openBarPage } from "../bar/bar-app.tsx";
-import { AgentNewShell } from "./agentnew-shell.tsx";
+import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { startAttachments } from "./start-attachments.ts";
 import { makeStartComposer } from "./start-composer.ts";
 import { FolderChoice, NewAgentNotes, ProjectChoice } from "./start-composer-view.tsx";
@@ -71,7 +70,7 @@ export function keepMachine(project: string | null | undefined, machine: string)
 /// until read.
 let KNOWN: Machine[] | null = null;
 let composer: ReturnType<typeof makeStartComposer> | null = null;
-let shellRoot: ReturnType<typeof openBarPage>["root"] | null = null;
+let shellPage: BarPageSlot | null = null;
 let attachments: ReturnType<typeof startAttachments>;
 let fixedProject = false;
 
@@ -166,9 +165,8 @@ function drawFrame() {
   c.send.id = "aggo";
   c.pick.id = "agpick";
   c.err.id = "agerr";
-  const { root } = openBarPage(() => { shellRoot = null; closedPicker(c.pick); c.dispose(); });
-  shellRoot = root;
-  flushSync(() => root.render(createElement(AgentNewShell, { pane: PANE, composer: c.form, project: f.project ?? null })));
+  const page = shellPage = openBarPage(() => { shellPage = null; closedPicker(c.pick); c.dispose(); });
+  flushSync(() => page.show({ view: "agent-new", props: { pane: PANE, composer: c.form, project: f.project ?? null } }));
   c.form.addEventListener("submit", e => { e.preventDefault(); void startAgent(); });
   c.input.addEventListener("input", () => {
     f.prompt = c.input.value;
@@ -186,8 +184,8 @@ function drawParts() {
   const c = composer;
   if (S.view !== "agentnew" || !c?.box.isConnected) return;
   const f = AG.form, hosts = AG.hosts ?? [];
-  const root = shellRoot;
-  if (root) flushSync(() => root.render(createElement(AgentNewShell, { pane: PANE, composer: c.form, project: f.project ?? null })));
+  const page = shellPage;
+  if (page) flushSync(() => page.show({ view: "agent-new", props: { pane: PANE, composer: c.form, project: f.project ?? null } }));
 
   // With no machine picked, or one that no longer runs agents: the project's
   // first machine with a checkout and an agent, else the first with an agent.

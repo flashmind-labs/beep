@@ -16,7 +16,7 @@ answers.tool_updates = [];
 /// Another page opens in the bar, as when the user leaves Machines.
 function leave() {
   S.view = "chat";
-  flushSync(() => openBarPage(() => {}).root.render(null));
+  flushSync(() => openBarPage(() => {}).show({ view: "none" }));
 }
 
 test("the bar's machine screen unmounts when another page opens and draws again when reopened", async () => {

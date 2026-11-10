@@ -1,8 +1,5 @@
-import { createElement } from "react";
 import { flushSync } from "react-dom";
-import type { Root } from "react-dom/client";
-import { openBarPage } from "../bar/bar-app.tsx";
-import { ChatsShell } from "./chats-view.tsx";
+import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { openInWindow } from "./chat.ts";
 import { copy } from "../ui/parts.ts";
 import { $, $$, type ChatRow, type ChatsMode, G, live, PANE, S } from "../bar/core.ts";
@@ -60,7 +57,7 @@ export function touch(id: string, message?: string) {
   S.cache = [c, ...S.cache.filter(x => x.id !== id)].sort(byRecent);
 }
 
-let listRoot: { host: HTMLElement; root: Root } | null = null;
+let listRoot: BarPageSlot | null = null;
 let listError = "", lastSelected = "", loadVersion = 0;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 function disposeChats() {
@@ -141,13 +138,13 @@ export function drawChats() {
   if (!current?.host.isConnected || S.view !== "chats") return;
   const { list, sel } = S.chats;
   const selected = list[sel], identity = selected ? `${selected.kind}:${selected.id}` : "";
-  flushSync(() => current.root.render(createElement(ChatsShell, {
+  flushSync(() => current.show({ view: "chats", props: {
     state: S.chats, error: listError, pane: PANE,
     hints: hintModel([[ICON.ret, "open"], ["tab", "actions"], ["⌘N", "new agent"], ["⌘G", "new group"], ["esc", "back"]]),
     search: (value: string) => { if (searchTimer) clearTimeout(searchTimer); searchTimer = setTimeout(() => { searchTimer = null; void loadChats(value.trim()); }, 180); },
     running: new Set([...live].flatMap(([id, value]) => id !== null && value.run ? [id] : [])),
     select: (index: number) => { S.chats.sel = index; }, open: openRow, action: (action: ChatAction) => void chatAction(action),
-  })));
+  } }));
   if (identity && identity !== lastSelected) current.host.querySelector<HTMLElement>(`[data-i="${sel}"]`)?.scrollIntoView({ block: "nearest" });
   lastSelected = identity;
 }

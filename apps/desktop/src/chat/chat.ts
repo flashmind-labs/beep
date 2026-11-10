@@ -1,9 +1,7 @@
 // chat/: chats and groups in the bar: the open chat, the list, the composer,
 // attachments and the cards under a reply. Entry: this file, the open chat's shell.
-import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { openBarPage } from "../bar/bar-app.tsx";
-import { ChatShell } from "./chat-shell.tsx";
+import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { updateChatNavigation } from "./navigation-view.tsx";
 import { createChatBody, disposeChatBody, transcriptShown } from "./transcript.ts";
 import { AG } from "../agents/agents.ts";
@@ -12,7 +10,7 @@ import { composeField } from "./compose.ts";
 import { $, $$, bar, here, live, PANE, queued, S } from "../bar/core.ts";
 import { renderAgentNew } from "../agents/agentnew.ts";
 import { currentChatHints, refreshHints } from "../bar/hints.ts";
-import { takeDraft } from "../bar/live.ts";
+import { takeDraft, type LiveView } from "../bar/live.ts";
 import { followsAfterScroll, returnScroll } from "../agents/logscroll.ts";
 import { followEnd, unfollowEnd } from "../ui/followend.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -46,7 +44,7 @@ export function forgetChat(id: string | null) {
   else if (!cached.isConnected && ![...live.values()].some(entry => entry.body === cached)) evictBody(cached);
 }
 
-let chatShell: { host: HTMLElement; root: import("react-dom/client").Root; body: ChatBody; dock: import("../bar/live.ts").LiveView | null } | null = null;
+let chatShell: { page: BarPageSlot; body: ChatBody; dock: LiveView | null } | null = null;
 
 export function renderChat() {
   // The chat needs the server: without it every way here lands on the agent's start form.
@@ -62,7 +60,7 @@ export function renderChat() {
     for (const child of [...bar.children]) if (child !== host) child.remove();
   });
   host = page.host;
-  chatShell = { host: page.host, root: page.root, body: chatBody, dock: null };
+  chatShell = { page, body: chatBody, dock: null };
   drawQueue();
   const b = body()!;
   // A chat put back goes where the reader left it if they had scrolled up, else to its end.
@@ -96,7 +94,7 @@ export function keepDown() { if (body()?.stuck !== false) scrollDown(); }
 export function drawLatest() { const b = body(); if (b) updateChatNavigation(b); }
 
 
-export function setChatDock(view: import("../bar/live.ts").LiveView | null) {
+export function setChatDock(view: LiveView | null) {
   if (!chatShell) return;
   chatShell.dock = view;
   drawQueue();
@@ -106,7 +104,7 @@ export function setChatDock(view: import("../bar/live.ts").LiveView | null) {
 /// one back in the field.
 export function drawQueue() {
   const shell = chatShell;
-  if (!shell || shell.host.parentElement !== bar || S.view !== "chat") return;
+  if (!shell || shell.page.host.parentElement !== bar || S.view !== "chat") return;
   const q = queued.get(S.session);
   const update = (index: number, edit: boolean) => {
     const current = queued.get(S.session);
@@ -118,12 +116,12 @@ export function drawQueue() {
     refreshHints();
     focusAsk();
   };
-  flushSync(() => shell.root.render(createElement(ChatShell, {
+  flushSync(() => shell.page.show({ view: "chat", props: {
     body: shell.body, hints: currentChatHints(), running: !!here()?.run, dock: shell.dock, queue: q ?? null, attachments: attached,
     agent: AG.hosts?.length ? () => renderAgentNew($<HTMLTextAreaElement>("#ask")?.value.trim() ?? "") : null,
     unattach: (index: number) => { unattach(index); focusAsk(); },
     edit: (index: number) => update(index, true), remove: (index: number) => update(index, false), send: () => sendQueued(S.session),
-  })));
+  } }));
 }
 
 export async function newChat() {

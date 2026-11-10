@@ -2,18 +2,20 @@ import { FilePicker } from "./file-picker.tsx";
 import { StashActions, StashIndicator } from "../chat/stash-hints.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { SHORTCUTS } from "../ui/shortcuts.ts";
-import { cloneElement, createRef, Fragment, isValidElement, memo, useLayoutEffect, useRef, type MouseEvent, type ReactNode } from "react";
+import { cloneElement, createRef, isValidElement, memo, useLayoutEffect, useRef, type MouseEvent, type ReactNode } from "react";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { SessionTitle } from "./title-view.tsx";
 import { createPortal, flushSync } from "react-dom";
-import { openBarPage } from "../bar/bar-app.tsx";
+import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import type { ChatBody } from "../ui/turn.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 
 type Dock = "bottom" | "right";
 interface AgentHintsModel { value: HintViewModel; project: string | null }
 interface Frame { head: ReactNode; field: ReactNode; body: ChatBody; hints: AgentHintsModel }
-interface Owner { host: HTMLElement; root: { render(content: ReactNode): void }; revision: number; frame: Frame; portals: Map<HTMLElement, Slot>; children: Map<string, Slot>; next: number; release(): void }
+/// What the session page draws: the frame, and the views put in it.
+interface FrameState { frame: Frame; revision: number; slots: readonly Slot[] }
+interface Owner { page: BarPageSlot; store: StoreApi<FrameState>; revision: number; frame: Frame; portals: Map<HTMLElement, Slot>; children: Map<string, Slot>; next: number; release(): void }
 let current: Owner | null = null;
 
 // Each child and portal is its own store, so a pane redrawing one tab strip
@@ -30,7 +32,15 @@ const SlotView = memo(function SlotView({ slot }: { slot: Slot }) {
 });
 
 function draw(owner: Owner) {
-  flushSync(() => owner.root.render(<Fragment><FrameView frame={owner.frame} revision={owner.revision} />{[...owner.children.values(), ...owner.portals.values()].map(entry => <SlotView key={entry.key} slot={entry} />)}</Fragment>));
+  // Something replaced the bar's contents: the page box mounts again.
+  if (!owner.page.host.isConnected) owner.page.show({ view: "session", props: { store: owner.store } });
+  flushSync(() => owner.store.setState({ frame: owner.frame, revision: owner.revision, slots: [...owner.children.values(), ...owner.portals.values()] }));
+}
+
+/// The bar's session page, drawn from its frame's store.
+export function SessionFrame({ store }: { store: StoreApi<FrameState> }) {
+  const { frame, revision, slots } = useStore(store);
+  return <><FrameView frame={frame} revision={revision} />{slots.map(entry => <SlotView key={entry.key} slot={entry} />)}</>;
 }
 
 function update(entry: Slot, view: ReactNode) {
@@ -125,11 +135,18 @@ export function SessionField({ mode, name, banner, attach, send, stop, openParen
 // A draft and the session it starts share the same dock nodes. Their terminals
 // stay mounted while only the header and conversation are replaced.
 export function showSessionFrame(frame: Frame, inPlace: boolean, release: () => void) {
-  if (!inPlace || !current?.host.isConnected) {
+  if (!inPlace || !current?.page.host.isConnected) {
     const page = openBarPage(() => { const old = current; current = null; old?.release(); });
-    current = { ...page, revision: 0, frame, portals: new Map(), children: new Map(), next: 0, release };
-  } else { current.release = release; current.frame = frame; }
+    const store = createStore<FrameState>(() => ({ frame, revision: 1, slots: [] }));
+    const owner: Owner = { page, store, revision: 1, frame, portals: new Map(), children: new Map(), next: 0, release };
+    current = owner;
+    flushSync(() => page.show({ view: "session", props: { store } }));
+    return;
+  }
+
   const owner = current;
+  owner.release = release;
+  owner.frame = frame;
   owner.revision++;
   draw(owner);
 }
