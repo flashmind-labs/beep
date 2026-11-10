@@ -34,6 +34,7 @@ import { answerWork, waitingQuestion } from "./work.ts";
 import { waitingBack, waitingKeys } from "./waiting.ts";
 import { windowTakes } from "../ui/windowkeys.ts";
 import { invoke } from "../ui/tauri.ts";
+import { chatAsk } from "../chat/chat-shell.tsx";
 
 // ---------- Keys ----------
 
@@ -189,7 +190,7 @@ document.addEventListener("keydown", e => {
 
   if (cmd && e.shiftKey && key === "a" && S.link !== "revoked") {
     e.preventDefault();
-    return renderAgentNew(S.view === "chat" ? $<HTMLTextAreaElement>("#ask")?.value.trim() ?? "" : "", S.view === "agents" ? "agents" : "chat");
+    return renderAgentNew(S.view === "chat" ? chatAsk.current?.value.trim() ?? "" : "", S.view === "agents" ? "agents" : "chat");
   }
 
   // These views live in the window now; before linking the bar keeps them.

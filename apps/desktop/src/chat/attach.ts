@@ -40,20 +40,8 @@ export const attachedCount = () => attached.pics.length + attached.files.length;
 /// The strip of attached pictures and files above the prompt, or the error
 /// from the last paste, with the placeholder and hints to match.
 export function drawAttached() {
-  const ask = chatAsk.current, input = ask?.closest(".dinput");
-  if (!ask || !input) return;
-  const n = attachedCount();
+  if (!chatAsk.current) return;
   drawQueue();
-
-  if (n) {
-    ask.dataset.ph ??= ask.placeholder;
-    const what = attached.files.length ? (n > 1 ? "these" : "this file") : (n > 1 ? "these images" : "this image");
-    ask.placeholder = `Ask about ${what}…`;
-  } else if (ask.dataset.ph) {
-    ask.placeholder = ask.dataset.ph;
-    delete ask.dataset.ph;
-  }
-
   refreshHints();
 }
 

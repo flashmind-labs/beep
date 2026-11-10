@@ -10,6 +10,7 @@ import { renderLink, renderRevoked } from "./link.ts";
 import { waitingQuestion } from "./work.ts";
 import { ICON } from "../ui/icons.tsx";
 import type { HintViewModel } from "./hints-view.tsx";
+import { chatAsk } from "../chat/chat-shell.tsx";
 
 // ---------- Hints ----------
 
@@ -42,7 +43,7 @@ export function chatHints() {
   if (e?.run) return make([[ICON.ret, "queue"], ...editQueued, ["⌘.", "stop"], ["⌘K", "chats"], ["esc", "to hide"]]);
   if (queued.get(S.session)?.held) return make([[`⌘${ICON.ret}`, "send queued"], ...editQueued, ["⌘N", "new agent"], ["⌘K", "chats"], ["esc", "to hide"]]);
   if (attachedCount()) return make([[ICON.ret, "send"], ["⌘V", "paste"], ["⌫", "remove last"], ["esc", "to hide"]]);
-  const typed = $<HTMLTextAreaElement>("#ask")?.value;
+  const typed = chatAsk.current?.value;
   if (typed?.includes("\n")) return make([[ICON.ret, "send"], [`⇧${ICON.ret}`, "new line"], ["⌘K", "chats"], ["esc", "to hide"]]);
   if (typed?.trim()) return make([[ICON.ret, "ask"], ...(S.link === "linked" ? [["⌘R", "research"] as Hint] : []), ["esc", "to hide"]]);
   if (PANE) return make([["⌘K", "search"], ["⌘N", "new agent"], [`⇧${ICON.ret}`, "new line"], ["⌥ ⌥", "quick chat"]]);

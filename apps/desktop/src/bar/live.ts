@@ -15,6 +15,7 @@ import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
 import type { Turn } from "../chat/transcript.ts";
+import { chatAsk } from "../chat/chat-shell.tsx";
 
 // ---------- Live voice ----------
 
@@ -140,7 +141,7 @@ export function renderLive() {
 /// Shows chat `id` (null for a new one) with the dock in place of the field.
 /// The chat the bar already shows stays as it is.
 export function openLive(id: string | null) {
-  const same = S.view === "chat" && !!$("#ask") && (S.session ?? null) === id;
+  const same = S.view === "chat" && !!chatAsk.current && (S.session ?? null) === id;
   LV.chat = id;
 
   if (!same) {
@@ -155,7 +156,7 @@ export function mountDock() {
   const field = $(".dinput.dgrow");
   if (!field || $("#ldock")) return;
   // Keys go to live mode, not to the hidden field.
-  $("#ask")?.blur();
+  chatAsk.current?.blur();
   setChatDock(LV.view);
 }
 export function drawDock(v: LiveView | null) {
@@ -213,7 +214,7 @@ export function renderLeft() {
   if (S.view === "chat" && $("#ldock") && chat === (S.session ?? null)) {
     setChatDock(null);
     refreshHints();
-    takeDraft($<HTMLTextAreaElement>("#ask"));
+    takeDraft(chatAsk.current);
     focusAsk();
     return;
   }
@@ -258,7 +259,7 @@ if (!PANE) listen<LiveEvent>("live", e => {
       if (!LV.on) {
         forgetHeight();
         // What was typed in the prompt comes back when live mode ends.
-        const ask = S.view === "chat" ? $<HTMLTextAreaElement>("#ask") : null, typed = ask?.value.trim();
+        const ask = S.view === "chat" ? chatAsk.current : null, typed = ask?.value.trim();
 
         if (typed) {
           const key = S.session ?? "", kept = VN.drafts.get(key);

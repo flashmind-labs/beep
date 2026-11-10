@@ -196,13 +196,13 @@ export async function send(message: string) {
   message = message.trim() || (n > 1 ? "What are these?" : "What is this?");
   attached.pics = [];
   attached.files = [];
-  drawAttached();
+  // The chat has begun: the prompt asks for a follow-up.
   const id = S.session ??= newId();
+  drawAttached();
   const ask = chatAsk.current;
   removeChatSuggestions(body()!);
   if (ask) {
     ask.value = "";
-    ask.placeholder = "Ask a follow-up…";
     grow(ask);
   }
 

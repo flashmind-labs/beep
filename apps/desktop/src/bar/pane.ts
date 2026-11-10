@@ -12,7 +12,7 @@ import { body, focusAsk, newChat, renderChat } from "../chat/chat.ts";
 import { grow } from "../chat/ask-height.ts";
 import { send } from "../chat/runs.ts";
 import { renderChats, rows, type SessionSummary } from "../chat/chats.ts";
-import { $, type BackTo, changeListeners, type ChatRow, connectWindow, current, G, GROUP_VIEWS, live, type PaneNow, S } from "./core.ts";
+import { type BackTo, changeListeners, type ChatRow, connectWindow, current, G, GROUP_VIEWS, live, type PaneNow, S } from "./core.ts";
 import { type GroupSummary, renderGroup } from "../chat/groups.ts";
 import { refreshHints } from "./hints.ts";
 import { drawChatTop, openSession } from "../chat/history.ts";
@@ -28,6 +28,7 @@ import { renderSkills } from "../lists/skills.ts";
 import type { Status } from "./views.ts";
 import { invoke } from "../ui/tauri.ts";
 import { setPaneShown } from "../ui/active.ts";
+import { chatAsk } from "../chat/chat-shell.tsx";
 
 /// What the window can open in the pane: a CenterTarget in its JSON form,
 /// a group, or an agent view.
@@ -105,7 +106,7 @@ export const pane = {
       if ("chat" in target) {
         const id = target.chat?.session ?? null;
         if (!id) return newChat();
-        if (id === S.session && S.view === "chat" && $("#ask")) return backOn();
+        if (id === S.session && S.view === "chat" && chatAsk.current) return backOn();
         return openSession(id);
       }
 
@@ -134,7 +135,7 @@ export const pane = {
 
     if (target === "agents") return renderAgents();
     if (typeof target === "string" && VIEWS[target]) return VIEWS[target]();
-    if ((S.view === "chat" && $("#ask")) || (S.view === "group" && G.id)) return backOn();
+    if ((S.view === "chat" && chatAsk.current) || (S.view === "group" && G.id)) return backOn();
     return S.session ? openSession(S.session) : renderChat();
   },
   /// The pane goes off screen: the window stops showing its chat or group,
@@ -166,7 +167,7 @@ export const pane = {
     await start();
     if (S.link !== "linked") return renderAgentNew(text, "agents");
     await newChat();
-    const ask = $<HTMLTextAreaElement>("#ask");
+    const ask = chatAsk.current;
     if (!ask) return;
     ask.value = text;
     grow(ask);

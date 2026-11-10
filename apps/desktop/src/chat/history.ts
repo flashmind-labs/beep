@@ -1,4 +1,3 @@
-import { chatAsk } from "./chat-shell.tsx";
 import { turnState } from "./turn-state.ts";
 import { batchViews, placeTurns, prependTurns, setView, shownTurn, transcriptRevision, turnsOf, viewOf, type Turn } from "./transcript.ts";
 import { appendChatReply, askText, chatReplyHtml, drawWork, failed, makeTurn, newTurn, ranOn, suggestions, toolOutput } from "./turns.ts";
@@ -50,7 +49,6 @@ export async function openSession(id: string) {
   const running = live.get(id)?.run;
   if (!running) forgetChat(id);
   renderChat();
-  if (chatAsk.current) chatAsk.current.placeholder = "Ask a follow-up…";
 
   if (running) {
     drawChatTop();

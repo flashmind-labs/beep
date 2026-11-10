@@ -119,7 +119,7 @@ export function drawQueue() {
     focusAsk();
   };
   flushSync(() => shell.page.show({ view: "chat", props: {
-    body: shell.body, hints: currentChatHints(), running: !!here()?.run, dock: shell.dock, queue: q ?? null, attachments: attached,
+    body: shell.body, hints: currentChatHints(), running: !!here()?.run, followUp: S.session != null, dock: shell.dock, queue: q ?? null, attachments: attached,
     agent: AG.hosts?.length ? () => renderAgentNew(chatAsk.current?.value.trim() ?? "") : null,
     unattach: (index: number) => { unattach(index); focusAsk(); },
     edit: (index: number) => update(index, true), remove: (index: number) => update(index, false), send: () => sendQueued(S.session),
