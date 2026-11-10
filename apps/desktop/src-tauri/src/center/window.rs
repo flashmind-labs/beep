@@ -355,6 +355,10 @@ fn tell<R: Runtime>(app: &AppHandle<R>, label: &str, shown: bool, when: Tell) {
 /// What a window event says about whether a command center window shows:
 /// `None` when it says nothing. `on_screen` asks the window system.
 fn shown_after(event: &WindowEvent, on_screen: impl FnOnce() -> bool) -> Option<(bool, Tell)> {
+    // Phones learn it from suspend and resume alone.
+    #[cfg(mobile)]
+    let _ = on_screen;
+
     match event {
         // A phone app going to the background, and coming back. iOS sends
         // only focus when the app returns from Control Center.
