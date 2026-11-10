@@ -19,7 +19,7 @@ fn card_shows_what_it_has() {
     assert!(card.contains(">shop.example<"), "{card}");
     assert!(card.contains("<b>€249</b><s>€329</s>"), "{card}");
     assert!(
-        card.contains("4.6 &#9733; (1,204) &middot; Quietest"),
+        card.contains("4.6 \u{2605} (1,204) \u{b7} Quietest"),
         "{card}"
     );
     assert!(!card.contains("<img"), "{card}");
@@ -34,7 +34,7 @@ fn card_shows_what_it_has() {
         bare.contains(r#"<img src="https://shop.example/k.jpg""#),
         "{bare}"
     );
-    assert!(!bare.contains("&#9733;"), "{bare}");
+    assert!(!bare.contains('\u{2605}'), "{bare}");
 }
 
 #[test]
@@ -59,21 +59,24 @@ fn shown_builds_a_row_from_the_tool_result() {
             {"url":"https://shop.example/no-title"},
             "not an object"
         ],"dropped":["x"]}"#;
-    let row = shown(output).expect("two valid entries");
-    assert!(row.starts_with(r#"<div class="dprods">"#), "{row}");
-    assert_eq!(row.matches(r#"<div class="dprod">"#).count(), 2, "{row}");
-    assert!(row.contains("Dreame &lt;Z30&gt;"), "{row}");
-    assert!(row.contains("<b>€249</b><s>€329</s>"), "{row}");
-    assert!(
-        row.contains("4.6 &#9733; (1,204) &middot; Quietest &quot;one&quot;"),
-        "{row}"
+    let cards = shown(output).expect("two valid entries");
+    assert_eq!(cards.len(), 2);
+    assert_eq!(
+        cards[0],
+        ProductCard {
+            title: "Dreame <Z30>".into(),
+            url: "https://shop.example/item".into(),
+            store: "shop.example".into(),
+            image: Some("https://shop.example/img.jpg".into()),
+            price: Some("\u{20ac}249".into()),
+            was: Some("\u{20ac}329".into()),
+            meta: Some("4.6 \u{2605} (1,204) \u{b7} Quietest \"one\"".into()),
+            label: "Dreame <Z30>, \u{20ac}249, opens shop.example".into(),
+        }
     );
-    assert!(
-        row.contains(r#"<img src="https://shop.example/img.jpg""#),
-        "{row}"
-    );
-    assert!(row.contains("See price on the site"), "{row}");
-    assert!(!row.contains("javascript"), "{row}");
+    assert_eq!(cards[1].store, "other.example");
+    assert_eq!(cards[1].price, None);
+    assert_eq!(cards[1].meta, None);
 
     assert!(shown(r#"{"products":[]}"#).is_none());
     assert!(shown(r#"{"products":[{"title":"Bad","url":"ftp://x"}]}"#).is_none());

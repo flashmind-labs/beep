@@ -89,11 +89,12 @@ test("reply pictures keep their viewer actions after a history refresh", async (
 });
 
 test("reply product links keep delegated actions after refresh", async ({ page }) => {
-  const history = [{ role: "user", text: "Find a product", at: 1, images: [], model: "", thinking: "" }, { role: "assistant", html: "<p>Found one.</p>", tools: [{ name: "show_products", label: "Show products", success: true, route: null, file: null, images: [], products: '<div class="dprods"><div class="dprod"><a class="dprod-card" href="https://example.com/item"><span class="dprod-img"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg=="></span>Example</a></div></div>', cards: null, chart: null }], replies: [], model: "" }];
+  const history = [{ role: "user", text: "Find a product", at: 1, images: [], model: "", thinking: "" }, { role: "assistant", html: "<p>Found one.</p>", tools: [{ name: "show_products", label: "Show products", success: true, route: null, file: null, images: [], products: [{ title: "Example", url: "https://example.com/item", store: "example.com", image: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==", price: "$19", was: null, meta: null, label: "Example, $19, opens example.com" }], cards: null, chart: null }], replies: [], model: "" }];
   await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, session_agents: [], session_files: [], session_sources: [], list_questions: [] });
   await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
   const link = page.locator(".dprod-card");
-  await expect(link).toHaveText("Example");
+  await expect(link.locator(".dprod-title")).toHaveText("Example");
+  await expect(link).toHaveAttribute("aria-label", "Example, $19, opens example.com");
   await expect(page.locator(".dprod-img img")).toHaveClass(/on/);
   await link.focus();
   await link.evaluate(el => Reflect.set(window, "productLink", el));

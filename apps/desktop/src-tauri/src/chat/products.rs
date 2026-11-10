@@ -1,9 +1,10 @@
 //! Product cards. Beep writes one ```product block of JSON per item, and
 //! blocks in a row show as a row of cards that scrolls sideways. Clicking a
 //! card opens the shop in the browser; the corner button copies the link.
-//! The `show_products` tool sends the same cards with typed fields.
+//! The `show_products` tool sends the same cards with typed fields, which the
+//! page draws itself.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 const COPY_ICON: &str = r#"<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3"/></svg>"#;
 
@@ -72,19 +73,38 @@ impl From<Listing> for Product {
     }
 }
 
-/// The row of cards a `show_products` result lists, or None when it has
-/// none. An entry that does not parse is left out.
-pub fn shown(output: &str) -> Option<String> {
+/// A product card as the chat shows it: its fields checked, its price and
+/// details written out.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ProductCard {
+    pub title: String,
+    pub url: String,
+    /// The shop's name, or its host when the product names none.
+    pub store: String,
+    /// A web link to its picture.
+    pub image: Option<String>,
+    pub price: Option<String>,
+    /// The price before a sale, shown struck through.
+    pub was: Option<String>,
+    /// The rating, review count and note, as `4.6 ★ (1,204) · Quietest`.
+    pub meta: Option<String>,
+    /// What the card says to a screen reader.
+    pub label: String,
+}
+
+/// The cards a `show_products` result lists, or None when it has none. An
+/// entry that does not parse is left out.
+pub fn shown(output: &str) -> Option<Vec<ProductCard>> {
     let shown: Shown = serde_json::from_str(output).ok()?;
-    let cards: Vec<String> = shown
+    let cards: Vec<ProductCard> = shown
         .products
         .into_iter()
         .filter_map(|entry| serde_json::from_value::<Listing>(entry).ok())
         .map(Product::from)
         .filter(Product::valid)
-        .map(|p| p.card())
+        .map(ProductCard::from)
         .collect();
-    (!cards.is_empty()).then(|| row(&cards))
+    (!cards.is_empty()).then_some(cards)
 }
 
 /// `amount` in `currency`, as in `€249`, `€249.99` or `249 CHF`.
@@ -146,25 +166,68 @@ impl Product {
         !self.title.trim().is_empty() && web_link(&self.url)
     }
 
-    pub fn card(&self) -> String {
-        let store = self
+    /// The product as the card a reply's ```product block shows.
+    pub fn card(self) -> String {
+        ProductCard::from(self).html()
+    }
+}
+
+impl From<Product> for ProductCard {
+    fn from(p: Product) -> Self {
+        let store = p
             .store
-            .as_deref()
             .filter(|s| !s.trim().is_empty())
-            .map_or_else(|| host(&self.url).to_owned(), str::to_owned);
-        let image = match self.image.as_deref().filter(|url| web_link(url)) {
-            Some(url) => format!(
-                r#"<span class="dprod-img"><img src="{}" alt="" loading="lazy"></span>"#,
-                escape(url)
-            ),
-            None => String::new(),
+            .unwrap_or_else(|| host(&p.url).to_owned());
+        let mut meta = Vec::new();
+
+        if let Some(rating) = p.rating.as_ref().map(Number::rating) {
+            let reviews = p
+                .reviews
+                .as_ref()
+                .map(|r| format!(" ({})", r.count()))
+                .unwrap_or_default();
+            meta.push(format!("{rating} \u{2605}{reviews}"));
+        }
+
+        if let Some(note) = p.note.filter(|n| !n.trim().is_empty()) {
+            meta.push(note);
+        }
+
+        let label = match p.price.as_deref() {
+            Some(price) => format!("{}, {price}, opens {store}", p.title),
+            None => format!("{}, opens {store}", p.title),
         };
-        let price = match self.price.as_deref().filter(|p| !p.trim().is_empty()) {
+        ProductCard {
+            image: p.image.filter(|url| web_link(url)),
+            price: p.price.filter(|p| !p.trim().is_empty()),
+            was: p.was.filter(|w| !w.trim().is_empty()),
+            meta: (!meta.is_empty()).then(|| meta.join(" \u{b7} ")),
+            title: p.title,
+            url: p.url,
+            store,
+            label,
+        }
+    }
+}
+
+impl ProductCard {
+    /// The card as markup, its fields escaped.
+    fn html(&self) -> String {
+        let image = self
+            .image
+            .as_deref()
+            .map(|url| {
+                format!(
+                    r#"<span class="dprod-img"><img src="{}" alt="" loading="lazy"></span>"#,
+                    escape(url)
+                )
+            })
+            .unwrap_or_default();
+        let price = match self.price.as_deref() {
             Some(price) => {
                 let was = self
                     .was
                     .as_deref()
-                    .filter(|w| !w.trim().is_empty())
                     .map(|w| format!("<s>{}</s>", escape(w)))
                     .unwrap_or_default();
                 format!(
@@ -174,38 +237,16 @@ impl Product {
             }
             None => r#"<span class="dprod-meta">See price on the site</span>"#.to_owned(),
         };
-        let mut meta = Vec::new();
-
-        if let Some(rating) = self.rating.as_ref().map(Number::rating) {
-            let reviews = self
-                .reviews
-                .as_ref()
-                .map(|r| format!(" ({})", r.count()))
-                .unwrap_or_default();
-            meta.push(format!("{rating} &#9733;{reviews}"));
-        }
-
-        if let Some(note) = self.note.as_deref().filter(|n| !n.trim().is_empty()) {
-            meta.push(escape(note));
-        }
-
-        let meta = if meta.is_empty() {
-            String::new()
-        } else {
-            format!(
-                r#"<span class="dprod-meta">{}</span>"#,
-                meta.join(" &middot; ")
-            )
-        };
-        let label = match self.price.as_deref() {
-            Some(price) => format!("{}, {price}, opens {store}", self.title),
-            None => format!("{}, opens {store}", self.title),
-        };
+        let meta = self
+            .meta
+            .as_deref()
+            .map(|m| format!(r#"<span class="dprod-meta">{}</span>"#, escape(m)))
+            .unwrap_or_default();
         let url = escape(&self.url);
         format!(
             r#"<div class="dprod"><a class="dprod-card" href="{url}" aria-label="{label}">{image}<span class="dprod-info"><span class="dprod-store">{store}</span><span class="dprod-title">{title}</span>{price}{meta}</span></a><button class="dprod-copy" data-copy="{url}" aria-label="Copy link">{COPY_ICON}</button></div>"#,
-            label = escape(&label),
-            store = escape(&store),
+            label = escape(&self.label),
+            store = escape(&self.store),
             title = escape(&self.title),
         )
     }
@@ -215,7 +256,7 @@ impl Number {
     fn rating(&self) -> String {
         match self {
             Number::Float(n) => format!("{n:.1}"),
-            Number::Text(s) => escape(s.trim()),
+            Number::Text(s) => s.trim().to_owned(),
         }
     }
 
@@ -224,7 +265,7 @@ impl Number {
         match self {
             Number::Float(n) if n.fract() == 0.0 && *n >= 0.0 => grouped(&format!("{n:.0}")),
             Number::Float(n) => n.to_string(),
-            Number::Text(s) => escape(s.trim()),
+            Number::Text(s) => s.trim().to_owned(),
         }
     }
 }

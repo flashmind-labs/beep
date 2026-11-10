@@ -7,6 +7,7 @@ use crate::{
     chat::{
         history::{SUGGEST_REPLIES, SentFile, SentImage, suggested_replies, tool_step},
         markdown,
+        products::ProductCard,
     },
     error::{DesktopError, Result},
     voice::news::Teller,
@@ -95,8 +96,8 @@ pub enum BarEvent {
         file: Option<SentFile>,
         /// A `send_image` result's pictures.
         images: Vec<SentImage>,
-        /// A `show_products` result's cards, as HTML.
-        products: Option<String>,
+        /// A `show_products` result's cards.
+        products: Option<Vec<ProductCard>>,
         /// A `show_cards` result's cards, as HTML.
         cards: Option<String>,
         /// A `show_chart` or `show_stock_chart` result's chart, boxed to
