@@ -1223,6 +1223,9 @@ button.dachip:hover { border-color: var(--border-hi) }
 .code.big { font-size: 22px; font-weight: 600 }
 .dfield input.mono.plain { text-transform: none }
 .dlist.top { padding-top: 8px }
+/* The waiting list takes the keys itself; its selected row shows where they go. */
+#wtlist:focus { outline: none }
+#wtlist .dmuted { padding: 8px 10px }
 .dsec.flat.top { padding-top: 6px }
 .dsec.bare { border: 0; padding-left: 10px }
 .dbody.pt { padding-top: 12px }

@@ -19,6 +19,10 @@ Other apps have independent versions and changelogs:
 
 ### Changed
 
+- Desktop: a double tap of Option opens the bar on the sessions waiting for
+  you: questions first, then finished turns you have not read, then running
+  and recent sessions. Return opens one with its composer, Esc comes back, ⌘N
+  starts a new agent. With nothing recent the bar opens on the new agent form.
 - Desktop: a session's background commands and queued messages take at
   most about a third of the window and scroll inside it.
 - Desktop: the usage pill shows each harness's icon and the share of its

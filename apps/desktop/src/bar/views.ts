@@ -1,5 +1,4 @@
 import { AG, hostChanges, loadAgentHosts } from "../agents/agents.ts";
-import { renderAgentNew } from "../agents/agentnew.ts";
 import { loadApps, renderApps } from "../settings/apps.ts";
 import { focusAsk, newChat, renderChat } from "../chat/chat.ts";
 import { renderChats } from "../chat/chats.ts";
@@ -14,6 +13,7 @@ import { loadResearches, renderResearches } from "../research/researches.ts";
 import { renderRoutines } from "../lists/routines.ts";
 import { renderSettings } from "../settings/settings.ts";
 import { renderSkills } from "../lists/skills.ts";
+import { renderWaiting } from "./waiting.ts";
 import { invoke } from "../ui/tauri.ts";
 
 // ---------- State ----------
@@ -61,11 +61,11 @@ export async function show(view: string | null) {
   }
   if (S.link === "revoked") return renderRevoked();
   if (view === "settings") return renderSettings();
-  // Without a subscription the bar starts agents on the mesh's machines; the chat needs one.
+  // Without a subscription the bar opens on the sessions waiting for the user; the chat needs one.
   // With no server there is no link screen either.
-  if (!S.server && S.link === "unlinked") return renderAgentNew("", "chat");
+  if (!S.server && S.link === "unlinked") return renderWaiting();
   if (view === "link") return S.link === "linked" ? renderChat() : renderLink();
-  if (S.link === "unlinked") return renderAgentNew("", "chat");
+  if (S.link === "unlinked") return renderWaiting();
   if (view && Object.hasOwn(NAMED, view)) return NAMED[view]();
   // Back from the browser: look again at what is connected.
   if (S.view === "apps") return loadApps();
