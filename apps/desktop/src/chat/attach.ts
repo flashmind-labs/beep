@@ -7,7 +7,8 @@ import type { ChatBody, Turn } from "../ui/turn.ts";
 import { drawQueue, focusAsk } from "./chat.ts";
 import { $, bar, S } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
-import { h } from "../ui/dom.ts";
+import { createElement } from "react";
+import { createDocumentScope } from "../ui/document-root.tsx";
 import { ICON } from "../ui/icons.ts";
 
 // ---------- Attached images and files ----------
@@ -177,6 +178,7 @@ export async function agentDrop(files: Iterable<File>) {
 
 // Dropping images and files on the chat attaches them too; a path dragged
 // from a session's Files tab onto its conversation is mentioned.
+const dropOverlay = createDocumentScope<"drop">();
 bar.addEventListener("dragover", e => {
   const agent = agentField();
   const types = e.dataTransfer?.types ?? [];
@@ -191,14 +193,14 @@ bar.addEventListener("dragover", e => {
 
   if ((S.view !== "chat" && !agent) || !types.includes("Files")) return;
   e.preventDefault();
-  if (!$("#ddrop")) bar.append(h(`<div class="ddrop" id="ddrop">${ICON.image}${agent ? "Drop images to send, other files to upload" : "Drop images or files to ask about them"}</div>`));
+  if (!$("#ddrop")) dropOverlay.set([{ slot: "drop", host: bar, content: createElement("div", { className: "ddrop", id: "ddrop" }, createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: ICON.image } }), agent ? "Drop images to send, other files to upload" : "Drop images or files to ask about them") }]);
 });
 bar.addEventListener("dragleave", e => {
-  if (!bar.contains(e.relatedTarget as Node | null)) $("#ddrop")?.remove();
+  if (!bar.contains(e.relatedTarget as Node | null)) dropOverlay.remove(["drop"]);
   if (!$("#agconv")?.contains(e.relatedTarget as Node | null)) $("#agfield")?.classList.remove("dropping");
 });
 bar.addEventListener("drop", e => {
-  $("#ddrop")?.remove();
+  dropOverlay.remove(["drop"]);
   $("#agfield")?.classList.remove("dropping");
   const path = e.dataTransfer?.getData(PATH_TYPE);
 

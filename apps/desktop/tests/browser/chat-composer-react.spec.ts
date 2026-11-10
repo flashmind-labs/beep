@@ -151,4 +151,30 @@ test("composer overlay keeps paste pills and code outline through detach and rea
   await expect(layer.locator(".cx-pill")).toHaveCount(1);
   await expect(layer.locator(".cx-code")).toHaveCount(1);
   expect(await ask.evaluate(el => el === Reflect.get(window, "composeField"))).toBe(true);
+  await ask.evaluate(el => {
+    const box = el.parentElement?.querySelector(".cx-pill")?.getBoundingClientRect();
+    if (box) el.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: box.left + 1, clientY: box.top + 1 }));
+  });
+  await page.locator(".cx-pop").getByRole("button", { name: "Expand" }).click();
+  await expect(ask).toHaveValue(/line 0.*line 11/s);
+  await expect(ask).toBeFocused();
+  await expect(page.locator(".cx-pop")).toHaveCount(0);
+});
+
+test("file drag overlay stays mounted until the pointer leaves", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  await expect(page.locator("#ask")).toBeVisible();
+  await page.evaluate(() => {
+    const data = new DataTransfer(); data.items.add(new File(["data"], "example.txt"));
+    const bar = document.querySelector("#bar");
+    bar?.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: data }));
+    Reflect.set(window, "dropOverlay", document.querySelector("#ddrop"));
+    bar?.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: data }));
+  });
+  const overlay = page.locator("#ddrop");
+  await expect(overlay).toContainText("Drop images or files to ask about them");
+  expect(await overlay.evaluate(el => el === Reflect.get(window, "dropOverlay"))).toBe(true);
+  await page.evaluate(() => document.querySelector("#bar")?.dispatchEvent(new DragEvent("dragleave", { bubbles: true })));
+  await expect(overlay).toHaveCount(0);
 });

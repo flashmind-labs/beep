@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
-import { ComposeOverlay } from "./compose-overlay.tsx";
+import { ComposeOverlay, ComposePopup } from "./compose-overlay.tsx";
 import { composeMessage as compose, expandPills, fenceSpan, imagePath, lineCount, normalizeNewlines, PASTE_PILL_LINES, pillAt, pillsIn, Pastes, snapCaret, snapSelection } from "./compose-text.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -58,7 +58,10 @@ new MutationObserver(() => {
     if (!state || state.connected === field.isConnected) continue;
     state.connected = field.isConnected;
     if (state.connected) draw(field);
-    else if (state.active) { overlay.remove([state.slot]); state.active = false; }
+    else {
+      closePop(field);
+      if (state.active) { overlay.remove([state.slot]); state.active = false; }
+    }
   }
 }).observe(document.documentElement, { childList: true, subtree: true });
 const VALUE = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!;
@@ -275,51 +278,34 @@ function openPop(field: HTMLTextAreaElement, id: number) {
   const f = fields.get(field)!, text = pastes.get(id);
   closePop(field);
   if (text == null) return;
-  const pop = document.createElement("div");
-  pop.className = "cx-pop";
-  const head = document.createElement("div");
-  head.className = "h";
-  const name = document.createElement("b");
-  name.textContent = "Pasted text";
-  const lines = lineCount(text), count = document.createElement("span");
-  count.textContent = lines === 1 ? "1 line" : `${lines} lines`;
-  const gap = document.createElement("span");
-  gap.className = "sp";
-  const button = (label: string, act: () => void) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "dbtn quiet";
-    b.textContent = label;
-    b.addEventListener("mousedown", e => e.preventDefault());
-    b.addEventListener("click", e => { e.stopPropagation(); act(); });
-    return b;
-  };
   // The pill's place now: typing may have moved it since the click.
   const select = () => {
     const p = pillsIn(field.value).find(p => p.id === id);
     if (p) field.setSelectionRange(p.start, p.end);
     return !!p;
   };
-  head.append(name, count, gap,
-    button("Expand", () => { if (select()) insert(field, text); closePop(field); }),
-    button("Remove", () => { if (select()) insert(field, ""); closePop(field); }));
-  const pre = document.createElement("pre");
   const shown = text.split("\n");
-  pre.textContent = shown.length > PREVIEW_LINES ? `${shown.slice(0, PREVIEW_LINES).join("\n")}\n…` : text;
-  pop.append(head, pre);
-  field.parentElement!.append(pop);
+  const preview = shown.length > PREVIEW_LINES ? `${shown.slice(0, PREVIEW_LINES).join("\n")}\n…` : text;
+  const parent = field.parentElement;
+  if (!parent) return;
+  overlay.set([{ slot: `popup:${f.slot}`, host: parent, content: createElement(ComposePopup, {
+    text: preview, lines: lineCount(text), node: element => { f.pop = element; },
+    expand: () => { if (select()) insert(field, text); closePop(field); },
+    remove: () => { if (select()) insert(field, ""); closePop(field); },
+  }) }]);
+  const pop = f.pop;
+  if (!pop) return;
   // Below the field when there is no room above it.
   if (pop.getBoundingClientRect().top < 4) pop.classList.add("down");
   const away = (e: MouseEvent) => { if (!pop.contains(e.target as Node)) closePop(field); };
   addEventListener("mousedown", away, true);
-  f.pop = pop;
   f.closePop = () => removeEventListener("mousedown", away, true);
 }
 
 function closePop(field: HTMLTextAreaElement) {
   const f = fields.get(field);
   if (!f?.pop) return;
-  f.pop.remove();
+  overlay.remove([`popup:${f.slot}`]);
   f.closePop?.();
   f.pop = null;
   f.closePop = null;
