@@ -9,7 +9,11 @@ impl Desk {
         project: &str,
         settings: Option<IgnoredSync>,
     ) -> Result<IgnoredSync> {
-        let _write = WRITES.lock().await;
+        // A read needs no lock: it never writes back what it read.
+        let _write = match settings {
+            Some(_) => Some(WRITES.lock().await),
+            None => None,
+        };
         let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
         let key = Key::Sync(stored.name.clone());
         let mut spec = read::<SyncSpec>(&self.mesh, &key).unwrap_or_else(|| SyncSpec {

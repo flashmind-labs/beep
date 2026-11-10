@@ -103,3 +103,33 @@ async fn master_pause_preserves_preferences_and_resumes_new_projects() {
     );
     endpoint.close().await;
 }
+
+#[tokio::test]
+async fn reading_ignored_sync_does_not_wait_for_a_write() {
+    use futures::FutureExt;
+
+    let dir = TempDir::new().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .transport_config(transport_config())
+        .bind()
+        .await
+        .unwrap();
+    let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
+        .await
+        .unwrap();
+    let desk = Desk::open(Arc::new(TestPeers(mesh))).await.unwrap();
+    let _writing = WRITES.lock().await;
+
+    let read = desk
+        .project_ignored_sync("acme/missing", None)
+        .now_or_never();
+    assert!(matches!(read, Some(Err(FleetError::NotFound))));
+
+    let write = desk
+        .project_ignored_sync(
+            "acme/missing",
+            Some(beep_proto::node::sync::IgnoredSync::default()),
+        )
+        .now_or_never();
+    assert!(write.is_none());
+}
