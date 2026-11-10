@@ -104,9 +104,16 @@ export async function debugWithAgent(text: string) {
   go("pane", { agentnew: { prompt: debugPrompt(text), at: mac?.enabled ? { machine: mac.id } : null } });
 }
 
+/// What the bar or tray asked the window to show, taken once.
+export const readPending = () => invoke<CenterTarget | null>("center_pending").catch(() => null);
+
 /// Shows what the bar or tray asked for, once; Home when nothing is waiting.
 export async function takePending(fallback: "home" | null) {
-  const target = await invoke<CenterTarget | null>("center_pending").catch(() => null);
+  showPending(await readPending(), fallback);
+}
+
+/// Shows `target`, read with `readPending`; `fallback` when nothing was waiting.
+export function showPending(target: CenterTarget | null, fallback: "home" | null) {
   if (target == null) return fallback && go(fallback);
   if (target === "home" || target === "instructions" || target === "providers" || target === "terminals" || target === "research") return go(target);
 
