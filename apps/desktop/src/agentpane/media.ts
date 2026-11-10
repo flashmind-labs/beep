@@ -318,6 +318,7 @@ export function closePaneTabs() {
 }
 
 function dropTab(t: MediaTab) {
+  if (t.el) removeSessionPortal(t.el);
   if (t.term) dropTerm(t.term);
   const controls = t.el?.querySelector<HTMLElement>(".anim");
   if (controls) removeSessionPortal(controls);

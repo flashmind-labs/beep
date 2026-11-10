@@ -1,17 +1,14 @@
 // What each kind of tab shows: text, a terminal, a picture, a video, a PDF
 // or a 3D model.
-import { isHtmlFile } from "./html-preview-state.ts";
 import { actualView, baseName, fitView, resolvePath, zoomAt } from "./media-state.ts";
-import { highlight, languageOf, MAX_LINES, shortSize } from "./files-state.ts";
+import { TextView } from "./text-view.tsx";
 import { createElement } from "react";
 import { setSessionPortal } from "../agents/session-frame.tsx";
 import { ModelControls } from "./model-controls.tsx";
 import { fileSize, openViewer } from "../chat/media.ts";
 import { attach, detachTerm, killTerm, type PaneTerm } from "./terminal.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
-import { addMention } from "../agents/workdrop.ts";
-import { type TreeText, type MediaTab, P, closeTab, saveWorkFile } from "./media.ts";
-import { mentioned } from "./worktree-state.ts";
+import { type TreeText, type MediaTab, P, closeTab } from "./media.ts";
 import { readFile, readError, drawTermStatus } from "./read.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
@@ -31,65 +28,8 @@ export function viewOf(t: MediaTab): HTMLElement {
 /// A file of the Files tab as text: numbered lines, lightly highlighted,
 /// read only. Only its start shows when it is large.
 function textView(t: MediaTab, text: TreeText) {
-  const rel = t.rel!;
-  const lang = languageOf(rel);
-  let body: string;
-  let lines = 0;
-
-  if (text.binary) {
-    body = `<div class="agpmsg">${esc(t.name)} is not text (${esc(shortSize(text.size))}). Save it to open it on this computer.</div>`;
-  } else {
-    const all = text.text.split("\n");
-    if (all.length > 1 && all.at(-1) === "") all.pop();
-    lines = all.length;
-    const shown = all.slice(0, MAX_LINES);
-    const width = String(shown.length).length;
-    body = `<div class="agcode" style="--lnw:${width}ch"><pre>${shown.map((l, i) => `<span class="ln">${i + 1}</span>${highlight(l, lang)}`).join("\n")}</pre></div>`;
-  }
-
-  if (t.preview?.active) {
-    body = t.preview.loading ? '<div class="agpmsg">Loading preview…</div>'
-      : t.preview.error ? `<div class="agpmsg derr">${esc(t.preview.error)}</div>`
-      : '<div class="agartframe-box"><iframe class="agartframe" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe></div>';
-  }
-  const cut = text.cut || lines > MAX_LINES ? ` · the first ${lines > MAX_LINES ? `${MAX_LINES.toLocaleString()} lines` : shortSize(text.text.length)} shown` : "";
-  const about = [rel, lang, text.binary ? "" : `${lines.toLocaleString()} lines`, shortSize(text.size)].filter(Boolean).join(" · ") + cut;
-  const el = h(`<div class="agpview">${body}<div class="agpacts"><span class="meta mono" title="${esc(rel)}">${esc(about)}</span><span class="sp"></span>${!text.binary && isHtmlFile(rel) ? `<button class="dbtn" data-preview="1">${t.preview?.active ? "Source" : "Preview"}</button>` : ""}<button class="dbtn" data-tment="1">Mention</button><button class="dbtn" data-tsave="1">Save</button></div></div>`);
-  const frame = el.querySelector("iframe");
-  if (frame && t.preview?.src) { frame.title = `Preview of ${t.name}`; frame.src = t.preview.src; }
-  const render = () => {
-    if (!P.tabs.includes(t) || !t.el) return;
-    const next = textView(t, text);
-    next.hidden = t.el.hidden;
-    t.el.replaceWith(next);
-    t.el = next;
-  };
-  el.querySelector("[data-preview]")?.addEventListener("click", async () => {
-    const s = P.session;
-    if (!s) return;
-    const preview = t.preview ??= { active: false, loading: false, src: "", error: "" };
-    preview.active = !preview.active;
-    if (!preview.active || preview.src || preview.loading) { render(); return; }
-    preview.loading = true;
-    preview.error = "";
-    render();
-
-    try {
-      const got = await invoke<{ kind: string; src: string }>("agent_artifact", {
-        machineId: s.machine_id, root: t.root ?? s.cwd, path: rel, preview: true,
-      });
-      if (got.kind !== "html") throw new Error("This file cannot be previewed as HTML.");
-      preview.src = got.src;
-    } catch (e) {
-      preview.error = readError(e);
-    } finally {
-      preview.loading = false;
-      render();
-    }
-  });
-  const meta = el.querySelector(".meta")!;
-  el.querySelector("[data-tment]")!.addEventListener("click", () => addMention(mentioned(t.root ?? P.session?.cwd ?? "", P.session?.cwd ?? "", rel)));
-  el.querySelector("[data-tsave]")!.addEventListener("click", () => saveWorkFile(rel, note => { meta.textContent = note; }, t.root));
+  const el = h('<div class="agpview"></div>');
+  setSessionPortal(el, createElement(TextView, { tab: t, text }));
   return el;
 }
 
