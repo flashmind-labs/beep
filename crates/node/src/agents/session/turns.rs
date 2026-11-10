@@ -21,8 +21,22 @@ use beep_proto::node::usage::{MAX_MODEL_NAME, MAX_TURN_MODELS, ModelTokens};
 use beep_proto::{MAX_AGENT_IMAGES, MAX_AGENT_IMAGES_TOTAL, ModelId};
 use futures::FutureExt;
 use serde_json::Value;
-use std::{collections::VecDeque, time::Instant};
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 use tokio::task::spawn_blocking;
+
+/// How long a turn's end waits for running subagents that send nothing
+/// before it alerts anyway: a Codex subagent may never say it ended.
+pub(super) const SUBAGENTS_QUIET: Duration = Duration::from_secs(30 * 60);
+
+/// A turn's end, held while subagents it started run.
+pub(super) struct HeldEnd {
+    pub(super) ended: AlertKind,
+    /// When it alerts without word from the subagents.
+    pub(super) due: tokio::time::Instant,
+}
 
 impl Actor {
     /// Marks the running turn as stopping for the user, at once, and gives
@@ -183,13 +197,15 @@ impl Actor {
         if self.turn.is_none() {
             if self.waiting() == 0 {
                 let live = self.live.borrow();
+                let ended = live.last_stop.map(|stop_reason| AlertKind::TurnEnded {
+                    stop_reason,
+                    last_message: live.info.last_message.clone(),
+                    error: live.info.state.error.clone(),
+                });
+                drop(live);
 
-                if let Some(stop_reason) = live.last_stop {
-                    self.alert(AlertKind::TurnEnded {
-                        stop_reason,
-                        last_message: live.info.last_message.clone(),
-                        error: live.info.state.error.clone(),
-                    });
+                if let Some(ended) = ended {
+                    self.turn_ended(ended);
                 }
             }
 
@@ -199,6 +215,43 @@ impl Actor {
         }
 
         Ok(())
+    }
+
+    /// Alerts that the turn ended, or holds the alert while subagents it
+    /// started still run.
+    fn turn_ended(&mut self, ended: AlertKind) {
+        if self.live.borrow().info.state.subagents == 0 {
+            self.held_end = None;
+            self.alert(ended);
+            return;
+        }
+
+        self.held_end = Some(HeldEnd {
+            ended,
+            due: tokio::time::Instant::now() + SUBAGENTS_QUIET,
+        });
+    }
+
+    /// The agent sent news while a turn's end is held: alert once no
+    /// subagent runs, or else wait `SUBAGENTS_QUIET` from now.
+    pub(super) fn subagents_moved(&mut self) {
+        let Some(held) = &mut self.held_end else {
+            return;
+        };
+
+        if self.live.borrow().info.state.subagents > 0 {
+            held.due = tokio::time::Instant::now() + SUBAGENTS_QUIET;
+            return;
+        }
+
+        self.subagents_quiet();
+    }
+
+    /// Alerts the held turn's end: its subagents ended or went quiet.
+    pub(super) fn subagents_quiet(&mut self) {
+        if let Some(held) = self.held_end.take() {
+            self.alert(held.ended);
+        }
     }
 
     /// Prompts and steers waiting, as the state counts them.
@@ -256,7 +309,7 @@ impl Actor {
         // Prompts queued behind the turn run first: one alert for the lot.
         if self.waiting() == 0 {
             let last_message = self.live.borrow().info.last_message.clone();
-            self.alert(AlertKind::TurnEnded {
+            self.turn_ended(AlertKind::TurnEnded {
                 stop_reason: stop,
                 last_message,
                 error: error.clone(),
@@ -457,6 +510,8 @@ impl Actor {
         );
         self.sent += 1;
         self.turn = Some(self.sent);
+        // The new turn tells its own end.
+        self.held_end = None;
         let queued = self.waiting();
         let messages = self.waiting_messages();
         self.live.send_modify(|live| {

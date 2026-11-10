@@ -13,6 +13,8 @@ Earlier releases predate this changelog.
 
 - A session whose turn ended while its subagents still run reports them, so
   apps show it as working; node restarts and session moves wait for them.
+- The "turn finished" notification waits until the session's subagents end
+  too, or until they send nothing for 30 minutes. Questions still notify at once.
 
 ### Performance
 

@@ -1294,6 +1294,136 @@ async fn a_question_alerts_and_a_queued_prompt_ends_in_one_alert() {
     assert_eq!(alerts.drain(), [], "closing it is no news");
 }
 
+/// An adapter whose turn starts a Codex subagent and asks a question, then
+/// ends while the subagent runs. The subagent ends once the test writes to
+/// the fifo in `$2`.
+const SUBAGENT_ADAPTER: &str = r#"
+handshake "$1"
+read -r line; log "$1"
+prompt=$(id)
+echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"spawn","title":"spawnAgent","kind":"other","status":"completed","rawInput":{"prompt":"Sleep","senderThreadId":"root","receiverThreadIds":["t1"],"agentsStates":{"t1":{"status":"running"}}}}}}'
+echo '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"pi-ui-1","title":"Which file?"},"options":[{"optionId":"choice-0","name":"notes.txt","kind":"allow_once"}]}}'
+read -r line; log "$1"
+echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Waiting on it."}}}}'
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+read -r go < "$2"
+echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"done","title":"Complete subagent sleep","kind":"other","status":"completed","rawInput":{"agentThreadId":"t1","agentPath":"/root/sleep","activityKind":"completed"}}}}'
+cat > /dev/null
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_turn_alerts_its_end_once_its_subagents_end() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let fifo = dir.join("go");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let mut kind = script("pi", SUBAGENT_ADAPTER, &log);
+    kind.args.push(fifo.display().to_string());
+    let alerts = Arc::new(AlertHub::default());
+    let session = Session::start(Start {
+        alerts: alerts.clone(),
+        ..start_on(&kind, dir, None)
+    })
+    .unwrap();
+    settle(&session).await;
+    let question = session.info().question.expect("a question");
+    assert_eq!(
+        alerts.drain().into_iter().map(|alert| alert.kind).collect::<Vec<_>>(),
+        [AlertKind::Asks {
+            question: question.clone()
+        }],
+        "a question alerts while a subagent runs"
+    );
+
+    session
+        .order(Command::Answer {
+            question: question.id,
+            reply: "choice-0".into(),
+        })
+        .await
+        .unwrap();
+    until(&session, |live| {
+        live.info.turns >= 1 || live.status() == Status::Ended
+    })
+    .await;
+    assert_eq!(session.info().state.subagents, 1);
+    assert_eq!(alerts.drain(), [], "the turn ended with its subagent running");
+
+    tokio::task::spawn_blocking(move || std::fs::write(fifo, "go\n"))
+        .await
+        .unwrap()
+        .unwrap();
+    until(&session, |live| {
+        live.info.state.subagents == 0 || live.status() == Status::Ended
+    })
+    .await;
+    // Orders run in turn, so the alert is in once the session closed.
+    session.close().await;
+    assert_eq!(
+        alerts.drain().into_iter().map(|alert| alert.kind).collect::<Vec<_>>(),
+        [AlertKind::TurnEnded {
+            stop_reason: StopReason::EndTurn,
+            last_message: "Waiting on it.".into(),
+            error: None,
+        }]
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_turn_alerts_its_end_once_its_subagents_go_quiet() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let fifo = dir.join("go");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let mut kind = script("pi", SUBAGENT_ADAPTER, &log);
+    kind.args.push(fifo.display().to_string());
+    let alerts = Arc::new(AlertHub::default());
+    let session = Session::start(Start {
+        alerts: alerts.clone(),
+        ..start_on(&kind, dir, None)
+    })
+    .unwrap();
+    settle(&session).await;
+    let question = session.info().question.expect("a question");
+    session
+        .order(Command::Answer {
+            question: question.id,
+            reply: "choice-0".into(),
+        })
+        .await
+        .unwrap();
+    until(&session, |live| {
+        live.info.turns >= 1 || live.status() == Status::Ended
+    })
+    .await;
+    assert_eq!(session.info().state.subagents, 1);
+    alerts.drain();
+
+    // The subagent never says it ended.
+    tokio::time::pause();
+    tokio::time::sleep(turns::SUBAGENTS_QUIET - Duration::from_secs(60)).await;
+    assert_eq!(alerts.drain(), [], "the subagent may still be working");
+    tokio::time::sleep(Duration::from_secs(120)).await;
+    let ended = alerts.drain();
+    assert_eq!(ended.len(), 1, "{ended:?}");
+    assert!(matches!(ended[0].kind, AlertKind::TurnEnded { .. }));
+    tokio::time::sleep(turns::SUBAGENTS_QUIET * 2).await;
+    assert_eq!(alerts.drain(), [], "once per turn");
+    session.close().await;
+}
+
 /// An adapter whose first turn leaves a server running while another tool
 /// finishes once the test writes to the fifo in `$2`. It answers the node's
 /// `session/cancel` by ending the turn cancelled, and ends each later
