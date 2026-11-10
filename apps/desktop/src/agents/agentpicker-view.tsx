@@ -13,6 +13,8 @@ interface PickerProps {
   rows: readonly ModelRow[];
   note: string;
   loading: boolean;
+  failed: boolean;
+  onRetry: () => void;
   onQuery: (query: string) => void;
   onAgent: (agent: string) => void;
   onModel: (model: string) => void;
@@ -33,7 +35,7 @@ export function AgentPillContent({ agent, detail }: { agent: string; detail: str
   return <><Harness agent={agent}/>{detail}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg></>;
 }
 
-export function AgentPicker({ picked, offered, everywhere, machineName, machineId, rows, note, loading, onQuery, onAgent, onModel, onEffort }: PickerProps) {
+export function AgentPicker({ picked, offered, everywhere, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onAgent, onModel, onEffort }: PickerProps) {
   const name = agentKind(picked.agent).name, levels = effortsOf(picked.agent);
   const [highlight, setHighlight] = useState(-1);
   const models = useRef<HTMLDivElement>(null);
@@ -62,7 +64,8 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
       <div className="agc-models" ref={models}>{rows.map((row, index) => <button key={row.value} type="button" data-agmo={row.value}
         className={`${row.value === picked.model ? "on" : ""}${row.value && picked.agent === "flsh" ? " mono" : ""}${index === highlight ? " hi" : ""}`}
         onClick={() => onModel(row.value)}>{row.label}{row.note && <small>{row.note}</small>}</button>)}
-        {note && <p className="none">{loading && <><span className="dspin"/> </>}{note}</p>}
+        {note && <p className="none" role="status">{loading && <><span className="dspin"/> </>}{note}</p>}
+        {failed && <button type="button" data-agretry="" onClick={onRetry}>Retry</button>}
       </div>
     </div>
     <div className="agc-think"><h5><span>Thinking</span><span>{name}</span></h5>{levels.length ? <>

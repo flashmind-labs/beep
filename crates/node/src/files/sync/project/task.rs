@@ -25,6 +25,8 @@ use tokio::{
 };
 
 /// How long the folder must be quiet after a change before it is scanned.
+/// What [`Task::fail`] calls a Git check that did not pass.
+pub(super) const WAITING_FOR_GIT: &str = "waiting for Git";
 pub(super) const SETTLE: Duration = Duration::from_secs(10);
 pub(super) const MAX_SETTLE: Duration = Duration::from_secs(30);
 /// How long the folder must be quiet before files a scan found missing are
@@ -338,6 +340,14 @@ impl Task {
             self.last_logged_error = Some((message.clone(), now));
         }
         self.error = Some(message);
+    }
+
+    /// Whether the error is a Git check's, which only a Git check clears.
+    pub(super) fn waits_for_git(&self) -> bool {
+        self.error
+            .as_deref()
+            .and_then(|error| error.strip_prefix(WAITING_FOR_GIT))
+            .is_some_and(|rest| rest.starts_with(": "))
     }
 
     /// Keeps what the folder holds in the store, for peers to fetch, under

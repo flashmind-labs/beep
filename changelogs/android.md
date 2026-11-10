@@ -35,6 +35,7 @@ Earlier releases predate this changelog.
 - Android: reject stale approvals after their question or session changes.
 - Android: notifications read, dismissed or opened on any desktop or phone
   are read here too, and opening the app no longer replays ones already read.
+- Android: failed model lookups show Retry, preserve loaded models, and retry sooner.
 
 ### Performance
 

@@ -6,14 +6,15 @@ import { AgentPicker, AgentPillContent } from "./agentpicker-view.tsx";
 
 import { type AgentModels, MODELS_KEPT_MS } from "./agentmodels.ts";
 import { modelLabel, modelRows, pillDetail, placePopover } from "./agentpick.ts";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, logError } from "../ui/tauri.ts";
 
 // ----- Models -----
 
 /// The models each machine's agents offer, by `machine/agent`: `null` when it
 /// could not say, `undefined` in `list` until the first answer.
 const MODELS = new Map<string, ModelsEntry>();
-interface ModelsEntry { list: AgentModels | null | undefined; at: number; asking: boolean; waiting: (() => void)[] }
+interface ModelsEntry { list: AgentModels | null | undefined; at: number; status: "idle" | "loading" | "ready" | "failed"; waiting: (() => void)[] }
+const MODELS_RETRY_MS = 10_000;
 
 /// Where the lists are kept between launches; both windows share it.
 const MODELS_STORE = "beep.agentModels.v1";
@@ -28,7 +29,7 @@ function restoreModels() {
   for (const [key, v] of Object.entries(kept)) {
     if (v && v.list && typeof v.at === "number" && now - v.at < MODELS_STORE_MAX_MS) {
       // Shown at once, and asked again the first time it is wanted.
-      MODELS.set(key, { list: v.list, at: 0, asking: false, waiting: [] });
+      MODELS.set(key, { list: v.list, at: 0, status: "idle", waiting: [] });
     }
   }
 }
@@ -42,29 +43,32 @@ function storeModels() {
 restoreModels();
 
 /// Asks `machine` for `agent`'s models unless a request is out; `loaded`
-/// runs once the answer comes, if it changed what is shown.
+/// runs once the answer comes, including a failed refresh.
 function askModels(key: string, machine: string, agent: string, loaded: (() => void) | null) {
   let entry = MODELS.get(key);
-  if (!entry) MODELS.set(key, entry = { list: undefined, at: 0, asking: false, waiting: [] });
+  if (!entry) MODELS.set(key, entry = { list: undefined, at: 0, status: "idle", waiting: [] });
   if (loaded) entry.waiting.push(loaded);
-  if (entry.asking) return;
-  entry.asking = true;
+  if (entry.status === "loading") return;
+  entry.status = "loading";
   invoke<AgentModels | null>("agent_models", { machineId: machine, agent })
-    .catch(() => null)
+    .catch((error: unknown) => {
+      logError(`Model lookup failed: machine=${machine} harness=${agent}: ${String(error)}`);
+      return null;
+    })
     .then(list => {
       const e = MODELS.get(key)!;
       const waiting = e.waiting;
       // A failed refresh keeps the list shown.
       const next = list ?? (e.list === undefined ? null : e.list);
-      const changed = JSON.stringify(next) !== JSON.stringify(e.list);
-      MODELS.set(key, { list: next, at: Date.now(), asking: false, waiting: [] });
+      MODELS.set(key, { list: next, at: Date.now(), status: list ? "ready" : "failed", waiting: [] });
       if (list) storeModels();
-      if (changed) for (const tell of waiting) tell();
+      for (const tell of waiting) tell();
     });
 }
 
 /// Whether `e` holds an answer read lately.
-const fresh = (e: ModelsEntry | undefined) => !!e && e.list !== undefined && Date.now() - e.at <= MODELS_KEPT_MS;
+const fresh = (e: ModelsEntry | undefined) => !!e && (e.status === "ready" || e.status === "failed")
+  && Date.now() - e.at <= (e.status === "failed" ? MODELS_RETRY_MS : MODELS_KEPT_MS);
 
 /// The models `agent` offers on `machine` as known now: `undefined` only before
 /// the first answer.
@@ -145,16 +149,26 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   const p = o.picked;
   renderers.set(el, o.render);
   const agent = p.agent;
+  const key = o.machine ? `${o.machine.id}/${agent}` : null;
   const list = o.machine ? modelsOn(o.machine.id, agent, () => {
     if (shown?.el !== el || !el.isConnected || shown.o.picked.agent !== agent) return;
     const current = shown.o;
     drawPicker(el, current);
     current.changed("models");
   }) : null;
+  const entry = key ? MODELS.get(key) : undefined;
+  const failed = entry?.status === "failed";
+  const loading = entry?.status === "loading" && !list;
   const data = o.machine ? modelRows(list, p.query) : { rows: [{ value: "", label: "Default", note: "its own" }], note: o.noMachine };
+  const note = failed ? "Couldn't load models." : loading ? "Asking the machine which models it has…" : data.note;
   const view = createElement(AgentPicker, {
     picked: p, offered: o.offered, everywhere: o.everywhere, machineName: o.machine?.name ?? null, machineId: o.machine?.id ?? null,
-    rows: data.rows, note: data.note, loading: !!o.machine && list === undefined,
+    rows: data.rows, note, loading, failed,
+    onRetry: () => {
+      const current = key ? MODELS.get(key) : undefined;
+      if (current && current.status !== "loading") current.status = "idle";
+      drawPicker(el, o);
+    },
     onQuery: (query: string) => { p.query = query; drawPicker(el, o); },
     onAgent: (next: string) => { p.agent = next; p.query = ""; p.model = ""; o.changed("agent"); },
     onModel: (next: string) => { p.model = next; p.query = ""; o.changed("model"); },

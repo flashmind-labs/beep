@@ -84,6 +84,8 @@ function workingDirectory(entry: Entry): string | null {
   try {
     const args: unknown = JSON.parse(entry.tool.input);
     if (!args || typeof args !== "object") return null;
+    // A Beep tool naming a machine works in that machine's folder.
+    if ("machine" in args && Reflect.get(args, "machine")) return null;
     for (const key of ["workdir", "cwd", "working_directory"]) {
       if (key in args) {
         const value: unknown = Reflect.get(args, key);

@@ -73,14 +73,16 @@ test("a worktree refresh keeps the search input mounted and focused", async () =
   click(host, ".agwt");
   const input = host.querySelector<HTMLInputElement>(".agwt-search");
   assert.ok(input);
-  input.value = "fix";
+  input.value = "fixes";
   input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  input.setSelectionRange(3, 3);
   answers.agent_worktrees = [main, fix, { path: "/srv/other", branch: "other", head: "def", own: false }];
   refreshWorktrees();
   await flush();
   assert.equal(host.querySelector(".agwt-search"), input);
   assert.equal(document.activeElement, input);
-  assert.equal(input.value, "fix");
+  assert.equal(input.value, "fixes");
+  assert.equal(input.selectionStart, 3, "the caret stays where the user left it");
 });
 
 test("Git list changes reveal candidates, edits confirm usage, and main reads preserve it", async () => {

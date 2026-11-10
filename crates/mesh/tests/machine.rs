@@ -313,8 +313,14 @@ mod sessions {
     }
 
     #[tokio::test]
-    async fn a_node_that_cannot_say_has_no_models_or_harnesses() {
-        assert!(models(&Down, "claude").await.expect("no error").is_none());
+    async fn model_lookup_preserves_connection_errors() {
+        let error = models(&Down, "codex").await.expect_err("link failed");
+        assert!(matches!(error, MeshError::Link(_)));
+        assert!(format!("{error:#}").contains("the node closed the stream"));
+    }
+
+    #[tokio::test]
+    async fn a_node_that_cannot_say_has_no_harnesses() {
         assert!(harnesses(&Down, false).await.expect("no error").is_none());
         assert!(
             update_harness(&Down, "claude")
