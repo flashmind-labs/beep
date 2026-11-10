@@ -50,6 +50,7 @@ import type { MacControl } from "../machines/machine-state.ts";
 import { projectOf, repoOf } from "../agents/running-state.ts";
 import { placeOf } from "../agents/place.ts";
 import { followToolUpdates } from "../machines/machines.ts";
+import { dialogOpen } from "../ui/parts.ts";
 
 followSkin();
 guardClicks();
@@ -70,7 +71,7 @@ initPalette({ go, jump, ask: askBeep, scope: () => windowProject, openChat: id =
 
 // Capture before xterm handles the key, so Shift+Esc never reaches the shell.
 document.addEventListener("keydown", e => {
-  if (currentLocation()?.view !== "terminals" || !isZoomKey(e) || e.isComposing || e.defaultPrevented || document.querySelector('[role="dialog"]')) return;
+  if (currentLocation()?.view !== "terminals" || !isZoomKey(e) || e.isComposing || e.defaultPrevented || dialogOpen()) return;
   if (!allTerms.focusOpen()) return;
   e.preventDefault();
   e.stopPropagation();

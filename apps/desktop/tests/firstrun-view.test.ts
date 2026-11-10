@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
-import { FirstRunScreen } from "../src/center/firstrun-view.tsx";
 
 test("first run moves focus through the link flow and removes its fields when going back", async () => {
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://app.test" });
@@ -12,6 +11,8 @@ test("first run moves focus through the link flow and removes its fields when go
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   }
   const { render, fireEvent, cleanup } = await import("@testing-library/react");
+  // Loaded once the page exists, as React DOM reads it when it loads.
+  const { FirstRunScreen } = await import("../src/center/firstrun-view.tsx");
   let completions = 0;
   const join = async (_ticket: string) => {};
   try {

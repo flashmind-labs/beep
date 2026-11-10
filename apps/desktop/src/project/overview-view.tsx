@@ -11,6 +11,7 @@ import { OverviewCardView, overviewCardModel } from "./overview-card.tsx";
 import { editGroup, groupMenu, removeGroup, renameGroup, startRename } from "./groups.ts";
 import { state } from "../center/state.ts";
 import { redrawProjects } from "./sections.ts";
+import { dialogOpen } from "../ui/parts.ts";
 
 type Group = OverviewGroup<Project, OverviewCard>;
 /// What the search field holds, kept while the user is on other pages.
@@ -48,7 +49,7 @@ function useSearchKeys(field: React.RefObject<HTMLInputElement | null>) {
   useEffect(() => {
     const keys = (event: KeyboardEvent) => {
       const input = field.current;
-      if (!input || event.defaultPrevented || event.isComposing || event.altKey || !input.checkVisibility() || document.querySelector('[role="dialog"]')) return;
+      if (!input || event.defaultPrevented || event.isComposing || event.altKey || !input.checkVisibility() || dialogOpen()) return;
 
       const target = event.target instanceof HTMLElement ? event.target : null;
       const typing = !!target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));

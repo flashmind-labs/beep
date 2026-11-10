@@ -5,6 +5,7 @@ import { hintModel, LIVE_SAY, LIVE_TALK } from "./hints.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { LiveView } from "./live.ts";
 import { liveParts, LV } from "./live.ts";
+import { useDialogRef } from "../ui/parts.ts";
 
 export function LiveDock({ view }: { view: LiveView }) {
   const parts = liveParts(view), caption = useRef<HTMLDivElement>(null), progress = useRef<HTMLElement>(null);
@@ -25,6 +26,6 @@ export function LiveDock({ view }: { view: LiveView }) {
 }
 
 export function LiveSheet() {
-  const sections = [["Say", LIVE_SAY], ["Keys", LIVE_TALK]] as const;
-  return <div className="dover lsheet" role="dialog" aria-label="What to say"><div className="vt"><span className="tt"><b>What to say</b></span></div><div className="dkeys">{sections.map(([title, rows]) => <div className="kg" key={title}><div className="dsec">{title}</div>{rows.map(([key, text]) => <div className="kr" key={`${key}:${text}`}><span>{text}</span><kbd>{key}</kbd></div>)}</div>)}</div><HintView value={hintModel([["esc", "close"], ["⌘/", "close"]])} /></div>;
+  const sections = [["Say", LIVE_SAY], ["Keys", LIVE_TALK]] as const, dialog = useDialogRef();
+  return <div ref={dialog} className="dover lsheet" role="dialog" aria-label="What to say"><div className="vt"><span className="tt"><b>What to say</b></span></div><div className="dkeys">{sections.map(([title, rows]) => <div className="kg" key={title}><div className="dsec">{title}</div>{rows.map(([key, text]) => <div className="kr" key={`${key}:${text}`}><span>{text}</span><kbd>{key}</kbd></div>)}</div>)}</div><HintView value={hintModel([["esc", "close"], ["⌘/", "close"]])} /></div>;
 }

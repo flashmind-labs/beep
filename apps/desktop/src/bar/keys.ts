@@ -35,6 +35,7 @@ import { waitingBack, waitingKeys } from "./waiting.ts";
 import { windowTakes } from "../ui/windowkeys.ts";
 import { invoke } from "../ui/tauri.ts";
 import { chatAsk } from "../chat/chat-shell.tsx";
+import { dialogOpen } from "../ui/parts.ts";
 
 // ---------- Keys ----------
 
@@ -160,7 +161,7 @@ document.addEventListener("keydown", e => {
   if (!e.isComposing && e.key === "Escape" && closeChatFind()) { e.preventDefault(); return; }
   if (cmd && !e.altKey && !e.isComposing && e.key.toLowerCase() === "g" && stepChatFind(e.shiftKey ? -1 : 1)) { e.preventDefault(); return; }
 
-  if (cmd && !e.altKey && !e.shiftKey && !e.isComposing && e.key.toLowerCase() === "f" && ["agent", "chat", "group"].includes(S.view) && !document.querySelector('[role="dialog"]:not(#bar), #viewer')) {
+  if (cmd && !e.altKey && !e.shiftKey && !e.isComposing && e.key.toLowerCase() === "f" && ["agent", "chat", "group"].includes(S.view) && !dialogOpen()) {
     const body = $<ChatBody>(S.view === "agent" ? "#agbody" : S.view === "group" ? "#gbody" : "#body");
 
     if (body) {

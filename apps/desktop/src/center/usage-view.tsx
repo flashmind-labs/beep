@@ -3,6 +3,7 @@ import { agentLabel } from "../project/projects-state.ts";
 import { creditAmount, creditScope, providerName } from "../ui/credits.ts";
 import { harnessMark } from "../ui/icons.tsx";
 import { money, tokenCount } from "../ui/format.ts";
+import { useDialogRef } from "../ui/parts.ts";
 import { asOf, harnessLine, harnessName, modelTotals, PERIODS, pillPlans, planName, projectExtra, resetName, shortName, showsDollars, todayLine, unpricedLine, WARN_USED, windowName, windowUsed, type PeriodKey, type PlanLimits, type UsageView } from "./usage.ts";
 
 function Bar({ used }: { used: number }) { return <span className="bar"><i className={used > WARN_USED ? "warn" : ""} style={{ width: `${used}%` }} /></span>; }
@@ -34,7 +35,7 @@ function Period({ view, periodKey, allProjects, pick, more }: { view: UsageView;
   </div>;
 }
 export function UsageWidget({ view, open, period, allProjects, toggle, pick, more }: { view: UsageView; open: boolean; period: PeriodKey; allProjects: boolean; toggle(): void; pick(key: PeriodKey): void; more(): void }) {
-  const pop = useRef<HTMLDivElement>(null), plans = pillPlans(view.limits), shown = view[period] ?? view.today;
+  const pop = useRef<HTMLDivElement>(null), dialog = useDialogRef(pop), plans = pillPlans(view.limits), shown = view[period] ?? view.today;
   const label = plans.length ? `Plan usage: ${plans.map(plan => `${agentLabel(plan.agent)} ${plan.used}%`).join(", ")}` : `Cost today: ${todayLine(view.today)}`;
   // The pop moves back inside the window when its edge would leave it, and scrolls when taller than the room below.
   const [place, setPlace] = useState({ shift: 0, maxHeight: 0 });
@@ -51,6 +52,6 @@ export function UsageWidget({ view, open, period, allProjects, toggle, pick, mor
       {view.limits.flatMap(plan => plan.credits ?? []).map((credit, n) => credit.remaining != null && <span className="us-x" key={n}>{providerName(credit.provider)} <b>{credit.remaining_short ?? creditAmount(credit, credit.remaining)}</b> left</span>)}
       {(!plans.length || view.today.total.cost_usd > 0) && <span className="us-x"><b>{todayLine(view.today)}</b> today</span>}
     </button>
-    {open && <div ref={pop} className="us-pop" style={{ transform: place.shift ? `translateX(${place.shift}px)` : undefined, maxHeight: place.maxHeight || undefined }} role="dialog" aria-label="Plan usage and cost">{view.limits.filter(plan => plan.windows.length || plan.credits?.length).map((plan, i) => <Limits key={i} plan={plan} now={Date.now()} />)}<Period view={view} periodKey={period} allProjects={allProjects} pick={pick} more={more} />{showsDollars(shown) && <div className="us-note">{view.metered ? "Dollars are API spend. ~ is what plan use would cost on the API, not in the total." : "Dollars are what the same work would cost at API prices."}</div>}</div>}
+    {open && <div ref={dialog} className="us-pop" style={{ transform: place.shift ? `translateX(${place.shift}px)` : undefined, maxHeight: place.maxHeight || undefined }} role="dialog" aria-label="Plan usage and cost">{view.limits.filter(plan => plan.windows.length || plan.credits?.length).map((plan, i) => <Limits key={i} plan={plan} now={Date.now()} />)}<Period view={view} periodKey={period} allProjects={allProjects} pick={pick} more={more} />{showsDollars(shown) && <div className="us-note">{view.metered ? "Dollars are API spend. ~ is what plan use would cost on the API, not in the total." : "Dollars are what the same work would cost at API prices."}</div>}</div>}
   </>;
 }
