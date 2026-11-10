@@ -1,7 +1,7 @@
 import { createElement, Fragment, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import { setSessionChild } from "../agents/session-frame.tsx";
-import { FilesTree } from "./files-tree.tsx";
+import { FilesShell, FilesTree } from "./files-tree.tsx";
 import { FilesMenu, type FilesMenuProps } from "./files-menu.tsx";
 import { isHtmlFile } from "./html-preview-state.ts";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
@@ -19,8 +19,6 @@ import { localFileItems } from "./localfile.ts";
 import { addMention, askUpload } from "../agents/workdrop.ts";
 import { selectFile, selectionRoots, fileNameError, canPasteFiles, type FileClipboard } from "./file-actions-state.ts";
 import { confirmSheet, renameSheet } from "../ui/menu.ts";
-import { esc } from "../ui/format.ts";
-import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { paneShown } from "../ui/active.ts";
 
@@ -62,12 +60,17 @@ let treeHost: HTMLElement | null = null;
 let showingRows = false;
 let treeView: ReactElement | null = null;
 let menuView: FilesMenuProps | null = null;
+let shell = { label: "", busy: false, active: null as string | null, status: "" };
 
 // The tree and its menu share one owner so folder refreshes keep an open menu.
 function renderViews() {
   const host = F.el;
-  if (!treeHost || !host) return;
-  setSessionChild("files", createElement(Fragment, null, createPortal(treeView, treeHost, "tree"), menuView && createPortal(createElement(FilesMenu, menuView), host, "menu")));
+  if (!host) return;
+  // Keep one element shape so the shell, and the listeners wired to it, never remount.
+  setSessionChild("files", createElement(Fragment, null,
+    createPortal(createElement(FilesShell, { root: paneRoot(), ignored: F.ignored, label: shell.label || paneRoot(), busy: shell.busy, active: shell.active, status: shell.status }), host, "shell"),
+    treeHost && treeView ? createPortal(treeView, treeHost, "tree") : null,
+    menuView && createPortal(createElement(FilesMenu, menuView), host, "menu")));
 }
 
 /// Folder reads run at once, and the entries a filter stops at.
@@ -80,18 +83,17 @@ export function filesView() {
   const key = s ? `${s.machine_id}\n${paneRoot()}` : "";
   if (F.el && F.key === key) { renderViews(); return F.el; }
   setSessionChild("files", null); treeHost = null; treeView = null; menuView = null; showingRows = false;
+  shell = { label: "", busy: false, active: null, status: "" };
   F.el?.remove();
   F.unfollow?.();
   Object.assign(F, {
     key, listings: new Map(), roots: new Set(), reading: new Set(), again: new Set(), flat: false, walking: false, capped: false, open: new Set(), filter: "", picked: null, anchor: null, selected: new Set(), busy: false, fresh: false, generation: F.generation + 1, reveal: null,
     unfollow: s?.machine_id && paneRoot() ? subscribeTopics(topic("files", paneRoot()), () => refresh(), s.machine_id, filesShown) : null,
   });
-  const el = h(`<div class="agpview files"><div class="agfbar"><input class="agffind" placeholder="Filter files" aria-label="Filter files" spellcheck="false">`
-    + `<label class="agfign"><input type="checkbox"${F.ignored ? " checked" : ""}> Show ignored</label>`
-    + `<button class="agpbtn" data-frefresh="1" title="Read the folders again">&#8635;</button></div>`
-    + `<div class="agtree" role="tree" aria-label="Working files" aria-multiselectable="true" tabindex="0"></div>`
-    + `<div class="agpacts"><span class="meta mono" title="${esc(paneRoot())}">${esc(paneRoot())}</span><span data-fstatus role="status"></span><span class="sp"></span><span class="hint">Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting.</span></div></div>`);
+  const el = document.createElement("div");
+  el.className = "agpview files";
   F.el = el;
+  renderViews();
   wire(el);
   const tree = el.querySelector<HTMLElement>(".agtree");
   treeHost = tree;
@@ -120,8 +122,8 @@ export function pointFilesAt() {
   Object.assign(F, {
     key, listings: new Map(), roots: new Set(), reading: new Set(), again: new Set(), flat: false, walking: false, capped: false, open: new Set(), picked: null, anchor: null, selected: new Set(), busy: false, fresh: false, generation: F.generation + 1, reveal: null,
   });
-  const meta = F.el.querySelector(".agpacts .meta");
-  if (meta) { meta.textContent = paneRoot(); meta.setAttribute("title", paneRoot()); }
+  shell = { ...shell, label: "", active: null };
+  renderViews();
   load("");
 }
 
@@ -265,11 +267,8 @@ function draw() {
   const visible = new Set(rows.map(row => row.path));
   F.selected = new Set([...F.selected].filter(path => visible.has(path)));
   if (F.picked && !visible.has(F.picked)) F.picked = null;
-  tree.setAttribute("aria-busy", String(F.busy));
-  if (F.picked) tree.setAttribute("aria-activedescendant", `agfile-${encodeURIComponent(F.picked)}`);
-  else tree.removeAttribute("aria-activedescendant");
-  const count = F.el?.querySelector(".agpacts .meta");
-  if (count && !F.busy) count.textContent = F.selected.size ? `${F.selected.size} selected` : paneRoot();
+  shell = { ...shell, busy: F.busy, active: F.picked ? `agfile-${encodeURIComponent(F.picked)}` : null,
+    label: F.busy ? shell.label : F.selected.size ? `${F.selected.size} selected` : "" };
 
   let message: string | null = null, error = false, loading = false;
   if (top?.error && !top.entries) { message = top.error; error = true; }
@@ -461,8 +460,8 @@ function target() {
   return { machineId: paneSession()?.machine_id ?? "", root: paneRoot(), key: F.key };
 }
 function note(text: string) {
-  const status = F.el?.querySelector("[data-fstatus]");
-  if (status) status.textContent = text;
+  shell = { ...shell, status: text };
+  renderViews();
 }
 function openPicked() {
   if (!F.picked || F.selected.size !== 1) return;
