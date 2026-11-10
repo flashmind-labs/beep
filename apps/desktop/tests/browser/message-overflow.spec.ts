@@ -4,7 +4,10 @@ import { readFile } from "node:fs/promises";
 for (const width of [1280, 390]) {
   test(`nested message lists fit at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    await page.setContent('<div class="dbody"><div class="dcoderlog"><div class="dcoderen user md"><b>You</b><div class="said"></div></div></div></div>');
+    await page.route("https://app.test/skins.css", async route => {
+      await route.fulfill({ contentType: "text/css", body: await readFile(new URL("../../dist/skins.css", import.meta.url), "utf8") });
+    });
+    await page.setContent('<base href="https://app.test/"><div class="dbody"><div class="dcoderlog"><div class="dcoderen user md"><b>You</b><div class="said"></div></div></div></div>');
     await page.addStyleTag({ content: await readFile(new URL("../../dist/style.css", import.meta.url), "utf8") });
     await page.locator('.said').evaluate(node => {
       const list = document.createElement('ol');
