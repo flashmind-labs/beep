@@ -1,4 +1,5 @@
 // The bar's page, and the pane the command center window shows it in.
+import type { ReactElement } from "react";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import type { PanePage } from "./pane.ts";
 import type { GroupState } from "../chat/groups.ts";
@@ -179,7 +180,7 @@ export interface WindowHooks {
   goBack(from: BackTo): void;
   /// What shows atop chat `session`, such as the card of the pull request or
   /// issue it is about; null for nothing.
-  chatTop?(session: string): HTMLElement | null;
+  chatTop?(session: string): ReactElement | null;
   /// The project a coding session runs in, and how to open it.
   sessionDestinations?(s: { machine_id: string; cwd: string }): { name: string; folder: string }[];
   sessionProject?(s: { machine_id: string; cwd: string }): { label: string; name: string; open(): void } | null;

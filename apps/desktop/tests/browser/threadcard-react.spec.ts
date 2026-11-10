@@ -10,6 +10,7 @@ test("thread card expands without replacing the original post", async ({ page })
   await page.evaluate(() => window.__navigation.open({ chat: { session: "thread-chat" } }));
   const post = page.locator(".th-card .tx").first();
   await expect(post).toHaveText("Original post");
+  await expect(page.locator("#body > .th-card.dchattop:first-child")).toHaveCount(1);
   await post.evaluate(element => { element.dataset.identity = "kept"; const range = document.createRange(); range.selectNodeContents(element); window.getSelection()?.removeAllRanges(); window.getSelection()?.addRange(range); });
   await page.getByRole("button", { name: "Show 1 earlier comment" }).dispatchEvent("click");
   await expect(post).toHaveAttribute("data-identity", "kept");

@@ -1,5 +1,4 @@
 import { createElement } from "react";
-import { showWindowParts } from "./window-root.ts";
 import { ThreadCardContent } from "./threadcard-view.tsx";
 // Chats about one pull request or issue: the card at the top of the chat.
 import { reason } from "../ui/format.ts";
@@ -57,10 +56,9 @@ export interface ThreadCardView {
   earlier: number;
 }
 
-/// The card atop a thread chat: its element, what it last read (null from
-/// a server too old to read one), when, and its error.
+/// The card atop a thread chat: what it last read (null from a server too
+/// old to read one), when, and its error.
 interface ThreadCard {
-  el: HTMLElement;
   view: ThreadCardView | null | undefined;
   at: number;
   error: string;
@@ -76,16 +74,16 @@ export function threadCard(t: ThreadChatEntry) {
   let card = threadCards.get(t.chat_id);
 
   if (!card) {
-    // The chat body places this host atop the open chat; its content is React.
-    const el = document.createElement("div");
-    el.className = "th-card";
-    card = { el, view: undefined, at: 0, error: "", loading: false, all: false };
+    card = { view: undefined, at: 0, error: "", loading: false, all: false };
     threadCards.set(t.chat_id, card);
   }
 
   if (!card.loading && Date.now() - card.at > THREAD_FRESH_MS) readThreadCard(t, card);
-  drawThreadCard(t, card);
-  return card.el;
+  const shown = card, where = card.view && openLabel(card.view.url) === "Open on GitHub" ? "On GitHub" : "On its host";
+  return createElement("div", { key: t.chat_id, className: "th-card dchattop", hidden: card.view === null }, createElement(ThreadCardContent, {
+    view: card.view, label: threadLabel(t.kind, t.number), where, error: card.error, all: card.all,
+    expand: () => { shown.all = true; pane.chatTop(); },
+  }));
 }
 
 async function readThreadCard(t: ThreadChatEntry, card: ThreadCard) {
@@ -101,16 +99,8 @@ async function readThreadCard(t: ThreadChatEntry, card: ThreadCard) {
     card.at = Date.now();
   }
 
-  drawThreadCard(t, card);
   const on = paneOn();
-  if (on.view === "chat" && on.session === t.chat_id) drawTop();
-}
-
-function drawThreadCard(t: ThreadChatEntry, card: ThreadCard) {
-  card.el.hidden = card.view === null;
-  const where = card.view && openLabel(card.view.url) === "Open on GitHub" ? "On GitHub" : "On its host";
-  showWindowParts([{ part: `thread-card:${t.chat_id}`, host: card.el, content: createElement(ThreadCardContent, { view: card.view, label: threadLabel(t.kind, t.number), where, error: card.error, all: card.all,
-    expand: () => { card.all = true; drawThreadCard(t, card); } }) }]);
+  if (on.view === "chat" && on.session === t.chat_id) { drawTop(); pane.chatTop(); }
 }
 
 /// A thread chat's header: its title, its project to go back to, whether

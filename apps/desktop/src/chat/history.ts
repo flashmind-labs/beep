@@ -1,5 +1,5 @@
 import { turnState } from "./turn-state.ts";
-import { batchViews, placeTurns, prependTurns, setView, shownTurn, transcriptRevision, turnsOf, viewOf, type Turn } from "./transcript.ts";
+import { batchViews, placeTurns, prependTurns, setChatTop, setView, shownTurn, transcriptRevision, turnsOf, viewOf, type Turn } from "./transcript.ts";
 import { appendChatReply, askText, chatReplyHtml, drawWork, failed, makeTurn, newTurn, ranOn, suggestions, toolOutput } from "./turns.ts";
 import { answeredTurns, approvalCard } from "./approval-cards.ts";
 import { body, drawLatest, forgetChat, renderChat, scrollDown } from "./chat.ts";
@@ -326,11 +326,7 @@ function mergeTurn(old: Turn, fresh: Turn) {
 export function drawChatTop() {
   const b = body();
   if (!b || S.view !== "chat" || !S.session) return;
-  const top = windowHooks?.chatTop?.(S.session) ?? null;
-  b.querySelectorAll(":scope > .dchattop").forEach(el => { if (el !== top) el.remove(); });
-  if (!top) return;
-  top.classList.add("dchattop");
-  if (b.firstElementChild !== top) b.prepend(top);
+  setChatTop(b, windowHooks?.chatTop?.(S.session) ?? null);
 }
 
 /// Calls `draw` with each turn of session `id` that `list` names by its
