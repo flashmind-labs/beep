@@ -1,16 +1,15 @@
 import { useLayoutEffect, useRef } from "react";
-import { IC, PROJECT_COLORS } from "../ui/icons.tsx";
+import { Icon, PROJECT_COLORS } from "../ui/icons.tsx";
 import type { Placed, Project } from "../project/projects-state.ts";
 import type { ThreadChatEntry } from "./sidechats.ts";
 import type { SideChat } from "./state.ts";
 
-function Icon({ svg }: { svg: string }) { return <span className="sidebar-icon" style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: svg }} />; }
 function Spinner() { return <span className="drun cc-run" role="img" title="Answering" aria-label="Answering" />; }
 function Pin({ id, pinned, toggle }: { id: string; pinned: boolean; toggle(): void }) {
-  return <button type="button" className="pa" data-id={id} aria-label={pinned ? "Unpin" : "Pin to top"} onClick={event => { event.stopPropagation(); toggle(); }} dangerouslySetInnerHTML={{ __html: IC.pin }} />;
+  return <button type="button" className="pa" data-id={id} aria-label={pinned ? "Unpin" : "Pin to top"} onClick={event => { event.stopPropagation(); toggle(); }}><Icon name="pin" /></button>;
 }
 export function SidebarChatRow({ chat, current, answering, open, pin, menu }: { chat: Exclude<SideChat, { kind: "project" }>; current: boolean; answering: boolean; open(): void; pin(): void; menu(event: MouseEvent): void }) {
-  return <div className="cc-si cc-chat" onClick={open} onContextMenu={event => menu(event.nativeEvent)}><button type="button" className="open" title={chat.title} aria-label={chat.title} aria-current={current ? "true" : undefined}><Icon svg={chat.kind === "group" ? IC.group : chat.research ? IC.doc : IC.chat} /><span className="tt">{chat.title}</span></button>{answering ? <Spinner /> : <Pin id={chat.id} pinned={chat.pinned} toggle={pin} />}</div>;
+  return <div className="cc-si cc-chat" onClick={open} onContextMenu={event => menu(event.nativeEvent)}><button type="button" className="open" title={chat.title} aria-label={chat.title} aria-current={current ? "true" : undefined}><span className="sidebar-icon" style={{ display: "contents" }}>{chat.kind === "group" ? <Icon name="group" /> : chat.research ? <Icon name="doc" size={14} /> : <Icon name="chat" />}</span><span className="tt">{chat.title}</span></button>{answering ? <Spinner /> : <Pin id={chat.id} pinned={chat.pinned} toggle={pin} />}</div>;
 }
 export function SidebarProjectRow({ project, label, pinned, indented, current, threads, activeChat, running, open, pin, wire, openThread }: { project: Placed<Project>; label: string; pinned: boolean; indented: boolean; current: boolean; threads: ThreadChatEntry[]; activeChat: string | null; running: Set<string>; open(): void; pin(): void; wire(button: HTMLElement, row: HTMLElement): void; openThread(id: string): void }) {
   const button = useRef<HTMLButtonElement>(null), row = useRef<HTMLDivElement>(null);
