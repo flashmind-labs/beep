@@ -40,9 +40,9 @@ fn an_older_attach_ending_leaves_a_newer_one() {
         view: Uuid::nil(),
     };
     let (first, _) = mpsc::channel(1);
-    let old = attached.follow(viewer, first);
+    let old = attached.follow(viewer, "center", first);
     let (second, _) = mpsc::channel(1);
-    attached.follow(viewer, second);
+    attached.follow(viewer, "center", second);
     attached.unfollow(viewer, old);
     assert!(attached.input(viewer).is_ok());
 }
@@ -62,9 +62,9 @@ fn two_views_of_a_terminal_keep_their_own_streams() {
         view: Uuid::from_u128(3),
     };
     let (pane_tx, pane_rx) = mpsc::channel(1);
-    attached.follow(pane, pane_tx);
+    attached.follow(pane, "center", pane_tx);
     let (page_tx, _page_rx) = mpsc::channel(1);
-    attached.follow(page, page_tx);
+    attached.follow(page, "center", page_tx);
     assert!(
         !pane_rx.is_closed(),
         "the page attaching kept the pane's stream"
@@ -75,6 +75,29 @@ fn two_views_of_a_terminal_keep_their_own_streams() {
         "the page detaching kept the pane"
     );
     assert!(!pane_rx.is_closed());
+}
+
+#[test]
+fn closing_a_window_ends_only_its_views() {
+    let attached = Attached::default();
+    let terminal = Uuid::from_u128(1);
+    let here = Viewer {
+        terminal,
+        view: Uuid::from_u128(2),
+    };
+    let there = Viewer {
+        terminal,
+        view: Uuid::from_u128(3),
+    };
+    let (here_tx, here_rx) = mpsc::channel(1);
+    attached.follow(here, "center", here_tx);
+    let (there_tx, there_rx) = mpsc::channel(1);
+    attached.follow(there, "project-61", there_tx);
+
+    attached.clear("center");
+    assert!(here_rx.is_closed(), "its stream finishes");
+    assert!(!there_rx.is_closed());
+    assert!(attached.input(there).is_ok());
 }
 
 #[test]
