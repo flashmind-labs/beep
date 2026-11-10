@@ -1,6 +1,6 @@
 import { AppLogo } from "./applogo-view.tsx";
 import { BackgroundView, type BackgroundQuestions } from "./background-view.tsx";
-import { createElement, Fragment, memo, useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
+import { createElement, Fragment, memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { COPY_ICON, ICON } from "../ui/icons.ts";
@@ -165,10 +165,18 @@ const WorkStepRow = memo(function WorkStepRow({ step }: { step: WorkStep }) {
   return <div className="dcoderen tool row"><span className="ki" dangerouslySetInnerHTML={{ __html: KIND_ICONS[step.kind] }} /><span className="vb">{step.verb}</span><code className="tt" title={step.label}>{step.target}</code><span className={`rm${step.state === "bad" ? " bad" : ""}`}>{step.state === "bad" ? "failed" : ""}</span><span className="mk">{step.state === "run" ? <span className="dspin" title="Running" /> : step.state === "stop" ? <span className="ddot off" title="Did not finish" /> : <span className={step.state === "ok" ? "dok" : "dbad"} title={step.state === "ok" ? "Done" : "Failed"} dangerouslySetInnerHTML={{ __html: step.state === "ok" ? ICON.check : ICON.x }} />}</span></div>;
 });
 function Thought({ value, onToggle }: { value: WorkThought; onToggle(open: boolean): void }) {
+  const box = useRef<HTMLDivElement>(null), ended = useRef<HTMLDivElement>(null);
+  const [folded, setFolded] = useState(false);
+  // A thought that just ended is laid out open once, then folds, so the fold animates.
+  useLayoutEffect(() => {
+    if (!value.folding) { setFolded(false); return; }
+    if (ended.current) ended.current.scrollTop = ended.current.scrollHeight;
+    void box.current?.offsetHeight;
+    setFolded(true);
+  }, [value.folding]);
+  const open = value.open && !(value.folding && folded);
   const text = value.live || value.folding ? liveText(value.text) : value.text;
-  // A folding thought is drawn open, then closed by the live wiring after layout.
-  const shown = value.open && !value.folding;
-  return <div className={`dthink${value.live ? " live" : ""}${value.open ? " open" : ""}`} data-folding={value.folding ? "" : undefined}><button data-thought={value.key} aria-expanded={value.open} onClick={() => onToggle(!shown)}><span className="lb">{thoughtLabel(value.ms)}</span><span className="cv" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></button><div className="bd"><div>{value.live || value.folding ? <div className="tx"><div className={`kk${value.folding ? " ended" : ""}`} data-kk={value.live ? value.key : undefined}>{text}</div></div> : <div className="tx md">{text.split("\n").map((line, index) => <Fragment key={index}>{index > 0 && <br />}{line}</Fragment>)}</div>}</div></div></div>;
+  return <div ref={box} className={`dthink${value.live ? " live" : ""}${open ? " open" : ""}`} data-folding={value.folding ? "" : undefined}><button data-thought={value.key} aria-expanded={open} onClick={() => onToggle(!open)}><span className="lb">{thoughtLabel(value.ms)}</span><span className="cv" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></button><div className="bd"><div>{value.live || value.folding ? <div className="tx"><div ref={ended} className={`kk${value.folding ? " ended" : ""}`} data-kk={value.live ? value.key : undefined}>{text}</div></div> : <div className="tx md">{text.split("\n").map((line, index) => <Fragment key={index}>{index > 0 && <br />}{line}</Fragment>)}</div>}</div></div></div>;
 }
 function LiveLine({ value }: { value: WorkLive }) {
   const lead = value.thinking ? "Thinking" : "Working";

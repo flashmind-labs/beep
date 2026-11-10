@@ -29,8 +29,8 @@ export function endedHtml(key: string, md: string) {
 }
 
 /// Wires the live thoughts just drawn under `root`: each follows its
-/// newest line until the reader scrolls it, which `touched` hears of; a
-/// thought that ended folds now. Forgets thoughts no longer drawn.
+/// newest line until the reader scrolls it, which `touched` hears of.
+/// Forgets thoughts no longer drawn.
 export function attachLive(root: HTMLElement, touched?: (key: string) => void) {
   const drawn = new Set<string>();
 
@@ -52,13 +52,4 @@ export function attachLive(root: HTMLElement, touched?: (key: string) => void) {
   }
 
   for (const key of follows.keys()) if (!drawn.has(key)) follows.delete(key);
-  for (const el of root.querySelectorAll<HTMLElement>(".kk.ended")) el.scrollTop = el.scrollHeight;
-  const folding = root.querySelectorAll<HTMLElement>(".dthink[data-folding]");
-  // Their open state is laid out once first, so taking it away animates.
-  if (folding.length) void root.offsetHeight;
-
-  for (const el of folding) {
-    el.classList.remove("open");
-    el.querySelector("button")?.setAttribute("aria-expanded", "false");
-  }
 }
