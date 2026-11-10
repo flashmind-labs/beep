@@ -180,3 +180,57 @@ test("new-agent project, machine and folder menus keep their choices", async ({ 
   await page.keyboard.press("Enter");
   await expect(folder).toHaveValue("/srv/projects/");
 });
+
+test("model search keeps its query, focus and highlight while lists stream in (#564)", async ({ page }) => {
+  const listed = (ids: string[]) => ({ pick: "listed", current: ids[0], models: ids.map(id => ({ id, name: id.replace("-", " "), description: null })) });
+  await page.addInitScript(cached => {
+    const entry = { list: cached, at: Date.now() };
+    localStorage.setItem("beep.agentModels.v1", JSON.stringify({ "build-box/claude": entry, "build-box/codex": entry }));
+  }, listed(["haiku-4", "opus-5.5"]));
+  await openDesktop(page, false, { agent_hosts: hosts, agent_models: listed(["haiku-4", "opus-5.5", "opus-5.5-fast"]) });
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command === "agent_models") await new Promise<void>(resolve => window.addEventListener("test-models-ready", () => resolve(), { once: true }));
+      return invoke<T>(command, args);
+    };
+  });
+  // The project page is still reading its machines, git state and branches.
+  await page.evaluate(() => { for (const command of ["project_machines", "project_git_state", "project_branches"]) window.__navigation.holdNext(command); });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  const pill = page.locator(".cc-pjc:visible").getByTitle("Harness, model and thinking");
+  await expect(pill).toBeEnabled();
+  await pill.click();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  const input = picker.locator(".agc-search");
+  await expect(input).toBeFocused();
+  await input.evaluate(el => Reflect.set(window, "modelSearch", el));
+
+  // Each part is typed with focus left where it was, then a list or the page updates.
+  const hostsWith = (agents: string[]) => [{ machine_id: "build-box", machine_name: "build-box", agents, workspace: "/srv/project", home: "/path/to/work", capabilities: [] }];
+  const updates = [
+    () => page.evaluate(() => { window.__navigation.release("project_machines"); window.__navigation.notify("machines"); }),
+    () => page.evaluate(() => { window.__navigation.release("project_git_state"); window.__navigation.notify("projects"); }),
+    () => page.evaluate(next => { window.__navigation.respond("agent_hosts", next); window.__navigation.notify("machines"); }, hostsWith(["codex", "claude", "flsh"])),
+    () => page.evaluate(() => { window.__navigation.release("project_branches"); window.__navigation.notify("projects"); }),
+    () => page.evaluate(next => { window.__navigation.respond("agent_hosts", next); window.__navigation.notify("accounts"); }, hostsWith(["codex", "claude"])),
+  ];
+  for (const [index, part] of ["op", "us", " 5", ".", "5"].entries()) {
+    await page.keyboard.type(part);
+    await updates[index]();
+  }
+  await expect(picker.locator('[data-agmo="opus-5.5"]')).toBeVisible();
+  await expect(input).toHaveValue("opus 5.5");
+  await page.keyboard.press("ArrowDown");
+  await expect(picker.locator('[data-agmo="opus-5.5"]')).toHaveClass(/hi/);
+
+  // The machine's own list arrives with one more model.
+  await page.evaluate(() => window.dispatchEvent(new Event("test-models-ready")));
+  await expect(picker.locator('[data-agmo="opus-5.5-fast"]')).toBeVisible();
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+
+  await expect(input).toHaveValue("opus 5.5");
+  await expect(input).toBeFocused();
+  await expect(picker.locator('[data-agmo="opus-5.5"]')).toHaveClass(/hi/);
+  expect(await input.evaluate(el => el === Reflect.get(window, "modelSearch") && el instanceof HTMLInputElement && el.selectionStart === 8)).toBe(true);
+});
