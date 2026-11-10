@@ -27,9 +27,11 @@ const options = {
   bundle: true,
   format: "esm",
   target: "safari16",
-  // three.js, for the media pane's 3D viewer, loads in its own chunk when first used.
+  // three.js, xterm.js and other modules a window needs only on use load in their own chunks.
   splitting: true,
   logLevel: "warning",
+  // Minified outside watch mode: less to load and parse when a window opens.
+  minify: !process.argv.includes("--watch"),
   // React's development build validates and times every render; ship the production one.
   define: { "process.env.NODE_ENV": process.argv.includes("--watch") ? '"development"' : '"production"' },
 };

@@ -21,8 +21,8 @@ const THEME = {
   yellow: "#E9B949",
 };
 
-export function makeScreen(): Screen {
-  const el = document.createElement("div");
+/// A screen drawn in `el`, a new element unless one is given.
+export function makeScreen(el: HTMLElement = document.createElement("div")): Screen {
   el.className = "tm-xterm";
   const mono = getComputedStyle(document.documentElement).getPropertyValue("--mono").trim();
   const term = new Terminal({
