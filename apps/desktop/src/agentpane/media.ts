@@ -24,6 +24,7 @@ import { dropTerm, killTerm, type PaneTerm, type TermPlace } from "./terminal.ts
 import type { TerminalRow } from "../terminals/terminals.ts";
 import { newTermLike } from "../terminals/newkey-state.ts";
 import { drag, tabDown } from "./drag.ts";
+import { drawTermFooter } from "./term-footer.tsx";
 import { readError, loadText, startTerminal, load } from "./read.ts";
 import { viewOf } from "./views.ts";
 import { frameResize, h } from "../ui/dom.ts";
@@ -769,8 +770,7 @@ export function closeTab(id: string) {
 }
 
 function setTermNote(t: MediaTab, text: string) {
-  const meta = t.el?.querySelector(".agpacts .meta");
-  if (meta) meta.textContent = text;
+  drawTermFooter(t, text);
 }
 
 /// Closes the tab on screen in the focused pane (⌘W); false when no pane is
