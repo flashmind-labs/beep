@@ -2,7 +2,7 @@
 
 use super::{
     Answered, Command, EVENTS, MAX_STDERR_LINE, NODE_STOPPED, Order, STDERR_LINES,
-    turns::turn_tokens,
+    turns::{HeldEnd, turn_tokens},
 };
 use crate::agents::{
     acp::{self, AsyncTask, Line, LineReader, ModelSwitch, Offered, Prompt},
@@ -211,6 +211,8 @@ pub(super) struct Actor {
     pub(super) sent: u64,
     /// The turn running, by its number, while its prompt is unanswered.
     pub(super) turn: Option<u64>,
+    /// The end of the last turn, held while its subagents run.
+    pub(super) held_end: Option<HeldEnd>,
     /// Why the running turn was asked to stop, once it was.
     pub(super) stopping: Option<Stopping>,
     /// The user stopped the running turn, or closed the session.
@@ -486,6 +488,9 @@ impl Actor {
                     Ok(Some(_)) => {}
                     Ok(None) | Err(_) => stderr_open = false,
                 },
+                () = tokio::time::sleep_until(
+                    self.held_end.as_ref().map_or_else(tokio::time::Instant::now, |held| held.due)
+                ), if self.held_end.is_some() => self.subagents_quiet(),
                 order = orders.recv() => {
                     let Some(Order { command, done }) = order else {
                         return Ok(End::Closed);
@@ -573,9 +578,12 @@ impl Actor {
                 if finished {
                     self.steer_now(cx)?;
                 }
+
+                self.subagents_moved();
             }
             Event::Task(task) => {
                 self.live.send_if_modified(|live| live.apply_task(task));
+                self.subagents_moved();
             }
             Event::Permission(request, responder) => {
                 let Some(responder) = self.plan_ready(&request, responder) else {

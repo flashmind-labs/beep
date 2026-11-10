@@ -373,6 +373,7 @@ impl Session {
             steers: VecDeque::new(),
             sent: 0,
             turn: None,
+            held_end: None,
             stopping: None,
             by_user: false,
             stop_within,
