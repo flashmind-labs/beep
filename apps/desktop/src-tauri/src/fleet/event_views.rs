@@ -138,9 +138,15 @@ pub(crate) fn listen(app: &AppHandle) {
 pub(crate) fn changed(app: AppHandle, topic: Topic) {
     let views = app.state::<Views>();
     let events = app.state::<Events>();
+    let affected = affected(topic.name());
+
+    if affected.contains(&"home") {
+        app.state::<crate::center::home::HomeReads>().forget();
+    }
+
     let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
 
-    for &name in affected(topic.name()) {
+    for &name in affected {
         let topic = Topic::new(name);
 
         if events.controller_wanted(&topic) {
@@ -408,16 +414,9 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
         "home" => append(
             &mut views,
             "center_home",
-            crate::center::home::center_home(
-                app.clone(),
-                app.state(),
-                app.state(),
-                app.state(),
-                app.state(),
-                app.state(),
-                app.state(),
-            )
-            .await,
+            app.state::<crate::center::home::HomeReads>()
+                .read(app)
+                .await,
         ),
         "machines" => {
             append(

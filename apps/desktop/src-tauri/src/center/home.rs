@@ -23,10 +23,18 @@ use beep_proto::{
     MachineDisk, MachineEnv, MachineGpu, MachineSession, MachineStats, OpenUpdateChat,
     PendingApproval, ResearchStatus, ResearchSummary, Session,
 };
+use futures::{
+    FutureExt,
+    future::{BoxFuture, Shared},
+};
 use iroh::EndpointId;
 use serde::Serialize;
-use std::{cmp::Reverse, collections::HashMap, sync::Arc};
-use tauri::{AppHandle, State, WebviewWindow};
+use std::{
+    cmp::Reverse,
+    collections::HashMap,
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
+};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tokio::join;
 use uuid::Uuid;
 
@@ -253,17 +261,101 @@ struct HomeParts {
 }
 
 /// Home: the machines from the mesh, the rest from the server. Every section
-/// but the machines and their agent sessions waits for the server; those wait only as long as `AgentSessions` allows.
+/// but the machines and their agent sessions waits for the server; those wait only as long as
+/// `AgentSessions` allows. A call while a read runs shares it.
 #[tauri::command]
-pub async fn center_home(
-    app: AppHandle,
-    beep: Service<'_>,
-    fleet: State<'_, Arc<Fleet>>,
-    held: State<'_, Outside>,
-    cache: State<'_, Arc<ViewCache>>,
-    agents: State<'_, Arc<AgentSessions>>,
-    session: FleetState<'_>,
-) -> Result<HomeView> {
+pub async fn center_home(app: AppHandle, reads: State<'_, HomeReads>) -> Result<SharedHome> {
+    reads.read(&app).await
+}
+
+/// A Home read, shared by every caller that came while it ran.
+type Reading = Shared<BoxFuture<'static, std::result::Result<Arc<HomeView>, Arc<str>>>>;
+
+/// The Home read under way. At start the mesh view prime and the window both ask for Home;
+/// they share one read, which lists every machine once.
+#[derive(Default)]
+pub(crate) struct HomeReads {
+    flight: Mutex<Flight>,
+}
+
+#[derive(Default)]
+struct Flight {
+    next: u64,
+    reading: Option<(u64, Reading)>,
+}
+
+impl HomeReads {
+    fn flight(&self) -> MutexGuard<'_, Flight> {
+        self.flight.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Home, from the read under way or a new one.
+    pub(crate) async fn read(&self, app: &AppHandle) -> Result<SharedHome> {
+        let reading = {
+            let mut flight = self.flight();
+
+            match &flight.reading {
+                Some((_, reading)) => reading.clone(),
+                None => {
+                    let id = flight.next;
+                    flight.next += 1;
+                    let app = app.clone();
+                    let reading = tauri::async_runtime::spawn(async move {
+                        let home = read_home(&app).await;
+                        app.state::<HomeReads>().finished(id);
+                        home.map(Arc::new)
+                            .map_err(|e| Arc::<str>::from(e.to_string()))
+                    })
+                    .map(|joined| joined.unwrap_or_else(|e| Err(Arc::from(e.to_string()))))
+                    .boxed()
+                    .shared();
+                    flight.reading = Some((id, reading.clone()));
+                    reading
+                }
+            }
+        };
+
+        reading
+            .await
+            .map(SharedHome)
+            .map_err(|e| DesktopError::Other(anyhow::anyhow!("{e}")))
+    }
+
+    fn finished(&self, id: u64) {
+        let mut flight = self.flight();
+
+        if flight.reading.as_ref().is_some_and(|(held, _)| *held == id) {
+            flight.reading = None;
+        }
+    }
+
+    /// Home changed: the next caller reads again rather than share a read from before.
+    pub(crate) fn forget(&self) {
+        self.flight().reading = None;
+    }
+}
+
+/// One Home read, as each of its callers hands it on.
+#[derive(Debug)]
+pub struct SharedHome(Arc<HomeView>);
+
+impl Serialize for SharedHome {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        self.0.serialize(serializer)
+    }
+}
+
+async fn read_home(app: &AppHandle) -> Result<HomeView> {
+    let beep = app.state::<Arc<crate::beep::Beep>>();
+    let fleet = app.state::<Arc<Fleet>>();
+    let held = app.state::<Outside>();
+    let cache = app.state::<Arc<ViewCache>>();
+    let agents = app.state::<Arc<AgentSessions>>();
+    let session: FleetState<'_> = app.state();
+
     // The mesh opens from disk in a moment. Reading before it would replace the Home the
     // window drew from disk with an empty one.
     if fleet.mesh().is_none()
@@ -273,7 +365,7 @@ pub async fn center_home(
     }
 
     let (sessions, researches, approvals, chats, crons, updates, listed, imported) = join!(
-        agents.list(&app, beep.inner(), cache.inner()),
+        agents.list(app, beep.inner(), cache.inner()),
         beep.call(ListResearches {}),
         beep.call(ListPendingApprovals {}),
         beep.sessions(),
@@ -284,9 +376,9 @@ pub async fn center_home(
     );
     let projects = with_server(imported, listed);
     let mut view = home_view(HomeParts {
-        machines: Ok(machine_list::machines(&app, &fleet, &held)),
-        details: Ok(machine_list::details(&app, &fleet, &held)),
-        stats: Ok(machine_list::stats(&app, &fleet, &held)),
+        machines: Ok(machine_list::machines(app, &fleet, &held)),
+        details: Ok(machine_list::details(app, &fleet, &held)),
+        stats: Ok(machine_list::stats(app, &fleet, &held)),
         sessions,
         researches,
         approvals,

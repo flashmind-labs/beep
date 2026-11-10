@@ -769,6 +769,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(agents::follow::Follows::default());
     app.manage(fleet::events::Events::default());
     app.manage(fleet::event_views::Views::default());
+    app.manage(center::home::HomeReads::default());
     fleet::event_views::listen(&handle);
     app.manage(center::Pending::default());
     app.manage(tray::waiting::WaitingList::default());
