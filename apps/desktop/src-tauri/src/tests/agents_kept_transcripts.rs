@@ -2,15 +2,15 @@ use super::*;
 use serde_json::json;
 use std::time::Duration;
 
-fn store() -> KeptTranscripts {
-    KeptTranscripts::new(std::env::temp_dir().join(format!("beep-kept-{}", uuid::Uuid::new_v4())))
+fn store() -> Store {
+    Store::new(std::env::temp_dir().join(format!("beep-kept-{}", uuid::Uuid::new_v4())))
 }
 
-fn key(session: &str) -> Key<'_> {
-    Key {
-        machine_id: "build-box",
-        agent: "claude",
-        session,
+fn key(session: &str) -> SessionKey {
+    SessionKey {
+        machine_id: "build-box".into(),
+        agent: "claude".into(),
+        session: session.into(),
     }
 }
 
@@ -27,7 +27,7 @@ fn page(text: &str) -> KeptTranscript {
 
 #[test]
 fn a_kept_page_comes_back_and_goes_with_its_session() {
-    let kept = store();
+    let mut kept = store();
     assert!(kept.read(&key("s1")).is_none());
 
     kept.write(&key("s1"), &page("hello")).unwrap();
@@ -38,6 +38,9 @@ fn a_kept_page_comes_back_and_goes_with_its_session() {
     assert!(kept.read(&key("s2")).is_none());
 
     kept.forget(&key("s1"));
+    assert!(kept.read(&key("s1")).is_none());
+    // A follow ending after the delete does not write it back.
+    kept.write(&key("s1"), &page("late")).unwrap();
     assert!(kept.read(&key("s1")).is_none());
     kept.clear();
 }
@@ -82,4 +85,20 @@ fn an_unreadable_file_is_dropped() {
     assert!(kept.read(&key("s1")).is_none());
     assert!(!kept.file(&key("s1")).exists());
     kept.clear();
+}
+
+#[tokio::test]
+async fn the_thread_keeps_and_reads_in_order() {
+    let dir = std::env::temp_dir().join(format!("beep-kept-{}", uuid::Uuid::new_v4()));
+    let kept = KeptTranscripts::new(dir);
+    kept.keep(key("s1"), page("first"));
+    kept.keep(key("s1"), page("second"));
+    let back = kept
+        .read(key("s1"))
+        .await
+        .unwrap()
+        .expect("the page is kept");
+    assert_eq!(back.page["entries"][0]["text"], "second");
+    kept.clear();
+    assert!(kept.read(key("s1")).await.unwrap().is_none());
 }

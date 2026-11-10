@@ -253,7 +253,6 @@ pub fn run() {
             agents::sessions::agent_view,
             agents::sessions::agent_older,
             agents::kept_transcripts::transcript_kept,
-            agents::kept_transcripts::transcript_keep,
             agents::kept_transcripts::transcript_forget,
             agents::follow::agent_follow,
             fleet::events::mesh_watch,
