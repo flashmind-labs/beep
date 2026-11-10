@@ -31,6 +31,7 @@ import { readTasks } from "./tasks.ts";
 import { disposeQueue, interruptAgent, sendAgentMessage, steerMessage } from "./messages.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { invoke, listen, logError, logInfo, recordTiming } from "../ui/tauri.ts";
+import { perfFresh } from "../ui/perf.ts";
 import { AMBIENT_MS, ambient, onShownChange, paneShown, visibilitySnapshot } from "../ui/active.ts";
 import { onPhone } from "../ui/platform.ts";
 import { readError } from "../agentpane/read.ts";
@@ -123,7 +124,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     // The session row it opened with is newer than the kept one, and the steers it held went long ago.
     if (page && !AG.sig && AG.page) {
       AG.page = { ...page, session: AG.page.session, queued: 0, queued_messages: [] };
-      if (isOpen(open)) drawAgentBody();
+      if (isOpen(open)) { drawAgentBody(); keptFresh = { open, done: perfFresh("session") }; }
     }
 
     void pollAgent(true);
@@ -303,7 +304,10 @@ let firstRead: { open: OpenAgent; at: number } | null = null;
 /// The session whose page kept on disk is being read: its follow starts after, from its cursor.
 let readingKept: OpenAgent | null = null;
 const steerQueues = new Map<string, Waiting[]>();
+/// Times a session from its page kept on disk to its first fresh read.
+let keptFresh: { open: OpenAgent; done: () => void } | null = null;
 function finishFirstRead(open: OpenAgent, outcome: "ok" | "error") {
+  if (keptFresh?.open === open) { if (outcome === "ok") keptFresh.done(); keptFresh = null; }
   if (!firstRead || firstRead.open !== open) return;
   recordTiming("data", "agent", performance.now() - firstRead.at, outcome);
   firstRead = null;

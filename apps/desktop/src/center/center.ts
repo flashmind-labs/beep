@@ -39,7 +39,7 @@ import { openTile } from "../project/split.ts";
 import { pa } from "../project/sections.ts";
 import { AG } from "../agents/agents.ts";
 import { debugWithAgent, loadAgents, readPending, showPending } from "./pane.ts";
-import { refresh } from "./refresh.ts";
+import { homeCached, refresh } from "./refresh.ts";
 import { threadCard, threadChats } from "./threadcard.ts";
 import { openSettings, embedView, closeSettings } from "../settings/sheet.ts";
 import { followSkin } from "../ui/skin.ts";
@@ -265,6 +265,7 @@ async function showCached() {
   pagesAccount(mac);
   if (!home) return;
   draw();
+  homeCached();
   reloadGroup("projects");
   reloadGroup("pinned");
   reloadGroup("machines");
