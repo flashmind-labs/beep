@@ -180,7 +180,7 @@
        </span>
       </div>
      </div>
-     <div class="wq"><div class="ln"><i></i><span>6 running, 4 queued</span><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14"><path d="M6 15l6-6 6 6"></path></svg></div></div>
+     <div class="wq"><div class="ln run"><i></i><span>6 commands running</span><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14"><path d="M9 6l6 6-6 6"></path></svg></div><div class="ln"><i></i><span>4 queued</span><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14"><path d="M6 15l6-6 6 6"></path></svg></div></div>
      <div class="comp one">
       <div class="fld">
        Message Claude
@@ -203,7 +203,7 @@
     </div>
    </div>
    <figcaption>
-    Session, not typing. Swiping up holds the reading position while replies arrive; return to the bottom to follow again. The tab bar is hidden. One line: field, Stop (only while a turn runs), round Send. Summary lines cut off with an ellipsis. Background commands and queued steers share one line above the field, here 6 running, 4 queued; it shows only while there are some.
+    Session, not typing. Swiping up holds the reading position while replies arrive; return to the bottom to follow again. The tab bar is hidden. One line: field, Stop (only while a turn runs), round Send. Summary lines cut off with an ellipsis. Background commands fold into one line above the field, here 6 commands running; tapping it opens the Running tab, where each command has its Stop. Queued steers share a second line, here 4 queued. Each line shows only while there are some.
    </figcaption>
   </figure>
   <figure>
@@ -372,7 +372,7 @@
        </span>
       </div>
      </div>
-     <div class="wq"><div class="ls"><div class="r"><i class="d"></i><span class="t">cargo test -p sync</span><em>Stop</em></div><div class="r"><i class="d"></i><span class="t">npm run dev</span><em>Stop</em></div><div class="r"><i class="d"></i><span class="t">cargo watch -x check</span><em>Stop</em></div><div class="r"><i class="d"></i><span class="t">tail -f node.log</span><em>Stop</em></div><div class="r"><i class="d"></i><span class="t">docker compose up</span><em>Stop</em></div><div class="r"><i class="d"></i><span class="t">just desktop-dev</span><em>Stop</em></div><div class="r s"><b>Steer</b><span class="t">Also log each retry at debug level</span><em>Edit</em><em>&#215;</em></div><div class="r s"><b>Steer</b><span class="t">Then run clippy</span><em>Edit</em><em>&#215;</em></div><div class="r s"><b>Steer</b><span class="t">Keep the old name as an alias</span><em>Edit</em><em>&#215;</em></div><div class="r s"><b>Steer</b><span class="t">Open a PR when green</span><em>Edit</em><em>&#215;</em></div></div><div class="ln"><i></i><span>6 running, 4 queued</span><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14"><path d="M6 9l6 6 6-6"></path></svg></div></div>
+     <div class="wq"><div class="ls"><div class="ln run"><i></i><span>6 commands running</span><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14"><path d="M9 6l6 6-6 6"></path></svg></div><div class="r s"><b>Steer</b><span class="t">Also log each retry at debug level</span><em>Edit</em><em>&#215;</em></div><div class="r s"><b>Steer</b><span class="t">Then run clippy</span><em>Edit</em><em>&#215;</em></div><div class="r s"><b>Steer</b><span class="t">Keep the old name as an alias</span><em>Edit</em><em>&#215;</em></div><div class="r s"><b>Steer</b><span class="t">Open a PR when green</span><em>Edit</em><em>&#215;</em></div></div><div class="ln"><i></i><span>4 queued</span><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14"><path d="M6 9l6 6 6-6"></path></svg></div></div>
      <div class="comp one">
       <div class="fld">
        Message Claude
@@ -395,7 +395,7 @@
     </div>
    </div>
    <figcaption>
-    Commands and steers listed. Tapping the line opens the list over the log, newest steer last; it scrolls past about half the screen. Stop ends a command; Edit puts a steer back in the field; the cross drops it. Tapping the line again closes it.
+    Steers listed. Tapping the queued line opens the list over the log, the commands line on top, newest steer last; it scrolls past about half the screen. Edit puts a steer back in the field; the cross drops it. Tapping the line again closes it.
    </figcaption>
   </figure>
  </body>

@@ -9,7 +9,7 @@ import { draw } from "./media-draw.ts";
 import { shell, shownDocks } from "./media-layout.ts";
 import { AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
 import { invoke } from "../ui/tauri.ts";
-import { AGENT_READ_WAIT_MS } from "../agents/agents.ts";
+import { AGENT_READ_WAIT_MS, type AgentTask } from "../agents/agents.ts";
 import { readError } from "./read.ts";
 
 interface ProcessesView { processes: RunningProcess[]; local: boolean }
@@ -18,6 +18,19 @@ let unfollow: (() => void) | undefined;
 let list: RunningProcess[] = [];
 let local = false;
 let error = "";
+
+/// The background commands the session's agent runs, listed above its
+/// processes with their Stop; the log shows only their count.
+export interface BackgroundTasks { session: string; tasks: readonly AgentTask[]; stopping: ReadonlySet<string>; stop(id: string): void }
+export const backgroundTasks = createStore<BackgroundTasks>(() => ({ session: "", tasks: [], stopping: new Set(), stop() {} }));
+
+/// The key of session `s` in `BackgroundTasks.session`.
+export const sessionKey = (s: { machine_id: string; id: string } | null | undefined) => s ? `${s.machine_id}\n${s.id}` : "";
+
+/// The background commands of the session the pane shows.
+export function paneTasks(state = backgroundTasks.getState()) {
+  return state.session && state.session === sessionKey(paneSession()) ? state.tasks : [];
+}
 
 /// What the view draws, for the session the pane shows.
 export const runningModel = createStore<{ model: RunningModel; actions: RunningActions } | null>(() => null);
@@ -28,7 +41,7 @@ const whole = new Set<number>();
 
 function syncSession() {
   const s = paneSession();
-  const next = s ? `${s.machine_id}\n${s.id}` : "";
+  const next = sessionKey(s);
   if (key === next) return;
   key = next;
   reads.cancel();
@@ -42,7 +55,7 @@ function syncSession() {
   if (s?.id && !s.external) queueMicrotask(() => void readRunning());
 }
 
-export function runningCount() { syncSession(); return list.length; }
+export function runningCount() { syncSession(); return list.length + paneTasks().length; }
 
 const visible = () => paneShown() && !!shell()?.clientWidth && shownDocks().length > 0;
 
@@ -81,7 +94,7 @@ const actions: RunningActions = {
 
 function render() {
   const session = paneSession();
-  if (!session || key !== `${session.machine_id}\n${session.id}`) return;
+  if (!session || key !== sessionKey(session)) return;
   runningModel.setState({ model: { processes: list, local, stopping: new Set(stopping), whole: new Set(whole), machine: session.machine_name, error }, actions }, true);
 }
 

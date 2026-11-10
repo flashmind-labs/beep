@@ -146,6 +146,7 @@ body.cbody.mb-full.mobile
                   button [aria-selected="true" data-mnav="log" type="button"] "Log"
                   button [aria-selected="false" data-mnav="files" type="button"] "Files"
                   button [aria-selected="false" data-mnav="changes" type="button"] "Changes"
+                  button [aria-selected="false" data-mnav="running" type="button"] "Running"
                 div#agconv.agconv
                   div style(display)
                     div#agbody.dbody
@@ -191,18 +192,9 @@ body.cbody.mb-full.mobile
                   div.ag-work
                     div.ag-worklist
                       div#agtasks
-                        div.ag-task
+                        button.ag-tasks [title="Show them in the Running tab" type="button"]
                           span.dspin
-                          span.nm [title="cargo test -p sync"] "cargo test -p sync"
-                          button.dbtn.quiet.small [data-agtask="task-0"] "Stop"
-                        div.ag-task
-                          span.dspin
-                          span.nm [title="npm run dev"] "npm run dev"
-                          button.dbtn.quiet.small [data-agtask="task-1"] "Stop"
-                        div.ag-task
-                          span.dspin
-                          span.nm [title="tail -f node.log"] "tail -f node.log"
-                          button.dbtn.quiet.small [data-agtask="task-2"] "Stop"
+                          span "3 commands running"
                       div [data-agent-queue-slot="true"] style(display)
                         div#agqueue.ag-queue
                           div.it.steer
@@ -222,7 +214,7 @@ body.cbody.mb-full.mobile
                     div [data-agent-work-line="true"] style(display)
                       button.ag-workline [aria-expanded="false" type="button"]
                         i
-                        span "3 running, 2 queued"
+                        span "2 queued"
                         svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                   div [data-agent-attachment-slot="true"] style(display)
                   div#agfield.dinput.small style(position)
@@ -346,6 +338,11 @@ body.cbody.mb-full.mobile
                           i style(display)
                             svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                           span "Changes"
+                        button.agtab [aria-selected="false" data-mtab="running" role="tab" title="Running" type="button"]
+                          i style(display)
+                            svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+                          span "Running"
+                          small "3"
                       span.agwtw [hidden]
                       button.agaddterm.agpbtn [data-pact="term" title="New terminal in this folder"] "+ Terminal"
                       button.agpbtn [data-pact="dock" title="Dock these tabs on the right"]
@@ -368,11 +365,32 @@ body.cbody.mb-full.mobile
                           span [data-fstatus="true" role="status"]
                           span.sp
                           span.hint "Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting."
+                      div.agpview.running [hidden]
+                        div.agrunninglist
+                          div.agart.agrunningrow.agtaskrow
+                            span.t [title="cargo test -p sync"]
+                              b "cargo test -p sync"
+                              small "Background command"
+                            span.r
+                              button.dbtn [data-agtask="task-0" type="button"] "Stop"
+                          div.agart.agrunningrow.agtaskrow
+                            span.t [title="npm run dev"]
+                              b "npm run dev"
+                              small "Background command"
+                            span.r
+                              button.dbtn [data-agtask="task-1" type="button"] "Stop"
+                          div.agart.agrunningrow.agtaskrow
+                            span.t [title="tail -f node.log"]
+                              b "tail -f node.log"
+                              small "Background command"
+                            span.r
+                              button.dbtn [data-agtask="task-2" type="button"] "Stop"
+                        div.agrunningerror.derr [hidden role="status"]
                 button#agpstrip-bottom.agpstrip [data-dock="bottom" hidden title="Show the pane"]
                   span style(display)
                     svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                   span "Files"
-                  small "2"
+                  small "3"
               div#agdiv-right.agdiv [data-dock="right" hidden role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
               aside#agpane-right.agpane [data-dock="right" hidden tabindex="-1"]
                 div.agpane-content

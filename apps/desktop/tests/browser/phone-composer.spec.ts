@@ -20,7 +20,7 @@ async function openBusy(page: Page) {
   await openDesktop(page, false, { agent_view: view, agent_tasks: tasks, agent_steer: [] });
   await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), session);
   await expect(page.locator("body")).toHaveClass(/mobile/);
-  await expect(page.locator(".ag-task")).toHaveCount(commands.length);
+  await expect(page.locator(".ag-tasks")).toHaveText(`${commands.length} commands running`);
   await expect(page.locator(".ag-queue .it")).toHaveCount(steers.length);
 }
 
@@ -36,40 +36,37 @@ test("before: the unfolded lists fill a phone", async ({ page }) => {
   await page.screenshot({ path: "../../.artifacts/phone-composer-before.png" });
 });
 
-test("a phone folds running commands and queued steers into one line", async ({ page }) => {
+test("a phone folds running commands and queued steers into a line each", async ({ page }) => {
   await openBusy(page);
-  const line = page.locator(".ag-workline");
-  await expect(line).toHaveText("6 running, 4 queued");
+  const line = page.locator(".ag-workline"), tasks = page.locator(".ag-tasks");
+  await expect(line).toHaveText("4 queued");
   expect((await line.boundingBox())!.height).toBeLessThanOrEqual(44);
-  await expect(page.locator(".ag-task").first()).toBeHidden();
+  expect((await tasks.boundingBox())!.height).toBeLessThanOrEqual(44);
   await expect(page.locator(".ag-queue .it").first()).toBeHidden();
   await page.screenshot({ path: "../../.artifacts/phone-composer-closed.png" });
 
   await line.click();
   await expect(line).toHaveAttribute("aria-expanded", "true");
   const list = page.locator(".ag-worklist");
-  await expect(list.locator(".ag-task").first()).toBeVisible();
+  await expect(list.locator(".ag-queue .it").first()).toBeVisible();
   const box = (await list.boundingBox())!, lineBox = (await line.boundingBox())!;
   expect(box.y + box.height).toBeLessThanOrEqual(lineBox.y);
   expect(box.height).toBeLessThanOrEqual(844 / 2 + 1);
   await page.screenshot({ path: "../../.artifacts/phone-composer-open.png" });
 
-  await list.locator('[data-agtask="task-2"]').click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_steer").map(c => c.args.steer))).toContainEqual({ stop_task: { task: "task-2" } });
-
   await list.locator('.ag-queue [data-act="edit"]').first().click();
   await expect(page.locator("#agmsg")).toHaveValue(steers[0]);
 
   await line.click();
-  await expect(list.locator(".ag-task").first()).toBeHidden();
+  await expect(list.locator(".ag-queue .it").first()).toBeHidden();
 });
 
 test("the desktop keeps the lists but caps their height", async ({ page }) => {
   await openDesktop(page, false, { agent_view: view, agent_tasks: [...tasks, ...tasks.map(t => ({ ...t, id: `${t.id}-more` }))], agent_steer: [] });
   await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), session);
-  await expect(page.locator(".ag-task")).toHaveCount(commands.length * 2);
+  await expect(page.locator(".ag-tasks")).toHaveText(`${commands.length * 2} commands running`);
   await expect(page.locator(".ag-workline")).toBeHidden();
-  await expect(page.locator(".ag-task").first()).toBeVisible();
+  await expect(page.locator(".ag-queue .it").first()).toBeVisible();
   const list = (await page.locator(".ag-worklist").boundingBox())!;
   expect(list.height).toBeLessThanOrEqual(900 * 0.3 + 1);
 });

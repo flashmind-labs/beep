@@ -13,9 +13,9 @@ import type { Row } from "./mention-state.ts";
 /// A control the session sets in its head or composer.
 export type FieldSlot = "state" | "mode" | "model" | "plan" | "tasks" | "pick";
 
-/// Background commands and queued steers fold into one line above the field on a phone;
-/// the line opens their list over the log.
-interface Work { running: number; queued: number; open: boolean }
+/// Queued steers fold into one line above the field on a phone; the line opens their
+/// list over the log.
+interface Work { queued: number; open: boolean }
 interface Queue { items: readonly Waiting[]; edit(index: number, keep: boolean): unknown; signature: string }
 interface Menu { rows: Row[]; index: number; pick(index: number): void }
 /// Only a turn that runs can be stopped; a stop shows at once.
@@ -33,7 +33,7 @@ interface FieldUi {
   dropping: boolean;
 }
 
-const EMPTY: FieldUi = { slots: {}, signatures: {}, queue: null, attachments: null, menu: null, work: { running: 0, queued: 0, open: false }, stop: { shown: false, stopping: false }, dropping: false };
+const EMPTY: FieldUi = { slots: {}, signatures: {}, queue: null, attachments: null, menu: null, work: { queued: 0, open: false }, stop: { shown: false, stopping: false }, dropping: false };
 const fieldUi = createStore<FieldUi>(() => EMPTY);
 /// Callers read the composer right after they change it, as when focusing
 /// what they drew, so the views update at once.
@@ -75,13 +75,6 @@ export function showAgentQueue(items: readonly Waiting[], edit: (index: number, 
   set({ queue: { items, edit, signature }, work: workOf(state.work, { queued: items.length }) });
 }
 
-/// The background commands, `running` of them.
-export function showAgentTasks(node: ReactElement | null, running: number) {
-  const work = fieldUi.getState().work;
-  if (work.running !== running) set({ work: workOf(work, { running }) });
-  showAgentControl("tasks", node);
-}
-
 export function showAgentMenu(rows: Row[], index: number, pick: (index: number) => void) {
   set({ menu: { rows, index, pick } });
 }
@@ -98,9 +91,9 @@ export function showFieldDrop(dropping: boolean) {
 /// Whether the field shows a path drop.
 export const useFieldDrop = () => useStore(fieldUi, state => state.dropping);
 
-function workOf(work: Work, counts: Partial<Pick<Work, "running" | "queued">>) {
+function workOf(work: Work, counts: Pick<Work, "queued">) {
   const next = { ...work, ...counts };
-  if (!next.running && !next.queued) next.open = false;
+  if (!next.queued) next.open = false;
   return next;
 }
 
@@ -131,13 +124,12 @@ export function FieldAttachments() {
 }
 
 export function WorkLine() {
-  const { running, queued, open } = useStore(fieldUi, state => state.work);
-  if (!running && !queued) return null;
+  const { queued, open } = useStore(fieldUi, state => state.work);
+  if (!queued) return null;
 
   const toggle = () => fieldUi.setState(state => ({ work: { ...state.work, open: !state.work.open } }));
-  const text = [running ? `${running} running` : "", queued ? `${queued} queued` : ""].filter(Boolean).join(", ");
   // Keeps the field focused, so the keyboard and the composer stay where they are.
-  return <button type="button" className="ag-workline" aria-expanded={open} onMouseDown={event => event.preventDefault()} onClick={toggle}><i /><span>{text}</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={open ? "M6 9l6 6 6-6" : "M6 15l6-6 6 6"} /></svg></button>;
+  return <button type="button" className="ag-workline" aria-expanded={open} onMouseDown={event => event.preventDefault()} onClick={toggle}><i /><span>{queued} queued</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={open ? "M6 9l6 6 6-6" : "M6 15l6-6 6 6"} /></svg></button>;
 }
 
 export function FieldMenu() {

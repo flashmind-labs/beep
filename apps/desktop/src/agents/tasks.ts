@@ -1,16 +1,22 @@
-// The commands the open session's agent runs in the background: a strip
-// above the field with each one's name and a Stop button.
+// The commands the open session's agent runs in the background: one line
+// above the field with their count, which opens the Running tab, where each
+// one shows with its Stop button.
 import { Spinner } from "../ui/kit.tsx";
-import { createElement, Fragment } from "react";
-import { showAgentTasks } from "./composer-ui.tsx";
+import { createElement } from "react";
+import { showAgentControl } from "./composer-ui.tsx";
 import { type AgentTask, type OpenAgent, AG, AGENT_READ_WAIT_MS, where } from "./agents.ts";
 import { steerAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
+import { backgroundTasks, paneTasks, sessionKey } from "../agentpane/running.ts";
+import { showRunning } from "../agentpane/media.ts";
+import { draw } from "../agentpane/media-draw.ts";
 
 /// The server did not know the request, so it is not asked again.
 let oldServer = false;
 /// The tasks asked to stop, until they end.
 const stopping = new Set<string>();
+/// What the Running tab was last given.
+let shown = "";
 
 /// The open session's tasks; the last ones when a read fails.
 export async function readTasks(o: OpenAgent) {
@@ -35,18 +41,28 @@ export const backgroundedEntry = (at: number) => AG.tasks.some(t => t.entry === 
 export function drawTasks() {
   const live = AG.tasks.filter(runs);
   for (const id of stopping) if (!live.some(t => t.id === id)) stopping.delete(id);
-  // No tasks draws nothing, and an unchanged nothing does not draw again.
-  showAgentTasks(live.length === 0 ? null : createElement(Fragment, null, live.map(t => {
-    const going = stopping.has(t.id);
-    const what = t.description || t.name;
-    return createElement("div", { className: "ag-task", key: t.id },
-      createElement(Spinner),
-      createElement("span", { className: "nm", title: what }, t.name || what),
-      t.can_stop && createElement("button", { className: "dbtn quiet small", "data-agtask": t.id, disabled: going, onClick: () => void stopTask(t.id) }, going ? "Stopping" : "Stop"));
-  })), live.length);
+
+  const session = sessionKey(AG.page?.session), signature = JSON.stringify([session, live, [...stopping]]);
+  if (signature !== shown) {
+    shown = signature;
+    const before = paneTasks().length;
+    backgroundTasks.setState({ session, tasks: live, stopping: new Set(stopping), stop: id => void stopTask(id) }, true);
+    // The Running tab shows while there are some, and its count follows at once.
+    if (paneTasks().length !== before) draw();
+  }
+
+  // No tasks draws nothing, and an unchanged line does not draw again.
+  showAgentControl("tasks", live.length === 0 ? null : createElement(TasksLine, { count: live.length }));
 }
 
-/// Stop was clicked on task `id`.
+/// "3 commands running", which opens the Running tab.
+function TasksLine({ count }: { count: number }) {
+  return createElement("button", { type: "button", className: "ag-tasks", title: "Show them in the Running tab", onClick: showRunning },
+    createElement(Spinner),
+    createElement("span", null, `${count} ${count === 1 ? "command" : "commands"} running`));
+}
+
+/// Stop was clicked on task `id` in the Running tab.
 async function stopTask(id: string) {
   if (stopping.has(id)) return;
   stopping.add(id);

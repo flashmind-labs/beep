@@ -157,10 +157,10 @@ body.mobile .ag-workline { display: flex; align-items: center; gap: 8px; width: 
 body.mobile .ag-workline i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent) }
 body.mobile .ag-workline span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 body.mobile .ag-workline svg { flex: none; color: var(--dim) }
-body.mobile .ag-worklist { display: none }
+body.mobile .ag-work:not(:has(.ag-workline[aria-expanded="true"])) .ag-worklist .ag-queue { display: none }
+body.mobile .ag-tasks { display: flex; width: 100%; min-height: 36px; margin: 0; padding: 0 14px; border: 0; border-top: 1px solid var(--border); border-radius: 0; font-size: 13px; text-align: left }
+body.mobile .ag-tasks > span:last-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 body.mobile .ag-work:has(.ag-workline[aria-expanded="true"]) > .ag-worklist { display: block; position: absolute; z-index: 6; left: 8px; right: 8px; bottom: calc(100% + 6px); max-height: calc(var(--mb-vv-height, 100dvh) * .5); padding: 4px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--elev); box-shadow: 0 10px 30px color-mix(in srgb, var(--shade) 40%, transparent) }
-body.mobile .ag-worklist .ag-task { margin: 0; min-height: 36px; padding: 0 6px 0 12px; border: 0; border-radius: 0; background: none }
-body.mobile .ag-worklist .ag-task .dbtn { min-height: 32px; padding: 0 8px }
 body.mobile .ag-worklist .ag-queue .it { min-height: 36px; padding: 0 6px 0 12px; border: 0 }
 body.mobile .ag-worklist .ag-queue .w { display: none }
 body.mobile .ag-worklist .ag-queue button { min-height: 32px; padding: 0 8px; align-items: center }
