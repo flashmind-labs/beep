@@ -40,30 +40,33 @@ interface Field {
   closePop: (() => void) | null;
   drawing: number;
   slot: string;
-  connected: boolean;
+  shown: boolean;
   active: boolean;
 }
 
 const fields = new WeakMap<HTMLTextAreaElement, Field>();
 const overlay = createDocumentScope<string>();
-const watched = new Set<WeakRef<HTMLTextAreaElement>>();
 let nextSlot = 0;
-// Cached fields may leave the document and return. Release portal ownership
-// while detached, then restore the overlay without retaining discarded fields.
-new MutationObserver(() => {
-  for (const ref of watched) {
-    const field = ref.deref();
-    if (!field) { watched.delete(ref); continue; }
-    const state = fields.get(field);
-    if (!state || state.connected === field.isConnected) continue;
-    state.connected = field.isConnected;
-    if (state.connected) draw(field);
+// Cached fields may leave the document and return, and hidden ones show nothing.
+// Release portal ownership while a field is out of view and draw it again when
+// it returns. Fields are held weakly, so discarded ones are not retained.
+function seen(entries: IntersectionObserverEntry[]) {
+  for (const { target, isIntersecting } of entries) {
+    if (!(target instanceof HTMLTextAreaElement)) continue;
+    const state = fields.get(target);
+    if (!state || state.shown === isIntersecting) continue;
+
+    state.shown = isIntersecting;
+    if (state.shown) draw(target);
     else {
-      closePop(field);
+      closePop(target);
       if (state.active) { overlay.remove([state.slot]); state.active = false; }
     }
   }
-}).observe(document.documentElement, { childList: true, subtree: true });
+}
+/// Made with the first composer, so the module loads without a DOM. A DOM
+/// without layout has none, and its overlays stay as drawn.
+let views: IntersectionObserver | null = null;
 const VALUE = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!;
 
 /// Makes `field` a composer. Calling it again on the same field does nothing.
@@ -94,8 +97,9 @@ export function composeField(field: HTMLTextAreaElement, opts: ComposeOptions = 
   field.classList.add("cx-field");
   const parent = field.parentElement;
   if (parent && getComputedStyle(parent).position === "static") parent.style.position = "relative";
-  fields.set(field, { layer, opts, caret: field.selectionStart, composing: false, pop: null, closePop: null, drawing: 0, slot: String(++nextSlot), connected: field.isConnected, active: false });
-  watched.add(new WeakRef(field));
+  fields.set(field, { layer, opts, caret: field.selectionStart, composing: false, pop: null, closePop: null, drawing: 0, slot: String(++nextSlot), shown: true, active: false });
+  if (typeof IntersectionObserver === "function") views ??= new IntersectionObserver(seen);
+  views?.observe(field);
   // Text set from code (sending, a queued message put back) draws too.
   Object.defineProperty(field, "value", {
     configurable: true,

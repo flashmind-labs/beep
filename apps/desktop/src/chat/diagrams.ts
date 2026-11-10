@@ -139,10 +139,14 @@ addEventListener("message", event => {
     } else if (data.action === "save") void saveUrl(`data:${data.mime};base64,${data.data}`, data.mime === "image/png" ? "diagram.png" : "diagram.svg");
   }
 });
-function scan(root: ParentNode) {
-  for (const code of root.querySelectorAll<HTMLElement>("pre > code.language-mermaid")) {
-    const pre = code.parentElement!;
-    if (!pre.isConnected || pre.dataset.diagram) continue;
+/// Mermaid blocks on the page. The engine keeps this list current, so a scan
+/// costs the blocks there are, not the nodes a redraw adds.
+const blocks = document.getElementsByClassName("language-mermaid");
+
+function scan() {
+  for (const code of blocks) {
+    const pre = code.parentElement;
+    if (code.localName !== "code" || !(pre instanceof HTMLElement) || pre.localName !== "pre" || pre.dataset.diagram) continue;
     pre.dataset.diagram = "true";
     const source = code.textContent ?? "";
 
@@ -155,10 +159,9 @@ function scan(root: ParentNode) {
 
   next();
 }
-new MutationObserver(changes => {
-  for (const { addedNodes } of changes) for (const node of addedNodes) {
-    if (node instanceof Element) scan(node.parentElement ?? node);
-  }
+new MutationObserver(() => {
+  if (blocks.length || waiting.size) scan();
+
   for (const [frame, diagram] of diagrams) if (!frame.isConnected) {
     clearTimeout(diagram.timer); diagrams.delete(frame);
     if (diagram.fallback) {
@@ -168,4 +171,4 @@ new MutationObserver(changes => {
     }
   }
 }).observe(document.body, { childList: true, subtree: true });
-scan(document.body);
+scan();
