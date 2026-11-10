@@ -242,3 +242,27 @@ test("file loading progress updates the retained pending view", async ({ page })
   await page.evaluate(() => window.dispatchEvent(new Event("release-image-part-2")));
   await expect(page.locator('.agpstage.img img[alt="slow.png"]')).toBeVisible();
 });
+
+test("a late file chunk cannot remount a closed loading view", async ({ page }) => {
+  await openDesktop(page, true, { agent_tree: listing(["slow.png"]) });
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command !== "agent_file") return invoke<T>(command, args);
+      await new Promise<void>(resolve => window.addEventListener("release-closed-file", () => resolve(), { once: true }));
+      Reflect.set(window, "closedFileDelivered", true);
+      return { size: 1, mime: "image/png", data: "AA==" } as T;
+    };
+    window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } });
+  });
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  await page.locator('[data-fpath="slow.png"]').click();
+  const host = page.locator(".agpview:visible").filter({ hasText: "Opening slow.png" });
+  await expect(host).toBeVisible();
+  await host.evaluate(element => Reflect.set(window, "closedFileHost", element));
+  await page.locator('[role="tab"][data-mtab] [data-mclose]').click();
+  await page.evaluate(() => window.dispatchEvent(new Event("release-closed-file")));
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "closedFileDelivered"))).toBe(true);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+  expect(await page.evaluate(() => (Reflect.get(window, "closedFileHost") as HTMLElement).childElementCount)).toBe(0);
+});

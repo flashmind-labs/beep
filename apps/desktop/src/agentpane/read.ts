@@ -132,7 +132,7 @@ export async function load(t: MediaTab) {
     const { bytes, mime } = await readFile(s.machine_id, t.path, (done, size) => {
       t.done = done;
       t.size = size;
-      if (t.el) drawPending(t.el, t, P.session?.machine_name ?? null);
+      if (t.el && P.tabs.includes(t)) drawPending(t.el, t, P.session?.machine_name ?? null);
     });
     if (!P.tabs.includes(t)) return;
     t.size = bytes.length;
