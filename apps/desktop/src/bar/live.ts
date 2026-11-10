@@ -1,7 +1,6 @@
 import { turnState } from "../chat/turn-state.ts";
-import { discardChatApproval } from "../chat/work-view.tsx";
 import { ensureChatPrompt, renderChatPrompt, updateChatPrompt } from "../chat/work-view.tsx";
-import { ASK, askText, body, owningChatBody, type Decision, focusAsk, forgetChat, followAnswered, forRoutine, newTurn, removeChatSuggestions, renderChat, setChatDock, scrollDown, settle, startRun } from "../chat/chat.ts";
+import { ASK, approvalNotice, askText, body, owningChatBody, type Decision, focusAsk, forgetChat, followAnswered, forRoutine, newTurn, removeChatSuggestions, renderChat, setChatDock, scrollDown, settle, startRun } from "../chat/chat.ts";
 import { touch } from "../chat/chats.ts";
 import { $, entry, here, live, PANE, S } from "./core.ts";
 import { refreshHints } from "./hints.ts";
@@ -10,7 +9,6 @@ import { notice } from "../chat/media.ts";
 import { forgetHeight } from "./size.ts";
 import { type HeldQuestion, waitingQuestion } from "./work.ts";
 import { esc } from "../ui/format.ts";
-import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import type { Turn } from "../ui/turn.ts";
@@ -188,8 +186,7 @@ export function liveTurn(id: string, text: string, runId: string) {
 
   // A new message leaves an earlier question unanswered on the server.
   if (e.approval) {
-    discardChatApproval(e.approval.turn);
-    e.approval.card.replaceWith(h('<div class="dmuted">Not answered</div>'));
+    approvalNotice(e.approval.turn, e.approval.card, "Not answered");
     e.approval = null;
   }
 

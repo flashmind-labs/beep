@@ -696,20 +696,25 @@ export async function watchRun(id: string | null) {
 
 /// Takes chat `id`'s approval card away, saying how it was answered, and
 /// readies its turn for the run the answer resumes.
+/// Replace a settled approval with a notice owned by its retained chat body.
+export function approvalNotice(turn: Turn, card: HTMLElement, message: string) {
+  discardChatApproval(turn);
+  const owner = owningChatBody(turn);
+  if (!owner) { card.remove(); return; }
+  const box = document.createElement("div");
+  box.className = "dmuted";
+  renderChatNotice(owner, turn, box, { kind: "label", message });
+  card.replaceWith(box);
+}
+
 export function settle(id: string | null, e: LiveEntry, pending: PendingApproval, decision: Decision) {
   e.approval = null;
   answeredTurns.mark(pending.queryId, id);
   const said = pending.grant
     ? { allow: "Allowed for this routine", deny: "Denied" }[decision as "allow" | "deny"]
     : { allow: "Allowed once", session: "Allowed for the rest of this chat", always: "Allowed, and always allowed from now on", deny: "Denied" }[decision];
-  discardChatApproval(pending.turn);
-  const turn = pending.turn, owner = owningChatBody(turn);
-  if (owner) {
-    const box = document.createElement("div");
-    box.className = "dmuted";
-    renderChatNotice(owner, turn, box, { kind: "label", message: String(said) });
-    pending.card.replaceWith(box);
-  }
+  const turn = pending.turn;
+  approvalNotice(turn, pending.card, String(said));
   turnState(turn).done = false;
   turnState(turn).ended = null;
   e.run = { id: null, turn };
