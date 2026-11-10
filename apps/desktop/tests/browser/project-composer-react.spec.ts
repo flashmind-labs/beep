@@ -105,8 +105,12 @@ test("newer host availability wins over a delayed initial read", async ({ page }
   await openDesktop(page, false, { agent_hosts: [host], project_machines: [machine] });
   await page.evaluate(() => {
     const invoke = window.__TAURI__.core.invoke;
+    // The first read is the one opening the project starts; WebKit names minified functions by
+    // their short names, so the stack cannot tell.
+    let first = true;
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
-      if (command === "agent_hosts" && new Error().stack?.includes("loadProjectBar")) {
+      if (command === "agent_hosts" && first) {
+        first = false;
         await new Promise<void>(resolve => Reflect.set(window, "releaseOldHosts", resolve));
         Reflect.set(window, "oldHostsDelivered", true);
         return [] as T;
