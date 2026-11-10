@@ -3,7 +3,7 @@
 import { actualView, baseName, fitView, resolvePath, zoomAt } from "./media-state.ts";
 import { TextView } from "./text-view.tsx";
 import { createElement } from "react";
-import { setSessionPortal } from "../agents/session-frame.tsx";
+import { removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
 import { ModelControls } from "./model-controls.tsx";
 import { fileSize, openViewer } from "../chat/media.ts";
 import type { PaneTerm } from "./terminal.ts";
@@ -185,10 +185,11 @@ function pdfView(t: MediaTab) {
 }
 
 function modelView(t: MediaTab) {
-  const el = h(`<div class="agpview"><div class="agpstage model"><div class="agpmsg"><span class="dspin"></span>Drawing ${esc(t.name)}…</div></div>
+  const el = h(`<div class="agpview"><div class="agpstage model"></div>
     <div class="agpacts anim" hidden></div>
     <div class="agpacts"><button class="dbtn" data-reset="1" disabled>Reset view</button><button class="dbtn" data-wire="1" disabled>Wireframe</button><span class="meta"></span><span class="sp"></span><span class="hint">Drag to orbit, right-drag to pan, wheel to zoom</span>${fileButtons(t, "Open")}</div></div>`);
   const stage = el.querySelector<HTMLElement>(".agpstage")!;
+  setSessionPortal(stage, createElement("div", { className: "agpmsg" }, createElement("span", { className: "dspin" }), `Drawing ${t.name}…`));
   const dir = t.path ? t.path.slice(0, t.path.lastIndexOf("/") + 1) : "";
   // A .gltf's buffers and textures are files beside it.
   const sibling = async (uri: string) => {
@@ -203,9 +204,9 @@ function modelView(t: MediaTab) {
   import("./model3d.ts")
     .then(m => m.mountModel(stage, t.bytes!, t.name.slice(t.name.lastIndexOf(".") + 1).toLowerCase(), sibling))
     .then(view => {
-      if (!P.tabs.includes(t)) return view.dispose();
+      if (!P.tabs.includes(t) || t.el !== el) return view.dispose();
       t.model = view;
-      stage.querySelector(".agpmsg")?.remove();
+      removeSessionPortal(stage);
       const i = view.info;
       const clips = i.clips ? ` · ${i.clips} clip${i.clips > 1 ? "s" : ""}` : "";
       el.querySelector(".meta")!.textContent = `${i.format} · ${i.triangles.toLocaleString()} triangles${i.meshes > 1 ? ` · ${i.meshes} meshes` : ""}${clips} · ${fileSize(t.size)}`;
@@ -217,7 +218,10 @@ function modelView(t: MediaTab) {
       view.resize();
     })
     .catch(e => {
-      stage.innerHTML = `<div class="agpmsg derr">${esc(`Could not draw ${t.name}: ${e instanceof Error ? e.message : String(e)}`)}</div>`;
+      if (!P.tabs.includes(t) || t.el !== el) return;
+      removeSessionPortal(stage);
+      stage.replaceChildren();
+      setSessionPortal(stage, createElement("div", { className: "agpmsg derr" }, `Could not draw ${t.name}: ${e instanceof Error ? e.message : String(e)}`));
     });
   el.querySelector("[data-reset]")!.addEventListener("click", () => t.model?.reset());
   el.querySelector("[data-wire]")!.addEventListener("click", e => {
