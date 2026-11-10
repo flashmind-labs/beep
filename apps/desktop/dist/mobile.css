@@ -83,6 +83,16 @@ body.mobile .pj-split > .pj-det { padding-bottom: 12px }
 body.mobile .pj-strip { margin: 8px 12px; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none }
 body.mobile .pj-cols, body.mobile .pj-cols.pj-half, body.mobile .pj-ov, body.mobile .in-cols, body.mobile .dtwo { grid-template-columns: minmax(0, 1fr) }
 body.mobile .pj-grid { grid-template-columns: minmax(0, 1fr) }
+/* The Projects overview stays inside the screen: headings and outside items wrap, the
+   header's buttons are icons and the search takes the full width. */
+body.mobile .pj-find { max-width: none }
+body.mobile .pj-org h3.gp { display: block }
+body.mobile .pj-org h3.gp svg { display: inline; vertical-align: -1px; margin-right: 6px }
+body.mobile .pj-org h3.gp small { margin-left: 8px }
+body.mobile .pj-org h3.gp .gp-paths { display: block; margin-top: 2px }
+body.mobile .pj-org h3.gp .gp-acts { display: flex; margin: 4px 0 0 -9px }
+body.mobile #sec-elsewhere .cc-gr.it .r { grid-column: 2 / -1; flex-wrap: wrap }
+body.mobile .cc-top .tools .pj-tool { width: 44px; padding: 0; gap: 0; justify-content: center; font-size: 0 }
 
 /* Terminals: the machines' list, or the open terminal. */
 body.mobile .tl { grid-template-columns: minmax(0, 1fr) }

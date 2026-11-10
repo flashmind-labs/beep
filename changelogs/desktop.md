@@ -11,18 +11,24 @@ Other apps have independent versions and changelogs:
 
 ### Added
 
+- Desktop: search the Projects page by project name, folder or remote; press
+  / or ⌘F to start typing.
 - macOS: check for updates hourly and show release notes in Sparkle's standard
   native update dialog.
 - Release notes are kept for each version and included in desktop update feeds.
 
 ### Changed
 
+- Desktop: the Projects page lists the most recently active projects first
+  within each group, after pinned ones.
 - Desktop: a running agent session, or one waiting on a question, stays
   followed after you leave it or hide the window, and shows what it did at
   once when opened again. Idle sessions are let go after five minutes.
 
 ### Fixed
 
+- Desktop: in a narrow window the Projects page no longer runs off the
+  side with long names, folders or group headings.
 - Desktop: preserve panel scroll, drafts and selections during live updates.
 - Desktop: reject stale approvals after their question or session changes.
 - Desktop: retain terminal controls when returning to a cached session.

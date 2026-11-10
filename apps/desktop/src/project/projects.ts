@@ -9,7 +9,7 @@ import { MV } from "../agents/move-store.ts";
 import { sessionVisible } from "../agents/closing.ts";
 import { ago, plural } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
-import { awaitsView, projectRunning, whereRows, whereCount, overviewGroups, syncedBy, type OverviewCard, type Project, plainPath, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
+import { awaitsView, projectActivity, projectRunning, whereRows, whereCount, overviewGroups, syncedBy, type OverviewCard, type Project, plainPath, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { makeCustomAgents } from "./customagents.ts";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
@@ -40,12 +40,46 @@ export function disposeOverview() {
 }
 
 export function overviewSection(rows: Project[]): PagePart[] {
-  const groups = overviewGroups(rows, state.overview, state.top, state.groups);
+  visiting = null;
+  const groups = overviewGroups(rows, state.overview, state.top, state.groups, overviewOrder(rows));
   if (!overviewHost) { overviewHost = h("div"); overviewHost.style.display = "contents"; }
   showWindowParts([{ part: "project-overview", host: overviewHost, content: createElement(ProjectsOverview, { groups, editing: state.renaming,
     sync: (name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name)), add: addProject,
   }) }]);
   return [hostPart(overviewHost)];
+}
+
+/// When the user last opened each project, kept between launches.
+const VISITS_KEY = "beep.projects.visited";
+let visits = new Map<string, number>();
+try {
+  const saved: unknown = JSON.parse(localStorage.getItem(VISITS_KEY) ?? "{}");
+  if (saved && typeof saved === "object") visits = new Map(Object.entries(saved).filter((e): e is [string, number] => typeof e[1] === "number"));
+} catch { /* none kept */ }
+let visiting: string | null = null;
+
+function noteVisit(name: string) {
+  if (visiting === name) return;
+  visiting = name;
+  visits.set(name, Date.now());
+  try { localStorage.setItem(VISITS_KEY, JSON.stringify(Object.fromEntries(visits))); } catch { /* kept for this launch only */ }
+}
+
+/// The overview's recency, taken once per look at it: when projects come or
+/// go, after a project was opened, and on a later draw while the pointer and
+/// focus are elsewhere. Ambient updates do not move cards under the user.
+let ranked: { names: string; at: number; activity: Map<string, number> } | null = null;
+const RANK_MS = 60_000;
+
+function overviewOrder(rows: readonly Project[]) {
+  const names = rows.map(p => p.name).join("\n");
+  const busy = !!overviewHost && (overviewHost.matches(":hover") || overviewHost.contains(document.activeElement));
+  if (ranked && ranked.names === names && (busy || Date.now() - ranked.at < RANK_MS)) return ranked.activity;
+
+  const sums = new Map((state.overview ?? []).map(o => [o.name, o]));
+  const activity = new Map(rows.map(p => [p.name, projectActivity(p, state.sessions.get(p.name), visits.get(p.name), sums.get(p.name))]));
+  ranked = { names, at: Date.now(), activity };
+  return activity;
 }
 
 /// Optional task summaries for the cards. Local projects draw before this
@@ -64,6 +98,8 @@ export const loadOverview = single(async () => {
 /// per folder and "Copy here" where it is not, and the coding agents
 /// running in it now.
 export function projectDetail(p: Project): PagePart[] {
+  noteVisit(p.name);
+  ranked = null;
   if (p.imported) warm(p.name);
   const machines = p.imported ? state.where.get(p.name) : null;
   if (p.imported && (machines === undefined || whereDue.has(p.name))) loadWhere(p.name);

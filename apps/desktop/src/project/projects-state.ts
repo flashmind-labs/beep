@@ -600,8 +600,9 @@ export interface OverviewGroup<T, S> {
 
 /// The overview's cards grouped as the sidebar groups projects: every group
 /// first, in order, even one with no projects yet, then by org, then projects
-/// in neither under `org: null`.
-export function overviewGroups<T extends Groupable, S extends { name: string } = OverviewCard>(rows: readonly T[] | null | undefined, overview: readonly S[] | null | undefined, top: readonly string[] | null | undefined, groups: readonly ProjectGroup[] | null | undefined = []): OverviewGroup<T, S>[] {
+/// in neither under `org: null`. In each, pinned cards come first, then the
+/// most recent by `activity` (milliseconds by name), then by name.
+export function overviewGroups<T extends Groupable, S extends { name: string } = OverviewCard>(rows: readonly T[] | null | undefined, overview: readonly S[] | null | undefined, top: readonly string[] | null | undefined, groups: readonly ProjectGroup[] | null | undefined = [], activity: ReadonlyMap<string, number> = new Map()): OverviewGroup<T, S>[] {
   const sums = new Map((overview || []).map(o => [o.name, o]));
   const pins = new Set(top || []);
   const byGroup = new Map<string, OverviewCardRow<T, S>[]>((groups || []).map(g => [g.id, []]));
@@ -615,10 +616,31 @@ export function overviewGroups<T extends Groupable, S extends { name: string } =
     if (!byOrg.has(org)) byOrg.set(org, []);
     byOrg.get(org)!.push({ ...card, repo: cut > 0 ? p.name.slice(cut + 1) : p.name });
   });
-  const order = (cards: OverviewCardRow<T, S>[]) => cards.sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (a.i - b.i));
+  const at = (card: OverviewCardRow<T, S>) => activity.get(card.name) ?? 0;
+  const order = (cards: OverviewCardRow<T, S>[]) => cards.sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (at(b) - at(a)) || (a.i - b.i));
   const inGroups = (groups || []).map(group => ({ group, org: null, cards: order(byGroup.get(group.id)!) }));
   const inOrgs = [...byOrg].map(([org, cards]) => ({ group: null, org, cards: order(cards) }));
   return [...inGroups, ...inOrgs.filter(g => g.org), ...inOrgs.filter(g => !g.org)];
+}
+
+/// When something last happened in a project, in milliseconds, 0 for never:
+/// the latest of its agents' activity (running or in its session list), the
+/// user's last visit and its task that changed last.
+export function projectActivity(project: Pick<Project, "last">, sessions: readonly Pick<SessionRow, "last_activity">[] | null | undefined, visited: number | null | undefined, sum: { latest: Pick<LatestTask, "updated_at"> | null } | null | undefined) {
+  let at = Math.max(project.last ?? 0, visited ?? 0, sum?.latest?.updated_at ?? 0);
+  for (const s of sessions ?? []) if (s.last_activity > at) at = s.last_activity;
+  return at;
+}
+
+/// `groups` with only the cards whose name, folder on any machine or remote
+/// holds `query`, ignoring case; groups left without a card go. An empty
+/// query keeps everything.
+export function searchOverview<T extends { name: string; url?: string | null; machines?: readonly { folder: string }[] | null }, S>(groups: readonly OverviewGroup<T, S>[], query: string): OverviewGroup<T, S>[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [...groups];
+
+  const hit = (card: T) => card.name.toLowerCase().includes(q) || !!card.url?.toLowerCase().includes(q) || !!card.machines?.some(m => m.folder.toLowerCase().includes(q));
+  return groups.map(g => ({ ...g, cards: g.cards.filter(hit) })).filter(g => g.cards.length);
 }
 
 /// Tasks not done or dropped.
