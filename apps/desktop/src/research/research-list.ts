@@ -46,12 +46,6 @@ export function chipClass(status: ResearchStatus) {
   return state === "running" ? "run" : state === "waiting" ? "wait" : state === "failed" ? "bad" : "";
 }
 
-/// A status chip as HTML, for the views drawn from strings; `label` is trusted.
-export function chipHtml(status: ResearchStatus, label: string) {
-  const spin = researchState(status) === "running" ? '<span class="dspin"></span>' : "";
-  return `<span class="chip ${chipClass(status)}">${spin}${label}</span>`;
-}
-
 /// A running round's steps, in order.
 export const PHASES = ["researching", "reviewing", "writing"] as const;
 

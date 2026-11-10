@@ -63,25 +63,6 @@ export async function loadList<T>(s: ListState<T>, cmd: string) {
   }
 }
 
-/// The error under a list's head.
-export const errLine = (error: string) => error ? `<div class="derr dpadx">${esc(error)}</div>` : "";
-
-/// What a list shows when it is empty: its icon, a line, what it is for and
-/// `extra`, such as a button.
-export const emptyPage = (icon: string, title: string, about: string, extra = "") =>
-  `<div class="dempty"><span class="dicon">${icon}</span>
-      <b class="dbig">${title}</b><span class="dmuted dblock">${about}</span>${extra}</div>`;
-
-/// A card asking before something: a title, what it means and its buttons.
-export const confirmCard = (title: string, text: string, buttons: string, cls = "") =>
-  `<div class="dcard${cls ? " " + cls : ""}"><div class="dask"><b class="dtitle">${title}</b><div class="dmuted dblock">${text}</div><div class="dline">${buttons}</div></div></div>`;
-
-/// Row `i` asking `question`, with `verb` (Delete, Revoke) and Cancel. The
-/// buttons carry `attr` as `<verb>-yes` and `list`.
-export const confirmRow = (i: number, question: string, attr: string, verb: string) =>
-  `<div class="drt" aria-selected="true" data-i="${i}"><span class="tt"><b>${question}</b></span>
-          <span class="acts"><button class="dbtn warn" ${attr}="${verb.toLowerCase()}-yes">${verb}</button><button class="dbtn quiet" ${attr}="list">Cancel</button></span></div>`;
-
 /// How many days from `from` to `to`, by the calendar.
 export function dayDiff(from: Date, to: Date) {
   const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();

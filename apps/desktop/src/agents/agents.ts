@@ -388,14 +388,6 @@ export async function loadAgentHosts() {
   if (S.view === "agentnew") drawAgentNew();
 }
 
-export function stateTag(status: string) {
-  if (status === "asking") return '<span class="dstate ask">Waiting for you</span>';
-  if (status === "working" || status === "running" || status === "starting") return `<span class="dstate run">${status === "starting" ? "Starting" : "Working"}</span>`;
-  if (status === "waiting") return '<span class="dstate ask">Waiting in terminal</span>';
-  if (status === "ended") return '<span class="dstate">Ended</span>';
-  return '<span class="dstate">Idle</span>';
-}
-
 // ----- Every session -----
 
 export async function renderAgents() {
