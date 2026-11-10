@@ -1,3 +1,4 @@
+import { Spinner } from "../ui/kit.tsx";
 import { createElement, Fragment } from "react";
 import { flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
@@ -319,7 +320,7 @@ function projectMenu(): ChoiceMenu | null {
     const where = here ? tildePath(here.cwd, formHost()?.home) : `${p.places.length} ${p.places.length === 1 ? "machine" : "machines"}`;
     return { kind: "button", action: "agp", value: p.name, selected: f.project === p.name, label: createElement("span", null, p.name), detail: where, mono: !!here } satisfies ChoiceRow;
   });
-  const note: ChoiceRow[] = PROJECTS === null ? [{ kind: "button", action: null, value: "loading", disabled: true, label: createElement("span", null, createElement("span", { className: "dspin" }), " Reading projects…"), detail: "" }] : [];
+  const note: ChoiceRow[] = PROJECTS === null ? [{ kind: "button", action: null, value: "loading", disabled: true, label: createElement("span", null, createElement(Spinner), " Reading projects…"), detail: "" }] : [];
   return { style: "", rows: [...note, ...rows, ...(rows.length || note.length ? [{ kind: "rule" } as const] : []), { kind: "button", action: "agp", value: "", selected: !f.project, label: "No project", detail: "pick one to start" }] };
 }
 
@@ -370,7 +371,7 @@ function baseMenu(): ChoiceMenu | null {
   if (f.open !== "base") return null;
   const list = formBranches(), picked = baseFor(f.base, list);
   const rows: ChoiceRow[] = baseRows(list).map(name => ({ kind: "button", action: "agb", value: name, selected: picked === name, label: createElement("span", { className: "mono" }, name), detail: name === list?.default_branch ? "default" : "" }));
-  const note: ChoiceRow[] = list === undefined ? [{ kind: "button", action: null, value: "loading", disabled: true, label: createElement("span", null, createElement("span", { className: "dspin" }), " Reading branches…"), detail: "" }] : [];
+  const note: ChoiceRow[] = list === undefined ? [{ kind: "button", action: null, value: "loading", disabled: true, label: createElement("span", null, createElement(Spinner), " Reading branches…"), detail: "" }] : [];
   return { style: "base", rows: [...note, ...rows, ...(rows.length || note.length ? [{ kind: "rule" } as const] : []), { kind: "button", action: "agbtype", value: "1", label: "Type a branch or commit…", detail: "" }] };
 }
 

@@ -1,3 +1,4 @@
+import { Spinner } from "../ui/kit.tsx";
 import { clock } from "../agents/agentturns.ts";
 import { FRAME_SANDBOX, KIND_NAMES, relativeTo, type Artifact } from "./artifacts-state.ts";
 
@@ -44,7 +45,7 @@ export type ArtifactPreview =
 function ArtifactPreviewView({ value, live, act }: { value: ArtifactPreview; live: boolean; act(action: ArtifactAction): void }) {
   switch (value.kind) {
     case "message": return <div className={`agpmsg${value.error ? " derr" : ""}`}>{value.text}</div>;
-    case "loading": return <div className="agpmsg"><span className="dspin" />Reading {value.name} from {value.machine}…</div>;
+    case "loading": return <div className="agpmsg"><Spinner />Reading {value.name} from {value.machine}…</div>;
     case "pdf": return <div className="agpmsg">PDFs open in a tab of their own. <button className="dbtn" onClick={() => act("pdf")}>Open {value.name}</button></div>;
     case "html": return <div className="agartframe-box"><iframe className="agartframe" sandbox={FRAME_SANDBOX} referrerPolicy="no-referrer" title={value.name} src={live ? value.src : "about:blank"} /></div>;
     case "md": return <div className="agartmd" dangerouslySetInnerHTML={{ __html: value.html }} />;

@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { thoughtLabel, duration, KIND_ICONS, type RowParts, type ToolKind, type TurnState } from "./agentturns.ts";
 import { liveText } from "./karaoke.ts";
-import { ICON } from "../ui/icons.tsx";
+import { Icon } from "../ui/icons.tsx";
 import { esc } from "../ui/format.ts";
 import { SubagentsView, type SubagentRow } from "../agentpane/subagents-view.tsx";
 import type { MadeFile, MadeFiles } from "../agentpane/artifacts-state.ts";
@@ -25,7 +25,7 @@ export function ActivityView({ row }: { row: ActivityRow }) {
   if (row.kind === "older") return <div className="dmuted">{row.text}</div>;
   if (row.kind === "folded-pictures") return <div className="dcoderen dfoldpics" data-row={row.at}><span className="pics" dangerouslySetInnerHTML={{ __html: row.pictures }} /></div>;
   if (row.kind === "subagents") return <div className="dsubgrp" data-row={row.at}>{row.heading !== null && <div className="h"><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: SUB_ICON }} /><b>{row.heading}</b><span>{row.counts}</span></div>}<SubagentsView rows={row.rows} /></div>;
-  if (row.kind === "run") return <div className={`dtrun${row.open ? " open" : ""}`} data-row={row.at}><button data-run={row.at} aria-expanded={row.open}><span className="ki" dangerouslySetInnerHTML={{ __html: KIND_ICONS[row.toolKind] }} /><span className="vb">{row.label}</span><span className="sm">{row.summary}</span><span className="cv" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></button><div className="bd"><div><div className="in">{row.tools.map(tool => <ActivityView key={tool.id} row={tool} />)}</div></div></div></div>;
+  if (row.kind === "run") return <div className={`dtrun${row.open ? " open" : ""}`} data-row={row.at}><button data-run={row.at} aria-expanded={row.open}><span className="ki" dangerouslySetInnerHTML={{ __html: KIND_ICONS[row.toolKind] }} /><span className="vb">{row.label}</span><span className="sm">{row.summary}</span><span className="cv"><Icon name="chev" /></span></button><div className="bd"><div><div className="in">{row.tools.map(tool => <ActivityView key={tool.id} row={tool} />)}</div></div></div></div>;
   if (row.kind === "tool") {
     const cls = `dcoderen tool ${row.layout.kind === "beep" ? "beep" : "row"}${row.failed ? " failed" : ""}${row.open ? " open" : ""}${row.artifact ? " artifact" : ""}`;
     const mark = <span className="mk" dangerouslySetInnerHTML={{ __html: row.mark }} />;
@@ -35,12 +35,12 @@ export function ActivityView({ row }: { row: ActivityRow }) {
     const waiting = row.state === "waiting", lead = row.doing || (row.thinking ? "Thinking" : "Working");
     return <div className={`dthink dlive${waiting ? "" : " live"}`}><span className="lb" title={waiting ? undefined : lead}>{waiting ? "Waiting for you" : lead}</span>{row.start !== null && <span className="since" data-since={row.start}>{duration(Date.now() - row.start)}</span>}</div>;
   }
-  return <div className={`dthink${row.live ? " live" : ""}${row.open ? " open" : ""}`} data-row={row.at}><button data-thought={row.at} aria-expanded={row.open}><span className="lb">{thoughtLabel(row.ms)}</span><span className="cv" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></button><div className="bd"><div>{row.live ? <div className="tx"><div className="kk" data-kk={row.key}>{liveText(row.text)}</div></div> : <div className="tx md" dangerouslySetInnerHTML={{ __html: row.content ?? esc(row.text).replaceAll("\n", "<br>") }} />}</div></div></div>;
+  return <div className={`dthink${row.live ? " live" : ""}${row.open ? " open" : ""}`} data-row={row.at}><button data-thought={row.at} aria-expanded={row.open}><span className="lb">{thoughtLabel(row.ms)}</span><span className="cv"><Icon name="chev" /></span></button><div className="bd"><div>{row.live ? <div className="tx"><div className="kk" data-kk={row.key}>{liveText(row.text)}</div></div> : <div className="tx md" dangerouslySetInnerHTML={{ __html: row.content ?? esc(row.text).replaceAll("\n", "<br>") }} />}</div></div></div>;
 }
 
 function Note({ row }: { row: Extract<ActivityRow, { kind: "note" }> }) {
   const note = row.value;
-  if (note.kind === "collapse") return <div><button className="dprogress-collapse" data-turn={row.at} data-collapse aria-label="Collapse activity" title="Collapse activity" aria-expanded="true" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></div>;
+  if (note.kind === "collapse") return <div><button className="dprogress-collapse" data-turn={row.at} data-collapse aria-label="Collapse activity" title="Collapse activity" aria-expanded="true"><Icon name="chev" /></button></div>;
   if (note.kind === "other") return <div className="dcoderen other" data-row={row.at}>{note.text}</div>;
   if (note.kind === "compacted") return <div className="dcoderen compacted" data-row={row.at}><span>Conversation compacted</span></div>;
   if (note.kind === "answers") return <div className="dcoderen qa" data-row={row.at}>{note.items.map((item, index) => <Fragment key={index}>{item.question && <span className="q">{item.question}</span>}<span className="a">{item.answer}</span></Fragment>)}</div>;

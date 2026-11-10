@@ -1,5 +1,6 @@
 // The commands the open session's agent runs in the background: a strip
 // above the field with each one's name and a Stop button.
+import { Spinner } from "../ui/kit.tsx";
 import { createElement, Fragment } from "react";
 import { $ } from "../bar/core.ts";
 import { showAgentTasks } from "./composer-ui.tsx";
@@ -41,7 +42,7 @@ export function drawTasks() {
     const going = stopping.has(t.id);
     const what = t.description || t.name;
     return createElement("div", { className: "ag-task", key: t.id },
-      createElement("span", { className: "dspin" }),
+      createElement(Spinner),
       createElement("span", { className: "nm", title: what }, t.name || what),
       t.can_stop && createElement("button", { className: "dbtn quiet small", "data-agtask": t.id, disabled: going, onClick: () => void stopTask(t.id) }, going ? "Stopping" : "Stop"));
   })), live.length);
