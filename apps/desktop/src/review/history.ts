@@ -1,4 +1,4 @@
-import { createElement, type ReactNode } from "react";
+import { createElement, Fragment, type ReactNode } from "react";
 import { showWindowParts } from "../center/window-root.ts";
 import { HistoryFacts } from "./history-facts.tsx";
 import { HistoryDetail } from "./history-detail.tsx";
@@ -9,7 +9,6 @@ import { TreeNode } from "./history-tree.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { SLOW_MS } from "../ui/active.ts";
 // The project's Git navigator and its selected commit or worktree diff.
-import { el } from "../ui/dom.ts";
 import { formatAgo, reason } from "../ui/format.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { SessionRow } from "../project/projects-state.ts";
@@ -50,11 +49,11 @@ interface ProjectHistory {
   path: string | null;
   tab: "changes" | "details" | "sessions";
   query: string;
+  /// The two panels the project page places; everything in them is React.
   nav: HTMLElement;
-  chrome: HTMLElement;
-  tree: HTMLElement;
   detail: HTMLElement;
-  foot: HTMLElement;
+  /// Whether the newest day was opened once, so closing it stays closed.
+  started: boolean;
   view: DiffViewHandle | null;
   viewKey: string;
   timer?: ReturnType<typeof setTimeout>;
@@ -115,17 +114,15 @@ export function makeGitHistory(deps: HistoryDeps) {
   function project(name: string) {
     let p = projects.get(name);
     if (p) return p;
-    const tree = el("div", "gh-tree");
-    const foot = el("div", "gh-nav-foot");
-    const chrome = el("div");
-    chrome.style.display = "contents";
-    const nav = el("aside", "pj-list gh-nav", chrome, tree, foot);
+    const nav = document.createElement("aside");
+    nav.className = "pj-list gh-nav";
     nav.setAttribute("aria-label", "Git navigation");
-    const detail = el("div", "pj-det gh-detail");
+    const detail = document.createElement("div");
+    detail.className = "pj-det gh-detail";
     p = { name, lists: new Map(), files: new Map(), commits: new Map(), open: new Set(["history"]), selected: null,
-      path: null, tab: "changes", query: "", nav, chrome, tree, detail, foot, view: null, viewKey: "" };
+      path: null, tab: "changes", query: "", nav, detail, started: false, view: null, viewKey: "" };
     projects.set(name, p);
-    drawNavigation(p);
+    renderTree(p);
     return p;
   }
 
@@ -133,9 +130,9 @@ export function makeGitHistory(deps: HistoryDeps) {
     showWindowParts([{ part: `git-history:${p.name}:${slot}`, host, content }]);
   }
 
-  function drawNavigation(p: ProjectHistory) {
-    renderHistory(p, "navigation", p.chrome, createElement(HistoryNavigation, {
-      footer: p.foot, machine: p.data?.machine_name ?? null, query: p.query, back: deps.back,
+  function navigation(p: ProjectHistory) {
+    return createElement(HistoryNavigation, {
+      query: p.query, back: deps.back,
       refresh: () => void refresh(p.name), collapse: () => { p.open.clear(); renderTree(p); },
       search: (query: string) => {
         p.query = query;
@@ -147,7 +144,7 @@ export function makeGitHistory(deps: HistoryDeps) {
           if (!found.loaded && !found.loading) void load(p, found);
         }, 250);
       },
-    }));
+    });
   }
 
   async function load(p: ProjectHistory, target: CommitList, more = false) {
@@ -272,7 +269,7 @@ export function makeGitHistory(deps: HistoryDeps) {
     const history = node(p, "history", [createElement("b", { key: "label" }, "All history"), createElement("small", { key: "count" }, found.rows.length ? `${found.rows.length}${found.next !== null ? "+" : ""}` : "")], () => {
       const days = dayGroups(found.rows);
       if (!days.length) return listRows(p, found, "All history");
-      if (!p.tree.dataset.started) { p.open.add(`day:${p.query}:${days[0][0]}`); p.tree.dataset.started = "true"; }
+      if (!p.started) { p.open.add(`day:${p.query}:${days[0][0]}`); p.started = true; }
       return [...days.map(([day, commits]) => node(p, `day:${p.query}:${day}`, [createElement("span", { key: "day" }, day), createElement("small", { key: "count" }, String(commits.length))], () => commits.map(c => commitNode(p, c, "All history")))), ...listStatus(p, found)];
     });
     const refs = (p.data?.refs || []).filter(r => r.kind !== "tag");
@@ -291,8 +288,12 @@ export function makeGitHistory(deps: HistoryDeps) {
         node(p, `sessions:${w.path}`, [createElement("span", { key: "label" }, "Sessions")], () => treeSessions(p, w)),
       ]);
     }));
-    drawNavigation(p);
-    renderHistory(p, "tree", p.tree, [history, branches, worktrees]);
+    const machine = p.data?.machine_name ?? null;
+    renderHistory(p, "navigation", p.nav, createElement(Fragment, null,
+      createElement("div", { style: { display: "contents" } }, navigation(p)),
+      createElement("div", { className: "gh-tree", "data-started": p.started ? "true" : undefined }, history, branches, worktrees),
+      createElement("div", { className: "gh-nav-foot" }, machine ? `All branches · ${machine}` : ""),
+    ));
   }
 
   function select(p: ProjectHistory, selected: GitSelection) {
@@ -320,18 +321,21 @@ export function makeGitHistory(deps: HistoryDeps) {
     const c = selected.kind === "commit" ? selected.commit : null;
     const w = selected.kind === "working" ? selected.worktree : null;
     const ref = c && p.data.refs.find(r => r.kind === "local" && r.head === c.id);
+    const shown = selected.kind === "commit"
+      ? { breadcrumb: `${selected.origin} / ${selected.commit.id.slice(0, 7)}`, title: selected.commit.subject || "Untitled commit",
+        metadata: `${selected.commit.author} · ${new Date(selected.commit.committed_at).toLocaleString()}`, id: selected.commit.id, copyLabel: "Copy SHA" }
+      : { breadcrumb: `Worktrees / ${selected.worktree.branch || "Detached HEAD"}`, title: `Uncommitted changes in ${selected.worktree.branch || "checkout"}`,
+        metadata: `${selected.worktree.path} · ${p.data.machine_name}`, id: selected.worktree.path, copyLabel: "Copy path" };
     const header = createElement(HistoryHeader, {
-      key: selectionKey(selected), breadcrumb: c ? `${selected.kind === "commit" ? selected.origin : ""} / ${c.id.slice(0, 7)}` : `Worktrees / ${w!.branch || "Detached HEAD"}`,
-      title: c ? c.subject || "Untitled commit" : `Uncommitted changes in ${w!.branch || "checkout"}`,
-      metadata: c ? `${c.author} · ${new Date(c.committed_at).toLocaleString()}` : `${w!.path} · ${p.data.machine_name}`,
-      copyValue: c?.id || w!.path, copyLabel: c ? "Copy SHA" : "Copy path",
+      key: selectionKey(selected), breadcrumb: shown.breadcrumb, title: shown.title, metadata: shown.metadata,
+      copyValue: shown.id, copyLabel: shown.copyLabel,
       review: ref && deps.canReview(p.name, ref.name) ? () => deps.reviewBranch(p.name, ref.name) : null,
       tab: p.tab, onTab: (tab: ProjectHistory["tab"]) => { p.tab = tab; renderDetail(p); },
     });
     let body: ReactNode = null, diff: HTMLElement | null = null;
     if (p.tab === "details") {
       body = createElement("div", { className: "gh-facts-root" }, createElement(HistoryFacts, {
-        id: c?.id || w!.path, author: c?.author ?? null, parents: c?.parents ?? [], onParent: id => void parent(p, id),
+        id: shown.id, author: c?.author ?? null, parents: c?.parents ?? [], onParent: id => void parent(p, id),
       }));
     } else if (p.tab === "sessions") {
       const currentTree = w || (ref && p.data.worktrees.find(tree => tree.branch === ref.name));
@@ -351,8 +355,9 @@ export function makeGitHistory(deps: HistoryDeps) {
           load: async (only, lockfiles, _uncommitted, context) => {
             const requested = only.length ? only : path ? [path] : [];
             const paths = diffPaths(fileRead(p, selected).rows, requested);
-            const view = c ? await read<DiffView>("project_git_diff", { project: p.name, machineId: location.machine_id, commit: c.id, only: paths, lockfiles: lockfiles || !!path, context })
-              : await read<DiffView>("work_diff", { machineId: location.machine_id, root: w!.path, only: paths, lockfiles: lockfiles || !!path, uncommitted: true, context });
+            const view = selected.kind === "commit"
+              ? await read<DiffView>("project_git_diff", { project: p.name, machineId: location.machine_id, commit: selected.commit.id, only: paths, lockfiles: lockfiles || !!path, context })
+              : await read<DiffView>("work_diff", { machineId: location.machine_id, root: selected.worktree.path, only: paths, lockfiles: lockfiles || !!path, uncommitted: true, context });
             return path ? { ...view, files: view.files.filter(f => f.path === path), more: 0 } : view;
           },
           review: { key: `history:${p.name}:${key}`, heading: () => c?.subject || "Worktree changes", send: async () => "Open a session to send a review." },
