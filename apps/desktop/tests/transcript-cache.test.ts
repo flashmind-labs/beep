@@ -67,7 +67,7 @@ test("a dropped reader cannot alter a cached session once it is followed again",
   const feed = new AgentFeed<string, TranscriptUpdate<Run>>({
     id: () => String(readers.length), now: () => 0, name: key => key, later: () => () => {}, show: () => {},
     open: (_key, _id, receive) => { readers.push(receive); return new Promise(() => {}); },
-    close: () => {}, disconnected: () => {}, receive: (key, value) => { cache.receive(key, value); },
+    close: () => {}, unfollowed: () => {}, disconnected: () => {}, receive: (key, value) => { cache.receive(key, value); },
   });
   feed.follow("one");
   readers[0](update("snapshot", 0, ["first"]));

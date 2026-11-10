@@ -192,6 +192,7 @@ const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     return invoke<void>("agent_follow", { ...where(o), id, last: 200, after: transcripts.get(transcriptKey(o))?.cursor ?? null, onEvent });
   },
   close: id => { void invoke("agent_unfollow", { id }).catch(e => console.warn("session detach:", e)); },
+  unfollowed: o => { offScreen.delete(transcriptKey(o)); },
   receive: (o, update) => {
     const key = transcriptKey(o);
     const page = transcripts.receive(key, update);
@@ -200,7 +201,6 @@ const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     // A gap: the session is read again whole, now if it shows, else when it opens.
     if (!page) {
       feed.drop(o);
-      offScreen.delete(key);
 
       if (isOpen(open)) {
         flushDraw(true);
@@ -221,8 +221,10 @@ const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     AG.modes = update.modes;
     AG.tasks = update.tasks;
 
-    // Left for another view: its model takes the update with no draw.
+    // Left for another view: its model takes what was held, then the
+    // update, with no draw, so updates join in the order they came.
     if (!isOpen(open)) {
+      flushDraw(true);
       if (AG.page) AG.page = update.kind === "snapshot" ? page : joinRuns(AG.page, fresh);
       return;
     }
@@ -290,7 +292,8 @@ export function forgetAgentFollows() {
 }
 
 changeListeners.push(() => {
-  if (S.view !== "agent") { stopAgentFollow(); disposeQueue(); }
+  // What was held joins the model now: a later update must not come before it.
+  if (S.view !== "agent") { flushDraw(true); stopAgentFollow(); disposeQueue(); }
 });
 
 /// A `pushed` update always holds something new; a polled one is compared

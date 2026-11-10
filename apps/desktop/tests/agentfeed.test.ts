@@ -5,14 +5,14 @@ import { AgentFeed, BACKGROUND_FOLLOWS, IDLE_FOLLOW_MS } from "../src/agents/age
 function setup() {
   let now = 0;
   const readers: { key: string; id: string; receive(update: string): void; end(): void; fail(error: unknown): void }[] = [];
-  const received: string[] = [], closed: string[] = [], lost: unknown[] = [], shown: (string | null)[] = [];
+  const received: string[] = [], closed: string[] = [], unfollowed: string[] = [], lost: unknown[] = [], shown: (string | null)[] = [];
   const timers = new Set<{ at: number; run(): void }>();
   const feed = new AgentFeed<string, string>({
     id: () => String(readers.length), now: () => now, name: key => key,
     later: (ms, run) => { const timer = { at: now + ms, run }; timers.add(timer); return () => { timers.delete(timer); }; },
     show: id => { shown.push(id); },
     open: (key, id, receive) => new Promise<void>((end, fail) => { readers.push({ key, id, receive, end, fail }); }),
-    close: id => { closed.push(id); },
+    close: id => { closed.push(id); }, unfollowed: key => { unfollowed.push(key); },
     receive: (key, update) => { received.push(`${key}: ${update}`); },
     disconnected: (_key, error) => { lost.push(error); },
   });
@@ -20,7 +20,7 @@ function setup() {
     now += ms;
     for (const timer of [...timers]) if (timer.at <= now) { timers.delete(timer); timer.run(); }
   };
-  return { feed, readers, received, closed, lost, shown, timers, advance };
+  return { feed, readers, received, closed, unfollowed, lost, shown, timers, advance };
 }
 
 test("a quiet view keeps one live reader past the former five-minute cutoff", () => {
@@ -161,4 +161,23 @@ test("the opening snapshot gets a bounded wait before fallback reads are needed"
   readers[1].fail("unsupported");
   await Promise.resolve();
   assert.equal(feed.waiting("second"), false);
+});
+
+test("a reader ending for idleness, the cap or a gap says its session is unfollowed", () => {
+  const { feed, unfollowed, advance } = setup();
+  feed.follow("idle");
+  feed.follow("shown");
+  advance(IDLE_FOLLOW_MS);
+  assert.deepEqual(unfollowed, ["idle"]);
+
+  for (let i = 0; i <= BACKGROUND_FOLLOWS; i++) {
+    feed.follow(`running ${i}`);
+    feed.activity(`running ${i}`, "running");
+  }
+
+  // Left idle past the limit, then dropped by the cap.
+  feed.leave();
+  assert.deepEqual(unfollowed, ["idle", "shown", "running 0"]);
+  feed.drop("running 1");
+  assert.deepEqual(unfollowed, ["idle", "shown", "running 0", "running 1"]);
 });
