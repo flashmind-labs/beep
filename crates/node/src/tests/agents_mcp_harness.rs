@@ -103,7 +103,7 @@ cat > /dev/null
     assert_eq!(info["default_model"], "fast");
     assert_eq!(
         info["models"][0],
-        json!({"id": "fast", "name": "Fast", "description": "Quick tasks", "context_window": 360000, "max_context_window": 720000})
+        json!({"id": "fast", "name": "Fast", "description": "Quick tasks", "context_window": 360000, "max_context_window": 720000, "provider": null})
     );
     assert_eq!(info["models"][1]["id"], "careful");
     assert_eq!(info["effort_levels"], json!(["low", "medium", "high"]));

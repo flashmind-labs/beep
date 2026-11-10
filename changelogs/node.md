@@ -9,6 +9,12 @@ Earlier releases predate this changelog.
 - Release pages include versioned release notes.
 - The node metrics log counts started programs, file watch events, sync scans, topic changes, snapshot reads and state file writes.
 
+### Changed
+
+- Node: flsh models get readable names, such as "DeepSeek V4.1 Flash 1017"
+  for `openrouter:deepseek/deepseek-v4.1-flash-1017`, with the provider
+  reported apart from the name.
+
 ### Fixed
 
 - Node: a Claude Code skill that runs in its own subagent shows as
