@@ -1,55 +1,64 @@
-import { useLayoutEffect, useRef, useState } from "react";
+// A review comment in the diff: as saved, or in its editor. An editor that
+// moves, as when its line leaves the diff, keeps its text, its selection and
+// the focus.
+import { useLayoutEffect, useRef } from "react";
+import { useStore } from "zustand";
 import { agentLabel } from "../project/projects-state.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
 import type { ReviewComment } from "./diff-state.ts";
+import type { Viewer } from "./diff-viewer.ts";
+import { cancelComment, openEditor, removeComment, saveComment } from "./diff-comments.ts";
 
-interface DiffCommentProps {
-  comment: ReviewComment;
-  label: string;
-  initiallyEditing: boolean;
-  isNew: boolean;
-  onSave: (value: string) => void;
-  onRemove: () => void;
-  onCancelNew: () => void;
-  onEscape: () => void;
-  onEditEnd: () => void;
-  restored: { text: string; focused: boolean; start: number; end: number } | null;
-}
-
-export function DiffComment({ comment, label, initiallyEditing, isNew, onSave, onRemove, onCancelNew, onEscape, onEditEnd, restored }: DiffCommentProps) {
-  const [editing, setEditing] = useState(initiallyEditing);
-  const input = useRef<HTMLTextAreaElement>(null);
-  useLayoutEffect(() => {
-    if (!editing || !input.current || (restored && !restored.focused)) return;
-    input.current.focus({ preventScroll: true });
-    if (restored) input.current.setSelectionRange(restored.start, restored.end);
-  }, [editing]);
-  const place = comment.line === null ? "Comment on this file" : "Comment on this line";
-  const save = () => {
-    const text = input.current?.value.trim() ?? "";
-    if (!text) return;
-    setEditing(false);
-    onSave(text);
-    onEditEnd();
-  };
-  const cancel = () => { if (isNew) onCancelNew(); else setEditing(false); onEditEnd(); };
-
-  if (editing) return <div className="dv-cmt open">
-    <textarea ref={input} rows={2} defaultValue={restored?.text ?? comment.text} placeholder={place} aria-label={place}
-      onKeyDown={event => {
-        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel(); onEscape(); }
-        else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); save(); }
-      }}/>
-    <div className="a"><button type="button" className="dbtn small pri" onClick={save}>Add</button>
-      <button type="button" className="dbtn small quiet" onClick={cancel}>Cancel</button></div>
-  </div>;
+export function DiffComment({ v, comment, label }: { v: Viewer; comment: ReviewComment; label: string }) {
+  const editing = useStore(v.store, s => s.editors.has(comment));
+  if (editing) return <Editor v={v} comment={comment} />;
 
   const by = comment.by ?? "", name = by ? agentLabel(by) : "";
   return <div className="dv-cmt">
     <div className="b">{by && <span className="by" title={`Written by ${name}`}>
       <HarnessIcon agent={by} />{name}
     </span>}{label && <><code>{label}</code> </>}{comment.text}</div>
-    <div className="a"><button type="button" onClick={() => setEditing(true)}>Edit</button>
-      <button type="button" aria-label="Remove the comment" onClick={onRemove}>×</button></div>
+    <div className="a"><button type="button" onClick={() => openEditor(v, comment, false)}>Edit</button>
+      <button type="button" aria-label="Remove the comment" onClick={() => removeComment(v, comment)}>×</button></div>
+  </div>;
+}
+
+function Editor({ v, comment }: { v: Viewer; comment: ReviewComment }) {
+  const input = useRef<HTMLTextAreaElement>(null);
+  const place = comment.line === null ? "Comment on this file" : "Comment on this line";
+
+  // A fresh editor takes the focus; one that moved takes up where it was.
+  useLayoutEffect(() => {
+    const node = input.current;
+    if (!node) return;
+    const snapshot = v.snapshots.get(comment);
+    v.snapshots.delete(comment);
+
+    if (!snapshot) node.focus({ preventScroll: true });
+    else {
+      node.value = snapshot.text;
+      if (snapshot.focused) { node.focus({ preventScroll: true }); node.scrollIntoView({ block: "nearest" }); }
+      node.setSelectionRange(snapshot.start, snapshot.end);
+    }
+
+    return () => {
+      if (!v.store.getState().editors.has(comment)) return;
+      v.snapshots.set(comment, { text: node.value, start: node.selectionStart, end: node.selectionEnd, focused: document.activeElement === node });
+    };
+  }, [v, comment]);
+
+  const save = () => {
+    const text = input.current?.value.trim() ?? "";
+    if (text) saveComment(v, comment, text);
+  };
+
+  return <div className="dv-cmt open">
+    <textarea ref={input} rows={2} defaultValue={comment.text} placeholder={place} aria-label={place}
+      onKeyDown={event => {
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelComment(v, comment); v.root.focus({ preventScroll: true }); }
+        else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); save(); }
+      }}/>
+    <div className="a"><button type="button" className="dbtn small pri" onClick={save}>Add</button>
+      <button type="button" className="dbtn small quiet" onClick={() => cancelComment(v, comment)}>Cancel</button></div>
   </div>;
 }

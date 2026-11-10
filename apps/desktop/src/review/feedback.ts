@@ -1,6 +1,5 @@
-import { createElement, Fragment, type ReactElement, type ReactNode } from "react";
-import { createPortal } from "react-dom";
-import { FeedbackControl, FeedbackNote, type FeedbackState } from "./feedback-view.tsx";
+import type { ReactElement } from "react";
+import type { FeedbackState } from "./feedback-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // Review with agent: the diff header's button, the start form's picker
 // under it, and what follows a pick. A pick asks the node of the diff's
@@ -20,7 +19,6 @@ import type { AgentHost } from "../agents/agents.ts";
 import type { Picked } from "../agents/agentpicker.ts";
 import { keepEffort } from "../agents/agentpick.ts";
 import { agentLabel } from "../project/projects-state.ts";
-import { el } from "../ui/dom.ts";
 import { reason } from "../ui/format.ts";
 /// Calls a Rust command; the Tauri binding loads on first use, so a diff view can be made where there is none.
 const invoke = async <T = unknown>(cmd: string, args?: Record<string, unknown>) => (await import("../ui/tauri.ts")).invoke<T>(cmd, args);
@@ -202,33 +200,38 @@ export interface FeedbackOpts {
   say: (text: string) => void;
 }
 
+/// What the header draws of a review: the button, the picker under it and why the last one failed.
+export interface FeedbackSnapshot { state: FeedbackState; picker: ReactElement | null; note: string }
+
 export interface Feedback {
-  /// The button and its picker, for the header.
-  el: HTMLElement;
-  /// Why a review failed, for under the header.
-  note: HTMLElement;
-  /// Draws both again, as the diff changes.
+  snapshot: () => FeedbackSnapshot;
+  subscribe: (listener: () => void) => () => void;
+  /// The elements the view renders, for placing the picker and closing it.
+  setBox: (box: HTMLElement | null) => void;
+  setButton: (button: HTMLButtonElement | null) => void;
+  setSlot: (slot: HTMLDivElement | null) => void;
+  click: () => void;
+  dismiss: () => void;
+  /// Reads the session's own reviews and draws again, as the diff changes.
   redraw: () => void;
   dispose: () => void;
 }
 
-export function feedbackButton(o: FeedbackOpts, render: (view: ReactNode) => void): Feedback {
-  const box = el("span", "dv-fbw");
-  const note = el("div", "dv-fbnote");
-  note.hidden = true;
+export function feedbackButton(o: FeedbackOpts): Feedback {
   let disposed = false;
+  let box: HTMLElement | null = null;
   let button: HTMLButtonElement | null = null;
   let slot: HTMLDivElement | null = null;
   let pickerView: ReactElement | null = null;
-  const setButton = (value: HTMLButtonElement | null) => { button = value; };
-  const setSlot = (value: HTMLDivElement | null) => { slot = value; };
   let open = false;
   let starting = false;
-  let attachmentWatch: MutationObserver | null = null;
   let closePickerView: ((el: HTMLElement) => void) | null = null;
   /// When the session's own reviews were last read.
   let tookAt = 0;
   const picked: Picked = { agent: "", model: "", effort: null, query: "" };
+  const listeners = new Set<() => void>();
+  let current: FeedbackSnapshot = { state: { kind: "ready", reason: "", open: false }, picker: null, note: "" };
+  const connected = () => !!box?.isConnected;
 
   const host = () => (o.machine ? hosts?.find(h => h.machine_id === o.machine!.id) ?? null : null);
   const why = () => {
@@ -256,20 +259,12 @@ export function feedbackButton(o: FeedbackOpts, render: (view: ReactNode) => voi
     const run = runs.get(o.key);
     const state: FeedbackState = run ? { kind: "running", agent: agentLabel(run.agent) }
       : starting ? { kind: "starting" } : { kind: "ready", reason: why(), open };
-    const text = notes.get(o.key) ?? "";
-    note.hidden = !text;
-    if (text) note.setAttribute("role", "status");
-    render(createElement(Fragment, null,
-      createPortal(createElement(FeedbackControl, { state, setButton, setSlot, onClick: () => void onButton() }), box, "control"),
-      createPortal(text ? createElement(FeedbackNote, { text, onDismiss: () => { notes.delete(o.key); drawButton(); } }) : null, note, "note"),
-      slot && createPortal(pickerView, slot, "picker"),
-    ));
+    current = { state, picker: pickerView, note: notes.get(o.key) ?? "" };
+    for (const listener of listeners) listener();
   }
 
   function closePicker() {
     open = false;
-    attachmentWatch?.disconnect();
-    attachmentWatch = null;
     if (slot) {
       const closing = slot;
       closePickerView?.(closing);
@@ -279,10 +274,12 @@ export function feedbackButton(o: FeedbackOpts, render: (view: ReactNode) => voi
   }
 
   const outside = (e: Event) => {
-    if (!box.contains(e.target as Node)) { closePicker(); drawButton(); }
+    if (!connected() || !(e.target instanceof Node) || !box?.contains(e.target)) { closePicker(); drawButton(); }
   };
   const onEsc = (e: KeyboardEvent) => {
     if (e.key !== "Escape") return;
+    // A diff taken off the page lets the key through.
+    if (!connected()) { closePicker(); drawButton(); return; }
     e.preventDefault();
     e.stopPropagation();
     closePicker();
@@ -292,10 +289,10 @@ export function feedbackButton(o: FeedbackOpts, render: (view: ReactNode) => voi
 
   async function drawPickerNow() {
     const h = host();
-    if (!open || !h || !o.machine || !slot || !button || !box.isConnected) return;
+    if (!open || !h || !o.machine || !slot || !button || !connected()) return;
     const { drawPicker, focusSearch, closedPicker } = await picker();
     closePickerView = closedPicker;
-    if (!open || !slot || !button || !box.isConnected) return;
+    if (!open || !slot || !button || !connected()) return;
     const currentSlot = slot, currentButton = button;
     const focused = currentSlot.contains(document.activeElement);
     drawPicker(currentSlot, {
@@ -371,17 +368,11 @@ export function feedbackButton(o: FeedbackOpts, render: (view: ReactNode) => voi
     if (open) { closePicker(); return drawButton(); }
     readHosts(redraw);
     const [a, p] = await Promise.all([agents(), picker()]);
-    if (disposed || runs.has(o.key) || open || !box.isConnected) return;
+    if (disposed || runs.has(o.key) || open || !connected()) return;
     pickDefaults(a.byPreference);
     open = true;
     document.addEventListener("pointerdown", outside, true);
     document.addEventListener("keydown", onEsc, true);
-    attachmentWatch = new MutationObserver(() => {
-      if (box.isConnected) return;
-      closePicker();
-      drawButton();
-    });
-    attachmentWatch.observe(document.documentElement, { childList: true, subtree: true });
     drawButton();
     await drawPickerNow();
     if (slot) p.focusSearch(slot);
@@ -390,7 +381,7 @@ export function feedbackButton(o: FeedbackOpts, render: (view: ReactNode) => voi
   function redraw() {
     if (disposed) return;
     if (Date.now() - tookAt >= HOSTS_MS) { tookAt = Date.now(); void takeSessionReviews(); }
-    if (open && !box.isConnected) closePicker();
+    if (open && !connected()) closePicker();
     drawButton();
     if (open && !runs.has(o.key)) void drawPickerNow();
     else if (open) closePicker();
@@ -405,10 +396,24 @@ export function feedbackButton(o: FeedbackOpts, render: (view: ReactNode) => voi
   attached.set(o.key, attachment);
   readHosts(redraw);
   redraw();
-  return { el: box, note, redraw, dispose: () => {
-    if (disposed) return;
-    disposed = true;
-    closePicker();
-    if (attached.get(o.key) === attachment) attached.delete(o.key);
-  } };
+  return {
+    snapshot: () => current,
+    subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    setBox: value => {
+      box = value;
+      // The header went with the picker open.
+      if (!value && open) { closePicker(); drawButton(); }
+    },
+    setButton: value => { button = value; },
+    setSlot: value => { slot = value; },
+    click: () => void onButton(),
+    dismiss: () => { notes.delete(o.key); drawButton(); },
+    redraw,
+    dispose: () => {
+      if (disposed) return;
+      closePicker();
+      disposed = true;
+      if (attached.get(o.key) === attachment) attached.delete(o.key);
+    },
+  };
 }

@@ -1,17 +1,17 @@
-// The diff viewer's state: what it shows, the elements it draws into and the
-// TanStack virtualizer that lays its files out. diff.ts makes one; the
-// drawing (diff-render.ts), the comment editors (diff-comments.ts) and the
-// keyboard (diff-keys.ts) act on it.
-import type { ReactNode } from "react";
-import { Virtualizer, type Range } from "@tanstack/react-virtual";
+// The diff viewer's state: what it shows, in a zustand store the React view
+// (diff-view.tsx, diff-files.tsx) renders from, and the few elements and the
+// TanStack virtualizer the view hands back, which scrolling and the keyboard
+// (diff-keys.ts) act on. diff.ts makes one and loads it; diff-comments.ts
+// edits its review comments.
+import { flushSync } from "react-dom";
+import { createStore, type StoreApi } from "zustand";
+import type { Virtualizer } from "@tanstack/react-virtual";
 import { latest } from "../ui/active.ts";
-import { el } from "../ui/dom.ts";
 import { readView, writeView } from "../agentpane/view-memory.ts";
 import type { Feedback } from "./feedback.ts";
 import { loadDraft } from "./draftstore.ts";
-import { matchesFilter, placeComments, type DiffFile, type DiffRow, type DiffView, type Placed, type ReviewComment, type SplitRow } from "./diff-state.ts";
-import type { DiffSlot, DiffSource } from "./diff.ts";
-import { keepHeld, layoutOptions, onChunks, selectionChanged } from "./diff-render.ts";
+import { matchesFilter, placeComments, sameDiffFile, type DiffFile, type DiffView, type ReviewComment } from "./diff-state.ts";
+import type { DiffSource } from "./diff.ts";
 
 /// Wider than this, the file list shows on the left.
 export const WIDE = 900;
@@ -21,187 +21,243 @@ export const NARROW = 640;
 /// Rows per chunk, how far past the viewport chunks stay drawn, and the width
 /// of one character of the code font.
 export const CHUNK = 25;
-const MARGIN = 500;
+export const MARGIN = 500;
 export const CH = 7.2;
 /// The space between two files, counted in each file's laid out size.
 export const GAP = 10;
 
-/// A run of rows, drawn only while it is near the viewport.
-interface Chunk {
-  box: HTMLElement;
-  id: number;
-  path: string;
-  rows: (DiffRow | SplitRow)[];
-  comments: ReadonlyMap<string, readonly ReviewComment[]>;
-  live: boolean;
+export interface DiffState {
+  view: DiffView | null;
+  /// Every file the list lays out, in order, as its section shows it: a file
+  /// held for a selection or an open comment keeps the version drawn, and one
+  /// the view dropped stays in place while it is held. Files the filter hides
+  /// stay in it with no height, so a hidden open editor keeps its place.
+  list: readonly DiffFile[];
+  loading: boolean;
+  error: string;
+  sending: boolean;
+  /// A short line in the header, for two seconds.
+  flash: string;
+  filter: string;
+  /// Side by side is chosen; it shows only while the viewer is not narrow.
+  split: boolean;
+  narrow: boolean;
+  /// Only the uncommitted changes, against HEAD.
+  uncommitted: boolean;
+  /// Folded or not, as the user left each file while the view is open.
+  folded: ReadonlyMap<string, boolean>;
+  closedFolders: ReadonlySet<string>;
+  filteredClosedFolders: ReadonlySet<string>;
+  /// Files being read in full or with more context.
+  pending: ReadonlySet<string>;
+  /// The file j, k and x act on: the one stepped to while it shows, else the one at the top.
+  cur: string | null;
+  /// Changes when the list should scroll the current file into view.
+  revealTree: number;
+  /// The review comments waiting to be sent.
+  draft: readonly ReviewComment[];
+  /// The comments with an open editor; true for a new one not added yet.
+  editors: ReadonlyMap<ReviewComment, boolean>;
+  /// Editors whose line left the diff, shown with the lost comments as they were.
+  orphaned: ReadonlySet<ReviewComment>;
 }
 
-export const noComments: ReadonlyMap<string, readonly ReviewComment[]> = new Map();
+/// An editor's text and selection as it unmounted, for where it mounts next.
+export interface EditorSnapshot { text: string; start: number; end: number; focused: boolean }
 
-/// An open comment editor whose line left the diff, to draw again as it was.
-export interface EditorRestore { text: string; focused: boolean; start: number; end: number; isNew: boolean }
-
-/// A drawn comment: one of the draft, or a new one not added yet.
-interface CommentEntry { id: number; comment: ReviewComment; label: string; isNew: boolean; chunkOwned: boolean; restored: EditorRestore | null }
+/// A drawn chunk of rows: whether its rows show, and how to change that.
+export interface ChunkEntry { live: boolean; set: (state: { live: boolean; height: number }) => void }
 
 export class Viewer {
   readonly src: DiffSource;
-  readonly root = el("div", "dv");
+  /// The element the view renders into, which the caller places.
+  readonly root = document.createElement("div");
+  readonly store: StoreApi<DiffState>;
   disposed = false;
-
-  view: DiffView | null = null;
-  error = "";
-  loading = false;
-  /// Folded or not, as the user left each file while the view is open.
-  readonly folded = new Map<string, boolean>();
-  readonly closedFolders = new Set<string>();
-  readonly filteredClosedFolders = new Set<string>();
-  filter = "";
-  /// Side by side is chosen; it shows only while the viewer is not narrow.
-  split = loadSplit();
-  narrow = false;
-  /// Only the uncommitted changes, against HEAD.
-  uncommitted = false;
-  /// Files being read in full.
-  readonly pending = new Set<string>();
-  /// The file j, k and x act on: the one stepped to while it shows,
-  /// else the one at the top.
-  cur: string | null = null;
-  markedPath: string | null = null;
-  revealTree = 0;
   /// Counts loads: a file read that a later load replaced is dropped.
   seq = 0;
   readonly reads = latest();
   /// Lines of context shown around each expanded file.
   readonly context = new Map<string, { original: DiffFile; above: number; below: number }>();
-
-  /// The review comments waiting to be sent.
-  draft: ReviewComment[];
-  sending = false;
-  placedCache: Placed | null = null;
-  readonly orphaned = new Map<ReviewComment, EditorRestore | null>();
-  revealOrphan = false;
-  readonly comments = new Map<HTMLElement, CommentEntry>();
-  nextComment = 0;
-  readonly lostComments = new Map<ReviewComment, HTMLElement>();
-  readonly lostHeading = el("div", "dv-lh", "On files or lines no longer in the changes");
-  readonly lostBox = el("div", "dv-lost");
-
-  /// The sections drawn now, by path: the files near the viewport and any
-  /// holding focus, a selection or an open comment.
-  readonly sections = new Map<string, HTMLElement>();
-  /// What each drawn section shows, which a deferred one keeps until it is free.
-  readonly renderedFiles = new Map<string, DiffFile>();
-  hasRenderedView = false;
-  /// Every file the list lays out, in order: the view's files and any the view
-  /// dropped whose section is kept for a selection. Files the filter hides
-  /// stay in it with no height, so a hidden open editor keeps its place.
-  list: DiffFile[] = [];
-  indexOf = new Map<string, number>();
-  laidOutFilter = "";
-  readonly deferredFiles = new Set<string>();
-  readonly selectionDeferred = new Set<string>();
-  watchingSelection = false;
-  readonly bodyModes = new Map<string, boolean>();
-  readonly headers = new Map<string, { host: HTMLElement; file: DiffFile; comments: HTMLElement }>();
-  readonly bodyControls = new Map<HTMLElement, { id: number; view: ReactNode }>();
-  nextBodyControl = 0;
-  bodyControlsDirty = false;
-  /// The chunks of rows of every drawn file.
-  readonly chunks = new Map<Element, Chunk>();
-  readonly liveChunks = new Set<Chunk>();
-  nextChunk = 0;
-
-  readonly head = el("div", "dv-head");
-  flashText = "";
+  readonly snapshots = new Map<ReviewComment, EditorSnapshot>();
+  feedback: Feedback | null = null;
   flashTimer = 0;
-  feedback: Feedback = { el: el("span"), note: el("span"), redraw() {}, dispose() {} };
-  readonly errorHost = contents();
-  readonly messageHost = contents();
-  readonly moreHost = contents();
-  readonly matchNote = el("div", "dv-more");
-  readonly tree = el("nav", "dv-tree");
-  readonly files = el("div", "dv-files");
-  /// The box the drawn sections are placed in, as tall as the whole list.
-  readonly win = el("div", "dv-win");
-  readonly grip = el("div", "dv-resize");
-  readonly body = el("div", "dv-body", this.tree, this.grip, this.files);
-  readonly keys = el("div", "dv-keys");
 
   readonly memoryKey: string;
   memory: unknown;
   restoredScroll = 0;
   rememberTimer = 0;
-  scrollFrame = 0;
 
-  readonly holdRange = (range: Range) => keepHeld(this, range);
-  readonly virtual = new Virtualizer<HTMLElement, HTMLElement>(layoutOptions(this));
-  placing = false;
-  placeAgain = false;
-  readonly chunkObserver = new IntersectionObserver(entries => onChunks(this, entries), { root: this.files, rootMargin: `${MARGIN}px 0px` });
+  /// What the view hands back as it mounts: the scrolling list, the filter,
+  /// the drawn sections by path, their chunks and the virtualizer.
+  files: HTMLElement | null = null;
+  find: HTMLInputElement | null = null;
+  readonly sections = new Map<string, HTMLElement>();
+  readonly chunks = new Map<Element, ChunkEntry>();
+  chunkObserver: IntersectionObserver | null = null;
+  virtual: Virtualizer<HTMLDivElement, HTMLElement> | null = null;
+  /// Paths held for a selection, released as it goes.
+  readonly selectionHeld = new Set<string>();
   readonly onSelection = () => selectionChanged(this);
-  /// Chunks mount and unmount their saved comments; one function each, so
-  /// the memoized chunks are not drawn again.
-  readonly mountComment = (host: HTMLElement, comment: ReviewComment) => {
-    this.comments.set(host, { id: ++this.nextComment, comment, label: "", isNew: false, chunkOwned: true, restored: null });
-  };
-  readonly unmountComment = (host: HTMLElement) => { this.comments.delete(host); };
 
   constructor(src: DiffSource) {
     this.src = src;
-    this.draft = src.readOnly ? [] : loadDraft(src.review.key);
     this.memoryKey = `${src.review.key}:diff`;
     this.memory = readView(this.memoryKey);
+    this.root.className = "dv";
     this.root.tabIndex = -1;
-    this.tree.setAttribute("aria-label", "Changed files");
-    this.files.style.position = "relative";
-    // Only a file wholly above the viewport moves the scroll as it is measured;
-    // the chunk observer keeps the file at the top steady itself.
-    this.virtual.shouldAdjustScrollPositionOnItemSizeChange = item => item.end <= this.files.scrollTop;
-
     const memory = this.memory;
-    if (!memory || typeof memory !== "object") return;
-    if ("scroll" in memory && typeof memory.scroll === "number") this.restoredScroll = memory.scroll;
-    if ("filter" in memory && typeof memory.filter === "string") this.filter = memory.filter;
-    if ("folded" in memory && Array.isArray(memory.folded)) for (const pair of memory.folded) {
-      if (Array.isArray(pair) && typeof pair[0] === "string" && typeof pair[1] === "boolean") this.folded.set(pair[0], pair[1]);
+    let filter = "";
+    const folded = new Map<string, boolean>();
+
+    if (memory && typeof memory === "object") {
+      if ("scroll" in memory && typeof memory.scroll === "number") this.restoredScroll = memory.scroll;
+      if ("filter" in memory && typeof memory.filter === "string") filter = memory.filter;
+      if ("folded" in memory && Array.isArray(memory.folded)) for (const pair of memory.folded) {
+        if (Array.isArray(pair) && typeof pair[0] === "string" && typeof pair[1] === "boolean") folded.set(pair[0], pair[1]);
+      }
     }
+
+    this.store = createStore<DiffState>(() => ({
+      view: null, list: [], loading: false, error: "", sending: false, flash: "", filter, split: loadSplit(), narrow: false,
+      uncommitted: false, folded, closedFolders: new Set(), filteredClosedFolders: new Set(), pending: new Set(), cur: null, revealTree: 0,
+      draft: src.readOnly ? [] : loadDraft(src.review.key), editors: new Map(), orphaned: new Set(),
+    }));
   }
-}
 
-function contents() {
-  const host = el("div");
-  host.style.display = "contents";
-  return host;
-}
+  get state() { return this.store.getState(); }
 
-export function render(v: Viewer, slot: DiffSlot, content: ReactNode) {
-  if (!v.disposed) v.src.owner.set(slot, content);
+  /// Changes the state and renders it before returning, for callers that
+  /// measure or scroll the result.
+  set(change: Partial<DiffState>) {
+    if (this.disposed) { this.store.setState(change); return; }
+    flushSync(() => this.store.setState(change));
+  }
 }
 
 /// Keeps the scroll, filter, folds and context for the next time the diff opens.
 export function remember(v: Viewer) {
   clearTimeout(v.rememberTimer);
   v.rememberTimer = 0;
-  writeView(v.memoryKey, { scroll: v.files.scrollTop, filter: v.filter, folded: [...v.folded], context: [...v.context].map(([path, value]) => [path, value.above, value.below]) });
+  const s = v.state;
+  writeView(v.memoryKey, { scroll: v.files?.scrollTop ?? 0, filter: s.filter, folded: [...s.folded], context: [...v.context].map(([path, value]) => [path, value.above, value.below]) });
 }
 
-/// Where the draft's comments go, with any orphaned editors among the lost.
-export function placed(v: Viewer) {
-  if (v.placedCache) return v.placedCache;
-  const out = placeComments(v.view?.files ?? [], v.draft.filter(comment => !v.orphaned.has(comment)));
-  out.lost.push(...v.orphaned.keys());
-  return v.placedCache = out;
-}
-
-export function shown(v: Viewer): DiffFile[] {
-  return v.view ? v.view.files.filter(f => matchesFilter(f, v.filter)) : [];
+export function shown(s: Pick<DiffState, "view" | "filter">): DiffFile[] {
+  return s.view ? s.view.files.filter(f => matchesFilter(f, s.filter)) : [];
 }
 
 /// Whether the user's selection reaches into `box`: emptying it would lose the text.
-export function selected(box: HTMLElement) {
+export function selected(box: Node) {
   const sel = document.getSelection();
   return !!sel && !sel.isCollapsed && sel.containsNode(box, true);
+}
+
+/// Brings the laid out files up to the view. A file whose section holds a
+/// selection, or an open comment still on a line it has, keeps the version
+/// drawn until they go; an open comment whose line went joins the lost ones.
+/// `force` names files drawn again even when they read the same.
+export function reconcile(v: Viewer, force: ReadonlySet<string> = new Set()) {
+  const { view, list: before, editors, orphaned } = v.state;
+  if (!view) return;
+  const old = new Map(before.map(file => [file.path, file]));
+  const incoming = new Map(view.files.map(file => [file.path, file]));
+  const orphans = new Set(orphaned);
+  v.selectionHeld.clear();
+
+  const decide = (path: string, next: DiffFile | null): DiffFile | null => {
+    const prev = old.get(path);
+    if (!prev) return next;
+    if (next && !force.has(path) && sameDiffFile(prev, next)) return prev;
+    const section = v.sections.get(path);
+
+    if (section && selected(section)) {
+      v.selectionHeld.add(path);
+      return prev;
+    }
+
+    const open = [...editors.keys()].filter(comment => comment.path === path && !orphans.has(comment));
+    if (next && open.some(comment => anchored(next, comment))) return prev;
+    for (const comment of open) orphans.add(comment);
+    return next;
+  };
+
+  const list: DiffFile[] = [];
+  for (const file of view.files) list.push(decide(file.path, file) ?? file);
+
+  before.forEach((file, index) => {
+    if (incoming.has(file.path)) return;
+    const kept = decide(file.path, null);
+    if (kept) list.splice(Math.min(index, list.length), 0, kept);
+  });
+
+  const same = list.length === before.length && list.every((file, index) => file === before[index]);
+  const change: Partial<DiffState> = {};
+  if (!same) change.list = list;
+  if (orphans.size !== orphaned.size) change.orphaned = orphans;
+  if (change.list || change.orphaned) v.set(change);
+  if (v.selectionHeld.size) document.addEventListener("selectionchange", v.onSelection);
+  else document.removeEventListener("selectionchange", v.onSelection);
+}
+
+/// Whether `comment` still has its place in `file`.
+function anchored(file: DiffFile, comment: ReviewComment) {
+  return comment.line === null || !!placeComments([file], [comment]).files.get(file.path)?.lines.size;
+}
+
+/// A file held for a selection is drawn again once the selection leaves it.
+function selectionChanged(v: Viewer) {
+  if (!v.root.isConnected || v.disposed) {
+    v.selectionHeld.clear();
+    document.removeEventListener("selectionchange", v.onSelection);
+    return;
+  }
+
+  for (const path of v.selectionHeld) {
+    const section = v.sections.get(path);
+    if (section && selected(section)) continue;
+    const top = v.files?.scrollTop ?? 0;
+    reconcile(v);
+    if (v.files && v.files.scrollTop !== top) v.files.scrollTop = top;
+    return;
+  }
+}
+
+/// The laid out box of the file at `index`.
+export function itemAt(v: Viewer, index: number | undefined) {
+  if (index === undefined || index < 0 || !v.virtual) return null;
+  v.virtual.getVirtualItems();
+  return v.virtual.measurementsCache[index] ?? null;
+}
+
+export function indexOf(v: Viewer, path: string | null) {
+  if (path === null) return -1;
+  return v.state.list.findIndex(file => file.path === path);
+}
+
+/// Lays out every file again from estimates, measuring the drawn ones now.
+export function remeasure(v: Viewer) {
+  const virtual = v.virtual;
+  if (!virtual) return;
+  virtual.measure();
+  for (const section of v.sections.values()) virtual.measureElement(section);
+}
+
+/// Keeps the current file where it is on screen through `run`.
+export function keepCurrent(v: Viewer, run: () => void) {
+  const before = itemAt(v, indexOf(v, v.state.cur));
+  const offset = before && v.files ? v.files.scrollTop - before.start : 0;
+  run();
+  const after = itemAt(v, indexOf(v, v.state.cur));
+  if (before && after && v.files && after.start !== before.start) v.files.scrollTop = after.start + offset;
+}
+
+/// Shows `text` in the header for two seconds.
+export function say(v: Viewer, text: string) {
+  if (v.disposed) return;
+  v.store.setState({ flash: text });
+  clearTimeout(v.flashTimer);
+  v.flashTimer = window.setTimeout(() => v.store.setState({ flash: "" }), 2000);
 }
 
 const SPLIT_KEY = "beep.diffSplit";
@@ -216,6 +272,6 @@ export function saveSplit(on: boolean) {
 
 export function reasonOf(e: unknown) {
   if (typeof e === "string") return e;
-  if (e && typeof e === "object" && "message" in e) return String((e as { message: unknown }).message);
+  if (e && typeof e === "object" && "message" in e) return String(e.message);
   return String(e);
 }

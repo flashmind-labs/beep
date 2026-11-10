@@ -18,7 +18,7 @@ test("feedback control keeps focus and its picker across updates", async () => {
   let button: HTMLButtonElement | null = null, slot: HTMLDivElement | null = null, clicked = 0, dismissed = 0;
   const setButton = (value: HTMLButtonElement | null) => { button = value; };
   const setSlot = (value: HTMLDivElement | null) => { slot = value; };
-  const props = { setButton, setSlot, onClick: () => { clicked++; } };
+  const props = { setButton, setSlot, onClick: () => { clicked++; }, picker: null };
   const render = (state: FeedbackState) => root.render(createElement(FeedbackControl, { ...props, state }));
   try {
     await act(() => { render({ kind: "ready", reason: "Machine offline", open: false }); });

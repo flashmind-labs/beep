@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import type { ReactNode, Ref } from "react";
 import { baseTitle, type DiffView } from "./diff-state.ts";
 import { DiffSummary } from "./diff-summary.tsx";
 
@@ -14,7 +14,9 @@ interface DiffToolbarProps {
   comments: number;
   sending: boolean;
   readOnly: boolean;
-  feedback: HTMLElement;
+  /// Review with agent, or an empty span where a diff has none.
+  feedback: ReactNode;
+  findRef: Ref<HTMLInputElement>;
   onFilter: (value: string) => void;
   onSplit: () => void;
   onUncommitted: () => void;
@@ -24,9 +26,6 @@ interface DiffToolbarProps {
 }
 
 export function DiffToolbar(props: DiffToolbarProps) {
-  const attachFeedback = useCallback((slot: HTMLSpanElement | null) => {
-    if (slot && props.feedback.parentElement !== slot) slot.append(props.feedback);
-  }, [props.feedback]);
   const none = !props.view?.files.length;
   const foldTitle = props.allFolded ? "Expand all" : "Collapse all";
   const sendTitle = `Send ${props.comments} ${props.comments === 1 ? "comment" : "comments"} to the agent as one message`;
@@ -34,7 +33,7 @@ export function DiffToolbar(props: DiffToolbarProps) {
     <span className="dv-sum" title={props.view ? baseTitle(props.view, props.uncommitted) : ""}>
       <DiffSummary view={props.view} loading={props.loading} uncommitted={props.uncommitted} />
     </span>
-    <input className="dv-find" placeholder="Filter" aria-label="Filter files" spellCheck={false} disabled={none}
+    <input ref={props.findRef} className="dv-find" placeholder="Filter" aria-label="Filter files" spellCheck={false} disabled={none}
       value={props.filter} onChange={event => props.onFilter(event.currentTarget.value)} />
     <span className="dv-tools">
       {props.showUncommitted && <button type="button" className="dv-btn icon"
@@ -61,7 +60,7 @@ export function DiffToolbar(props: DiffToolbarProps) {
     </span>
     <span className="dv-sp"/>
     <span className="dv-flash" role="status">{props.flash}</span>
-    <span ref={attachFeedback} style={{ display: "contents" }}/>
+    <span style={{ display: "contents" }}>{props.feedback}</span>
     <button type="button" className="dbtn pri small" title={sendTitle} hidden={props.readOnly || !props.comments}
       disabled={props.sending} onClick={props.onSend}>Send review<span className="dv-n">{props.comments}</span></button>
   </>;
