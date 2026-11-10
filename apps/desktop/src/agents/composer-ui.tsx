@@ -5,12 +5,15 @@ import { AgentQueue } from "./queue-view.tsx";
 import type { Waiting } from "./agentqueue.ts";
 import type { Row } from "./mention-state.ts";
 
-interface Owner { field: HTMLElement; root: DocumentView; queue: HTMLElement | null; queueSignature: string | null; attachments: HTMLElement | null; menu: HTMLElement | null; queueView: ReactElement | null; attachmentView: ReactElement | null; menuView: ReactElement | null; controls: Map<HTMLElement, { key: number; node: ReactElement | null }>; next: number; observer: MutationObserver }
+interface Owner { field: HTMLElement; root: DocumentView; queue: HTMLElement | null; queueSignature: string | null; attachments: HTMLElement | null; menu: HTMLElement | null; queueView: ReactElement | null; attachmentView: ReactElement | null; menuView: ReactElement | null; work: Work; controls: Map<HTMLElement, { key: number; node: ReactElement | null }>; next: number; observer: MutationObserver }
+/// Background commands and queued steers fold into one line above the field on a phone;
+/// the line opens their list over the log.
+interface Work { host: HTMLElement | null; running: number; queued: number; open: boolean }
 // One owner keeps all session composer portals alive until the field leaves.
 // Queue, attachment and menu hosts can come and go without replacing controls.
 let current: Owner | null = null;
 function draw(owner: Owner) {
-  flushSync(() => owner.root.render(createElement(Fragment, null, owner.queue && createPortal(owner.queueView, owner.queue, "queue"), owner.attachments && createPortal(owner.attachmentView, owner.attachments, "attachments"), owner.menu && createPortal(owner.menuView, owner.menu, "menu"), ...[...owner.controls].map(([host, control]) => createPortal(control.node, host, control.key)))));
+  flushSync(() => owner.root.render(createElement(Fragment, null, owner.queue && createPortal(owner.queueView, owner.queue, "queue"), owner.attachments && createPortal(owner.attachmentView, owner.attachments, "attachments"), owner.menu && createPortal(owner.menuView, owner.menu, "menu"), owner.work.host && createPortal(workLine(owner), owner.work.host, "work"), ...[...owner.controls].map(([host, control]) => createPortal(control.node, host, control.key)))));
 }
 function ownerOf(field: HTMLElement): Owner {
   if (current?.field === field) return current;
@@ -18,7 +21,7 @@ function ownerOf(field: HTMLElement): Owner {
   const root = createDocumentView(document.createElement("div"));
   const observer = new MutationObserver(() => { if (current?.field === field && !field.isConnected) disposeComposerUi(); });
   observer.observe(document.body, { childList: true, subtree: true });
-  current = { field, root, queue: null, queueSignature: null, attachments: null, menu: null, queueView: null, attachmentView: null, menuView: null, controls: new Map(), next: 0, observer };
+  current = { field, root, queue: null, queueSignature: null, attachments: null, menu: null, queueView: null, attachmentView: null, menuView: null, work: { host: null, running: 0, queued: 0, open: false }, controls: new Map(), next: 0, observer };
   return current;
 }
 export function disposeComposerUi() {
@@ -40,7 +43,8 @@ export function showAgentAttachments(field: HTMLElement, view: ReactElement | nu
 export function showAgentQueue(field: HTMLElement, items: readonly Waiting[]) {
   if (!items.length) {
     if (!current || current.field !== field || !current.queue) return;
-    const owner = current; owner.queue = null; owner.queueSignature = null; owner.queueView = null; draw(owner);
+    const owner = current; owner.queue = null; owner.queueSignature = null; owner.queueView = null;
+    countWork(owner, { queued: 0 }); draw(owner);
     return;
   }
   const owner = ownerOf(field);
@@ -49,8 +53,34 @@ export function showAgentQueue(field: HTMLElement, items: readonly Waiting[]) {
   owner.queue ??= field.parentElement?.querySelector<HTMLElement>("[data-agent-queue-slot]") ?? null;
   if (!owner.queue) return;
   owner.queueSignature = signature;
-  owner.queueView = createElement("div", { className: "ag-queue", id: "agqueue" }, createElement(AgentQueue, { items })); draw(owner);
+  owner.queueView = createElement("div", { className: "ag-queue", id: "agqueue" }, createElement(AgentQueue, { items }));
+  countWork(owner, { queued: items.length }); draw(owner);
 }
+
+/// The background commands in `host`, `running` of them.
+export function showAgentTasks(field: HTMLElement, host: HTMLElement, node: ReactElement | null, running: number) {
+  const owner = ownerOf(field);
+  if (owner.work.running !== running) { countWork(owner, { running }); draw(owner); }
+  showAgentControl(field, host, node);
+}
+
+function countWork(owner: Owner, counts: Partial<Pick<Work, "running" | "queued">>) {
+  const work = { ...owner.work, ...counts };
+  work.host ??= owner.field.parentElement?.querySelector<HTMLElement>("[data-agent-work-line]") ?? null;
+  if (!work.running && !work.queued) work.open = false;
+  owner.work = work;
+}
+
+function workLine(owner: Owner) {
+  const { running, queued, open } = owner.work;
+  if (!running && !queued) return null;
+
+  const toggle = () => { owner.work = { ...owner.work, open: !owner.work.open }; draw(owner); };
+  const text = [running ? `${running} running` : "", queued ? `${queued} queued` : ""].filter(Boolean).join(", ");
+  // Keeps the field focused, so the keyboard and the composer stay where they are.
+  return <button type="button" className="ag-workline" aria-expanded={open} onMouseDown={event => event.preventDefault()} onClick={toggle}><i /><span>{text}</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={open ? "M6 9l6 6 6-6" : "M6 15l6-6 6 6"} /></svg></button>;
+}
+
 function Menu({ rows, index, pick }: { rows: Row[]; index: number; pick(index: number): void }) {
   const selected = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => { selected.current?.scrollIntoView({ block: "nearest" }); }, [index]);

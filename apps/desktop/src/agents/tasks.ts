@@ -2,7 +2,7 @@
 // above the field with each one's name and a Stop button.
 import { createElement, Fragment } from "react";
 import { $ } from "../bar/core.ts";
-import { showAgentControl } from "./composer-ui.tsx";
+import { showAgentTasks } from "./composer-ui.tsx";
 import { type AgentTask, type OpenAgent, AG, AGENT_READ_WAIT_MS, where } from "./agents.ts";
 import { steerAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -37,14 +37,14 @@ export function drawTasks() {
   for (const id of stopping) if (!live.some(t => t.id === id)) stopping.delete(id);
   const field = $("#agfield"), host = $("#agtasks");
   if (!field || !host) return;
-  showAgentControl(field, host, createElement(Fragment, null, live.map(t => {
+  showAgentTasks(field, host, createElement(Fragment, null, live.map(t => {
     const going = stopping.has(t.id);
     const what = t.description || t.name;
     return createElement("div", { className: "ag-task", key: t.id },
       createElement("span", { className: "dspin" }),
       createElement("span", { className: "nm", title: what }, t.name || what),
       t.can_stop && createElement("button", { className: "dbtn quiet small", "data-agtask": t.id, disabled: going }, going ? "Stopping" : "Stop"));
-  })));
+  })), live.length);
 }
 
 /// Stop was clicked on task `id`.
