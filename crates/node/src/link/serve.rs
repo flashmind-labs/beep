@@ -200,7 +200,7 @@ pub async fn serve(
     let agents = offers.agents.clone();
     let presence_dir = state.dir.clone();
     let _presence = AbortOnDropHandle::new(tokio::spawn(async move {
-        if let Err(e) = crate::agents::presence::listen(agents, &presence_dir).await {
+        if let Err(e) = crate::agents::presence::listen_in(agents, &presence_dir).await {
             log::warn!("not taking session presence: {e:#}");
         }
     }));
