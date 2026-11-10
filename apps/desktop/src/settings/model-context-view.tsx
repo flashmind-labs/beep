@@ -1,9 +1,10 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef } from "react";
+import { useStore } from "zustand";
 import { modelDraft, modelProblem, modelRules } from "./model-context-state.ts";
-import { supportsOverrides, type ModelContextPanel } from "./model-context.ts";
+import { contextOf, supportsOverrides, type ModelContextPanel } from "./model-context.ts";
 
 export function ModelContextView({ panel, machine, agent }: { panel: ModelContextPanel; machine: string; agent: string }) {
-  const state = useSyncExternalStore(panel.subscribe, () => panel.snapshot(machine, agent));
+  const state = useStore(panel.states, states => contextOf(states, machine, agent));
   const added = useRef<HTMLInputElement>(null);
   const focusAdded = useRef(false);
   useEffect(() => { if (!state.loaded && !state.loading && !state.error) void panel.load(machine, agent); }, [panel, machine, agent, state.loaded, state.loading, state.error]);

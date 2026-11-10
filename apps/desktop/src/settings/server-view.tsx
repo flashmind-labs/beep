@@ -1,23 +1,31 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ICON } from "../ui/icons.tsx";
+import { useEffect, useRef, useState } from "react";
+import { createStore, useStore } from "zustand";
+import { Icon } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { ACTION_LABEL, SIGN_OUT_ASK, serverKind, serverView, type Reach } from "./server-state.ts";
 import { signInWay } from "./subscription.ts";
 import type { Device, MacSettings } from "./settings.ts";
 import type { LinkState } from "../bar/core.ts";
 
-const pending = new Set<string>(), listeners = new Set<() => void>();
-let revision = 0;
-function changed() { revision++; for (const listener of listeners) listener(); }
-const subscribe = (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); };
+// Actions still running, by key; they outlive a remount of the view.
+const pendingStore = createStore<ReadonlySet<string>>()(() => new Set());
 async function run(key: string, action: () => Promise<void>) {
-  if (pending.has(key)) return;
-  pending.add(key); changed();
-  try { await action(); } finally { pending.delete(key); changed(); }
+  if (pendingStore.getState().has(key)) return;
+  pendingStore.setState(keys => new Set(keys).add(key), true);
+
+  try { await action(); }
+  finally {
+    pendingStore.setState(keys => {
+      const next = new Set(keys);
+      next.delete(key);
+      return next;
+    }, true);
+  }
 }
+
 interface Props { settings: MacSettings; devices: Device[] | null; link: LinkState; signedOut: boolean; reach: Reach | null; refresh(): void; invite(): void; away(): void }
 export function ServerView(p: Props) {
-  useSyncExternalStore(subscribe, () => revision);
+  const pending = useStore(pendingStore);
   const [confirm, setConfirm] = useState<"signout" | "unlink" | null>(null), [error, setError] = useState(""), [unlinkError, setUnlinkError] = useState("");
   const [tokenMode, setTokenMode] = useState(false), [token, setToken] = useState(""), [tokenError, setTokenError] = useState(""), [started, setStarted] = useState(false);
   const active = useRef(true), tokenInput = useRef<HTMLInputElement>(null);
@@ -64,6 +72,6 @@ export function ServerView(p: Props) {
   })}</div>
     {asking && <div className="dcard"><div className="dask"><b className="dtitle">{SIGN_OUT_ASK.title}</b><div className="dmuted dblock">{SIGN_OUT_ASK.note}</div><div className="dline"><button className="dbtn warn" id="signOutYes" disabled={pending.has("sign-out")} onClick={signOut}>{SIGN_OUT_ASK.confirm}</button><button className="dbtn quiet" id="signOutNo" onClick={() => { setError(""); setConfirm(null); }}>{SIGN_OUT_ASK.cancel}</button></div></div></div>}
     <div id="subNote">{tokenMode && <label className="dfield">Finish in your browser, or paste the token<input ref={tokenInput} id="subToken" className="mono" autoComplete="off" spellCheck={false} placeholder="Token" value={token} disabled={pending.has("token")} onChange={e => complete(e.currentTarget.value)} /></label>}{tokenError && <div className="derr" id="subErr">{tokenError}</div>}</div><div className="derr" id="serverErr">{error}</div>
-    {view.devices && (devices === null ? <div className="dskel-rows"><div className="dskel" style={{ width: "78%" }} /><div className="dskel" style={{ width: "56%" }} /></div> : <><div className="dsec flat dgroup">Devices{(owner || confirm !== "unlink") && <button className="dbtn" id="invite" onClick={p.invite}>Link a phone…</button>}</div><div className="dcard ddevices">{devices.map(device => <div className="dtoggle" key={device.id}><span><b className="dline tight">{device.name}{device.this_device && <span className="dtag">This computer</span>}{device.primary && <span className="dtag">Owner</span>}</b><small>{device.kind === "phone" ? "Phone" : "Computer"}</small></span>{owner && !device.this_device && <button className="dbtn quiet" data-remove={device.id} aria-label={`Remove ${device.name}`} disabled={pending.has(`remove:${device.id}`)} onClick={() => remove(device.id)} dangerouslySetInnerHTML={{ __html: ICON.x }} />}</div>)}{!owner && confirm !== "unlink" && <div className="dtoggle"><span><small>This computer: {p.settings.name}</small></span><button className="dbtn warn" id="unlink" onClick={() => { setUnlinkError(""); setConfirm("unlink"); }}>Unlink this computer</button></div>}</div>{confirm === "unlink" && <div className="dcard"><div className="dask"><b className="dtitle">Unlink this computer?</b><div className="dmuted dblock">This computer stops seeing your chats and memories. Your phone keeps them. To use Beep here again, start over and link it from the phone.</div><div className="dline"><button className="dbtn warn" id="unlinkYes" disabled={pending.has("unlink")} onClick={unlink}>Unlink</button><button className="dbtn quiet" id="unlinkNo" onClick={() => { setUnlinkError(""); setConfirm(null); }}>Cancel</button></div><div className="derr" id="unlinkErr">{unlinkError}</div></div></div>}</>)}
+    {view.devices && (devices === null ? <div className="dskel-rows"><div className="dskel" style={{ width: "78%" }} /><div className="dskel" style={{ width: "56%" }} /></div> : <><div className="dsec flat dgroup">Devices{(owner || confirm !== "unlink") && <button className="dbtn" id="invite" onClick={p.invite}>Link a phone…</button>}</div><div className="dcard ddevices">{devices.map(device => <div className="dtoggle" key={device.id}><span><b className="dline tight">{device.name}{device.this_device && <span className="dtag">This computer</span>}{device.primary && <span className="dtag">Owner</span>}</b><small>{device.kind === "phone" ? "Phone" : "Computer"}</small></span>{owner && !device.this_device && <button className="dbtn quiet" data-remove={device.id} aria-label={`Remove ${device.name}`} disabled={pending.has(`remove:${device.id}`)} onClick={() => remove(device.id)}><Icon name="x" /></button>}</div>)}{!owner && confirm !== "unlink" && <div className="dtoggle"><span><small>This computer: {p.settings.name}</small></span><button className="dbtn warn" id="unlink" onClick={() => { setUnlinkError(""); setConfirm("unlink"); }}>Unlink this computer</button></div>}</div>{confirm === "unlink" && <div className="dcard"><div className="dask"><b className="dtitle">Unlink this computer?</b><div className="dmuted dblock">This computer stops seeing your chats and memories. Your phone keeps them. To use Beep here again, start over and link it from the phone.</div><div className="dline"><button className="dbtn warn" id="unlinkYes" disabled={pending.has("unlink")} onClick={unlink}>Unlink</button><button className="dbtn quiet" id="unlinkNo" onClick={() => { setUnlinkError(""); setConfirm(null); }}>Cancel</button></div><div className="derr" id="unlinkErr">{unlinkError}</div></div></div>}</>)}
   </>;
 }
