@@ -1,9 +1,8 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
+import { createDocumentScope, createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { StashPanel } from "./stash-view.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
-import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { hasStashMessage, type StashEntry, type StashMessage } from "./stash-state.ts";
 
@@ -72,12 +71,17 @@ async function reload(project: string) {
   }
 }
 
+const noticeScope = createDocumentScope<string>();
+const notices = new WeakMap<HTMLElement, { key: string; timer: ReturnType<typeof setTimeout> }>();
+let nextNotice = 0;
 function note(field: HTMLTextAreaElement, text: string) {
-  const root = field.closest(".agconv, form, .dinput") ?? field.parentElement!;
-  root.querySelector(".prompt-stash-note")?.remove();
-  const el = h(`<div class="prompt-stash-note" role="status">${esc(text)}</div>`);
-  root.append(el);
-  setTimeout(() => el.remove(), 6000);
+  const root = field.closest<HTMLElement>(".agconv, form, .dinput") ?? field.parentElement;
+  if (!root) return;
+  const prior = notices.get(root), key = prior?.key ?? String(++nextNotice);
+  if (prior) clearTimeout(prior.timer);
+  noticeScope.set([{ slot: key, host: root, content: createElement("div", { className: "prompt-stash-note", role: "status" }, text) }]);
+  const timer = setTimeout(() => { noticeScope.remove([key]); notices.delete(root); }, 6000);
+  notices.set(root, { key, timer });
 }
 
 function close() {
