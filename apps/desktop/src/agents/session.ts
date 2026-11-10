@@ -6,7 +6,6 @@ import { bindSessionStash } from "./stash.ts";
 import { AgentFeed } from "./agentfeed-state.ts";
 import { TranscriptCache, transcriptKey, type TranscriptUpdate } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.ts";
-import { filePicker } from "./file-picker.ts";
 import { fileLinkMenu } from "./filelinks.ts";
 import { conversationHistory } from "./conversation-state.ts";
 // One coding agent session in the bar: opening it, following it while it
@@ -564,7 +563,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     await pollAgent(true);
     void loadSessions().catch(e => console.warn("session titles:", e));
   };
-  showSessionFrame({ head: createElement(SessionHead, { agent: s.agent, title: s.title || k.name, folder: project?.label || shortCwd(s.cwd) || k.name, project: !!project, cwd: s.cwd, machine: s.machine_name, usage: usage.of === usageKey(s) ? usage.text : "", saveTitle }), field: createElement(SessionField, { mode, name: k.name, banner }), body: b, hints: agentHints() }, inPlace, disposeQueue);
+  showSessionFrame({ head: createElement(SessionHead, { agent: s.agent, title: s.title || k.name, folder: project?.label || shortCwd(s.cwd) || k.name, project: !!project, cwd: s.cwd, machine: s.machine_name, usage: usage.of === usageKey(s) ? usage.text : "", saveTitle }), field: createElement(SessionField, { mode, name: k.name, banner, attach: agentDrop }), body: b, hints: agentHints() }, inPlace, disposeQueue);
   if (left && left.body !== b) {
     disposeLogShell(left.body);
   }
@@ -579,8 +578,6 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const msg = $<HTMLTextAreaElement>("#agmsg");
 
   if (msg) {
-    const picker = filePicker(agentDrop);
-    msg.before(picker.button, picker.input);
     composeField(msg, { images: agentAttach, grow: 156, draft: JSON.stringify([s.machine_id, s.agent, s.id]) });
     bindMentionMenu(msg);
     bindSessionStash(msg);

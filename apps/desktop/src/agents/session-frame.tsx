@@ -1,3 +1,4 @@
+import { FilePicker } from "./file-picker.tsx";
 import { StashActions, StashIndicator } from "../chat/stash-hints.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { SHORTCUTS } from "../ui/shortcuts.ts";
@@ -59,10 +60,10 @@ export function updateSessionTitle(title: string) {
   draw(owner);
 }
 
-export function SessionField({ mode, name, banner }: { mode: "native" | "readonly" | "writable"; name: string; banner: string }) {
+export function SessionField({ mode, name, banner, attach }: { mode: "native" | "readonly" | "writable"; name: string; banner: string; attach(files: File[]): unknown }) {
   if (mode === "native") return <div className="dinput small" id="agfield"><textarea id="agnativemsg" rows={1} aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message" /><span id="agmodel" /><button className="dbtn" id="agnativeparent">Open parent</button></div>;
   if (mode === "readonly") return <div className="dmuted dblock dbanner">{banner}</div>;
-  return <><div id="agmovebox" /><div id="agplan" /><div id="agtasks" /><div className="dinput small" id="agfield"><textarea id="agmsg" rows={1} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode" /><span id="agmodel" /><button className="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)" /><button className="dbtn" id="agsend" aria-label="Send" dangerouslySetInnerHTML={{ __html: ICON.send }} /></div><div id="agpickm" /></>;
+  return <><div id="agmovebox" /><div id="agplan" /><div id="agtasks" /><div className="dinput small" id="agfield"><FilePicker attach={attach} /><textarea id="agmsg" rows={1} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode" /><span id="agmodel" /><button className="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)" /><button className="dbtn" id="agsend" aria-label="Send" dangerouslySetInnerHTML={{ __html: ICON.send }} /></div><div id="agpickm" /></>;
 }
 
 // A draft and the session it starts share the same dock nodes. Their terminals
