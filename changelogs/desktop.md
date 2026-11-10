@@ -11,24 +11,12 @@ Other apps have independent versions and changelogs:
 
 ### Added
 
-- Desktop: search the Projects page by project name, folder or remote; press
-  / or ⌘F to start typing.
 - macOS: check for updates hourly and show release notes in Sparkle's standard
   native update dialog.
 - Release notes are kept for each version and included in desktop update feeds.
 
-### Changed
-
-- Desktop: the Projects page lists the most recently active projects first
-  within each group, after pinned ones.
-- Desktop: a running agent session, or one waiting on a question, stays
-  followed after you leave it or hide the window, and shows what it did at
-  once when opened again. Idle sessions are let go after five minutes.
-
 ### Fixed
 
-- Desktop: in a narrow window the Projects page no longer runs off the
-  side with long names, folders or group headings.
 - Desktop: preserve panel scroll, drafts and selections during live updates.
 - Desktop: reject stale approvals after their question or session changes.
 - Desktop: retain terminal controls when returning to a cached session.
@@ -61,16 +49,6 @@ Other apps have independent versions and changelogs:
 - Desktop: Home, Terminals, Sync, project pages, Coding agents and the agent
   list open at once from what the window already holds. They read again only
   after something they show changed, instead of on every visit.
-- Desktop: a session's Changes and Files tabs show what they had at once when
-  you return to them, for the last four sessions and folders, and read the
-  diff or folders again only when something in the folder changed.
-- Desktop: large diffs and reviews open and scroll smoothly. Only the files
-  and lines near the viewport are drawn, in the diff and in its file list, so
-  a branch with hundreds of changed files no longer slows the whole window.
-- Desktop: hiding and showing a window no longer reloads every view. Live
-  updates pause while it is hidden and, if it shows again within five
-  minutes, only what changed meanwhile is sent. Sending a prompt or another
-  action reloads only the views it affects.
 
 ## [0.7.0] - 2026-11-09
 
