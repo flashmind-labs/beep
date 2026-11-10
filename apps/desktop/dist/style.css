@@ -180,7 +180,6 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .aglocation .agfolder { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .aglocation .agproj { color: inherit }
 .aglocation #aghere { flex: none; white-space: nowrap }
-.agempty { height: 100%; display: grid; place-items: center; color: var(--dim); font-size: 13px }
 #agdraft { flex: none }
 #agdraft > .cc-pjc { margin-inline: 16px }
 .dhead .aguse { flex: 0 1 auto; min-width: 0; max-width: 48%; margin: 0; font-size: 11px; line-height: 16px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; text-wrap: balance; overflow-wrap: anywhere }
@@ -879,7 +878,6 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dthink .kk { max-height: calc(1.55em * 9); overflow-y: auto; scrollbar-width: none; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted) }
 .dthink .kk::-webkit-scrollbar { display: none }
 @media (prefers-reduced-motion: reduce) { .dthink.live .lb { animation: none } .dthink .bd, .dthink .cv { transition: none } }
-.dcoderthought { margin-top: -6px; padding-left: 24px; font-size: 12.5px; font-style: italic; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dcoderen.qa { display: grid; gap: 2px; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); white-space: normal }
 .dcoderen.qa .q { font-size: 12.5px; color: var(--muted) } .dcoderen.qa .a { font-size: 13.5px }
 .dcoderen img.pic:not([src]) { width: 120px; height: 80px; background: var(--surface) }
@@ -1264,7 +1262,6 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dlead { font-size: 12.5px; color: var(--muted); margin: 4px 0 8px; max-width: 60ch }
 .dsecret { flex: 1; font-family: var(--mono); font-size: 12.5px }
 .dcred-form { padding: 10px 0; border-bottom: 1px solid var(--border); display: grid; gap: 8px; font-size: 13px }
-.dcred-row { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px }
 .dflow { padding: 8px 10px; margin: 4px 0; border-radius: var(--radius-sm); background: var(--elev); border: 1px solid var(--border); font-size: 12.5px; display: grid; gap: 6px }
 .dflowcode { font-family: var(--mono); font-size: 18px; font-weight: 600; letter-spacing: .1em; user-select: all; cursor: text }
 /* A state chip: neutral, or coloured by what it says. Built by stateChip. */
