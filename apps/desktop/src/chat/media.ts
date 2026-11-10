@@ -1,6 +1,5 @@
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
+import { createDocumentScope } from "../ui/document-root.tsx";
 import { Viewer, ViewerNotice } from "./viewer-view.tsx";
 import { IMAGE_TYPES } from "./compose-text.ts";
 import { focusAsk } from "./chat.ts";
@@ -110,12 +109,13 @@ export function loadPic(id: string, mime: string) {
 export const V: { pics: ViewerPic[]; at: number } = { pics: [], at: 0 };
 let viewerHost = bar;
 let viewerFocus: HTMLElement | null = null;
-let viewer: { host: HTMLElement; root: DocumentView; observer: MutationObserver } | null = null;
+/// The viewer and its notes, drawn at the end of the element they cover.
+const overlays = createDocumentScope<"viewer" | "notice">();
+let viewerOpen = false;
 
 function disposeViewer() {
-  const current = viewer; viewer = null;
-  if (!current) return;
-  current.observer.disconnect(); current.root.unmount(); current.host.remove();
+  viewerOpen = false;
+  overlays.remove(["viewer"]);
 }
 
 export function openViewer(pics: ViewerPic[], at: number, host = bar) {
@@ -137,17 +137,8 @@ type ViewerAct = "prev" | "next" | "close" | "save" | "copy" | "open";
 
 /// The open picture over the whole bar, with arrows when there are more.
 export function drawViewer() {
-  if (viewer && !viewer.host.isConnected) disposeViewer();
-  if (!viewer) {
-    const host = document.createElement("div");
-    host.style.display = "contents";
-    viewerHost.append(host);
-    const root = createDocumentView(host);
-    const observer = new MutationObserver(() => { if (viewer?.host === host && !host.isConnected) disposeViewer(); });
-    observer.observe(document.body, { childList: true, subtree: true });
-    viewer = { host, root, observer };
-  }
-  flushSync(() => viewer?.root.render(createElement(Viewer, { pictures: V.pics, at: V.at })));
+  viewerOpen = true;
+  overlays.set([{ slot: "viewer", host: viewerHost, content: createElement(Viewer, { pictures: V.pics, at: V.at }) }]);
 }
 
 export function viewerAct(a: ViewerAct) {
@@ -222,23 +213,12 @@ export async function copyUrl(url: string) {
   }
 }
 
-let noticeView: { host: HTMLElement; root: DocumentView; observer: MutationObserver; timer: ReturnType<typeof setTimeout> } | null = null;
-function disposeNotice() {
-  const current = noticeView; noticeView = null;
-  if (!current) return;
-  clearTimeout(current.timer); current.observer.disconnect(); current.root.unmount(); current.host.remove();
-}
-/// A short note at the bottom of the bar; one that names a saved file can
-/// show it in Finder.
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+/// A short note at the bottom of the bar, or over the open viewer; one that names a saved file
+/// can show it in Finder.
 export function notice(text: string, { path, bad }: { path?: string; bad?: boolean } = {}) {
-  disposeNotice();
-  const host = document.createElement("div");
-  host.style.display = "contents";
-  (viewer?.host.parentElement ?? bar).append(host);
-  const root = createDocumentView(host);
-  const observer = new MutationObserver(() => { if (noticeView?.host === host && !host.isConnected) disposeNotice(); });
-  observer.observe(document.body, { childList: true, subtree: true });
-  const timer = setTimeout(disposeNotice, 5000);
-  noticeView = { host, root, observer, timer };
-  flushSync(() => root.render(createElement(ViewerNotice, { text, path: path ?? null, bad: !!bad })));
+  clearTimeout(noticeTimer);
+  overlays.remove(["notice"]);
+  overlays.set([{ slot: "notice", host: viewerOpen ? viewerHost : bar, content: createElement(ViewerNotice, { text, path: path ?? null, bad: !!bad }) }]);
+  noticeTimer = setTimeout(() => overlays.remove(["notice"]), 5000);
 }
