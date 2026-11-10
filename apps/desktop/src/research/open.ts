@@ -7,6 +7,8 @@ import { ResearchLivePane } from "./live-pane-view.tsx";
 import { ResearchChat, ResearchPaper } from "./chat-paper-view.tsx";
 import { ResearchAgents, ResearchThread } from "./agents-pane-view.tsx";
 import { ResearchShell } from "./shell-view.tsx";
+import { ResearchNotice, ResearchQuote } from "./open-controls.tsx";
+import { createDocumentScope } from "../ui/document-root.tsx";
 // An opened research, as a page of the command center laid out like a coding
 // agent session: the lead's chat on the left, the paper, notes, sources and the
 // team as the tabs of a side pane on the right. The page is drawn once and
@@ -19,8 +21,6 @@ import { onZoomKey, paneSize } from "../agentpane/media-state.ts";
 import { composeField, composeMessage } from "../chat/compose.ts";
 import { reloadGroup } from "../center/sidebar.ts";
 import { currentLocation, registerView } from "../center/views.ts";
-import { h } from "../ui/dom.ts";
-import { esc } from "../ui/format.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
 import { followsEnd, placeholder } from "./panes.ts";
@@ -86,7 +86,7 @@ registerView("researchopen", {
   },
   unmount() {
     clearTimeout(timer);
-    document.getElementById("rquote")?.remove();
+    hideQuote();
   },
 });
 
@@ -106,7 +106,7 @@ function build(el: HTMLElement, session: string) {
   composeField(page.ask, { grow: 156 });
   root.addEventListener("click", onClick);
   page.ask.addEventListener("keydown", onAskKey);
-  for (const part of [page.log, page.view]) part.addEventListener("scroll", () => document.getElementById("rquote")?.remove(), true);
+  for (const part of [page.log, page.view]) part.addEventListener("scroll", () => hideQuote(), true);
   // The lead's chat follows its end until the reader scrolls up, and stays there as it grows.
   const log = page.log;
   let top = 0;
@@ -363,14 +363,15 @@ async function exportPdf() {
 
 /// A short note over the pane; one that names a saved file can show it in
 /// Finder. It goes after a while, unless it is waiting on something.
+const noticeScope = createDocumentScope<"notice">();
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 function notice(text: string, { path, bad, busy }: { path?: string; bad?: boolean; busy?: boolean } = {}) {
   clearTimeout(noticeTimer);
-  page?.pane.querySelector(".dsaved")?.remove();
-  const el = h(`<div class="dsaved${bad ? " bad" : ""}" role="status">${busy ? '<span class="dspin"></span>' : ""}<span>${esc(text)}</span>${path ? '<button class="dbtn">Show in Finder</button>' : ""}</div>`);
-  el.querySelector("button")?.addEventListener("click", () => invoke("reveal_file", { path }).catch(ignore));
-  page?.pane.append(el);
-  if (!busy) noticeTimer = setTimeout(() => el.remove(), bad ? 10000 : 6000);
+  if (!page) return;
+  noticeScope.set([{ slot: "notice", host: page.pane, content: createElement(ResearchNotice, {
+    text, path: path ?? null, bad: !!bad, busy: !!busy, reveal: value => { void invoke("reveal_file", { path: value }).catch(ignore); },
+  }) }]);
+  if (!busy) noticeTimer = setTimeout(() => noticeScope.remove(["notice"]), bad ? 10000 : 6000);
 }
 
 async function copy(text: string) {
@@ -391,26 +392,20 @@ function selectedText() {
 }
 
 /// Shows the Quote button over the selection, or hides it.
+const quoteScope = createDocumentScope<"quote">();
+function hideQuote() { quoteScope.remove(["quote"]); }
 function placeQuote() {
-  document.getElementById("rquote")?.remove();
   const text = selectedText();
-  if (!text) return;
+  if (!text) { hideQuote(); return; }
   const rect = getSelection()!.getRangeAt(0).getBoundingClientRect();
-  const b = h('<button id="rquote" class="dbtn pri rquote">Quote<kbd>⌘\'</kbd></button>');
-  document.body.append(b);
-  const w = b.offsetWidth, height = b.offsetHeight;
-  const left = Math.max(8, Math.min(innerWidth - w - 8, rect.left + rect.width / 2 - w / 2));
-  const top = rect.top - height - 8 < 46 ? rect.bottom + 8 : rect.top - height - 8;
-  b.style.left = `${left}px`;
-  b.style.top = `${top}px`;
-  b.addEventListener("click", quote);
+  quoteScope.set([{ slot: "quote", host: document.body, content: createElement(ResearchQuote, { rect, quote }) }]);
 }
 
 /// Adds the selection to the message as a quote and puts the cursor under
 /// it, so several quotes with replies make one message.
 function quote() {
   const text = selectedText();
-  document.getElementById("rquote")?.remove();
+  hideQuote();
   if (!text || !page) return;
   const ask = page.ask;
   const quoted = text.split(/\n+/).map(line => `> ${line.trim()}`).filter(line => line !== ">").join("\n");
@@ -422,10 +417,8 @@ function quote() {
   ask.dispatchEvent(new Event("input"));
 }
 
-// Pressing the button must not clear the selection it quotes.
-document.addEventListener("mousedown", e => { if ((e.target as Element).closest("#rquote")) e.preventDefault(); });
 document.addEventListener("mouseup", () => setTimeout(placeQuote));
-document.addEventListener("selectionchange", () => { if (!selectedText()) document.getElementById("rquote")?.remove(); });
+document.addEventListener("selectionchange", () => { if (!selectedText()) hideQuote(); });
 
 document.addEventListener("keydown", e => {
   if (!active()) return;
