@@ -126,3 +126,84 @@ fn an_exited_terminal_keeps_its_code() {
     assert_eq!(row.state, "exited");
     assert_eq!(row.code, Some(2));
 }
+
+fn output(event: Option<&TermEvent>) -> (u64, usize) {
+    match event {
+        Some(TermEvent::Output { at, data }) => (*at, data.len()),
+        other => panic!("not output: {other:?}"),
+    }
+}
+
+#[test]
+fn output_after_a_quiet_spell_goes_at_once() {
+    let mut batch = OutputBatch::default();
+    let start = Instant::now();
+
+    let sent = batch.add(0, b"$ ", start);
+    assert_eq!(output(sent.first()), (0, 2));
+    assert_eq!(batch.due(), None);
+
+    // A keystroke's echo, well after.
+    let sent = batch.add(2, b"l", start + BATCH_WAIT * 10);
+    assert_eq!(output(sent.first()), (2, 1));
+}
+
+#[test]
+fn a_flood_goes_in_few_large_messages() {
+    let mut batch = OutputBatch::default();
+    let start = Instant::now();
+    let chunk = vec![b'x'; 8 * 1024];
+    let mut messages = Vec::new();
+    let mut at = 0;
+
+    // 8 KB pieces as the node reads them, faster than a batch waits.
+    for i in 0..256 {
+        let now = start + Duration::from_micros(i * 10);
+        messages.extend(batch.add(at, &chunk, now));
+        at += chunk.len() as u64;
+    }
+    messages.extend(batch.take(start + BATCH_WAIT));
+
+    // The first piece at once, then pieces of BATCH_BYTES, all of it in order.
+    assert_eq!(output(messages.first()), (0, chunk.len()));
+    assert!(messages.len() <= 2 + (256 * chunk.len()) / BATCH_BYTES);
+    let mut next = 0;
+    for message in &messages {
+        let (from, len) = output(Some(message));
+        assert_eq!(from, next);
+        next += len as u64;
+    }
+    assert_eq!(next, at);
+}
+
+#[test]
+fn gathered_output_waits_no_longer_than_the_batch_wait() {
+    let mut batch = OutputBatch::default();
+    let start = Instant::now();
+    batch.add(0, b"a", start);
+
+    assert!(
+        batch
+            .add(1, b"b", start + Duration::from_millis(1))
+            .is_empty()
+    );
+    assert_eq!(
+        batch.due(),
+        Some(start + Duration::from_millis(1) + BATCH_WAIT)
+    );
+    assert_eq!(output(batch.take(start + BATCH_WAIT).as_ref()), (1, 1));
+    assert_eq!(batch.due(), None);
+}
+
+#[test]
+fn output_that_does_not_follow_goes_apart() {
+    let mut batch = OutputBatch::default();
+    let start = Instant::now();
+    batch.add(0, b"a", start);
+    assert!(batch.add(1, b"b", start).is_empty());
+
+    // Skipped ahead, as when the node kept less than was asked for.
+    let sent = batch.add(100, b"c", start);
+    assert_eq!(output(sent.first()), (1, 1));
+    assert_eq!(output(batch.take(start).as_ref()), (100, 1));
+}
