@@ -91,6 +91,10 @@ Other apps have independent versions and changelogs:
   updates pause while it is hidden and, if it shows again within five
   minutes, only what changed meanwhile is sent. Sending a prompt or another
   action reloads only the views it affects.
+- Desktop: mesh links ping every 5 seconds instead of 3 and ride out a
+  network drop of up to 30 seconds. Agent alerts and CI runs are followed
+  only from machines that are online, and a machine that keeps refusing is
+  tried at most once a minute instead of every 2 seconds.
 
 ## [0.7.0] - 2026-11-09
 

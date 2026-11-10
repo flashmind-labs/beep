@@ -33,3 +33,11 @@ Earlier releases predate this changelog.
 - Git branch, history and upstream views refresh only when Git refs, the index or settings change, not on every file save or Git object write.
 - Builds and checkouts in synced projects no longer flood listings with one change signal per file.
 - Streaming agent sessions open in an app cost the node less CPU: each update encodes only new or changed transcript entries.
+- Node: an idle machine wakes far less often. Mesh links ping every 5
+  seconds instead of 3, the health check runs every 15 seconds instead of 5,
+  the timer lag probe runs with the minute's metrics instead of every second,
+  and machine reports, the CI watch, skill checks, session copies and mesh
+  settings run only when something changed or much less often.
+- Node: a mesh link rides out a network drop of up to 30 seconds instead of
+  reconnecting after 10, and a machine that stays offline is dialed about once
+  a minute instead of every 12 seconds. One that comes back is reached at once.
