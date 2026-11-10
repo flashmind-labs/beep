@@ -1,4 +1,5 @@
 import { createElement } from "react";
+import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ProjectSessions } from "./sessions-view.tsx";
 import { refreshMoves, MV } from "../agents/move-store.ts";
 import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
@@ -16,13 +17,13 @@ import { ElsewhereSection, FoundSection } from "./overview-view.tsx";
 import type { RecentSessions } from "./split-view.tsx";
 import { foundFor, withSyncthing, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
+import { el as h } from "../ui/dom.ts";
 import { ITEMS_SHOWN, repoUrl, reviewStart } from "../center/openitems-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { agentFor, pageAgent, type ProjectAgent, type ProjectView } from "./agent.ts";
 import { state, pages, keep, pageFresh } from "../center/state.ts";
 import { openUrl, refreshGit, replyItem } from "../center/openitems.ts";
 import { currentLocation, go } from "../center/views.ts";
-import { sessionMenu } from "../agents/sessionmenu.ts";
 import { projectRows, importSheet, addProject, importFromPage, loadFound } from "../center/sidebar.ts";
 import { loadOverview } from "./projects.ts";
 import { terms, fsync, revs, thr, runs, projectsEl, redrawProjects, redrawProjectsPage } from "./sections.ts";
@@ -385,26 +386,32 @@ async function readWhere(name: string) {
   if (state.picked === name) redrawProjectsPage();
 }
 
-/// The project's past sessions, newest first: five rows tall unless `all`,
-/// with the note that they are being read again.
-export function sessionsList(p: Project, running: RunningAgent[], all: boolean): RecentSessions {
+/// The Sessions tab's list. It stays one host while the tabs switch, so its
+/// virtual rows keep their scroll anchor and focus.
+let sessionsTab: { project: string; host: HTMLElement } | null = null;
+
+export function disposeSessionPanel() { if (sessionsTab) removeWindowPart("project-sessions:all"); sessionsTab = null; }
+
+export function sessionsHost(project: string, rows: SessionRow[]) {
+  if (sessionsTab?.project !== project) { disposeSessionPanel(); sessionsTab = { project, host: h("div", "cc-panel") }; }
+  showWindowParts([{ part: "project-sessions:all", host: sessionsTab.host, identity: project, content: createElement(ProjectSessions, { rows, all: true }) }]);
+  return sessionsTab.host;
+}
+
+/// The project's past sessions, newest first, with the note that they are
+/// being read again.
+export function sessionsList(p: Project, running: RunningAgent[]): RecentSessions {
   const sessions = state.sessions.get(p.name);
   const past = projectPastSessions(sessions, running, [...MV.records.values()]).filter(sessionVisible);
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
   const freshness = sessions !== undefined ? pageFresh("sessions", p.name, readingSessions.has(p.name)) : null;
+  if (!p.imported || sessions === undefined || !past.length) disposeSessionPanel();
 
-  if (!p.imported) return { list: null, empty: "Import this project to see its sessions.", count: past.length, freshness };
-  if (sessions === undefined) return { list: null, empty: "Reading sessions…", count: past.length, freshness };
-  if (!past.length) return { list: null, empty: "No past sessions yet.", count: past.length, freshness };
-  const list = createElement("div", { key: p.name, className: "cc-panel" }, createElement(ProjectSessions, {
-    rows: past, all, open: openAgentRow,
-    menu: (event: MouseEvent, row: SessionRow) => void sessionMenu(event, row, selected => go("pane", { agent: selected })),
-  }));
-  return { list, empty: null, count: past.length, freshness };
+  if (!p.imported) return { rows: null, empty: "Import this project to see its sessions.", count: past.length, freshness };
+  if (sessions === undefined) return { rows: null, empty: "Reading sessions…", count: past.length, freshness };
+  if (!past.length) return { rows: null, empty: "No past sessions yet.", count: past.length, freshness };
+  return { rows: past, empty: null, count: past.length, freshness };
 }
-
-/// The agent view for a session row.
-function openAgentRow(r: SessionRow) { go("pane", { agent: { kind: "agent", ...r } }); }
 
 /// The projects whose sessions are being read, and those to read again on the
 /// next draw.

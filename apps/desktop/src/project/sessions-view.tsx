@@ -5,8 +5,15 @@ import { HarnessIcon } from "../ui/icons.tsx";
 import { placeOf } from "../agents/place.ts";
 import { placeSub } from "../agents/place-state.ts";
 import { agentLabel, type SessionRow } from "./projects-state.ts";
+import { sessionMenu } from "../agents/sessionmenu.ts";
+import { go } from "../center/views.ts";
 
-export function ProjectSessions({ rows, all, open, menu }: { rows: SessionRow[]; all: boolean; open: (row: SessionRow) => void; menu: (event: MouseEvent, row: SessionRow) => void }) {
+/// A project's past sessions: five rows tall in a scroll box, or `all` of
+/// them, virtual once there are many. Each opens its agent.
+export function ProjectSessions({ rows, all }: { rows: SessionRow[]; all: boolean }) {
+  const open = (row: SessionRow) => go("pane", { agent: { kind: "agent", ...row } });
+  const menu = (event: MouseEvent, row: SessionRow) => void sessionMenu(event, row, selected => go("pane", { agent: selected }));
+
   // Keep the selected rendering mode for this mounted list so a refresh cannot
   // replace a focused row when the list crosses the threshold.
   const [virtual] = useState(() => all && rows.length > 100);
