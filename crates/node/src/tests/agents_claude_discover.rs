@@ -380,3 +380,48 @@ fn an_appended_transcript_summarizes_as_one_read_whole() {
     fs::write(&path, FIXTURE).expect("a rewrite");
     assert_eq!(shown(&store), shown(&Store::at(root.path())));
 }
+
+#[test]
+fn a_followed_file_lists_its_folder_again_only_once_a_file_comes_or_goes() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("projects").join("-srv-project");
+    fs::create_dir_all(&project).unwrap();
+    let aged = |path: &Path, secs: u64| {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(secs))
+            .unwrap();
+    };
+    let followed = project.join(format!("{ID}.jsonl"));
+    let other = project.join(format!("{OTHER}.jsonl"));
+    fs::write(&followed, FIXTURE).unwrap();
+    aged(&followed, 600);
+    fs::write(&other, "").unwrap();
+    aged(&other, 60);
+    let store = Store::at(root.path());
+    let snapshot = Snapshot {
+        processes: vec![process(41, "/srv/project")],
+        ..Snapshot::default()
+    };
+    let presence = || {
+        describe_file(&store, &followed, &snapshot)
+            .unwrap()
+            .expect("the session")
+            .presence
+    };
+
+    // The other session is the folder's newest, so the folder's claude runs it.
+    assert_ne!(presence(), Presence::Running);
+
+    // Its time alone changing does not list the folder again.
+    aged(&other, 1200);
+    assert_ne!(presence(), Presence::Running);
+
+    // A file coming does.
+    let third = project.join("3c2b1a0f-2222-4333-8444-955566667777.jsonl");
+    fs::write(&third, "").unwrap();
+    aged(&third, 1200);
+    assert_eq!(presence(), Presence::Running);
+}

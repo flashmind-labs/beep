@@ -46,6 +46,9 @@ struct Memos {
     /// The folder each transcript's head names.
     cwds: Memo<Option<String>>,
     summaries: Memo<Summary>,
+    /// The newest transcript of each project folder, by its id and time,
+    /// kept while the folder itself is unchanged: no file came or went.
+    newest: Memo<Option<(String, SystemTime)>>,
 }
 
 impl Default for Memos {
@@ -53,6 +56,7 @@ impl Default for Memos {
         Self {
             cwds: Memo::new(MAX_FOLDERS * HEADS_PER_FOLDER * 2),
             summaries: Memo::new(MAX_SUMMARIES),
+            newest: Memo::new(MAX_FOLDERS),
         }
     }
 }
@@ -268,7 +272,9 @@ pub(super) fn list(
 }
 
 /// The session whose transcript is `path`, `None` once the file is gone.
-/// Only its own folder is read, for whether it is that folder's newest.
+/// Only its own folder is read, for whether it is that folder's newest, and
+/// only again once a file came to it or left it: a follow describes its file
+/// on every update.
 pub(super) fn describe_file(
     store: &Store,
     path: &Path,
@@ -279,14 +285,25 @@ pub(super) fn describe_file(
     };
     let newest = path
         .parent()
-        .and_then(|folder| fs::read_dir(folder).ok())
-        .into_iter()
-        .flatten()
+        .and_then(|folder| {
+            store
+                .memos
+                .newest
+                .read(folder, || newest_in(folder))
+                .ok()
+                .flatten()
+        })
+        .is_none_or(|(id, modified)| id == transcript.id || modified <= transcript.modified);
+    describe(store, &transcript, newest, snapshot).map(Some)
+}
+
+/// The id and time of the newest transcript in `folder`.
+fn newest_in(folder: &Path) -> io::Result<Option<(String, SystemTime)>> {
+    Ok(fs::read_dir(folder)?
         .flatten()
         .filter_map(|file| transcript_at(&file.path()))
         .max_by_key(|other| other.modified)
-        .is_none_or(|other| other.id == transcript.id || other.modified <= transcript.modified);
-    describe(store, &transcript, newest, snapshot).map(Some)
+        .map(|newest| (newest.id, newest.modified)))
 }
 
 /// The top-level transcript at `path`, when it is one.
