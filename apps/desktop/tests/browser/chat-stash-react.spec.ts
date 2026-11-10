@@ -80,3 +80,18 @@ test("a pending pop does not close another project's stash", async ({ page }) =>
   await expect(panel).toBeVisible();
   await expect(panel).toContainText(second.name);
 });
+
+test("stash notice stays mounted through a composer redraw", async ({ page }) => {
+  await openDesktop(page, false, { agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }], prompt_stash_list: [] });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  const field = page.getByRole("textbox", { name: "Task for a coding agent" });
+  await field.fill("Message to save");
+  await page.getByText("Show more", { exact: true }).click();
+  await page.getByRole("button", { name: "Stash draft" }).click();
+  const note = page.locator(".prompt-stash-note");
+  await expect(note).toHaveText("Message stashed");
+  await note.evaluate(el => Reflect.set(window, "stashNotice", el));
+  await page.evaluate(() => window.__navigation.notify("machines"));
+  await expect(note).toHaveText("Message stashed");
+  expect(await note.evaluate(el => el === Reflect.get(window, "stashNotice"))).toBe(true);
+});
