@@ -58,8 +58,9 @@ function seen(entries: IntersectionObserverEntry[]) {
     if (!state || state.shown === isIntersecting) continue;
 
     state.shown = isIntersecting;
-    if (state.shown) draw(target);
+    if (state.shown) { onScreen.add(target); draw(target); }
     else {
+      onScreen.delete(target);
       closePop(target);
       if (state.active) { overlay.remove([state.slot]); state.active = false; }
     }
@@ -101,6 +102,7 @@ export function composeField(field: HTMLTextAreaElement, opts: ComposeOptions = 
   fields.set(field, { layer, opts, caret: field.selectionStart, composing: false, pop: null, closePop: null, drawing: 0, slot: String(++nextSlot), shown: true, active: false });
   if (typeof IntersectionObserver === "function") views ??= new IntersectionObserver(seen);
   views?.observe(field);
+  onScreen.add(field);
   // Text set from code (sending, a queued message put back) draws too.
   Object.defineProperty(field, "value", {
     configurable: true,
@@ -163,7 +165,15 @@ function draw(field: HTMLTextAreaElement) {
   layer.scrollTop = field.scrollTop;
 }
 
-addEventListener("resize", () => document.querySelectorAll<HTMLTextAreaElement>("textarea.cx-field").forEach(later));
+/// The composers on screen, which a resize lays out again.
+const onScreen = new Set<HTMLTextAreaElement>();
+addEventListener("resize", () => {
+  for (const field of onScreen) {
+    // A field that left the page is added again when it shows.
+    if (field.isConnected) later(field);
+    else onScreen.delete(field);
+  }
+});
 
 // ----- Pills -----
 
@@ -300,8 +310,6 @@ function openPop(field: HTMLTextAreaElement, id: number) {
   }) }]);
   const pop = f.pop;
   if (!pop) return;
-  // Below the field when there is no room above it.
-  if (pop.getBoundingClientRect().top < 4) pop.classList.add("down");
   const away = (e: MouseEvent) => { if (!pop.contains(e.target as Node)) closePop(field); };
   addEventListener("mousedown", away, true);
   f.closePop = () => removeEventListener("mousedown", away, true);
