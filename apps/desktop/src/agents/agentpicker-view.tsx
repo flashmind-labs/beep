@@ -1,3 +1,4 @@
+import { Spinner } from "../ui/kit.tsx";
 import { useLayoutEffect, useRef, useState } from "react";
 import { agentKind } from "./agents.ts";
 import { effortNote, effortsOf, railOf, type ModelRow } from "./agentpick.ts";
@@ -58,7 +59,7 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
       <div className="agc-models" ref={models}>{rows.map((row, index) => <button key={row.value} type="button" data-agmo={row.value}
         className={`${row.value === picked.model ? "on" : ""}${row.value && picked.agent === "flsh" ? " mono" : ""}${index === highlight ? " hi" : ""}`}
         onClick={() => onModel(row.value)}>{row.label}{row.note && <small>{row.note}</small>}</button>)}
-        {note && <p className="none" role="status">{loading && <><span className="dspin"/> </>}{note}</p>}
+        {note && <p className="none" role="status">{loading && <><Spinner /> </>}{note}</p>}
         {failed && <button type="button" data-agretry="" onClick={onRetry}>Retry</button>}
       </div>
     </div>

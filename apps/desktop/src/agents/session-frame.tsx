@@ -8,7 +8,7 @@ import { SessionTitle } from "./title-view.tsx";
 import { createPortal, flushSync } from "react-dom";
 import { openBarPage } from "../bar/page-root.ts";
 import type { ChatBody } from "../ui/turn.ts";
-import { HarnessIcon, ICON } from "../ui/icons.tsx";
+import { HarnessIcon, Icon } from "../ui/icons.tsx";
 
 type Dock = "bottom" | "right";
 interface AgentHintsModel { value: HintViewModel; project: string | null }
@@ -113,7 +113,7 @@ export function SessionField({ mode, name, banner, attach, send, stop, openParen
   const input = useRef<HTMLTextAreaElement>(null);
   if (mode === "native") return <div className="dinput small" id="agfield"><textarea id="agnativemsg" rows={1} aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message" /><span id="agmodel" /><button className="dbtn" id="agnativeparent" onClick={openParent}>Open parent</button></div>;
   if (mode === "readonly") return <div className="dmuted dblock dbanner">{banner}</div>;
-  return <><div id="agmovebox" /><div id="agplan" /><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><div id="agtasks" /><div data-agent-queue-slot style={{ display: "contents" }} /></div><div data-agent-work-line style={{ display: "contents" }} /></div><div data-agent-attachment-slot style={{ display: "contents" }} /><div className="dinput small" id="agfield"><FilePicker attach={attach} /><textarea ref={input} id="agmsg" rows={1} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode" /><span id="agmodel" /><button className="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)" onClick={stop} /><button className="dbtn" id="agsend" aria-label="Send" onClick={() => { if (input.current) send(input.current); }} dangerouslySetInnerHTML={{ __html: ICON.send }} /><div data-agent-menu-slot style={{ display: "contents" }} /></div><div id="agpickm" /></>;
+  return <><div id="agmovebox" /><div id="agplan" /><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><div id="agtasks" /><div data-agent-queue-slot style={{ display: "contents" }} /></div><div data-agent-work-line style={{ display: "contents" }} /></div><div data-agent-attachment-slot style={{ display: "contents" }} /><div className="dinput small" id="agfield"><FilePicker attach={attach} /><textarea ref={input} id="agmsg" rows={1} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode" /><span id="agmodel" /><button className="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)" onClick={stop} /><button className="dbtn" id="agsend" aria-label="Send" onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></button><div data-agent-menu-slot style={{ display: "contents" }} /></div><div id="agpickm" /></>;
 }
 
 // A draft and the session it starts share the same dock nodes. Their terminals

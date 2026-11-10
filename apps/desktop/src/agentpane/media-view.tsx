@@ -1,3 +1,4 @@
+import { Spinner } from "../ui/kit.tsx";
 import { useState, type RefCallback } from "react";
 import { ModelControls } from "./model-controls.tsx";
 import { setSessionPortal } from "../agents/session-frame.tsx";
@@ -61,7 +62,7 @@ export function drawPending(host: HTMLElement, tab: MediaTab, machineName: strin
   const before = pending.get(host);
   if (before && before.message === next.message && before.error === next.error && before.progress === next.progress) return;
   pending.set(host, next);
-  setSessionPortal(host, <div className={`agpmsg${next.error ? " derr" : ""}`}>{!next.error && <span className="dspin" />}{next.message}{next.progress !== null && <span className="agpload"><i style={{ transform: `scaleX(${next.progress})` }} /></span>}</div>);
+  setSessionPortal(host, <div className={`agpmsg${next.error ? " derr" : ""}`}>{!next.error && <Spinner />}{next.message}{next.progress !== null && <span className="agpload"><i style={{ transform: `scaleX(${next.progress})` }} /></span>}</div>);
 }
 
 export type ModelState = { kind: "drawing" } | { kind: "drawn" } | { kind: "failed"; message: string };
@@ -70,7 +71,7 @@ export type ModelState = { kind: "drawing" } | { kind: "drawn" } | { kind: "fail
 /// stage's messages, the animation controls and the footer.
 export function ModelView({ tab, machine, state, stage }: { tab: MediaTab; machine: string | null; state: ModelState; stage: RefCallback<HTMLDivElement> }) {
   const animation = state.kind === "drawn" ? tab.model?.anim ?? null : null;
-  return <><div className="agpstage model" ref={stage}>{state.kind === "drawing" ? <div className="agpmsg"><span className="dspin" />{`Drawing ${tab.name}…`}</div>
+  return <><div className="agpstage model" ref={stage}>{state.kind === "drawing" ? <div className="agpmsg"><Spinner />{`Drawing ${tab.name}…`}</div>
     : state.kind === "failed" ? <div className="agpmsg derr">{`Could not draw ${tab.name}: ${state.message}`}</div> : null}</div>
     <div className="agpacts anim" hidden={!animation}>{animation && <ModelControls animation={animation} />}</div><div className="agpacts model-actions"><ModelFooter tab={tab} machine={machine} /></div></>;
 }
