@@ -96,7 +96,7 @@ block2 = "0.6"
 # notification plugin shows them through the same crate but drops actions.
 mac-notification-sys = "0.6"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSEvent", "NSBitmapImageRep", "NSImageRep", "NSRunningApplication", "NSWorkspace", "NSGraphics", "block2", "objc2-core-graphics"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSEvent", "NSBitmapImageRep", "NSImageRep", "NSRunningApplication", "NSWorkspace", "NSGraphics", "NSResponder", "NSWindow", "block2", "objc2-core-graphics"] }
 # Desktop control: the accessibility tree and Accessibility permission.
 objc2-application-services = { version = "0.3", default-features = false, features = ["std", "HIServices", "libc", "AXUIElement", "AXValue", "AXError"] }
 objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware", "objc2-core-audio-types"] }
@@ -106,7 +106,7 @@ objc2-core-graphics = { version = "0.3", default-features = false, features = ["
 objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "AVCaptureDevice", "AVMediaFormat"] }
 # Live mode: microphone with echo cancellation, and the player, in one engine.
 objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "block2", "AVAudioBuffer", "AVAudioEngine", "AVAudioFile", "AVAudioFormat", "AVAudioIONode", "AVAudioMixerNode", "AVAudioNode", "AVAudioPlayerNode", "AVAudioTime", "AVAudioTypes"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSError", "NSString", "NSValue", "NSData", "NSOperation", "NSURL"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSError", "NSString", "NSValue", "NSData", "NSNotification", "NSOperation", "NSURL", "block2"] }
 # Desktop control: screenshots.
 objc2-screen-capture-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-core-graphics", "SCShareableContent", "SCStream", "SCScreenshotManager"] }
 

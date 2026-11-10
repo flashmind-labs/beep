@@ -37,6 +37,8 @@ Other apps have independent versions and changelogs:
 - Desktop: a hidden window stops streaming terminals, polling research and
   reloading the bar's chat list. Terminals catch up on the output from
   meanwhile when shown again.
+- Desktop: a minimized window, or on macOS one that is fully covered or on
+  another Space, pauses its background updates like a closed one.
 
 ## [0.7.0] - 2026-11-09
 

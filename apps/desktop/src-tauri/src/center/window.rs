@@ -3,9 +3,10 @@
 //! `open_project`, `hide_on_close`, `is_center`.
 
 use crate::{bar, error::Result};
+use std::{collections::HashMap, sync::Mutex};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, Window,
+    WebviewWindowBuilder, Window, WindowEvent,
 };
 
 pub const LABEL: &str = "center";
@@ -21,8 +22,9 @@ const SHARE: f64 = 0.95;
 const PROJECT_PREFIX: &str = "project-";
 /// How far each project window opens down and right of the one before.
 const CASCADE: f64 = 28.0;
-/// Told to the main window's page when it hides and shows again, which
-/// sets how often it reads in the background.
+/// Told to a command center page when its window hides, minimizes, is
+/// covered or goes to the background, and when it shows again, which pauses
+/// and resumes what it draws.
 const HIDDEN_EVENT: &str = "center-hidden";
 const SHOWN_EVENT: &str = "center-shown";
 
@@ -123,6 +125,11 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
         };
     }
     let window = builder.build()?;
+
+    if let Err(e) = watch_occlusion(&window) {
+        log::warn!("watching whether {label} is covered: {e}");
+    }
+
     #[cfg(target_os = "ios")]
     window.with_webview(|webview| crate::platform::ios_keyboard::hide_bar(webview.inner()))?;
     window.set_focus()?;
@@ -142,10 +149,7 @@ pub fn open<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
         bring_up(&window)?;
         // WKWebView may still report a hidden window as visible, so the
         // page hears it from here.
-        if let Err(e) = app.emit_to(LABEL, SHOWN_EVENT, ()) {
-            log::warn!("telling the window it shows: {e}");
-        }
-
+        tell(app, LABEL, true, Tell::Always);
         return Ok(());
     }
 
@@ -168,10 +172,7 @@ pub(crate) fn hide_on_close<R: Runtime>(window: &Window<R>) -> bool {
     }
     // Its chat stays in `Shown`: only the focused window holds notices back,
     // and it comes back on the same chat.
-    if let Err(e) = app.emit_to(LABEL, HIDDEN_EVENT, ()) {
-        log::warn!("telling the window it hid: {e}");
-    }
-
+    tell(app, LABEL, false, Tell::Always);
     closed(app, LABEL);
     true
 }
@@ -302,6 +303,186 @@ pub fn center_window_project(window: WebviewWindow) -> Option<String> {
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn closed<R: Runtime>(_: &AppHandle<R>, _: &str) {}
+
+/// Whether each command center page was last told its window shows.
+#[derive(Default)]
+pub(crate) struct OnScreen(Mutex<HashMap<String, bool>>);
+
+impl OnScreen {
+    /// Records that `label` shows or not, true if that changed.
+    fn record(&self, label: &str, shown: bool) -> bool {
+        let mut told = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        told.insert(label.to_owned(), shown) != Some(shown)
+    }
+
+    /// The window closed for good.
+    pub(crate) fn clear(&self, label: &str) {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(label);
+    }
+}
+
+/// Whether a page hears its window's state again when nothing changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Tell {
+    /// A single event the page may have missed, or a page that was
+    /// reloaded since it last heard.
+    Always,
+    /// One of a burst, such as a resize while dragging.
+    #[cfg_attr(mobile, allow(dead_code))]
+    Changed,
+}
+
+/// Tells page `label` whether its window is on screen.
+fn tell<R: Runtime>(app: &AppHandle<R>, label: &str, shown: bool, when: Tell) {
+    let changed = app
+        .try_state::<OnScreen>()
+        .is_none_or(|told| told.record(label, shown));
+
+    if !changed && when == Tell::Changed {
+        return;
+    }
+
+    let event = if shown { SHOWN_EVENT } else { HIDDEN_EVENT };
+
+    if let Err(e) = app.emit_to(label, event, ()) {
+        log::warn!("telling {label} whether it shows: {e}");
+    }
+}
+
+/// What a window event says about whether a command center window shows:
+/// `None` when it says nothing. `on_screen` asks the window system.
+fn shown_after(event: &WindowEvent, on_screen: impl FnOnce() -> bool) -> Option<(bool, Tell)> {
+    match event {
+        // A phone app going to the background, and coming back. iOS sends
+        // only focus when the app returns from Control Center.
+        #[cfg(mobile)]
+        WindowEvent::Suspended => Some((false, Tell::Always)),
+        #[cfg(mobile)]
+        WindowEvent::Resumed | WindowEvent::Focused(true) => Some((true, Tell::Always)),
+        #[cfg(mobile)]
+        _ => None,
+        // Minimizing and restoring resize the window on Linux and Windows;
+        // macOS says so through occlusion (`watch_occlusion`).
+        #[cfg(desktop)]
+        WindowEvent::Focused(true) => Some((true, Tell::Always)),
+        #[cfg(desktop)]
+        WindowEvent::Focused(false) | WindowEvent::Resized(_) | WindowEvent::Moved(_) => {
+            Some((on_screen(), Tell::Changed))
+        }
+        #[cfg(desktop)]
+        _ => None,
+    }
+}
+
+/// Follows a command center window's events, so its page pauses while it
+/// is minimized, covered or in the background.
+pub(crate) fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
+    if !is_center(window.label()) {
+        return;
+    }
+
+    if let Some((shown, when)) = shown_after(event, || on_screen(window)) {
+        tell(window.app_handle(), window.label(), shown, when);
+    }
+}
+
+/// Whether `window` is on screen: shown and not minimized.
+#[cfg(all(desktop, not(target_os = "macos")))]
+fn on_screen<R: Runtime>(window: &Window<R>) -> bool {
+    window.is_visible().unwrap_or(true) && !window.is_minimized().unwrap_or(false)
+}
+
+/// Whether any part of `window` is on screen: not hidden, minimized, fully
+/// covered or on another Space. Main thread only.
+#[cfg(target_os = "macos")]
+fn on_screen<R: Runtime>(window: &Window<R>) -> bool {
+    use objc2_app_kit::{NSWindow, NSWindowOcclusionState};
+
+    let Ok(ns_window) = window.ns_window() else {
+        return true;
+    };
+    // SAFETY: Tauri hands out the window's live NSWindow, and this runs on
+    // the main thread, from a window event or an AppKit notification.
+    let ns_window = unsafe { &*ns_window.cast::<NSWindow>() };
+    ns_window
+        .occlusionState()
+        .contains(NSWindowOcclusionState::Visible)
+}
+
+#[cfg(mobile)]
+fn on_screen<R: Runtime>(_: &Window<R>) -> bool {
+    true
+}
+
+/// What `NSNotificationCenter` returns to remove an observer with.
+#[cfg(target_os = "macos")]
+type Observer =
+    objc2::rc::Retained<objc2::runtime::ProtocolObject<dyn objc2::runtime::NSObjectProtocol>>;
+
+#[cfg(target_os = "macos")]
+thread_local! {
+    /// The occlusion observer of each command center window. Main thread only.
+    static OCCLUSION: std::cell::RefCell<HashMap<String, Observer>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// Tells the page when its window is minimized, covered, on another Space
+/// or back, which macOS reports only as occlusion. Main thread only.
+#[cfg(target_os = "macos")]
+fn watch_occlusion<R: Runtime>(window: &WebviewWindow<R>) -> Result<()> {
+    use block2::RcBlock;
+    use objc2_app_kit::{NSWindow, NSWindowDidChangeOcclusionStateNotification};
+    use objc2_foundation::{NSNotification, NSNotificationCenter};
+    use std::ptr::NonNull;
+
+    let ns_window = window.ns_window()?;
+    let watched = window.as_ref().window();
+    let label = watched.label().to_owned();
+    let block = RcBlock::new(move |_: NonNull<NSNotification>| {
+        tell(
+            watched.app_handle(),
+            watched.label(),
+            on_screen(&watched),
+            Tell::Changed,
+        );
+    });
+    // SAFETY: the object is the window's live NSWindow. With no queue the
+    // block runs where AppKit posts the notification, on the main thread,
+    // and `forget` removes it before the window goes.
+    let observer = unsafe {
+        NSNotificationCenter::defaultCenter().addObserverForName_object_queue_usingBlock(
+            Some(NSWindowDidChangeOcclusionStateNotification),
+            Some(&*ns_window.cast::<NSWindow>()),
+            None,
+            &block,
+        )
+    };
+    OCCLUSION.with_borrow_mut(|observers| observers.insert(label, observer));
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn watch_occlusion<R: Runtime>(_: &WebviewWindow<R>) -> Result<()> {
+    Ok(())
+}
+
+/// Window `label` is gone: forgets what its page was told and stops
+/// watching it.
+pub(crate) fn forget<R: Runtime>(app: &AppHandle<R>, label: &str) {
+    if let Some(told) = app.try_state::<OnScreen>() {
+        told.clear(label);
+    }
+
+    #[cfg(target_os = "macos")]
+    if let Some(observer) = OCCLUSION.with_borrow_mut(|observers| observers.remove(label)) {
+        let observer: &objc2::runtime::AnyObject = (*observer).as_ref();
+        // SAFETY: the observer came from `addObserverForName` on this center.
+        unsafe { objc2_foundation::NSNotificationCenter::defaultCenter().removeObserver(observer) };
+    }
+}
 
 #[cfg(test)]
 #[path = "../tests/center_window.rs"]
