@@ -64,6 +64,8 @@ export function syncMobile() {
   drawMobile(now);
   document.body.classList.toggle("mb-full", fullScreen(now));
   document.body.classList.toggle("mb-home", now.page === "home");
+  // The composer that showed the keyboard button may have gone with its page.
+  if (keyboardHost && !keyboardHost.isConnected) dropKeyboard();
 }
 
 function apply() {
@@ -187,20 +189,13 @@ function tips(root: ParentNode) {
 let keyboardHost: Element | null = null;
 let terminalsQueued = false;
 
-/// One observer, connected only in the phone layout, drops the keyboard button with its
-/// composer, strips shortcuts from new tooltips and follows the Terminals page, which opens
-/// and closes a terminal without a page change.
+/// Connected only in the phone layout, and only on the page's main area: strips shortcuts from
+/// new tooltips there and follows the Terminals page, which opens and closes a terminal without
+/// a page change. The rest of the window, and the desktop layout, cost it nothing.
 const page = new MutationObserver(list => {
-  if (keyboardHost && !keyboardHost.isConnected) dropKeyboard();
+  for (const m of list) for (const n of m.addedNodes) if (n instanceof Element) tips(n);
 
-  const main = windowHost("main");
-  let terminals = false;
-  for (const m of list) {
-    terminals ||= main.contains(m.target);
-    for (const n of m.addedNodes) if (n instanceof Element) tips(n);
-  }
-
-  if (!terminals || terminalsQueued || currentLocation()?.view !== "terminals") return;
+  if (terminalsQueued || currentLocation()?.view !== "terminals") return;
   terminalsQueued = true;
   requestAnimationFrame(() => { terminalsQueued = false; syncMobile(); });
 });
@@ -208,7 +203,7 @@ const page = new MutationObserver(list => {
 function watchPage(on: boolean) {
   if (!on) { page.disconnect(); dropKeyboard(); return; }
 
-  page.observe(document.body, { childList: true, subtree: true });
+  page.observe(windowHost("main"), { childList: true, subtree: true });
 }
 
 function dropKeyboard() {
