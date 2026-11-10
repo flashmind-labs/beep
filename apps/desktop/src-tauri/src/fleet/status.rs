@@ -282,6 +282,11 @@ impl Status {
             .collect()
     }
 
+    /// The beep-node `machine` runs, once it said.
+    pub fn version(&self, machine: EndpointId) -> Option<String> {
+        self.shared.peers().get(&machine)?.version.clone()
+    }
+
     /// What `machine` last reported about itself, if it did.
     pub fn last_env(&self, machine: EndpointId) -> Option<EnvReport> {
         self.shared.peers().get(&machine)?.env.clone()

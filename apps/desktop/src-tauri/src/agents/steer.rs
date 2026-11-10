@@ -158,6 +158,14 @@ fn queued_instead(steer: &AgentSteer) -> Option<AgentSteer> {
     })
 }
 
+/// Whether a node of `version` reads `StopAll`: one after 0.5.0. A node
+/// that has not said its version is taken as older.
+fn stops_all(version: Option<&str>) -> bool {
+    version
+        .and_then(|version| semver::Version::parse(version).ok())
+        .is_some_and(|version| version > semver::Version::new(0, 5, 0))
+}
+
 /// True when the server refused one of `ops` of `AgentSteer` as unknown:
 /// 3 `PromptImages`, 4 `Configure`, 5 and 6 `Steer`, 8 `StopTask`.
 fn older_than(error: &DesktopError, ops: &[u8]) -> bool {
@@ -218,6 +226,13 @@ async fn sent(
     };
 
     if let Some(machine) = fleet.member(&machine_id) {
+        let steer = match steer {
+            // A node that cannot read it would end its whole event stream.
+            AgentSteer::StopAll {} if !stops_all(fleet.status().version(machine).as_deref()) => {
+                AgentSteer::Cancel {}
+            }
+            steer => steer,
+        };
         let close = matches!(steer, AgentSteer::Close {});
         let operation = beep_proto::node::events::Operation::Agent {
             agent: agent.clone(),
