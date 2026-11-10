@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import { ago } from "../ui/format.ts";
+import { formatAgo } from "../ui/format.ts";
 import { IC } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import { asks, badge, bellLabel, copies, copyLine, doneLabel, skillName, subLine, unreadCount, type Held, type Item } from "./notices-state.ts";
@@ -19,9 +19,9 @@ function List({ p }: { p: Props }) {
 }
 function Row({ item: i, p }: { item: Item; p: Props }) {
   const over = p.keeping.has(i.id) && !i.done ? "Keeping" : doneLabel(i), why = p.failed.get(i.id);
-  return <div className={`nt-row${i.read ? "" : " unread"}${i.done ? " done" : ""}`} tabIndex={0} data-id={i.id} role="button" onClick={() => p.openItem(i)} onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); p.openItem(i); } }}><span className="nt-dot" /><span className="nt-t"><b>{i.title}</b>{!i.server && i.text && <span>{i.text.split("\n").join(", ")}</span>}<span>{subLine(i, ago(i.at))}{over && <i className="nt-done">{over}</i>}</span>{asks(i) && <span className="nt-acts"><button type="button" className="dbtn pri small" disabled={p.answering.has(i.id)} onClick={e => { e.stopPropagation(); p.answer(i, true); }}>Allow</button><button type="button" className="dbtn small" disabled={p.answering.has(i.id)} onClick={e => { e.stopPropagation(); p.answer(i, false); }}>Deny</button>{why && <span className="nt-err">{why}</span>}</span>}</span><button type="button" className="dbtn quiet" aria-label="Dismiss" title="Dismiss" onClick={e => { e.stopPropagation(); p.dismiss([i.id]); }} dangerouslySetInnerHTML={{ __html: IC.x }} /></div>;
+  return <div className={`nt-row${i.read ? "" : " unread"}${i.done ? " done" : ""}`} tabIndex={0} data-id={i.id} role="button" onClick={() => p.openItem(i)} onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); p.openItem(i); } }}><span className="nt-dot" /><span className="nt-t"><b>{i.title}</b>{!i.server && i.text && <span>{i.text.split("\n").join(", ")}</span>}<span>{subLine(i, formatAgo(i.at, "short"))}{over && <i className="nt-done">{over}</i>}</span>{asks(i) && <span className="nt-acts"><button type="button" className="dbtn pri small" disabled={p.answering.has(i.id)} onClick={e => { e.stopPropagation(); p.answer(i, true); }}>Allow</button><button type="button" className="dbtn small" disabled={p.answering.has(i.id)} onClick={e => { e.stopPropagation(); p.answer(i, false); }}>Deny</button>{why && <span className="nt-err">{why}</span>}</span>}</span><button type="button" className="dbtn quiet" aria-label="Dismiss" title="Dismiss" onClick={e => { e.stopPropagation(); p.dismiss([i.id]); }} dangerouslySetInnerHTML={{ __html: IC.x }} /></div>;
 }
-function Head({ item, p }: { item: Item; p: Props }) { return <div className="nt-h"><button type="button" className="dbtn small quiet" onClick={p.back}>Notifications</button><span>{subLine(item, ago(item.at))}</span><button type="button" className="dbtn small" onClick={() => p.dismiss([item.id])}>Dismiss</button></div>; }
+function Head({ item, p }: { item: Item; p: Props }) { return <div className="nt-h"><button type="button" className="dbtn small quiet" onClick={p.back}>Notifications</button><span>{subLine(item, formatAgo(item.at, "short"))}</span><button type="button" className="dbtn small" onClick={() => p.dismiss([item.id])}>Dismiss</button></div>; }
 function Opened({ item, p }: { item: Item; p: Props }) {
   const input = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => { input.current?.focus(); }, []);

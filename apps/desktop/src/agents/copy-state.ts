@@ -1,6 +1,7 @@
 // Copies of other machines' sessions that this Mac's node brings in on its
 // own, apart from the DOM so they can be tested: which ones the list offers
 // to continue, and what its rows say.
+import { formatAgo } from "../ui/format.ts";
 
 /// A copy as the node lists it (CopyRow).
 export interface CopyRow {
@@ -20,15 +21,6 @@ export interface CopyRow {
   lost: number | null;
 }
 
-/// How long ago, in the unit that fits: `3 min`, `2 h`, `4 days`.
-export function ago(seconds: number) {
-  const s = Math.max(0, Math.round(seconds));
-  if (s < 90) return "under 2 min";
-  if (s < 3600 * 1.5) return `${Math.round(s / 60)} min`;
-  if (s < 86400 * 1.5) return `${Math.round(s / 3600)} h`;
-  return `${Math.round(s / 86400)} days`;
-}
-
 /// The copies the list offers: a session no machine lists and whose machine
 /// is off by the mesh's own word (continue it here from the copy), and the
 /// versions that lost to another machine's (kept until thrown away). Newest
@@ -42,7 +34,7 @@ export function copyLists(copies: readonly CopyRow[], liveIds: ReadonlySet<strin
 }
 
 /// What an offline machine's row says under the title.
-export const offlineLine = (c: CopyRow, now: number) => `${c.from_name} is offline. Copy from ${ago(now - c.fetched_at)} ago`;
+export const offlineLine = (c: CopyRow, now: number) => `${c.from_name} is offline. Copy from ${formatAgo(c.fetched_at * 1000, "rough", now * 1000)} ago`;
 
 /// What a version that lost says: another machine went on after it.
 export const lostLine = () => "Another machine continued this session later. This version is kept";

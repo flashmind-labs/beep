@@ -9,7 +9,7 @@ import { $, $$, S } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
 import { clock, dateValue } from "./routines.ts";
 import { cap } from "../chat/tools.ts";
-import { esc } from "../ui/format.ts";
+import { dayDiff, esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import { confirmSheet, openMenu } from "../ui/menu.ts";
@@ -63,11 +63,6 @@ export async function loadList<T>(s: ListState<T>, cmd: string) {
   }
 }
 
-/// How many days from `from` to `to`, by the calendar.
-export function dayDiff(from: Date, to: Date) {
-  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  return Math.round((day(to) - day(from)) / 86400000);
-}
 /// "28 Oct".
 export const dayMonth = (at: Date) => `${at.getDate()} ${MONTHS[at.getMonth()]}`;
 

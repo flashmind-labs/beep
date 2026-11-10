@@ -4,12 +4,11 @@ import type { Root } from "react-dom/client";
 import { openBarPage } from "../bar/page-root.ts";
 import { ResearchesView } from "./researches-view.tsx";
 import { failed, grow, newTurn } from "../chat/chat.ts";
-import { when } from "../chat/chats.ts";
 import { $, S } from "../bar/core.ts";
 import { hintModel, refreshHints } from "../bar/hints.ts";
 import { notice } from "../chat/media.ts";
 import { progressLine, type ResearchRow } from "./research-list.ts";
-import { plural } from "../ui/format.ts";
+import { formatAgo, plural } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -76,7 +75,7 @@ export async function loadResearchList() {
 export function researchLine(r: ResearchRow) {
   const parts = [progressLine(r)];
   if (r.sources) parts.push(plural(r.sources, "source", "sources"));
-  parts.push(when(r.finished_at ?? r.started_at));
+  parts.push(formatAgo(r.finished_at ?? r.started_at, "chat"));
   return parts.join(" · ");
 }
 

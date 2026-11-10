@@ -1,7 +1,7 @@
 // What Home and the Projects page say about coding agents running or waiting:
 // their rows, lines and keys, apart from the DOM so it can be tested.
 import type { ApprovalField } from "../chat/chat.ts";
-import { ago, base } from "../ui/format.ts";
+import { base, formatAgo } from "../ui/format.ts";
 import type { ProjectRow } from "../project/projects-state.ts";
 
 /// A coding agent's session running now.
@@ -72,7 +72,7 @@ export const runningAt = (r: (Pick<RunningAgent, "kind" | "started_at" | "last_a
 
 /// Idle sessions show how long ago they were last active.
 export function runningWhen(r: Parameters<typeof runningAt>[0]) {
-  const time = ago(runningAt(r));
+  const time = formatAgo(runningAt(r), "short");
   if (r.kind !== "agent" || r.status !== "idle" || time === "now") return time;
   return `${time.replace(" min", "m").replace(" h", "h").replace(" d", "d")} ago`;
 }

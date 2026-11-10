@@ -6,13 +6,13 @@ import type * as AgentAccountsModule from "./agentaccounts.ts";
 import type { AgentAccounts, AgentAccountsState, CodexFlow, CodexLogin } from "./agentaccounts.ts";
 import type * as CredentialsModule from "./credentials.ts";
 import type { CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount } from "./credentials.ts";
-import { when } from "../chat/chats.ts";
 import { copy } from "../ui/parts.ts";
 import type { Machine } from "../machines/machines.ts";
 import { redrawSettings, SET, setShown } from "./settings.ts";
 import { Mounted } from "./settings-shell-view.tsx";
 import { Channel, invoke } from "../ui/tauri.ts";
 import { onShownChange } from "../ui/active.ts";
+import { formatAgo } from "../ui/format.ts";
 
 /// Settings, Credentials (`credentials.ts` draws it, loaded on first use into
 /// `mod`).
@@ -238,7 +238,7 @@ let agentEditVersion = 0;
 const agentsEntered = () => { agentsShown = true; void ACC.poll?.check(); };
 const agentsLeft = () => { agentsShown = false; agentEditVersion++; };
 export function agentAccountsContent() {
-  return createElement(Mounted, { entered: agentsEntered, left: agentsLeft, children: createElement(AgentAccountsView, { state: ACC, ago: when, now: Date.now(), actions: agentActions }) });
+  return createElement(Mounted, { entered: agentsEntered, left: agentsLeft, children: createElement(AgentAccountsView, { state: ACC, ago: ms => formatAgo(ms, "chat"), now: Date.now(), actions: agentActions }) });
 }
 function renderAgents() {
   if (agentsShown) redrawSettings();

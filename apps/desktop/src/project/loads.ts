@@ -7,7 +7,7 @@ import { AMBIENT_MS, SLOW_MS } from "../ui/active.ts";
 // Reading a project page: its view, agent, machines and sessions, kept
 // fresh while the user moves between projects, and prefetched ahead.
 import { sessionVisible } from "../agents/closing.ts";
-import { reason, since } from "../ui/format.ts";
+import { formatAgo, reason } from "../ui/format.ts";
 import { copy } from "../ui/parts.ts";
 import { type MenuItem } from "../ui/menu.ts";
 import { Changes, UNWATCHED_MS } from "../ui/pagecache.ts";
@@ -302,7 +302,7 @@ export function gitControls(p: Project, m: WhereRow, online: boolean) {
 
 export function missingMachine(p: Project, m: WhereRow) {
   const key = `${p.name}\n${m.id}`, copied = copies.get(key);
-  const text = copied?.text || m.text || "", title = m.kind === "none" && m.checked_at ? `Checked ${since(m.checked_at)}` : "";
+  const text = copied?.text || m.text || "", title = m.kind === "none" && m.checked_at ? `Checked ${formatAgo(m.checked_at, "since")}` : "";
   let action: { label: string; disabled: boolean; run(): void } | null = null;
   if (!state.home?.machines?.some(x => x.id === m.id && x.can_host === false)) {
     if (m.kind === "none" && m.add) action = { label: "Add", disabled: false, run: () => openAddToMachine({ project: p.name, machine: m, os: state.home?.machines?.find(x => x.id === m.id)?.env?.os, macId: state.mac?.id || null, added: () => { refresh(); loadWhere(p.name); } }) };

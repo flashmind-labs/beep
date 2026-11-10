@@ -9,7 +9,7 @@ import { OpenListControls, OpenListStart } from "./openlist-view.tsx";
 // A project page's split: the list of tasks, PRs, issues and machines on
 // the left, the picked row's view on the right.
 import { sessionVisible } from "../agents/closing.ts";
-import { ago, plural } from "../ui/format.ts";
+import { formatAgo, plural } from "../ui/format.ts";
 import { projectPastSessions, type Project, type WhereRow } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
 import { agentFor, pageAgent } from "./agent.ts";
@@ -193,7 +193,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const project: SplitItem[] = [
     { key: "actions", title: "Actions", sub: runs.tile(pid).count || "", detail: () => [hostPart(runs.section(agent))] },
     // A machine's terminals sit below it, as on Home.
-    { key: "machines", title: "Machines", sub: [syncCount || machineTile(rows, sync).count, terminalTile(terms.list(p.name), ago).count].filter(Boolean).join(" · "), detail: () => [hostPart(whereSection(p, rows, known))] },
+    { key: "machines", title: "Machines", sub: [syncCount || machineTile(rows, sync).count, terminalTile(terms.list(p.name), ms => formatAgo(ms, "short")).count].filter(Boolean).join(" · "), detail: () => [hostPart(whereSection(p, rows, known))] },
   ];
   const threads = thr.threads(pid);
 
@@ -221,7 +221,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const prItems: SplitItem[] = thr.prLines(agent, acts).map(l => {
     const chip = prChip(l), pr = l.pr;
     return {
-      key: `pr:${pr.number}`, opened: pr.created_at, lead: num(pr.number), title: pr.title, sub: prMeta(l, ago).join(" · "), tags: pr.labels,
+      key: `pr:${pr.number}`, opened: pr.created_at, lead: num(pr.number), title: pr.title, sub: prMeta(l, ms => formatAgo(ms, "short")).join(" · "), tags: pr.labels,
       right: chip && createElement(Chip, { cls: chip.cls, text: chip.text, spin: chip.cls === "running" }),
       menu: e => thr.prMenu(e, agent, acts, l),
       detail: () => [hostPart(details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, thr.prButtons(agent, acts, l)))],
@@ -233,7 +233,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const issueItems: SplitItem[] = thr.issueLines(agent, acts).map(l => ({
     key: `issue:${l.number}`, opened: l.issue?.opened_at, start: l.issue ? { key: `issue:${l.number}`, project: p.name, number: l.number, title: l.title, url: l.url } : undefined,
     lead: num(l.number), title: l.title,
-    sub: l.issue ? issueMeta(l.issue, ago) : `task: ${l.task!.title}`, tags: l.issue?.labels,
+    sub: l.issue ? issueMeta(l.issue, ms => formatAgo(ms, "short")) : `task: ${l.task!.title}`, tags: l.issue?.labels,
     right: l.task && createElement(Chip, { cls: l.task.state, text: l.task.state, spin: l.task.state === "running" }),
     menu: l.issue ? (e => thr.issueMenu(e, agent, acts, l.issue!)) : undefined,
     detail: () => [hostPart(details.pane(pid, { number: l.number, title: l.title, url: l.url, author: l.issue?.author || "", opened_at: l.issue?.opened_at || 0 },

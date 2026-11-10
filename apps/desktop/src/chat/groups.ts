@@ -14,8 +14,7 @@ import { copy } from "../ui/parts.ts";
 import { $, $$, changed, G, GROUP_VIEWS, S } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
 import { HintView } from "../bar/hints-view.tsx";
-import { dayDiff } from "../lists/memories.ts";
-import { esc } from "../ui/format.ts";
+import { dayDiff, esc } from "../ui/format.ts";
 import { BEEP_MARK, ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 
