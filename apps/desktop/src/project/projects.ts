@@ -107,12 +107,11 @@ export function projectDetail(p: Project): PagePart[] {
   if (p.imported && (!state.gitsync.has(p.name) || gitDue.has(p.name))) loadGit(p.name);
   const rows = whereRows(p, machines || null, state.mac?.id || null);
   const running = projectRunning(p, state.home?.running, state.sessions.get(p.name), [...MV.records.values()]).filter(sessionVisible);
-  if (splitOn(p)) { disposeProjectFallback(); return projectSplit(p, rows, !!machines, running); }
+  if (splitOn(p)) return projectSplit(p, rows, !!machines, running);
   disposeProjectShell();
 
   // The project agent's view is on its way, or who has an agent is not known yet.
   if (awaitsView(p, state.agents)) {
-    disposeProjectFallback();
     const error = state.pview.get(p.name)?.error;
     return [error
       ? viewPart("error", createElement(ErrorNote, { text: `Could not read the project: ${error}` }))
@@ -120,19 +119,10 @@ export function projectDetail(p: Project): PagePart[] {
   }
 
   // Without a project agent there are no tasks, runs or code host lists.
-  if (fallback?.project !== p.name) { disposeProjectFallback(); fallback = { project: p.name, host: h("div", "pj-cols pj-half") }; }
-  showWindowParts([{ part: "project-fallback", host: fallback.host, identity: p.name, content: createElement(ProjectFallback, {
+  return [viewPart("fallback", createElement("div", { key: p.name, className: "pj-cols pj-half" }, createElement(ProjectFallback, {
     session: sessionsList(p, running, false),
     machines: whereSection(p, rows, !!machines), running: agentsSection(running), agents: customAgentsSection(rows),
-  }) }]);
-  return [hostPart(fallback.host)];
-}
-
-let fallback: { project: string; host: HTMLElement } | null = null;
-export function disposeProjectFallback() {
-  if (!fallback) return;
-  removeWindowPart("project-fallback");
-  fallback = null;
+  })))];
 }
 
 /// The project's custom agents: the named agents its folder defines for
@@ -144,7 +134,6 @@ const cags = makeCustomAgents({ redraw: () => redrawProjects(), start: startWith
 /// How many custom agents the project has, as far as read.
 export function customAgentsCount(rows: WhereRow[]) { return cags.count(agentsPlace(rows)); }
 export function customAgentsSection(rows: WhereRow[]) { return cags.section(agentsPlace(rows)); }
-export function disposeCustomAgents() { cags.dispose(); }
 
 /// Start on a custom agent: the bar on the machine it was read on, with
 /// its harness picked and "Use the <name> agent to " to finish.
@@ -156,8 +145,6 @@ function startWithAgent(a: CustomAgentRow, place: AgentsPlace) {
   pc.picked.agent = a.harness;
   fillBar(name, agentPrompt(a.name), null);
 }
-
-let whereView: { project: string; host: HTMLElement } | null = null;
 
 /// Each machine's checkout, sync state and terminals in one flat section.
 export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
@@ -188,29 +175,12 @@ export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
       terminals: terminals.map(t => ({ id: t.id, name: t.name, title: `${t.machine_name}: ${t.command} in ${t.cwd}`, sub: `${t.machine_name} · ${terminalWhere(t)}`, note: terminalNote(t, ms => formatAgo(ms, "short")), running: t.state === "running", open: () => { go("pane", { draft: { project: p.name, machine: t.machine_id, terminal: t } }); } })),
       terminalSummary: all === undefined ? "Reading…" : all === null ? "Unavailable" : !online ? "Machine offline" : terminals.length ? plural(terminals.length, "terminal", "terminals") : "None running" });
   }
-  if (!whereView || whereView.project !== p.name) {
-    if (whereView) removeWindowPart("project-where");
-    const host = h("section", "pm-section");
-    whereView = { project: p.name, host };
-  }
-  const view = whereView, note = pageFresh("where", p.name, readingWhere.has(p.name));
-  showWindowParts([{ part: "project-where", host: view.host, identity: p.name, content: createElement(MachinesSection, { sync: fsync, project: p.name, items, model, imported: p.imported, known,
-    count: whereCount(rows, false), fresh: note }) }]);
-  return view.host;
+  const note = pageFresh("where", p.name, readingWhere.has(p.name));
+  return createElement("section", { key: p.name, className: "pm-section" }, createElement(MachinesSection, { sync: fsync, project: p.name, items, model, imported: p.imported, known,
+    count: whereCount(rows, false), fresh: note }));
 }
 
 /// The coding agents running in the project's folders now.
-let runningView: { host: HTMLElement } | null = null;
-
-export function disposeRunningAgents() { if (runningView) removeWindowPart("project-running"); runningView = null; }
-
 export function agentsSection(running: RunningAgent[]) {
-  if (!runningView) {
-    const host = h("div");
-    host.id = "sec-project-agents";
-    runningView = { host };
-  }
-  const current = runningView;
-  showWindowParts([{ part: "project-running", host: current.host, content: createElement(ProjectRunning, { running }) }]);
-  return current.host;
+  return createElement("div", { id: "sec-project-agents" }, createElement(ProjectRunning, { running }));
 }

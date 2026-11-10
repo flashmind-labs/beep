@@ -16,12 +16,12 @@ import { registerView, windowProject } from "../center/views.ts";
 import { setProjectOnTop, openProjectWindow, removeProject, projectRows, openProjects, addProject } from "../center/sidebar.ts";
 import { editGroup } from "./groups.ts";
 import { overviewSection, projectDetail } from "./projects.ts";
-import { NoProjects, Parts, hostPart, viewPart, type PagePart } from "./page-view.tsx";
+import { NoProjects, Parts, viewPart, type PagePart } from "./page-view.tsx";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { splitOn, openTile } from "./split.ts";
 import { liveMode, pa, redrawProjectsPage, runs, terms } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
-import { noteRecent, revalidate, revalidateOverview, markDue, prefetchRecentSoon, whereDue, foundSection, disposeFoundSection, elsewhereSection, disposeElsewhereSection, disposeSessionPanel } from "./loads.ts";
+import { noteRecent, revalidate, revalidateOverview, markDue, prefetchRecentSoon, whereDue, foundSection, elsewhereSection } from "./loads.ts";
 import { ensureHome } from "../center/refresh.ts";
 import { IC } from "../ui/icons.tsx";
 import { EmptyPanel } from "../ui/kit.tsx";
@@ -32,8 +32,6 @@ const page = createDocumentScope<"page">();
 
 export function drawProjects(el: HTMLElement) {
   const rows = projectRows();
-  if (!state.picked) disposeSessionPanel();
-  if (!state.home || !rows?.length) { disposeFoundSection(); disposeElsewhereSection(); }
   const parts: PagePart[] = [];
   let one: Project | null = null;
 
@@ -48,9 +46,9 @@ export function drawProjects(el: HTMLElement) {
     parts.push(...(one ? projectDetail(one) : overviewSection(shownRows.length ? shownRows : rows)));
 
     const found = foundSection(!one);
-    if (found) parts.push(hostPart(found));
+    if (found) parts.push(viewPart("found", found));
     const elsewhere = elsewhereSection(rows, !state.picked);
-    if (elsewhere) parts.push(hostPart(elsewhere));
+    if (elsewhere) parts.push(viewPart("elsewhere", elsewhere));
   }
 
   // Read before the draw: a node that moves scrolls to 0.
@@ -146,5 +144,5 @@ registerView("projects", {
     ensureHome();
     prefetchRecentSoon();
   },
-  unmount: () => { disposeFoundSection(); disposeElsewhereSection(); disposeSessionPanel(); openTile(null, false); liveMode.follow(null); terms.stop(); },
+  unmount: () => { openTile(null, false); liveMode.follow(null); terms.stop(); },
 });

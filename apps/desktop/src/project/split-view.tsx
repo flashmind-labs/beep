@@ -1,4 +1,4 @@
-import { Fragment, useLayoutEffect, useRef, type ReactNode } from "react";
+import { Fragment, type ReactElement, type ReactNode } from "react";
 import { moveLabel } from "../agents/move-store.ts";
 import { closingNote } from "../agents/closing.ts";
 import { runningWhen, type RunningAgent } from "../agents/running-state.ts";
@@ -8,6 +8,7 @@ import type { Freshness } from "../ui/pagecache.ts";
 import type { TileData } from "./board.ts";
 import type { LabelFilter, SplitGroup, SplitItem } from "./split.ts";
 import { EmptyPanel, LineRow, Section, SectionHead } from "../ui/kit.tsx";
+import { FreshNote } from "./page-view.tsx";
 
 export function ProjectNavigation({ groups, picked, openTile }: { groups: readonly SplitGroup[]; picked: string; openTile: (key: string) => void }) {
   return <>{groups.map((group, index) => <Fragment key={`${index}:${group.title}`}>
@@ -49,24 +50,13 @@ export function RunningStatus({ row }: { row: RunningAgent }) {
   return runningWhen(row);
 }
 
-export function RetainedHost({ host, contents = true }: { host: HTMLElement; contents?: boolean }) {
-  const slot = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const target = slot.current;
-    if (!target) return;
-    if (host.parentElement !== target) target.append(host);
-    return () => { if (host.parentElement === target) host.remove(); };
-  }, [host]);
-  return <div ref={slot} style={contents ? { display: "contents" } : undefined}/>;
-}
-
-export interface RecentSessions { host: HTMLElement | null; empty: string | null; count: number; freshness: Freshness | null }
+export interface RecentSessions { list: ReactElement | null; empty: string | null; count: number; freshness: Freshness | null }
 export function RecentSessionsSection({ session }: { session: RecentSessions }) {
-  return <div id="sec-sessions"><div className="cc-sec"><h4>Past sessions{!!session.count && <span className="n">{session.count}</span>}{session.freshness?.spin ? <span className="drun sw-spin ss-updating" title="Updating"/> : session.freshness?.text ? <small className="sw-age ss-updating">{session.freshness.text}</small> : null}</h4></div>{session.host ? <RetainedHost host={session.host}/> : <div className="cc-panel cc-empty"><span>{session.empty}</span></div>}</div>;
+  return <div id="sec-sessions"><div className="cc-sec"><h4>Past sessions{!!session.count && <span className="n">{session.count}</span>}{session.freshness && <FreshNote freshness={session.freshness} className=" ss-updating"/>}</h4></div>{session.list ? <div style={{ display: "contents" }}>{session.list}</div> : <EmptyPanel text={session.empty} />}</div>;
 }
 
-export function ProjectFallback({ session, machines, running, agents }: { session: RecentSessions; machines: HTMLElement; running: HTMLElement; agents: HTMLElement }) {
-  return <><RecentSessionsSection session={session}/><div className="ca-col"><RetainedHost host={machines}/><RetainedHost host={running}/><RetainedHost host={agents} contents={false}/></div></>;
+export function ProjectFallback({ session, machines, running, agents }: { session: RecentSessions; machines: ReactElement; running: ReactElement; agents: ReactElement }) {
+  return <><RecentSessionsSection session={session}/><div className="ca-col">{machines}{running}{agents}</div></>;
 }
 
 function OverviewRow({ item, openTile }: { item: SplitItem; openTile: (key: string) => void }) {
