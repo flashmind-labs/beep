@@ -1,41 +1,123 @@
+// The work rows of a coding agent's log: thoughts, tool calls and runs of
+// them, subagents, notes and the live line.
 import { Fragment } from "react";
-import { thoughtLabel, duration, KIND_ICONS, type RowParts, type ToolKind, type TurnState } from "./agentturns.ts";
+import { diffBlocks, thoughtLabel, withoutDiffs, KIND_ICONS, type RowParts, type ToolKind, type TurnState } from "./agentturns.ts";
 import { liveText } from "./karaoke.ts";
 import { Icon } from "../ui/icons.tsx";
-import { esc } from "../ui/format.ts";
 import { SubagentsView, type SubagentRow } from "../agentpane/subagents-view.tsx";
 import type { MadeFile, MadeFiles } from "../agentpane/artifacts-state.ts";
 import type { Answered } from "./agentlog.ts";
+import type { ToolDetails } from "./tool-details.ts";
+import { Since, StepMarkView, type StepMark } from "./turn-heading-view.tsx";
 
-type ToolActivity = { kind: "tool"; id: string; html: string; at: number; failed: boolean; open: boolean; artifact: string | null; toggle: boolean; keyboard: boolean; mark: string; after: string; layout: { kind: "beep"; head: string } | { kind: "standard"; parts: RowParts; tip: string; since: number | null } };
+/// What an opened tool call shows under its row.
+export type ToolBody =
+  /// A Beep call: its command or prompt, and its output's tail or all of it.
+  | { kind: "beep"; detail: string | null; output: { text: string; whole: boolean } | null; more: string | null }
+  /// A command, colored when it is a shell line, then its diffs and output.
+  | { kind: "row"; command: { kind: "shell"; html: string } | { kind: "text"; text: string } | null; output: string }
+  | { kind: "details"; details: ToolDetails };
+
+/// The head of a call to the session's Beep tools: what it did, the machine,
+/// the first line of its command or prompt, and how it stands.
+export interface BeepHead { tip: string; label: string; machine: string; line: string | null; status: string; since: number | null }
+
+export interface ToolActivity {
+  kind: "tool"; id: string; at: number; failed: boolean; open: boolean; artifact: string | null;
+  toggle: boolean; keyboard: boolean; mark: StepMark;
+  /// Media files the call names, which open in the media pane.
+  media: string[];
+  body: ToolBody | null;
+  /// Picture tiles the call showed, filled in by `fillAgentPics`.
+  pictures: string;
+  layout: { kind: "beep"; head: BeepHead } | { kind: "standard"; parts: RowParts; tip: string; since: number | null };
+}
+
 export type ActivityRow =
-  | { kind: "thought"; id: string; html: string; key: string; at: number; text: string; content: string | null; ms: number | null; live: boolean; open: boolean }
-  | { kind: "live"; id: string; html: string; state: TurnState; thinking: boolean; start: number | null; doing: string }
+  | { kind: "thought"; id: string; key: string; at: number; text: string; content: string | null; ms: number | null; live: boolean; open: boolean }
+  | { kind: "live"; id: string; state: TurnState; thinking: boolean; start: number | null; doing: string }
   | ToolActivity
-  | { kind: "run"; id: string; html: string; at: number; toolKind: ToolKind; label: string; summary: string; open: boolean; tools: ToolActivity[] }
-  | { kind: "subagents"; id: string; html: string; at: number; heading: string | null; counts: string; rows: SubagentRow[] }
-  | { kind: "folded-pictures"; id: string; html: string; at: number; pictures: string }
-  | { kind: "crumb"; id: string; html: string; parent: string; title: string }
-  | { kind: "older"; id: string; html: string; text: string }
-  | { kind: "note"; id: string; html: string; at: number; value: { kind: "other"; text: string } | { kind: "compacted" } | { kind: "answers"; items: Answered[] } | { kind: "made"; files: MadeFiles; open: boolean } | { kind: "collapse" } };
+  | { kind: "run"; id: string; at: number; toolKind: ToolKind; label: string; summary: string; open: boolean; tools: ActivityRow[] }
+  | { kind: "subagents"; id: string; at: number; heading: string | null; counts: string; rows: SubagentRow[] }
+  /// Pictures shown by steps folded away, or by a subagent's call.
+  | { kind: "pictures"; id: string; at: number | null; folded: boolean; pictures: string }
+  | { kind: "crumb"; id: string; parent: string; title: string }
+  | { kind: "older"; id: string; text: string }
+  | { kind: "note"; id: string; at: number; value: { kind: "other"; text: string } | { kind: "compacted" } | { kind: "answers"; items: Answered[] } | { kind: "made"; files: MadeFiles; open: boolean } | { kind: "collapse" } };
 
 export function ActivityView({ row }: { row: ActivityRow }) {
-  if (row.kind === "note") return <Note row={row} />;
-  if (row.kind === "crumb") return <div className="dcrumb"><button id="agup">{row.parent}</button><span>/</span><b>{row.title}</b><span className="sp" /><button className="dbtn" id="agup2">Open parent<kbd>esc</kbd></button></div>;
-  if (row.kind === "older") return <div className="dmuted">{row.text}</div>;
-  if (row.kind === "folded-pictures") return <div className="dcoderen dfoldpics" data-row={row.at}><span className="pics" dangerouslySetInnerHTML={{ __html: row.pictures }} /></div>;
-  if (row.kind === "subagents") return <div className="dsubgrp" data-row={row.at}>{row.heading !== null && <div className="h"><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: SUB_ICON }} /><b>{row.heading}</b><span>{row.counts}</span></div>}<SubagentsView rows={row.rows} /></div>;
-  if (row.kind === "run") return <div className={`dtrun${row.open ? " open" : ""}`} data-row={row.at}><button data-run={row.at} aria-expanded={row.open}><span className="ki" dangerouslySetInnerHTML={{ __html: KIND_ICONS[row.toolKind] }} /><span className="vb">{row.label}</span><span className="sm">{row.summary}</span><span className="cv"><Icon name="chev" /></span></button><div className="bd"><div><div className="in">{row.tools.map(tool => <ActivityView key={tool.id} row={tool} />)}</div></div></div></div>;
-  if (row.kind === "tool") {
-    const cls = `dcoderen tool ${row.layout.kind === "beep" ? "beep" : "row"}${row.failed ? " failed" : ""}${row.open ? " open" : ""}${row.artifact ? " artifact" : ""}`;
-    const mark = <span className="mk" dangerouslySetInnerHTML={{ __html: row.mark }} />;
-    return <div className={cls} data-row={row.at} data-at={row.toggle ? row.at : undefined} tabIndex={row.keyboard ? 0 : undefined} role={row.keyboard ? "button" : undefined} aria-expanded={row.keyboard ? row.open : undefined} data-artifact={row.artifact ?? undefined} title={row.artifact ? "Open in the Artifacts tab" : undefined}>{row.layout.kind === "beep" ? <>{mark}<span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: row.layout.head }} /></> : <ToolHead parts={row.layout.parts} tip={row.layout.tip} since={row.layout.since} mark={mark} />}<span data-tool-content style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: row.after }} /></div>;
+  switch (row.kind) {
+    case "note": return <Note row={row} />;
+    case "crumb": return <div className="dcrumb"><button id="agup">{row.parent}</button><span>/</span><b>{row.title}</b><span className="sp" /><button className="dbtn" id="agup2">Open parent<kbd>esc</kbd></button></div>;
+    case "older": return <div className="dmuted">{row.text}</div>;
+    case "pictures": return row.folded
+      ? <div className="dcoderen dfoldpics" data-row={row.at ?? undefined}><span className="pics" dangerouslySetInnerHTML={{ __html: row.pictures }} /></div>
+      : <div className="dcoderen tool"><span className="pics" dangerouslySetInnerHTML={{ __html: row.pictures }} /></div>;
+    case "subagents": return <div className="dsubgrp" data-row={row.at}>{row.heading !== null && <div className="h"><SubIcon /><b>{row.heading}</b><span>{row.counts}</span></div>}<SubagentsView rows={row.rows} /></div>;
+    case "run": return <div className={`dtrun${row.open ? " open" : ""}`} data-row={row.at}><button data-run={row.at} aria-expanded={row.open}><span className="ki" dangerouslySetInnerHTML={{ __html: KIND_ICONS[row.toolKind] }} /><span className="vb">{row.label}</span><span className="sm">{row.summary}</span><span className="cv"><Icon name="chev" /></span></button><div className="bd"><div><div className="in">{row.tools.map(tool => <ActivityView key={`${tool.kind}:${tool.id}`} row={tool} />)}</div></div></div></div>;
+    case "tool": return <Tool row={row} />;
+    case "live": return <LiveLine row={row} />;
+    case "thought": return <Thought row={row} />;
   }
-  if (row.kind === "live") {
-    const waiting = row.state === "waiting", lead = row.doing || (row.thinking ? "Thinking" : "Working");
-    return <div className={`dthink dlive${waiting ? "" : " live"}`}><span className="lb" title={waiting ? undefined : lead}>{waiting ? "Waiting for you" : lead}</span>{row.start !== null && <span className="since" data-since={row.start}>{duration(Date.now() - row.start)}</span>}</div>;
-  }
-  return <div className={`dthink${row.live ? " live" : ""}${row.open ? " open" : ""}`} data-row={row.at}><button data-thought={row.at} aria-expanded={row.open}><span className="lb">{thoughtLabel(row.ms)}</span><span className="cv"><Icon name="chev" /></span></button><div className="bd"><div>{row.live ? <div className="tx"><div className="kk" data-kk={row.key}>{liveText(row.text)}</div></div> : <div className="tx md" dangerouslySetInnerHTML={{ __html: row.content ?? esc(row.text).replaceAll("\n", "<br>") }} />}</div></div></div>;
+}
+
+function Thought({ row }: { row: Extract<ActivityRow, { kind: "thought" }> }) {
+  const text = row.live ? <div className="tx"><div className="kk" data-kk={row.key}>{liveText(row.text)}</div></div>
+    : row.content !== null ? <div className="tx md" dangerouslySetInnerHTML={{ __html: row.content }} />
+    : <div className="tx md">{row.text.split("\n").map((line, index) => <Fragment key={index}>{index > 0 && <br />}{line}</Fragment>)}</div>;
+  return <div className={`dthink${row.live ? " live" : ""}${row.open ? " open" : ""}`} data-row={row.at}><button data-thought={row.at} aria-expanded={row.open}><span className="lb">{thoughtLabel(row.ms)}</span><span className="cv"><Icon name="chev" /></span></button><div className="bd"><div>{text}</div></div></div>;
+}
+
+/// A running turn's one live line: what it does now, or "Thinking" or
+/// "Working" until there is one, and how long it has run. Waiting on the
+/// user does not sweep.
+function LiveLine({ row }: { row: Extract<ActivityRow, { kind: "live" }> }) {
+  const waiting = row.state === "waiting", lead = row.doing || (row.thinking ? "Thinking" : "Working");
+  return <div className={`dthink dlive${waiting ? "" : " live"}`}><span className="lb" title={waiting ? undefined : lead}>{waiting ? "Waiting for you" : lead}</span>{row.start !== null && <Since className="since" start={row.start} />}</div>;
+}
+
+/// A tool call as one row: its mark, icon, verb, its target in mono, the
+/// right side (an edit's +2 -1, an exit code) and, opened, what it did.
+function Tool({ row }: { row: ToolActivity }) {
+  const cls = `dcoderen tool ${row.layout.kind === "beep" ? "beep" : "row"}${row.failed ? " failed" : ""}${row.open ? " open" : ""}${row.artifact ? " artifact" : ""}`;
+  const mark = <span className="mk"><StepMarkView mark={row.mark} /></span>;
+  return <div className={cls} data-row={row.at} data-at={row.toggle ? row.at : undefined} tabIndex={row.keyboard ? 0 : undefined} role={row.keyboard ? "button" : undefined} aria-expanded={row.keyboard ? row.open : undefined} data-artifact={row.artifact ?? undefined} title={row.artifact ? "Open in the Artifacts tab" : undefined}>
+    {row.layout.kind === "beep" ? <>{mark}<BeepHeadView head={row.layout.head} /></> : <ToolHead parts={row.layout.parts} tip={row.layout.tip} since={row.layout.since} mark={mark} />}
+    <span data-tool-content style={{ display: "contents" }}>
+      {row.media.length > 0 && <span className="dmedia">{row.media.map(path => <button key={path} data-media={path} title={`Open ${path}`}><Icon name="image" />{path.slice(path.lastIndexOf("/") + 1)}</button>)}</span>}
+      {row.body && <ToolBodyView body={row.body} at={row.at} />}
+      {row.pictures && <span className="pics" dangerouslySetInnerHTML={{ __html: row.pictures }} />}
+    </span>
+  </div>;
+}
+
+function ToolHead({ parts, tip, since, mark }: { parts: RowParts; tip: string; since: number | null; mark: React.ReactNode }) {
+  const counts = /^\+(\d+) -(\d+)$/.exec(parts.detail);
+  return <><span className="ki" dangerouslySetInnerHTML={{ __html: KIND_ICONS[parts.kind] }} /><span className="vb">{parts.verb}</span><code className="tt" title={tip}>{parts.target}</code><span className={`rm${parts.bad ? " bad" : ""}`}>{since !== null ? <ToolClock since={since} /> : counts ? <><span className="pl">+{counts[1]}</span><span className="mi">-{counts[2]}</span></> : parts.detail}</span>{mark}</>;
+}
+
+function BeepHeadView({ head }: { head: BeepHead }) {
+  return <><span className="tt bp" title={head.tip}><span className="bi" dangerouslySetInnerHTML={{ __html: KIND_ICONS.beep }} /><span className="v">{head.label}</span>{head.machine && <span className="mc">{head.machine}</span>}{head.line !== null && <code>{head.line}</code>}</span>
+    <span className="bs">{head.status}{head.since !== null && <> · <ToolClock since={head.since} /></>}</span></>;
+}
+
+const ToolClock = ({ since }: { since: number }) => <Since start={since} title="Time since this window saw the tool running" />;
+
+function ToolBodyView({ body, at }: { body: ToolBody; at: number }) {
+  if (body.kind === "details") return <Details details={body.details} />;
+  if (body.kind === "row") return <>{body.command && (body.command.kind === "shell" ? <pre className="cmd" dangerouslySetInnerHTML={{ __html: body.command.html }} /> : <pre className="cmd">{body.command.text}</pre>)}<ToolOutput output={body.output} /></>;
+  return <>{body.detail !== null && <pre className="cmd">{body.detail}</pre>}{body.output && <pre className={`out${body.output.whole ? " all" : ""}`}>{body.output.text}</pre>}{body.more !== null && <button className="more" data-all={at}>{body.more}</button>}</>;
+}
+
+function Details({ details }: { details: ToolDetails }) {
+  return <div className="call-details"><dl><dt>Tool</dt><dd>{details.tool}</dd></dl><h4>{details.truncated ? "Arguments (truncated)" : "Command"}</h4><pre>{details.command}</pre><h4>Output{details.outputTruncated ? " (truncated)" : ""}</h4>{details.output.kind === "diffs" ? <ToolOutput output={details.output.output} /> : <pre>{details.output.text}</pre>}</div>;
+}
+
+/// Each diff in an output as its changed lines, then the rest in a mono box
+/// that scrolls.
+function ToolOutput({ output }: { output: string }) {
+  const diffs = diffBlocks(output), rest = diffs.length ? withoutDiffs(output) : output;
+  return <>{diffs.map((diff, index) => <div className="ddiff" key={index}><div className="dh">{diff.path}</div>{diff.lines.map((line, at) => <div key={at} className={line.mark === "+" ? "da" : line.mark === "-" ? "dr" : "dc"}>{line.mark + line.text || " "}</div>)}{diff.more > 0 && <div className="dm">{diff.more} more lines</div>}</div>)}{rest && <pre className="out box">{rest}</pre>}</>;
 }
 
 function Note({ row }: { row: Extract<ActivityRow, { kind: "note" }> }) {
@@ -52,9 +134,7 @@ function MadeChip({ file, cls }: { file: MadeFile; cls: string }) {
   return <button className={cls} data-made={file.path} title={file.path}>{file.name}</button>;
 }
 
-export const SUB_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5V13a5 5 0 0 0 5 5h4.5"/></svg>';
-
-function ToolHead({ parts, tip, since, mark }: { parts: RowParts; tip: string; since: number | null; mark: React.ReactNode }) {
-  const counts = /^\+(\d+) -(\d+)$/.exec(parts.detail);
-  return <><span className="ki" dangerouslySetInnerHTML={{ __html: KIND_ICONS[parts.kind] }} /><span className="vb">{parts.verb}</span><code className="tt" title={tip}>{parts.target}</code><span className={`rm${parts.bad ? " bad" : ""}`}>{since !== null ? <span data-since={since} title="Time since this window saw the tool running">{duration(Date.now() - since)}</span> : counts ? <><span className="pl">+{counts[1]}</span><span className="mi">-{counts[2]}</span></> : parts.detail}</span>{mark}</>;
+/// The icon of a subagent, which a child's reply without a harness shows too.
+export function SubIcon() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5V13a5 5 0 0 0 5 5h4.5" /></svg>;
 }

@@ -2,23 +2,24 @@
 // thoughts, subagents and questions, and where it scrolls.
 import { imageLines } from "./agentlog.ts";
 import { createElement } from "react";
-import { toolDetailsHtml } from "./tool-details.ts";
+import { toolDetails } from "./tool-details.ts";
 import { isCommandCall } from "./tool-details-state.ts";
 import { esc, linkified, money, tokenCount } from "../ui/format.ts";
-import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, progressSummary, toolKind, toolRuns, turnSections, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
+import { beepCall, beepLine, commandOf, duration, keptSteps, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, progressSummary, toolKind, toolRuns, turnSections, type Turn, type TurnState } from "./agentturns.ts";
 import { cachedCommandHtml } from "./command-state.ts";
 import { $, S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media-draw.ts";
 import type { SubagentRow } from "../agentpane/subagents-view.tsx";
-import { SUB_ICON, type ActivityRow } from "./activity-view.tsx";
+import type { ActivityRow, ToolActivity, ToolBody } from "./activity-view.tsx";
 import { followAgent } from "../agentpane/worktree.ts";
-import { collectArtifacts, type MadeFile, type MadeFiles, madeFiles, toolArtifacts } from "../agentpane/artifacts-state.ts";
+import { collectArtifacts, madeFiles, toolArtifacts } from "../agentpane/artifacts-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
-import { attachLive } from "./thoughtlive.ts";
+import { attachLive, trackLive } from "./thoughtlive.ts";
 import { groupThoughts, mergedThought } from "./thoughts-state.ts";
 import { showLogShell } from "./log-shell.tsx";
 import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.ts";
-import { answerHtml, collapseActivityHtml, KIND_ICONS, liveLineHtml, stepMark, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml } from "./turnrows.ts";
+import { answerHtml } from "./turnrows.ts";
+import { stepMark, tickClocks, turnHeading } from "./turn-heading-view.tsx";
 import { type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentKind } from "./agents.ts";
 import { stoppingNow } from "./session.ts";
 import { redrawAgentHints } from "./session-head.ts";
@@ -35,10 +36,9 @@ import { drawQueue, questionKey } from "./messages.ts";
 import { olderNote } from "./older-state.ts";
 import { holdNote } from "./reconnect-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
-import { ICON } from "../ui/icons.tsx";
 import { showAgentControl } from "./composer-ui.tsx";
 import { AgentStatus, AgentStopFace } from "./mode-view.tsx";
-import { contextHtml, promptHtml, replyHtml, type ContextRow, type PromptRow, type ReplyRow } from "./reply-view.tsx";
+import type { ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
 
 /// Draws the log again. `keep` finds the row the reader just opened or
 /// folded, which stays where it is on screen. With `older` it is the row in
@@ -60,10 +60,9 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   const question = q && AG.modes?.plan == null ? q : null;
   const why = AG.why ? `Auto picked ${s.machine_name}. ${AG.why}` : null;
   const olderText = olderNote(p, AG.older.stop, AG.older.loading);
-  const earlier = olderText ? `<div class="dmuted">${esc(olderText)}</div>` : "";
   const parent = parentSession(p.session);
-  const crumb: ActivityRow | null = parent ? { kind: "crumb", id: "up", html: upCrumb(p), parent: parent.title || "Session", title: s.title || "Session" } : null;
-  const olderRow: ActivityRow | null = olderText ? { kind: "older", id: "older", html: earlier, text: olderText } : null;
+  const crumb: ActivityRow | null = parent ? { kind: "crumb", id: "up", parent: parent.title || "Session", title: s.title || "Session" } : null;
+  const olderRow: ActivityRow | null = olderText ? { kind: "older", id: "older", text: olderText } : null;
   // The log goes in by turns, and only those near the view are drawn.
   const units = p.entries.length && AG.log
     ? [fixed("up", crumb), fixed("older", olderRow), ...turnUnits(p)] : null;
@@ -89,7 +88,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   drawQueue();
   const owner = $("#agfield") ?? b;
   if (st) showAgentControl(owner, st, createElement(AgentStatus, { status: s.status, stopping }));
-  tickTurns();
+  tickClocks();
   redrawAgentHints();
   // Only a turn that runs can be stopped.
   const stop = $<HTMLButtonElement>("#agstop");
@@ -124,8 +123,23 @@ function showLog(b: HTMLElement, shell: Parameters<typeof showLogShell>[1], unit
     if (sel.anchorNode) held.push(sel.anchorNode);
     if (sel.focusNode) held.push(sel.focusNode);
   }
-  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row.kind === "prompt" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row.kind === "context" && row.type === "child" ? { ...row, body: prepareInlineImages(row.body) } : row.kind === "thought" ? { ...row, html: prepareInlineImages(row.html), content: row.content === null ? null : prepareInlineImages(row.content) } : row.kind === "tool" ? { ...row, html: prepareInlineImages(row.html), after: prepareInlineImages(row.after) } : row.kind === "run" ? { ...row, html: prepareInlineImages(row.html), tools: row.tools.map(tool => ({ ...tool, after: prepareInlineImages(tool.after) })) } : row.kind === "folded-pictures" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row) })) ?? null;
+  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(withInlineImages) })) ?? null;
   return showLogShell(b, shell, prepared, held);
+}
+
+/// A row with its Markdown images that are files on the session's machine
+/// waiting to be read (`fillInlineImages`) rather than loaded by the webview.
+function withInlineImages<Row extends TranscriptRow>(row: Row): Row;
+function withInlineImages(row: TranscriptRow): TranscriptRow {
+  switch (row.kind) {
+    case "reply": return { ...row, html: prepareInlineImages(row.html) };
+    case "prompt": return { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) };
+    case "context": return row.type === "child" ? { ...row, body: prepareInlineImages(row.body) } : row;
+    case "thought": return { ...row, content: row.content === null ? null : prepareInlineImages(row.content) };
+    case "tool": case "pictures": return { ...row, pictures: prepareInlineImages(row.pictures) };
+    case "run": return { ...row, tools: row.tools.map(withInlineImages) };
+    default: return row;
+  }
 }
 
 /// Scrolls the log to its newest entry, which it follows again from there.
@@ -180,7 +194,7 @@ if (typeof document !== "undefined") {
 const toolStarts = new Map<string, number>();
 
 /// A tool entry as one line: its mark and a short label ("Ran cargo test").
-function toolData(en: AgentEntry, at: number, pics = ""): Extract<ActivityRow, { kind: "tool" }> | null {
+function toolData(en: AgentEntry, at: number, pictures: string): ToolActivity | null {
   const log = AG.log!;
   const { title, status, output } = log.parseTool(log.imageLines(en.text).text);
   if (log.subagent(output)) return null;
@@ -193,87 +207,44 @@ function toolData(en: AgentEntry, at: number, pics = ""): Extract<ActivityRow, {
   const long = title.includes("\n") || label.length > 80;
   const parts = rowParts(en.text, live, open);
   const inspected = !beep && isCommandCall(en.tool) && (!!en.tool?.name || parts.kind === "command");
-  const tail = log.tailLines(output), whole = AG.all.has(at);
-  // A Beep call's row shows the first line of its command or prompt; opened, all of it.
-  const body = !open ? ""
-    : (beep?.detail ? `<pre class="cmd">${esc(beep.detail)}</pre>` : "")
-      + (output ? `<pre class="out${whole ? " all" : ""}">${esc(whole ? output : tail.shown)}</pre>` : "")
-      + (tail.cut ? `<button class="more" data-all="${at}">${whole ? "Show less" : `Show all ${tail.total === 1 ? "of it" : `${tail.total} lines`}`}</button>` : "");
   const key = `${AG.open?.machine_id ?? ""}\n${AG.open?.session ?? ""}\n${at}`;
   if (live && !toolStarts.has(key)) toolStarts.set(key, Date.now());
-  const since = live ? toolStarts.get(key) : undefined;
+  const since = live ? toolStarts.get(key) ?? null : null;
   if (!live) toolStarts.delete(key);
   // A command may be cut at any width, so it always opens.
   const opens = inspected || !!output || long || (beep ? !!beep.detail : parts.kind === "command");
-  const toggleAttrs = opens ? ` data-at="${at}"${inspected || parts.kind === "command" ? ` tabindex="0" role="button" aria-expanded="${open}"` : ""}` : "";
-  const inspectedBody = open && inspected ? toolDetailsHtml(en.tool, status, live, output, diffBlocks(output).length ? toolBody(output) : undefined) : "";
   const published = AG.page ? toolArtifacts(en.text, AG.page.session.cwd).files.find(f => f.published) : undefined;
-  const artifact = published ? ` data-artifact="${esc(published.path)}" title="Open in the Artifacts tab"` : "";
   const state = failed ? (exit != null ? `exit ${exit}` : "Failed") : status === "completed" ? "Done" : live ? "Running" : "";
-
   const keyboard = opens && (inspected || parts.kind === "command");
-  const mark = stepMark(status, live);
-  const common = { kind: "tool" as const, id: String(at), at, failed, open, artifact: published?.path ?? null, toggle: opens, keyboard, mark };
+  // A file the call names opens in the media pane, at most three of them.
+  const media = log.mediaPaths(title).slice(0, 3);
+  const common = { kind: "tool" as const, id: String(at), at, failed, open, artifact: published?.path ?? null, toggle: opens, keyboard, mark: stepMark(status, live), media, pictures };
+
   if (beep) {
-    const head = beepHead(beep, title, state, live, open, since), after = mediaButtons(title) + body + pics;
-    const html = `<div class="dcoderen tool beep${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}" data-row="${at}"${toggleAttrs}${artifact}>`
-      + `<span class="mk">${mark}</span>${head}${after}</div>`;
-    return { ...common, html, after, layout: { kind: "beep", head } };
+    // A Beep call's row shows the first line of its command or prompt; opened, all of it.
+    const tail = log.tailLines(output), whole = AG.all.has(at);
+    const more = !tail.cut ? null : whole ? "Show less" : `Show all ${tail.total === 1 ? "of it" : `${tail.total} lines`}`;
+    const body: ToolBody | null = open ? { kind: "beep", detail: beep.detail || null, output: output ? { text: whole ? output : tail.shown, whole } : null, more } : null;
+    const head = { tip: beepLine(title) ?? title, label: live ? beep.doing : beep.done, machine: beep.machine, line: beep.detail && !open ? beep.detail.split("\n")[0] : null, status: [beep.files, state].filter(Boolean).join(" · "), since };
+    return { ...common, body, layout: { kind: "beep", head } };
   }
 
   const wrapped = open && (parts.kind === "command" || long);
-  const rowBody = !open ? "" : (wrapped ? `<pre class="cmd">${parts.kind === "command" ? cachedCommandHtml(parts.target) : esc(parts.target)}</pre>` : "") + toolBody(output);
+  const command = !wrapped ? null : parts.kind === "command" ? { kind: "shell" as const, html: cachedCommandHtml(parts.target) } : { kind: "text" as const, text: parts.target };
+  const body: ToolBody | null = !open ? null : inspected ? { kind: "details", details: toolDetails(en.tool, status, live, output) } : { kind: "row", command, output };
   const shown = { ...parts, target: inspected ? parts.target : wrapped ? "" : parts.target };
-  const after = mediaButtons(title) + (inspected ? inspectedBody : rowBody) + pics, tip = commandOf(title);
-  const html = toolRowHtml({ ...shown, since, tip, mark,
-    cls: `${failed ? " failed" : ""}${open ? " open" : ""}${published ? " artifact" : ""}`,
-    attrs: ` data-row="${at}"${toggleAttrs}${artifact}`, after });
-  return { ...common, html, after, layout: { kind: "standard", parts: shown, tip, since: since ?? null } };
+  return { ...common, body, layout: { kind: "standard", parts: shown, tip: commandOf(title), since } };
 }
 
-export function toolRow(en: AgentEntry, at: number, pics = "") {
-  return toolData(en, at, pics)?.html ?? subCard([at]) + (pics ? `<div class="dcoderen tool">${pics}</div>` : "");
-
+/// A tool entry's rows: its line, or a subagent's card with the pictures
+/// its call showed.
+export function toolRows(en: AgentEntry, at: number): ActivityRow[] {
+  const { text, names } = AG.log ? AG.log.imageLines(en.text) : { text: en.text, names: [] };
+  const pictures = names.map(entryPic).join("");
+  const tool = toolData({ ...en, text }, at, pictures);
+  if (tool) return [tool];
+  return [subActivity([at]), ...(pictures ? [{ kind: "pictures" as const, id: `sub:${at}`, at: null, folded: false, pictures }] : [])];
 }
-
-function typedTool(en: AgentEntry, at: number) {
-  if (!AG.log) return null;
-  const { text, names } = AG.log.imageLines(en.text);
-  const pics = names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "";
-  return toolData({ ...en, text }, at, pics);
-}
-
-function commandClock(since: number) {
-  return `<span data-since="${since}" title="Time since this window saw the tool running">${duration(Date.now() - since)}</span>`;
-}
-
-/// What an opened call shows: each diff as its changed lines, then the
-/// rest of its output in a mono box that scrolls.
-function toolBody(output: string) {
-  const diffs = diffBlocks(output).map(d => `<div class="ddiff"><div class="dh">${esc(d.path)}</div>`
-    + d.lines.map(l => `<div class="${l.mark === "+" ? "da" : l.mark === "-" ? "dr" : "dc"}">${esc(l.mark + l.text) || " "}</div>`).join("")
-    + (d.more ? `<div class="dm">${d.more} more lines</div>` : "") + "</div>").join("");
-  const rest = diffs ? withoutDiffs(output) : output;
-  return diffs + (rest ? `<pre class="out box">${esc(rest)}</pre>` : "");
-}
-
-/// A call to the session's Beep tools: what it did, the machine as a chip,
-/// the first line of its command or prompt, then the file count and how it
-/// stands on the right. Opened, the command or prompt is under it instead.
-function beepHead(beep: BeepCall, title: string, state: string, live: boolean, open: boolean, since?: number) {
-  return `<span class="tt bp" title="${esc(beepLine(title) ?? title)}"><span class="bi">${KIND_ICONS.beep}</span><span class="v">${esc(live ? beep.doing : beep.done)}</span>`
-    + (beep.machine ? `<span class="mc">${esc(beep.machine)}</span>` : "")
-    + (beep.detail && !open ? `<code>${esc(beep.detail.split("\n")[0])}</code>` : "") + "</span>"
-    + `<span class="bs">${esc([beep.files, state].filter(Boolean).join(" · "))}${since != null ? ` · ${commandClock(since)}` : ""}</span>`;
-}
-
-/// A button for each media file a step's title names (at most three),
-/// opening it in the media pane.
-function mediaButtons(title: string) {
-  const paths = AG.log!.mediaPaths(title).slice(0, 3);
-  return paths.length ? `<span class="dmedia">${paths.map(p => `<button data-media="${esc(p)}" title="Open ${esc(p)}">${ICON.image}${esc(p.slice(p.lastIndexOf("/") + 1))}</button>`).join("")}</span>` : "";
-}
-
 
 /// What the window saw of each subagent: when it started and ended, by
 /// session and the call's place. Calls carry no times.
@@ -294,27 +265,6 @@ function subOf(at: number) {
   const ms = !seen.live ? null : working ? now - seen.start : (seen.end ?? now) - seen.start;
   const [name, ...prompt] = title.split("\n");
   return { title: name, prompt: sub.child ? prompt.join("\n") : "", agent: sub.agent ?? "", status, working, failed: status === "failed", sub, ms };
-}
-
-/// One subagent as a row: its name, how it stands, how long and how many steps.
-/// In the pane a finished one can be closed.
-function subRow(at: number, inPane = false) {
-  const x = subOf(at);
-  const kid = x.sub.child;
-  const st = kid ? kidState(kid.state) : x.working ? "working" : x.failed ? "failed" : "done";
-  const spent = kid?.tokens ? [`${tokenCount(kid.tokens)} tokens`, kid.cost != null ? money(kid.cost) : ""] : [];
-  const meta = [st, x.ms != null ? duration(x.ms) : "", kid ? "" : x.sub.count === 1 ? "1 step" : `${x.sub.count} steps`, ...spent].filter(Boolean).join(" · ");
-  const kind = x.agent ? `<span class="kind">${esc(x.agent)}</span>` : "";
-  const opens = kid ? `data-kid="${esc(kid.id)}" data-key="${esc(kid.key)}"` : x.sub.session ? `data-native="${at}"` : `data-subsummary="${at}"`;
-  const close = inPane && st !== "working" && st !== "needs you" ? `<em class="x" data-subclose="${at}" title="Dismiss from pane">${ICON.x}</em>` : "";
-  // A child that runs can be stopped from its row, as from its own log.
-  const stoppable = kid && (st === "working" || st === "needs you");
-  const stop = stoppable ? `<em class="kstop" data-kidstop title="Stop ${esc(x.title)}">Stop</em>` : "";
-  const row = `<button class="dsubrow${stoppable ? " stoppable" : ""}" ${opens} title="Open ${esc(x.title)}"><span class="mk">${stepMark(x.working ? "in_progress" : x.status, x.working)}</span><span class="t"><b>${esc(x.title)}${kind}</b><small>${esc(meta)}</small></span>${close}${stop}</button>`;
-  if (!kid && !x.sub.session && AG.steps.get(at)) return row + `<div class="dmuted">${esc(x.sub.result || "The agent has not provided a readable conversation yet.")}</div>`;
-  if (inPane || !x.prompt) return row;
-  const open = AG.steps.get(at) ?? false;
-  return `<div class="dsubprompt" data-row="${at}" data-at="${at}">${row}<button class="prompt-toggle" data-prompt="${at}" aria-expanded="${open}">${ICON.chev}Prompt</button>${open ? `<pre>${esc(x.prompt)}</pre>` : ""}</div>`;
 }
 
 /// Subagents closed in the pane, by session and the call's place. The log keeps them.
@@ -357,34 +307,18 @@ function kidState(state: string) {
 }
 
 /// Subagents started together as one card: "3 subagents · 2 working · 1 done".
-function subCard(ats: number[]) {
-  const all = ats.map(subOf), working = all.filter(x => x.working).length, failed = all.filter(x => x.failed).length;
-  const done = all.length - working - failed;
-  const counts = [working && `${working} working`, done && `${done} done`, failed && `${failed} failed`].filter(Boolean).join(" · ");
-  const head = ats.length > 1 ? `<div class="h">${SUB_ICON}<b>${ats.length} ${all.every(x => x.sub.child) ? "agents started" : "subagents"}</b><span>${esc(counts)}</span></div>` : "";
-  return `<div class="dsubgrp" data-row="${ats[0]}">${head}${ats.map(at => subRow(at)).join("")}</div>`;
-}
-
 function subActivity(ats: number[]): ActivityRow {
   const all = ats.map(subOf), working = all.filter(x => x.working).length, failed = all.filter(x => x.failed).length;
   const done = all.length - working - failed;
   const counts = [working && `${working} working`, done && `${done} done`, failed && `${failed} failed`].filter(Boolean).join(" · ");
   const heading = ats.length > 1 ? `${ats.length} ${all.every(x => x.sub.child) ? "agents started" : "subagents"}` : null;
-  return { kind: "subagents", id: String(ats[0]), at: ats[0], html: subCard(ats), heading, counts, rows: ats.map(at => subData(at, false)) };
+  return { kind: "subagents", id: String(ats[0]), at: ats[0], heading, counts, rows: ats.map(at => subData(at, false)) };
 }
 
 /// The places of the subagents' calls among the entries shown.
 function subagentsShown(p: AgentPage) {
   if (!AG.log) return [];
   return p.entries.flatMap((en, i) => en.kind === "tool" && AG.log!.subagent(AG.log!.parseTool(en.text).output) ? [p.earlier + i] : []);
-}
-
-/// The line back to the session whose agent started this one, when one did:
-/// its parent and this session's title, and the way up.
-function upCrumb(p: AgentPage) {
-  const up = parentSession(p.session);
-  if (!up) return "";
-  return `<div class="dcrumb"><button id="agup">${esc(up.title || "Session")}</button><span>/</span><b>${esc(p.session.title || "Session")}</b><span class="sp"></span><button class="dbtn" id="agup2">Open parent<kbd>esc</kbd></button></div>`;
 }
 
 /// An image a user entry carried: the one sent from here, the one read
@@ -404,56 +338,36 @@ export let thinking = false;
 
 /// Thoughts start folded because the progress line already shows what
 /// the agent thinks. The reader's choice stays as the group grows or ends.
-function thoughtRow(en: AgentEntry, at: number, live = at === liveAt) {
-  const session = AG.open?.session ?? "";
-  const m = AG.open ? turnsOf(AG.open.session) : null;
-  return thoughtHtml({ key: `${session}:${at}`, text: en.text, html: en.html, ms: en.ms, live, open: !!m?.thoughts.has(at), folding: false, row: at });
-}
-
-function typedThought(en: AgentEntry, at: number, live: boolean): ActivityRow {
+function thoughtRow(en: AgentEntry, at: number, live: boolean): ActivityRow {
   const key = `${AG.open?.session ?? ""}:${at}`;
   const open = !!AG.open && turnsOf(AG.open.session).thoughts.has(at);
-  return { kind: "thought", id: String(at), html: thoughtRow(en, at, live), key, at, text: en.text, content: en.html ?? null, ms: en.ms ?? null, live, open };
+  if (live) trackLive(key);
+  return { kind: "thought", id: String(at), key, at, text: en.text, content: en.html ?? null, ms: en.ms ?? null, live, open };
 }
 
-function entryRow(en: AgentEntry, at: number) {
-  const text = esc(en.text);
-  if (en.kind === "thought") return thoughtRow(en, at);
+/// An entry's rows, by its kind.
+function entryRows(en: AgentEntry, at: number): TranscriptRow[] {
+  if (en.kind === "thought") return [thoughtRow(en, at, at === liveAt)];
   // Codex echoes answered questions as a message: show them as answered.
-  const answered = en.kind === "user" && AG.log ? AG.log.answeredQuestions(en.text) : null;
-  if (answered) return `<div class="dcoderen qa" data-row="${at}">${answered.map(x => `${x.question ? `<span class="q">${esc(x.question)}</span>` : ""}<span class="a">${esc(x.answer)}</span>`).join("")}</div>`;
-
-  if (en.kind === "user") return userRows(en, at).map(row => typeof row === "string" ? row : row.kind === "context" ? contextHtml(row) : promptHtml(row)).join("");
-
-  if (en.kind === "agent") return replyHtml(agentReply(en, at));
-
-  // The pictures the agent or a tool showed go after the text, as a
-  // user's do. The HTML is already without their lines.
-  const { text: said, names } = AG.log ? AG.log.imageLines(en.text) : { text: en.text, names: [] };
-  const pics = names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "";
-  if (en.kind === "tool") return AG.log ? toolRow({ ...en, text: said }, at, pics) : `<div class="dcoderen tool">${text}</div>`;
-  if (en.kind === "other" && en.text.trim() === "[conversation compacted]") return `<div class="dcoderen compacted" data-row="${at}"><span>Conversation compacted</span></div>`;
-  const made = AG.page ? madeFiles(en.text, AG.page.session.cwd) : null;
-  if (made) return madeRow(made, at);
-  return `<div class="dcoderen other" data-row="${at}">${esc(en.text)}</div>`;
-}
-
-function typedEntry(en: AgentEntry, at: number): TranscriptRow {
   const answers = en.kind === "user" && AG.log ? AG.log.answeredQuestions(en.text) : null;
-  if (answers) return { kind: "note", id: `answers:${at}`, at, html: entryRow(en, at), value: { kind: "answers", items: answers } };
-  if (en.kind === "thought" || en.kind === "user" || en.kind === "agent" || en.kind === "tool") return entryRow(en, at);
-  if (en.kind === "other" && en.text.trim() === "[conversation compacted]") return { kind: "note", id: `compacted:${at}`, at, html: entryRow(en, at), value: { kind: "compacted" } };
+  if (answers) return [{ kind: "note", id: `answers:${at}`, at, value: { kind: "answers", items: answers } }];
+  if (en.kind === "user") return userRows(en, at);
+  if (en.kind === "agent") return [agentReply(en, at)];
+  if (en.kind === "tool") return toolRows(en, at);
+  if (en.kind === "other" && en.text.trim() === "[conversation compacted]") return [{ kind: "note", id: `compacted:${at}`, at, value: { kind: "compacted" } }];
+  // The files a turn's commands made: one file as "Made x.md", several as a
+  // folded "Made 11 files" that opens to their names by kind.
   const files = AG.page ? madeFiles(en.text, AG.page.session.cwd) : null;
-  if (files) return { kind: "note", id: `made:${at}`, at, html: madeRow(files, at), value: { kind: "made", files, open: !!AG.open && turnsOf(AG.open.session).made.has(at) } };
-  return { kind: "note", id: `other:${at}`, at, html: entryRow(en, at), value: { kind: "other", text: en.text } };
+  if (files) return [{ kind: "note", id: `made:${at}`, at, value: { kind: "made", files, open: !!AG.open && turnsOf(AG.open.session).made.has(at) } }];
+  return [{ kind: "note", id: `other:${at}`, at, value: { kind: "other", text: en.text } }];
 }
 
-function userRows(en: AgentEntry, at: number): (string | PromptRow | ContextRow)[] {
+function userRows(en: AgentEntry, at: number): (PromptRow | ContextRow)[] {
   // Beep's context, what another session sent and what a child came to
   // get rows of their own, never the user's box.
   const parts = promptParts(en.text);
   let child = 0;
-  const others = parts.flatMap((p, index): (string | ContextRow)[] => p.kind === "context"
+  const others = parts.flatMap((p, index): ContextRow[] => p.kind === "context"
     ? [{ kind: "context", id: `${at}:${index}`, type: "context", text: p.text }]
     : p.kind === "session"
       ? [{ kind: "context", id: `${at}:${index}`, type: "session", name: p.name, html: linkified(p.text) }]
@@ -462,8 +376,7 @@ function userRows(en: AgentEntry, at: number): (string | PromptRow | ContextRow)
           const row = childRow(sessions, p.id);
           const meta = [row?.machine_name ?? p.id.split("@").slice(1).join("@"), row ? agentKind(row.agent).name : ""].filter(Boolean).join(" · ");
           const body = en.child_html?.[child++];
-          // AgentContext draws the harness tile; this string form only feeds search and change checks.
-          return { kind: "context", id: `${at}:${index}`, type: "child", part: p, body: body != null ? answerHtml(body) : `<p>${linkified(p.text).replace(/\n/g, "<br>")}</p>`, icon: row ? "" : SUB_ICON, agent: row?.agent ?? null, meta };
+          return { kind: "context", id: `${at}:${index}`, type: "child", part: p, body: body != null ? answerHtml(body) : `<p>${linkified(p.text).replace(/\n/g, "<br>")}</p>`, agent: row?.agent ?? null, meta };
         })()]
         : []);
   const own = parts.filter(p => p.kind === "user").map(p => p.text).join("\n");
@@ -476,17 +389,6 @@ function userRows(en: AgentEntry, at: number): (string | PromptRow | ContextRow)
   const said = html.replace(/data-paste="(\d+)"/g, (m, i) => AG.opened.has(`${at}:${i}`) ? `${m} open` : m);
   const prompt: PromptRow = { kind: "prompt", row: String(at), html: said, pictures: names.map(entryPic).join("") };
   return [...others, prompt];
-}
-
-/// The files a turn's commands made: one file as "Made x.md", several as a
-/// folded "Made 11 files" that opens to their names by kind. A name opens
-/// the file in the side pane.
-function madeRow(made: MadeFiles, at: number) {
-  const chip = (f: MadeFile, cls: string) => `<button class="${cls}" data-made="${esc(f.path)}" title="${esc(f.path)}">${esc(f.name)}</button>`;
-  if (made.files.length === 1) return `<div class="dcoderen other mf" data-row="${at}">Made ${chip(made.files[0], "mf-name")}</div>`;
-  const open = !!AG.open && turnsOf(AG.open.session).made.has(at);
-  const groups = made.groups.map(g => `<div class="mf-grp"><small>${esc(g.label)}</small><div class="mf-chips">${g.files.map(f => chip(f, "mf-chip")).join("")}</div></div>`).join("");
-  return `<div class="dcoderen other mf${open ? " open" : ""}" data-row="${at}"><button class="mf-head" data-madeat="${at}" aria-expanded="${open}"><span class="mf-car">›</span>Made ${made.files.length} files<small>${esc(made.counts)}</small></button>${groups}</div>`;
 }
 
 /// What this window knows of a session's turns: the ones it has seen, when it
@@ -559,7 +461,7 @@ function rowsOf(p: AgentPage, ats: number[]) {
 
     if (p.entries[at - p.earlier].kind === "thought") {
       flush();
-      out.push(typedThought(mergedThought(p.entries, group, p.earlier), at, liveAt != null && group.includes(liveAt)));
+      out.push(thoughtRow(mergedThought(p.entries, group, p.earlier), at, liveAt != null && group.includes(liveAt)));
       continue;
     }
 
@@ -567,9 +469,7 @@ function rowsOf(p: AgentPage, ats: number[]) {
     if (isSub(at)) { run.push(at); continue; }
     flush();
     const en = p.entries[at - p.earlier];
-    if (en.kind === "agent") out.push(agentReply(en, at));
-    else if (en.kind === "tool" && AG.log) out.push(typedTool(en, at) ?? entryRow(en, at));
-    else out.push(typedEntry(en, at));
+    out.push(...entryRows(en, at));
   }
 
   flush();
@@ -585,18 +485,14 @@ function agentReply(en: AgentEntry, at: number): ReplyRow {
 
 /// Calls of one kind in a row as one line, the first few targets beside
 /// it; it opens in place, and stays open across redraws.
-function runRow(p: AgentPage, ats: number[]) {
+function runRow(p: AgentPage, ats: number[]): ActivityRow {
   const en = (at: number) => p.entries[at - p.earlier];
   const kind = toolKind(en(ats[0]).text);
   const names = ats.map(at => rowParts(en(at).text).target.split("/").pop() || "").filter(Boolean);
   const shown = names.slice(0, 3).join(", ") + (names.length > 3 ? ` and ${names.length - 3} more` : "");
   const open = !!AG.open && turnsOf(AG.open.session).runs.has(ats[0]);
-  const tools = ats.map(at => typedTool(en(at), at));
-  const html = `<div class="dtrun${open ? " open" : ""}" data-row="${ats[0]}"><button data-run="${ats[0]}" aria-expanded="${open}">`
-    + `<span class="ki">${KIND_ICONS[kind]}</span><span class="vb">${esc(runLabel(kind, ats.length))}</span><span class="sm">${esc(shown)}</span><span class="cv">${ICON.chev}</span></button>`
-    + `<div class="bd"><div><div class="in">${tools.map((tool, index) => tool?.html ?? entryRow(en(ats[index]), ats[index])).join("")}</div></div></div></div>`;
-  if (tools.some(tool => tool === null)) return html;
-  return { kind: "run", id: String(ats[0]), at: ats[0], html, toolKind: kind, label: runLabel(kind, ats.length), summary: shown, open, tools: tools.filter(tool => tool !== null) } satisfies ActivityRow;
+  const tools = ats.flatMap(at => toolRows(en(at), at));
+  return { kind: "run", id: String(ats[0]), at: ats[0], toolKind: kind, label: runLabel(kind, ats.length), summary: shown, open, tools } satisfies ActivityRow;
 }
 
 /// The log in turns: each message, then a heading with how long the agent
@@ -610,19 +506,19 @@ function turnUnits(p: AgentPage): Unit[] {
   const turns = splitTurns(p.entries, p.earlier), lastTurn = turns.at(-1);
   const m = turnsOf(AG.open?.session ?? s.id);
   noteTurns(m, turns, active && lastTurn ? lastTurn.key : null);
-  const row = (at: number) => typedEntry(p.entries[at - p.earlier], at);
+  const rows = (at: number) => entryRows(p.entries[at - p.earlier], at);
   const entry = (at: number) => p.entries[at - p.earlier];
   liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
   return turns.map(t => ({ key: `t${t.key}`, rows: turnRows(t) }));
 
   function turnRows(t: Turn): () => TranscriptRow[] {
     // Notes before the first message are not a turn of work.
-    if (onlyNotes(p.entries, t, p.earlier)) return () => t.steps.map(row);
+    if (onlyNotes(p.entries, t, p.earlier)) return () => t.steps.flatMap(rows);
     const last = t === lastTurn, running = active && last;
     const user = (): TranscriptRow[] => {
       if (t.user == null) return [];
       const item = entry(t.user);
-      return item.kind === "user" && !AG.log?.answeredQuestions(item.text) ? userRows(item, t.user) : [row(t.user)];
+      return item.kind === "user" && !AG.log?.answeredQuestions(item.text) ? userRows(item, t.user) : rows(t.user);
     };
     if (!running && !t.steps.length && !t.answer.length) return user;
     const { start, end } = span({
@@ -658,27 +554,21 @@ function turnUnits(p: AgentPage): Unit[] {
         if (preview != null) kept.add(preview);
         const folding = section.ats.filter(at => !kept.has(at));
         const stats = progressSummary(p.entries, group, p.earlier);
-        const head = headingRow({ state: "working", ms: null, stats, key, opened });
+        const head = turnHeading({ state: "working", start: null, ms: null, stats, turn: key, opened });
         const seen = opened ? [] : folding.flatMap(at => AG.log?.imageLines(entry(at).text).names ?? []);
         const pictures = seen.map(entryPic).join("");
-        const pics: ActivityRow | null = seen.length ? { kind: "folded-pictures", id: String(folding[0]), at: folding[0], pictures, html: `<div class="dcoderen dfoldpics" data-row="${folding[0]}"><span class="pics">${pictures}</span></div>` } : null;
-        const rows = rowsOf(p, opened ? section.ats : section.ats.filter(at => kept.has(at)));
-        const collapse: ActivityRow | null = opened ? { kind: "note", id: `collapse:${key}`, at: key, html: collapseActivityHtml(key), value: { kind: "collapse" } } : null;
-        return [head, ...(pics ? [pics] : []), ...rows, ...(collapse ? [collapse] : [])];
+        const pics: ActivityRow | null = seen.length ? { kind: "pictures", id: String(folding[0]), at: folding[0], folded: true, pictures } : null;
+        const shownRows = rowsOf(p, opened ? section.ats : section.ats.filter(at => kept.has(at)));
+        const collapse: ActivityRow | null = opened ? { kind: "note", id: `collapse:${key}`, at: key, value: { kind: "collapse" } } : null;
+        return [...(head ? [head] : []), ...(pics ? [pics] : []), ...shownRows, ...(collapse ? [collapse] : [])];
       });
-      const head = headingRow({ state, start, ms, stats: "", key: null, opened: false });
+      const head = turnHeading({ state, start: start ?? null, ms, stats: "", turn: null, opened: false });
       const shownTitle = newest != null ? AG.log?.parseTool(entry(newest).text).title.trim() : "";
       const liveDoing = state === "working" && doing !== "Thinking" && !(shownTitle && (shownTitle.includes(doing) || doing.includes(shownTitle))) ? doing : "";
-      const live: ActivityRow | null = running ? { kind: "live", id: String(t.key), state, thinking, start: start ?? null, doing: liveDoing, html: liveLineHtml({ state, thinking, start, doing: liveDoing }) } : null;
-      return [...user(), head, ...work, ...(live ? [live] : [])].filter(Boolean);
+      const live: ActivityRow | null = running ? { kind: "live", id: String(t.key), state, thinking, start: start ?? null, doing: liveDoing } : null;
+      return [...user(), ...(head ? [head] : []), ...work, ...(live ? [live] : [])];
     };
   }
-}
-
-function headingRow(value: Parameters<typeof turnHeadHtml>[0]): TranscriptRow {
-  const html = turnHeadHtml(value);
-  if (!html) return "";
-  return { kind: "heading", id: value.key === null ? "turn" : `steps:${value.key}`, html, state: value.state, start: value.start ?? null, ms: value.ms, stats: value.stats, turn: value.key, opened: value.opened };
 }
 
 /// A row of the log a redraw puts back where it was: found by `sel`, `off`

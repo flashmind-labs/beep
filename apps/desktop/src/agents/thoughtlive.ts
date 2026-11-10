@@ -1,8 +1,6 @@
 // The thought a coding agent streams, shown open and following its newest
 // line. The log redraws on every read, so whether each follows is kept here.
 
-import { liveText } from "./karaoke.ts";
-import { esc } from "../ui/format.ts";
 
 /// The live thoughts that follow their newest line, until the reader
 /// scrolls them.
@@ -14,19 +12,6 @@ const wired = new WeakSet<HTMLElement>();
 /// Registers a thought before its view is rendered.
 export function trackLive(key: string) { if (!follows.has(key)) follows.set(key, true); }
 export function endLive(key: string) { follows.delete(key); }
-
-/// The live thought `key`'s text, all it has so far in `md`.
-export function liveHtml(key: string, md: string) {
-  trackLive(key);
-  return `<div class="kk" data-kk="${esc(key)}">${esc(liveText(md))}</div>`;
-}
-
-/// A thought that just ended, as its live view last was, for the moment
-/// it folds.
-export function endedHtml(key: string, md: string) {
-  endLive(key);
-  return `<div class="kk ended">${esc(liveText(md))}</div>`;
-}
 
 /// Wires the live thoughts just drawn under `root`: each follows its
 /// newest line until the reader scrolls it, which `touched` hears of.

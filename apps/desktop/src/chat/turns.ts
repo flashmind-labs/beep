@@ -13,7 +13,7 @@ import { canPickModel, modelName } from "../settings/model.ts";
 import { routeRow } from "./routes.ts";
 import { doneLabel } from "./tools.ts";
 import { attachLive, endLive, trackLive } from "../agents/thoughtlive.ts";
-import { tickTurns, turnHeadHtml } from "../agents/turnrows.ts";
+import { tickClocks, turnHeading } from "../agents/turn-heading-view.tsx";
 import { linkified, plural } from "../ui/format.ts";
 import type { ToolKind } from "../agents/agentturns.ts";
 import { refreshStatus } from "../bar/views.ts";
@@ -134,10 +134,8 @@ export function drawWork(turn: Turn) {
   const turnKey = steps.length ? box.dataset.key ?? null : null;
   const state = running ? "working" : "done";
   const stats = steps.length ? plural(steps.length, "tool call", "tool calls") : "";
-  const head = { state, start: data.begun, ms, stats, key: turnKey, opened } as const;
-  const html = turnHeadHtml(head);
   const value: WorkView = {
-    heading: html ? { kind: "heading", id: turnKey ?? "turn", html, state, start: data.begun ?? null, ms, stats, turn: turnKey, opened } : null,
+    heading: turnHeading({ state, start: data.begun, ms, stats, turn: turnKey, opened }),
     thought, steps: shown.map(stepRow),
     live: live ? { thinking, start: data.begun } : null,
     toggleThought: open => {
@@ -153,7 +151,7 @@ export function drawWork(turn: Turn) {
   turnBodies.set(turn, owner);
   renderChatWork(owner, turn, box, value, () => {
     attachLive(box, () => { if (data.thought) data.thought.touched = true; });
-    tickTurns();
+    tickClocks();
   });
 }
 

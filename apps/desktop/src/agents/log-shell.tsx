@@ -3,13 +3,12 @@ import { flushSync } from "react-dom";
 import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import type { AgentQuestion } from "./agents.ts";
 import { AgentLogShell, type LogShell } from "./log-shell-view.tsx";
-import { disposeLog, setUnits, type Unit } from "./logwindow.ts";
+import { createLog, disposeLog, resetLog, setUnits, type LogWindow, type Unit } from "./logwindow.ts";
 
 interface ShellOwner {
   view: DocumentView;
   value: LogShell | null;
-  log: HTMLDivElement | null;
-  ref(node: HTMLDivElement | null): void;
+  log: LogWindow;
 }
 const owners = new WeakMap<HTMLElement, ShellOwner>();
 
@@ -39,7 +38,7 @@ function sameShell(a: LogShell, b: LogShell) {
 export function disposeLogShell(body: HTMLElement) {
   const owner = owners.get(body);
   if (!owner) return;
-  if (owner.log) disposeLog(owner.log);
+  disposeLog(owner.log);
   owner.view.unmount();
   owners.delete(body);
 }
@@ -48,12 +47,10 @@ export function disposeLogShell(body: HTMLElement) {
 export function showLogShell(body: HTMLElement, value: LogShell, units: readonly Unit[] | null, held: readonly Node[]) {
   let owner = owners.get(body);
   if (!owner) {
-    const old = body.querySelector<HTMLElement>(".dcoderlog");
-    if (old) disposeLog(old);
-    const view = createDocumentView(body);
-    owner = { view, value: null, log: null, ref: node => { if (owner) owner.log = node; } };
+    owner = { view: createDocumentView(body), value: null, log: createLog() };
     owners.set(body, owner);
   }
+  const log = owner.log;
   const prior = owner.value;
   const next = { ...value };
   let deferred = false;
@@ -68,14 +65,14 @@ export function showLogShell(body: HTMLElement, value: LogShell, units: readonly
     if (heldPart("error", prior.error !== value.error || prior.external !== value.external)) { next.error = prior.error; next.external = prior.external; deferred = true; }
     if (heldPart("note", !sameNote(prior.note, value.note))) { next.note = prior.note; deferred = true; }
     if (heldPart("retry", prior.retry !== value.retry)) { next.retry = prior.retry; deferred = true; }
-    if (owner.log && !value.log && held.some(node => owner?.log?.contains(node))) { next.log = true; deferred = true; }
+    if (log.el && !value.log && held.some(node => log.el?.contains(node))) { next.log = true; deferred = true; }
   }
-  if (owner.log && next.log && value.log && units && !setUnits(owner.log, units, held)) deferred = true;
-  if (owner.log && !next.log) { disposeLog(owner.log); owner.log.replaceChildren(); owner.log = null; }
+  if (log.el && next.log && value.log && units && !setUnits(log, units, held)) deferred = true;
+  if (log.el && !next.log) resetLog(log);
   if (!prior || !sameShell(prior, next)) {
     owner.value = next;
-    flushSync(() => owner?.view.render(createElement(AgentLogShell, { value: next, logRef: owner.ref })));
+    flushSync(() => owner?.view.render(createElement(AgentLogShell, { value: next, log })));
   }
-  if (owner.log && next.log && units && !prior?.log) setUnits(owner.log, units, held);
+  if (log.el && next.log && units && !prior?.log) setUnits(log, units, held);
   return !deferred;
 }

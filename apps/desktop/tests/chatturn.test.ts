@@ -154,3 +154,6 @@ test("a live transcription creates its prompt before existing work", () => {
   assert.equal(prompt?.textContent, "YouSpoken prompt");
   assert.ok(prompt && turn.querySelector(".tools") && !!(prompt.compareDocumentPosition(turn.querySelector(".tools")!) & Node.DOCUMENT_POSITION_FOLLOWING));
 });
+
+// A live turn left in the page would keep its clock ticking.
+test.after(() => { bar.innerHTML = ""; });
