@@ -13,7 +13,7 @@ import { startedWhen } from "./home.ts";
 import { currentLocation, go, drawTop, openResearch } from "./views.ts";
 import { paneOn, chatList, projectRows, openProjects } from "./sidebar.ts";
 import { loadThreadChats, threadHead, pinButton, threadChats } from "./threadcard.ts";
-import { refresh } from "./refresh.ts";
+import { ensureHome } from "./refresh.ts";
 import { showNotices } from "./notices.ts";
 import { openReport } from "../report/report.ts";
 import { debugPrompt } from "../report/report-state.ts";
@@ -127,8 +127,9 @@ export async function takePending(fallback: "home" | null) {
   }
 
   go("pane", target);
-  // Home is not on screen, but the sidebar counts come from it.
-  refresh();
+  // Home is not on screen, but the sidebar counts come from it. After the
+  // first load its topics keep them current.
+  ensureHome();
 }
 
 listen("center-open", () => takePending(null));

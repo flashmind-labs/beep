@@ -2,7 +2,7 @@
 // drives them through `pane`.
 import "./events.ts";
 import { type AgentPlace, renderAgentNew } from "../agents/agentnew.ts";
-import { type AgentRow, loadAgentHosts, renderAgents } from "../agents/agents.ts";
+import { AG, type AgentRow, hostChanges, loadAgentHosts, renderAgents } from "../agents/agents.ts";
 import { openAgent } from "../agents/session.ts";
 import { closePaneTabs, newTerminal, openTerminal } from "../agentpane/media.ts";
 import type { TerminalRow } from "../terminals/terminals.ts";
@@ -66,7 +66,10 @@ async function refreshPaneStatus() {
   S.signedOut = st.signed_out;
   S.server = st.server;
   const researches = loadResearches();
-  if (S.link === "linked") { loadModels(); loadAgentHosts(); }
+  if (S.link === "linked") {
+    loadModels();
+    if (!AG.hosts || hostChanges.dirty("")) loadAgentHosts();
+  }
   await researches;
 }
 
