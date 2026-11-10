@@ -6,7 +6,9 @@ import { S } from "../src/bar/core.ts";
 import { SLOW_MS } from "../src/ui/active.ts";
 import { drawMove } from "../src/agents/move.ts";
 import { MV } from "../src/agents/move-store.ts";
-import { drawAgentFrame, forgetAgentFollows, userImages } from "../src/agents/session.ts";
+import { drawAgentFrame } from "../src/agents/session.ts";
+import { forgetAgentFollows } from "../src/agents/session-follow.ts";
+import { imageLines } from "../src/agents/agentlog.ts";
 import { disposeQueue } from "../src/agents/messages.ts";
 import type { ChatBody } from "../src/ui/turn.ts";
 import * as agentlog from "../src/agents/agentlog.ts";
@@ -57,7 +59,7 @@ test("the open conversation follows a completed move even when its target lists 
 
 test("replayed user images are shown even when more prompt text follows them", () => {
   const a = "image-0123456789abcdef", b = "image-fedcba9876543210";
-  assert.deepEqual(userImages(`Look at this\n[image: ${a}]\nAnd this\n[image: ${b}]\nMore detail`), {
+  assert.deepEqual(imageLines(`Look at this\n[image: ${a}]\nAnd this\n[image: ${b}]\nMore detail`), {
     text: "Look at this\nAnd this\nMore detail", names: [a, b],
   });
 });

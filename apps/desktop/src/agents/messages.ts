@@ -10,7 +10,8 @@ import { MN, takeMentions } from "./workdrop.ts";
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
 import { type AgentPage, type AgentQuestion, type OpenAgent, type Started, type Steer, AG, AGENT_LAST, AGENT_READ_WAIT_MS, AGENT_SEND_WAIT_MS, where } from "./agents.ts";
 import { HOLD_MS, type SendError, sendError, tookIt, viewError } from "./reconnect-state.ts";
-import { openAgent, isOpen, resumeAgent, turnRuns, redrawAgentHints } from "./session.ts";
+import { openAgent, isOpen, resumeAgent, turnRuns } from "./session.ts";
+import { redrawAgentHints } from "./session-head.ts";
 import { agentAttachError, drawAgentAttached, keepSentImages, keepAgentPics } from "./images.ts";
 import { drawAgentBody } from "./logview.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -22,7 +23,7 @@ export function drawQueue() {
   const field = $("#agfield");
   if (!field) { if (S.view !== "agent" || !$("#agbody")) disposeQueue(); return; }
   dropDelivered(AG.queue);
-  showAgentQueue(field, AG.queue);
+  showAgentQueue(field, AG.queue, editQueued);
 }
 
 /// A message as `agent_steer` takes it, its images without what only the

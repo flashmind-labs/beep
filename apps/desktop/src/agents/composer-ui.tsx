@@ -40,7 +40,7 @@ export function showAgentAttachments(field: HTMLElement, view: ReactElement | nu
   if (!owner.attachments) return;
   owner.attachmentView = createElement("div", { className: "ag-att", id: "agatt" }, view); draw(owner);
 }
-export function showAgentQueue(field: HTMLElement, items: readonly Waiting[]) {
+export function showAgentQueue(field: HTMLElement, items: readonly Waiting[], edit: (index: number, keep: boolean) => unknown) {
   if (!items.length) {
     if (!current || current.field !== field || !current.queue) return;
     const owner = current; owner.queue = null; owner.queueSignature = null; owner.queueView = null;
@@ -53,7 +53,7 @@ export function showAgentQueue(field: HTMLElement, items: readonly Waiting[]) {
   owner.queue ??= field.parentElement?.querySelector<HTMLElement>("[data-agent-queue-slot]") ?? null;
   if (!owner.queue) return;
   owner.queueSignature = signature;
-  owner.queueView = createElement("div", { className: "ag-queue", id: "agqueue" }, createElement(AgentQueue, { items }));
+  owner.queueView = createElement("div", { className: "ag-queue", id: "agqueue" }, createElement(AgentQueue, { items, edit }));
   countWork(owner, { queued: items.length }); draw(owner);
 }
 

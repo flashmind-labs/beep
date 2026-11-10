@@ -1,5 +1,6 @@
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
+import { imageLines } from "./agentlog.ts";
 import { createElement } from "react";
 import { toolDetailsHtml } from "./tool-details.ts";
 import { isCommandCall } from "./tool-details-state.ts";
@@ -19,7 +20,8 @@ import { showLogShell } from "./log-shell.tsx";
 import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.ts";
 import { answerHtml, collapseActivityHtml, KIND_ICONS, liveLineHtml, stepMark, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml } from "./turnrows.ts";
 import { type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentKind } from "./agents.ts";
-import { stoppingNow, redrawAgentHints, userImages } from "./session.ts";
+import { stoppingNow } from "./session.ts";
+import { redrawAgentHints } from "./session-head.ts";
 import { promptParts } from "./promptparts-state.ts";
 import { childRow } from "./nesting-state.ts";
 import { parentSession, sessions } from "./sessions.ts";
@@ -330,7 +332,7 @@ function userRows(en: AgentEntry, at: number): (string | PromptRow | ContextRow)
         : []);
   const own = parts.filter(p => p.kind === "user").map(p => p.text).join("\n");
   if (!own && others.length) return others;
-  const { names, text: words } = userImages(own);
+  const { names, text: words } = imageLines(own);
   // The user's words come as Markdown HTML, its pasted blocks folded;
   // the ones the reader opened stay open.
   // A message just sent has no HTML until the next read: its text shows meanwhile.

@@ -12,7 +12,8 @@ import { AG } from "./agents.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { DraftHead, showSessionFrame } from "./session-frame.tsx";
 import { draftCwd } from "./draft-state.ts";
-import { agentHints, drawEditors, stopAgentFollow } from "./session.ts";
+import { agentHints, drawEditors } from "./session-head.ts";
+import { stopAgentFollow } from "./session-follow.ts";
 
 /// Where the pane is bound: the machine and folder the input points to. Empty
 /// until the frame is drawn, which starts the pane.

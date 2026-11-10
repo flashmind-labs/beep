@@ -2,7 +2,7 @@ import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { editorsFor, openInEditor, type EditorRow } from "../src/project/editors.ts";
-import { drawEditors } from "../src/agents/session.ts";
+import { drawEditors } from "../src/agents/session-head.ts";
 import { DraftHead, showSessionFrame } from "../src/agents/session-frame.tsx";
 import { createElement } from "react";
 
