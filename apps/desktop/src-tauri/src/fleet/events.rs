@@ -14,7 +14,7 @@ use tauri::{AppHandle, Manager, State, WebviewWindow, ipc::Channel};
 use tokio::{
     sync::{mpsc, oneshot, watch},
     task::JoinSet,
-    time::timeout,
+    time::{MissedTickBehavior, timeout},
 };
 use uuid::Uuid;
 
@@ -1461,6 +1461,7 @@ async fn forge_source(app: AppHandle, mut active: watch::Receiver<bool>) {
 
         let mut previous = None;
         let mut ticks = tokio::time::interval(Duration::from_secs(60));
+        ticks.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         loop {
             tokio::select! {
@@ -1470,7 +1471,7 @@ async fn forge_source(app: AppHandle, mut active: watch::Receiver<bool>) {
                 },
                 _ = ticks.tick() => {
                     let read = crate::projects::git_items::git_items(
-                        app.clone(), app.state::<Arc<beep_fleet::Session>>(),
+                        app.state::<Arc<beep_fleet::Session>>(),
                         app.state::<Arc<crate::center::view_cache::ViewCache>>());
                     let result = tokio::select! {
                         result = read => result,
