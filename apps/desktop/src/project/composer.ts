@@ -157,23 +157,33 @@ export function barOn(name: string) {
   return (currentLocation()?.view === "projects" && state.picked === name) || (currentLocation()?.view === "pane" && S.view === "agent" && AG.draft === name);
 }
 
-// A host can return after the project opened during its update.
-subscribeChanges([topic("machines"), topic("accounts")], async () => {
+// Initial and live reads share a generation so an older response cannot
+// overwrite host availability reported by a newer machine event.
+let hostsReadVersion = 0;
+async function readProjectHosts() {
+  const version = ++hostsReadVersion;
   try {
     const list = await invoke<AgentHost[]>("agent_hosts");
+    if (version !== hostsReadVersion) return;
     pc.hosts = list;
     preloadModels(list);
-    if (pc.project && barOn(pc.project)) redrawProjects();
   } catch (error) {
+    if (version !== hostsReadVersion) return;
     console.warn("agent hosts:", error);
+    if (pc.hosts !== null) return;
+    pc.hosts = [];
   }
-}, null, () => !!pc.project && barOn(pc.project));
+  if (pc.project && barOn(pc.project)) redrawProjects();
+}
+
+// A host can return after the project opened during its update.
+subscribeChanges([topic("machines"), topic("accounts")], () => readProjectHosts(), null, () => !!pc.project && barOn(pc.project));
 
 /// Reads what the bar needs for project `name`: the machines that run
 /// agents, the sessions (for worktrees) and the project's branches.
 function loadProjectBar(name: string) {
   const redraw = () => { if (barOn(name)) redrawProjects(); };
-  invoke<AgentHost[]>("agent_hosts").then(list => { pc.hosts = list; preloadModels(list); redraw(); }).catch(e => { console.warn("agent hosts:", e); pc.hosts ??= []; redraw(); });
+  void readProjectHosts();
   loadSessions().then(redraw).catch(e => console.warn("agent sessions:", e));
 
   if (!pc.branches.has(name)) {

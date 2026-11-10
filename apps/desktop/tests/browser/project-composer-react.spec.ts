@@ -98,3 +98,35 @@ test("Shift+Enter keeps the focused draft without submitting", async ({ page }) 
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_start").length)).toBe(0);
 });
 
+
+test("newer host availability wins over a delayed initial read", async ({ page }) => {
+  const host = { machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] };
+  const machine = { id: "build-box", name: "build-box", online: true, folder: "/srv/project", checking: false, checked_at: 1 };
+  await openDesktop(page, false, { agent_hosts: [host], project_machines: [machine] });
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command === "agent_hosts" && new Error().stack?.includes("loadProjectBar")) {
+        await new Promise<void>(resolve => Reflect.set(window, "releaseOldHosts", resolve));
+        Reflect.set(window, "oldHostsDelivered", true);
+        return [] as T;
+      }
+      return invoke<T>(command, args);
+    };
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, "releaseOldHosts"))).toBe("function");
+  const form = page.locator(".cc-pjc:visible"), input = form.getByRole("textbox", { name: "Task for a coding agent" });
+  await input.fill("Keep the draft");
+  await input.evaluate(el => { if (el instanceof HTMLTextAreaElement) el.setSelectionRange(2, 5); });
+  await page.evaluate(() => window.__navigation.notify("machines"));
+  await expect(form.locator('[data-composer="machine"]')).toHaveText("build-box");
+  await page.evaluate(() => Reflect.get(window, "releaseOldHosts")());
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "oldHostsDelivered"))).toBe(true);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+  await expect(form.locator('[data-composer="machine"]')).toHaveText("build-box");
+  await expect(input).toHaveValue("Keep the draft");
+  await expect(input).toBeFocused();
+  await expect(input).toHaveJSProperty("selectionStart", 2);
+  await expect(input).toHaveJSProperty("selectionEnd", 5);
+});
