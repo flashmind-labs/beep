@@ -8,9 +8,11 @@
 .mac .cc-top .tools + .us, .mac .cc-top .us { margin-left: 10px }
 .mac .us-pill { display: inline-flex; align-items: center; gap: 10px; height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--d-border); background: transparent; color: var(--d-muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap }
 .mac .us-pill b { color: var(--d-fg); font-weight: 500 }
-.mac .us-pill .bar { width: 28px; height: 4px; border-radius: 2px; background: var(--d-border); overflow: hidden; display: inline-block }
-.mac .us-pill .bar i { display: block; height: 100% ; background: #4CB782 }
-.mac .us-pill .bar i.warn { background: #F2C94C }
+.mac .us-plan { display: inline-flex; align-items: center; gap: 5px }
+.mac .us-mk { display: inline-grid; place-items: center; width: 14px; height: 14px; color: var(--d-fg) }
+.mac .us-mk svg { width: 14px; height: 14px }
+.mac .us-pill b.warn { color: #F2C94C }
+.mac .us-pop h5 .us-mk { margin-right: 6px; vertical-align: -2px }
 .mac .us-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 9; width: 360px; border: 1px solid var(--d-border); border-radius: 12px; background: #0f1011; box-shadow: 0 18px 50px rgba(0,0,0,.5); padding: 12px 14px; display: grid; gap: 12px; font-size: 12.5px; color: var(--d-fg) }
 .mac .us-pop h5 { margin: 0 0 6px; font-size: 11.5px; color: var(--d-muted); font-weight: 600; display: flex; justify-content: space-between }
 .mac .us-lim { display: grid; grid-template-columns: 90px 1fr auto; gap: 8px; align-items: center; padding: 3px 0 }
@@ -30,7 +32,9 @@
 const usPill = () => {
   const open = !!S.d.uspop;
   const period = S.d.usperiod || "today";
-  const lim = (name, used, warn) => `<span>${name} <b>${used}%</b> used</span><span class="bar"><i class="${warn ? "warn" : ""}" style="width:${used}%"></i></span>`;
+  const mk = agent => `<span class="us-mk">${(window.__MARKS || {})[agent] || ""}</span>`;
+  // Each plan's binding window: the one most used.
+  const lim = (agent, used, warn) => `<span class="us-plan">${mk(agent)}<b class="${warn ? "warn" : ""}">${used}%</b></span>`;
   const win = (name, used, reset, warn) => `<div class="us-lim"><span>${name}</span><span class="bar"><i class="${warn ? "warn" : ""}" style="width:${used}%"></i></span><small>${used}% used · resets ${reset}</small></div>`;
   const data = {
     today: { label: "Today", total: "", tokens: "39.3M",
@@ -46,13 +50,13 @@ const usPill = () => {
   const d = data[period];
   const seg = Object.entries(data).map(([k, v]) => `<button data-usperiod="${k}" class="${k === period ? "on" : ""}">${v.label}</button>`).join("");
   const pop = open ? `<div class="us-pop">
-      <div><h5><span>Claude Code · Max plan</span><span>as of 4 min ago</span></h5>
+      <div><h5><span>${mk("claude")}Claude Code · Max plan</span><span>as of 4 min ago</span></h5>
         ${win("5 hours", 38, "14:30")}
         ${win("This week", 76, "Mon", true)}</div>
-      <div><h5><span>Codex · ChatGPT Pro</span><span>as of 12 min ago</span></h5>
+      <div><h5><span>${mk("codex")}Codex · ChatGPT Pro</span><span>as of 12 min ago</span></h5>
         ${win("5 hours", 9, "15:10")}
         ${win("This week", 20, "Thu")}</div>
-      <div><h5><span>flsh · OpenRouter credits</span><span>as of just now</span></h5>
+      <div><h5><span>${mk("flsh")}flsh · OpenRouter credits</span><span>as of just now</span></h5>
         <div class="us-row"><span>API key limit</span><span>$7.25 remaining</span></div>
         <div class="us-row"><small>Resets monthly</small><small>$2.75 used · $10 total</small></div></div>
       <div><div class="us-seg">${seg}</div>
@@ -64,9 +68,9 @@ const usPill = () => {
         <h5 class="us-sub"><span>By model</span></h5>
         ${d.models.map(([n, t]) => `<div class="us-row"><small>${n}</small><span class="us-r"><small>${t}</small></span></div>`).join("")}
         <div class="us-row"><b>Total</b><b class="us-r">${d.total}<small>${d.total ? " · " : ""}${d.tokens}</small></b></div></div>
-      <div class="us-note">Dollars are API spend. ~ is what plan use would cost on the API, not in the total.</div>
+      ${/\$/.test(JSON.stringify(d)) ? `<div class="us-note">Dollars are API spend. ~ is what plan use would cost on the API, not in the total.</div>` : ""}
     </div>` : "";
-  return `<span class="us"><button class="us-pill" data-uspop aria-expanded="${open}" title="Plan usage and cost today">${lim("Claude", 76, true)}${lim("Codex", 20)}<span>OpenRouter <b>$7.25</b> left</span><span><b>39.3M</b> today</span></button>${pop}</span>`;
+  return `<span class="us"><button class="us-pill" data-uspop aria-expanded="${open}" title="Plan usage and cost" aria-label="Plan usage: Claude Code 76%, Codex 20%">${lim("claude", 76, true)}${lim("codex", 20)}<span>OpenRouter <b>$7.25</b> left</span></button>${pop}</span>`;
 };
 document.getElementById("desk").addEventListener("click", e => {
   if (!e.target.closest("[data-usmore]")) return;
