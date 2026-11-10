@@ -16,6 +16,7 @@ import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive } from "./thoughtlive.ts";
 import { groupThoughts, mergedThought } from "./thoughts-state.ts";
 import { showLogShell } from "./log-shell.tsx";
+import { questionKey } from "./coderhtml.ts";
 import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.ts";
 import { answerHtml, collapseActivityHtml, KIND_ICONS, liveLineHtml, stepMark, thoughtHtml, tickTurns, toolRowHtml, turnHeadHtml } from "./turnrows.ts";
 import { type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentAvatar, agentKind } from "./agents.ts";
@@ -623,6 +624,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   const subs = paneSubs(p);
   const shell = { why, starting: s.status === "starting", log: !!units,
     question: question ? { ...question, options: question.options.map(option => ({ ...option })) } : null,
+    questionKey: question ? questionKey(question, { machine_id: s.machine_id, agent: s.agent, session: s.id }) : null,
     answering: !!question && question.id === AG.answering, plan: p.plan.map(item => ({ ...item })), asking: s.status === "asking",
     error: p.error, external: s.external, note, retry };
   if (!showLog(b, shell, units, polled)) { AG.rest = ""; return; }

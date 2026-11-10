@@ -5,6 +5,7 @@ import { showAgentControl } from "./composer-ui.tsx";
 import { AgentMode, AgentPlan } from "./mode-view.tsx";
 import { $ } from "../bar/core.ts";
 import { type AgentModes, type OpenAgent, AG, AGENT_READ_WAIT_MS, agentKind, where } from "./agents.ts";
+import { questionKey } from "./coderhtml.ts";
 import { steerAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -58,5 +59,5 @@ export function drawModes() {
   const field = $("#agfield"), mode = $("#agmode"), plan = $("#agplan");
   if (!field) return;
   if (mode) showAgentControl(field, mode, hasModes() && !FULL_MODES.has(m?.current ?? "") ? createElement(AgentMode, { name, plan: m?.current === "plan" }) : null);
-  if (plan) showAgentControl(field, plan, s && q && m?.plan != null ? createElement(AgentPlan, { harness: agentKind(s.agent).name, plan: m.plan, question: q, answering: AG.answering }) : null);
+  if (plan) showAgentControl(field, plan, s && q && m?.plan != null ? createElement(AgentPlan, { harness: agentKind(s.agent).name, plan: m.plan, question: q, approvalKey: questionKey(q, { machine_id: s.machine_id, agent: s.agent, session: s.id }), answering: AG.answering }) : null);
 }

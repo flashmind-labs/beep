@@ -1,3 +1,4 @@
+import { questionKey } from "./coderhtml.ts";
 // Sending to a coding agent: messages, steers,
 // answers to its questions, and interrupting it.
 import { type Attached, dropDelivered, type Waiting } from "./agentqueue.ts";
@@ -131,9 +132,11 @@ export function interruptAgent() {
 
 /// Answers the open question once: its buttons stay disabled, and a poll
 /// that still shows it does not bring them back, until the node moves on.
-export async function answerAgentQuestion(i: number) {
-  const o = AG.open!, q = AG.page?.session.question, opt = q?.options[i];
-  if (!q || !opt || AG.answering === q.id) return;
+export async function answerAgentQuestion(i: number, shown: string) {
+  const o = AG.open, q = AG.page?.session.question ?? null;
+  if (!o || !q || questionKey(q, o) !== shown) { drawAgentBody(); return; }
+  const opt = q.options[i];
+  if (!opt || AG.answering === q.id) return;
   AG.answering = q.id;
   drawAgentBody();
 
@@ -154,10 +157,10 @@ export async function answerAgentQuestion(i: number) {
 }
 /// The first option of the open question that allows, or that does not.
 export function answerFirst(allow: boolean) {
-  const q = AG.page?.session.question;
-  const i = q ? q.options.findIndex(o => o.allow === allow) : -1;
-  if (i >= 0) answerAgentQuestion(i);
-  return i >= 0;
+  const button = $<HTMLButtonElement>(`#agconv :is(#agbody, #agplan) [data-agopt][data-agallow="${allow}"]`);
+  if (!button) return false;
+  if (!button.disabled) void answerAgentQuestion(Number(button.dataset.agopt), button.dataset.agquestion ?? "");
+  return true;
 }
 
 /// Sends `steer` to the open session; true when the node took it. A message
