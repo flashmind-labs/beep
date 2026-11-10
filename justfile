@@ -12,19 +12,13 @@ mockups port="8000":
 build-server:
     cargo build --package beep-server
 
-# Download the pinned native macOS updater framework and signing tools, and
-# sign the framework as the app is signed: ad hoc unless APPLE_SIGNING_IDENTITY
-# names an identity. macOS refuses to load a framework signed by another team.
-desktop-sparkle:
-    if [ "$(uname -s)" = Darwin ]; then bash scripts/download-sparkle.sh && APPLE_SIGNING_IDENTITY="${APPLE_SIGNING_IDENTITY:--}" bash scripts/sign-sparkle.sh; fi
-
 # Run the macOS desktop app from source
-desktop-dev: desktop-sparkle
+desktop-dev:
     cd apps/desktop && npm ci --silent
     cd apps/desktop/src-tauri && cargo tauri dev
 
 # Build the desktop DMG.
-desktop-build: desktop-sparkle
+desktop-build:
     cd apps/desktop && npm ci --silent
     cd apps/desktop/src-tauri && PATH="/usr/bin:$PATH" cargo tauri build --bundles app
     bash scripts/package-macos-dmg.sh "${CARGO_TARGET_DIR:-apps/desktop/src-tauri/target}/release/bundle/macos/Beep.app" target/beep-macos.dmg
@@ -159,7 +153,7 @@ links-deploy:
     cd deploy/links && npx wrangler deploy
 
 # Format, lint and test the desktop app
-desktop-check: desktop-sparkle
+desktop-check:
     cd apps/desktop && npm ci --silent && npm run build && npm run check
     cd apps/desktop/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 
