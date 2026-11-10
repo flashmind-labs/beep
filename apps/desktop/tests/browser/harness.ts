@@ -51,6 +51,21 @@ const fixture: Fixture = {
   home: { machines: [], projects: [project], running: sessions, needs_you: [], coming_up: null, updates: null },
 };
 
+/// WebKit reports viewport keys it does not know as console errors; the
+/// window keeps `interactive-widget` for Android keyboards.
+const knownWarnings = [/^Viewport argument key "interactive-widget" not recognized/];
+
+/// Collects the page's uncaught errors and console errors, without known browser warnings.
+export function pageErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.stack ?? error.message));
+  page.on("console", message => {
+    const text = message.text();
+    if (message.type() === "error" && !knownWarnings.some(known => known.test(text))) errors.push(text);
+  });
+  return errors;
+}
+
 export async function openDesktop(page: Page, streaming = false, responses: Record<string, unknown> = {}): Promise<void> {
   const dist = fileURLToPath(new URL("../../dist/", import.meta.url));
   const contentTypes = new Map([[".html", "text/html"], [".js", "text/javascript"], [".css", "text/css"], [".svg", "image/svg+xml"], [".woff2", "font/woff2"]]);

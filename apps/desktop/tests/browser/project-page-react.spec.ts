@@ -1,14 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openDesktop, projectName } from "./harness.ts";
+import { openDesktop, pageErrors, projectName } from "./harness.ts";
 
 const reads = (page: Page, command: string) => page.evaluate(name => window.__navigation.calls().filter(call => call.command === name).length, command);
 
 // A page error means React and a retained host fought over a node.
 let errors: string[] = [];
 test.beforeEach(({ page }) => {
-  errors = [];
-  page.on("pageerror", error => errors.push(error.stack ?? error.message));
-  page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+  errors = pageErrors(page);
 });
 test.afterEach(() => { expect(errors).toEqual([]); });
 

@@ -14,7 +14,8 @@ test("chat list keeps its selected row and scroll on refresh", async ({ page }) 
   const chosen = list.getByRole('option', { selected: true });
   await expect(chosen).toContainText('Chat 1');
   await chosen.evaluate(el => { el.dataset.identity = 'kept'; });
-  await list.evaluate(el => { el.style.height = '100px'; el.style.overflow = 'auto'; el.scrollTop = 200; });
+  // The list grows to fill the bar; fix its height so it scrolls.
+  await list.evaluate(el => { el.style.flex = 'none'; el.style.height = '100px'; el.style.overflow = 'auto'; el.scrollTop = 200; });
   const top = await list.evaluate(el => el.scrollTop);
   await page.evaluate(rows => { window.__navigation.respond('list_sessions', [{ ...rows[19], updated_at: 1000 }, ...rows.slice(0, 19)]); window.__navigation.emit('sessions-changed', null); }, chats);
   await expect(list.getByRole('option').first()).toContainText('Chat 19');
