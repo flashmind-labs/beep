@@ -12,10 +12,11 @@ test("overview cards update independently when another project's display changes
   const base = { name: "first", repo: "first", index: 0, pinned: false, sync: "", workers: "idle", hasSummary: false, open: "", rest: "", running: 0, review: 0, blocked: 0, planned: 0, done: 0, latest: "No recent activity", latestAge: "", hasMachines: false, machines: "" };
   const other = { ...base, name: "second", repo: "second" };
   let nameReads = 0;
-  const open = () => {}, pin = () => {}, wire = () => {};
+  const open = () => {}, pin = () => {}, none = () => {};
+  const windowProps = { clicks: { onClickCapture: none, onAuxClick: none, onMouseEnter: none, onMouseLeave: none }, menu: { onContextMenu: none } };
   const render = (first: typeof base, second: typeof base) => flushSync(() => root.render(createElement("div", null,
-    createElement(OverviewCardView, { model: first, open, pin, wire }),
-    createElement(OverviewCardView, { model: second, open, pin, wire }))));
+    createElement(OverviewCardView, { model: first, open, pin, windowProps }),
+    createElement(OverviewCardView, { model: second, open, pin, windowProps }))));
   try {
     render(base, other);
     const unchanged = host.querySelector('[title="second"]');

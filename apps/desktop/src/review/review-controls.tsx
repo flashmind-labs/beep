@@ -1,4 +1,4 @@
-import type { Ago } from "../ui/dom.ts";
+import type { Ago } from "../ui/format.ts";
 import { plural } from "../ui/format.ts";
 import { mergeBlock, openFindings, reviewFacts, reviewState, STATE_LABEL, staleText, type ReviewHead, type ReviewView } from "./review.ts";
 

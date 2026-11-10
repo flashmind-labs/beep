@@ -42,11 +42,9 @@ test("closing an embedded machine page releases its mounted controls", async () 
   document.body.append(host);
   machinesIn(host, () => {}, () => {});
   await renderMachines();
-  const mount = host.firstElementChild;
-  assert.ok(mount);
-  assert.ok(mount.querySelector("#mcAdd"));
+  assert.ok(host.querySelector("#mcAdd"));
   machinesOut();
-  assert.equal(mount.childElementCount, 0);
+  assert.equal(host.childElementCount, 0);
   host.remove();
 });
 

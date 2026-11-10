@@ -2,7 +2,7 @@
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import { createElement } from "react";
 import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
-import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
+import type { Ago } from "../ui/format.ts";
 import { MAX_BYTES, bytes } from "./instructions-state.ts";
 import type { VersionRow } from "./instructions-state.ts";
 import type { CenterView, InstructionsTab } from "../center/state.ts";
@@ -11,8 +11,6 @@ import { InstructionsView, type InstructionsState } from "./instructions-view.ts
 /// What the window hands `instructionsPage`.
 interface InstructionsDeps {
   invoke: typeof Invoke;
-  h: MakeEl;
-  button: MakeButton;
   ago: Ago;
   openSettings: () => void;
 }
@@ -92,7 +90,6 @@ export function instructionsPage(deps: InstructionsDeps): CenterView<"instructio
     title: () => ({ title: "Instructions", sub: "Your rules for every agent Beep runs", reactTools: createElement("button", { type: "button", className: "dbtn quiet small", onClick: () => deps.openSettings() }, "Settings") }),
     mount(container, arg) {
       unmount();
-      container.replaceChildren();
       host = container;
       if (arg?.tab) st.tab = arg.tab;
       st.error = "";

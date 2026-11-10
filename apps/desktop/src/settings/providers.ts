@@ -369,7 +369,6 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
     // Settings opens it at one agent (`arg.agent`), which its left pane picks.
     mount(host, arg) {
       removeWindowPart("settings-page:providers");
-      host.replaceChildren();
       root = host;
       const want = arg;
       if (want?.agent) st.picked = want.agent;

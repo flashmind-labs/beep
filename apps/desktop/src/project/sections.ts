@@ -5,9 +5,7 @@ import { S } from "../bar/core.ts";
 import { onPlaces, placeOf } from "../agents/place.ts";
 import { onMoves } from "../agents/move-store.ts";
 import { onClosing, sessionVisible, shownStatus } from "../agents/closing.ts";
-import { dbtn as button } from "../ui/parts.ts";
 import { invoke, Channel, listen } from "../ui/tauri.ts";
-import { el as h } from "../ui/dom.ts";
 import type { Project, SessionRow } from "./projects-state.ts";
 import { makeProjectLive, type LiveRow } from "./projectlive.ts";
 import { pageAgent, workerSession, type ProjectAgent } from "./agent.ts";
@@ -51,7 +49,7 @@ export const fsync = makeFileSync({ invoke, redraw: () => { redrawProjects(); re
 /// The project's branches and their reviews: the Branches list and the
 /// review view.
 export const revs = makeReviews({
-  invoke, h, button, ago: ms => formatAgo(ms, "short"),
+  invoke, ago: ms => formatAgo(ms, "short"),
   redraw: () => redrawProjects(),
   openUrl,
   openTile: (key: string) => openTile(key),

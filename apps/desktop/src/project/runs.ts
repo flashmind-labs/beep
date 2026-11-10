@@ -2,6 +2,7 @@ import { createElement } from "react";
 import type { LiveMode } from "./projectlive.ts";
 import { RunsView } from "./runs-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { AMBIENT_MS } from "../ui/active.ts";
 import { snapshotView } from "../ui/snapshot-state.ts";
 // A project's workflow runs (GitHub Actions or Forgejo Actions) on its page:
 // the Actions section with each run's state and, for a running one, its
@@ -454,7 +455,7 @@ export function makeRuns(deps: RunDeps) {
       const run = of(id).openRun;
       if (run && snapshotView("center_project_run", { projectId: id, runId: run.id, host: run.host ?? null })) await loadDetail(id, run);
       if (of(id).error) throw new Error(of(id).error);
-    } });
+    } }, { wait: AMBIENT_MS });
   }
 
   /// Reads again only while a run goes, so nothing is asked while all are

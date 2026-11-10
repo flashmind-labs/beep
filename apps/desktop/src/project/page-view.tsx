@@ -13,6 +13,17 @@ export type PagePart = { kind: "view"; key: string; view: ReactElement } | { kin
 export const hostPart = (host: HTMLElement): PagePart => ({ kind: "host", host });
 export const viewPart = (key: string, view: ReactElement): PagePart => ({ kind: "view", key, view });
 
+/// The element of a host part. React renders into it through a portal and `Parts` only
+/// places it, so its rows keep scroll and focus while the page around it changes or the
+/// view is away. Without a class it takes no box of its own.
+export function retainedHost(className: string | null, { tag = "div", label = null }: { tag?: "div" | "aside"; label?: string | null } = {}) {
+  const host = document.createElement(tag);
+  if (className === null) host.style.display = "contents";
+  else host.className = className;
+  if (label !== null) host.setAttribute("aria-label", label);
+  return host;
+}
+
 /// A container holding views and retained hosts as direct children. A host
 /// moves only when its place changes, so a scroll, focus, selection or a
 /// click inside it survives every draw.

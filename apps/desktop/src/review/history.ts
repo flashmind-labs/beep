@@ -1,5 +1,6 @@
 import { createElement, Fragment, type ReactNode } from "react";
 import { showWindowParts } from "../center/window-root.ts";
+import { retainedHost } from "../project/page-view.tsx";
 import { HistoryFacts } from "./history-facts.tsx";
 import { HistoryDetail } from "./history-detail.tsx";
 import { HistoryHeader } from "./history-header.tsx";
@@ -114,11 +115,7 @@ export function makeGitHistory(deps: HistoryDeps) {
   function project(name: string) {
     let p = projects.get(name);
     if (p) return p;
-    const nav = document.createElement("aside");
-    nav.className = "pj-list gh-nav";
-    nav.setAttribute("aria-label", "Git navigation");
-    const detail = document.createElement("div");
-    detail.className = "pj-det gh-detail";
+    const nav = retainedHost("pj-list gh-nav", { tag: "aside", label: "Git navigation" }), detail = retainedHost("pj-det gh-detail");
     p = { name, lists: new Map(), files: new Map(), commits: new Map(), open: new Set(["history"]), selected: null,
       path: null, tab: "changes", query: "", nav, detail, started: false, view: null, viewKey: "" };
     projects.set(name, p);

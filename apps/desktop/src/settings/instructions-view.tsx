@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Ago } from "../ui/dom.ts";
+import type { Ago } from "../ui/format.ts";
 import type { InstructionsTab } from "../center/state.ts";
 import { MAX_BYTES, bytes, sizeLabel, versionLine, mineLayer, type VersionRow } from "./instructions-state.ts";
 import { SectionHead } from "../ui/kit.tsx";

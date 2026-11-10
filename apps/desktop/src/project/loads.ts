@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ProjectSessions } from "./sessions-view.tsx";
+import { retainedHost } from "./page-view.tsx";
 import { refreshMoves, moveStore } from "../agents/move-store.ts";
 import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS, SLOW_MS } from "../ui/active.ts";
@@ -17,7 +18,6 @@ import { ElsewhereSection, FoundSection } from "./overview-view.tsx";
 import type { RecentSessions } from "./split-view.tsx";
 import { foundFor, withSyncthing, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
-import { el as h } from "../ui/dom.ts";
 import { ITEMS_SHOWN, repoUrl, reviewStart } from "../center/openitems-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { agentFor, pageAgent, type ProjectAgent, type ProjectView } from "./agent.ts";
@@ -184,11 +184,14 @@ const HOVER_MS = 150;
 /// last are read ahead.
 const IDLE_PREFETCH_MS = 4000;
 
-/// Reads project `name` ahead once the pointer rests on `el`.
-export function prefetchOnHover(el: HTMLElement, name: string) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  el.addEventListener("mouseenter", () => { timer = setTimeout(() => prefetch(name), HOVER_MS); });
-  el.addEventListener("mouseleave", () => clearTimeout(timer));
+/// Reads project `name` ahead once the pointer rests on the element given these handlers.
+/// The pointer rests on one element at a time, so one timer serves them all.
+let hoverTimer: ReturnType<typeof setTimeout> | undefined;
+export function prefetchOnHover(name: string) {
+  return {
+    onMouseEnter: () => { clearTimeout(hoverTimer); hoverTimer = setTimeout(() => prefetch(name), HOVER_MS); },
+    onMouseLeave: () => clearTimeout(hoverTimer),
+  };
 }
 
 /// Reads the projects opened last ahead, one after another, while the
@@ -393,7 +396,7 @@ let sessionsTab: { project: string; host: HTMLElement } | null = null;
 export function disposeSessionPanel() { if (sessionsTab) removeWindowPart("project-sessions:all"); sessionsTab = null; }
 
 export function sessionsHost(project: string, rows: SessionRow[]) {
-  if (sessionsTab?.project !== project) { disposeSessionPanel(); sessionsTab = { project, host: h("div", "cc-panel") }; }
+  if (sessionsTab?.project !== project) { disposeSessionPanel(); sessionsTab = { project, host: retainedHost("cc-panel") }; }
   showWindowParts([{ part: "project-sessions:all", host: sessionsTab.host, identity: project, content: createElement(ProjectSessions, { rows, all: true }) }]);
   return sessionsTab.host;
 }

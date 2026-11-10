@@ -30,18 +30,20 @@ function SessionRowView({ row: s, open, menu, index }: { row: SessionRow; open: 
 
 function SessionList({ rows, all, open, menu }: SessionProps & { all: boolean }) {
   const list = useRef<HTMLDivElement>(null);
+  // A short list shows five rows and scrolls the rest.
+  const [maxHeight, setMaxHeight] = useState<number | null>(null);
   useLayoutEffect(() => {
     const target = list.current;
     if (!target || all) return;
-    if (rows.length <= 5) { target.style.maxHeight = ""; return; }
+    if (rows.length <= 5) { setMaxHeight(null); return; }
     const frame = requestAnimationFrame(() => {
       const height = [...target.children].slice(0, 5).reduce((sum, row) => sum + (row instanceof HTMLElement ? row.offsetHeight : 0), 0);
-      if (height > 0) target.style.maxHeight = `${height}px`;
+      if (height > 0) setMaxHeight(height);
     });
     return () => cancelAnimationFrame(frame);
   }, [all, rows]);
   const content = rows.map(row => <SessionRowView key={sessionKey(row)} row={row} open={open} menu={menu}/>);
-  return all ? <>{content}</> : <div className="pj-scroll" ref={list}>{content}</div>;
+  return all ? <>{content}</> : <div className="pj-scroll" ref={list} style={maxHeight === null ? undefined : { maxHeight }}>{content}</div>;
 }
 
 function VirtualSessions({ rows, open, menu }: SessionProps) {

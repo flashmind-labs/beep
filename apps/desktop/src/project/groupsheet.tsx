@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { createRef, useLayoutEffect, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
@@ -21,7 +21,7 @@ export function openGroupSheet(options: GroupSheetOptions) {
     onClose: () => { root = null; },
   });
   root = shell.root;
-  const field = () => shell.sheet.querySelector<HTMLInputElement>(".gp-field");
+  const input = createRef<HTMLInputElement>(), field = () => input.current;
   const close = () => { if (!saving) shell.close(); };
   const add = () => {
     const input = field();
@@ -57,14 +57,13 @@ export function openGroupSheet(options: GroupSheetOptions) {
   function draw() {
     const n = options.matches(paths), named = group ? null : paths[0] || groupPath(field()?.value ?? "");
     const summary = paths.length ? `${named ? `Named ${named}. ` : ""}${n === 1 ? "1 project matches" : `${n} projects match`}.` : "Add a folder to make the group.";
-    flushSync(() => shell.render(<GroupSheet title={group?.name ?? "New group"} paths={paths} error={error} saving={saving} summary={summary}
+    flushSync(() => shell.render(<GroupSheet input={input} title={group?.name ?? "New group"} paths={paths} error={error} saving={saving} summary={summary}
       add={add} remove={path => { paths = paths.filter(p => p !== path); error = null; draw(); field()?.focus(); }} close={close} save={() => void save()} />));
   }
   draw();
 }
 
-function GroupSheet({ title, paths, error, saving, summary, add, remove, close, save }: { title: string; paths: readonly string[]; error: string | null; saving: boolean; summary: string; add(): boolean; remove(path: string): void; close(): void; save(): void }) {
-  const input = useRef<HTMLInputElement>(null);
+function GroupSheet({ input, title, paths, error, saving, summary, add, remove, close, save }: { input: RefObject<HTMLInputElement | null>; title: string; paths: readonly string[]; error: string | null; saving: boolean; summary: string; add(): boolean; remove(path: string): void; close(): void; save(): void }) {
   useLayoutEffect(() => { input.current?.focus(); }, []);
   return <><div className="am-head"><b>{title}</b><kbd>esc</kbd></div><div className="am-label">Folder</div>
     <div className="am-line"><input ref={input} className="gp-field" placeholder="~/Projects/work" spellCheck={false} autoCapitalize="off" /><button type="button" className="dbtn" onClick={add}>Add</button></div>
