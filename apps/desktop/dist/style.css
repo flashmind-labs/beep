@@ -70,6 +70,11 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 /* Work that runs for minutes or hours shows a still dot, so it draws nothing while it runs. */
 .drun, .cc-running .dspin, .chip .dspin, .rr-st .dspin, .dchat .run .dspin, .ddock .step .dspin, .ag-task .dspin, .dspin.sw-spin, .cc-si > .dspin { display: inline-block; flex: none; width: 7px; height: 7px; border: 0; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); animation: none }
 @keyframes spin { to { transform: rotate(360deg) } }
+/* A hidden window keeps no spinner turning (ui/active.ts sets data-hidden). */
+:root[data-hidden] .dspin { animation-play-state: paused }
+/* A Mermaid block not yet drawn announces itself to chat/diagrams.ts as it shows. */
+pre:not([data-diagram]) > code.language-mermaid { animation: diagram-found 1ms }
+@keyframes diagram-found { from { opacity: .99 } }
 .dok { color: var(--accent); display: grid } .dbad { color: var(--err); display: grid }
 .caret { display: inline-block; width: 2px; height: 16px; margin-left: 1px; background: var(--accent); vertical-align: -3px }
 
