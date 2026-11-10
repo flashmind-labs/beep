@@ -271,16 +271,20 @@ function menuHtml(p: Place) {
 export function drawWorktrees(host: HTMLElement, here: boolean) {
   const p = W.place;
   const show = !!p && here && (W.trees.length > 1 || W.shown !== bare(p.cwd) || removed(p) || !!W.placed?.linked);
-  const sig = show ? JSON.stringify([W.trees, W.shown, W.follow, W.seen, W.open, W.search, W.cwd, W.placed]) : "";
+  const sig = show ? JSON.stringify([W.trees, W.shown, W.follow, W.seen, W.open, W.cwd, W.placed]) : "";
   if (host.dataset.sig === sig) return;
   host.dataset.sig = sig;
   host.hidden = !show;
   if (!show || !p) return host.replaceChildren();
   const now = W.trees.find(t => rootOf(t, W.cwd) === W.shown);
   const label = now ? treeName(now) : W.placed && bare(W.placed.folder) === W.shown ? placeName(W.placed) : baseName(W.shown);
-  const searchFocused = host.querySelector(".agwt-search") === document.activeElement;
+  // The search box being typed in is kept, with its caret and any IME input.
+  const typing = host.querySelector<HTMLInputElement>(".agwt-search");
+  const focused = typing === document.activeElement;
   host.innerHTML = `<button class="agpbtn agwt" aria-haspopup="menu" aria-expanded="${W.open}" title="The worktree Files and Changes show"><code>${esc(label)}</code><span aria-hidden="true">&#9662;</span></button>${W.open ? menuHtml(p) : ""}`;
-  if (searchFocused) host.querySelector<HTMLInputElement>(".agwt-search")?.focus();
+  const fresh = host.querySelector<HTMLInputElement>(".agwt-search");
+  if (typing && fresh) fresh.replaceWith(typing);
+  if (focused) typing?.focus();
   host.oninput = () => {
     const input = host.querySelector<HTMLInputElement>(".agwt-search");
     if (!input) return;

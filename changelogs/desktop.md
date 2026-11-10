@@ -17,6 +17,7 @@ Other apps have independent versions and changelogs:
 
 ### Fixed
 
+- Desktop: typing in the worktree search no longer loses the caret or scrambles the text when the list refreshes.
 - Desktop: a session's Files and Changes no longer switch to a folder on another machine after the agent runs a command there.
 - Desktop: failed model lookups show Retry, preserve loaded models, and retry sooner.
 
