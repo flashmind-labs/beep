@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{SessionsReply, SessionsRequest},
-    events::{self, CallReply, Operation, Reply, Request, Topic},
+    events::{self, CallReply, Incoming, Operation, Reply, Request, Topic},
 };
 use futures::{FutureExt, StreamExt, stream};
 use std::{
@@ -81,8 +81,19 @@ pub(crate) async fn serve(
                     None => std::future::pending().await,
                 }
             }, if snapshot_due.is_some() => {},
-            request = rx.recv::<Request>() => {
-                match request? {
+            request = rx.recv_with(Incoming::read) => {
+                let request = match request? {
+                    None => None,
+                    Some(Incoming::Request(request)) => Some(request),
+                    // From a newer app: refuse the call, keep the stream.
+                    Some(Incoming::Unread { id, reason }) => {
+                        tracing::warn!(%stream, call = id, %reason, "subscription call not read");
+                        send(&mut tx, Reply::Error { id, reason }).await?;
+                        continue;
+                    }
+                };
+
+                match request {
                 None => return Ok(()),
                 Some(Request::Watch { id, topics: wanted, queries: wanted_queries }) => {
                     let started = Instant::now();

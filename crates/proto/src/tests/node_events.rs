@@ -101,3 +101,57 @@ fn dedicated_protocols_reject_each_others_operations() {
         watch
     );
 }
+
+/// A request from a newer app: its operation is one this build lacks.
+#[derive(Serialize)]
+enum NewerRequest {
+    #[allow(dead_code)]
+    Watch {},
+    Call {
+        id: u64,
+        operation: NewerOperation,
+    },
+}
+
+#[derive(Serialize)]
+enum NewerOperation {
+    #[allow(dead_code)]
+    Agent {},
+    #[allow(dead_code)]
+    Sessions {},
+    #[allow(dead_code)]
+    Process {},
+    Teleport {
+        to: String,
+    },
+}
+
+#[test]
+fn a_call_with_a_newer_operation_keeps_its_id() {
+    let call = NewerRequest::Call {
+        id: 7,
+        operation: NewerOperation::Teleport {
+            to: "build-box".into(),
+        },
+    };
+
+    for frame in [
+        rmp_serde::to_vec(&call).unwrap(),
+        rmp_serde::to_vec_named(&call).unwrap(),
+    ] {
+        assert!(matches!(
+            Incoming::read(&frame),
+            Ok(Incoming::Unread { id: 7, .. })
+        ));
+    }
+}
+
+#[test]
+fn a_known_request_reads_and_garbage_fails() {
+    let ping = rmp_serde::to_vec(&Request::Ping { id: 3 }).unwrap();
+    assert_eq!(
+        Incoming::read(&ping).unwrap(),
+        Incoming::Request(Request::Ping { id: 3 })
+    );
+    assert!(Incoming::read(&[0xc1]).is_err());
+}

@@ -183,11 +183,23 @@ impl LinkRx {
 
     /// The next message, `None` once the peer finished the stream.
     pub async fn recv<T: DeserializeOwned>(&mut self) -> Result<Option<T>> {
+        self.recv_with(lenient::from_slice).await
+    }
+
+    /// The next message as `read` takes it from the frame's bytes, `None`
+    /// once the peer finished the stream.
+    pub async fn recv_with<T, E>(
+        &mut self,
+        read: impl FnOnce(&[u8]) -> Result<T, E>,
+    ) -> Result<Option<T>>
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
         let Some(frame) = self.0.next().await else {
             return Ok(None);
         };
         let frame = frame?;
-        let message = lenient::from_slice(&frame).context("could not read a node message")?;
+        let message = read(&frame).context("could not read a node message")?;
         Ok(Some(message))
     }
 }
