@@ -1,4 +1,4 @@
-// Manual check for the lists that draw a screenful at a time (src/ui/lazyrows.ts):
+// Manual check for the lists that draw a screenful at a time:
 // each one must start small, reach every row by scrolling, and keep the
 // keyboard selection on screen. Same environment as run.mjs.
 //

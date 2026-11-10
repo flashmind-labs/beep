@@ -1,4 +1,4 @@
-import { Fragment, useLayoutEffect, useRef } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ago as itemAgo, plural } from "../ui/format.ts";
 import { IC } from "../ui/icons.ts";
 import { itemChips, type GitItemRow } from "../center/openitems-state.ts";
@@ -11,6 +11,27 @@ import { state } from "../center/state.ts";
 import { redrawProjects } from "./sections.ts";
 
 type Group = OverviewGroup<Project, OverviewCard>;
+export function ProjectsOverview({ groups, sync, editing, add }: { groups: Group[]; sync(name: string): string | null; editing: { id: string; draft: string } | null; add(): void }) {
+  const [count, setCount] = useState(() => typeof IntersectionObserver === "undefined" ? groups.length : 1), [height, setHeight] = useState(0);
+  const first = useRef<HTMLElement>(null), end = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const marker = end.current;
+    if (!marker) return;
+    if (typeof IntersectionObserver === "undefined") { setCount(groups.length); return; }
+    let root: Element | null = marker.parentElement;
+    while (root && !/(auto|scroll)/.test(getComputedStyle(root).overflowY)) root = root.parentElement;
+    const observer = new IntersectionObserver(entries => {
+      if (!height && first.current) {
+        const measured = (marker.getBoundingClientRect().top - first.current.getBoundingClientRect().top) / Math.min(count, groups.length);
+        if (measured > 0) setHeight(measured);
+      }
+      if (entries.some(entry => entry.isIntersecting)) setCount(value => Math.min(groups.length, value + 1));
+    }, { root, rootMargin: "800px 0px" });
+    observer.observe(marker);
+    return () => observer.disconnect();
+  }, [count, groups.length, height]);
+  return <>{groups.slice(0, count).map((group, index) => <section className="pj-org" style={{ flex: "none" }} ref={index === 0 ? first : null} key={group.group ? `group:${group.group.id}` : `org:${group.org ?? ""}`}><OverviewGroupView group={group} editing={group.group && editing?.id === group.group.id ? editing : null} sync={sync}/></section>)}{count < groups.length && <div ref={end} style={{ flex: "none", gridColumn: "1 / -1", height: height ? `${(groups.length - count) * height}px` : undefined }}/>}<div className="cc-panel cc-row pj-add" style={{ flex: "none" }}><span className="t"><b>Add a project</b><span>A folder or a repository to clone.</span></span><button type="button" className="dbtn" onClick={add}>Add</button></div></>;
+}
 export interface ElsewhereRepo { key: string; name: string; sub: string; url: string; last: number; importing: boolean; disabled: boolean; primary: boolean; items: GitItemRow[]; import(): void }
 export function ElsewhereSection({ repos, open, review, reply }: { repos: ElsewhereRepo[]; open(url: string): void; review(item: GitItemRow): void; reply(item: GitItemRow): void }) {
   const act = (event: React.MouseEvent, run: () => void) => { event.stopPropagation(); run(); };

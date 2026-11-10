@@ -1,13 +1,13 @@
 import { createElement } from "react";
-import { removeWindowPart, removeWindowParts, showWindowParts } from "../center/window-root.ts";
+import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ProjectRunning } from "./running-view.tsx";
-import { OverviewGroupView } from "./overview-view.tsx";
+import { ProjectsOverview } from "./overview-view.tsx";
 import { MV } from "../agents/move-store.ts";
 // The Projects page's overview: the list, groups and cards of every
 // project, and a picked project's detail sections.
 import { sessionVisible } from "../agents/closing.ts";
 import { ago, plural } from "../ui/format.ts";
-import { dbtn as button, emptyPanel, errorNote } from "../ui/parts.ts";
+import { emptyPanel, errorNote } from "../ui/parts.ts";
 import { CI_TITLES, ciState, filterByName, listGroups, machineChips, projectBranch, splitName } from "./projectlist-state.ts";
 import type { GitRow } from "./gitsync-state.ts";
 import type { RunsRow } from "./runs.ts";
@@ -26,13 +26,12 @@ import { blocked, confirmRemove, removeMenuItems } from "./removemachine.ts";
 import { changeFolder, changeFolderItems } from "./changefolder.ts";
 import { single } from "../center/openitems.ts";
 import { newWindowOn, openProjects, addProject } from "../center/sidebar.ts";
-import { splitOn, projectSplit, panelSlot, projectPanel } from "./split.ts";
+import { splitOn, projectSplit, panelSlot } from "./split.ts";
 import { redrawProjects, redrawProjectsPage, pc, terms, fsync } from "./sections.ts";
 import { drawProjectComp, fillBar } from "./composer.ts";
 import { missingMachine, gitControls, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsSection } from "./loads.ts";
 import { terminalNote, terminalWhere } from "../terminals/terminals.ts";
 import { go } from "../center/views.ts";
-import { lazyRows } from "../ui/lazyrows.ts";
 import { type RunningAgent } from "../agents/running-state.ts";
 
 export const importButton = (cls: string) => plusLabel("Add a project", cls, addProject);
@@ -93,39 +92,21 @@ function projectListRow(p: Project, online: ReadonlyMap<string, boolean>) {
 
 /// Every project as a card, grouped by org: its tasks per state, its
 /// workers, what changed last and where it lives.
-const overviewRoots = new Map<string, { host: HTMLElement }>();
+let overviewHost: HTMLElement | null = null;
 
 export function disposeOverview() {
-  removeWindowParts([...overviewRoots.keys()].map(id => `project-overview:${id}` as const));
-  overviewRoots.clear();
+  if (!overviewHost) return;
+  removeWindowPart("project-overview");
+  overviewHost = null;
 }
 
 export function overviewSection(rows: Project[]) {
   const groups = overviewGroups(rows, state.overview, state.top, state.groups);
-  const key = (g: typeof groups[number]) => g.group ? `group:${g.group.id}` : `org:${g.org ?? ""}`;
-  const valid = new Set(groups.map(key));
-  const removed = [...overviewRoots.keys()].filter(id => !valid.has(id));
-  removeWindowParts(removed.map(id => `project-overview:${id}` as const));
-  for (const id of removed) overviewRoots.delete(id);
-  let drawing = true;
-  const out = lazyRows("projects-overview", "", groups.length, (from, to) => {
-    const visible = groups.slice(from, to).map(group => {
-      const id = key(group);
-      let entry = overviewRoots.get(id);
-      if (!entry) {
-        const host = h("section", "pj-org");
-        entry = { host };
-        overviewRoots.set(id, entry);
-      }
-      return { id, group, host: entry.host };
-    });
-    if (visible.length) showWindowParts(visible.map(({ id, group, host }) => ({ part: `project-overview:${id}` as const, host,
-      content: createElement(OverviewGroupView, { group, editing: group.group && state.renaming?.id === group.group.id ? state.renaming : null, sync: (name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name)) }) })));
-    return visible.map(({ host }) => drawing ? panelSlot(host) : host);
-  }, 0, 1, row => projectPanel(row) ?? row);
-  drawing = false;
-  const add = h("div", "cc-panel cc-row pj-add", h("span", "t", h("b", "", "Add a project"), h("span", "", "A folder or a repository to clone.")), button("Add", "", addProject));
-  return [...out, add];
+  if (!overviewHost) { overviewHost = h("div"); overviewHost.style.display = "contents"; }
+  showWindowParts([{ part: "project-overview", host: overviewHost, content: createElement(ProjectsOverview, { groups, editing: state.renaming,
+    sync: (name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name)), add: addProject,
+  }) }]);
+  return [panelSlot(overviewHost)];
 }
 
 /// Optional task summaries for the cards. Local projects draw before this

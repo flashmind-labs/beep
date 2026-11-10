@@ -92,6 +92,32 @@ test("overview refresh retains visible groups and a focused rename draft", async
   await expect(second).toHaveAttribute("data-identity", "kept");
 });
 
+test("project groups load progressively without replacing earlier groups", async ({ page }) => {
+  const groups = Array.from({ length: 40 }, (_, i) => ({ id: `group-${i}`, name: `Group ${String(i).padStart(2, '0')}`, paths: [`folder-${i}`] }));
+  await openDesktop(page, false, { project_groups: groups });
+  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
+  const first = page.locator('.pj-org').filter({ hasText: 'Group 00' });
+  await expect(first).toBeVisible();
+  await first.evaluate(el => { (el as HTMLElement).dataset.identity = 'kept'; });
+  const view = page.locator('.cc-view[data-project]');
+  for (let i = 0; i < 45; i++) {
+    if (await page.locator('.pj-org').filter({ hasText: 'Group 39' }).count()) break;
+    await view.evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  }
+  await expect(page.locator('.pj-org').filter({ hasText: 'Group 39' })).toHaveCount(1);
+  await expect(first).toHaveAttribute('data-identity', 'kept');
+  await expect(view.getByRole('button', { name: 'Add', exact: true })).toBeVisible();
+});
+
+test("project groups remain available without IntersectionObserver", async ({ page }) => {
+  const groups = Array.from({ length: 12 }, (_, i) => ({ id: `group-${i}`, name: `Group ${i}`, paths: [`folder-${i}`] }));
+  await page.addInitScript(() => { Reflect.deleteProperty(window, 'IntersectionObserver'); });
+  await openDesktop(page, false, { project_groups: groups });
+  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
+  await expect(page.locator('.pj-org').filter({ hasText: 'Group 11' })).toHaveCount(1);
+});
+
 test("folder group editor keeps its draft and retries a failed save", async ({ page }) => {
   await openDesktop(page, false, { project_groups: [{ id: "group", name: "Example group", paths: ["work"] }] });
   await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
