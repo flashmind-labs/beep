@@ -5,7 +5,7 @@ import { AG, type AgentPage, type AgentRow } from "../src/agents/agents.ts";
 import { S } from "../src/bar/core.ts";
 import { SLOW_MS } from "../src/ui/active.ts";
 import { drawMove } from "../src/agents/move.ts";
-import { MV } from "../src/agents/move-store.ts";
+import { moveStore } from "../src/agents/move-store.ts";
 import { drawAgentFrame } from "../src/agents/session.ts";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
 import { imageLines } from "../src/agents/agentlog.ts";
@@ -33,8 +33,7 @@ test("the open conversation follows a completed move even when its target lists 
   t.mock.method(document, "getElementById", (id: string) => id === "agshell" || id.startsWith("agpane-") ? null : byId(id));
   Object.assign(AG, { open: { machine_id: source.machine_id, agent: source.agent, session: source.id }, page, inflight: null });
   Object.assign(answers, { agent_sessions: [source], session_moves: [record], session_move_progress: progress, agent_view: { ...page, session: target }, agent_hosts: [], agent_tasks: [], editors: [] });
-  MV.records.set(source.id, record);
-  MV.progress.set(source.id, progress);
+  moveStore.setState({ records: new Map([[source.id, record]]), progress: new Map([[source.id, progress]]) });
   bar.innerHTML = '<div id="aghere"></div>';
   calls.length = 0;
   drawMove();

@@ -1,4 +1,4 @@
-import { MV } from "../agents/move-store.ts";
+import { moveStore } from "../agents/move-store.ts";
 import { createElement, Fragment, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
@@ -208,7 +208,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   }));
   if (runItems.length) top.push({ key: "running", title: "Running", sub: String(runItems.length), detail: () => [viewPart("running", agentsSection(running))] });
   groups.push({ title: "", items: project });
-  const past = sessions ? projectPastSessions(sessions, running, [...MV.records.values()]).filter(sessionVisible) : [];
+  const past = sessions ? projectPastSessions(sessions, running, [...moveStore.getState().records.values()]).filter(sessionVisible) : [];
   groups.push({ title: "", items: [
     ...(view ? [{ key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [hostPart(taskPanel(p.name, view))] }] : []),
     // Running agents have their own rows above; this keeps past sessions and the custom agents.

@@ -3,7 +3,7 @@ import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ProjectRunning } from "./running-view.tsx";
 import { ProjectsOverview } from "./overview-view.tsx";
 import { ProjectFallback } from "./split-view.tsx";
-import { MV } from "../agents/move-store.ts";
+import { moveStore } from "../agents/move-store.ts";
 // The Projects page's overview: the list, groups and cards of every
 // project, and a picked project's detail sections.
 import { sessionVisible } from "../agents/closing.ts";
@@ -107,7 +107,7 @@ export function projectDetail(p: Project): PagePart[] {
   if (p.imported && (machines === undefined || whereDue.has(p.name))) loadWhere(p.name);
   if (p.imported && (!state.gitsync.has(p.name) || gitDue.has(p.name))) loadGit(p.name);
   const rows = whereRows(p, machines || null, state.mac?.id || null);
-  const running = projectRunning(p, state.home?.running, state.sessions.get(p.name), [...MV.records.values()]).filter(sessionVisible);
+  const running = projectRunning(p, state.home?.running, state.sessions.get(p.name), [...moveStore.getState().records.values()]).filter(sessionVisible);
   if (splitOn(p)) return projectSplit(p, rows, !!machines, running);
   disposeProjectShell();
 

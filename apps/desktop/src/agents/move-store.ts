@@ -3,54 +3,57 @@
 
 import { type MoveProgress, type MoveRecord, bySession, dedupe, effective, listLabel } from "./move-state.ts";
 import { invoke } from "../ui/tauri.ts";
+import { createStore } from "zustand/vanilla";
 
 /// Records older than this are not asked about again.
 const RECENT_MS = 24 * 3600 * 1000;
 /// The most progress answers one read asks for.
 const MAX_ASKED = 8;
 
-export const MV = {
+/// The move records by session, and how each target says its move goes.
+export const moveStore = createStore(() => ({
   records: new Map<string, MoveRecord>(),
   progress: new Map<string, MoveProgress>(),
-  names: new Map<string, string>(),
-};
-const listeners = new Set<() => void>();
+}));
+/// Machine names by id, for machines a move names.
+export const machineNames = new Map<string, string>();
 
 /// Calls `f` whenever the moves change, for the lists to draw again.
-export const onMoves = (f: () => void) => void listeners.add(f);
-export const moved = () => { for (const f of listeners) f(); };
+export const onMoves = (f: () => void) => void moveStore.subscribe(() => f());
 
-export const nameOf = (id: string) => MV.names.get(id) ?? id.slice(0, 8);
+export const nameOf = (id: string) => machineNames.get(id) ?? id.slice(0, 8);
 
 /// Reads the move records and, for the recent ones, how the target says each goes.
 export async function refreshMoves() {
   let records: MoveRecord[];
   try { records = await invoke<MoveRecord[]>("session_moves"); } catch (e) { console.warn("moves not read", e); return; }
   // A node of the mesh may answer with something else; then there are none.
-  MV.records = bySession(Array.isArray(records) ? records : []);
-  const recent = [...MV.records.values()].filter(r => Date.now() - r.at < RECENT_MS).slice(0, MAX_ASKED);
+  const read = bySession(Array.isArray(records) ? records : []);
+  const recent = [...read.values()].filter(r => Date.now() - r.at < RECENT_MS).slice(0, MAX_ASKED);
 
-  if (recent.length && !MV.names.size) {
-    try { for (const m of await invoke<{ machine_id: string; machine_name: string }[]>("agent_hosts")) MV.names.set(m.machine_id, m.machine_name); }
+  if (recent.length && !machineNames.size) {
+    try { for (const m of await invoke<{ machine_id: string; machine_name: string }[]>("agent_hosts")) machineNames.set(m.machine_id, m.machine_name); }
     catch (e) { console.warn("machine names not read", e); }
   }
 
-  await Promise.all(recent.map(async r => {
-    try { MV.progress.set(r.session, await invoke<MoveProgress>("session_move_progress", { session: r.session })); }
-    catch (e) { console.warn("move progress not read", e); }
+  const answers = await Promise.all(recent.map(async r => {
+    try { return [r.session, await invoke<MoveProgress>("session_move_progress", { session: r.session })] as const; }
+    catch (e) { console.warn("move progress not read", e); return null; }
   }));
-  moved();
+  const progress = new Map(moveStore.getState().progress);
+  for (const answer of answers) if (answer) progress.set(...answer);
+  moveStore.setState({ records: read, progress });
 }
 
 /// How the move of session `id` stands, read for the window.
-export const stateOf = (id: string) => effective(MV.progress.get(id), MV.records.get(id), Date.now());
+export const stateOf = (id: string) => effective(moveStore.getState().progress.get(id), moveStore.getState().records.get(id), Date.now());
 
 /// `rows` with a session that moved shown once.
-export const withoutCopies = <T extends { machine_id: string; id: string; agent: string }>(rows: readonly T[]) => dedupe(rows, [...MV.records.values()]);
+export const withoutCopies = <T extends { machine_id: string; id: string; agent: string }>(rows: readonly T[]) => dedupe(rows, [...moveStore.getState().records.values()]);
 
 /// What a row of a session in a move says: the machines, a chip and the reason.
 export function moveLabel(s: { id: string; machine_id: string; machine_name: string }) {
-  const r = MV.records.get(s.id);
+  const r = moveStore.getState().records.get(s.id);
   if (!r || r.from !== s.machine_id) return null;
   return listLabel(r, stateOf(s.id), id => (id === s.machine_id ? s.machine_name : nameOf(id)));
 }

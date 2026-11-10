@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ProjectSessions } from "./sessions-view.tsx";
-import { refreshMoves, MV } from "../agents/move-store.ts";
+import { refreshMoves, moveStore } from "../agents/move-store.ts";
 import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS, SLOW_MS } from "../ui/active.ts";
 // Reading a project page: its view, agent, machines and sessions, kept
@@ -402,7 +402,7 @@ export function sessionsHost(project: string, rows: SessionRow[]) {
 /// being read again.
 export function sessionsList(p: Project, running: RunningAgent[]): RecentSessions {
   const sessions = state.sessions.get(p.name);
-  const past = projectPastSessions(sessions, running, [...MV.records.values()]).filter(sessionVisible);
+  const past = projectPastSessions(sessions, running, [...moveStore.getState().records.values()]).filter(sessionVisible);
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
   const freshness = sessions !== undefined ? pageFresh("sessions", p.name, readingSessions.has(p.name)) : null;
   if (!p.imported || sessions === undefined || !past.length) disposeSessionPanel();
