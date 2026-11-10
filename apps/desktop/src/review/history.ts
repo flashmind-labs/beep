@@ -7,6 +7,7 @@ import { HistoryNavigation } from "./history-navigation.tsx";
 import { HistoryPath, HistorySessions } from "./history-sessions.tsx";
 import { TreeNode } from "./history-tree.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { SLOW_MS } from "../ui/active.ts";
 // The project's Git navigator and its selected commit or worktree diff.
 import { el } from "../ui/dom.ts";
 import { ago, reason } from "../ui/format.ts";
@@ -78,7 +79,7 @@ export function makeGitHistory(deps: HistoryDeps) {
       await refresh(p.name);
       const error = list(p, null, p.query).error;
       if (error) throw new Error(error);
-    }, p.data.machine_id, () => p.nav.isConnected && p.detail.isConnected);
+    }, p.data.machine_id, () => p.nav.isConnected && p.detail.isConnected, SLOW_MS);
   }
 
   function stop() {

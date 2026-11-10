@@ -20,7 +20,7 @@ import { addMention, askUpload } from "../agents/workdrop.ts";
 import { selectFile, selectionRoots, fileNameError, canPasteFiles, type FileClipboard } from "./file-actions-state.ts";
 import { confirmSheet, renameSheet } from "../ui/menu.ts";
 import { invoke } from "../ui/tauri.ts";
-import { paneShown } from "../ui/active.ts";
+import { AMBIENT_MS, paneShown } from "../ui/active.ts";
 
 /// The type a row of the tree drags as, its path relative to the session's folder.
 export const PATH_TYPE = "application/x-beep-path";
@@ -101,7 +101,7 @@ export function filesView() {
   F.unfollow?.();
   Object.assign(F, {
     key, listings: new Map(), roots: new Set(), reading: new Set(), again: new Set(), flat: false, walking: false, capped: false, open: new Set(), filter: "", picked: null, anchor: null, selected: new Set(), busy: false, fresh: false, generation: F.generation + 1, reveal: null,
-    unfollow: s?.machine_id && paneRoot() ? subscribeTopics(topic("files", paneRoot()), () => refresh(), s.machine_id, filesShown) : null,
+    unfollow: s?.machine_id && paneRoot() ? subscribeTopics(topic("files", paneRoot()), () => refresh(), s.machine_id, filesShown, AMBIENT_MS) : null,
   });
   const el = document.createElement("div");
   el.className = "agpview files";
@@ -129,7 +129,7 @@ export function pointFilesAt() {
   if (!F.el || !s || key === F.key) return;
   closeFilesMenu();
   F.unfollow?.();
-  F.unfollow = s.machine_id && paneRoot() ? subscribeTopics(topic("files", paneRoot()), () => refresh(), s.machine_id, filesShown) : null;
+  F.unfollow = s.machine_id && paneRoot() ? subscribeTopics(topic("files", paneRoot()), () => refresh(), s.machine_id, filesShown, AMBIENT_MS) : null;
   Object.assign(F, {
     key, listings: new Map(), roots: new Set(), reading: new Set(), again: new Set(), flat: false, walking: false, capped: false, open: new Set(), picked: null, anchor: null, selected: new Set(), busy: false, fresh: false, generation: F.generation + 1, reveal: null,
   });

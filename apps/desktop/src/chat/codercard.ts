@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderChatCoderCards } from "./work-view.tsx";
 import { CoderCardView, type CoderCardState } from "./codercard-view.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
-import { paneShown } from "../ui/active.ts";
+import { AMBIENT_MS, paneShown } from "../ui/active.ts";
 import { type AgentReport, cardKey, parseAgentReport } from "./agentcard.ts";
 import { type AgentPage, type AgentSession } from "../agents/agents.ts";
 import { loadSessions } from "../agents/sessions.ts";
@@ -31,12 +31,13 @@ interface CoderCard extends HTMLElement {
 
 interface CardOwner { body: ChatBody; observer: MutationObserver | null; cards: Map<CoderCard, CoderCardState>; pending: Map<CoderCard, CoderCardState>; watching: boolean }
 const owners = new WeakMap<ChatBody, CardOwner>();
-const followed = new Set<CoderCard>();
 function sync(owner: CardOwner) {
   renderChatCoderCards(owner.body, [...owner.cards].map(([card, value]) => ({ host: card, view: createElement(CoderCardView, { value, answer: index => void answer(card, index), open: () => { if (card.found) openAgent(card.found.page?.session ?? card.found.row); } }) })));
 }
 function selected(card: CoderCard) { const selection = document.getSelection(); return !!selection && !selection.isCollapsed && selection.containsNode(card, true); }
 function remove(card: CoderCard) {
+  card.unfollow?.(); card.unfollow = undefined;
+  card.readVersion = (card.readVersion ?? 0) + 1;
   const owner = card.owner;
   if (!owner) return;
   owner.cards.delete(card); owner.pending.delete(card); card.owner = undefined;
@@ -67,27 +68,11 @@ function prune(owner: CardOwner) {
   for (const card of owner.cards.keys()) if (!owner.body.contains(card)) { remove(card); changed = true; }
   if (changed) sync(owner);
 }
-let observer: MutationObserver | undefined;
-
+// A card stays subscribed while its chat is detached, idle until it shows
+// again; its chat's observer or `disposeCoderCards` lets it go.
 function follow(card: CoderCard, row: AgentSession) {
   card.unfollow?.();
-  card.unfollow = subscribeTopics(topic("agent", row.id), () => poll(card), row.machine_id, () => card.isConnected && paneShown());
-  followed.add(card);
-  if (observer) return;
-  observer = new MutationObserver(records => {
-    if (!records.some(record => record.removedNodes.length)) return;
-
-    for (const card of followed) {
-      if (card.isConnected) continue;
-      card.unfollow?.();
-      card.unfollow = undefined;
-      card.readVersion = (card.readVersion ?? 0) + 1;
-      followed.delete(card);
-    }
-
-    if (!followed.size) { observer?.disconnect(); observer = undefined; }
-  });
-  observer.observe(document, { subtree: true, childList: true });
+  card.unfollow = subscribeTopics(topic("agent", row.id), () => poll(card), row.machine_id, () => card.isConnected && paneShown(), AMBIENT_MS);
 }
 
 /// Releases subscriptions and selection listeners when a chat is evicted.
@@ -96,15 +81,9 @@ export function disposeCoderCards(body: ChatBody) {
   if (!owner) return;
   owners.delete(body);
   owner.observer?.disconnect();
-  for (const card of owner.cards.keys()) {
-    card.unfollow?.(); card.unfollow = undefined;
-    card.readVersion = (card.readVersion ?? 0) + 1;
-    followed.delete(card);
-    remove(card);
-  }
+  for (const card of owner.cards.keys()) remove(card);
   owner.cards.clear(); owner.pending.clear();
   if (owner.watching) { document.removeEventListener("selectionchange", ownerChanged(owner)); owner.watching = false; }
-  if (!followed.size) { observer?.disconnect(); observer = undefined; }
 }
 
 /// A live chat keeps its body while another page shows. Follow its cards again
@@ -113,8 +92,8 @@ export function resumeCoderCards(body: ChatBody) {
   const owner = owners.get(body);
   if (!owner) return;
   for (const card of owner.cards.keys()) {
-    if (!card.isConnected || !card.found || card.unfollow) continue;
-    follow(card, card.found.row);
+    if (!card.isConnected || !card.found) continue;
+    if (!card.unfollow) follow(card, card.found.row);
     void poll(card).catch(error => console.warn("agent card:", error));
   }
 }

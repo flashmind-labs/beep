@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { AG, type AgentPage, type AgentRow } from "../src/agents/agents.ts";
 import { S } from "../src/bar/core.ts";
+import { SLOW_MS } from "../src/ui/active.ts";
 import { drawMove } from "../src/agents/move.ts";
 import { MV } from "../src/agents/move-store.ts";
 import { drawAgentFrame, stopAgentFollow, userImages } from "../src/agents/session.ts";
@@ -40,7 +41,7 @@ test("the open conversation follows a completed move even when its target lists 
   assert.ok(stream);
   const notify = async () => {
     stream.onEvent.onmessage({ machine_id: "studio", topic: "moves.*", revision: 1, data: {} });
-    t.mock.timers.tick(100);
+    t.mock.timers.tick(SLOW_MS);
     await settle();
   };
   await notify();

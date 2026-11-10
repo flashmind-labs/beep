@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { makeGitHistory } from "../src/review/history.ts";
 import { topic, type MeshEvent } from "../src/ui/mesh-events.ts";
+import { SLOW_MS } from "../src/ui/active.ts";
 import type { HistoryPage } from "../src/review/history-state.ts";
 
 const settle = () => new Promise<void>(done => setImmediate(done));
@@ -26,11 +27,11 @@ test("visible Git history follows its root and stops reading when closed", async
   const reader = calls.find(call => call.cmd === "mesh_watch")!.args as { onEvent: { onmessage(event: MeshEvent): void } };
   const send = (revision: number, root = "/srv/project") => reader.onEvent.onmessage({ revision, machine_id: "machine-a", topic: topic("files", root), data: {} });
   send(1, "/srv/another");
-  t.mock.timers.tick(100);
+  t.mock.timers.tick(SLOW_MS);
   await settle();
   assert.equal(reads, 1, "unrelated roots do not reload Git");
   send(2);
-  t.mock.timers.tick(100);
+  t.mock.timers.tick(SLOW_MS);
   await settle();
   assert.equal(reads, 2);
   t.mock.timers.tick(86_400_000);
@@ -39,7 +40,7 @@ test("visible Git history follows its root and stops reading when closed", async
   history.stop();
   panels.navigation.remove(); panels.detail.remove();
   send(3);
-  t.mock.timers.tick(100);
+  t.mock.timers.tick(SLOW_MS);
   await settle();
   assert.equal(reads, 2);
 });

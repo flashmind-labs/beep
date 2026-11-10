@@ -18,6 +18,7 @@ const stubs = new Map(Object.entries({
   "center/state.ts": "export const { state, views } = globalThis.navigationTest; export const $ = selector => document.querySelector(selector);",
   "ui/tauri.ts": "export const invoke = async () => {}; export const recordTiming = () => {};",
   "ui/mesh-events.ts": "export const refreshTopicSubscriptions = () => {};",
+  "ui/active.ts": "export const SLOW_MS = 2000; export const shownChanged = () => {};",
   "ui/dom.ts": "export const el = () => globalThis.navigationTest.element();",
   "center/sidebar.ts": "export const drawSide = () => {}; export const openProjects = () => {}; export const projectRows = () => [];",
   "project/agent.ts": "export const chatProject = () => null; export const shortName = name => name;",
