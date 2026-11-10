@@ -1,6 +1,7 @@
 //! Bringing the folder in line with the list.
 
 use super::{
+    scanning::Reason,
     fetch::{Ahead, Fetched, Wanted, copy_out, read_store},
     list::{Work, move_target, plan, turn},
     state::{GitCopy, Seen},
@@ -131,7 +132,7 @@ impl Task {
         let checked = match self.check_root().await {
             // A scan writes the marker again if the folder is whole.
             Ok(Checked::Unmarked(_)) => {
-                self.scan().await;
+                self.scan(Reason::Checkout).await;
                 self.check_root().await
             }
             checked => checked,
@@ -158,7 +159,7 @@ impl Task {
             .as_ref()
             .is_ok_and(|alignment| alignment.checkout_changed)
         {
-            self.scan().await;
+            self.scan(Reason::Checkout).await;
         }
 
         let aligned = aligned.and_then(|alignment| match alignment.warning {
@@ -184,7 +185,7 @@ impl Task {
         let copies_git = self.shared.copies_git();
 
         if !copies_git && (self.scan_failed || self.shared.list_checkout().await.is_err()) {
-            self.scan().await;
+            self.scan(Reason::Retry).await;
 
             if self.scan_failed {
                 self.pending = 1;

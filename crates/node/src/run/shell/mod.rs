@@ -163,6 +163,7 @@ struct Shell {
 impl Shell {
     async fn start() -> Result<Self> {
         let program = program();
+        crate::run::process::counted(program.as_ref());
         let mut command = Command::new(program);
         #[cfg(windows)]
         command.args(powershell::session_args());
@@ -258,6 +259,7 @@ fn program() -> &'static str {
 /// stdout, and the shell's name.
 pub(crate) fn one_shot(script: &str) -> (&'static str, Command) {
     let program = program();
+    crate::run::process::counted(program.as_ref());
     let mut command = Command::new(program);
     #[cfg(windows)]
     command

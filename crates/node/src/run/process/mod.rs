@@ -39,6 +39,7 @@ pub(crate) fn command(program: impl AsRef<OsStr>) -> Command {
 /// A background command, with no console window allocated on Windows.
 /// Interactive terminals use their PTY's command builder instead.
 pub(crate) fn background_command(program: impl AsRef<OsStr>) -> std::process::Command {
+    counted(program.as_ref());
     let command = std::process::Command::new(program);
     #[cfg(windows)]
     let command = {
@@ -48,6 +49,27 @@ pub(crate) fn background_command(program: impl AsRef<OsStr>) -> std::process::Co
         command
     };
     command
+}
+
+/// Programs the node starts often enough to watch. Anything else counts as
+/// `other`, so a configured agent path cannot grow the metric's labels.
+const COUNTED: [&str; 16] = [
+    "git", "sh", "bash", "zsh", "pwsh", "powershell", "cmd", "ps", "lsof", "node", "npm",
+    "npx", "claude", "codex", "systemctl", "launchctl",
+];
+
+/// Counts a program the node is about to start, by its bare name.
+pub(crate) fn counted(program: &OsStr) {
+    let name = std::path::Path::new(program)
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .map(str::to_ascii_lowercase);
+    let program = name
+        .as_deref()
+        .and_then(|name| COUNTED.iter().find(|known| **known == name))
+        .copied()
+        .unwrap_or("other");
+    metrics::counter!("beep_spawn_total", "program" => program).increment(1);
 }
 
 /// Starts a background probe without opening a console on Windows.

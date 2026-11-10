@@ -146,7 +146,7 @@ impl Agents {
             tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
                 loop {
                     match source.recv().await {
-                        Ok(event) => hub.changed(event.topic),
+                        Ok(event) => hub.forward(event),
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                             hub.changed(beep_proto::node::events::Topic::new("*"))
                         }

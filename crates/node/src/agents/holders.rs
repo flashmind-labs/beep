@@ -83,6 +83,7 @@ async fn open_among(real: &HashMap<PathBuf, PathBuf>) -> Option<HashMap<PathBuf,
     use tokio::{process::Command, time::timeout};
     /// How long `lsof` may take.
     const LIMIT: Duration = Duration::from_secs(10);
+    crate::run::process::counted("lsof".as_ref());
     let mut lsof = Command::new("lsof");
     lsof.args(["-F", "pn", "-w", "--"])
         .args(real.keys())

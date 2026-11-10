@@ -295,7 +295,10 @@ impl Watcher {
         let routes: Arc<Mutex<HashMap<Key, Route>>> = Arc::default();
         let events = routes.clone();
         let watcher =
-            notify::recommended_watcher(move |event: notify::Result<Event>| match event {
+            notify::recommended_watcher(move |event: notify::Result<Event>| {
+                crate::events::paths::counted("sync", &event);
+
+                match event {
                 Ok(event) => route(&events, &event),
                 Err(e) => {
                     log::debug!("watch error: {e}");
@@ -303,6 +306,7 @@ impl Watcher {
                         &events,
                         &Event::new(EventKind::Other).set_flag(notify::event::Flag::Rescan),
                     );
+                }
                 }
             });
         let watcher = match watcher {

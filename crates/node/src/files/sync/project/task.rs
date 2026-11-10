@@ -1,6 +1,6 @@
 //! The project's task: its loop, and how it saves and publishes its state.
 
-use super::{fetch::Fetcher, shared::Shared};
+use super::{fetch::Fetcher, scanning::Reason, shared::Shared};
 use crate::files::sync::{
     Parts,
     map::is_conflict,
@@ -131,7 +131,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
     // Scanned before anything is pulled, so edits made while the node was
     // down merge as edits. A paused project does this once resumed.
     if !*paused.borrow_and_update() {
-        task.scan().await;
+        task.scan(Reason::Startup).await;
         task.apply().await;
         task.save(true).await;
         start_pulls(&mut pulls, &shared, &task.parts, &peers.borrow_and_update());
@@ -167,7 +167,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 while woken.try_recv().is_ok() {}
                 shared.listen_again();
                 watcher.take_changes(shared.key);
-                task.scan().await;
+                task.scan(Reason::Resume).await;
                 last_scan = Instant::now();
                 task.apply().await;
                 deletes.scanned(!task.held.is_empty(), last_scan);
@@ -199,8 +199,11 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
             () = sleep_until(settle.due.unwrap_or_else(Instant::now)), if settle.due.is_some() => {
                 settle.clear();
                 let changes = watcher.take_changes(shared.key);
-                if std::mem::take(&mut full) || changes.full {
-                    task.scan().await;
+                let touched = std::mem::take(&mut full);
+                if changes.full {
+                    task.scan(Reason::Overflow).await;
+                } else if touched {
+                    task.scan(Reason::Touched).await;
                 } else {
                     task.scan_changes(changes.paths).await;
                 }
@@ -213,7 +216,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 // missing is sent unless the folder changed meanwhile.
                 let changes = watcher.take_changes(shared.key);
                 if changes.full {
-                    task.scan().await;
+                    task.scan(Reason::Overflow).await;
                 } else {
                     task.scan_changes(changes.paths).await;
                 }
@@ -226,7 +229,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 apply = true;
             }
             () = sleep_until(last_scan + RESCAN), if !matches!(task.mode, Mode::Watching) => {
-                task.scan().await;
+                task.scan(Reason::Unwatched).await;
                 last_scan = Instant::now();
                 apply = true;
             }
@@ -234,7 +237,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 settle.clear();
                 full = false;
                 watcher.take_changes(shared.key);
-                task.scan().await;
+                task.scan(Reason::Request).await;
                 last_scan = Instant::now();
                 apply = true;
                 forced = true;
@@ -248,7 +251,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 apply = true;
             }
             () = sleep_until(last_scan + retry), if task.scan_failed => {
-                task.scan().await;
+                task.scan(Reason::Retry).await;
                 last_scan = Instant::now();
                 retry = if task.scan_failed { (retry * 2).min(MAX_RETRY) } else { RETRY };
                 apply = true;

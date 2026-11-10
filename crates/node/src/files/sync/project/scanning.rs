@@ -28,26 +28,57 @@ use tokio::task::spawn_blocking;
 /// How many files a scan hashes at once.
 const MAX_IMPORTS: usize = 16;
 
+/// Why a scan ran, as the scan metric labels it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr)]
+#[strum(serialize_all = "kebab-case")]
+pub(super) enum Reason {
+    /// The project started.
+    Startup,
+    /// The project was resumed after a pause.
+    Resume,
+    /// The watcher named changed paths.
+    Changes,
+    /// The watcher lost events or the rules changed.
+    Overflow,
+    /// The node changed the folder itself.
+    Touched,
+    /// No watcher covers the folder, so it is checked on a timer.
+    Unwatched,
+    /// Someone asked for a rescan.
+    Request,
+    /// An earlier scan or listing failed.
+    Retry,
+    /// The checkout moved or lost its marker.
+    Checkout,
+}
+
 impl Task {
     /// Looks for edits on disk and records them in the list.
-    pub(super) async fn scan(&mut self) {
-        self.scan_inner(None).await;
+    pub(super) async fn scan(&mut self, reason: Reason) {
+        self.scan_inner(None, reason).await;
     }
 
     pub(super) async fn scan_changes(&mut self, mut paths: BTreeSet<PathBuf>) {
         if self.first || self.scan_failed {
-            self.scan().await;
+            let reason = if self.scan_failed {
+                Reason::Retry
+            } else {
+                Reason::Changes
+            };
+            self.scan(reason).await;
             return;
         }
 
         paths.extend(self.held.iter().map(PathBuf::from));
         if !paths.is_empty() {
-            self.scan_inner(Some(paths)).await;
+            self.scan_inner(Some(paths), Reason::Changes).await;
         }
     }
 
-    async fn scan_inner(&mut self, paths: Option<BTreeSet<PathBuf>>) {
+    async fn scan_inner(&mut self, paths: Option<BTreeSet<PathBuf>>, reason: Reason) {
         let started = Instant::now();
+        metrics::counter!("beep_sync_scan_total", "reason" => Into::<&'static str>::into(reason))
+            .increment(1);
         let scope = if paths.is_some() { "changed" } else { "full" };
         self.shared.publish(|s| s.state = SyncState::Scanning);
         let result = self.try_scan(paths).await;
