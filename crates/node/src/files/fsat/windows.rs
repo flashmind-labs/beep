@@ -216,6 +216,11 @@ pub(crate) fn id_of_path(path: &Path) -> io::Result<FileId> {
         .read(true)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
         .open(path)?;
+    id_of_file(&file)
+}
+
+/// The volume serial number and file index of the open `file`.
+pub(crate) fn id_of_file(file: &File) -> io::Result<FileId> {
     let mut info = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
     // SAFETY: the handle is open for the call, and `info` is a writable
     // struct of the type the call fills.
