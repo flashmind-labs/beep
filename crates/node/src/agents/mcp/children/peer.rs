@@ -81,7 +81,8 @@ impl Call<'_> {
     }
 }
 
-/// Stops a child on another machine: its session, or only its running turn.
+/// Stops a child on another machine: its session, or, for a parent's Stop
+/// all, its running turn, background commands and subagents.
 /// A child the machine does not have is as good as stopped.
 pub(crate) async fn stop_remote(
     mesh: &Mesh,
@@ -98,7 +99,9 @@ pub(crate) async fn stop_remote(
     let args = json!(PeerCall {
         id: kid.id.clone(),
         text: None,
-        turn_only
+        turn_only,
+        // Only a parent's Stop all stops a child's turn alone.
+        stop_all: turn_only,
     });
 
     match call.ask(Tool::StopAgent, &args, REMOTE_LIMIT).await {
@@ -201,7 +204,8 @@ pub(crate) async fn ask_parent(
     let args = json!(PeerCall {
         id: id.to_owned(),
         text: Some(key.to_owned()),
-        turn_only: false
+        turn_only: false,
+        stop_all: false,
     });
 
     match call.ask(Tool::AgentParent, &args, REMOTE_LIMIT).await {
@@ -250,7 +254,8 @@ pub(super) async fn fetch_view(
     let args = json!(PeerCall {
         id: kid.id.clone(),
         text: None,
-        turn_only: false
+        turn_only: false,
+        stop_all: false,
     });
 
     match call.ask(Tool::AgentStatus, &args, REMOTE_LIMIT).await {
