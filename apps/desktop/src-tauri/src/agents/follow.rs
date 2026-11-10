@@ -9,7 +9,7 @@ use crate::{
 };
 use beep_mesh::machine;
 use beep_proto::{
-    AgentMode, AgentSessionModes, AgentSessionView, AgentSlug, SessionId,
+    AgentMode, AgentSessionModes, AgentSessionView, AgentSlug, AgentStatus, SessionId,
     node::agent::{
         FollowSession, SESSION_FOLLOW_PROTOCOL, SessionCursor, SessionSource, SessionUpdate,
     },
@@ -17,13 +17,16 @@ use beep_proto::{
 use serde::Serialize;
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::{
+        Arc, Mutex, MutexGuard, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager, State, WebviewWindow, ipc::Channel};
 use tokio::{
     sync::watch,
-    time::{Instant as TokioInstant, sleep_until, timeout},
+    time::{Instant as TokioInstant, sleep, sleep_until, timeout},
 };
 use uuid::Uuid;
 
@@ -33,6 +36,17 @@ use pace::{Pace, Pushed};
 /// The most readers one window keeps; past it the oldest is cancelled, so a
 /// reloaded page cannot leave readers behind without bound.
 const WINDOW_READERS: usize = 16;
+
+/// How long a released reader gets to close its stream before the shown
+/// session asks the node again.
+const RELEASE_WAIT: Duration = Duration::from_millis(500);
+
+/// Whether the node turned a follow away because it has as many session
+/// readers as it allows.
+fn node_full(reason: &str) -> bool {
+    let reason = reason.to_lowercase();
+    reason.contains("too many") && reason.contains("reader")
+}
 
 /// The session a reader follows, marked read while it shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,7 +62,15 @@ struct Reader {
     _stop: watch::Sender<bool>,
     /// Whether the window shows its session.
     shown: watch::Sender<bool>,
+    /// Whether its session asks a question, from its newest update.
+    asking: Arc<AtomicBool>,
     followed: Followed,
+}
+
+impl Reader {
+    fn asking(&self) -> bool {
+        self.asking.load(Ordering::Relaxed)
+    }
 }
 
 #[derive(Default)]
@@ -78,10 +100,42 @@ impl Readers {
         readers.push(reader);
 
         if readers.len() > WINDOW_READERS {
-            readers.remove(0);
+            let shown = self.shown.get(window);
+            let background = |reader: &Reader| Some(&reader.id) != shown;
+            let oldest = readers
+                .iter()
+                .position(|reader| background(reader) && !reader.asking())
+                .or_else(|| readers.iter().position(background));
+
+            if let Some(index) = oldest {
+                readers.remove(index);
+            }
         }
 
         true
+    }
+
+    /// Cancels `window`'s oldest reader on `machine_id` that is neither shown
+    /// nor asking, other than `except`, to free a node reader; false if none.
+    fn release_on(&mut self, window: &str, machine_id: &str, except: Uuid) -> bool {
+        let shown = self.shown.get(window).copied();
+        let Some(readers) = self.active.get(window) else {
+            return false;
+        };
+        let Some(id) = readers
+            .iter()
+            .find(|reader| {
+                reader.id != except
+                    && Some(reader.id) != shown
+                    && reader.followed.machine_id == machine_id
+                    && !reader.asking()
+            })
+            .map(|reader| reader.id)
+        else {
+            return false;
+        };
+
+        self.remove(window, id)
     }
 
     fn cancel(&mut self, window: &str, id: Uuid) {
@@ -254,6 +308,7 @@ pub async fn agent_follow(
 ) -> Result<()> {
     let (cancel, mut cancelled) = watch::channel(false);
     let (shown, mut on_screen) = watch::channel(false);
+    let asking = Arc::new(AtomicBool::new(false));
 
     if app.get_webview_window(window.label()).is_none() {
         return Ok(());
@@ -263,6 +318,7 @@ pub async fn agent_follow(
         id,
         _stop: cancel,
         shown,
+        asking: asking.clone(),
         followed: Followed {
             machine_id: machine_id.clone(),
             agent: agent.clone(),
@@ -295,10 +351,11 @@ pub async fn agent_follow(
             last,
             after,
         };
-        let (_tx, mut rx) = client
+        let (mut _tx, mut rx) = client
             .open_sending(SESSION_FOLLOW_PROTOCOL, &request)
             .await?;
         let mut pace = Pace::default();
+        let mut retried = false;
 
         loop {
             let due = pace.due();
@@ -351,6 +408,24 @@ pub async fn agent_follow(
                 SessionUpdate::Snapshot(snapshot) => (UpdateKind::Snapshot, *snapshot),
                 SessionUpdate::Delta(snapshot) => (UpdateKind::Delta, *snapshot),
                 SessionUpdate::KeepAlive => continue,
+                // A full node: the shown session takes the place of one of
+                // this window's background readers there, once. A background
+                // reader turned away just ends; it reads again when opened.
+                SessionUpdate::Error { reason }
+                    if shown
+                        && !retried
+                        && node_full(&reason)
+                        && follows
+                            .readers()
+                            .release_on(window.label(), &machine_id, id) =>
+                {
+                    retried = true;
+                    sleep(RELEASE_WAIT).await;
+                    (_tx, rx) = client
+                        .open_sending(SESSION_FOLLOW_PROTOCOL, &request)
+                        .await?;
+                    continue;
+                }
                 SessionUpdate::Error { reason } => return Err(DesktopError::BadRequest(reason)),
             };
             let (mut view, modes, tasks) = match snapshot.source {
@@ -395,6 +470,11 @@ pub async fn agent_follow(
                     )
                 }
             };
+            asking.store(
+                view.session.question.is_some()
+                    || matches!(view.session.status, AgentStatus::Asking {}),
+                Ordering::Relaxed,
+            );
             view.entries = machine::entries_for(snapshot.entries, true);
             view.earlier = u32::try_from(snapshot.earlier).unwrap_or(u32::MAX);
 
