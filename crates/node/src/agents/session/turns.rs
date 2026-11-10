@@ -306,6 +306,15 @@ impl Actor {
                 log::debug!("an open question was not cancelled: {e}");
             }
         }
+        if stop == StopReason::Cancelled {
+            self.live
+                .send_if_modified(|live| {
+                    let before = live.info.state.subagents;
+                    live.close_interrupted_subagents();
+                    live.info.state.subagents != before
+                });
+        }
+
         // Prompts queued behind the turn run first: one alert for the lot.
         if self.waiting() == 0 {
             let last_message = self.live.borrow().info.last_message.clone();

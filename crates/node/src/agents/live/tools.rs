@@ -159,6 +159,35 @@ impl Live {
         self.info.state.subagents = u32::try_from(running).unwrap_or(u32::MAX);
     }
 
+    /// The turn was cancelled: the adapter never closes the subagent calls
+    /// it interrupted, so they end here and stop counting as running. Codex
+    /// subagents report their own end, and background ones follow their
+    /// task.
+    pub(crate) fn close_interrupted_subagents(&mut self) {
+        let open: Vec<ToolCallId> = self
+            .tools
+            .iter()
+            .filter(|(_, tool)| {
+                tool.parent.is_none()
+                    && tool.subagent.as_ref().is_some_and(|sub| !sub.codex)
+                    && matches!(
+                        tool.status,
+                        ToolCallStatus::Pending | ToolCallStatus::InProgress
+                    )
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        for id in &open {
+            if let Some(tool) = self.tools.get_mut(id) {
+                tool.status = ToolCallStatus::Failed;
+            }
+            self.write_tool(id);
+        }
+
+        self.count_subagents();
+    }
+
     pub(super) fn tool_call(&mut self, call: &AcpToolCall) {
         self.in_message = false;
         // Codex saying a subagent it started began or ended goes on the

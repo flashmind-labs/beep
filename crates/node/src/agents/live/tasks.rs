@@ -14,6 +14,7 @@ impl Live {
     /// Applies one `async_task_*` update. True when the tasks changed.
     pub(crate) fn apply_task(&mut self, update: AsyncTask) -> bool {
         let before = self.info.state.tasks.clone();
+        let subagents = self.info.state.subagents;
         let call = match update {
             AsyncTask::Spawned {
                 async_task_id,
@@ -94,7 +95,8 @@ impl Live {
             self.follow_background(&ToolCallId::new(call));
         }
 
-        self.info.state.tasks != before
+        self.count_subagents();
+        self.info.state.tasks != before || self.info.state.subagents != subagents
     }
 
     /// The session ended, and with it the commands its agent ran.
@@ -153,6 +155,9 @@ impl Live {
         if tool.backgrounded != running {
             tool.backgrounded = running;
             self.write_tool(call);
+            // A background `Agent` call counts as a running subagent only
+            // while its task runs.
+            self.count_subagents();
         }
     }
 

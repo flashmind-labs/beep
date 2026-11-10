@@ -18,6 +18,7 @@ Earlier releases predate this changelog.
 - Node: a session's log keeps Beep's whole agent brief as context instead of cutting off its last sentences.
 - Node: a project waiting on Git keeps its warning instead of flickering between scanning, synced and failed on every scan.
 - Node: the worktree menu leaves out worktrees of other machines listed in a synced `.git` folder, and sessions keep their folder when an agent runs a command on another machine.
+- Node: a session whose background subagent finished, or whose turn was stopped mid-subagent, stops showing as working and sends its "turn finished" notification right away.
 
 ### Performance
 
