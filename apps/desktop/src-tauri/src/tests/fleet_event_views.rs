@@ -67,3 +67,27 @@ fn only_a_status_with_files_in_transit_is_moving() {
     assert!(!moving(&status(None)));
     assert!(!moving(&Value::Missing));
 }
+
+#[test]
+fn each_topic_draws_on_its_own_and_once_at_a_time() {
+    let mut pending = Pending::default();
+    pending.topics.extend(["accounts", "home"]);
+    assert_eq!(
+        pending.due(),
+        Due {
+            topics: vec!["accounts", "home"],
+            projects: false,
+        }
+    );
+
+    // Home changes while both draw: it waits for its own draw, which goes again.
+    pending.topics.insert("home");
+    assert_eq!(pending.due(), Due::default());
+    assert!(pending.again("home"));
+    assert!(!pending.again("home"));
+
+    // Accounts end later and do not draw again; Home can start at once next time.
+    assert!(!pending.again("accounts"));
+    pending.topics.insert("home");
+    assert_eq!(pending.due().topics, ["home"]);
+}

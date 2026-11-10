@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Listener, Manager};
-use tokio::task::JoinHandle;
+use tokio::task::JoinSet;
 use uuid::Uuid;
 
 /// The least time between two sync views while files move, whose progress
@@ -21,7 +21,8 @@ const SYNC_GAP: Duration = Duration::from_secs(1);
 #[derive(Default)]
 pub(crate) struct Views {
     pending: Mutex<Pending>,
-    task: Mutex<Option<JoinHandle<()>>>,
+    /// The draws under way, which end with the app.
+    tasks: Mutex<JoinSet<()>>,
     sync: Mutex<SyncPace>,
     /// Views that changed while only hidden windows wanted them, drawn once one shows.
     deferred: Mutex<BTreeSet<&'static str>>,
@@ -64,18 +65,52 @@ impl SyncPace {
     }
 }
 
+/// What waits to be drawn. Each topic draws on its own, so a slow one, such as the accounts
+/// that probe every machine, never holds Home back; a topic draws once at a time.
 #[derive(Default)]
 struct Pending {
     topics: BTreeSet<&'static str>,
+    /// The topics drawing now. A change to one meanwhile waits in `topics` and draws after.
+    drawing: BTreeSet<&'static str>,
     projects: BTreeMap<Uuid, crate::projects::live::LiveRow>,
-    running: bool,
+    drawing_projects: bool,
 }
 
-impl Drop for Views {
-    fn drop(&mut self) {
-        if let Some(task) = self.task.get_mut().unwrap_or_else(PoisonError::into_inner) {
-            task.abort();
+/// What to start drawing now.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Due {
+    topics: Vec<&'static str>,
+    projects: bool,
+}
+
+impl Pending {
+    /// Moves the topics no draw holds into `drawing`, and the projects when none draw.
+    fn due(&mut self) -> Due {
+        let topics: Vec<&'static str> = self
+            .topics
+            .iter()
+            .copied()
+            .filter(|name| !self.drawing.contains(name))
+            .collect();
+
+        for name in &topics {
+            self.topics.remove(name);
+            self.drawing.insert(name);
         }
+
+        let projects = !self.drawing_projects && !self.projects.is_empty();
+        self.drawing_projects |= projects;
+        Due { topics, projects }
+    }
+
+    /// Ends a draw of `name`: true when it changed meanwhile and draws again.
+    fn again(&mut self, name: &'static str) -> bool {
+        if self.topics.remove(name) {
+            return true;
+        }
+
+        self.drawing.remove(name);
+        false
     }
 }
 
@@ -231,15 +266,23 @@ pub(crate) fn project_changed(app: AppHandle, mut row: crate::projects::live::Li
 }
 
 fn start(app: &AppHandle, views: &Views, mut pending: std::sync::MutexGuard<'_, Pending>) {
-    if pending.running || (pending.topics.is_empty() && pending.projects.is_empty()) {
+    let due = pending.due();
+    drop(pending);
+
+    if due == Due::default() {
         return;
     }
 
-    pending.running = true;
-    let task_app = app.clone();
-    *views.task.lock().unwrap_or_else(PoisonError::into_inner) =
-        Some(tokio::spawn(async move { render(task_app).await }));
-    drop(pending);
+    let mut tasks = views.tasks.lock().unwrap_or_else(PoisonError::into_inner);
+    while tasks.try_join_next().is_some() {}
+
+    for name in due.topics {
+        tasks.spawn(draw(app.clone(), name));
+    }
+
+    if due.projects {
+        tasks.spawn(draw_projects(app.clone()));
+    }
 }
 
 fn affected(name: &str) -> &'static [&'static str] {
@@ -259,33 +302,12 @@ fn affected(name: &str) -> &'static [&'static str] {
     }
 }
 
-async fn render(app: AppHandle) {
+/// Draws `name` and publishes it, again while it changes as it draws.
+async fn draw(app: AppHandle, name: &'static str) {
     loop {
-        let (names, projects) = {
-            let views = app.state::<Views>();
-            let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
+        let topic = Topic::new(name);
 
-            if pending.topics.is_empty() && pending.projects.is_empty() {
-                pending.running = false;
-                return;
-            }
-            (
-                std::mem::take(&mut pending.topics),
-                std::mem::take(&mut pending.projects),
-            )
-        };
-
-        for name in names {
-            let topic = Topic::new(name);
-
-            if !app.state::<Events>().controller_wanted(&topic) {
-                if app.state::<Events>().controller_held(&topic) {
-                    defer(&app.state::<Views>(), name);
-                }
-
-                continue;
-            }
-
+        if app.state::<Events>().controller_wanted(&topic) {
             if name == "sync" {
                 app.state::<Views>()
                     .sync
@@ -301,7 +323,33 @@ async fn render(app: AppHandle) {
                 app.state::<Events>()
                     .publish_views(machine, topic, json!({ "views": data }));
             }
+        } else if app.state::<Events>().controller_held(&topic) {
+            defer(&app.state::<Views>(), name);
         }
+
+        let views = app.state::<Views>();
+        let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
+
+        if !pending.again(name) {
+            return;
+        }
+    }
+}
+
+/// Publishes the followed projects that changed, one after another.
+async fn draw_projects(app: AppHandle) {
+    loop {
+        let projects = {
+            let views = app.state::<Views>();
+            let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
+
+            if pending.projects.is_empty() {
+                pending.drawing_projects = false;
+                return;
+            }
+
+            std::mem::take(&mut pending.projects)
+        };
 
         for (_, row) in projects {
             crate::projects::live::emit_snapshot(&app, row).await;
