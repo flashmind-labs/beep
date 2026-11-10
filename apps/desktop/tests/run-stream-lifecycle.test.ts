@@ -1,4 +1,4 @@
-import "./chat-dom-env.ts";
+import "./git-history-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { makeRuns } from "../src/project/runs.ts";
