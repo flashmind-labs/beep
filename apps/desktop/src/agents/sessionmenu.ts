@@ -26,7 +26,8 @@ function stopAll(s: AgentRow) {
   const o = { machine_id: s.machine_id, agent: s.agent, session: s.id };
   const open = sameSession(AG.open, s) && !!AG.page;
   const run = async () => {
-    if (open) return stopAllWork();
+    // Another session may have opened while the sheet asked.
+    if (sameSession(AG.open, s) && AG.page) return stopAllWork(s);
     await invoke("agent_steer", { machineId: s.machine_id, agent: s.agent, session: s.id, steer: "stop_all" });
     // The node drops the steers it holds: they wait in the session's field instead.
     const steers = takeHeldSteers(o);

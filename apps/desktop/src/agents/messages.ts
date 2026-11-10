@@ -14,6 +14,7 @@ import { openAgent, isOpen, resumeAgent, turnRuns } from "./session.ts";
 import { redrawAgentHints } from "./session-head.ts";
 import { agentAttachError, drawAgentAttached, keepSentImages, keepAgentPics } from "./images.ts";
 import { drawAgentBody } from "./logview.ts";
+import { sameSession } from "./running-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
 import { shownQuestionsIn } from "./mode-view.tsx";
@@ -135,9 +136,9 @@ export function interruptAgent() {
 
 /// Stop all on the open session: the turn, its subagents, background commands and the agents
 /// it started. The node drops the steers it holds, so those not yet delivered go back in the field.
-export async function stopAllWork() {
-  const o = AG.open, s = AG.page?.session;
-  if (!o || !s) return;
+export async function stopAllWork(target: { machine_id: string; agent: string; id: string }) {
+  const s = AG.page?.session;
+  if (!sameSession(AG.open, target) || !s) return;
   const unsent = AG.queue.filter(q => q.state !== "delivered");
   AG.queue.splice(0, AG.queue.length);
   // Each goes in front of what the field holds: the newest first, so the oldest leads.
