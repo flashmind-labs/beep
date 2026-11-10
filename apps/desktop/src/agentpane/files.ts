@@ -66,9 +66,22 @@ let shell = { label: "", busy: false, active: null as string | null, status: "" 
 function renderViews() {
   const host = F.el;
   if (!host) return;
-  // Keep one element shape so the shell, and the listeners wired to it, never remount.
+
+  // A rebuilt session frame remounts the shell: draw it, then take its new tree.
+  const tree = host.querySelector<HTMLElement>(".agtree");
+  if (!tree || tree !== treeHost) {
+    treeHost = null;
+    drawViews(host);
+    treeHost = host.querySelector<HTMLElement>(".agtree");
+  }
+
+  drawViews(host);
+}
+
+// Keep one element shape so updates never remount the shell.
+function drawViews(host: HTMLElement) {
   setSessionChild("files", createElement(Fragment, null,
-    createPortal(createElement(FilesShell, { root: paneRoot(), ignored: F.ignored, label: shell.label || paneRoot(), busy: shell.busy, active: shell.active, status: shell.status }), host, "shell"),
+    createPortal(createElement(FilesShell, { root: paneRoot(), filter: F.filter, ignored: F.ignored, label: shell.label || paneRoot(), busy: shell.busy, active: shell.active, status: shell.status }), host, "shell"),
     treeHost && treeView ? createPortal(treeView, treeHost, "tree") : null,
     menuView && createPortal(createElement(FilesMenu, menuView), host, "menu")));
 }
@@ -95,8 +108,6 @@ export function filesView() {
   F.el = el;
   renderViews();
   wire(el);
-  const tree = el.querySelector<HTMLElement>(".agtree");
-  treeHost = tree;
   load("");
   return el;
 }
@@ -284,7 +295,7 @@ function draw() {
     capped: message === null && searching && !F.walking && F.capped, limit: WALK_ENTRIES,
   });
   renderViews();
-  const shown = F.reveal ? tree.querySelector<HTMLElement>(`[data-fpath="${CSS.escape(F.reveal)}"]`) : null;
+  const shown = F.reveal ? treeHost?.querySelector<HTMLElement>(`[data-fpath="${CSS.escape(F.reveal)}"]`) : null;
   if (shown) { shown.scrollIntoView({ block: "center" }); F.reveal = null; }
 }
 
@@ -305,17 +316,31 @@ function dropFolder(row: HTMLElement | null) {
   return row.dataset.ffolder ? row.dataset.fpath : parentPath(row.dataset.fpath);
 }
 
+// Listeners sit on the retained host and delegate, because React may remount
+// the shell inside it when the session frame is rebuilt.
 function wire(el: HTMLElement) {
-  const tree = el.querySelector<HTMLElement>(".agtree")!;
-  const find = el.querySelector<HTMLInputElement>(".agffind")!;
-  find.addEventListener("input", () => { F.filter = find.value; draw(); if (F.filter.trim()) readAll(); });
-  find.addEventListener("keydown", e => { if (e.key === "Escape" && find.value) { e.stopPropagation(); e.preventDefault(); find.value = ""; F.filter = ""; draw(); } });
-  el.querySelector<HTMLInputElement>(".agfign input")!.addEventListener("change", e => {
-    F.ignored = (e.target as HTMLInputElement).checked;
+  const inTree = (e: Event) => (e.target as HTMLElement).closest<HTMLElement>(".agtree");
+  const onTree = <K extends keyof HTMLElementEventMap>(type: K, listener: (e: HTMLElementEventMap[K], tree: HTMLElement) => void) =>
+    el.addEventListener(type, e => { const tree = inTree(e); if (tree) listener(e, tree); });
+
+  el.addEventListener("input", e => {
+    const find = e.target as HTMLElement;
+    if (!(find instanceof HTMLInputElement) || !find.matches(".agffind")) return;
+    F.filter = find.value; draw(); if (F.filter.trim()) readAll();
+  });
+  el.addEventListener("keydown", e => {
+    const find = e.target as HTMLElement;
+    if (!(find instanceof HTMLInputElement) || !find.matches(".agffind")) return;
+    if (e.key === "Escape" && find.value) { e.stopPropagation(); e.preventDefault(); find.value = ""; F.filter = ""; draw(); }
+  });
+  el.addEventListener("change", e => {
+    const box = e.target as HTMLElement;
+    if (!(box instanceof HTMLInputElement) || !box.matches(".agfign input")) return;
+    F.ignored = box.checked;
     void refresh().catch(e => console.warn("files:", e));
   });
-  el.querySelector("[data-frefresh]")!.addEventListener("click", refresh);
-  tree.addEventListener("click", e => {
+  el.addEventListener("click", e => { if ((e.target as HTMLElement).closest("[data-frefresh]")) void refresh(); });
+  onTree("click", (e, tree) => {
     closeFilesMenu();
     tree.focus();
     const row = (e.target as HTMLElement).closest<HTMLElement>("[data-fpath]");
@@ -327,7 +352,7 @@ function wire(el: HTMLElement) {
     if (row.dataset.ffolder) toggle(path);
     else { draw(); openWorkFile(path); }
   });
-  tree.addEventListener("contextmenu", e => {
+  onTree("contextmenu", (e, tree) => {
     e.preventDefault();
     tree.focus();
     const row = (e.target as HTMLElement).closest<HTMLElement>("[data-fpath]");
@@ -339,7 +364,7 @@ function wire(el: HTMLElement) {
     draw();
     menu(path, !!row?.dataset.ffolder, e.clientX, e.clientY);
   });
-  tree.addEventListener("keydown", e => {
+  onTree("keydown", (e, tree) => {
     if (e.isComposing || (e.target as HTMLElement).closest("input,textarea,[contenteditable=true]")) return;
     const cmd = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
     let handled = true;
@@ -365,7 +390,7 @@ function wire(el: HTMLElement) {
 
     if (handled) { e.preventDefault(); e.stopPropagation(); }
   });
-  tree.addEventListener("dragstart", e => {
+  onTree("dragstart", e => {
     const row = (e.target as HTMLElement).closest<HTMLElement>("[data-fpath]");
     if (!row || !e.dataTransfer) return;
     const named = mentioned(paneRoot(), paneSession()?.cwd ?? "", row.dataset.fpath!);
@@ -375,28 +400,28 @@ function wire(el: HTMLElement) {
   });
   // Files from Finder dropped on a folder (or a file's folder, or the
   // tree's empty space for the top) upload there, once the user says so.
-  const over = (row: HTMLElement | null) => {
+  const over = (tree: HTMLElement, row: HTMLElement | null) => {
     tree.querySelectorAll(".agtr.drop").forEach(r => r.classList.remove("drop"));
     const dir = dropFolder(row);
     if (dir) tree.querySelector<HTMLElement>(`[data-fpath="${CSS.escape(dir)}"]`)?.classList.add("drop");
     tree.classList.toggle("dropping", !dir);
   };
-  tree.addEventListener("dragover", e => {
+  onTree("dragover", (e, tree) => {
     if (!e.dataTransfer?.types.includes("Files")) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "copy";
-    over((e.target as HTMLElement).closest<HTMLElement>("[data-fpath]"));
+    over(tree, (e.target as HTMLElement).closest<HTMLElement>("[data-fpath]"));
   });
-  tree.addEventListener("dragleave", e => {
-    if (!tree.contains(e.relatedTarget as Node | null)) { over(null); tree.classList.remove("dropping"); }
+  onTree("dragleave", (e, tree) => {
+    if (!tree.contains(e.relatedTarget as Node | null)) { over(tree, null); tree.classList.remove("dropping"); }
   });
-  tree.addEventListener("drop", e => {
+  onTree("drop", (e, tree) => {
     if (!e.dataTransfer?.files.length) return;
     e.preventDefault();
     e.stopPropagation();
     const dir = dropFolder((e.target as HTMLElement).closest<HTMLElement>("[data-fpath]"));
-    over(null);
+    over(tree, null);
     tree.classList.remove("dropping");
     document.getElementById("ddrop")?.remove();
     askUpload([...e.dataTransfer.files], dir, paneRoot());

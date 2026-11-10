@@ -266,3 +266,23 @@ test("a late file chunk cannot remount a closed loading view", async ({ page }) 
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
   expect(await page.evaluate(() => (Reflect.get(window, "closedFileHost") as HTMLElement).childElementCount)).toBe(0);
 });
+
+test("files keep working after leaving the session and opening it again", async ({ page }) => {
+  await openDesktop(page, true, { agent_tree: listing(["a.txt", "b.txt"]) });
+  const session = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } as const;
+  await page.evaluate(value => window.__navigation.open({ agent: value }), session);
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  const tree = page.getByRole("tree", { name: "Working files" });
+  await expect(tree.locator('[data-fpath="a.txt"]')).toBeVisible();
+
+  await page.evaluate(() => window.__navigation.open("home"));
+  await page.evaluate(value => window.__navigation.open({ agent: value }), session);
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  await expect(tree.locator('[data-fpath="a.txt"]')).toBeVisible();
+
+  await page.getByRole("textbox", { name: "Filter files" }).fill("b.t");
+  await expect(tree.locator('[data-fpath="a.txt"]')).toHaveCount(0);
+  await tree.locator('[data-fpath="b.txt"]').click({ modifiers: ["Meta"] });
+  await expect(tree.locator('[data-fpath="b.txt"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".agpacts .meta")).toHaveText("1 selected");
+});
