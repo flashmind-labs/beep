@@ -3,6 +3,7 @@ import { TerminalOutput, TerminalPage, TerminalScreen } from "./page-view.tsx";
 import { NewTerminalFields } from "./new-terminal-view.tsx";
 import { TerminalFooter, TerminalHeader } from "./terminal-controls.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { onShownChange } from "../ui/active.ts";
 // terminals/: terminals kept running on the machines, and the window's
 // Terminals page (view.ts). Entry: makeTerminals here.
 // Terminals: commands and shells kept running on the user's machines, apart
@@ -140,6 +141,8 @@ interface Live {
   attaches: number;
   /// The size the node last got from this view.
   sent: TermSize | null;
+  /// Let go while the window was hidden, to follow again when it shows.
+  paused?: boolean;
 }
 
 /// One project's terminals: `list` is undefined while it loads and null
@@ -287,6 +290,21 @@ export function makeTerminals(deps: TerminalDeps) {
   let formVersion = 0;
   /// The project whose terminals view shows.
   let shown: string | null = null;
+
+  // A hidden window lets go of its live views and attaches them again from
+  // where each screen got to when it shows, so nothing is lost or repeated.
+  if (typeof document !== "undefined") onShownChange(on => {
+    for (const live of lives.values()) {
+      if (!on && (live.link === "attached" || live.link === "attaching")) {
+        detach(live);
+        live.paused = true;
+      } else if (on && live.paused) {
+        live.paused = false;
+        live.tries = 0;
+        if (live.link === "detached") attach(ALL, live);
+      }
+    }
+  });
 
   const kept = deps.kept ?? new PageCache(null).section<TerminalRow[] | null>("terminals");
   /// The lists being read: a load meanwhile is dropped.
@@ -500,6 +518,7 @@ export function makeTerminals(deps: TerminalDeps) {
   function detach(live: Live) {
     clearTimeout(live.timer);
     live.link = "detached";
+    live.paused = false;
     live.screen.setInput(false);
     invoke("terminal_detach", { id: live.id, view: live.view }).catch(() => {});
   }

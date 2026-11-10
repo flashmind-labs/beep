@@ -12,6 +12,7 @@ import type { Machine } from "../machines/machines.ts";
 import { redrawSettings, SET, setShown } from "./settings.ts";
 import { Mounted } from "./settings-shell-view.tsx";
 import { Channel, invoke } from "../ui/tauri.ts";
+import { onShownChange } from "../ui/active.ts";
 
 /// Settings, Credentials (`credentials.ts` draws it, loaded on first use into
 /// `mod`).
@@ -155,7 +156,7 @@ const ACC: AgentAccountsState & {
   mod: typeof AgentAccountsModule | null;
   busy: string;
   codex: Record<string, CodexFlow>;
-  poll: (() => void) | null;
+  poll: { stop: () => void; check: () => Promise<void> } | null;
 } = { mod: null, data: undefined, edit: null, busy: "", error: "", claudeFlow: false, claudeError: "", codex: {}, poll: null };
 const agModule = () => import("./agentaccounts.ts").then(m => (ACC.mod = m));
 
@@ -191,17 +192,21 @@ interface CodexState {
   message: string | null;
 }
 
-/// Sign-in tasks announce output and completion over the node stream.
+/// Sign-in tasks announce output and completion over the node stream, which
+/// is followed only while one runs. Settings off screen hears nothing, so
+/// showing it again checks once.
 function pollCodex() {
   if (ACC.poll) return;
   const check = async () => {
     const waiting = Object.entries(ACC.codex).filter(([, f]) => f.task !== undefined);
 
-    if (!waiting.length || !setShown()) {
-      ACC.poll?.();
+    if (!waiting.length) {
+      ACC.poll?.stop();
       ACC.poll = null;
       return;
     }
+
+    if (!setShown()) return;
 
     let done = false;
 
@@ -222,13 +227,15 @@ function pollCodex() {
     if (done) await loadAgentAccounts();
     else redrawAgents();
   };
-  ACC.poll = subscribeTopics([topic("processes"), topic("process-output"), topic("accounts")], () => check(), null, setShown);
+  ACC.poll = { stop: subscribeTopics([topic("processes"), topic("process-output"), topic("accounts")], () => check(), null, setShown), check };
   void check();
 }
 
+if (typeof document !== "undefined") onShownChange(shown => { if (shown) void ACC.poll?.check(); });
+
 let agentsShown = false;
 let agentEditVersion = 0;
-const agentsEntered = () => { agentsShown = true; };
+const agentsEntered = () => { agentsShown = true; void ACC.poll?.check(); };
 const agentsLeft = () => { agentsShown = false; agentEditVersion++; };
 export function agentAccountsContent() {
   return createElement(Mounted, { entered: agentsEntered, left: agentsLeft, children: createElement(AgentAccountsView, { state: ACC, ago: when, now: Date.now(), actions: agentActions }) });

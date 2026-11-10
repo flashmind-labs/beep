@@ -34,6 +34,9 @@ Other apps have independent versions and changelogs:
   run and files sync: one session's change no longer lists every machine,
   unchanged views are not sent again, and transfer progress redraws at most
   once a second.
+- Desktop: a hidden window stops streaming terminals, polling research and
+  reloading the bar's chat list. Terminals catch up on the output from
+  meanwhile when shown again.
 
 ## [0.7.0] - 2026-11-09
 

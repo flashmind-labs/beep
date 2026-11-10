@@ -26,6 +26,7 @@ import { Channel, invoke } from "../ui/tauri.ts";
 import { followsEnd, placeholder } from "./panes.ts";
 import { type Open, type ResearchView, type Turn, RUNNING, agentOf, closeTab, openTab, round, shownTab } from "./research-state.ts";
 import { dragHandle } from "../ui/drag.ts";
+import { onShownChange, pageShown } from "../ui/active.ts";
 
 /// What streams in while the lead replies (Rust's `BarEvent`), as far as this reads it.
 type SendEvent =
@@ -291,8 +292,14 @@ async function poll(now = false) {
 
   // Whichever research is open now keeps polling, also when this read was for another.
   clearTimeout(timer);
-  if (active()) timer = setTimeout(poll, busy() ? POLL_BUSY : POLL_IDLE);
+  if (active() && pageShown()) timer = setTimeout(poll, busy() ? POLL_BUSY : POLL_IDLE);
 }
+
+// A hidden window stops polling; on return one read catches up.
+onShownChange(shown => {
+  clearTimeout(timer);
+  if (shown && active() && !inflight) void poll();
+});
 
 // ---------- Input ----------
 

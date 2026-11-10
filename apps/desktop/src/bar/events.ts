@@ -18,6 +18,7 @@ import { show } from "./views.ts";
 import { copyCode } from "../agents/turnrows.ts";
 import { COPY_ICON, ICON } from "../ui/icons.ts";
 import { invoke, listen } from "../ui/tauri.ts";
+import { ambient, paneShown } from "../ui/active.ts";
 import type { Turn } from "../ui/turn.ts";
 
 /// A button that says what it did for a moment, then goes back.
@@ -47,9 +48,12 @@ listen<LinkState>("link-state", async e => {
 listen<string>("login-failed", e => loginFailed(e.payload));
 // Outside the list, a reload only refreshes the cache it opens with.
 export const listIdle = () => S.view !== "chats" || (!S.chats.query && S.chats.mode === "list");
+// While the bar is hidden a change only marks these; each runs once when it shows.
+const reloadChats = ambient(() => { if (listIdle()) loadChats(""); }, 0, paneShown);
+const reloadGroup = ambient(() => { if (S.view === "group" || S.view === "ginfo") loadGroup(); }, 0, paneShown);
 listen<string>("group-changed", e => {
-  if (G.id === e.payload && (S.view === "group" || S.view === "ginfo")) loadGroup();
-  else if (listIdle()) loadChats("");
+  if (G.id === e.payload && (S.view === "group" || S.view === "ginfo")) reloadGroup();
+  else reloadChats();
 });
 listen<GroupApproval>("group-approval", e => {
   const a = e.payload;
@@ -59,7 +63,7 @@ listen<GroupApproval>("group-approval", e => {
 });
 listen<string | null>("sessions-changed", e => {
   if (S.view === "chat" && !here()?.run && e.payload && e.payload === S.session) refreshSession(S.session).then(() => watchRun(e.payload));
-  if (listIdle()) loadChats("");
+  reloadChats();
 });
 
 /// Shows `done` in button `b` for a moment, then `back` again.
