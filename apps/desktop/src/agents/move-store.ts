@@ -29,6 +29,8 @@ export async function refreshMoves() {
   try { records = await invoke<MoveRecord[]>("session_moves"); } catch (e) { console.warn("moves not read", e); return; }
   // A node of the mesh may answer with something else; then there are none.
   const read = bySession(Array.isArray(records) ? records : []);
+  // Published at once, so a start or cancel made during the reads below stays.
+  moveStore.setState({ records: read });
   const recent = [...read.values()].filter(r => Date.now() - r.at < RECENT_MS).slice(0, MAX_ASKED);
 
   if (recent.length && !machineNames.size) {
@@ -42,7 +44,7 @@ export async function refreshMoves() {
   }));
   const progress = new Map(moveStore.getState().progress);
   for (const answer of answers) if (answer) progress.set(...answer);
-  moveStore.setState({ records: read, progress });
+  moveStore.setState({ progress });
 }
 
 /// How the move of session `id` stands, read for the window.
