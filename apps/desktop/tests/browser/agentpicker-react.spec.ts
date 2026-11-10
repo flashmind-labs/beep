@@ -238,3 +238,18 @@ test("model search keeps its query, focus and highlight while lists stream in (#
   await expect(picker.locator('[data-agmo="opus-5.5"]')).toHaveClass(/hi/);
   expect(await input.evaluate(el => el === Reflect.get(window, "modelSearch") && el instanceof HTMLInputElement && el.selectionStart === 8)).toBe(true);
 });
+
+test("model rows are no Tab stops: Tab from the search leaves the list", async ({ page }) => {
+  await openDesktop(page, false, { agent_hosts: hosts, agent_models: models });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator(".cc-pjc:visible").getByTitle("Harness, model and thinking").click();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  const input = picker.locator(".agc-search");
+  await expect(input).toBeFocused();
+  await expect(picker.locator('[data-agmo="beta"]')).toBeVisible();
+  await input.press("Tab");
+  expect(await page.evaluate(() => document.activeElement?.hasAttribute("data-agmo"))).toBe(false);
+  await input.focus();
+  await input.press("ArrowDown");
+  await expect(picker.locator(".agc-models .hi")).toHaveCount(1);
+});
