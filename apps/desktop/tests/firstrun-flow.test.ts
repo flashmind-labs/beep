@@ -20,9 +20,14 @@ test("first run remembers Start and closes the screen when another machine is li
     fireEvent.click(start);
     assert.equal(dom.window.localStorage.getItem("beep.firstRunDone"), "1");
     assert.equal(dom.window.document.querySelector(".fr-scrim"), null);
+    // Linked, with the mesh still opening: the screen never shows.
     dom.window.localStorage.clear();
+    machines = [];
+    const linked = act(async () => { await firstRun(false); });
+    await new Promise(done => setTimeout(done, 150));
+    assert.equal(dom.window.document.querySelector(".fr-scrim"), null);
     machines = ["local", "other"];
-    await act(async () => { await firstRun(false); });
+    await linked;
     assert.equal(dom.window.localStorage.getItem("beep.firstRunDone"), "1");
     assert.equal(dom.window.document.querySelector(".fr-scrim"), null);
   } finally {

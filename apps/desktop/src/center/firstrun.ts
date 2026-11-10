@@ -29,10 +29,11 @@ async function linked() {
 }
 
 /// Shows the first-run window over the app when it is due. The choice is kept, so it shows once.
-/// A Mac already linked to other machines has made it: the window goes once the mesh says so.
-/// Resolves when that check is done.
+/// A Mac already linked to other machines has made it: the window shows only once the mesh says
+/// this Mac is alone, so it never flashes up there. Home does not wait for it.
 export async function firstRun(subscribed: boolean, signedOut = false) {
   if (!firstRunDue(subscribed, stored(), signedOut)) return;
+  if (await linked()) return keep();
   const screen = createDocumentScope<"first-run">();
   let closed = false;
   const leave = () => {
@@ -41,5 +42,4 @@ export async function firstRun(subscribed: boolean, signedOut = false) {
     keep(); screen.dispose();
   };
   screen.set([{ slot: "first-run", host: document.body, content: createElement("div", null, createElement(FirstRunScreen, { done: leave, join: joinTicket })) }]);
-  if (await linked()) leave();
 }
