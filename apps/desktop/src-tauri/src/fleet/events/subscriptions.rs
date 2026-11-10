@@ -181,7 +181,7 @@ impl SubscriptionWorker {
                             if (machine != fleet.me || !controller_topic(&snapshot.topic))
                                 && app.state::<Events>().node_wanted(machine, &snapshot.topic) {
                                 let data = serde_json::to_value(&snapshot.value).ok();
-                                app.state::<Events>().dispatch_node(Update { machine_id: machine.to_string(), revision: snapshot.revision, query: snapshot.query, initial, data, topic: snapshot.topic });
+                                app.state::<Events>().dispatch_node(Update { machine_id: machine.to_string(), revision: snapshot.revision, query: snapshot.query, initial, data, topic: snapshot.topic, seq: 0 });
                             }
                         },
                         Reply::SnapshotError { query, topic, reason } => {
@@ -194,7 +194,7 @@ impl SubscriptionWorker {
                             }
 
                             if (machine != fleet.me || !controller_topic(&topic)) && app.state::<Events>().node_wanted(machine, &topic) {
-                                app.state::<Events>().dispatch_node(Update { machine_id: machine.to_string(), revision, query, initial: false, data: Some(serde_json::json!({ "error": reason })), topic });
+                                app.state::<Events>().dispatch_node(Update { machine_id: machine.to_string(), revision, query, initial: false, data: Some(serde_json::json!({ "error": reason })), topic, seq: 0 });
                             }
                         },
                         Reply::Error { id, reason } if watches.remove(&id) => {

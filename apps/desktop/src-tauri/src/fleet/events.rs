@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     sync::{Arc, Mutex, OnceLock, PoisonError},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager, State, WebviewWindow, ipc::Channel};
 use tokio::{
@@ -41,6 +41,8 @@ pub struct Update {
     pub(crate) query: Option<u64>,
     pub(crate) initial: bool,
     pub(crate) data: Option<serde_json::Value>,
+    /// Local order of retained updates, for priming a window with only what it has not seen.
+    pub(crate) seq: u64,
 }
 
 type Sink = Arc<dyn Fn(Update) -> bool + Send + Sync>;
@@ -50,6 +52,49 @@ struct Window {
     topics: Vec<Interest>,
     _stop: watch::Sender<()>,
     send: Delivery,
+    paused: Option<Paused>,
+}
+
+/// A hidden window keeps its demand for `Registry::grace`, so showing it again sends only what
+/// changed meanwhile instead of reloading every snapshot.
+struct Paused {
+    at: Instant,
+    /// The last update sequence the window had been sent.
+    seq: u64,
+    /// The topics the window had been sent; topics it takes while paused are primed in full.
+    topics: Vec<Interest>,
+    /// False once a retained update the window had not seen was dropped.
+    complete: bool,
+}
+
+impl Window {
+    fn live(&self) -> bool {
+        self.paused.is_none()
+    }
+
+    /// Whether the window still holds node subscriptions and retained updates.
+    fn demands(&self, grace: Duration) -> bool {
+        self.paused
+            .as_ref()
+            .is_none_or(|paused| paused.at.elapsed() < grace)
+    }
+}
+
+/// How long a hidden window keeps its node streams. A phone is suspended soon after it hides.
+#[cfg(mobile)]
+const PAUSE_GRACE: Duration = Duration::from_secs(60);
+#[cfg(not(mobile))]
+const PAUSE_GRACE: Duration = Duration::from_secs(300);
+
+/// What a window that shows again or reattaches was sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Primed {
+    /// Only updates it had not seen.
+    Changes,
+    /// It was hidden past the grace period, so its streams start again.
+    Expired,
+    /// Everything held, after held updates were lost, and every stream sends its state again.
+    Full,
 }
 
 struct Pending {
@@ -65,13 +110,17 @@ const MAX_SNAPSHOT_BYTES: usize = 64 * 1024 * 1024;
 struct CachedSnapshot {
     update: Update,
     bytes: usize,
-    used: std::time::Instant,
+    used: Instant,
 }
 
 #[derive(Default)]
 struct Latest {
     entries: BTreeMap<SnapshotKey, CachedSnapshot>,
     bytes: usize,
+    /// The sequence of the last retained update.
+    seq: u64,
+    /// The sequence when a retained update was last dropped before being replaced.
+    lost: u64,
 }
 
 impl Latest {
@@ -118,7 +167,41 @@ impl Latest {
         });
     }
 
-    fn insert(&mut self, update: Update, bytes: usize) {
+    /// Removes what no remaining interest receives and returns it.
+    fn drop_unwanted(
+        &mut self,
+        interests: &[Interest],
+        controller: Option<&EndpointId>,
+    ) -> Vec<Update> {
+        let mut removed = Vec::new();
+        self.entries.retain(|_, entry| {
+            let keep = receives(interests, &entry.update, controller);
+
+            if !keep {
+                removed.push(entry.update.clone());
+            }
+
+            keep
+        });
+        self.bytes = self.entries.values().map(|entry| entry.bytes).sum();
+
+        if !removed.is_empty() {
+            self.lost = self.seq;
+        }
+
+        removed
+    }
+
+    /// Stamps the next sequence on `update` and returns it.
+    fn stamp(&mut self, update: &mut Update) -> u64 {
+        self.seq = self.seq.saturating_add(1);
+        update.seq = self.seq;
+        self.seq
+    }
+
+    /// Retains `update` and returns the updates it pushed out of the memory budget, itself
+    /// included when it is too large to keep.
+    fn insert(&mut self, update: Update, bytes: usize) -> Vec<Update> {
         let key = (
             update.machine_id.clone(),
             update.topic.clone(),
@@ -127,8 +210,11 @@ impl Latest {
         self.remove(&key);
 
         if bytes > MAX_NODE_SNAPSHOT_BYTES {
-            return;
+            self.lost = self.seq;
+            return vec![update];
         }
+
+        let mut evicted = Vec::new();
 
         loop {
             let node_bytes: usize = self
@@ -152,8 +238,19 @@ impl Latest {
                 .filter(|(_, entry)| !node_full || entry.update.machine_id == update.machine_id)
                 .min_by_key(|(_, entry)| entry.used)
                 .map(|(key, _)| key.clone());
-            let Some(oldest) = oldest else { return };
-            self.remove(&oldest);
+            let Some(oldest) = oldest else {
+                self.lost = self.seq;
+                return vec![update];
+            };
+
+            if let Some(entry) = self.entries.remove(&oldest) {
+                self.bytes = self.bytes.saturating_sub(entry.bytes);
+                evicted.push(entry.update);
+            }
+        }
+
+        if !evicted.is_empty() {
+            self.lost = self.seq;
         }
 
         self.bytes += bytes;
@@ -162,20 +259,52 @@ impl Latest {
             CachedSnapshot {
                 update,
                 bytes,
-                used: std::time::Instant::now(),
+                used: Instant::now(),
             },
         );
+        evicted
     }
 }
 
-#[derive(Default)]
 struct Registry {
     windows: HashMap<String, Window>,
     pending: VecDeque<Pending>,
     latest: Latest,
+    grace: Duration,
+}
+
+impl Default for Registry {
+    fn default() -> Self {
+        Self {
+            windows: HashMap::new(),
+            pending: VecDeque::new(),
+            latest: Latest::default(),
+            grace: PAUSE_GRACE,
+        }
+    }
 }
 
 impl Registry {
+    /// Windows that still hold node demand: shown, or hidden within the grace period.
+    fn demanding(&self) -> impl Iterator<Item = &Window> {
+        self.windows
+            .values()
+            .filter(|window| window.demands(self.grace))
+    }
+
+    /// A paused window that had not been sent a dropped update must be primed in full.
+    fn note_lost(&mut self, removed: &[Update], controller: Option<&EndpointId>) {
+        for window in self.windows.values_mut() {
+            if let Some(paused) = window.paused.as_mut()
+                && removed
+                    .iter()
+                    .any(|update| receives(&paused.topics, update, controller))
+            {
+                paused.complete = false;
+            }
+        }
+    }
+
     fn remember(&mut self, window: &str, id: Uuid, topics: Option<Vec<Interest>>) {
         self.pending
             .retain(|entry| entry.window != window || entry.id != id);
@@ -217,6 +346,7 @@ impl Registry {
                 topics,
                 _stop: stop,
                 send: Arc::new(Mutex::new(send)),
+                paused: None,
             },
         );
         Ok(Some(stopped))
@@ -309,8 +439,7 @@ impl Registry {
 
     fn interests(&self) -> Vec<Interest> {
         let mut topics: Vec<_> = self
-            .windows
-            .values()
+            .demanding()
             .flat_map(|window| window.topics.clone())
             .collect();
         topics.sort();
@@ -387,10 +516,11 @@ impl Events {
     /// that opens is, since an unchanged view is not sent again.
     fn retopic(&self, window: &str, id: Uuid, topics: Vec<Interest>) -> Result<()> {
         let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
+        // A paused window is primed for the topics it took when it shows again.
         let before = registry
             .windows
             .get(window)
-            .filter(|held| held.id == id)
+            .filter(|held| held.id == id && held.live())
             .map(|held| held.topics.clone());
         registry.topics(window, id, topics)?;
 
@@ -435,19 +565,135 @@ impl Events {
     }
 
     fn changed(&self) {
+        let controller = self.controller.get();
         let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
         let interests = registry.interests();
-        registry
-            .latest
-            .retain(|_, update| receives(&interests, update, self.controller.get()));
+        let removed = registry.latest.drop_unwanted(&interests, controller);
+        registry.note_lost(&removed, controller);
         self.publish(&registry);
+    }
+
+    /// Stops sending to a hidden window while keeping its demand and what it was sent.
+    /// Returns whether it was shown before, so the caller can time the grace period.
+    fn pause(&self, window: &str, id: Uuid, topics: Option<Vec<Interest>>) -> Result<bool> {
+        let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let seq = registry.latest.seq;
+        let Some(held) = registry
+            .windows
+            .get_mut(window)
+            .filter(|held| held.id == id)
+        else {
+            return Ok(false);
+        };
+        let paused = held.paused.is_none();
+
+        if paused {
+            held.paused = Some(Paused {
+                at: Instant::now(),
+                seq,
+                topics: held.topics.clone(),
+                complete: true,
+            });
+        }
+
+        if let Some(topics) = topics {
+            registry.topics(window, id, topics)?;
+        }
+
+        drop(registry);
+        self.changed();
+        Ok(paused)
+    }
+
+    /// Shows a paused window again, sending only the held updates it has not seen, unless
+    /// some were lost or its grace period ended.
+    fn resume(
+        &self,
+        window: &str,
+        id: Uuid,
+        topics: Option<Vec<Interest>>,
+    ) -> Result<Option<Primed>> {
+        let controller = self.controller.get();
+        let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let grace = registry.grace;
+        let paused = registry
+            .windows
+            .get_mut(window)
+            .filter(|held| held.id == id)
+            .map(|held| (held.paused.take(), held.topics.clone()));
+        let Some((paused, current)) = paused else {
+            if let Some(topics) = topics {
+                registry.topics(window, id, topics)?;
+            }
+
+            drop(registry);
+            self.changed();
+            return Ok(None);
+        };
+
+        if let Some(topics) = topics
+            && let Err(error) = registry.topics(window, id, topics)
+        {
+            if let Some(held) = registry.windows.get_mut(window) {
+                held.paused = paused;
+            }
+
+            return Err(error);
+        }
+
+        let primed = match &paused {
+            Some(paused) if paused.at.elapsed() >= grace => Primed::Expired,
+            Some(paused) if !paused.complete => Primed::Full,
+            _ => Primed::Changes,
+        };
+        let (before, since) = match paused {
+            Some(paused) if primed != Primed::Full => (paused.topics, Some(paused.seq)),
+            Some(_) => (Vec::new(), None),
+            None => (current, None),
+        };
+        let Some(held) = registry.windows.get(window) else {
+            return Ok(None);
+        };
+        let updates: Vec<_> = registry
+            .latest
+            .values()
+            .filter(|update| {
+                receives(&held.topics, update, controller)
+                    && (!receives(&before, update, controller)
+                        || since.is_some_and(|since| update.seq > since))
+            })
+            .cloned()
+            .collect();
+        let delivery = held.send.clone();
+        // Hold the delivery gate so a live update cannot overtake the primed ones.
+        let send = delivery.lock().unwrap_or_else(PoisonError::into_inner);
+        drop(registry);
+        let failed = updates.into_iter().any(|update| !send(update));
+        drop(send);
+
+        if failed {
+            self.remove(window, id);
+            return Ok(None);
+        }
+
+        self.changed();
+
+        if primed == Primed::Full {
+            self.refresh.send_replace(());
+        }
+
+        Ok(Some(primed))
     }
 
     /// Keep publication inside the registry lock so concurrent IPC changes cannot publish stale demand.
     fn publish(&self, registry: &Registry) {
         let topics = registry.interests();
-        let forge = topics
-            .iter()
+        // Hosts without a push feed are polled only for shown windows.
+        let forge = registry
+            .windows
+            .values()
+            .filter(|window| window.live())
+            .flat_map(|window| &window.topics)
             .any(|interest| matches!(interest.topic.name(), "forge" | "*"));
         self.demand.send_if_modified(|held| {
             if *held == topics {
@@ -479,8 +725,8 @@ impl Events {
         topics: Vec<Interest>,
         send: Sink,
         alive: impl Fn() -> bool,
-        _data: Option<serde_json::Value>,
-    ) -> Result<Option<watch::Receiver<()>>> {
+        since: Option<u64>,
+    ) -> Result<Option<(watch::Receiver<()>, Primed)>> {
         if !alive() {
             self.remove(window, id);
             return Ok(None);
@@ -494,6 +740,10 @@ impl Events {
             .windows
             .get(window)
             .ok_or_else(|| DesktopError::BadRequest("the topic reader was removed".into()))?;
+        // A reader that ends and attaches again with the same topics passes the last sequence
+        // it was sent. It needs only newer updates, unless held ones were dropped since.
+        let since =
+            since.filter(|since| registry.latest.lost <= *since && *since <= registry.latest.seq);
         let delivery = held.send.clone();
         // Prime a new window even if another window already owns exactly these interests.
         // Hold its delivery gate until priming is sent so live events cannot overtake it.
@@ -501,7 +751,10 @@ impl Events {
         let initial: Vec<_> = registry
             .latest
             .values()
-            .filter(|update| receives(&held.topics, update, self.controller.get()))
+            .filter(|update| {
+                receives(&held.topics, update, self.controller.get())
+                    && since.is_none_or(|since| update.seq > since)
+            })
             .cloned()
             .collect();
         self.publish(&registry);
@@ -521,8 +774,12 @@ impl Events {
             return Ok(None);
         }
 
+        if since.is_some() {
+            return Ok(Some((stopped, Primed::Changes)));
+        }
+
         self.refresh.send_replace(());
-        Ok(Some(stopped))
+        Ok(Some((stopped, Primed::Full)))
     }
 
     fn start(&self, app: AppHandle, fleet: Arc<Fleet>) {
@@ -553,28 +810,39 @@ impl Events {
         self.changed();
     }
 
-    pub(crate) fn dispatch(&self, update: Update) {
+    /// Retains `update` for every window that wants it and sends it to the shown ones. Hidden
+    /// windows within their grace period are sent it once they show.
+    pub(crate) fn dispatch(&self, mut update: Update) {
+        let controller = self.controller.get();
         let bytes = serde_json::to_vec(&update).map_or(usize::MAX, |bytes| bytes.len());
         let destinations: Vec<_> = {
             let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
 
             if !registry
-                .windows
-                .values()
-                .any(|window| receives(&window.topics, &update, self.controller.get()))
+                .demanding()
+                .any(|window| receives(&window.topics, &update, controller))
             {
                 return;
             }
 
-            metrics::counter!("beep_ipc_emit_total", "topic" => update.topic.name().to_owned())
-                .increment(1);
-            registry.latest.insert(update.clone(), bytes);
-            registry
+            registry.latest.stamp(&mut update);
+            let removed = registry.latest.insert(update.clone(), bytes);
+            registry.note_lost(&removed, controller);
+            let destinations: Vec<_> = registry
                 .windows
                 .iter()
-                .filter(|(_, window)| receives(&window.topics, &update, self.controller.get()))
+                .filter(|(_, window)| {
+                    window.live() && receives(&window.topics, &update, controller)
+                })
                 .map(|(label, window)| (label.clone(), window.id, window.send.clone()))
-                .collect()
+                .collect();
+
+            if !destinations.is_empty() {
+                metrics::counter!("beep_ipc_emit_total", "topic" => update.topic.name().to_owned())
+                    .increment(1);
+            }
+
+            destinations
         };
 
         for (label, id, delivery) in destinations {
@@ -594,8 +862,7 @@ impl Events {
             .registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .windows
-            .values()
+            .demanding()
             .flat_map(|window| &window.topics)
             .filter(|interest| {
                 interest
@@ -628,8 +895,7 @@ impl Events {
         self.registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .windows
-            .values()
+            .demanding()
             .flat_map(|window| &window.topics)
             .any(|interest| {
                 interest
@@ -675,12 +941,25 @@ impl Events {
             .resources(&machine.to_string(), scope, resources);
     }
 
+    /// Whether a shown window wants the controller view `topic`, so it is drawn now.
     pub(crate) fn controller_wanted(&self, topic: &Topic) -> bool {
         self.registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .windows
             .values()
+            .filter(|window| window.live())
+            .flat_map(|window| &window.topics)
+            .any(|interest| interest.machine.is_none() && interest.topic.matches(topic))
+    }
+
+    /// Whether a shown or briefly hidden window wants the controller view `topic`, so a
+    /// drawn view is kept for it.
+    pub(crate) fn controller_held(&self, topic: &Topic) -> bool {
+        self.registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .demanding()
             .flat_map(|window| &window.topics)
             .any(|interest| interest.machine.is_none() && interest.topic.matches(topic))
     }
@@ -688,7 +967,7 @@ impl Events {
     /// Sends a rendered view to the windows that want it. One the same as the last sent is
     /// dropped: the windows hold it, and a window that opens is primed with it.
     pub(crate) fn publish_views(&self, machine: EndpointId, topic: Topic, data: serde_json::Value) {
-        if !self.controller_wanted(&topic) {
+        if !self.controller_held(&topic) {
             return;
         }
 
@@ -720,6 +999,7 @@ impl Events {
             query: None,
             initial: false,
             data: Some(data),
+            seq: 0,
         });
     }
 
@@ -775,18 +1055,45 @@ impl Drop for Reading<'_> {
     }
 }
 
+/// Changes a reader's topics, or ends it when `topics` is null. With `paused`, a hidden window
+/// stops receiving updates but keeps its streams for a grace period, and showing it again
+/// sends only what changed.
 #[tauri::command]
-pub fn mesh_topics(
+pub async fn mesh_topics(
+    app: AppHandle,
     window: WebviewWindow,
     events: State<'_, Events>,
     id: Uuid,
     topics: Option<Vec<Interest>>,
+    paused: Option<bool>,
 ) -> Result<()> {
-    if let Some(topics) = topics {
-        validate(&topics)?;
-        events.retopic(window.label(), id, topics)?;
-    } else {
-        events.remove(window.label(), id);
+    if let Some(topics) = &topics {
+        validate(topics)?;
+    }
+
+    let label = window.label();
+
+    match (paused, topics) {
+        (None, Some(topics)) => events.retopic(label, id, topics)?,
+        (None, None) => events.remove(label, id),
+        (Some(true), topics) => {
+            if events.pause(label, id, topics)? {
+                let grace = events
+                    .registry
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .grace;
+                tokio::spawn(async move {
+                    tokio::time::sleep(grace).await;
+                    app.state::<Events>().changed();
+                });
+            }
+        }
+        (Some(false), topics) => match events.resume(label, id, topics)? {
+            Some(Primed::Full) => super::event_views::changed(app, Topic::new("*")),
+            Some(Primed::Changes | Primed::Expired) => super::event_views::resumed(app),
+            None => {}
+        },
     }
 
     Ok(())
@@ -809,6 +1116,7 @@ pub async fn mesh_command(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri passes each command argument separately.
 pub async fn mesh_watch(
     app: AppHandle,
     window: WebviewWindow,
@@ -817,18 +1125,19 @@ pub async fn mesh_watch(
     id: Uuid,
     topics: Vec<Interest>,
     on_event: Channel<Update>,
+    since: Option<u64>,
 ) -> Result<()> {
     validate(&topics)?;
     let send: Sink = Arc::new(move |update| on_event.send(update).is_ok());
     events.controller.get_or_init(|| fleet.me);
     let label = window.label();
-    let Some(mut stopped) = events.register(
+    let Some((mut stopped, primed)) = events.register(
         label,
         id,
         topics,
         send,
         || app.get_webview_window(label).is_some(),
-        Some(telemetry(&fleet)),
+        since,
     )?
     else {
         return Ok(());
@@ -839,8 +1148,12 @@ pub async fn mesh_watch(
         id,
     };
     events.start(app.clone(), fleet.inner().clone());
+
     // Retained controller views can be evicted while another window stays subscribed.
-    super::event_views::changed(app, Topic::new("*"));
+    if primed == Primed::Full {
+        super::event_views::changed(app, Topic::new("*"));
+    }
+
     let _ = stopped.changed().await;
     Ok(())
 }

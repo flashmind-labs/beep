@@ -137,6 +137,7 @@ fn dispatch_filters_topics_and_keeps_failed_windows_out_of_demand() {
         query: None,
         initial: false,
         data: None,
+        seq: 0,
     };
     events.dispatch(update.clone());
     assert_eq!(heard.lock().unwrap().len(), 1);
@@ -199,6 +200,7 @@ fn update(machine: EndpointId, sequence: u64, topic: &str) -> Update {
         initial: false,
         topic: Topic::new(topic),
         data: None,
+        seq: 0,
     }
 }
 
@@ -714,4 +716,222 @@ fn a_window_that_takes_a_topic_is_primed_with_its_held_view() {
     let heard = heard.lock().unwrap();
     assert_eq!(heard.len(), 1);
     assert_eq!(heard[0].data, Some(view));
+}
+
+fn heard_window(
+    events: &Events,
+    label: &str,
+    id: Uuid,
+    topics: Vec<Interest>,
+) -> Arc<Mutex<Vec<Update>>> {
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let output = heard.clone();
+    let registered = events
+        .register(
+            label,
+            id,
+            topics,
+            Arc::new(move |event| {
+                output.lock().unwrap().push(event);
+                true
+            }),
+            || true,
+            None,
+        )
+        .unwrap();
+    assert!(registered.is_some());
+    heard
+}
+
+#[test]
+fn a_window_shown_again_within_grace_gets_only_what_changed_without_a_refresh() {
+    let events = Events::default();
+    let machine = iroh::SecretKey::generate().public();
+    let topics = vec![
+        interest("reviews", Some(machine)),
+        interest("files", Some(machine)),
+        interest("processes", Some(machine)),
+    ];
+    let id = Uuid::new_v4();
+    let heard = heard_window(&events, "one", id, topics.clone());
+
+    for (sequence, topic) in [(1, "reviews"), (2, "files"), (3, "processes")] {
+        events.dispatch(update(machine, sequence, topic));
+    }
+
+    assert_eq!(heard.lock().unwrap().len(), 3);
+    let demand = events.demand.borrow().clone();
+    let mut refresh = events.refresh.subscribe();
+    refresh.borrow_and_update();
+
+    assert!(events.pause("one", id, None).unwrap());
+    assert!(!events.pause("one", id, None).unwrap());
+    events.dispatch(update(machine, 4, "reviews"));
+    events.dispatch(update(machine, 5, "reviews"));
+    assert_eq!(
+        heard.lock().unwrap().len(),
+        3,
+        "a hidden window is sent nothing"
+    );
+    assert_eq!(
+        *events.demand.borrow(),
+        demand,
+        "node streams stay open while hidden"
+    );
+    assert!(!events.controller_wanted(&Topic::new("home")));
+
+    assert_eq!(
+        events.resume("one", id, None).unwrap(),
+        Some(Primed::Changes)
+    );
+    let heard = heard.lock().unwrap();
+    assert_eq!(
+        heard.len(),
+        4,
+        "showing sends one update, the newest changed one"
+    );
+    assert_eq!(heard[3].revision, 5);
+    assert!(
+        !refresh.has_changed().unwrap(),
+        "showing asks no node to resend"
+    );
+    assert_eq!(*events.demand.borrow(), demand);
+
+    // The old hide and show ended the reader and attached a new one, which was sent every held
+    // update and made every node stream resend its state.
+    let reattached = heard_window(&events, "two", Uuid::new_v4(), topics);
+    assert_eq!(reattached.lock().unwrap().len(), 3);
+    assert!(refresh.has_changed().unwrap());
+}
+
+#[test]
+fn a_window_hidden_past_grace_releases_its_streams_and_restarts_them_when_shown() {
+    let events = Events::default();
+    let machine = iroh::SecretKey::generate().public();
+    let id = Uuid::new_v4();
+    let heard = heard_window(&events, "one", id, vec![interest("reviews", Some(machine))]);
+    events.dispatch(update(machine, 1, "reviews"));
+    events.registry.lock().unwrap().grace = Duration::ZERO;
+
+    assert!(events.pause("one", id, None).unwrap());
+    events.changed();
+    assert!(events.demand.borrow().is_empty());
+    assert_eq!(events.registry.lock().unwrap().latest.values().count(), 0);
+    events.dispatch(update(machine, 2, "reviews"));
+    assert_eq!(events.registry.lock().unwrap().latest.values().count(), 0);
+
+    assert_eq!(
+        events.resume("one", id, None).unwrap(),
+        Some(Primed::Expired)
+    );
+    assert_eq!(events.demand.borrow().len(), 1);
+    events.dispatch(update(machine, 3, "reviews"));
+    let heard = heard.lock().unwrap();
+    assert_eq!(
+        heard
+            .iter()
+            .map(|update| update.revision)
+            .collect::<Vec<_>>(),
+        [1, 3]
+    );
+}
+
+#[test]
+fn a_hidden_window_that_missed_a_dropped_update_is_primed_in_full() {
+    let events = Events::default();
+    let machine = iroh::SecretKey::generate().public();
+    let id = Uuid::new_v4();
+    let heard = heard_window(&events, "one", id, vec![interest("files", Some(machine))]);
+    events.dispatch(update(machine, 1, "files"));
+    let mut refresh = events.refresh.subscribe();
+    refresh.borrow_and_update();
+
+    events.pause("one", id, None).unwrap();
+    events.dispatch(Update {
+        data: Some(serde_json::json!("x".repeat(MAX_NODE_SNAPSHOT_BYTES))),
+        ..update(machine, 2, "files")
+    });
+
+    assert_eq!(events.resume("one", id, None).unwrap(), Some(Primed::Full));
+    assert!(refresh.has_changed().unwrap());
+    assert_eq!(heard.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn topics_taken_while_hidden_are_primed_in_full_when_shown() {
+    let events = Events::default();
+    let machine = iroh::SecretKey::generate().public();
+    let _other = heard_window(
+        &events,
+        "other",
+        Uuid::new_v4(),
+        vec![interest("files", Some(machine))],
+    );
+    events.dispatch(update(machine, 1, "files"));
+    let id = Uuid::new_v4();
+    let heard = heard_window(&events, "one", id, vec![interest("reviews", Some(machine))]);
+    events.pause("one", id, None).unwrap();
+    events
+        .retopic(
+            "one",
+            id,
+            vec![
+                interest("reviews", Some(machine)),
+                interest("files", Some(machine)),
+            ],
+        )
+        .unwrap();
+    assert!(heard.lock().unwrap().is_empty());
+
+    assert_eq!(
+        events.resume("one", id, None).unwrap(),
+        Some(Primed::Changes)
+    );
+    assert_eq!(heard.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_reader_that_attaches_again_with_a_sequence_gets_only_newer_updates() {
+    let events = Events::default();
+    let machine = iroh::SecretKey::generate().public();
+    let topics = vec![interest("files", Some(machine))];
+    let _other = heard_window(&events, "other", Uuid::new_v4(), topics.clone());
+    events.dispatch(update(machine, 1, "files"));
+    events.dispatch(update(machine, 2, "reviews"));
+    let since = events.registry.lock().unwrap().latest.seq;
+    events.dispatch(Update {
+        query: Some(1),
+        ..update(machine, 3, "files")
+    });
+    let mut refresh = events.refresh.subscribe();
+    refresh.borrow_and_update();
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let output = heard.clone();
+
+    let (_stopped, primed) = events
+        .register(
+            "one",
+            Uuid::new_v4(),
+            topics,
+            Arc::new(move |event| {
+                output.lock().unwrap().push(event);
+                true
+            }),
+            || true,
+            Some(since),
+        )
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(primed, Primed::Changes);
+    assert_eq!(
+        heard
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|update| update.revision)
+            .collect::<Vec<_>>(),
+        [3]
+    );
+    assert!(!refresh.has_changed().unwrap());
 }
